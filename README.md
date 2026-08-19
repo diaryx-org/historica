@@ -39,6 +39,8 @@ Choices that constrain later work are written down as they are made.
   — the readable revision document, and why its digest covers the file rather
   than a re-serialised model. Examples live in
   [`tests/corpus/revisions`](tests/corpus/revisions).
+- [`docs/decisions/0003-store.md`](docs/decisions/0003-store.md) — the store:
+  identity comes from content, filenames are presentation.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

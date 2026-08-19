@@ -173,8 +173,8 @@ appropriately deliberate.
   the bytes, so a header naming it would have to be inside what it describes.
   The digest lives in the file's name in the store and in the references other
   revisions make to it.
-- **No content.** There is no `tree` header yet, because the tree model is
-  decision 0003. The revision document stays small and readable on purpose;
+- **No content.** There is no `tree` header yet, because the tree model is a
+  later decision. The revision document stays small and readable on purpose;
   file data belongs in separate documents it names.
 - **No signatures**, and no store layout beyond "a revision file is named by
   its digest".
