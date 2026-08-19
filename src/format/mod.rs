@@ -1,0 +1,730 @@
+//! The readable revision document, and the digest that names it.
+//!
+//! A revision is one text file, specified by `docs/decisions/0002-revision-document.md`
+//! and made strict by `docs/decisions/0004-parser-contract.md`:
+//!
+//! ```text
+//! historica-v0
+//! change qpvuntsmwlrkzxonmvtplsyq
+//! author Adam Harris <adam@example.com>
+//! when 2025-08-19T00:47:11-06:00
+//!
+//! Start the readable core
+//! ```
+//!
+//! The parser accepts exactly what [`RevisionDocument::write`] emits, so
+//! exactly one byte sequence parses per set of facts. That is what lets the
+//! digest cover the file's bytes — see [`digest`] — without a canonical
+//! re-serialisation step existing anywhere.
+//!
+//! Authorship lives here rather than in [`crate::core`] because no part of
+//! causality reads it, for the reasons in `docs/decisions/0005-authorship.md`.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+
+use sha2::{Digest, Sha256};
+
+use crate::core::{CHANGE_ID_LEN, ChangeId, Revision, RevisionId};
+
+mod error;
+mod timestamp;
+
+pub use error::{ParseError, ParseErrorKind};
+pub use timestamp::Timestamp;
+
+/// The preamble every revision document opens with.
+///
+/// Not a header: it carries no value, and its digit puts it outside the key
+/// grammar, so nothing can read it as `key value`.
+pub const PREAMBLE: &str = "historica-v0";
+
+/// The format name the preamble begins with, used to tell an unknown version
+/// apart from a file that is not a revision at all.
+const PREAMBLE_PREFIX: &str = "historica-v";
+
+/// Characters in a change ID's readable spelling.
+pub const CHANGE_ID_CHARS: usize = CHANGE_ID_LEN * 2;
+
+/// The SHA-256 of `bytes`, which is the revision ID of a revision document.
+///
+/// This is what `shasum -a 256` prints, which is the whole point: verification
+/// needs no Historica.
+pub fn digest(bytes: &[u8]) -> RevisionId {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&hasher.finalize());
+    RevisionId::from_bytes(out)
+}
+
+/// One revision document: every header, and the verbatim message.
+///
+/// Repeated facts are held in sorted sets and `x-` headers in a sorted map,
+/// which is lossless precisely because the parser rejects any other order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevisionDocument {
+    /// The change this revision is a version of.
+    pub change: ChangeId,
+    /// Causal parents, by digest. Empty means a root.
+    pub parents: BTreeSet<RevisionId>,
+    /// Revisions this one replaces, by digest.
+    pub supersedes: BTreeSet<RevisionId>,
+    /// Who did the work. Copied forward across rewrites.
+    pub author: String,
+    /// When the work was done. Copied forward across rewrites.
+    pub when: Timestamp,
+    /// Who produced this revision, when that is not the author.
+    pub revised_by: Option<String>,
+    /// When this revision was produced. Present exactly when `supersedes` is.
+    pub revised: Option<Timestamp>,
+    /// Advisory `x-` headers, keyed by their full spelling including the prefix.
+    pub extensions: BTreeMap<String, String>,
+    /// The message, verbatim. Empty means the file had no separator at all.
+    pub message: String,
+}
+
+impl RevisionDocument {
+    /// Parse one revision document from the bytes of a `.rev` file.
+    ///
+    /// Every rejection names the line and says what to do about it, because a
+    /// strict parser that cannot explain itself is only an obstacle.
+    pub fn parse(bytes: &[u8]) -> Result<Self, ParseError> {
+        Parser::new(bytes)?.run()
+    }
+
+    /// The exact bytes of this document.
+    ///
+    /// `write(parse(bytes)) == bytes` for every input `parse` accepts.
+    pub fn write(&self) -> Vec<u8> {
+        let mut out = String::new();
+        out.push_str(PREAMBLE);
+        out.push('\n');
+        out.push_str(&format!("change {}\n", self.change));
+        for parent in &self.parents {
+            out.push_str(&format!("parent {parent}\n"));
+        }
+        for superseded in &self.supersedes {
+            out.push_str(&format!("supersedes {superseded}\n"));
+        }
+        out.push_str(&format!("author {}\n", self.author));
+        out.push_str(&format!("when {}\n", self.when));
+        if let Some(revised_by) = &self.revised_by {
+            out.push_str(&format!("revised-by {revised_by}\n"));
+        }
+        if let Some(revised) = &self.revised {
+            out.push_str(&format!("revised {revised}\n"));
+        }
+        for (key, value) in &self.extensions {
+            out.push_str(&format!("{key} {value}\n"));
+        }
+        if !self.message.is_empty() {
+            out.push('\n');
+            out.push_str(&self.message);
+        }
+        out.into_bytes()
+    }
+
+    /// This document's revision ID: the digest of the bytes it writes.
+    pub fn id(&self) -> RevisionId {
+        digest(&self.write())
+    }
+
+    /// The causal facts, as the pure core models them.
+    ///
+    /// Authorship is dropped deliberately: nothing in head discovery or change
+    /// resolution reads it.
+    pub fn to_revision(&self) -> Revision {
+        Revision {
+            id: self.id(),
+            change: self.change,
+            parents: self.parents.clone(),
+            supersedes: self.supersedes.clone(),
+            message: self.message.clone(),
+        }
+    }
+}
+
+/// Where a key may appear in the fixed order.
+///
+/// `x-` headers share the last rank and are ordered against each other by key.
+fn rank(key: &str) -> Option<u8> {
+    match key {
+        "change" => Some(0),
+        "parent" => Some(1),
+        "supersedes" => Some(2),
+        "author" => Some(3),
+        "when" => Some(4),
+        "revised-by" => Some(5),
+        "revised" => Some(6),
+        key if key.starts_with("x-") => Some(7),
+        _ => None,
+    }
+}
+
+/// Whether a rank may appear more than once.
+fn repeatable(rank: u8) -> bool {
+    matches!(rank, 1 | 2 | 7)
+}
+
+/// One header line, kept with its position so an error can name it.
+struct Header {
+    at: usize,
+    key: String,
+    value: String,
+}
+
+struct Parser<'a> {
+    text: &'a str,
+    cursor: usize,
+    line: usize,
+}
+
+impl<'a> Parser<'a> {
+    fn new(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            return Err(ParseError::new(1, ParseErrorKind::ByteOrderMark));
+        }
+        // A carriage return is rejected wherever it appears, body included: it
+        // would let an editor silently change a revision's identity.
+        if let Some(offset) = bytes.iter().position(|byte| *byte == b'\r') {
+            let line = 1 + bytes[..offset].iter().filter(|b| **b == b'\n').count();
+            return Err(ParseError::new(line, ParseErrorKind::CarriageReturn));
+        }
+        let text =
+            std::str::from_utf8(bytes).map_err(|_| ParseError::new(0, ParseErrorKind::NotUtf8))?;
+        Ok(Self {
+            text,
+            cursor: 0,
+            line: 0,
+        })
+    }
+
+    /// The next line and whether it was terminated, or `None` at end of input.
+    fn next_line(&mut self) -> Option<(&'a str, bool)> {
+        if self.cursor >= self.text.len() {
+            return None;
+        }
+        let rest = &self.text[self.cursor..];
+        self.line += 1;
+        match rest.find('\n') {
+            Some(index) => {
+                self.cursor += index + 1;
+                Some((&rest[..index], true))
+            }
+            None => {
+                self.cursor = self.text.len();
+                Some((rest, false))
+            }
+        }
+    }
+
+    fn run(mut self) -> Result<RevisionDocument, ParseError> {
+        self.preamble()?;
+        let (headers, message) = self.headers_and_message()?;
+        self.assemble(headers, message)
+    }
+
+    fn preamble(&mut self) -> Result<(), ParseError> {
+        let Some((line, terminated)) = self.next_line() else {
+            return Err(ParseError::new(1, ParseErrorKind::Empty));
+        };
+        if line != PREAMBLE {
+            let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
+                ParseErrorKind::UnknownVersion {
+                    found: version.to_owned(),
+                }
+            } else {
+                ParseErrorKind::MissingPreamble
+            };
+            return Err(ParseError::new(1, kind));
+        }
+        if !terminated {
+            return Err(ParseError::new(1, ParseErrorKind::UnterminatedLine));
+        }
+        Ok(())
+    }
+
+    /// Read the header block, then take the message verbatim to the last byte.
+    fn headers_and_message(&mut self) -> Result<(Vec<Header>, String), ParseError> {
+        let mut headers = Vec::new();
+        while let Some((line, terminated)) = self.next_line() {
+            let at = self.line;
+            if line.is_empty() {
+                // The separator. Everything after it is the message, and there
+                // must be some, or an empty message would have two spellings.
+                let message = &self.text[self.cursor..];
+                if message.is_empty() {
+                    return Err(ParseError::new(at, ParseErrorKind::EmptyBodyAfterSeparator));
+                }
+                return Ok((headers, message.to_owned()));
+            }
+            if !terminated {
+                return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
+            }
+            let (key, value) = split_header(line, at)?;
+            headers.push(Header { at, key, value });
+        }
+        Ok((headers, String::new()))
+    }
+
+    fn assemble(
+        self,
+        headers: Vec<Header>,
+        message: String,
+    ) -> Result<RevisionDocument, ParseError> {
+        let mut change: Option<ChangeId> = None;
+        let mut parents = BTreeSet::new();
+        let mut supersedes = BTreeSet::new();
+        let mut author: Option<String> = None;
+        let mut when: Option<Timestamp> = None;
+        let mut revised_by: Option<String> = None;
+        let mut revised: Option<Timestamp> = None;
+        let mut extensions: BTreeMap<String, String> = BTreeMap::new();
+
+        let mut previous: Option<(u8, String, String)> = None;
+
+        for Header { at, key, value } in headers {
+            let Some(this_rank) = rank(&key) else {
+                return Err(ParseError::new(
+                    at,
+                    ParseErrorKind::UnknownHeader { key: key.clone() },
+                ));
+            };
+
+            if let Some((last_rank, last_key, last_value)) = &previous {
+                if this_rank < *last_rank {
+                    return Err(ParseError::new(
+                        at,
+                        ParseErrorKind::KeysOutOfOrder {
+                            key: key.clone(),
+                            after: last_key.clone(),
+                        },
+                    ));
+                }
+                if this_rank == *last_rank {
+                    if !repeatable(this_rank) {
+                        return Err(ParseError::new(
+                            at,
+                            ParseErrorKind::RepeatedHeader { key: key.clone() },
+                        ));
+                    }
+                    // Repeated facts sort by digest, and `x-` headers by key,
+                    // so that a deterministic rewrite is deterministic in bytes.
+                    let (this_sort, last_sort) = if this_rank == 7 {
+                        (&key, last_key)
+                    } else {
+                        (&value, last_value)
+                    };
+                    if this_sort == last_sort {
+                        return Err(ParseError::new(
+                            at,
+                            ParseErrorKind::DuplicateFact { key: key.clone() },
+                        ));
+                    }
+                    if this_sort < last_sort {
+                        return Err(ParseError::new(
+                            at,
+                            ParseErrorKind::RepeatedKeyOutOfOrder { key: key.clone() },
+                        ));
+                    }
+                }
+            }
+            previous = Some((this_rank, key.clone(), value.clone()));
+
+            match key.as_str() {
+                "change" => change = Some(parse_change_id(&value, at)?),
+                "parent" => {
+                    parents.insert(parse_digest(&value, at, "parent")?);
+                }
+                "supersedes" => {
+                    supersedes.insert(parse_digest(&value, at, "supersedes")?);
+                }
+                "author" => author = Some(value),
+                "when" => when = Some(Timestamp::parse(&value, at)?),
+                "revised-by" => revised_by = Some(value),
+                "revised" => revised = Some(Timestamp::parse(&value, at)?),
+                _ => {
+                    extensions.insert(key, value);
+                }
+            }
+        }
+
+        let last = self.line;
+        let change = change.ok_or_else(|| {
+            ParseError::new(last, ParseErrorKind::MissingHeader { key: "change" })
+        })?;
+        let author = author.ok_or_else(|| {
+            ParseError::new(last, ParseErrorKind::MissingHeader { key: "author" })
+        })?;
+        let when = when
+            .ok_or_else(|| ParseError::new(last, ParseErrorKind::MissingHeader { key: "when" }))?;
+
+        // `revised-by` and `revised` describe this revision, so they appear
+        // only once a revision has predecessors.
+        if supersedes.is_empty() {
+            if revised.is_some() {
+                return Err(ParseError::new(
+                    last,
+                    ParseErrorKind::RevisionMetadataWithoutSupersedes { key: "revised" },
+                ));
+            }
+            if revised_by.is_some() {
+                return Err(ParseError::new(
+                    last,
+                    ParseErrorKind::RevisionMetadataWithoutSupersedes { key: "revised-by" },
+                ));
+            }
+        } else if revised.is_none() {
+            return Err(ParseError::new(
+                last,
+                ParseErrorKind::MissingHeader { key: "revised" },
+            ));
+        }
+
+        // A fact equal to another fact is a second spelling of it.
+        if revised_by.as_deref() == Some(author.as_str()) {
+            return Err(ParseError::new(last, ParseErrorKind::RedundantRevisedBy));
+        }
+
+        Ok(RevisionDocument {
+            change,
+            parents,
+            supersedes,
+            author,
+            when,
+            revised_by,
+            revised,
+            extensions,
+            message,
+        })
+    }
+}
+
+/// Split `key value`, enforcing the key's shape and the value's.
+fn split_header(line: &str, at: usize) -> Result<(String, String), ParseError> {
+    let Some(space) = line.find(' ') else {
+        // `author` with nothing after it: an absent fact is an absent line.
+        return Err(ParseError::new(at, ParseErrorKind::EmptyValue));
+    };
+    let (key, value) = (&line[..space], &line[space + 1..]);
+
+    if key.is_empty() || !key.bytes().all(|b| b.is_ascii_lowercase() || b == b'-') {
+        return Err(ParseError::new(
+            at,
+            ParseErrorKind::MalformedKey {
+                key: key.to_owned(),
+            },
+        ));
+    }
+    if value.is_empty() {
+        return Err(ParseError::new(at, ParseErrorKind::EmptyValue));
+    }
+    if value.starts_with(' ') || value.ends_with(' ') {
+        return Err(ParseError::new(at, ParseErrorKind::PaddedValue));
+    }
+    if value.chars().any(|c| c.is_control()) {
+        return Err(ParseError::new(at, ParseErrorKind::ControlCharacter));
+    }
+    Ok((key.to_owned(), value.to_owned()))
+}
+
+fn parse_change_id(value: &str, at: usize) -> Result<ChangeId, ParseError> {
+    value.parse().map_err(|_| {
+        ParseError::new(
+            at,
+            ParseErrorKind::MalformedChangeId {
+                found: value.to_owned(),
+            },
+        )
+    })
+}
+
+fn parse_digest(value: &str, at: usize, key: &'static str) -> Result<RevisionId, ParseError> {
+    value.parse().map_err(|_| {
+        ParseError::new(
+            at,
+            ParseErrorKind::MalformedDigest {
+                key,
+                found: value.to_owned(),
+            },
+        )
+    })
+}
+
+impl fmt::Display for RevisionDocument {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&String::from_utf8_lossy(&self.write()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CHANGE: &str = "change qpvuntsmwlrkzxonmvtplsyq";
+    const AUTHOR: &str = "author Adam Harris <adam@example.com>";
+    const WHEN: &str = "when 2025-08-19T00:47:11-06:00";
+    const A: &str = "1e4e224e93380a25d4cd1be85d35db37f4064be4388822eba250894c6d6daa0d";
+    const B: &str = "35a85a359d0efae6e402a700a38d32ab57a7efc846e6fba6e88229d9663573eb";
+
+    /// Assemble a file from header lines and an optional message.
+    fn file(headers: &[&str], message: Option<&str>) -> Vec<u8> {
+        let mut out = format!("{PREAMBLE}\n");
+        for header in headers {
+            out.push_str(header);
+            out.push('\n');
+        }
+        if let Some(message) = message {
+            out.push('\n');
+            out.push_str(message);
+        }
+        out.into_bytes()
+    }
+
+    fn refuse(headers: &[&str], message: Option<&str>) -> ParseErrorKind {
+        RevisionDocument::parse(&file(headers, message))
+            .expect_err("should be refused")
+            .kind
+    }
+
+    fn accept(headers: &[&str], message: Option<&str>) -> RevisionDocument {
+        RevisionDocument::parse(&file(headers, message)).expect("should parse")
+    }
+
+    #[test]
+    fn the_minimal_revision_is_a_change_an_author_and_a_time() {
+        let document = accept(&[CHANGE, AUTHOR, WHEN], Some("Start"));
+        assert!(document.parents.is_empty());
+        assert_eq!(document.message, "Start");
+        assert!(document.revised.is_none());
+    }
+
+    #[test]
+    fn a_missing_required_header_names_the_one_that_is_missing() {
+        assert_eq!(
+            refuse(&[AUTHOR, WHEN], Some("m")),
+            ParseErrorKind::MissingHeader { key: "change" }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, WHEN], Some("m")),
+            ParseErrorKind::MissingHeader { key: "author" }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR], Some("m")),
+            ParseErrorKind::MissingHeader { key: "when" }
+        );
+    }
+
+    #[test]
+    fn a_value_is_neither_padded_nor_full_of_control_characters() {
+        assert_eq!(
+            refuse(&[CHANGE, "author  Adam", WHEN], Some("m")),
+            ParseErrorKind::PaddedValue
+        );
+        assert_eq!(
+            refuse(&[CHANGE, "author Adam ", WHEN], Some("m")),
+            ParseErrorKind::PaddedValue
+        );
+        assert_eq!(
+            refuse(&[CHANGE, "author Ad\u{7}am", WHEN], Some("m")),
+            ParseErrorKind::ControlCharacter
+        );
+    }
+
+    #[test]
+    fn a_key_is_lowercase_letters_and_hyphens() {
+        // The rule the preamble depends on: a digit cannot be part of a key,
+        // so `historica-v0` can never be read as a header.
+        assert!(matches!(
+            refuse(&[CHANGE, "author-2 Adam", WHEN], Some("m")),
+            ParseErrorKind::MalformedKey { .. }
+        ));
+        assert!(matches!(
+            refuse(&[CHANGE, "Author Adam", WHEN], Some("m")),
+            ParseErrorKind::MalformedKey { .. }
+        ));
+        assert_eq!(rank("historica-v0"), None);
+    }
+
+    #[test]
+    fn one_fact_may_not_be_stated_twice() {
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, WHEN], Some("m")),
+            ParseErrorKind::RepeatedHeader {
+                key: "when".to_owned()
+            }
+        );
+        let parent = format!("parent {A}");
+        assert_eq!(
+            refuse(&[CHANGE, &parent, &parent, AUTHOR, WHEN], Some("m")),
+            ParseErrorKind::DuplicateFact {
+                key: "parent".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn advisory_headers_come_last_and_sort_by_key() {
+        let document = accept(&[CHANGE, AUTHOR, WHEN, "x-a one", "x-b two"], Some("m"));
+        assert_eq!(document.extensions.len(), 2);
+        assert_eq!(
+            document.write(),
+            file(&[CHANGE, AUTHOR, WHEN, "x-a one", "x-b two"], Some("m"))
+        );
+
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, "x-b two", "x-a one"], Some("m")),
+            ParseErrorKind::RepeatedKeyOutOfOrder {
+                key: "x-a".to_owned()
+            }
+        );
+        assert!(matches!(
+            refuse(&[CHANGE, "x-a one", AUTHOR, WHEN], Some("m")),
+            ParseErrorKind::KeysOutOfOrder { .. }
+        ));
+    }
+
+    #[test]
+    fn rewrite_metadata_appears_only_on_a_rewrite() {
+        let supersedes = format!("supersedes {A}");
+        let revised = "revised 2025-08-20T08:14:33+02:00";
+
+        // Present together, this is an ordinary amendment.
+        accept(&[CHANGE, &supersedes, AUTHOR, WHEN, revised], Some("m"));
+
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, revised], Some("m")),
+            ParseErrorKind::RevisionMetadataWithoutSupersedes { key: "revised" }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, &supersedes, AUTHOR, WHEN], Some("m")),
+            ParseErrorKind::MissingHeader { key: "revised" }
+        );
+        // A reviewer who is the author is a fact spelled twice.
+        assert_eq!(
+            refuse(
+                &[
+                    CHANGE,
+                    &supersedes,
+                    AUTHOR,
+                    WHEN,
+                    "revised-by Adam Harris <adam@example.com>",
+                    revised
+                ],
+                Some("m")
+            ),
+            ParseErrorKind::RedundantRevisedBy
+        );
+    }
+
+    #[test]
+    fn a_timestamp_has_exactly_one_spelling() {
+        let bad = [
+            "when 2025-08-19T00:47:11.5-06:00", // fractional seconds
+            "when 2025-08-19T00:47:11Z",        // `Z` is not a spelling
+            "when 2025-08-19T00:47:11-00:00",   // RFC 3339: offset unknown
+            "when 2025-13-19T00:47:11-06:00",   // no such month
+            "when 2025-02-30T00:47:11-06:00",   // no such day
+            "when 2025-08-19T24:47:11-06:00",   // no such hour
+            "when 2025-08-19 00:47:11-06:00",   // no `T`
+        ];
+        for header in bad {
+            assert!(
+                matches!(
+                    refuse(&[CHANGE, AUTHOR, header], Some("m")),
+                    ParseErrorKind::MalformedTimestamp { .. }
+                ),
+                "{header} should be refused"
+            );
+        }
+        // A leap day is a real day.
+        accept(
+            &[CHANGE, AUTHOR, "when 2024-02-29T00:47:11+00:00"],
+            Some("m"),
+        );
+    }
+
+    #[test]
+    fn digests_and_change_ids_keep_disjoint_alphabets() {
+        assert!(matches!(
+            refuse(
+                &[CHANGE, "parent qpvuntsmwlrkzxonmvtplsyq", AUTHOR, WHEN],
+                Some("m")
+            ),
+            ParseErrorKind::MalformedDigest { .. }
+        ));
+        assert!(matches!(
+            refuse(
+                &["change 1a4f9c2e0b7d6533a8c1f40e", AUTHOR, WHEN],
+                Some("m")
+            ),
+            ParseErrorKind::MalformedChangeId { .. }
+        ));
+    }
+
+    #[test]
+    fn the_file_itself_must_be_well_formed() {
+        assert_eq!(
+            RevisionDocument::parse(b"").expect_err("empty").kind,
+            ParseErrorKind::Empty
+        );
+        assert_eq!(
+            RevisionDocument::parse("\u{feff}historica-v0\n".as_bytes())
+                .expect_err("bom")
+                .kind,
+            ParseErrorKind::ByteOrderMark
+        );
+        assert_eq!(
+            RevisionDocument::parse(b"historica-v0")
+                .expect_err("no newline")
+                .kind,
+            ParseErrorKind::UnterminatedLine
+        );
+        // A header line that runs to the end of the file without a newline.
+        let truncated = format!("{PREAMBLE}\n{CHANGE}\n{AUTHOR}\n{WHEN}");
+        assert_eq!(
+            RevisionDocument::parse(truncated.as_bytes())
+                .expect_err("truncated")
+                .kind,
+            ParseErrorKind::UnterminatedLine
+        );
+        assert!(matches!(
+            RevisionDocument::parse(&[0xffu8, 0xfe])
+                .expect_err("not utf-8")
+                .kind,
+            ParseErrorKind::NotUtf8
+        ));
+    }
+
+    #[test]
+    fn parents_are_written_in_digest_order_whatever_order_they_arrive_in() {
+        // Two replicas that rebase onto the same parents must write one file,
+        // which is what makes the result merge by union rather than diverge.
+        let one = accept(
+            &[
+                CHANGE,
+                &format!("parent {A}"),
+                &format!("parent {B}"),
+                AUTHOR,
+                WHEN,
+            ],
+            Some("m"),
+        );
+        let mut other = one.clone();
+        other.parents = one.parents.iter().rev().copied().collect();
+        assert_eq!(one.write(), other.write());
+        assert_eq!(one.id(), other.id());
+    }
+
+    #[test]
+    fn the_digest_is_the_digest_of_the_file() {
+        // Known-answer check against `shasum -a 256` output for the empty input.
+        assert_eq!(
+            digest(b"").to_string(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        let document = accept(&[CHANGE, AUTHOR, WHEN], Some("m"));
+        assert_eq!(document.id(), digest(&document.write()));
+    }
+}

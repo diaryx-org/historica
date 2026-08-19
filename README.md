@@ -25,9 +25,21 @@ The `core` module models the smallest collaboration-safe history:
   states of divergence and abandonment;
 - rejection of two revisions with disagreeing bytes claiming one digest.
 
-It intentionally does not yet choose a document syntax, digest algorithm, tree
-model, patch model, or merge policy. Those decisions should be made against
-readable examples rather than hidden behind abstractions.
+The `format` module reads and writes the revision document those revisions are
+stored as. It parses strictly — one byte sequence per set of facts, so that
+hashing the file is as trustworthy as hashing a canonical model would be — and
+refuses anything else with an error naming the line and the fix. Writing a
+parsed document reproduces its bytes exactly, and a revision's ID is the
+SHA-256 that `shasum -a 256` already prints for the file.
+
+`tests/corpus/revisions/` is the specification, executed. Seven hand-written
+files are a real five-change history containing a merge, an amendment by a
+reviewer, and the rewrite that amendment forced; nine more are invalid, each
+for one stated reason that `tests/corpus.rs` holds the parser to.
+
+It intentionally does not yet choose a tree model, or implement the content and
+merge model decided in 0007. Those should be built against readable examples
+rather than hidden behind abstractions.
 
 ## Decisions
 
@@ -59,5 +71,14 @@ Choices that constrain later work are written down as they are made.
 ## Development
 
 ```console
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test
+```
+
+The corpus checks with tools that are already installed, which is the claim the
+format exists to make:
+
+```console
+cd tests/corpus/revisions && shasum -a 256 -c MANIFEST
 ```

@@ -7,3 +7,4 @@
 #![deny(missing_docs)]
 
 pub mod core;
+pub mod format;

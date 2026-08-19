@@ -7,3 +7,4 @@ description = "A readable, convergent version-control experiment"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+sha2 = "0.11.0"

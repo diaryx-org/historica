@@ -95,6 +95,15 @@ so already, and offsets are kept only because "I wrote this at 9pm my time" is
 a fact a person cares about. Fractional seconds are not permitted: one less
 spelling to reproduce.
 
+The same rule settles two spellings RFC 3339 allows and this format does not.
+`Z` is refused, because it and `+00:00` would be one fact written two ways, and
+the offset is carried for what it says about the person rather than about the
+instant. `-00:00` is refused because RFC 3339 gives it a *different* meaning —
+offset unknown — which is a fact this format has no way to act on and every
+reader would misread as UTC. A timestamp is therefore exactly
+`YYYY-MM-DDThh:mm:ss±hh:mm`, and `src/format/timestamp.rs` accepts nothing
+else.
+
 ## Two replicas must write the same bytes
 
 Repeated keys are sorted by digest, and the key order is fixed, so that a
@@ -217,8 +226,10 @@ with a standard tool:
 $ cd tests/corpus/revisions && shasum -a 256 -c MANIFEST
 ```
 
-A round-trip test will read these, and a byte-for-byte writer test will
-reproduce them, once the parser exists.
+`tests/corpus.rs` is that promise kept: every canonical file parses and writes
+back byte for byte, every invalid file is refused *for its own reason* rather
+than merely refused, and the digests the model computes are checked against the
+ones `shasum` printed into MANIFEST.
 
 ## Rejected alternatives
 
