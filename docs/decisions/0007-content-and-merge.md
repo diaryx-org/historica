@@ -111,6 +111,15 @@ disagree with the first.
 
 The reading rules, which decision 0004's parser contract governs unchanged:
 
+- **The blank line is mandatory**, though no header precedes it. An operation
+  document is preamble, blank line, operations, with no second spelling — the
+  ambiguity 0004 closed for an empty message, where headers-then-EOF and
+  headers-then-separator-then-nothing meant one thing twice. The separator does
+  different work here than in a revision, and is required for a weaker reason:
+  there it divides what is parsed strictly from what is kept verbatim, and
+  below it here everything is still read. What it buys is that both documents
+  in the format open the same way, so a person learns one shape and a parser
+  reads a preamble the same way in both.
 - Positions are zero-based indices **into the parent state**, not into the
   document as it is being built. Stating them against a fixed state is what lets
   operations be sorted, read out of order, and checked by eye; the replayer
