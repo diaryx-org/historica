@@ -1,0 +1,8 @@
+change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
+author Adam Harris <adam@example.com>
+when 2025-08-19T00:47:11-06:00
+
+Start the readable core
+
+Model causality before content: immutable revisions, explicit parents, and a
+history that merges by union. Nothing here chooses a document syntax yet.

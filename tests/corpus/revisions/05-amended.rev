@@ -1,0 +1,13 @@
+change kxryzmornsvltwqpuzkymxoltrwnsvpq
+parent 7447d245ffa4e35980c974b35bc90afcd23d9db0f05bdb914efa4a822f5d5cb3
+supersedes 85a75669faa514030e20db7a31bf4272bdda3f955c7478ee270294bb27dd70ed
+author Adam Harris <adam@example.com>
+when 2025-08-19T09:02:40-06:00
+revised-by Rowan Vale <rowan@example.org>
+revised 2025-08-20T08:14:33+02:00
+x-review-url https://example.org/reviews/17
+
+Reject two revisions claiming one digest
+
+Reworded during review: the original said "detect", but the core refuses the
+insertion outright rather than reporting it and carrying on.

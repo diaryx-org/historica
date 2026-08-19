@@ -1,0 +1,16 @@
+change yxwvutsrqponmlkzyxwvutsrqponmlkz
+author Adam Harris <adam@example.com>
+when 2025-08-21T22:05:00-06:00
+
+Keep the message verbatim
+
+The body begins after the first blank line and runs to the end of the file, so
+nothing inside it needs escaping:
+
+change this-does-not-look-like-a-change-id
+parent 0000000000000000000000000000000000000000000000000000000000000000
+
+Blank lines, a trailing space at the end of this line,  
+a tab	in the middle of that one, non-ASCII punctuation — “curly quotes” and
+the alchemical symbol 🌛 — and a final line ending without a newline are all
+preserved byte for byte.

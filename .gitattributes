@@ -1,0 +1,4 @@
+# The corpus is byte-exact: each file's digest is its identity, and one example
+# deliberately contains carriage returns while another deliberately ends without
+# a newline. Git must not normalise any of it.
+tests/corpus/** -text

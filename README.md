@@ -35,6 +35,10 @@ Choices that constrain later work are written down as they are made.
 
 - [`docs/decisions/0001-identity.md`](docs/decisions/0001-identity.md) — why
   every node carries both a derived revision ID and an assigned change ID.
+- [`docs/decisions/0002-revision-document.md`](docs/decisions/0002-revision-document.md)
+  — the readable revision document, and why its digest covers the file rather
+  than a re-serialised model. Examples live in
+  [`tests/corpus/revisions`](tests/corpus/revisions).
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

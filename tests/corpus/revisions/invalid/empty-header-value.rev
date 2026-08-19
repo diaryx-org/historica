@@ -1,0 +1,8 @@
+change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
+author
+when 2025-08-19T00:47:11-06:00
+
+A header with no value is absent, spelled ambiguously
+
+Omitting the line and writing an empty one would otherwise be two spellings of
+one fact, and only one of them can be canonical.
