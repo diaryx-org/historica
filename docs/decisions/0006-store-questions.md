@@ -162,11 +162,25 @@ yet. It belongs with the first path, which is the tree's — and the tree is now
 0008, [0007](0007-content-and-merge.md) having taken content and merge without
 introducing a path of its own.
 
+## Answered by building it
+
+1. **Whether `check` should hash every file or only digest-named ones.** The
+   choice turned out not to exist. Identity comes from content, so a file's
+   digest is what loading *is*: `Store::open` must hash every file to know what
+   it holds, and `check` reads the same files. The cheaper option was an
+   illusion created by thinking of the digest as verification of a name rather
+   than as the name itself. Checking a digest-named file's name against its
+   content is the extra step, and it is one string comparison.
+2. **What `init` writes.** Four directories — `revisions/`, `operations/`,
+   `names/`, `cache/` — and a `historica` file holding one line. It refuses a
+   directory that is already a store rather than merging into it. Whether that
+   is worth a *command*, as against `mkdir` and a here-document, is a question
+   for the front end and not for this decision.
+
 ## Open questions
 
-1. **Whether `check` should verify digests of digest-named files only, or hash
-   every file.** Hashing everything is the honest audit and costs a full read;
-   hashing only self-naming files trusts arranged stores more than digest-named
-   ones, which is backwards.
-2. **What `init` writes.** An empty store is three empty directories and a
-   one-line file, and it is not obvious that a command is owed for `mkdir`.
+3. **Which sync-suffixed spellings are worth recognising.** `check` notes
+   Dropbox's "conflicted copy" and Syncthing's `.sync-conflict-`, and
+   deliberately does not guess at iCloud's bare numeric suffix, because an
+   arranged name that merely ends in a digit is not a conflict and a note that
+   is sometimes wrong is worse than no note.

@@ -37,8 +37,19 @@ files are a real five-change history containing a merge, an amendment by a
 reviewer, and the rewrite that amendment forced; nine more are invalid, each
 for one stated reason that `tests/corpus.rs` holds the parser to.
 
+The `store` module is that format on disk. It loads a `history/` directory by
+reading files and never their names, so renaming every revision in a store
+changes no identity and breaks no reference — which is what lets a store be
+hand-arranged into something a file browser can narrate. The writer still names
+files by digest, appends only, and never overwrites. `check` reads a store
+without loading it and separates errors, which mean the store contradicts
+itself, from notes, which never fail: an undelivered parent, a duplicate, or a
+sync tool's conflicted copy is a legitimate state and is reported as one.
+
 It intentionally does not yet choose a tree model, or implement the content and
-merge model decided in 0007. Those should be built against readable examples
+merge model decided in 0007. There is no command-line front end yet either;
+`init`, `check`, and `arrange` exist as decisions, and the first two as library
+operations. Those should be built against readable examples
 rather than hidden behind abstractions.
 
 ## Decisions
