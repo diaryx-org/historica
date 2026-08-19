@@ -30,9 +30,9 @@ frontier.
 
 ```console
 $ cat history/names/main
-change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
+change qpvuntsmwlrkzxonmvtplsyq
 $ cat history/names/v0.1.0
-revision 7447d245ffa4e35980c974b35bc90afcd23d9db0f05bdb914efa4a822f5d5cb3
+revision c9f5c7d252115911e399bccf5c24d16e34a21f9f8db2736746378edc4df68b68
 ```
 
 The disjoint alphabets of decision 0001 make the two unmistakable, so the key
@@ -62,7 +62,7 @@ unrelated folder called `history` is not mistaken for a store. Per decision
 0004 that file now reads:
 
 ```
-historica 0
+historica-v0
 ```
 
 ## `check` separates errors from notes
@@ -141,7 +141,7 @@ version bump, because nothing reads it.
 
 - `init`, `check`, and `arrange` are now specified enough to build, and are the
   first commands owed.
-- The repository header file is `history/historica`, containing `historica 0`.
+- The repository header file is `history/historica`, containing `historica-v0`.
 - `names/` parsing is a second, much smaller strict parser: one line, one key,
   one identity in the matching alphabet.
 

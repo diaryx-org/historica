@@ -47,12 +47,58 @@ A change ID names the work independently of its current contents. Amending a
 message, fixing a typo, or rebasing produces a *new revision of the same
 change*.
 
-The ID is 128 assigned random bits. Deriving it from the first revision's
-digest is tempting but circular — the ID is part of the document being hashed —
-and breaking the cycle requires an elision rule that every implementation would
-have to reproduce exactly. The circularity is a hint rather than an obstacle: a
-change ID deliberately has no verifiable relationship to content, because its
-whole purpose is to survive content changing.
+The ID is 96 assigned random bits, spelled as 24 characters.
+
+### Why it is assigned rather than derived
+
+Two derivations are tempting, and both fail.
+
+**From the first revision's digest.** Circular: the ID is part of the document
+being hashed, so breaking the cycle needs an elision rule that every
+implementation must reproduce exactly — which is the canonical re-serialisation
+decision 0002 exists to avoid.
+
+**From the parents and the content**, so that two identical pieces of work
+collide and nothing else can. This is `git patch-id`, and it destroys the
+property the change ID exists for: amending alters the content and rebasing
+alters the parents, so a derived ID changes under precisely the two operations
+it must survive. What it produces is a second revision ID, which collapses the
+two identities back into the single one Git has.
+
+It would also not be safe to shorten, which is usually the reason it is
+proposed. Truncating a hash to *n* bits has the same birthday behaviour as *n*
+random bits; "cannot collide unless the content is identical" holds only at
+full width. Derivation changes where the bits come from, never how many are
+needed.
+
+And its collisions would not all be benign. Identical content is not identical
+work: the same typo fixed on two replicas, a formatter run twice, or a change
+reverted and later re-made would share one ID and present as divergence of
+something that was never one change. A change ID must also exist *before* its
+content is final, since work is named while it is still being done, and a
+derived ID cannot.
+
+The circularity is a hint rather than an obstacle: a change ID deliberately has
+no verifiable relationship to content, because its whole purpose is to survive
+content changing. Convergence on identical content is real and valuable, but it
+belongs one layer down — two replicas that deterministically produce the same
+revision produce the same bytes, hence the same revision ID, and union merges
+them for free.
+
+### Why 96 bits
+
+Assignment is uncoordinated, so only accidental collision matters — decision
+0001's later warning that a change ID must never be a security boundary means
+no adversarial margin is being bought. At 96 bits a repository of ten million
+changes collides with probability around one in 10^15, which stays negligible
+through any plausible bulk import.
+
+The counterweight is that this name sits on the second line of every readable
+file, and 32 characters of `k`–`z` is a wall of noise in a format whose whole
+argument is that a person will read it. 96 bits costs eight of those characters
+and no safety anyone will encounter. It does not change what a person types:
+the unique prefix is governed by how many changes exist, not by the full
+length, so it is around eight characters either way.
 
 Two properties are deliberate, both borrowed from Jujutsu:
 
@@ -112,10 +158,10 @@ the difference between a tool that explains itself and one that refuses to
 proceed. The core therefore resolves a change ID to a `ChangeState` rather than
 to a revision or an error.
 
-A collision between two independently minted 128-bit change IDs is
+A collision between two independently minted 96-bit change IDs is
 astronomically unlikely, and would present as spurious divergence — a state
 that is already displayed and resolvable — rather than as data loss. The
-failure mode degrades gracefully, which is part of why 128 assigned bits are
+failure mode degrades gracefully, which is part of why assigned bits are
 preferable to a shorter human-chosen name.
 
 ## Consequences

@@ -20,7 +20,12 @@ use std::str::FromStr;
 pub const REVISION_ID_LEN: usize = 32;
 
 /// Bytes in a [`ChangeId`].
-pub const CHANGE_ID_LEN: usize = 16;
+///
+/// 96 bits. A change ID is assigned rather than derived, so only accidental
+/// collision matters, and 96 bits keeps that negligible past any plausible
+/// bulk import while costing eight fewer characters on every revision's second
+/// line than a 128-bit name would.
+pub const CHANGE_ID_LEN: usize = 12;
 
 /// Reversed hexadecimal: nibble `0` is `z` and nibble `15` is `k`.
 ///

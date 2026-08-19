@@ -7,7 +7,7 @@ filename participates in nothing.
 
 ```
 history/
-├── historica       # `historica 0`, per decisions 0002 and 0004
+├── historica       # `historica-v0`, per decisions 0002 and 0004
 ├── revisions/      # one revision document per file, under any name
 ├── names/          # bookmarks — the only mutable files
 └── cache/          # derived, disposable, deletable without loss
@@ -118,7 +118,7 @@ what it points at.
 
 ```console
 $ cat history/names/main
-change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
+change qpvuntsmwlrkzxonmvtplsyq
 ```
 
 A name holds one header-shaped line: `change` plus a change ID, or `revision`

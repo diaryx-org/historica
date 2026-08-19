@@ -42,7 +42,7 @@ Choices that constrain later work are written down as they are made.
 - [`docs/decisions/0003-store.md`](docs/decisions/0003-store.md) — the store:
   identity comes from content, filenames are presentation.
 - [`docs/decisions/0004-parser-contract.md`](docs/decisions/0004-parser-contract.md)
-  — strict reading, the `historica 0` version header, and why a reader's
+  — strict reading, the `historica-v0` preamble, and why a reader's
   vocabulary can only ever grow.
 - [`docs/decisions/0005-authorship.md`](docs/decisions/0005-authorship.md) —
   authorship is copied into every revision of a change, and is a claim rather

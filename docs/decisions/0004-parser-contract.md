@@ -52,20 +52,37 @@ can say "move line 3 below line 4; the file's digest becomes `…`". Rejecting a
 file is not refusing to help. It is refusing to guess which of two meanings the
 bytes had.
 
+To that list one rule is added that 0002 did not know it needed:
+
+- **A blank line must be followed by at least one byte.**
+
+An empty message is spelled by omitting the separator entirely, as
+`04-merge.rev` does. Without this rule, headers-then-EOF and
+headers-then-blank-line-then-nothing are two byte sequences meaning one thing,
+which is exactly what this document claims cannot happen — so the format would
+have contradicted itself in its most common file, a merge nobody described. An
+explicit `---` delimiter in place of the blank line would not have helped; it
+has the identical hole.
+
+The neighbouring case is not ambiguous and stays legal. A body that ends
+without a final newline is a *different message* from one that ends with it,
+because the body is verbatim, so those are two spellings of two facts rather
+than one.
+
 ### What this does not make strict
 
-The body is still verbatim to the last byte, still never interpreted, still
-allowed to be empty and to end without a newline. Strictness stops at the blank
-line. The rule is unchanged from 0002: strict where the machine reads, verbatim
-where the human writes.
+The body is still verbatim to the last byte, still never interpreted, and still
+allowed to end without a newline. Strictness stops at the blank line. The rule
+is unchanged from 0002: strict where the machine reads, verbatim where the
+human writes.
 
 ## Every revision states its format
 
-A revision's first header is now the format version:
+A revision opens with a preamble line naming the format and its version:
 
 ```
-historica 0
-change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
+historica-v0
+change qpvuntsmwlrkzxonmvtplsyq
 author Adam Harris <adam@example.com>
 when 2025-08-19T00:47:11-06:00
 ```
@@ -73,12 +90,27 @@ when 2025-08-19T00:47:11-06:00
 Version 0 means this document's header set, `k`–`z` change IDs, lowercase hex
 digests, and SHA-256.
 
+**The preamble is not a header.** It carries no value, and its digit puts it
+outside the key grammar, which decision 0002 restricts to lowercase letters and
+hyphens — so no parser can mistake it for a `key value` line, and no reader can
+mistake it for a fact about the work. That is the point of spelling it this
+way. The version describes how to read the file; every line beneath it
+describes what somebody did. HTTP puts its version on the request line rather
+than in a header for the same reason, and `<?xml version="1.0"?>` is a
+declaration rather than an attribute for that reason too.
+
+The cost is honest: the file now has two grammars where it had one, and a
+parser must read line 1 explicitly before it can treat anything as a header. It
+is one special case, checked once, at a fixed position — and a parser that
+instead split the preamble on its first space would produce "empty value on
+line 1", which is a confusing way to say "this is not a revision".
+
 0002 declared the digest algorithm once per repository and recorded the cost as
 an open question: a `.rev` file attached to an email is self-describing only if
 the reader guesses. That cost is larger than a line of noise, because the
 central promise of the format is that a person can verify a revision with tools
 they already have. A person who cannot tell *which* digest to compute cannot
-take that promise up. `historica 0` is the instruction for doing so, in the
+take that promise up. `historica-v0` is the instruction for doing so, in the
 file, where the file is.
 
 Three further things fall out of it:
@@ -89,10 +121,11 @@ Three further things fall out of it:
 - **A future algorithm change is unambiguous per file**, rather than ambiguous
   for every revision written before the repository header changed.
 - **The repository header loses a line.** Decision 0003's store root file is
-  now just `historica 0`; `digest sha256` was the version restated.
+  now just `historica-v0`; `digest sha256` was the version restated.
 
-The key order becomes `historica`, `change`, `parent`, `supersedes`, `author`,
-`when`, `revised-by`, `revised`, then `x-` headers sorted by key.
+The key order is unchanged by this — `change`, `parent`, `supersedes`,
+`author`, `when`, `revised-by`, `revised`, then `x-` headers sorted by key —
+because the preamble is not in it.
 
 An unknown version is a hard error, not a best effort. It is the one error a
 reader can raise that is certainly right.
@@ -168,13 +201,14 @@ An immutable, content-addressed history cannot afford it.
 
 ## Consequences
 
-- Every corpus file gains a `historica 0` line, so every corpus digest changes,
-  and every `parent` and `supersedes` line that names one changes with it. The
-  invalid examples gain the line too, so that each still fails for the reason
-  it was written to pin down.
-- New invalid examples are owed: out-of-order keys, unsorted parents, a missing
-  version header, and an unknown version.
-- Decision 0003's repository header file drops `digest sha256`.
+- Every corpus file gains the preamble, so every corpus digest changes, and
+  every `parent` and `supersedes` line that names one changes with it. The
+  invalid examples gain it too, so that each still fails for the reason it was
+  written to pin down.
+- New invalid examples: out-of-order keys, unsorted parents, a missing
+  preamble, an unknown version, and a separator with nothing after it.
+- Decision 0003's repository header file drops `digest sha256`, leaving the
+  same single line a revision opens with.
 - `check` and `normalize` are now specified enough to build: both are the same
   parse, differing in whether the correction is printed or applied to produce a
   new revision.

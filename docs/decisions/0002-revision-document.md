@@ -4,8 +4,8 @@ A revision is one text file: a block of `key value` header lines, a blank line,
 then the message verbatim to the end of the file.
 
 ```
-historica 0
-change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
+historica-v0
+change qpvuntsmwlrkzxonmvtplsyq
 author Adam Harris <adam@example.com>
 when 2025-08-19T00:47:11-06:00
 
@@ -20,7 +20,7 @@ Unix system already computes for it:
 
 ```console
 $ shasum -a 256 tests/corpus/revisions/01-root.rev
-60dcc99cbe9a2578ef44f03a15f49dbbb3977f53daba1b05f2b2a15b077efe1f  …
+c9f5c7d252115911e399bccf5c24d16e34a21f9f8db2736746378edc4df68b68  …
 ```
 
 [`RevisionId`]: ../../src/core/mod.rs
@@ -56,14 +56,16 @@ prerequisite for identity. See "Two replicas must write the same bytes" below.
 - LF endings, UTF-8, no BOM. A carriage return is rejected rather than
   tolerated, because tolerating it would let an editor silently change a
   revision's identity.
-- Keys appear in a fixed order: `historica`, `change`, `parent`, `supersedes`,
-  `author`, `when`, `revised-by`, `revised`, then any `x-` headers sorted by
-  key. Decision 0004 added `historica` and made the order a parse rule.
+- Keys appear in a fixed order: `change`, `parent`, `supersedes`, `author`,
+  `when`, `revised-by`, `revised`, then any `x-` headers sorted by key.
+  Decision 0004 made that order a parse rule rather than a habit.
+- The header block is preceded by the `historica-v0` preamble line, which is
+  not a header: it carries no value and its digit puts it outside the key
+  grammar entirely. Decision 0004 has the reasoning.
 - A repeated fact is a repeated line, so adding a parent is a one-line diff.
 
 | Header | Required | Meaning |
 | --- | --- | --- |
-| `historica` | exactly once | The format version. Added by decision 0004. |
 | `change` | exactly once | The change this revision is a version of. |
 | `parent` | zero or more | A causal parent, by digest. None means a root. |
 | `supersedes` | zero or more | A revision this one replaces, by digest. |
@@ -73,7 +75,7 @@ prerequisite for identity. See "Two replicas must write the same bytes" below.
 | `revised` | with `supersedes` | When this revision was produced. |
 | `x-…` | zero or more | Advisory. A reader may ignore these. |
 
-The two identities keep their alphabets from decision 0001: `change` is 32
+The two identities keep their alphabets from decision 0001: `change` is 24
 characters of `k` to `z`, and every digest is 64 lowercase hex characters. A
 person can tell at a glance which kind of name a line carries, and
 `invalid/change-id-in-the-digest-alphabet.rev` records that mixing them is an
@@ -153,9 +155,9 @@ and is confidently wrong about history. Refusing is friendlier than lying;
 
 The digest is SHA-256. This section originally declared it once per repository,
 in a readable file holding `historica 0` and `digest sha256`. Decision 0004
-moved the declaration into every revision's first header, so that a `.rev` file
-in transit says which digest names it, and the repository file keeps only
-`historica 0`. The reasoning below stands; only the location changed.
+moved the declaration onto every revision, as the `historica-v0` preamble, so
+that a `.rev` file in transit says which digest names it; the repository file
+keeps the same one line. The reasoning below stands; only the location changed.
 
 SHA-256 over BLAKE3 for one reason: `shasum -a 256` and `sha256sum` are already
 installed everywhere, so a person can verify Historica's central claim without
@@ -203,6 +205,7 @@ the parser must get right.
 | `invalid/unknown-version.rev` | A newer version refuses rather than guesses. |
 | `invalid/headers-out-of-order.rev` | Key order is a parse rule, not a habit. |
 | `invalid/unsorted-parents.rev` | Repeated keys must be in digest order. |
+| `invalid/empty-body-after-separator.rev` | An empty message omits the separator. |
 
 The corpus is internally consistent: every `parent` and `supersedes` line holds
 the real SHA-256 of another example, so the seven canonical files are a genuine
@@ -240,7 +243,7 @@ be the authority, not a projection of it.
 
 1. **A revision in transit has no repository to tell it the algorithm.**
    Answered by [0004](0004-parser-contract.md): every revision carries
-   `historica 0`, and the line of noise buys a self-describing file.
+   `historica-v0`, and the line of noise buys a self-describing file.
 2. **Whether `author` and `when` should be copied forward.** Answered by
    [0005](0005-authorship.md): they are copied, because reading them from a
    change's first revision fails whenever that revision has been pruned —
