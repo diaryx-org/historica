@@ -9,6 +9,7 @@ filename participates in nothing.
 history/
 ├── historica       # `historica-v0`, per decisions 0002 and 0004
 ├── revisions/      # one revision document per file, under any name
+├── operations/     # what each revision did, per file — added by 0007
 ├── names/          # bookmarks — the only mutable files
 └── cache/          # derived, disposable, deletable without loss
 ```
@@ -168,8 +169,10 @@ what they are called. Tidying the names afterwards is optional and safe.
 - `arrange` and the fallback slug rules become interface work of the same
   kind — owed to users, not to correctness.
 - The tree and content model, called decision 0003 in earlier documents, is
-  renumbered. It was expected to be 0004; resolving the open questions first
-  took 0004 through 0006, so it becomes decision 0007.
+  renumbered and also split. Resolving the open questions first took 0004
+  through 0006; content and merge then became
+  [0007](0007-content-and-merge.md), which introduces `operations/` and defers
+  paths, directories, and rename to the tree in 0008.
 
 ## Resolved questions
 

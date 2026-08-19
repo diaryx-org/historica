@@ -50,6 +50,9 @@ Choices that constrain later work are written down as they are made.
 - [`docs/decisions/0006-store-questions.md`](docs/decisions/0006-store-questions.md)
   — one-line bookmarks, a visible `history/` root, and what `check` treats as
   an error rather than a note.
+- [`docs/decisions/0007-content-and-merge.md`](docs/decisions/0007-content-and-merge.md)
+  — a revision records what it did rather than what a file is, and concurrent
+  edits merge by replay rather than by three-way heuristic.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

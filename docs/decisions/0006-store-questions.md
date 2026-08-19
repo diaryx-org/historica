@@ -83,6 +83,10 @@ Neither. `check` reports at two levels, and only one of them fails.
 | Two files with one digest and different bytes | Impossible on disk, so it means a broken read |
 | A `names/` entry that is not one valid line | The only mutable files, so the only ones that can be malformed |
 
+[0007](0007-content-and-merge.md) adds one more: an operation document whose
+recorded `-` lines disagree with the parent state. It is an error rather than a
+note for the reason the rest of this table is — the store contradicting itself.
+
 **Notes** are observations that never fail:
 
 | Note | Why not an error |
@@ -154,9 +158,9 @@ question becomes real only with evidence that it is not.
 
 **Spelling paths that are not valid UTF-8** (decision 0002's third question)
 also stays open, and cannot be closed here: nothing in the format has a path
-yet. It belongs to the tree and content model, which decision 0003 expected to
-be 0004 and which — these three documents having taken 0004 through 0006 — is
-now 0007.
+yet. It belongs with the first path, which is the tree's — and the tree is now
+0008, [0007](0007-content-and-merge.md) having taken content and merge without
+introducing a path of its own.
 
 ## Open questions
 

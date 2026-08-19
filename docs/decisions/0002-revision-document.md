@@ -255,6 +255,6 @@ be the authority, not a projection of it.
 ## Open questions
 
 3. **How paths that are not valid UTF-8 will be spelled** when trees arrive in
-   decision 0007. The no-escaping rule cannot survive that untouched, and it
+   decision 0008. The no-escaping rule cannot survive that untouched, and it
    would be better to choose an escape that is visible only when needed than to
    quote every path forever.
