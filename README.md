@@ -13,22 +13,33 @@ but deleting every cache must lose neither information nor meaning.
 
 ## Current scope
 
-The first `core` module models the smallest collaboration-safe history:
+The `core` module models the smallest collaboration-safe history:
 
-- immutable changes;
-- explicit causal parents;
+- immutable revisions, each naming both the digest of its own bytes and the
+  change it is a version of;
+- explicit causal parents, named by digest, so history is a Merkle DAG;
+- explicit supersession, so rewriting a change is recorded rather than hidden;
 - a history that merges by set union;
-- deterministic head discovery;
-- explicit detection of two different changes claiming one ID.
+- deterministic head discovery, over parents and over supersession alike;
+- resolution of a change to its current revision, including the legitimate
+  states of divergence and abandonment;
+- rejection of two revisions with disagreeing bytes claiming one digest.
 
-It intentionally does not yet choose a document syntax, content-addressing
-scheme, tree model, patch model, or merge policy. Those decisions should be
-made against readable examples rather than hidden behind abstractions.
+It intentionally does not yet choose a document syntax, digest algorithm, tree
+model, patch model, or merge policy. Those decisions should be made against
+readable examples rather than hidden behind abstractions.
+
+## Decisions
+
+Choices that constrain later work are written down as they are made.
+
+- [`docs/decisions/0001-identity.md`](docs/decisions/0001-identity.md) — why
+  every node carries both a derived revision ID and an assigned change ID.
+- [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
+  conditions that would reverse it.
 
 ## Development
 
 ```console
 cargo test
 ```
-
-See [`docs/loro.md`](docs/loro.md) for the initial Loro evaluation.
