@@ -4,6 +4,7 @@ A revision is one text file: a block of `key value` header lines, a blank line,
 then the message verbatim to the end of the file.
 
 ```
+historica 0
 change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
 author Adam Harris <adam@example.com>
 when 2025-08-19T00:47:11-06:00
@@ -19,7 +20,7 @@ Unix system already computes for it:
 
 ```console
 $ shasum -a 256 tests/corpus/revisions/01-root.rev
-7447d245ffa4e35980c974b35bc90afcd23d9db0f05bdb914efa4a822f5d5cb3  …
+60dcc99cbe9a2578ef44f03a15f49dbbb3977f53daba1b05f2b2a15b077efe1f  …
 ```
 
 [`RevisionId`]: ../../src/core/mod.rs
@@ -55,12 +56,14 @@ prerequisite for identity. See "Two replicas must write the same bytes" below.
 - LF endings, UTF-8, no BOM. A carriage return is rejected rather than
   tolerated, because tolerating it would let an editor silently change a
   revision's identity.
-- Keys appear in a fixed order: `change`, `parent`, `supersedes`, `author`,
-  `when`, `revised-by`, `revised`, then any `x-` headers sorted by key.
+- Keys appear in a fixed order: `historica`, `change`, `parent`, `supersedes`,
+  `author`, `when`, `revised-by`, `revised`, then any `x-` headers sorted by
+  key. Decision 0004 added `historica` and made the order a parse rule.
 - A repeated fact is a repeated line, so adding a parent is a one-line diff.
 
 | Header | Required | Meaning |
 | --- | --- | --- |
+| `historica` | exactly once | The format version. Added by decision 0004. |
 | `change` | exactly once | The change this revision is a version of. |
 | `parent` | zero or more | A causal parent, by digest. None means a root. |
 | `supersedes` | zero or more | A revision this one replaces, by digest. |
@@ -146,14 +149,13 @@ renders `signed-by` as unsigned, or a future `tree` header as an empty change,
 and is confidently wrong about history. Refusing is friendlier than lying;
 `invalid/unknown-required-header.rev` pins that down.
 
-## SHA-256, declared once per repository
+## SHA-256, declared by every revision
 
-The digest is SHA-256, and a repository says so in a readable file:
-
-```
-historica 0
-digest sha256
-```
+The digest is SHA-256. This section originally declared it once per repository,
+in a readable file holding `historica 0` and `digest sha256`. Decision 0004
+moved the declaration into every revision's first header, so that a `.rev` file
+in transit says which digest names it, and the repository file keeps only
+`historica 0`. The reasoning below stands; only the location changed.
 
 SHA-256 over BLAKE3 for one reason: `shasum -a 256` and `sha256sum` are already
 installed everywhere, so a person can verify Historica's central claim without
@@ -197,6 +199,10 @@ the parser must get right.
 | `invalid/change-id-in-the-digest-alphabet.rev` | The alphabets stay disjoint. |
 | `invalid/empty-header-value.rev` | An empty value is not an absent fact. |
 | `invalid/unknown-required-header.rev` | Unknown non-`x-` headers refuse. |
+| `invalid/missing-version-header.rev` | A revision must state its format. |
+| `invalid/unknown-version.rev` | A newer version refuses rather than guesses. |
+| `invalid/headers-out-of-order.rev` | Key order is a parse rule, not a habit. |
+| `invalid/unsorted-parents.rev` | Repeated keys must be in digest order. |
 
 The corpus is internally consistent: every `parent` and `supersedes` line holds
 the real SHA-256 of another example, so the seven canonical files are a genuine
@@ -230,19 +236,22 @@ A format whose parsers disagree cannot back a digest.
 for the reason that governs here too: whatever a person can recover from must
 be the authority, not a projection of it.
 
-## Open questions
+## Resolved questions
 
 1. **A revision in transit has no repository to tell it the algorithm.**
-   Declaring the digest once per repository is simpler, but a lone `.rev` file
-   attached to an email is self-describing only if the reader guesses. A
-   `historica 0` header on every revision would fix this at the cost of a line
-   of noise in every file.
-2. **Whether `author` and `when` should be copied forward at all**, rather than
-   read from the first revision of the change. Copying is legible in one file;
-   reading is impossible when that first revision has been discarded.
-3. **How paths that are not valid UTF-8 will be spelled** when decision 0003
-   introduces trees. The no-escaping rule cannot survive that untouched, and it
+   Answered by [0004](0004-parser-contract.md): every revision carries
+   `historica 0`, and the line of noise buys a self-describing file.
+2. **Whether `author` and `when` should be copied forward.** Answered by
+   [0005](0005-authorship.md): they are copied, because reading them from a
+   change's first revision fails whenever that revision has been pruned —
+   which is whenever rewriting has happened.
+4. **Whether `x-` is the right escape hatch.** Answered by
+   [0004](0004-parser-contract.md): it is kept. The usual objection assumes a
+   format can retire a spelling, and a content-addressed one cannot.
+
+## Open questions
+
+3. **How paths that are not valid UTF-8 will be spelled** when trees arrive in
+   decision 0007. The no-escaping rule cannot survive that untouched, and it
    would be better to choose an escape that is visible only when needed than to
    quote every path forever.
-4. **Whether `x-` is the right escape hatch** or an invitation to a de facto
-   second format that nothing validates.

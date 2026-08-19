@@ -7,7 +7,7 @@ filename participates in nothing.
 
 ```
 history/
-├── historica       # the repository header from decision 0002
+├── historica       # `historica 0`, per decisions 0002 and 0004
 ├── revisions/      # one revision document per file, under any name
 ├── names/          # bookmarks — the only mutable files
 └── cache/          # derived, disposable, deletable without loss
@@ -16,7 +16,7 @@ history/
 ## The tension this resolves
 
 A content-addressed store seems to want every file named by its own digest,
-and a folder of `85a75669….rev` is a ledger, not a story: `ls` shows nothing,
+and a folder of `1e4e224e….rev` is a ledger, not a story: `ls` shows nothing,
 order is invisible, and nobody hand-authors a file whose name is its own hash.
 As long as the filename is load-bearing, the store can never look hand-made,
 and "readable files are the authority" quietly shrinks to "readable file
@@ -167,22 +167,25 @@ what they are called. Tidying the names afterwards is optional and safe.
   makes that claim. A `check` command is required interface work.
 - `arrange` and the fallback slug rules become interface work of the same
   kind — owed to users, not to correctness.
-- The tree and content model, called decision 0003 in earlier documents,
-  becomes decision 0004.
+- The tree and content model, called decision 0003 in earlier documents, is
+  renumbered. It was expected to be 0004; resolving the open questions first
+  took 0004 through 0006, so it becomes decision 0007.
+
+## Resolved questions
+
+Questions 1 through 4 are answered by
+[0006](0006-store-questions.md):
+
+1. **Whether a name should record both facts.** No — one line. A second line
+   that can disagree with the first needs a precedence rule, goes stale by
+   design, and defends only against something that cannot edit both.
+2. **Conflicted-copy hygiene.** `check` reports errors and notes; duplicates
+   and sync-suffixed names are notes, which never fail.
+3. **The store root** is `history/`, visible, with no per-repository choice.
+4. **The arrange scheme** stays advisory but must be deterministic across
+   replicas, so collisions resolve by change ID rather than by a counter.
 
 ## Open questions
 
-1. **Whether a name should record both facts** — `change` for following
-   rewrites plus a last-known `revision` as a pin, tamper anchor, and offline
-   resolution hint — at the cost of a second line that can go stale.
-2. **Conflicted-copy hygiene.** Whether `check` should point out duplicate
-   content and sync-suffixed names as tidying opportunities, or stay silent
-   about what is, by this decision, legitimate.
-3. **Whether the store root is `history/` or `.historica/`.** Visible history
-   is the point for a journal; hidden is conventional for code. Possibly a
-   per-repository choice, which costs a discovery rule.
-4. **The arrange scheme itself** — sanitising slashes and control characters
-   out of summaries, non-ASCII, empty messages. Advisory throughout, so it
-   may remain a tool convention rather than a decision.
 5. **When scale forces sharding**, and whether a shard prefix is ever anything
    but one more advisory name.

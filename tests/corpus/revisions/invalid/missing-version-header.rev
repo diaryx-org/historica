@@ -1,0 +1,8 @@
+change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
+author Adam Harris <adam@example.com>
+when 2025-08-19T00:47:11-06:00
+
+A revision must state its format
+
+Without the version line a reader cannot know which digest names this file, so
+verifying it with shasum means guessing the algorithm.

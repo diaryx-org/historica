@@ -41,6 +41,15 @@ Choices that constrain later work are written down as they are made.
   [`tests/corpus/revisions`](tests/corpus/revisions).
 - [`docs/decisions/0003-store.md`](docs/decisions/0003-store.md) — the store:
   identity comes from content, filenames are presentation.
+- [`docs/decisions/0004-parser-contract.md`](docs/decisions/0004-parser-contract.md)
+  — strict reading, the `historica 0` version header, and why a reader's
+  vocabulary can only ever grow.
+- [`docs/decisions/0005-authorship.md`](docs/decisions/0005-authorship.md) —
+  authorship is copied into every revision of a change, and is a claim rather
+  than evidence.
+- [`docs/decisions/0006-store-questions.md`](docs/decisions/0006-store-questions.md)
+  — one-line bookmarks, a visible `history/` root, and what `check` treats as
+  an error rather than a note.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

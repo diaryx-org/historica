@@ -1,0 +1,9 @@
+historica 1
+change qpvuntsmwlrkzxonmvtplsyqrwkvupxo
+author Adam Harris <adam@example.com>
+when 2025-08-19T00:47:11-06:00
+
+This revision needs a newer Historica
+
+Refusing is the honest answer: a version 0 reader does not know what version 1
+made required, so it cannot know what it would be leaving out.
