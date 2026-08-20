@@ -312,7 +312,10 @@ pub enum RecordError {
         because: String,
     },
     /// The parent's tree or content could not be produced.
-    Materialise(MaterialiseError),
+    ///
+    /// Boxed because it is much the largest thing that can go wrong here, and
+    /// every other caller pays for it in every `Ok` otherwise.
+    Materialise(Box<MaterialiseError>),
     /// The working copy could not be read.
     Working(WorkingError),
     /// The store could not be written.
@@ -323,7 +326,7 @@ pub enum RecordError {
 
 impl From<MaterialiseError> for RecordError {
     fn from(error: MaterialiseError) -> Self {
-        Self::Materialise(error)
+        Self::Materialise(Box::new(error))
     }
 }
 

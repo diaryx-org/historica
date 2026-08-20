@@ -384,7 +384,7 @@ impl Store {
         merge::merge(events).map_err(|error| MaterialiseError::Merge {
             revision: head,
             file: *file,
-            error,
+            error: Box::new(error),
         })
     }
 
@@ -611,8 +611,8 @@ pub enum MaterialiseError {
         revision: RevisionId,
         /// The file.
         file: FileId,
-        /// What went wrong.
-        error: crate::merge::MergeError,
+        /// What went wrong. Boxed: it is the largest thing here by far.
+        error: Box<crate::merge::MergeError>,
     },
     /// An `edit` naming an operation document this store does not hold.
     MissingOperations {

@@ -16,8 +16,6 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
 use crate::format::{OperationDocument, ParseError, RevisionDocument, digest};
-use crate::replay::State;
-use crate::tree::Tree;
 
 use super::{
     HEADER_FILE, MalformedName, Name, OPERATION_EXT, OPERATIONS_DIR, PREAMBLE, REVISION_EXT,
