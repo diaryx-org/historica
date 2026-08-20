@@ -116,6 +116,9 @@ Choices that constrain later work are written down as they are made.
   — a revision records what it did rather than what a file is, and concurrent
   edits merge by replay rather than by three-way heuristic. Examples live in
   [`tests/corpus/operations`](tests/corpus/operations).
+- [`docs/decisions/0008-tree.md`](docs/decisions/0008-tree.md) — files carry
+  identifiers and paths hang off them, there are no directories, and a revision
+  records what it did to the file set rather than what the file set is.
 - [`docs/decisions/0009-diff.md`](docs/decisions/0009-diff.md) — how operations
   are recorded from an edited file, why the matcher is a dependency where the
   merge rule could never be, and the replacement anchoring 0007 left ambiguous.
