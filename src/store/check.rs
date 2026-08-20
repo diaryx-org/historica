@@ -9,15 +9,20 @@
 //! legitimate states would teach people to ignore it, and then it would not be
 //! worth running in anger.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::core::RevisionId;
-use crate::format::{ParseError, RevisionDocument, digest};
+use crate::core::{FileId, RevisionId};
+use crate::format::{OperationDocument, ParseError, RevisionDocument, digest};
+use crate::replay::State;
+use crate::tree::Tree;
 
-use super::{HEADER_FILE, MalformedName, Name, PREAMBLE, REVISION_EXT, REVISIONS_DIR};
+use super::{
+    HEADER_FILE, MalformedName, Name, OPERATION_EXT, OPERATIONS_DIR, PREAMBLE, REVISION_EXT,
+    REVISIONS_DIR,
+};
 
 /// Whether a finding means the store is broken or merely worth mentioning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -98,10 +103,37 @@ pub enum Finding {
         /// The file.
         file: PathBuf,
     },
-    /// A file under `revisions/` that never claimed to be a revision.
+    /// A file under `revisions/` or `operations/` that claimed to be neither.
     ForeignFile {
         /// The file.
         file: PathBuf,
+    },
+    /// An `edit` naming an operation document this store does not hold.
+    MissingOperations {
+        /// The document nothing here holds.
+        document: RevisionId,
+        /// A revision that names it.
+        named_by: RevisionId,
+    },
+    /// A revision that could not be applied to its parent's file set.
+    TreeDisagrees {
+        /// The revision that would not apply.
+        revision: RevisionId,
+        /// What went wrong, as the tree explains it.
+        because: String,
+    },
+    /// An operation document that disagrees with the file it claims to edit.
+    ///
+    /// The error decision 0007 asked for by name: a `delete` whose recorded
+    /// lines are not the parent's is the store contradicting itself, caught
+    /// at the moment of replay rather than absorbed into a merge.
+    ContentDisagrees {
+        /// The revision naming the document.
+        revision: RevisionId,
+        /// The file it claims to edit.
+        file: FileId,
+        /// What went wrong, as the replayer explains it.
+        because: String,
     },
 }
 
@@ -114,12 +146,15 @@ impl Finding {
             | Finding::FilenameLies { .. }
             | Finding::ImpossibleCollision { .. }
             | Finding::MalformedBookmark { .. }
-            | Finding::Unreadable { .. } => Severity::Error,
+            | Finding::Unreadable { .. }
+            | Finding::TreeDisagrees { .. }
+            | Finding::ContentDisagrees { .. } => Severity::Error,
             Finding::MissingParent { .. }
             | Finding::DanglingBookmark { .. }
             | Finding::DuplicateContent { .. }
             | Finding::SyncSuffixed { .. }
-            | Finding::ForeignFile { .. } => Severity::Note,
+            | Finding::ForeignFile { .. }
+            | Finding::MissingOperations { .. } => Severity::Note,
         }
     }
 }
@@ -179,9 +214,23 @@ impl fmt::Display for Finding {
             ),
             Finding::ForeignFile { file } => write!(
                 f,
-                "{} is under {REVISIONS_DIR}/ and is not a `.{REVISION_EXT}` file",
+                "{} carries neither `.{REVISION_EXT}` nor `.{OPERATION_EXT}`, \
+                 so nothing reads it",
                 file.display()
             ),
+            Finding::MissingOperations { document, named_by } => write!(
+                f,
+                "{named_by} names the operation document {document}, \
+                 which this store does not hold yet"
+            ),
+            Finding::TreeDisagrees { revision, because } => {
+                write!(f, "{revision}: {because}")
+            }
+            Finding::ContentDisagrees {
+                revision,
+                file,
+                because,
+            } => write!(f, "{revision}, file {file}: {because}"),
         }
     }
 }
@@ -358,9 +407,170 @@ pub(super) fn check(root: &Path) -> Report {
         }
     }
 
+    let operations = check_operations(root, &mut report);
+    check_replay(&documents, &operations, &mut report);
     check_names(root, &documents, &mut report);
     report.findings.sort_by_key(|finding| finding.severity());
     report
+}
+
+/// Read `operations/` under the rules `revisions/` is read under.
+///
+/// Identity is content here too, so a document is keyed by its digest and its
+/// filename is checked only where the name claims to be one.
+fn check_operations(root: &Path, report: &mut Report) -> BTreeMap<RevisionId, OperationDocument> {
+    let directory = root.join(OPERATIONS_DIR);
+    let mut entries: Vec<PathBuf> = match fs::read_dir(&directory) {
+        Ok(entries) => entries.filter_map(Result::ok).map(|e| e.path()).collect(),
+        Err(_) => Vec::new(),
+    };
+    entries.sort();
+
+    let mut documents = BTreeMap::new();
+    let mut files_by_digest: BTreeMap<RevisionId, Vec<PathBuf>> = BTreeMap::new();
+
+    for path in entries {
+        if !path.is_file() {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_owned();
+
+        if path.extension().is_none_or(|ext| ext != OPERATION_EXT) {
+            report.push(Finding::ForeignFile { file: path.clone() });
+            continue;
+        }
+        if sync_suffixed(&name) {
+            report.push(Finding::SyncSuffixed { file: path.clone() });
+        }
+
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                report.push(Finding::Unreadable {
+                    file: path.clone(),
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let id = digest(&bytes);
+        if let Some(claimed) = claimed_digest(&path)
+            && claimed != id
+        {
+            report.push(Finding::FilenameLies {
+                file: path.clone(),
+                claimed,
+                actual: id,
+            });
+        }
+        files_by_digest.entry(id).or_default().push(path.clone());
+
+        match OperationDocument::parse(&bytes) {
+            Ok(document) => {
+                documents.insert(id, document);
+            }
+            Err(error) => report.push(Finding::Unparsable { file: path, error }),
+        }
+    }
+
+    for (id, files) in &files_by_digest {
+        if files.len() > 1 {
+            report.push(Finding::DuplicateContent {
+                id: *id,
+                files: files.clone(),
+            });
+        }
+    }
+    documents
+}
+
+/// Hold every revision to the tree and the files it claims to have edited.
+///
+/// This is what decision 0008 unblocked. It walks back from each head along
+/// single-parent edges, so a concurrent history is checked as far as its
+/// merges and no further: replaying two branches together is 0007's merge, and
+/// that is not built. A `check` that guessed at it would be worse than one
+/// that says nothing.
+fn check_replay(
+    documents: &BTreeMap<RevisionId, RevisionDocument>,
+    operations: &BTreeMap<RevisionId, OperationDocument>,
+    report: &mut Report,
+) {
+    let mut parents: BTreeSet<RevisionId> = BTreeSet::new();
+    for document in documents.values() {
+        parents.extend(document.parents.iter().copied());
+    }
+
+    for (id, document) in documents {
+        for named in document.edited.values() {
+            if !operations.contains_key(named) {
+                report.push(Finding::MissingOperations {
+                    document: *named,
+                    named_by: *id,
+                });
+            }
+        }
+    }
+
+    for head in documents.keys().filter(|id| !parents.contains(id)) {
+        let Some(chain) = ancestry(*head, documents) else {
+            continue;
+        };
+        let mut tree = Tree::empty();
+        let mut states: BTreeMap<FileId, State> = BTreeMap::new();
+        for (id, revision) in chain {
+            match tree.apply(revision) {
+                Ok(next) => tree = next,
+                Err(error) => {
+                    report.push(Finding::TreeDisagrees {
+                        revision: id,
+                        because: error.to_string(),
+                    });
+                    break;
+                }
+            }
+            for (file, named) in &revision.edited {
+                let Some(operations) = operations.get(named) else {
+                    continue;
+                };
+                let state = states.entry(*file).or_insert_with(State::empty);
+                match state.apply(operations) {
+                    Ok(next) => *state = next,
+                    Err(error) => report.push(Finding::ContentDisagrees {
+                        revision: id,
+                        file: *file,
+                        because: error.to_string(),
+                    }),
+                }
+            }
+        }
+    }
+}
+
+/// One head's ancestry, oldest first, or `None` if it cannot be walked.
+///
+/// A missing parent is already a note, and a merge is not checkable yet.
+fn ancestry(
+    head: RevisionId,
+    documents: &BTreeMap<RevisionId, RevisionDocument>,
+) -> Option<Vec<(RevisionId, &RevisionDocument)>> {
+    let mut chain = Vec::new();
+    let mut next = Some(head);
+    while let Some(id) = next {
+        let document = documents.get(&id)?;
+        chain.push((id, document));
+        next = match document.parents.len() {
+            0 => None,
+            1 => Some(*document.parents.iter().next().expect("one parent")),
+            _ => return None,
+        };
+    }
+    chain.reverse();
+    Some(chain)
 }
 
 fn check_names(

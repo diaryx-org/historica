@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use historica::core::ChangeState;
-use historica::format::{RevisionDocument, digest};
+use historica::core::{ChangeState, RevisionId};
+use historica::format::{OperationDocument, RevisionDocument, digest};
 use historica::store::{Finding, Name, Severity, Store};
 
 /// A fresh directory for one test, inside the target directory.
@@ -378,4 +378,165 @@ fn every_finding_says_where_and_sorts_errors_first() {
     for finding in report.findings() {
         assert!(!finding.to_string().is_empty());
     }
+}
+
+/// The tree corpus copied into a store: two files, a rename, and the operation
+/// documents the revisions name.
+fn tree_corpus_store(test: &str) -> (PathBuf, Store) {
+    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/tree");
+    let root = scratch(test).join("history");
+    let store = Store::init(&root).expect("a new store");
+    for (directory, extension) in [("revisions", "rev"), ("operations", "ops")] {
+        for entry in fs::read_dir(corpus.join(directory)).expect("the corpus") {
+            let path = entry.expect("an entry").path();
+            if path.extension().is_some_and(|found| found == extension) {
+                let name = path.file_name().expect("a filename");
+                fs::copy(&path, root.join(directory).join(name)).expect("copying");
+            }
+        }
+    }
+    let store = Store::open(store.root()).expect("reopening");
+    (root, store)
+}
+
+/// The head of that corpus: the revision nothing names as a parent.
+fn head_of(store: &Store) -> RevisionId {
+    let parents: BTreeSet<RevisionId> = store
+        .iter()
+        .flat_map(|(_, document)| document.parents.iter().copied())
+        .collect();
+    let heads: Vec<RevisionId> = store
+        .iter()
+        .map(|(id, _)| *id)
+        .filter(|id| !parents.contains(id))
+        .collect();
+    assert_eq!(heads.len(), 1, "the tree corpus is one chain");
+    heads[0]
+}
+
+#[test]
+fn a_store_materialises_the_tree_and_the_files_it_describes() {
+    let (root, store) = tree_corpus_store("materialise");
+    let head = head_of(&store);
+
+    let tree = store.tree(&head).expect("the file set at the head");
+    assert_eq!(tree.len(), 1);
+    let (file, path) = tree.files().next().expect("the surviving file");
+    assert_eq!(path, "docs/README.md");
+
+    // Content comes from the operation documents the revisions name, which the
+    // store loads by digest and never by filename.
+    assert_eq!(
+        store.content(&head, file).expect("the README").text(),
+        "# Notes\n\nA journal kept in Historica, and the notes that came with it.\n"
+    );
+    assert_eq!(store.operations().count(), 4);
+    assert!(Store::check(&root).is_ok());
+}
+
+#[test]
+fn renaming_every_operation_document_changes_nothing() {
+    // Decision 0003's rule, applied to the second kind of document: identity
+    // is content, and a filename is presentation.
+    let (root, store) = tree_corpus_store("rename-operations");
+    let head = head_of(&store);
+    let before = store.tree(&head).expect("a tree");
+
+    let directory = root.join("operations");
+    for (index, entry) in fs::read_dir(&directory).expect("operations").enumerate() {
+        let path = entry.expect("an entry").path();
+        fs::rename(&path, directory.join(format!("{index}-renamed.ops"))).expect("renaming");
+    }
+
+    let store = Store::open(&root).expect("reopening a renamed store");
+    assert_eq!(store.tree(&head).expect("a tree"), before);
+    assert_eq!(store.operations().count(), 4);
+    assert!(Store::check(&root).is_ok());
+}
+
+#[test]
+fn a_document_that_disagrees_with_its_file_is_an_error() {
+    // The error decision 0007 asked for by name, which needed 0008's tree to
+    // know which document belongs to which file.
+    let (root, mut store) = tree_corpus_store("disagreeing-content");
+    let head = head_of(&store);
+    let (file, _) = {
+        let tree = store.tree(&head).expect("a tree");
+        let (file, path) = tree.files().next().expect("the README");
+        (*file, path.to_owned())
+    };
+
+    let wrong = OperationDocument::parse(b"historica-v0\n\ndelete 0 1\n-not what is there\n")
+        .expect("a document that parses");
+    let wrong = store.insert_operation(&wrong).expect("writing it");
+
+    let mut revision = store.get(&head).expect("the head").clone();
+    revision.change = "ztkwnrvzlmyxqsotnkwlpvzr".parse().expect("a change ID");
+    revision.parents = BTreeSet::from([head]);
+    revision.added.clear();
+    revision.moved.clear();
+    revision.dropped.clear();
+    revision.edited = [(file, wrong)].into_iter().collect();
+    store.insert(&revision).expect("writing the revision");
+
+    let report = Store::check(&root);
+    assert!(!report.is_ok(), "a store that contradicts itself fails");
+    let disagreements: Vec<&Finding> = report
+        .errors()
+        .filter(|finding| matches!(finding, Finding::ContentDisagrees { .. }))
+        .collect();
+    assert_eq!(disagreements.len(), 1, "{:?}", report.findings());
+    let rendered = disagreements[0].to_string();
+    assert!(rendered.contains("not what is there"), "{rendered}");
+
+    // And the store says the same thing when asked for the file directly.
+    let error = store
+        .content(&revision.id(), &file)
+        .expect_err("a document applied to the wrong file");
+    assert!(error.to_string().contains("corrupt"), "{error}");
+}
+
+#[test]
+fn an_undelivered_operation_document_is_a_note() {
+    // Transport has more to deliver, which is ordinary — the same judgement
+    // decision 0006 made about an undelivered parent.
+    let (root, store) = tree_corpus_store("undelivered-operations");
+    let head = head_of(&store);
+    for entry in fs::read_dir(root.join("operations")).expect("operations") {
+        fs::remove_file(entry.expect("an entry").path()).expect("removing");
+    }
+
+    let report = Store::check(&root);
+    assert!(report.is_ok(), "{:?}", report.findings());
+    let missing = report
+        .notes()
+        .filter(|finding| matches!(finding, Finding::MissingOperations { .. }))
+        .count();
+    assert_eq!(missing, 4);
+
+    // Asking for content says which document is missing rather than guessing.
+    let store = Store::open(store.root()).expect("reopening");
+    let tree = store.tree(&head).expect("the tree still replays");
+    let (file, _) = tree.files().next().expect("the README");
+    assert!(matches!(
+        store.content(&head, file),
+        Err(historica::store::MaterialiseError::MissingOperations { .. })
+    ));
+}
+
+#[test]
+fn a_concurrent_history_is_refused_rather_than_ordered_arbitrarily() {
+    // The revisions corpus has a merge in it, and merging is decided in 0007
+    // and 0008 without being built.
+    let (_, store) = corpus_store("concurrent");
+    let merge = store
+        .iter()
+        .find(|(_, document)| document.parents.len() > 1)
+        .map(|(id, _)| *id)
+        .expect("the corpus has a merge");
+
+    assert!(matches!(
+        store.tree(&merge),
+        Err(historica::store::MaterialiseError::Concurrent { .. })
+    ));
 }

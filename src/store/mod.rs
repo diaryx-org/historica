@@ -25,8 +25,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::core::{ChangeId, History, RevisionId};
-use crate::format::{PREAMBLE, ParseError, RevisionDocument, digest};
+use crate::core::{ChangeId, FileId, History, RevisionId};
+use crate::format::{OperationDocument, PREAMBLE, ParseError, RevisionDocument, digest};
+use crate::replay::{ReplayError, State};
+use crate::tree::{Tree, TreeError};
 
 mod check;
 
@@ -46,6 +48,8 @@ pub const NAMES_DIR: &str = "names";
 pub const CACHE_DIR: &str = "cache";
 /// The extension that is a file's claim to be a revision.
 pub const REVISION_EXT: &str = "rev";
+/// The extension that is a file's claim to be an operation document.
+pub const OPERATION_EXT: &str = "ops";
 
 /// What a bookmark points at.
 ///
@@ -114,6 +118,7 @@ impl std::error::Error for MalformedName {}
 pub struct Store {
     root: PathBuf,
     documents: BTreeMap<RevisionId, RevisionDocument>,
+    operations: BTreeMap<RevisionId, OperationDocument>,
     names: BTreeMap<String, Name>,
 }
 
@@ -145,7 +150,7 @@ impl Store {
         read_version(&root)?;
 
         let mut documents = BTreeMap::new();
-        for path in revision_files(&root)? {
+        for path in files_with_extension(&root, REVISIONS_DIR, REVISION_EXT)? {
             let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
             let document =
                 RevisionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
@@ -156,6 +161,17 @@ impl Store {
             // which is harmless. Identical digests with differing bytes cannot
             // happen, and if they ever did it would mean a broken read.
             documents.insert(digest(&bytes), document);
+        }
+
+        let mut operations = BTreeMap::new();
+        for path in files_with_extension(&root, OPERATIONS_DIR, OPERATION_EXT)? {
+            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+            let document =
+                OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
+                    file: path.clone(),
+                    error,
+                })?;
+            operations.insert(digest(&bytes), document);
         }
 
         let mut names = BTreeMap::new();
@@ -169,6 +185,7 @@ impl Store {
         Ok(Self {
             root,
             documents,
+            operations,
             names,
         })
     }
@@ -237,6 +254,94 @@ impl Store {
         history
     }
 
+    /// One operation document by digest.
+    pub fn operation(&self, id: &RevisionId) -> Option<&OperationDocument> {
+        self.operations.get(id)
+    }
+
+    /// Every operation document, in digest order.
+    pub fn operations(&self) -> impl Iterator<Item = (&RevisionId, &OperationDocument)> {
+        self.operations.iter()
+    }
+
+    /// The ancestry of `head`, oldest first.
+    ///
+    /// Linear only, because merging is what 0007 and 0008 decide and neither is
+    /// built: a revision with two parents stops this with
+    /// [`MaterialiseError::Concurrent`] rather than picking an order and
+    /// producing a file nobody wrote.
+    pub fn ancestry(&self, head: &RevisionId) -> Result<Vec<&RevisionDocument>, MaterialiseError> {
+        let mut chain = Vec::new();
+        let mut next = Some(*head);
+        while let Some(id) = next {
+            let document = self
+                .documents
+                .get(&id)
+                .ok_or(MaterialiseError::Unknown { revision: id })?;
+            chain.push(document);
+            next = match document.parents.len() {
+                0 => None,
+                1 => {
+                    let parent = *document.parents.iter().next().expect("one parent");
+                    if !self.documents.contains_key(&parent) {
+                        return Err(MaterialiseError::MissingParent {
+                            parent,
+                            named_by: id,
+                        });
+                    }
+                    Some(parent)
+                }
+                _ => return Err(MaterialiseError::Concurrent { revision: id }),
+            };
+        }
+        chain.reverse();
+        Ok(chain)
+    }
+
+    /// The file set at `head`.
+    pub fn tree(&self, head: &RevisionId) -> Result<Tree, MaterialiseError> {
+        let mut tree = Tree::empty();
+        for revision in self.ancestry(head)? {
+            tree = tree
+                .apply(revision)
+                .map_err(|error| MaterialiseError::Tree {
+                    revision: revision.id(),
+                    error,
+                })?;
+        }
+        Ok(tree)
+    }
+
+    /// The content of one file at `head`.
+    ///
+    /// A file the tree no longer holds still has content here, because
+    /// dropping a file removes it from the file set and history is not a place
+    /// things are removed from. Ask [`Store::tree`] whether it exists.
+    pub fn content(&self, head: &RevisionId, file: &FileId) -> Result<State, MaterialiseError> {
+        let ancestry = self.ancestry(head)?;
+        let mut state = State::empty();
+        for revision in &ancestry {
+            let Some(id) = revision.edited.get(file) else {
+                continue;
+            };
+            let document =
+                self.operations
+                    .get(id)
+                    .ok_or_else(|| MaterialiseError::MissingOperations {
+                        document: *id,
+                        named_by: revision.id(),
+                    })?;
+            state = state
+                .apply(document)
+                .map_err(|error| MaterialiseError::Content {
+                    revision: revision.id(),
+                    file: *file,
+                    error,
+                })?;
+        }
+        Ok(state)
+    }
+
     /// Every bookmark, by name.
     pub fn names(&self) -> &BTreeMap<String, Name> {
         &self.names
@@ -261,28 +366,28 @@ impl Store {
             .join(REVISIONS_DIR)
             .join(format!("{id}.{REVISION_EXT}"));
 
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(mut file) => {
-                use io::Write as _;
-                file.write_all(&bytes)
-                    .map_err(|error| StoreError::io(&path, error))?;
-            }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                // Same name implies same bytes, so this is the revision we
-                // already have. Confirm rather than assume.
-                let existing = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
-                if existing != bytes {
-                    return Err(StoreError::ContentMismatch { file: path });
-                }
-            }
-            Err(error) => return Err(StoreError::io(&path, error)),
-        }
-
+        write_once(&path, &bytes)?;
         self.documents.insert(id, document.clone());
+        Ok(id)
+    }
+
+    /// Write an operation document into the store, named by its digest.
+    ///
+    /// Append-only on the same terms as [`Store::insert`], and for the extra
+    /// reason 0007 gives: two revisions that made byte-identical edits share
+    /// one document, so writing one twice is ordinary rather than suspicious.
+    pub fn insert_operation(
+        &mut self,
+        document: &OperationDocument,
+    ) -> Result<RevisionId, StoreError> {
+        let bytes = document.write();
+        let id = digest(&bytes);
+        let path = self
+            .root
+            .join(OPERATIONS_DIR)
+            .join(format!("{id}.{OPERATION_EXT}"));
+        write_once(&path, &bytes)?;
+        self.operations.insert(id, document.clone());
         Ok(id)
     }
 
@@ -301,6 +406,34 @@ impl Store {
         self.names.insert(name.to_owned(), target);
         Ok(())
     }
+}
+
+/// Write a digest-named file, never renaming or overwriting one.
+///
+/// A file that is already there is the same file, because its name is its
+/// digest — confirmed rather than assumed.
+fn write_once(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(mut file) => {
+            use io::Write as _;
+            file.write_all(bytes)
+                .map_err(|error| StoreError::io(path, error))?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            let existing = fs::read(path).map_err(|error| StoreError::io(path, error))?;
+            if existing != bytes {
+                return Err(StoreError::ContentMismatch {
+                    file: path.to_path_buf(),
+                });
+            }
+        }
+        Err(error) => return Err(StoreError::io(path, error)),
+    }
+    Ok(())
 }
 
 /// Read and validate the store's version header.
@@ -324,12 +457,17 @@ fn read_version(root: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Every `*.rev` file under `revisions/`, in a deterministic order.
+/// Every file with one extension under one of the store's directories.
 ///
 /// The extension is the one syllable of a filename that means anything: it is
-/// the file's claim to be a revision, and everything else is ignored.
-fn revision_files(root: &Path) -> Result<Vec<PathBuf>, StoreError> {
-    let directory = root.join(REVISIONS_DIR);
+/// the file's claim to be a revision or an operation document, and everything
+/// else about the name is ignored.
+fn files_with_extension(
+    root: &Path,
+    directory: &str,
+    extension: &str,
+) -> Result<Vec<PathBuf>, StoreError> {
+    let directory = root.join(directory);
     let mut paths = Vec::new();
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
@@ -339,7 +477,7 @@ fn revision_files(root: &Path) -> Result<Vec<PathBuf>, StoreError> {
     for entry in entries {
         let entry = entry.map_err(|error| StoreError::io(&directory, error))?;
         let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|ext| ext == REVISION_EXT) {
+        if path.is_file() && path.extension().is_some_and(|found| found == extension) {
             paths.push(path);
         }
     }
@@ -368,6 +506,87 @@ fn name_files(root: &Path) -> Result<Vec<(String, PathBuf)>, StoreError> {
     found.sort();
     Ok(found)
 }
+
+/// Why a store could not produce the tree or the file that was asked for.
+///
+/// None of these mean the store is broken. Three of them mean transport has
+/// more to deliver, one means the history is concurrent and merging is not
+/// built, and two mean the store contradicts itself in the way
+/// [`crate::replay`] and [`crate::tree`] describe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MaterialiseError {
+    /// A revision this store does not hold.
+    Unknown {
+        /// The revision asked for.
+        revision: RevisionId,
+    },
+    /// A parent this store does not hold.
+    MissingParent {
+        /// The parent nothing here holds.
+        parent: RevisionId,
+        /// The revision that names it.
+        named_by: RevisionId,
+    },
+    /// A revision with two parents, which needs the merge that is not built.
+    Concurrent {
+        /// The revision that joins two lines of history.
+        revision: RevisionId,
+    },
+    /// An `edit` naming an operation document this store does not hold.
+    MissingOperations {
+        /// The document nothing here holds.
+        document: RevisionId,
+        /// The revision that names it.
+        named_by: RevisionId,
+    },
+    /// A revision that could not be applied to its parent's file set.
+    Tree {
+        /// The revision that would not apply.
+        revision: RevisionId,
+        /// What went wrong.
+        error: TreeError,
+    },
+    /// An operation document that disagrees with the file it claims to edit.
+    Content {
+        /// The revision that names the document.
+        revision: RevisionId,
+        /// The file it claims to edit.
+        file: FileId,
+        /// What went wrong.
+        error: ReplayError,
+    },
+}
+
+impl fmt::Display for MaterialiseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MaterialiseError::Unknown { revision } => {
+                write!(f, "this store does not hold the revision {revision}")
+            }
+            MaterialiseError::MissingParent { parent, named_by } => write!(
+                f,
+                "{named_by} names the parent {parent}, which this store does not hold yet"
+            ),
+            MaterialiseError::Concurrent { revision } => write!(
+                f,
+                "{revision} joins two lines of history, and merging them is decided                  but not built"
+            ),
+            MaterialiseError::MissingOperations { document, named_by } => write!(
+                f,
+                "{named_by} names the operation document {document},                  which this store does not hold yet"
+            ),
+            MaterialiseError::Tree { revision, error } => write!(f, "{revision}: {error}"),
+            MaterialiseError::Content {
+                revision,
+                file,
+                error,
+            } => write!(f, "{revision}, file {file}: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for MaterialiseError {}
 
 /// Why a store could not be opened or written to.
 #[derive(Debug)]

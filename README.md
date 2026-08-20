@@ -85,21 +85,25 @@ property test cannot see; `examples/matchers.rs` is the measurement decision
 0009 chose the matcher on.
 
 The `store` module is that format on disk. It loads a `history/` directory by
-reading files and never their names, so renaming every revision in a store
-changes no identity and breaks no reference — which is what lets a store be
+reading files and never their names — revisions and operation documents alike,
+so renaming every file in a store changes no identity and breaks no reference — which is what lets a store be
 hand-arranged into something a file browser can narrate. The writer still names
 files by digest, appends only, and never overwrites. `check` reads a store
 without loading it and separates errors, which mean the store contradicts
-itself, from notes, which never fail: an undelivered parent, a duplicate, or a
-sync tool's conflicted copy is a legitimate state and is reported as one.
+itself, from notes, which never fail: an undelivered parent, an undelivered
+operation document, a duplicate, or a sync tool's conflicted copy is a
+legitimate state and is reported as one. It also replays: every revision on a
+linear chain is held to the file set it names and every `-` line to the parent
+it claims to have edited, which is the error 0007 asked for and 0008 unblocked.
+A store can materialise a file — `tree` and `content` at a revision — and
+refuses a history with a merge in it rather than ordering it arbitrarily.
 
 It intentionally does not yet merge. Concurrent branches need the Eg-walker
 replay decided in 0007 and the tree rules decided in 0008, and neither is
-built, so a caller supplies the chain a file or a tree is replayed along. The
-store still reads only revisions, so `check` cannot yet hold an operation
-document to the parent it edits, though the corpus test does exactly that and
-the tree is what made it possible. Binary content has a shape in 0008 and no
-implementation. There is no command-line front end yet; `init`, `check`, and
+built, so anything with a merge in its ancestry is refused rather than
+guessed at — by the store when it is asked for a file, and by `check`, which
+checks a concurrent history as far as its merges and no further. Binary content
+has a shape in 0008 and no implementation. There is no command-line front end yet; `init`, `check`, and
 `arrange` exist as decisions, and the first two as library operations. Those
 should be built against readable examples rather than hidden behind
 abstractions.
