@@ -557,3 +557,132 @@ fn recording_without_an_author_refuses_and_says_where_to_say_so() {
     assert!(complaint.contains("historica identity"), "{complaint}");
     assert!(complaint.contains("nothing is guessed"), "{complaint}");
 }
+
+/// Two lines of work from one root, editing the same file differently.
+fn diverged(test: &str, mine: &str, theirs: &str) -> (PathBuf, String, String) {
+    let directory = repository(test);
+    write(&directory, "f.md", "one\ntwo\nthree\n");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    let root = out(recorded(&directory, &["log"]))
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("the root")
+        .to_owned();
+
+    write(&directory, "f.md", mine);
+    out(recorded(&directory, &["record", "-m", "mine"]));
+    write(&directory, "f.md", theirs);
+    out(recorded(
+        &directory,
+        &["record", "--onto", &root, "-m", "theirs"],
+    ));
+
+    let log = out(recorded(&directory, &["log"]));
+    let mut heads = log
+        .lines()
+        .filter(|line| line.contains("(head"))
+        .map(|line| line.split_whitespace().next().expect("a change").to_owned());
+    let (one, two) = (heads.next().expect("a head"), heads.next().expect("a head"));
+    (directory, one, two)
+}
+
+#[test]
+fn a_merge_is_rendered_resolved_and_then_recorded() {
+    let (directory, mine, theirs) = diverged(
+        "merge-conflict",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+
+    let merging = out(recorded(&directory, &["merge", &mine, &theirs]));
+    assert!(merging.contains("1 file holds work that met"), "{merging}");
+
+    // Both runs are in one fence, each labelled with who wrote it.
+    let rendered = fs::read_to_string(directory.join("f.md")).expect("the merged file");
+    assert_eq!(rendered.matches("vvv historica: ").count(), 2, "{rendered}");
+    assert_eq!(rendered.matches("^^^ historica: ").count(), 1, "{rendered}");
+    assert!(rendered.contains("MINE") && rendered.contains("THEIRS"));
+
+    // Recording while a marker still stands is refused, per line.
+    let refused = recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    );
+    assert!(!refused.status.success());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("still marked"),
+        "a partially resolved merge is not a state this keeps"
+    );
+
+    // Resolving is ordinary editing, and the resolution is what gets recorded.
+    write(&directory, "f.md", "one\nBOTH\nthree\n");
+    let joined = out(recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+    assert!(joined.contains("this joins 2 lines of work"), "{joined}");
+    assert!(out(recorded(&directory, &["log"])).contains("merge"));
+    assert!(out(recorded(&directory, &["check"])).ends_with("nothing to report\n"));
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "f.md"])),
+        "one\nBOTH\nthree\n"
+    );
+}
+
+#[test]
+fn a_merge_that_needed_no_help_records_no_operations() {
+    let directory = repository("merge-clean");
+    write(&directory, "a.md", "a\n");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    let root = out(recorded(&directory, &["log"]))
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("the root")
+        .to_owned();
+
+    write(&directory, "b.md", "b\n");
+    out(recorded(&directory, &["record", "-m", "mine"]));
+    // The other branch touches a third file, from the root.
+    fs::remove_file(directory.join("b.md")).expect("removing a file");
+    write(&directory, "c.md", "c\n");
+    out(recorded(
+        &directory,
+        &["record", "--onto", &root, "-m", "theirs"],
+    ));
+
+    let log = out(recorded(&directory, &["log"]));
+    let mut heads = log
+        .lines()
+        .filter(|line| line.contains("(head"))
+        .map(|line| line.split_whitespace().next().expect("a change").to_owned());
+    let (mine, theirs) = (heads.next().expect("a head"), heads.next().expect("a head"));
+
+    let merging = out(recorded(&directory, &["merge", &mine, &theirs]));
+    assert!(merging.contains("nothing is contested"), "{merging}");
+    assert!(directory.join("b.md").is_file() && directory.join("c.md").is_file());
+
+    let joined = out(recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+    assert!(joined.contains("joins 2 lines"), "{joined}");
+    let document = out(recorded(&directory, &["show", "head"]));
+    assert!(
+        !document.contains("\nedit "),
+        "a merge that changed nothing about a file names no document: {document}"
+    );
+}
+
+#[test]
+fn a_document_about_merge_markers_records_like_any_other() {
+    let directory = repository("merge-prose");
+    write(
+        &directory,
+        "notes.md",
+        "A fence reads `vvv historica: 0badbeef wrote vvv`.\n",
+    );
+    let recorded = out(recorded(&directory, &["record", "-m", "On merging"]));
+    assert!(recorded.contains("added   notes.md"), "{recorded}");
+}

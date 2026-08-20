@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod conflict;
 pub mod core;
 pub mod diff;
 pub mod format;

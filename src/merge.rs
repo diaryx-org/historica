@@ -57,6 +57,13 @@ pub struct Event<'a> {
 pub struct Merged {
     /// The merged content.
     pub state: State,
+    /// Which revision wrote each item, in the same order as the items.
+    ///
+    /// Derived like everything else a merge produces — item *i* of revision
+    /// *R* is named `(R, i)` — and returned because decision 0012's rendering
+    /// labels each run inside a contested span with the revision that wrote
+    /// it, which is more than a three-way tool can say.
+    pub origins: Vec<RevisionId>,
     /// Where two branches touched one region. Never written to disk.
     pub contested: Vec<Contested>,
 }
@@ -580,6 +587,10 @@ impl Tree {
         contested.sort_by_key(|contest| (contest.at, contest.len));
 
         Merged {
+            origins: authors
+                .iter()
+                .map(|author| graph.events[*author].revision)
+                .collect(),
             state: State::from_items(items),
             contested,
         }

@@ -31,7 +31,9 @@ reading a store
 
 writing a store
   record [-m <message>]    record what the folder now says
-         [--onto <target>] [--move <old>=<new>] [--dry-run]
+         [--onto <target>] [--merge <target>] [--move <old>=<new>]
+         [--at <file>=<path>] [--dry-run]
+  merge <target>           write what two lines of work say together
   identity <author>        say who you are, once, for every repository
   init [<dir>]             make a store in <dir>/history
   check [<dir>]            read a store and report every fault
@@ -143,6 +145,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "names" => names(&base, rest),
         "name" => name(&base, rest),
         "record" => record::record(&base, locate(&base)?, rest),
+        "merge" => record::merge(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
         other => Err(Failure::usage(format!("there is no `{other}` command"))),
     }

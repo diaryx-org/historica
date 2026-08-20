@@ -67,8 +67,8 @@ pub struct Plan {
     pub edited: BTreeMap<FileId, OperationDocument>,
     /// Where each file sits after this revision, for rendering.
     pub paths: BTreeMap<FileId, String>,
-    /// The revision this would be recorded against.
-    pub parent: Option<RevisionId>,
+    /// The revisions this would be recorded against.
+    pub parents: Vec<RevisionId>,
 }
 
 impl Plan {
@@ -106,8 +106,8 @@ impl Plan {
 /// What a person supplies, beside the folder itself.
 #[derive(Debug, Clone)]
 pub struct Recording {
-    /// The revision to record against, or `None` for a root.
-    pub onto: Option<RevisionId>,
+    /// The revisions to record against. Empty for a root, two for a merge.
+    pub parents: Vec<RevisionId>,
     /// Who is recording, per decision 0010.
     pub author: String,
     /// When, per decision 0010.
@@ -116,6 +116,12 @@ pub struct Recording {
     pub message: String,
     /// Renames, as `(from, to)`. The one fact that cannot be observed.
     pub moves: Vec<(String, String)>,
+    /// Where a contested file goes, by identifier: decision 0012's `--at`.
+    ///
+    /// A path is a value rather than prose, so a person states it rather than
+    /// editing it, and by identifier because after a merge a path may name two
+    /// files.
+    pub at: Vec<(FileId, String)>,
 }
 
 /// What was recorded.
@@ -135,13 +141,15 @@ pub struct Recorded {
 pub fn plan(
     store: &Store,
     working: &Working,
-    onto: Option<RevisionId>,
-    moves: &[(String, String)],
+    recording: &Recording,
     entropy: &mut impl Entropy,
 ) -> Result<Plan, RecordError> {
-    let tree = match onto {
-        Some(parent) => store.tree(&parent)?,
-        None => Tree::empty(),
+    let parents = recording.parents.as_slice();
+    let joining = parents.len() > 1;
+    let tree = if parents.is_empty() {
+        Tree::empty()
+    } else {
+        store.merged_tree_of(parents)?.tree
     };
 
     // Where each file the tree holds sits after the renames a person stated.
@@ -150,7 +158,15 @@ pub fn plan(
         .map(|(file, path)| (*file, path.to_owned()))
         .collect();
     let mut moved = BTreeMap::new();
-    for (from, to) in moves {
+    for (file, to) in &recording.at {
+        if placed.insert(*file, to.clone()).is_none() {
+            return Err(RecordError::NotInTheTree {
+                path: file.to_string(),
+            });
+        }
+        moved.insert(*file, to.clone());
+    }
+    for (from, to) in &recording.moves {
         let file = one_file_at(&tree, from)?;
         crate::format::check_path(to).map_err(|because| RecordError::UnusablePath {
             path: to.clone(),
@@ -160,6 +176,7 @@ pub fn plan(
         moved.insert(file, to.clone());
     }
 
+    let mut unresolved: Vec<(String, usize)> = Vec::new();
     let held: BTreeMap<&str, FileId> = placed
         .iter()
         .map(|(file, path)| (path.as_str(), *file))
@@ -167,7 +184,7 @@ pub fn plan(
 
     let mut plan = Plan {
         moved,
-        parent: onto,
+        parents: parents.to_vec(),
         ..Plan::default()
     };
 
@@ -184,11 +201,23 @@ pub fn plan(
         };
         plan.paths.insert(file, path.clone());
 
-        let before = match (onto, plan.added.contains_key(&file)) {
-            (Some(parent), false) => store.content(&parent, &file)?,
-            _ => State::empty(),
+        let text = working.text(path)?;
+        let before = if parents.is_empty() || plan.added.contains_key(&file) {
+            State::empty()
+        } else {
+            let merged = store.merged_content_of(parents, &file)?;
+            // Decision 0012: while recording a merge, a contested file holding
+            // any line the renderer wrote is refused — per line, because a
+            // person can edit inside a fence and leave it standing.
+            if joining && !merged.contested.is_empty() {
+                let standing = crate::conflict::unresolved(&merged, &text);
+                if !standing.is_empty() {
+                    unresolved.push((path.clone(), standing.len()));
+                }
+            }
+            merged.state
         };
-        let after = State::from_text(&working.text(path)?);
+        let after = State::from_text(&text);
         if let Some(document) = diff(&before, &after) {
             plan.edited.insert(file, document);
         }
@@ -202,6 +231,12 @@ pub fn plan(
             plan.paths.insert(*file, path.clone());
             plan.moved.remove(file);
         }
+    }
+
+    if !unresolved.is_empty() {
+        // Whole-record: a partially resolved merge is a state, and the only
+        // place to keep it would be the repository.
+        return Err(RecordError::Unresolved { files: unresolved });
     }
 
     Ok(plan)
@@ -218,8 +253,11 @@ pub fn record(
     recording: &Recording,
     entropy: &mut impl Entropy,
 ) -> Result<Recorded, RecordError> {
-    let plan = plan(store, working, recording.onto, &recording.moves, entropy)?;
-    if plan.is_empty() {
+    let plan = plan(store, working, recording, entropy)?;
+    // A merge that states nothing still says something: these two lines of
+    // work are one now, which is what `04-merge.rev` is and why it names no
+    // operation document at all.
+    if plan.is_empty() && recording.parents.len() < 2 {
         return Err(RecordError::NothingToRecord);
     }
 
@@ -231,7 +269,7 @@ pub fn record(
     let change = entropy.change()?;
     let document = RevisionDocument {
         change,
-        parents: recording.onto.into_iter().collect(),
+        parents: recording.parents.iter().copied().collect(),
         supersedes: BTreeSet::new(),
         author: recording.author.clone(),
         when: recording.when.clone(),
@@ -249,19 +287,23 @@ pub fn record(
     // Decision 0011: a bookmark that named the parent's change follows the
     // work forward. A `revision` bookmark is the pin that must not move.
     let mut advanced = Vec::new();
-    if let Some(parent) = recording.onto
-        && let Some(before) = store.get(&parent).map(|document| document.change)
-    {
-        let following: Vec<String> = store
-            .names()
-            .iter()
-            .filter(|(_, target)| **target == Name::Change(before))
-            .map(|(name, _)| name.clone())
-            .collect();
-        for name in following {
-            store.set_name(&name, Name::Change(change))?;
-            advanced.push(name);
-        }
+    let followed: BTreeSet<ChangeId> = recording
+        .parents
+        .iter()
+        .filter_map(|parent| store.get(parent).map(|document| document.change))
+        .collect();
+    let following: Vec<String> = store
+        .names()
+        .iter()
+        .filter(|(_, target)| match target {
+            Name::Change(change) => followed.contains(change),
+            Name::Revision(_) => false,
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in following {
+        store.set_name(&name, Name::Change(change))?;
+        advanced.push(name);
     }
 
     Ok(Recorded {
@@ -292,6 +334,11 @@ fn one_file_at(tree: &Tree, path: &str) -> Result<FileId, RecordError> {
 pub enum RecordError {
     /// Nothing about the folder differs from the parent.
     NothingToRecord,
+    /// A merge whose contested files still hold what the renderer wrote.
+    Unresolved {
+        /// Each file, and how many marker lines still stand in it.
+        files: Vec<(String, usize)>,
+    },
     /// A `--move` naming a path the tree does not hold.
     NotInTheTree {
         /// The path as given.
@@ -355,6 +402,21 @@ impl fmt::Display for RecordError {
                 f,
                 "nothing here differs from what is already recorded, and a \
                  revision that states nothing would mean nothing"
+            ),
+            RecordError::Unresolved { files } => write!(
+                f,
+                "concurrent work is still marked in {}; resolve {} and delete \
+                 the lines historica wrote:{}",
+                if files.len() == 1 {
+                    "one file"
+                } else {
+                    "these files"
+                },
+                if files.len() == 1 { "it" } else { "them" },
+                files
+                    .iter()
+                    .map(|(path, lines)| format!("\n  {path} ({lines} left)"))
+                    .collect::<String>()
             ),
             RecordError::NotInTheTree { path } => write!(
                 f,

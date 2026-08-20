@@ -144,14 +144,24 @@ is what recording a merge will ask of them. `check` walks each head's whole
 ancestry rather than stopping at the first merge, so a concurrent history is
 held to the same standard a linear one is.
 
-What it does not do yet is record one. 0012 decides how a contested span is
-rendered into the working copy and how a resolution is recorded, and none of
-that is built; neither is amending, which needs the same machinery pointed at
-a descendant, nor abandoning a revision that has one. The ordering rule is
-held to convergence and to non-interleaving by property tests over every walk
-order of each graph they generate; the conformance suite 0007 asks for,
-against the reference implementation, is still owed. Binary content has a
-shape in 0008 and no implementation.
+The `conflict` module is the view a person edits. Decision 0012 keeps nothing
+conflicted in the format — two heads already are the conflict, and 0007's walk
+recomputes it from the same files on every machine — so a contested span is
+rendered into the working copy between marker lines, with each run inside it
+labelled by the revision that wrote it. `historica merge` writes that view and
+prints the command that records it; `record --merge` recomputes the merge,
+refuses while any line the renderer wrote still stands in a contested file, and
+otherwise diffs the folder against *the merge result*, so what it records is
+exactly the resolution. Detection is per line and scoped to a merge record,
+which is why this repository can hold a decision document full of marker lines
+and record it without complaint.
+
+What is still owed is the rewriting half: amending needs the same machinery
+pointed at a descendant, and abandoning a revision that has one needs it too.
+The ordering rule is held to convergence and to non-interleaving by property
+tests over every walk order of each graph they generate; the conformance suite
+0007 asks for, against the reference implementation, is still owed. Binary
+content has a shape in 0008 and no implementation.
 
 ## The command line
 
