@@ -81,6 +81,16 @@ impl State {
         &self.items
     }
 
+    /// A file assembled from items that came from somewhere else.
+    ///
+    /// [`crate::merge`] produces items rather than text, because a merge is a
+    /// statement about which items survived rather than about bytes.
+    pub fn from_items(items: impl IntoIterator<Item = Item>) -> Self {
+        Self {
+            items: items.into_iter().collect(),
+        }
+    }
+
     /// How many items the file has.
     pub fn len(&self) -> usize {
         self.items.len()

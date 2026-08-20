@@ -67,6 +67,16 @@ items disagree with the parent it claims to edit is refused there, rather than
 absorbed into a merge, and so is a result that would leave a line without a
 terminator anywhere but at the end.
 
+The `merge` module is the one decision 0007 spent itself on: concurrent
+branches merge by replaying their event graph, and the structure that resolves
+concurrency is built during that walk and thrown away at the end, so nothing a
+merge needs is ever written down. An item's name is derived — item *i* of
+revision *R* is `(R, i)`, and *R* is a digest of readable bytes — and ties are
+broken by that name, never by a timestamp. Runs written by one author stay
+whole, which is the guarantee Fugue was chosen for. A merge returns the content
+and the spans where concurrent work met, so a tool can decline to record an
+automatic merge and show a person both versions instead.
+
 The `tree` module is the file set, specified by 0008. A revision records what
 it did to it — `add`, `move`, `drop`, `edit` — as headers in the revision
 document, and the tree at a revision is what replaying those facts produces.
@@ -98,12 +108,15 @@ it claims to have edited, which is the error 0007 asked for and 0008 unblocked.
 A store can materialise a file — `tree` and `content` at a revision — and
 refuses a history with a merge in it rather than ordering it arbitrarily.
 
-It intentionally does not yet merge. Concurrent branches need the Eg-walker
-replay decided in 0007 and the tree rules decided in 0008, and neither is
-built, so anything with a merge in its ancestry is refused rather than
-guessed at — by the store when it is asked for a file, and by `check`, which
-checks a concurrent history as far as its merges and no further. Binary content
-has a shape in 0008 and no implementation. There is no command-line front end yet; `init`, `check`, and
+What it does not yet do is use that merge for anything. A caller assembles the
+events itself: the store still refuses a history with a merge in it rather than
+materialising one, `check` still checks a concurrent history as far as its
+merges and no further, and 0008's rules for concurrent tree facts — a `drop`
+that loses to an edit, two files claiming one path — are decided and unbuilt.
+The ordering rule is held to convergence and to non-interleaving by property
+tests over every walk order of each graph they generate; the conformance suite
+0007 asks for, against the reference implementation, is still owed. Binary
+content has a shape in 0008 and no implementation. There is no command-line front end yet; `init`, `check`, and
 `arrange` exist as decisions, and the first two as library operations. Those
 should be built against readable examples rather than hidden behind
 abstractions.
