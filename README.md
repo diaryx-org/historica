@@ -214,9 +214,10 @@ Choices that constrain later work are written down as they are made.
   merge rule could never be, and the replacement anchoring 0007 left ambiguous.
 - [`docs/decisions/0010-writer.md`](docs/decisions/0010-writer.md) — the three
   facts a writer supplies and nothing can derive: 96 bits from the operating
-  system, an author stated in configuration rather than guessed, and the clock
-  at the moment of recording. A rewrite the tool performs on its own behalf
-  copies all three, so two replicas that rebase one change write one file.
+  system, an author stated in a person's own configuration rather than guessed
+  or kept beside the history, and the clock at the moment of recording. A
+  rewrite the tool performs on its own behalf copies all three, so two replicas
+  that rebase one change write one file.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

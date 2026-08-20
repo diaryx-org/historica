@@ -12,8 +12,9 @@ writer — which is why `diff` exists and `record` does not.
 - **A change ID is 96 bits from the operating system's random source**, minted
   when a person records work that is not a version of work already recorded,
   and copied by every later revision of that change.
-- **An author is stated in configuration and never guessed.** A writer with no
-  author refuses to record and says which file to write and what to put in it.
+- **An author is stated in configuration and never guessed** — the person's own
+  configuration, per path and never per repository. A writer with no author
+  refuses to record and says which file to write and what to put in it.
 - **A time is the system clock at the moment of recording**, spelled in the
   offset the platform reports for that instant.
 
@@ -85,12 +86,24 @@ The author comes from the first of these that says anything:
    dependency.
 
 The file holds header-shaped lines, the grammar `names/` already uses: a key,
-one space, a value to the end of the line.
+one space, a value to the end of the line. A blank line starts a new block, and
+a block headed by `under` applies to the repositories beneath one directory.
 
 ```console
 $ cat ~/.config/historica/identity
 author Adam Harris <adam@example.com>
+
+under ~/work/
+author Adam Harris <adam@company.example>
 ```
+
+Blocks exist so that a path and a name never share a line. This format has no
+quoting anywhere — 0002 spends a paragraph on why — and a directory may hold a
+space, so the two facts get a line each. The first block heads nothing and is
+the default; a later one names a directory, and the longest matching prefix
+wins, compared by path component against the canonical path of the directory
+holding the store, so `~/work` matches `~/work/journal` and never `~/workshop`.
+Two blocks claiming one directory are an error naming the line.
 
 It is read the way a bookmark is read (0006) rather than the way a revision is
 read, because nothing here is named by a digest of its bytes and a second
@@ -111,10 +124,23 @@ thing to invent on their behalf. Refusing costs one line of configuration,
 once. `historica identity "Adam Harris <adam@example.com>"` writes it, so the
 refusal can name a command rather than a paragraph.
 
+**Identity is per-person and per-path, never per-repository.** One person may
+keep a journal under one name and contribute to a shared repository under
+another, which is the case the `under` blocks answer — and they answer it from
+the personal file rather than from a file beside the store, because a file
+beside the store travels. A store moves by being copied (0003), and so does the
+folder holding it; an identity that travelled with it would arrive on someone
+else's machine and record *as its owner*, silently, since 0005 makes the author
+a claim nothing verifies. Misattribution is a worse failure than inconvenience.
+
+The cost is that a folder does not say which name it will be recorded under.
+That is the right side of the trade: which name a person writes under is a fact
+about the person, not about the work, and it becomes visible in the revision
+the moment one is recorded.
+
 Reading the author out of `~/.gitconfig` is rejected for a smaller reason: it
 would make Historica's claim depend on another tool's configuration, invisible
-from any file this project defines, and different for a person who keeps their
-journal under one name and their work under another.
+from any file this project defines.
 
 `revised-by` follows 0005 unchanged: it is the recorder, written only when it
 differs from `author`, because a fact equal to another fact is a second
@@ -131,10 +157,22 @@ nothing interprets it. Since 0005 copies `when` forward, an amended revision
 keeps the moment its change was first recorded, and `revised` carries the later
 act.
 
-The instant is the system clock. Nothing checks it: 0005 already declines to
+The instant is the system clock. Nothing refuses it: 0005 already declines to
 require `revised` to be later than `when`, on the ground that no timestamp
 participates in identity, causality, or ordering, and a clock that is wrong
 misleads a reader without misleading the model.
+
+The front end says something, though, because one wrong clock is worth
+catching. A machine with no battery or no network says 1970, and 0005 copies
+that into every later revision of the change, so a person can accumulate a year
+of entries filed under a date that has not been true for half a century. When
+the instant being recorded is earlier than the newest `when` the store already
+holds, `record` warns and records anyway. Machines that talk to a time server
+agree within seconds, so this fires on a clock that is genuinely broken; when
+it fires because somebody *else's* clock is broken, it is still saying
+something true about the history. The comparison is the front end's, on the
+same terms as the one `historica log` already makes — presentation may order
+timestamps, and the writer may not.
 
 The offset is the one the platform reports for that instant, so a person who
 writes at seven in the evening has an entry dated that evening, in June and in
@@ -191,18 +229,28 @@ The new parent of a carried-along revision is a rewrite, so it carries
 `supersedes` and therefore carries `revised`: the value always exists. And it
 reads truthfully. Such a descendant was not revised by whoever's machine
 noticed first; it was revised by the act that rewrote its ancestor, at the
-moment of that act. Every
-descendant down the line inherits the same pair, so an amendment and the
-rebases it forces are legible as one event, which is what they are.
+moment of that act. Every descendant down the line inherits the same pair, so
+an amendment and the rebases it forces are legible as one event, which is what
+they are.
 
-Where a rebased revision has more than one rewritten parent — a merge whose
-sides were both amended — the pair comes from the parent whose `revised` is the
-later instant, with the greater digest winning a tie. That is a comparison of
-two claims to choose a rendering, not an ordering of history, so 0002's
-prohibition is not in play; the digest tie-break is there because two clocks
-may read alike and two replicas must still agree. This is the part of this
-document most likely to be wrong, and it is cheap to change: it decides what
-future rebases write and rewrites nothing already written.
+Where such a revision has more than one rewritten parent — a merge whose sides
+were both amended — the pair comes from the parent with the greater digest, and
+the timestamps are not consulted.
+
+The obvious rule is the later of the two `revised` instants, and it is rejected
+on purpose. It would mean the writer parsing two offsets and ordering two
+clocks, which is the one capability three decisions have each refused to grant,
+and refusing it in prose while granting it in code is how a rule stops being
+visible. Digest order is what every other tie in this format is broken by, it
+needs no new sentence to justify, and it costs a rendering only in the rare
+case where the earlier of two amendments is the one credited — with both
+amendments still plainly in the graph for anyone reading.
+
+That draws a line worth stating outright. **Comparison of timestamps lives in
+presentation and never in the model.** `historica log` already breaks ties
+among concurrent revisions by `when` as spelled, deliberately and with a note
+saying so, because a rendering that reorders itself misleads nobody about
+history. A writer producing bytes has no such licence.
 
 `tests/corpus/revisions/06-rebased.rev` stamps a rebase two seconds after the
 amendment that forced it, because it was hand-written before this decision
@@ -243,10 +291,15 @@ cannot be scripted, and the file it would be asking about is one command away.
 **A monotonic or logical clock in `when`.** Ordering is the graph's job, and a
 field that looked like an ordering would be read as one.
 
-**Refusing a clock that reads earlier than the parent's `when`.** It would make
-a timestamp participate in validity, which is the weight three decisions have
-denied it, and it would refuse legitimate history from a machine whose clock is
-merely wrong.
+**An identity file beside the store.** Above: it would travel with the history
+and record as its owner on someone else's machine.
+
+**Refusing a clock that disagrees with the store.** Warning is the whole of
+what is warranted. A refusal would make a timestamp participate in validity,
+which is the weight three decisions have denied it, and would turn away
+legitimate history from a machine whose clock is merely wrong — including
+history recorded by somebody whose clock was right and whose colleague's was
+not.
 
 ## Consequences
 
@@ -264,30 +317,58 @@ merely wrong.
   `RevisionDocument`, and the store gains no new file: an identity lives with
   the person, not with the history, because a store copied to a second machine
   must not carry the first machine's owner.
-- Three tests are owed and are the ones worth naming. Two machines rebasing one
+- Four tests are owed and are the ones worth naming. Two machines rebasing one
   change onto one rewritten parent write byte-identical documents — the claim
-  0002 makes and this document keeps. A writer with no author refuses, and the
-  message names the file and the line. And a revision composed from a fixed
-  clock and a fixed draw is byte-identical to the corpus file that pins it,
-  which is what makes the writer testable at all.
+  0002 makes and this document keeps. A merge carried along by two amendments
+  takes its pair from the greater digest, whichever amendment came first by the
+  clock. A writer with no author refuses, and the message names the file and
+  the line. And a revision composed from a fixed clock and a fixed draw is
+  byte-identical to the corpus file that pins it, which is what makes the
+  writer testable at all.
 - 0005's first open question is answered. 0002's rebase convergence claim
   acquires the rule that makes it true.
-- The `historica record` command is owed, and so is `historica identity`. What
-  a working copy *is* — which files a repository tracks, where they live, and
-  what is recorded when several changed at once — is not decided here and is
-  the next decision.
+- The front end owes `historica record`, `historica identity` — which writes a
+  block rather than a line, so a second identity costs no hand-editing — and
+  the clock warning above, which belongs beside `log`'s tie-break as the second
+  place a timestamp may be compared.
 
-## Open questions
+## Signatures, and what they can attest
 
-1. **Per-repository identity.** One person keeping a journal under one name and
-   contributing to a public repository under another has no answer here but the
-   environment variable. A second identity file, beside the store rather than
-   in it, is the obvious shape and has no user yet.
-2. **The multi-parent rebase tie-break**, flagged above as the part most likely
-   to be wrong.
-3. **Signatures**, which are the only thing that would make `author` evidence
-   rather than a claim. Nothing here should make signing harder: a signature
-   covers bytes, and 0004's growth rule already says how a header arrives.
-4. **Whether recording should warn about a clock** that reads earlier than the
-   parent's `when`. A warning is presentation and would break no rule; whether
-   it is worth the noise is a question for the front end.
+Signatures are a later decision, but two things about them are settled by rules
+that already exist, and a writer built now should not contradict either.
+
+**The shape is nearly forced.** A signature covers bytes, and 0002 established
+that a revision cannot state its own digest, because the digest covers the
+file. A `signed-by` header fails for the same reason twice over: signing
+changes the bytes, which changes what was signed. So a signature is a detached
+document naming a revision's digest — a third document type in the store,
+content-addressed, append-only, unioning by copy like everything else, and
+costing the revision grammar nothing.
+
+**Deterministic rebase is the precondition.** This was not the reason for the
+rule above, and it is the best evidence for it. A signature over a revision is
+worthless to a replica that would have produced a different revision from the
+same inputs: two machines rebasing one change onto one rewritten parent would
+hold two files, one signature, and no way to check the other. Because a
+carried-along rebase now derives every fact from its cause, both machines hold
+one file, and a signature over it is valid on both. Signing survives automatic
+rebase only in a format where automatic rebase converges.
+
+What a signature will not be able to say is worth writing down before anyone
+expects it. A signature attests that a key produced these bytes. `author` is
+copied forward, so a reviewer's signature on an amended revision attests the
+reviewer's bytes and says nothing about whether the author line is true.
+**Signed history verifies revisions; it never verifies changes** — the same
+boundary 0001 drew around change IDs, arriving one layer up.
+
+## Deferred
+
+**Binding a key to an author.** A signature needs a key, and a key needs to be
+bound to something a revision states, which is the moment `author` stops being
+free text. That is decision 0005's second open question — whether an author is
+a line or a structured identity — reached from the other direction, and the two
+should be answered in one document rather than separately.
+
+**What a working copy is.** Which files a repository tracks, where they live,
+and what is recorded when several changed at once. This document decides what a
+writer supplies; the next one decides what it is given.
