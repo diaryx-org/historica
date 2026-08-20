@@ -1,0 +1,10 @@
+historica-v0
+
+delete 0 1
+-The first paragraph, as it was written.
+insert 0
++The first paragraph, entirely rewritten.
+delete 2 1
+-The second paragraph, as it was written.
+insert 2
++The second paragraph, entirely rewritten.

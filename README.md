@@ -63,6 +63,16 @@ items disagree with the parent it claims to edit is refused there, rather than
 absorbed into a merge, and so is a result that would leave a line without a
 terminator anywhere but at the end.
 
+The `diff` module is the writing half, specified by 0009. Given the file at a
+revision's parent and the file as it stands, it records what the revision did:
+line matching from `similar`, configured to histogram and to no deadline, and
+then Historica's own rules — maximal runs, a replacement anchored at the removed
+run's start, and a result that parses whatever the matcher hands over. A file
+that did not change names no document at all. `tests/corpus/diffs/` holds a
+before, an after, and the document recorded for the pair, for the choices a
+property test cannot see; `examples/matchers.rs` is the measurement decision
+0009 chose the matcher on.
+
 The `store` module is that format on disk. It loads a `history/` directory by
 reading files and never their names, so renaming every revision in a store
 changes no identity and breaks no reference — which is what lets a store be
@@ -74,14 +84,12 @@ sync tool's conflicted copy is a legitimate state and is reported as one.
 
 It intentionally does not yet merge. Concurrent branches need the Eg-walker
 replay decided in 0007, and none of that is built, so a caller supplies the
-chain a file is replayed along; nothing links a revision to its operation
+chain a file is replayed along. Nothing links a revision to its operation
 documents either, because that link is the tree, which 0007 defers to 0008, and
 that is also why `check` cannot yet hold a document to the parent it edits.
-Neither is there a diff: operations are read and replayed, and recording them
-from an edited file is the writing half, which nothing here does. There is no
-command-line front end yet; `init`, `check`, and `arrange` exist as decisions,
-and the first two as library operations. Those should be built against readable
-examples rather than hidden behind abstractions.
+There is no command-line front end yet; `init`, `check`, and `arrange` exist as
+decisions, and the first two as library operations. Those should be built
+against readable examples rather than hidden behind abstractions.
 
 ## Decisions
 
@@ -128,4 +136,5 @@ format exists to make:
 ```console
 cd tests/corpus/revisions && shasum -a 256 -c MANIFEST
 cd tests/corpus/operations && shasum -a 256 -c MANIFEST
+cd tests/corpus/diffs && shasum -a 256 -c MANIFEST
 ```

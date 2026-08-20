@@ -1,0 +1,4 @@
+# Historica
+
+An experiment in readable, convergent version control.
+Nothing here chooses a document syntax yet.

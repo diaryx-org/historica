@@ -7,6 +7,7 @@
 #![deny(missing_docs)]
 
 pub mod core;
+pub mod diff;
 pub mod format;
 pub mod replay;
 pub mod store;

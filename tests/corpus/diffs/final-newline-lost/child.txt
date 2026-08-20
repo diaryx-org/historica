@@ -1,0 +1,3 @@
+# Historica
+
+An experiment in readable, convergent version control.

@@ -47,7 +47,7 @@ pub const NO_NEWLINE: &str = "\\ no newline";
 /// so an item that lacks one is spelled by the [`NO_NEWLINE`] marker instead.
 /// An item's text may hold a carriage return, because a CRLF document is a
 /// thing people have and this is content rather than the format's own line.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Item {
     /// The line's bytes, terminator excluded.
     pub text: String,
