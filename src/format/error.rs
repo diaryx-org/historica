@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-/// Why a revision document was refused.
+/// Why a document was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     /// The 1-based line, or 0 when the fault is the whole file.
@@ -33,7 +33,11 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-/// The specific fault, one variant per rule a revision document must keep.
+/// The specific fault, one variant per rule a document must keep.
+///
+/// The first variants are rules both documents keep; the rest belong to one or
+/// the other, because only one of them has headers and only one has
+/// operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ParseErrorKind {
@@ -125,6 +129,79 @@ pub enum ParseErrorKind {
     RedundantRevisedBy,
     /// A separator with nothing after it.
     EmptyBodyAfterSeparator,
+    /// An operation document without the blank line that follows its preamble.
+    MissingSeparator,
+    /// An operation document that records no operation.
+    NoOperations,
+    /// A line that is neither an operation nor content.
+    UnknownOperation {
+        /// The line as spelled in the file.
+        found: String,
+    },
+    /// An operation line with the wrong number of fields.
+    MalformedOperation {
+        /// The keyword whose line was wrong.
+        keyword: &'static str,
+    },
+    /// A position or count that was not a plain decimal number.
+    MalformedNumber {
+        /// The field as spelled in the file.
+        found: String,
+    },
+    /// A `delete` that removes nothing.
+    EmptyDelete,
+    /// An `insert` that adds nothing.
+    EmptyInsert,
+    /// A `delete` whose count and `-` lines disagree.
+    DeleteCountDisagrees {
+        /// What the `delete` line said.
+        stated: usize,
+        /// How many `-` lines followed it.
+        found: usize,
+    },
+    /// A `-` or `+` line with no operation above it.
+    ContentWithoutOperation {
+        /// The prefix byte the line opened with.
+        prefix: char,
+    },
+    /// An operation whose position is behind the one before it.
+    OperationsOutOfOrder {
+        /// This operation's position.
+        position: usize,
+        /// The position it wrongly followed.
+        after: usize,
+    },
+    /// An operation that begins inside the region of the one before it.
+    OverlappingOperations {
+        /// This operation's position.
+        position: usize,
+    },
+    /// Two `delete` operations that meet, which remove one run.
+    AdjacentDeletes {
+        /// Where the merged run begins.
+        at: usize,
+        /// How many items the merged run removes.
+        total: usize,
+    },
+    /// A `delete` written after an `insert` at one position.
+    DeleteAfterInsert {
+        /// The contested position.
+        position: usize,
+    },
+    /// Two `insert` operations at one position, which are one insert.
+    InsertsAtOnePosition {
+        /// The contested position.
+        position: usize,
+    },
+    /// A carriage return in an operation document's own line.
+    CarriageReturnInOperation,
+    /// A `\ no newline` marker with no item above it.
+    NoNewlineWithoutItem,
+    /// A `\ no newline` marker on an item that is not the file's last.
+    NoNewlineNotLast {
+        /// The prefix byte of the items it should have marked the last of.
+        prefix: char,
+    },
 }
 
 impl fmt::Display for ParseErrorKind {
@@ -133,12 +210,12 @@ impl fmt::Display for ParseErrorKind {
         match self {
             Empty => write!(
                 f,
-                "a revision document is never empty; it opens with `{}`",
+                "a Historica document is never empty; it opens with `{}`",
                 super::PREAMBLE
             ),
             NotUtf8 => write!(
                 f,
-                "a revision document is UTF-8; re-save this file as UTF-8"
+                "a Historica document is UTF-8; re-save this file as UTF-8"
             ),
             ByteOrderMark => write!(
                 f,
@@ -150,16 +227,16 @@ impl fmt::Display for ParseErrorKind {
             ),
             UnterminatedLine => write!(
                 f,
-                "every line above the message ends with a newline; add one"
+                "every line the parser reads ends with a newline; add one"
             ),
             MissingPreamble => write!(
                 f,
-                "a revision document opens with `{}`; add it as the first line",
+                "a Historica document opens with `{}`; add it as the first line",
                 super::PREAMBLE
             ),
             UnknownVersion { found } => write!(
                 f,
-                "this revision is version {found} and this is a version 0 reader; \
+                "this document is version {found} and this is a version 0 reader; \
                  upgrade Historica rather than trusting what it would leave out"
             ),
             MalformedKey { key } => write!(
@@ -232,6 +309,100 @@ impl fmt::Display for ParseErrorKind {
                 f,
                 "an empty message is spelled with no blank line at all; \
                  delete the blank line"
+            ),
+            MissingSeparator => write!(
+                f,
+                "an operation document is a preamble, a blank line, and operations; \
+                 add the blank line"
+            ),
+            NoOperations => write!(
+                f,
+                "a revision that changes nothing about a file names no operation document; \
+                 write what this one did, or delete the file and the line that names it"
+            ),
+            UnknownOperation { found } => write!(
+                f,
+                "`{found}` is not an operation; \
+                 write `delete P N`, `insert P`, `-item`, `+item`, or `{}`",
+                super::NO_NEWLINE
+            ),
+            MalformedOperation { keyword } => match *keyword {
+                "delete" => write!(
+                    f,
+                    "`delete` takes a position and a count, as in `delete 3 1`; \
+                     write both, separated by one space"
+                ),
+                _ => write!(
+                    f,
+                    "`insert` takes one position, as in `insert 4`; \
+                     the items follow on their own lines"
+                ),
+            },
+            MalformedNumber { found } => write!(
+                f,
+                "`{found}` is not a position: decimal digits, no sign, and no leading zero, \
+                 counted from zero into the parent; write it plainly"
+            ),
+            EmptyDelete => write!(
+                f,
+                "a `delete` removes at least one item, and one that removes none is \
+                 an absent fact spelled out loud; delete the line"
+            ),
+            EmptyInsert => write!(
+                f,
+                "an `insert` adds at least one item; add a `+` line, or delete the `insert`"
+            ),
+            DeleteCountDisagrees { stated, found } => write!(
+                f,
+                "this `delete` states {stated} items and {found} follow it; \
+                 the `-` lines are what a reader checks the count against, so make them agree"
+            ),
+            ContentWithoutOperation { prefix } => write!(
+                f,
+                "a `{prefix}` line is content and belongs to the operation above it, \
+                 and there is none; add the `delete` or `insert` line"
+            ),
+            OperationsOutOfOrder { position, after } => write!(
+                f,
+                "operations are written in ascending position order, and {position} \
+                 follows {after}; move this operation up"
+            ),
+            OverlappingOperations { position } => write!(
+                f,
+                "operations describe separate regions of the parent, and this one starts \
+                 at {position}, inside the region above it; merge the two, or move this one \
+                 past the end of that region"
+            ),
+            AdjacentDeletes { at, total } => write!(
+                f,
+                "these two `delete` lines remove one unbroken run, which is one fact; \
+                 write them as `delete {at} {total}`"
+            ),
+            DeleteAfterInsert { position } => write!(
+                f,
+                "at position {position} a `delete` is written before an `insert`, the way \
+                 every diff spells a replacement; move the `delete` and its `-` lines up"
+            ),
+            InsertsAtOnePosition { position } => write!(
+                f,
+                "two `insert` lines at position {position} are one insert; \
+                 merge their `+` lines into the first"
+            ),
+            CarriageReturnInOperation => write!(
+                f,
+                "a carriage return in the format's own line changes this document's identity; \
+                 delete it — a `-` or `+` line may hold one, because that is content"
+            ),
+            NoNewlineWithoutItem => write!(
+                f,
+                "`{}` describes the line above it, and there is none; delete it",
+                super::NO_NEWLINE
+            ),
+            NoNewlineNotLast { prefix } => write!(
+                f,
+                "`{}` marks a file's last line, and `{prefix}` lines come after this one; \
+                 move it under the last of them, or delete it",
+                super::NO_NEWLINE
             ),
         }
     }

@@ -1,0 +1,9 @@
+historica-v0
+
+delete 0 1
+-# Historica
+insert 0
++# Historica, an experiment
+insert 2
++Readable files are the authority; deleting a cache loses nothing.
++

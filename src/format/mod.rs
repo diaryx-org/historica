@@ -1,4 +1,4 @@
-//! The readable revision document, and the digest that names it.
+//! The readable documents a history is stored as, and the digests that name them.
 //!
 //! A revision is one text file, specified by `docs/decisions/0002-revision-document.md`
 //! and made strict by `docs/decisions/0004-parser-contract.md`:
@@ -19,6 +19,12 @@
 //!
 //! Authorship lives here rather than in [`crate::core`] because no part of
 //! causality reads it, for the reasons in `docs/decisions/0005-authorship.md`.
+//!
+//! [`OperationDocument`] is the format's second document, specified by
+//! `docs/decisions/0007-content-and-merge.md`: what one revision did to one
+//! file. It opens with the same preamble and reads under the same contract, so
+//! a person learns one shape and a parser reads a preamble the same way in
+//! both.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -28,9 +34,11 @@ use sha2::{Digest, Sha256};
 use crate::core::{CHANGE_ID_LEN, ChangeId, Revision, RevisionId};
 
 mod error;
+mod operations;
 mod timestamp;
 
 pub use error::{ParseError, ParseErrorKind};
+pub use operations::{Item, NO_NEWLINE, Operation, OperationDocument, OperationKind};
 pub use timestamp::Timestamp;
 
 /// The preamble every revision document opens with.
@@ -174,34 +182,28 @@ struct Header {
     value: String,
 }
 
-struct Parser<'a> {
+/// A cursor over a document's lines, shared by the format's two parsers.
+///
+/// Every line comes back with whether it was terminated, because a file that
+/// stops mid-line is a fault rather than a shorter last line.
+struct Lines<'a> {
     text: &'a str,
     cursor: usize,
+    /// The 1-based number of the line last returned, or 0 before the first.
     line: usize,
 }
 
-impl<'a> Parser<'a> {
-    fn new(bytes: &'a [u8]) -> Result<Self, ParseError> {
-        if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-            return Err(ParseError::new(1, ParseErrorKind::ByteOrderMark));
-        }
-        // A carriage return is rejected wherever it appears, body included: it
-        // would let an editor silently change a revision's identity.
-        if let Some(offset) = bytes.iter().position(|byte| *byte == b'\r') {
-            let line = 1 + bytes[..offset].iter().filter(|b| **b == b'\n').count();
-            return Err(ParseError::new(line, ParseErrorKind::CarriageReturn));
-        }
-        let text =
-            std::str::from_utf8(bytes).map_err(|_| ParseError::new(0, ParseErrorKind::NotUtf8))?;
-        Ok(Self {
+impl<'a> Lines<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
             text,
             cursor: 0,
             line: 0,
-        })
+        }
     }
 
     /// The next line and whether it was terminated, or `None` at end of input.
-    fn next_line(&mut self) -> Option<(&'a str, bool)> {
+    fn next(&mut self) -> Option<(&'a str, bool)> {
         if self.cursor >= self.text.len() {
             return None;
         }
@@ -219,6 +221,76 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Everything after the last line returned, unread and uninterpreted.
+    fn rest(&self) -> &'a str {
+        &self.text[self.cursor..]
+    }
+
+    /// Where the cursor stands, so that a lookahead can be undone.
+    fn mark(&self) -> (usize, usize) {
+        (self.cursor, self.line)
+    }
+
+    fn reset(&mut self, (cursor, line): (usize, usize)) {
+        self.cursor = cursor;
+        self.line = line;
+    }
+}
+
+/// Refuse a byte order mark, which is part of the digest and invisible.
+fn check_byte_order_mark(bytes: &[u8]) -> Result<(), ParseError> {
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        return Err(ParseError::new(1, ParseErrorKind::ByteOrderMark));
+    }
+    Ok(())
+}
+
+/// Hold a document's first line to the preamble.
+///
+/// Both documents in the format open this way, for decision 0004's reasons: a
+/// file says how to hash itself, and can be identified by content rather than
+/// by the extension it happens to carry.
+fn check_preamble(line: &str, terminated: bool) -> Result<(), ParseError> {
+    if line != PREAMBLE {
+        let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
+            ParseErrorKind::UnknownVersion {
+                found: version.to_owned(),
+            }
+        } else {
+            ParseErrorKind::MissingPreamble
+        };
+        return Err(ParseError::new(1, kind));
+    }
+    if !terminated {
+        return Err(ParseError::new(1, ParseErrorKind::UnterminatedLine));
+    }
+    Ok(())
+}
+
+struct Parser<'a> {
+    lines: Lines<'a>,
+}
+
+impl<'a> Parser<'a> {
+    fn new(bytes: &'a [u8]) -> Result<Self, ParseError> {
+        check_byte_order_mark(bytes)?;
+        // A carriage return is rejected wherever it appears, body included: it
+        // would let an editor silently change a revision's identity.
+        if let Some(offset) = bytes.iter().position(|byte| *byte == b'\r') {
+            let line = 1 + bytes[..offset].iter().filter(|b| **b == b'\n').count();
+            return Err(ParseError::new(line, ParseErrorKind::CarriageReturn));
+        }
+        let text =
+            std::str::from_utf8(bytes).map_err(|_| ParseError::new(0, ParseErrorKind::NotUtf8))?;
+        Ok(Self {
+            lines: Lines::new(text),
+        })
+    }
+
+    fn next_line(&mut self) -> Option<(&'a str, bool)> {
+        self.lines.next()
+    }
+
     fn run(mut self) -> Result<RevisionDocument, ParseError> {
         self.preamble()?;
         let (headers, message) = self.headers_and_message()?;
@@ -229,31 +301,18 @@ impl<'a> Parser<'a> {
         let Some((line, terminated)) = self.next_line() else {
             return Err(ParseError::new(1, ParseErrorKind::Empty));
         };
-        if line != PREAMBLE {
-            let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
-                ParseErrorKind::UnknownVersion {
-                    found: version.to_owned(),
-                }
-            } else {
-                ParseErrorKind::MissingPreamble
-            };
-            return Err(ParseError::new(1, kind));
-        }
-        if !terminated {
-            return Err(ParseError::new(1, ParseErrorKind::UnterminatedLine));
-        }
-        Ok(())
+        check_preamble(line, terminated)
     }
 
     /// Read the header block, then take the message verbatim to the last byte.
     fn headers_and_message(&mut self) -> Result<(Vec<Header>, String), ParseError> {
         let mut headers = Vec::new();
         while let Some((line, terminated)) = self.next_line() {
-            let at = self.line;
+            let at = self.lines.line;
             if line.is_empty() {
                 // The separator. Everything after it is the message, and there
                 // must be some, or an empty message would have two spellings.
-                let message = &self.text[self.cursor..];
+                let message = self.lines.rest();
                 if message.is_empty() {
                     return Err(ParseError::new(at, ParseErrorKind::EmptyBodyAfterSeparator));
                 }
@@ -350,7 +409,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let last = self.line;
+        let last = self.lines.line;
         let change = change.ok_or_else(|| {
             ParseError::new(last, ParseErrorKind::MissingHeader { key: "change" })
         })?;

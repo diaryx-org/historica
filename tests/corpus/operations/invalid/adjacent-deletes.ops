@@ -1,0 +1,7 @@
+historica-v0
+
+delete 0 2
+-one
+-two
+delete 2 1
+-three

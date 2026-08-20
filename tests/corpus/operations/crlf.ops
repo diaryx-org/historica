@@ -1,0 +1,6 @@
+historica-v0
+
+delete 1 1
+-A CRLF file is a thing people have.
+insert 2
++A CRLF file is a thing people have, and its carriage returns are content.

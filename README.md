@@ -37,6 +37,22 @@ files are a real five-change history containing a merge, an amendment by a
 reviewer, and the rewrite that amendment forced; nine more are invalid, each
 for one stated reason that `tests/corpus.rs` holds the parser to.
 
+The same module reads and writes the operation document, which is what one
+revision did to one file: a list of deletes and inserts against the state at
+that revision's parents, positions counted into the parent rather than into
+the document being built. It is as strict as the revision document and for the
+same reason — operations ascend, never overlap, and never state one fact twice,
+so one byte sequence parses per edit and the digest can cover the file. Items
+are lines, so an item may hold a carriage return that the format's own lines
+may not, and a file whose last line has no terminator says so in one place.
+
+`tests/corpus/operations/` is that half of the specification. The numbered
+files are the edits the numbered revisions made to one file, with a gap at 04
+because a merge that changes nothing about a file names no operation document;
+three more pin the rules that no revision happened to exercise, and seventeen
+invalid ones are each refused for their own stated reason by
+`tests/operations.rs`.
+
 The `store` module is that format on disk. It loads a `history/` directory by
 reading files and never their names, so renaming every revision in a store
 changes no identity and breaks no reference — which is what lets a store be
@@ -46,11 +62,14 @@ without loading it and separates errors, which mean the store contradicts
 itself, from notes, which never fail: an undelivered parent, a duplicate, or a
 sync tool's conflicted copy is a legitimate state and is reported as one.
 
-It intentionally does not yet choose a tree model, or implement the content and
-merge model decided in 0007. There is no command-line front end yet either;
-`init`, `check`, and `arrange` exist as decisions, and the first two as library
-operations. Those should be built against readable examples
-rather than hidden behind abstractions.
+It intentionally does not yet replay those operations. Materialising a file,
+merging concurrent branches through Eg-walker, and the `cache/` that would hold
+the result are all decided in 0007 and none of them are built; nothing links a
+revision to its operation documents either, because that link is the tree, which
+0007 defers to 0008. There is no command-line front end yet; `init`, `check`,
+and `arrange` exist as decisions, and the first two as library operations. Those
+should be built against readable examples rather than hidden behind
+abstractions.
 
 ## Decisions
 
@@ -75,7 +94,8 @@ Choices that constrain later work are written down as they are made.
   an error rather than a note.
 - [`docs/decisions/0007-content-and-merge.md`](docs/decisions/0007-content-and-merge.md)
   — a revision records what it did rather than what a file is, and concurrent
-  edits merge by replay rather than by three-way heuristic.
+  edits merge by replay rather than by three-way heuristic. Examples live in
+  [`tests/corpus/operations`](tests/corpus/operations).
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
@@ -92,4 +112,5 @@ format exists to make:
 
 ```console
 cd tests/corpus/revisions && shasum -a 256 -c MANIFEST
+cd tests/corpus/operations && shasum -a 256 -c MANIFEST
 ```

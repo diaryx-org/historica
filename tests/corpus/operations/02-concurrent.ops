@@ -1,0 +1,7 @@
+historica-v0
+
+delete 3 1
+-Nothing here chooses a document syntax yet.
+insert 4
++Model causality before content: immutable revisions, explicit parents, and a
++history that merges by union.

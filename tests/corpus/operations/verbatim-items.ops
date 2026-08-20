@@ -1,0 +1,10 @@
+historica-v0
+
+insert 0
++historica-v0
++
++insert 4
++-not a deletion
++\ no newline, read here as prose
++  padded with spaces  
++a	tab, “curly quotes”, and the alchemical symbol 🌛

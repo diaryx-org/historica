@@ -1,0 +1,8 @@
+historica-v0
+
+delete 4 1
+-and this last line ends without a newline.
+\ no newline
+insert 5
++and this last line still ends without a newline.
+\ no newline

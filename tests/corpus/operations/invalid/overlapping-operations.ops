@@ -1,0 +1,8 @@
+historica-v0
+
+delete 0 3
+-one
+-two
+-three
+insert 1
++inside a run that is being removed
