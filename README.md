@@ -108,6 +108,9 @@ Choices that constrain later work are written down as they are made.
   — a revision records what it did rather than what a file is, and concurrent
   edits merge by replay rather than by three-way heuristic. Examples live in
   [`tests/corpus/operations`](tests/corpus/operations).
+- [`docs/decisions/0009-diff.md`](docs/decisions/0009-diff.md) — how operations
+  are recorded from an edited file, why the matcher is a dependency where the
+  merge rule could never be, and the replacement anchoring 0007 left ambiguous.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
