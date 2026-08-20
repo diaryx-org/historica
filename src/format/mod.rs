@@ -31,7 +31,7 @@ use std::fmt;
 
 use sha2::{Digest, Sha256};
 
-use crate::core::{CHANGE_ID_LEN, ChangeId, Revision, RevisionId};
+use crate::core::{CHANGE_ID_LEN, ChangeId, FileId, Revision, RevisionId};
 
 mod error;
 mod operations;
@@ -86,6 +86,14 @@ pub struct RevisionDocument {
     pub revised_by: Option<String>,
     /// When this revision was produced. Present exactly when `supersedes` is.
     pub revised: Option<Timestamp>,
+    /// Files this revision brings into existence, and where it puts them.
+    pub added: BTreeMap<FileId, String>,
+    /// Files this revision moves, and where to.
+    pub moved: BTreeMap<FileId, String>,
+    /// Files this revision removes.
+    pub dropped: BTreeSet<FileId>,
+    /// The operation document this revision contributed to each file it edited.
+    pub edited: BTreeMap<FileId, RevisionId>,
     /// Advisory `x-` headers, keyed by their full spelling including the prefix.
     pub extensions: BTreeMap<String, String>,
     /// The message, verbatim. Empty means the file had no separator at all.
@@ -122,6 +130,18 @@ impl RevisionDocument {
         }
         if let Some(revised) = &self.revised {
             out.push_str(&format!("revised {revised}\n"));
+        }
+        for (file, path) in &self.added {
+            out.push_str(&format!("add {file} {path}\n"));
+        }
+        for (file, path) in &self.moved {
+            out.push_str(&format!("move {file} {path}\n"));
+        }
+        for file in &self.dropped {
+            out.push_str(&format!("drop {file}\n"));
+        }
+        for (file, document) in &self.edited {
+            out.push_str(&format!("edit {file} {document}\n"));
         }
         for (key, value) in &self.extensions {
             out.push_str(&format!("{key} {value}\n"));
@@ -165,14 +185,21 @@ fn rank(key: &str) -> Option<u8> {
         "when" => Some(4),
         "revised-by" => Some(5),
         "revised" => Some(6),
-        key if key.starts_with("x-") => Some(7),
+        // Decision 0008's tree facts: existence first, then content, each
+        // sorted by file because the file comes first on the line. That order
+        // is what gives 0007 the total order operation identity needs.
+        "add" => Some(7),
+        "move" => Some(8),
+        "drop" => Some(9),
+        "edit" => Some(10),
+        key if key.starts_with("x-") => Some(11),
         _ => None,
     }
 }
 
 /// Whether a rank may appear more than once.
 fn repeatable(rank: u8) -> bool {
-    matches!(rank, 1 | 2 | 7)
+    matches!(rank, 1 | 2 | 7 | 8 | 9 | 10 | 11)
 }
 
 /// One header line, kept with its position so an error can name it.
@@ -339,6 +366,10 @@ impl<'a> Parser<'a> {
         let mut when: Option<Timestamp> = None;
         let mut revised_by: Option<String> = None;
         let mut revised: Option<Timestamp> = None;
+        let mut added: BTreeMap<FileId, String> = BTreeMap::new();
+        let mut moved: BTreeMap<FileId, String> = BTreeMap::new();
+        let mut dropped: BTreeSet<FileId> = BTreeSet::new();
+        let mut edited: BTreeMap<FileId, RevisionId> = BTreeMap::new();
         let mut extensions: BTreeMap<String, String> = BTreeMap::new();
 
         let mut previous: Option<(u8, String, String)> = None;
@@ -370,7 +401,7 @@ impl<'a> Parser<'a> {
                     }
                     // Repeated facts sort by digest, and `x-` headers by key,
                     // so that a deterministic rewrite is deterministic in bytes.
-                    let (this_sort, last_sort) = if this_rank == 7 {
+                    let (this_sort, last_sort) = if this_rank == 11 {
                         (&key, last_key)
                     } else {
                         (&value, last_value)
@@ -403,6 +434,53 @@ impl<'a> Parser<'a> {
                 "when" => when = Some(Timestamp::parse(&value, at)?),
                 "revised-by" => revised_by = Some(value),
                 "revised" => revised = Some(Timestamp::parse(&value, at)?),
+                "add" | "move" => {
+                    let adding = key == "add";
+                    let key = if adding { "add" } else { "move" };
+                    let (file, path) = split_entry(&value, at, key)?;
+                    let file = parse_file_id(file, at)?;
+                    let path = parse_path(path, at)?;
+                    let seen = if adding {
+                        added.insert(file, path)
+                    } else {
+                        moved.insert(file, path)
+                    };
+                    if seen.is_some() {
+                        return Err(ParseError::new(
+                            at,
+                            ParseErrorKind::FileStatedTwice {
+                                key,
+                                file: file.to_string(),
+                            },
+                        ));
+                    }
+                }
+                "drop" => {
+                    let file = parse_file_id(&value, at)?;
+                    if !dropped.insert(file) {
+                        return Err(ParseError::new(
+                            at,
+                            ParseErrorKind::FileStatedTwice {
+                                key: "drop",
+                                file: file.to_string(),
+                            },
+                        ));
+                    }
+                }
+                "edit" => {
+                    let (file, document) = split_entry(&value, at, "edit")?;
+                    let file = parse_file_id(file, at)?;
+                    let document = parse_digest(document, at, "edit")?;
+                    if edited.insert(file, document).is_some() {
+                        return Err(ParseError::new(
+                            at,
+                            ParseErrorKind::FileStatedTwice {
+                                key: "edit",
+                                file: file.to_string(),
+                            },
+                        ));
+                    }
+                }
                 _ => {
                     extensions.insert(key, value);
                 }
@@ -446,6 +524,38 @@ impl<'a> Parser<'a> {
             return Err(ParseError::new(last, ParseErrorKind::RedundantRevisedBy));
         }
 
+        // Decision 0008: one revision says one thing about one file's
+        // existence. `add` with `move` states a path twice, `drop` with
+        // anything else contradicts itself.
+        let contradiction = |first: &'static str, second: &'static str, file: &FileId| {
+            ParseError::new(
+                last,
+                ParseErrorKind::ContradictoryFileFacts {
+                    first,
+                    second,
+                    file: file.to_string(),
+                },
+            )
+        };
+        for file in added.keys() {
+            if moved.contains_key(file) {
+                return Err(contradiction("add", "move", file));
+            }
+            if dropped.contains(file) {
+                return Err(contradiction("add", "drop", file));
+            }
+        }
+        for file in moved.keys() {
+            if dropped.contains(file) {
+                return Err(contradiction("move", "drop", file));
+            }
+        }
+        for file in &dropped {
+            if edited.contains_key(file) {
+                return Err(contradiction("drop", "edit", file));
+            }
+        }
+
         Ok(RevisionDocument {
             change,
             parents,
@@ -454,6 +564,10 @@ impl<'a> Parser<'a> {
             when,
             revised_by,
             revised,
+            added,
+            moved,
+            dropped,
+            edited,
             extensions,
             message,
         })
@@ -486,6 +600,62 @@ fn split_header(line: &str, at: usize) -> Result<(String, String), ParseError> {
         return Err(ParseError::new(at, ParseErrorKind::ControlCharacter));
     }
     Ok((key.to_owned(), value.to_owned()))
+}
+
+/// Split `<file> <rest>`, which every tree header but `drop` is shaped like.
+fn split_entry<'a>(
+    value: &'a str,
+    at: usize,
+    key: &'static str,
+) -> Result<(&'a str, &'a str), ParseError> {
+    value
+        .split_once(' ')
+        .ok_or_else(|| ParseError::new(at, ParseErrorKind::MalformedFileEntry { key }))
+}
+
+fn parse_file_id(value: &str, at: usize) -> Result<FileId, ParseError> {
+    value.parse().map_err(|_| {
+        ParseError::new(
+            at,
+            ParseErrorKind::MalformedFileId {
+                found: value.to_owned(),
+            },
+        )
+    })
+}
+
+/// A path under decision 0008: UTF-8, relative, and with no escape.
+fn parse_path(value: &str, at: usize) -> Result<String, ParseError> {
+    let refuse = |because: &'static str| {
+        Err(ParseError::new(
+            at,
+            ParseErrorKind::MalformedPath {
+                found: value.to_owned(),
+                because,
+            },
+        ))
+    };
+    if value.is_empty() {
+        return refuse("it is empty");
+    }
+    if value.starts_with('/') {
+        return refuse("it begins with `/`, and a path is relative to the repository root");
+    }
+    if value.ends_with('/') {
+        return refuse("it ends with `/`, and a path names a file rather than a directory");
+    }
+    if value.starts_with(' ') || value.ends_with(' ') {
+        return refuse("it has leading or trailing space");
+    }
+    for component in value.split('/') {
+        if component.is_empty() {
+            return refuse("it has an empty component");
+        }
+        if component == "." || component == ".." {
+            return refuse("`.` and `..` are not components");
+        }
+    }
+    Ok(value.to_owned())
 }
 
 fn parse_change_id(value: &str, at: usize) -> Result<ChangeId, ParseError> {
@@ -774,6 +944,172 @@ mod tests {
         other.parents = one.parents.iter().rev().copied().collect();
         assert_eq!(one.write(), other.write());
         assert_eq!(one.id(), other.id());
+    }
+
+    const FILE: &str = "lqxstvnmpkwyzrolvtsqnkxm";
+    const OTHER_FILE: &str = "ptkwnrvzlmyxqsotnkwlpvzr";
+
+    #[test]
+    fn a_revision_says_what_it_did_to_the_file_set() {
+        let headers = [
+            CHANGE,
+            AUTHOR,
+            WHEN,
+            &format!("add {FILE} notes/2025-08-19.md"),
+            &format!("move {OTHER_FILE} notes/archive/2025-08-01.md"),
+            &format!("drop {}", "wnkyzrtlmqvsxopwnztkylrv"),
+            &format!("edit {FILE} {A}"),
+        ]
+        .map(String::from);
+        let lines: Vec<&str> = headers.iter().map(String::as_str).collect();
+
+        let document = accept(&lines, Some("m"));
+        assert_eq!(
+            document.added.values().next().map(String::as_str),
+            Some("notes/2025-08-19.md")
+        );
+        assert_eq!(document.moved.len(), 1);
+        assert_eq!(document.dropped.len(), 1);
+        assert_eq!(document.edited.len(), 1);
+        assert_eq!(document.write(), file(&lines, Some("m")));
+    }
+
+    #[test]
+    fn tree_headers_sort_the_way_a_file_identifier_reads() {
+        // The alphabet runs backwards against the bytes it encodes, so a map
+        // ordered by bytes would write these two lines in the order the parser
+        // refuses. This is that trap, held open.
+        let first = "k".repeat(CHANGE_ID_CHARS);
+        let last = "z".repeat(CHANGE_ID_CHARS);
+        let document = accept(
+            &[
+                CHANGE,
+                AUTHOR,
+                WHEN,
+                &format!("add {first} a.md"),
+                &format!("add {last} b.md"),
+            ],
+            Some("m"),
+        );
+        let written = String::from_utf8(document.write()).expect("UTF-8");
+        assert!(
+            written.find(&first) < written.find(&last),
+            "written in the order the parser reads: {written}"
+        );
+        RevisionDocument::parse(&document.write()).expect("what it writes, it reads");
+    }
+
+    #[test]
+    fn one_revision_says_one_thing_about_one_files_existence() {
+        let add = format!("add {FILE} a.md");
+        let moved = format!("move {FILE} b.md");
+        let dropped = format!("drop {FILE}");
+        let edited = format!("edit {FILE} {A}");
+
+        // Creating a file with content, and moving one while editing it, are
+        // the ordinary combinations.
+        accept(&[CHANGE, AUTHOR, WHEN, &add, &edited], Some("m"));
+        accept(&[CHANGE, AUTHOR, WHEN, &moved, &edited], Some("m"));
+
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &add, &moved], Some("m")),
+            ParseErrorKind::ContradictoryFileFacts {
+                first: "add",
+                second: "move",
+                file: FILE.to_owned(),
+            }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &add, &dropped], Some("m")),
+            ParseErrorKind::ContradictoryFileFacts {
+                first: "add",
+                second: "drop",
+                file: FILE.to_owned(),
+            }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &dropped, &edited], Some("m")),
+            ParseErrorKind::ContradictoryFileFacts {
+                first: "drop",
+                second: "edit",
+                file: FILE.to_owned(),
+            }
+        );
+        // The same header twice for one file states one fact twice.
+        assert_eq!(
+            refuse(
+                &[CHANGE, AUTHOR, WHEN, &add, &format!("add {FILE} zz.md")],
+                Some("m")
+            ),
+            ParseErrorKind::FileStatedTwice {
+                key: "add",
+                file: FILE.to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_path_is_relative_utf_8_with_no_escape() {
+        let good = [
+            "a.md",
+            "notes/2025-08-19.md",
+            "notes/deeply/nested/entry.md",
+            "a file with spaces.md",
+            "\\backslash-is-an-ordinary-character.md",
+            "curly “quotes” and 🌛.md",
+        ];
+        for path in good {
+            accept(
+                &[CHANGE, AUTHOR, WHEN, &format!("add {FILE} {path}")],
+                Some("m"),
+            );
+        }
+
+        let bad = [
+            "/absolute.md",
+            "trailing/",
+            "double//slash.md",
+            "./relative.md",
+            "../escape.md",
+            "notes/../escape.md",
+            " leading-space.md",
+        ];
+        for path in bad {
+            assert!(
+                matches!(
+                    refuse(
+                        &[CHANGE, AUTHOR, WHEN, &format!("add {FILE} {path}")],
+                        Some("m")
+                    ),
+                    ParseErrorKind::MalformedPath { .. }
+                ),
+                "`{path}` should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tree_header_names_a_file_and_one_other_thing() {
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &format!("add {FILE}")], Some("m")),
+            ParseErrorKind::MalformedFileEntry { key: "add" }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &format!("edit {FILE}")], Some("m")),
+            ParseErrorKind::MalformedFileEntry { key: "edit" }
+        );
+        assert!(matches!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &format!("drop {A}")], Some("m")),
+            ParseErrorKind::MalformedFileId { .. }
+        ));
+        // A digest where a file ID belongs, and the other way round.
+        assert!(matches!(
+            refuse(
+                &[CHANGE, AUTHOR, WHEN, &format!("edit {FILE} {OTHER_FILE}")],
+                Some("m")
+            ),
+            ParseErrorKind::MalformedDigest { .. }
+        ));
     }
 
     #[test]

@@ -46,6 +46,10 @@ so one byte sequence parses per edit and the digest can cover the file. Items
 are lines, so an item may hold a carriage return that the format's own lines
 may not, and a file whose last line has no terminator says so in one place.
 
+`tests/corpus/tree/` is a history of two files with a rename in it, and the
+first corpus where the revisions and the operation documents describe one
+history together rather than narrating the same one separately.
+
 `tests/corpus/operations/` is that half of the specification. The numbered
 files are the edits the numbered revisions made to one file, with a gap at 04
 because a merge that changes nothing about a file names no operation document;
@@ -62,6 +66,13 @@ also where a `delete` line's redundancy is spent — a document whose recorded
 items disagree with the parent it claims to edit is refused there, rather than
 absorbed into a merge, and so is a result that would leave a line without a
 terminator anywhere but at the end.
+
+The `tree` module is the file set, specified by 0008. A revision records what
+it did to it — `add`, `move`, `drop`, `edit` — as headers in the revision
+document, and the tree at a revision is what replaying those facts produces.
+Files carry identifiers and paths hang off them, so a rename keeps everything
+recorded against the file and no heuristic has to recover the connection later.
+There are no directories: one exists exactly when a file's path names it.
 
 The `diff` module is the writing half, specified by 0009. Given the file at a
 revision's parent and the file as it stands, it records what the revision did:
@@ -83,13 +94,15 @@ itself, from notes, which never fail: an undelivered parent, a duplicate, or a
 sync tool's conflicted copy is a legitimate state and is reported as one.
 
 It intentionally does not yet merge. Concurrent branches need the Eg-walker
-replay decided in 0007, and none of that is built, so a caller supplies the
-chain a file is replayed along. Nothing links a revision to its operation
-documents either, because that link is the tree, which 0007 defers to 0008, and
-that is also why `check` cannot yet hold a document to the parent it edits.
-There is no command-line front end yet; `init`, `check`, and `arrange` exist as
-decisions, and the first two as library operations. Those should be built
-against readable examples rather than hidden behind abstractions.
+replay decided in 0007 and the tree rules decided in 0008, and neither is
+built, so a caller supplies the chain a file or a tree is replayed along. The
+store still reads only revisions, so `check` cannot yet hold an operation
+document to the parent it edits, though the corpus test does exactly that and
+the tree is what made it possible. Binary content has a shape in 0008 and no
+implementation. There is no command-line front end yet; `init`, `check`, and
+`arrange` exist as decisions, and the first two as library operations. Those
+should be built against readable examples rather than hidden behind
+abstractions.
 
 ## Decisions
 
@@ -140,4 +153,5 @@ format exists to make:
 cd tests/corpus/revisions && shasum -a 256 -c MANIFEST
 cd tests/corpus/operations && shasum -a 256 -c MANIFEST
 cd tests/corpus/diffs && shasum -a 256 -c MANIFEST
+cd tests/corpus/tree && shasum -a 256 -c MANIFEST
 ```

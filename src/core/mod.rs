@@ -12,6 +12,7 @@
 //! - a [`ChangeId`], assigned once and copied forward through every rewrite,
 //!   answering *are these the same piece of work?*.
 
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
@@ -109,8 +110,20 @@ fn hex_nibble(character: u8) -> Option<u8> {
 /// Amending, describing, or rebasing produces a new [`Revision`] of the same
 /// change. A change ID is assigned rather than derived, so nothing about it can
 /// be verified: it must never be a security boundary.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChangeId([u8; CHANGE_ID_LEN]);
+
+impl Ord for ChangeId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        spelled_order(&self.0, &other.0)
+    }
+}
+
+impl PartialOrd for ChangeId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl ChangeId {
     /// Wrap bytes minted elsewhere.
@@ -136,12 +149,7 @@ impl ChangeId {
 
 impl fmt::Display for ChangeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in &self.0 {
-            let high = REVERSE_HEX[usize::from(byte >> 4)] as char;
-            let low = REVERSE_HEX[usize::from(byte & 0x0f)] as char;
-            write!(f, "{high}{low}")?;
-        }
-        Ok(())
+        f.write_str(&spell(&self.0))
     }
 }
 
@@ -155,19 +163,124 @@ impl FromStr for ChangeId {
     type Err = InvalidChangeId;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let value = value.as_bytes();
-        if value.len() != CHANGE_ID_LEN * 2 {
-            return Err(InvalidChangeId);
-        }
-
-        let mut bytes = [0u8; CHANGE_ID_LEN];
-        for (slot, pair) in bytes.iter_mut().zip(value.chunks_exact(2)) {
-            let high = reverse_hex_nibble(pair[0]).ok_or(InvalidChangeId)?;
-            let low = reverse_hex_nibble(pair[1]).ok_or(InvalidChangeId)?;
-            *slot = (high << 4) | low;
-        }
-        Ok(Self(bytes))
+        decipher(value).map(Self).ok_or(InvalidChangeId)
     }
+}
+
+/// Bytes in a [`FileId`], which is a [`ChangeId`]'s size for its reasons.
+pub const FILE_ID_LEN: usize = CHANGE_ID_LEN;
+
+/// The identity of one file, independent of where it sits.
+///
+/// Decision 0008: a path is a fact *about* a file rather than the file's name,
+/// so that renaming one keeps the operations recorded against it. The
+/// identifier is minted rather than derived for the reason 0001 gave about
+/// change IDs — a derived identifier changes when the thing it derives from is
+/// rewritten, and every later line naming it would then name nothing.
+///
+/// It is spelled exactly as a [`ChangeId`] is, in an alphabet no digest can be
+/// mistaken for. Nothing in the causal core reads it; it is here because
+/// identity is what this module is for.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FileId([u8; FILE_ID_LEN]);
+
+impl Ord for FileId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        spelled_order(&self.0, &other.0)
+    }
+}
+
+impl PartialOrd for FileId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl FileId {
+    /// Wrap bytes minted elsewhere.
+    pub const fn from_bytes(bytes: [u8; FILE_ID_LEN]) -> Self {
+        Self(bytes)
+    }
+
+    /// The raw bytes.
+    pub const fn as_bytes(&self) -> &[u8; FILE_ID_LEN] {
+        &self.0
+    }
+
+    /// The leading `chars` characters of the readable spelling.
+    pub fn abbreviate(&self, chars: usize) -> String {
+        self.to_string().chars().take(chars).collect()
+    }
+}
+
+impl fmt::Display for FileId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&spell(&self.0))
+    }
+}
+
+impl fmt::Debug for FileId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "FileId({})", self.abbreviate(8))
+    }
+}
+
+impl FromStr for FileId {
+    type Err = InvalidFileId;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        decipher(value).map(Self).ok_or(InvalidFileId)
+    }
+}
+
+/// A file ID that was not the right length, or not in the right alphabet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidFileId;
+
+impl fmt::Display for InvalidFileId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "a file ID is {} characters from the alphabet `k` to `z`",
+            FILE_ID_LEN * 2
+        )
+    }
+}
+
+impl std::error::Error for InvalidFileId {}
+
+/// Order two assigned identifiers the way their spellings order.
+///
+/// [`REVERSE_HEX`] runs backwards — nibble 0 is `z` and nibble 15 is `k` — so
+/// ordering by bytes would order two identifiers differently from the readable
+/// file that records them, and a document sorted by one would be rejected by a
+/// parser checking the other. The readable file is the authority here as
+/// everywhere, so this compares as it reads: backwards through the bytes.
+fn spelled_order(left: &[u8], right: &[u8]) -> Ordering {
+    right.cmp(left)
+}
+
+/// The readable spelling of an assigned identifier.
+fn spell(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(REVERSE_HEX[usize::from(byte >> 4)] as char);
+        out.push(REVERSE_HEX[usize::from(byte & 0x0f)] as char);
+    }
+    out
+}
+
+/// Read an assigned identifier of `N` bytes, or `None` if it is not one.
+fn decipher<const N: usize>(value: &str) -> Option<[u8; N]> {
+    let value = value.as_bytes();
+    if value.len() != N * 2 {
+        return None;
+    }
+    let mut bytes = [0u8; N];
+    for (slot, pair) in bytes.iter_mut().zip(value.chunks_exact(2)) {
+        *slot = (reverse_hex_nibble(pair[0])? << 4) | reverse_hex_nibble(pair[1])?;
+    }
+    Some(bytes)
 }
 
 fn reverse_hex_nibble(character: u8) -> Option<u8> {

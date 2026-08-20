@@ -129,6 +129,39 @@ pub enum ParseErrorKind {
     RedundantRevisedBy,
     /// A separator with nothing after it.
     EmptyBodyAfterSeparator,
+    /// A tree header that did not carry both of its fields.
+    MalformedFileEntry {
+        /// The header whose line was wrong.
+        key: &'static str,
+    },
+    /// A file identifier was not 24 characters of `k` to `z`.
+    MalformedFileId {
+        /// The value as spelled in the file.
+        found: String,
+    },
+    /// A path broke one of decision 0008's rules.
+    MalformedPath {
+        /// The path as spelled in the file.
+        found: String,
+        /// What specifically was wrong with it.
+        because: &'static str,
+    },
+    /// One header said two things about one file.
+    FileStatedTwice {
+        /// The header that repeated itself.
+        key: &'static str,
+        /// The file both lines named.
+        file: String,
+    },
+    /// Two headers said things about one file that cannot both hold.
+    ContradictoryFileFacts {
+        /// The header that came first.
+        first: &'static str,
+        /// The header that contradicts it.
+        second: &'static str,
+        /// The file both name.
+        file: String,
+    },
     /// An operation document without the blank line that follows its preamble.
     MissingSeparator,
     /// An operation document that records no operation.
@@ -309,6 +342,43 @@ impl fmt::Display for ParseErrorKind {
                 f,
                 "an empty message is spelled with no blank line at all; \
                  delete the blank line"
+            ),
+            MalformedFileEntry { key } => match *key {
+                "edit" => write!(
+                    f,
+                    "`edit` names a file and the digest of its operation document; \
+                     write both, separated by one space"
+                ),
+                key => write!(
+                    f,
+                    "`{key}` names a file and a path; write both, separated by one space"
+                ),
+            },
+            MalformedFileId { found } => write!(
+                f,
+                "`{found}` is not a file ID: {} characters of `k` to `z`, \
+                 the same alphabet a change ID uses and no digest can be mistaken for; \
+                 copy the ID this file already has, or mint a new one",
+                super::CHANGE_ID_CHARS
+            ),
+            MalformedPath { found, because } => write!(
+                f,
+                "`{found}` is not a path ({because}); \
+                 write components separated by `/`, relative to the repository root"
+            ),
+            FileStatedTwice { key, file } => write!(
+                f,
+                "two `{key}` lines name the file {file}, which states one fact twice; \
+                 delete one of them"
+            ),
+            ContradictoryFileFacts {
+                first,
+                second,
+                file,
+            } => write!(
+                f,
+                "the file {file} is named by both `{first}` and `{second}` in one revision, \
+                 and they cannot both hold; keep the one that says what happened"
             ),
             MissingSeparator => write!(
                 f,

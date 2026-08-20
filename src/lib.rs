@@ -11,3 +11,4 @@ pub mod diff;
 pub mod format;
 pub mod replay;
 pub mod store;
+pub mod tree;
