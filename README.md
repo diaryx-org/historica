@@ -223,6 +223,11 @@ Choices that constrain later work are written down as they are made.
   — the folder beside the store is the working copy, `history/skipped` says
   what it does not take, the parent is the head, and a rename is the one fact
   a person has to state. Nothing is remembered between commands.
+- [`docs/decisions/0012-conflicts.md`](docs/decisions/0012-conflicts.md) —
+  nothing conflicted is ever recorded, because two heads already are the
+  conflict; contested spans are rendered into the working copy with markers a
+  merge record refuses to accept, and a contested path is stated on the command
+  line rather than invented.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
