@@ -10,6 +10,8 @@ pub mod core;
 pub mod diff;
 pub mod format;
 pub mod merge;
+pub mod record;
 pub mod replay;
 pub mod store;
 pub mod tree;
+pub mod working;

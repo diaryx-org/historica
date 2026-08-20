@@ -6,6 +6,7 @@
 //! It holds the text it validated, which is what makes writing byte-exact.
 
 use std::fmt;
+use std::str::FromStr;
 
 use super::error::{ParseError, ParseErrorKind};
 
@@ -99,6 +100,36 @@ impl Timestamp {
     /// The timestamp as written.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// A timestamp that was not the one spelling this format has.
+///
+/// The parser reports the same fault with a line number attached; this is what
+/// a caller outside a document gets — a writer checking its own clock, or a
+/// test stating a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MalformedTimestamp {
+    because: &'static str,
+}
+
+impl fmt::Display for MalformedTimestamp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "a timestamp is spelled `YYYY-MM-DDThh:mm:ss±hh:mm`, and {}",
+            self.because
+        )
+    }
+}
+
+impl std::error::Error for MalformedTimestamp {}
+
+impl FromStr for Timestamp {
+    type Err = MalformedTimestamp;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::check(value).map_err(|because| MalformedTimestamp { because })
     }
 }
 

@@ -7,5 +7,7 @@ description = "A readable, convergent version-control experiment"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+getrandom = "0.4"
+jiff = "0.2"
 sha2 = "0.11.0"
 similar = "3.2"

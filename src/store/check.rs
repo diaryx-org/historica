@@ -65,6 +65,13 @@ pub enum Finding {
         /// The files in question.
         files: Vec<PathBuf>,
     },
+    /// `skipped` was not rules, which would silently record what it names.
+    MalformedSkipped {
+        /// The file.
+        file: PathBuf,
+        /// Which line, and what was wanted there.
+        error: crate::working::MalformedSkip,
+    },
     /// A bookmark was not one valid line.
     MalformedBookmark {
         /// The bookmark file.
@@ -148,7 +155,8 @@ impl Finding {
             | Finding::MalformedBookmark { .. }
             | Finding::Unreadable { .. }
             | Finding::TreeDisagrees { .. }
-            | Finding::ContentDisagrees { .. } => Severity::Error,
+            | Finding::ContentDisagrees { .. }
+            | Finding::MalformedSkipped { .. } => Severity::Error,
             Finding::MissingParent { .. }
             | Finding::DanglingBookmark { .. }
             | Finding::DuplicateContent { .. }
@@ -190,6 +198,12 @@ impl fmt::Display for Finding {
             Finding::MalformedBookmark { file } => {
                 write!(f, "{}: {}", file.display(), MalformedName)
             }
+            Finding::MalformedSkipped { file, error } => write!(
+                f,
+                "{}: {error}; a rule that does not read would take a file \
+                 somebody asked it to leave",
+                file.display()
+            ),
             Finding::Unreadable { file, reason } => write!(f, "{}: {reason}", file.display()),
             Finding::MissingParent { parent, named_by } => write!(
                 f,
@@ -409,6 +423,15 @@ pub(super) fn check(root: &Path) -> Report {
 
     let operations = check_operations(root, &mut report);
     check_replay(&documents, &operations, &mut report);
+    if let Ok(text) = fs::read_to_string(root.join(crate::working::SKIPPED_FILE))
+        && let Err(error) = crate::working::Skipped::parse(&text)
+    {
+        report.push(Finding::MalformedSkipped {
+            file: root.join(crate::working::SKIPPED_FILE),
+            error,
+        });
+    }
+
     check_names(root, &documents, &mut report);
     report.findings.sort_by_key(|finding| finding.severity());
     report

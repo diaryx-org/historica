@@ -20,6 +20,13 @@ pub fn resolve(store: &Store, spelling: &str) -> Result<RevisionId, Failure> {
         return Err(Failure::usage("a target cannot be empty"));
     }
 
+    // Decision 0011 makes the head the position, so a person may name it.
+    // A bookmark called `head` still wins, because a name somebody chose beats
+    // a word the tool reserved.
+    if spelling == "head" && store.name(spelling).is_none() {
+        return head(store);
+    }
+
     if let Some(bookmark) = store.name(spelling) {
         return match bookmark {
             Name::Revision(id) => held(store, id, &format!("the bookmark `{spelling}`")),
@@ -81,6 +88,19 @@ pub fn file_in(store: &Store, revision: &RevisionId, path: &str) -> Result<FileI
             }
             Err(Failure::error(message))
         }
+    }
+}
+
+/// The one head, or a refusal naming the choice a person has to make.
+fn head(store: &Store) -> Result<RevisionId, Failure> {
+    let heads = store.history().heads();
+    match heads.len() {
+        0 => Err(Failure::error("this store holds no revisions yet")),
+        1 => Ok(heads.into_iter().next().expect("one head")),
+        several => Err(Failure::error(format!(
+            "this store has {several} heads, so `head` names none of them:{}",
+            listed(heads.iter().map(|head| head.abbreviate(12)))
+        ))),
     }
 }
 

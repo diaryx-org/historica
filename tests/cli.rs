@@ -373,3 +373,184 @@ fn a_command_line_that_is_wrong_prints_the_usage_and_exits_two() {
     assert!(help.status.success());
     assert!(String::from_utf8_lossy(&help.stdout).contains("usage: historica"));
 }
+
+/// A repository with an author set, ready to record into.
+fn repository(test: &str) -> PathBuf {
+    let directory = scratch(test);
+    assert!(run(&directory, &["init"]).status.success());
+    directory
+}
+
+/// Run with an author stated, which is how a script records (decision 0010).
+fn recorded(directory: &Path, arguments: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_historica"))
+        .arg("-C")
+        .arg(directory)
+        .args(arguments)
+        .env("HISTORICA_AUTHOR", "Adam Harris <adam@example.com>")
+        .output()
+        .expect("the binary this test crate builds")
+}
+
+fn write(directory: &Path, path: &str, text: &str) {
+    let file = directory.join(path);
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent).expect("a directory");
+    }
+    fs::write(file, text).expect("writing a file");
+}
+
+fn out(output: Output) -> String {
+    assert!(
+        output.status.success(),
+        "failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("printed text")
+}
+
+#[test]
+fn recording_builds_a_history_check_accepts() {
+    let directory = repository("record");
+    write(&directory, "2026-08-20.md", "# Notes\n\nA journal.\n");
+
+    let planned = out(recorded(&directory, &["record", "--dry-run"]));
+    assert!(planned.contains("added   2026-08-20.md"), "{planned}");
+    assert!(
+        out(recorded(&directory, &["log"])).contains("no revisions"),
+        "a dry run records nothing"
+    );
+
+    let first = out(recorded(&directory, &["record", "-m", "Start a journal"]));
+    assert!(first.contains("added   2026-08-20.md"), "{first}");
+    assert!(first.contains("this is a root"), "{first}");
+
+    write(
+        &directory,
+        "2026-08-20.md",
+        "# Notes\n\nA journal.\n\nMore.\n",
+    );
+    let second = out(recorded(&directory, &["record", "-m", "Say more"]));
+    assert!(second.contains("edited  2026-08-20.md"), "{second}");
+
+    assert!(
+        out(recorded(&directory, &["check"])).ends_with("nothing to report\n"),
+        "every revision is held to the file set and the operations it names"
+    );
+    let content = out(recorded(&directory, &["cat", "head", "2026-08-20.md"]));
+    assert_eq!(content, "# Notes\n\nA journal.\n\nMore.\n");
+}
+
+#[test]
+fn a_rename_is_stated_and_performed() {
+    let directory = repository("record-move");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+
+    let moved = out(recorded(
+        &directory,
+        &[
+            "record",
+            "-m",
+            "File the notes",
+            "--move",
+            "notes.md=docs/notes.md",
+        ],
+    ));
+    assert!(moved.contains("moved   docs/notes.md"), "{moved}");
+    assert!(
+        directory.join("docs/notes.md").is_file() && !directory.join("notes.md").exists(),
+        "`--move` performs the rename when a person has not"
+    );
+
+    // The identity survived the rename, which is what file IDs are for.
+    let files = out(recorded(&directory, &["files", "head"]));
+    assert!(files.starts_with("docs/notes.md"), "{files}");
+    let file = files.split_whitespace().next_back().expect("a file ID");
+    let content = out(recorded(&directory, &["cat", "head", file]));
+    assert_eq!(content, "one\n", "the file is the same file it was");
+
+    // And a deletion needs no flag at all.
+    fs::remove_file(directory.join("docs/notes.md")).expect("removing a file");
+    let dropped = out(recorded(&directory, &["record", "-m", "Withdraw it"]));
+    assert!(dropped.contains("dropped docs/notes.md"), "{dropped}");
+    assert!(out(recorded(&directory, &["files", "head"])).contains("no files"));
+}
+
+#[test]
+fn a_bookmark_follows_the_work_forward() {
+    let directory = repository("record-bookmark");
+    write(&directory, "a.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+    out(recorded(&directory, &["name", "main", "head"]));
+
+    write(&directory, "a.md", "two\n");
+    let second = out(recorded(&directory, &["record", "-m", "Second"]));
+    assert!(second.contains("main -> "), "{second}");
+
+    let named = out(recorded(&directory, &["names"]));
+    let logged = out(recorded(&directory, &["log"]));
+    let head = logged.lines().next().expect("a head").split_whitespace();
+    let change = head.into_iter().next().expect("a change ID");
+    assert!(named.contains(change), "{named} should follow {change}");
+}
+
+#[test]
+fn what_the_format_cannot_hold_is_refused_by_name() {
+    let directory = repository("record-refusals");
+    write(&directory, "fine.md", "text\n");
+    fs::write(directory.join("picture.bin"), [0xff, 0xfe, 0x00]).expect("bytes");
+
+    let refused = recorded(&directory, &["record", "-m", "Everything"]);
+    assert!(!refused.status.success());
+    let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(complaint.contains("picture.bin"), "{complaint}");
+    assert!(complaint.contains("skip"), "{complaint}");
+
+    // Which is the fix the message names.
+    write(&directory, "history/skipped", "skip-suffix .bin\n");
+    assert!(out(recorded(&directory, &["record", "-m", "Everything"])).contains("fine.md"));
+
+    // And nothing to say is refused too.
+    let again = recorded(&directory, &["record", "-m", "Again"]);
+    assert!(!again.status.success());
+    assert!(
+        String::from_utf8_lossy(&again.stderr).contains("would mean nothing"),
+        "a revision that states nothing is not recorded"
+    );
+}
+
+#[test]
+fn a_message_that_looks_like_a_comment_survives() {
+    let directory = repository("record-message");
+    write(&directory, "a.md", "one\n");
+    out(recorded(
+        &directory,
+        &["record", "-m", "# A heading, and a body\n\nstill here\n"],
+    ));
+
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(
+        shown.ends_with("# A heading, and a body\n\nstill here\n"),
+        "0002 says the body is never interpreted: {shown}"
+    );
+}
+
+#[test]
+fn recording_without_an_author_refuses_and_says_where_to_say_so() {
+    let directory = repository("record-anonymous");
+    write(&directory, "a.md", "one\n");
+
+    let refused = Command::new(env!("CARGO_BIN_EXE_historica"))
+        .arg("-C")
+        .arg(&directory)
+        .args(["record", "-m", "Anonymous"])
+        .env_remove("HISTORICA_AUTHOR")
+        .env("XDG_CONFIG_HOME", directory.join("nowhere"))
+        .output()
+        .expect("the binary");
+    assert!(!refused.status.success());
+    let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(complaint.contains("historica identity"), "{complaint}");
+    assert!(complaint.contains("nothing is guessed"), "{complaint}");
+}

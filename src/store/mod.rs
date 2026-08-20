@@ -29,6 +29,7 @@ use crate::core::{ChangeId, FileId, History, RevisionId};
 use crate::format::{OperationDocument, PREAMBLE, ParseError, RevisionDocument, digest};
 use crate::replay::{ReplayError, State};
 use crate::tree::{Tree, TreeError};
+use crate::working::{MalformedSkip, SKIPPED_FILE, Skipped};
 
 mod check;
 
@@ -120,6 +121,7 @@ pub struct Store {
     documents: BTreeMap<RevisionId, RevisionDocument>,
     operations: BTreeMap<RevisionId, OperationDocument>,
     names: BTreeMap<String, Name>,
+    skipped: Skipped,
 }
 
 impl Store {
@@ -182,11 +184,14 @@ impl Store {
             names.insert(name, target);
         }
 
+        let skipped = read_skipped(&root)?;
+
         Ok(Self {
             root,
             documents,
             operations,
             names,
+            skipped,
         })
     }
 
@@ -342,6 +347,14 @@ impl Store {
         Ok(state)
     }
 
+    /// What this repository's history does not take.
+    ///
+    /// Decision 0011: `history/skipped` is a fact about the repository rather
+    /// than about the person, so it lives here and travels with the store.
+    pub fn skipped(&self) -> &Skipped {
+        &self.skipped
+    }
+
     /// Every bookmark, by name.
     pub fn names(&self) -> &BTreeMap<String, Name> {
         &self.names
@@ -434,6 +447,19 @@ fn write_once(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
         Err(error) => return Err(StoreError::io(path, error)),
     }
     Ok(())
+}
+
+/// Read `history/skipped`, which a store need not have.
+fn read_skipped(root: &Path) -> Result<Skipped, StoreError> {
+    let path = root.join(SKIPPED_FILE);
+    match fs::read_to_string(&path) {
+        Ok(text) => Skipped::parse(&text).map_err(|error| StoreError::MalformedSkipped {
+            file: path.clone(),
+            error,
+        }),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Skipped::none()),
+        Err(error) => Err(StoreError::io(&path, error)),
+    }
 }
 
 /// Read and validate the store's version header.
@@ -621,6 +647,13 @@ pub enum StoreError {
         /// The bookmark file.
         file: PathBuf,
     },
+    /// `skipped` was not rules.
+    MalformedSkipped {
+        /// The file.
+        file: PathBuf,
+        /// Which line, and what was wanted there.
+        error: MalformedSkip,
+    },
     /// A digest-named file whose bytes are not what its name claims.
     ContentMismatch {
         /// The offending file.
@@ -669,6 +702,9 @@ impl fmt::Display for StoreError {
             }
             StoreError::MalformedName { file } => {
                 write!(f, "{}: {}", file.display(), MalformedName)
+            }
+            StoreError::MalformedSkipped { file, error } => {
+                write!(f, "{}: {error}", file.display())
             }
             StoreError::ContentMismatch { file } => write!(
                 f,

@@ -39,7 +39,7 @@ mod timestamp;
 
 pub use error::{ParseError, ParseErrorKind};
 pub use operations::{Item, NO_NEWLINE, Operation, OperationDocument, OperationKind};
-pub use timestamp::Timestamp;
+pub use timestamp::{MalformedTimestamp, Timestamp};
 
 /// The preamble every revision document opens with.
 ///
@@ -626,15 +626,26 @@ fn parse_file_id(value: &str, at: usize) -> Result<FileId, ParseError> {
 
 /// A path under decision 0008: UTF-8, relative, and with no escape.
 fn parse_path(value: &str, at: usize) -> Result<String, ParseError> {
-    let refuse = |because: &'static str| {
-        Err(ParseError::new(
+    check_path(value).map_err(|because| {
+        ParseError::new(
             at,
             ParseErrorKind::MalformedPath {
                 found: value.to_owned(),
-                because,
+                because: because.0,
             },
-        ))
-    };
+        )
+    })?;
+    Ok(value.to_owned())
+}
+
+/// Whether `value` is a path a revision document may name.
+///
+/// Decision 0008's rules, and 0002's rules for any header value. A writer
+/// checks a path here before composing a document, so that a filename the
+/// format cannot hold is refused where a person can still see which file it
+/// was — rather than inside a parser reading bytes nobody has written yet.
+pub fn check_path(value: &str) -> Result<(), MalformedPath> {
+    let refuse = |because: &'static str| Err(MalformedPath(because));
     if value.is_empty() {
         return refuse("it is empty");
     }
@@ -647,6 +658,9 @@ fn parse_path(value: &str, at: usize) -> Result<String, ParseError> {
     if value.starts_with(' ') || value.ends_with(' ') {
         return refuse("it has leading or trailing space");
     }
+    if value.chars().any(char::is_control) {
+        return refuse("it holds a control character");
+    }
     for component in value.split('/') {
         if component.is_empty() {
             return refuse("it has an empty component");
@@ -655,8 +669,20 @@ fn parse_path(value: &str, at: usize) -> Result<String, ParseError> {
             return refuse("`.` and `..` are not components");
         }
     }
-    Ok(value.to_owned())
+    Ok(())
 }
+
+/// A path the format cannot hold, and why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MalformedPath(&'static str);
+
+impl fmt::Display for MalformedPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for MalformedPath {}
 
 fn parse_change_id(value: &str, at: usize) -> Result<ChangeId, ParseError> {
     value.parse().map_err(|_| {

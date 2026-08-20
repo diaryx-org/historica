@@ -94,6 +94,15 @@ before, an after, and the document recorded for the pair, for the choices a
 property test cannot see; `examples/matchers.rs` is the measurement decision
 0009 chose the matcher on.
 
+The `record` module is the writer 0010 and 0011 specify, and `working` is what
+it is given: the folder beside the store, everything in it tracked except what
+`history/skipped` names. A change ID is 96 bits from the operating system, an
+author comes from a person's own configuration and is never guessed, and the
+time is the clock in the offset the platform reports. Everything else is
+observed by comparing the folder with the tree at the parent — including a
+deletion, which is a fact rather than a heuristic. Only a rename has to be
+stated, with `--move`, which performs it if the person has not.
+
 The `store` module is that format on disk. It loads a `history/` directory by
 reading files and never their names — revisions and operation documents alike,
 so renaming every file in a store changes no identity and breaks no reference — which is what lets a store be
@@ -110,7 +119,8 @@ refuses a history with a merge in it rather than ordering it arbitrarily.
 
 The `historica` binary is the front end decision 0006 said was owed. `init`,
 `check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
-`cat`, and `names` read a store and render it. Nothing there decides anything
+`cat`, and `names` read a store and render it; `record` writes one, and
+`identity` says who is writing. Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.
@@ -127,10 +137,10 @@ that loses to an edit, two files claiming one path — are decided and unbuilt.
 The ordering rule is held to convergence and to non-interleaving by property
 tests over every walk order of each graph they generate; the conformance suite
 0007 asks for, against the reference implementation, is still owed. Binary
-content has a shape in 0008 and no implementation. Nor does any command record
-a revision: 0010 decides where a change ID, an author, and a time come from,
-0011 decides what a writer is given, and `diff` is still the only part of
-either that exists.
+content has a shape in 0008 and no implementation. `record` writes a revision
+against one parent, which is as far as 0011 says a first writer goes: amending,
+recording a merge, and recording where the ancestry holds one all wait on the
+same merge machinery, as does abandoning a revision with descendants.
 
 ## The command line
 

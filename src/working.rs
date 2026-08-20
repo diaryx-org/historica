@@ -1,0 +1,375 @@
+//! The folder beside the store, and what it does not take.
+//!
+//! Specified by `docs/decisions/0011-working-copy.md`. The working copy is the
+//! directory holding `history/`, everything in it is tracked, and
+//! `history/skipped` names the exceptions. Nothing here is remembered between
+//! commands: reading a working copy is a walk of the filesystem, every time.
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+
+use crate::format::check_path;
+use crate::store::STORE_DIR;
+
+/// The file in the store that says what history does not take.
+pub const SKIPPED_FILE: &str = "skipped";
+
+/// What `history/skipped` says.
+///
+/// Two keys, and deliberately no pattern language: decision 0011 argues that
+/// the part people get wrong about gitignore is never the pattern but which of
+/// five files won.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Skipped {
+    rules: Vec<Rule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Rule {
+    /// One exact path.
+    Path(String),
+    /// A directory and everything beneath it. Held without its trailing `/`.
+    Under(String),
+    /// A trailing string, matched against the last component.
+    Suffix(String),
+}
+
+impl Skipped {
+    /// Skip nothing, which is what a store with no such file says.
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// Read the file's text.
+    ///
+    /// An unknown key is an error rather than something to ignore. Decision
+    /// 0011: a reader that ignored a key it had not heard of would record
+    /// files somebody asked it to keep out, into a history that is
+    /// append-only, and refusing to record is the recoverable half of that.
+    pub fn parse(text: &str) -> Result<Self, MalformedSkip> {
+        let mut rules = Vec::new();
+        for (index, line) in text.lines().enumerate() {
+            let at = index + 1;
+            if line.is_empty() {
+                continue;
+            }
+            let (key, value) = line.split_once(' ').ok_or(MalformedSkip {
+                at,
+                because: "a line is a key, a space, and a value",
+            })?;
+            if value.is_empty() || value != value.trim() {
+                return Err(MalformedSkip {
+                    at,
+                    because: "a value is not empty and carries no leading or trailing space",
+                });
+            }
+            rules.push(match key {
+                "skip" if value.ends_with('/') => {
+                    Rule::Under(value.trim_end_matches('/').to_owned())
+                }
+                "skip" => Rule::Path(value.to_owned()),
+                "skip-suffix" => Rule::Suffix(value.to_owned()),
+                _ => {
+                    return Err(MalformedSkip {
+                        at,
+                        because: "the keys are `skip` and `skip-suffix`",
+                    });
+                }
+            });
+        }
+        Ok(Self { rules })
+    }
+
+    /// Whether history takes this path.
+    pub fn skips(&self, path: &str) -> bool {
+        let last = path.rsplit('/').next().unwrap_or(path);
+        self.rules.iter().any(|rule| match rule {
+            Rule::Path(exact) => path == exact,
+            Rule::Under(prefix) => path
+                .strip_prefix(prefix.as_str())
+                .is_some_and(|rest| rest.starts_with('/')),
+            Rule::Suffix(suffix) => last.ends_with(suffix.as_str()),
+        })
+    }
+
+    /// Whether a directory is skipped whole, so that walking it is pointless.
+    fn skips_directory(&self, path: &str) -> bool {
+        self.rules.iter().any(|rule| match rule {
+            Rule::Under(prefix) | Rule::Path(prefix) => path == prefix,
+            Rule::Suffix(_) => false,
+        })
+    }
+
+    /// How many rules the file states.
+    pub fn len(&self) -> usize {
+        self.rules.len()
+    }
+
+    /// Whether the file states no rules.
+    pub fn is_empty(&self) -> bool {
+        self.rules.is_empty()
+    }
+}
+
+/// A line of `history/skipped` that was not one rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MalformedSkip {
+    /// The line, counted from one.
+    pub at: usize,
+    /// What was wanted there.
+    pub because: &'static str,
+}
+
+impl fmt::Display for MalformedSkip {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "line {}: {}", self.at, self.because)
+    }
+}
+
+impl std::error::Error for MalformedSkip {}
+
+/// The tracked files, by path, as the folder stands.
+#[derive(Debug, Clone, Default)]
+pub struct Working {
+    files: BTreeMap<String, PathBuf>,
+}
+
+impl Working {
+    /// Walk `root`, taking every file the rules leave.
+    ///
+    /// `history/` is never tracked and needs no rule. A name that is not UTF-8,
+    /// a symlink, or anything that is not a regular file is refused by name
+    /// rather than skipped quietly: decision 0011 puts the difference between
+    /// losing work and not at one error message.
+    pub fn read(root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
+        let mut files = BTreeMap::new();
+        walk(root, "", skipped, &mut files)?;
+        Ok(Self { files })
+    }
+
+    /// Every tracked path, in order, with where it is on disk.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &PathBuf)> {
+        self.files.iter()
+    }
+
+    /// Where one tracked path is on disk.
+    pub fn get(&self, path: &str) -> Option<&PathBuf> {
+        self.files.get(path)
+    }
+
+    /// Whether the folder holds this path.
+    pub fn holds(&self, path: &str) -> bool {
+        self.files.contains_key(path)
+    }
+
+    /// How many files are tracked.
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    /// Whether nothing is tracked.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    /// One file's text, refused if it is not UTF-8.
+    ///
+    /// 0007's items are lines of text, and 0008's binary shape has no
+    /// implementation, so this is where that boundary is enforced.
+    pub fn text(&self, path: &str) -> Result<String, WorkingError> {
+        let on_disk = self.files.get(path).ok_or_else(|| WorkingError::Missing {
+            path: path.to_owned(),
+        })?;
+        match fs::read_to_string(on_disk) {
+            Ok(text) => Ok(text),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                Err(WorkingError::NotText {
+                    path: path.to_owned(),
+                })
+            }
+            Err(error) => Err(WorkingError::io(on_disk, error)),
+        }
+    }
+}
+
+/// One directory, then its subdirectories, in name order.
+fn walk(
+    directory: &Path,
+    prefix: &str,
+    skipped: &Skipped,
+    files: &mut BTreeMap<String, PathBuf>,
+) -> Result<(), WorkingError> {
+    let mut entries: Vec<_> = fs::read_dir(directory)
+        .map_err(|error| WorkingError::io(directory, error))?
+        .collect::<Result<_, _>>()
+        .map_err(|error| WorkingError::io(directory, error))?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+
+    for entry in entries {
+        let on_disk = entry.path();
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            return Err(WorkingError::NotUtf8 {
+                path: on_disk.to_string_lossy().into_owned(),
+            });
+        };
+        let path = if prefix.is_empty() {
+            name
+        } else {
+            format!("{prefix}/{name}")
+        };
+
+        // The store is not tracked, and says so without a rule.
+        if prefix.is_empty() && path == STORE_DIR {
+            continue;
+        }
+
+        let kind = entry
+            .file_type()
+            .map_err(|error| WorkingError::io(&on_disk, error))?;
+        if kind.is_dir() {
+            if !skipped.skips_directory(&path) {
+                walk(&on_disk, &path, skipped, files)?;
+            }
+            continue;
+        }
+        if skipped.skips(&path) {
+            continue;
+        }
+        if !kind.is_file() {
+            return Err(WorkingError::NotAFile { path });
+        }
+        if let Err(because) = check_path(&path) {
+            return Err(WorkingError::Unusable {
+                path,
+                because: because.to_string(),
+            });
+        }
+        files.insert(path, on_disk);
+    }
+    Ok(())
+}
+
+/// Why a working copy could not be read.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum WorkingError {
+    /// A filename whose bytes are not UTF-8, which 0008 refuses.
+    NotUtf8 {
+        /// The name, rendered as best it can be.
+        path: String,
+    },
+    /// A path the format cannot hold, for a reason it can state.
+    Unusable {
+        /// The path.
+        path: String,
+        /// What is wrong with it.
+        because: String,
+    },
+    /// A symlink, a device, or anything else that is not a regular file.
+    NotAFile {
+        /// The path.
+        path: String,
+    },
+    /// A file whose bytes are not UTF-8.
+    NotText {
+        /// The path.
+        path: String,
+    },
+    /// A path asked for that the folder does not hold.
+    Missing {
+        /// The path.
+        path: String,
+    },
+    /// The filesystem refused.
+    Io {
+        /// What was being read.
+        path: PathBuf,
+        /// The underlying failure.
+        error: io::Error,
+    },
+}
+
+impl WorkingError {
+    fn io(path: impl AsRef<Path>, error: io::Error) -> Self {
+        Self::Io {
+            path: path.as_ref().to_path_buf(),
+            error,
+        }
+    }
+}
+
+impl fmt::Display for WorkingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WorkingError::NotUtf8 { path } => write!(
+                f,
+                "{path} is not a name this format can hold: a path is UTF-8; \
+                 rename it, or `skip` it in `{STORE_DIR}/{SKIPPED_FILE}`"
+            ),
+            WorkingError::Unusable { path, because } => write!(
+                f,
+                "`{path}` cannot be a path here: {because}; rename it, or `skip` \
+                 it in `{STORE_DIR}/{SKIPPED_FILE}`"
+            ),
+            WorkingError::NotAFile { path } => write!(
+                f,
+                "`{path}` is not a regular file, and nothing in this format \
+                 spells a symlink; `skip` it in `{STORE_DIR}/{SKIPPED_FILE}`"
+            ),
+            WorkingError::NotText { path } => write!(
+                f,
+                "`{path}` is not UTF-8 text, and binary content is decided but \
+                 not built; `skip` it in `{STORE_DIR}/{SKIPPED_FILE}`"
+            ),
+            WorkingError::Missing { path } => {
+                write!(f, "`{path}` is not in the working copy")
+            }
+            WorkingError::Io { path, error } => write!(f, "{}: {error}", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for WorkingError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn skipped(text: &str) -> Skipped {
+        Skipped::parse(text).expect("rules the reader accepts")
+    }
+
+    #[test]
+    fn a_path_rule_names_one_file_and_a_slash_names_a_directory() {
+        let rules = skipped("skip target/\nskip .DS_Store\n");
+        assert!(rules.skips("target/debug/notes.md"));
+        assert!(!rules.skips("targets.md"));
+        assert!(!rules.skips("target"), "the directory itself is not a file");
+        assert!(rules.skips(".DS_Store"));
+        assert!(!rules.skips("docs/.DS_Store"), "an exact path is exact");
+    }
+
+    #[test]
+    fn a_suffix_rule_matches_the_last_component() {
+        let rules = skipped("skip-suffix .tmp\n");
+        assert!(rules.skips("docs/draft.tmp"));
+        assert!(!rules.skips("docs.tmp/draft.md"));
+    }
+
+    #[test]
+    fn an_unknown_key_is_an_error_naming_the_line() {
+        let refused = Skipped::parse("skip target/\nignore secrets\n").expect_err("refused");
+        assert_eq!(refused.at, 2);
+        assert!(refused.to_string().contains("`skip` and `skip-suffix`"));
+    }
+
+    #[test]
+    fn a_line_that_is_not_a_rule_is_an_error() {
+        assert!(Skipped::parse("skip\n").is_err());
+        assert!(Skipped::parse("skip \n").is_err());
+        assert!(Skipped::parse("skip  padded\n").is_err());
+    }
+}

@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use historica::store::{HEADER_FILE, Name, STORE_DIR, Store, StoreError};
 
 mod arrange;
+mod record;
 mod render;
 mod target;
 
@@ -29,13 +30,17 @@ reading a store
   names                    the bookmarks, and what they point at
 
 writing a store
+  record [-m <message>]    record what the folder now says
+         [--onto <target>] [--move <old>=<new>] [--dry-run]
+  identity <author>        say who you are, once, for every repository
   init [<dir>]             make a store in <dir>/history
   check [<dir>]            read a store and report every fault
   arrange [-n]             rename revision files to readable ones
   name <bookmark> <target> [--revision]
                            point a bookmark at a change, or pin a revision
 
-a <target> is a bookmark, a change ID, or a revision digest; the last two may
+a <target> is `head`, a bookmark, a change ID, or a revision digest; the last
+two may
 be abbreviated to any unambiguous prefix, and their alphabets do not overlap,
 so one argument accepts either.
 ";
@@ -137,6 +142,8 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "cat" => cat(&base, rest),
         "names" => names(&base, rest),
         "name" => name(&base, rest),
+        "record" => record::record(&base, locate(&base)?, rest),
+        "identity" => record::set_identity(rest),
         other => Err(Failure::usage(format!("there is no `{other}` command"))),
     }
 }
@@ -407,7 +414,7 @@ fn locate(base: &Path) -> Result<PathBuf, Failure> {
 /// Everything a command says goes through here rather than through `println!`,
 /// which panics when the reader has gone: `historica log | head` is an
 /// ordinary thing to type and an ordinary thing to stop reading.
-fn printing(
+pub(crate) fn printing(
     render: impl FnOnce(&mut io::StdoutLock<'static>) -> io::Result<()>,
 ) -> Result<u8, Failure> {
     let mut out = io::stdout().lock();
