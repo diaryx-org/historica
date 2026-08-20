@@ -129,18 +129,29 @@ history must produce one set of filenames, so a collision resolves by change ID
 and then by digest, never by a counter, which would depend on what else was in
 the directory.
 
-What it does not yet do is use that merge for anything. A caller assembles the
-events itself: the store still refuses a history with a merge in it rather than
-materialising one, `check` still checks a concurrent history as far as its
-merges and no further, and 0008's rules for concurrent tree facts — a `drop`
-that loses to an edit, two files claiming one path — are decided and unbuilt.
-The ordering rule is held to convergence and to non-interleaving by property
-tests over every walk order of each graph they generate; the conformance suite
-0007 asks for, against the reference implementation, is still owed. Binary
-content has a shape in 0008 and no implementation. `record` writes a revision
-against one parent, which is as far as 0011 says a first writer goes: amending,
-recording a merge, and recording where the ancestry holds one all wait on the
-same merge machinery, as does abandoning a revision with descendants.
+The `tree` module also merges. Decision 0008's rules for concurrent tree facts
+are here rather than in prose now: a `drop` concurrent with an edit or a move
+loses and is reported, two concurrent `move`s resolve to the lower digest, two
+concurrent `drop`s agree, and two files claiming one path both keep their
+identities, because a name invented by a merge is content nobody wrote. What
+is concurrent with what is decided by ancestry, computed for the length of the
+call and thrown away with everything else a merge builds.
+
+The store walks that graph. `tree` and `content` at a revision materialise
+across merges, `merged_tree` and `merged_content` return what was contested
+along with the answer, and both take several heads as readily as one — which
+is what recording a merge will ask of them. `check` walks each head's whole
+ancestry rather than stopping at the first merge, so a concurrent history is
+held to the same standard a linear one is.
+
+What it does not do yet is record one. 0012 decides how a contested span is
+rendered into the working copy and how a resolution is recorded, and none of
+that is built; neither is amending, which needs the same machinery pointed at
+a descendant, nor abandoning a revision that has one. The ordering rule is
+held to convergence and to non-interleaving by property tests over every walk
+order of each graph they generate; the conformance suite 0007 asks for,
+against the reference implementation, is still owed. Binary content has a
+shape in 0008 and no implementation.
 
 ## The command line
 

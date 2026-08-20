@@ -27,8 +27,9 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{ChangeId, FileId, History, RevisionId};
 use crate::format::{OperationDocument, PREAMBLE, ParseError, RevisionDocument, digest};
+use crate::merge::{self, Merged};
 use crate::replay::{ReplayError, State};
-use crate::tree::{Tree, TreeError};
+use crate::tree::{self, MergedTree, Tree, TreeError};
 use crate::working::{MalformedSkip, SKIPPED_FILE, Skipped};
 
 mod check;
@@ -269,52 +270,122 @@ impl Store {
         self.operations.iter()
     }
 
-    /// The ancestry of `head`, oldest first.
+    /// Every revision `head` descends from, itself included.
     ///
-    /// Linear only, because merging is what 0007 and 0008 decide and neither is
-    /// built: a revision with two parents stops this with
-    /// [`MaterialiseError::Concurrent`] rather than picking an order and
-    /// producing a file nobody wrote.
-    pub fn ancestry(&self, head: &RevisionId) -> Result<Vec<&RevisionDocument>, MaterialiseError> {
-        let mut chain = Vec::new();
-        let mut next = Some(*head);
-        while let Some(id) = next {
+    /// A DAG rather than a chain: merging is what decides the rest, and it
+    /// needs the whole ancestry to know what is concurrent with what.
+    pub fn reachable(&self, head: &RevisionId) -> Result<Vec<&RevisionDocument>, MaterialiseError> {
+        self.reachable_from(&[*head])
+    }
+
+    /// Every revision several heads descend from, itself included.
+    ///
+    /// What merging two lines of work walks, before any revision joins them:
+    /// decision 0012's `merge` asks this of a store to render a conflict that
+    /// nothing has recorded yet.
+    pub fn reachable_from(
+        &self,
+        heads: &[RevisionId],
+    ) -> Result<Vec<&RevisionDocument>, MaterialiseError> {
+        let mut seen = BTreeMap::new();
+        let mut queue: Vec<RevisionId> = heads.to_vec();
+        while let Some(id) = queue.pop() {
+            if seen.contains_key(&id) {
+                continue;
+            }
             let document = self
                 .documents
                 .get(&id)
                 .ok_or(MaterialiseError::Unknown { revision: id })?;
-            chain.push(document);
-            next = match document.parents.len() {
-                0 => None,
-                1 => {
-                    let parent = *document.parents.iter().next().expect("one parent");
-                    if !self.documents.contains_key(&parent) {
-                        return Err(MaterialiseError::MissingParent {
-                            parent,
-                            named_by: id,
-                        });
-                    }
-                    Some(parent)
+            seen.insert(id, document);
+            for parent in &document.parents {
+                if !self.documents.contains_key(parent) {
+                    return Err(MaterialiseError::MissingParent {
+                        parent: *parent,
+                        named_by: id,
+                    });
                 }
-                _ => return Err(MaterialiseError::Concurrent { revision: id }),
-            };
+                queue.push(*parent);
+            }
         }
-        chain.reverse();
-        Ok(chain)
+        Ok(seen.into_values().collect())
+    }
+
+    /// The file set at `head`, and what was decided by rule deciding it.
+    ///
+    /// Decision 0008's concurrency rules, applied by [`crate::tree::merge`].
+    pub fn merged_tree(&self, head: &RevisionId) -> Result<MergedTree, MaterialiseError> {
+        self.merged_tree_of(&[*head])
+    }
+
+    /// The file set several heads leave between them.
+    pub fn merged_tree_of(&self, heads: &[RevisionId]) -> Result<MergedTree, MaterialiseError> {
+        let reachable = self.reachable_from(heads)?;
+        let head = heads.first().copied().unwrap_or_else(|| {
+            // A merge of nothing is the empty tree, and nothing names it.
+            RevisionId::from_bytes([0; crate::core::REVISION_ID_LEN])
+        });
+        tree::merge(reachable.into_iter().map(|document| tree::Event {
+            revision: document.id(),
+            document,
+        }))
+        .map_err(|error| MaterialiseError::Tree {
+            revision: head,
+            error,
+        })
     }
 
     /// The file set at `head`.
     pub fn tree(&self, head: &RevisionId) -> Result<Tree, MaterialiseError> {
-        let mut tree = Tree::empty();
-        for revision in self.ancestry(head)? {
-            tree = tree
-                .apply(revision)
-                .map_err(|error| MaterialiseError::Tree {
-                    revision: revision.id(),
-                    error,
-                })?;
+        Ok(self.merged_tree(head)?.tree)
+    }
+
+    /// One file at `head`, with the spans where concurrent work met.
+    ///
+    /// Decision 0007's merge, given the events this store holds. A history
+    /// with no concurrency in it walks the same path and reports nothing.
+    pub fn merged_content(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+    ) -> Result<Merged, MaterialiseError> {
+        self.merged_content_of(&[*head], file)
+    }
+
+    /// One file as several heads leave it, with the spans where they met.
+    pub fn merged_content_of(
+        &self,
+        heads: &[RevisionId],
+        file: &FileId,
+    ) -> Result<Merged, MaterialiseError> {
+        let reachable = self.reachable_from(heads)?;
+        let head = heads
+            .first()
+            .copied()
+            .unwrap_or_else(|| RevisionId::from_bytes([0; crate::core::REVISION_ID_LEN]));
+        let mut events = Vec::with_capacity(reachable.len());
+        for document in reachable {
+            let revision = document.id();
+            let operations = match document.edited.get(file) {
+                Some(named) => Some(self.operations.get(named).ok_or(
+                    MaterialiseError::MissingOperations {
+                        document: *named,
+                        named_by: revision,
+                    },
+                )?),
+                None => None,
+            };
+            events.push(merge::Event {
+                revision,
+                parents: document.parents.iter().copied().collect(),
+                operations,
+            });
         }
-        Ok(tree)
+        merge::merge(events).map_err(|error| MaterialiseError::Merge {
+            revision: head,
+            file: *file,
+            error,
+        })
     }
 
     /// The content of one file at `head`.
@@ -323,28 +394,7 @@ impl Store {
     /// dropping a file removes it from the file set and history is not a place
     /// things are removed from. Ask [`Store::tree`] whether it exists.
     pub fn content(&self, head: &RevisionId, file: &FileId) -> Result<State, MaterialiseError> {
-        let ancestry = self.ancestry(head)?;
-        let mut state = State::empty();
-        for revision in &ancestry {
-            let Some(id) = revision.edited.get(file) else {
-                continue;
-            };
-            let document =
-                self.operations
-                    .get(id)
-                    .ok_or_else(|| MaterialiseError::MissingOperations {
-                        document: *id,
-                        named_by: revision.id(),
-                    })?;
-            state = state
-                .apply(document)
-                .map_err(|error| MaterialiseError::Content {
-                    revision: revision.id(),
-                    file: *file,
-                    error,
-                })?;
-        }
-        Ok(state)
+        Ok(self.merged_content(head, file)?.state)
     }
 
     /// What this repository's history does not take.
@@ -554,10 +604,15 @@ pub enum MaterialiseError {
         /// The revision that names it.
         named_by: RevisionId,
     },
-    /// A revision with two parents, which needs the merge that is not built.
-    Concurrent {
-        /// The revision that joins two lines of history.
+    /// Operations that could not be merged, which means they disagree about
+    /// the file they claim to edit rather than about anything concurrent.
+    Merge {
+        /// The head being materialised.
         revision: RevisionId,
+        /// The file.
+        file: FileId,
+        /// What went wrong.
+        error: crate::merge::MergeError,
     },
     /// An `edit` naming an operation document this store does not hold.
     MissingOperations {
@@ -594,11 +649,11 @@ impl fmt::Display for MaterialiseError {
                 f,
                 "{named_by} names the parent {parent}, which this store does not hold yet"
             ),
-            MaterialiseError::Concurrent { revision } => write!(
-                f,
-                "{revision} joins two lines of history, and merging them is decided \
-                 but not built"
-            ),
+            MaterialiseError::Merge {
+                revision,
+                file,
+                error,
+            } => write!(f, "{revision}, file {file}: {error}"),
             MaterialiseError::MissingOperations { document, named_by } => write!(
                 f,
                 "{named_by} names the operation document {document}, \

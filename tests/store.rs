@@ -525,9 +525,9 @@ fn an_undelivered_operation_document_is_a_note() {
 }
 
 #[test]
-fn a_concurrent_history_is_refused_rather_than_ordered_arbitrarily() {
-    // The revisions corpus has a merge in it, and merging is decided in 0007
-    // and 0008 without being built.
+fn a_concurrent_history_materialises_rather_than_being_refused() {
+    // The revisions corpus has a merge in it, and the store now walks it:
+    // 0008's rules for the tree, 0007's replay for content.
     let (_, store) = corpus_store("concurrent");
     let merge = store
         .iter()
@@ -535,8 +535,9 @@ fn a_concurrent_history_is_refused_rather_than_ordered_arbitrarily() {
         .map(|(id, _)| *id)
         .expect("the corpus has a merge");
 
-    assert!(matches!(
-        store.tree(&merge),
-        Err(historica::store::MaterialiseError::Concurrent { .. })
-    ));
+    let merged = store.merged_tree(&merge).expect("a tree at a merge");
+    assert!(
+        merged.tree.is_empty() && merged.contested.is_empty(),
+        "these revisions state no tree facts, so the file set is empty"
+    );
 }

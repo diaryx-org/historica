@@ -513,11 +513,11 @@ fn check_operations(root: &Path, report: &mut Report) -> BTreeMap<RevisionId, Op
 
 /// Hold every revision to the tree and the files it claims to have edited.
 ///
-/// This is what decision 0008 unblocked. It walks back from each head along
-/// single-parent edges, so a concurrent history is checked as far as its
-/// merges and no further: replaying two branches together is 0007's merge, and
-/// that is not built. A `check` that guessed at it would be worse than one
-/// that says nothing.
+/// This is what decision 0008 unblocked and 0007's merge completed: the walk
+/// is over the whole ancestry of each head rather than a chain, so a
+/// concurrent history is checked all the way through its merges. The tree
+/// comes from [`crate::tree::merge`] and every file from [`crate::merge`],
+/// which is the same machinery a person materialising the store would get.
 fn check_replay(
     documents: &BTreeMap<RevisionId, RevisionDocument>,
     operations: &BTreeMap<RevisionId, OperationDocument>,
@@ -540,60 +540,70 @@ fn check_replay(
     }
 
     for head in documents.keys().filter(|id| !parents.contains(id)) {
-        let Some(chain) = ancestry(*head, documents) else {
+        let Some(reachable) = reachable(*head, documents) else {
+            // A missing parent is already a note, and nothing here can decide
+            // what is concurrent with what without the whole ancestry.
             continue;
         };
-        let mut tree = Tree::empty();
-        let mut states: BTreeMap<FileId, State> = BTreeMap::new();
-        for (id, revision) in chain {
-            match tree.apply(revision) {
-                Ok(next) => tree = next,
-                Err(error) => {
-                    report.push(Finding::TreeDisagrees {
-                        revision: id,
-                        because: error.to_string(),
-                    });
-                    break;
-                }
+
+        match crate::tree::merge(reachable.iter().map(|(id, document)| crate::tree::Event {
+            revision: *id,
+            document,
+        })) {
+            Ok(_) => {}
+            Err(error) => {
+                report.push(Finding::TreeDisagrees {
+                    revision: *head,
+                    because: error.to_string(),
+                });
+                continue;
             }
-            for (file, named) in &revision.edited {
-                let Some(operations) = operations.get(named) else {
-                    continue;
-                };
-                let state = states.entry(*file).or_insert_with(State::empty);
-                match state.apply(operations) {
-                    Ok(next) => *state = next,
-                    Err(error) => report.push(Finding::ContentDisagrees {
-                        revision: id,
-                        file: *file,
-                        because: error.to_string(),
-                    }),
-                }
+        }
+
+        let mut edited: BTreeSet<FileId> = BTreeSet::new();
+        for (_, document) in &reachable {
+            edited.extend(document.edited.keys().copied());
+        }
+
+        for file in edited {
+            let events: Vec<crate::merge::Event<'_>> = reachable
+                .iter()
+                .map(|(id, document)| crate::merge::Event {
+                    revision: *id,
+                    parents: document.parents.iter().copied().collect(),
+                    operations: document
+                        .edited
+                        .get(&file)
+                        .and_then(|named| operations.get(named)),
+                })
+                .collect();
+            if let Err(error) = crate::merge::merge(events) {
+                report.push(Finding::ContentDisagrees {
+                    revision: *head,
+                    file,
+                    because: error.to_string(),
+                });
             }
         }
     }
 }
 
-/// One head's ancestry, oldest first, or `None` if it cannot be walked.
-///
-/// A missing parent is already a note, and a merge is not checkable yet.
-fn ancestry(
+/// Every revision one head descends from, or `None` if one is undelivered.
+fn reachable(
     head: RevisionId,
     documents: &BTreeMap<RevisionId, RevisionDocument>,
 ) -> Option<Vec<(RevisionId, &RevisionDocument)>> {
-    let mut chain = Vec::new();
-    let mut next = Some(head);
-    while let Some(id) = next {
+    let mut seen: BTreeMap<RevisionId, &RevisionDocument> = BTreeMap::new();
+    let mut queue = vec![head];
+    while let Some(id) = queue.pop() {
+        if seen.contains_key(&id) {
+            continue;
+        }
         let document = documents.get(&id)?;
-        chain.push((id, document));
-        next = match document.parents.len() {
-            0 => None,
-            1 => Some(*document.parents.iter().next().expect("one parent")),
-            _ => return None,
-        };
+        seen.insert(id, document);
+        queue.extend(document.parents.iter().copied());
     }
-    chain.reverse();
-    Some(chain)
+    Some(seen.into_iter().collect())
 }
 
 fn check_names(

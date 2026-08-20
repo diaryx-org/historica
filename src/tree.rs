@@ -17,7 +17,7 @@
 //! facts — where a `drop` loses to an edit, and two files may legitimately
 //! claim one path — is decided in 0008 and not built.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::core::{FileId, RevisionId};
@@ -155,6 +155,261 @@ pub fn operations_for<'a>(
         .collect()
 }
 
+/// One revision's contribution to the file set, with its place in the graph.
+///
+/// The same shape [`crate::merge::Event`] has, and for the same reason: a
+/// revision that said nothing about the tree still appears, because its causal
+/// edges are what decide whether anything else is concurrent.
+#[derive(Debug, Clone, Copy)]
+pub struct Event<'a> {
+    /// The revision this is.
+    pub revision: RevisionId,
+    /// What it says about the file set.
+    pub document: &'a RevisionDocument,
+}
+
+/// The file set at a set of heads, and where concurrent work met deciding it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MergedTree {
+    /// The file set.
+    pub tree: Tree,
+    /// What was decided by rule rather than by agreement.
+    pub contested: Vec<TreeContest>,
+}
+
+/// A tree fact two branches disagreed about.
+///
+/// Decision 0008 resolves each of these by rule and reports it, on the same
+/// division 0007 draws: the algorithm never fails, and the tool may.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum TreeContest {
+    /// A `drop` lost to concurrent work, so the file survives with the edits.
+    Dropped {
+        /// The file that stayed.
+        file: FileId,
+        /// The revisions that dropped it.
+        by: Vec<RevisionId>,
+    },
+    /// Concurrent `move`s, resolved to the lower digest's path.
+    Moved {
+        /// The file that moved twice.
+        file: FileId,
+        /// Every path claimed, with the revision claiming it, in digest order.
+        paths: Vec<(RevisionId, String)>,
+    },
+    /// Two files claiming one path. Neither is renamed: 0008 forbids that.
+    Path {
+        /// The path both hold.
+        path: String,
+        /// The files holding it.
+        files: Vec<FileId>,
+    },
+}
+
+/// The file set the whole graph leaves behind.
+///
+/// Replaying tree facts in causal order, with decision 0008's rules where two
+/// branches disagree: a `drop` concurrent with an edit or a move loses, two
+/// concurrent `move`s resolve to the lower digest, two concurrent `drop`s
+/// agree, and two files claiming one path both keep their identities.
+///
+/// Nothing here is written down. Like [`crate::merge`], the structure that
+/// resolves concurrency lives for the length of this call.
+pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTree, TreeError> {
+    let events: Vec<Event<'a>> = events.into_iter().collect();
+    let ancestors = ancestry(&events)?;
+
+    // Every fact anybody stated about every file, gathered by file.
+    let mut facts: BTreeMap<FileId, Facts> = BTreeMap::new();
+    for event in &events {
+        let document = event.document;
+        for (file, path) in &document.added {
+            let held = facts.entry(*file).or_default();
+            held.placements.push((event.revision, path.clone()));
+            held.touches.push(event.revision);
+            held.added.push(event.revision);
+        }
+        for (file, path) in &document.moved {
+            let held = facts.entry(*file).or_default();
+            held.placements.push((event.revision, path.clone()));
+            held.touches.push(event.revision);
+        }
+        for file in &document.dropped {
+            facts.entry(*file).or_default().drops.push(event.revision);
+        }
+        for file in document.edited.keys() {
+            facts.entry(*file).or_default().touches.push(event.revision);
+        }
+    }
+
+    let mut files = BTreeMap::new();
+    let mut contested = Vec::new();
+
+    for (file, held) in facts {
+        if held.added.is_empty() {
+            // Every fact about a file is recorded against its `add`, so this
+            // is an ancestor nobody has delivered rather than a disagreement.
+            return Err(TreeError::Unknown { key: "move", file });
+        }
+
+        // A `drop` wins only where nothing concurrent says the file matters.
+        let mut lost = Vec::new();
+        let mut gone = false;
+        for drop in &held.drops {
+            let concurrent: Vec<RevisionId> = held
+                .touches
+                .iter()
+                .copied()
+                .filter(|touch| touch != drop && !is_ancestor(&ancestors, touch, drop))
+                .collect();
+            if concurrent.is_empty() {
+                gone = true;
+            } else {
+                lost.push(*drop);
+            }
+        }
+        if gone {
+            continue;
+        }
+        if !lost.is_empty() {
+            lost.sort();
+            contested.push(TreeContest::Dropped { file, by: lost });
+        }
+
+        // The path comes from the placements nothing later replaced.
+        let mut latest: Vec<(RevisionId, String)> =
+            held.placements
+                .iter()
+                .filter(|(revision, _)| {
+                    !held.placements.iter().any(|(other, _)| {
+                        other != revision && is_ancestor(&ancestors, revision, other)
+                    })
+                })
+                .cloned()
+                .collect();
+        latest.sort();
+        latest.dedup();
+
+        let (_, path) = latest
+            .first()
+            .expect("a file has at least its `add`")
+            .clone();
+        if latest.len() > 1 {
+            // Decision 0008: by digest, because a timestamp is not trusted and
+            // a change ID is an unverifiable claim.
+            contested.push(TreeContest::Moved {
+                file,
+                paths: latest,
+            });
+        }
+        files.insert(file, path);
+    }
+
+    // Two files at one path is a legitimate state a person resolves, so it is
+    // reported rather than refused, and neither file is renamed to fit.
+    let mut by_path: BTreeMap<&str, Vec<FileId>> = BTreeMap::new();
+    for (file, path) in &files {
+        by_path.entry(path.as_str()).or_default().push(*file);
+    }
+    for (path, holders) in by_path {
+        if holders.len() > 1 {
+            contested.push(TreeContest::Path {
+                path: path.to_owned(),
+                files: holders,
+            });
+        }
+    }
+
+    contested.sort();
+    Ok(MergedTree {
+        tree: Tree { files },
+        contested,
+    })
+}
+
+/// What one file's revisions said about it.
+#[derive(Debug, Default)]
+struct Facts {
+    /// `add` and `move`, with the path each stated.
+    placements: Vec<(RevisionId, String)>,
+    /// Revisions that said the file matters: added, moved, or edited it.
+    touches: Vec<RevisionId>,
+    /// Revisions that dropped it.
+    drops: Vec<RevisionId>,
+    /// Revisions that added it.
+    added: Vec<RevisionId>,
+}
+
+/// Every revision's ancestors, which is what makes concurrency decidable.
+///
+/// A parent outside the set is one the caller did not supply — a store hands
+/// over a whole ancestry — so it is an undelivered ancestor rather than a root.
+fn ancestry(events: &[Event<'_>]) -> Result<BTreeMap<RevisionId, BTreeSet<RevisionId>>, TreeError> {
+    let held: BTreeMap<RevisionId, &RevisionDocument> = events
+        .iter()
+        .map(|event| (event.revision, event.document))
+        .collect();
+
+    let mut ancestors: BTreeMap<RevisionId, BTreeSet<RevisionId>> = BTreeMap::new();
+    let mut ready: Vec<RevisionId> = Vec::new();
+    let mut waiting: BTreeMap<RevisionId, usize> = BTreeMap::new();
+    let mut children: BTreeMap<RevisionId, Vec<RevisionId>> = BTreeMap::new();
+
+    for (revision, document) in &held {
+        let mut count = 0;
+        for parent in &document.parents {
+            if !held.contains_key(parent) {
+                return Err(TreeError::Undelivered {
+                    parent: *parent,
+                    named_by: *revision,
+                });
+            }
+            count += 1;
+            children.entry(*parent).or_default().push(*revision);
+        }
+        waiting.insert(*revision, count);
+        if count == 0 {
+            ready.push(*revision);
+        }
+    }
+
+    while let Some(revision) = ready.pop() {
+        let document = held[&revision];
+        let mut set = BTreeSet::new();
+        for parent in &document.parents {
+            set.insert(*parent);
+            set.extend(ancestors[parent].iter().copied());
+        }
+        ancestors.insert(revision, set);
+
+        for child in children.get(&revision).into_iter().flatten() {
+            let count = waiting.get_mut(child).expect("a revision in the set");
+            *count -= 1;
+            if *count == 0 {
+                ready.push(*child);
+            }
+        }
+    }
+
+    if ancestors.len() != held.len() {
+        // Unreachable for digests, which cannot name a descendant.
+        return Err(TreeError::Cyclic);
+    }
+    Ok(ancestors)
+}
+
+/// Whether `earlier` is an ancestor of `later`.
+fn is_ancestor(
+    ancestors: &BTreeMap<RevisionId, BTreeSet<RevisionId>>,
+    earlier: &RevisionId,
+    later: &RevisionId,
+) -> bool {
+    ancestors
+        .get(later)
+        .is_some_and(|held| held.contains(earlier))
+}
+
 /// Why a revision could not be applied to the file set it names.
 ///
 /// As in [`crate::replay`], none of these mean the model failed. They mean the
@@ -175,6 +430,15 @@ pub enum TreeError {
         /// The file it named.
         file: FileId,
     },
+    /// A parent nobody delivered, so concurrency cannot be decided.
+    Undelivered {
+        /// The parent nothing here holds.
+        parent: RevisionId,
+        /// The revision that names it.
+        named_by: RevisionId,
+    },
+    /// A parent edge naming a descendant, which digests make impossible.
+    Cyclic,
     /// Two files would hold one path after this revision.
     PathTaken {
         /// The contested path.
@@ -198,6 +462,15 @@ impl fmt::Display for TreeError {
                 f,
                 "`{key}` names the file {file}, which does not exist at this revision's parent; \
                  check that the parents are the ones this revision was recorded against"
+            ),
+            TreeError::Undelivered { parent, named_by } => write!(
+                f,
+                "{named_by} names the parent {parent}, which this store does \
+                 not hold yet, so what is concurrent with what cannot be decided"
+            ),
+            TreeError::Cyclic => write!(
+                f,
+                "a parent edge names a descendant, which a digest cannot do"
             ),
             TreeError::PathTaken { path, file, other } => write!(
                 f,
@@ -342,5 +615,119 @@ mod tests {
             replay(&history).expect_err("a collision"),
             TreeError::PathTaken { .. }
         ));
+    }
+    /// A revision with stated parents, so a graph can be built by hand.
+    fn revision_with(parents: &[RevisionId], facts: &[String]) -> RevisionDocument {
+        let mut text = format!("{PREAMBLE}\n{CHANGE}\n");
+        let mut sorted: Vec<String> = parents.iter().map(|p| format!("parent {p}\n")).collect();
+        sorted.sort();
+        for line in sorted {
+            text.push_str(&line);
+        }
+        text.push_str(&format!("{AUTHOR}\n{WHEN}\n"));
+        for line in facts {
+            text.push_str(line);
+            text.push('\n');
+        }
+        text.push_str("\nm");
+        RevisionDocument::parse(text.as_bytes()).expect("a revision the parser accepts")
+    }
+
+    /// The merged tree of a hand-built graph, oldest first.
+    fn merged(documents: &[RevisionDocument]) -> MergedTree {
+        merge(documents.iter().map(|document| Event {
+            revision: document.id(),
+            document,
+        }))
+        .expect("a graph the merge accepts")
+    }
+
+    #[test]
+    fn a_drop_concurrent_with_an_edit_loses_and_is_reported() {
+        let root = revision_with(&[], &[line(&format!("add {ONE} notes.md"))]);
+        let dropped = revision_with(&[root.id()], &[line(&format!("drop {ONE}"))]);
+        let edited = revision_with(&[root.id()], &[line(&format!("edit {ONE} {DIGEST}"))]);
+
+        let merged = merged(&[root, dropped.clone(), edited]);
+        assert_eq!(
+            merged.tree.path(&file(ONE)),
+            Some("notes.md"),
+            "losing work is the worse failure, so the file survives"
+        );
+        assert_eq!(
+            merged.contested,
+            [TreeContest::Dropped {
+                file: file(ONE),
+                by: vec![dropped.id()],
+            }]
+        );
+    }
+
+    #[test]
+    fn a_drop_nothing_contests_takes_the_file() {
+        let root = revision_with(&[], &[line(&format!("add {ONE} notes.md"))]);
+        let dropped = revision_with(&[root.id()], &[line(&format!("drop {ONE}"))]);
+
+        let merged = merged(&[root, dropped]);
+        assert!(merged.tree.is_empty());
+        assert!(merged.contested.is_empty(), "nobody disagreed");
+    }
+
+    #[test]
+    fn two_concurrent_moves_resolve_to_the_lower_digest() {
+        let root = revision_with(&[], &[line(&format!("add {ONE} notes.md"))]);
+        let here = revision_with(&[root.id()], &[line(&format!("move {ONE} here.md"))]);
+        let there = revision_with(&[root.id()], &[line(&format!("move {ONE} there.md"))]);
+
+        let merged = merged(&[root, here.clone(), there.clone()]);
+        let (lower, path) = if here.id() < there.id() {
+            (here.id(), "here.md")
+        } else {
+            (there.id(), "there.md")
+        };
+        assert_eq!(merged.tree.path(&file(ONE)), Some(path));
+        assert!(matches!(
+            &merged.contested[..],
+            [TreeContest::Moved { file: contested, paths }]
+                if *contested == file(ONE) && paths.len() == 2 && paths[0].0 == lower
+        ));
+    }
+
+    #[test]
+    fn a_later_move_replaces_an_earlier_one_without_contest() {
+        let root = revision_with(&[], &[line(&format!("add {ONE} notes.md"))]);
+        let moved = revision_with(&[root.id()], &[line(&format!("move {ONE} here.md"))]);
+        let again = revision_with(&[moved.id()], &[line(&format!("move {ONE} there.md"))]);
+
+        let merged = merged(&[root, moved, again]);
+        assert_eq!(merged.tree.path(&file(ONE)), Some("there.md"));
+        assert!(merged.contested.is_empty(), "causality is not disagreement");
+    }
+
+    #[test]
+    fn two_files_claiming_one_path_both_keep_their_identities() {
+        let root = revision_with(&[], &[line(&format!("add {ONE} notes.md"))]);
+        let mine = revision_with(&[root.id()], &[line(&format!("add {TWO} theirs.md"))]);
+        let theirs = revision_with(&[root.id()], &[line(&format!("move {ONE} theirs.md"))]);
+
+        let merged = merged(&[root, mine, theirs]);
+        assert_eq!(merged.tree.at("theirs.md").len(), 2);
+        assert!(matches!(
+            &merged.contested[..],
+            [TreeContest::Path { path, files }] if path == "theirs.md" && files.len() == 2
+        ));
+    }
+
+    #[test]
+    fn an_undelivered_parent_stops_the_merge_rather_than_guessing() {
+        let root = revision_with(&[], &[line(&format!("add {ONE} notes.md"))]);
+        let child = revision_with(&[root.id()], &[line(&format!("move {ONE} here.md"))]);
+
+        let refused = merge([Event {
+            revision: child.id(),
+            document: &child,
+        }])
+        .expect_err("a parent nobody delivered");
+        assert!(matches!(refused, TreeError::Undelivered { .. }));
     }
 }

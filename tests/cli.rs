@@ -339,21 +339,24 @@ fn arrange_renames_presentation_and_changes_nothing_else() {
 }
 
 #[test]
-fn a_history_with_a_merge_in_it_is_refused_rather_than_ordered() {
+fn a_history_with_a_merge_in_it_materialises_rather_than_being_refused() {
     let directory = store_from("merge", "revisions");
-    // The log walks the graph, so a merge is ordinary there.
     let log = stdout(&directory, &["log"]);
     assert!(log.contains("merge"), "{log}");
 
-    // Materialising is where 0007's merge would be needed, and it is not built.
+    // 0007's merge and 0008's tree rules are what the store now walks, so a
+    // merge is an ordinary place to ask what the file set is.
     let head = log
         .lines()
         .find(|line| line.contains("(head, merge"))
         .and_then(|line| line.split_whitespace().nth(1))
         .expect("a merge at a head");
-    let refused = stderr(&directory, &["files", head]);
-    assert!(refused.contains("joins two lines of history"), "{refused}");
-    assert!(!refused.contains("  "), "the message runs on one line");
+    let files = stdout(&directory, &["files", head]);
+    assert_eq!(
+        files, "no files here\n",
+        "these revisions state no tree facts"
+    );
+    assert!(stdout(&directory, &["check"]).ends_with("nothing to report\n"));
 }
 
 #[test]
