@@ -51,7 +51,17 @@ files are the edits the numbered revisions made to one file, with a gap at 04
 because a merge that changes nothing about a file names no operation document;
 three more pin the rules that no revision happened to exercise, and seventeen
 invalid ones are each refused for their own stated reason by
-`tests/operations.rs`.
+`tests/operations.rs`. `states/` is that file as it stands at each revision,
+hand-written, which is what the replayer is held to.
+
+The `replay` module materialises a file from what was done to it. It does the
+linear case, which decision 0007 says costs nothing: positions are stated
+against the parent, so applying them is arithmetic rather than interpretation,
+and a chain of documents from the root produces the file byte for byte. It is
+also where a `delete` line's redundancy is spent — a document whose recorded
+items disagree with the parent it claims to edit is refused there, rather than
+absorbed into a merge, and so is a result that would leave a line without a
+terminator anywhere but at the end.
 
 The `store` module is that format on disk. It loads a `history/` directory by
 reading files and never their names, so renaming every revision in a store
@@ -62,14 +72,16 @@ without loading it and separates errors, which mean the store contradicts
 itself, from notes, which never fail: an undelivered parent, a duplicate, or a
 sync tool's conflicted copy is a legitimate state and is reported as one.
 
-It intentionally does not yet replay those operations. Materialising a file,
-merging concurrent branches through Eg-walker, and the `cache/` that would hold
-the result are all decided in 0007 and none of them are built; nothing links a
-revision to its operation documents either, because that link is the tree, which
-0007 defers to 0008. There is no command-line front end yet; `init`, `check`,
-and `arrange` exist as decisions, and the first two as library operations. Those
-should be built against readable examples rather than hidden behind
-abstractions.
+It intentionally does not yet merge. Concurrent branches need the Eg-walker
+replay decided in 0007, and none of that is built, so a caller supplies the
+chain a file is replayed along; nothing links a revision to its operation
+documents either, because that link is the tree, which 0007 defers to 0008, and
+that is also why `check` cannot yet hold a document to the parent it edits.
+Neither is there a diff: operations are read and replayed, and recording them
+from an edited file is the writing half, which nothing here does. There is no
+command-line front end yet; `init`, `check`, and `arrange` exist as decisions,
+and the first two as library operations. Those should be built against readable
+examples rather than hidden behind abstractions.
 
 ## Decisions
 

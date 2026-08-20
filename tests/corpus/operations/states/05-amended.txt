@@ -1,0 +1,6 @@
+# Historica
+
+An experiment in readable, convergent version control.
+Model causality before content: immutable revisions, explicit parents, and a
+history that merges by union. A document syntax is decided later, against the
+readable examples this corpus is made of.

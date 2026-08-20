@@ -1,0 +1,6 @@
+# Historica, an experiment
+
+Readable files are the authority; deleting a cache loses nothing.
+
+An experiment in readable, convergent version control.
+Nothing here chooses a document syntax yet.

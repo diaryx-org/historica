@@ -8,4 +8,5 @@
 
 pub mod core;
 pub mod format;
+pub mod replay;
 pub mod store;
