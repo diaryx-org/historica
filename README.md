@@ -128,9 +128,8 @@ The ordering rule is held to convergence and to non-interleaving by property
 tests over every walk order of each graph they generate; the conformance suite
 0007 asks for, against the reference implementation, is still owed. Binary
 content has a shape in 0008 and no implementation. Nor does any command record
-a revision: minting a change ID, stating an author, and spelling the time are
-the writer's decisions, and the `diff` module is the only half of that job
-built.
+a revision: 0010 decides where a change ID, an author, and a time come from,
+and `diff` is still the only part of the writer that exists.
 
 ## The command line
 
@@ -213,6 +212,11 @@ Choices that constrain later work are written down as they are made.
 - [`docs/decisions/0009-diff.md`](docs/decisions/0009-diff.md) — how operations
   are recorded from an edited file, why the matcher is a dependency where the
   merge rule could never be, and the replacement anchoring 0007 left ambiguous.
+- [`docs/decisions/0010-writer.md`](docs/decisions/0010-writer.md) — the three
+  facts a writer supplies and nothing can derive: 96 bits from the operating
+  system, an author stated in configuration rather than guessed, and the clock
+  at the moment of recording. A rewrite the tool performs on its own behalf
+  copies all three, so two replicas that rebase one change write one file.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
