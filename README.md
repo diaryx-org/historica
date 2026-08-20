@@ -228,6 +228,10 @@ Choices that constrain later work are written down as they are made.
   conflict; contested spans are rendered into the working copy with markers a
   merge record refuses to accept, and a contested path is stated on the command
   line rather than invented.
+- [`docs/decisions/0013-abandoning-and-pruning.md`](docs/decisions/0013-abandoning-and-pruning.md)
+  — abandoning is a tombstone superseding the work, which is the state 0001
+  already had a name for; pruning deletes superseded documents nothing names as
+  a parent, is local, manual, and is the undo history.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
