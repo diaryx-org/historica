@@ -108,6 +108,17 @@ it claims to have edited, which is the error 0007 asked for and 0008 unblocked.
 A store can materialise a file — `tree` and `content` at a revision — and
 refuses a history with a merge in it rather than ordering it arbitrarily.
 
+The `historica` binary is the front end decision 0006 said was owed. `init`,
+`check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
+`cat`, and `names` read a store and render it. Nothing there decides anything
+the library has not — `files` and `cat` refuse a merge in the library's own
+words rather than choosing an order, and `show` prints the stored file byte for
+byte, because the readable file is the authority and a rendering of it is not.
+`arrange` is the command with a rule to keep: two replicas arranging one
+history must produce one set of filenames, so a collision resolves by change ID
+and then by digest, never by a counter, which would depend on what else was in
+the directory.
+
 What it does not yet do is use that merge for anything. A caller assembles the
 events itself: the store still refuses a history with a merge in it rather than
 materialising one, `check` still checks a concurrent history as far as its
@@ -116,10 +127,60 @@ that loses to an edit, two files claiming one path — are decided and unbuilt.
 The ordering rule is held to convergence and to non-interleaving by property
 tests over every walk order of each graph they generate; the conformance suite
 0007 asks for, against the reference implementation, is still owed. Binary
-content has a shape in 0008 and no implementation. There is no command-line front end yet; `init`, `check`, and
-`arrange` exist as decisions, and the first two as library operations. Those
-should be built against readable examples rather than hidden behind
-abstractions.
+content has a shape in 0008 and no implementation. Nor does any command record
+a revision: minting a change ID, stating an author, and spelling the time are
+the writer's decisions, and the `diff` module is the only half of that job
+built.
+
+## The command line
+
+```console
+$ historica init .
+made a store at /home/adam/journal/history
+$ historica log
+nwlxsqot  4cf00b8c  (head)
+    Adam Harris <adam@example.com>  2025-08-21T22:05:00-06:00
+    dropped 1
+    Withdraw the entry, keeping what it taught
+
+mzvwutkl  d56419e5
+    Adam Harris <adam@example.com>  2025-08-20T08:14:33-06:00
+    moved 1  edited 1
+    File the README under docs, and say what it covers
+
+kxryzmor  55874ae7
+    Adam Harris <adam@example.com>  2025-08-19T09:02:40-06:00
+    edited 1
+    Say why a path is not an identity
+
+qpvuntsm  f23cda95
+    Adam Harris <adam@example.com>  2025-08-19T00:47:11-06:00
+    added 2  edited 2
+    Start a journal
+$ historica files nwlxsqot
+docs/README.md  swtlmnkqvzyrxopwstlnmkqv
+$ historica cat nwlxsqot docs/README.md
+# Notes
+
+A journal kept in Historica, and the notes that came with it.
+$ historica name main nwlxsqot
+main -> change nwlxsqotvkzmuprysltnwxqk
+$ historica arrange
+renamed 01-start.rev  ->  2025-08-19 Start a journal.rev
+renamed 02-entry.rev  ->  2025-08-19 Say why a path is not an identity.rev
+renamed 03-move.rev  ->  2025-08-20 File the README under docs, and say what it covers.rev
+renamed 04-drop.rev  ->  2025-08-21 Withdraw the entry, keeping what it taught.rev
+/home/adam/journal/history/revisions: 4 renamed, 0 already arranged
+$ historica check
+/home/adam/journal/history: nothing to report
+```
+
+A target is a bookmark, a change ID, or a revision digest, and the last two may
+be abbreviated to any unambiguous prefix — decision 0001's disjoint alphabets
+are what let one argument position accept either. `historica help` lists the
+rest. `check` exits non-zero only when the store cannot be trusted, so it can
+be run in anger; a duplicate, an undelivered parent, or a sync tool's
+conflicted copy is a note, and notes never fail.
 
 ## Decisions
 

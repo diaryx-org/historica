@@ -570,11 +570,13 @@ impl fmt::Display for MaterialiseError {
             ),
             MaterialiseError::Concurrent { revision } => write!(
                 f,
-                "{revision} joins two lines of history, and merging them is decided                  but not built"
+                "{revision} joins two lines of history, and merging them is decided \
+                 but not built"
             ),
             MaterialiseError::MissingOperations { document, named_by } => write!(
                 f,
-                "{named_by} names the operation document {document},                  which this store does not hold yet"
+                "{named_by} names the operation document {document}, \
+                 which this store does not hold yet"
             ),
             MaterialiseError::Tree { revision, error } => write!(f, "{revision}: {error}"),
             MaterialiseError::Content {
