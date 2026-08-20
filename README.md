@@ -263,6 +263,12 @@ Choices that constrain later work are written down as they are made.
   — abandoning is a tombstone superseding the work, which is the state 0001
   already had a name for; pruning deletes superseded documents nothing names as
   a parent, is local, manual, and is the undo history.
+- [`docs/decisions/0014-forgetting.md`](docs/decisions/0014-forgetting.md) —
+  redaction that keeps a history working: a forgetting document destroys an
+  operation document's payload and preserves its arithmetic, so everything
+  downstream still materialises and merges; forgetting converges by union, an
+  item is forgotten wherever it is quoted, and what survives is shape,
+  authorship, and paths.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
