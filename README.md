@@ -129,7 +129,8 @@ tests over every walk order of each graph they generate; the conformance suite
 0007 asks for, against the reference implementation, is still owed. Binary
 content has a shape in 0008 and no implementation. Nor does any command record
 a revision: 0010 decides where a change ID, an author, and a time come from,
-and `diff` is still the only part of the writer that exists.
+0011 decides what a writer is given, and `diff` is still the only part of
+either that exists.
 
 ## The command line
 
@@ -218,6 +219,10 @@ Choices that constrain later work are written down as they are made.
   or kept beside the history, and the clock at the moment of recording. A
   rewrite the tool performs on its own behalf copies all three, so two replicas
   that rebase one change write one file.
+- [`docs/decisions/0011-working-copy.md`](docs/decisions/0011-working-copy.md)
+  — the folder beside the store is the working copy, `history/skipped` says
+  what it does not take, the parent is the head, and a rename is the one fact
+  a person has to state. Nothing is remembered between commands.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
