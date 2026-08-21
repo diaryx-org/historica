@@ -672,7 +672,9 @@ pub fn record(
 
     let content = content_of(&plan);
     let document = RevisionDocument {
-        version: Version::CURRENT,
+        // Version 1: a revision document has no version 2 vocabulary to
+        // claim, and a document claims the lowest version that expresses it.
+        version: Version::V1,
         change,
         parents: recording.parents.iter().copied().collect(),
         supersedes: BTreeSet::new(),
@@ -816,7 +818,9 @@ fn rewrite(
 
     let content = content_of(&plan);
     let document = RevisionDocument {
-        version: Version::CURRENT,
+        // Version 1: a revision document has no version 2 vocabulary to
+        // claim, and a document claims the lowest version that expresses it.
+        version: Version::V1,
         change: previous.change,
         parents: previous.parents.clone(),
         supersedes: BTreeSet::from([amendment.revision]),
@@ -1008,7 +1012,9 @@ pub fn abandon(
 
     let change = entropy.change()?;
     let document = RevisionDocument {
-        version: Version::CURRENT,
+        // Version 1: a revision document has no version 2 vocabulary to
+        // claim, and a document claims the lowest version that expresses it.
+        version: Version::V1,
         change,
         parents: first.parents.clone(),
         supersedes: run.iter().copied().collect(),

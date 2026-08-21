@@ -162,7 +162,9 @@ impl Store {
                 .or_else(|| self.creation_base(target))
                 .ok_or(ForgetError::MissingQuoted { document: *target })?;
             let mut document = base.clone();
-            document.version = Version::CURRENT;
+            // The one document that claims version 2, because it is the one
+            // that uses its vocabulary.
+            document.version = Version::V2;
             document.forgets = Some(*target);
             for (operation, item) in forget {
                 let held = &mut document.operations[*operation].items[*item];

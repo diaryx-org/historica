@@ -60,7 +60,7 @@ fn init_creates_the_layout_and_open_finds_it() {
         assert!(root.join(directory).is_dir(), "{directory} should exist");
     }
     let header = fs::read_to_string(root.join("historica.txt")).expect("the header");
-    assert_eq!(header.lines().next(), Some("historica-v2"));
+    assert_eq!(header.lines().next(), Some("historica-v1"));
     assert!(header.contains("Identity comes from content"), "{header}");
     assert!(Store::init(&root).is_err(), "twice is an error");
 }

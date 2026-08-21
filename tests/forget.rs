@@ -319,3 +319,37 @@ fn a_forgetting_document_round_trips_and_is_gated_at_version_two() {
     let v1_header = b"historica-v1\nforgets 6397b3a4b3b8abd444da81f2f731dd67c4f5bcea5dc03c4e8141783d1f1b4c53\n\ninsert 0\n+a\n";
     assert!(OperationDocument::parse(v1_header).is_err());
 }
+
+#[test]
+fn a_store_claims_version_two_only_when_it_forgets_something() {
+    // A document claims the lowest version that expresses it, so a store
+    // that never forgets keeps reading under version 1 — and under every
+    // reader version 1 already has.
+    let directory = scratch("version");
+    assert!(run(&directory, &["init"]).status.success());
+    let header = || {
+        fs::read_to_string(directory.join("history/historica.txt"))
+            .expect("the header")
+            .lines()
+            .next()
+            .expect("a version line")
+            .to_owned()
+    };
+    assert_eq!(header(), "historica-v1");
+
+    write(&directory, "notes.md", "one\ntwo\n");
+    let first = out(&directory, &["record", "-m", "Start"]);
+    write(&directory, "notes.md", "one\ntwo\nthree\n");
+    out(&directory, &["record", "-m", "More"]);
+    assert_eq!(header(), "historica-v1", "recording claims nothing newer");
+
+    out(
+        &directory,
+        &["forget", &digest_in(&first), "notes.md", "--lines", "2"],
+    );
+    assert_eq!(
+        header(),
+        "historica-v2",
+        "forgetting is what raises the gate"
+    );
+}

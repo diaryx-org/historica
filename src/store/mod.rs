@@ -285,9 +285,13 @@ impl Store {
             let path = root.join(directory);
             fs::create_dir_all(&path).map_err(|error| StoreError::io(&path, error))?;
         }
+        // Version 1, not the reader's ceiling: the header states the highest
+        // document version the store holds, an empty store holds nothing,
+        // and version 1's vocabulary is everything short of forgetting.
+        // `raise_version` moves it the day a newer document lands.
         fs::write(
             &header,
-            format!("{}\n\n{HEADER_NOTE}", Version::CURRENT.preamble()),
+            format!("{}\n\n{HEADER_NOTE}", Version::V1.preamble()),
         )
         .map_err(|error| StoreError::io(&header, error))?;
         // Decision 0022: recording is append-only and forgetting is not built,

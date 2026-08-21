@@ -310,6 +310,24 @@ impl OperationDocument {
     pub fn id(&self) -> RevisionId {
         digest(&self.write())
     }
+
+    /// The lowest version that expresses this document, which is what a
+    /// writer claims.
+    ///
+    /// Decision 0004 makes evolution asymmetric — a version constrains
+    /// writers, never readers — and this is that asymmetry taken seriously:
+    /// `forgets` and the `\ forgotten` marker are version 2's vocabulary,
+    /// and a document using neither claims version 1, so a store that has
+    /// forgotten nothing stays readable by every reader version 1 already
+    /// has.
+    pub fn needs(&self) -> Version {
+        let forgets = self.forgets.is_some()
+            || self
+                .operations
+                .iter()
+                .any(|operation| operation.items.iter().any(|item| item.forgotten));
+        if forgets { Version::V2 } else { Version::V1 }
+    }
 }
 
 impl fmt::Display for OperationDocument {

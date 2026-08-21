@@ -38,7 +38,10 @@ pub fn creation(text: &str) -> Option<OperationDocument> {
         return None;
     }
     Some(OperationDocument {
-        version: Version::CURRENT,
+        // A payload's lines are never forgotten — forgetting one destroys
+        // the payload and leaves a stand-in — so this is version 1's
+        // vocabulary and claims no more.
+        version: Version::V1,
         forgets: None,
         operations: vec![Operation::insert(0, items)],
     })

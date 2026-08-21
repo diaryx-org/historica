@@ -49,10 +49,12 @@ pub use operations::{
 };
 pub use timestamp::{MalformedTimestamp, Timestamp};
 
-/// The preamble a writer emits: the current version, per decision 0017.
+/// The newest preamble this reader accepts.
 ///
 /// Not a header: it carries no value, and its digit puts it outside the key
-/// grammar, so nothing can read it as `key value`.
+/// grammar, so nothing can read it as `key value`. What a writer emits is
+/// per document — the lowest version that expresses it — so this is the
+/// reader's ceiling rather than the writer's habit.
 pub const PREAMBLE: &str = Version::CURRENT.preamble();
 
 /// The format name the preamble begins with, used to tell an unknown version
@@ -82,7 +84,13 @@ pub enum Version {
 }
 
 impl Version {
-    /// The version a writer emits. Everything else it merely reads.
+    /// The highest version this reader knows.
+    ///
+    /// Not what a writer claims: a document claims the lowest version that
+    /// expresses it, so a store that never forgets anything keeps reading
+    /// under version 1 — and under the readers already published for it —
+    /// while a store that has forgotten something is refused whole, at the
+    /// gate, by a reader that knows less.
     pub const CURRENT: Version = Version::V2;
 
     /// The preamble line a document of this version opens with.
