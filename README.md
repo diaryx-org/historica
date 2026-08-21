@@ -351,6 +351,12 @@ Choices that constrain later work are written down as they are made.
   `arrange` becomes the command that applies the scheme to a store that does
   not have it, and is deliberately not a lint: a name that differs is usually
   a person filing their own history.
+- [`docs/decisions/0020-a-document-says-it-is-text.md`](docs/decisions/0020-a-document-says-it-is-text.md)
+  — documents are written `.rev.txt` and `.ops.txt`, so the file a person
+  double-clicks opens in the editor they already have. The older suffixes are
+  read forever, because a store that quietly stopped having documents in it is
+  the worst failure available; the cost is that a payload still has to avoid
+  both.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
