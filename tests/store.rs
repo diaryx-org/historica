@@ -57,7 +57,7 @@ fn init_creates_the_layout_and_open_finds_it() {
     }
     assert_eq!(
         fs::read_to_string(root.join("historica")).expect("the header"),
-        "historica-v0\n"
+        "historica-v1\n"
     );
     assert!(Store::init(&root).is_err(), "twice is an error");
 }
@@ -436,7 +436,7 @@ fn a_conflicted_copy_is_mentioned_and_forgiven() {
 fn a_store_of_an_unknown_version_refuses_rather_than_guesses() {
     let root = scratch("version").join("history");
     Store::init(&root).expect("a new store");
-    fs::write(root.join("historica"), "historica-v1\n").expect("a newer store");
+    fs::write(root.join("historica"), "historica-v2\n").expect("a newer store");
 
     assert!(Store::open(&root).is_err());
     let report = Store::check(&root);

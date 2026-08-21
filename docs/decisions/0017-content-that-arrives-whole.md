@@ -43,10 +43,10 @@ grammar costs.
 - **`add` with `edit` is refused**, because a file added by a revision did not
   exist at its parent to be edited. That is a spelling retired, which
   0004 permits only at a version boundary, so this is **`historica-v1`**.
-- **A v1 reader parses v0 exactly as v0 did.** The corpus is not rewritten, the
-  old spelling stays legal in the documents that already use it, and replay
-  keeps the path that reads them. 0004's rule is that a reader's vocabulary
-  only grows; a version constrains writers.
+- **A v1 reader parses v0 exactly as v0 did.** The version 0 histories in the
+  corpus are not rewritten, the old spelling stays legal in the documents that
+  already use it, and replay keeps the path that reads them. 0004's rule is
+  that a reader's vocabulary only grows; a version constrains writers.
 - **A file's kind is fixed when it is added**, which 0008 already decided.
   `edit` on a file added with `bytes`, or `bytes` on one added with `text`, is
   refused. Changing kind is `drop` and `add`.
@@ -114,12 +114,15 @@ Forgetting settles the question on its own, below: a forgotten text payload
 *becomes* a document. If payloads lived elsewhere, redacting one would move it.
 
 **When two files want one name.** A payload named for the path `x.ops` and an
-operation document named for the path `x` both want `x.ops`. 0016 already has
-the tie-break for a name two things claim — the smaller digest takes it — and
-the loser falls back to its digest, keeping its kind: a document becomes
-`<digest>.ops` and a payload becomes `<digest>`. The fallback preserves the
-extension rule, which is the thing that must not break; the tie-break is
-arbitrary and deterministic, which is all 0016 asked of it.
+operation document named for the path `x` both want `x.ops`. 0016 already
+settles this and its rule needs no amendment, only its scope: two things
+wanting one filename each take a digest suffix, never a counter, so the
+readable name survives and the ambiguity does not. What is added here is that
+the name a collision is decided on **includes the extension**, and a document
+keeps `.ops` whatever else happens to it — `notes 4a3a5224.ops`, never
+`notes.ops 4a3a5224` — because the extension is what says it is a document at
+all, and the rule that tells the two kinds apart is the one thing a
+disambiguator may not break.
 
 ## The grammar
 
@@ -299,9 +302,14 @@ is immutable and says nothing about where it lives.
 
 - **The version constrains writers, never readers.** A v1 reader parses every
   v0 document exactly as v0 did, forever. `add` with `edit` stays legal in a v0
-  document, `tests/corpus/` is not rewritten, and the replay path that reads it
-  is not deleted. The cost of adding a spelling is that it can never be
-  removed, and this is that cost being paid rather than avoided.
+  document, `tests/corpus/revisions/`, `operations/`, and `tree/` are not
+  rewritten, and the replay path that reads them is not deleted. Two corpora do
+  move, and neither is a history: `diffs/` records what the *writer* emits, so
+  it emits v1 now, and the invalid example whose fault is "a version this
+  reader lacks" becomes `historica-v2`, because that fault is defined against
+  the reader and moves whenever the reader does. The cost of adding a spelling
+  is that it can never be removed, and this is that cost being paid rather than
+  avoided.
 - **A v1 writer writes v1 everywhere**, including operation documents whose
   grammar did not change, because the preamble describes how to read the file
   and one format has one current version.
@@ -329,8 +337,9 @@ commitment. It was not.
   photographs must not cost a full hash to run `log` — so the directory is
   indexed on first need and memoised for the life of the `Store`. A persistent
   index belongs in `cache/`, which 0003 already promises is disposable.
-- `store` gains `payload(digest) -> &[u8]`, and `content` at a revision returns
-  bytes rather than a `State` for a file whose kind is `bytes`.
+- `store` gains `payload(digest)`, which returns the bytes or says nothing has
+  delivered them, and `content_at`, which returns lines or bytes according to
+  the kind the tree holds. `content` stays what it was, for a file of lines.
 - `replay` gains the creation path: a `text` payload replays as `insert 0` of
   its lines, and a `bytes` file has no chain to replay at all.
 - `tree` gains a kind per file, derived from the revision that added it, and

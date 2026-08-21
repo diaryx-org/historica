@@ -14,17 +14,33 @@ use std::fmt;
 
 use crate::core::{ChangeId, FileId, RevisionId};
 use crate::diff::diff;
-use crate::format::{OperationDocument, RevisionDocument, Timestamp};
+use crate::format::{OperationDocument, RevisionDocument, Timestamp, Version};
 use crate::replay::State;
 use crate::store::{MaterialiseError, Name, Store, StoreError};
-use crate::tree::{Tree, TreeContest};
-use crate::working::{Working, WorkingError};
+use crate::tree::{Kind, Tree, TreeContest};
+use crate::working::{self, Working, WorkingError};
 
 pub mod identity;
 pub mod source;
 
 pub use identity::{Identities, IdentityError, author_for};
 pub use source::{Clock, Entropy, Platform, SourceError};
+
+/// What one path's content contributes to a revision.
+///
+/// Decision 0017: three spellings, decided by what the file is rather than by
+/// what the recorder feels like writing. A file of lines that already exists
+/// contributes an operation document; a file of lines being created
+/// contributes the lines themselves; a file of bytes contributes its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    /// An operation document, against the file as its parents leave it.
+    Operations(OperationDocument),
+    /// The lines a file is created with, which `text` names.
+    Created(Vec<u8>),
+    /// A file's whole content, which `bytes` names.
+    Whole(Vec<u8>),
+}
 
 /// What one file's state on disk means for the file set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -75,8 +91,8 @@ pub struct Survey {
     pub moved: BTreeMap<FileId, String>,
     /// Files the tree holds and the folder does not, with where they sat.
     pub dropped: BTreeMap<FileId, String>,
-    /// What each path's content differs by, added paths included.
-    pub edited: BTreeMap<String, OperationDocument>,
+    /// What each path's content contributes, added paths included.
+    pub edited: BTreeMap<String, Change>,
     /// Where each surveyed path's file is, for the paths the tree holds.
     pub held: BTreeMap<String, FileId>,
     /// Paths the folder holds that nothing here can take, and why.
@@ -136,7 +152,7 @@ pub struct Plan {
     /// Files leaving the file set.
     pub dropped: BTreeSet<FileId>,
     /// What each edited file's revision did to it.
-    pub edited: BTreeMap<FileId, OperationDocument>,
+    pub edited: BTreeMap<FileId, Change>,
     /// Where each file sits after this revision, for rendering.
     pub paths: BTreeMap<FileId, String>,
     /// The revisions this would be recorded against.
@@ -288,7 +304,7 @@ pub fn survey(
 
     // Kept only for the paths that turn out to be added, since that is the
     // only place the bytes are wanted twice.
-    let mut arrived: BTreeMap<String, String> = BTreeMap::new();
+    let mut arrived: BTreeMap<String, Vec<u8>> = BTreeMap::new();
 
     // A path in the folder is either a file the tree already holds, or a file
     // nobody has recorded yet, which recording mints an identifier for.
@@ -301,20 +317,46 @@ pub fn survey(
             survey.added.insert(path.clone());
         }
 
-        let text = match working.text(path) {
+        let bytes = working.bytes(path)?;
+
+        // Decision 0017: a file the tree holds is addressed as the kind it was
+        // added as, and a file nobody has recorded yet is sniffed once, here.
+        let kind = match file.and_then(|file| tree.kind(&file)) {
+            Some(kind) => kind,
+            None if working::is_text(&bytes) => Kind::Lines,
+            None => Kind::Whole,
+        };
+
+        if file.is_none() {
+            arrived.insert(path.clone(), bytes.clone());
+        }
+
+        if kind == Kind::Whole {
+            // Nothing to compare line by line, so the comparison is the whole
+            // of it: the payload it holds now against the payload it held.
+            let before = match file {
+                Some(file) if !parents.is_empty() => held_bytes(store, parents, &file)?,
+                _ => None,
+            };
+            if before.as_deref() != Some(bytes.as_slice()) {
+                survey.edited.insert(path.clone(), Change::Whole(bytes));
+            }
+            continue;
+        }
+
+        let text = match String::from_utf8(bytes) {
             Ok(text) => text,
-            Err(error @ WorkingError::NotText { .. }) => {
-                // 0015: a file whose bytes are not text is refused, and the
-                // refusal is a line of the report rather than the end of it.
-                survey.refused.push((path.clone(), error.because()));
+            Err(_) => {
+                // 0015: a refusal is a line of the report rather than the end
+                // of it. 0017 narrows what is refused to this one case — a
+                // file recorded as lines that no longer holds any.
+                let refusal = WorkingError::NotText { path: path.clone() };
+                survey.refused.push((path.clone(), refusal.because()));
                 survey.added.remove(path);
+                arrived.remove(path);
                 continue;
             }
-            Err(error) => return Err(error.into()),
         };
-        if file.is_none() {
-            arrived.insert(path.clone(), text.clone());
-        }
 
         let before = match file {
             Some(file) if !parents.is_empty() => {
@@ -333,9 +375,23 @@ pub fn survey(
             }
             _ => State::empty(),
         };
+
+        // A file being created states its lines outright rather than as an
+        // insert of every one of them, which is decision 0017's whole point.
+        if file.is_none() {
+            if !text.is_empty() {
+                survey
+                    .edited
+                    .insert(path.clone(), Change::Created(text.into_bytes()));
+            }
+            continue;
+        }
+
         let after = State::from_text(&text);
         if let Some(document) = diff(&before, &after) {
-            survey.edited.insert(path.clone(), document);
+            survey
+                .edited
+                .insert(path.clone(), Change::Operations(document));
         }
     }
 
@@ -368,30 +424,38 @@ fn renames(
     store: &Store,
     parents: &[RevisionId],
     dropped: &BTreeMap<FileId, String>,
-    arrived: &BTreeMap<String, String>,
+    arrived: &BTreeMap<String, Vec<u8>>,
 ) -> Result<Vec<(String, String)>, RecordError> {
     if dropped.is_empty() || arrived.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut by_content: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for (path, text) in arrived {
-        if !text.is_empty() {
-            by_content.entry(text.as_str()).or_default().push(path);
+    let mut by_content: BTreeMap<&[u8], Vec<&str>> = BTreeMap::new();
+    for (path, bytes) in arrived {
+        if !bytes.is_empty() {
+            by_content.entry(bytes.as_slice()).or_default().push(path);
         }
     }
 
-    let mut gone: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    let mut gone: BTreeMap<Vec<u8>, Vec<&str>> = BTreeMap::new();
     for (file, path) in dropped {
-        let text = store.merged_content_of(parents, file)?.state.text();
-        if !text.is_empty() {
-            gone.entry(text).or_default().push(path);
+        // Whichever kind the file is: an image moved with `mv` is the same
+        // question a paragraph moved with `mv` is.
+        let bytes = match store.content_at_heads(parents, file) {
+            Ok(content) => content.bytes(),
+            // A file whose content two branches disagree about is not a file
+            // this can offer a rename for.
+            Err(MaterialiseError::ContestedContent { .. }) => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if !bytes.is_empty() {
+            gone.entry(bytes).or_default().push(path);
         }
     }
 
     let mut renames = Vec::new();
-    for (text, from) in &gone {
-        let Some(to) = by_content.get(text.as_str()) else {
+    for (bytes, from) in &gone {
+        let Some(to) = by_content.get(bytes.as_slice()) else {
             continue;
         };
         if let ([from], [to]) = (from.as_slice(), to.as_slice()) {
@@ -399,6 +463,22 @@ fn renames(
         }
     }
     Ok(renames)
+}
+
+/// The payload a file of bytes holds at these parents, if it holds one.
+///
+/// `None` where concurrent revisions each stated one: 0008 refuses to pick,
+/// so what the folder holds now is the change, whatever it is.
+fn held_bytes(
+    store: &Store,
+    parents: &[RevisionId],
+    file: &FileId,
+) -> Result<Option<Vec<u8>>, RecordError> {
+    match store.content_at_heads(parents, file) {
+        Ok(content) => Ok(Some(content.bytes())),
+        Err(MaterialiseError::ContestedContent { .. }) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Work out what recording would state, without writing anything.
@@ -499,13 +579,30 @@ pub fn record(
         return Err(RecordError::NothingToRecord);
     }
 
+    // Decision 0017: the documents and the payloads a revision names are
+    // written before the revision, on the same reasoning — an interrupted
+    // record leaves content nothing points at, which `check` calls a note,
+    // rather than a revision naming content that is not there.
     let mut edited = BTreeMap::new();
-    for (file, document) in &plan.edited {
-        edited.insert(*file, store.insert_operation(document)?);
+    let mut text = BTreeMap::new();
+    let mut bytes = BTreeMap::new();
+    for (file, change) in &plan.edited {
+        match change {
+            Change::Operations(document) => {
+                edited.insert(*file, store.insert_operation(document)?);
+            }
+            Change::Created(payload) => {
+                text.insert(*file, store.insert_payload(payload)?);
+            }
+            Change::Whole(payload) => {
+                bytes.insert(*file, store.insert_payload(payload)?);
+            }
+        }
     }
 
     let change = entropy.change()?;
     let document = RevisionDocument {
+        version: Version::CURRENT,
         change,
         parents: recording.parents.iter().copied().collect(),
         supersedes: BTreeSet::new(),
@@ -517,6 +614,8 @@ pub fn record(
         moved: plan.moved.clone(),
         dropped: plan.dropped.clone(),
         edited,
+        text,
+        bytes,
         extensions: BTreeMap::new(),
         message: recording.message.clone(),
     };

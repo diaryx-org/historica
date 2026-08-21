@@ -98,7 +98,7 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
     }
     assert_eq!(
         fs::read_to_string(directory.join("history/historica")).expect("the header"),
-        "historica-v0\n"
+        "historica-v1\n"
     );
 
     let again = stderr(&directory, &["init"]);
@@ -253,7 +253,7 @@ fn show_with_a_path_prints_what_that_revision_did_to_that_file() {
     assert_eq!(printed.stdout, stored);
 
     let untouched = stderr(&directory, &["show", "mzvwutkl", "notes/2025-08-19.md"]);
-    assert!(untouched.contains("did not edit"), "{untouched}");
+    assert!(untouched.contains("said nothing about"), "{untouched}");
 }
 
 #[test]
@@ -335,10 +335,18 @@ fn arrange_files_operation_documents_under_the_revision_that_names_them() {
         filed.iter().all(|name| name.contains('/')),
         "every document should sit under a revision directory: {filed:?}"
     );
+    // Decision 0017: the first revision states the file's lines outright, so
+    // what sits under it is the file, under its own name.
     assert!(
         filed
             .iter()
-            .any(|name| name.ends_with("Start a journal/src⁄cli⁄mod.rs.ops")),
+            .any(|name| name.ends_with("Start a journal/src⁄cli⁄mod.rs")),
+        "{filed:?}"
+    );
+    assert!(
+        filed
+            .iter()
+            .any(|name| name.ends_with("Start a journal/a.md")),
         "{filed:?}"
     );
     assert!(
@@ -376,8 +384,7 @@ fn arrange_tidies_the_directory_it_emptied_and_spares_the_one_it_did_not() {
 
     // Two documents, filed by hand into two directories of a person's own.
     let operations = directory.join("history/operations");
-    let mut documents = walk_names(&operations);
-    documents.retain(|name| name.ends_with(".ops"));
+    let documents = walk_names(&operations);
     assert_eq!(documents.len(), 2, "{documents:?}");
 
     let alone = operations.join("alone");
@@ -716,19 +723,20 @@ fn a_bookmark_follows_the_work_forward() {
 }
 
 #[test]
+#[cfg(unix)]
 fn what_the_format_cannot_hold_is_refused_by_name() {
     let directory = repository("record-refusals");
     write(&directory, "fine.md", "text\n");
-    fs::write(directory.join("picture.bin"), [0xff, 0xfe, 0x00]).expect("bytes");
+    std::os::unix::fs::symlink("/etc/hosts", directory.join("link")).expect("a symlink");
 
     let refused = recorded(&directory, &["record", "-m", "Everything"]);
     assert!(!refused.status.success());
     let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
-    assert!(complaint.contains("picture.bin"), "{complaint}");
+    assert!(complaint.contains("link"), "{complaint}");
     assert!(complaint.contains("skip"), "{complaint}");
 
     // Which is the fix the message names.
-    write(&directory, "history/skipped", "skip-suffix .bin\n");
+    write(&directory, "history/skipped", "skip link\n");
     assert!(out(recorded(&directory, &["record", "-m", "Everything"])).contains("fine.md"));
 
     // And nothing to say is refused too.
@@ -738,6 +746,74 @@ fn what_the_format_cannot_hold_is_refused_by_name() {
         String::from_utf8_lossy(&again.stderr).contains("would mean nothing"),
         "a revision that states nothing is not recorded"
     );
+}
+
+#[test]
+fn a_file_of_bytes_is_recorded_whole_and_comes_back_byte_for_byte() {
+    let directory = repository("record-bytes");
+    let picture: Vec<u8> = vec![0xff, 0xd8, 0xff, 0x00, 0x10, 0x9a, 0x00];
+    write(
+        &directory,
+        "notes.md",
+        "an entry, and the picture it is about\n",
+    );
+    fs::create_dir_all(directory.join("notes")).expect("a directory");
+    fs::write(directory.join("notes/photo.png"), &picture).expect("the picture");
+
+    let recorded_out = out(recorded(&directory, &["record", "-m", "Keep the photo"]));
+    assert!(recorded_out.contains("notes/photo.png"), "{recorded_out}");
+
+    // Decision 0017: the payload in the store *is* the file.
+    let stored = walk_names(&directory.join("history/operations"));
+    assert_eq!(
+        stored.len(),
+        2,
+        "two payloads, no operation documents: {stored:?}"
+    );
+    let held: Vec<Vec<u8>> = stored
+        .iter()
+        .map(|name| fs::read(directory.join("history/operations").join(name)).expect("a payload"))
+        .collect();
+    assert!(held.contains(&picture), "the picture is stored as itself");
+    assert!(
+        held.contains(&b"an entry, and the picture it is about\n".to_vec()),
+        "and so is the entry: no `+` down the left margin"
+    );
+
+    // And it comes back out unchanged.
+    let printed = run(&directory, &["cat", "head", "notes/photo.png"]);
+    assert_eq!(printed.stdout, picture);
+
+    // A file's kind is fixed when it is added, so editing the bytes is
+    // ordinary and states the whole content again.
+    let edited: Vec<u8> = vec![0xff, 0xd8, 0xff, 0x01];
+    fs::write(directory.join("notes/photo.png"), &edited).expect("the picture");
+    let status = out(recorded(&directory, &["status"]));
+    assert!(status.contains("edited  notes/photo.png"), "{status}");
+    out(recorded(&directory, &["record", "-m", "A better crop"]));
+    assert_eq!(
+        run(&directory, &["cat", "head", "notes/photo.png"]).stdout,
+        edited
+    );
+
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "a store with a picture in it is an ordinary store"
+    );
+}
+
+#[test]
+fn a_file_recorded_as_lines_that_stops_being_text_is_refused_with_the_fix() {
+    let directory = repository("record-kind-change");
+    write(&directory, "notes.md", "prose\n");
+    out(recorded(&directory, &["record", "-m", "An entry"]));
+
+    // Decision 0017: the kind belongs to the file's identity, so this is not
+    // an edit, and the refusal says what it is instead.
+    fs::write(directory.join("notes.md"), [0xff, 0xfe, 0x00]).expect("bytes");
+    let listed = out(recorded(&directory, &["status"]));
+    assert!(listed.contains("refused notes.md"), "{listed}");
+    assert!(listed.contains("drop it and add it again"), "{listed}");
 }
 
 #[test]
@@ -1079,10 +1155,8 @@ fn status_lists_every_refusal_and_the_facts_beside_them() {
     // are written in one pass rather than one command per file.
     let listed = out(recorded(&directory, &["status"]));
     assert!(listed.contains("added   fine.md"), "{listed}");
-    assert!(
-        listed.contains("refused picture.bin: not UTF-8 text"),
-        "{listed}"
-    );
+    // Decision 0017: a file of bytes is content, not a refusal.
+    assert!(listed.contains("added   picture.bin"), "{listed}");
     #[cfg(unix)]
     assert!(
         listed.contains("refused link: not a regular file"),
@@ -1090,13 +1164,14 @@ fn status_lists_every_refusal_and_the_facts_beside_them() {
     );
 
     // And recording refuses the same files, all of them at once.
-    let refused = recorded(&directory, &["record", "-m", "Everything"]);
-    assert!(!refused.status.success());
-    let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
-    assert!(complaint.contains("picture.bin"), "{complaint}");
-    assert!(complaint.contains("skip"), "{complaint}");
     #[cfg(unix)]
-    assert!(complaint.contains("link"), "{complaint}");
+    {
+        let refused = recorded(&directory, &["record", "-m", "Everything"]);
+        assert!(!refused.status.success());
+        let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
+        assert!(complaint.contains("link"), "{complaint}");
+        assert!(complaint.contains("skip"), "{complaint}");
+    }
 }
 
 #[test]

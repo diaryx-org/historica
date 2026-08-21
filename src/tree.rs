@@ -13,6 +13,12 @@
 //! There are no directories here, because 0008 says there are none anywhere: a
 //! directory exists exactly when some file's path names it.
 //!
+//! An entry also says what it points at, which is 0008's question and decision
+//! 0017's answer: a file is lines, accumulated by the operation documents its
+//! chain names, or it is one payload whole. Which of the two is fixed when the
+//! file is added, so that no operation chain can become unreplayable
+//! underneath the identity that names it.
+//!
 //! Like [`crate::replay`], this does the linear case. Merging concurrent tree
 //! facts — where a `drop` loses to an edit, and two files may legitimately
 //! claim one path — is decided in 0008 and not built.
@@ -23,10 +29,47 @@ use std::fmt;
 use crate::core::{FileId, RevisionId};
 use crate::format::RevisionDocument;
 
+/// What a file's entry points at.
+///
+/// Decision 0008 asked the question and left the second answer unbuilt; 0017
+/// builds it. A file is one kind or the other for its whole life, and changing
+/// kind is `drop` and `add`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Kind {
+    /// Lines, which merge: the operation chain the revisions name.
+    Lines,
+    /// One payload, whole, which never merges.
+    Whole,
+}
+
+impl fmt::Display for Kind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Kind::Lines => write!(f, "lines"),
+            Kind::Whole => write!(f, "bytes"),
+        }
+    }
+}
+
+/// One file's entry: where it sits, and what its content is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    /// Where the file sits.
+    pub path: String,
+    /// Lines or bytes, fixed when the file was added.
+    pub kind: Kind,
+    /// The payload a file of bytes holds.
+    ///
+    /// `Some` for every `Kind::Whole` file a linear history reaches, and
+    /// `None` only where concurrent revisions each stated one: 0008 calls that
+    /// a divergence to report, and refuses to pick a winner.
+    pub payload: Option<RevisionId>,
+}
+
 /// The files that exist at one revision, and where each of them sits.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tree {
-    files: BTreeMap<FileId, String>,
+    files: BTreeMap<FileId, Entry>,
 }
 
 impl Tree {
@@ -37,7 +80,17 @@ impl Tree {
 
     /// Where a file sits, or `None` if it does not exist here.
     pub fn path(&self, file: &FileId) -> Option<&str> {
-        self.files.get(file).map(String::as_str)
+        self.files.get(file).map(|entry| entry.path.as_str())
+    }
+
+    /// One file's whole entry: its path, its kind, and what it points at.
+    pub fn entry(&self, file: &FileId) -> Option<&Entry> {
+        self.files.get(file)
+    }
+
+    /// Whether a file is lines or bytes, or `None` if it does not exist here.
+    pub fn kind(&self, file: &FileId) -> Option<Kind> {
+        self.files.get(file).map(|entry| entry.kind)
     }
 
     /// The files at a path.
@@ -48,14 +101,21 @@ impl Tree {
     pub fn at(&self, path: &str) -> Vec<FileId> {
         self.files
             .iter()
-            .filter(|(_, held)| held.as_str() == path)
+            .filter(|(_, held)| held.path == path)
             .map(|(file, _)| *file)
             .collect()
     }
 
     /// Every file and its path, in the order a revision document writes them.
     pub fn files(&self) -> impl Iterator<Item = (&FileId, &str)> {
-        self.files.iter().map(|(file, path)| (file, path.as_str()))
+        self.files
+            .iter()
+            .map(|(file, entry)| (file, entry.path.as_str()))
+    }
+
+    /// Every file and its whole entry, in the order a revision writes them.
+    pub fn entries(&self) -> impl Iterator<Item = (&FileId, &Entry)> {
+        self.files.iter()
     }
 
     /// How many files exist here.
@@ -72,8 +132,9 @@ impl Tree {
     ///
     /// The moves are applied together rather than one at a time, so that a
     /// revision swapping two files' paths is ordinary rather than a collision
-    /// with itself. Nothing here reads the revision's content facts beyond
-    /// checking that an `edit` names a file that exists.
+    /// with itself. The revision's content facts are read only for what the
+    /// tree is responsible for: that they name a file that exists, and that
+    /// they address it as the kind it was added as.
     pub fn apply(&self, revision: &RevisionDocument) -> Result<Self, TreeError> {
         let mut files = self.files.clone();
 
@@ -81,16 +142,32 @@ impl Tree {
             if files.contains_key(file) {
                 return Err(TreeError::AddedTwice { file: *file });
             }
-            files.insert(*file, path.clone());
+            // Decision 0017: the kind is decided here and never again. A file
+            // added with `bytes` is bytes; anything else is lines, an empty
+            // file included.
+            let payload = revision.bytes.get(file).copied();
+            files.insert(
+                *file,
+                Entry {
+                    path: path.clone(),
+                    kind: match payload {
+                        Some(_) => Kind::Whole,
+                        None => Kind::Lines,
+                    },
+                    payload,
+                },
+            );
         }
         for (file, path) in &revision.moved {
-            if !files.contains_key(file) {
-                return Err(TreeError::Unknown {
-                    key: "move",
-                    file: *file,
-                });
+            match files.get_mut(file) {
+                Some(entry) => entry.path = path.clone(),
+                None => {
+                    return Err(TreeError::Unknown {
+                        key: "move",
+                        file: *file,
+                    });
+                }
             }
-            files.insert(*file, path.clone());
         }
         for file in &revision.dropped {
             if files.remove(file).is_none() {
@@ -101,21 +178,52 @@ impl Tree {
             }
         }
         for file in revision.edited.keys() {
-            if !files.contains_key(file) {
-                return Err(TreeError::Unknown {
-                    key: "edit",
-                    file: *file,
-                });
+            match files.get(file) {
+                Some(entry) if entry.kind != Kind::Lines => {
+                    return Err(TreeError::WrongKind {
+                        key: "edit",
+                        file: *file,
+                        kind: entry.kind,
+                    });
+                }
+                Some(_) => {}
+                None => {
+                    return Err(TreeError::Unknown {
+                        key: "edit",
+                        file: *file,
+                    });
+                }
+            }
+        }
+        for (file, payload) in &revision.bytes {
+            if revision.added.contains_key(file) {
+                continue;
+            }
+            match files.get_mut(file) {
+                Some(entry) if entry.kind != Kind::Whole => {
+                    return Err(TreeError::WrongKind {
+                        key: "bytes",
+                        file: *file,
+                        kind: entry.kind,
+                    });
+                }
+                Some(entry) => entry.payload = Some(*payload),
+                None => {
+                    return Err(TreeError::Unknown {
+                        key: "bytes",
+                        file: *file,
+                    });
+                }
             }
         }
 
         // Held to the result rather than to each line, so that two files
         // exchanging paths in one revision is not a collision on the way past.
         let mut held: BTreeMap<&str, FileId> = BTreeMap::new();
-        for (file, path) in &files {
-            if let Some(other) = held.insert(path.as_str(), *file) {
+        for (file, entry) in &files {
+            if let Some(other) = held.insert(entry.path.as_str(), *file) {
                 return Err(TreeError::PathTaken {
-                    path: path.clone(),
+                    path: entry.path.clone(),
                     file: *file,
                     other,
                 });
@@ -198,6 +306,19 @@ pub enum TreeContest {
         /// Every path claimed, with the revision claiming it, in digest order.
         paths: Vec<(RevisionId, String)>,
     },
+    /// Concurrent whole content, which 0008 refuses to choose between.
+    ///
+    /// The one contest with no resolution: two branches each stated a file's
+    /// whole bytes, there is nothing to merge, and inventing a winner would be
+    /// picking one person's work over another's by digest order. The file has
+    /// no content at these heads until somebody records which.
+    Content {
+        /// The file both stated.
+        file: FileId,
+        /// Every payload claimed, with the revision claiming it, in digest
+        /// order.
+        payloads: Vec<(RevisionId, RevisionId)>,
+    },
     /// Two files claiming one path. Neither is renamed: 0008 forbids that.
     Path {
         /// The path both hold.
@@ -229,6 +350,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
             held.placements.push((event.revision, path.clone()));
             held.touches.push(event.revision);
             held.added.push(event.revision);
+            held.whole = document.bytes.contains_key(file);
         }
         for (file, path) in &document.moved {
             let held = facts.entry(*file).or_default();
@@ -240,6 +362,11 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
         }
         for file in document.edited.keys() {
             facts.entry(*file).or_default().touches.push(event.revision);
+        }
+        for (file, payload) in &document.bytes {
+            let held = facts.entry(*file).or_default();
+            held.wholes.push((event.revision, *payload));
+            held.touches.push(event.revision);
         }
     }
 
@@ -303,14 +430,50 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
                 paths: latest,
             });
         }
-        files.insert(file, path);
+
+        // The same walk for content stated whole, and a different ending:
+        // 0008 reports two concurrent `bytes` as a divergence and never picks
+        // one, so a contested file holds no payload until somebody records it.
+        let kind = if held.whole { Kind::Whole } else { Kind::Lines };
+        let mut current: Vec<(RevisionId, RevisionId)> =
+            held.wholes
+                .iter()
+                .filter(|(revision, _)| {
+                    !held.wholes.iter().any(|(other, _)| {
+                        other != revision && is_ancestor(&ancestors, revision, other)
+                    })
+                })
+                .copied()
+                .collect();
+        current.sort();
+        current.dedup();
+        let payload = match current.len() {
+            0 => None,
+            1 => Some(current[0].1),
+            _ => {
+                contested.push(TreeContest::Content {
+                    file,
+                    payloads: current,
+                });
+                None
+            }
+        };
+
+        files.insert(
+            file,
+            Entry {
+                path,
+                kind,
+                payload,
+            },
+        );
     }
 
     // Two files at one path is a legitimate state a person resolves, so it is
     // reported rather than refused, and neither file is renamed to fit.
     let mut by_path: BTreeMap<&str, Vec<FileId>> = BTreeMap::new();
-    for (file, path) in &files {
-        by_path.entry(path.as_str()).or_default().push(*file);
+    for (file, entry) in &files {
+        by_path.entry(entry.path.as_str()).or_default().push(*file);
     }
     for (path, holders) in by_path {
         if holders.len() > 1 {
@@ -339,6 +502,10 @@ struct Facts {
     drops: Vec<RevisionId>,
     /// Revisions that added it.
     added: Vec<RevisionId>,
+    /// `bytes`, with the payload each stated.
+    wholes: Vec<(RevisionId, RevisionId)>,
+    /// Whether the `add` said this file is bytes rather than lines.
+    whole: bool,
 }
 
 /// Every revision's ancestors, which is what makes concurrency decidable.
@@ -423,6 +590,15 @@ pub enum TreeError {
         /// The file named twice.
         file: FileId,
     },
+    /// A header addressed a file as the kind it is not.
+    WrongKind {
+        /// The header that named it.
+        key: &'static str,
+        /// The file it named.
+        file: FileId,
+        /// What that file actually is.
+        kind: Kind,
+    },
     /// A header named a file that does not exist here.
     Unknown {
         /// The header that named it.
@@ -457,6 +633,12 @@ impl fmt::Display for TreeError {
                 f,
                 "the file {file} already exists here and this revision adds it; \
                  a file that comes back after being dropped is a new file with a new ID"
+            ),
+            TreeError::WrongKind { key, file, kind } => write!(
+                f,
+                "`{key}` addresses the file {file} as the kind it is not: it holds {kind}, \
+                 and a file's kind is fixed when it is added; \
+                 a file whose content model changed is a `drop` and an `add`"
             ),
             TreeError::Unknown { key, file } => write!(
                 f,
@@ -528,8 +710,9 @@ mod tests {
         let history = [
             revision(&[
                 line(&format!("add {ONE} notes/one.md")),
-                line(&format!("edit {ONE} {DIGEST}")),
+                line(&format!("text {ONE} {DIGEST}")),
             ]),
+            revision(&[line(&format!("edit {ONE} {DIGEST}"))]),
             revision(&[line(&format!("move {ONE} archive/one.md"))]),
         ];
         let tree = replay(&history).expect("a rename");

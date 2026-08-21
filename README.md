@@ -58,6 +58,24 @@ invalid ones are each refused for their own stated reason by
 `tests/operations.rs`. `states/` is that file as it stands at each revision,
 hand-written, which is what the replayer is held to.
 
+Content that no operation produced is decision 0017, and it is where the
+format's version stops being a formality. A **payload** is a file of bytes in
+the store carrying no format of its own: `text <file> <digest>` names the lines
+a file is created with, `bytes <file> <digest>` names the whole content of a
+file that has no lines, and both are stored beside the documents they are not.
+So a created file is *itself* in the store rather than a second copy with `+`
+down the left margin, and a photograph is a photograph. A file is lines or
+bytes for its whole life, fixed when it is added. Retiring `add` with `edit` —
+which counted an edit's positions into a file that did not exist yet — is what
+makes this `historica-v1`, and 0004's rule that a reader's vocabulary only
+grows is why every version 0 document still parses exactly as it did.
+
+`tests/corpus/whole/` is that executed: two revisions that file a photograph
+and the entry it belongs to, where the entry's first content is the entry and
+the second revision's `edit` counts its positions into what that payload
+produced. Six invalid files pin the grammar, each refused for its own stated
+reason by `tests/whole.rs`.
+
 The `replay` module materialises a file from what was done to it. It does the
 linear case, which decision 0007 says costs nothing: positions are stated
 against the parent, so applying them is arithmetic rather than interpretation,
@@ -78,11 +96,14 @@ and the spans where concurrent work met, so a tool can decline to record an
 automatic merge and show a person both versions instead.
 
 The `tree` module is the file set, specified by 0008. A revision records what
-it did to it — `add`, `move`, `drop`, `edit` — as headers in the revision
-document, and the tree at a revision is what replaying those facts produces.
-Files carry identifiers and paths hang off them, so a rename keeps everything
-recorded against the file and no heuristic has to recover the connection later.
-There are no directories: one exists exactly when a file's path names it.
+it did to it — `add`, `move`, `drop`, `edit`, and 0017's `text` and `bytes` —
+as headers in the revision document, and the tree at a revision is what
+replaying those facts produces. Files carry identifiers and paths hang off
+them, so a rename keeps everything recorded against the file and no heuristic
+has to recover the connection later. There are no directories: one exists
+exactly when a file's path names it. An entry also says what it points at: an
+operation chain, or one payload whole, decided when the file was added and
+never again, so an `edit` addressed to a photograph is refused by name.
 
 The `diff` module is the writing half, specified by 0009. Given the file at a
 revision's parent and the file as it stands, it records what the revision did:
@@ -102,18 +123,27 @@ record would spell a request for privacy as a deletion of the file it names. A c
 author comes from a person's own configuration and is never guessed, and the
 time is the clock in the offset the platform reports. Everything else is
 observed by comparing the folder with the tree at the parent — including a
-deletion, which is a fact rather than a heuristic. Only a rename has to be
+deletion, which is a fact rather than a heuristic, and including which kind of
+file a new one is: valid UTF-8 with no NUL is lines, and everything else is
+bytes. That last rule is the tool's rather than the format's, because a
+recorder is allowed signals a format may not use. Only a rename has to be
 stated, with `--move`, which performs it if the person has not.
 
 The `store` module is that format on disk. It loads a `history/` directory by
 reading files and never their names — revisions and operation documents alike,
 so renaming every file in a store changes no identity and breaks no reference — which is what lets a store be
-hand-arranged into something a file browser can narrate. The writer still names
+hand-arranged into something a file browser can narrate. `operations/` holds
+two kinds of file on the rule `revisions/` already keeps: only `*.ops` is a
+document there, and every other file is a payload, found by its digest and not
+read at all until something wants its bytes, so a history with photographs in
+it does not cost a full hash to run `log`. The writer still names
 files by digest, appends only, and never overwrites. `check` reads a store
 without loading it and separates errors, which mean the store contradicts
 itself, from notes, which never fail: an undelivered parent, an undelivered
-operation document, a duplicate, or a sync tool's conflicted copy is a
-legitimate state and is reported as one. It also replays: every revision on a
+operation document or payload, a payload nothing names, a duplicate, or a sync
+tool's conflicted copy is a legitimate state and is reported as one. A `text`
+payload that is not UTF-8 is an error, because no operation document could ever
+quote a line of it. It also replays: every revision on a
 linear chain is held to the file set it names and every `-` line to the parent
 it claims to have edited, which is the error 0007 asked for and 0008 unblocked.
 A store can materialise a file — `tree` and `content` at a revision — and
@@ -163,12 +193,18 @@ exactly the resolution. Detection is per line and scoped to a merge record,
 which is why this repository can hold a decision document full of marker lines
 and record it without complaint.
 
+A file of bytes takes the same route through all of it and stops at the merge:
+0008 makes two concurrent `bytes` a divergence to report, and there is nothing
+to render between marker lines in a JPEG, so `merge` names the contested path,
+prints the command that fetches each side, and leaves the folder alone. For
+that one case the tool cannot tell a resolution from an oversight, which is
+said out loud rather than papered over.
+
 What is still owed is the rewriting half: amending needs the same machinery
 pointed at a descendant, and abandoning a revision that has one needs it too.
 The ordering rule is held to convergence and to non-interleaving by property
 tests over every walk order of each graph they generate; the conformance suite
-0007 asks for, against the reference implementation, is still owed. Binary
-content has a shape in 0008 and no implementation.
+0007 asks for, against the reference implementation, is still owed.
 
 ## The command line
 
@@ -310,4 +346,5 @@ cd tests/corpus/revisions && shasum -a 256 -c MANIFEST
 cd tests/corpus/operations && shasum -a 256 -c MANIFEST
 cd tests/corpus/diffs && shasum -a 256 -c MANIFEST
 cd tests/corpus/tree && shasum -a 256 -c MANIFEST
+cd tests/corpus/whole && shasum -a 256 -c MANIFEST
 ```

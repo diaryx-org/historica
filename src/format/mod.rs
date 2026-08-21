@@ -1,10 +1,11 @@
 //! The readable documents a history is stored as, and the digests that name them.
 //!
 //! A revision is one text file, specified by `docs/decisions/0002-revision-document.md`
-//! and made strict by `docs/decisions/0004-parser-contract.md`:
+//! and made strict by `docs/decisions/0004-parser-contract.md`, at the version
+//! decision 0017 moved it to:
 //!
 //! ```text
-//! historica-v0
+//! historica-v1
 //! change qpvuntsmwlrkzxonmvtplsyq
 //! author Adam Harris <adam@example.com>
 //! when 2025-08-19T00:47:11-06:00
@@ -25,6 +26,11 @@
 //! file. It opens with the same preamble and reads under the same contract, so
 //! a person learns one shape and a parser reads a preamble the same way in
 //! both.
+//!
+//! There is a third thing a revision may name and this module does not read: a
+//! **payload**, which decision 0017 makes the content a file arrives with. It
+//! has no preamble and no grammar, because it is the file itself — see
+//! [`crate::store`], which is where bytes with no format of their own live.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -41,15 +47,61 @@ pub use error::{ParseError, ParseErrorKind};
 pub use operations::{Item, NO_NEWLINE, Operation, OperationDocument, OperationKind};
 pub use timestamp::{MalformedTimestamp, Timestamp};
 
-/// The preamble every revision document opens with.
+/// The preamble a writer emits: the current version, per decision 0017.
 ///
 /// Not a header: it carries no value, and its digit puts it outside the key
 /// grammar, so nothing can read it as `key value`.
-pub const PREAMBLE: &str = "historica-v0";
+pub const PREAMBLE: &str = Version::CURRENT.preamble();
 
 /// The format name the preamble begins with, used to tell an unknown version
 /// apart from a file that is not a revision at all.
 const PREAMBLE_PREFIX: &str = "historica-v";
+
+/// The format version a document was written under.
+///
+/// Decision 0004 makes evolution asymmetric: a version constrains writers,
+/// never readers, so a version 1 reader parses every version 0 document
+/// exactly as version 0 did. The version is therefore carried on the document
+/// rather than assumed, and the grammar consults it — `add` with `edit` is
+/// version 0's spelling of a creation, refused by decision 0017 and still
+/// legal in the documents that already use it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum Version {
+    /// The first version: no `text`, no `bytes`, and a creation spelled as an
+    /// operation document inserting every line at 0.
+    V0,
+    /// Decision 0017: content that arrives whole, as a payload named by
+    /// `text` or `bytes`.
+    #[default]
+    V1,
+}
+
+impl Version {
+    /// The version a writer emits. Everything else it merely reads.
+    pub const CURRENT: Version = Version::V1;
+
+    /// The preamble line a document of this version opens with.
+    pub const fn preamble(self) -> &'static str {
+        match self {
+            Version::V0 => "historica-v0",
+            Version::V1 => "historica-v1",
+        }
+    }
+
+    /// The digit the preamble spells, for an error that has to name it.
+    pub const fn number(self) -> u8 {
+        match self {
+            Version::V0 => 0,
+            Version::V1 => 1,
+        }
+    }
+}
+
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.preamble())
+    }
+}
 
 /// Characters in a change ID's readable spelling.
 pub const CHANGE_ID_CHARS: usize = CHANGE_ID_LEN * 2;
@@ -72,6 +124,8 @@ pub fn digest(bytes: &[u8]) -> RevisionId {
 /// which is lossless precisely because the parser rejects any other order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevisionDocument {
+    /// The version this document was written under, and is written back as.
+    pub version: Version,
     /// The change this revision is a version of.
     pub change: ChangeId,
     /// Causal parents, by digest. Empty means a root.
@@ -94,6 +148,17 @@ pub struct RevisionDocument {
     pub dropped: BTreeSet<FileId>,
     /// The operation document this revision contributed to each file it edited.
     pub edited: BTreeMap<FileId, RevisionId>,
+    /// The payload each file this revision added arrives as, read as lines.
+    ///
+    /// Decision 0017: exactly the operation document that inserts every line
+    /// at 0, spelled as the file itself. Only a file this revision `add`s may
+    /// appear here.
+    pub text: BTreeMap<FileId, RevisionId>,
+    /// The payload that is each named file's whole content, which has no lines.
+    ///
+    /// Decisions 0008 and 0017: such a file never merges, and two concurrent
+    /// `bytes` lines for one file are a divergence to report.
+    pub bytes: BTreeMap<FileId, RevisionId>,
     /// Advisory `x-` headers, keyed by their full spelling including the prefix.
     pub extensions: BTreeMap<String, String>,
     /// The message, verbatim. Empty means the file had no separator at all.
@@ -114,7 +179,7 @@ impl RevisionDocument {
     /// `write(parse(bytes)) == bytes` for every input `parse` accepts.
     pub fn write(&self) -> Vec<u8> {
         let mut out = String::new();
-        out.push_str(PREAMBLE);
+        out.push_str(self.version.preamble());
         out.push('\n');
         out.push_str(&format!("change {}\n", self.change));
         for parent in &self.parents {
@@ -142,6 +207,12 @@ impl RevisionDocument {
         }
         for (file, document) in &self.edited {
             out.push_str(&format!("edit {file} {document}\n"));
+        }
+        for (file, payload) in &self.text {
+            out.push_str(&format!("text {file} {payload}\n"));
+        }
+        for (file, payload) in &self.bytes {
+            out.push_str(&format!("bytes {file} {payload}\n"));
         }
         for (key, value) in &self.extensions {
             out.push_str(&format!("{key} {value}\n"));
@@ -192,14 +263,21 @@ fn rank(key: &str) -> Option<u8> {
         "move" => Some(8),
         "drop" => Some(9),
         "edit" => Some(10),
-        key if key.starts_with("x-") => Some(11),
+        // Decision 0017's payloads follow the operation document they stand in
+        // for, so a file's content is read after its existence either way.
+        "text" => Some(11),
+        "bytes" => Some(12),
+        key if key.starts_with("x-") => Some(13),
         _ => None,
     }
 }
 
+/// The rank `x-` headers share, which sort against each other by key.
+const EXTENSION_RANK: u8 = 13;
+
 /// Whether a rank may appear more than once.
 fn repeatable(rank: u8) -> bool {
-    matches!(rank, 1 | 2 | 7 | 8 | 9 | 10 | 11)
+    matches!(rank, 1 | 2 | 7 | 8 | 9 | 10 | 11 | 12 | EXTENSION_RANK)
 }
 
 /// One header line, kept with its position so an error can name it.
@@ -277,21 +355,25 @@ fn check_byte_order_mark(bytes: &[u8]) -> Result<(), ParseError> {
 /// Both documents in the format open this way, for decision 0004's reasons: a
 /// file says how to hash itself, and can be identified by content rather than
 /// by the extension it happens to carry.
-fn check_preamble(line: &str, terminated: bool) -> Result<(), ParseError> {
-    if line != PREAMBLE {
-        let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
-            ParseErrorKind::UnknownVersion {
-                found: version.to_owned(),
-            }
-        } else {
-            ParseErrorKind::MissingPreamble
-        };
-        return Err(ParseError::new(1, kind));
-    }
+fn check_preamble(line: &str, terminated: bool) -> Result<Version, ParseError> {
+    let version = match line {
+        line if line == Version::V0.preamble() => Version::V0,
+        line if line == Version::V1.preamble() => Version::V1,
+        line => {
+            let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
+                ParseErrorKind::UnknownVersion {
+                    found: version.to_owned(),
+                }
+            } else {
+                ParseErrorKind::MissingPreamble
+            };
+            return Err(ParseError::new(1, kind));
+        }
+    };
     if !terminated {
         return Err(ParseError::new(1, ParseErrorKind::UnterminatedLine));
     }
-    Ok(())
+    Ok(version)
 }
 
 struct Parser<'a> {
@@ -319,12 +401,12 @@ impl<'a> Parser<'a> {
     }
 
     fn run(mut self) -> Result<RevisionDocument, ParseError> {
-        self.preamble()?;
+        let version = self.preamble()?;
         let (headers, message) = self.headers_and_message()?;
-        self.assemble(headers, message)
+        self.assemble(version, headers, message)
     }
 
-    fn preamble(&mut self) -> Result<(), ParseError> {
+    fn preamble(&mut self) -> Result<Version, ParseError> {
         let Some((line, terminated)) = self.next_line() else {
             return Err(ParseError::new(1, ParseErrorKind::Empty));
         };
@@ -356,6 +438,7 @@ impl<'a> Parser<'a> {
 
     fn assemble(
         self,
+        version: Version,
         headers: Vec<Header>,
         message: String,
     ) -> Result<RevisionDocument, ParseError> {
@@ -370,11 +453,26 @@ impl<'a> Parser<'a> {
         let mut moved: BTreeMap<FileId, String> = BTreeMap::new();
         let mut dropped: BTreeSet<FileId> = BTreeSet::new();
         let mut edited: BTreeMap<FileId, RevisionId> = BTreeMap::new();
+        let mut text: BTreeMap<FileId, RevisionId> = BTreeMap::new();
+        let mut bytes: BTreeMap<FileId, RevisionId> = BTreeMap::new();
         let mut extensions: BTreeMap<String, String> = BTreeMap::new();
 
         let mut previous: Option<(u8, String, String)> = None;
 
         for Header { at, key, value } in headers {
+            // Decision 0004: a version constrains writers, never readers, so a
+            // version 0 document refuses 0017's headers exactly as a version 0
+            // reader did — as headers it does not know.
+            if version < Version::V1 && matches!(key.as_str(), "text" | "bytes") {
+                return Err(ParseError::new(
+                    at,
+                    ParseErrorKind::HeaderNeedsVersion {
+                        key: key.clone(),
+                        found: version,
+                        needs: Version::V1,
+                    },
+                ));
+            }
             let Some(this_rank) = rank(&key) else {
                 return Err(ParseError::new(
                     at,
@@ -401,7 +499,7 @@ impl<'a> Parser<'a> {
                     }
                     // Repeated facts sort by digest, and `x-` headers by key,
                     // so that a deterministic rewrite is deterministic in bytes.
-                    let (this_sort, last_sort) = if this_rank == 11 {
+                    let (this_sort, last_sort) = if this_rank == EXTENSION_RANK {
                         (&key, last_key)
                     } else {
                         (&value, last_value)
@@ -467,15 +565,25 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
-                "edit" => {
-                    let (file, document) = split_entry(&value, at, "edit")?;
+                "edit" | "text" | "bytes" => {
+                    let key: &'static str = match key.as_str() {
+                        "edit" => "edit",
+                        "text" => "text",
+                        _ => "bytes",
+                    };
+                    let (file, named) = split_entry(&value, at, key)?;
                     let file = parse_file_id(file, at)?;
-                    let document = parse_digest(document, at, "edit")?;
-                    if edited.insert(file, document).is_some() {
+                    let named = parse_digest(named, at, key)?;
+                    let into = match key {
+                        "edit" => &mut edited,
+                        "text" => &mut text,
+                        _ => &mut bytes,
+                    };
+                    if into.insert(file, named).is_some() {
                         return Err(ParseError::new(
                             at,
                             ParseErrorKind::FileStatedTwice {
-                                key: "edit",
+                                key,
                                 file: file.to_string(),
                             },
                         ));
@@ -544,6 +652,12 @@ impl<'a> Parser<'a> {
             if dropped.contains(file) {
                 return Err(contradiction("add", "drop", file));
             }
+            // Decision 0017: an `edit`'s positions are counted into the file at
+            // this revision's parents, and a file added here is not there. It
+            // was version 0's spelling of a creation and stays legal there.
+            if version >= Version::V1 && edited.contains_key(file) {
+                return Err(contradiction("add", "edit", file));
+            }
         }
         for file in moved.keys() {
             if dropped.contains(file) {
@@ -554,9 +668,34 @@ impl<'a> Parser<'a> {
             if edited.contains_key(file) {
                 return Err(contradiction("drop", "edit", file));
             }
+            if bytes.contains_key(file) {
+                return Err(contradiction("drop", "bytes", file));
+            }
+        }
+        // Decision 0017: a file's content is stated once, one way. `text`
+        // states the lines a creation arrives with, so it says nothing about a
+        // file this revision does not add.
+        for file in text.keys() {
+            if bytes.contains_key(file) {
+                return Err(contradiction("text", "bytes", file));
+            }
+            if !added.contains_key(file) {
+                return Err(ParseError::new(
+                    last,
+                    ParseErrorKind::TextWithoutAdd {
+                        file: file.to_string(),
+                    },
+                ));
+            }
+        }
+        for file in bytes.keys() {
+            if edited.contains_key(file) {
+                return Err(contradiction("edit", "bytes", file));
+            }
         }
 
         Ok(RevisionDocument {
+            version,
             change,
             parents,
             supersedes,
@@ -568,6 +707,8 @@ impl<'a> Parser<'a> {
             moved,
             dropped,
             edited,
+            text,
+            bytes,
             extensions,
             message,
         })
@@ -984,7 +1125,8 @@ mod tests {
             &format!("add {FILE} notes/2025-08-19.md"),
             &format!("move {OTHER_FILE} notes/archive/2025-08-01.md"),
             &format!("drop {}", "wnkyzrtlmqvsxopwnztkylrv"),
-            &format!("edit {FILE} {A}"),
+            &format!("edit {OTHER_FILE} {A}"),
+            &format!("text {FILE} {B}"),
         ]
         .map(String::from);
         let lines: Vec<&str> = headers.iter().map(String::as_str).collect();
@@ -997,6 +1139,7 @@ mod tests {
         assert_eq!(document.moved.len(), 1);
         assert_eq!(document.dropped.len(), 1);
         assert_eq!(document.edited.len(), 1);
+        assert_eq!(document.text.len(), 1);
         assert_eq!(document.write(), file(&lines, Some("m")));
     }
 
@@ -1032,10 +1175,59 @@ mod tests {
         let dropped = format!("drop {FILE}");
         let edited = format!("edit {FILE} {A}");
 
+        let text = format!("text {FILE} {A}");
+        let bytes = format!("bytes {FILE} {A}");
+
         // Creating a file with content, and moving one while editing it, are
-        // the ordinary combinations.
-        accept(&[CHANGE, AUTHOR, WHEN, &add, &edited], Some("m"));
+        // the ordinary combinations. Decision 0017: a creation states its
+        // content rather than inserting every line of it.
+        accept(&[CHANGE, AUTHOR, WHEN, &add, &text], Some("m"));
+        accept(&[CHANGE, AUTHOR, WHEN, &add, &bytes], Some("m"));
         accept(&[CHANGE, AUTHOR, WHEN, &moved, &edited], Some("m"));
+        accept(&[CHANGE, AUTHOR, WHEN, &moved, &bytes], Some("m"));
+
+        // A file added here did not exist at the parent to be edited, which is
+        // what version 0 spelled a creation as and version 1 refuses.
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &add, &edited], Some("m")),
+            ParseErrorKind::ContradictoryFileFacts {
+                first: "add",
+                second: "edit",
+                file: FILE.to_owned(),
+            }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &add, &text, &bytes], Some("m")),
+            ParseErrorKind::ContradictoryFileFacts {
+                first: "text",
+                second: "bytes",
+                file: FILE.to_owned(),
+            }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &edited, &bytes], Some("m")),
+            ParseErrorKind::ContradictoryFileFacts {
+                first: "edit",
+                second: "bytes",
+                file: FILE.to_owned(),
+            }
+        );
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &dropped, &bytes], Some("m")),
+            ParseErrorKind::ContradictoryFileFacts {
+                first: "drop",
+                second: "bytes",
+                file: FILE.to_owned(),
+            }
+        );
+        // `text` states the lines a file arrives with, so it says nothing
+        // about a file this revision does not add.
+        assert_eq!(
+            refuse(&[CHANGE, AUTHOR, WHEN, &moved, &text], Some("m")),
+            ParseErrorKind::TextWithoutAdd {
+                file: FILE.to_owned(),
+            }
+        );
 
         assert_eq!(
             refuse(&[CHANGE, AUTHOR, WHEN, &add, &moved], Some("m")),
@@ -1070,6 +1262,40 @@ mod tests {
             ParseErrorKind::FileStatedTwice {
                 key: "add",
                 file: FILE.to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_version_0_document_still_reads_the_way_version_0_read_it() {
+        // Decision 0004: a version constrains writers, never readers, so the
+        // spelling 0017 retired stays legal in the documents that used it —
+        // otherwise every revision written before this reader existed would
+        // stop being verifiable.
+        let older = format!(
+            "{}\nchange {}\nauthor {}\nwhen {}\nadd {FILE} a.md\nedit {FILE} {A}\n\nm",
+            Version::V0.preamble(),
+            &CHANGE[7..],
+            &AUTHOR[7..],
+            &WHEN[5..],
+        );
+        let document = RevisionDocument::parse(older.as_bytes()).expect("version 0 still reads");
+        assert_eq!(document.version, Version::V0);
+        assert_eq!(document.added.len(), 1);
+        assert_eq!(document.edited.len(), 1);
+        // And it writes back as what it was, byte for byte.
+        assert_eq!(document.write(), older.as_bytes());
+
+        // What a version 0 document may not do is use a version 1 header.
+        let newer = older.replace(&format!("edit {FILE} {A}"), &format!("text {FILE} {A}"));
+        assert_eq!(
+            RevisionDocument::parse(newer.as_bytes())
+                .expect_err("a version says what its writer may use")
+                .kind,
+            ParseErrorKind::HeaderNeedsVersion {
+                key: "text".to_owned(),
+                found: Version::V0,
+                needs: Version::V1,
             }
         );
     }

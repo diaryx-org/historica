@@ -15,11 +15,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
-use crate::format::{OperationDocument, ParseError, RevisionDocument, digest};
+use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, digest};
 
 use super::{
-    HEADER_FILE, MalformedName, Name, OPERATION_EXT, OPERATIONS_DIR, PREAMBLE, REVISION_EXT,
-    REVISIONS_DIR,
+    HEADER_FILE, MalformedName, Name, OPERATION_EXT, OPERATIONS_DIR, REVISION_EXT, REVISIONS_DIR,
 };
 
 /// Whether a finding means the store is broken or merely worth mentioning.
@@ -125,6 +124,29 @@ pub enum Finding {
         /// A revision that names it.
         named_by: RevisionId,
     },
+    /// A `text` or `bytes` header naming content this store does not hold.
+    MissingPayload {
+        /// The payload nothing here holds.
+        payload: RevisionId,
+        /// A revision that names it.
+        named_by: RevisionId,
+    },
+    /// A file in `operations/` that no revision names as content.
+    UnnamedPayload {
+        /// The file.
+        file: PathBuf,
+    },
+    /// A `text` payload holding bytes no operation document could quote.
+    ///
+    /// An error rather than a note: decision 0017 makes UTF-8 the format's own
+    /// rule for a file of lines, because a later `edit` has to quote its
+    /// items, so this is the store contradicting itself.
+    PayloadNotText {
+        /// The payload.
+        payload: RevisionId,
+        /// A revision that names it.
+        named_by: RevisionId,
+    },
     /// A revision that could not be applied to its parent's file set.
     TreeDisagrees {
         /// The revision that would not apply.
@@ -159,6 +181,7 @@ impl Finding {
             | Finding::Unreadable { .. }
             | Finding::TreeDisagrees { .. }
             | Finding::ContentDisagrees { .. }
+            | Finding::PayloadNotText { .. }
             | Finding::MalformedSkipped { .. } => Severity::Error,
             Finding::MissingParent { .. }
             | Finding::DanglingBookmark { .. }
@@ -166,7 +189,9 @@ impl Finding {
             | Finding::SyncSuffixed { .. }
             | Finding::ForeignFile { .. }
             | Finding::Unfollowed { .. }
-            | Finding::MissingOperations { .. } => Severity::Note,
+            | Finding::MissingOperations { .. }
+            | Finding::MissingPayload { .. }
+            | Finding::UnnamedPayload { .. } => Severity::Note,
         }
     }
 }
@@ -177,7 +202,8 @@ impl fmt::Display for Finding {
             Finding::Unparsable { file, error } => write!(f, "{}: {error}", file.display()),
             Finding::UnreadableStore { found: Some(found) } => write!(
                 f,
-                "this store says `{found}` and this reader knows `{PREAMBLE}`"
+                "this store says `{found}` and this reader knows up to `{}`",
+                Version::CURRENT
             ),
             Finding::UnreadableStore { found: None } => {
                 write!(f, "no `{HEADER_FILE}` file, so this is not a store")
@@ -238,14 +264,32 @@ impl fmt::Display for Finding {
             ),
             Finding::ForeignFile { file } => write!(
                 f,
-                "{} carries neither `.{REVISION_EXT}` nor `.{OPERATION_EXT}`, \
-                 so nothing reads it",
+                "{} does not carry `.{REVISION_EXT}`, so nothing reads it",
                 file.display()
             ),
             Finding::MissingOperations { document, named_by } => write!(
                 f,
                 "{named_by} names the operation document {document}, \
                  which this store does not hold yet"
+            ),
+            Finding::MissingPayload { payload, named_by } => write!(
+                f,
+                "{} names the content {}, which is not here yet",
+                named_by.abbreviate(12),
+                payload.abbreviate(12)
+            ),
+            Finding::UnnamedPayload { file } => write!(
+                f,
+                "{} is not `.{OPERATION_EXT}` and no revision names it as content, \
+                 so nothing reads it",
+                file.display()
+            ),
+            Finding::PayloadNotText { payload, named_by } => write!(
+                f,
+                "{} names {} as text and it is not UTF-8, \
+                 so no operation document could ever quote a line of it",
+                named_by.abbreviate(12),
+                payload.abbreviate(12)
             ),
             Finding::TreeDisagrees { revision, because } => {
                 write!(f, "{revision}: {because}")
@@ -329,7 +373,10 @@ pub(super) fn check(root: &Path) -> Report {
     match fs::read_to_string(root.join(HEADER_FILE)) {
         Ok(text) => {
             let line = text.trim_end_matches('\n').to_owned();
-            if line != PREAMBLE {
+            let known = [Version::V0, Version::V1]
+                .iter()
+                .any(|version| line == version.preamble());
+            if !known {
                 report.push(Finding::UnreadableStore { found: Some(line) });
             }
         }
@@ -426,8 +473,8 @@ pub(super) fn check(root: &Path) -> Report {
         }
     }
 
-    let operations = check_operations(root, &mut report);
-    check_replay(&documents, &operations, &mut report);
+    let (operations, payloads) = check_operations(root, &mut report);
+    check_replay(&documents, &operations, &payloads, &mut report);
     if let Ok(text) = fs::read_to_string(root.join(crate::working::SKIPPED_FILE))
         && let Err(error) = crate::working::Skipped::parse(&text)
     {
@@ -445,14 +492,23 @@ pub(super) fn check(root: &Path) -> Report {
 /// Read `operations/` under the rules `revisions/` is read under.
 ///
 /// Identity is content here too, so a document is keyed by its digest and its
-/// filename is checked only where the name claims to be one.
-fn check_operations(root: &Path, report: &mut Report) -> BTreeMap<RevisionId, OperationDocument> {
+/// filename is checked only where the name claims to be one. Decision 0017
+/// puts two kinds of file here: only `*.ops` is an operation document, and
+/// every other file is a payload, hashed and kept as bytes. This is the one
+/// command that hashes every payload deliberately.
+type Held = (
+    BTreeMap<RevisionId, OperationDocument>,
+    BTreeMap<RevisionId, PathBuf>,
+);
+
+fn check_operations(root: &Path, report: &mut Report) -> Held {
     let found = super::walk(root, OPERATIONS_DIR).unwrap_or_default();
     for link in &found.links {
         report.push(Finding::Unfollowed { file: link.clone() });
     }
 
     let mut documents = BTreeMap::new();
+    let mut payloads: BTreeMap<RevisionId, PathBuf> = BTreeMap::new();
     let mut files_by_digest: BTreeMap<RevisionId, Vec<PathBuf>> = BTreeMap::new();
 
     for path in found.files {
@@ -462,11 +518,8 @@ fn check_operations(root: &Path, report: &mut Report) -> BTreeMap<RevisionId, Op
             .unwrap_or_default()
             .to_owned();
 
-        if path.extension().is_none_or(|ext| ext != OPERATION_EXT) {
-            report.push(Finding::ForeignFile { file: path.clone() });
-            continue;
-        }
-        if sync_suffixed(&name) {
+        let is_document = path.extension().is_some_and(|ext| ext == OPERATION_EXT);
+        if is_document && sync_suffixed(&name) {
             report.push(Finding::SyncSuffixed { file: path.clone() });
         }
 
@@ -492,6 +545,15 @@ fn check_operations(root: &Path, report: &mut Report) -> BTreeMap<RevisionId, Op
         }
         files_by_digest.entry(id).or_default().push(path.clone());
 
+        if !is_document {
+            // A payload has no format of its own, so there is nothing to parse
+            // and nothing that can be malformed. Its only claim is its digest,
+            // and the bytes are dropped here rather than held: a store with a
+            // film in it must not be read into memory to be checked.
+            payloads.insert(id, path);
+            continue;
+        }
+
         match OperationDocument::parse(&bytes) {
             Ok(document) => {
                 documents.insert(id, document);
@@ -508,7 +570,7 @@ fn check_operations(root: &Path, report: &mut Report) -> BTreeMap<RevisionId, Op
             });
         }
     }
-    documents
+    (documents, payloads)
 }
 
 /// Hold every revision to the tree and the files it claims to have edited.
@@ -521,6 +583,7 @@ fn check_operations(root: &Path, report: &mut Report) -> BTreeMap<RevisionId, Op
 fn check_replay(
     documents: &BTreeMap<RevisionId, RevisionDocument>,
     operations: &BTreeMap<RevisionId, OperationDocument>,
+    payloads: &BTreeMap<RevisionId, PathBuf>,
     report: &mut Report,
 ) {
     let mut parents: BTreeSet<RevisionId> = BTreeSet::new();
@@ -528,6 +591,12 @@ fn check_replay(
         parents.extend(document.parents.iter().copied());
     }
 
+    // The content each revision names, and whether it is here. A `text`
+    // payload is held to one rule of its own: it has to be UTF-8, because a
+    // later `edit` quotes its items into a document that is.
+    // Keyed by revision *and* file: one revision creates as many files as it
+    // likes, and each of them arrives with its own content.
+    let mut created: BTreeMap<(RevisionId, FileId), OperationDocument> = BTreeMap::new();
     for (id, document) in documents {
         for named in document.edited.values() {
             if !operations.contains_key(named) {
@@ -536,6 +605,59 @@ fn check_replay(
                     named_by: *id,
                 });
             }
+        }
+        for named in document.bytes.values() {
+            if !payloads.contains_key(named) {
+                report.push(Finding::MissingPayload {
+                    payload: *named,
+                    named_by: *id,
+                });
+            }
+        }
+        for (file, named) in &document.text {
+            let Some(path) = payloads.get(named) else {
+                report.push(Finding::MissingPayload {
+                    payload: *named,
+                    named_by: *id,
+                });
+                continue;
+            };
+            let bytes = match fs::read(path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    report.push(Finding::Unreadable {
+                        file: path.clone(),
+                        reason: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+            match String::from_utf8(bytes) {
+                Ok(text) => {
+                    if let Some(document) = crate::replay::creation(&text) {
+                        created.insert((*id, *file), document);
+                    }
+                }
+                Err(_) => report.push(Finding::PayloadNotText {
+                    payload: *named,
+                    named_by: *id,
+                }),
+            }
+        }
+    }
+
+    // A payload no revision names. Reported for the reason `ForeignFile`
+    // reported a stray document before decision 0017 made every other file in
+    // `operations/` a payload: nothing reads it, and a person who put it there
+    // meant something by it.
+    let mut named: BTreeSet<RevisionId> = BTreeSet::new();
+    for document in documents.values() {
+        named.extend(document.text.values().copied());
+        named.extend(document.bytes.values().copied());
+    }
+    for (payload, path) in payloads {
+        if !named.contains(payload) {
+            report.push(Finding::UnnamedPayload { file: path.clone() });
         }
     }
 
@@ -563,6 +685,7 @@ fn check_replay(
         let mut edited: BTreeSet<FileId> = BTreeSet::new();
         for (_, document) in &reachable {
             edited.extend(document.edited.keys().copied());
+            edited.extend(document.text.keys().copied());
         }
 
         for file in edited {
@@ -571,10 +694,14 @@ fn check_replay(
                 .map(|(id, document)| crate::merge::Event {
                     revision: *id,
                     parents: document.parents.iter().copied().collect(),
-                    operations: document
-                        .edited
-                        .get(&file)
-                        .and_then(|named| operations.get(named)),
+                    operations: match document.edited.get(&file) {
+                        Some(named) => operations.get(named),
+                        // Decision 0017: a creation stated whole replays as
+                        // the document it is equivalent to, so what is checked
+                        // here is what a person materialising would get.
+                        None if document.text.contains_key(&file) => created.get(&(*id, file)),
+                        None => None,
+                    },
                 })
                 .collect();
             if let Err(error) = crate::merge::merge(events) {

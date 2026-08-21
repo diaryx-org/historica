@@ -12,7 +12,7 @@ use historica::record::{
     Clock, Platform, Recording, identity, plan as plan_for, record as record_revision,
 };
 use historica::store::Store;
-use historica::tree::TreeContest;
+use historica::tree::{Kind, TreeContest};
 use historica::working::Working;
 
 use super::{Failure, printing, render, target};
@@ -203,30 +203,72 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         }
     }
 
-    for (file, path) in merged.tree.files() {
-        let content = store
-            .merged_content_of(&heads, file)
-            .map_err(Failure::error)?;
-        let rendered = conflict::render(&content);
-        if !content.contested.is_empty() {
-            contested += 1;
-        }
-
-        let at = beside.get(file).map_or(path, String::as_str);
+    for (file, entry) in merged.tree.entries() {
+        let at = beside.get(file).map_or(entry.path.as_str(), String::as_str);
         let on_disk = repository.join(at);
-        if let Ok(held) = fs::read_to_string(&on_disk)
-            && held != rendered
-            && held != content.state.text()
-            && !recorded_anywhere(&store, &heads, file, &held)
-        {
-            // Neither version nor the rendering, and no head holds it: this is
-            // work nobody has recorded, and a merge that overwrote it would
-            // lose it.
-            said.push(format!(
-                "left {at} alone: it holds work nothing has recorded"
-            ));
-            continue;
-        }
+
+        // Decision 0017: a file of bytes has no lines to mark up, so a
+        // contested one is reported and the folder is left exactly as it is.
+        // The tool cannot tell a resolution from an oversight here, and saying
+        // so is better than pretending otherwise.
+        let rendered = match entry.kind {
+            Kind::Whole => {
+                let Some(payload) = entry.payload else {
+                    contested += 1;
+                    said.push(format!(
+                        "left {at} alone: it is contested and holds no lines"
+                    ));
+                    for (revision, _) in contested_payloads(&merged.contested, file) {
+                        said.push(format!("  historica cat {} {at}", revision.abbreviate(8)));
+                    }
+                    continue;
+                };
+                let bytes = store
+                    .payload(&payload)
+                    .map_err(Failure::error)?
+                    .ok_or_else(|| {
+                        Failure::error(format!("this store does not hold the content {payload}"))
+                    })?;
+                if let Ok(held) = fs::read(&on_disk)
+                    && held != bytes
+                    && !heads.iter().any(|head| {
+                        store
+                            .content_at(head, file)
+                            .is_ok_and(|content| content.bytes() == held)
+                    })
+                {
+                    said.push(format!(
+                        "left {at} alone: it holds work nothing has recorded"
+                    ));
+                    continue;
+                }
+                bytes
+            }
+            Kind::Lines => {
+                let content = store
+                    .merged_content_of(&heads, file)
+                    .map_err(Failure::error)?;
+                let rendered = conflict::render(&content);
+                if !content.contested.is_empty() {
+                    contested += 1;
+                }
+                if let Ok(held) = fs::read_to_string(&on_disk)
+                    && held != rendered
+                    && held != content.state.text()
+                    && !recorded_anywhere(&store, &heads, file, &held)
+                {
+                    // Neither version nor the rendering, and no head holds it:
+                    // this is work nobody has recorded, and a merge that
+                    // overwrote it would lose it.
+                    said.push(format!(
+                        "left {at} alone: it holds work nothing has recorded"
+                    ));
+                    continue;
+                }
+                rendered.into_bytes()
+            }
+        };
+
         if let Some(directory) = on_disk.parent() {
             fs::create_dir_all(directory)
                 .map_err(|error| Failure::error(format!("{}: {error}", directory.display())))?;
@@ -257,6 +299,20 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 .collect::<String>()
         )
     })
+}
+
+/// The revisions that each stated one contested file's whole content.
+fn contested_payloads(contested: &[TreeContest], file: &FileId) -> Vec<(RevisionId, RevisionId)> {
+    contested
+        .iter()
+        .find_map(|contest| match contest {
+            TreeContest::Content {
+                file: contested,
+                payloads,
+            } if contested == file => Some(payloads.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// Whether some head already holds exactly this text for this file.

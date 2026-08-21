@@ -307,22 +307,41 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         None => document.write(),
         Some(path) => {
             let file = target::file_in(&store, &id, &path)?;
-            let operations = document.edited.get(&file).ok_or_else(|| {
-                Failure::error(format!(
-                    "{} did not edit {path}; `show {spelling}` lists what it did",
+            // Decision 0017 gives a revision three ways to say what one file
+            // holds, and `show` prints whichever it used, byte for byte,
+            // because the readable file is the authority.
+            if let Some(operations) = document.edited.get(&file) {
+                store
+                    .operation(operations)
+                    .ok_or_else(|| {
+                        Failure::error(format!(
+                            "{} names the operation document {operations}, \
+                             which this store does not hold yet",
+                            id.abbreviate(12)
+                        ))
+                    })?
+                    .write()
+            } else if let Some(payload) = document
+                .text
+                .get(&file)
+                .or_else(|| document.bytes.get(&file))
+            {
+                store
+                    .payload(payload)
+                    .map_err(Failure::error)?
+                    .ok_or_else(|| {
+                        Failure::error(format!(
+                            "{} names the content {payload}, \
+                             which this store does not hold yet",
+                            id.abbreviate(12)
+                        ))
+                    })?
+            } else {
+                return Err(Failure::error(format!(
+                    "{} said nothing about {path}; `show {spelling}` lists what it did",
                     id.abbreviate(12)
-                ))
-            })?;
-            store
-                .operation(operations)
-                .ok_or_else(|| {
-                    Failure::error(format!(
-                        "{} names the operation document {operations}, \
-                         which this store does not hold yet",
-                        id.abbreviate(12)
-                    ))
-                })?
-                .write()
+                )));
+            }
         }
     };
 
@@ -365,8 +384,11 @@ fn cat(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
     let id = target::resolve(&store, &spelling)?;
     let file = target::file_in(&store, &id, &path)?;
-    let state = store.content(&id, &file).map_err(Failure::error)?;
-    printing(|out| out.write_all(state.text().as_bytes()))
+    // Decision 0017: whichever kind of file it is, byte for byte. A picture
+    // written to a terminal is a mess and a picture written to a pipe is a
+    // picture, and choosing between those is the shell's business.
+    let content = store.content_at(&id, &file).map_err(Failure::error)?;
+    printing(|out| out.write_all(&content.bytes()))
 }
 
 /// `names` — the only mutable files in a store, and what they resolve to.

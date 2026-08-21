@@ -93,8 +93,10 @@ pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
 
     let mut documents = Tally::default();
     let directory = root.join(OPERATIONS_DIR);
-    let mut paths = historica::store::walk(root, OPERATIONS_DIR)?.files;
-    paths.retain(|path| path.extension().is_some_and(|found| found == OPERATION_EXT));
+    // Every file, not only the documents: decision 0017 puts payloads here
+    // too, and a payload's whole point is that it carries the file's own name
+    // rather than an extension of the format's.
+    let paths = historica::store::walk(root, OPERATIONS_DIR)?.files;
     for path in paths {
         let id = digest_of(&path)?;
         let Some((stem, name)) = operations.get(&id) else {
@@ -108,7 +110,7 @@ pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
         // Here a document *is* moved, which is the whole of the nesting: the
         // directory carries the revision, so a document in the wrong one is
         // in the wrong place rather than merely misnamed.
-        let target = directory.join(stem).join(format!("{name}.{OPERATION_EXT}"));
+        let target = directory.join(stem).join(name);
         if path != target
             && !dry_run
             && let Some(parent) = target.parent()
@@ -226,13 +228,19 @@ fn digest_of(path: &Path) -> Result<RevisionId, Failure> {
     Ok(digest(&bytes))
 }
 
-/// Where every operation document belongs: a directory, and a filename.
+/// Where everything in `operations/` belongs: a directory, and a filename.
 ///
 /// Decision 0016. The directory is the revision's own arranged stem, so
 /// `revisions/2026-08-20 Initial state.rev` and
 /// `operations/2026-08-20 Initial state/` are visibly the same thing, and the
 /// filename is the path the document edits — which is the only thing left to
 /// say once the directory has said the rest.
+///
+/// Decision 0017 puts payloads in the same directory and gives them the same
+/// name without the `.{OPERATION_EXT}`, because a payload's name is the file's
+/// own: `notes⁄photo.png` in that folder opens as a picture. The extension is
+/// what tells a document from a payload, so it is part of the name a collision
+/// is decided on, and a document keeps it whatever else happens.
 ///
 /// The path is not in the revision document for an `edit`, so the tree at each
 /// revision has to be materialised to find it. That is real work `arrange` did
@@ -250,16 +258,27 @@ fn operation_names(
     // disk. It is arbitrary from a person's point of view — the winning
     // revision need not be the one where the content first appeared — and it
     // is deterministic, which is the property that matters.
-    let mut claims: BTreeMap<RevisionId, (RevisionId, String)> = BTreeMap::new();
+    let mut claims: BTreeMap<RevisionId, (RevisionId, String, bool)> = BTreeMap::new();
     for (id, document) in store.iter() {
-        if document.edited.is_empty() {
+        if document.edited.is_empty() && document.text.is_empty() && document.bytes.is_empty() {
             continue;
         }
         let tree = store
             .merged_tree_of(&[*id])
             .map_err(|error| Failure::error(error.to_string()))?
             .tree;
-        for (file, operations) in &document.edited {
+        let named = document
+            .edited
+            .iter()
+            .map(|(file, held)| (file, held, true))
+            .chain(document.text.iter().map(|(file, held)| (file, held, false)))
+            .chain(
+                document
+                    .bytes
+                    .iter()
+                    .map(|(file, held)| (file, held, false)),
+            );
+        for (file, held, is_document) in named {
             // `added` covers the revision that brought the file into being,
             // where the tree has it too; between them a path is always found.
             let Some(path) = tree
@@ -268,9 +287,9 @@ fn operation_names(
             else {
                 continue;
             };
-            let claim = (*id, path.to_owned());
+            let claim = (*id, path.to_owned(), is_document);
             claims
-                .entry(*operations)
+                .entry(*held)
                 .and_modify(|held| {
                     if claim < *held {
                         *held = claim.clone();
@@ -284,14 +303,18 @@ fn operation_names(
     // names would actually meet. Two paths clipping to one filename is the
     // case: a digest suffix distinguishes them, never a counter.
     let mut by_directory: BTreeMap<String, Vec<(RevisionId, String)>> = BTreeMap::new();
-    for (operations, (revision, path)) in claims {
+    for (held, (revision, path, is_document)) in claims {
         let Some(stem) = stems.get(&revision) else {
             continue;
+        };
+        let name = match is_document {
+            true => format!("{}.{OPERATION_EXT}", filename(&path)),
+            false => filename(&path),
         };
         by_directory
             .entry(stem.clone())
             .or_default()
-            .push((operations, filename(&path)));
+            .push((held, name));
     }
 
     let mut out = BTreeMap::new();
@@ -305,13 +328,20 @@ fn operation_names(
             .into_iter()
             .map(|(name, count)| (name.clone(), count > 1))
             .collect();
-        for (operations, name) in &sharing {
+        for (held, name) in &sharing {
             let name = if taken.get(name).copied().unwrap_or(false) {
-                format!("{name} {}", operations.abbreviate(DIGEST_CHARS))
+                // A document keeps its extension, because that is what says
+                // it is one; the suffix goes before it.
+                match name.strip_suffix(&format!(".{OPERATION_EXT}")) {
+                    Some(stem) => {
+                        format!("{stem} {}.{OPERATION_EXT}", held.abbreviate(DIGEST_CHARS))
+                    }
+                    None => format!("{name} {}", held.abbreviate(DIGEST_CHARS)),
+                }
             } else {
                 name.clone()
             };
-            out.insert(*operations, (stem.clone(), name));
+            out.insert(*held, (stem.clone(), name));
         }
     }
     Ok(out)

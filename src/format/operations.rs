@@ -5,7 +5,7 @@
 //! operations against the state at that revision's parents:
 //!
 //! ```text
-//! historica-v0
+//! historica-v1
 //!
 //! delete 3 1
 //! -Nothing here chooses a document syntax yet.
@@ -25,6 +25,11 @@
 //! is the document's own newline unless [`NO_NEWLINE`] says the item is the
 //! file's last and carries none.
 //!
+//! A revision that *creates* a file names no document at all: decision 0017
+//! makes the lines it arrives with a payload, which is the file itself, and
+//! [`crate::replay::creation`] is where that payload becomes the document it
+//! is equivalent to.
+//!
 //! Reading is as strict as [`super::RevisionDocument`]'s and for the same
 //! reason: operations are sorted, non-overlapping, and never state one fact
 //! twice, so exactly one byte sequence parses per set of facts and the digest
@@ -35,7 +40,7 @@ use std::fmt;
 use crate::core::RevisionId;
 
 use super::{
-    Lines, PREAMBLE, ParseError, ParseErrorKind, check_byte_order_mark, check_preamble, digest,
+    Lines, ParseError, ParseErrorKind, Version, check_byte_order_mark, check_preamble, digest,
 };
 
 /// The line that says the item above it is the file's last and unterminated.
@@ -166,6 +171,8 @@ impl Operation {
 /// are read in: ascending by position, delete before insert at one position.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperationDocument {
+    /// The version this document was written under, and is written back as.
+    pub version: Version,
     /// What the revision did, in position order. Never empty.
     pub operations: Vec<Operation>,
 }
@@ -193,7 +200,7 @@ impl OperationDocument {
         order.sort_by_key(|operation| (operation.at, operation.kind));
 
         let mut out = String::new();
-        out.push_str(PREAMBLE);
+        out.push_str(self.version.preamble());
         out.push_str("\n\n");
         for operation in order {
             match operation.kind {
@@ -254,7 +261,7 @@ impl Parser<'_> {
             return Err(ParseError::new(1, ParseErrorKind::Empty));
         };
         carriage_return(line, 1)?;
-        check_preamble(line, terminated)?;
+        let version = check_preamble(line, terminated)?;
 
         // The blank line is mandatory though no header precedes it: both
         // documents in the format open the same way, so a person learns one
@@ -277,7 +284,10 @@ impl Parser<'_> {
             ));
         }
         self.check_markers(&operations)?;
-        Ok(OperationDocument { operations })
+        Ok(OperationDocument {
+            version,
+            operations,
+        })
     }
 
     fn operations(&mut self) -> Result<Vec<Operation>, ParseError> {
@@ -560,7 +570,7 @@ mod tests {
 
     /// Assemble a file from the lines below the separator.
     fn file(lines: &[&str]) -> Vec<u8> {
-        let mut out = format!("{PREAMBLE}\n\n");
+        let mut out = format!("{}\n\n", Version::CURRENT.preamble());
         for line in lines {
             out.push_str(line);
             out.push('\n');
@@ -598,6 +608,7 @@ mod tests {
         // The same facts in the other order are the same document, so the
         // writer puts them back into the one order that parses.
         let reversed = OperationDocument {
+            version: Version::CURRENT,
             operations: document.operations.iter().rev().cloned().collect(),
         };
         assert_eq!(reversed.write(), document.write());
@@ -805,12 +816,20 @@ mod tests {
                 .kind,
             ParseErrorKind::NoOperations
         );
+        // Version 0 still reads exactly as version 0 read, which is decision
+        // 0004's asymmetry: a version constrains writers, never readers.
         assert_eq!(
-            OperationDocument::parse(b"historica-v1\n\ninsert 0\n+a\n")
+            OperationDocument::parse(b"historica-v0\n\ninsert 0\n+a\n")
+                .expect("version 0 still reads")
+                .version,
+            Version::V0
+        );
+        assert_eq!(
+            OperationDocument::parse(b"historica-v2\n\ninsert 0\n+a\n")
                 .expect_err("a later version")
                 .kind,
             ParseErrorKind::UnknownVersion {
-                found: "1".to_owned()
+                found: "2".to_owned()
             }
         );
         assert_eq!(

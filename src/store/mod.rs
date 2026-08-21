@@ -12,13 +12,22 @@
 //!
 //! ```text
 //! history/
-//! ├── historica       # `historica-v0`
+//! ├── historica       # `historica-v1`
 //! ├── revisions/      # one revision document per file, under any name
-//! ├── operations/     # what each revision did, per file — decision 0007
+//! ├── operations/     # what each revision did, per file — decisions 0007, 0017
 //! ├── names/          # bookmarks — the only mutable files
 //! └── cache/          # derived, disposable, deletable without loss
 //! ```
+//!
+//! `operations/` holds two kinds of file, on the rule `revisions/` already
+//! keeps: only `*.ops` is read as an operation document, and every other file
+//! is a payload — decision 0017's content that arrives whole, carrying no
+//! format of its own and identified by the digest of its bytes. Payloads are
+//! not read when a store is opened. A history with photographs in it must not
+//! cost a full hash to run `log`, so the directory is indexed on first need
+//! and `check` is where every payload is hashed deliberately.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
@@ -26,10 +35,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::{ChangeId, FileId, History, RevisionId};
-use crate::format::{OperationDocument, PREAMBLE, ParseError, RevisionDocument, digest};
+use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, digest};
 use crate::merge::{self, Merged};
-use crate::replay::{ReplayError, State};
-use crate::tree::{self, MergedTree, Tree, TreeError};
+use crate::replay::{self, ReplayError, State};
+use crate::tree::{self, Kind, MergedTree, Tree, TreeError};
 use crate::working::{MalformedSkip, Rule, SKIPPED_FILE, Skipped};
 
 mod check;
@@ -111,6 +120,27 @@ impl fmt::Display for MalformedName {
 
 impl std::error::Error for MalformedName {}
 
+/// What a file holds, which depends on what kind of file it is.
+///
+/// Decision 0017: lines that merge, or one payload whole.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Content {
+    /// A file of lines, as the operation chain leaves it.
+    Lines(State),
+    /// A file of bytes, exactly as its payload holds them.
+    Whole(Vec<u8>),
+}
+
+impl Content {
+    /// The file's bytes, whichever kind it is.
+    pub fn bytes(&self) -> Vec<u8> {
+        match self {
+            Content::Lines(state) => state.text().into_bytes(),
+            Content::Whole(bytes) => bytes.clone(),
+        }
+    }
+}
+
 /// A loaded store.
 ///
 /// Holds documents rather than [`crate::core::Revision`]s, because the
@@ -119,8 +149,13 @@ impl std::error::Error for MalformedName {}
 #[derive(Debug, Clone)]
 pub struct Store {
     root: PathBuf,
+    /// The highest document version this store holds, which is what its
+    /// header states and therefore the gate a reader is refused at.
+    version: Version,
     documents: BTreeMap<RevisionId, RevisionDocument>,
     operations: BTreeMap<RevisionId, OperationDocument>,
+    /// Where each payload sits, by digest. Built on first need, never at open.
+    payloads: RefCell<Option<BTreeMap<RevisionId, PathBuf>>>,
     names: BTreeMap<String, Name>,
     skipped: Skipped,
 }
@@ -137,7 +172,7 @@ impl Store {
             let path = root.join(directory);
             fs::create_dir_all(&path).map_err(|error| StoreError::io(&path, error))?;
         }
-        fs::write(&header, format!("{PREAMBLE}\n"))
+        fs::write(&header, format!("{}\n", Version::CURRENT.preamble()))
             .map_err(|error| StoreError::io(&header, error))?;
         Self::open(root)
     }
@@ -150,7 +185,7 @@ impl Store {
     /// to stop at the first.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StoreError> {
         let root = root.as_ref().to_path_buf();
-        read_version(&root)?;
+        let version = read_version(&root)?;
 
         let mut documents = BTreeMap::new();
         for path in files_with_extension(&root, REVISIONS_DIR, REVISION_EXT)? {
@@ -189,8 +224,10 @@ impl Store {
 
         Ok(Self {
             root,
+            version,
             documents,
             operations,
+            payloads: RefCell::new(None),
             names,
             skipped,
         })
@@ -268,6 +305,64 @@ impl Store {
     /// Every operation document, in digest order.
     pub fn operations(&self) -> impl Iterator<Item = (&RevisionId, &OperationDocument)> {
         self.operations.iter()
+    }
+
+    /// The highest document version this store holds.
+    pub fn version(&self) -> Version {
+        self.version
+    }
+
+    /// One payload's bytes, or `None` if nothing has delivered it.
+    ///
+    /// Decision 0017: a payload carries no format of its own, so there is
+    /// nothing to parse and nothing that can be malformed. The only claim it
+    /// makes is its digest, and that claim is what finds it here.
+    pub fn payload(&self, id: &RevisionId) -> Result<Option<Vec<u8>>, StoreError> {
+        let Some(path) = self.payload_path(id)? else {
+            return Ok(None);
+        };
+        let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+        Ok(Some(bytes))
+    }
+
+    /// Where every payload sits, by digest.
+    ///
+    /// Hashes the directory the first time it is asked and remembers the
+    /// answer, so a command that never reads content never reads a payload.
+    pub fn payloads(&self) -> Result<BTreeMap<RevisionId, PathBuf>, StoreError> {
+        self.index_payloads()?;
+        Ok(self
+            .payloads
+            .borrow()
+            .as_ref()
+            .expect("just indexed")
+            .clone())
+    }
+
+    fn payload_path(&self, id: &RevisionId) -> Result<Option<PathBuf>, StoreError> {
+        self.index_payloads()?;
+        Ok(self
+            .payloads
+            .borrow()
+            .as_ref()
+            .expect("just indexed")
+            .get(id)
+            .cloned())
+    }
+
+    fn index_payloads(&self) -> Result<(), StoreError> {
+        if self.payloads.borrow().is_some() {
+            return Ok(());
+        }
+        let mut found: BTreeMap<RevisionId, PathBuf> = BTreeMap::new();
+        // Sorted by `walk`, so two copies of one payload resolve to the same
+        // path on every replica: the first one found keeps the entry.
+        for path in payload_files(&self.root)? {
+            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+            found.entry(digest(&bytes)).or_insert(path);
+        }
+        *self.payloads.borrow_mut() = Some(found);
+        Ok(())
     }
 
     /// Every revision `head` descends from, itself included.
@@ -363,6 +458,21 @@ impl Store {
             .first()
             .copied()
             .unwrap_or_else(|| RevisionId::from_bytes([0; crate::core::REVISION_ID_LEN]));
+
+        // A `text` payload is exactly the document that inserts every line at
+        // 0, so it is turned into one here and the merge never learns that a
+        // creation has two spellings. The synthesised documents are collected
+        // first because the events borrow them.
+        let mut created: BTreeMap<RevisionId, Option<OperationDocument>> = BTreeMap::new();
+        for document in &reachable {
+            let Some(payload) = document.text.get(file) else {
+                continue;
+            };
+            let revision = document.id();
+            let text = self.payload_text(payload, revision)?;
+            created.insert(revision, replay::creation(&text));
+        }
+
         let mut events = Vec::with_capacity(reachable.len());
         for document in reachable {
             let revision = document.id();
@@ -373,7 +483,7 @@ impl Store {
                         named_by: revision,
                     },
                 )?),
-                None => None,
+                None => created.get(&revision).and_then(Option::as_ref),
             };
             events.push(merge::Event {
                 revision,
@@ -395,6 +505,71 @@ impl Store {
     /// things are removed from. Ask [`Store::tree`] whether it exists.
     pub fn content(&self, head: &RevisionId, file: &FileId) -> Result<State, MaterialiseError> {
         Ok(self.merged_content(head, file)?.state)
+    }
+
+    /// One payload as text, refusing bytes no operation document could quote.
+    fn payload_text(
+        &self,
+        payload: &RevisionId,
+        named_by: RevisionId,
+    ) -> Result<String, MaterialiseError> {
+        let bytes = self
+            .payload(payload)
+            .map_err(|error| MaterialiseError::Unreadable {
+                payload: *payload,
+                because: error.to_string(),
+            })?
+            .ok_or(MaterialiseError::MissingPayload {
+                payload: *payload,
+                named_by,
+            })?;
+        String::from_utf8(bytes).map_err(|_| MaterialiseError::PayloadNotText {
+            payload: *payload,
+            named_by,
+        })
+    }
+
+    /// What one file holds at `head`, whichever kind of file it is.
+    ///
+    /// Decision 0017: `cat` and `status` ask this, because the answer for a
+    /// photograph is bytes and the answer for prose is lines, and which one it
+    /// is was decided when the file was added.
+    pub fn content_at(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+    ) -> Result<Content, MaterialiseError> {
+        self.content_at_heads(&[*head], file)
+    }
+
+    /// What one file holds at several heads, whichever kind of file it is.
+    pub fn content_at_heads(
+        &self,
+        heads: &[RevisionId],
+        file: &FileId,
+    ) -> Result<Content, MaterialiseError> {
+        let merged = self.merged_tree_of(heads)?;
+        let entry = merged
+            .tree
+            .entry(file)
+            .ok_or(MaterialiseError::NoSuchFile { file: *file })?;
+        match entry.kind {
+            Kind::Lines => Ok(Content::Lines(self.merged_content_of(heads, file)?.state)),
+            Kind::Whole => {
+                let payload = entry
+                    .payload
+                    .ok_or(MaterialiseError::ContestedContent { file: *file })?;
+                let named_by = heads.first().copied().unwrap_or(payload);
+                let bytes = self
+                    .payload(&payload)
+                    .map_err(|error| MaterialiseError::Unreadable {
+                        payload,
+                        because: error.to_string(),
+                    })?
+                    .ok_or(MaterialiseError::MissingPayload { payload, named_by })?;
+                Ok(Content::Whole(bytes))
+            }
+        }
     }
 
     /// What this repository's history does not take.
@@ -429,6 +604,7 @@ impl Store {
             .join(REVISIONS_DIR)
             .join(format!("{id}.{REVISION_EXT}"));
 
+        self.raise_version(document.version)?;
         write_once(&path, &bytes)?;
         self.documents.insert(id, document.clone());
         Ok(id)
@@ -449,9 +625,43 @@ impl Store {
             .root
             .join(OPERATIONS_DIR)
             .join(format!("{id}.{OPERATION_EXT}"));
+        self.raise_version(document.version)?;
         write_once(&path, &bytes)?;
         self.operations.insert(id, document.clone());
         Ok(id)
+    }
+
+    /// Write a payload into the store, named by its digest.
+    ///
+    /// Append-only on [`Store::insert`]'s terms, and with more reason to be:
+    /// two revisions that add byte-identical files share one payload, and a
+    /// file added, dropped, and added again is the same bytes twice.
+    ///
+    /// No extension, because a payload's name is the one place the file's own
+    /// name belongs and `arrange` is what puts it there.
+    pub fn insert_payload(&mut self, bytes: &[u8]) -> Result<RevisionId, StoreError> {
+        let id = digest(bytes);
+        let path = self.root.join(OPERATIONS_DIR).join(id.to_string());
+        write_once(&path, bytes)?;
+        if let Some(index) = self.payloads.borrow_mut().as_mut() {
+            index.entry(id).or_insert(path);
+        }
+        Ok(id)
+    }
+
+    /// State a version the store now holds, rewriting the header if it grew.
+    ///
+    /// Decision 0017: the header is the reader's gate, so it must never
+    /// understate what the directory contains.
+    fn raise_version(&mut self, version: Version) -> Result<(), StoreError> {
+        if version <= self.version {
+            return Ok(());
+        }
+        let header = self.root.join(HEADER_FILE);
+        fs::write(&header, format!("{}\n", version.preamble()))
+            .map_err(|error| StoreError::io(&header, error))?;
+        self.version = version;
+        Ok(())
     }
 
     /// Point a bookmark at something, creating or moving it.
@@ -548,7 +758,12 @@ fn read_skipped(root: &Path) -> Result<Skipped, StoreError> {
 }
 
 /// Read and validate the store's version header.
-fn read_version(root: &Path) -> Result<(), StoreError> {
+///
+/// Decision 0017: the header states the highest document version the store
+/// holds, which makes it the reader's gate — a reader that knows less refuses
+/// the store at the file that says so, rather than reading four fifths of it
+/// and calling the result a history.
+fn read_version(root: &Path) -> Result<Version, StoreError> {
     let header = root.join(HEADER_FILE);
     let text = match fs::read_to_string(&header) {
         Ok(text) => text,
@@ -560,12 +775,14 @@ fn read_version(root: &Path) -> Result<(), StoreError> {
         Err(error) => return Err(StoreError::io(&header, error)),
     };
     let line = text.trim_end_matches('\n');
-    if line != PREAMBLE {
-        return Err(StoreError::UnknownVersion {
-            found: line.to_owned(),
-        });
+    for version in [Version::V0, Version::V1] {
+        if line == version.preamble() {
+            return Ok(version);
+        }
     }
-    Ok(())
+    Err(StoreError::UnknownVersion {
+        found: line.to_owned(),
+    })
 }
 
 /// What one of the store's directories holds, at any depth.
@@ -630,6 +847,17 @@ pub fn walk(root: &Path, directory: &str) -> Result<Walk, StoreError> {
     Ok(found)
 }
 
+/// Every payload in `operations/`, at any depth.
+///
+/// Decision 0017: only `*.ops` is an operation document there, and every other
+/// file is a payload. The rule is `revisions/`'s — the extension is a file's
+/// claim to be a document — read from the other side.
+fn payload_files(root: &Path) -> Result<Vec<PathBuf>, StoreError> {
+    let mut paths = walk(root, OPERATIONS_DIR)?.files;
+    paths.retain(|path| path.extension().is_none_or(|found| found != OPERATION_EXT));
+    Ok(paths)
+}
+
 /// Every file claiming one extension, at any depth.
 ///
 /// The extension is the one syllable of a filename that means anything: it is
@@ -676,6 +904,37 @@ fn name_files(root: &Path) -> Result<Vec<(String, PathBuf)>, StoreError> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MaterialiseError {
+    /// A payload nothing has delivered.
+    MissingPayload {
+        /// The payload nothing here holds.
+        payload: RevisionId,
+        /// The revision that names it.
+        named_by: RevisionId,
+    },
+    /// A payload the filesystem would not hand over.
+    Unreadable {
+        /// The payload.
+        payload: RevisionId,
+        /// What the filesystem said.
+        because: String,
+    },
+    /// A `text` payload holding bytes no operation document could quote.
+    PayloadNotText {
+        /// The payload.
+        payload: RevisionId,
+        /// The revision that names it.
+        named_by: RevisionId,
+    },
+    /// A file the tree does not hold at these heads.
+    NoSuchFile {
+        /// The file asked for.
+        file: FileId,
+    },
+    /// Concurrent revisions each stated a file's whole content.
+    ContestedContent {
+        /// The file they disagree about.
+        file: FileId,
+    },
     /// A revision this store does not hold.
     Unknown {
         /// The revision asked for.
@@ -742,6 +1001,29 @@ impl fmt::Display for MaterialiseError {
                 f,
                 "{named_by} names the operation document {document}, \
                  which this store does not hold yet"
+            ),
+            MaterialiseError::MissingPayload { payload, named_by } => write!(
+                f,
+                "{named_by} names the content {payload}, \
+                 which this store does not hold yet"
+            ),
+            MaterialiseError::Unreadable { payload, because } => {
+                write!(f, "the content {payload} could not be read: {because}")
+            }
+            MaterialiseError::PayloadNotText { payload, named_by } => write!(
+                f,
+                "{named_by} names {payload} as text and it is not UTF-8, \
+                 so no operation document could ever quote a line of it; \
+                 a file of bytes is named by `bytes`"
+            ),
+            MaterialiseError::NoSuchFile { file } => {
+                write!(f, "no file {file} exists here")
+            }
+            MaterialiseError::ContestedContent { file } => write!(
+                f,
+                "concurrent revisions each state the whole content of the file {file}, \
+                 and bytes do not merge; \
+                 record the version you mean, which is the only thing that can decide it"
             ),
             MaterialiseError::Tree { revision, error } => write!(f, "{revision}: {error}"),
             MaterialiseError::Content {
@@ -834,7 +1116,8 @@ impl fmt::Display for StoreError {
             }
             StoreError::UnknownVersion { found } => write!(
                 f,
-                "this store says `{found}` and this reader knows `{PREAMBLE}`; upgrade Historica"
+                "this store says `{found}` and this reader knows up to `{}`; upgrade Historica",
+                Version::CURRENT
             ),
             StoreError::Unparsable { file, error } => {
                 write!(f, "{}: {error}", file.display())

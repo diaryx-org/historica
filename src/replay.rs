@@ -23,7 +23,25 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::format::{Item, OperationDocument, OperationKind};
+use crate::format::{Item, Operation, OperationDocument, OperationKind, Version};
+
+/// The operation document a `text` payload is exactly equivalent to.
+///
+/// Decision 0017: a created file's items are its lines, inserted at 0, and
+/// they take the names that document would have given them — `(R, 0)` through
+/// `(R, n-1)` — so nothing downstream of here can tell which spelling a
+/// creation used. `None` for an empty payload, which is a file created with no
+/// content and names no payload at all.
+pub fn creation(text: &str) -> Option<OperationDocument> {
+    let items = State::from_text(text).items;
+    if items.is_empty() {
+        return None;
+    }
+    Some(OperationDocument {
+        version: Version::CURRENT,
+        operations: vec![Operation::insert(0, items)],
+    })
+}
 
 /// One file, as a list of items.
 ///
@@ -514,6 +532,7 @@ mod tests {
         // out of order replays to what its canonical spelling replays to.
         let canonical = document(&["delete 0 1", "-a", "insert 3", "+z"]);
         let scrambled = OperationDocument {
+            version: Version::CURRENT,
             operations: canonical.operations.iter().rev().cloned().collect(),
         };
         let parent = State::from_text("a\nb\nc\n");

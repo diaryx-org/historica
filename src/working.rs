@@ -223,8 +223,10 @@ impl Working {
 
     /// One file's text, refused if it is not UTF-8.
     ///
-    /// 0007's items are lines of text, and 0008's binary shape has no
-    /// implementation, so this is where that boundary is enforced.
+    /// 0007's items are lines of text, so this is the boundary a file already
+    /// recorded as lines is held to. A file nobody has recorded yet is offered
+    /// to [`kind_of`] instead, which decides what kind it is rather than
+    /// refusing it.
     pub fn text(&self, path: &str) -> Result<String, WorkingError> {
         let on_disk = self.files.get(path).ok_or_else(|| WorkingError::Missing {
             path: path.to_owned(),
@@ -239,6 +241,32 @@ impl Working {
             Err(error) => Err(WorkingError::io(on_disk, error)),
         }
     }
+
+    /// One file's bytes, whatever they are.
+    ///
+    /// Decision 0017: a file that is not text is content that arrives whole
+    /// rather than content this format cannot hold.
+    pub fn bytes(&self, path: &str) -> Result<Vec<u8>, WorkingError> {
+        let on_disk = self.files.get(path).ok_or_else(|| WorkingError::Missing {
+            path: path.to_owned(),
+        })?;
+        fs::read(on_disk).map_err(|error| WorkingError::io(on_disk, error))
+    }
+}
+
+/// Which kind of file a person has just put in the folder.
+///
+/// Decision 0017 puts this rule in the tool rather than in the format: text is
+/// valid UTF-8 with no NUL byte, and everything else is bytes. The format's
+/// own rule is narrower — a `text` payload is valid UTF-8, because a later
+/// `edit` has to quote its items — and NUL is the oldest and most reliable
+/// signal that a person did not write this file as prose. A recorder is
+/// allowed signals the format may not use.
+///
+/// Sniffed once, when a file is added, and never again: after that the kind
+/// belongs to the file's identity and changing it is `drop` and `add`.
+pub fn is_text(bytes: &[u8]) -> bool {
+    !bytes.contains(&0) && std::str::from_utf8(bytes).is_ok()
 }
 
 /// One directory, then its subdirectories, in name order.
@@ -329,7 +357,7 @@ pub enum WorkingError {
         /// The path.
         path: String,
     },
-    /// A file whose bytes are not UTF-8.
+    /// A file recorded as lines whose bytes are no longer UTF-8.
     NotText {
         /// The path.
         path: String,
@@ -366,7 +394,9 @@ impl WorkingError {
             WorkingError::NotUtf8 { .. } => "not a name this format can hold".to_owned(),
             WorkingError::Unusable { because, .. } => because.clone(),
             WorkingError::NotAFile { .. } => "not a regular file".to_owned(),
-            WorkingError::NotText { .. } => "not UTF-8 text".to_owned(),
+            WorkingError::NotText { .. } => {
+                "recorded as lines and no longer UTF-8 text; drop it and add it again".to_owned()
+            }
             WorkingError::Missing { .. } => "not in the working copy".to_owned(),
             WorkingError::Io { error, .. } => error.to_string(),
         }
@@ -393,8 +423,9 @@ impl fmt::Display for WorkingError {
             ),
             WorkingError::NotText { path } => write!(
                 f,
-                "`{path}` is not UTF-8 text, and binary content is decided but \
-                 not built; `skip` it in `{STORE_DIR}/{SKIPPED_FILE}`"
+                "`{path}` was recorded as lines and is no longer UTF-8 text; \
+                 a file's kind is fixed when it is added, so this is a `drop` \
+                 and an `add` rather than an edit"
             ),
             WorkingError::Missing { path } => {
                 write!(f, "`{path}` is not in the working copy")

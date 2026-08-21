@@ -126,7 +126,7 @@ fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
         (
             "invalid/unknown-version.rev",
             ParseErrorKind::UnknownVersion {
-                found: "1".to_owned(),
+                found: "2".to_owned(),
             },
         ),
         (

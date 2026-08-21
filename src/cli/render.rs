@@ -102,6 +102,16 @@ fn tree_facts(document: &RevisionDocument) -> String {
         ("moved", document.moved.len()),
         ("dropped", document.dropped.len()),
         ("edited", document.edited.len()),
+        // Decision 0017: content stated whole, counted apart from an edit
+        // because it is not one. A creation is already counted by `added`.
+        (
+            "stored",
+            document
+                .bytes
+                .keys()
+                .filter(|file| !document.added.contains_key(*file))
+                .count(),
+        ),
     ]
     .into_iter()
     .filter(|(_, count)| *count > 0)
@@ -258,6 +268,12 @@ pub fn contest_line(contest: &TreeContest) -> String {
                 .map(|(_, path)| path.as_str())
                 .collect::<Vec<_>>()
                 .join(" and ")
+        ),
+        TreeContest::Content { file, payloads } => format!(
+            "{} was stated whole by {} concurrent revisions, and bytes do not merge; \
+             put the version you mean in the folder",
+            file.abbreviate(8),
+            payloads.len()
         ),
         TreeContest::Path { path, files } => format!(
             "{} files claim {path}; say where each goes with --at:{}",

@@ -68,6 +68,15 @@ pub enum ParseErrorKind {
         /// The key as spelled in the file.
         key: String,
     },
+    /// A header a later version defines, in a document that predates it.
+    HeaderNeedsVersion {
+        /// The key as spelled in the file.
+        key: String,
+        /// The version the document claims.
+        found: super::Version,
+        /// The version that first defined the key.
+        needs: super::Version,
+    },
     /// A header line carried no value.
     EmptyValue,
     /// A value had leading or trailing space.
@@ -151,6 +160,11 @@ pub enum ParseErrorKind {
         /// The header that repeated itself.
         key: &'static str,
         /// The file both lines named.
+        file: String,
+    },
+    /// `text` named a file the revision does not add.
+    TextWithoutAdd {
+        /// The file it named.
         file: String,
     },
     /// Two headers said things about one file that cannot both hold.
@@ -269,8 +283,16 @@ impl fmt::Display for ParseErrorKind {
             ),
             UnknownVersion { found } => write!(
                 f,
-                "this document is version {found} and this is a version 0 reader; \
-                 upgrade Historica rather than trusting what it would leave out"
+                "this document is version {found} and this reader knows up to version {}; \
+                 upgrade Historica rather than trusting what it would leave out",
+                super::Version::CURRENT.number()
+            ),
+            HeaderNeedsVersion { key, found, needs } => write!(
+                f,
+                "`{key}` is a version {} header and this document is `{found}`; \
+                 a version says what its writer may use, so change the preamble \
+                 to `{needs}` or delete the line",
+                needs.number()
             ),
             MalformedKey { key } => write!(
                 f,
@@ -317,12 +339,20 @@ impl fmt::Display for ParseErrorKind {
                  copy the change ID this work already has, or mint a new one",
                 super::CHANGE_ID_CHARS
             ),
-            MalformedDigest { key, found } => write!(
-                f,
-                "`{key}` names a revision by digest, and `{found}` is not \
-                 64 lowercase hexadecimal characters; \
-                 `shasum -a 256` on the revision you mean prints the right one"
-            ),
+            MalformedDigest { key, found } => match *key {
+                "text" | "bytes" => write!(
+                    f,
+                    "`{key}` names content by digest, and `{found}` is not \
+                     64 lowercase hexadecimal characters; \
+                     `shasum -a 256` on the file you mean prints the right one"
+                ),
+                key => write!(
+                    f,
+                    "`{key}` names a revision by digest, and `{found}` is not \
+                     64 lowercase hexadecimal characters; \
+                     `shasum -a 256` on the revision you mean prints the right one"
+                ),
+            },
             MalformedTimestamp { found, because } => write!(
                 f,
                 "`{found}` is not a timestamp ({because}); \
@@ -343,10 +373,21 @@ impl fmt::Display for ParseErrorKind {
                 "an empty message is spelled with no blank line at all; \
                  delete the blank line"
             ),
+            TextWithoutAdd { file } => write!(
+                f,
+                "`text` states the lines a file is created with, and this revision \
+                 does not add the file {file}; \
+                 write `edit` against the file as it stands, or `add` it here"
+            ),
             MalformedFileEntry { key } => match *key {
                 "edit" => write!(
                     f,
                     "`edit` names a file and the digest of its operation document; \
+                     write both, separated by one space"
+                ),
+                "text" | "bytes" => write!(
+                    f,
+                    "`{key}` names a file and the digest of its content; \
                      write both, separated by one space"
                 ),
                 key => write!(
