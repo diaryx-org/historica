@@ -27,14 +27,47 @@ pub struct Skipped {
     rules: Vec<Rule>,
 }
 
+/// One line of `history/skipped`.
+///
+/// Public because writing the file is a thing a command does, and a rule that
+/// renders itself is what keeps the writer from spelling a line the reader
+/// would refuse.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Rule {
+pub enum Rule {
     /// One exact path.
     Path(String),
     /// A directory and everything beneath it. Held without its trailing `/`.
     Under(String),
     /// A trailing string, matched against the last component.
     Suffix(String),
+}
+
+impl Rule {
+    /// Whether this rule covers a path.
+    pub fn covers(&self, path: &str) -> bool {
+        match self {
+            Rule::Path(exact) => path == exact,
+            Rule::Under(prefix) => path
+                .strip_prefix(prefix.as_str())
+                .is_some_and(|rest| rest.starts_with('/')),
+            Rule::Suffix(suffix) => path
+                .rsplit('/')
+                .next()
+                .unwrap_or(path)
+                .ends_with(suffix.as_str()),
+        }
+    }
+}
+
+impl fmt::Display for Rule {
+    /// The line the file holds, which [`Skipped::parse`] reads back.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Rule::Path(path) => write!(f, "skip {path}"),
+            Rule::Under(path) => write!(f, "skip {path}/"),
+            Rule::Suffix(suffix) => write!(f, "skip-suffix {suffix}"),
+        }
+    }
 }
 
 impl Skipped {
@@ -85,14 +118,7 @@ impl Skipped {
 
     /// Whether history takes this path.
     pub fn skips(&self, path: &str) -> bool {
-        let last = path.rsplit('/').next().unwrap_or(path);
-        self.rules.iter().any(|rule| match rule {
-            Rule::Path(exact) => path == exact,
-            Rule::Under(prefix) => path
-                .strip_prefix(prefix.as_str())
-                .is_some_and(|rest| rest.starts_with('/')),
-            Rule::Suffix(suffix) => last.ends_with(suffix.as_str()),
-        })
+        self.rules.iter().any(|rule| rule.covers(path))
     }
 
     /// Whether a directory is skipped whole, so that walking it is pointless.
@@ -101,6 +127,11 @@ impl Skipped {
             Rule::Under(prefix) | Rule::Path(prefix) => path == prefix,
             Rule::Suffix(_) => false,
         })
+    }
+
+    /// Every rule, in the order the file states them.
+    pub fn rules(&self) -> impl Iterator<Item = &Rule> {
+        self.rules.iter()
     }
 
     /// How many rules the file states.

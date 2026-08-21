@@ -96,7 +96,9 @@ property test cannot see; `examples/matchers.rs` is the measurement decision
 
 The `record` module is the writer 0010 and 0011 specify, and `working` is what
 it is given: the folder beside the store, everything in it tracked except what
-`history/skipped` names. A change ID is 96 bits from the operating system, an
+`history/skipped` names — and a rule there covering a file the tree already
+holds is refused, because the walk would stop offering the path and the next
+record would spell a request for privacy as a deletion of the file it names. A change ID is 96 bits from the operating system, an
 author comes from a person's own configuration and is never guessed, and the
 time is the clock in the offset the platform reports. Everything else is
 observed by comparing the folder with the tree at the parent — including a
@@ -120,15 +122,19 @@ refuses a history with a merge in it rather than ordering it arbitrarily.
 The `historica` binary is the front end decision 0006 said was owed. `init`,
 `check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
 `cat`, and `names` read a store and render it; `status` reads the folder beside
-it and says how the two differ; `record` writes one, and `identity` says who is
-writing. Nothing there decides anything
+it and says how the two differ; `record` writes one, `skip` writes the rule
+saying what recording does not take, and `identity` says who is writing. Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.
 `arrange` is the command with a rule to keep: two replicas arranging one
 history must produce one set of filenames, so a collision resolves by change ID
 and then by digest, never by a counter, which would depend on what else was in
-the directory.
+the directory. It names revisions `YYYY-MM-DD summary.rev` and files each
+revision's operation documents under a directory of the same name, so a store
+reads as a folder per entry rather than as a wall of digests; the loader walks
+both directories to any depth and never follows a symbolic link, which is what
+lets a person file a history however they please.
 
 The `tree` module also merges. Decision 0008's rules for concurrent tree facts
 are here rather than in prose now: a `drop` concurrent with an edit or a move
@@ -270,6 +276,14 @@ Choices that constrain later work are written down as they are made.
   downstream still materialises and merges; forgetting converges by union, an
   item is forgotten wherever it is quoted, and what survives is shape,
   authorship, and paths.
+- [`docs/decisions/0015-status.md`](docs/decisions/0015-status.md) — what
+  status shows and what it is allowed to know: a comparison derived from the
+  folder and the store with nothing remembered between commands, the survey
+  the plan is derived from, and a refusal reported rather than raised.
+- [`docs/decisions/0016-the-store-a-person-reads.md`](docs/decisions/0016-the-store-a-person-reads.md)
+  — the folder a person browses: operation documents filed under the revision
+  that names them, a walk that recurses to any depth and never follows a
+  symbolic link, and the command that writes a `skip` rule.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

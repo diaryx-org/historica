@@ -107,7 +107,16 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
 
 #[test]
 fn a_command_outside_a_store_says_which_one_makes_it() {
-    let directory = scratch("no-store");
+    // Deliberately outside the repository rather than under
+    // `CARGO_TARGET_TMPDIR`. `locate` walks up to the filesystem root, and
+    // `target/` is inside a checkout that may itself hold a `history/` — as
+    // this one does, being a tool people record their own work with. A
+    // scratch directory there would find that store and this test would
+    // assert the opposite of what it means.
+    let directory = std::env::temp_dir().join("historica-cli-no-store");
+    let _ = fs::remove_dir_all(&directory);
+    fs::create_dir_all(&directory).expect("a scratch directory outside the repository");
+
     let complaint = stderr(&directory, &["log"]);
     assert!(complaint.contains("historica init"), "{complaint}");
 }
@@ -304,6 +313,214 @@ fn names_records_a_change_by_default_and_a_revision_when_pinned() {
     let listed = stdout(&directory, &["names"]);
     assert!(listed.contains("main    change nwlxsqot"), "{listed}");
     assert!(listed.contains("pinned  revision "), "{listed}");
+}
+
+#[test]
+fn arrange_files_operation_documents_under_the_revision_that_names_them() {
+    let directory = repository("arrange-nesting");
+    fs::create_dir_all(directory.join("src/cli")).expect("directories");
+    write(&directory, "src/cli/mod.rs", "one\n");
+    write(&directory, "a.md", "start\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+    write(&directory, "src/cli/mod.rs", "one edited\n");
+    out(recorded(&directory, &["record", "-m", "Say more"]));
+
+    out(recorded(&directory, &["arrange"]));
+
+    // The directory carries the revision, so the filename is free to be the
+    // path — and the two directories are visibly the two `.rev` files.
+    let operations = directory.join("history/operations");
+    let filed: Vec<String> = walk_names(&operations);
+    assert!(
+        filed.iter().all(|name| name.contains('/')),
+        "every document should sit under a revision directory: {filed:?}"
+    );
+    assert!(
+        filed
+            .iter()
+            .any(|name| name.ends_with("Start a journal/src⁄cli⁄mod.rs.ops")),
+        "{filed:?}"
+    );
+    assert!(
+        filed
+            .iter()
+            .any(|name| name.ends_with("Say more/src⁄cli⁄mod.rs.ops")),
+        "one path, two revisions, two directories: {filed:?}"
+    );
+    assert!(
+        filed.iter().all(|name| !name.contains(".ops.ops")),
+        "{filed:?}"
+    );
+
+    // Nothing about the history moved, and nothing is left at the top.
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "a nested store is as valid as a flat one"
+    );
+    assert_eq!(
+        stdout(&directory, &["cat", "head", "src/cli/mod.rs"]),
+        "one edited\n"
+    );
+
+    // Arranging an arranged store moves nothing.
+    let again = stdout(&directory, &["arrange"]);
+    assert!(again.contains("0 renamed, 3 already arranged"), "{again}");
+}
+
+#[test]
+fn arrange_tidies_the_directory_it_emptied_and_spares_the_one_it_did_not() {
+    let directory = repository("arrange-tidy");
+    write(&directory, "a.md", "one\n");
+    write(&directory, "b.md", "other\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+
+    // Two documents, filed by hand into two directories of a person's own.
+    let operations = directory.join("history/operations");
+    let mut documents = walk_names(&operations);
+    documents.retain(|name| name.ends_with(".ops"));
+    assert_eq!(documents.len(), 2, "{documents:?}");
+
+    let alone = operations.join("alone");
+    let shared = operations.join("shared");
+    fs::create_dir_all(&alone).expect("a directory");
+    fs::create_dir_all(&shared).expect("a directory");
+    fs::rename(operations.join(&documents[0]), alone.join(&documents[0])).expect("filing");
+    fs::rename(operations.join(&documents[1]), shared.join(&documents[1])).expect("filing");
+    // Something that is not a document, and not this command's to delete.
+    fs::write(shared.join("notes.txt"), "why these are here\n").expect("a file");
+
+    out(recorded(&directory, &["arrange"]));
+
+    // The directory arranging emptied is gone. The one still holding
+    // something is not: `remove_dir` refuses a directory that holds anything,
+    // which is the whole of the guard.
+    assert!(
+        !alone.exists(),
+        "an emptied directory should be tidied away"
+    );
+    assert!(shared.exists(), "a directory in use should be left alone");
+    assert!(shared.join("notes.txt").exists());
+    // `stdout` asserts a zero exit, so the store is still sound; the note is
+    // `check` having walked into the directory and found the one file there
+    // that is not a document.
+    let report = stdout(&directory, &["check"]);
+    assert!(report.contains("notes.txt"), "{report}");
+    assert!(report.contains("nothing reads it"), "{report}");
+}
+
+#[test]
+fn recording_into_an_arranged_store_leaves_it_readable() {
+    // The writer still writes flat and the reader reads both, which is what
+    // makes arranging safe to do at any time rather than once at the end.
+    let directory = repository("arrange-then-record");
+    write(&directory, "a.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+    out(recorded(&directory, &["arrange"]));
+
+    write(&directory, "a.md", "two\n");
+    out(recorded(&directory, &["record", "-m", "Second"]));
+
+    // A store that is half filed and half flat is one store.
+    assert_eq!(stdout(&directory, &["cat", "head", "a.md"]), "two\n");
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "half-arranged is not half-valid"
+    );
+
+    let done = stdout(&directory, &["arrange"]);
+    assert!(done.contains("1 renamed, 1 already arranged"), "{done}");
+}
+
+#[test]
+fn arranging_is_the_same_wherever_it_is_done() {
+    // Decision 0006's hard rule, which nesting does not get to weaken: two
+    // replicas of one history must produce one set of names, or sync sees two
+    // files per document.
+    let one = repository("arrange-replica-one");
+    write(&one, "notes/a.md", "one\n");
+    out(recorded(&one, &["record", "-m", "A journal entry"]));
+    write(&one, "notes/a.md", "two\n");
+    out(recorded(&one, &["record", "-m", "A second entry"]));
+
+    // The same store, copied before arranging and arranged separately.
+    let two = scratch("arrange-replica-two");
+    copy_tree(&one.join("history"), &two.join("history"));
+
+    out(recorded(&one, &["arrange"]));
+    out(recorded(&two, &["arrange"]));
+    assert_eq!(
+        walk_names(&one.join("history")),
+        walk_names(&two.join("history")),
+        "two replicas disagreed about a name"
+    );
+}
+
+/// Every file under a directory, relative and sorted, directories included in
+/// the spelling so a nested arrangement is visible.
+fn walk_names(root: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&next) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push(
+                    path.strip_prefix(root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .into_owned(),
+                );
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("a directory");
+    for entry in fs::read_dir(from).expect("a directory").flatten() {
+        let path = entry.path();
+        let target = to.join(entry.file_name());
+        if path.is_dir() {
+            copy_tree(&path, &target);
+        } else {
+            fs::copy(&path, &target).expect("copying a file");
+        }
+    }
+}
+
+#[test]
+fn arrange_renames_a_filed_revision_where_it_sits() {
+    let directory = store_from("arrange-nested", "tree");
+    let revisions = directory.join("history/revisions");
+    let filed = revisions.join("early/2025");
+    fs::create_dir_all(&filed).expect("directories");
+    fs::rename(revisions.join("01-start.rev"), filed.join("01-start.rev"))
+        .expect("filing a revision away");
+
+    let before = stdout(&directory, &["log"]);
+    let done = stdout(&directory, &["arrange"]);
+
+    // Renamed, not moved. A person who filed it there meant to.
+    assert!(
+        filed.join("2025-08-19 Start a journal.rev").exists(),
+        "{done}"
+    );
+    assert!(
+        !revisions.join("2025-08-19 Start a journal.rev").exists(),
+        "arranging must not flatten what a person arranged"
+    );
+    assert_eq!(stdout(&directory, &["log"]), before);
+
+    // And arranging an arranged store is a no-op, at whatever depth.
+    let again = stdout(&directory, &["arrange"]);
+    assert!(again.contains("4 already arranged"), "{again}");
 }
 
 #[test]
@@ -520,6 +737,120 @@ fn what_the_format_cannot_hold_is_refused_by_name() {
     assert!(
         String::from_utf8_lossy(&again.stderr).contains("would mean nothing"),
         "a revision that states nothing is not recorded"
+    );
+}
+
+#[test]
+fn skip_writes_the_line_a_person_would_have_typed() {
+    let directory = repository("skip-command");
+    fs::create_dir_all(directory.join("target")).expect("a directory");
+    write(&directory, "notes/a.md", "one\n");
+    write(&directory, "target/out.bin", "junk\n");
+
+    // A directory gets the trailing slash the parser wants, which is the one
+    // thing leaving off changes the meaning of.
+    let written = out(recorded(
+        &directory,
+        &["skip", "target", "--suffix", ".tmp"],
+    ));
+    assert!(written.contains("skip target/"), "{written}");
+    assert!(written.contains("skip-suffix .tmp"), "{written}");
+
+    let text = fs::read_to_string(directory.join("history/skipped")).expect("the file");
+    assert_eq!(text, "skip target/\nskip-suffix .tmp\n");
+
+    // With no arguments it prints them, as `names` prints the bookmarks.
+    assert_eq!(out(recorded(&directory, &["skip"])), text);
+
+    // And the rules are the ones recording honours.
+    let first = out(recorded(&directory, &["record", "-m", "First"]));
+    assert!(first.contains("notes/a.md"), "{first}");
+    assert!(!first.contains("out.bin"), "{first}");
+
+    // Saying it twice writes one line and says so.
+    let again = out(recorded(&directory, &["skip", "target/"]));
+    assert!(again.contains("already there"), "{again}");
+    assert_eq!(
+        fs::read_to_string(directory.join("history/skipped")).expect("the file"),
+        text
+    );
+}
+
+#[test]
+fn skip_refuses_a_rule_over_what_history_holds_and_writes_nothing() {
+    let directory = repository("skip-command-refusal");
+    write(&directory, "drafts/one.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+
+    // Decision 0011, answered before the file is written rather than at the
+    // next record: the person is standing in front of the answer now.
+    let refused = recorded(&directory, &["skip", "drafts", "--suffix", ".tmp"]);
+    assert!(!refused.status.success());
+    let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(complaint.contains("drafts/one.md"), "{complaint}");
+
+    // Nothing is written, the good rule in the same command included: a
+    // command that half-applied would leave a person guessing which half.
+    assert!(!directory.join("history/skipped").exists());
+}
+
+#[test]
+fn skip_leaves_the_file_a_person_wrote_alone() {
+    let directory = repository("skip-command-append");
+    write(
+        &directory,
+        "history/skipped",
+        "skip one/\n\nskip-suffix .bin\n",
+    );
+
+    out(recorded(&directory, &["skip", "two/"]));
+
+    // The blank line the parser ignores is a blank line the person meant.
+    assert_eq!(
+        fs::read_to_string(directory.join("history/skipped")).expect("the file"),
+        "skip one/\n\nskip-suffix .bin\nskip two/\n"
+    );
+}
+
+#[test]
+fn a_skip_rule_over_a_tracked_file_is_refused() {
+    let directory = repository("skip-tracked");
+    write(&directory, "drafts/one.md", "one\n");
+    write(&directory, "kept.md", "kept\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+
+    // The harm decision 0011 names: the walk stops offering the path, so the
+    // next record would spell a request for privacy as a deletion of the very
+    // file it names, into a history that is append-only.
+    write(&directory, "history/skipped", "skip drafts/\n");
+    let refused = recorded(&directory, &["record", "-m", "Second"]);
+    assert!(!refused.status.success());
+    let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(complaint.contains("drafts/one.md"), "{complaint}");
+    assert!(complaint.contains("history/skipped"), "{complaint}");
+
+    // A rule over a path nothing has recorded is ordinary, which is the whole
+    // point of the file.
+    write(&directory, "history/skipped", "skip-suffix .tmp\n");
+    write(&directory, "scratch.tmp", "noise\n");
+    write(&directory, "kept.md", "edited\n");
+    let recorded_second = out(recorded(&directory, &["record", "-m", "Second"]));
+    assert!(recorded_second.contains("kept.md"), "{recorded_second}");
+    assert!(
+        !recorded_second.contains("scratch.tmp"),
+        "{recorded_second}"
+    );
+
+    // And the way out is the one the message names: delete the file, record
+    // the deletion, and only then does the rule become sayable.
+    fs::remove_dir_all(directory.join("drafts")).expect("the drafts");
+    out(recorded(&directory, &["record", "-m", "Away"]));
+    write(&directory, "history/skipped", "skip drafts/\n");
+    write(&directory, "kept.md", "again\n");
+    assert!(
+        recorded(&directory, &["record", "-m", "Third"])
+            .status
+            .success()
     );
 }
 

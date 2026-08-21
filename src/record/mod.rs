@@ -240,6 +240,23 @@ pub fn survey(
         moved.insert(file, to.clone());
     }
 
+    // A rule that covers a file the tree already holds, refused before any of
+    // it is described. Decision 0011: the walk never offered these paths, so
+    // every one of them would survey as `dropped`, and a person who wrote the
+    // rule for privacy would get history's copy kept and the folder's deleted
+    // — the opposite of the request, in an append-only history. Checked
+    // against `placed` rather than the tree, so a `--move` onto a skipped path
+    // is caught by the same line.
+    let skipped = store.skipped();
+    let covered: Vec<String> = placed
+        .values()
+        .filter(|path| skipped.skips(path))
+        .cloned()
+        .collect();
+    if !covered.is_empty() {
+        return Err(RecordError::SkipsTracked { paths: covered });
+    }
+
     // A path two files claim is not a name for either of them. 0008 lets a
     // merge produce this and 0012's `--at` is how a person settles it; until
     // they have, it is reported rather than resolved to whichever a map kept.
@@ -569,6 +586,16 @@ pub enum RecordError {
         /// Each path, and the short reason.
         files: Vec<(String, String)>,
     },
+    /// A `skip` rule covering a path the tree already holds.
+    ///
+    /// Decision 0011: the walk excludes what `skipped` names, so a rule over
+    /// a tracked path makes the file look deleted, and the next record spells
+    /// that as `drop` — a line asking for privacy quietly deleting history's
+    /// copy of what it names. Refusing is the recoverable half.
+    SkipsTracked {
+        /// Each tracked path a rule covers.
+        paths: Vec<String>,
+    },
     /// A `--move` naming a path the tree does not hold.
     NotInTheTree {
         /// The path as given.
@@ -664,6 +691,25 @@ impl fmt::Display for RecordError {
                 files
                     .iter()
                     .map(|(path, because)| format!("\n  {path} ({because})"))
+                    .collect::<String>()
+            ),
+            RecordError::SkipsTracked { paths } => write!(
+                f,
+                "`{}/{}` skips {} history already holds, so recording would \
+                 spell {} as a deletion; delete the {} first and record that, \
+                 or drop the rule — history holds what it holds:{}",
+                crate::store::STORE_DIR,
+                crate::working::SKIPPED_FILE,
+                if paths.len() == 1 {
+                    "a file".to_owned()
+                } else {
+                    format!("{} files", paths.len())
+                },
+                if paths.len() == 1 { "it" } else { "them" },
+                if paths.len() == 1 { "file" } else { "files" },
+                paths
+                    .iter()
+                    .map(|path| format!("\n  {path}"))
                     .collect::<String>()
             ),
             RecordError::NotInTheTree { path } => write!(

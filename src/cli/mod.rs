@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use historica::record::survey;
 use historica::store::{HEADER_FILE, Name, STORE_DIR, Store, StoreError};
-use historica::working::Working;
+use historica::working::{Rule, SKIPPED_FILE, Working};
 
 mod arrange;
 mod record;
@@ -32,6 +32,7 @@ reading a store
   files <target>           the file set at a revision
   cat <target> <path>      one file's content at a revision
   names                    the bookmarks, and what they point at
+  skip                     the rules saying what history does not take
 
 writing a store
   record [-m <message>]    record what the folder now says
@@ -44,6 +45,9 @@ writing a store
   arrange [-n]             rename revision files to readable ones
   name <bookmark> <target> [--revision]
                            point a bookmark at a change, or pin a revision
+  skip <path>... [--suffix <suffix>]
+                           stop history taking a path, a directory, or an
+                           ending; with no arguments, print the rules
 
 a <target> is `head`, a bookmark, a change ID, or a revision digest; the last
 two may
@@ -149,6 +153,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "cat" => cat(&base, rest),
         "names" => names(&base, rest),
         "name" => name(&base, rest),
+        "skip" => skip(&base, rest),
         "record" => record::record(&base, locate(&base)?, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
@@ -415,6 +420,177 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
     store.set_name(&bookmark, target)?;
     printing(|out| writeln!(out, "{bookmark} -> {target}"))
+}
+
+/// `skip <path>... [--suffix <suffix>]` — write what history does not take.
+///
+/// The file is two keys and a value, so this command is a convenience and
+/// says so by refusing to be anything more: it appends the line a person
+/// would have typed, and every rule it writes is one `Skipped::parse` reads
+/// back. What it adds over an editor is the refusal — decision 0011's rule
+/// that a rule may not cover a file the tree already holds, checked here
+/// before the file is written rather than at the next `record`, because the
+/// person is standing in front of the answer now.
+///
+/// With no arguments it prints the rules, as `names` prints the bookmarks.
+fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut wanted: Vec<Rule> = Vec::new();
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--suffix" => {
+                let suffix = arguments
+                    .next()
+                    .ok_or_else(|| Failure::usage("`--suffix` wants an ending"))?;
+                wanted.push(Rule::Suffix(usable(&suffix)?));
+            }
+            other if other.starts_with("--") => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `skip` takes"
+                )));
+            }
+            path => wanted.push(rule_for(base, path)?),
+        }
+    }
+
+    let mut store = open(base)?;
+    if wanted.is_empty() {
+        return printing(|out| {
+            for rule in store.skipped().rules() {
+                writeln!(out, "{rule}")?;
+            }
+            Ok(())
+        });
+    }
+
+    // Decision 0011, checked against every head rather than one: a rule is a
+    // fact about the repository, so a path any line of work holds is a path
+    // this cannot cover — and refusing here means never asking for `--onto`
+    // to answer a question that has the same answer at both heads anyway.
+    let mut covered: Vec<String> = Vec::new();
+    for head in store.history().heads() {
+        let tree = store
+            .merged_tree_of(&[head])
+            .map_err(|error| Failure::error(error.to_string()))?;
+        for (_, path) in tree.tree.files() {
+            if wanted.iter().any(|rule| rule.covers(path)) && !covered.iter().any(|had| had == path)
+            {
+                covered.push(path.to_owned());
+            }
+        }
+    }
+    if !covered.is_empty() {
+        covered.sort();
+        return Err(Failure::error(format!(
+            "history already holds {}, and a rule cannot take back what is \
+             recorded; delete the {} and record that, which is what removing a \
+             file from the tree means:{}",
+            if covered.len() == 1 {
+                "a file this would skip".to_owned()
+            } else {
+                format!("{} files this would skip", covered.len())
+            },
+            if covered.len() == 1 { "file" } else { "files" },
+            covered
+                .iter()
+                .map(|path| format!("\n  {path}"))
+                .collect::<String>()
+        )));
+    }
+
+    // A rule the file already states is said so rather than written twice:
+    // two identical lines mean what one does, and the person asking has
+    // already got what they asked for.
+    let mut fresh: Vec<Rule> = Vec::new();
+    let mut already: Vec<String> = Vec::new();
+    for rule in wanted {
+        if store.skipped().rules().any(|had| *had == rule) || fresh.contains(&rule) {
+            already.push(rule.to_string());
+        } else {
+            fresh.push(rule);
+        }
+    }
+    store.append_skipped(&fresh)?;
+
+    printing(|out| {
+        for line in fresh.iter().map(Rule::to_string).collect::<Vec<_>>() {
+            writeln!(out, "{STORE_DIR}/{SKIPPED_FILE}: {line}")?;
+        }
+        for line in &already {
+            writeln!(out, "already there: {line}")?;
+        }
+        Ok(())
+    })
+}
+
+/// The rule a path on the command line means.
+///
+/// A directory is spelled with the trailing slash the parser wants, which is
+/// the one thing a person is likely to leave off and the one place leaving it
+/// off changes the meaning — `skip target` matches a file called `target` and
+/// nothing beneath it.
+fn rule_for(base: &Path, path: &str) -> Result<Rule, Failure> {
+    let root = locate(base)?
+        .parent()
+        .ok_or_else(|| Failure::error("this store has no repository around it"))?
+        .to_path_buf();
+    let trimmed = path.trim_end_matches('/');
+    let relative = relative_to(&root, trimmed)?;
+    let directory = trimmed != path || root.join(&relative).is_dir();
+    let value = usable(&relative)?;
+    Ok(if directory {
+        Rule::Under(value)
+    } else {
+        Rule::Path(value)
+    })
+}
+
+/// Where a path a person typed sits, relative to the repository root.
+fn relative_to(root: &Path, path: &str) -> Result<String, Failure> {
+    let given = Path::new(path);
+    let full = if given.is_absolute() {
+        given.to_path_buf()
+    } else {
+        root.join(given)
+    };
+    // Only canonicalised where it exists: a rule may name what is not there
+    // yet, which is most of what a person writes one for.
+    let settled = full.canonicalize().unwrap_or(full);
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let inside = settled.strip_prefix(&root).map_err(|_| {
+        Failure::error(format!(
+            "`{path}` is not inside this repository, and a rule names what \
+             history would otherwise take"
+        ))
+    })?;
+    let spelled = inside
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/");
+    if spelled.is_empty() {
+        return Err(Failure::error(
+            "that is the repository itself, and skipping all of it would leave \
+             history nothing to hold",
+        ));
+    }
+    Ok(spelled)
+}
+
+/// A value the file can hold, refused here rather than written and re-read.
+fn usable(value: &str) -> Result<String, Failure> {
+    if value.is_empty() || value != value.trim() {
+        return Err(Failure::usage(format!(
+            "`{value}` cannot be a rule: a value is not empty and carries no \
+             leading or trailing space"
+        )));
+    }
+    if value.contains('\n') {
+        return Err(Failure::usage(
+            "a rule is one line, and this value holds a line break",
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 /// Open the store containing `base`.

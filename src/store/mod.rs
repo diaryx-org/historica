@@ -30,7 +30,7 @@ use crate::format::{OperationDocument, PREAMBLE, ParseError, RevisionDocument, d
 use crate::merge::{self, Merged};
 use crate::replay::{ReplayError, State};
 use crate::tree::{self, MergedTree, Tree, TreeError};
-use crate::working::{MalformedSkip, SKIPPED_FILE, Skipped};
+use crate::working::{MalformedSkip, Rule, SKIPPED_FILE, Skipped};
 
 mod check;
 
@@ -469,6 +469,41 @@ impl Store {
         self.names.insert(name.to_owned(), target);
         Ok(())
     }
+
+    /// Add rules to `history/skipped`, leaving what it already says alone.
+    ///
+    /// An append rather than a rewrite of the parsed rules, which would render
+    /// back a file with every blank line gone. The parser ignores those, but a
+    /// person grouping their rules with them meant something by them, and this
+    /// is not the command that decides they were noise.
+    ///
+    /// Decision 0011 puts the file in `names/`'s company — mutable, synced,
+    /// and a fact about the repository rather than about the person.
+    pub fn append_skipped(&mut self, rules: &[Rule]) -> Result<(), StoreError> {
+        if rules.is_empty() {
+            return Ok(());
+        }
+        let path = self.root.join(SKIPPED_FILE);
+        let existing = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(StoreError::io(&path, error)),
+        };
+        let mut text = existing;
+        // A file whose last line was never terminated would otherwise take the
+        // first new rule onto the end of it, and the pair would parse as one
+        // line neither of them says.
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        for rule in rules {
+            text.push_str(&format!("{rule}\n"));
+        }
+        fs::write(&path, &text).map_err(|error| StoreError::io(&path, error))?;
+        self.skipped = Skipped::parse(&text)
+            .map_err(|error| StoreError::MalformedSkipped { file: path, error })?;
+        Ok(())
+    }
 }
 
 /// Write a digest-named file, never renaming or overwriting one.
@@ -533,7 +568,69 @@ fn read_version(root: &Path) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Every file with one extension under one of the store's directories.
+/// What one of the store's directories holds, at any depth.
+///
+/// Decision 0016: the walk recurses, so a person may arrange `operations/`
+/// into whatever directories narrate their history — and a reader that only
+/// looked at the top level would read such a store as healthy and incomplete,
+/// which is the one failure this format is least willing to produce.
+///
+/// Held apart rather than filtered on the spot because `check` reports what
+/// the loader ignores, and the two describing different directories is how a
+/// store passes a check it should not.
+#[derive(Debug, Default)]
+pub struct Walk {
+    /// Every regular file found, sorted, at any depth.
+    pub files: Vec<PathBuf>,
+    /// Every symbolic link found, sorted, followed by nothing.
+    pub links: Vec<PathBuf>,
+}
+
+/// Walk one of the store's directories, at any depth.
+///
+/// **Symbolic links are found and never followed**, which is what makes an
+/// unbounded walk safe: a tree of real directories cannot contain itself, so
+/// there is no loop to guard against and no depth to cap. Decision 0011
+/// refused a symlink in the working copy on the neighbouring argument — that
+/// following one reads somebody else's file under this name — and a store is
+/// not the place to change that answer.
+pub fn walk(root: &Path, directory: &str) -> Result<Walk, StoreError> {
+    let directory = root.join(directory);
+    let mut found = Walk::default();
+    let mut pending = vec![directory.clone()];
+    while let Some(next) = pending.pop() {
+        let entries = match fs::read_dir(&next) {
+            Ok(entries) => entries,
+            // Absent is empty at the top and impossible below it, since the
+            // walk only descends into what it has just seen.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(StoreError::io(&next, error)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| StoreError::io(&next, error))?;
+            let path = entry.path();
+            // `symlink_metadata` rather than `is_file`, which follows a link
+            // and would call the thing at the other end a file of this store.
+            let metadata =
+                fs::symlink_metadata(&path).map_err(|error| StoreError::io(&path, error))?;
+            if metadata.is_symlink() {
+                found.links.push(path);
+            } else if metadata.is_dir() {
+                pending.push(path);
+            } else if metadata.is_file() {
+                found.files.push(path);
+            }
+        }
+    }
+    // Sorted at the end rather than per directory: `pending` is a stack, so
+    // the order files are found in is not the order they are named in, and
+    // two replicas loading one store must agree about both.
+    found.files.sort();
+    found.links.sort();
+    Ok(found)
+}
+
+/// Every file claiming one extension, at any depth.
 ///
 /// The extension is the one syllable of a filename that means anything: it is
 /// the file's claim to be a revision or an operation document, and everything
@@ -543,21 +640,8 @@ fn files_with_extension(
     directory: &str,
     extension: &str,
 ) -> Result<Vec<PathBuf>, StoreError> {
-    let directory = root.join(directory);
-    let mut paths = Vec::new();
-    let entries = match fs::read_dir(&directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(paths),
-        Err(error) => return Err(StoreError::io(&directory, error)),
-    };
-    for entry in entries {
-        let entry = entry.map_err(|error| StoreError::io(&directory, error))?;
-        let path = entry.path();
-        if path.is_file() && path.extension().is_some_and(|found| found == extension) {
-            paths.push(path);
-        }
-    }
-    paths.sort();
+    let mut paths = walk(root, directory)?.files;
+    paths.retain(|path| path.extension().is_some_and(|found| found == extension));
     Ok(paths)
 }
 

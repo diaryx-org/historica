@@ -108,6 +108,11 @@ pub enum Finding {
         /// The file.
         file: PathBuf,
     },
+    /// A symbolic link where a document would be, which the walk never follows.
+    Unfollowed {
+        /// The link.
+        file: PathBuf,
+    },
     /// A file under `revisions/` or `operations/` that claimed to be neither.
     ForeignFile {
         /// The file.
@@ -160,6 +165,7 @@ impl Finding {
             | Finding::DuplicateContent { .. }
             | Finding::SyncSuffixed { .. }
             | Finding::ForeignFile { .. }
+            | Finding::Unfollowed { .. }
             | Finding::MissingOperations { .. } => Severity::Note,
         }
     }
@@ -222,6 +228,12 @@ impl fmt::Display for Finding {
             Finding::SyncSuffixed { file } => write!(
                 f,
                 "{} looks like a sync tool's conflicted copy; both files are legitimate revisions",
+                file.display()
+            ),
+            Finding::Unfollowed { file } => write!(
+                f,
+                "{} is a symbolic link, and a store reads the files it holds \
+                 rather than the ones it points at",
                 file.display()
             ),
             Finding::ForeignFile { file } => write!(
@@ -324,21 +336,16 @@ pub(super) fn check(root: &Path) -> Report {
         Err(_) => report.push(Finding::UnreadableStore { found: None }),
     }
 
-    let revisions = root.join(REVISIONS_DIR);
-    let mut entries: Vec<PathBuf> = match fs::read_dir(&revisions) {
-        Ok(entries) => entries.filter_map(Result::ok).map(|e| e.path()).collect(),
-        Err(_) => Vec::new(),
-    };
-    entries.sort();
+    let found = super::walk(root, REVISIONS_DIR).unwrap_or_default();
+    for link in &found.links {
+        report.push(Finding::Unfollowed { file: link.clone() });
+    }
 
     let mut documents: BTreeMap<RevisionId, RevisionDocument> = BTreeMap::new();
     let mut files_by_digest: BTreeMap<RevisionId, Vec<PathBuf>> = BTreeMap::new();
     let mut bytes_by_digest: BTreeMap<RevisionId, Vec<u8>> = BTreeMap::new();
 
-    for path in entries {
-        if !path.is_file() {
-            continue;
-        }
+    for path in found.files {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -440,20 +447,15 @@ pub(super) fn check(root: &Path) -> Report {
 /// Identity is content here too, so a document is keyed by its digest and its
 /// filename is checked only where the name claims to be one.
 fn check_operations(root: &Path, report: &mut Report) -> BTreeMap<RevisionId, OperationDocument> {
-    let directory = root.join(OPERATIONS_DIR);
-    let mut entries: Vec<PathBuf> = match fs::read_dir(&directory) {
-        Ok(entries) => entries.filter_map(Result::ok).map(|e| e.path()).collect(),
-        Err(_) => Vec::new(),
-    };
-    entries.sort();
+    let found = super::walk(root, OPERATIONS_DIR).unwrap_or_default();
+    for link in &found.links {
+        report.push(Finding::Unfollowed { file: link.clone() });
+    }
 
     let mut documents = BTreeMap::new();
     let mut files_by_digest: BTreeMap<RevisionId, Vec<PathBuf>> = BTreeMap::new();
 
-    for path in entries {
-        if !path.is_file() {
-            continue;
-        }
+    for path in found.files {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())

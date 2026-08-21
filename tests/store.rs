@@ -74,7 +74,16 @@ fn discovery_walks_up_and_wants_the_header_not_the_name() {
     assert_eq!(found.root().canonicalize().ok(), root.canonicalize().ok());
 
     // A directory merely called `history` is not a store.
-    let impostor = scratch("discover-impostor");
+    //
+    // Deliberately outside the repository rather than under
+    // `CARGO_TARGET_TMPDIR`: discovery walks up to the filesystem root, and
+    // `target/` sits inside a checkout that may itself hold a real
+    // `history/` — as this one does, being a tool people record their own
+    // work with. A lookalike there would be walked straight past and the
+    // store above it found, and this assertion would be about the wrong
+    // directory entirely.
+    let impostor = std::env::temp_dir().join("historica-store-discover-impostor");
+    let _ = fs::remove_dir_all(&impostor);
     fs::create_dir_all(impostor.join("history/revisions")).expect("a lookalike");
     assert!(Store::discover(&impostor).is_err());
 }
@@ -118,6 +127,82 @@ fn renaming_every_file_changes_no_identity_and_breaks_no_reference() {
     );
     assert_eq!(before.history(), after.history());
     assert!(after.history().missing_parents().is_empty());
+}
+
+#[test]
+fn a_store_filed_into_directories_is_the_same_store() {
+    // Decision 0016: the walk recurses, so a person may arrange the store
+    // into whatever directories narrate their history. This is 0003's claim
+    // one level up — a filename means nothing, and now neither does a
+    // directory.
+    let (root, before) = corpus_store("nested");
+    let revisions = root.join("revisions");
+
+    let mut files: Vec<PathBuf> = fs::read_dir(&revisions)
+        .expect("revisions")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), 7);
+
+    // Buried at a different depth each, because "arbitrary" is the claim.
+    for (index, path) in files.iter().enumerate() {
+        let mut directory = revisions.clone();
+        for level in 0..=index {
+            directory = directory.join(format!("{level}"));
+        }
+        fs::create_dir_all(&directory).expect("directories");
+        let name = path.file_name().expect("a filename");
+        fs::rename(path, directory.join(name)).expect("filing it away");
+    }
+    assert!(
+        fs::read_dir(&revisions)
+            .expect("revisions")
+            .filter_map(Result::ok)
+            .all(|entry| entry.path().is_dir()),
+        "every revision should now be inside a directory"
+    );
+
+    let after = Store::open(&root).expect("reopening a filed store");
+    assert_eq!(before.len(), after.len());
+    assert_eq!(before.history(), after.history());
+    assert!(after.history().missing_parents().is_empty());
+    assert!(Store::check(&root).is_ok());
+}
+
+#[test]
+#[cfg(unix)]
+fn a_symbolic_link_is_found_and_never_followed() {
+    // 0011 refused a symlink in the working copy because following one reads
+    // somebody else's file under this name, and a store is not the place to
+    // change that answer. It is also what makes an unbounded walk safe: a
+    // tree of real directories cannot contain itself.
+    let (root, store) = corpus_store("links");
+    let revisions = root.join("revisions");
+    let held = store.len();
+
+    // A link that would be a document if it were followed.
+    std::os::unix::fs::symlink(revisions.join("01-root.rev"), revisions.join("copy.rev"))
+        .expect("a link to a document");
+    // And a directory link pointing at its own parent, which is the loop an
+    // unbounded walk would hang on if it followed one.
+    std::os::unix::fs::symlink(&revisions, revisions.join("loop")).expect("a link to a directory");
+
+    let after = Store::open(&root).expect("reopening");
+    assert_eq!(after.len(), held, "a link is not a document");
+
+    // Reported rather than passed over: a person who made one meant something
+    // by it, and nothing here read it.
+    let report = Store::check(&root);
+    let unfollowed = report
+        .findings()
+        .iter()
+        .filter(|finding| matches!(finding, Finding::Unfollowed { .. }))
+        .count();
+    assert_eq!(unfollowed, 2, "{report:?}");
+    // Notes never fail, which is what 0006 decided a note is.
+    assert!(report.is_ok(), "{report:?}");
 }
 
 #[test]
