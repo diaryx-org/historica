@@ -52,7 +52,7 @@ fn read(name: &str) -> Vec<u8> {
 fn canonical_names() -> Vec<String> {
     manifest()
         .into_keys()
-        .filter(|name| name.ends_with(".ops") && !name.starts_with("invalid/"))
+        .filter(|name| name.ends_with(".ops.txt") && !name.starts_with("invalid/"))
         .collect()
 }
 
@@ -106,70 +106,73 @@ fn a_documents_id_is_the_digest_of_its_file() {
 fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
     vec![
         (
-            "invalid/adjacent-deletes.ops",
+            "invalid/adjacent-deletes.ops.txt",
             ParseErrorKind::AdjacentDeletes { at: 0, total: 3 },
         ),
         (
-            "invalid/carriage-return-in-an-operation.ops",
+            "invalid/carriage-return-in-an-operation.ops.txt",
             ParseErrorKind::CarriageReturnInOperation,
         ),
         (
-            "invalid/content-without-operation.ops",
+            "invalid/content-without-operation.ops.txt",
             ParseErrorKind::ContentWithoutOperation { prefix: '+' },
         ),
         (
-            "invalid/delete-after-insert.ops",
+            "invalid/delete-after-insert.ops.txt",
             ParseErrorKind::DeleteAfterInsert { position: 4 },
         ),
         (
-            "invalid/delete-count-disagrees.ops",
+            "invalid/delete-count-disagrees.ops.txt",
             ParseErrorKind::DeleteCountDisagrees {
                 stated: 2,
                 found: 1,
             },
         ),
-        ("invalid/empty-delete.ops", ParseErrorKind::EmptyDelete),
-        ("invalid/empty-insert.ops", ParseErrorKind::EmptyInsert),
+        ("invalid/empty-delete.ops.txt", ParseErrorKind::EmptyDelete),
+        ("invalid/empty-insert.ops.txt", ParseErrorKind::EmptyInsert),
         (
-            "invalid/inserts-at-one-position.ops",
+            "invalid/inserts-at-one-position.ops.txt",
             ParseErrorKind::InsertsAtOnePosition { position: 4 },
         ),
         (
-            "invalid/leading-zero-position.ops",
+            "invalid/leading-zero-position.ops.txt",
             ParseErrorKind::MalformedNumber {
                 found: "03".to_owned(),
             },
         ),
         (
-            "invalid/malformed-operation.ops",
+            "invalid/malformed-operation.ops.txt",
             ParseErrorKind::MalformedOperation { keyword: "delete" },
         ),
         (
-            "invalid/missing-separator.ops",
+            "invalid/missing-separator.ops.txt",
             ParseErrorKind::MissingSeparator,
         ),
         (
-            "invalid/no-newline-not-last.ops",
+            "invalid/no-newline-not-last.ops.txt",
             ParseErrorKind::NoNewlineNotLast { prefix: '+' },
         ),
         (
-            "invalid/no-newline-without-item.ops",
+            "invalid/no-newline-without-item.ops.txt",
             ParseErrorKind::NoNewlineWithoutItem,
         ),
-        ("invalid/no-operations.ops", ParseErrorKind::NoOperations),
         (
-            "invalid/operations-out-of-order.ops",
+            "invalid/no-operations.ops.txt",
+            ParseErrorKind::NoOperations,
+        ),
+        (
+            "invalid/operations-out-of-order.ops.txt",
             ParseErrorKind::OperationsOutOfOrder {
                 position: 1,
                 after: 5,
             },
         ),
         (
-            "invalid/overlapping-operations.ops",
+            "invalid/overlapping-operations.ops.txt",
             ParseErrorKind::OverlappingOperations { position: 1 },
         ),
         (
-            "invalid/unknown-operation.ops",
+            "invalid/unknown-operation.ops.txt",
             ParseErrorKind::UnknownOperation {
                 found: "replace 3 1".to_owned(),
             },
@@ -218,7 +221,7 @@ fn every_refusal_names_a_line_and_a_fix() {
 
 /// The file the root revision created, as a list of items.
 fn root_state() -> Vec<Item> {
-    let root = parse("01-root.ops");
+    let root = parse("01-root.ops.txt");
     assert_eq!(root.operations.len(), 1, "a first version is one insert");
     let operation = &root.operations[0];
     assert_eq!(operation.kind, OperationKind::Insert);
@@ -233,7 +236,11 @@ fn every_deleted_item_agrees_with_the_parent_it_was_deleted_from() {
     // replay rather than absorbed into a merge. Here the parent is the root,
     // so the check is one a person can also do by eye.
     let parent = root_state();
-    for name in ["02-concurrent.ops", "03-other.ops", "05-amended.ops"] {
+    for name in [
+        "02-concurrent.ops.txt",
+        "03-other.ops.txt",
+        "05-amended.ops.txt",
+    ] {
         for operation in &parse(name).operations {
             if operation.kind != OperationKind::Delete {
                 continue;
@@ -254,8 +261,8 @@ fn the_amendment_edits_the_region_the_revision_it_supersedes_edited() {
     // Revision 05 amends 02, so the two are versions of one change, and their
     // operation documents differ: two revisions that made byte-identical edits
     // would share one document, which would make them one event.
-    let original = parse("02-concurrent.ops");
-    let amended = parse("05-amended.ops");
+    let original = parse("02-concurrent.ops.txt");
+    let amended = parse("05-amended.ops.txt");
     assert_ne!(original, amended);
     assert_ne!(original.id(), amended.id());
 
@@ -269,8 +276,8 @@ fn concurrent_revisions_edit_the_file_through_separate_operations() {
     // 02 and 03 are the corpus's concurrent pair. Neither can be read as the
     // other's parent state, which is what makes the merge in decision 0007 a
     // replay rather than an application.
-    let one = parse("02-concurrent.ops");
-    let other = parse("03-other.ops");
+    let one = parse("02-concurrent.ops.txt");
+    let other = parse("03-other.ops.txt");
     assert_ne!(one.id(), other.id());
 
     // 03 spells a replacement the canonical way, minus lines above plus lines
@@ -286,7 +293,7 @@ fn an_items_bytes_are_its_own_and_survive_untouched() {
     // A CRLF file's carriage returns are content, and are kept: decision 0002
     // bans a CR from the format's own lines, and a file under version control
     // is not one of them.
-    let crlf = parse("crlf.ops");
+    let crlf = parse("crlf.ops.txt");
     for operation in &crlf.operations {
         for item in &operation.items {
             assert!(item.text.ends_with('\r'), "a CRLF line keeps its return");
@@ -295,7 +302,7 @@ fn an_items_bytes_are_its_own_and_survive_untouched() {
     }
 
     // A last line without a terminator, on both sides of a replacement.
-    let ends = parse("no-newline.ops");
+    let ends = parse("no-newline.ops.txt");
     for operation in &ends.operations {
         let last = operation.items.last().expect("an operation has items");
         assert!(!last.terminated);
@@ -304,7 +311,7 @@ fn an_items_bytes_are_its_own_and_survive_untouched() {
 
     // Items that read like the format are items: exactly one byte is stripped
     // and nothing else is trimmed, unescaped, or normalised.
-    let verbatim = parse("verbatim-items.ops");
+    let verbatim = parse("verbatim-items.ops.txt");
     let items = &verbatim.operations[0].items;
     let texts: Vec<&str> = items.iter().map(|item| item.text.as_str()).collect();
     assert!(texts.contains(&"historica-v0"));
@@ -323,7 +330,7 @@ fn an_items_bytes_are_its_own_and_survive_untouched() {
 
 #[test]
 fn the_root_revision_creates_the_file_the_others_edit() {
-    let created = replay([&parse("01-root.ops")]).expect("a first version");
+    let created = replay([&parse("01-root.ops.txt")]).expect("a first version");
     assert_eq!(created.text(), state("01-root"));
     assert_eq!(created, State::from_text(&state("01-root")));
 }
@@ -333,9 +340,9 @@ fn each_revision_replays_to_the_file_it_left_behind() {
     // Every one of these is a linear chain — the corpus's concurrent pair is
     // concurrent with each other, not with the root — so replay here is
     // application, which is what decision 0007 says the common case costs.
-    let root = parse("01-root.ops");
+    let root = parse("01-root.ops.txt");
     for name in ["02-concurrent", "03-other", "05-amended"] {
-        let document = parse(&format!("{name}.ops"));
+        let document = parse(&format!("{name}.ops.txt"));
         let replayed = replay([&root, &document]).unwrap_or_else(|error| panic!("{name}: {error}"));
         assert_eq!(replayed.text(), state(name), "{name}");
     }
@@ -351,9 +358,9 @@ fn a_state_is_derived_and_the_operations_are_the_authority() {
 
     // The amendment and the revision it supersedes are two files, which is why
     // the rewrite in the revision corpus was forced rather than cosmetic.
-    let root = parse("01-root.ops");
-    let original = replay([&root, &parse("02-concurrent.ops")]).expect("02");
-    let amended = replay([&root, &parse("05-amended.ops")]).expect("05");
+    let root = parse("01-root.ops.txt");
+    let original = replay([&root, &parse("02-concurrent.ops.txt")]).expect("02");
+    let amended = replay([&root, &parse("05-amended.ops.txt")]).expect("05");
     assert_ne!(original, amended);
     assert_eq!(original.len() + 1, amended.len());
 }
@@ -363,8 +370,12 @@ fn a_document_replayed_against_the_wrong_parent_is_refused() {
     // 02 and 03 are concurrent: neither was written against the other's
     // result, and replaying them as though they were a chain says so rather
     // than quietly producing a file nobody wrote.
-    let root = parse("01-root.ops");
-    let chain = [&root, &parse("03-other.ops"), &parse("02-concurrent.ops")];
+    let root = parse("01-root.ops.txt");
+    let chain = [
+        &root,
+        &parse("03-other.ops.txt"),
+        &parse("02-concurrent.ops.txt"),
+    ];
     let error = replay(chain).expect_err("03 is not 02's parent");
     let rendered = error.to_string();
     let (_, fix) = rendered

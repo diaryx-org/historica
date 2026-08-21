@@ -2,7 +2,7 @@
 //!
 //! Specified by `docs/decisions/0011-working-copy.md`. The working copy is the
 //! directory holding `history/`, everything in it is tracked, and
-//! `history/skipped` names the exceptions. Nothing here is remembered between
+//! `history/skipped.txt` names the exceptions. Nothing here is remembered between
 //! commands: reading a working copy is a walk of the filesystem, every time.
 
 use std::collections::BTreeMap;
@@ -15,9 +15,9 @@ use crate::format::check_path;
 use crate::store::STORE_DIR;
 
 /// The file in the store that says what history does not take.
-pub const SKIPPED_FILE: &str = "skipped";
+pub const SKIPPED_FILE: &str = "skipped.txt";
 
-/// What `history/skipped` says.
+/// What `history/skipped.txt` says.
 ///
 /// Two keys, and deliberately no pattern language: decision 0011 argues that
 /// the part people get wrong about gitignore is never the pattern but which of
@@ -27,7 +27,7 @@ pub struct Skipped {
     rules: Vec<Rule>,
 }
 
-/// One line of `history/skipped`.
+/// One line of `history/skipped.txt`.
 ///
 /// Public because writing the file is a thing a command does, and a rule that
 /// renders itself is what keeps the writer from spelling a line the reader
@@ -145,7 +145,7 @@ impl Skipped {
     }
 }
 
-/// A line of `history/skipped` that was not one rule.
+/// A line of `history/skipped.txt` that was not one rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MalformedSkip {
     /// The line, counted from one.

@@ -725,7 +725,7 @@ pub enum RecordError {
     },
     /// A `skip` rule covering a path the tree already holds.
     ///
-    /// Decision 0011: the walk excludes what `skipped` names, so a rule over
+    /// Decision 0011: the walk excludes what `skipped.txt` names, so a rule over
     /// a tracked path makes the file look deleted, and the next record spells
     /// that as `drop` — a line asking for privacy quietly deleting history's
     /// copy of what it names. Refusing is the recoverable half.

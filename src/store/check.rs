@@ -18,8 +18,8 @@ use crate::core::{FileId, RevisionId};
 use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, digest};
 
 use super::{
-    HEADER_FILE, MalformedName, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR,
-    REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims,
+    HEADER_FILE, MalformedName, NAME_SUFFIX, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES,
+    OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims,
 };
 
 /// Whether a finding means the store is broken or merely worth mentioning.
@@ -63,7 +63,7 @@ pub enum Finding {
         /// The files in question.
         files: Vec<PathBuf>,
     },
-    /// `skipped` was not rules, which would silently record what it names.
+    /// `skipped.txt` was not rules, which would silently record what it names.
     MalformedSkipped {
         /// The file.
         file: PathBuf,
@@ -265,7 +265,8 @@ impl fmt::Display for Finding {
             ),
             Finding::ForeignFile { file } => write!(
                 f,
-                "{} does not carry `{REVISION_SUFFIX}`, so nothing reads it",
+                "{} carries neither `{REVISION_SUFFIX}` nor `{NAME_SUFFIX}` \
+                 where its directory wants one, so nothing reads it",
                 file.display()
             ),
             Finding::MissingOperations { document, named_by } => write!(
@@ -382,7 +383,9 @@ pub(super) fn check(root: &Path) -> Report {
 
     match fs::read_to_string(root.join(HEADER_FILE)) {
         Ok(text) => {
-            let line = text.trim_end_matches('\n').to_owned();
+            // Decision 0021: the first line is the version, and the rest is
+            // the note a person reads.
+            let line = text.lines().next().unwrap_or_default().to_owned();
             let known = [Version::V0, Version::V1]
                 .iter()
                 .any(|version| line == version.preamble());
@@ -762,6 +765,12 @@ fn check_names(
             continue;
         }
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        // Decision 0021: a bookmark is `<name>.txt`. Anything else in here is
+        // a file nothing reads, which is the note `ForeignFile` is for.
+        let Some(name) = name.strip_suffix(NAME_SUFFIX) else {
+            report.push(Finding::ForeignFile { file: path.clone() });
             continue;
         };
         let text = match fs::read_to_string(&path) {

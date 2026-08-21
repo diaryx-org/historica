@@ -117,7 +117,7 @@ property test cannot see; `examples/matchers.rs` is the measurement decision
 
 The `record` module is the writer 0010 and 0011 specify, and `working` is what
 it is given: the folder beside the store, everything in it tracked except what
-`history/skipped` names — and a rule there covering a file the tree already
+`history/skipped.txt` names — and a rule there covering a file the tree already
 holds is refused, because the walk would stop offering the path and the next
 record would spell a request for privacy as a deletion of the file it names. A change ID is 96 bits from the operating system, an
 author comes from a person's own configuration and is never guessed, and the
@@ -134,8 +134,9 @@ reading files and never their names — revisions and operation documents alike,
 so renaming every file in a store changes no identity and breaks no reference — which is what lets a store be
 hand-arranged into something a file browser can narrate. `operations/` holds
 two kinds of file on the rule `revisions/` already keeps: only a name ending
-`.ops.txt` — or `.ops`, which is read forever and never written — is a document
-there, and every other file is a payload, found by its digest and not
+`.ops.txt` is a document there, and every other file is a payload — so an
+ordinary `.ops` file in the repository keeps its own name — found by its digest
+and not
 read at all until something wants its bytes, so a history with photographs in
 it does not cost a full hash to run `log`. The writer names each file the way a
 person reads it — decision 0019 — appends only, and never overwrites; a
@@ -306,7 +307,7 @@ Choices that constrain later work are written down as they are made.
   rewrite the tool performs on its own behalf copies all three, so two replicas
   that rebase one change write one file.
 - [`docs/decisions/0011-working-copy.md`](docs/decisions/0011-working-copy.md)
-  — the folder beside the store is the working copy, `history/skipped` says
+  — the folder beside the store is the working copy, `history/skipped.txt` says
   what it does not take, the parent is the head, and a rename is the one fact
   a person has to state. Nothing is remembered between commands.
 - [`docs/decisions/0012-conflicts.md`](docs/decisions/0012-conflicts.md) —

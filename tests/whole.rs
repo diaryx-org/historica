@@ -79,7 +79,7 @@ fn every_file_hashes_to_what_the_manifest_says() {
 #[test]
 fn a_created_file_is_stored_as_itself() {
     let manifest = manifest();
-    let bytes = fs::read(corpus().join("revisions/01-start.rev")).expect("the revision");
+    let bytes = fs::read(corpus().join("revisions/01-start.rev.txt")).expect("the revision");
     let document = RevisionDocument::parse(&bytes).expect("a version 1 revision");
 
     assert_eq!(document.version, Version::V1);
@@ -109,10 +109,10 @@ fn one_history_holds_a_payload_and_the_operations_counted_against_it() {
     let store = store("whole-materialise");
     let manifest = manifest();
     let start = *manifest
-        .get("revisions/01-start.rev")
+        .get("revisions/01-start.rev.txt")
         .expect("the first revision");
     let crop = *manifest
-        .get("revisions/02-crop.rev")
+        .get("revisions/02-crop.rev.txt")
         .expect("the second revision");
 
     // A file's kind is fixed when it is added, and the tree is what says so.
@@ -186,7 +186,7 @@ fn every_invalid_file_is_refused_for_its_own_reason() {
     let entry = file(ENTRY).to_string();
     let cases: Vec<(&str, ParseErrorKind)> = vec![
         (
-            "add-with-edit.rev",
+            "add-with-edit.rev.txt",
             ParseErrorKind::ContradictoryFileFacts {
                 first: "add",
                 second: "edit",
@@ -194,13 +194,13 @@ fn every_invalid_file_is_refused_for_its_own_reason() {
             },
         ),
         (
-            "text-without-add.rev",
+            "text-without-add.rev.txt",
             ParseErrorKind::TextWithoutAdd {
                 file: entry.clone(),
             },
         ),
         (
-            "text-and-bytes.rev",
+            "text-and-bytes.rev.txt",
             ParseErrorKind::ContradictoryFileFacts {
                 first: "text",
                 second: "bytes",
@@ -208,7 +208,7 @@ fn every_invalid_file_is_refused_for_its_own_reason() {
             },
         ),
         (
-            "edit-and-bytes.rev",
+            "edit-and-bytes.rev.txt",
             ParseErrorKind::ContradictoryFileFacts {
                 first: "edit",
                 second: "bytes",
@@ -216,7 +216,7 @@ fn every_invalid_file_is_refused_for_its_own_reason() {
             },
         ),
         (
-            "drop-and-bytes.rev",
+            "drop-and-bytes.rev.txt",
             ParseErrorKind::ContradictoryFileFacts {
                 first: "drop",
                 second: "bytes",
@@ -224,7 +224,7 @@ fn every_invalid_file_is_refused_for_its_own_reason() {
             },
         ),
         (
-            "text-in-version-0.rev",
+            "text-in-version-0.rev.txt",
             ParseErrorKind::HeaderNeedsVersion {
                 key: "text".to_owned(),
                 found: Version::V0,

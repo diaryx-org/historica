@@ -12,15 +12,17 @@
 //!
 //! ```text
 //! history/
-//! ├── historica       # `historica-v1`
+//! ├── historica.txt   # the version, and a note saying what this folder is
 //! ├── revisions/      # one revision document per file, under any name
 //! ├── operations/     # what each revision did, per file — decisions 0007, 0017
-//! ├── names/          # bookmarks — the only mutable files
-//! └── cache/          # derived, disposable, deletable without loss
+//! ├── names/          # bookmarks, `<name>.txt` — the only mutable files
+//! ├── cache/          # derived, disposable, deletable without loss
+//! └── skipped.txt     # what recording does not take
 //! ```
 //!
 //! `operations/` holds two kinds of file, on the rule `revisions/` already
-//! keeps: only `*.ops` is read as an operation document, and every other file
+//! keeps: only a name ending `.ops.txt` is an operation document, and every
+//! other file
 //! is a payload — decision 0017's content that arrives whole, carrying no
 //! format of its own and identified by the digest of its bytes. Payloads are
 //! not read when a store is opened. A history with photographs in it must not
@@ -48,7 +50,7 @@ pub use check::{Finding, Report, Severity};
 /// The directory a store lives in, relative to the repository root.
 pub const STORE_DIR: &str = "history";
 /// The file that marks a directory as a store, and states its format version.
-pub const HEADER_FILE: &str = "historica";
+pub const HEADER_FILE: &str = "historica.txt";
 /// Revision documents. Only `*.rev` files here are read as revisions.
 pub const REVISIONS_DIR: &str = "revisions";
 /// Operation documents, per decision 0007.
@@ -65,14 +67,51 @@ pub const CACHE_DIR: &str = "cache";
 pub const REVISION_SUFFIX: &str = ".rev.txt";
 /// The suffix a writer puts on an operation document.
 pub const OPERATION_SUFFIX: &str = ".ops.txt";
+/// The suffix a bookmark file carries, per decision 0021.
+///
+/// A bookmark's name is its filename, now minus this: `names/main.txt` is the
+/// bookmark `main`.
+pub const NAME_SUFFIX: &str = ".txt";
 /// Every suffix that is a file's claim to be a revision document.
 ///
-/// The older one is read permanently, which is decision 0004's asymmetry
-/// applied to a filename rule: a store written before 0020 must not quietly
-/// stop having documents in it.
-pub const REVISION_SUFFIXES: [&str; 2] = [REVISION_SUFFIX, ".rev"];
+/// One entry, which decision 0021 spent the format's one free moment to keep:
+/// a payload has only this to avoid, so a repository file called `notes.ops`
+/// keeps its own name.
+pub const REVISION_SUFFIXES: [&str; 1] = [REVISION_SUFFIX];
 /// Every suffix that is a file's claim to be an operation document.
-pub const OPERATION_SUFFIXES: [&str; 2] = [OPERATION_SUFFIX, ".ops"];
+pub const OPERATION_SUFFIXES: [&str; 1] = [OPERATION_SUFFIX];
+
+/// What `init` writes into [`HEADER_FILE`], below the version line.
+///
+/// Decision 0021: a person who opens `history/` should not have to be told
+/// what they are looking at by somebody who already knows. Nothing hashes this
+/// file and no document references it, so a reader takes the first line and
+/// leaves the rest to whoever is reading.
+pub const HEADER_NOTE: &str = "\
+This folder is a Historica store: the recorded history of the files beside it.
+
+Everything in it is text you can read, and none of it needs Historica to read.
+Identity comes from content — a document is named by the SHA-256 of its own
+bytes, which `shasum -a 256` prints — so a filename here is only ever
+presentation. Renaming anything in this folder breaks nothing, and filing it
+into directories of your own breaks nothing either.
+
+  revisions/      one file per revision: who recorded what, when, and why, and
+                  which revisions came before it, named by digest.
+  operations/     what each revision did, filed under the revision that did it,
+                  at the path the file had. A `.ops.txt` file lists the lines
+                  that revision deleted and inserted; every other file there is
+                  a file's own content, stored whole.
+  names/          bookmarks, one line each. The only files here that change.
+  cache/          derived and disposable. Deleting all of it loses nothing.
+  skipped.txt     what recording does not take.
+
+The first line of this file states the format version. A reader that does not
+know that version refuses the store rather than guessing at what it would be
+leaving out.
+
+`historica help` lists what the tool can do with all of this.
+";
 
 /// Whether a file's name claims it is one of this format's documents.
 pub fn claims(path: &Path, suffixes: &[&str]) -> bool {
@@ -192,8 +231,11 @@ impl Store {
             let path = root.join(directory);
             fs::create_dir_all(&path).map_err(|error| StoreError::io(&path, error))?;
         }
-        fs::write(&header, format!("{}\n", Version::CURRENT.preamble()))
-            .map_err(|error| StoreError::io(&header, error))?;
+        fs::write(
+            &header,
+            format!("{}\n\n{HEADER_NOTE}", Version::CURRENT.preamble()),
+        )
+        .map_err(|error| StoreError::io(&header, error))?;
         Self::open(root)
     }
 
@@ -594,7 +636,7 @@ impl Store {
 
     /// What this repository's history does not take.
     ///
-    /// Decision 0011: `history/skipped` is a fact about the repository rather
+    /// Decision 0011: `history/skipped.txt` is a fact about the repository rather
     /// than about the person, so it lives here and travels with the store.
     pub fn skipped(&self) -> &Skipped {
         &self.skipped
@@ -721,7 +763,14 @@ impl Store {
             return Ok(());
         }
         let header = self.root.join(HEADER_FILE);
-        fs::write(&header, format!("{}\n", version.preamble()))
+        // Only the first line moves: whatever a person wrote under it is
+        // theirs, and a version bump is no reason to take it away.
+        let held = fs::read_to_string(&header).unwrap_or_default();
+        let rest: String = held
+            .split_once('\n')
+            .map(|(_, rest)| rest.to_owned())
+            .unwrap_or_else(|| format!("\n{HEADER_NOTE}"));
+        fs::write(&header, format!("{}\n{rest}", version.preamble()))
             .map_err(|error| StoreError::io(&header, error))?;
         self.version = version;
         Ok(())
@@ -737,13 +786,16 @@ impl Store {
                 name: name.to_owned(),
             });
         }
-        let path = self.root.join(NAMES_DIR).join(name);
+        let path = self
+            .root
+            .join(NAMES_DIR)
+            .join(format!("{name}{NAME_SUFFIX}"));
         fs::write(&path, format!("{target}\n")).map_err(|error| StoreError::io(&path, error))?;
         self.names.insert(name.to_owned(), target);
         Ok(())
     }
 
-    /// Add rules to `history/skipped`, leaving what it already says alone.
+    /// Add rules to `history/skipped.txt`, leaving what it already says alone.
     ///
     /// An append rather than a rewrite of the parsed rules, which would render
     /// back a file with every blank line gone. The parser ignores those, but a
@@ -822,7 +874,7 @@ fn write_once(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// Read `history/skipped`, which a store need not have.
+/// Read `history/skipped.txt`, which a store need not have.
 fn read_skipped(root: &Path) -> Result<Skipped, StoreError> {
     let path = root.join(SKIPPED_FILE);
     match fs::read_to_string(&path) {
@@ -852,7 +904,10 @@ fn read_version(root: &Path) -> Result<Version, StoreError> {
         }
         Err(error) => return Err(StoreError::io(&header, error)),
     };
-    let line = text.trim_end_matches('\n');
+    // Decision 0021: the first line is the version and everything under it is
+    // prose for whoever opens the folder. Nothing hashes this file, so a person
+    // may write what they like there.
+    let line = text.lines().next().unwrap_or_default();
     for version in [Version::V0, Version::V1] {
         if line == version.preamble() {
             return Ok(version);
@@ -964,8 +1019,11 @@ fn name_files(root: &Path) -> Result<Vec<(String, PathBuf)>, StoreError> {
     for entry in entries {
         let entry = entry.map_err(|error| StoreError::io(&directory, error))?;
         let path = entry.path();
+        // Decision 0021: a bookmark is `<name>.txt`, and anything else here is
+        // a file nothing reads, which `check` says out loud.
         if path.is_file()
             && let Some(name) = path.file_name().and_then(|name| name.to_str())
+            && let Some(name) = name.strip_suffix(NAME_SUFFIX)
         {
             found.push((name.to_owned(), path));
         }
@@ -1147,7 +1205,7 @@ pub enum StoreError {
         /// The bookmark file.
         file: PathBuf,
     },
-    /// `skipped` was not rules.
+    /// `skipped.txt` was not rules.
     MalformedSkipped {
         /// The file.
         file: PathBuf,

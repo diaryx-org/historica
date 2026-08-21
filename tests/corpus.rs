@@ -96,47 +96,50 @@ fn a_documents_id_is_the_digest_of_its_file() {
 fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
     vec![
         (
-            "invalid/carriage-returns.rev",
+            "invalid/carriage-returns.rev.txt",
             ParseErrorKind::CarriageReturn,
         ),
         (
-            "invalid/change-id-in-the-digest-alphabet.rev",
+            "invalid/change-id-in-the-digest-alphabet.rev.txt",
             ParseErrorKind::MalformedChangeId {
                 found: "1a4f9c2e0b7d6533a8c1f40e".to_owned(),
             },
         ),
-        ("invalid/empty-header-value.rev", ParseErrorKind::EmptyValue),
         (
-            "invalid/headers-out-of-order.rev",
+            "invalid/empty-header-value.rev.txt",
+            ParseErrorKind::EmptyValue,
+        ),
+        (
+            "invalid/headers-out-of-order.rev.txt",
             ParseErrorKind::KeysOutOfOrder {
                 key: "change".to_owned(),
                 after: "author".to_owned(),
             },
         ),
         (
-            "invalid/missing-version-header.rev",
+            "invalid/missing-version-header.rev.txt",
             ParseErrorKind::MissingPreamble,
         ),
         (
-            "invalid/unknown-required-header.rev",
+            "invalid/unknown-required-header.rev.txt",
             ParseErrorKind::UnknownHeader {
                 key: "signed-by".to_owned(),
             },
         ),
         (
-            "invalid/unknown-version.rev",
+            "invalid/unknown-version.rev.txt",
             ParseErrorKind::UnknownVersion {
                 found: "2".to_owned(),
             },
         ),
         (
-            "invalid/unsorted-parents.rev",
+            "invalid/unsorted-parents.rev.txt",
             ParseErrorKind::RepeatedKeyOutOfOrder {
                 key: "parent".to_owned(),
             },
         ),
         (
-            "invalid/empty-body-after-separator.rev",
+            "invalid/empty-body-after-separator.rev.txt",
             ParseErrorKind::EmptyBodyAfterSeparator,
         ),
     ]
@@ -215,38 +218,38 @@ fn the_corpus_is_a_five_change_history_that_resolves() {
     let id = |name: &str| documents[name].id();
 
     // 05 amends 02, keeping its change ID, so that change resolves to 05.
-    let amended = &documents["05-amended.rev"];
-    assert_eq!(amended.change, documents["02-concurrent.rev"].change);
-    assert!(amended.supersedes.contains(&id("02-concurrent.rev")));
+    let amended = &documents["05-amended.rev.txt"];
+    assert_eq!(amended.change, documents["02-concurrent.rev.txt"].change);
+    assert!(amended.supersedes.contains(&id("02-concurrent.rev.txt")));
     match history.change_state(&amended.change) {
-        ChangeState::Resolved(current) => assert_eq!(current.id, id("05-amended.rev")),
+        ChangeState::Resolved(current) => assert_eq!(current.id, id("05-amended.rev.txt")),
         other => panic!("an amended change resolves to its successor, not {other:?}"),
     }
 
     // 06 is the rewrite that amendment forced: same change as the merge it
     // supersedes, reparented onto the amended revision.
-    let rebased = &documents["06-rebased.rev"];
-    assert_eq!(rebased.change, documents["04-merge.rev"].change);
-    assert!(rebased.supersedes.contains(&id("04-merge.rev")));
-    assert!(rebased.parents.contains(&id("05-amended.rev")));
+    let rebased = &documents["06-rebased.rev.txt"];
+    assert_eq!(rebased.change, documents["04-merge.rev.txt"].change);
+    assert!(rebased.supersedes.contains(&id("04-merge.rev.txt")));
+    assert!(rebased.parents.contains(&id("05-amended.rev.txt")));
 
     // The merge joins the two concurrent children of the root.
-    let merge = &documents["04-merge.rev"];
+    let merge = &documents["04-merge.rev.txt"];
     assert_eq!(
         merge.parents,
-        BTreeSet::from([id("02-concurrent.rev"), id("03-other.rev")])
+        BTreeSet::from([id("02-concurrent.rev.txt"), id("03-other.rev.txt")])
     );
 
     // 01 is the only root, and 07 the only revision outside the main line.
-    assert!(documents["01-root.rev"].parents.is_empty());
-    assert!(documents["07-verbatim-message.rev"].parents.is_empty());
+    assert!(documents["01-root.rev.txt"].parents.is_empty());
+    assert!(documents["07-verbatim-message.rev.txt"].parents.is_empty());
 }
 
 #[test]
 fn authorship_is_carried_forward_and_the_reviewer_is_named_separately() {
     let (_, documents) = corpus_history();
-    let original = &documents["02-concurrent.rev"];
-    let amended = &documents["05-amended.rev"];
+    let original = &documents["02-concurrent.rev.txt"];
+    let amended = &documents["05-amended.rev.txt"];
 
     // Decision 0005: `author` and `when` describe the work and are copied.
     assert_eq!(amended.author, original.author);
@@ -271,7 +274,7 @@ fn authorship_is_carried_forward_and_the_reviewer_is_named_separately() {
 #[test]
 fn a_message_is_kept_verbatim_and_never_interpreted() {
     let (_, documents) = corpus_history();
-    let verbatim = &documents["07-verbatim-message.rev"];
+    let verbatim = &documents["07-verbatim-message.rev.txt"];
 
     // A body line that reads exactly like a header is body, not a header.
     assert!(verbatim.message.contains("\nparent 0000000000000000"));
@@ -293,5 +296,5 @@ fn a_message_is_kept_verbatim_and_never_interpreted() {
     assert!(!verbatim.message.ends_with('\n'));
 
     // An empty message is spelled by omitting the separator entirely.
-    assert_eq!(documents["04-merge.rev"].message, "");
+    assert_eq!(documents["04-merge.rev.txt"].message, "");
 }

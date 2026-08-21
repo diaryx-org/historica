@@ -27,7 +27,11 @@ fn corpus_files() -> Vec<PathBuf> {
         .expect("the corpus")
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "rev"))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".rev.txt"))
+        })
         .collect();
     files.sort();
     files
@@ -55,10 +59,9 @@ fn init_creates_the_layout_and_open_finds_it() {
     for directory in ["revisions", "operations", "names", "cache"] {
         assert!(root.join(directory).is_dir(), "{directory} should exist");
     }
-    assert_eq!(
-        fs::read_to_string(root.join("historica")).expect("the header"),
-        "historica-v1\n"
-    );
+    let header = fs::read_to_string(root.join("historica.txt")).expect("the header");
+    assert_eq!(header.lines().next(), Some("historica-v1"));
+    assert!(header.contains("Identity comes from content"), "{header}");
     assert!(Store::init(&root).is_err(), "twice is an error");
 }
 
@@ -114,7 +117,7 @@ fn renaming_every_file_changes_no_identity_and_breaks_no_reference() {
         .collect();
     files.sort();
     for (index, path) in files.iter().enumerate() {
-        fs::rename(path, revisions.join(format!("{index}-anything.rev"))).expect("renaming");
+        fs::rename(path, revisions.join(format!("{index}-anything.rev.txt"))).expect("renaming");
         renamed += 1;
     }
     assert_eq!(renamed, 7);
@@ -183,8 +186,11 @@ fn a_symbolic_link_is_found_and_never_followed() {
     let held = store.len();
 
     // A link that would be a document if it were followed.
-    std::os::unix::fs::symlink(revisions.join("01-root.rev"), revisions.join("copy.rev"))
-        .expect("a link to a document");
+    std::os::unix::fs::symlink(
+        revisions.join("01-root.rev.txt"),
+        revisions.join("copy.rev.txt"),
+    )
+    .expect("a link to a document");
     // And a directory link pointing at its own parent, which is the loop an
     // unbounded walk would hang on if it followed one.
     std::os::unix::fs::symlink(&revisions, revisions.join("loop")).expect("a link to a directory");
@@ -208,8 +214,8 @@ fn a_symbolic_link_is_found_and_never_followed() {
 #[test]
 fn one_revision_stored_twice_is_one_revision() {
     let (root, store) = corpus_store("duplicate");
-    let original = root.join("revisions/01-root.rev");
-    fs::copy(&original, root.join("revisions/a-second-copy.rev")).expect("copying");
+    let original = root.join("revisions/01-root.rev.txt");
+    fs::copy(&original, root.join("revisions/a-second-copy.rev.txt")).expect("copying");
 
     let reopened = Store::open(&root).expect("reopening");
     assert_eq!(reopened.len(), store.len(), "still one revision");
@@ -248,14 +254,14 @@ fn only_rev_files_are_read_and_the_rest_are_merely_mentioned() {
 fn a_file_that_does_not_parse_is_an_error_naming_the_file() {
     let (root, _) = corpus_store("unparsable");
     fs::write(
-        root.join("revisions/broken.rev"),
+        root.join("revisions/broken.rev.txt"),
         b"historica-v0\nnonsense\n",
     )
     .expect("a broken file");
 
     let error = Store::open(&root).expect_err("a store that cannot be trusted");
     let rendered = error.to_string();
-    assert!(rendered.contains("broken.rev"), "{rendered}");
+    assert!(rendered.contains("broken.rev.txt"), "{rendered}");
 
     let report = Store::check(&root);
     assert!(!report.is_ok());
@@ -271,9 +277,10 @@ fn the_writer_names_files_by_digest_and_never_overwrites() {
     let root = scratch("writer").join("history");
     let mut store = Store::init(&root).expect("a new store");
 
-    let bytes =
-        fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/revisions/01-root.rev"))
-            .expect("a revision");
+    let bytes = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/revisions/01-root.rev.txt"),
+    )
+    .expect("a revision");
     let document = RevisionDocument::parse(&bytes).expect("a canonical file");
 
     let id = store.insert(&document).expect("writing");
@@ -292,10 +299,10 @@ fn the_writer_names_files_by_digest_and_never_overwrites() {
 #[test]
 fn a_filename_that_claims_a_digest_must_not_lie() {
     let (root, _) = corpus_store("lying-name");
-    let source = root.join("revisions/01-root.rev");
+    let source = root.join("revisions/01-root.rev.txt");
     // A name that claims to be a digest, and is the wrong one.
-    let liar =
-        root.join("revisions/0000000000000000000000000000000000000000000000000000000000000000.rev");
+    let liar = root
+        .join("revisions/0000000000000000000000000000000000000000000000000000000000000000.rev.txt");
     fs::rename(&source, &liar).expect("renaming");
 
     // The loader ignores names entirely, so the store still reads correctly.
@@ -329,7 +336,7 @@ fn a_bookmark_follows_its_change_through_an_amendment() {
         .set_name("main", Name::Change(amended.1.change))
         .expect("setting a bookmark");
     assert_eq!(
-        fs::read_to_string(root.join("names/main")).expect("the bookmark file"),
+        fs::read_to_string(root.join("names/main.txt")).expect("the bookmark file"),
         format!("change {}\n", amended.1.change)
     );
 
@@ -357,7 +364,7 @@ fn a_pinned_bookmark_names_one_revision() {
         .set_name("v0.1.0", Name::Revision(id))
         .expect("pinning");
     assert_eq!(
-        fs::read_to_string(root.join("names/v0.1.0")).expect("the file"),
+        fs::read_to_string(root.join("names/v0.1.0.txt")).expect("the file"),
         format!("revision {id}\n")
     );
     assert_eq!(
@@ -369,9 +376,13 @@ fn a_pinned_bookmark_names_one_revision() {
 #[test]
 fn a_malformed_bookmark_is_an_error_and_a_dangling_one_is_not() {
     let (root, _) = corpus_store("bookmarks-checked");
-    fs::write(root.join("names/broken"), "pointing vaguely somewhere\n").expect("a bad bookmark");
     fs::write(
-        root.join("names/ahead"),
+        root.join("names/broken.txt"),
+        "pointing vaguely somewhere\n",
+    )
+    .expect("a bad bookmark");
+    fs::write(
+        root.join("names/ahead.txt"),
         "change kkkkkkkkkkkkkkkkkkkkkkkk\n",
     )
     .expect("a bookmark ahead of the sync");
@@ -397,8 +408,8 @@ fn an_undelivered_parent_is_a_note_and_an_absent_predecessor_is_silent() {
     let (root, _) = corpus_store("incomplete");
     // Drop the root, orphaning the revisions that name it as a parent, and
     // drop the revision that 05 supersedes.
-    fs::remove_file(root.join("revisions/01-root.rev")).expect("removing the root");
-    fs::remove_file(root.join("revisions/02-concurrent.rev")).expect("removing a predecessor");
+    fs::remove_file(root.join("revisions/01-root.rev.txt")).expect("removing the root");
+    fs::remove_file(root.join("revisions/02-concurrent.rev.txt")).expect("removing a predecessor");
 
     let report = Store::check(&root);
     assert!(report.is_ok(), "an incomplete store is not a broken one");
@@ -416,10 +427,10 @@ fn an_undelivered_parent_is_a_note_and_an_absent_predecessor_is_silent() {
 #[test]
 fn a_conflicted_copy_is_mentioned_and_forgiven() {
     let (root, _) = corpus_store("conflicted");
-    let source = root.join("revisions/03-other.rev");
+    let source = root.join("revisions/03-other.rev.txt");
     fs::copy(
         &source,
-        root.join("revisions/03-other (conflicted copy 2025-08-19).rev"),
+        root.join("revisions/03-other (conflicted copy 2025-08-19).rev.txt"),
     )
     .expect("what a sync tool does");
 
@@ -436,7 +447,7 @@ fn a_conflicted_copy_is_mentioned_and_forgiven() {
 fn a_store_of_an_unknown_version_refuses_rather_than_guesses() {
     let root = scratch("version").join("history");
     Store::init(&root).expect("a new store");
-    fs::write(root.join("historica"), "historica-v2\n").expect("a newer store");
+    fs::write(root.join("historica.txt"), "historica-v2\n").expect("a newer store");
 
     assert!(Store::open(&root).is_err());
     let report = Store::check(&root);
@@ -451,7 +462,7 @@ fn a_store_of_an_unknown_version_refuses_rather_than_guesses() {
 #[test]
 fn every_finding_says_where_and_sorts_errors_first() {
     let (root, _) = corpus_store("report-shape");
-    fs::write(root.join("revisions/broken.rev"), b"nope\n").expect("a broken file");
+    fs::write(root.join("revisions/broken.rev.txt"), b"nope\n").expect("a broken file");
     fs::write(root.join("revisions/stray.txt"), b"junk").expect("a stray file");
 
     let report = Store::check(&root);
@@ -471,11 +482,11 @@ fn tree_corpus_store(test: &str) -> (PathBuf, Store) {
     let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/tree");
     let root = scratch(test).join("history");
     let store = Store::init(&root).expect("a new store");
-    for (directory, extension) in [("revisions", "rev"), ("operations", "ops")] {
+    for (directory, suffix) in [("revisions", ".rev.txt"), ("operations", ".ops.txt")] {
         for entry in fs::read_dir(corpus.join(directory)).expect("the corpus") {
             let path = entry.expect("an entry").path();
-            if path.extension().is_some_and(|found| found == extension) {
-                let name = path.file_name().expect("a filename");
+            let found = path.file_name().and_then(|name| name.to_str());
+            if let Some(name) = found.filter(|name| name.ends_with(suffix)) {
                 fs::copy(&path, root.join(directory).join(name)).expect("copying");
             }
         }
@@ -530,7 +541,7 @@ fn renaming_every_operation_document_changes_nothing() {
     let directory = root.join("operations");
     for (index, entry) in fs::read_dir(&directory).expect("operations").enumerate() {
         let path = entry.expect("an entry").path();
-        fs::rename(&path, directory.join(format!("{index}-renamed.ops"))).expect("renaming");
+        fs::rename(&path, directory.join(format!("{index}-renamed.ops.txt"))).expect("renaming");
     }
 
     let store = Store::open(&root).expect("reopening a renamed store");

@@ -74,12 +74,15 @@ fn store_from(test: &str, kind: &str) -> PathBuf {
         };
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
-            let into = match path.extension().and_then(|found| found.to_str()) {
-                Some("rev") => "revisions",
-                Some("ops") => "operations",
+            let name = path
+                .file_name()
+                .and_then(|found| found.to_str())
+                .unwrap_or_default();
+            let into = match () {
+                _ if name.ends_with(".rev.txt") => "revisions",
+                _ if name.ends_with(".ops.txt") => "operations",
                 _ => continue,
             };
-            let name = path.file_name().expect("a filename");
             fs::copy(&path, directory.join("history").join(into).join(name))
                 .expect("copying a corpus file");
         }
@@ -96,10 +99,14 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
     for entry in ["revisions", "operations", "names", "cache"] {
         assert!(directory.join("history").join(entry).is_dir(), "{entry}");
     }
-    assert_eq!(
-        fs::read_to_string(directory.join("history/historica")).expect("the header"),
-        "historica-v1\n"
-    );
+    // Decision 0021: the first line is the version, and the rest of the file
+    // tells whoever opens the folder what they are looking at.
+    let header = fs::read_to_string(directory.join("history/historica.txt")).expect("the header");
+    let mut lines = header.lines();
+    assert_eq!(lines.next(), Some("historica-v1"));
+    assert!(header.contains("Identity comes from content"), "{header}");
+    assert!(header.contains("revisions/"), "{header}");
+    assert!(header.contains("cache/"), "{header}");
 
     let again = stderr(&directory, &["init"]);
     assert!(again.contains("already a store"), "{again}");
@@ -130,7 +137,7 @@ fn check_passes_a_good_store_and_fails_one_that_contradicts_itself() {
     // A file claiming to be a revision, which does not parse: an error, and
     // therefore a non-zero exit.
     fs::write(
-        directory.join("history/revisions/broken.rev"),
+        directory.join("history/revisions/broken.rev.txt"),
         "not a document\n",
     )
     .expect("writing a broken file");
@@ -169,8 +176,8 @@ fn check_reports_a_note_without_failing() {
     // Decision 0006: a sync tool's conflicted copy is a legitimate state.
     let revisions = directory.join("history/revisions");
     fs::copy(
-        revisions.join("01-start.rev"),
-        revisions.join("01-start (Adam's conflicted copy 2025-08-19).rev"),
+        revisions.join("01-start.rev.txt"),
+        revisions.join("01-start (Adam's conflicted copy 2025-08-19).rev.txt"),
     )
     .expect("a conflicted copy");
 
@@ -239,7 +246,8 @@ fn a_target_is_a_bookmark_a_change_or_a_digest() {
 #[test]
 fn show_prints_the_file_as_it_is_stored() {
     let directory = store_from("show", "tree");
-    let stored = fs::read(corpus("tree").join("revisions/03-move.rev")).expect("the corpus file");
+    let stored =
+        fs::read(corpus("tree").join("revisions/03-move.rev.txt")).expect("the corpus file");
     let printed = run(&directory, &["show", "mzvwutkl"]);
     assert_eq!(printed.stdout, stored, "`show` must not reformat anything");
 }
@@ -248,7 +256,7 @@ fn show_prints_the_file_as_it_is_stored() {
 fn show_with_a_path_prints_what_that_revision_did_to_that_file() {
     let directory = store_from("show-ops", "tree");
     let stored =
-        fs::read(corpus("tree").join("operations/03-readme.ops")).expect("the corpus file");
+        fs::read(corpus("tree").join("operations/03-readme.ops.txt")).expect("the corpus file");
     let printed = run(&directory, &["show", "mzvwutkl", "docs/README.md"]);
     assert_eq!(printed.stdout, stored);
 
@@ -302,10 +310,11 @@ fn names_records_a_change_by_default_and_a_revision_when_pinned() {
     stdout(&directory, &["name", "main", "nwlxsqot"]);
     stdout(&directory, &["name", "pinned", "nwlxsqot", "--revision"]);
 
-    let bookmark = fs::read_to_string(directory.join("history/names/main")).expect("the bookmark");
+    let bookmark =
+        fs::read_to_string(directory.join("history/names/main.txt")).expect("the bookmark");
     assert_eq!(bookmark, "change nwlxsqotvkzmuprysltnwxqk\n");
     assert!(
-        fs::read_to_string(directory.join("history/names/pinned"))
+        fs::read_to_string(directory.join("history/names/pinned.txt"))
             .expect("the bookmark")
             .starts_with("revision ")
     );
@@ -369,7 +378,7 @@ fn arrange_files_operation_documents_under_the_revision_that_names_them() {
         .expect("a directory per revision");
     assert!(journal.join("src/cli").is_dir(), "{filed:?}");
     assert!(
-        filed.iter().all(|name| !name.contains(".ops.txt.ops")),
+        filed.iter().all(|name| !name.contains(".ops.txt.ops.txt")),
         "{filed:?}"
     );
 
@@ -399,7 +408,11 @@ fn a_payload_and_a_document_one_path_apart_are_parted_by_a_digest() {
     // file actually called `notes/x.ops`, filed as itself. The only two names
     // decision 0018 leaves that can still meet.
     write(&directory, "notes/x", "the file, edited\n");
-    write(&directory, "notes/x.ops", "a file that is not a document\n");
+    write(
+        &directory,
+        "notes/x.ops.txt",
+        "a file that is not a document\n",
+    );
     out(recorded(&directory, &["record", "-m", "Both"]));
     out(recorded(&directory, &["arrange"]));
 
@@ -415,8 +428,8 @@ fn a_payload_and_a_document_one_path_apart_are_parted_by_a_digest() {
     );
     assert!(
         both.iter()
-            .any(|name| name.contains("x.ops ") && !name.ends_with(".txt")),
-        "and the payload keeps clear of every suffix a reader claims: {both:?}"
+            .any(|name| name.contains("x.ops.txt ") && !name.ends_with(".ops.txt")),
+        "and the payload keeps clear of the suffix a reader claims: {both:?}"
     );
     assert!(
         stdout(&directory, &["check"]).ends_with("nothing to report\n"),
@@ -430,11 +443,13 @@ fn a_file_of_this_formats_own_extension_is_still_content() {
     // that are deliberately invalid, and filing one under its own name handed
     // it to the parser, which refused it. A store that writes something it
     // cannot read back is the one failure this format is least willing to
-    // produce, so a payload never carries the extension that says "document".
+    // produce, so a payload never carries the suffix that says "document".
     let directory = repository("record-ops-payload");
     fs::create_dir_all(directory.join("corpus")).expect("directories");
     let invalid = "historica-v0\n\ndelete 0 1\n-a\ndelete 1 2\n-b\n-c\n";
+    let other = "historica-v0\n\ninsert 0\n+a\ninsert 0\n+b\n";
     write(&directory, "corpus/adjacent-deletes.ops", invalid);
+    write(&directory, "corpus/also-invalid.ops.txt", other);
     write(&directory, "notes.md", "an entry\n");
     out(recorded(&directory, &["record", "-m", "Initial state"]));
 
@@ -443,11 +458,19 @@ fn a_file_of_this_formats_own_extension_is_still_content() {
         filed.iter().all(|name| !name.ends_with(".ops.txt")),
         "a payload must not be filed as a document: {filed:?}"
     );
+    // Decision 0021 spent the format's one free moment on this: `.ops` is no
+    // longer a name a reader claims, so a file called that keeps its own.
     assert!(
         filed
             .iter()
-            .any(|name| name.contains("corpus/adjacent-deletes.ops ")),
-        "and it keeps the name it had, with the digest that parts it: {filed:?}"
+            .any(|name| name.ends_with("corpus/adjacent-deletes.ops")),
+        "an ordinary `.ops` file keeps its name: {filed:?}"
+    );
+    assert!(
+        filed
+            .iter()
+            .any(|name| name.contains("corpus/also-invalid.ops.txt ")),
+        "and only the written suffix yields: {filed:?}"
     );
 
     // The store reads back, and the file comes out byte for byte.
@@ -492,7 +515,11 @@ fn a_file_where_another_needs_a_directory_yields_its_readable_name() {
          \n\
          A file and a directory of one name\n"
     );
-    fs::write(store.join("revisions").join("hand-written.rev"), &revision).expect("a revision");
+    fs::write(
+        store.join("revisions").join("hand-written.rev.txt"),
+        &revision,
+    )
+    .expect("a revision");
 
     out(recorded(&directory, &["arrange"]));
     let filed = walk_names(&store.join("operations"));
@@ -603,8 +630,8 @@ fn a_store_is_written_readable_and_arrange_has_nothing_to_do() {
     let hashed = |name: &String| {
         let last = name.rsplit('/').next().expect("a filename");
         let stem = last
-            .strip_suffix(".rev")
-            .or_else(|| last.strip_suffix(".ops"));
+            .strip_suffix(".rev.txt")
+            .or_else(|| last.strip_suffix(".ops.txt"));
         let stem = stem.unwrap_or(last);
         stem.len() == 64 && stem.chars().all(|c| c.is_ascii_hexdigit())
     };
@@ -692,8 +719,11 @@ fn arrange_renames_a_filed_revision_where_it_sits() {
     let revisions = directory.join("history/revisions");
     let filed = revisions.join("early/2025");
     fs::create_dir_all(&filed).expect("directories");
-    fs::rename(revisions.join("01-start.rev"), filed.join("01-start.rev"))
-        .expect("filing a revision away");
+    fs::rename(
+        revisions.join("01-start.rev.txt"),
+        filed.join("01-start.rev.txt"),
+    )
+    .expect("filing a revision away");
 
     let before = stdout(&directory, &["log"]);
     let done = stdout(&directory, &["arrange"]);
@@ -724,7 +754,9 @@ fn arrange_renames_presentation_and_changes_nothing_else() {
     let planned = stdout(&directory, &["arrange", "-n"]);
     assert!(planned.contains("would rename"), "{planned}");
     assert!(
-        directory.join("history/revisions/01-start.rev").exists(),
+        directory
+            .join("history/revisions/01-start.rev.txt")
+            .exists(),
         "a dry run renames nothing"
     );
 
@@ -922,7 +954,7 @@ fn what_the_format_cannot_hold_is_refused_by_name() {
     assert!(complaint.contains("skip"), "{complaint}");
 
     // Which is the fix the message names.
-    write(&directory, "history/skipped", "skip link\n");
+    write(&directory, "history/skipped.txt", "skip link\n");
     assert!(out(recorded(&directory, &["record", "-m", "Everything"])).contains("fine.md"));
 
     // And nothing to say is refused too.
@@ -1018,7 +1050,7 @@ fn skip_writes_the_line_a_person_would_have_typed() {
     assert!(written.contains("skip target/"), "{written}");
     assert!(written.contains("skip-suffix .tmp"), "{written}");
 
-    let text = fs::read_to_string(directory.join("history/skipped")).expect("the file");
+    let text = fs::read_to_string(directory.join("history/skipped.txt")).expect("the file");
     assert_eq!(text, "skip target/\nskip-suffix .tmp\n");
 
     // With no arguments it prints them, as `names` prints the bookmarks.
@@ -1033,7 +1065,7 @@ fn skip_writes_the_line_a_person_would_have_typed() {
     let again = out(recorded(&directory, &["skip", "target/"]));
     assert!(again.contains("already there"), "{again}");
     assert_eq!(
-        fs::read_to_string(directory.join("history/skipped")).expect("the file"),
+        fs::read_to_string(directory.join("history/skipped.txt")).expect("the file"),
         text
     );
 }
@@ -1053,7 +1085,7 @@ fn skip_refuses_a_rule_over_what_history_holds_and_writes_nothing() {
 
     // Nothing is written, the good rule in the same command included: a
     // command that half-applied would leave a person guessing which half.
-    assert!(!directory.join("history/skipped").exists());
+    assert!(!directory.join("history/skipped.txt").exists());
 }
 
 #[test]
@@ -1061,7 +1093,7 @@ fn skip_leaves_the_file_a_person_wrote_alone() {
     let directory = repository("skip-command-append");
     write(
         &directory,
-        "history/skipped",
+        "history/skipped.txt",
         "skip one/\n\nskip-suffix .bin\n",
     );
 
@@ -1069,7 +1101,7 @@ fn skip_leaves_the_file_a_person_wrote_alone() {
 
     // The blank line the parser ignores is a blank line the person meant.
     assert_eq!(
-        fs::read_to_string(directory.join("history/skipped")).expect("the file"),
+        fs::read_to_string(directory.join("history/skipped.txt")).expect("the file"),
         "skip one/\n\nskip-suffix .bin\nskip two/\n"
     );
 }
@@ -1084,16 +1116,16 @@ fn a_skip_rule_over_a_tracked_file_is_refused() {
     // The harm decision 0011 names: the walk stops offering the path, so the
     // next record would spell a request for privacy as a deletion of the very
     // file it names, into a history that is append-only.
-    write(&directory, "history/skipped", "skip drafts/\n");
+    write(&directory, "history/skipped.txt", "skip drafts/\n");
     let refused = recorded(&directory, &["record", "-m", "Second"]);
     assert!(!refused.status.success());
     let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
     assert!(complaint.contains("drafts/one.md"), "{complaint}");
-    assert!(complaint.contains("history/skipped"), "{complaint}");
+    assert!(complaint.contains("history/skipped.txt"), "{complaint}");
 
     // A rule over a path nothing has recorded is ordinary, which is the whole
     // point of the file.
-    write(&directory, "history/skipped", "skip-suffix .tmp\n");
+    write(&directory, "history/skipped.txt", "skip-suffix .tmp\n");
     write(&directory, "scratch.tmp", "noise\n");
     write(&directory, "kept.md", "edited\n");
     let recorded_second = out(recorded(&directory, &["record", "-m", "Second"]));
@@ -1107,7 +1139,7 @@ fn a_skip_rule_over_a_tracked_file_is_refused() {
     // the deletion, and only then does the rule become sayable.
     fs::remove_dir_all(directory.join("drafts")).expect("the drafts");
     out(recorded(&directory, &["record", "-m", "Away"]));
-    write(&directory, "history/skipped", "skip drafts/\n");
+    write(&directory, "history/skipped.txt", "skip drafts/\n");
     write(&directory, "kept.md", "again\n");
     assert!(
         recorded(&directory, &["record", "-m", "Third"])
