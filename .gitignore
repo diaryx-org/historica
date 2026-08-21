@@ -2,3 +2,4 @@
 .env
 .envrc
 /history
+.DS_Store
