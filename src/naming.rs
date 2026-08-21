@@ -99,18 +99,37 @@ pub fn stems<'a>(
 /// under, because a writer that renames is the thing 0016 warned about.
 /// [`stems`] gives both a suffix, so `arrange` will move the older one if it
 /// is ever run; both spellings are unambiguous in the meantime.
+///
+/// The three tiers are [`stems`]'s, and the third had no caller until decision
+/// 0023: two revisions *of one change* under one summary is what an amendment
+/// that reworded nothing produces, and only the digest tells those apart. That
+/// is why this needs the digest of the revision it is naming — which it can
+/// have, because a revision document says nothing about what it is called.
 pub fn stem_for<'a>(
     when: &Timestamp,
     message: &str,
     change: &ChangeId,
+    id: &RevisionId,
     existing: impl IntoIterator<Item = &'a RevisionDocument>,
 ) -> String {
     let base = compose(when, message, change);
-    let taken: BTreeSet<String> = existing.into_iter().map(base_of).collect();
-    match taken.contains(&base) {
-        false => base,
-        true => format!("{base} {}", change.abbreviate(CHANGE_CHARS)),
+    let (mut sharing_base, mut sharing_change) = (false, false);
+    for document in existing {
+        if base_of(document) != base {
+            continue;
+        }
+        sharing_base = true;
+        sharing_change |= document.change == *change;
     }
+
+    if !sharing_base {
+        return base;
+    }
+    let named = format!("{base} {}", change.abbreviate(CHANGE_CHARS));
+    if !sharing_change {
+        return named;
+    }
+    format!("{named} {}", id.abbreviate(DIGEST_CHARS))
 }
 
 /// One thing filed inside a revision's directory.
@@ -466,6 +485,48 @@ mod tests {
             assert!(name.starts_with("2025-08-19 Notes qpvuntsm "));
             assert!(name.ends_with(&document.id().abbreviate(DIGEST_CHARS)));
         }
+    }
+
+    #[test]
+    fn a_writer_reaches_the_same_three_tiers_arranging_does() {
+        // Decision 0019 wrote two of them, because two revisions of one change
+        // could only arrive from another replica. Decision 0023 made the third
+        // reachable from the writing side: an amendment that reworded nothing
+        // wants exactly the name its predecessor already has.
+        let one = document(
+            "qpvuntsmwlrkzxonmvtplsyq",
+            "2025-08-19T00:47:11-06:00",
+            "Notes\n",
+        );
+        let two = document(
+            "mzvwutklopqrsnyxwkltvmzu",
+            "2025-08-19T09:00:00-06:00",
+            "Notes\n",
+        );
+        let again = document(
+            "mzvwutklopqrsnyxwkltvmzu",
+            "2025-08-19T11:30:00-06:00",
+            "Notes\n",
+        );
+
+        let named = |document: &RevisionDocument, existing: &[&RevisionDocument]| {
+            stem_for(
+                &document.when,
+                &document.message,
+                &document.change,
+                &document.id(),
+                existing.iter().copied(),
+            )
+        };
+        assert_eq!(named(&one, &[]), "2025-08-19 Notes");
+        assert_eq!(named(&two, &[&one]), "2025-08-19 Notes mzvwutkl");
+        assert_eq!(
+            named(&again, &[&one, &two]),
+            format!(
+                "2025-08-19 Notes mzvwutkl {}",
+                again.id().abbreviate(DIGEST_CHARS)
+            )
+        );
     }
 
     #[test]

@@ -38,6 +38,8 @@ writing a store
   record [-m <message>]    record what the folder now says
          [--onto <target>] [--merge <target>] [--move <old>=<new>]
          [--at <file>=<path>] [--dry-run]
+  amend [<target>]         rewrite the head as the folder now stands
+        [-m <message>] [--move <old>=<new>] [--dry-run]
   merge <target>           write what two lines of work say together
   identity <author>        say who you are, once, for every repository
   init [<dir>]             make a store in <dir>/history
@@ -155,6 +157,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "name" => name(&base, rest),
         "skip" => skip(&base, rest),
         "record" => record::record(&base, locate(&base)?, rest),
+        "amend" => record::amend(locate(&base)?, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
         other => Err(Failure::usage(format!("there is no `{other}` command"))),

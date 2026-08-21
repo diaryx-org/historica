@@ -9,7 +9,8 @@ use std::process::Command;
 use historica::conflict;
 use historica::core::{FileId, RevisionId};
 use historica::record::{
-    Clock, Platform, Recording, identity, plan as plan_for, record as record_revision,
+    Amendment, Clock, Platform, Recording, amend as amend_revision, amendment_plan, identity,
+    plan as plan_for, record as record_revision,
 };
 use historica::store::Store;
 use historica::tree::{Kind, TreeContest};
@@ -148,6 +149,127 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     })
 }
 
+/// `amend [<target>] [-m <message>] [--move <old>=<new>] [--dry-run]`.
+///
+/// Decision 0023: the head, rewritten as the folder now stands. Everything
+/// that describes the work is the amended revision's and everything the folder
+/// says is worked out again, so the only thing this command has to be given is
+/// a message — and only where the person wants a different one.
+pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut message: Option<String> = None;
+    let mut moves: Vec<(String, String)> = Vec::new();
+    let mut named: Option<String> = None;
+    let mut dry_run = false;
+
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        let mut value = |flag: &str| {
+            arguments
+                .next()
+                .ok_or_else(|| Failure::usage(format!("`{flag}` wants a value")))
+        };
+        match argument.as_str() {
+            "-m" | "--message" => message = Some(value("-m")?),
+            "--move" => {
+                let stated = value("--move")?;
+                let (from, to) = stated
+                    .split_once('=')
+                    .ok_or_else(|| Failure::usage("`--move` is spelled `--move <old>=<new>`"))?;
+                moves.push((from.to_owned(), to.to_owned()));
+            }
+            "-n" | "--dry-run" => dry_run = true,
+            other if other.starts_with('-') => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `amend` takes"
+                )));
+            }
+            other if named.is_none() => named = Some(other.to_owned()),
+            other => {
+                return Err(Failure::usage(format!(
+                    "`amend` rewrites one revision, and `{other}` is a second"
+                )));
+            }
+        }
+    }
+
+    let mut store = Store::open(&root)?;
+    let repository = root
+        .parent()
+        .ok_or_else(|| Failure::error("this store has no repository around it"))?
+        .to_path_buf();
+
+    let revision = match &named {
+        Some(spelling) => target::resolve(&store, spelling)?,
+        None => target::the_head(&store)?.ok_or_else(|| {
+            Failure::error("this store holds no revisions yet, so there is nothing to rewrite")
+        })?,
+    };
+
+    for (from, to) in &moves {
+        perform(&repository, from, to)?;
+    }
+
+    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+    let mut platform = Platform;
+
+    if dry_run {
+        let asked = Amendment {
+            revision,
+            message: message.clone(),
+            reviser: String::new(),
+            revised: placeholder(),
+            moves: moves.clone(),
+        };
+        let plan =
+            amendment_plan(&store, &working, &asked, &mut platform).map_err(Failure::error)?;
+        return printing(|out| {
+            for (fact, path) in plan.facts() {
+                writeln!(out, "{fact:<7} {path}")?;
+            }
+            // Every fact the amendment would state, and not "nothing here
+            // differs": an amendment restates the whole of what its
+            // predecessor said, so an unchanged folder is a full plan rather
+            // than an empty one — and an amendment that would change nothing
+            // at all is a refusal by then, not a line of a report.
+            writeln!(out, "this would supersede {}", revision.abbreviate(12))
+        });
+    }
+
+    let reviser = identity::author_for(&repository).map_err(Failure::error)?;
+    let revised = platform.now().map_err(Failure::error)?;
+    warn_about_the_clock(&store, &revised);
+
+    let amendment = Amendment {
+        revision,
+        message,
+        reviser,
+        revised,
+        moves,
+    };
+    let amended =
+        amend_revision(&mut store, &working, &amendment, &mut platform).map_err(Failure::error)?;
+
+    printing(|out| {
+        for (fact, path) in amended.plan.facts() {
+            writeln!(out, "{fact:<7} {path}")?;
+        }
+        writeln!(
+            out,
+            "amended {} as {}",
+            amended.change.abbreviate(8),
+            amended.revision.abbreviate(12)
+        )?;
+        // Decision 0013: there is no operation log here, so the revision this
+        // replaced is the record of what the work was before. Printing its
+        // digest is what makes the undo something a person can still type.
+        writeln!(
+            out,
+            "it supersedes {}, which is still here",
+            amended.superseded.abbreviate(12)
+        )
+    })
+}
+
 /// `merge <target>` — write what two lines of work say together.
 ///
 /// Decision 0012: nothing conflicted is recorded and nothing is remembered.
@@ -172,9 +294,10 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             heads.push(head);
         }
     }
+    let standing = target::current_heads(&store);
     if heads.len() == 1
-        && let Some(mine) = store.history().heads().into_iter().next()
-        && store.history().heads().len() == 1
+        && let Some(mine) = standing.iter().next().copied()
+        && standing.len() == 1
         && !heads.contains(&mine)
     {
         heads.push(mine);

@@ -7,6 +7,7 @@
 //! keeps, and bookmarks win where the spellings could be confused — a store
 //! with a bookmark called `ba5e` means the bookmark.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use historica::core::{ChangeId, ChangeState, FileId, RevisionId};
@@ -131,12 +132,32 @@ pub fn parents(
     Ok(parents)
 }
 
+/// The heads a person is standing on: the ones nothing has rewritten.
+///
+/// Decision 0001 keeps head discovery a pure graph question over parent edges
+/// and leaves it to a caller to decide whether superseded revisions are shown;
+/// decision 0023 is that caller deciding. An amended revision is still a head
+/// by parent edges — nothing names it as a parent, because its successor took
+/// its parents rather than it — so a store with one line of work in it and one
+/// amendment would otherwise have two heads forever.
+///
+/// Where filtering leaves nothing, every head is returned: a store holding a
+/// revision whose successor has not been delivered should be described as it
+/// is rather than as an empty one.
+pub fn current_heads(store: &Store) -> BTreeSet<RevisionId> {
+    let history = store.history();
+    let heads = history.heads();
+    let superseded = history.superseded();
+    let current: BTreeSet<RevisionId> = heads.difference(&superseded).copied().collect();
+    if current.is_empty() { heads } else { current }
+}
+
 /// The one head to work against, or a refusal naming the choice.
 ///
 /// `None` where a store holds no revisions yet, which is a root about to be
 /// recorded rather than a problem.
 pub fn the_head(store: &Store) -> Result<Option<RevisionId>, Failure> {
-    let heads = store.history().heads();
+    let heads = current_heads(store);
     match heads.len() {
         0 => Ok(None),
         1 => Ok(heads.into_iter().next()),
@@ -179,7 +200,7 @@ pub fn bookmarks(store: &Store, id: &RevisionId) -> Vec<String> {
 
 /// The one head, or a refusal naming the choice a person has to make.
 fn head(store: &Store) -> Result<RevisionId, Failure> {
-    let heads = store.history().heads();
+    let heads = current_heads(store);
     match heads.len() {
         0 => Err(Failure::error("this store holds no revisions yet")),
         1 => Ok(heads.into_iter().next().expect("one head")),

@@ -159,8 +159,9 @@ refuses a history with a merge in it rather than ordering it arbitrarily.
 The `historica` binary is the front end decision 0006 said was owed. `init`,
 `check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
 `cat`, and `names` read a store and render it; `status` reads the folder beside
-it and says how the two differ; `record` writes one, `skip` writes the rule
-saying what recording does not take, and `identity` says who is writing. Nothing there decides anything
+it and says how the two differ; `record` writes one and `amend` rewrites one,
+`skip` writes the rule saying what recording does not take, and `identity` says
+who is writing. Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.
@@ -215,8 +216,24 @@ prints the command that fetches each side, and leaves the folder alone. For
 that one case the tool cannot tell a resolution from an oversight, which is
 said out loud rather than papered over.
 
-What is still owed is the rewriting half: amending needs the same machinery
-pointed at a descendant, and abandoning a revision that has one needs it too.
+The rewriting half starts at the tip, which is decision 0023. `amend` writes a
+revision superseding the head: the change, the author, and the moment the work
+was first recorded are copied, `revised` is the clock now because a person
+asked for this, and everything the folder says is worked out again by the
+survey `record` already does — including the identifiers the amended revision
+minted, kept by path, so the same file in the same place does not become a
+different file every time the work is rewritten. The rename it recorded is
+inherited, because a recomputation cannot observe one. A revision something
+stands on is refused, and so is one something has already replaced, and the
+superseded revision stays exactly where it was, because with no operation log
+here it is the whole of the undo. The position a command works from becomes
+the head *nothing has rewritten*, which is decision 0001's rendering question
+answered at the moment it first has an answer that matters.
+
+What is still owed of that half is everything that needs a descendant
+reparented: amending a revision that has one, abandoning it, and moving a
+change somewhere new are one piece of work — transforming operations against
+operations — and none of them is built.
 The ordering rule is held to convergence and to non-interleaving by property
 tests over every walk order of each graph they generate; the conformance suite
 0007 asks for, against the reference implementation, is still owed.
@@ -378,6 +395,15 @@ Choices that constrain later work are written down as they are made.
   such a name inside the store is somebody else's rather than content, and
   `init` writes a `skipped.txt` that keeps them out of a history that is
   append-only.
+- [`docs/decisions/0023-what-an-amendment-keeps.md`](docs/decisions/0023-what-an-amendment-keeps.md)
+  — the head, rewritten: the change, the author, and the moment the work was
+  first recorded are copied, `revised` is stamped because amending is an act a
+  person performs, and every tree fact is worked out again from the folder —
+  keeping the file identifiers the amended revision minted, because the same
+  file in the same place is not a different file. A revision something stands
+  on is refused, since reparenting a descendant is 0007's merge under another
+  name; and the position becomes the head nothing has rewritten, which is the
+  rendering question 0001 left to whoever needed an answer.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

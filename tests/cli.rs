@@ -920,6 +920,46 @@ fn out(output: Output) -> String {
     String::from_utf8(output.stdout).expect("printed text")
 }
 
+/// Everything a command that should have failed said, with an author stated.
+fn refused(directory: &Path, arguments: &[&str]) -> String {
+    let output = recorded(directory, arguments);
+    assert!(
+        !output.status.success(),
+        "`{}` should have been refused: {}",
+        arguments.join(" "),
+        String::from_utf8_lossy(&output.stdout)
+    );
+    String::from_utf8(output.stderr).expect("printed text")
+}
+
+/// The digest of the current head, as `log` abbreviates it.
+fn head_of(directory: &Path) -> String {
+    out(recorded(directory, &["log"]))
+        .lines()
+        .find(|line| line.contains("(head") && !line.contains("superseded"))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("a head nothing has rewritten")
+        .to_owned()
+}
+
+/// The one file identifier `files` prints at a revision.
+fn one_file(directory: &Path, target: &str) -> String {
+    out(recorded(directory, &["files", target]))
+        .split_whitespace()
+        .next_back()
+        .expect("a file ID")
+        .to_owned()
+}
+
+/// One header line of a stored document, by its key.
+fn header(document: &str, key: &str) -> String {
+    document
+        .lines()
+        .find(|line| line.starts_with(&format!("{key} ")))
+        .unwrap_or_else(|| panic!("a `{key}` line in\n{document}"))
+        .to_owned()
+}
+
 #[test]
 fn recording_builds_a_history_check_accepts() {
     let directory = repository("record");
@@ -1594,4 +1634,259 @@ fn a_path_two_files_claim_prints_under_status_and_refuses_under_record() {
     let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
     assert!(complaint.contains("both.md"), "{complaint}");
     assert!(complaint.contains("--at"), "{complaint}");
+}
+
+#[test]
+fn an_amendment_keeps_the_work_and_works_the_folder_out_again() {
+    let directory = repository("amend");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+
+    let before = out(recorded(&directory, &["show", "head"]));
+    let file = one_file(&directory, "head");
+
+    write(&directory, "notes.md", "one\ntwo\n");
+    write(&directory, "aside.md", "an aside\n");
+    let amended = out(recorded(
+        &directory,
+        &["amend", "-m", "Start a journal, with an aside"],
+    ));
+    // The survey is against the amended revision's parents, and this one is a
+    // root — so the file it created is created again rather than edited, which
+    // is decision 0017's `text` and is why keeping the identifier matters.
+    assert!(amended.contains("added   notes.md"), "{amended}");
+    assert!(amended.contains("added   aside.md"), "{amended}");
+    let superseded = amended
+        .lines()
+        .find(|line| line.starts_with("it supersedes "))
+        .and_then(|line| line.split_whitespace().nth(2))
+        .expect("the digest it replaced")
+        .trim_end_matches(',')
+        .to_owned();
+
+    // Decision 0010's table: the change, the author, and the moment the work
+    // was first recorded are copied, and `revised` carries the later act.
+    let after = out(recorded(&directory, &["show", "head"]));
+    assert_eq!(header(&after, "change"), header(&before, "change"));
+    assert_eq!(header(&after, "author"), header(&before, "author"));
+    assert_eq!(header(&after, "when"), header(&before, "when"));
+    assert!(
+        after.contains(&format!("supersedes {superseded}")),
+        "{after}"
+    );
+    assert!(
+        after.lines().any(|line| line.starts_with("revised ")),
+        "an amendment stamps rather than copying: {after}"
+    );
+
+    // Decision 0023: the identifier the predecessor minted for this path is
+    // kept, so the file in the folder is the file history already held.
+    assert!(after.contains(&format!("add {file} notes.md")), "{after}");
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", &file])),
+        "one\ntwo\n"
+    );
+    assert!(
+        out(recorded(&directory, &["check"])).ends_with("nothing to report\n"),
+        "the store still holds together"
+    );
+}
+
+#[test]
+fn a_reword_changes_the_message_and_leaves_every_fact_alone() {
+    let directory = repository("amend-reword");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Teh journal"]));
+    let before = out(recorded(&directory, &["show", "head"]));
+
+    let amended = out(recorded(&directory, &["amend", "-m", "The journal"]));
+    assert!(!amended.contains("edited"), "{amended}");
+
+    let after = out(recorded(&directory, &["show", "head"]));
+    for line in before
+        .lines()
+        .filter(|line| line.starts_with("add ") || line.starts_with("text "))
+    {
+        assert!(
+            after.contains(line),
+            "`{line}` should survive a reword:\n{after}"
+        );
+    }
+    assert!(after.ends_with("The journal"), "{after}");
+    assert!(!after.contains("Teh journal"), "{after}");
+    assert!(out(recorded(&directory, &["check"])).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn amending_a_revision_that_renamed_a_file_keeps_the_rename() {
+    let directory = repository("amend-move");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    out(recorded(
+        &directory,
+        &[
+            "record",
+            "-m",
+            "File the notes",
+            "--move",
+            "notes.md=docs/notes.md",
+        ],
+    ));
+    let file = one_file(&directory, "head");
+
+    // Decision 0023: a recomputation cannot observe a rename, so the amended
+    // revision's own `move` line is inherited rather than spelled as a
+    // deletion of one path and an addition of another.
+    write(&directory, "docs/notes.md", "one\ntwo\n");
+    let amended = out(recorded(&directory, &["amend"]));
+    assert!(amended.contains("moved   docs/notes.md"), "{amended}");
+    assert!(!amended.contains("dropped"), "{amended}");
+    let after = out(recorded(&directory, &["show", "head"]));
+    assert!(
+        after.contains(&format!("move {file} docs/notes.md")),
+        "{after}"
+    );
+    assert!(
+        after.ends_with("File the notes"),
+        "the message is copied too"
+    );
+
+    // And a person may state a different one, against the path this revision
+    // currently has the file at, which is where the folder holds it.
+    let again = out(recorded(
+        &directory,
+        &["amend", "--move", "docs/notes.md=notes/entry.md"],
+    ));
+    assert!(again.contains("moved   notes/entry.md"), "{again}");
+    assert!(
+        directory.join("notes/entry.md").is_file() && !directory.join("docs/notes.md").exists(),
+        "`--move` performs the rename when a person has not"
+    );
+    assert_eq!(
+        one_file(&directory, "head"),
+        file,
+        "the file is still the same file"
+    );
+
+    // Decision 0019's third tier, which nothing could reach until an
+    // amendment existed: three revisions want one name here, and each is
+    // written under its own without anything being renamed or overwritten.
+    let filed: Vec<String> = fs::read_dir(directory.join("history/revisions"))
+        .expect("the revisions directory")
+        .filter_map(|entry| Some(entry.ok()?.file_name().to_string_lossy().into_owned()))
+        .filter(|name| name.contains("File the notes"))
+        .collect();
+    assert_eq!(filed.len(), 3, "{filed:?}");
+    assert!(out(recorded(&directory, &["check"])).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn only_a_revision_nothing_follows_and_nothing_replaced_can_be_amended() {
+    let directory = repository("amend-refusals");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+    let first = head_of(&directory);
+    write(&directory, "notes.md", "two\n");
+    out(recorded(&directory, &["record", "-m", "Second"]));
+
+    // Decision 0023: rewriting the first would have to restate what the second
+    // did against content that moved, which is 0007's merge under another name.
+    let standing = refused(&directory, &["amend", &first]);
+    assert!(standing.contains("not built yet"), "{standing}");
+    assert!(standing.contains("nothing follows"), "{standing}");
+
+    // Amending the head is allowed, and amending what it replaced is not:
+    // superseding one revision twice is a divergence nobody asked for.
+    let second = head_of(&directory);
+    write(&directory, "notes.md", "three\n");
+    out(recorded(&directory, &["amend"]));
+    let twice = refused(&directory, &["amend", &second]);
+    assert!(twice.contains("already been rewritten"), "{twice}");
+    assert!(twice.contains(&head_of(&directory)), "{twice}");
+}
+
+#[test]
+fn an_amendment_that_says_what_is_already_said_is_refused() {
+    let directory = repository("amend-nothing");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+
+    let again = refused(&directory, &["amend"]);
+    assert!(again.contains("already says exactly this"), "{again}");
+    let same = refused(&directory, &["amend", "-m", "Start"]);
+    assert!(same.contains("already says exactly this"), "{same}");
+    assert_eq!(
+        out(recorded(&directory, &["log"]))
+            .lines()
+            .filter(|line| line.contains("(head"))
+            .count(),
+        1,
+        "a refusal writes nothing"
+    );
+}
+
+#[test]
+fn the_position_after_a_rewrite_is_the_revision_that_rewrote_it() {
+    let directory = repository("amend-position");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    write(&directory, "notes.md", "one\ntwo\n");
+    out(recorded(&directory, &["amend"]));
+
+    // Decision 0023: an amended revision is still a head by parent edges, and
+    // the position is the head nothing has rewritten — so the ordinary case of
+    // one line of work amended once does not have to be disambiguated.
+    let head = head_of(&directory);
+    assert!(out(recorded(&directory, &["files", "head"])).contains("notes.md"));
+    let where_we_are = out(recorded(&directory, &["status"]));
+    assert!(where_we_are.contains(&head), "{where_we_are}");
+
+    write(&directory, "notes.md", "one\ntwo\nthree\n");
+    let onwards = out(recorded(&directory, &["record", "-m", "Say more"]));
+    assert!(onwards.contains("edited  notes.md"), "{onwards}");
+    assert!(!onwards.contains("this is a root"), "{onwards}");
+
+    // The superseded revision is still in the store and still says so, which
+    // decision 0013 makes the whole of the undo history.
+    let log = out(recorded(&directory, &["log"]));
+    assert!(log.contains("superseded"), "{log}");
+    assert!(out(recorded(&directory, &["check"])).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn a_dry_run_of_an_amendment_writes_nothing() {
+    let directory = repository("amend-dry-run");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    let head = head_of(&directory);
+
+    // An amendment restates the whole of what it replaces, so an untouched
+    // folder is a full plan rather than an empty one — and an amendment that
+    // would say nothing new is a refusal by then rather than a report.
+    let unchanged = refused(&directory, &["amend", "--dry-run"]);
+    assert!(
+        unchanged.contains("already says exactly this"),
+        "{unchanged}"
+    );
+
+    write(&directory, "notes.md", "one\ntwo\n");
+    let planned = out(recorded(&directory, &["amend", "-n"]));
+    assert!(planned.contains("added   notes.md"), "{planned}");
+    assert!(
+        planned.contains(&format!("this would supersede {head}")),
+        "{planned}"
+    );
+    assert_eq!(head_of(&directory), head, "a dry run rewrites nothing");
+
+    // The refusals happen before the folder is read, so a dry run meets them
+    // at the same moment the real thing would.
+    let standing = refused(&directory, &["amend", "--dry-run", "nosuchtarget"]);
+    assert!(!standing.is_empty(), "an unresolvable target still refuses");
+    let unknown = refused(&directory, &["amend", "--frobnicate"]);
+    assert!(
+        unknown.contains("is not an argument `amend` takes"),
+        "{unknown}"
+    );
+    let two = refused(&directory, &["amend", &head, &head]);
+    assert!(two.contains("is a second"), "{two}");
 }

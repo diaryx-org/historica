@@ -5,9 +5,13 @@
 //! Everything else in a revision falls out of comparing the working copy with
 //! the tree at its parent.
 //!
-//! What this does not do is what 0011 says it does not: no amend, no merge,
-//! and nothing where the parent's ancestry holds one, because restating
-//! operations against a changed parent is 0007's merge under another name.
+//! It also rewrites one, which decision 0023 decides the terms of: an
+//! amendment supersedes the revision it names, keeps everything that describes
+//! the work — the change, the author, the moment it was first recorded — and
+//! works the rest out again from the folder. What it will not do is what 0011
+//! says it will not: rewrite a revision something stands on, because restating
+//! a descendant's operations against a changed parent is 0007's merge under
+//! another name.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -198,6 +202,38 @@ pub struct Recording {
     pub at: Vec<(FileId, String)>,
 }
 
+/// What a person supplies to rewrite a revision.
+///
+/// Decision 0023: everything that describes the *work* comes from the revision
+/// being rewritten rather than from here, which is why this carries so much
+/// less than a [`Recording`] does. What is left is the rewrite itself.
+#[derive(Debug, Clone)]
+pub struct Amendment {
+    /// The revision being rewritten.
+    pub revision: RevisionId,
+    /// A new message, or `None` to keep the one that revision carries.
+    pub message: Option<String>,
+    /// Who is doing the rewriting, which 0005 spells `revised-by`.
+    pub reviser: String,
+    /// When, per 0010: a fresh reading, because a person asked for this.
+    pub revised: Timestamp,
+    /// Renames, stated against the tree at the amended revision's parents.
+    pub moves: Vec<(String, String)>,
+}
+
+/// What was amended.
+#[derive(Debug, Clone)]
+pub struct Amended {
+    /// The revision written.
+    pub revision: RevisionId,
+    /// Its change, which is the amended revision's.
+    pub change: ChangeId,
+    /// The revision it supersedes, which is still in the store.
+    pub superseded: RevisionId,
+    /// What it says the folder holds.
+    pub plan: Plan,
+}
+
 /// What was recorded.
 #[derive(Debug, Clone)]
 pub struct Recorded {
@@ -248,7 +284,7 @@ pub fn survey(
         moved.insert(*file, to.clone());
     }
     for (from, to) in moves {
-        let file = one_file_at(&tree, from)?;
+        let file = one_file_at(&placed, from)?;
         crate::format::check_path(to).map_err(|because| RecordError::UnusablePath {
             path: to.clone(),
             because: because.to_string(),
@@ -492,6 +528,24 @@ pub fn plan(
     recording: &Recording,
     entropy: &mut impl Entropy,
 ) -> Result<Plan, RecordError> {
+    plan_with(store, working, recording, entropy, &BTreeMap::new())
+}
+
+/// The same, keeping identifiers a rewritten revision already minted.
+///
+/// Decision 0023: an amendment surveys the folder against its predecessor's
+/// parents, where the files that predecessor *added* do not exist — so every
+/// one of them surveys as added again, and minting afresh would make the same
+/// file, in the same place, in the same piece of work, a different file after
+/// every amendment. `kept` is that predecessor's `add` lines, by path, and
+/// minting happens only for a path it does not name.
+fn plan_with(
+    store: &Store,
+    working: &Working,
+    recording: &Recording,
+    entropy: &mut impl Entropy,
+    kept: &BTreeMap<String, FileId>,
+) -> Result<Plan, RecordError> {
     let surveyed = survey(
         store,
         working,
@@ -523,7 +577,10 @@ pub fn plan(
     let mut minted: BTreeMap<String, FileId> = BTreeMap::new();
     let mut added = BTreeMap::new();
     for path in &surveyed.added {
-        let file = entropy.file()?;
+        let file = match kept.get(path) {
+            Some(file) => *file,
+            None => entropy.file()?,
+        };
         minted.insert(path.clone(), file);
         added.insert(file, path.clone());
     }
@@ -582,63 +639,7 @@ pub fn record(
 
     let change = entropy.change()?;
 
-    // Decision 0019: the name a file is written under is the name it keeps, so
-    // it is worked out before anything is written. A stem needs the time, the
-    // message and the change ID, all of which are supplied to a recording
-    // rather than derived from it, and the filenames within it need the paths,
-    // which the plan already holds.
-    let stem = naming::stem_for(
-        &recording.when,
-        &recording.message,
-        &change,
-        store.iter().map(|(_, document)| document),
-    );
-    let mut filings = Vec::new();
-    for (file, held) in &plan.edited {
-        let Some(path) = plan.paths.get(file) else {
-            continue;
-        };
-        filings.push(naming::Filing {
-            held: match held {
-                Change::Operations(document) => digest(&document.write()),
-                Change::Created(payload) | Change::Whole(payload) => digest(payload),
-            },
-            path: path.clone(),
-            document: matches!(held, Change::Operations(_)),
-        });
-    }
-    let named = naming::filed(&filings);
-    let filed = |held: &RevisionId| match named.get(held) {
-        Some(name) => format!("{stem}/{name}"),
-        // Unreachable: every filing above went into `named`. A file the plan
-        // has no path for is not written at all.
-        None => held.to_string(),
-    };
-
-    // Decision 0017: the documents and the payloads a revision names are
-    // written before the revision, on the same reasoning — an interrupted
-    // record leaves content nothing points at, which `check` calls a note,
-    // rather than a revision naming content that is not there.
-    let mut edited = BTreeMap::new();
-    let mut text = BTreeMap::new();
-    let mut bytes = BTreeMap::new();
-    for (file, held) in &plan.edited {
-        match held {
-            Change::Operations(document) => {
-                let name = filed(&digest(&document.write()));
-                edited.insert(*file, store.insert_operation_at(document, &name)?);
-            }
-            Change::Created(payload) => {
-                let name = filed(&digest(payload));
-                text.insert(*file, store.insert_payload_at(payload, &name)?);
-            }
-            Change::Whole(payload) => {
-                let name = filed(&digest(payload));
-                bytes.insert(*file, store.insert_payload_at(payload, &name)?);
-            }
-        }
-    }
-
+    let content = content_of(&plan);
     let document = RevisionDocument {
         version: Version::CURRENT,
         change,
@@ -651,12 +652,23 @@ pub fn record(
         added: plan.added.clone(),
         moved: plan.moved.clone(),
         dropped: plan.dropped.clone(),
-        edited,
-        text,
-        bytes,
+        edited: content.edited.clone(),
+        text: content.text.clone(),
+        bytes: content.bytes.clone(),
         extensions: BTreeMap::new(),
         message: recording.message.clone(),
     };
+
+    // Decision 0019: the name a file is written under is the name it keeps, so
+    // it is worked out before anything is written.
+    let stem = naming::stem_for(
+        &recording.when,
+        &recording.message,
+        &change,
+        &document.id(),
+        store.iter().map(|(_, held)| held),
+    );
+    file_content(store, &plan, &content, &stem)?;
     let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
 
     // Decision 0011: a bookmark that named the parent's change follows the
@@ -689,9 +701,301 @@ pub fn record(
     })
 }
 
+/// Work out what amending would state, without writing anything.
+///
+/// The refusals decision 0023 names happen here, so `--dry-run` meets them at
+/// the same moment the real thing would.
+pub fn amendment_plan(
+    store: &Store,
+    working: &Working,
+    amendment: &Amendment,
+    entropy: &mut impl Entropy,
+) -> Result<Plan, RecordError> {
+    Ok(rewrite(store, working, amendment, entropy)?.plan)
+}
+
+/// Rewrite one revision as the folder now stands, superseding it.
+///
+/// Decision 0023. The change, the author, the moment the work was first
+/// recorded, and the parents are the amended revision's; `revised` is now;
+/// everything else is worked out again from the folder against those parents,
+/// by the survey `record` performs for the same reason.
+pub fn amend(
+    store: &mut Store,
+    working: &Working,
+    amendment: &Amendment,
+    entropy: &mut impl Entropy,
+) -> Result<Amended, RecordError> {
+    let rewritten = rewrite(store, working, amendment, entropy)?;
+    let Rewrite {
+        plan,
+        content,
+        document,
+        previous,
+    } = rewritten;
+
+    // Decision 0019's third tier is this command's: an amendment that reworded
+    // nothing wants the name its predecessor already has, and only the digest
+    // tells two revisions of one change apart.
+    let stem = naming::stem_for(
+        &document.when,
+        &document.message,
+        &document.change,
+        &document.id(),
+        store.iter().map(|(_, held)| held),
+    );
+    file_content(store, &plan, &content, &stem)?;
+    let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
+
+    // Nothing follows the work forward here. A `change` bookmark already
+    // resolves through supersession, and a `revision` bookmark is decision
+    // 0011's exact pin, which an amendment is no more entitled to move than a
+    // record is.
+    Ok(Amended {
+        revision,
+        change: previous.change,
+        superseded: amendment.revision,
+        plan,
+    })
+}
+
+/// One amendment worked out to the last byte, with nothing written.
+///
+/// Every refusal happens here, so `--dry-run` meets each of them at the moment
+/// the real thing would — including the one that needs the finished document,
+/// which is an amendment saying exactly what it is rewriting already says.
+struct Rewrite {
+    plan: Plan,
+    content: Content,
+    document: RevisionDocument,
+    previous: RevisionDocument,
+}
+
+fn rewrite(
+    store: &Store,
+    working: &Working,
+    amendment: &Amendment,
+    entropy: &mut impl Entropy,
+) -> Result<Rewrite, RecordError> {
+    let (previous, recording, kept) = rewriting(store, amendment)?;
+    let plan = plan_with(store, working, &recording, entropy, &kept)?;
+
+    let content = content_of(&plan);
+    let document = RevisionDocument {
+        version: Version::CURRENT,
+        change: previous.change,
+        parents: previous.parents.clone(),
+        supersedes: BTreeSet::from([amendment.revision]),
+        author: previous.author.clone(),
+        when: previous.when.clone(),
+        // Decision 0005: written only when it differs from the author, since a
+        // fact equal to another fact is a second spelling of it.
+        revised_by: (amendment.reviser != previous.author).then(|| amendment.reviser.clone()),
+        revised: Some(amendment.revised.clone()),
+        added: plan.added.clone(),
+        moved: plan.moved.clone(),
+        dropped: plan.dropped.clone(),
+        edited: content.edited.clone(),
+        text: content.text.clone(),
+        bytes: content.bytes.clone(),
+        // 0023 carries the advisory headers forward: this writer cannot read
+        // them, and dropping what it cannot read is the failure 0020 calls the
+        // worst available.
+        extensions: previous.extensions.clone(),
+        message: recording.message.clone(),
+    };
+    if says_the_same(&document, &previous) {
+        return Err(RecordError::NothingToAmend {
+            revision: amendment.revision,
+        });
+    }
+
+    Ok(Rewrite {
+        plan,
+        content,
+        document,
+        previous,
+    })
+}
+
+/// The revision being rewritten, and what recording it again would be given.
+///
+/// Every refusal decision 0023 names is here, before anything reads the
+/// folder: a revision this store does not hold, a revision something stands
+/// on, and a revision something has already rewritten.
+fn rewriting(
+    store: &Store,
+    amendment: &Amendment,
+) -> Result<(RevisionDocument, Recording, BTreeMap<String, FileId>), RecordError> {
+    let previous = store
+        .get(&amendment.revision)
+        .cloned()
+        .ok_or(RecordError::NotHeld {
+            revision: amendment.revision,
+        })?;
+
+    let standing: Vec<RevisionId> = store
+        .iter()
+        .filter(|(_, document)| document.parents.contains(&amendment.revision))
+        .map(|(id, _)| *id)
+        .collect();
+    if !standing.is_empty() {
+        return Err(RecordError::Followed {
+            revision: amendment.revision,
+            standing,
+        });
+    }
+
+    let successors: Vec<RevisionId> = store
+        .iter()
+        .filter(|(_, document)| document.supersedes.contains(&amendment.revision))
+        .map(|(id, _)| *id)
+        .collect();
+    if !successors.is_empty() {
+        return Err(RecordError::AlreadyRewritten {
+            revision: amendment.revision,
+            successors,
+        });
+    }
+
+    // Decision 0023: a rename is the fact 0011 says only a person can state,
+    // so a recomputation cannot observe the one the amended revision already
+    // states. Inherited as 0012's `--at` is — by identifier, against the tree
+    // its parents hold — and overridden by any `--move` a person adds.
+    let at: Vec<(FileId, String)> = previous
+        .moved
+        .iter()
+        .map(|(file, path)| (*file, path.clone()))
+        .collect();
+    let mut kept: BTreeMap<String, FileId> = BTreeMap::new();
+    for (file, path) in &previous.added {
+        kept.entry(path.clone()).or_insert(*file);
+    }
+
+    let recording = Recording {
+        parents: previous.parents.iter().copied().collect(),
+        author: previous.author.clone(),
+        when: previous.when.clone(),
+        message: amendment
+            .message
+            .clone()
+            .unwrap_or_else(|| previous.message.clone()),
+        moves: amendment.moves.clone(),
+        at,
+    };
+    Ok((previous, recording, kept))
+}
+
+/// Whether two documents say the same thing about the same work.
+///
+/// `supersedes`, `revised`, and `revised-by` are set aside on both sides:
+/// those three describe the rewrite rather than the work, so a revision that
+/// differs by nothing else is one that reworded nothing and changed nothing.
+fn says_the_same(left: &RevisionDocument, right: &RevisionDocument) -> bool {
+    let bare = |document: &RevisionDocument| {
+        let mut bare = document.clone();
+        bare.supersedes = BTreeSet::new();
+        bare.revised_by = None;
+        bare.revised = None;
+        bare
+    };
+    bare(left) == bare(right)
+}
+
+/// Everything a revision names, which is what its own digest covers.
+///
+/// Worked out before the revision is composed and before anything is written,
+/// and deliberately without a name in it: a revision document says nothing
+/// about what it is called, so what a revision *names* can be settled before
+/// what any of it is *called* is — which is what lets a writer compare the
+/// revision it would produce against one the store already holds, and what
+/// lets 0019's third tier ask for a digest that does not exist yet.
+struct Content {
+    /// The operation document each edited file names.
+    edited: BTreeMap<FileId, RevisionId>,
+    /// The payload each created file names, which `text` spells.
+    text: BTreeMap<FileId, RevisionId>,
+    /// The payload each whole file names, which `bytes` spells.
+    bytes: BTreeMap<FileId, RevisionId>,
+    /// What is to be filed under the revision's directory, with its path.
+    filings: Vec<naming::Filing>,
+}
+
+fn content_of(plan: &Plan) -> Content {
+    let mut content = Content {
+        edited: BTreeMap::new(),
+        text: BTreeMap::new(),
+        bytes: BTreeMap::new(),
+        filings: Vec::new(),
+    };
+    for (file, held) in &plan.edited {
+        let held_id = match held {
+            Change::Operations(document) => digest(&document.write()),
+            Change::Created(payload) | Change::Whole(payload) => digest(payload),
+        };
+        match held {
+            Change::Operations(_) => content.edited.insert(*file, held_id),
+            Change::Created(_) => content.text.insert(*file, held_id),
+            Change::Whole(_) => content.bytes.insert(*file, held_id),
+        };
+        if let Some(path) = plan.paths.get(file) {
+            content.filings.push(naming::Filing {
+                held: held_id,
+                path: path.clone(),
+                document: matches!(held, Change::Operations(_)),
+            });
+        }
+    }
+    content
+}
+
+/// Write the documents and the payloads a revision names, before the revision.
+///
+/// Decision 0017's reasoning, which is 0011's: an interrupted record leaves
+/// content nothing points at, which `check` calls a note, rather than a
+/// revision naming content that is not there, which it reports as an error.
+/// Decision 0019 is where each one goes — under the revision's own stem, at
+/// the path it had.
+fn file_content(
+    store: &mut Store,
+    plan: &Plan,
+    content: &Content,
+    stem: &str,
+) -> Result<(), RecordError> {
+    let filed = naming::filed(&content.filings);
+    // A file the plan has no path for cannot be filed under one, so it keeps
+    // the digest name decision 0003 makes the default.
+    let name = |held: &RevisionId| match filed.get(held) {
+        Some(name) => format!("{stem}/{name}"),
+        None => held.to_string(),
+    };
+    for held in plan.edited.values() {
+        match held {
+            Change::Operations(document) => {
+                store.insert_operation_at(document, &name(&digest(&document.write())))?;
+            }
+            Change::Created(payload) | Change::Whole(payload) => {
+                store.insert_payload_at(payload, &name(&digest(payload)))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The one file at `path`, or a reason there is not exactly one.
-fn one_file_at(tree: &Tree, path: &str) -> Result<FileId, RecordError> {
-    match tree.at(path).as_slice() {
+///
+/// Against where each file has been put rather than against the tree, so that
+/// `--move` names a path as the revision being written currently has it. For a
+/// record those are the same thing; for an amendment (0023) the second is the
+/// path its predecessor's own `move` line already put the file at, which is
+/// where the folder holds it and therefore what a person would type.
+fn one_file_at(placed: &BTreeMap<FileId, String>, path: &str) -> Result<FileId, RecordError> {
+    let claiming: Vec<FileId> = placed
+        .iter()
+        .filter(|(_, at)| at.as_str() == path)
+        .map(|(file, _)| *file)
+        .collect();
+    match claiming.as_slice() {
         [] => Err(RecordError::NotInTheTree {
             path: path.to_owned(),
         }),
@@ -709,6 +1013,34 @@ fn one_file_at(tree: &Tree, path: &str) -> Result<FileId, RecordError> {
 pub enum RecordError {
     /// Nothing about the folder differs from the parent.
     NothingToRecord,
+    /// An amendment that would say exactly what it is rewriting says.
+    NothingToAmend {
+        /// The revision that already says it.
+        revision: RevisionId,
+    },
+    /// A revision to be rewritten that this store does not hold.
+    NotHeld {
+        /// The revision as it was named.
+        revision: RevisionId,
+    },
+    /// A revision to be rewritten that work already stands on.
+    ///
+    /// Decision 0023: restating a descendant's operations against a parent
+    /// whose content moved is 0007's merge under another name, which is the
+    /// wall 0011 and 0013 stopped at too.
+    Followed {
+        /// The revision that was asked for.
+        revision: RevisionId,
+        /// The revisions naming it as a parent.
+        standing: Vec<RevisionId>,
+    },
+    /// A revision something has already superseded.
+    AlreadyRewritten {
+        /// The revision that was asked for.
+        revision: RevisionId,
+        /// What already rewrote it.
+        successors: Vec<RevisionId>,
+    },
     /// A merge whose contested files still hold what the renderer wrote.
     Unresolved {
         /// Each file, and how many marker lines still stand in it.
@@ -796,6 +1128,48 @@ impl fmt::Display for RecordError {
                 f,
                 "nothing here differs from what is already recorded, and a \
                  revision that states nothing would mean nothing"
+            ),
+            RecordError::NothingToAmend { revision } => write!(
+                f,
+                "{} already says exactly this, and a revision superseding one \
+                 identical to itself would mean nothing",
+                revision.abbreviate(12)
+            ),
+            RecordError::NotHeld { revision } => write!(
+                f,
+                "this store does not hold the revision {revision}, so there is \
+                 nothing here to rewrite"
+            ),
+            RecordError::Followed { revision, standing } => write!(
+                f,
+                "{} work stands on {}, and restating what {} did against a \
+                 parent whose content moved is not built yet; only a revision \
+                 nothing follows can be amended:{}",
+                if standing.len() == 1 {
+                    "some".to_owned()
+                } else {
+                    format!("{} lines of", standing.len())
+                },
+                revision.abbreviate(12),
+                if standing.len() == 1 { "it" } else { "they" },
+                standing
+                    .iter()
+                    .map(|id| format!("\n  {}", id.abbreviate(12)))
+                    .collect::<String>()
+            ),
+            RecordError::AlreadyRewritten {
+                revision,
+                successors,
+            } => write!(
+                f,
+                "{} has already been rewritten, and superseding it again would \
+                 leave one change with two current revisions; amend what \
+                 replaced it:{}",
+                revision.abbreviate(12),
+                successors
+                    .iter()
+                    .map(|id| format!("\n  {}", id.abbreviate(12)))
+                    .collect::<String>()
             ),
             RecordError::Unresolved { files } => write!(
                 f,
