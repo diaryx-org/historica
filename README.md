@@ -359,6 +359,14 @@ Choices that constrain later work are written down as they are made.
   read forever, because a store that quietly stopped having documents in it is
   the worst failure available; the cost is that a payload still has to avoid
   both.
+- [`docs/decisions/0021-the-store-explains-itself.md`](docs/decisions/0021-the-store-explains-itself.md)
+  — the marker becomes `historica.txt` and carries a note saying what the
+  folder is and that nothing in it needs Historica to read; `skipped` and the
+  bookmarks follow the documents into `.txt`. The older suffixes stop being
+  read, which retires the payload rule in the form that bit: an actual `.ops`
+  file keeps its own name. It is the last decision that gets to break a store,
+  because it is the last one written while none exists that its author did not
+  write.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
