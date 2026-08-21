@@ -162,9 +162,11 @@ history must produce one set of filenames, so a collision resolves by change ID
 and then by digest, never by a counter, which would depend on what else was in
 the directory. It names revisions `YYYY-MM-DD summary.rev` and files each
 revision's operation documents under a directory of the same name, so a store
-reads as a folder per entry rather than as a wall of digests; the loader walks
-both directories to any depth and never follows a symbolic link, which is what
-lets a person file a history however they please.
+reads as a folder per entry rather than as a wall of digests; the path is filed
+as a path, in real directories, so a revision's folder is the subtree of the
+repository that revision touched and `notes/photo.png` inside it opens as a
+picture. The loader walks both directories to any depth and never follows a
+symbolic link, which is what lets a person file a history however they please.
 
 The `tree` module also merges. Decision 0008's rules for concurrent tree facts
 are here rather than in prose now: a `drop` concurrent with an edit or a move

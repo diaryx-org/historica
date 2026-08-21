@@ -12,7 +12,7 @@
 //! counter depends on what else is in the directory, and a content-derived
 //! suffix does not.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::Path;
@@ -33,13 +33,6 @@ const SUMMARY_CHARS: usize = 60;
 const CHANGE_CHARS: usize = 8;
 /// Digest characters where two revisions of one change would still collide.
 const DIGEST_CHARS: usize = 12;
-/// Characters of path an operation document's filename carries.
-///
-/// Nesting is what affords this: the revision half of the name became the
-/// directory, so the whole 255-byte budget is a path, an extension, and a
-/// collision suffix. Sixty characters at three bytes each leaves room for
-/// both even where the path is entirely non-ASCII.
-const PATH_CHARS: usize = 60;
 
 /// Rename every document to its arranged name.
 pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
@@ -109,8 +102,12 @@ pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
 
         // Here a document *is* moved, which is the whole of the nesting: the
         // directory carries the revision, so a document in the wrong one is
-        // in the wrong place rather than merely misnamed.
-        let target = directory.join(stem).join(name);
+        // in the wrong place rather than merely misnamed. Decision 0018: the
+        // rest of the name is the path, as directories.
+        let mut target = directory.join(stem);
+        for component in name.split('/') {
+            target.push(component);
+        }
         if path != target
             && !dry_run
             && let Some(parent) = target.parent()
@@ -129,12 +126,20 @@ pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
             "document",
         )? && !dry_run
             && let Some(from) = from
-            && from != directory
         {
-            // Tidying the directory this document was the last thing in.
-            // `remove_dir` refuses a directory holding anything, which is the
-            // guard: a directory a person put something else in survives.
-            let _ = fs::remove_dir(&from);
+            // Tidying the directories this document was the last thing in.
+            // Upwards, because decision 0018 files a path as directories, so
+            // emptying one can empty the one above it — and `remove_dir`
+            // refuses a directory holding anything, which is the guard: a
+            // directory a person put something else in survives, and so does
+            // everything above it.
+            let mut empty = from.as_path();
+            while empty != directory && fs::remove_dir(empty).is_ok() {
+                match empty.parent() {
+                    Some(parent) => empty = parent,
+                    None => break,
+                }
+            }
         }
     }
     let _ = writeln!(out, "{}", documents.line(&directory, dry_run));
@@ -228,19 +233,22 @@ fn digest_of(path: &Path) -> Result<RevisionId, Failure> {
     Ok(digest(&bytes))
 }
 
-/// Where everything in `operations/` belongs: a directory, and a filename.
+/// Where everything in `operations/` belongs: a directory, and a path.
 ///
 /// Decision 0016. The directory is the revision's own arranged stem, so
 /// `revisions/2026-08-20 Initial state.rev` and
-/// `operations/2026-08-20 Initial state/` are visibly the same thing, and the
-/// filename is the path the document edits — which is the only thing left to
-/// say once the directory has said the rest.
+/// `operations/2026-08-20 Initial state/` are visibly the same thing, and what
+/// is left to say is the path — which decision 0018 says as a path, in real
+/// directories, rather than spelling one into a filename. So a revision's
+/// folder is the subtree of the repository that revision touched, and
+/// `notes/photo.png` inside it opens as a picture from a folder called
+/// `notes`.
 ///
 /// Decision 0017 puts payloads in the same directory and gives them the same
 /// name without the `.{OPERATION_EXT}`, because a payload's name is the file's
-/// own: `notes⁄photo.png` in that folder opens as a picture. The extension is
-/// what tells a document from a payload, so it is part of the name a collision
-/// is decided on, and a document keeps it whatever else happens.
+/// own. The extension is what tells a document from a payload, so it is part
+/// of the name a collision is decided on, and a document keeps it whatever
+/// else happens.
 ///
 /// The path is not in the revision document for an `edit`, so the tree at each
 /// revision has to be materialised to find it. That is real work `arrange` did
@@ -300,43 +308,82 @@ fn operation_names(
     }
 
     // Collisions are resolved inside a directory, because that is where two
-    // names would actually meet. Two paths clipping to one filename is the
-    // case: a digest suffix distinguishes them, never a counter.
-    let mut by_directory: BTreeMap<String, Vec<(RevisionId, String)>> = BTreeMap::new();
+    // names would actually meet. Decision 0018 leaves two ways for them to:
+    // two paths can no longer produce one name, since the only way two paths
+    // collide as directory trees is if they are the same path.
+    let mut by_directory: BTreeMap<String, Vec<(RevisionId, String, bool)>> = BTreeMap::new();
     for (held, (revision, path, is_document)) in claims {
         let Some(stem) = stems.get(&revision) else {
             continue;
         };
         let name = match is_document {
-            true => format!("{}.{OPERATION_EXT}", filename(&path)),
-            false => filename(&path),
+            true => format!("{}.{OPERATION_EXT}", scrubbed(&path)),
+            false => scrubbed(&path),
         };
         by_directory
             .entry(stem.clone())
             .or_default()
-            .push((held, name));
+            .push((held, name, is_document));
     }
 
     let mut out = BTreeMap::new();
     for (stem, mut sharing) in by_directory {
         sharing.sort();
-        let mut counts: BTreeMap<&String, usize> = BTreeMap::new();
-        for (_, name) in &sharing {
-            *counts.entry(name).or_default() += 1;
+
+        // Every directory these names need. A name that *is* one of them is a
+        // file where another file needs a directory: 0008 has no directories,
+        // so nothing stops a history holding both `notes` and
+        // `notes/photo.png`, and no filesystem can hold both either.
+        let mut directories: BTreeSet<&str> = BTreeSet::new();
+        for (_, name, _) in &sharing {
+            let mut rest = name.as_str();
+            while let Some(cut) = rest.rfind('/') {
+                rest = &rest[..cut];
+                directories.insert(rest);
+            }
+        }
+
+        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+        for (_, name, _) in &sharing {
+            *counts.entry(name.as_str()).or_default() += 1;
         }
         let taken: BTreeMap<String, bool> = counts
             .into_iter()
-            .map(|(name, count)| (name.clone(), count > 1))
+            .map(|(name, count)| (name.to_owned(), count > 1))
             .collect();
-        for (held, name) in &sharing {
-            let name = if taken.get(name).copied().unwrap_or(false) {
-                // A document keeps its extension, because that is what says
-                // it is one; the suffix goes before it.
-                match name.strip_suffix(&format!(".{OPERATION_EXT}")) {
-                    Some(stem) => {
-                        format!("{stem} {}.{OPERATION_EXT}", held.abbreviate(DIGEST_CHARS))
+
+        for (held, name, is_document) in &sharing {
+            // Whether this is a document is carried, never read back off the
+            // name: a payload for a path that ends in `.ops` is a payload, and
+            // a rename that made it look like a document would hand it to the
+            // parser, which is the one thing a disambiguator may not do.
+            let name = if directories.contains(name.as_str()) {
+                // The file at the shorter path yields, and keeps its digest
+                // name at the top of the revision's directory, where nothing
+                // can be a directory over it.
+                match is_document {
+                    true => format!("{held}.{OPERATION_EXT}"),
+                    false => held.to_string(),
+                }
+            } else if taken.get(name.as_str()).copied().unwrap_or(false) {
+                // A payload and a document one path apart — `x.ops` and `x` —
+                // are the only two names left that can meet. The suffix goes
+                // on the last component, and inside the extension where there
+                // is one, because a document that lost `.ops` would stop being
+                // one and a payload that gained it would start.
+                let (head, last) = match name.rfind('/') {
+                    Some(cut) => name.split_at(cut + 1),
+                    None => ("", name.as_str()),
+                };
+                let suffix = held.abbreviate(DIGEST_CHARS);
+                match is_document {
+                    true => {
+                        let last = last
+                            .strip_suffix(&format!(".{OPERATION_EXT}"))
+                            .unwrap_or(last);
+                        format!("{head}{last} {suffix}.{OPERATION_EXT}")
                     }
-                    None => format!("{name} {}", held.abbreviate(DIGEST_CHARS)),
+                    false => format!("{head}{last} {suffix}"),
                 }
             } else {
                 name.clone()
@@ -347,30 +394,18 @@ fn operation_names(
     Ok(out)
 }
 
-/// A path as an operation document's filename.
+/// A path, as the store files it.
 ///
-/// `/` becomes `⁄` (U+2044 FRACTION SLASH) rather than the space decision 0006
-/// puts in a summary. In a summary a slash is incidental punctuation; in a path
-/// it is structure, and `src cli mod.rs` throws away the thing that
-/// distinguishes five files called `mod.rs`. The character has no Unicode
-/// decomposition, so a filesystem that normalises names to NFD — macOS does,
-/// Linux does not — cannot make two replicas disagree about the bytes of a name
-/// they both derived.
-fn filename(path: &str) -> String {
-    // Clipped from the left, keeping the end: the tail of a path is what
-    // distinguishes it, where the head is the directories every sibling
-    // shares.
-    let clipped = if path.chars().count() > PATH_CHARS {
-        let skip = path.chars().count() - PATH_CHARS;
-        format!("…{}", path.chars().skip(skip + 1).collect::<String>())
-    } else {
-        path.to_owned()
-    };
-    clipped
-        .chars()
+/// Decision 0018: the separator is the separator, and the components are
+/// directories, so there is nothing here to translate — a path that named a
+/// file in somebody's folder names one here. What is left is the one thing a
+/// filesystem cannot be asked to hold: a control character in a name, which
+/// 0008's path rules permit and no directory entry should carry. A backslash
+/// is left alone, because on the platforms this runs on it is an ordinary
+/// character in a name rather than a separator.
+fn scrubbed(path: &str) -> String {
+    path.chars()
         .map(|character| match character {
-            '/' => '⁄',
-            '\\' => '⁄',
             character if character.is_control() => ' ',
             character => character,
         })
@@ -519,24 +554,31 @@ mod tests {
     }
 
     #[test]
-    fn a_path_keeps_its_structure_in_a_filename() {
-        // Not a space, which is what 0006 puts in place of a slash in a
-        // summary: five files are called `mod.rs` and the directories are the
-        // only thing telling them apart.
-        assert_eq!(filename("src/cli/mod.rs"), "src⁄cli⁄mod.rs");
-        assert_eq!(filename("README.md"), "README.md");
+    fn a_path_is_filed_as_a_path() {
+        // Decision 0018: nothing stands in for the separator, because the
+        // separator is what a directory separates. Five files are called
+        // `mod.rs` and the directories are what tell them apart — here as
+        // directories, rather than as a character that resembles one.
+        assert_eq!(scrubbed("src/cli/mod.rs"), "src/cli/mod.rs");
+        assert_eq!(scrubbed("README.md"), "README.md");
     }
 
     #[test]
-    fn a_long_path_is_clipped_from_the_left() {
-        // The tail distinguishes a path; the head is the directories every
-        // sibling shares.
+    fn a_long_path_is_not_clipped_because_it_no_longer_has_to_be() {
+        // The 255-byte limit is per component, and every component here
+        // already named a file on somebody's disk.
         let path = "tests/corpus/diffs/final-newline-gained/and/deeper/still/child.txt";
-        let name = filename(path);
-        assert_eq!(name.chars().count(), PATH_CHARS);
-        assert!(name.starts_with('…'), "{name}");
-        assert!(name.ends_with("child.txt"), "{name}");
-        assert!(!name.contains('/'), "{name}");
+        assert_eq!(scrubbed(path), path);
+        assert!(
+            path.split('/').all(|component| component.len() < 255),
+            "each component fits by construction"
+        );
+    }
+
+    #[test]
+    fn a_control_character_is_the_one_thing_a_name_may_not_carry() {
+        // 0008's path rules permit it and no directory entry should hold one.
+        assert_eq!(scrubbed("notes/a\u{7}b.md"), "notes/a b.md");
     }
 
     #[test]

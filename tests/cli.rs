@@ -327,20 +327,25 @@ fn arrange_files_operation_documents_under_the_revision_that_names_them() {
 
     out(recorded(&directory, &["arrange"]));
 
-    // The directory carries the revision, so the filename is free to be the
-    // path — and the two directories are visibly the two `.rev` files.
+    // The directory carries the revision, so what is left is the path — and
+    // decision 0018 says a path as a path, so the revision's folder is the
+    // subtree of the repository that revision touched.
     let operations = directory.join("history/operations");
     let filed: Vec<String> = walk_names(&operations);
     assert!(
         filed.iter().all(|name| name.contains('/')),
         "every document should sit under a revision directory: {filed:?}"
     );
+    assert!(
+        filed.iter().all(|name| !name.contains('⁄')),
+        "nothing stands in for a separator: {filed:?}"
+    );
     // Decision 0017: the first revision states the file's lines outright, so
-    // what sits under it is the file, under its own name.
+    // what sits under it is the file, under its own name, in its own folder.
     assert!(
         filed
             .iter()
-            .any(|name| name.ends_with("Start a journal/src⁄cli⁄mod.rs")),
+            .any(|name| name.ends_with("Start a journal/src/cli/mod.rs")),
         "{filed:?}"
     );
     assert!(
@@ -352,9 +357,17 @@ fn arrange_files_operation_documents_under_the_revision_that_names_them() {
     assert!(
         filed
             .iter()
-            .any(|name| name.ends_with("Say more/src⁄cli⁄mod.rs.ops")),
+            .any(|name| name.ends_with("Say more/src/cli/mod.rs.ops")),
         "one path, two revisions, two directories: {filed:?}"
     );
+    // And the directories are real ones a person can open.
+    let journal = fs::read_dir(&operations)
+        .expect("the operations directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.to_string_lossy().ends_with("Start a journal"))
+        .expect("a directory per revision");
+    assert!(journal.join("src/cli").is_dir(), "{filed:?}");
     assert!(
         filed.iter().all(|name| !name.contains(".ops.ops")),
         "{filed:?}"
@@ -376,6 +389,84 @@ fn arrange_files_operation_documents_under_the_revision_that_names_them() {
 }
 
 #[test]
+fn a_payload_and_a_document_one_path_apart_are_parted_by_a_digest() {
+    let directory = repository("arrange-collision");
+    fs::create_dir_all(directory.join("notes")).expect("directories");
+    write(&directory, "notes/x", "the file\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+
+    // One revision that edits `notes/x` — filed as `notes/x.ops` — and adds a
+    // file actually called `notes/x.ops`, filed as itself. The only two names
+    // decision 0018 leaves that can still meet.
+    write(&directory, "notes/x", "the file, edited\n");
+    write(&directory, "notes/x.ops", "a file that is not a document\n");
+    out(recorded(&directory, &["record", "-m", "Both"]));
+    out(recorded(&directory, &["arrange"]));
+
+    let filed = walk_names(&directory.join("history/operations"));
+    let both: Vec<&String> = filed
+        .iter()
+        .filter(|name| name.contains("Both/notes/"))
+        .collect();
+    assert_eq!(both.len(), 2, "{filed:?}");
+    assert!(
+        both.iter().any(|name| name.ends_with(".ops")),
+        "the document keeps the extension that says it is one: {both:?}"
+    );
+    assert!(
+        both.iter()
+            .any(|name| name.contains("x.ops ") && !name.ends_with(".ops")),
+        "and the payload does not gain one: {both:?}"
+    );
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "{filed:?}"
+    );
+}
+
+#[test]
+fn a_file_where_another_needs_a_directory_yields_its_readable_name() {
+    // 0008 has no directories, so a history may hold both `notes` and
+    // `notes/photo.png`. No working copy can, which is why this store is built
+    // by hand — and no filesystem can file both under their own names either.
+    let directory = repository("arrange-file-and-directory");
+    let store = directory.join("history");
+    let short = fs::read(corpus("whole").join("operations/01-photo.png")).expect("a payload");
+    let long = fs::read(corpus("whole").join("operations/02-photo.png")).expect("a payload");
+    let short_id = historica::format::digest(&short);
+    let long_id = historica::format::digest(&long);
+    fs::write(store.join("operations").join(short_id.to_string()), &short).expect("a payload");
+    fs::write(store.join("operations").join(long_id.to_string()), &long).expect("a payload");
+
+    let revision = format!(
+        "historica-v1\n\
+         change qpvuntsmwlrkzxonmvtplsyq\n\
+         author Adam Harris <adam@example.com>\n\
+         when 2026-08-20T09:14:02-06:00\n\
+         add kkkkkkkkkkkkkkkkkkkkkkkk notes\n\
+         add llllllllllllllllllllllll notes/photo.png\n\
+         bytes kkkkkkkkkkkkkkkkkkkkkkkk {short_id}\n\
+         bytes llllllllllllllllllllllll {long_id}\n\
+         \n\
+         A file and a directory of one name\n"
+    );
+    fs::write(store.join("revisions").join("hand-written.rev"), &revision).expect("a revision");
+
+    out(recorded(&directory, &["arrange"]));
+    let filed = walk_names(&store.join("operations"));
+    assert!(
+        filed.iter().any(|name| name.ends_with("/notes/photo.png")),
+        "the longer path keeps its name: {filed:?}"
+    );
+    assert!(
+        filed
+            .iter()
+            .any(|name| name.ends_with(&format!("/{short_id}"))),
+        "and the file at the shorter path yields to its digest: {filed:?}"
+    );
+}
+
+#[test]
 fn arrange_tidies_the_directory_it_emptied_and_spares_the_one_it_did_not() {
     let directory = repository("arrange-tidy");
     write(&directory, "a.md", "one\n");
@@ -387,7 +478,9 @@ fn arrange_tidies_the_directory_it_emptied_and_spares_the_one_it_did_not() {
     let documents = walk_names(&operations);
     assert_eq!(documents.len(), 2, "{documents:?}");
 
-    let alone = operations.join("alone");
+    // The first is filed several directories deep, which decision 0018's
+    // upward tidy has to walk back out of.
+    let alone = operations.join("alone/and/deeper/still");
     let shared = operations.join("shared");
     fs::create_dir_all(&alone).expect("a directory");
     fs::create_dir_all(&shared).expect("a directory");
@@ -402,8 +495,8 @@ fn arrange_tidies_the_directory_it_emptied_and_spares_the_one_it_did_not() {
     // something is not: `remove_dir` refuses a directory that holds anything,
     // which is the whole of the guard.
     assert!(
-        !alone.exists(),
-        "an emptied directory should be tidied away"
+        !operations.join("alone").exists(),
+        "an emptied directory should be tidied away, and so should the ones above it"
     );
     assert!(shared.exists(), "a directory in use should be left alone");
     assert!(shared.join("notes.txt").exists());
