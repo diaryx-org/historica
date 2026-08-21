@@ -284,6 +284,13 @@ Choices that constrain later work are written down as they are made.
   — the folder a person browses: operation documents filed under the revision
   that names them, a walk that recurses to any depth and never follows a
   symbolic link, and the command that writes a `skip` rule.
+- [`docs/decisions/0017-content-that-arrives-whole.md`](docs/decisions/0017-content-that-arrives-whole.md)
+  — content no operation produced: a payload is a file of bytes named by its
+  digest, stored beside the documents it is not one of, so a created file is
+  itself in the store rather than a second copy with `+` down the left margin
+  and an image is an image. `text` and `bytes` say which, a file's kind is
+  fixed when it is added, and retiring `add` with `edit` is what makes this
+  `historica-v1`.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
