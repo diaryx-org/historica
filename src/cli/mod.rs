@@ -11,7 +11,7 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use historica::record::survey;
-use historica::store::{HEADER_FILE, Name, STORE_DIR, Store, StoreError};
+use historica::store::{Forgetting, HEADER_FILE, Name, STORE_DIR, Store, StoreError};
 use historica::working::{Rule, SKIPPED_FILE, Working};
 
 mod arrange;
@@ -46,6 +46,10 @@ writing a store
                            on it, with a tombstone that says why
   prune [--dry-run]        delete superseded revisions nothing stands on, and
                            content only they name, printing every file
+  forget <target> <path> --lines <first>..<last> [--dry-run]
+                           destroy those lines everywhere history quotes
+                           them, leaving their shape; the file's paths,
+                           authors, and times stay recorded
   identity <author>        say who you are, once, for every repository
   init [<dir>]             make a store in <dir>/history
   check [<dir>]            read a store and report every fault
@@ -170,6 +174,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "amend" => record::amend(locate(&base)?, rest),
         "abandon" => record::abandon(&base, locate(&base)?, rest),
         "prune" => prune(&base, rest),
+        "forget" => forget(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
         other => Err(Failure::usage(format!("there is no `{other}` command"))),
@@ -292,6 +297,122 @@ fn prune(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     })
 }
 
+/// `forget <target> <path> --lines <first>..<last> [--dry-run]`.
+///
+/// Decision 0014: destroy the payload, preserve the shape. The span is
+/// resolved at the named revision and every document quoting those items is
+/// rewritten as a forgetting document — which is why there is no `-m` here:
+/// the reason for a redaction is usually the redacted thing.
+fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut lines: Option<String> = None;
+    let mut dry_run = false;
+    let mut rest: Vec<String> = Vec::new();
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--lines" => {
+                lines = Some(arguments.next().ok_or_else(|| {
+                    Failure::usage("`--lines` wants a span, as `<first>..<last>`")
+                })?);
+            }
+            "-n" | "--dry-run" => dry_run = true,
+            other if other.starts_with('-') => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `forget` takes"
+                )));
+            }
+            other => rest.push(other.to_owned()),
+        }
+    }
+    let mut rest = rest.into_iter();
+    let spelling = rest
+        .next()
+        .ok_or_else(|| Failure::usage("`forget` wants a revision to read the span at"))?;
+    let path = rest
+        .next()
+        .ok_or_else(|| Failure::usage("`forget` wants a path"))?;
+    if let Some(extra) = rest.next() {
+        return Err(Failure::usage(format!(
+            "`forget` takes a target and one path, and `{extra}` is a third argument"
+        )));
+    }
+    let Some(lines) = lines else {
+        return Err(Failure::usage(
+            "`forget` wants `--lines <first>..<last>`: a redaction is exact, \
+             and the span is the whole request",
+        ));
+    };
+    let (first, last) = span(&lines)?;
+
+    let mut store = open(base)?;
+    let revision = target::resolve(&store, &spelling)?;
+    let file = target::file_in(&store, &revision, &path)?;
+    let forgetting = Forgetting {
+        revision,
+        file,
+        first,
+        last,
+    };
+
+    let plan = if dry_run {
+        store.forget_plan(&forgetting)
+    } else {
+        store.forget(&forgetting)
+    }
+    .map_err(Failure::error)?;
+
+    printing(|out| {
+        if plan.is_empty() {
+            return writeln!(
+                out,
+                "those lines are already forgotten everywhere they are quoted"
+            );
+        }
+        let (wrote, destroyed) = if dry_run {
+            ("would write", "would destroy")
+        } else {
+            ("wrote", "destroyed")
+        };
+        for document in &plan.writes {
+            writeln!(
+                out,
+                "{wrote} a forgetting document for {}",
+                document
+                    .forgets
+                    .expect("a stand-in names its target")
+                    .abbreviate(12)
+            )?;
+        }
+        for file in &plan.destroys {
+            writeln!(out, "{destroyed} {STORE_DIR}/{}", file.display())?;
+        }
+        // Decision 0014's "what forgetting cannot hide", said where the
+        // person is: a tool that implied otherwise would be worse than one
+        // that says nothing.
+        writeln!(
+            out,
+            "the shape and place of those lines, and the revisions around \
+             them, are still recorded; only the text is destroyed — and only \
+             on this replica until the forgetting documents sync"
+        )
+    })
+}
+
+/// A span of lines, as `--lines` spells it.
+fn span(spelled: &str) -> Result<(usize, usize), Failure> {
+    let malformed = || Failure::usage("a span is `<first>..<last>`, or one line number");
+    match spelled.split_once("..") {
+        Some((first, last)) => Ok((
+            first.parse().map_err(|_| malformed())?,
+            last.parse().map_err(|_| malformed())?,
+        )),
+        None => {
+            let line: usize = spelled.parse().map_err(|_| malformed())?;
+            Ok((line, line))
+        }
+    }
+}
+
 /// `status [--onto <target>] [--merge <target>]` — the folder against the store.
 ///
 /// Decision 0015. Reads the folder and the store, writes nothing, and mints
@@ -379,31 +500,34 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             // holds, and `show` prints whichever it used, byte for byte,
             // because the readable file is the authority.
             if let Some(operations) = document.edited.get(&file) {
-                store
-                    .operation(operations)
-                    .ok_or_else(|| {
+                match store.operation(operations) {
+                    Some(document) => document.write(),
+                    // Decision 0014: the bytes were destroyed, and what is
+                    // stored — and printed, byte for byte — is what stands
+                    // in for them.
+                    None => stands_in(&store, operations).ok_or_else(|| {
                         Failure::error(format!(
                             "{} names the operation document {operations}, \
                              which this store does not hold yet",
                             id.abbreviate(12)
                         ))
-                    })?
-                    .write()
+                    })?,
+                }
             } else if let Some(payload) = document
                 .text
                 .get(&file)
                 .or_else(|| document.bytes.get(&file))
             {
-                store
-                    .payload(payload)
-                    .map_err(Failure::error)?
-                    .ok_or_else(|| {
+                match store.payload(payload).map_err(Failure::error)? {
+                    Some(bytes) => bytes,
+                    None => stands_in(&store, payload).ok_or_else(|| {
                         Failure::error(format!(
                             "{} names the content {payload}, \
                              which this store does not hold yet",
                             id.abbreviate(12)
                         ))
-                    })?
+                    })?,
+                }
             } else {
                 return Err(Failure::error(format!(
                     "{} said nothing about {path}; `show {spelling}` lists what it did",
@@ -414,6 +538,23 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     };
 
     printing(|out| out.write_all(&document_bytes))
+}
+
+/// The stored bytes of whatever stands in for a destroyed document.
+///
+/// Several forgetting documents may name one digest — replicas redact
+/// independently — and each is a real file of the store, so each is printed.
+fn stands_in(store: &Store, target: &historica::core::RevisionId) -> Option<Vec<u8>> {
+    let standing = store.forgetting(target);
+    if standing.is_empty() {
+        return None;
+    }
+    Some(
+        standing
+            .iter()
+            .flat_map(|document| document.write())
+            .collect(),
+    )
 }
 
 /// `files <target>` — the file set, which is what the tree facts replay to.

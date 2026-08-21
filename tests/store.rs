@@ -60,7 +60,7 @@ fn init_creates_the_layout_and_open_finds_it() {
         assert!(root.join(directory).is_dir(), "{directory} should exist");
     }
     let header = fs::read_to_string(root.join("historica.txt")).expect("the header");
-    assert_eq!(header.lines().next(), Some("historica-v1"));
+    assert_eq!(header.lines().next(), Some("historica-v2"));
     assert!(header.contains("Identity comes from content"), "{header}");
     assert!(Store::init(&root).is_err(), "twice is an error");
 }
@@ -477,7 +477,7 @@ fn a_conflicted_copy_is_mentioned_and_forgiven() {
 fn a_store_of_an_unknown_version_refuses_rather_than_guesses() {
     let root = scratch("version").join("history");
     Store::init(&root).expect("a new store");
-    fs::write(root.join("historica.txt"), "historica-v2\n").expect("a newer store");
+    fs::write(root.join("historica.txt"), "historica-v3\n").expect("a newer store");
 
     assert!(Store::open(&root).is_err());
     let report = Store::check(&root);

@@ -168,6 +168,38 @@ pub enum Finding {
         /// What went wrong, as the replayer explains it.
         because: String,
     },
+    /// A document whose bytes were destroyed, with a forgetting document
+    /// standing in for it.
+    ///
+    /// A note, per decision 0014: the destruction is a recorded fact carried
+    /// out, and `check` can only do its accounting because the store says
+    /// which documents are *forgotten* rather than *lost* or *corrupt*.
+    Forgotten {
+        /// The destroyed document.
+        document: RevisionId,
+        /// A revision that names it.
+        named_by: RevisionId,
+    },
+    /// A document and a forgetting document naming it, both held.
+    ///
+    /// Decision 0013's deferred resurrection, arriving by sync: a pruned or
+    /// forgotten file that returns is not an error, and the union rule means
+    /// the redaction still wins.
+    Resurrected {
+        /// The document whose bytes are back.
+        document: RevisionId,
+    },
+    /// A document still quoting items another document says were destroyed.
+    ///
+    /// Mid-sync is a legitimate way to be in this state — a redaction that
+    /// has not finished arriving — and decision 0006's division is not worth
+    /// breaking for it.
+    StillQuoted {
+        /// The document still holding the bytes.
+        document: RevisionId,
+        /// The document whose destruction it undercuts.
+        forgets: RevisionId,
+    },
 }
 
 impl Finding {
@@ -192,7 +224,10 @@ impl Finding {
             | Finding::Unfollowed { .. }
             | Finding::MissingOperations { .. }
             | Finding::MissingPayload { .. }
-            | Finding::UnnamedPayload { .. } => Severity::Note,
+            | Finding::UnnamedPayload { .. }
+            | Finding::Forgotten { .. }
+            | Finding::Resurrected { .. }
+            | Finding::StillQuoted { .. } => Severity::Note,
         }
     }
 }
@@ -301,6 +336,27 @@ impl fmt::Display for Finding {
                 file,
                 because,
             } => write!(f, "{revision}, file {file}: {because}"),
+            Finding::Forgotten { document, named_by } => write!(
+                f,
+                "{} names {}, whose bytes were destroyed; a forgetting \
+                 document stands in for it",
+                named_by.abbreviate(12),
+                document.abbreviate(12)
+            ),
+            Finding::Resurrected { document } => write!(
+                f,
+                "{} was forgotten and its bytes are here again, probably by \
+                 sync; the redaction still holds, and `forget` run again \
+                 destroys them again",
+                document.abbreviate(12)
+            ),
+            Finding::StillQuoted { document, forgets } => write!(
+                f,
+                "{} still quotes items {} says were destroyed; a redaction \
+                 that has not finished arriving looks exactly like this",
+                document.abbreviate(12),
+                forgets.abbreviate(12)
+            ),
         }
     }
 }
@@ -386,7 +442,7 @@ pub(super) fn check(root: &Path) -> Report {
             // Decision 0021: the first line is the version, and the rest is
             // the note a person reads.
             let line = text.lines().next().unwrap_or_default().to_owned();
-            let known = [Version::V0, Version::V1]
+            let known = [Version::V0, Version::V1, Version::V2]
                 .iter()
                 .any(|version| line == version.preamble());
             if !known {
@@ -615,19 +671,45 @@ fn check_replay(
         parents.extend(document.parents.iter().copied());
     }
 
-    // The content each revision names, and whether it is here. A `text`
-    // payload is held to one rule of its own: it has to be UTF-8, because a
-    // later `edit` quotes its items into a document that is.
-    // Keyed by revision *and* file: one revision creates as many files as it
-    // likes, and each of them arrives with its own content.
-    let mut created: BTreeMap<(RevisionId, FileId), OperationDocument> = BTreeMap::new();
+    // What stands in for what, per decision 0014. A destroyed document with a
+    // forgetting document naming it is *forgotten*, which is neither *lost*
+    // nor *corrupt* — and the store saying which is what lets this report be
+    // exact about the difference.
+    let mut forgetting: BTreeMap<RevisionId, Vec<&OperationDocument>> = BTreeMap::new();
+    for document in operations.values() {
+        if let Some(target) = &document.forgets {
+            forgetting.entry(*target).or_default().push(document);
+        }
+    }
+    for target in forgetting.keys() {
+        if operations.contains_key(target) || payloads.contains_key(target) {
+            report.push(Finding::Resurrected { document: *target });
+        }
+    }
+
+    // The content each revision names, and whether it is here — effectively,
+    // redactions folded in. A `text` payload is held to one rule of its own:
+    // it has to be UTF-8, because a later `edit` quotes its items into a
+    // document that is. Keyed by revision *and* file: one revision creates as
+    // many files as it likes, and each of them arrives with its own content.
+    let mut held: BTreeMap<(RevisionId, FileId), OperationDocument> = BTreeMap::new();
     for (id, document) in documents {
-        for named in document.edited.values() {
-            if !operations.contains_key(named) {
-                report.push(Finding::MissingOperations {
+        for (file, named) in &document.edited {
+            let standing = forgetting.get(named).cloned().unwrap_or_default();
+            match crate::format::stand_in(operations.get(named), &standing) {
+                Some(effective) => {
+                    if !operations.contains_key(named) {
+                        report.push(Finding::Forgotten {
+                            document: *named,
+                            named_by: *id,
+                        });
+                    }
+                    held.insert((*id, *file), effective);
+                }
+                None => report.push(Finding::MissingOperations {
                     document: *named,
                     named_by: *id,
-                });
+                }),
             }
         }
         for named in document.bytes.values() {
@@ -639,33 +721,47 @@ fn check_replay(
             }
         }
         for (file, named) in &document.text {
-            let Some(path) = payloads.get(named) else {
-                report.push(Finding::MissingPayload {
-                    payload: *named,
-                    named_by: *id,
-                });
-                continue;
-            };
-            let bytes = match fs::read(path) {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    report.push(Finding::Unreadable {
-                        file: path.clone(),
-                        reason: error.to_string(),
+            let standing = forgetting.get(named).cloned().unwrap_or_default();
+            let base = match payloads.get(named) {
+                Some(path) => {
+                    let bytes = match fs::read(path) {
+                        Ok(bytes) => bytes,
+                        Err(error) => {
+                            report.push(Finding::Unreadable {
+                                file: path.clone(),
+                                reason: error.to_string(),
+                            });
+                            continue;
+                        }
+                    };
+                    match String::from_utf8(bytes) {
+                        Ok(text) => crate::replay::creation(&text),
+                        Err(_) => {
+                            report.push(Finding::PayloadNotText {
+                                payload: *named,
+                                named_by: *id,
+                            });
+                            continue;
+                        }
+                    }
+                }
+                None if standing.is_empty() => {
+                    report.push(Finding::MissingPayload {
+                        payload: *named,
+                        named_by: *id,
                     });
                     continue;
                 }
-            };
-            match String::from_utf8(bytes) {
-                Ok(text) => {
-                    if let Some(document) = crate::replay::creation(&text) {
-                        created.insert((*id, *file), document);
-                    }
+                None => {
+                    report.push(Finding::Forgotten {
+                        document: *named,
+                        named_by: *id,
+                    });
+                    None
                 }
-                Err(_) => report.push(Finding::PayloadNotText {
-                    payload: *named,
-                    named_by: *id,
-                }),
+            };
+            if let Some(effective) = crate::format::stand_in(base.as_ref(), &standing) {
+                held.insert((*id, *file), effective);
             }
         }
     }
@@ -685,6 +781,7 @@ fn check_replay(
         }
     }
 
+    let mut undercut: BTreeSet<(RevisionId, RevisionId)> = BTreeSet::new();
     for head in documents.keys().filter(|id| !parents.contains(id)) {
         let Some(reachable) = reachable(*head, documents) else {
             // A missing parent is already a note, and nothing here can decide
@@ -718,22 +815,71 @@ fn check_replay(
                 .map(|(id, document)| crate::merge::Event {
                     revision: *id,
                     parents: document.parents.iter().copied().collect(),
-                    operations: match document.edited.get(&file) {
-                        Some(named) => operations.get(named),
-                        // Decision 0017: a creation stated whole replays as
-                        // the document it is equivalent to, so what is checked
-                        // here is what a person materialising would get.
-                        None if document.text.contains_key(&file) => created.get(&(*id, file)),
-                        None => None,
-                    },
+                    // Decision 0017: a creation stated whole replays as the
+                    // document it is equivalent to, and decision 0014's
+                    // redactions are already folded in — what is checked here
+                    // is what a person materialising would get.
+                    operations: held.get(&(*id, file)),
                 })
                 .collect();
-            if let Err(error) = crate::merge::merge(events) {
-                report.push(Finding::ContentDisagrees {
+            match crate::merge::quotes(events) {
+                Err(error) => report.push(Finding::ContentDisagrees {
                     revision: *head,
                     file,
                     because: error.to_string(),
-                });
+                }),
+                Ok(quoted) => {
+                    still_quoted(documents, &held, &file, &quoted, &mut undercut);
+                }
+            }
+        }
+    }
+    for (document, forgets) in undercut {
+        report.push(Finding::StillQuoted { document, forgets });
+    }
+}
+
+/// Documents still holding bytes another document says were destroyed.
+///
+/// An item forgotten at one quote and legible at another is a redaction that
+/// has not finished arriving: `forget` rewrites every document that quotes a
+/// run, and sync delivers them one file at a time.
+fn still_quoted(
+    documents: &BTreeMap<RevisionId, RevisionDocument>,
+    held: &BTreeMap<(RevisionId, FileId), OperationDocument>,
+    file: &FileId,
+    quoted: &[crate::merge::Quoted],
+    undercut: &mut BTreeSet<(RevisionId, RevisionId)>,
+) {
+    let named_for = |revision: &RevisionId| {
+        let document = documents.get(revision)?;
+        document
+            .edited
+            .get(file)
+            .or_else(|| document.text.get(file))
+            .copied()
+    };
+    for item in quoted {
+        let mut sites: Vec<(RevisionId, bool)> = Vec::new();
+        if let Some(named) = named_for(&item.written_by) {
+            sites.push((named, item.forgotten));
+        }
+        for (revision, operation, at) in &item.deletes {
+            if let Some(named) = named_for(revision) {
+                let forgotten = held
+                    .get(&(*revision, *file))
+                    .map(|document| document.operations[*operation].items[*at].forgotten)
+                    .unwrap_or(false);
+                sites.push((named, forgotten));
+            }
+        }
+        let Some((forgets, _)) = sites.iter().find(|(_, forgotten)| *forgotten) else {
+            continue;
+        };
+        let forgets = *forgets;
+        for (document, forgotten) in sites {
+            if !forgotten && document != forgets {
+                undercut.insert((document, forgets));
             }
         }
     }

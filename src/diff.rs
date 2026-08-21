@@ -91,6 +91,7 @@ pub fn diff(parent: &State, child: &State) -> Option<OperationDocument> {
     }
     Some(OperationDocument {
         version: Version::CURRENT,
+        forgets: None,
         operations,
     })
 }
@@ -175,7 +176,7 @@ mod tests {
     fn a_files_first_version_is_one_insert_of_every_line() {
         assert_eq!(
             text("", "one\ntwo\n"),
-            "historica-v1\n\ninsert 0\n+one\n+two\n"
+            "historica-v2\n\ninsert 0\n+one\n+two\n"
         );
     }
 
@@ -184,7 +185,7 @@ mod tests {
         // Decision 0009 settling what 0007 spelled two ways.
         assert_eq!(
             text("a\nb\nc\n", "a\nB\nc\n"),
-            "historica-v1\n\ndelete 1 1\n-b\ninsert 1\n+B\n"
+            "historica-v2\n\ndelete 1 1\n-b\ninsert 1\n+B\n"
         );
     }
 
@@ -214,7 +215,7 @@ mod tests {
                 "first paragraph\n\nsecond paragraph\n",
                 "entirely new prose\n\nand more of it\n",
             ),
-            "historica-v1\n\n\
+            "historica-v2\n\n\
              delete 0 1\n-first paragraph\ninsert 0\n+entirely new prose\n\
              delete 2 1\n-second paragraph\ninsert 2\n+and more of it\n"
         );
@@ -226,17 +227,17 @@ mod tests {
         // in that item and is recorded as a rewrite of the last line.
         assert_eq!(
             text("one\ntwo", "one\ntwo\n"),
-            "historica-v1\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n"
+            "historica-v2\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n"
         );
         assert_eq!(
             text("one\ntwo\n", "one\ntwo"),
-            "historica-v1\n\ndelete 1 1\n-two\ninsert 1\n+two\n\\ no newline\n"
+            "historica-v2\n\ndelete 1 1\n-two\ninsert 1\n+two\n\\ no newline\n"
         );
         // Appending past an unterminated last line rewrites it, which is what
         // replay demands and what decision 0007's third question asked about.
         assert_eq!(
             text("one\ntwo", "one\ntwo\nthree\n"),
-            "historica-v1\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n+three\n"
+            "historica-v2\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n+three\n"
         );
     }
 
@@ -244,7 +245,7 @@ mod tests {
     fn a_carriage_return_is_content_and_survives_a_recording() {
         assert_eq!(
             text("a\r\nb\r\n", "a\r\nB\r\n"),
-            "historica-v1\n\ndelete 1 1\n-b\r\ninsert 1\n+B\r\n"
+            "historica-v2\n\ndelete 1 1\n-b\r\ninsert 1\n+B\r\n"
         );
     }
 

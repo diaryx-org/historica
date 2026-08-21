@@ -103,7 +103,7 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
     // tells whoever opens the folder what they are looking at.
     let header = fs::read_to_string(directory.join("history/historica.txt")).expect("the header");
     let mut lines = header.lines();
-    assert_eq!(lines.next(), Some("historica-v1"));
+    assert_eq!(lines.next(), Some("historica-v2"));
     assert!(header.contains("Identity comes from content"), "{header}");
     assert!(header.contains("revisions/"), "{header}");
     assert!(header.contains("cache/"), "{header}");

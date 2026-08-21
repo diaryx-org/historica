@@ -46,6 +46,15 @@ use super::{
 /// The line that says the item above it is the file's last and unterminated.
 pub const NO_NEWLINE: &str = "\\ no newline";
 
+/// The line that stands where a destroyed item stood.
+///
+/// Decision 0014: forgetting destroys payload and preserves shape, so a
+/// forgotten item keeps its position, its count, and its terminator, and this
+/// marker is what is left of its text. It is outside the item grammar on
+/// purpose — a person typing these characters writes `+\ forgotten`, and the
+/// two can never be confused.
+pub const FORGOTTEN: &str = "\\ forgotten";
+
 /// One item of a file: a line, and whether it ends with a newline.
 ///
 /// The terminator is not stored — it is the operation document's own newline —
@@ -54,10 +63,17 @@ pub const NO_NEWLINE: &str = "\\ no newline";
 /// thing people have and this is content rather than the format's own line.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Item {
-    /// The line's bytes, terminator excluded.
+    /// The line's bytes, terminator excluded. Empty for a forgotten item,
+    /// whose bytes were destroyed.
     pub text: String,
     /// Whether the line ends with a newline. False only for a file's last line.
     pub terminated: bool,
+    /// Whether this item's text was destroyed, per decision 0014.
+    ///
+    /// A forgotten item still has its position, its count, and its
+    /// terminator, because those are shape and shape is what a redaction
+    /// preserves.
+    pub forgotten: bool,
 }
 
 impl Item {
@@ -66,6 +82,7 @@ impl Item {
         Self {
             text: text.into(),
             terminated: true,
+            forgotten: false,
         }
     }
 
@@ -74,16 +91,55 @@ impl Item {
         Self {
             text: text.into(),
             terminated: false,
+            forgotten: false,
+        }
+    }
+
+    /// An item whose text was destroyed. The terminator survives, as shape.
+    pub fn forgotten() -> Self {
+        Self {
+            text: String::new(),
+            terminated: true,
+            forgotten: true,
+        }
+    }
+
+    /// This item with its text destroyed, keeping its terminator.
+    #[must_use]
+    pub fn forgetting(&self) -> Self {
+        Self {
+            text: String::new(),
+            terminated: self.terminated,
+            forgotten: true,
+        }
+    }
+
+    /// What this item shows a reader: its text, or the mark of its absence.
+    pub fn shown(&self) -> &str {
+        if self.forgotten {
+            FORGOTTEN
+        } else {
+            &self.text
         }
     }
 
     /// The bytes this item contributes to the file, terminator included.
     pub fn bytes(&self) -> Vec<u8> {
-        let mut out = self.text.clone().into_bytes();
+        let mut out = self.shown().as_bytes().to_vec();
         if self.terminated {
             out.push(b'\n');
         }
         out
+    }
+
+    /// Whether a quoted item holds against the item actually found.
+    ///
+    /// Decision 0014: a forgotten item matches whatever stands at its
+    /// position, because the redundancy its text paid for is exactly what was
+    /// destroyed. The terminator is still held, because that is shape.
+    pub fn matches(&self, found: &Item) -> bool {
+        self.terminated == found.terminated
+            && (self.forgotten || found.forgotten || self.text == found.text)
     }
 }
 
@@ -173,6 +229,15 @@ impl Operation {
 pub struct OperationDocument {
     /// The version this document was written under, and is written back as.
     pub version: Version,
+    /// The document this one stands in for, whose bytes were destroyed.
+    ///
+    /// Decision 0014: a forgetting document states the same operations at the
+    /// same positions with the same counts, replaces the items it forgets
+    /// with a marker, and is stored under its own digest — so no file ever
+    /// lies about its own name. A revision's `edit` line still names the
+    /// destroyed digest, and a reader that cannot find it looks for a
+    /// document that says it `forgets` it.
+    pub forgets: Option<RevisionId>,
     /// What the revision did, in position order. Never empty.
     pub operations: Vec<Operation>,
 }
@@ -186,6 +251,7 @@ impl OperationDocument {
         Parser {
             lines: Lines::new(text),
             markers: Vec::new(),
+            version: Version::V0,
         }
         .run()
     }
@@ -201,7 +267,11 @@ impl OperationDocument {
 
         let mut out = String::new();
         out.push_str(self.version.preamble());
-        out.push_str("\n\n");
+        out.push('\n');
+        if let Some(forgets) = &self.forgets {
+            out.push_str(&format!("forgets {forgets}\n"));
+        }
+        out.push('\n');
         for operation in order {
             match operation.kind {
                 OperationKind::Delete => {
@@ -214,8 +284,14 @@ impl OperationDocument {
                 OperationKind::Insert => out.push_str(&format!("insert {}\n", operation.at)),
             }
             for item in &operation.items {
-                out.push(operation.kind.prefix());
-                out.push_str(&item.text);
+                if item.forgotten {
+                    // The marker stands where the prefixed line stood, one
+                    // per destroyed item: shape without payload.
+                    out.push_str(FORGOTTEN);
+                } else {
+                    out.push(operation.kind.prefix());
+                    out.push_str(&item.text);
+                }
                 out.push('\n');
                 if !item.terminated {
                     out.push_str(NO_NEWLINE);
@@ -242,6 +318,63 @@ impl fmt::Display for OperationDocument {
     }
 }
 
+/// The document a reader consumes for one digest, given what the store holds.
+///
+/// Decision 0014's union rule: **an item is forgotten if any held forgetting
+/// document forgets it.** That is monotone, order-independent, and
+/// idempotent, which is the same reason set union was the right merge for the
+/// history itself — and it fails safe, since a stale replica syncing back a
+/// less thorough redaction cannot un-forget anything.
+///
+/// `base` is the original document, where the store still holds it; with the
+/// original destroyed, the first forgetting document is the shape and the
+/// rest union into it. A forgetting document whose shape disagrees is set
+/// aside rather than merged, and `check` is where that is reported.
+pub fn stand_in(
+    base: Option<&OperationDocument>,
+    forgetting: &[&OperationDocument],
+) -> Option<OperationDocument> {
+    let mut effective = match base {
+        Some(document) => document.clone(),
+        None => (*forgetting.first()?).clone(),
+    };
+    for document in forgetting {
+        if !same_shape(&effective, document) {
+            continue;
+        }
+        for (stated, held) in document.operations.iter().zip(&mut effective.operations) {
+            for (item, kept) in stated.items.iter().zip(&mut held.items) {
+                if item.forgotten && !kept.forgotten {
+                    *kept = kept.forgetting();
+                }
+            }
+        }
+    }
+    Some(effective)
+}
+
+/// Whether two documents state the same operations, payload aside.
+///
+/// Shape is what a forgetting document preserves: kinds, positions, counts,
+/// and terminators. Text is exactly what it does not.
+fn same_shape(left: &OperationDocument, right: &OperationDocument) -> bool {
+    left.operations.len() == right.operations.len()
+        && left
+            .operations
+            .iter()
+            .zip(&right.operations)
+            .all(|(mine, theirs)| {
+                mine.kind == theirs.kind
+                    && mine.at == theirs.at
+                    && mine.items.len() == theirs.items.len()
+                    && mine
+                        .items
+                        .iter()
+                        .zip(&theirs.items)
+                        .all(|(a, b)| a.terminated == b.terminated)
+            })
+}
+
 /// Where one `\ no newline` marker was, so a misplaced one can name its line.
 struct Marker {
     operation: usize,
@@ -253,6 +386,7 @@ struct Marker {
 struct Parser<'a> {
     lines: Lines<'a>,
     markers: Vec<Marker>,
+    version: Version,
 }
 
 impl Parser<'_> {
@@ -262,6 +396,12 @@ impl Parser<'_> {
         };
         carriage_return(line, 1)?;
         let version = check_preamble(line, terminated)?;
+        self.version = version;
+
+        // The one header this document may carry, per decision 0014: which
+        // document this one stands in for. Read before the separator, where a
+        // revision document's headers sit.
+        let forgets = self.forgets()?;
 
         // The blank line is mandatory though no header precedes it: both
         // documents in the format open the same way, so a person learns one
@@ -286,8 +426,46 @@ impl Parser<'_> {
         self.check_markers(&operations)?;
         Ok(OperationDocument {
             version,
+            forgets,
             operations,
         })
+    }
+
+    /// The `forgets` header, if the next line is one.
+    fn forgets(&mut self) -> Result<Option<RevisionId>, ParseError> {
+        let mark = self.lines.mark();
+        let Some((line, terminated)) = self.lines.next() else {
+            return Ok(None);
+        };
+        let Some(value) = line.strip_prefix("forgets ") else {
+            self.lines.reset(mark);
+            return Ok(None);
+        };
+        let at = self.lines.line;
+        if !terminated {
+            return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
+        }
+        carriage_return(line, at)?;
+        if self.version < Version::V2 {
+            return Err(ParseError::new(
+                at,
+                ParseErrorKind::HeaderNeedsVersion {
+                    key: "forgets".to_owned(),
+                    found: self.version,
+                    needs: Version::V2,
+                },
+            ));
+        }
+        let forgets = value.parse().map_err(|_| {
+            ParseError::new(
+                at,
+                ParseErrorKind::MalformedDigest {
+                    key: "forgets",
+                    found: value.to_owned(),
+                },
+            )
+        })?;
+        Ok(Some(forgets))
     }
 
     fn operations(&mut self) -> Result<Vec<Operation>, ParseError> {
@@ -386,6 +564,29 @@ impl Parser<'_> {
                     self.lines.line,
                     ParseErrorKind::NoNewlineWithoutItem,
                 ));
+            }
+            // Decision 0014: the marker stands where a prefixed line stood,
+            // one per destroyed item, so here it is one item.
+            if line == FORGOTTEN {
+                if !terminated {
+                    return Err(ParseError::new(
+                        self.lines.line,
+                        ParseErrorKind::UnterminatedLine,
+                    ));
+                }
+                if self.version < Version::V2 {
+                    return Err(ParseError::new(
+                        self.lines.line,
+                        ParseErrorKind::HeaderNeedsVersion {
+                            key: FORGOTTEN.to_owned(),
+                            found: self.version,
+                            needs: Version::V2,
+                        },
+                    ));
+                }
+                items.push(Item::forgotten());
+                self.marker(kind, operation, items.len() - 1, &mut items)?;
+                continue;
             }
             if !line.starts_with(prefix) {
                 self.lines.reset(mark);
@@ -609,6 +810,7 @@ mod tests {
         // writer puts them back into the one order that parses.
         let reversed = OperationDocument {
             version: Version::CURRENT,
+            forgets: None,
             operations: document.operations.iter().rev().cloned().collect(),
         };
         assert_eq!(reversed.write(), document.write());
@@ -825,11 +1027,11 @@ mod tests {
             Version::V0
         );
         assert_eq!(
-            OperationDocument::parse(b"historica-v2\n\ninsert 0\n+a\n")
+            OperationDocument::parse(b"historica-v3\n\ninsert 0\n+a\n")
                 .expect_err("a later version")
                 .kind,
             ParseErrorKind::UnknownVersion {
-                found: "2".to_owned()
+                found: "3".to_owned()
             }
         );
         assert_eq!(

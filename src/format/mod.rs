@@ -44,7 +44,9 @@ mod operations;
 mod timestamp;
 
 pub use error::{ParseError, ParseErrorKind};
-pub use operations::{Item, NO_NEWLINE, Operation, OperationDocument, OperationKind};
+pub use operations::{
+    FORGOTTEN, Item, NO_NEWLINE, Operation, OperationDocument, OperationKind, stand_in,
+};
 pub use timestamp::{MalformedTimestamp, Timestamp};
 
 /// The preamble a writer emits: the current version, per decision 0017.
@@ -74,17 +76,21 @@ pub enum Version {
     /// `text` or `bytes`.
     #[default]
     V1,
+    /// Decision 0014: forgetting — the `forgets` header, and the
+    /// `\ forgotten` marker standing where a destroyed item stood.
+    V2,
 }
 
 impl Version {
     /// The version a writer emits. Everything else it merely reads.
-    pub const CURRENT: Version = Version::V1;
+    pub const CURRENT: Version = Version::V2;
 
     /// The preamble line a document of this version opens with.
     pub const fn preamble(self) -> &'static str {
         match self {
             Version::V0 => "historica-v0",
             Version::V1 => "historica-v1",
+            Version::V2 => "historica-v2",
         }
     }
 
@@ -93,6 +99,7 @@ impl Version {
         match self {
             Version::V0 => 0,
             Version::V1 => 1,
+            Version::V2 => 2,
         }
     }
 }
@@ -359,6 +366,7 @@ fn check_preamble(line: &str, terminated: bool) -> Result<Version, ParseError> {
     let version = match line {
         line if line == Version::V0.preamble() => Version::V0,
         line if line == Version::V1.preamble() => Version::V1,
+        line if line == Version::V2.preamble() => Version::V2,
         line => {
             let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
                 ParseErrorKind::UnknownVersion {

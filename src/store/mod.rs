@@ -44,9 +44,11 @@ use crate::tree::{self, Kind, MergedTree, Tree, TreeError};
 use crate::working::{MalformedSkip, Rule, SKIPPED_FILE, Skipped};
 
 mod check;
+mod forget;
 mod prune;
 
 pub use check::{Finding, Report, Severity};
+pub use forget::{ForgetError, Forgetting, Forgotten};
 pub use prune::Pruned;
 
 /// The directory a store lives in, relative to the repository root.
@@ -422,6 +424,28 @@ impl Store {
         self.operations.get(id)
     }
 
+    /// Every held forgetting document standing in for `target`.
+    ///
+    /// Decision 0014: a revision's `edit` line still names the destroyed
+    /// digest, and a reader that cannot find it looks for a document that
+    /// says it `forgets` it.
+    pub fn forgetting(&self, target: &RevisionId) -> Vec<&OperationDocument> {
+        self.operations
+            .values()
+            .filter(|document| document.forgets == Some(*target))
+            .collect()
+    }
+
+    /// The document a reader consumes for one digest.
+    ///
+    /// The original where the store holds it, with decision 0014's union rule
+    /// folded over every forgetting document that names it: an item is
+    /// forgotten if any of them forgets it. `None` when the store holds
+    /// neither the document nor anything standing in for it.
+    pub fn effective_operation(&self, named: &RevisionId) -> Option<OperationDocument> {
+        crate::format::stand_in(self.operations.get(named), &self.forgetting(named))
+    }
+
     /// Every operation document, in digest order.
     pub fn operations(&self) -> impl Iterator<Item = (&RevisionId, &OperationDocument)> {
         self.operations.iter()
@@ -579,36 +603,14 @@ impl Store {
             .copied()
             .unwrap_or_else(|| RevisionId::from_bytes([0; crate::core::REVISION_ID_LEN]));
 
-        // A `text` payload is exactly the document that inserts every line at
-        // 0, so it is turned into one here and the merge never learns that a
-        // creation has two spellings. The synthesised documents are collected
-        // first because the events borrow them.
-        let mut created: BTreeMap<RevisionId, Option<OperationDocument>> = BTreeMap::new();
-        for document in &reachable {
-            let Some(payload) = document.text.get(file) else {
-                continue;
-            };
-            let revision = document.id();
-            let text = self.payload_text(payload, revision)?;
-            created.insert(revision, replay::creation(&text));
-        }
-
+        let held = self.effective_for(&reachable, file)?;
         let mut events = Vec::with_capacity(reachable.len());
         for document in reachable {
             let revision = document.id();
-            let operations = match document.edited.get(file) {
-                Some(named) => Some(self.operations.get(named).ok_or(
-                    MaterialiseError::MissingOperations {
-                        document: *named,
-                        named_by: revision,
-                    },
-                )?),
-                None => created.get(&revision).and_then(Option::as_ref),
-            };
             events.push(merge::Event {
                 revision,
                 parents: document.parents.iter().copied().collect(),
-                operations,
+                operations: held.get(&revision),
             });
         }
         merge::merge(events).map_err(|error| MaterialiseError::Merge {
@@ -627,26 +629,80 @@ impl Store {
         Ok(self.merged_content(head, file)?.state)
     }
 
-    /// One payload as text, refusing bytes no operation document could quote.
-    fn payload_text(
+    /// What each of these revisions effectively did to one file.
+    ///
+    /// Owned, because the merge may consume documents the store never held
+    /// as bytes: a forgetting document changes what a stored document says
+    /// (decision 0014), and a `text` payload is exactly the document that
+    /// inserts every line at 0 (decision 0017) — and the merge never learns
+    /// which spelling it was handed.
+    pub(crate) fn effective_for(
+        &self,
+        documents: &[&RevisionDocument],
+        file: &FileId,
+    ) -> Result<BTreeMap<RevisionId, OperationDocument>, MaterialiseError> {
+        let mut held: BTreeMap<RevisionId, OperationDocument> = BTreeMap::new();
+        for document in documents {
+            let revision = document.id();
+            if let Some(named) = document.edited.get(file) {
+                let effective =
+                    self.effective_operation(named)
+                        .ok_or(MaterialiseError::MissingOperations {
+                            document: *named,
+                            named_by: revision,
+                        })?;
+                held.insert(revision, effective);
+            } else if let Some(payload) = document.text.get(file)
+                && let Some(creation) = self.creation_for(payload, revision)?
+            {
+                held.insert(revision, creation);
+            }
+        }
+        Ok(held)
+    }
+
+    /// The creation document a `text` payload is equivalent to, redactions
+    /// folded in.
+    ///
+    /// Decision 0014 meets 0017 here: a created file's lines are items too,
+    /// so forgetting one destroys the payload and leaves a forgetting
+    /// document naming its digest — the shape of the creation, minus the
+    /// destroyed lines. A payload that is missing with nothing standing in
+    /// for it is still [`MaterialiseError::MissingPayload`], because
+    /// transport having more to deliver is ordinary and destruction is
+    /// recorded.
+    fn creation_for(
         &self,
         payload: &RevisionId,
         named_by: RevisionId,
-    ) -> Result<String, MaterialiseError> {
+    ) -> Result<Option<OperationDocument>, MaterialiseError> {
         let bytes = self
             .payload(payload)
             .map_err(|error| MaterialiseError::Unreadable {
                 payload: *payload,
                 because: error.to_string(),
-            })?
-            .ok_or(MaterialiseError::MissingPayload {
+            })?;
+        let base = match bytes {
+            Some(bytes) => {
+                let text =
+                    String::from_utf8(bytes).map_err(|_| MaterialiseError::PayloadNotText {
+                        payload: *payload,
+                        named_by,
+                    })?;
+                replay::creation(&text)
+            }
+            None => None,
+        };
+        let forgetting = self.forgetting(payload);
+        if base.is_none() && forgetting.is_empty() {
+            // An empty payload is never named (decision 0017), so a named
+            // payload with no bytes and no stand-in is one nothing delivered.
+            return Err(MaterialiseError::MissingPayload {
                 payload: *payload,
                 named_by,
-            })?;
-        String::from_utf8(bytes).map_err(|_| MaterialiseError::PayloadNotText {
-            payload: *payload,
-            named_by,
-        })
+            });
+        }
+        Ok(crate::format::stand_in(base.as_ref(), &forgetting))
     }
 
     /// What one file holds at `head`, whichever kind of file it is.
@@ -976,7 +1032,7 @@ fn read_version(root: &Path) -> Result<Version, StoreError> {
     // prose for whoever opens the folder. Nothing hashes this file, so a person
     // may write what they like there.
     let line = text.lines().next().unwrap_or_default();
-    for version in [Version::V0, Version::V1] {
+    for version in [Version::V0, Version::V1, Version::V2] {
         if line == version.preamble() {
             return Ok(version);
         }

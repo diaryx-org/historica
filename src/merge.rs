@@ -111,6 +111,62 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Merged, 
     walk(&graph, &order)
 }
 
+/// One item of one file, and everywhere its bytes are quoted.
+///
+/// Decision 0014: a paragraph inserted by revision *R* and deleted by
+/// revision *S* has its bytes in two documents — *R*'s insert, and *S*'s
+/// delete, which quotes it verbatim so replay can check itself. `forget`
+/// walks the file's history for every one of those quotes, and this is that
+/// walk's result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Quoted {
+    /// The revision that wrote the item.
+    pub written_by: RevisionId,
+    /// Which operation and item of that revision's document wrote it.
+    pub write: (usize, usize),
+    /// Every deletion quoting it: the deleting revision, and which operation
+    /// and item of its document hold the quote.
+    pub deletes: Vec<(RevisionId, usize, usize)>,
+    /// Whether the item's text is already destroyed where it was written.
+    pub forgotten: bool,
+    /// Whether the item is in the merged file, or a tombstone.
+    pub visible: bool,
+}
+
+/// Every item every event ever wrote to one file, in reading order.
+///
+/// Tombstones included, because a forgotten paragraph is usually one somebody
+/// deleted. The visible items, in order, are the merged file — the same one
+/// [`merge`] returns.
+pub fn quotes<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Vec<Quoted>, MergeError> {
+    let graph = Graph::new(events.into_iter().collect())?;
+    let order = graph.order.clone();
+    let mut tree = Tree::default();
+    for event in &order {
+        tree.replay(&graph, *event)?;
+    }
+    Ok(tree
+        .order()
+        .into_iter()
+        .map(|at| {
+            let element = &tree.elements[at];
+            Quoted {
+                written_by: graph.events[element.author].revision,
+                write: element.wrote,
+                deletes: element
+                    .deleted_by
+                    .iter()
+                    .map(|(event, (operation, item))| {
+                        (graph.events[*event].revision, *operation, *item)
+                    })
+                    .collect(),
+                forgotten: element.item.forgotten,
+                visible: element.deleted_by.is_empty(),
+            }
+        })
+        .collect())
+}
+
 /// Replay a graph in one causal order.
 ///
 /// Which order is a matter of taste and not of result: an element's place in
@@ -236,8 +292,15 @@ struct Element {
     item: Item,
     /// The event that wrote it.
     author: usize,
-    /// Every event that removed it. Concurrent deletions agree.
-    deleted_by: BTreeSet<usize>,
+    /// Which operation and item of its author's document wrote it.
+    ///
+    /// `id` cannot say: two operations of one document can spell one index.
+    /// `forget` needs the exact line of the exact document, because that is
+    /// what it destroys.
+    wrote: (usize, usize),
+    /// Every event that removed it, and where in that event's document the
+    /// removal quotes it. Concurrent deletions agree.
+    deleted_by: BTreeMap<usize, (usize, usize)>,
     left: Vec<usize>,
     right: Vec<usize>,
 }
@@ -287,7 +350,7 @@ impl Tree {
             .filter(|at| {
                 let element = &self.elements[*at];
                 seen.contains(&element.author)
-                    && !element.deleted_by.iter().any(|by| seen.contains(by))
+                    && !element.deleted_by.keys().any(|by| seen.contains(by))
             })
             .collect()
     }
@@ -329,7 +392,10 @@ impl Tree {
                     for (offset, recorded) in operation.items.iter().enumerate() {
                         let target = prepare[at + offset];
                         let found = &self.elements[target].item;
-                        if recorded != found {
+                        // A forgotten item on either side matches, per
+                        // decision 0014: the redundancy its text paid for is
+                        // exactly what was destroyed.
+                        if !recorded.matches(found) {
                             return Err(MergeError::ItemDisagrees {
                                 revision,
                                 position: at + offset,
@@ -337,7 +403,9 @@ impl Tree {
                                 found: found.text.clone(),
                             });
                         }
-                        self.elements[target].deleted_by.insert(event);
+                        self.elements[target]
+                            .deleted_by
+                            .insert(event, (index, offset));
                     }
                 }
                 OperationKind::Insert => {
@@ -357,6 +425,7 @@ impl Tree {
                             (revision, index + offset),
                             item.clone(),
                             event,
+                            (index, offset),
                             parent,
                             side,
                         ));
@@ -403,6 +472,7 @@ impl Tree {
         id: (RevisionId, usize),
         item: Item,
         author: usize,
+        wrote: (usize, usize),
         parent: Option<usize>,
         side: Side,
     ) -> usize {
@@ -411,7 +481,8 @@ impl Tree {
             id,
             item,
             author,
-            deleted_by: BTreeSet::new(),
+            wrote,
+            deleted_by: BTreeMap::new(),
             left: Vec::new(),
             right: Vec::new(),
         });
@@ -512,7 +583,7 @@ impl Tree {
                 continue;
             }
             if let Some(previous) = before {
-                for by in &element.deleted_by {
+                for by in element.deleted_by.keys() {
                     if graph.concurrent(self.elements[previous].author, *by) {
                         mark(
                             &mut found,
@@ -523,7 +594,7 @@ impl Tree {
                     }
                 }
             }
-            pending.extend(element.deleted_by.iter().copied());
+            pending.extend(element.deleted_by.keys().copied());
         }
         found
     }

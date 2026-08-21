@@ -63,6 +63,17 @@ impl Store {
             referenced.extend(document.text.values().copied());
             referenced.extend(document.bytes.values().copied());
         }
+        // A forgetting document is named indirectly: the revision's `edit`
+        // line still names the destroyed digest, and the forgetting document
+        // is what answers for it (decision 0014). It stays while what it
+        // stands in for is named.
+        for (id, document) in &self.operations {
+            if let Some(forgets) = &document.forgets
+                && referenced.contains(forgets)
+            {
+                referenced.insert(*id);
+            }
+        }
 
         // Files are found by content, never by name: two copies of one
         // deleted revision are both that revision, wherever they sit and
@@ -159,8 +170,8 @@ impl Store {
         }
     }
 
-    /// One of this store's paths, said as `prune` prints it.
-    fn relative(&self, path: &Path) -> PathBuf {
+    /// One of this store's paths, said as `prune` and `forget` print it.
+    pub(super) fn relative(&self, path: &Path) -> PathBuf {
         path.strip_prefix(&self.root)
             .map(Path::to_path_buf)
             .unwrap_or_else(|_| path.to_path_buf())
@@ -179,7 +190,7 @@ fn push_unique(ids: &mut Vec<RevisionId>, id: RevisionId) {
 /// A directory is presentation exactly as a filename is, and one that held
 /// only what pruning removed now presents nothing. Symbolic links are not
 /// descended into, on `walk`'s reasoning.
-fn remove_empty_directories(directory: &Path) -> Result<bool, StoreError> {
+pub(super) fn remove_empty_directories(directory: &Path) -> Result<bool, StoreError> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),

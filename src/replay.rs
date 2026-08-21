@@ -39,6 +39,7 @@ pub fn creation(text: &str) -> Option<OperationDocument> {
     }
     Some(OperationDocument {
         version: Version::CURRENT,
+        forgets: None,
         operations: vec![Operation::insert(0, items)],
     })
 }
@@ -83,10 +84,14 @@ impl State {
     }
 
     /// The file's bytes.
+    ///
+    /// A forgotten item shows the `\ forgotten` marker, per decision 0014:
+    /// the file has it where a run of lines used to be, and nothing else in
+    /// the history moves.
     pub fn text(&self) -> String {
         let mut out = String::new();
         for item in &self.items {
-            out.push_str(&item.text);
+            out.push_str(item.shown());
             if item.terminated {
                 out.push('\n');
             }
@@ -213,18 +218,22 @@ pub fn replay<'a>(
 }
 
 /// Hold a recorded item against the one the parent actually has.
+///
+/// A forgotten item on either side matches, per decision 0014: the
+/// redundancy the text paid for is exactly what was destroyed. The
+/// terminator is still held, because that is shape.
 fn agrees(position: usize, recorded: &Item, found: &Item) -> Result<(), ReplayError> {
-    if recorded.text != found.text {
-        return Err(ReplayError::ItemDisagrees {
-            position,
-            recorded: recorded.text.clone(),
-            found: found.text.clone(),
-        });
-    }
     if recorded.terminated != found.terminated {
         return Err(ReplayError::TerminatorDisagrees {
             position,
             recorded: recorded.terminated,
+        });
+    }
+    if !recorded.matches(found) {
+        return Err(ReplayError::ItemDisagrees {
+            position,
+            recorded: recorded.text.clone(),
+            found: found.text.clone(),
         });
     }
     Ok(())
@@ -533,6 +542,7 @@ mod tests {
         let canonical = document(&["delete 0 1", "-a", "insert 3", "+z"]);
         let scrambled = OperationDocument {
             version: Version::CURRENT,
+            forgets: None,
             operations: canonical.operations.iter().rev().cloned().collect(),
         };
         let parent = State::from_text("a\nb\nc\n");
