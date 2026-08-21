@@ -57,10 +57,30 @@ pub const OPERATIONS_DIR: &str = "operations";
 pub const NAMES_DIR: &str = "names";
 /// Derived, disposable, and deletable without loss.
 pub const CACHE_DIR: &str = "cache";
-/// The extension that is a file's claim to be a revision.
-pub const REVISION_EXT: &str = "rev";
-/// The extension that is a file's claim to be an operation document.
-pub const OPERATION_EXT: &str = "ops";
+/// The suffix a writer puts on a revision document.
+///
+/// Decision 0020: the claim that says which kind of document this is comes
+/// first, and the claim that says it is text comes last, where an operating
+/// system reads it.
+pub const REVISION_SUFFIX: &str = ".rev.txt";
+/// The suffix a writer puts on an operation document.
+pub const OPERATION_SUFFIX: &str = ".ops.txt";
+/// Every suffix that is a file's claim to be a revision document.
+///
+/// The older one is read permanently, which is decision 0004's asymmetry
+/// applied to a filename rule: a store written before 0020 must not quietly
+/// stop having documents in it.
+pub const REVISION_SUFFIXES: [&str; 2] = [REVISION_SUFFIX, ".rev"];
+/// Every suffix that is a file's claim to be an operation document.
+pub const OPERATION_SUFFIXES: [&str; 2] = [OPERATION_SUFFIX, ".ops"];
+
+/// Whether a file's name claims it is one of this format's documents.
+pub fn claims(path: &Path, suffixes: &[&str]) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    suffixes.iter().any(|suffix| name.ends_with(suffix))
+}
 
 /// What a bookmark points at.
 ///
@@ -188,7 +208,7 @@ impl Store {
         let version = read_version(&root)?;
 
         let mut documents = BTreeMap::new();
-        for path in files_with_extension(&root, REVISIONS_DIR, REVISION_EXT)? {
+        for path in files_claiming(&root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
             let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
             let document =
                 RevisionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
@@ -202,7 +222,7 @@ impl Store {
         }
 
         let mut operations = BTreeMap::new();
-        for path in files_with_extension(&root, OPERATIONS_DIR, OPERATION_EXT)? {
+        for path in files_claiming(&root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
             let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
             let document =
                 OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
@@ -598,7 +618,7 @@ impl Store {
     /// one revision produce one file.
     pub fn insert(&mut self, document: &RevisionDocument) -> Result<RevisionId, StoreError> {
         let id = digest(&document.write());
-        self.insert_at(document, &format!("{id}.{REVISION_EXT}"))
+        self.insert_at(document, &format!("{id}{REVISION_SUFFIX}"))
     }
 
     /// Write a revision into the store under `name`, within `revisions/`.
@@ -632,7 +652,7 @@ impl Store {
         document: &OperationDocument,
     ) -> Result<RevisionId, StoreError> {
         let id = digest(&document.write());
-        self.insert_operation_at(document, &format!("{id}.{OPERATION_EXT}"))
+        self.insert_operation_at(document, &format!("{id}{OPERATION_SUFFIX}"))
     }
 
     /// Write an operation document under `name`, within `operations/`.
@@ -912,22 +932,23 @@ pub fn walk(root: &Path, directory: &str) -> Result<Walk, StoreError> {
 /// claim to be a document — read from the other side.
 fn payload_files(root: &Path) -> Result<Vec<PathBuf>, StoreError> {
     let mut paths = walk(root, OPERATIONS_DIR)?.files;
-    paths.retain(|path| path.extension().is_none_or(|found| found != OPERATION_EXT));
+    paths.retain(|path| !claims(path, &OPERATION_SUFFIXES));
     Ok(paths)
 }
 
-/// Every file claiming one extension, at any depth.
+/// Every file making one of these claims, at any depth.
 ///
-/// The extension is the one syllable of a filename that means anything: it is
-/// the file's claim to be a revision or an operation document, and everything
-/// else about the name is ignored.
-fn files_with_extension(
+/// The suffix is the one part of a filename that means anything: it is the
+/// file's claim to be a revision or an operation document, and everything else
+/// about the name is ignored. Matched as a suffix rather than with
+/// `Path::extension`, which sees only the last of a two-part one.
+fn files_claiming(
     root: &Path,
     directory: &str,
-    extension: &str,
+    suffixes: &[&str],
 ) -> Result<Vec<PathBuf>, StoreError> {
     let mut paths = walk(root, directory)?.files;
-    paths.retain(|path| path.extension().is_some_and(|found| found == extension));
+    paths.retain(|path| claims(path, suffixes));
     Ok(paths)
 }
 

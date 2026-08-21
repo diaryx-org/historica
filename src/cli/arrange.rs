@@ -20,7 +20,9 @@ use std::path::Path;
 use historica::core::RevisionId;
 use historica::format::digest;
 use historica::naming::{self, Filing};
-use historica::store::{OPERATIONS_DIR, REVISION_EXT, REVISIONS_DIR, Store};
+use historica::store::{
+    OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, Store, claims,
+};
 
 use super::Failure;
 
@@ -43,7 +45,7 @@ pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
     // directories of their own, which decision 0016 lets them do.
     let directory = root.join(REVISIONS_DIR);
     let mut paths = historica::store::walk(root, REVISIONS_DIR)?.files;
-    paths.retain(|path| path.extension().is_some_and(|found| found == REVISION_EXT));
+    paths.retain(|path| claims(path, &REVISION_SUFFIXES));
     for path in paths {
         let id = digest_of(&path)?;
         let Some(stem) = wanted.get(&id) else {
@@ -61,7 +63,7 @@ pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
         let target = path
             .parent()
             .unwrap_or(&directory)
-            .join(format!("{stem}.{REVISION_EXT}"));
+            .join(format!("{stem}{REVISION_SUFFIX}"));
         place(
             &mut out,
             &path,
@@ -235,7 +237,7 @@ fn digest_of(path: &Path) -> Result<RevisionId, Failure> {
 /// `notes`.
 ///
 /// Decision 0017 puts payloads in the same directory and gives them the same
-/// name without the `.{OPERATION_EXT}`, because a payload's name is the file's
+/// name without the `.ops.txt`, because a payload's name is the file's
 /// own. The extension is what tells a document from a payload, so it is part
 /// of the name a collision is decided on, and a document keeps it whatever
 /// else happens.

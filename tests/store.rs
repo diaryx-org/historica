@@ -278,7 +278,7 @@ fn the_writer_names_files_by_digest_and_never_overwrites() {
 
     let id = store.insert(&document).expect("writing");
     assert_eq!(id, digest(&bytes));
-    let written = root.join(format!("revisions/{id}.rev"));
+    let written = root.join(format!("revisions/{id}.rev.txt"));
     assert!(written.is_file(), "named by its digest");
     assert_eq!(fs::read(&written).expect("reading back"), bytes);
 

@@ -18,7 +18,8 @@ use crate::core::{FileId, RevisionId};
 use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, digest};
 
 use super::{
-    HEADER_FILE, MalformedName, Name, OPERATION_EXT, OPERATIONS_DIR, REVISION_EXT, REVISIONS_DIR,
+    HEADER_FILE, MalformedName, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR,
+    REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims,
 };
 
 /// Whether a finding means the store is broken or merely worth mentioning.
@@ -264,7 +265,7 @@ impl fmt::Display for Finding {
             ),
             Finding::ForeignFile { file } => write!(
                 f,
-                "{} does not carry `.{REVISION_EXT}`, so nothing reads it",
+                "{} does not carry `{REVISION_SUFFIX}`, so nothing reads it",
                 file.display()
             ),
             Finding::MissingOperations { document, named_by } => write!(
@@ -280,7 +281,7 @@ impl fmt::Display for Finding {
             ),
             Finding::UnnamedPayload { file } => write!(
                 f,
-                "{} is not `.{OPERATION_EXT}` and no revision names it as content, \
+                "{} is not `{OPERATION_SUFFIX}` and no revision names it as content, \
                  so nothing reads it",
                 file.display()
             ),
@@ -360,10 +361,19 @@ fn sync_suffixed(name: &str) -> bool {
 }
 
 /// A filename that claims to be a digest, if it does.
+///
+/// Decision 0020 gives a document a two-part suffix, which `file_stem` sees
+/// only the last of — so a digest-named `<digest>.rev.txt` would come back as
+/// `<digest>.rev`, parse as nothing, and quietly stop being checked. Every
+/// accepted suffix is stripped instead.
 fn claimed_digest(path: &Path) -> Option<RevisionId> {
-    path.file_stem()
-        .and_then(|stem| stem.to_str())
-        .and_then(|stem| stem.parse().ok())
+    let name = path.file_name().and_then(|name| name.to_str())?;
+    let stem = REVISION_SUFFIXES
+        .iter()
+        .chain(OPERATION_SUFFIXES.iter())
+        .find_map(|suffix| name.strip_suffix(*suffix))
+        .unwrap_or(name);
+    stem.parse().ok()
 }
 
 /// Examine a store without loading it, reporting every fault at once.
@@ -399,7 +409,7 @@ pub(super) fn check(root: &Path) -> Report {
             .unwrap_or_default()
             .to_owned();
 
-        if path.extension().is_none_or(|ext| ext != REVISION_EXT) {
+        if !claims(&path, &REVISION_SUFFIXES) {
             // Ignored without comment by the loader; a note here is that comment.
             report.push(Finding::ForeignFile { file: path.clone() });
             continue;
@@ -518,7 +528,7 @@ fn check_operations(root: &Path, report: &mut Report) -> Held {
             .unwrap_or_default()
             .to_owned();
 
-        let is_document = path.extension().is_some_and(|ext| ext == OPERATION_EXT);
+        let is_document = claims(&path, &OPERATION_SUFFIXES);
         if is_document && sync_suffixed(&name) {
             report.push(Finding::SyncSuffixed { file: path.clone() });
         }

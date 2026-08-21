@@ -133,8 +133,9 @@ The `store` module is that format on disk. It loads a `history/` directory by
 reading files and never their names — revisions and operation documents alike,
 so renaming every file in a store changes no identity and breaks no reference — which is what lets a store be
 hand-arranged into something a file browser can narrate. `operations/` holds
-two kinds of file on the rule `revisions/` already keeps: only `*.ops` is a
-document there, and every other file is a payload, found by its digest and not
+two kinds of file on the rule `revisions/` already keeps: only a name ending
+`.ops.txt` — or `.ops`, which is read forever and never written — is a document
+there, and every other file is a payload, found by its digest and not
 read at all until something wants its bytes, so a history with photographs in
 it does not cost a full hash to run `log`. The writer names each file the way a
 person reads it — decision 0019 — appends only, and never overwrites; a
@@ -160,7 +161,8 @@ the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.
 The naming scheme is `naming`, and both the writer and `arrange` use it, which
-is what makes them agree: revisions are `YYYY-MM-DD summary.rev`, and each
+is what makes them agree: revisions are `YYYY-MM-DD summary.rev.txt`, so the
+file a person double-clicks opens in the editor they already have, and each
 revision's operation documents and payloads sit under a directory of the same
 name, at the path they had — as real directories, so a revision's folder is the
 subtree of the repository that revision touched and `notes/photo.png` inside it
@@ -249,10 +251,10 @@ A journal kept in Historica, and the notes that came with it.
 $ historica name main nwlxsqot
 main -> change nwlxsqotvkzmuprysltnwxqk
 $ ls history/revisions
-'2025-08-19 Start a journal.rev'
-'2025-08-19 Say why a path is not an identity.rev'
-'2025-08-20 File the README under docs, and say what it covers.rev'
-'2025-08-21 Withdraw the entry, keeping what it taught.rev'
+'2025-08-19 Start a journal.rev.txt'
+'2025-08-19 Say why a path is not an identity.rev.txt'
+'2025-08-20 File the README under docs, and say what it covers.rev.txt'
+'2025-08-21 Withdraw the entry, keeping what it taught.rev.txt'
 $ historica arrange
 /home/adam/journal/history/revisions: 0 renamed, 4 already arranged
 $ historica check

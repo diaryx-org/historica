@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::{ChangeId, RevisionId};
 use crate::format::{RevisionDocument, Timestamp};
-use crate::store::OPERATION_EXT;
+use crate::store::{OPERATION_SUFFIX, OPERATION_SUFFIXES};
 
 /// Characters of summary a filename carries, cut at a word boundary.
 ///
@@ -133,20 +133,23 @@ pub struct Filing {
 /// path that is another file's directory, which 0008 permits and no filesystem
 /// can hold.
 pub fn filed(filings: &[Filing]) -> BTreeMap<RevisionId, String> {
-    let extension = format!(".{OPERATION_EXT}");
     let mut sharing: Vec<(&Filing, String)> = filings
         .iter()
         .map(|filing| {
             let path = scrubbed(&filing.path);
             let name = if filing.document {
-                format!("{path}{extension}")
-            } else if last(&path).ends_with(&extension) {
-                // A payload never carries the extension that says "document",
+                format!("{path}{OPERATION_SUFFIX}")
+            } else if OPERATION_SUFFIXES
+                .iter()
+                .any(|suffix| last(&path).ends_with(suffix))
+            {
+                // A payload never carries a suffix that says "document",
                 // whether or not a document is there to collide with. A person
                 // whose repository holds a file called `notes.ops` would
                 // otherwise have it filed under a name the loader hands to the
                 // parser, which refuses it — a store that wrote something it
-                // could not read back.
+                // could not read back. Decision 0020: every suffix the reader
+                // accepts, not merely the one the writer emits.
                 suffixed(&path, &filing.held, false)
             } else {
                 path
@@ -188,7 +191,7 @@ pub fn filed(filings: &[Filing]) -> BTreeMap<RevisionId, String> {
             // at the top of the revision's directory, where nothing can be a
             // directory over it.
             match filing.document {
-                true => format!("{held}.{OPERATION_EXT}"),
+                true => format!("{held}{OPERATION_SUFFIX}"),
                 false => held.to_string(),
             }
         } else if taken.get(name.as_str()).copied().unwrap_or(false) {
@@ -214,10 +217,8 @@ fn suffixed(name: &str, held: &RevisionId, document: bool) -> String {
     let suffix = held.abbreviate(DIGEST_CHARS);
     match document {
         true => {
-            let last = last
-                .strip_suffix(&format!(".{OPERATION_EXT}"))
-                .unwrap_or(last);
-            format!("{head}{last} {suffix}.{OPERATION_EXT}")
+            let last = last.strip_suffix(OPERATION_SUFFIX).unwrap_or(last);
+            format!("{head}{last} {suffix}{OPERATION_SUFFIX}")
         }
         false => format!("{head}{last} {suffix}"),
     }

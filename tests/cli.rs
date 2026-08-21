@@ -357,7 +357,7 @@ fn arrange_files_operation_documents_under_the_revision_that_names_them() {
     assert!(
         filed
             .iter()
-            .any(|name| name.ends_with("Say more/src/cli/mod.rs.ops")),
+            .any(|name| name.ends_with("Say more/src/cli/mod.rs.ops.txt")),
         "one path, two revisions, two directories: {filed:?}"
     );
     // And the directories are real ones a person can open.
@@ -369,7 +369,7 @@ fn arrange_files_operation_documents_under_the_revision_that_names_them() {
         .expect("a directory per revision");
     assert!(journal.join("src/cli").is_dir(), "{filed:?}");
     assert!(
-        filed.iter().all(|name| !name.contains(".ops.ops")),
+        filed.iter().all(|name| !name.contains(".ops.txt.ops")),
         "{filed:?}"
     );
 
@@ -410,13 +410,13 @@ fn a_payload_and_a_document_one_path_apart_are_parted_by_a_digest() {
         .collect();
     assert_eq!(both.len(), 2, "{filed:?}");
     assert!(
-        both.iter().any(|name| name.ends_with(".ops")),
-        "the document keeps the extension that says it is one: {both:?}"
+        both.iter().any(|name| name.ends_with(".ops.txt")),
+        "the document keeps the suffix that says it is one: {both:?}"
     );
     assert!(
         both.iter()
-            .any(|name| name.contains("x.ops ") && !name.ends_with(".ops")),
-        "and the payload does not gain one: {both:?}"
+            .any(|name| name.contains("x.ops ") && !name.ends_with(".txt")),
+        "and the payload keeps clear of every suffix a reader claims: {both:?}"
     );
     assert!(
         stdout(&directory, &["check"]).ends_with("nothing to report\n"),
@@ -440,7 +440,7 @@ fn a_file_of_this_formats_own_extension_is_still_content() {
 
     let filed = walk_names(&directory.join("history/operations"));
     assert!(
-        filed.iter().all(|name| !name.ends_with(".ops")),
+        filed.iter().all(|name| !name.ends_with(".ops.txt")),
         "a payload must not be filed as a document: {filed:?}"
     );
     assert!(
@@ -577,11 +577,13 @@ fn a_store_is_written_readable_and_arrange_has_nothing_to_do() {
     assert!(
         revisions
             .iter()
-            .any(|name| name.ends_with("Start a journal.rev")),
+            .any(|name| name.ends_with("Start a journal.rev.txt")),
         "{revisions:?}"
     );
     assert!(
-        revisions.iter().any(|name| name.ends_with("Say more.rev")),
+        revisions
+            .iter()
+            .any(|name| name.ends_with("Say more.rev.txt")),
         "{revisions:?}"
     );
     let filed = walk_names(&directory.join("history/operations"));
@@ -594,7 +596,7 @@ fn a_store_is_written_readable_and_arrange_has_nothing_to_do() {
     assert!(
         filed
             .iter()
-            .any(|name| name.ends_with("Say more/notes/a.md.ops")),
+            .any(|name| name.ends_with("Say more/notes/a.md.ops.txt")),
         "{filed:?}"
     );
     // And nothing in the folder is a hash.
@@ -698,11 +700,13 @@ fn arrange_renames_a_filed_revision_where_it_sits() {
 
     // Renamed, not moved. A person who filed it there meant to.
     assert!(
-        filed.join("2025-08-19 Start a journal.rev").exists(),
+        filed.join("2025-08-19 Start a journal.rev.txt").exists(),
         "{done}"
     );
     assert!(
-        !revisions.join("2025-08-19 Start a journal.rev").exists(),
+        !revisions
+            .join("2025-08-19 Start a journal.rev.txt")
+            .exists(),
         "arranging must not flatten what a person arranged"
     );
     assert_eq!(stdout(&directory, &["log"]), before);
@@ -728,7 +732,7 @@ fn arrange_renames_presentation_and_changes_nothing_else() {
     assert!(done.contains("4 renamed"), "{done}");
     assert!(
         directory
-            .join("history/revisions/2025-08-19 Start a journal.rev")
+            .join("history/revisions/2025-08-19 Start a journal.rev.txt")
             .exists(),
         "{done}"
     );

@@ -17,7 +17,7 @@ use crate::diff::diff;
 use crate::format::{OperationDocument, RevisionDocument, Timestamp, Version, digest};
 use crate::naming;
 use crate::replay::State;
-use crate::store::{MaterialiseError, Name, REVISION_EXT, Store, StoreError};
+use crate::store::{MaterialiseError, Name, REVISION_SUFFIX, Store, StoreError};
 use crate::tree::{Kind, Tree, TreeContest};
 use crate::working::{self, Working, WorkingError};
 
@@ -657,7 +657,7 @@ pub fn record(
         extensions: BTreeMap::new(),
         message: recording.message.clone(),
     };
-    let revision = store.insert_at(&document, &format!("{stem}.{REVISION_EXT}"))?;
+    let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
 
     // Decision 0011: a bookmark that named the parent's change follows the
     // work forward. A `revision` bookmark is the pin that must not move.
