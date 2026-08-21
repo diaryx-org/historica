@@ -54,6 +54,7 @@ visible, to be triaged into their real groups before the tag is cut.
 
 - **naming** — a payload never carries the extension that says "document" ([`4afb03a`](https://github.com/diaryx-org/historica/commit/4afb03a080497a7e94483d6072dc20b0740541c8))
 - **store** — a payload is never filed where a file browser will write ([`36cf54a`](https://github.com/diaryx-org/historica/commit/36cf54a40e26b4478981e34133a7b0871d7e6976))
+- **format** — a document claims the lowest version that expresses it ([`2c400ec`](https://github.com/diaryx-org/historica/commit/2c400ec30770d8484c443f9fdc87eb8a1c70d4d4))
 
 ### Changed
 
@@ -189,5 +190,9 @@ a store written by this version is refused by older readers at the gate.
 - materialising a redacted file renders `\ forgotten`
 lines where destroyed items stood; a store that has forgotten nothing is
 byte-for-byte unchanged.
+
+- supersedes the previous commit's version claim — new
+stores and documents say `historica-v1` again, and only a store that has
+forgotten something says `historica-v2`.
 
 <!-- git-cliff:end -->
