@@ -432,6 +432,18 @@ Choices that constrain later work are written down as they are made.
 
 ## Development
 
+CI is a program rather than a YAML file. Every job the workflow runs is one
+entry in `xtask/src/main.rs`, and `cargo xtask ci` runs all of them locally, in
+the same order, against the same commands:
+
+```console
+cargo xtask            # what the jobs are
+cargo xtask ci         # all of them: fmt, clippy, test, msrv
+cargo xtask clippy     # or one
+```
+
+Which is to say the underlying commands are still the underlying commands:
+
 ```console
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -448,3 +460,28 @@ cd tests/corpus/diffs && shasum -a 256 -c MANIFEST
 cd tests/corpus/tree && shasum -a 256 -c MANIFEST
 cd tests/corpus/whole && shasum -a 256 -c MANIFEST
 ```
+
+### Releasing
+
+historica is not published to any registry; a release is a tag and the GitHub
+release cut from it. `cargo xtask release` does the mechanical half — bump the
+version, regenerate the changelog's unreleased region into a section under the
+new version, commit both, tag — and stops there:
+
+```console
+cargo xtask changelog --write   # refresh the unreleased region
+cargo xtask release minor       # bump, cut, commit, tag — locally
+cargo xtask release minor --push
+```
+
+Without `--push` nothing leaves the machine, and the command prints the two
+pushes it did not run. `.github/workflows/release.yml` is what the tag starts,
+and it asks `cargo xtask release-notes` for the body rather than keeping its own
+copy of the notes.
+
+The changelog's generated region needs [git-cliff]; `nix profile install
+nixpkgs#git-cliff` or `cargo install git-cliff`. Its **Behavioural changes**
+section is built from `Behavioural-change:` trailers on the commits themselves —
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md) says how to write one.
+
+[git-cliff]: https://git-cliff.org

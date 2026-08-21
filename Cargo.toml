@@ -1,9 +1,27 @@
 [package]
 name = "historica"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "A readable, convergent version-control experiment"
+license.workspace = true
+
+# `xtask` is historica's CI, as a program: `cargo xtask <job>` runs one CI job
+# and the workflow runs nothing else. It is a member so `cargo test --workspace`
+# checks it, and `publish = false` keeps it off crates.io.
+[workspace]
+members = ["xtask"]
+
+# The version lives here rather than in `[package]` above so that one line is
+# the whole answer to "what does this repository call itself" — `cargo xtask
+# bump` rewrites exactly that line, and the package inherits it.
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+# Minimum supported Rust version. Edition 2024 needs 1.85; the crate also uses
+# `if let … && let …` let-chains in stable positions, stabilized in 1.88 — so
+# 1.88 is the true floor, enforced by the `msrv` CI job (which reads this value).
 rust-version = "1.88"
-description = "A readable, convergent version-control experiment"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
