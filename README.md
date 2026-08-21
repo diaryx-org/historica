@@ -119,8 +119,9 @@ refuses a history with a merge in it rather than ordering it arbitrarily.
 
 The `historica` binary is the front end decision 0006 said was owed. `init`,
 `check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
-`cat`, and `names` read a store and render it; `record` writes one, and
-`identity` says who is writing. Nothing there decides anything
+`cat`, and `names` read a store and render it; `status` reads the folder beside
+it and says how the two differ; `record` writes one, and `identity` says who is
+writing. Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.

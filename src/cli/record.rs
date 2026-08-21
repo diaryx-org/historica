@@ -15,7 +15,7 @@ use historica::store::Store;
 use historica::tree::TreeContest;
 use historica::working::Working;
 
-use super::{Failure, printing, target};
+use super::{Failure, printing, render, target};
 
 /// `record [-m <message>] [--onto <target>] [--move <old>=<new>] [--dry-run]`.
 pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
@@ -70,33 +70,9 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         .to_path_buf();
 
     // Decision 0011: the head is the position, and several heads mean a person
-    // should be choosing rather than a tool.
-    let mut parents: Vec<RevisionId> = Vec::new();
-    if let Some(spelling) = &onto {
-        parents.push(target::resolve(&store, spelling)?);
-    }
-    for spelling in &joining {
-        let other = target::resolve(&store, spelling)?;
-        if parents.contains(&other) {
-            return Err(Failure::error(format!(
-                "`{spelling}` is named twice, and a revision is its own parent \
-                 exactly never"
-            )));
-        }
-        parents.push(other);
-    }
-    // The head is only derived where it is needed: naming two lines of work
-    // says everything, and a store with two heads has no `the` latest.
-    let wants_the_head =
-        parents.is_empty() || (parents.len() == 1 && !joining.is_empty() && onto.is_none());
-    if wants_the_head
-        && let Some(head) = heads(&store)?
-        && !parents.contains(&head)
-    {
-        parents.push(head);
-    }
-    parents.sort();
-    parents.dedup();
+    // should be choosing rather than a tool. 0015 moved the rule to `target`,
+    // so `status` derives the same position this does.
+    let parents = target::parents(&store, onto.as_deref(), &joining)?;
 
     for (from, to) in &moves {
         perform(&repository, from, to)?;
@@ -219,7 +195,7 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     // then settles. Decision 0008 forbids the format inventing either.
     let mut beside: BTreeMap<FileId, String> = BTreeMap::new();
     for contest in &merged.contested {
-        said.push(contest_line(contest));
+        said.push(render::contest_line(contest));
         if let TreeContest::Path { path, files } = contest {
             for file in files.iter().skip(1) {
                 beside.insert(*file, format!("{path} (historica: {})", file.abbreviate(8)));
@@ -296,41 +272,6 @@ fn recorded_anywhere(store: &Store, heads: &[RevisionId], file: &FileId, held: &
     })
 }
 
-/// One tree contest, as a person needs to hear it.
-fn contest_line(contest: &TreeContest) -> String {
-    match contest {
-        TreeContest::Dropped { file, by } => format!(
-            "kept {} : {} dropped it, and concurrent work did not",
-            file.abbreviate(8),
-            by.iter()
-                .map(|revision| revision.abbreviate(8))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        TreeContest::Moved { file, paths } => format!(
-            "moved {} to {}, which is the lower digest of {}",
-            file.abbreviate(8),
-            paths[0].1,
-            paths
-                .iter()
-                .map(|(_, path)| path.as_str())
-                .collect::<Vec<_>>()
-                .join(" and ")
-        ),
-        TreeContest::Path { path, files } => format!(
-            "{} files claim {path}; say where each goes with --at:{}",
-            files.len(),
-            files
-                .iter()
-                .map(|file| format!("\n  --at {file}=<path>"))
-                .collect::<String>()
-        ),
-        // `TreeContest` may grow; a contest nobody here knows about is still
-        // worth saying out loud rather than passing over in silence.
-        other => format!("{other:?}"),
-    }
-}
-
 /// `identity <author>` — write the line a refusal to record asks for.
 pub fn set_identity(arguments: Vec<String>) -> Result<u8, Failure> {
     let mut arguments = arguments.into_iter();
@@ -367,23 +308,6 @@ fn placeholder() -> historica::format::Timestamp {
     "0001-01-01T00:00:00+00:00"
         .parse()
         .expect("a timestamp this crate wrote")
-}
-
-/// The one head to record against, or a refusal naming the choice.
-fn heads(store: &Store) -> Result<Option<RevisionId>, Failure> {
-    let heads = store.history().heads();
-    match heads.len() {
-        0 => Ok(None),
-        1 => Ok(heads.into_iter().next()),
-        several => Err(Failure::error(format!(
-            "this store has {several} heads, so nothing here is `the` latest; \
-             name one with --onto:{}",
-            heads
-                .iter()
-                .map(|head| format!("\n  {}", head.abbreviate(12)))
-                .collect::<String>()
-        ))),
-    }
 }
 
 /// Perform a stated rename, in whichever state the folder is in.

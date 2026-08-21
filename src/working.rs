@@ -135,6 +135,7 @@ impl std::error::Error for MalformedSkip {}
 #[derive(Debug, Clone, Default)]
 pub struct Working {
     files: BTreeMap<String, PathBuf>,
+    refused: Vec<(String, String)>,
 }
 
 impl Working {
@@ -144,10 +145,24 @@ impl Working {
     /// a symlink, or anything that is not a regular file is refused by name
     /// rather than skipped quietly: decision 0011 puts the difference between
     /// losing work and not at one error message.
+    ///
+    /// Decision 0015: the refusals are collected rather than raised one at a
+    /// time, so that `status` can list a folder's whole set and a person can
+    /// write the `skip` rules in one pass. `record` raises the collection,
+    /// which is the same refusal on the same files. What still returns here is
+    /// [`WorkingError::Io`] — a directory that cannot be read is not a fact
+    /// about the folder, it is not knowing, and a walk that collected it would
+    /// describe a folder while quietly missing part of it.
     pub fn read(root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
         let mut files = BTreeMap::new();
-        walk(root, "", skipped, &mut files)?;
-        Ok(Self { files })
+        let mut refused = Vec::new();
+        walk(root, "", skipped, &mut files, &mut refused)?;
+        Ok(Self { files, refused })
+    }
+
+    /// Every path the walk would not take, with the short reason.
+    pub fn refused(&self) -> &[(String, String)] {
+        &self.refused
     }
 
     /// Every tracked path, in order, with where it is on disk.
@@ -201,6 +216,7 @@ fn walk(
     prefix: &str,
     skipped: &Skipped,
     files: &mut BTreeMap<String, PathBuf>,
+    refused: &mut Vec<(String, String)>,
 ) -> Result<(), WorkingError> {
     let mut entries: Vec<_> = fs::read_dir(directory)
         .map_err(|error| WorkingError::io(directory, error))?
@@ -211,9 +227,13 @@ fn walk(
     for entry in entries {
         let on_disk = entry.path();
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-            return Err(WorkingError::NotUtf8 {
-                path: on_disk.to_string_lossy().into_owned(),
-            });
+            // A name that cannot be spelled cannot be walked into either, so a
+            // directory refused here is one refusal rather than one per file
+            // beneath it.
+            let path = on_disk.to_string_lossy().into_owned();
+            let because = WorkingError::NotUtf8 { path: path.clone() }.because();
+            refused.push((path, because));
+            continue;
         };
         let path = if prefix.is_empty() {
             name
@@ -231,7 +251,7 @@ fn walk(
             .map_err(|error| WorkingError::io(&on_disk, error))?;
         if kind.is_dir() {
             if !skipped.skips_directory(&path) {
-                walk(&on_disk, &path, skipped, files)?;
+                walk(&on_disk, &path, skipped, files, refused)?;
             }
             continue;
         }
@@ -239,13 +259,18 @@ fn walk(
             continue;
         }
         if !kind.is_file() {
-            return Err(WorkingError::NotAFile { path });
+            let because = WorkingError::NotAFile { path: path.clone() }.because();
+            refused.push((path, because));
+            continue;
         }
-        if let Err(because) = check_path(&path) {
-            return Err(WorkingError::Unusable {
-                path,
-                because: because.to_string(),
-            });
+        if let Err(unusable) = check_path(&path) {
+            let because = WorkingError::Unusable {
+                path: path.clone(),
+                because: unusable.to_string(),
+            }
+            .because();
+            refused.push((path, because));
+            continue;
         }
         files.insert(path, on_disk);
     }
@@ -297,6 +322,22 @@ impl WorkingError {
         Self::Io {
             path: path.as_ref().to_path_buf(),
             error,
+        }
+    }
+
+    /// The reason alone, for a list of refusals rather than a single failure.
+    ///
+    /// [`fmt::Display`] says the reason and then what to do about it, which is
+    /// right when one file stops a command and repetitive when twelve are
+    /// listed together. The caller listing them says the fix once.
+    pub fn because(&self) -> String {
+        match self {
+            WorkingError::NotUtf8 { .. } => "not a name this format can hold".to_owned(),
+            WorkingError::Unusable { because, .. } => because.clone(),
+            WorkingError::NotAFile { .. } => "not a regular file".to_owned(),
+            WorkingError::NotText { .. } => "not UTF-8 text".to_owned(),
+            WorkingError::Missing { .. } => "not in the working copy".to_owned(),
+            WorkingError::Io { error, .. } => error.to_string(),
         }
     }
 }

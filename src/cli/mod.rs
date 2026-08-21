@@ -10,7 +10,9 @@ use std::fmt;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
+use historica::record::survey;
 use historica::store::{HEADER_FILE, Name, STORE_DIR, Store, StoreError};
+use historica::working::Working;
 
 mod arrange;
 mod record;
@@ -22,6 +24,8 @@ pub const USAGE: &str = "\
 usage: historica [-C <dir>] <command> [<arguments>]
 
 reading a store
+  status [--onto <target>] [--merge <target>]
+                           how the folder differs from what is recorded
   log [<target>]           the history, newest first
   show <target> [<path>]   one document as stored: a revision, or what it
                            did to one file
@@ -138,6 +142,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "init" => init(&base, rest),
         "check" => check(&base, rest),
         "arrange" => arrange(&base, rest),
+        "status" => status(&base, rest),
         "log" => log(&base, rest),
         "show" => show(&base, rest),
         "files" => files(&base, rest),
@@ -212,6 +217,49 @@ fn arrange(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     }
 
     arrange::arrange(&locate(base)?, dry_run)
+}
+
+/// `status [--onto <target>] [--merge <target>]` — the folder against the store.
+///
+/// Decision 0015. Reads the folder and the store, writes nothing, and mints
+/// nothing: two runs over an unchanged folder print the same bytes.
+fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut onto: Option<String> = None;
+    let mut joining: Vec<String> = Vec::new();
+
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        let mut value = |flag: &str| {
+            arguments
+                .next()
+                .ok_or_else(|| Failure::usage(format!("`{flag}` wants a value")))
+        };
+        match argument.as_str() {
+            "--onto" => onto = Some(value("--onto")?),
+            "--merge" => joining.push(value("--merge")?),
+            other => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `status` takes"
+                )));
+            }
+        }
+    }
+
+    let root = locate(base)?;
+    let store = Store::open(&root)?;
+    let repository = root
+        .parent()
+        .ok_or_else(|| Failure::error("this store has no repository around it"))?
+        .to_path_buf();
+
+    // Decision 0011: a rename is stated, and status states nothing, so a
+    // folder somebody typed `mv` in shows an `added` and a `dropped` — and the
+    // suggestion beside them is where the survey says it noticed.
+    let parents = target::parents(&store, onto.as_deref(), &joining)?;
+    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+    let surveyed = survey(&store, &working, &parents, &[], &[]).map_err(Failure::error)?;
+
+    printing(|out| render::status(out, &store, &parents, &surveyed))
 }
 
 /// `log [<target>]` — the graph, newest first.

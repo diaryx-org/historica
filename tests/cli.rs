@@ -686,3 +686,217 @@ fn a_document_about_merge_markers_records_like_any_other() {
     let recorded = out(recorded(&directory, &["record", "-m", "On merging"]));
     assert!(recorded.contains("added   notes.md"), "{recorded}");
 }
+
+#[test]
+fn status_says_where_the_folder_is_and_what_it_differs_by() {
+    let directory = repository("status-position");
+
+    // A store with no revisions has no first line to print, and everything in
+    // the folder is an add against the empty tree.
+    let empty = out(recorded(&directory, &["status"]));
+    assert!(empty.starts_with("no revisions here yet"), "{empty}");
+
+    write(&directory, "notes.md", "one\ntwo\n");
+    let before = out(recorded(&directory, &["status"]));
+    assert!(before.contains("added   notes.md"), "{before}");
+
+    out(recorded(&directory, &["record", "-m", "First"]));
+    out(recorded(&directory, &["name", "journal", "head"]));
+
+    // The position is `log`'s first line, and the bookmark is what a person
+    // reads instead of a digest.
+    let after = out(recorded(&directory, &["status"]));
+    assert!(after.contains("(head, journal)"), "{after}");
+    assert!(
+        after.contains("nothing here differs from what is recorded"),
+        "{after}"
+    );
+
+    // Decision 0015: status mints nothing, so it cannot answer twice over.
+    let again = out(recorded(&directory, &["status"]));
+    assert_eq!(after, again, "status is derived, so it repeats itself");
+}
+
+#[test]
+fn status_and_a_dry_run_state_the_same_facts() {
+    let directory = repository("status-dry-run");
+    write(&directory, "a.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+
+    write(&directory, "a.md", "one\ntwo\n");
+    write(&directory, "b.md", "new\n");
+
+    let planned = out(recorded(&directory, &["record", "--dry-run"]));
+    let status = out(recorded(&directory, &["status"]));
+    let facts: String = status
+        .lines()
+        .filter(|line| line.starts_with("added") || line.starts_with("edited"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    assert_eq!(planned, facts, "one survey, so one answer");
+}
+
+#[test]
+fn status_lists_every_refusal_and_the_facts_beside_them() {
+    let directory = repository("status-refusals");
+    write(&directory, "fine.md", "text\n");
+    fs::write(directory.join("picture.bin"), [0xff, 0xfe, 0x00]).expect("bytes");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("/etc/hosts", directory.join("link")).expect("a symlink");
+
+    // The point of the list: one command names every file, so the `skip` rules
+    // are written in one pass rather than one command per file.
+    let listed = out(recorded(&directory, &["status"]));
+    assert!(listed.contains("added   fine.md"), "{listed}");
+    assert!(
+        listed.contains("refused picture.bin: not UTF-8 text"),
+        "{listed}"
+    );
+    #[cfg(unix)]
+    assert!(
+        listed.contains("refused link: not a regular file"),
+        "{listed}"
+    );
+
+    // And recording refuses the same files, all of them at once.
+    let refused = recorded(&directory, &["record", "-m", "Everything"]);
+    assert!(!refused.status.success());
+    let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(complaint.contains("picture.bin"), "{complaint}");
+    assert!(complaint.contains("skip"), "{complaint}");
+    #[cfg(unix)]
+    assert!(complaint.contains("link"), "{complaint}");
+}
+
+#[test]
+fn status_suggests_a_rename_only_where_the_bytes_are_identical() {
+    let directory = repository("status-renames");
+    write(&directory, "old.md", "one\ntwo\n");
+    write(&directory, "empty.md", "");
+    out(recorded(&directory, &["record", "-m", "First"]));
+
+    // A `mv` and nothing else: the facts are still an add and a drop, and the
+    // suggestion sits beside them rather than replacing them.
+    fs::rename(directory.join("old.md"), directory.join("new.md")).expect("a rename");
+    let moved = out(recorded(&directory, &["status"]));
+    assert!(moved.contains("added   new.md"), "{moved}");
+    assert!(moved.contains("dropped old.md"), "{moved}");
+    assert!(moved.contains("--move old.md=new.md"), "{moved}");
+
+    // An empty file that moved suggests nothing: every empty file has the
+    // bytes of every other.
+    fs::rename(directory.join("empty.md"), directory.join("blank.md")).expect("a rename");
+    let blank = out(recorded(&directory, &["status"]));
+    assert!(!blank.contains("--move empty.md=blank.md"), "{blank}");
+
+    // Two files holding one dropped file's bytes is a guess nobody makes.
+    write(&directory, "copy.md", "one\ntwo\n");
+    let ambiguous = out(recorded(&directory, &["status"]));
+    assert!(!ambiguous.contains("--move old.md"), "{ambiguous}");
+    fs::remove_file(directory.join("copy.md")).expect("removing the copy");
+
+    // A rename that was also edited is missed, and says nothing rather than
+    // guessing: decision 0015 refuses the similarity threshold that would
+    // catch it.
+    write(&directory, "new.md", "one\ntwo\nthree\n");
+    let edited = out(recorded(&directory, &["status"]));
+    assert!(edited.contains("added   new.md"), "{edited}");
+    assert!(edited.contains("dropped old.md"), "{edited}");
+    assert!(!edited.contains("--move"), "{edited}");
+}
+
+#[test]
+fn status_with_several_heads_refuses_and_names_them() {
+    let (directory, mine, _theirs) = diverged("status-heads", "one\nMINE\n", "one\nTHEIRS\n");
+    out(recorded(&directory, &["name", "journal", &mine]));
+
+    let refused = String::from_utf8_lossy(&recorded(&directory, &["status"]).stderr).into_owned();
+    assert!(refused.contains("2 heads"), "{refused}");
+    assert!(refused.contains("--onto"), "{refused}");
+    assert!(
+        refused.contains("journal"),
+        "a head a person named should say so: {refused}"
+    );
+
+    // Naming one is the whole of the fix, and the same flag `record` takes.
+    let named = out(recorded(&directory, &["status", "--onto", &mine]));
+    assert!(named.contains("journal"), "{named}");
+}
+
+#[test]
+fn a_marker_line_is_ordinary_until_a_person_restates_the_merge() {
+    let (directory, mine, theirs) = diverged(
+        "status-markers",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+    out(recorded(&directory, &["merge", &mine, &theirs]));
+
+    // Outside a merge the rendered lines are content, which is what lets a
+    // document about merge markers be an ordinary document.
+    let ordinary = out(recorded(&directory, &["status", "--onto", &mine]));
+    assert!(ordinary.contains("edited  f.md"), "{ordinary}");
+    assert!(!ordinary.contains("marked"), "{ordinary}");
+
+    // Restating it is what scopes the detection, and the count is the one
+    // `record` refuses on.
+    let joining = out(recorded(
+        &directory,
+        &["status", "--merge", &mine, "--merge", &theirs],
+    ));
+    assert!(joining.contains("marked  f.md"), "{joining}");
+}
+
+#[test]
+fn a_path_two_files_claim_prints_under_status_and_refuses_under_record() {
+    let directory = repository("status-contested");
+    write(&directory, "root.md", "a\n");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    let root = out(recorded(&directory, &["log"]))
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("the root")
+        .to_owned();
+
+    // Two lines of work each adding a file at one path, which 0008 allows and
+    // only `--at` settles.
+    write(&directory, "both.md", "mine\n");
+    out(recorded(&directory, &["record", "-m", "mine"]));
+    let mine = out(recorded(&directory, &["log"]))
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("a head")
+        .to_owned();
+    fs::remove_file(directory.join("both.md")).expect("removing it");
+    write(&directory, "both.md", "theirs\n");
+    out(recorded(
+        &directory,
+        &["record", "--onto", &root, "-m", "theirs"],
+    ));
+    let theirs = out(recorded(&directory, &["log"]))
+        .lines()
+        .find(|line| line.contains("(head") && !line.contains(&mine))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("the other head")
+        .to_owned();
+
+    let joining = out(recorded(
+        &directory,
+        &["status", "--merge", &mine, "--merge", &theirs],
+    ));
+    assert!(joining.contains("claimed both.md"), "{joining}");
+    assert!(joining.contains("--at"), "{joining}");
+
+    // The same path recording refuses rather than resolving to whichever a
+    // map happened to keep.
+    let refused = recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    );
+    assert!(!refused.status.success());
+    let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(complaint.contains("both.md"), "{complaint}");
+    assert!(complaint.contains("--at"), "{complaint}");
+}

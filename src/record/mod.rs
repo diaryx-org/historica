@@ -17,7 +17,7 @@ use crate::diff::diff;
 use crate::format::{OperationDocument, RevisionDocument, Timestamp};
 use crate::replay::State;
 use crate::store::{MaterialiseError, Name, Store, StoreError};
-use crate::tree::Tree;
+use crate::tree::{Tree, TreeContest};
 use crate::working::{Working, WorkingError};
 
 pub mod identity;
@@ -51,6 +51,78 @@ impl fmt::Display for Fact {
     }
 }
 
+/// What the folder says, before any identifier is minted.
+///
+/// Decision 0015 makes this the primitive and [`Plan`] the thing derived from
+/// it. One traversal produces every fact, keyed by path where a path is all
+/// there is and by [`FileId`] where the tree has already given one, so that
+/// `status` can say what recording would do without minting the identifiers
+/// only recording is entitled to mint.
+///
+/// Everything expensive happens here once — the merged tree, the replay of
+/// each file, the diff — which is what keeps `status` and `record --dry-run`
+/// from ever describing different work.
+#[derive(Debug, Clone, Default)]
+pub struct Survey {
+    /// Paths the tree does not hold yet.
+    pub added: BTreeSet<String>,
+    /// Files whose path changed, with the path they moved to.
+    ///
+    /// Only ever what a person stated. Decision 0011 observes everything
+    /// except a rename, so a folder somebody typed `mv` in and said nothing
+    /// about states an `added` and a `dropped`, and `renames` is where this
+    /// says it noticed.
+    pub moved: BTreeMap<FileId, String>,
+    /// Files the tree holds and the folder does not, with where they sat.
+    pub dropped: BTreeMap<FileId, String>,
+    /// What each path's content differs by, added paths included.
+    pub edited: BTreeMap<String, OperationDocument>,
+    /// Where each surveyed path's file is, for the paths the tree holds.
+    pub held: BTreeMap<String, FileId>,
+    /// Paths the folder holds that nothing here can take, and why.
+    pub refused: Vec<(String, String)>,
+    /// A dropped path and an added path holding the same bytes, one to one.
+    pub renames: Vec<(String, String)>,
+    /// What the tree decided by rule rather than by agreement.
+    pub contested: Vec<TreeContest>,
+    /// Paths several files claim that `--at` has not settled.
+    pub unsettled: BTreeMap<String, Vec<FileId>>,
+    /// Marker lines still standing, by path, when joining.
+    pub standing: Vec<(String, usize)>,
+    /// The revisions this was surveyed against.
+    pub parents: Vec<RevisionId>,
+}
+
+impl Survey {
+    /// Whether the folder states nothing the parents do not already say.
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty()
+            && self.moved.is_empty()
+            && self.dropped.is_empty()
+            && self.edited.is_empty()
+    }
+
+    /// Every fact, by the path it concerns, for a person reading.
+    pub fn facts(&self) -> Vec<(Fact, String)> {
+        let mut facts: Vec<(Fact, String)> = Vec::new();
+        facts.extend(self.added.iter().map(|path| (Fact::Added, path.clone())));
+        facts.extend(self.moved.values().map(|path| (Fact::Moved, path.clone())));
+        facts.extend(
+            self.dropped
+                .values()
+                .map(|path| (Fact::Dropped, path.clone())),
+        );
+        facts.extend(
+            self.edited
+                .keys()
+                .filter(|path| !self.added.contains(*path))
+                .map(|path| (Fact::Edited, path.clone())),
+        );
+        facts.sort();
+        facts
+    }
+}
+
 /// What recording would do, before anything is written.
 ///
 /// `--dry-run` prints this. Recording produces it and then acts on it, so the
@@ -69,37 +141,22 @@ pub struct Plan {
     pub paths: BTreeMap<FileId, String>,
     /// The revisions this would be recorded against.
     pub parents: Vec<RevisionId>,
+    /// What the folder said, before the identifiers below were minted.
+    pub survey: Survey,
 }
 
 impl Plan {
     /// Whether this would state nothing at all.
     pub fn is_empty(&self) -> bool {
-        self.added.is_empty()
-            && self.moved.is_empty()
-            && self.dropped.is_empty()
-            && self.edited.is_empty()
+        self.survey.is_empty()
     }
 
     /// Every fact, by the path it concerns, for a person reading.
+    ///
+    /// The survey's, so that what `record` prints after writing is the list
+    /// `status` printed before it.
     pub fn facts(&self) -> Vec<(Fact, String)> {
-        let named = |file: &FileId| {
-            self.paths
-                .get(file)
-                .cloned()
-                .unwrap_or_else(|| file.to_string())
-        };
-        let mut facts: Vec<(Fact, String)> = Vec::new();
-        facts.extend(self.added.values().map(|path| (Fact::Added, path.clone())));
-        facts.extend(self.moved.values().map(|path| (Fact::Moved, path.clone())));
-        facts.extend(self.dropped.iter().map(|file| (Fact::Dropped, named(file))));
-        facts.extend(
-            self.edited
-                .keys()
-                .filter(|file| !self.added.contains_key(*file))
-                .map(|file| (Fact::Edited, named(file))),
-        );
-        facts.sort();
-        facts
+        self.survey.facts()
     }
 }
 
@@ -137,19 +194,26 @@ pub struct Recorded {
     pub advanced: Vec<String>,
 }
 
-/// Work out what recording would state, without writing anything.
-pub fn plan(
+/// Work out what the folder says, without minting or writing anything.
+///
+/// The primitive decision 0015 makes this: everything expensive happens here,
+/// and both `status` and `record` read the result rather than computing their
+/// own. What a person stated — the parents, the renames, and where a contested
+/// file goes — is passed in, because those are the three things that cannot be
+/// observed.
+pub fn survey(
     store: &Store,
     working: &Working,
-    recording: &Recording,
-    entropy: &mut impl Entropy,
-) -> Result<Plan, RecordError> {
-    let parents = recording.parents.as_slice();
+    parents: &[RevisionId],
+    moves: &[(String, String)],
+    at: &[(FileId, String)],
+) -> Result<Survey, RecordError> {
     let joining = parents.len() > 1;
-    let tree = if parents.is_empty() {
-        Tree::empty()
+    let (tree, contested) = if parents.is_empty() {
+        (Tree::empty(), Vec::new())
     } else {
-        store.merged_tree_of(parents)?.tree
+        let merged = store.merged_tree_of(parents)?;
+        (merged.tree, merged.contested)
     };
 
     // Where each file the tree holds sits after the renames a person stated.
@@ -158,7 +222,7 @@ pub fn plan(
         .map(|(file, path)| (*file, path.to_owned()))
         .collect();
     let mut moved = BTreeMap::new();
-    for (file, to) in &recording.at {
+    for (file, to) in at {
         if placed.insert(*file, to.clone()).is_none() {
             return Err(RecordError::NotInTheTree {
                 path: file.to_string(),
@@ -166,7 +230,7 @@ pub fn plan(
         }
         moved.insert(*file, to.clone());
     }
-    for (from, to) in &recording.moves {
+    for (from, to) in moves {
         let file = one_file_at(&tree, from)?;
         crate::format::check_path(to).map_err(|because| RecordError::UnusablePath {
             path: to.clone(),
@@ -176,50 +240,85 @@ pub fn plan(
         moved.insert(file, to.clone());
     }
 
-    let mut unresolved: Vec<(String, usize)> = Vec::new();
-    let held: BTreeMap<&str, FileId> = placed
-        .iter()
-        .map(|(file, path)| (path.as_str(), *file))
-        .collect();
+    // A path two files claim is not a name for either of them. 0008 lets a
+    // merge produce this and 0012's `--at` is how a person settles it; until
+    // they have, it is reported rather than resolved to whichever a map kept.
+    let mut claimants: BTreeMap<&str, Vec<FileId>> = BTreeMap::new();
+    for (file, path) in &placed {
+        claimants.entry(path.as_str()).or_default().push(*file);
+    }
+    let mut held: BTreeMap<String, FileId> = BTreeMap::new();
+    let mut unsettled: BTreeMap<String, Vec<FileId>> = BTreeMap::new();
+    for (path, files) in claimants {
+        match files.as_slice() {
+            [only] => {
+                held.insert(path.to_owned(), *only);
+            }
+            several => {
+                unsettled.insert(path.to_owned(), several.to_vec());
+            }
+        }
+    }
 
-    let mut plan = Plan {
+    let mut survey = Survey {
         moved,
+        contested,
+        unsettled,
         parents: parents.to_vec(),
-        ..Plan::default()
+        refused: working.refused().to_vec(),
+        ..Survey::default()
     };
 
-    // A path in the folder is either a file the tree already holds, or a file
-    // nobody has recorded yet, which mints an identifier as 0010 mints one.
-    for (path, _) in working.iter() {
-        let file = match held.get(path.as_str()) {
-            Some(file) => *file,
-            None => {
-                let file = entropy.file()?;
-                plan.added.insert(file, path.clone());
-                file
-            }
-        };
-        plan.paths.insert(file, path.clone());
+    // Kept only for the paths that turn out to be added, since that is the
+    // only place the bytes are wanted twice.
+    let mut arrived: BTreeMap<String, String> = BTreeMap::new();
 
-        let text = working.text(path)?;
-        let before = if parents.is_empty() || plan.added.contains_key(&file) {
-            State::empty()
-        } else {
-            let merged = store.merged_content_of(parents, &file)?;
-            // Decision 0012: while recording a merge, a contested file holding
-            // any line the renderer wrote is refused — per line, because a
-            // person can edit inside a fence and leave it standing.
-            if joining && !merged.contested.is_empty() {
-                let standing = crate::conflict::unresolved(&merged, &text);
-                if !standing.is_empty() {
-                    unresolved.push((path.clone(), standing.len()));
-                }
+    // A path in the folder is either a file the tree already holds, or a file
+    // nobody has recorded yet, which recording mints an identifier for.
+    for (path, _) in working.iter() {
+        if survey.unsettled.contains_key(path.as_str()) {
+            continue;
+        }
+        let file = held.get(path.as_str()).copied();
+        if file.is_none() {
+            survey.added.insert(path.clone());
+        }
+
+        let text = match working.text(path) {
+            Ok(text) => text,
+            Err(error @ WorkingError::NotText { .. }) => {
+                // 0015: a file whose bytes are not text is refused, and the
+                // refusal is a line of the report rather than the end of it.
+                survey.refused.push((path.clone(), error.because()));
+                survey.added.remove(path);
+                continue;
             }
-            merged.state
+            Err(error) => return Err(error.into()),
+        };
+        if file.is_none() {
+            arrived.insert(path.clone(), text.clone());
+        }
+
+        let before = match file {
+            Some(file) if !parents.is_empty() => {
+                let merged = store.merged_content_of(parents, &file)?;
+                // Decision 0012: while recording a merge, a contested file
+                // holding any line the renderer wrote is refused — per line,
+                // because a person can edit inside a fence and leave it
+                // standing. Here it is counted; `plan` is what refuses.
+                if joining && !merged.contested.is_empty() {
+                    let standing = crate::conflict::unresolved(&merged, &text);
+                    if !standing.is_empty() {
+                        survey.standing.push((path.clone(), standing.len()));
+                    }
+                }
+                merged.state
+            }
+            _ => State::empty(),
         };
         let after = State::from_text(&text);
         if let Some(document) = diff(&before, &after) {
-            plan.edited.insert(file, document);
+            survey.edited.insert(path.clone(), document);
         }
     }
 
@@ -227,19 +326,141 @@ pub fn plan(
     // rather than a guess — decision 0011's reason for having no `--drop`.
     for (file, path) in &placed {
         if !working.holds(path) {
-            plan.dropped.insert(*file);
-            plan.paths.insert(*file, path.clone());
-            plan.moved.remove(file);
+            survey.dropped.insert(*file, path.clone());
+            survey.moved.remove(file);
         }
     }
 
-    if !unresolved.is_empty() {
-        // Whole-record: a partially resolved merge is a state, and the only
-        // place to keep it would be the repository.
-        return Err(RecordError::Unresolved { files: unresolved });
+    survey.renames = renames(store, parents, &survey.dropped, &arrived)?;
+    survey.held = held;
+    Ok(survey)
+}
+
+/// A dropped path and an added path holding exactly the same bytes.
+///
+/// Decision 0015: byte equality, never a similarity score. The `similar`
+/// matcher is already here and would catch a rename that was also edited, and
+/// reaching for it would be a heuristic recovering the connection 0008 built
+/// the tree so that nothing would have to recover. So this misses `mv`
+/// followed by an edit, and says nothing rather than guessing.
+///
+/// Only a one-to-one match is offered: two added paths holding one dropped
+/// file's bytes is a choice nobody here is entitled to make. Empty content
+/// matches nothing, since every empty file has the bytes of every other.
+fn renames(
+    store: &Store,
+    parents: &[RevisionId],
+    dropped: &BTreeMap<FileId, String>,
+    arrived: &BTreeMap<String, String>,
+) -> Result<Vec<(String, String)>, RecordError> {
+    if dropped.is_empty() || arrived.is_empty() {
+        return Ok(Vec::new());
     }
 
-    Ok(plan)
+    let mut by_content: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (path, text) in arrived {
+        if !text.is_empty() {
+            by_content.entry(text.as_str()).or_default().push(path);
+        }
+    }
+
+    let mut gone: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for (file, path) in dropped {
+        let text = store.merged_content_of(parents, file)?.state.text();
+        if !text.is_empty() {
+            gone.entry(text).or_default().push(path);
+        }
+    }
+
+    let mut renames = Vec::new();
+    for (text, from) in &gone {
+        let Some(to) = by_content.get(text.as_str()) else {
+            continue;
+        };
+        if let ([from], [to]) = (from.as_slice(), to.as_slice()) {
+            renames.push(((*from).to_owned(), (*to).to_owned()));
+        }
+    }
+    Ok(renames)
+}
+
+/// Work out what recording would state, without writing anything.
+///
+/// The survey with an identifier minted per added path, which is the whole of
+/// the difference between describing a folder and recording one.
+pub fn plan(
+    store: &Store,
+    working: &Working,
+    recording: &Recording,
+    entropy: &mut impl Entropy,
+) -> Result<Plan, RecordError> {
+    let surveyed = survey(
+        store,
+        working,
+        &recording.parents,
+        &recording.moves,
+        &recording.at,
+    )?;
+
+    // Three things the survey reports and recording refuses. Decision 0015
+    // puts the refusals here rather than in the walk, so that one command can
+    // describe a folder another command will not take.
+    if let Some((path, files)) = surveyed.unsettled.iter().next() {
+        return Err(RecordError::Contested {
+            path: path.clone(),
+            files: files.clone(),
+        });
+    }
+    if !surveyed.refused.is_empty() {
+        return Err(RecordError::Refused {
+            files: surveyed.refused.clone(),
+        });
+    }
+    if !surveyed.standing.is_empty() {
+        return Err(RecordError::Unresolved {
+            files: surveyed.standing.clone(),
+        });
+    }
+
+    let mut minted: BTreeMap<String, FileId> = BTreeMap::new();
+    let mut added = BTreeMap::new();
+    for path in &surveyed.added {
+        let file = entropy.file()?;
+        minted.insert(path.clone(), file);
+        added.insert(file, path.clone());
+    }
+
+    let mut edited = BTreeMap::new();
+    for (path, document) in &surveyed.edited {
+        let file = minted
+            .get(path)
+            .or_else(|| surveyed.held.get(path))
+            .copied();
+        if let Some(file) = file {
+            edited.insert(file, document.clone());
+        }
+    }
+
+    let mut paths: BTreeMap<FileId, String> = BTreeMap::new();
+    for (path, file) in &surveyed.held {
+        paths.insert(*file, path.clone());
+    }
+    for (file, path) in &added {
+        paths.insert(*file, path.clone());
+    }
+    for (file, path) in &surveyed.dropped {
+        paths.insert(*file, path.clone());
+    }
+
+    Ok(Plan {
+        added,
+        moved: surveyed.moved.clone(),
+        dropped: surveyed.dropped.keys().copied().collect(),
+        edited,
+        paths,
+        parents: surveyed.parents.clone(),
+        survey: surveyed,
+    })
 }
 
 /// Record a revision, writing the documents it names before the revision.
@@ -339,6 +560,15 @@ pub enum RecordError {
         /// Each file, and how many marker lines still stand in it.
         files: Vec<(String, usize)>,
     },
+    /// Paths the folder holds that the format cannot take.
+    ///
+    /// Every one of them at once, per decision 0015: the fix is a set of
+    /// `skip` rules, and writing them one command at a time is the thing
+    /// listing them avoids.
+    Refused {
+        /// Each path, and the short reason.
+        files: Vec<(String, String)>,
+    },
     /// A `--move` naming a path the tree does not hold.
     NotInTheTree {
         /// The path as given.
@@ -418,6 +648,24 @@ impl fmt::Display for RecordError {
                     .map(|(path, lines)| format!("\n  {path} ({lines} left)"))
                     .collect::<String>()
             ),
+            RecordError::Refused { files } => write!(
+                f,
+                "{} the folder holds {} not something this format can record; \
+                 rename or `skip` {} in `{}/{}`:{}",
+                if files.len() == 1 {
+                    "one file".to_owned()
+                } else {
+                    format!("{} files", files.len())
+                },
+                if files.len() == 1 { "is" } else { "are" },
+                if files.len() == 1 { "it" } else { "them" },
+                crate::store::STORE_DIR,
+                crate::working::SKIPPED_FILE,
+                files
+                    .iter()
+                    .map(|(path, because)| format!("\n  {path} ({because})"))
+                    .collect::<String>()
+            ),
             RecordError::NotInTheTree { path } => write!(
                 f,
                 "`{path}` is not a file this history holds, so nothing can be \
@@ -426,13 +674,12 @@ impl fmt::Display for RecordError {
             RecordError::Contested { path, files } => write!(
                 f,
                 "{} files hold `{path}` here, so the path does not name one of \
-                 them: {}",
+                 them; say where each goes with --at:{}",
                 files.len(),
                 files
                     .iter()
-                    .map(FileId::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                    .map(|file| format!("\n  --at {file}=<path>"))
+                    .collect::<String>()
             ),
             RecordError::UnusablePath { path, because } => {
                 write!(f, "`{path}` cannot be a path here: {because}")

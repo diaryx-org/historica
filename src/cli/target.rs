@@ -91,6 +91,92 @@ pub fn file_in(store: &Store, revision: &RevisionId, path: &str) -> Result<FileI
     }
 }
 
+/// The revisions a command is taken against.
+///
+/// Decision 0015 moves this out of `record` so that `status` resolves its
+/// position by exactly the rule the record it is previewing will use. The rule
+/// is subtler than it looks: the head is derived only where it is needed, so
+/// `--onto` alone means that revision, `--merge` alone means that revision
+/// *and* the head, and the two together mean what was named and nothing else.
+pub fn parents(
+    store: &Store,
+    onto: Option<&str>,
+    merging: &[String],
+) -> Result<Vec<RevisionId>, Failure> {
+    let mut parents: Vec<RevisionId> = Vec::new();
+    if let Some(spelling) = onto {
+        parents.push(resolve(store, spelling)?);
+    }
+    for spelling in merging {
+        let other = resolve(store, spelling)?;
+        if parents.contains(&other) {
+            return Err(Failure::error(format!(
+                "`{spelling}` is named twice, and a revision is its own parent \
+                 exactly never"
+            )));
+        }
+        parents.push(other);
+    }
+
+    let wants_the_head =
+        parents.is_empty() || (parents.len() == 1 && !merging.is_empty() && onto.is_none());
+    if wants_the_head
+        && let Some(head) = the_head(store)?
+        && !parents.contains(&head)
+    {
+        parents.push(head);
+    }
+    parents.sort();
+    parents.dedup();
+    Ok(parents)
+}
+
+/// The one head to work against, or a refusal naming the choice.
+///
+/// `None` where a store holds no revisions yet, which is a root about to be
+/// recorded rather than a problem.
+pub fn the_head(store: &Store) -> Result<Option<RevisionId>, Failure> {
+    let heads = store.history().heads();
+    match heads.len() {
+        0 => Ok(None),
+        1 => Ok(heads.into_iter().next()),
+        several => Err(Failure::error(format!(
+            "this store has {several} heads, so nothing here is `the` latest; \
+             name one with --onto:{}",
+            listed(heads.iter().map(|head| spelled(store, head)))
+        ))),
+    }
+}
+
+/// A revision abbreviated, with any bookmark that resolves to it.
+///
+/// A person choosing between two heads is choosing between two lines of work,
+/// and the name they gave one is what tells them which is which.
+pub fn spelled(store: &Store, id: &RevisionId) -> String {
+    let mut out = id.abbreviate(12);
+    for name in bookmarks(store, id) {
+        let _ = write!(out, "  {name}");
+    }
+    out
+}
+
+/// Every bookmark resolving to this revision.
+pub fn bookmarks(store: &Store, id: &RevisionId) -> Vec<String> {
+    let history = store.history();
+    store
+        .names()
+        .iter()
+        .filter(|(_, target)| match target {
+            Name::Revision(revision) => revision == id,
+            Name::Change(change) => matches!(
+                history.change_state(change),
+                ChangeState::Resolved(revision) if revision.id == *id
+            ),
+        })
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
 /// The one head, or a refusal naming the choice a person has to make.
 fn head(store: &Store) -> Result<RevisionId, Failure> {
     let heads = store.history().heads();

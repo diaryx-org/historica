@@ -13,8 +13,11 @@ use std::path::Path;
 
 use historica::core::{ChangeId, ChangeState, History, RevisionId};
 use historica::format::{RevisionDocument, Timestamp};
+use historica::record::Survey;
 use historica::store::{Name, Report, Store};
-use historica::tree::Tree;
+use historica::tree::{Tree, TreeContest};
+
+use super::target;
 
 /// Digest characters shown where a digest is shown at all.
 ///
@@ -54,7 +57,7 @@ pub fn log(out: &mut impl Write, store: &Store, from: Option<RevisionId>) -> io:
             document,
             &digests[id],
             &changes[&document.change],
-            &markers(document, id, &heads, &superseded, &divergent),
+            &parenthesised(&marks(document, id, &heads, &superseded, &divergent)),
         )?;
     }
     Ok(())
@@ -108,13 +111,13 @@ fn tree_facts(document: &RevisionDocument) -> String {
 }
 
 /// The states worth saying out loud beside a revision.
-fn markers(
+fn marks(
     document: &RevisionDocument,
     id: &RevisionId,
     heads: &BTreeSet<RevisionId>,
     superseded: &BTreeSet<RevisionId>,
     divergent: &BTreeSet<ChangeId>,
-) -> String {
+) -> Vec<String> {
     let mut marks = Vec::new();
     if heads.contains(id) {
         marks.push("head".to_owned());
@@ -132,10 +135,141 @@ fn markers(
         marks.push("divergent".to_owned());
     }
 
+    marks
+}
+
+/// Marks as they sit after a digest, or nothing where there are none.
+fn parenthesised(marks: &[String]) -> String {
     if marks.is_empty() {
         String::new()
     } else {
         format!("  ({})", marks.join(", "))
+    }
+}
+
+/// `status`: where the folder is, and what it differs by.
+///
+/// Decision 0015. Nothing printed here was stored: the position is derived
+/// from the graph, the facts from a survey nothing wrote down, and the names
+/// from the one file in a store that is rewritten in place.
+pub fn status(
+    out: &mut impl Write,
+    store: &Store,
+    parents: &[RevisionId],
+    survey: &Survey,
+) -> io::Result<()> {
+    position(out, store, parents)?;
+
+    for (fact, path) in survey.facts() {
+        writeln!(out, "{fact:<7} {path}")?;
+    }
+    for (path, because) in &survey.refused {
+        writeln!(out, "{:<7} {path}: {because}", "refused")?;
+    }
+    for (path, files) in &survey.unsettled {
+        writeln!(
+            out,
+            "{:<7} {path}: {} files claim it; say where each goes with --at",
+            "claimed",
+            files.len()
+        )?;
+    }
+    for (path, lines) in &survey.standing {
+        writeln!(out, "{:<7} {path} ({lines} left)", "marked")?;
+    }
+
+    // Only where a person said they were joining work. A contest deeper in the
+    // graph was settled when its merge was recorded, and repeating it under
+    // every status would be noise about a decision nobody is making now.
+    if parents.len() > 1 {
+        for contest in &survey.contested {
+            if !matches!(contest, TreeContest::Path { .. }) {
+                writeln!(out, "{}", contest_line(contest))?;
+            }
+        }
+    }
+
+    if survey.is_empty() && survey.refused.is_empty() && survey.unsettled.is_empty() {
+        writeln!(out, "nothing here differs from what is recorded")?;
+    }
+
+    // Beside the facts and never instead of them: what `record` would state is
+    // still an `added` and a `dropped` until a person says otherwise.
+    for (from, to) in &survey.renames {
+        writeln!(out)?;
+        writeln!(
+            out,
+            "{from} and {to} hold the same bytes; if that is a rename,"
+        )?;
+        writeln!(out, "say so with --move {from}={to}")?;
+    }
+    Ok(())
+}
+
+/// The revisions the folder is being compared with, named as `log` names them.
+fn position(out: &mut impl Write, store: &Store, parents: &[RevisionId]) -> io::Result<()> {
+    if parents.is_empty() {
+        return writeln!(out, "no revisions here yet");
+    }
+
+    let history = store.history();
+    let heads = history.heads();
+    let superseded = history.superseded();
+    let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
+    // Abbreviated against every revision the store holds, as `log` does, so
+    // that the prefix printed here is one `show` and `--onto` will resolve.
+    let digests = abbreviations(store.iter().map(|(id, _)| *id), DIGEST_FLOOR);
+    let changes = abbreviations(history.changes(), CHANGE_FLOOR);
+
+    for id in parents {
+        let Some(document) = store.get(id) else {
+            continue;
+        };
+        let mut marks = marks(document, id, &heads, &superseded, &divergent);
+        marks.extend(target::bookmarks(store, id));
+        writeln!(
+            out,
+            "{}  {}{}",
+            changes[&document.change],
+            digests[id],
+            parenthesised(&marks)
+        )?;
+    }
+    Ok(())
+}
+
+/// One tree contest, as a person needs to hear it.
+pub fn contest_line(contest: &TreeContest) -> String {
+    match contest {
+        TreeContest::Dropped { file, by } => format!(
+            "kept {} : {} dropped it, and concurrent work did not",
+            file.abbreviate(8),
+            by.iter()
+                .map(|revision| revision.abbreviate(8))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TreeContest::Moved { file, paths } => format!(
+            "moved {} to {}, which is the lower digest of {}",
+            file.abbreviate(8),
+            paths[0].1,
+            paths
+                .iter()
+                .map(|(_, path)| path.as_str())
+                .collect::<Vec<_>>()
+                .join(" and ")
+        ),
+        TreeContest::Path { path, files } => format!(
+            "{} files claim {path}; say where each goes with --at:{}",
+            files.len(),
+            files
+                .iter()
+                .map(|file| format!("\n  --at {file}=<path>"))
+                .collect::<String>()
+        ),
+        // `TreeContest` may grow; a contest nobody here knows about is still
+        // worth saying out loud rather than passing over in silence.
+        other => format!("{other:?}"),
     }
 }
 
