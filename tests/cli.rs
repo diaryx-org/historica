@@ -425,6 +425,48 @@ fn a_payload_and_a_document_one_path_apart_are_parted_by_a_digest() {
 }
 
 #[test]
+fn a_file_of_this_formats_own_extension_is_still_content() {
+    // Found by recording Historica into itself: the corpus holds `.ops` files
+    // that are deliberately invalid, and filing one under its own name handed
+    // it to the parser, which refused it. A store that writes something it
+    // cannot read back is the one failure this format is least willing to
+    // produce, so a payload never carries the extension that says "document".
+    let directory = repository("record-ops-payload");
+    fs::create_dir_all(directory.join("corpus")).expect("directories");
+    let invalid = "historica-v0\n\ndelete 0 1\n-a\ndelete 1 2\n-b\n-c\n";
+    write(&directory, "corpus/adjacent-deletes.ops", invalid);
+    write(&directory, "notes.md", "an entry\n");
+    out(recorded(&directory, &["record", "-m", "Initial state"]));
+
+    let filed = walk_names(&directory.join("history/operations"));
+    assert!(
+        filed.iter().all(|name| !name.ends_with(".ops")),
+        "a payload must not be filed as a document: {filed:?}"
+    );
+    assert!(
+        filed
+            .iter()
+            .any(|name| name.contains("corpus/adjacent-deletes.ops ")),
+        "and it keeps the name it had, with the digest that parts it: {filed:?}"
+    );
+
+    // The store reads back, and the file comes out byte for byte.
+    let status = out(recorded(&directory, &["status"]));
+    assert!(
+        status.contains("nothing here differs from what is recorded"),
+        "{status}"
+    );
+    assert_eq!(
+        stdout(&directory, &["cat", "head", "corpus/adjacent-deletes.ops"]),
+        invalid
+    );
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "{filed:?}"
+    );
+}
+
+#[test]
 fn a_file_where_another_needs_a_directory_yields_its_readable_name() {
     // 0008 has no directories, so a history may hold both `notes` and
     // `notes/photo.png`. No working copy can, which is why this store is built

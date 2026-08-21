@@ -133,12 +133,23 @@ pub struct Filing {
 /// path that is another file's directory, which 0008 permits and no filesystem
 /// can hold.
 pub fn filed(filings: &[Filing]) -> BTreeMap<RevisionId, String> {
+    let extension = format!(".{OPERATION_EXT}");
     let mut sharing: Vec<(&Filing, String)> = filings
         .iter()
         .map(|filing| {
-            let name = match filing.document {
-                true => format!("{}.{OPERATION_EXT}", scrubbed(&filing.path)),
-                false => scrubbed(&filing.path),
+            let path = scrubbed(&filing.path);
+            let name = if filing.document {
+                format!("{path}{extension}")
+            } else if last(&path).ends_with(&extension) {
+                // A payload never carries the extension that says "document",
+                // whether or not a document is there to collide with. A person
+                // whose repository holds a file called `notes.ops` would
+                // otherwise have it filed under a name the loader hands to the
+                // parser, which refuses it — a store that wrote something it
+                // could not read back.
+                suffixed(&path, &filing.held, false)
+            } else {
+                path
             };
             (filing, name)
         })
@@ -181,29 +192,43 @@ pub fn filed(filings: &[Filing]) -> BTreeMap<RevisionId, String> {
                 false => held.to_string(),
             }
         } else if taken.get(name.as_str()).copied().unwrap_or(false) {
-            // The suffix goes on the last component, and inside the extension
-            // where there is one, because a document that lost `.ops` would
-            // stop being one and a payload that gained it would start.
-            let (head, last) = match name.rfind('/') {
-                Some(cut) => name.split_at(cut + 1),
-                None => ("", name.as_str()),
-            };
-            let suffix = held.abbreviate(DIGEST_CHARS);
-            match filing.document {
-                true => {
-                    let last = last
-                        .strip_suffix(&format!(".{OPERATION_EXT}"))
-                        .unwrap_or(last);
-                    format!("{head}{last} {suffix}.{OPERATION_EXT}")
-                }
-                false => format!("{head}{last} {suffix}"),
-            }
+            suffixed(name, &held, filing.document)
         } else {
             name.clone()
         };
         out.insert(held, name);
     }
     out
+}
+
+/// A name with the digest that parts it from another, on its last component.
+///
+/// Inside the extension for a document and outside it for a payload, because a
+/// document that lost `.ops` would stop being one and a payload that gained it
+/// would start.
+fn suffixed(name: &str, held: &RevisionId, document: bool) -> String {
+    let (head, last) = match name.rfind('/') {
+        Some(cut) => name.split_at(cut + 1),
+        None => ("", name),
+    };
+    let suffix = held.abbreviate(DIGEST_CHARS);
+    match document {
+        true => {
+            let last = last
+                .strip_suffix(&format!(".{OPERATION_EXT}"))
+                .unwrap_or(last);
+            format!("{head}{last} {suffix}.{OPERATION_EXT}")
+        }
+        false => format!("{head}{last} {suffix}"),
+    }
+}
+
+/// The last component of a path, which is where a name is decided.
+fn last(path: &str) -> &str {
+    match path.rfind('/') {
+        Some(cut) => &path[cut + 1..],
+        None => path,
+    }
 }
 
 /// A path, as the store files it.

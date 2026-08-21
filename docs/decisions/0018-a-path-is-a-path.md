@@ -34,9 +34,9 @@ This document files a document under the path it names, as directories.
 - **A document keeps `.ops`**, appended to the last component:
   `notes/2026-08-20.md.ops`. A payload keeps the file's own name and nothing
   else, per 0017.
-- **Two names that would meet are still parted by a digest suffix**, on the
-  last component and never by a counter. There are only two ways left for them
-  to meet, and both are named below.
+- **A payload never carries `.ops`**, and a name two things would meet at is
+  parted by a digest suffix on the last component, never by a counter. Both
+  cases are named below.
 - **`arrange` tidies the directories it empties, upwards**, stopping at
   `operations/` and stopping the moment a directory holds anything — which is
   `remove_dir` refusing, the same guard 0016 relied on.
@@ -81,13 +81,24 @@ What is left is what a filesystem does anyway. The 255-byte limit applies per
 component, and every component here already named a file on somebody's disk, so
 it fits by construction rather than by arithmetic.
 
-## Two names that still meet
+## Two names the format has to decide
 
-**A payload and a document, one path apart.** 0017's rule: a payload for the
-path `x.ops` and an operation document for the path `x` both want `x.ops`. The
-digest suffix parts them, on the last component and inside the extension —
-`x 4a3a5224.ops` for the document, `x.ops 8aea1252` for the payload — so a
-document never loses the extension that says it is one.
+**A payload that would carry `.ops`.** Two files apart in the format's own
+extension: a payload for the path `x.ops` and an operation document for the
+path `x` both want `x.ops`. The digest suffix parts them, on the last component
+and inside the extension — `x 4a3a5224.ops` for the document, `x.ops 8aea1252`
+for the payload — so a document never loses the extension that says it is one.
+
+This paragraph first said the suffix was for the *collision*, and that was
+wrong in a way recording Historica into its own repository found within the
+week. A payload whose path ends in `.ops` is filed under a name the loader
+hands to the parser **whether or not a document is there to collide with**, and
+this project's corpus is full of `.ops` files written to be invalid, so the
+store refused to open on a document it had itself written. The rule is
+therefore the stronger one it should always have been: **a payload never
+carries the document extension**, and takes the digest suffix whenever its own
+name would end in one. The collision above is then a case of that rule rather
+than the reason for it.
 
 **A file where another file needs a directory.** 0008 says there are no
 directories: a path is a string, and nothing stops a history holding both
@@ -99,9 +110,12 @@ the top of the revision's directory, where nothing can be a directory over it.
 Deterministic, derived from the paths alone, and it costs the readable name on
 exactly the file whose path was already in dispute.
 
-Neither of these is reachable from a folder a person actually has. They are
-written down because a format that only works on the inputs its author imagined
-is not a format.
+The first is reachable from an ordinary folder and was reached from this one.
+The second is not: no working copy can hold a file and a directory of one name,
+so it arrives only from a hand-written store or a merge. It is written down
+anyway, because a format that only works on the inputs its author imagined is
+not a format — and because the first case is what that sentence costs when it
+is believed too early.
 
 ## What it costs
 
