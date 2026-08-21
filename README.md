@@ -368,6 +368,13 @@ Choices that constrain later work are written down as they are made.
   file keeps its own name. It is the last decision that gets to break a store,
   because it is the last one written while none exists that its author did not
   write.
+- [`docs/decisions/0022-names-the-store-cannot-own.md`](docs/decisions/0022-names-the-store-cannot-own.md)
+  — recording `.DS_Store` and then opening the store in Finder destroyed the
+  payload, because Finder writes a `.DS_Store` into every folder it displays.
+  A payload is never filed under a name the store does not own, a file with
+  such a name inside the store is somebody else's rather than content, and
+  `init` writes a `skipped.txt` that keeps them out of a history that is
+  append-only.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
