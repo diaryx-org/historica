@@ -14,9 +14,10 @@ use std::fmt;
 
 use crate::core::{ChangeId, FileId, RevisionId};
 use crate::diff::diff;
-use crate::format::{OperationDocument, RevisionDocument, Timestamp, Version};
+use crate::format::{OperationDocument, RevisionDocument, Timestamp, Version, digest};
+use crate::naming;
 use crate::replay::State;
-use crate::store::{MaterialiseError, Name, Store, StoreError};
+use crate::store::{MaterialiseError, Name, REVISION_EXT, Store, StoreError};
 use crate::tree::{Kind, Tree, TreeContest};
 use crate::working::{self, Working, WorkingError};
 
@@ -579,6 +580,41 @@ pub fn record(
         return Err(RecordError::NothingToRecord);
     }
 
+    let change = entropy.change()?;
+
+    // Decision 0019: the name a file is written under is the name it keeps, so
+    // it is worked out before anything is written. A stem needs the time, the
+    // message and the change ID, all of which are supplied to a recording
+    // rather than derived from it, and the filenames within it need the paths,
+    // which the plan already holds.
+    let stem = naming::stem_for(
+        &recording.when,
+        &recording.message,
+        &change,
+        store.iter().map(|(_, document)| document),
+    );
+    let mut filings = Vec::new();
+    for (file, held) in &plan.edited {
+        let Some(path) = plan.paths.get(file) else {
+            continue;
+        };
+        filings.push(naming::Filing {
+            held: match held {
+                Change::Operations(document) => digest(&document.write()),
+                Change::Created(payload) | Change::Whole(payload) => digest(payload),
+            },
+            path: path.clone(),
+            document: matches!(held, Change::Operations(_)),
+        });
+    }
+    let named = naming::filed(&filings);
+    let filed = |held: &RevisionId| match named.get(held) {
+        Some(name) => format!("{stem}/{name}"),
+        // Unreachable: every filing above went into `named`. A file the plan
+        // has no path for is not written at all.
+        None => held.to_string(),
+    };
+
     // Decision 0017: the documents and the payloads a revision names are
     // written before the revision, on the same reasoning — an interrupted
     // record leaves content nothing points at, which `check` calls a note,
@@ -586,21 +622,23 @@ pub fn record(
     let mut edited = BTreeMap::new();
     let mut text = BTreeMap::new();
     let mut bytes = BTreeMap::new();
-    for (file, change) in &plan.edited {
-        match change {
+    for (file, held) in &plan.edited {
+        match held {
             Change::Operations(document) => {
-                edited.insert(*file, store.insert_operation(document)?);
+                let name = filed(&digest(&document.write()));
+                edited.insert(*file, store.insert_operation_at(document, &name)?);
             }
             Change::Created(payload) => {
-                text.insert(*file, store.insert_payload(payload)?);
+                let name = filed(&digest(payload));
+                text.insert(*file, store.insert_payload_at(payload, &name)?);
             }
             Change::Whole(payload) => {
-                bytes.insert(*file, store.insert_payload(payload)?);
+                let name = filed(&digest(payload));
+                bytes.insert(*file, store.insert_payload_at(payload, &name)?);
             }
         }
     }
 
-    let change = entropy.change()?;
     let document = RevisionDocument {
         version: Version::CURRENT,
         change,
@@ -619,7 +657,7 @@ pub fn record(
         extensions: BTreeMap::new(),
         message: recording.message.clone(),
     };
-    let revision = store.insert(&document)?;
+    let revision = store.insert_at(&document, &format!("{stem}.{REVISION_EXT}"))?;
 
     // Decision 0011: a bookmark that named the parent's change follows the
     // work forward. A `revision` bookmark is the pin that must not move.

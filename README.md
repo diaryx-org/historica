@@ -136,8 +136,10 @@ hand-arranged into something a file browser can narrate. `operations/` holds
 two kinds of file on the rule `revisions/` already keeps: only `*.ops` is a
 document there, and every other file is a payload, found by its digest and not
 read at all until something wants its bytes, so a history with photographs in
-it does not cost a full hash to run `log`. The writer still names
-files by digest, appends only, and never overwrites. `check` reads a store
+it does not cost a full hash to run `log`. The writer names each file the way a
+person reads it — decision 0019 — appends only, and never overwrites; a
+digest-named store stays legal everywhere and the loader cannot tell the
+difference. `check` reads a store
 without loading it and separates errors, which mean the store contradicts
 itself, from notes, which never fail: an undelivered parent, an undelivered
 operation document or payload, a payload nothing names, a duplicate, or a sync
@@ -157,16 +159,21 @@ saying what recording does not take, and `identity` says who is writing. Nothing
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.
-`arrange` is the command with a rule to keep: two replicas arranging one
-history must produce one set of filenames, so a collision resolves by change ID
-and then by digest, never by a counter, which would depend on what else was in
-the directory. It names revisions `YYYY-MM-DD summary.rev` and files each
-revision's operation documents under a directory of the same name, so a store
-reads as a folder per entry rather than as a wall of digests; the path is filed
-as a path, in real directories, so a revision's folder is the subtree of the
-repository that revision touched and `notes/photo.png` inside it opens as a
-picture. The loader walks both directories to any depth and never follows a
-symbolic link, which is what lets a person file a history however they please.
+The naming scheme is `naming`, and both the writer and `arrange` use it, which
+is what makes them agree: revisions are `YYYY-MM-DD summary.rev`, and each
+revision's operation documents and payloads sit under a directory of the same
+name, at the path they had — as real directories, so a revision's folder is the
+subtree of the repository that revision touched and `notes/photo.png` inside it
+opens as a picture. Its rule to keep is that two replicas must produce one set
+of filenames, so a collision resolves by change ID and then by digest, never by
+a counter, which would depend on what else was in the directory. `arrange` is
+what applies that scheme to a store that does not have it — one written by an
+older version, by another tool, or by hand — and on a store this version wrote
+it does nothing. It is deliberately not a lint: a name that differs is usually
+a person filing their own history, which `check` has no business calling a
+fault, and every fault `check` does report it finds in content. The loader
+walks both directories to any depth and never follows a symbolic link, which is
+what lets a person file a history however they please.
 
 The `tree` module also merges. Decision 0008's rules for concurrent tree facts
 are here rather than in prose now: a `drop` concurrent with an edit or a move
@@ -231,7 +238,7 @@ kxryzmor  55874ae7
 
 qpvuntsm  f23cda95
     Adam Harris <adam@example.com>  2025-08-19T00:47:11-06:00
-    added 2  edited 2
+    added 2
     Start a journal
 $ historica files nwlxsqot
 docs/README.md  swtlmnkqvzyrxopwstlnmkqv
@@ -241,12 +248,13 @@ $ historica cat nwlxsqot docs/README.md
 A journal kept in Historica, and the notes that came with it.
 $ historica name main nwlxsqot
 main -> change nwlxsqotvkzmuprysltnwxqk
+$ ls history/revisions
+'2025-08-19 Start a journal.rev'
+'2025-08-19 Say why a path is not an identity.rev'
+'2025-08-20 File the README under docs, and say what it covers.rev'
+'2025-08-21 Withdraw the entry, keeping what it taught.rev'
 $ historica arrange
-renamed 01-start.rev  ->  2025-08-19 Start a journal.rev
-renamed 02-entry.rev  ->  2025-08-19 Say why a path is not an identity.rev
-renamed 03-move.rev  ->  2025-08-20 File the README under docs, and say what it covers.rev
-renamed 04-drop.rev  ->  2025-08-21 Withdraw the entry, keeping what it taught.rev
-/home/adam/journal/history/revisions: 4 renamed, 0 already arranged
+/home/adam/journal/history/revisions: 0 renamed, 4 already arranged
 $ historica check
 /home/adam/journal/history: nothing to report
 ```

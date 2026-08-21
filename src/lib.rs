@@ -11,6 +11,7 @@ pub mod core;
 pub mod diff;
 pub mod format;
 pub mod merge;
+pub mod naming;
 pub mod record;
 pub mod replay;
 pub mod store;

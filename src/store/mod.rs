@@ -597,12 +597,24 @@ impl Store {
     /// no-op, which is what makes two replicas that deterministically produce
     /// one revision produce one file.
     pub fn insert(&mut self, document: &RevisionDocument) -> Result<RevisionId, StoreError> {
+        let id = digest(&document.write());
+        self.insert_at(document, &format!("{id}.{REVISION_EXT}"))
+    }
+
+    /// Write a revision into the store under `name`, within `revisions/`.
+    ///
+    /// Decision 0019: a writer names the file it is creating rather than
+    /// renaming it afterwards, so the name comes from the caller — which is
+    /// the one place that knows what the store already holds. `name` may
+    /// carry `/`, and the directories it names are made.
+    pub fn insert_at(
+        &mut self,
+        document: &RevisionDocument,
+        name: &str,
+    ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        let path = self
-            .root
-            .join(REVISIONS_DIR)
-            .join(format!("{id}.{REVISION_EXT}"));
+        let path = within(&self.root.join(REVISIONS_DIR), name);
 
         self.raise_version(document.version)?;
         write_once(&path, &bytes)?;
@@ -619,12 +631,26 @@ impl Store {
         &mut self,
         document: &OperationDocument,
     ) -> Result<RevisionId, StoreError> {
+        let id = digest(&document.write());
+        self.insert_operation_at(document, &format!("{id}.{OPERATION_EXT}"))
+    }
+
+    /// Write an operation document under `name`, within `operations/`.
+    ///
+    /// A document the store already holds is not written again, wherever it
+    /// sits: 0016's rule that a document two revisions name lives under one of
+    /// them, arrived at from the writing side.
+    pub fn insert_operation_at(
+        &mut self,
+        document: &OperationDocument,
+        name: &str,
+    ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        let path = self
-            .root
-            .join(OPERATIONS_DIR)
-            .join(format!("{id}.{OPERATION_EXT}"));
+        if self.operations.contains_key(&id) {
+            return Ok(id);
+        }
+        let path = within(&self.root.join(OPERATIONS_DIR), name);
         self.raise_version(document.version)?;
         write_once(&path, &bytes)?;
         self.operations.insert(id, document.clone());
@@ -641,7 +667,24 @@ impl Store {
     /// name belongs and `arrange` is what puts it there.
     pub fn insert_payload(&mut self, bytes: &[u8]) -> Result<RevisionId, StoreError> {
         let id = digest(bytes);
-        let path = self.root.join(OPERATIONS_DIR).join(id.to_string());
+        self.insert_payload_at(bytes, &id.to_string())
+    }
+
+    /// Write a payload under `name`, within `operations/`.
+    ///
+    /// A payload the store already holds is not written again, wherever it
+    /// sits — which matters more here than for a document, since the same
+    /// photograph added twice is the same megabytes twice.
+    pub fn insert_payload_at(
+        &mut self,
+        bytes: &[u8],
+        name: &str,
+    ) -> Result<RevisionId, StoreError> {
+        let id = digest(bytes);
+        if self.payload_path(&id)?.is_some() {
+            return Ok(id);
+        }
+        let path = within(&self.root.join(OPERATIONS_DIR), name);
         write_once(&path, bytes)?;
         if let Some(index) = self.payloads.borrow_mut().as_mut() {
             index.entry(id).or_insert(path);
@@ -716,11 +759,26 @@ impl Store {
     }
 }
 
+/// One of the store's directories, joined with a name that may carry `/`.
+fn within(directory: &Path, name: &str) -> PathBuf {
+    let mut path = directory.to_path_buf();
+    for component in name.split('/') {
+        path.push(component);
+    }
+    path
+}
+
 /// Write a digest-named file, never renaming or overwriting one.
 ///
 /// A file that is already there is the same file, because its name is its
 /// digest — confirmed rather than assumed.
 fn write_once(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    // Decision 0018 files a path as a path, so a writer makes the directories
+    // the name asks for. `create_dir_all` is content-free: it makes what the
+    // name says and nothing else.
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| StoreError::io(parent, error))?;
+    }
     match fs::OpenOptions::new()
         .write(true)
         .create_new(true)

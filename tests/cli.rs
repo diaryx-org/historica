@@ -473,7 +473,8 @@ fn arrange_tidies_the_directory_it_emptied_and_spares_the_one_it_did_not() {
     write(&directory, "b.md", "other\n");
     out(recorded(&directory, &["record", "-m", "First"]));
 
-    // Two documents, filed by hand into two directories of a person's own.
+    // Two payloads, re-filed by hand into two directories of a person's own,
+    // which decision 0003 says they may do and 0019 says is not a fault.
     let operations = directory.join("history/operations");
     let documents = walk_names(&operations);
     assert_eq!(documents.len(), 2, "{documents:?}");
@@ -484,8 +485,17 @@ fn arrange_tidies_the_directory_it_emptied_and_spares_the_one_it_did_not() {
     let shared = operations.join("shared");
     fs::create_dir_all(&alone).expect("a directory");
     fs::create_dir_all(&shared).expect("a directory");
-    fs::rename(operations.join(&documents[0]), alone.join(&documents[0])).expect("filing");
-    fs::rename(operations.join(&documents[1]), shared.join(&documents[1])).expect("filing");
+    let basename = |name: &String| name.rsplit('/').next().expect("a filename").to_owned();
+    fs::rename(
+        operations.join(&documents[0]),
+        alone.join(basename(&documents[0])),
+    )
+    .expect("filing");
+    fs::rename(
+        operations.join(&documents[1]),
+        shared.join(basename(&documents[1])),
+    )
+    .expect("filing");
     // Something that is not a document, and not this command's to delete.
     fs::write(shared.join("notes.txt"), "why these are here\n").expect("a file");
 
@@ -509,26 +519,63 @@ fn arrange_tidies_the_directory_it_emptied_and_spares_the_one_it_did_not() {
 }
 
 #[test]
-fn recording_into_an_arranged_store_leaves_it_readable() {
-    // The writer still writes flat and the reader reads both, which is what
-    // makes arranging safe to do at any time rather than once at the end.
-    let directory = repository("arrange-then-record");
-    write(&directory, "a.md", "one\n");
-    out(recorded(&directory, &["record", "-m", "First"]));
-    out(recorded(&directory, &["arrange"]));
+fn a_store_is_written_readable_and_arrange_has_nothing_to_do() {
+    // Decision 0019: the name a file is written under is the name it keeps, so
+    // the folder a person opens is readable without their having learnt that a
+    // command exists. `arrange` moving nothing is the test that says the
+    // writer and the scheme agree.
+    let directory = repository("record-names");
+    fs::create_dir_all(directory.join("notes")).expect("directories");
+    write(&directory, "notes/a.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+    write(&directory, "notes/a.md", "two\n");
+    out(recorded(&directory, &["record", "-m", "Say more"]));
 
-    write(&directory, "a.md", "two\n");
-    out(recorded(&directory, &["record", "-m", "Second"]));
-
-    // A store that is half filed and half flat is one store.
-    assert_eq!(stdout(&directory, &["cat", "head", "a.md"]), "two\n");
+    let revisions = walk_names(&directory.join("history/revisions"));
     assert!(
-        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
-        "half-arranged is not half-valid"
+        revisions
+            .iter()
+            .any(|name| name.ends_with("Start a journal.rev")),
+        "{revisions:?}"
+    );
+    assert!(
+        revisions.iter().any(|name| name.ends_with("Say more.rev")),
+        "{revisions:?}"
+    );
+    let filed = walk_names(&directory.join("history/operations"));
+    assert!(
+        filed
+            .iter()
+            .any(|name| name.ends_with("Start a journal/notes/a.md")),
+        "{filed:?}"
+    );
+    assert!(
+        filed
+            .iter()
+            .any(|name| name.ends_with("Say more/notes/a.md.ops")),
+        "{filed:?}"
+    );
+    // And nothing in the folder is a hash.
+    let hashed = |name: &String| {
+        let last = name.rsplit('/').next().expect("a filename");
+        let stem = last
+            .strip_suffix(".rev")
+            .or_else(|| last.strip_suffix(".ops"));
+        let stem = stem.unwrap_or(last);
+        stem.len() == 64 && stem.chars().all(|c| c.is_ascii_hexdigit())
+    };
+    assert!(
+        !filed.iter().chain(&revisions).any(hashed),
+        "{filed:?} {revisions:?}"
     );
 
+    assert_eq!(stdout(&directory, &["cat", "head", "notes/a.md"]), "two\n");
     let done = stdout(&directory, &["arrange"]);
-    assert!(done.contains("1 renamed, 1 already arranged"), "{done}");
+    assert!(done.contains("0 renamed, 2 already arranged"), "{done}");
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "a store nobody arranged is an ordinary store"
+    );
 }
 
 #[test]
