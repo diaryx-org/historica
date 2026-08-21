@@ -234,13 +234,40 @@ here it is the whole of the undo. The position a command works from becomes
 the head *nothing has rewritten*, which is decision 0001's rendering question
 answered at the moment it first has an answer that matters.
 
-What is still owed of that half is everything that needs a descendant
-reparented: amending a revision that has one, abandoning it, and moving a
-change somewhere new are one piece of work — transforming operations against
-operations — and none of them is built.
+`abandon` is decision 0013's other tip-first command: a tombstone of a newly
+minted change supersedes a head, or a run ending at one, records nothing, and
+carries the one message this format requires — the reason is the only thing
+it has. The content falls out of the ancestry, so nothing is undone. `prune`
+is the same decision's disk half: it deletes exactly a revision document that
+is superseded and orphaned and a content document nothing kept names, prints
+every file, and refuses a store `check` calls broken. It is local, manual,
+not secrecy, and the undo history, all four of which 0013 says in as many
+words.
+
+For the sentence a person cannot rotate, decision 0014 is `forget`: destroy
+the payload, preserve the shape. A forgetting document names the digest whose
+bytes were destroyed, states the same operations at the same positions with
+the same counts, and stands a `\ forgotten` marker where each destroyed item
+stood — so a redacted history materialises and merges byte for byte outside
+the forgotten runs. An item forgotten once is forgotten everywhere it is
+quoted, the deletes that quoted it back included, and two redactions union to
+the more thorough one in either arrival order. What forgetting cannot hide it
+says out loud: shape, position, paths, and the revision around it all stay.
+A store that has forgotten something can prove its structure and not its
+content — the `shasum` claim above becomes conditional at that moment, and
+only then — and a store that has forgotten nothing is unaffected, which is
+nearly all of them.
+
+What is still owed of the rewriting half is everything that needs a
+descendant reparented: amending a revision that has one, abandoning it, and
+moving a change somewhere new are one piece of work — transforming operations
+against operations — and none of it is built.
 The ordering rule is held to convergence and to non-interleaving by property
-tests over every walk order of each graph they generate; the conformance suite
-0007 asks for, against the reference implementation, is still owed.
+tests over every walk order of each graph they generate, and by the
+conformance suite 0007 asks for: an independent reference implementation of
+the other architecture — a live per-replica Fugue tree, placement computed at
+the source, messages instead of replay — that the event-graph merge is held
+to agree with, step by step, across randomised histories.
 
 ## The command line
 
