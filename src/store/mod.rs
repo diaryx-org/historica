@@ -44,8 +44,10 @@ use crate::tree::{self, Kind, MergedTree, Tree, TreeError};
 use crate::working::{MalformedSkip, Rule, SKIPPED_FILE, Skipped};
 
 mod check;
+mod prune;
 
 pub use check::{Finding, Report, Severity};
+pub use prune::Pruned;
 
 /// The directory a store lives in, relative to the repository root.
 pub const STORE_DIR: &str = "history";

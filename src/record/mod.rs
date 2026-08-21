@@ -234,6 +234,37 @@ pub struct Amended {
     pub plan: Plan,
 }
 
+/// What a person supplies to abandon work.
+///
+/// Decision 0013: the tombstone records nothing, so the reason is the only
+/// thing it carries — which is why the message is required here and nowhere
+/// else.
+#[derive(Debug, Clone)]
+pub struct Abandoning {
+    /// The earliest revision to go: it and everything standing on it.
+    pub revision: RevisionId,
+    /// Who is abandoning, per decision 0010.
+    pub author: String,
+    /// When, per decision 0010.
+    pub when: Timestamp,
+    /// Why. A tombstone with no message is a hole in the log.
+    pub message: String,
+}
+
+/// What was abandoned.
+#[derive(Debug, Clone)]
+pub struct Abandoned {
+    /// The tombstone written.
+    pub revision: RevisionId,
+    /// Its change, newly minted — minting is what leaves the old change
+    /// `Abandoned` rather than merely empty.
+    pub change: ChangeId,
+    /// The run the tombstone supersedes, the named revision first.
+    pub superseded: Vec<RevisionId>,
+    /// Bookmarks that moved from the abandoned work to the tombstone.
+    pub advanced: Vec<String>,
+}
+
 /// What was recorded.
 #[derive(Debug, Clone)]
 pub struct Recorded {
@@ -889,6 +920,154 @@ fn rewriting(
     Ok((previous, recording, kept))
 }
 
+/// The run one abandonment would supersede, without writing anything.
+///
+/// Decision 0013: the first version abandons a head, or a run ending at one,
+/// and refuses anything else. The run is the named revision and everything
+/// standing on it, and it must be a line — a fork means two branches where a
+/// person named one, and a merge in it holds work that arrived from elsewhere,
+/// which abandoning this run would silently take with it.
+pub fn abandonment_plan(
+    store: &Store,
+    revision: &RevisionId,
+) -> Result<Vec<RevisionId>, RecordError> {
+    let mut run: Vec<RevisionId> = Vec::new();
+    let mut current = *revision;
+    loop {
+        let document = store
+            .get(&current)
+            .ok_or(RecordError::NotHeld { revision: current })?;
+
+        // A run member something already rewrote has a successor of its own,
+        // and a tombstone would leave one piece of work superseded twice.
+        let successors: Vec<RevisionId> = store
+            .iter()
+            .filter(|(_, held)| held.supersedes.contains(&current))
+            .map(|(id, _)| *id)
+            .collect();
+        if !successors.is_empty() {
+            return Err(RecordError::AlreadyRewritten {
+                revision: current,
+                successors,
+            });
+        }
+
+        // Everything after the first must stand on the run and nothing else:
+        // a second parent is work merged in from elsewhere, and it is not what
+        // the person named.
+        if let Some(previous) = run.last()
+            && (document.parents.len() != 1 || !document.parents.contains(previous))
+        {
+            return Err(RecordError::JoinsOthers { revision: current });
+        }
+        run.push(current);
+
+        let standing: Vec<RevisionId> = store
+            .iter()
+            .filter(|(_, held)| held.parents.contains(&current))
+            .map(|(id, _)| *id)
+            .collect();
+        match standing.as_slice() {
+            [] => break,
+            [next] => current = *next,
+            several => {
+                return Err(RecordError::Forked {
+                    revision: current,
+                    standing: several.to_vec(),
+                });
+            }
+        }
+    }
+    Ok(run)
+}
+
+/// Abandon a run of work, superseding it with a tombstone.
+///
+/// Decision 0013. The tombstone is an ordinary revision that states no facts:
+/// its parents are the run's parents, so the abandoned content falls out of
+/// the ancestry with nothing to undo. Its change is minted rather than
+/// reused, which is what makes the old change `Abandoned` rather than merely
+/// empty.
+pub fn abandon(
+    store: &mut Store,
+    abandoning: &Abandoning,
+    entropy: &mut impl Entropy,
+) -> Result<Abandoned, RecordError> {
+    // The message is required, inverting 0002's rule for exactly this command:
+    // the question a tombstone raises — why is this gone — is asked by a
+    // person who no longer has the work in front of them.
+    if abandoning.message.trim().is_empty() {
+        return Err(RecordError::NoReasonGiven);
+    }
+
+    let run = abandonment_plan(store, &abandoning.revision)?;
+    let first = store
+        .get(&abandoning.revision)
+        .expect("the plan held it")
+        .clone();
+
+    let change = entropy.change()?;
+    let document = RevisionDocument {
+        version: Version::CURRENT,
+        change,
+        parents: first.parents.clone(),
+        supersedes: run.iter().copied().collect(),
+        author: abandoning.author.clone(),
+        when: abandoning.when.clone(),
+        revised_by: None,
+        // A tombstone supersedes, and decision 0005 makes `revised` the moment
+        // of every supersession. Here the work and the rewrite are one act, so
+        // the two timestamps agree.
+        revised: Some(abandoning.when.clone()),
+        added: BTreeMap::new(),
+        moved: BTreeMap::new(),
+        dropped: BTreeSet::new(),
+        edited: BTreeMap::new(),
+        text: BTreeMap::new(),
+        bytes: BTreeMap::new(),
+        extensions: BTreeMap::new(),
+        message: abandoning.message.clone(),
+    };
+
+    let stem = naming::stem_for(
+        &abandoning.when,
+        &abandoning.message,
+        &change,
+        &document.id(),
+        store.iter().map(|(_, held)| held),
+    );
+    let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
+
+    // The tombstone stands where the abandoned revision stood, so a bookmark
+    // that named the abandoned work follows it there — the rule `record`
+    // applies to parents, applied to what was superseded. A pin stays put.
+    let mut advanced = Vec::new();
+    let followed: BTreeSet<ChangeId> = run
+        .iter()
+        .filter_map(|abandoned| store.get(abandoned).map(|held| held.change))
+        .collect();
+    let following: Vec<String> = store
+        .names()
+        .iter()
+        .filter(|(_, target)| match target {
+            Name::Change(named) => followed.contains(named),
+            Name::Revision(_) | Name::File(_) => false,
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in following {
+        store.set_name(&name, Name::Change(change))?;
+        advanced.push(name);
+    }
+
+    Ok(Abandoned {
+        revision,
+        change,
+        superseded: run,
+        advanced,
+    })
+}
+
 /// Whether two documents say the same thing about the same work.
 ///
 /// `supersedes`, `revised`, and `revised-by` are set aside on both sides:
@@ -1044,6 +1223,24 @@ pub enum RecordError {
         /// What already rewrote it.
         successors: Vec<RevisionId>,
     },
+    /// An abandonment with no reason on it.
+    ///
+    /// Decision 0013: the reason is the only thing a tombstone carries, so
+    /// this is the one revision the format will not record without a message.
+    NoReasonGiven,
+    /// A run to abandon that forks, where a person named one line of work.
+    Forked {
+        /// The revision two lines of work stand on.
+        revision: RevisionId,
+        /// The revisions standing on it.
+        standing: Vec<RevisionId>,
+    },
+    /// A run to abandon holding a merge, whose other side arrived from
+    /// elsewhere and would silently fall out of the ancestry with it.
+    JoinsOthers {
+        /// The merge revision in the run.
+        revision: RevisionId,
+    },
     /// A merge whose contested files still hold what the renderer wrote.
     Unresolved {
         /// Each file, and how many marker lines still stand in it.
@@ -1173,6 +1370,31 @@ impl fmt::Display for RecordError {
                     .iter()
                     .map(|id| format!("\n  {}", id.abbreviate(12)))
                     .collect::<String>()
+            ),
+            RecordError::NoReasonGiven => write!(
+                f,
+                "abandoning removes this work from what the history means, and \
+                 the reason is the only thing the tombstone carries; say why \
+                 with -m"
+            ),
+            RecordError::Forked { revision, standing } => write!(
+                f,
+                "{} lines of work stand on {}, and abandoning it would abandon \
+                 all of them; name the one you mean, or abandon each in \
+                 turn:{}",
+                standing.len(),
+                revision.abbreviate(12),
+                standing
+                    .iter()
+                    .map(|id| format!("\n  {}", id.abbreviate(12)))
+                    .collect::<String>()
+            ),
+            RecordError::JoinsOthers { revision } => write!(
+                f,
+                "{} joins work from another line, and abandoning it would take \
+                 that work out of the ancestry too; abandon up to the merge, \
+                 or the other line first",
+                revision.abbreviate(12)
             ),
             RecordError::Unresolved { files } => write!(
                 f,

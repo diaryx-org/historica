@@ -41,6 +41,11 @@ writing a store
   amend [<target>]         rewrite the head as the folder now stands
         [-m <message>] [--move <old>=<new>] [--dry-run]
   merge <target>           write what two lines of work say together
+  abandon <target> [-m <why>] [--dry-run]
+                           supersede this revision, and everything standing
+                           on it, with a tombstone that says why
+  prune [--dry-run]        delete superseded revisions nothing stands on, and
+                           content only they name, printing every file
   identity <author>        say who you are, once, for every repository
   init [<dir>]             make a store in <dir>/history
   check [<dir>]            read a store and report every fault
@@ -163,6 +168,8 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "skip" => skip(&base, rest),
         "record" => record::record(&base, locate(&base)?, rest),
         "amend" => record::amend(locate(&base)?, rest),
+        "abandon" => record::abandon(&base, locate(&base)?, rest),
+        "prune" => prune(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
         other => Err(Failure::usage(format!("there is no `{other}` command"))),
@@ -230,6 +237,59 @@ fn arrange(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     }
 
     arrange::arrange(&locate(base)?, dry_run)
+}
+
+/// `prune [--dry-run]` — the disk half of decision 0013.
+///
+/// Abandoning is the graph and pruning is disk. What may go is exactly what
+/// [`Store::prunable`] names, and every file removed is printed, because
+/// pruning is the undo history and the loss should be visible while it is
+/// still one `cp` away from being reversed.
+fn prune(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut dry_run = false;
+    for argument in arguments {
+        match argument.as_str() {
+            "-n" | "--dry-run" => dry_run = true,
+            other => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `prune` takes"
+                )));
+            }
+        }
+    }
+
+    let root = locate(base)?;
+    // Decision 0013: prune refuses to run on a store `check` calls broken.
+    // Deletion is the one act that must not be aimed by files that cannot be
+    // trusted, and notes never fail here as they never fail anywhere.
+    let report = Store::check(&root);
+    if !report.is_ok() {
+        return Err(Failure::error(
+            "this store does not pass `check`, and prune deletes nothing from \
+             a store it cannot trust; `historica check` says what is wrong",
+        ));
+    }
+
+    let mut store = Store::open(&root)?;
+    let pruned = if dry_run {
+        store.prunable()?
+    } else {
+        store.prune()?
+    };
+
+    printing(|out| {
+        if pruned.is_empty() {
+            return writeln!(
+                out,
+                "nothing here is prunable: nothing superseded is unreferenced"
+            );
+        }
+        let verb = if dry_run { "would remove" } else { "removed" };
+        for file in &pruned.files {
+            writeln!(out, "{verb} {STORE_DIR}/{}", file.display())?;
+        }
+        Ok(())
+    })
 }
 
 /// `status [--onto <target>] [--merge <target>]` — the folder against the store.

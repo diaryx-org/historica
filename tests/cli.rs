@@ -2280,3 +2280,254 @@ fn a_dry_run_of_an_amendment_writes_nothing() {
     let two = refused(&directory, &["amend", &head, &head]);
     assert!(two.contains("is a second"), "{two}");
 }
+
+/// The revision digest a `record` or `amend` line printed after ` as `.
+fn digest_in(said: &str) -> String {
+    said.lines()
+        .find_map(|line| line.split(" as ").nth(1))
+        .expect("a `... as <digest>` line")
+        .trim()
+        .to_owned()
+}
+
+/// Copy a repository wholesale, which is what a replica is (decision 0003).
+fn mirror(from: &Path, to: &Path) {
+    for entry in fs::read_dir(from)
+        .expect("a directory")
+        .filter_map(Result::ok)
+    {
+        let source = entry.path();
+        let target = to.join(entry.file_name());
+        if source.is_dir() {
+            fs::create_dir_all(&target).expect("a directory");
+            mirror(&source, &target);
+        } else {
+            fs::copy(&source, &target).expect("copying a file");
+        }
+    }
+}
+
+#[test]
+fn abandoning_a_head_leaves_a_tombstone_and_the_parents_content() {
+    let directory = repository("abandon-head");
+    write(&directory, "notes.md", "First thought.\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+    write(&directory, "notes.md", "First thought.\nA draft.\n");
+    out(recorded(&directory, &["record", "-m", "A draft"]));
+
+    let said = out(recorded(
+        &directory,
+        &[
+            "abandon",
+            "head",
+            "-m",
+            "The argument does not survive its own example",
+        ],
+    ));
+    assert!(said.contains("abandoned "), "{said}");
+    assert!(said.contains("the tombstone is "), "{said}");
+    // Decision 0013: pruning is a different act, and the command that records
+    // the fact says where the disk half lives.
+    assert!(said.contains("`historica prune`"), "{said}");
+
+    // The content falls out of the ancestry: the head holds the parent's text.
+    assert_eq!(
+        stdout(&directory, &["cat", "head", "notes.md"]),
+        "First thought.\n"
+    );
+    // The tombstone is an ordinary revision, and its reason is in the log.
+    let log = stdout(&directory, &["log"]);
+    assert!(
+        log.contains("The argument does not survive its own example"),
+        "{log}"
+    );
+    assert!(stdout(&directory, &["check"]).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn abandoning_without_a_reason_is_refused() {
+    let directory = repository("abandon-reason");
+    write(&directory, "notes.md", "First.\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+
+    let said = refused(&directory, &["abandon", "head", "-m", ""]);
+    assert!(said.contains("reason"), "{said}");
+}
+
+#[test]
+fn one_tombstone_abandons_a_run_ending_at_a_head() {
+    let directory = repository("abandon-run");
+    write(&directory, "notes.md", "Kept.\n");
+    out(recorded(&directory, &["record", "-m", "Keep this"]));
+    write(&directory, "notes.md", "Kept.\nDraft one.\n");
+    let first = out(recorded(&directory, &["record", "-m", "Draft one"]));
+    write(&directory, "notes.md", "Kept.\nDraft one.\nDraft two.\n");
+    out(recorded(&directory, &["record", "-m", "Draft two"]));
+
+    let target = digest_in(&first);
+    let planned = out(recorded(&directory, &["abandon", &target, "--dry-run"]));
+    assert_eq!(planned.matches("would abandon ").count(), 2, "{planned}");
+
+    let said = out(recorded(
+        &directory,
+        &["abandon", &target, "-m", "Neither draft says it"],
+    ));
+    assert_eq!(said.matches("abandoned ").count(), 2, "{said}");
+    assert_eq!(stdout(&directory, &["cat", "head", "notes.md"]), "Kept.\n");
+}
+
+#[test]
+fn abandoning_refuses_a_fork_and_a_rewritten_revision() {
+    let directory = repository("abandon-fork");
+    write(&directory, "notes.md", "Base.\n");
+    let base = out(recorded(&directory, &["record", "-m", "Base"]));
+    write(&directory, "notes.md", "Base.\nLeft.\n");
+    out(recorded(&directory, &["record", "-m", "Left"]));
+    write(&directory, "notes.md", "Base.\nRight.\n");
+    out(recorded(
+        &directory,
+        &["record", "-m", "Right", "--onto", &digest_in(&base)],
+    ));
+    let said = refused(&directory, &["abandon", &digest_in(&base), "-m", "why"]);
+    assert!(said.contains("lines of work stand on"), "{said}");
+
+    let directory = repository("abandon-rewritten");
+    write(&directory, "notes.md", "First.\n");
+    let first = out(recorded(&directory, &["record", "-m", "Start"]));
+    out(recorded(&directory, &["amend", "-m", "Start, reworded"]));
+    let said = refused(&directory, &["abandon", &digest_in(&first), "-m", "why"]);
+    assert!(said.contains("already been rewritten"), "{said}");
+}
+
+#[test]
+fn a_change_bookmark_follows_abandoned_work_to_the_tombstone() {
+    let directory = repository("abandon-bookmark");
+    write(&directory, "notes.md", "First.\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    write(&directory, "notes.md", "First.\nMore.\n");
+    out(recorded(&directory, &["record", "-m", "More"]));
+    stdout(&directory, &["name", "draft", "head"]);
+
+    let said = out(recorded(
+        &directory,
+        &["abandon", "head", "-m", "Not this way"],
+    ));
+    assert!(said.contains("draft -> "), "{said}");
+    // The tombstone stands where the abandoned revision stood, and the
+    // bookmark still resolves — to it.
+    let names = stdout(&directory, &["names"]);
+    assert!(names.contains("draft"), "{names}");
+    assert_eq!(
+        stdout(&directory, &["cat", "draft", "notes.md"]),
+        "First.\n"
+    );
+}
+
+#[test]
+fn prune_removes_a_superseded_orphan_and_what_only_it_named() {
+    let directory = repository("prune-orphan");
+    write(&directory, "notes.md", "First.\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    write(&directory, "notes.md", "First.\nA draft.\n");
+    out(recorded(&directory, &["record", "-m", "A draft"]));
+    out(recorded(&directory, &["abandon", "head", "-m", "No"]));
+
+    // The dry run prints the files and removes none of them.
+    let planned = stdout(&directory, &["prune", "--dry-run"]);
+    assert!(
+        planned.contains("would remove history/revisions/"),
+        "{planned}"
+    );
+    assert!(
+        planned.contains("would remove history/operations/"),
+        "{planned}"
+    );
+    assert_eq!(walk_names(&directory.join("history/revisions")).len(), 3);
+
+    let said = stdout(&directory, &["prune"]);
+    assert!(said.contains("removed history/revisions/"), "{said}");
+    // The draft's operation document went with it: nothing kept names it.
+    assert!(said.contains("removed history/operations/"), "{said}");
+    assert_eq!(walk_names(&directory.join("history/revisions")).len(), 2);
+
+    // A pruned store still passes `check`, still materialises, and pruning
+    // twice removes nothing the second time.
+    assert!(stdout(&directory, &["check"]).ends_with("nothing to report\n"));
+    assert_eq!(stdout(&directory, &["cat", "head", "notes.md"]), "First.\n");
+    let again = stdout(&directory, &["prune"]);
+    assert!(again.contains("nothing here is prunable"), "{again}");
+}
+
+#[test]
+fn an_operation_document_two_revisions_share_survives_pruning_one() {
+    let directory = repository("prune-shared");
+    write(&directory, "notes.md", "First.\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    write(&directory, "notes.md", "First.\nThe same line.\n");
+    out(recorded(&directory, &["record", "-m", "Once"]));
+    out(recorded(
+        &directory,
+        &["abandon", "head", "-m", "Right edit, wrong change"],
+    ));
+    // The same edit again, against the same content: byte-identical
+    // operations, so decision 0007 gives both revisions one document.
+    write(&directory, "notes.md", "First.\nThe same line.\n");
+    out(recorded(&directory, &["record", "-m", "Again"]));
+
+    let said = stdout(&directory, &["prune"]);
+    assert!(said.contains("removed history/revisions/"), "{said}");
+    assert!(!said.contains("removed history/operations/"), "{said}");
+    assert_eq!(
+        stdout(&directory, &["cat", "head", "notes.md"]),
+        "First.\nThe same line.\n"
+    );
+}
+
+#[test]
+fn prune_leaves_a_superseded_revision_work_still_stands_on() {
+    let directory = repository("prune-parent");
+    write(&directory, "notes.md", "First.\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+
+    // Another replica, by copy — which is what a replica is (decision 0003).
+    let replica = scratch("prune-parent-replica");
+    mirror(&directory, &replica);
+
+    // Here, work stands on the first revision; there, it is amended.
+    write(&directory, "notes.md", "First.\nMore.\n");
+    out(recorded(&directory, &["record", "-m", "More"]));
+    out(recorded(&replica, &["amend", "-m", "Start, reworded"]));
+
+    // Sync by union: the replica's new document arrives by copy.
+    for entry in fs::read_dir(replica.join("history/revisions"))
+        .expect("the replica's revisions")
+        .filter_map(Result::ok)
+    {
+        let into = directory.join("history/revisions").join(entry.file_name());
+        if !into.exists() {
+            fs::copy(entry.path(), &into).expect("syncing a revision");
+        }
+    }
+
+    // `Start` is superseded, but `More` names it as a parent, so it stays —
+    // and so does its successor, which carries the evidence of supersession.
+    let said = stdout(&directory, &["prune"]);
+    assert!(said.contains("nothing here is prunable"), "{said}");
+}
+
+#[test]
+fn prune_refuses_a_store_check_calls_broken() {
+    let directory = repository("prune-broken");
+    write(&directory, "notes.md", "First.\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    fs::write(
+        directory.join("history/revisions/broken.rev.txt"),
+        "not a revision\n",
+    )
+    .expect("writing a broken file");
+
+    let said = stderr(&directory, &["prune"]);
+    assert!(said.contains("check"), "{said}");
+    // Nothing was deleted on the way to the refusal.
+    assert!(directory.join("history/revisions/broken.rev.txt").exists());
+}

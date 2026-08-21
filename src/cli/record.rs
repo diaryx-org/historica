@@ -9,8 +9,9 @@ use std::process::Command;
 use historica::conflict;
 use historica::core::{FileId, RevisionId};
 use historica::record::{
-    Amendment, Clock, Platform, Recording, amend as amend_revision, amendment_plan, identity,
-    plan as plan_for, record as record_revision,
+    Abandoning, Amendment, Clock, Platform, Recording, abandon as abandon_revision,
+    abandonment_plan, amend as amend_revision, amendment_plan, identity, plan as plan_for,
+    record as record_revision,
 };
 use historica::store::Store;
 use historica::tree::{Kind, TreeContest};
@@ -271,6 +272,113 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             out,
             "it supersedes {}, which is still here",
             amended.superseded.abbreviate(12)
+        )
+    })
+}
+
+/// `abandon <target> [-m <message>] [--dry-run]`.
+///
+/// Decision 0013: supersession by a revision of a newly minted change, which
+/// records nothing and explains everything. The message is the one this
+/// format requires, so with no `-m` the editor opens exactly as `record`'s
+/// does — and an empty message is a refusal rather than a tombstone.
+pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut message: Option<String> = None;
+    let mut named: Option<String> = None;
+    let mut dry_run = false;
+
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        let mut value = |flag: &str| {
+            arguments
+                .next()
+                .ok_or_else(|| Failure::usage(format!("`{flag}` wants a value")))
+        };
+        match argument.as_str() {
+            "-m" | "--message" => message = Some(value("-m")?),
+            "-n" | "--dry-run" => dry_run = true,
+            other if other.starts_with('-') => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `abandon` takes"
+                )));
+            }
+            other if named.is_none() => named = Some(other.to_owned()),
+            other => {
+                return Err(Failure::usage(format!(
+                    "`abandon` abandons one run of work, and `{other}` is a second"
+                )));
+            }
+        }
+    }
+    let Some(spelling) = named else {
+        return Err(Failure::usage(
+            "`abandon` wants the revision to abandon; it and everything \
+             standing on it go",
+        ));
+    };
+
+    let mut store = Store::open(&root)?;
+    let repository = root
+        .parent()
+        .ok_or_else(|| Failure::error("this store has no repository around it"))?
+        .to_path_buf();
+    let revision = target::resolve(&store, &spelling)?;
+
+    if dry_run {
+        let run = abandonment_plan(&store, &revision).map_err(Failure::error)?;
+        return printing(|out| {
+            for id in &run {
+                writeln!(out, "would abandon {}", target::spelled(&store, id))?;
+            }
+            writeln!(
+                out,
+                "a tombstone would supersede {}, and its message is required",
+                if run.len() == 1 {
+                    "this revision".to_owned()
+                } else {
+                    format!("these {} revisions", run.len())
+                }
+            )
+        });
+    }
+
+    let author = identity::author_for(&repository).map_err(Failure::error)?;
+    let mut platform = Platform;
+    let when = platform.now().map_err(Failure::error)?;
+    warn_about_the_clock(&store, &when);
+
+    let message = match message {
+        Some(message) => message,
+        None => from_an_editor(base)?,
+    };
+
+    let abandoning = Abandoning {
+        revision,
+        author,
+        when,
+        message,
+    };
+    let abandoned =
+        abandon_revision(&mut store, &abandoning, &mut platform).map_err(Failure::error)?;
+
+    printing(|out| {
+        for id in &abandoned.superseded {
+            writeln!(out, "abandoned {}", id.abbreviate(12))?;
+        }
+        writeln!(
+            out,
+            "the tombstone is {} ({})",
+            abandoned.revision.abbreviate(12),
+            abandoned.change.abbreviate(8)
+        )?;
+        for name in &abandoned.advanced {
+            writeln!(out, "{name} -> {}", abandoned.change.abbreviate(8))?;
+        }
+        // Decision 0013: abandoning is the graph and pruning is disk, and a
+        // person should hear the difference from the command that sits on it.
+        writeln!(
+            out,
+            "what it supersedes is still here; `historica prune` is what removes it"
         )
     })
 }

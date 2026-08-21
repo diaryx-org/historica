@@ -667,3 +667,120 @@ fn a_concurrent_history_materialises_rather_than_being_refused() {
         "these revisions state no tree facts, so the file set is empty"
     );
 }
+
+/// One revision recorded from the folder as it stands, for the tests below.
+fn record_folder(
+    store: &mut Store,
+    base: &Path,
+    parents: Vec<RevisionId>,
+    message: &str,
+) -> historica::record::Recorded {
+    use historica::record::{Clock as _, Platform, Recording, record};
+    use historica::working::Working;
+
+    let mut platform = Platform;
+    let working = Working::read(base, store.skipped()).expect("the folder");
+    record(
+        store,
+        &working,
+        &Recording {
+            parents,
+            author: "Adam Harris <adam@example.com>".to_owned(),
+            when: platform.now().expect("a clock"),
+            message: message.to_owned(),
+            moves: Vec::new(),
+            at: Vec::new(),
+        },
+        &mut platform,
+    )
+    .expect("recording")
+}
+
+#[test]
+fn abandoning_a_head_leaves_the_change_abandoned_and_the_content_its_parents() {
+    use historica::record::{Abandoning, Clock as _, Platform, abandon};
+
+    let base = scratch("abandon-library");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+
+    fs::write(base.join("notes.md"), "First thought.\n").expect("a file");
+    let first = record_folder(&mut store, &base, Vec::new(), "Start a journal");
+    fs::write(base.join("notes.md"), "First thought.\nA draft.\n").expect("a file");
+    let second = record_folder(&mut store, &base, vec![first.revision], "A draft");
+
+    let mut platform = Platform;
+    let abandoned = abandon(
+        &mut store,
+        &Abandoning {
+            revision: second.revision,
+            author: "Adam Harris <adam@example.com>".to_owned(),
+            when: platform.now().expect("a clock"),
+            message: "The draft does not survive its own example".to_owned(),
+        },
+        &mut platform,
+    )
+    .expect("abandoning a head");
+
+    // Decision 0013: the change is `Abandoned` — every revision of it
+    // superseded by a revision of another change — and reached deliberately.
+    let history = store.history();
+    assert!(matches!(
+        history.change_state(&second.change),
+        ChangeState::Abandoned
+    ));
+
+    // The tombstone is the head, and the only current one.
+    let heads = history.heads();
+    let superseded = history.superseded();
+    let current: Vec<_> = heads.difference(&superseded).collect();
+    assert_eq!(current, vec![&abandoned.revision]);
+
+    // Content at the tombstone is content at its parent: nothing was undone,
+    // because nothing that was undone was ever an ancestor.
+    let file = *first.plan.added.keys().next().expect("the file");
+    assert_eq!(
+        store
+            .content(&abandoned.revision, &file)
+            .expect("content at the tombstone")
+            .text(),
+        store
+            .content(&first.revision, &file)
+            .expect("content at the parent")
+            .text(),
+    );
+    assert!(Store::check(store.root()).is_ok());
+}
+
+#[test]
+fn abandoning_wants_a_reason_and_a_run_that_is_a_line() {
+    use historica::record::{Abandoning, Clock as _, Platform, RecordError, abandon};
+
+    let base = scratch("abandon-refusals-library");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+
+    fs::write(base.join("notes.md"), "Base.\n").expect("a file");
+    let root = record_folder(&mut store, &base, Vec::new(), "Base");
+    fs::write(base.join("notes.md"), "Base.\nLeft.\n").expect("a file");
+    let left = record_folder(&mut store, &base, vec![root.revision], "Left");
+    fs::write(base.join("notes.md"), "Base.\nRight.\n").expect("a file");
+    let _right = record_folder(&mut store, &base, vec![root.revision], "Right");
+
+    let platform = Platform;
+    let abandoning = |revision, message: &str| Abandoning {
+        revision,
+        author: "Adam Harris <adam@example.com>".to_owned(),
+        when: platform.now().expect("a clock"),
+        message: message.to_owned(),
+    };
+
+    // No reason is a refusal: the reason is the only thing a tombstone carries.
+    assert!(matches!(
+        abandon(&mut store, &abandoning(left.revision, "  "), &mut Platform),
+        Err(RecordError::NoReasonGiven)
+    ));
+    // A fork is two lines of work where a person named one.
+    assert!(matches!(
+        abandon(&mut store, &abandoning(root.revision, "why"), &mut Platform),
+        Err(RecordError::Forked { .. })
+    ));
+}
