@@ -327,6 +327,12 @@ Choices that constrain later work are written down as they are made.
   and an image is an image. `text` and `bytes` say which, a file's kind is
   fixed when it is added, and retiring `add` with `edit` is what makes this
   `historica-v1`.
+- [`docs/decisions/0018-a-path-is-a-path.md`](docs/decisions/0018-a-path-is-a-path.md)
+  — a path is filed as a path: real directories for real components, nothing
+  clipped, and no character standing in for `/`. 0016 nested the revision and
+  then spent the length it bought on a homoglyph nobody can type; this spends
+  it on the filesystem's own separator, so a revision's folder is the subtree
+  that revision touched.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
