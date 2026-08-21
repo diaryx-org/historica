@@ -88,7 +88,10 @@ impl FromStr for RevisionId {
         }
 
         let mut bytes = [0u8; REVISION_ID_LEN];
-        for (slot, pair) in bytes.iter_mut().zip(value.chunks_exact(2)) {
+        // The length is already exactly `REVISION_ID_LEN * 2`, so the remainder
+        // this discards is empty.
+        let (pairs, _) = value.as_chunks::<2>();
+        for (slot, pair) in bytes.iter_mut().zip(pairs) {
             let high = hex_nibble(pair[0]).ok_or(InvalidRevisionId)?;
             let low = hex_nibble(pair[1]).ok_or(InvalidRevisionId)?;
             *slot = (high << 4) | low;
@@ -277,7 +280,9 @@ fn decipher<const N: usize>(value: &str) -> Option<[u8; N]> {
         return None;
     }
     let mut bytes = [0u8; N];
-    for (slot, pair) in bytes.iter_mut().zip(value.chunks_exact(2)) {
+    // The length is already exactly `N * 2`, so the remainder is empty.
+    let (pairs, _) = value.as_chunks::<2>();
+    for (slot, pair) in bytes.iter_mut().zip(pairs) {
         *slot = (reverse_hex_nibble(pair[0])? << 4) | reverse_hex_nibble(pair[1])?;
     }
     Some(bytes)
