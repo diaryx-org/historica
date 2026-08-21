@@ -233,7 +233,7 @@ fn one_revision_stored_twice_is_one_revision() {
 #[test]
 fn only_rev_files_are_read_and_the_rest_are_merely_mentioned() {
     let (root, store) = corpus_store("foreign");
-    fs::write(root.join("revisions/.DS_Store"), b"junk").expect("editor droppings");
+    fs::write(root.join("revisions/.DS_Store"), b"junk").expect("a file browser's droppings");
     fs::write(root.join("revisions/notes.txt"), b"not a revision").expect("a stray file");
 
     let reopened = Store::open(&root).expect("reopening");
@@ -241,13 +241,16 @@ fn only_rev_files_are_read_and_the_rest_are_merely_mentioned() {
 
     let report = Store::check(&root);
     assert!(report.is_ok(), "junk never claimed to be a revision");
-    assert_eq!(
-        report
-            .notes()
-            .filter(|finding| matches!(finding, Finding::ForeignFile { .. }))
-            .count(),
-        2
-    );
+    // One, not two: decision 0022 leaves what the platform wrote alone, since
+    // a note on every machine whose file browser has been near the store is a
+    // note that means nothing.
+    let foreign: Vec<String> = report
+        .notes()
+        .filter(|finding| matches!(finding, Finding::ForeignFile { .. }))
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(foreign.len(), 1, "{foreign:?}");
+    assert!(foreign[0].contains("notes.txt"), "{foreign:?}");
 }
 
 #[test]

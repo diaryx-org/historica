@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::{ChangeId, RevisionId};
 use crate::format::{RevisionDocument, Timestamp};
-use crate::store::OPERATION_SUFFIX;
+use crate::store::{OPERATION_SUFFIX, platform_name};
 
 /// Characters of summary a filename carries, cut at a word boundary.
 ///
@@ -139,7 +139,7 @@ pub fn filed(filings: &[Filing]) -> BTreeMap<RevisionId, String> {
             let path = scrubbed(&filing.path);
             let name = if filing.document {
                 format!("{path}{OPERATION_SUFFIX}")
-            } else if last(&path).ends_with(OPERATION_SUFFIX) {
+            } else if last(&path).ends_with(OPERATION_SUFFIX) || platform_name(last(&path)) {
                 // A payload never carries a suffix that says "document",
                 // whether or not a document is there to collide with. A person
                 // whose repository holds a file called `notes.ops` would
@@ -147,7 +147,10 @@ pub fn filed(filings: &[Filing]) -> BTreeMap<RevisionId, String> {
                 // parser, which refuses it — a store that wrote something it
                 // could not read back. Decision 0021 leaves one suffix to
                 // avoid, so a repository file called `notes.ops` keeps its own
-                // name and only `notes.ops.txt` yields.
+                // name and only `notes.ops.txt` yields — and decision 0022
+                // adds the names the platform writes, because a file browser
+                // that puts its own `.DS_Store` where a payload sits destroys
+                // it without being asked.
                 suffixed(&path, &filing.held, false)
             } else {
                 path

@@ -113,6 +113,40 @@ leaving out.
 `historica help` lists what the tool can do with all of this.
 ";
 
+/// Names the store does not own, matched on a file's last component.
+///
+/// Decision 0022: 0018 gave payloads the names their files have, and a name is
+/// a thing other writers use. A file browser writes `.DS_Store` into every
+/// folder it displays and does not ask, which is how one of these overwrote a
+/// payload the day the folder was first browsed. Inside the store such a file
+/// is somebody else's; on the way in, a payload is never filed under one.
+///
+/// A blocklist, and it will need adding to. The failure modes are not
+/// symmetrical: a name missing from it costs a payload, and a name on it that
+/// need not be costs a digest suffix on one filename.
+pub const PLATFORM_NAMES: [&str; 5] = [
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+    ".localized",
+    ".directory",
+];
+/// The prefix macOS puts on the file it writes beside every other file when a
+/// folder is copied to a drive that cannot hold a resource fork.
+pub const PLATFORM_PREFIX: &str = "._";
+
+/// Whether a name is one the platform writes rather than one the store owns.
+pub fn platform_name(name: &str) -> bool {
+    PLATFORM_NAMES.contains(&name) || name.starts_with(PLATFORM_PREFIX)
+}
+
+/// Whether a path's last component is a name the store does not own.
+fn platform_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(platform_name)
+}
+
 /// Whether a file's name claims it is one of this format's documents.
 pub fn claims(path: &Path, suffixes: &[&str]) -> bool {
     let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
@@ -236,6 +270,12 @@ impl Store {
             format!("{}\n\n{HEADER_NOTE}", Version::CURRENT.preamble()),
         )
         .map_err(|error| StoreError::io(&header, error))?;
+        // Decision 0022: recording is append-only and forgetting is not built,
+        // so a first run that sweeps a folder of operating-system metadata
+        // into a permanent history is a mistake a person cannot take back.
+        let skipped = root.join(SKIPPED_FILE);
+        fs::write(&skipped, crate::working::DEFAULT_SKIPPED)
+            .map_err(|error| StoreError::io(&skipped, error))?;
         Self::open(root)
     }
 
@@ -987,7 +1027,9 @@ pub fn walk(root: &Path, directory: &str) -> Result<Walk, StoreError> {
 /// claim to be a document — read from the other side.
 fn payload_files(root: &Path) -> Result<Vec<PathBuf>, StoreError> {
     let mut paths = walk(root, OPERATIONS_DIR)?.files;
-    paths.retain(|path| !claims(path, &OPERATION_SUFFIXES));
+    // Decision 0022: a file the platform wrote into our folder is not content
+    // and not a fault. It is somebody else's file, and nothing here reads it.
+    paths.retain(|path| !claims(path, &OPERATION_SUFFIXES) && !platform_file(path));
     Ok(paths)
 }
 

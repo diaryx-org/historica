@@ -70,6 +70,22 @@ impl fmt::Display for Rule {
     }
 }
 
+/// What `init` writes into `history/skipped.txt`.
+///
+/// Decision 0022: these are the files an operating system leaves in a folder
+/// without being asked, and a history that is append-only is the wrong place
+/// for them. A default a person can see and delete is the smaller imposition.
+pub const DEFAULT_SKIPPED: &str = "\
+# What recording does not take. One rule a line: `skip <path>`, `skip <path>/`
+# for everything under it, or `skip-suffix <ending>`. A `#` line says nothing.
+#
+# These are written by an operating system rather than by anyone, and this is a
+# default rather than a decision — delete any line you disagree with.
+skip-suffix .DS_Store
+skip-suffix Thumbs.db
+skip-suffix desktop.ini
+";
+
 impl Skipped {
     /// Skip nothing, which is what a store with no such file says.
     pub fn none() -> Self {
@@ -87,6 +103,12 @@ impl Skipped {
         for (index, line) in text.lines().enumerate() {
             let at = index + 1;
             if line.is_empty() {
+                continue;
+            }
+            // Decision 0022: a comment states nothing, so 0011's reason for
+            // refusing an unknown key — that a reader which ignored one would
+            // record files somebody asked it to keep out — does not reach it.
+            if line.starts_with('#') {
                 continue;
             }
             let (key, value) = line.split_once(' ').ok_or(MalformedSkip {

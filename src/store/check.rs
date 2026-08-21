@@ -19,7 +19,7 @@ use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, di
 
 use super::{
     HEADER_FILE, MalformedName, NAME_SUFFIX, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES,
-    OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims,
+    OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims, platform_name,
 };
 
 /// Whether a finding means the store is broken or merely worth mentioning.
@@ -412,6 +412,11 @@ pub(super) fn check(root: &Path) -> Report {
             .unwrap_or_default()
             .to_owned();
 
+        // Decision 0022: a file the platform wrote into our folder is not ours
+        // to have an opinion about, here as in `operations/`.
+        if platform_name(&name) {
+            continue;
+        }
         if !claims(&path, &REVISION_SUFFIXES) {
             // Ignored without comment by the loader; a note here is that comment.
             report.push(Finding::ForeignFile { file: path.clone() });
@@ -531,6 +536,12 @@ fn check_operations(root: &Path, report: &mut Report) -> Held {
             .unwrap_or_default()
             .to_owned();
 
+        // Decision 0022: a file the platform wrote into our folder is not
+        // content and not a fault. Reporting it would put a note in every
+        // store on a machine whose file browser has been near it.
+        if platform_name(&name) {
+            continue;
+        }
         let is_document = claims(&path, &OPERATION_SUFFIXES);
         if is_document && sync_suffixed(&name) {
             report.push(Finding::SyncSuffixed { file: path.clone() });
@@ -767,6 +778,9 @@ fn check_names(
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
+        if platform_name(name) {
+            continue;
+        }
         // Decision 0021: a bookmark is `<name>.txt`. Anything else in here is
         // a file nothing reads, which is the note `ForeignFile` is for.
         let Some(name) = name.strip_suffix(NAME_SUFFIX) else {

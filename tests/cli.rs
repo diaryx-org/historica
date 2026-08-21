@@ -490,6 +490,72 @@ fn a_file_of_this_formats_own_extension_is_still_content() {
 }
 
 #[test]
+fn a_file_browser_writing_into_the_store_breaks_nothing() {
+    // Found by opening a store in Finder, which writes a `.DS_Store` into
+    // every folder it displays and does not ask. The payload it landed on was
+    // destroyed, and every command that opened the store failed on content it
+    // said it held. Decision 0022: a payload is never filed under a name the
+    // store does not own, and a file inside the store carrying one is
+    // somebody else's rather than content.
+    let directory = repository("record-platform-names");
+    write(&directory, "notes.md", "an entry\n");
+    // Recorded deliberately, so `skipped.txt`'s default is not what is under
+    // test: a person may record one, and the store still has to survive it.
+    fs::write(directory.join(".DS_Store"), [0x00, 0x01, 0x42, 0xff]).expect("metadata");
+    out(recorded(&directory, &["skip"]));
+    fs::write(
+        directory.join("history/skipped.txt"),
+        "skip nothing-at-all\n",
+    )
+    .expect("rules");
+    out(recorded(&directory, &["record", "-m", "Initial state"]));
+
+    let filed = walk_names(&directory.join("history/operations"));
+    assert!(
+        filed.iter().all(|name| !name.ends_with("/.DS_Store")),
+        "a payload must not sit where a file browser will write: {filed:?}"
+    );
+    assert!(
+        filed.iter().any(|name| name.contains(".DS_Store ")),
+        "and it keeps its name, with the digest that moves it aside: {filed:?}"
+    );
+
+    // Now be the file browser: write one into every directory of the store,
+    // `revisions/` and `names/` included.
+    let operations = directory.join("history/operations");
+    let mut directories = vec![
+        directory.join("history"),
+        directory.join("history/revisions"),
+        directory.join("history/names"),
+        operations.clone(),
+    ];
+    for name in &filed {
+        if let Some(parent) = operations.join(name).parent() {
+            directories.push(parent.to_path_buf());
+        }
+    }
+    for at in directories {
+        fs::write(at.join(".DS_Store"), b"finder's own metadata\n").expect("a stray file");
+    }
+
+    // The store is unharmed, and says nothing about the files it did not write.
+    assert_eq!(
+        run(&directory, &["cat", "head", ".DS_Store"]).stdout,
+        [0x00, 0x01, 0x42, 0xff],
+        "the payload is still what was recorded"
+    );
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "somebody else's file in our folder is not a finding"
+    );
+    let status = out(recorded(&directory, &["status"]));
+    assert!(
+        status.contains("nothing here differs from what is recorded"),
+        "{status}"
+    );
+}
+
+#[test]
 fn a_file_where_another_needs_a_directory_yields_its_readable_name() {
     // 0008 has no directories, so a history may hold both `notes` and
     // `notes/photo.png`. No working copy can, which is why this store is built
@@ -1050,8 +1116,11 @@ fn skip_writes_the_line_a_person_would_have_typed() {
     assert!(written.contains("skip target/"), "{written}");
     assert!(written.contains("skip-suffix .tmp"), "{written}");
 
+    // Appended to the default `init` wrote, rather than instead of it.
     let text = fs::read_to_string(directory.join("history/skipped.txt")).expect("the file");
-    assert_eq!(text, "skip target/\nskip-suffix .tmp\n");
+    assert!(text.starts_with('#'), "{text}");
+    assert!(text.contains("skip-suffix .DS_Store"), "{text}");
+    assert!(text.ends_with("skip target/\nskip-suffix .tmp\n"), "{text}");
 
     // With no arguments it prints them, as `names` prints the bookmarks.
     assert_eq!(out(recorded(&directory, &["skip"])), text);
@@ -1085,7 +1154,9 @@ fn skip_refuses_a_rule_over_what_history_holds_and_writes_nothing() {
 
     // Nothing is written, the good rule in the same command included: a
     // command that half-applied would leave a person guessing which half.
-    assert!(!directory.join("history/skipped.txt").exists());
+    let text = fs::read_to_string(directory.join("history/skipped.txt")).expect("the file");
+    assert!(!text.contains("drafts"), "{text}");
+    assert!(!text.contains(".tmp"), "{text}");
 }
 
 #[test]

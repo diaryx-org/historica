@@ -145,7 +145,10 @@ difference. `check` reads a store
 without loading it and separates errors, which mean the store contradicts
 itself, from notes, which never fail: an undelivered parent, an undelivered
 operation document or payload, a payload nothing names, a duplicate, or a sync
-tool's conflicted copy is a legitimate state and is reported as one. A `text`
+tool's conflicted copy is a legitimate state and is reported as one — and a
+file the operating system wrote into the folder is not reported at all, because
+a note on every machine whose file browser has been near the store is a note
+that means nothing. A `text`
 payload that is not UTF-8 is an error, because no operation document could ever
 quote a line of it. It also replays: every revision on a
 linear chain is held to the file set it names and every `-` line to the parent

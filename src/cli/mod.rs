@@ -477,12 +477,12 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
     let mut store = open(base)?;
     if wanted.is_empty() {
-        return printing(|out| {
-            for rule in store.skipped().rules() {
-                writeln!(out, "{rule}")?;
-            }
-            Ok(())
-        });
+        // The file itself, not a rendering of the rules in it. Decision 0016
+        // said the preview is `cat`, and decision 0022 gave the file comments
+        // worth keeping in view.
+        let path = store.root().join(SKIPPED_FILE);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        return printing(|out| out.write_all(text.as_bytes()));
     }
 
     // Decision 0011, checked against every head rather than one: a rule is a
