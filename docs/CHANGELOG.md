@@ -47,11 +47,17 @@ visible, to be triaged into their real groups before the tag is cut.
 - **store** — the store explains itself, and one suffix per kind ([`9a66edb`](https://github.com/diaryx-org/historica/commit/9a66edbcd139177914b5885cb90138b07ae5474c))
 - **record** — the head can be rewritten, and only the head ([`c85cddb`](https://github.com/diaryx-org/historica/commit/c85cddb41974a5610c3d202df491d7180ef3f241))
 - **cli** — the identifier a file keeps is one a person can type ([`0ffabaf`](https://github.com/diaryx-org/historica/commit/0ffabafc57d5dff2dc96fd15d3dea9995f01d359))
+- **record** — work can be abandoned, and a store pruned of what it replaced ([`658e626`](https://github.com/diaryx-org/historica/commit/658e62601dbec80b9fd6c01f057162b78606b1ef))
+- **format** — forgetting destroys an item's payload and preserves its shape ([`2ec258b`](https://github.com/diaryx-org/historica/commit/2ec258bb23fb09b22757e43378754580c91ec7d5))
 
 ### Fixed
 
 - **naming** — a payload never carries the extension that says "document" ([`4afb03a`](https://github.com/diaryx-org/historica/commit/4afb03a080497a7e94483d6072dc20b0740541c8))
 - **store** — a payload is never filed where a file browser will write ([`36cf54a`](https://github.com/diaryx-org/historica/commit/36cf54a40e26b4478981e34133a7b0871d7e6976))
+
+### Changed
+
+- **core** — read a hex pair as a pair, rather than as a slice of two ([`e4b47b9`](https://github.com/diaryx-org/historica/commit/e4b47b973eabe686ab94bcc151ec4ec2d371d1ba))
 
 ### Uncategorised — triage before release
 
@@ -176,5 +182,12 @@ bare argument is always a path. Separately, `Store::set_name` refuses a bookmark
 name spelled as a full identifier — twenty-four characters of `k`–`z` — since
 every position looks a bookmark up before parsing anything and such a name would
 shadow the identifier it spells. An abbreviation is untouched.
+
+- new documents and store headers say `historica-v2`, so
+a store written by this version is refused by older readers at the gate.
+
+- materialising a redacted file renders `\ forgotten`
+lines where destroyed items stood; a store that has forgotten nothing is
+byte-for-byte unchanged.
 
 <!-- git-cliff:end -->
