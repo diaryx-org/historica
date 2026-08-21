@@ -770,6 +770,24 @@ fn check_names(
     paths.sort();
 
     let changes: Vec<_> = documents.values().map(|document| document.change).collect();
+    // Decision 0024: a `file` bookmark names an identifier, and what makes one
+    // known is that some revision here says anything at all about it. `added`
+    // alone would call a bookmark dangling in a store whose transport has
+    // delivered the rename and not yet the creation.
+    let files: BTreeSet<FileId> = documents
+        .values()
+        .flat_map(|document| {
+            document
+                .added
+                .keys()
+                .chain(document.moved.keys())
+                .chain(document.dropped.iter())
+                .chain(document.edited.keys())
+                .chain(document.text.keys())
+                .chain(document.bytes.keys())
+                .copied()
+        })
+        .collect();
 
     for path in paths {
         if !path.is_file() {
@@ -803,6 +821,7 @@ fn check_names(
                 let known = match target {
                     Name::Change(change) => changes.contains(&change),
                     Name::Revision(revision) => documents.contains_key(&revision),
+                    Name::File(file) => files.contains(&file),
                 };
                 if !known {
                     report.push(Finding::DanglingBookmark {

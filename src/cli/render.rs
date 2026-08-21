@@ -318,6 +318,12 @@ pub fn names(out: &mut impl Write, store: &Store) -> io::Result<()> {
     let history = store.history();
     let digests = abbreviations(store.iter().map(|(id, _)| *id), DIGEST_FLOOR);
     let width = bookmarks.keys().map(String::len).max().unwrap_or(0);
+    // Decision 0024: a file bookmark deliberately records no revision, so what
+    // it resolves to is where that file sits now — which is the question a
+    // person made the bookmark to stop having to ask.
+    let here = store
+        .merged_tree_of(&target::current_heads(store).into_iter().collect::<Vec<_>>())
+        .ok();
 
     for (name, target) in bookmarks {
         let resolution = match target {
@@ -326,6 +332,10 @@ pub fn names(out: &mut impl Write, store: &Store) -> io::Result<()> {
                 None => "(not here yet)".to_owned(),
             },
             Name::Change(change) => resolution(&history, *change, &digests),
+            Name::File(file) => here
+                .as_ref()
+                .and_then(|merged| merged.tree.path(file))
+                .map_or_else(|| "(no file here has it)".to_owned(), str::to_owned),
         };
         writeln!(out, "{name:width$}  {target}  ->  {resolution}")?;
     }

@@ -283,9 +283,14 @@ fn files_and_cat_materialise_the_tree_and_its_content() {
         .expect("a file ID");
     assert!(before.contains(file), "{before}");
 
-    // And the content is reachable by either path, or by the ID itself.
+    // And the content is reachable by either path, or by the ID itself —
+    // decision 0024, which gives the identifier a spelling a path cannot have
+    // by accident.
     let content = stdout(&directory, &["cat", "mzvwutkl", "docs/README.md"]);
-    assert_eq!(content, stdout(&directory, &["cat", "mzvwutkl", file]));
+    assert_eq!(
+        content,
+        stdout(&directory, &["cat", "mzvwutkl", &format!("file:{file}")])
+    );
     assert!(content.starts_with('#'), "{content}");
 
     let dropped = stdout(&directory, &["files", "nwlxsqot"]);
@@ -322,6 +327,385 @@ fn names_records_a_change_by_default_and_a_revision_when_pinned() {
     let listed = stdout(&directory, &["names"]);
     assert!(listed.contains("main    change nwlxsqot"), "{listed}");
     assert!(listed.contains("pinned  revision "), "{listed}");
+}
+
+/// The file identifiers in the tree corpus, which are fixed by its documents.
+const README_FILE: &str = "swtlmnkqvzyrxopwstlnmkqv";
+const NOTES_FILE: &str = "nrqvtkzlmwyxsptonvqrklmz";
+
+#[test]
+fn a_file_is_addressed_by_the_identifier_it_keeps() {
+    let directory = store_from("file-spelling", "tree");
+    let by_path = stdout(&directory, &["cat", "mzvwutkl", "docs/README.md"]);
+
+    // Decision 0024: the identifier is spelled, and abbreviates to any prefix
+    // unique among the files at that revision, as a change ID does.
+    assert_eq!(
+        by_path,
+        stdout(
+            &directory,
+            &["cat", "mzvwutkl", &format!("file:{README_FILE}")]
+        )
+    );
+    assert_eq!(by_path, stdout(&directory, &["cat", "mzvwutkl", "file:sw"]));
+
+    // And at the revision before the rename, the same identifier names the
+    // same file under the name it had then — which is the whole point.
+    assert_eq!(
+        stdout(&directory, &["cat", "kxryzmor", "README.md"]),
+        stdout(&directory, &["cat", "kxryzmor", "file:sw"])
+    );
+
+    // `show` takes it in the same position, and prints the same document.
+    assert_eq!(
+        stdout(&directory, &["show", "mzvwutkl", "docs/README.md"]),
+        stdout(&directory, &["show", "mzvwutkl", "file:sw"])
+    );
+}
+
+#[test]
+fn a_file_spelling_that_names_nothing_says_what_lists_the_ones_that_do() {
+    let directory = store_from("file-refusals", "tree");
+
+    let unknown = stderr(&directory, &["cat", "mzvwutkl", "file:kkkk"]);
+    assert!(unknown.contains("identifier starting `kkkk`"), "{unknown}");
+    assert!(unknown.contains("historica files"), "{unknown}");
+
+    // A file dropped at this revision is not in the file set, so its
+    // identifier does not name a file here even though history holds it.
+    let gone = stderr(
+        &directory,
+        &["cat", "nwlxsqot", &format!("file:{NOTES_FILE}")],
+    );
+    assert!(gone.contains("identifier starting"), "{gone}");
+
+    // Neither a bookmark nor the alphabet an identifier is spelled in.
+    let nonsense = stderr(&directory, &["cat", "mzvwutkl", "file:not-an-id"]);
+    assert!(nonsense.contains("`k`–`z`"), "{nonsense}");
+
+    let empty = stderr(&directory, &["cat", "mzvwutkl", "file:"]);
+    assert!(empty.contains("wants an identifier"), "{empty}");
+}
+
+#[test]
+fn a_prefix_that_could_be_two_files_is_refused_and_names_both() {
+    // Two identifiers alike to twenty-three characters, which minting will not
+    // produce on demand. The revision is hand-written for that reason and for
+    // no other: two `add` lines, each a file created empty.
+    let directory = repository("file-ambiguous");
+    let one = "kmnpqrstvwxyzklmnpqrstvw";
+    let two = "kmnpqrstvwxyzklmnpqrstvx";
+    fs::write(
+        directory.join("history/revisions/two-alike.rev.txt"),
+        format!(
+            "historica-v0\n\
+             change qpvuntsmwlrkzxonmvtplsyq\n\
+             author Adam Harris <adam@example.com>\n\
+             when 2026-08-21T09:00:00-06:00\n\
+             add {one} one.md\n\
+             add {two} two.md\n\
+             \n\
+             Two files whose names are nearly one name\n"
+        ),
+    )
+    .expect("a hand-written revision");
+
+    let refused = stderr(&directory, &["cat", "head", "file:kmnp"]);
+    assert!(refused.contains("could be 2 files"), "{refused}");
+    assert!(
+        refused.contains(&format!("file:{one}  one.md")),
+        "{refused}"
+    );
+    assert!(
+        refused.contains(&format!("file:{two}  two.md")),
+        "{refused}"
+    );
+
+    // Spelled in full, each names its own file, which is empty.
+    assert_eq!(
+        stdout(&directory, &["cat", "head", &format!("file:{one}")]),
+        ""
+    );
+    let report = stdout(&directory, &["check"]);
+    assert!(report.ends_with("nothing to report\n"), "{report}");
+}
+
+#[test]
+fn a_path_spelled_like_an_identifier_is_still_a_path() {
+    // The reason decision 0024 gives the identifier a spelling of its own: a
+    // path is a value a person chose, and a person may choose this one.
+    let directory = repository("file-lookalike");
+    let lookalike = "kmnpqrstvwxyzklmnpqrstvw";
+    write(&directory, lookalike, "a file with an unusual name\n");
+    write(&directory, "file:notes.md", "a file with a worse one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", lookalike])),
+        "a file with an unusual name\n"
+    );
+    assert_eq!(
+        out(recorded(
+            &directory,
+            &["cat", "head", &format!("path:{lookalike}")]
+        )),
+        "a file with an unusual name\n"
+    );
+    // Nothing here was minted with that identifier, and the spelling says so
+    // rather than quietly handing over the file that is called it.
+    let as_an_identifier = refused(&directory, &["cat", "head", &format!("file:{lookalike}")]);
+    assert!(
+        as_an_identifier.contains("identifier starting"),
+        "{as_an_identifier}"
+    );
+
+    // And `path:` is what reaches a file whose own name begins `file:`.
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "path:file:notes.md"])),
+        "a file with a worse one\n"
+    );
+    let read_as_a_spelling = refused(&directory, &["cat", "head", "file:notes.md"]);
+    assert!(
+        read_as_a_spelling.contains("`k`–`z`"),
+        "{read_as_a_spelling}"
+    );
+}
+
+#[test]
+fn a_bookmark_names_a_file_and_follows_it_through_a_rename() {
+    let directory = repository("file-bookmark");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+
+    let said = out(recorded(&directory, &["name", "entry", "head", "notes.md"]));
+    assert!(said.starts_with("entry -> file "), "{said}");
+    let file = said
+        .split_whitespace()
+        .next_back()
+        .expect("an identifier")
+        .to_owned();
+
+    // Decision 0006's format, with 0024's third key, under 0021's suffix.
+    assert_eq!(
+        fs::read_to_string(directory.join("history/names/entry.txt")).expect("the bookmark"),
+        format!("file {file}\n")
+    );
+
+    // A bookmark is usable wherever an identifier is.
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "file:entry"])),
+        "one\n"
+    );
+
+    out(recorded(
+        &directory,
+        &[
+            "record",
+            "-m",
+            "File it",
+            "--move",
+            "notes.md=docs/notes.md",
+        ],
+    ));
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "file:entry"])),
+        "one\n"
+    );
+
+    // What it resolves to is where the file is now, which is the question the
+    // bookmark was made to stop having to ask.
+    let listed = out(recorded(&directory, &["names"]));
+    assert!(listed.contains(&format!("entry  file {file}")), "{listed}");
+    assert!(listed.contains("->  docs/notes.md"), "{listed}");
+
+    let report = out(recorded(&directory, &["check"]));
+    assert!(report.ends_with("nothing to report\n"), "{report}");
+}
+
+#[test]
+fn names_lists_the_three_kinds_apart() {
+    let directory = repository("names-three-kinds");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+
+    out(recorded(&directory, &["name", "main", "head"]));
+    out(recorded(
+        &directory,
+        &["name", "pinned", "head", "--revision"],
+    ));
+    out(recorded(&directory, &["name", "entry", "head", "notes.md"]));
+
+    let listed = out(recorded(&directory, &["names"]));
+    assert_eq!(listed.lines().count(), 3, "{listed}");
+    assert!(listed.contains("entry   file "), "{listed}");
+    assert!(listed.contains("main    change "), "{listed}");
+    assert!(listed.contains("pinned  revision "), "{listed}");
+}
+
+#[test]
+fn a_file_bookmark_is_not_a_revision_and_says_so() {
+    let directory = repository("file-bookmark-position");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+    out(recorded(&directory, &["name", "entry", "head", "notes.md"]));
+
+    let as_a_target = refused(&directory, &["show", "entry"]);
+    assert!(
+        as_a_target.contains("a file is not a revision"),
+        "{as_a_target}"
+    );
+    assert!(as_a_target.contains("file:entry"), "{as_a_target}");
+
+    // And the other way: a change bookmark where a file belongs.
+    out(recorded(&directory, &["name", "main", "head"]));
+    let other = refused(&directory, &["cat", "head", "file:main"]);
+    assert!(other.contains("names a change"), "{other}");
+}
+
+#[test]
+fn naming_a_file_the_store_does_not_hold_is_refused() {
+    let directory = repository("file-bookmark-refusals");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+
+    let absent = refused(&directory, &["name", "gone", "head", "docs/nope.md"]);
+    assert!(absent.contains("holds no file at"), "{absent}");
+    assert!(
+        !directory.join("history/names/gone.txt").exists(),
+        "a bookmark nothing could resolve is not written"
+    );
+
+    let unknown = refused(&directory, &["name", "gone", "head", "file:kkkk"]);
+    assert!(unknown.contains("identifier starting"), "{unknown}");
+
+    // A file bookmark has nothing to pin, which is said rather than ignored.
+    let pinned = refused(
+        &directory,
+        &["name", "gone", "head", "notes.md", "--revision"],
+    );
+    assert!(pinned.contains("nothing to pin"), "{pinned}");
+}
+
+#[test]
+fn a_bookmark_spelled_as_an_identifier_is_refused() {
+    let directory = repository("bookmark-lookalike");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+
+    // Every position looks a bookmark up before parsing anything, so a name
+    // spelled as an identifier would shadow the identifier it spells.
+    let spelled = "kmnpqrstvwxyzklmnpqrstvw";
+    let refused_file = refused(&directory, &["name", spelled, "head", "notes.md"]);
+    assert!(
+        refused_file.contains("spelled as an identifier"),
+        "{refused_file}"
+    );
+    let refused_change = refused(&directory, &["name", spelled, "head"]);
+    assert!(
+        refused_change.contains("spelled as an identifier"),
+        "{refused_change}"
+    );
+
+    // An abbreviation is not an identifier: decision 0001's answer stands.
+    out(recorded(&directory, &["name", "kmnp", "head"]));
+}
+
+#[test]
+fn an_external_identifier_joins_a_history_as_a_bookmark_name() {
+    // The constraint decision 0024 was written for. An outside system whose
+    // identifiers contain digits cannot supply a file identifier without
+    // breaking 0001's disjoint alphabets, so the join is a bookmark whose
+    // *name* is the outside identifier — a name being just a string.
+    let directory = repository("external-name");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+
+    let noid = "3t9x5kf2qw";
+    out(recorded(&directory, &["name", noid, "head", "notes.md"]));
+    assert_eq!(
+        out(recorded(
+            &directory,
+            &["cat", "head", &format!("file:{noid}")]
+        )),
+        "one\n"
+    );
+
+    out(recorded(
+        &directory,
+        &[
+            "record",
+            "-m",
+            "File it",
+            "--move",
+            "notes.md=docs/notes.md",
+        ],
+    ));
+    assert_eq!(
+        out(recorded(
+            &directory,
+            &["cat", "head", &format!("file:{noid}")]
+        )),
+        "one\n",
+        "the outside system's name survives what the path does not"
+    );
+}
+
+#[test]
+fn at_takes_a_bookmark_where_it_takes_an_identifier() {
+    let directory = repository("at-bookmark");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+    out(recorded(&directory, &["name", "entry", "head", "notes.md"]));
+
+    fs::create_dir_all(directory.join("docs")).expect("a directory");
+    fs::rename(directory.join("notes.md"), directory.join("docs/notes.md")).expect("a rename");
+    let said = out(recorded(
+        &directory,
+        &["record", "-m", "File it", "--at", "entry=docs/notes.md"],
+    ));
+    assert!(said.contains("moved   docs/notes.md"), "{said}");
+
+    // The other kinds of bookmark are refused there rather than parsed.
+    out(recorded(&directory, &["name", "main", "head"]));
+    let other = refused(
+        &directory,
+        &["record", "-m", "x", "--at", "main=docs/notes.md"],
+    );
+    assert!(other.contains("this position names a file"), "{other}");
+}
+
+#[test]
+fn a_hand_written_file_bookmark_naming_nothing_is_a_note() {
+    let directory = store_from("file-bookmark-note", "tree");
+    fs::write(
+        directory.join("history/names/elsewhere.txt"),
+        "file kmnpqrstvwxyzklmnpqrstvw\n",
+    )
+    .expect("a bookmark");
+
+    // Decision 0006's reason, unchanged: the name may be ahead of the sync.
+    let report = stdout(&directory, &["check"]);
+    assert!(report.contains("note: `elsewhere`"), "{report}");
+    assert!(!report.contains("error:"), "{report}");
+
+    // And one naming a file the store does hold is neither.
+    fs::write(
+        directory.join("history/names/entry.txt"),
+        format!("file {README_FILE}\n"),
+    )
+    .expect("a bookmark");
+    let malformed = stdout(&directory, &["check"]);
+    assert!(!malformed.contains("`entry`"), "{malformed}");
+
+    fs::write(
+        directory.join("history/names/broken.txt"),
+        "file nonsense\n",
+    )
+    .expect("a bookmark");
+    let output = run(&directory, &["check"]);
+    assert_eq!(output.status.code(), Some(1));
+    let report = String::from_utf8(output.stdout).expect("printed text");
+    assert!(report.contains("`file` and a file identifier"), "{report}");
 }
 
 #[test]
@@ -1018,7 +1402,10 @@ fn a_rename_is_stated_and_performed() {
     let files = out(recorded(&directory, &["files", "head"]));
     assert!(files.starts_with("docs/notes.md"), "{files}");
     let file = files.split_whitespace().next_back().expect("a file ID");
-    let content = out(recorded(&directory, &["cat", "head", file]));
+    let content = out(recorded(
+        &directory,
+        &["cat", "head", &format!("file:{file}")],
+    ));
     assert_eq!(content, "one\n", "the file is the same file it was");
 
     // And a deletion needs no flag at all.
@@ -1683,7 +2070,10 @@ fn an_amendment_keeps_the_work_and_works_the_folder_out_again() {
     // kept, so the file in the folder is the file history already held.
     assert!(after.contains(&format!("add {file} notes.md")), "{after}");
     assert_eq!(
-        out(recorded(&directory, &["cat", "head", &file])),
+        out(recorded(
+            &directory,
+            &["cat", "head", &format!("file:{file}")]
+        )),
         "one\ntwo\n"
     );
     assert!(

@@ -6,12 +6,18 @@
 //! also accepts a bookmark, because a bookmark is the name a person actually
 //! keeps, and bookmarks win where the spellings could be confused — a store
 //! with a bookmark called `ba5e` means the bookmark.
+//!
+//! The position beside it names a file, and decision 0024 is why that one
+//! cannot work the same way: a path is a value a person chose rather than a
+//! name the tool minted, so no alphabet partitions it and the identifier is
+//! spelled `file:` instead.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use historica::core::{ChangeId, ChangeState, FileId, RevisionId};
 use historica::store::{Name, Store};
+use historica::tree::Tree;
 
 use super::Failure;
 
@@ -32,6 +38,13 @@ pub fn resolve(store: &Store, spelling: &str) -> Result<RevisionId, Failure> {
         return match bookmark {
             Name::Revision(id) => held(store, id, &format!("the bookmark `{spelling}`")),
             Name::Change(change) => current(store, change, &format!("the bookmark `{spelling}`")),
+            // Decision 0024: a file bookmark says which file, never which
+            // version, so there is no revision for it to mean here.
+            Name::File(file) => Err(Failure::error(format!(
+                "the bookmark `{spelling}` names the file {file}, and a file is \
+                 not a revision; a file is addressed at one, as \
+                 `cat <target> file:{spelling}`"
+            ))),
         };
     }
 
@@ -55,18 +68,28 @@ pub fn resolve(store: &Store, spelling: &str) -> Result<RevisionId, Failure> {
     )))
 }
 
-/// The file one path names at one revision.
+/// The spelling that introduces a file identifier where a path is expected.
 ///
-/// A file ID is accepted here too: after a rename there are two paths for one
-/// file and only one name that never moved.
-pub fn file_in(store: &Store, revision: &RevisionId, path: &str) -> Result<FileId, Failure> {
+/// Decision 0024: the format's own word for this thing, with a colon where the
+/// revision document has a space, because a shell argument is one word.
+pub const FILE_PREFIX: &str = "file:";
+/// The spelling that says the rest is a path, whatever it looks like.
+pub const PATH_PREFIX: &str = "path:";
+
+/// The file one argument names at one revision.
+///
+/// A path, or `file:` and an identifier — which is what a person wants after a
+/// rename, when there are two paths for one file and only one name that never
+/// moved. A path is arbitrary UTF-8 and a file may be called anything, so a
+/// bare identifier is not accepted here: `path:` says the rest is a path
+/// exactly, for the file whose own name would otherwise be read as a spelling.
+pub fn file_in(store: &Store, revision: &RevisionId, spelling: &str) -> Result<FileId, Failure> {
     let tree = store.tree(revision).map_err(Failure::error)?;
 
-    if let Ok(file) = path.parse::<FileId>()
-        && tree.path(&file).is_some()
-    {
-        return Ok(file);
+    if let Some(named) = spelling.strip_prefix(FILE_PREFIX) {
+        return file_named(store, &tree, revision, named);
     }
+    let path = spelling.strip_prefix(PATH_PREFIX).unwrap_or(spelling);
 
     match tree.at(path).as_slice() {
         [] => Err(Failure::error(format!(
@@ -85,11 +108,109 @@ pub fn file_in(store: &Store, revision: &RevisionId, path: &str) -> Result<FileI
                 several.len()
             );
             for file in several {
-                let _ = write!(message, "\n  {file}");
+                let _ = write!(message, "\n  {FILE_PREFIX}{file}");
             }
             Err(Failure::error(message))
         }
     }
+}
+
+/// The file a `file:` spelling names at one revision.
+///
+/// A bookmark first, because a name somebody chose beats a spelling the tool
+/// reserved — the rule the target position already keeps, and the reason
+/// decision 0024 refuses a bookmark spelled as an identifier. Then a prefix,
+/// resolved over the file set at this revision: the identifiers in scope are
+/// the ones `historica files <target>` prints, so the prefix a person can see
+/// is the prefix that resolves.
+fn file_named(
+    store: &Store,
+    tree: &Tree,
+    revision: &RevisionId,
+    spelling: &str,
+) -> Result<FileId, Failure> {
+    if spelling.is_empty() {
+        return Err(Failure::usage(
+            "`file:` wants an identifier or a bookmark after it",
+        ));
+    }
+
+    if let Some(bookmark) = store.name(spelling) {
+        let Name::File(file) = bookmark else {
+            return Err(Failure::error(format!(
+                "the bookmark `{spelling}` names a {}, and this position names a file",
+                bookmark.kind()
+            )));
+        };
+        return if tree.path(&file).is_some() {
+            Ok(file)
+        } else {
+            Err(Failure::error(format!(
+                "the bookmark `{spelling}` names the file {file}, which {} does \
+                 not hold; `historica files {}` lists what it holds",
+                revision.abbreviate(12),
+                revision.abbreviate(12)
+            )))
+        };
+    }
+
+    if !spelling
+        .chars()
+        .all(|character| ('k'..='z').contains(&character))
+    {
+        return Err(Failure::error(format!(
+            "`{spelling}` is not a file bookmark here, and a file identifier is \
+             spelled in `k`–`z`"
+        )));
+    }
+
+    let matches: Vec<FileId> = tree
+        .files()
+        .map(|(file, _)| *file)
+        .filter(|file| file.to_string().starts_with(spelling))
+        .collect();
+    match matches.as_slice() {
+        [] => Err(Failure::error(format!(
+            "no file at {} has an identifier starting `{spelling}`; \
+             `historica files {}` lists them",
+            revision.abbreviate(12),
+            revision.abbreviate(12)
+        ))),
+        [only] => Ok(*only),
+        several => {
+            let mut message = format!(
+                "`{spelling}` could be {} files at {}:",
+                several.len(),
+                revision.abbreviate(12)
+            );
+            for file in several {
+                let path = tree.path(file).unwrap_or_default();
+                let _ = write!(message, "\n  {FILE_PREFIX}{file}  {path}");
+            }
+            Err(Failure::error(message))
+        }
+    }
+}
+
+/// The file an `--at` value names, which is an identifier or a bookmark.
+///
+/// No prefix: `--at` names a file against a survey rather than against a
+/// revision, so there is no stated set to abbreviate over, and an abbreviation
+/// whose meaning depended on what the folder happened to hold is the ambiguity
+/// decision 0024 exists to remove.
+pub fn file_by_name(store: &Store, spelling: &str) -> Result<FileId, Failure> {
+    if let Some(bookmark) = store.name(spelling) {
+        return match bookmark {
+            Name::File(file) => Ok(file),
+            other => Err(Failure::usage(format!(
+                "the bookmark `{spelling}` names a {}, and this position names a file",
+                other.kind()
+            ))),
+        };
+    }
+    spelling
+        .parse::<FileId>()
+        .map_err(|_| Failure::usage(format!("`{spelling}` is not a file identifier")))
 }
 
 /// The revisions a command is taken against.
@@ -193,6 +314,8 @@ pub fn bookmarks(store: &Store, id: &RevisionId) -> Vec<String> {
                 history.change_state(change),
                 ChangeState::Resolved(revision) if revision.id == *id
             ),
+            // A file bookmark names no revision, so it never marks one.
+            Name::File(_) => false,
         })
         .map(|(name, _)| name.clone())
         .collect()

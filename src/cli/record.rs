@@ -24,7 +24,10 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     let mut onto: Option<String> = None;
     let mut joining: Vec<String> = Vec::new();
     let mut moves: Vec<(String, String)> = Vec::new();
-    let mut at: Vec<(FileId, String)> = Vec::new();
+    // Held as typed until the store is open: decision 0024 lets `--at` name a
+    // file bookmark, and a bookmark is a file in the store rather than a
+    // spelling that can be parsed on its own.
+    let mut at: Vec<(String, String)> = Vec::new();
     let mut dry_run = false;
 
     let mut arguments = arguments.into_iter();
@@ -43,10 +46,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                 let (file, path) = stated
                     .split_once('=')
                     .ok_or_else(|| Failure::usage("`--at` is spelled `--at <file>=<path>`"))?;
-                let file = file
-                    .parse::<FileId>()
-                    .map_err(|_| Failure::usage(format!("`{file}` is not a file identifier")))?;
-                at.push((file, path.to_owned()));
+                at.push((file.to_owned(), path.to_owned()));
             }
             "--move" => {
                 let stated = value("--move")?;
@@ -69,6 +69,11 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
         .to_path_buf();
+
+    let at: Vec<(FileId, String)> = at
+        .into_iter()
+        .map(|(file, path)| Ok((target::file_by_name(&store, &file)?, path)))
+        .collect::<Result<_, Failure>>()?;
 
     // Decision 0011: the head is the position, and several heads mean a person
     // should be choosing rather than a tool. 0015 moved the rule to `target`,

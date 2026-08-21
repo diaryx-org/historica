@@ -159,13 +159,17 @@ pub fn claims(path: &Path, suffixes: &[&str]) -> bool {
 ///
 /// Decision 0006: one line, never two. `change` follows amend and rebase
 /// automatically and is the default; `revision` is the exact pin for the rare
-/// reference that must not move.
+/// reference that must not move. Decision 0024 adds `file`, which has no
+/// second key to choose between — a file identifier is minted once and
+/// survives rename and amendment alike, so there is nothing for a pin to mean.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Name {
     /// Follows the change through every rewrite.
     Change(ChangeId),
     /// Pinned to one revision, which cannot move.
     Revision(RevisionId),
+    /// One file, whatever it is called now.
+    File(FileId),
 }
 
 impl Name {
@@ -184,7 +188,17 @@ impl Name {
         match key {
             "change" => value.parse().map(Name::Change).map_err(|_| MalformedName),
             "revision" => value.parse().map(Name::Revision).map_err(|_| MalformedName),
+            "file" => value.parse().map(Name::File).map_err(|_| MalformedName),
             _ => Err(MalformedName),
+        }
+    }
+
+    /// What kind of thing this bookmark names, as a person would say it.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Name::Change(_) => "change",
+            Name::Revision(_) => "revision",
+            Name::File(_) => "file",
         }
     }
 }
@@ -194,6 +208,7 @@ impl fmt::Display for Name {
         match self {
             Name::Change(change) => write!(f, "change {change}"),
             Name::Revision(revision) => write!(f, "revision {revision}"),
+            Name::File(file) => write!(f, "file {file}"),
         }
     }
 }
@@ -206,7 +221,8 @@ impl fmt::Display for MalformedName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "a bookmark is one line: `change` and a change ID, or `revision` and a digest"
+            "a bookmark is one line: `change` and a change ID, `revision` and a \
+             digest, or `file` and a file identifier"
         )
     }
 }
@@ -826,6 +842,16 @@ impl Store {
                 name: name.to_owned(),
             });
         }
+        // Decision 0024: every place a bookmark may be typed looks it up before
+        // parsing anything, so a name spelled as a full identifier would stop
+        // the identifier it spells from naming its own file, and nothing would
+        // say so. An abbreviation is untouched: a bookmark called `ba5e` is
+        // 0001's own answer, and this is only the full twenty-four characters.
+        if name.parse::<FileId>().is_ok() {
+            return Err(StoreError::NameIsAnIdentifier {
+                name: name.to_owned(),
+            });
+        }
         let path = self
             .root
             .join(NAMES_DIR)
@@ -1264,6 +1290,11 @@ pub enum StoreError {
         /// The name as given.
         name: String,
     },
+    /// A bookmark name spelled as a full change ID or file identifier.
+    NameIsAnIdentifier {
+        /// The name as given.
+        name: String,
+    },
     /// The filesystem refused.
     Io {
         /// What was being read or written.
@@ -1318,6 +1349,12 @@ impl fmt::Display for StoreError {
                     "`{name}` cannot be a bookmark: a bookmark is one filename"
                 )
             }
+            StoreError::NameIsAnIdentifier { name } => write!(
+                f,
+                "`{name}` is spelled as an identifier, and a bookmark that is \
+                 one would stop that identifier naming its own file; \
+                 give it a name a person would say"
+            ),
             StoreError::Io { path, error } => write!(f, "{}: {error}", path.display()),
         }
     }

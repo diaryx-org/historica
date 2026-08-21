@@ -684,7 +684,10 @@ pub fn record(
         .iter()
         .filter(|(_, target)| match target {
             Name::Change(change) => followed.contains(change),
-            Name::Revision(_) => false,
+            // A pin does not move, and decision 0024's file bookmark has
+            // nothing to follow: an identifier outlives the revisions that
+            // mention it.
+            Name::Revision(_) | Name::File(_) => false,
         })
         .map(|(name, _)| name.clone())
         .collect();

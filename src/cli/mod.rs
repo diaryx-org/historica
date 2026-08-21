@@ -45,8 +45,9 @@ writing a store
   init [<dir>]             make a store in <dir>/history
   check [<dir>]            read a store and report every fault
   arrange [-n]             rename revision files to readable ones
-  name <bookmark> <target> [--revision]
-                           point a bookmark at a change, or pin a revision
+  name <bookmark> <target> [<path>] [--revision]
+                           point a bookmark at a change, pin a revision, or
+                           name the file that <path> holds
   skip <path>... [--suffix <suffix>]
                            stop history taking a path, a directory, or an
                            ending; with no arguments, print the rules
@@ -55,6 +56,10 @@ a <target> is `head`, a bookmark, a change ID, or a revision digest; the last
 two may
 be abbreviated to any unambiguous prefix, and their alphabets do not overlap,
 so one argument accepts either.
+
+a <path> is a path, or `file:` and a file identifier or a file bookmark — an
+identifier abbreviates to any prefix unique among the files at that revision.
+`path:` says the rest is a path, for a file whose own name begins `file:`.
 ";
 
 /// Why a command stopped, and what the process should exit with.
@@ -406,7 +411,11 @@ fn names(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     printing(|out| render::names(out, &store))
 }
 
-/// `name <bookmark> <target> [--revision]` — move a bookmark.
+/// `name <bookmark> <target> [<path>] [--revision]` — move a bookmark.
+///
+/// Decision 0024 gives this the third argument `show` already takes, and means
+/// by it what `show` means: this revision, and one file in it. With two
+/// arguments the bookmark points at the work, with three it points at a file.
 fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut pin = false;
     let mut rest = Vec::new();
@@ -424,23 +433,36 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let spelling = rest
         .next()
         .ok_or_else(|| Failure::usage("`name` wants a target"))?;
+    let path = rest.next();
     if let Some(extra) = rest.next() {
         return Err(Failure::usage(format!(
-            "`name` takes a bookmark and a target, and `{extra}` is a third argument"
+            "`name` takes a bookmark, a target, and one path, and `{extra}` is a \
+             fourth argument"
         )));
+    }
+    if pin && path.is_some() {
+        return Err(Failure::usage(
+            "a file bookmark has nothing to pin: a file identifier is minted \
+             once and survives every rename and every amendment, so `--revision` \
+             names nothing here",
+        ));
     }
 
     let mut store = open(base)?;
     let id = target::resolve(&store, &spelling)?;
-    let target = if pin {
-        Name::Revision(id)
-    } else {
-        // Decision 0006 makes `change` the default: a bookmark that follows
-        // amend and rebase is the one a person wants nearly always.
-        let document = store
-            .get(&id)
-            .ok_or_else(|| Failure::error(format!("this store does not hold the revision {id}")))?;
-        Name::Change(document.change)
+    let target = match (path, pin) {
+        // A file is resolved at the revision named, and the bookmark holds only
+        // what it resolved to: which file, never which version of it.
+        (Some(path), _) => Name::File(target::file_in(&store, &id, &path)?),
+        (None, true) => Name::Revision(id),
+        (None, false) => {
+            // Decision 0006 makes `change` the default: a bookmark that follows
+            // amend and rebase is the one a person wants nearly always.
+            let document = store.get(&id).ok_or_else(|| {
+                Failure::error(format!("this store does not hold the revision {id}"))
+            })?;
+            Name::Change(document.change)
+        }
     };
 
     store.set_name(&bookmark, target)?;

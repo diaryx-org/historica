@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use historica::core::{ChangeState, RevisionId};
+use historica::core::{ChangeState, FileId, RevisionId};
 use historica::format::{OperationDocument, RevisionDocument, digest};
 use historica::store::{Finding, Name, Severity, Store};
 
@@ -373,6 +373,33 @@ fn a_pinned_bookmark_names_one_revision() {
     assert_eq!(
         Store::open(&root).expect("reopening").name("v0.1.0"),
         Some(Name::Revision(id))
+    );
+}
+
+#[test]
+fn a_file_bookmark_is_one_line_and_a_name_that_is_an_identifier_is_refused() {
+    let (root, mut store) = corpus_store("file-bookmark");
+    let file: FileId = "kmnpqrstvwxyzklmnpqrstvw".parse().expect("an identifier");
+
+    // Decision 0024: a third key, and no second choice to make about it.
+    store
+        .set_name("entry", Name::File(file))
+        .expect("naming a file");
+    assert_eq!(
+        fs::read_to_string(root.join("names/entry.txt")).expect("the file"),
+        format!("file {file}\n")
+    );
+    assert_eq!(
+        Store::open(&root).expect("reopening").name("entry"),
+        Some(Name::File(file))
+    );
+
+    // A bookmark spelled as a full identifier would shadow the identifier it
+    // spells, everywhere a bookmark is looked up first.
+    assert!(store.set_name(&file.to_string(), Name::File(file)).is_err());
+    assert!(
+        store.set_name("kmnp", Name::File(file)).is_ok(),
+        "an abbreviation is not an identifier"
     );
 }
 

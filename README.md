@@ -161,7 +161,11 @@ The `historica` binary is the front end decision 0006 said was owed. `init`,
 `cat`, and `names` read a store and render it; `status` reads the folder beside
 it and says how the two differ; `record` writes one and `amend` rewrites one,
 `skip` writes the rule saying what recording does not take, and `identity` says
-who is writing. Nothing there decides anything
+who is writing. `name` writes a bookmark, and takes the third argument `show`
+takes: with a path it names the file at that path rather than the work, so
+`history/names/` holds `file` lines beside `change` and `revision` ones and
+`cat <target> file:<bookmark>` is that file wherever it has since been moved to.
+Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.
@@ -271,6 +275,12 @@ $ historica cat nwlxsqot docs/README.md
 A journal kept in Historica, and the notes that came with it.
 $ historica name main nwlxsqot
 main -> change nwlxsqotvkzmuprysltnwxqk
+$ historica name readme nwlxsqot docs/README.md
+readme -> file swtlmnkqvzyrxopwstlnmkqv
+$ historica cat nwlxsqot file:readme
+# Notes
+
+A journal kept in Historica, and the notes that came with it.
 $ ls history/revisions
 '2025-08-19 Start a journal.rev.txt'
 '2025-08-19 Say why a path is not an identity.rev.txt'
@@ -284,8 +294,13 @@ $ historica check
 
 A target is a bookmark, a change ID, or a revision digest, and the last two may
 be abbreviated to any unambiguous prefix — decision 0001's disjoint alphabets
-are what let one argument position accept either. `historica help` lists the
-rest. `check` exits non-zero only when the store cannot be trusted, so it can
+are what let one argument position accept either. The position beside it names a
+file, and there the alphabet trick does not reach: a path is a value a person
+chose rather than a name the tool minted, and a file may legitimately be called
+`kxryzmorwlvtnsqpkzmuprys`. So a file identifier is spelled `file:` and a
+bookmark can hold one — decision 0024 — abbreviating to any prefix unique among
+the files at that revision, and `path:` says the rest is a path for the file
+whose own name begins `file:`. `historica help` lists the rest. `check` exits non-zero only when the store cannot be trusted, so it can
 be run in anger; a duplicate, an undelivered parent, or a sync tool's
 conflicted copy is a note, and notes never fail.
 
@@ -404,6 +419,14 @@ Choices that constrain later work are written down as they are made.
   on is refused, since reparenting a descendant is 0007's merge under another
   name; and the position becomes the head nothing has rewritten, which is the
   rendering question 0001 left to whoever needed an answer.
+- [`docs/decisions/0024-naming-a-file.md`](docs/decisions/0024-naming-a-file.md)
+  — a file identifier is spelled `file:` where a path is expected, because
+  0001's disjoint alphabets cannot partition a position that already holds
+  every string a person may name a file; and a bookmark gains a third key,
+  `file`, beside 0006's `change` and `revision`. That is the join an outside
+  system gets: its own identifier cannot be Historica's, since digits would
+  break the alphabets and 0008 mints rather than derives, but it can be the
+  *name* of a bookmark, because a name is only ever a string.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
