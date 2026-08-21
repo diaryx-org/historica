@@ -335,6 +335,14 @@ Choices that constrain later work are written down as they are made.
   then spent the length it bought on a homoglyph nobody can type; this spends
   it on the filesystem's own separator, so a revision's folder is the subtree
   that revision touched.
+- [`docs/decisions/0019-the-name-a-store-is-written-with.md`](docs/decisions/0019-the-name-a-store-is-written-with.md)
+  — `record` writes the readable name rather than a digest a command has to be
+  run to replace, so the folder 0003 promised is the one a person gets. What a
+  writer cannot know is what another replica wrote this morning, so a collision
+  it cannot see degrades to the conflicted copy `check` already understands.
+  `arrange` becomes the command that applies the scheme to a store that does
+  not have it, and is deliberately not a lint: a name that differs is usually
+  a person filing their own history.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
