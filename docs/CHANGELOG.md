@@ -45,6 +45,12 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
+_No commits since the last tag._
+
+<!-- git-cliff:end -->
+
+## v0.2.0 — 2026-08-21
+
 ### Added
 
 - **core** — a causal history that merges by union ([`8f18d50`](https://github.com/diaryx-org/historica/commit/8f18d50c7bd556feb36204367a92e924e6aa4dfe))
@@ -181,4 +187,3 @@ byte-for-byte unchanged.
 stores and documents say `historica-v1` again, and only a store that has
 forgotten something says `historica-v2`.
 
-<!-- git-cliff:end -->
