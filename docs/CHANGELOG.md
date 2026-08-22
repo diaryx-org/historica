@@ -45,7 +45,33 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
-_No commits since the last tag._
+### Added
+
+- **fs** — ask for the folder rather than assume std::fs ([`a86a2f5`](https://github.com/diaryx-org/historica/commit/a86a2f56ec91956ab39636ba4936c3ed2267f27e))
+- **store** — arrange is the library's, not the front end's ([`7a74def`](https://github.com/diaryx-org/historica/commit/7a74def782e768f23203489206fe8ebd2a57cd29))
+
+### Behavioural changes
+
+- `historica::store::walk` takes the filesystem as its first
+  argument. Every other function keeps its signature; pass
+  `&historica::fs::Disk` to get what it did before.
+
+- `historica::working::Working` no longer implements
+  `Default`. It holds the filesystem it was read from, and there is no default
+  one to hold when `disk` is off.
+
+- `historica::record`'s `record`, `plan`, `amend`, `abandon`
+  and `survey` now require the store and the working copy to be over one
+  filesystem type. Decision 0011 already says the working copy is the folder
+  next to the store; this is that, checked.
+
+- building with `--no-default-features` drops `Store::init`,
+  `open`, `check`, `discover`, `Working::read`, `record::author_for` and the
+  `historica` binary. Use the `_on` constructors and supply a `Filesystem`.
+
+- `arrange` prints each directory's renames before the names
+  it left as duplicates, rather than interleaving them in walk order. The
+  lines, the counts and the summary are otherwise as they were.
 
 <!-- git-cliff:end -->
 
