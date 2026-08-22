@@ -33,7 +33,7 @@ repository = "https://github.com/diaryx-org/historica"
 # that compiles where `std::fs` does not work, and asks the host for the folder.
 [features]
 default = ["disk"]
-disk = []
+disk = ["dep:atomic-write-file"]
 
 # The command-line front end is `std::fs` throughout, deliberately: decision
 # 0025 puts the seam at the library's edge, and a CLI is the one caller that
@@ -44,6 +44,7 @@ path = "src/main.rs"
 required-features = ["disk"]
 
 [dependencies]
+atomic-write-file = { version = "0.2.3", optional = true }
 getrandom = "0.4"
 jiff = "0.2"
 sha2 = "0.11.0"

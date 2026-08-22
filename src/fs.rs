@@ -44,9 +44,10 @@
 //!
 //! # What is abstracted, and what is not
 //!
-//! **Operations are.** Reading bytes, creating a file that must not already
-//! exist, listing a directory without following what it links to, moving one
-//! to the name a person would rather read.
+//! **Operations are.** Reading bytes, atomically replacing a mutable file,
+//! creating a file that must not already exist, listing a directory without
+//! following what it links to, moving one to the name a person would rather
+//! read.
 //!
 //! **Naming is not.** A path is still [`std::path::Path`], which decision 0018
 //! already argued for from the other side: a path is filed as a path, with
@@ -148,6 +149,11 @@ pub struct Entry {
 /// writes has a window in it, and the thing that fits in the window is a
 /// half-written document under a name that promises its digest.
 ///
+/// **`write` replaces atomically.** Mutable files are the store's conflict
+/// surface, but a conflict must be between two complete values. The old bytes
+/// remain readable until all the new bytes can replace them in one operation;
+/// a truncate followed by writes does not satisfy this contract.
+///
 /// **Nothing follows a link.** [`entries`](Filesystem::entries) and
 /// [`look`](Filesystem::look) report [`Kind::Symlink`] and stop. This is what
 /// makes an unbounded walk safe: a tree of real directories cannot contain
@@ -161,12 +167,14 @@ pub trait Filesystem {
     /// Every byte of one file.
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
 
-    /// Write a file, replacing whatever was there.
+    /// Write a file, atomically replacing whatever was there.
     ///
     /// Used only for the store's mutable files — the version header, a
     /// bookmark, `skipped.txt` — which decision 0003 counts on one hand and
     /// calls the store's entire conflict surface. Everything else is written
-    /// with [`create_new`](Filesystem::create_new).
+    /// with [`create_new`](Filesystem::create_new). Until replacement commits,
+    /// a reader must see the complete old file; afterwards it must see the
+    /// complete new one, never a missing or partially written destination.
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()>;
 
     /// Write a file that must not already exist, indivisibly.
@@ -337,7 +345,11 @@ impl Filesystem for Disk {
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        std::fs::write(path, bytes)
+        use io::Write as _;
+
+        let mut file = atomic_write_file::AtomicWriteFile::open(path)?;
+        file.write_all(bytes)?;
+        file.commit()
     }
 
     fn create_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {

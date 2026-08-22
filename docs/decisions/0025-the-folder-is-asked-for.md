@@ -288,8 +288,10 @@ the same seam arrived at earlier for the same reason. Nothing more is owed.
 2. **Whether the trait should offer a bulk or streaming read**, since `check`
    hashes every payload one `read` at a time. On disk this is right. Over a
    network-backed provider it may be a round trip per photograph.
-3. **Whether `write` should be atomic** — write-and-rename rather than
-   truncate-and-write. It touches only the four mutable files a store has, and
-   0003 already calls those its entire conflict surface, so the exposure is a
-   half-written bookmark. Worth doing; not worth doing in the change that only
-   moves where the calls are made.
+
+## Resolved questions
+
+3. **Whether `write` should be atomic.** Answered by
+   [0026](0026-atomic-mutable-files.md): atomic replacement is part of the
+   `Filesystem` contract, and `Disk` implements it by writing a sibling
+   temporary file and committing it over the destination.

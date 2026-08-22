@@ -6,7 +6,7 @@
 //! source: the `bare` CI job proves the library *compiles* without `std::fs`,
 //! and this proves it *works* without one.
 //!
-//! [`Memory`] below is the whole implementation — eight methods over two
+//! [`Memory`] below is the whole implementation — nine methods over two
 //! `BTreeMap`s, with no path resolution, no links, and no cleverness — and
 //! everything after it is a store driven through it end to end: init, record,
 //! reopen, bookmark, check, prune. If the trait were the wrong shape, this
