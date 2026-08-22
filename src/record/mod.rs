@@ -19,6 +19,7 @@ use std::fmt;
 use crate::core::{ChangeId, FileId, RevisionId};
 use crate::diff::diff;
 use crate::format::{OperationDocument, RevisionDocument, Timestamp, Version, digest};
+use crate::fs::Filesystem;
 use crate::naming;
 use crate::replay::State;
 use crate::store::{MaterialiseError, Name, REVISION_SUFFIX, Store, StoreError};
@@ -28,7 +29,9 @@ use crate::working::{self, Working, WorkingError};
 pub mod identity;
 pub mod source;
 
-pub use identity::{Identities, IdentityError, author_for};
+#[cfg(feature = "disk")]
+pub use identity::author_for;
+pub use identity::{Identities, IdentityError, author_for_on};
 pub use source::{Clock, Entropy, Platform, SourceError};
 
 /// What one path's content contributes to a revision.
@@ -285,9 +288,9 @@ pub struct Recorded {
 /// own. What a person stated — the parents, the renames, and where a contested
 /// file goes — is passed in, because those are the three things that cannot be
 /// observed.
-pub fn survey(
-    store: &Store,
-    working: &Working,
+pub fn survey<F: Filesystem>(
+    store: &Store<F>,
+    working: &Working<F>,
     parents: &[RevisionId],
     moves: &[(String, String)],
     at: &[(FileId, String)],
@@ -488,8 +491,8 @@ pub fn survey(
 /// Only a one-to-one match is offered: two added paths holding one dropped
 /// file's bytes is a choice nobody here is entitled to make. Empty content
 /// matches nothing, since every empty file has the bytes of every other.
-fn renames(
-    store: &Store,
+fn renames<F: Filesystem>(
+    store: &Store<F>,
     parents: &[RevisionId],
     dropped: &BTreeMap<FileId, String>,
     arrived: &BTreeMap<String, Vec<u8>>,
@@ -537,8 +540,8 @@ fn renames(
 ///
 /// `None` where concurrent revisions each stated one: 0008 refuses to pick,
 /// so what the folder holds now is the change, whatever it is.
-fn held_bytes(
-    store: &Store,
+fn held_bytes<F: Filesystem>(
+    store: &Store<F>,
     parents: &[RevisionId],
     file: &FileId,
 ) -> Result<Option<Vec<u8>>, RecordError> {
@@ -553,9 +556,9 @@ fn held_bytes(
 ///
 /// The survey with an identifier minted per added path, which is the whole of
 /// the difference between describing a folder and recording one.
-pub fn plan(
-    store: &Store,
-    working: &Working,
+pub fn plan<F: Filesystem>(
+    store: &Store<F>,
+    working: &Working<F>,
     recording: &Recording,
     entropy: &mut impl Entropy,
 ) -> Result<Plan, RecordError> {
@@ -570,9 +573,9 @@ pub fn plan(
 /// file, in the same place, in the same piece of work, a different file after
 /// every amendment. `kept` is that predecessor's `add` lines, by path, and
 /// minting happens only for a path it does not name.
-fn plan_with(
-    store: &Store,
-    working: &Working,
+fn plan_with<F: Filesystem>(
+    store: &Store<F>,
+    working: &Working<F>,
     recording: &Recording,
     entropy: &mut impl Entropy,
     kept: &BTreeMap<String, FileId>,
@@ -654,9 +657,9 @@ fn plan_with(
 /// An interrupted record therefore leaves operation documents nothing points
 /// at, which `check` reports as a note, rather than a revision naming a
 /// document that is not there, which it reports as an error.
-pub fn record(
-    store: &mut Store,
-    working: &Working,
+pub fn record<F: Filesystem>(
+    store: &mut Store<F>,
+    working: &Working<F>,
     recording: &Recording,
     entropy: &mut impl Entropy,
 ) -> Result<Recorded, RecordError> {
@@ -741,9 +744,9 @@ pub fn record(
 ///
 /// The refusals decision 0023 names happen here, so `--dry-run` meets them at
 /// the same moment the real thing would.
-pub fn amendment_plan(
-    store: &Store,
-    working: &Working,
+pub fn amendment_plan<F: Filesystem>(
+    store: &Store<F>,
+    working: &Working<F>,
     amendment: &Amendment,
     entropy: &mut impl Entropy,
 ) -> Result<Plan, RecordError> {
@@ -756,9 +759,9 @@ pub fn amendment_plan(
 /// recorded, and the parents are the amended revision's; `revised` is now;
 /// everything else is worked out again from the folder against those parents,
 /// by the survey `record` performs for the same reason.
-pub fn amend(
-    store: &mut Store,
-    working: &Working,
+pub fn amend<F: Filesystem>(
+    store: &mut Store<F>,
+    working: &Working<F>,
     amendment: &Amendment,
     entropy: &mut impl Entropy,
 ) -> Result<Amended, RecordError> {
@@ -807,9 +810,9 @@ struct Rewrite {
     previous: RevisionDocument,
 }
 
-fn rewrite(
-    store: &Store,
-    working: &Working,
+fn rewrite<F: Filesystem>(
+    store: &Store<F>,
+    working: &Working<F>,
     amendment: &Amendment,
     entropy: &mut impl Entropy,
 ) -> Result<Rewrite, RecordError> {
@@ -861,8 +864,8 @@ fn rewrite(
 /// Every refusal decision 0023 names is here, before anything reads the
 /// folder: a revision this store does not hold, a revision something stands
 /// on, and a revision something has already rewritten.
-fn rewriting(
-    store: &Store,
+fn rewriting<F: Filesystem>(
+    store: &Store<F>,
     amendment: &Amendment,
 ) -> Result<(RevisionDocument, Recording, BTreeMap<String, FileId>), RecordError> {
     let previous = store
@@ -931,8 +934,8 @@ fn rewriting(
 /// standing on it, and it must be a line — a fork means two branches where a
 /// person named one, and a merge in it holds work that arrived from elsewhere,
 /// which abandoning this run would silently take with it.
-pub fn abandonment_plan(
-    store: &Store,
+pub fn abandonment_plan<F: Filesystem>(
+    store: &Store<F>,
     revision: &RevisionId,
 ) -> Result<Vec<RevisionId>, RecordError> {
     let mut run: Vec<RevisionId> = Vec::new();
@@ -992,8 +995,8 @@ pub fn abandonment_plan(
 /// the ancestry with nothing to undo. Its change is minted rather than
 /// reused, which is what makes the old change `Abandoned` rather than merely
 /// empty.
-pub fn abandon(
-    store: &mut Store,
+pub fn abandon<F: Filesystem>(
+    store: &mut Store<F>,
     abandoning: &Abandoning,
     entropy: &mut impl Entropy,
 ) -> Result<Abandoned, RecordError> {
@@ -1144,8 +1147,8 @@ fn content_of(plan: &Plan) -> Content {
 /// revision naming content that is not there, which it reports as an error.
 /// Decision 0019 is where each one goes — under the revision's own stem, at
 /// the path it had.
-fn file_content(
-    store: &mut Store,
+fn file_content<F: Filesystem>(
+    store: &mut Store<F>,
     plan: &Plan,
     content: &Content,
     stem: &str,

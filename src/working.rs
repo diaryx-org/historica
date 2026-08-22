@@ -7,11 +7,11 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::format::check_path;
+use crate::fs::{Disk, Entry, Filesystem, read_to_string};
 use crate::store::STORE_DIR;
 
 /// The file in the store that says what history does not take.
@@ -185,14 +185,30 @@ impl fmt::Display for MalformedSkip {
 impl std::error::Error for MalformedSkip {}
 
 /// The tracked files, by path, as the folder stands.
-#[derive(Debug, Clone, Default)]
-pub struct Working {
+///
+/// Holds the filesystem it was read from, so that [`Working::text`] and
+/// [`Working::bytes`] read the same folder the walk saw. A working copy read
+/// from one filesystem and read back through another would be describing a
+/// folder it had never looked at — and because the filesystem is a type
+/// parameter, [`crate::record::record`] can insist that a working copy and the
+/// store it is recorded into are the same kind of folder.
+#[derive(Debug, Clone)]
+pub struct Working<F = Disk> {
+    filesystem: F,
     files: BTreeMap<String, PathBuf>,
     refused: Vec<(String, String)>,
 }
 
-impl Working {
-    /// Walk `root`, taking every file the rules leave.
+#[cfg(feature = "disk")]
+impl Working<Disk> {
+    /// Walk `root` on disk, taking every file the rules leave.
+    pub fn read(root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
+        Self::read_on(Disk, root, skipped)
+    }
+}
+
+impl<F: Filesystem> Working<F> {
+    /// Walk `root` on `filesystem`, taking every file the rules leave.
     ///
     /// `history/` is never tracked and needs no rule. A name that is not UTF-8,
     /// a symlink, or anything that is not a regular file is refused by name
@@ -206,11 +222,20 @@ impl Working {
     /// [`WorkingError::Io`] — a directory that cannot be read is not a fact
     /// about the folder, it is not knowing, and a walk that collected it would
     /// describe a folder while quietly missing part of it.
-    pub fn read(root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
+    pub fn read_on(filesystem: F, root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
         let mut files = BTreeMap::new();
         let mut refused = Vec::new();
-        walk(root, "", skipped, &mut files, &mut refused)?;
-        Ok(Self { files, refused })
+        walk(&filesystem, root, "", skipped, &mut files, &mut refused)?;
+        Ok(Self {
+            filesystem,
+            files,
+            refused,
+        })
+    }
+
+    /// The filesystem this working copy was read from.
+    pub fn filesystem(&self) -> &F {
+        &self.filesystem
     }
 
     /// Every path the walk would not take, with the short reason.
@@ -253,7 +278,7 @@ impl Working {
         let on_disk = self.files.get(path).ok_or_else(|| WorkingError::Missing {
             path: path.to_owned(),
         })?;
-        match fs::read_to_string(on_disk) {
+        match read_to_string(&self.filesystem, on_disk) {
             Ok(text) => Ok(text),
             Err(error) if error.kind() == io::ErrorKind::InvalidData => {
                 Err(WorkingError::NotText {
@@ -272,7 +297,9 @@ impl Working {
         let on_disk = self.files.get(path).ok_or_else(|| WorkingError::Missing {
             path: path.to_owned(),
         })?;
-        fs::read(on_disk).map_err(|error| WorkingError::io(on_disk, error))
+        self.filesystem
+            .read(on_disk)
+            .map_err(|error| WorkingError::io(on_disk, error))
     }
 }
 
@@ -292,22 +319,31 @@ pub fn is_text(bytes: &[u8]) -> bool {
 }
 
 /// One directory, then its subdirectories, in name order.
-fn walk(
+fn walk<F: Filesystem + ?Sized>(
+    filesystem: &F,
     directory: &Path,
     prefix: &str,
     skipped: &Skipped,
     files: &mut BTreeMap<String, PathBuf>,
     refused: &mut Vec<(String, String)>,
 ) -> Result<(), WorkingError> {
-    let mut entries: Vec<_> = fs::read_dir(directory)
-        .map_err(|error| WorkingError::io(directory, error))?
-        .collect::<Result<_, _>>()
+    let mut entries = filesystem
+        .entries(directory)
         .map_err(|error| WorkingError::io(directory, error))?;
-    entries.sort_by_key(std::fs::DirEntry::file_name);
+    // The trait promises no order, and this walk's order is the order a
+    // refusal list is printed in.
+    entries.sort();
 
-    for entry in entries {
-        let on_disk = entry.path();
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+    for Entry {
+        path: on_disk,
+        kind,
+    } in entries
+    {
+        let Some(name) = on_disk
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+        else {
             // A name that cannot be spelled cannot be walked into either, so a
             // directory refused here is one refusal rather than one per file
             // beneath it.
@@ -327,12 +363,9 @@ fn walk(
             continue;
         }
 
-        let kind = entry
-            .file_type()
-            .map_err(|error| WorkingError::io(&on_disk, error))?;
-        if kind.is_dir() {
+        if kind.is_directory() {
             if !skipped.skips_directory(&path) {
-                walk(&on_disk, &path, skipped, files, refused)?;
+                walk(filesystem, &on_disk, &path, skipped, files, refused)?;
             }
             continue;
         }

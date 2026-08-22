@@ -129,8 +129,27 @@ bytes. That last rule is the tool's rather than the format's, because a
 recorder is allowed signals a format may not use. Only a rename has to be
 stated, with `--move`, which performs it if the person has not.
 
-The `store` module is that format on disk. It loads a `history/` directory by
-reading files and never their names — revisions and operation documents alike,
+The `fs` module is the folder itself, asked for rather than assumed. Everything
+that persists anything goes through `fs::Filesystem` — eight methods, no
+metadata beyond what a directory entry is, and nothing that follows a symbolic
+link — and `fs::Disk` is that trait over `std::fs`, behind the default `disk`
+feature. `Store<F = Disk>` and `Working<F = Disk>` carry it as a type
+parameter, so the trait itself requires nothing at all: not `Send`, not `Sync`,
+not `Debug`. A store over a filesystem that has those has them, and one over a
+Swift object or a `JsValue` — neither of which is `Send` — is welcome without
+anyone writing `unsafe impl`. Dynamic dispatch stays available rather than
+mandatory, since a smart pointer to a filesystem is one:
+`Store<Arc<dyn Filesystem>>` is the store that chose at run time. Nothing at a
+call site moved — `Store::open(root)` and every `&Store` signature mean
+`Store<Disk>` as they always did. Turning the feature off leaves a library that
+names `std::fs` nowhere, which is what lets a host holding its documents
+through a document provider — iCloud, a security-scoped bookmark, an Android
+content URI — use this without a path the operating system will open.
+`tests/filesystem.rs` records a history, reopens it, checks it, and prunes it
+inside two `BTreeMap`s; decision 0025 is the argument.
+
+The `store` module is that format as a folder. It loads a `history/` directory
+by reading files and never their names — revisions and operation documents alike,
 so renaming every file in a store changes no identity and breaks no reference — which is what lets a store be
 hand-arranged into something a file browser can narrate. `operations/` holds
 two kinds of file on the rule `revisions/` already keeps: only a name ending

@@ -11,12 +11,12 @@
 //! in as many words.
 
 use std::collections::BTreeSet;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
 use crate::format::digest;
+use crate::fs::{Entry, Filesystem};
 
 use super::{
     OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIXES, REVISIONS_DIR, Store, StoreError,
@@ -43,7 +43,7 @@ impl Pruned {
     }
 }
 
-impl Store {
+impl<F: Filesystem> Store<F> {
     /// What `prune` would remove, without removing anything.
     ///
     /// `prune` acts on exactly this, so `--dry-run` and the real thing can
@@ -79,24 +79,31 @@ impl Store {
         // deleted revision are both that revision, wherever they sit and
         // whatever they are called.
         let mut pruned = Pruned::default();
-        for path in files_claiming(&self.root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
-            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+        let files = self.filesystem();
+        for path in files_claiming(files, &self.root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
+            let bytes = files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
             let id = digest(&bytes);
             if deletable.contains(&id) {
                 push_unique(&mut pruned.revisions, id);
                 pruned.files.push(self.relative(&path));
             }
         }
-        for path in files_claiming(&self.root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
-            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+        for path in files_claiming(files, &self.root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
+            let bytes = files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
             let id = digest(&bytes);
             if !referenced.contains(&id) {
                 push_unique(&mut pruned.operations, id);
                 pruned.files.push(self.relative(&path));
             }
         }
-        for path in payload_files(&self.root)? {
-            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+        for path in payload_files(files, &self.root)? {
+            let bytes = files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
             let id = digest(&bytes);
             if !referenced.contains(&id) {
                 push_unique(&mut pruned.payloads, id);
@@ -115,7 +122,9 @@ impl Store {
         let pruned = self.prunable()?;
         for relative in &pruned.files {
             let path = self.root.join(relative);
-            fs::remove_file(&path).map_err(|error| StoreError::io(&path, error))?;
+            self.filesystem()
+                .remove_file(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
         }
         for id in &pruned.revisions {
             self.documents.remove(id);
@@ -127,7 +136,7 @@ impl Store {
         // it is derived, so it is rebuilt on next need rather than repaired.
         *self.payloads.borrow_mut() = None;
         for directory in [REVISIONS_DIR, OPERATIONS_DIR] {
-            remove_empty_directories(&self.root.join(directory))?;
+            remove_empty_directories(self.filesystem(), &self.root.join(directory))?;
         }
         Ok(pruned)
     }
@@ -190,19 +199,21 @@ fn push_unique(ids: &mut Vec<RevisionId>, id: RevisionId) {
 /// A directory is presentation exactly as a filename is, and one that held
 /// only what pruning removed now presents nothing. Symbolic links are not
 /// descended into, on `walk`'s reasoning.
-pub(super) fn remove_empty_directories(directory: &Path) -> Result<bool, StoreError> {
-    let entries = match fs::read_dir(directory) {
+pub(super) fn remove_empty_directories<F: Filesystem + ?Sized>(
+    files: &F,
+    directory: &Path,
+) -> Result<bool, StoreError> {
+    let entries = match files.entries(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),
         Err(error) => return Err(StoreError::io(directory, error)),
     };
     let mut empty = true;
-    for entry in entries {
-        let entry = entry.map_err(|error| StoreError::io(directory, error))?;
-        let path = entry.path();
-        let metadata = fs::symlink_metadata(&path).map_err(|error| StoreError::io(&path, error))?;
-        if metadata.is_dir() && remove_empty_directories(&path)? {
-            fs::remove_dir(&path).map_err(|error| StoreError::io(&path, error))?;
+    for Entry { path, kind } in entries {
+        if kind.is_directory() && remove_empty_directories(files, &path)? {
+            files
+                .remove_directory(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
         } else {
             empty = false;
         }

@@ -26,6 +26,23 @@ rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/diaryx-org/historica"
 
+# The library reaches the folder through `historica::fs::Filesystem`, never
+# through `std::fs`. `disk` adds the implementation that is `std::fs`, which is
+# what the `historica` binary is built on and what every short constructor —
+# `Store::open`, `Working::read` — resolves to. Turning it off leaves a library
+# that compiles where `std::fs` does not work, and asks the host for the folder.
+[features]
+default = ["disk"]
+disk = []
+
+# The command-line front end is `std::fs` throughout, deliberately: decision
+# 0025 puts the seam at the library's edge, and a CLI is the one caller that
+# always knows it is talking to a real filesystem.
+[[bin]]
+name = "historica"
+path = "src/main.rs"
+required-features = ["disk"]
+
 [dependencies]
 getrandom = "0.4"
 jiff = "0.2"

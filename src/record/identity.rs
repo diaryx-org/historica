@@ -8,9 +8,10 @@
 //! history rather than editing a field.
 
 use std::fmt;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+use crate::fs::{Filesystem, read_to_string};
 
 /// The environment variable that beats the file.
 pub const AUTHOR_VARIABLE: &str = "HISTORICA_AUTHOR";
@@ -158,7 +159,11 @@ fn home() -> Option<PathBuf> {
 /// Where a person's identity file lives on this platform.
 ///
 /// Reached through `std::env` alone, which is what keeps this from costing a
-/// dependency.
+/// dependency — and what keeps it out of [`crate::fs::Filesystem`]. Decision
+/// 0025 puts the folder behind a trait and leaves the environment where it is:
+/// "which directory does this operating system keep configuration in" is a
+/// question about the process, not about the store, and a host that answers it
+/// differently reads its own file and hands the author over.
 pub fn identity_path() -> Option<PathBuf> {
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
         return Some(PathBuf::from(xdg).join(IDENTITY_FILE));
@@ -171,12 +176,24 @@ pub fn identity_path() -> Option<PathBuf> {
     home().map(|home| home.join(".config").join(IDENTITY_FILE))
 }
 
-/// The author to record work in `directory` under.
+/// The author to record work in `directory` under, read from disk.
+#[cfg(feature = "disk")]
+pub fn author_for(directory: &Path) -> Result<String, IdentityError> {
+    author_for_on(&crate::fs::Disk, directory)
+}
+
+/// The author to record work in `directory` under, read from `files`.
 ///
 /// The environment first, for scripts, tests, and machines where a file is
 /// inconvenient; then the identity file; then a refusal that names the file
 /// and the line to put in it.
-pub fn author_for(directory: &Path) -> Result<String, IdentityError> {
+///
+/// The environment is read whichever filesystem is passed, because
+/// [`identity_path`] is a question about the machine rather than about the
+/// folder — see its own note. A host that keeps identity somewhere else does
+/// not call this: it parses [`Identities`] itself and hands the answer to the
+/// writer, which is what `Identities` is separate for.
+pub fn author_for_on(files: &dyn Filesystem, directory: &Path) -> Result<String, IdentityError> {
     if let Some(author) = std::env::var(AUTHOR_VARIABLE)
         .ok()
         .filter(|a| !a.is_empty())
@@ -185,7 +202,7 @@ pub fn author_for(directory: &Path) -> Result<String, IdentityError> {
     }
 
     let path = identity_path().ok_or(IdentityError::Nowhere)?;
-    let text = match fs::read_to_string(&path) {
+    let text = match read_to_string(files, &path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Err(IdentityError::NoIdentity { file: path });

@@ -1,7 +1,10 @@
-//! The store on disk: a directory of revision documents.
+//! The store: a directory of revision documents.
 //!
 //! Specified by `docs/decisions/0003-store.md` and completed by
-//! `docs/decisions/0006-store-questions.md`. One rule governs everything here:
+//! `docs/decisions/0006-store-questions.md`. Decision 0025 makes the directory
+//! one the caller supplies — a [`Store`] holds a [`crate::fs::Filesystem`] and
+//! reads through it, and `std::fs` is what [`crate::fs::Disk`] is. One rule
+//! governs everything here:
 //!
 //! > Identity comes from content. Filenames are presentation.
 //!
@@ -32,12 +35,14 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::{ChangeId, FileId, History, RevisionId};
 use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, digest};
+// `fs` here is `crate::fs`, never `std::fs` — this module reaches the folder
+// only through the trait, and the qualified form is what keeps that visible.
+use crate::fs::{self, Disk, Entry, Filesystem, read_to_string};
 use crate::merge::{self, Merged};
 use crate::replay::{self, ReplayError, State};
 use crate::tree::{self, Kind, MergedTree, Tree, TreeError};
@@ -259,8 +264,17 @@ impl Content {
 /// Holds documents rather than [`crate::core::Revision`]s, because the
 /// documents are the authority and the graph is the projection — the same
 /// relationship decision 0003 gives `cache/`.
+///
+/// The filesystem is a type parameter rather than a bound on the struct, so
+/// that `Store` derives exactly what `F` supports: a `Store<Disk>` is `Debug`,
+/// `Clone` and `Send` as it always was, and a store over a filesystem that is
+/// none of those is none of those, without the trait having had to demand them
+/// of anybody. Decision 0025.
 #[derive(Debug, Clone)]
-pub struct Store {
+pub struct Store<F = Disk> {
+    /// Where the folder is asked for. The store never reaches `std::fs`, it
+    /// reaches whatever the caller handed it.
+    files: F,
     root: PathBuf,
     /// The highest document version this store holds, which is what its
     /// header states and therefore the gate a reader is refused at.
@@ -273,96 +287,37 @@ pub struct Store {
     skipped: Skipped,
 }
 
-impl Store {
+/// The store's short constructors, which are the long ones on [`Disk`].
+///
+/// [`Disk`]: crate::fs::Disk
+#[cfg(feature = "disk")]
+impl Store<Disk> {
     /// Create an empty store at `root`, which must not already be one.
     pub fn init(root: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let root = root.as_ref().to_path_buf();
-        let header = root.join(HEADER_FILE);
-        if header.exists() {
-            return Err(StoreError::AlreadyAStore { path: root });
-        }
-        for directory in [REVISIONS_DIR, OPERATIONS_DIR, NAMES_DIR, CACHE_DIR] {
-            let path = root.join(directory);
-            fs::create_dir_all(&path).map_err(|error| StoreError::io(&path, error))?;
-        }
-        // Version 1, not the reader's ceiling: the header states the highest
-        // document version the store holds, an empty store holds nothing,
-        // and version 1's vocabulary is everything short of forgetting.
-        // `raise_version` moves it the day a newer document lands.
-        fs::write(
-            &header,
-            format!("{}\n\n{HEADER_NOTE}", Version::V1.preamble()),
-        )
-        .map_err(|error| StoreError::io(&header, error))?;
-        // Decision 0022: recording is append-only and forgetting is not built,
-        // so a first run that sweeps a folder of operating-system metadata
-        // into a permanent history is a mistake a person cannot take back.
-        let skipped = root.join(SKIPPED_FILE);
-        fs::write(&skipped, crate::working::DEFAULT_SKIPPED)
-            .map_err(|error| StoreError::io(&skipped, error))?;
-        Self::open(root)
+        Self::init_on(Disk, root)
     }
 
     /// Open the store rooted at `root`.
-    ///
-    /// A file that does not parse is an error naming the file, never a skip:
-    /// strictness where the machine reads, exactly as in decision 0002. Use
-    /// [`Store::check`] when the point is to enumerate every fault rather than
-    /// to stop at the first.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let root = root.as_ref().to_path_buf();
-        let version = read_version(&root)?;
+        Self::open_on(Disk, root)
+    }
 
-        let mut documents = BTreeMap::new();
-        for path in files_claiming(&root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
-            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
-            let document =
-                RevisionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
-                    file: path.clone(),
-                    error,
-                })?;
-            // Two files with identical bytes are one revision stored twice,
-            // which is harmless. Identical digests with differing bytes cannot
-            // happen, and if they ever did it would mean a broken read.
-            documents.insert(digest(&bytes), document);
-        }
-
-        let mut operations = BTreeMap::new();
-        for path in files_claiming(&root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
-            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
-            let document =
-                OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
-                    file: path.clone(),
-                    error,
-                })?;
-            operations.insert(digest(&bytes), document);
-        }
-
-        let mut names = BTreeMap::new();
-        for (name, path) in name_files(&root)? {
-            let text = fs::read_to_string(&path).map_err(|error| StoreError::io(&path, error))?;
-            let target =
-                Name::parse(&text).map_err(|_| StoreError::MalformedName { file: path.clone() })?;
-            names.insert(name, target);
-        }
-
-        let skipped = read_skipped(&root)?;
-
-        Ok(Self {
-            root,
-            version,
-            documents,
-            operations,
-            payloads: RefCell::new(None),
-            names,
-            skipped,
-        })
+    /// Examine a store without loading it, reporting every fault at once.
+    pub fn check(root: impl AsRef<Path>) -> Report {
+        check::check(&Disk, root.as_ref())
     }
 
     /// Find the store containing `from`, walking up towards the filesystem root.
     ///
     /// A directory called `history` is not enough: it must hold a `historica`
     /// file, so an unrelated folder of the same name is not mistaken for one.
+    ///
+    /// Only on disk, and not because of the reading: `from` is canonicalised
+    /// first, and "resolve this path against the process's current directory
+    /// and the links along it" is a question about the machine the program is
+    /// running on rather than about the folder. A host that supplies its own
+    /// filesystem already knows where its store is, and calls
+    /// [`Store::open_on`].
     pub fn discover(from: impl AsRef<Path>) -> Result<Self, StoreError> {
         let from = from.as_ref();
         let start = from
@@ -376,18 +331,124 @@ impl Store {
         }
         Err(StoreError::NotAStore { path: start })
     }
+}
 
-    /// Examine a store without loading it, reporting every fault at once.
+impl<F: Filesystem> Store<F> {
+    /// Create an empty store at `root` on `files`, which must not already be one.
+    pub fn init_on(files: F, root: impl AsRef<Path>) -> Result<Self, StoreError> {
+        let root = root.as_ref().to_path_buf();
+        let header = root.join(HEADER_FILE);
+        if crate::fs::exists(&files, &header).map_err(|error| StoreError::io(&header, error))? {
+            return Err(StoreError::AlreadyAStore { path: root });
+        }
+        for directory in [REVISIONS_DIR, OPERATIONS_DIR, NAMES_DIR, CACHE_DIR] {
+            let path = root.join(directory);
+            files
+                .create_directory(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
+        }
+        // Version 1, not the reader's ceiling: the header states the highest
+        // document version the store holds, an empty store holds nothing,
+        // and version 1's vocabulary is everything short of forgetting.
+        // `raise_version` moves it the day a newer document lands.
+        files
+            .write(
+                &header,
+                format!("{}\n\n{HEADER_NOTE}", Version::V1.preamble()).as_bytes(),
+            )
+            .map_err(|error| StoreError::io(&header, error))?;
+        // Decision 0022: recording is append-only and forgetting is not built,
+        // so a first run that sweeps a folder of operating-system metadata
+        // into a permanent history is a mistake a person cannot take back.
+        let skipped = root.join(SKIPPED_FILE);
+        files
+            .write(&skipped, crate::working::DEFAULT_SKIPPED.as_bytes())
+            .map_err(|error| StoreError::io(&skipped, error))?;
+        Self::open_on(files, root)
+    }
+
+    /// Open the store rooted at `root` on `files`.
+    ///
+    /// A file that does not parse is an error naming the file, never a skip:
+    /// strictness where the machine reads, exactly as in decision 0002. Use
+    /// [`Store::check_on`] when the point is to enumerate every fault rather
+    /// than to stop at the first.
+    pub fn open_on(files: F, root: impl AsRef<Path>) -> Result<Self, StoreError> {
+        let root = root.as_ref().to_path_buf();
+        let version = read_version(&files, &root)?;
+
+        let mut documents = BTreeMap::new();
+        for path in files_claiming(&files, &root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
+            let bytes = files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
+            let document =
+                RevisionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
+                    file: path.clone(),
+                    error,
+                })?;
+            // Two files with identical bytes are one revision stored twice,
+            // which is harmless. Identical digests with differing bytes cannot
+            // happen, and if they ever did it would mean a broken read.
+            documents.insert(digest(&bytes), document);
+        }
+
+        let mut operations = BTreeMap::new();
+        for path in files_claiming(&files, &root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
+            let bytes = files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
+            let document =
+                OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
+                    file: path.clone(),
+                    error,
+                })?;
+            operations.insert(digest(&bytes), document);
+        }
+
+        let mut names = BTreeMap::new();
+        for (name, path) in name_files(&files, &root)? {
+            let text =
+                read_to_string(&files, &path).map_err(|error| StoreError::io(&path, error))?;
+            let target =
+                Name::parse(&text).map_err(|_| StoreError::MalformedName { file: path.clone() })?;
+            names.insert(name, target);
+        }
+
+        let skipped = read_skipped(&files, &root)?;
+
+        Ok(Self {
+            files,
+            root,
+            version,
+            documents,
+            operations,
+            payloads: RefCell::new(None),
+            names,
+            skipped,
+        })
+    }
+
+    /// Examine the store at `root` on `files`, reporting every fault at once.
     ///
     /// Errors mean the store cannot be trusted; notes are observations that
     /// never fail. See `docs/decisions/0006-store-questions.md`.
-    pub fn check(root: impl AsRef<Path>) -> Report {
-        check::check(root.as_ref())
+    pub fn check_on(files: &F, root: impl AsRef<Path>) -> Report {
+        check::check(files, root.as_ref())
     }
 
     /// The directory this store occupies.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The filesystem this store was opened on.
+    ///
+    /// Handed out so that a caller holding a store need not also hold what it
+    /// was opened with — reading a payload's neighbours, or writing beside the
+    /// folder, is done on the same filesystem or it is done somewhere else.
+    pub fn filesystem(&self) -> &F {
+        &self.files
     }
 
     /// How many distinct revisions the store holds.
@@ -469,7 +530,10 @@ impl Store {
         let Some(path) = self.payload_path(id)? else {
             return Ok(None);
         };
-        let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+        let bytes = self
+            .files
+            .read(&path)
+            .map_err(|error| StoreError::io(&path, error))?;
         Ok(Some(bytes))
     }
 
@@ -505,8 +569,11 @@ impl Store {
         let mut found: BTreeMap<RevisionId, PathBuf> = BTreeMap::new();
         // Sorted by `walk`, so two copies of one payload resolve to the same
         // path on every replica: the first one found keeps the entry.
-        for path in payload_files(&self.root)? {
-            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+        for path in payload_files(&self.files, &self.root)? {
+            let bytes = self
+                .files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
             found.entry(digest(&bytes)).or_insert(path);
         }
         *self.payloads.borrow_mut() = Some(found);
@@ -797,7 +864,7 @@ impl Store {
         let path = within(&self.root.join(REVISIONS_DIR), name);
 
         self.raise_version(document.version)?;
-        write_once(&path, &bytes)?;
+        write_once(&self.files, &path, &bytes)?;
         self.documents.insert(id, document.clone());
         Ok(id)
     }
@@ -832,7 +899,7 @@ impl Store {
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         self.raise_version(document.version)?;
-        write_once(&path, &bytes)?;
+        write_once(&self.files, &path, &bytes)?;
         self.operations.insert(id, document.clone());
         Ok(id)
     }
@@ -865,7 +932,7 @@ impl Store {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
-        write_once(&path, bytes)?;
+        write_once(&self.files, &path, bytes)?;
         if let Some(index) = self.payloads.borrow_mut().as_mut() {
             index.entry(id).or_insert(path);
         }
@@ -883,12 +950,16 @@ impl Store {
         let header = self.root.join(HEADER_FILE);
         // Only the first line moves: whatever a person wrote under it is
         // theirs, and a version bump is no reason to take it away.
-        let held = fs::read_to_string(&header).unwrap_or_default();
+        let held = read_to_string(&self.files, &header).unwrap_or_default();
         let rest: String = held
             .split_once('\n')
             .map(|(_, rest)| rest.to_owned())
             .unwrap_or_else(|| format!("\n{HEADER_NOTE}"));
-        fs::write(&header, format!("{}\n{rest}", version.preamble()))
+        self.files
+            .write(
+                &header,
+                format!("{}\n{rest}", version.preamble()).as_bytes(),
+            )
             .map_err(|error| StoreError::io(&header, error))?;
         self.version = version;
         Ok(())
@@ -918,7 +989,9 @@ impl Store {
             .root
             .join(NAMES_DIR)
             .join(format!("{name}{NAME_SUFFIX}"));
-        fs::write(&path, format!("{target}\n")).map_err(|error| StoreError::io(&path, error))?;
+        self.files
+            .write(&path, format!("{target}\n").as_bytes())
+            .map_err(|error| StoreError::io(&path, error))?;
         self.names.insert(name.to_owned(), target);
         Ok(())
     }
@@ -937,7 +1010,7 @@ impl Store {
             return Ok(());
         }
         let path = self.root.join(SKIPPED_FILE);
-        let existing = match fs::read_to_string(&path) {
+        let existing = match read_to_string(&self.files, &path) {
             Ok(text) => text,
             Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
             Err(error) => return Err(StoreError::io(&path, error)),
@@ -952,7 +1025,9 @@ impl Store {
         for rule in rules {
             text.push_str(&format!("{rule}\n"));
         }
-        fs::write(&path, &text).map_err(|error| StoreError::io(&path, error))?;
+        self.files
+            .write(&path, text.as_bytes())
+            .map_err(|error| StoreError::io(&path, error))?;
         self.skipped = Skipped::parse(&text)
             .map_err(|error| StoreError::MalformedSkipped { file: path, error })?;
         Ok(())
@@ -972,25 +1047,29 @@ fn within(directory: &Path, name: &str) -> PathBuf {
 ///
 /// A file that is already there is the same file, because its name is its
 /// digest — confirmed rather than assumed.
-fn write_once(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+fn write_once<F: Filesystem + ?Sized>(
+    files: &F,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), StoreError> {
     // Decision 0018 files a path as a path, so a writer makes the directories
-    // the name asks for. `create_dir_all` is content-free: it makes what the
+    // the name asks for. `create_directory` is content-free: it makes what the
     // name says and nothing else.
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| StoreError::io(parent, error))?;
+        files
+            .create_directory(parent)
+            .map_err(|error| StoreError::io(parent, error))?;
     }
-    match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-    {
-        Ok(mut file) => {
-            use io::Write as _;
-            file.write_all(bytes)
-                .map_err(|error| StoreError::io(path, error))?;
-        }
+    // One operation rather than a test and a write, which is the whole reason
+    // the trait has it: the window between the two is where a second writer
+    // producing the same revision leaves half a document under a name that
+    // promises its digest.
+    match files.create_new(path, bytes) {
+        Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            let existing = fs::read(path).map_err(|error| StoreError::io(path, error))?;
+            let existing = files
+                .read(path)
+                .map_err(|error| StoreError::io(path, error))?;
             if existing != bytes {
                 return Err(StoreError::ContentMismatch {
                     file: path.to_path_buf(),
@@ -1003,9 +1082,9 @@ fn write_once(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
 }
 
 /// Read `history/skipped.txt`, which a store need not have.
-fn read_skipped(root: &Path) -> Result<Skipped, StoreError> {
+fn read_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Skipped, StoreError> {
     let path = root.join(SKIPPED_FILE);
-    match fs::read_to_string(&path) {
+    match read_to_string(files, &path) {
         Ok(text) => Skipped::parse(&text).map_err(|error| StoreError::MalformedSkipped {
             file: path.clone(),
             error,
@@ -1021,9 +1100,9 @@ fn read_skipped(root: &Path) -> Result<Skipped, StoreError> {
 /// holds, which makes it the reader's gate — a reader that knows less refuses
 /// the store at the file that says so, rather than reading four fifths of it
 /// and calling the result a history.
-fn read_version(root: &Path) -> Result<Version, StoreError> {
+fn read_version<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Version, StoreError> {
     let header = root.join(HEADER_FILE);
-    let text = match fs::read_to_string(&header) {
+    let text = match read_to_string(files, &header) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Err(StoreError::NotAStore {
@@ -1064,7 +1143,7 @@ pub struct Walk {
     pub links: Vec<PathBuf>,
 }
 
-/// Walk one of the store's directories, at any depth.
+/// Walk one of the store's directories on `files`, at any depth.
 ///
 /// **Symbolic links are found and never followed**, which is what makes an
 /// unbounded walk safe: a tree of real directories cannot contain itself, so
@@ -1072,31 +1151,31 @@ pub struct Walk {
 /// refused a symlink in the working copy on the neighbouring argument — that
 /// following one reads somebody else's file under this name — and a store is
 /// not the place to change that answer.
-pub fn walk(root: &Path, directory: &str) -> Result<Walk, StoreError> {
+pub fn walk<F: Filesystem + ?Sized>(
+    files: &F,
+    root: &Path,
+    directory: &str,
+) -> Result<Walk, StoreError> {
     let directory = root.join(directory);
     let mut found = Walk::default();
     let mut pending = vec![directory.clone()];
     while let Some(next) = pending.pop() {
-        let entries = match fs::read_dir(&next) {
+        let entries = match files.entries(&next) {
             Ok(entries) => entries,
             // Absent is empty at the top and impossible below it, since the
             // walk only descends into what it has just seen.
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(StoreError::io(&next, error)),
         };
-        for entry in entries {
-            let entry = entry.map_err(|error| StoreError::io(&next, error))?;
-            let path = entry.path();
-            // `symlink_metadata` rather than `is_file`, which follows a link
-            // and would call the thing at the other end a file of this store.
-            let metadata =
-                fs::symlink_metadata(&path).map_err(|error| StoreError::io(&path, error))?;
-            if metadata.is_symlink() {
-                found.links.push(path);
-            } else if metadata.is_dir() {
-                pending.push(path);
-            } else if metadata.is_file() {
-                found.files.push(path);
+        // The trait reports what an entry is without following it, which is
+        // where the refusal to follow a link now lives: a reader that resolved
+        // one would call the thing at the other end a file of this store.
+        for Entry { path, kind } in entries {
+            match kind {
+                fs::Kind::Symlink => found.links.push(path),
+                fs::Kind::Directory => pending.push(path),
+                fs::Kind::File => found.files.push(path),
+                fs::Kind::Other => {}
             }
         }
     }
@@ -1113,8 +1192,11 @@ pub fn walk(root: &Path, directory: &str) -> Result<Walk, StoreError> {
 /// Decision 0017: only `*.ops` is an operation document there, and every other
 /// file is a payload. The rule is `revisions/`'s — the extension is a file's
 /// claim to be a document — read from the other side.
-fn payload_files(root: &Path) -> Result<Vec<PathBuf>, StoreError> {
-    let mut paths = walk(root, OPERATIONS_DIR)?.files;
+fn payload_files<F: Filesystem + ?Sized>(
+    files: &F,
+    root: &Path,
+) -> Result<Vec<PathBuf>, StoreError> {
+    let mut paths = walk(files, root, OPERATIONS_DIR)?.files;
     // Decision 0022: a file the platform wrote into our folder is not content
     // and not a fault. It is somebody else's file, and nothing here reads it.
     paths.retain(|path| !claims(path, &OPERATION_SUFFIXES) && !platform_file(path));
@@ -1127,37 +1209,41 @@ fn payload_files(root: &Path) -> Result<Vec<PathBuf>, StoreError> {
 /// file's claim to be a revision or an operation document, and everything else
 /// about the name is ignored. Matched as a suffix rather than with
 /// `Path::extension`, which sees only the last of a two-part one.
-fn files_claiming(
+fn files_claiming<F: Filesystem + ?Sized>(
+    files: &F,
     root: &Path,
     directory: &str,
     suffixes: &[&str],
 ) -> Result<Vec<PathBuf>, StoreError> {
-    let mut paths = walk(root, directory)?.files;
+    let mut paths = walk(files, root, directory)?.files;
     paths.retain(|path| claims(path, suffixes));
     Ok(paths)
 }
 
 /// Every bookmark file under `names/`, by bookmark name.
-fn name_files(root: &Path) -> Result<Vec<(String, PathBuf)>, StoreError> {
+fn name_files<F: Filesystem + ?Sized>(
+    files: &F,
+    root: &Path,
+) -> Result<Vec<(String, PathBuf)>, StoreError> {
     let directory = root.join(NAMES_DIR);
     let mut found = Vec::new();
-    let entries = match fs::read_dir(&directory) {
+    let entries = match files.entries(&directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(found),
         Err(error) => return Err(StoreError::io(&directory, error)),
     };
-    for entry in entries {
-        let entry = entry.map_err(|error| StoreError::io(&directory, error))?;
-        let path = entry.path();
+    for Entry { path, kind } in entries {
         // Decision 0021: a bookmark is `<name>.txt`, and anything else here is
         // a file nothing reads, which `check` says out loud.
-        if path.is_file()
+        if kind.is_file()
             && let Some(name) = path.file_name().and_then(|name| name.to_str())
             && let Some(name) = name.strip_suffix(NAME_SUFFIX)
         {
             found.push((name.to_owned(), path));
         }
     }
+    // The trait promises no order, and two replicas loading one store must
+    // agree about this one.
     found.sort();
     Ok(found)
 }

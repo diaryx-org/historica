@@ -19,6 +19,7 @@ use std::path::Path;
 
 use historica::core::RevisionId;
 use historica::format::digest;
+use historica::fs::Disk;
 use historica::naming::{self, Filing};
 use historica::store::{
     OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, Store, claims,
@@ -44,7 +45,7 @@ pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
     // read a moment ago — including any a person has already filed into
     // directories of their own, which decision 0016 lets them do.
     let directory = root.join(REVISIONS_DIR);
-    let mut paths = historica::store::walk(root, REVISIONS_DIR)?.files;
+    let mut paths = historica::store::walk(&Disk, root, REVISIONS_DIR)?.files;
     paths.retain(|path| claims(path, &REVISION_SUFFIXES));
     for path in paths {
         let id = digest_of(&path)?;
@@ -81,7 +82,7 @@ pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
     // Every file, not only the documents: decision 0017 puts payloads here
     // too, and a payload's whole point is that it carries the file's own name
     // rather than an extension of the format's.
-    let paths = historica::store::walk(root, OPERATIONS_DIR)?.files;
+    let paths = historica::store::walk(&Disk, root, OPERATIONS_DIR)?.files;
     for path in paths {
         let id = digest_of(&path)?;
         let Some((stem, name)) = operations.get(&id) else {

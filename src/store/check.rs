@@ -11,11 +11,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
 use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, digest};
+use crate::fs::{Entry, Filesystem, read_to_string};
 
 use super::{
     HEADER_FILE, MalformedName, NAME_SUFFIX, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES,
@@ -434,10 +434,10 @@ fn claimed_digest(path: &Path) -> Option<RevisionId> {
 }
 
 /// Examine a store without loading it, reporting every fault at once.
-pub(super) fn check(root: &Path) -> Report {
+pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
     let mut report = Report::default();
 
-    match fs::read_to_string(root.join(HEADER_FILE)) {
+    match read_to_string(files, &root.join(HEADER_FILE)) {
         Ok(text) => {
             // Decision 0021: the first line is the version, and the rest is
             // the note a person reads.
@@ -452,7 +452,7 @@ pub(super) fn check(root: &Path) -> Report {
         Err(_) => report.push(Finding::UnreadableStore { found: None }),
     }
 
-    let found = super::walk(root, REVISIONS_DIR).unwrap_or_default();
+    let found = super::walk(files, root, REVISIONS_DIR).unwrap_or_default();
     for link in &found.links {
         report.push(Finding::Unfollowed { file: link.clone() });
     }
@@ -482,7 +482,7 @@ pub(super) fn check(root: &Path) -> Report {
             report.push(Finding::SyncSuffixed { file: path.clone() });
         }
 
-        let bytes = match fs::read(&path) {
+        let bytes = match files.read(&path) {
             Ok(bytes) => bytes,
             Err(error) => {
                 report.push(Finding::Unreadable {
@@ -547,9 +547,9 @@ pub(super) fn check(root: &Path) -> Report {
         }
     }
 
-    let (operations, payloads) = check_operations(root, &mut report);
-    check_replay(&documents, &operations, &payloads, &mut report);
-    if let Ok(text) = fs::read_to_string(root.join(crate::working::SKIPPED_FILE))
+    let (operations, payloads) = check_operations(files, root, &mut report);
+    check_replay(files, &documents, &operations, &payloads, &mut report);
+    if let Ok(text) = read_to_string(files, &root.join(crate::working::SKIPPED_FILE))
         && let Err(error) = crate::working::Skipped::parse(&text)
     {
         report.push(Finding::MalformedSkipped {
@@ -558,7 +558,7 @@ pub(super) fn check(root: &Path) -> Report {
         });
     }
 
-    check_names(root, &documents, &mut report);
+    check_names(files, root, &documents, &mut report);
     report.findings.sort_by_key(|finding| finding.severity());
     report
 }
@@ -575,8 +575,8 @@ type Held = (
     BTreeMap<RevisionId, PathBuf>,
 );
 
-fn check_operations(root: &Path, report: &mut Report) -> Held {
-    let found = super::walk(root, OPERATIONS_DIR).unwrap_or_default();
+fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) -> Held {
+    let found = super::walk(files, root, OPERATIONS_DIR).unwrap_or_default();
     for link in &found.links {
         report.push(Finding::Unfollowed { file: link.clone() });
     }
@@ -603,7 +603,7 @@ fn check_operations(root: &Path, report: &mut Report) -> Held {
             report.push(Finding::SyncSuffixed { file: path.clone() });
         }
 
-        let bytes = match fs::read(&path) {
+        let bytes = match files.read(&path) {
             Ok(bytes) => bytes,
             Err(error) => {
                 report.push(Finding::Unreadable {
@@ -660,7 +660,8 @@ fn check_operations(root: &Path, report: &mut Report) -> Held {
 /// concurrent history is checked all the way through its merges. The tree
 /// comes from [`crate::tree::merge`] and every file from [`crate::merge`],
 /// which is the same machinery a person materialising the store would get.
-fn check_replay(
+fn check_replay<F: Filesystem + ?Sized>(
+    files: &F,
     documents: &BTreeMap<RevisionId, RevisionDocument>,
     operations: &BTreeMap<RevisionId, OperationDocument>,
     payloads: &BTreeMap<RevisionId, PathBuf>,
@@ -724,7 +725,7 @@ fn check_replay(
             let standing = forgetting.get(named).cloned().unwrap_or_default();
             let base = match payloads.get(named) {
                 Some(path) => {
-                    let bytes = match fs::read(path) {
+                    let bytes = match files.read(path) {
                         Ok(bytes) => bytes,
                         Err(error) => {
                             report.push(Finding::Unreadable {
@@ -903,24 +904,27 @@ fn reachable(
     Some(seen.into_iter().collect())
 }
 
-fn check_names(
+fn check_names<F: Filesystem + ?Sized>(
+    files: &F,
     root: &Path,
     documents: &BTreeMap<RevisionId, RevisionDocument>,
     report: &mut Report,
 ) {
     let directory = root.join(super::NAMES_DIR);
-    let Ok(entries) = fs::read_dir(&directory) else {
+    let Ok(entries) = files.entries(&directory) else {
         return;
     };
-    let mut paths: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
-    paths.sort();
+    // The trait promises no order, and a report two runs disagree about the
+    // order of is a report nobody can diff.
+    let mut entries: Vec<Entry> = entries;
+    entries.sort();
 
     let changes: Vec<_> = documents.values().map(|document| document.change).collect();
     // Decision 0024: a `file` bookmark names an identifier, and what makes one
     // known is that some revision here says anything at all about it. `added`
     // alone would call a bookmark dangling in a store whose transport has
     // delivered the rename and not yet the creation.
-    let files: BTreeSet<FileId> = documents
+    let identifiers: BTreeSet<FileId> = documents
         .values()
         .flat_map(|document| {
             document
@@ -935,8 +939,8 @@ fn check_names(
         })
         .collect();
 
-    for path in paths {
-        if !path.is_file() {
+    for Entry { path, kind } in entries {
+        if !kind.is_file() {
             continue;
         }
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -951,7 +955,7 @@ fn check_names(
             report.push(Finding::ForeignFile { file: path.clone() });
             continue;
         };
-        let text = match fs::read_to_string(&path) {
+        let text = match read_to_string(files, &path) {
             Ok(text) => text,
             Err(error) => {
                 report.push(Finding::Unreadable {
@@ -967,7 +971,7 @@ fn check_names(
                 let known = match target {
                     Name::Change(change) => changes.contains(&change),
                     Name::Revision(revision) => documents.contains_key(&revision),
-                    Name::File(file) => files.contains(&file),
+                    Name::File(file) => identifiers.contains(&file),
                 };
                 if !known {
                     report.push(Finding::DanglingBookmark {

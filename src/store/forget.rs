@@ -13,11 +13,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::fs;
 use std::path::PathBuf;
 
 use crate::core::{FileId, RevisionId};
 use crate::format::{OperationDocument, Version, digest};
+use crate::fs::Filesystem;
 use crate::merge::{self, MergeError, Quoted};
 use crate::tree::Kind;
 
@@ -66,7 +66,7 @@ impl Forgotten {
     }
 }
 
-impl Store {
+impl<F: Filesystem> Store<F> {
     /// What forgetting this span would destroy, without destroying anything.
     pub fn forget_plan(&self, forgetting: &Forgetting) -> Result<Forgotten, ForgetError> {
         if forgetting.first == 0 || forgetting.last < forgetting.first {
@@ -182,11 +182,14 @@ impl Store {
 
         // Every file whose bytes are a destroyed digest, found by content as
         // everything in a store is.
-        for path in files_claiming(&self.root, OPERATIONS_DIR, &OPERATION_SUFFIXES)?
+        let files = self.filesystem();
+        for path in files_claiming(files, &self.root, OPERATIONS_DIR, &OPERATION_SUFFIXES)?
             .into_iter()
-            .chain(payload_files(&self.root)?)
+            .chain(payload_files(files, &self.root)?)
         {
-            let bytes = fs::read(&path).map_err(|error| StoreError::io(&path, error))?;
+            let bytes = files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
             if plan.targets.contains(&digest(&bytes)) {
                 plan.destroys.push(self.relative(&path));
             }
@@ -207,14 +210,16 @@ impl Store {
         }
         for relative in &plan.destroys {
             let path = self.root.join(relative);
-            fs::remove_file(&path).map_err(|error| StoreError::io(&path, error))?;
+            self.filesystem()
+                .remove_file(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
         }
         for target in &plan.targets {
             self.operations.remove(target);
         }
         // The payload index maps digests to paths that may just have gone.
         *self.payloads.borrow_mut() = None;
-        remove_empty_directories(&self.root.join(OPERATIONS_DIR))?;
+        remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
         Ok(plan)
     }
 

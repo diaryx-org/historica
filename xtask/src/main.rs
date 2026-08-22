@@ -73,6 +73,14 @@ const JOBS: &[Job] = &[
         run: test,
     },
     Job {
+        id: "bare",
+        name: "Bare",
+        components: "clippy",
+        builds: true,
+        about: "the library without `disk`, which must not reach std::fs",
+        run: bare,
+    },
+    Job {
         id: "msrv",
         name: "MSRV",
         components: "",
@@ -105,6 +113,56 @@ fn clippy(sh: &Sh) -> Result<()> {
 
 fn test(sh: &Sh) -> Result<()> {
     sh.cargo(&["test", "--workspace"])
+}
+
+/// Build the library with `disk` off, and grep for what must not be there.
+///
+/// Decision 0025 says the library reaches the folder through
+/// `historica::fs::Filesystem` and never through `std::fs`. A default-features
+/// build cannot tell: `std::fs` compiles everywhere the CLI does, so a call
+/// that slipped back into `store` would pass every other job here.
+///
+/// The compile is the real check — with `disk` off there is no `Disk` and no
+/// `std::fs` in the library at all — and the grep is what turns a slip into a
+/// message that says which line, rather than an error about a missing feature.
+fn bare(sh: &Sh) -> Result<()> {
+    sh.cargo(&[
+        "clippy",
+        "--lib",
+        "--no-default-features",
+        "--",
+        "-D",
+        "warnings",
+    ])?;
+
+    let mut offending = Vec::new();
+    for file in sh.library_sources()? {
+        // `src/fs.rs` is the one place `std::fs` belongs, behind `disk`.
+        if file.ends_with("/src/fs.rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&file).map_err(|error| format!("{file}: {error}"))?;
+        for (at, line) in text.lines().enumerate() {
+            // A comment naming `std::fs` is a comment explaining why this file
+            // does not call it, which is the opposite of the fault.
+            let code = line.trim();
+            if code.starts_with("//") {
+                continue;
+            }
+            if code.contains("std::fs") {
+                offending.push(format!("  {file}:{}: {code}", at + 1));
+            }
+        }
+    }
+    if !offending.is_empty() {
+        return Err(format!(
+            "the library reaches `std::fs` directly, which decision 0025 says it \
+             must not — go through `historica::fs::Filesystem`:\n{}",
+            offending.join("\n")
+        ));
+    }
+    println!("the library builds without `disk` and names `std::fs` nowhere");
+    Ok(())
 }
 
 /// Build on the crate's declared minimum supported Rust version. A build, not a
@@ -353,6 +411,33 @@ impl Sh {
         let path = self.root.join(path);
         std::fs::write(&path, contents)
             .map_err(|e| format!("could not write {}: {e}", path.display()))
+    }
+
+    /// Every `.rs` file of the library, `src/` and not `src/cli/`.
+    ///
+    /// The CLI is `std::fs` on purpose and `src/main.rs` is its entry point,
+    /// so both are outside what the `bare` job holds to the rule.
+    fn library_sources(&self) -> Result<Vec<String>> {
+        fn walk(directory: &Path, into: &mut Vec<String>) -> Result<()> {
+            let entries = std::fs::read_dir(directory)
+                .map_err(|e| format!("could not read {}: {e}", directory.display()))?;
+            for entry in entries {
+                let path = entry
+                    .map_err(|e| format!("could not read {}: {e}", directory.display()))?
+                    .path();
+                if path.is_dir() {
+                    walk(&path, into)?;
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    into.push(path.to_string_lossy().replace('\\', "/"));
+                }
+            }
+            Ok(())
+        }
+        let mut found = Vec::new();
+        walk(&self.root.join("src"), &mut found)?;
+        found.retain(|path| !path.contains("/src/cli/") && !path.ends_with("/src/main.rs"));
+        found.sort();
+        Ok(found)
     }
 
     /// `workspace.package.rust-version`, the single source of truth for the MSRV.
