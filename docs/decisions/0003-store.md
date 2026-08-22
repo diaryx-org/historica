@@ -188,7 +188,10 @@ Questions 1 through 4 are answered by
 4. **The arrange scheme** stays advisory but must be deterministic across
    replicas, so collisions resolve by change ID rather than by a counter.
 
-## Open questions
+## Resolved questions
 
 5. **When scale forces sharding**, and whether a shard prefix is ever anything
-   but one more advisory name.
+   but one more advisory name. Answered by
+   [0027](0027-closing-the-small-questions.md): remain flat until measured
+   directory or sync cost says otherwise; a future shard prefix is still an
+   advisory name and rewrites no identity.

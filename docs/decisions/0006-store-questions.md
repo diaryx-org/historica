@@ -178,10 +178,9 @@ UTF-8 rather than introducing an escape.
    is worth a *command*, as against `mkdir` and a here-document, is a question
    for the front end and not for this decision.
 
-## Open questions
+## Resolved questions
 
 3. **Which sync-suffixed spellings are worth recognising.** `check` notes
-   Dropbox's "conflicted copy" and Syncthing's `.sync-conflict-`, and
-   deliberately does not guess at iCloud's bare numeric suffix, because an
-   arranged name that merely ends in a digit is not a conflict and a note that
-   is sometimes wrong is worse than no note.
+   no spelling specially, by [0027](0027-closing-the-small-questions.md).
+   Duplicate content is already a note; guessing which program chose its
+   filename adds a claim the store cannot verify.

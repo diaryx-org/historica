@@ -455,7 +455,7 @@ fn an_undelivered_parent_is_a_note_and_an_absent_predecessor_is_silent() {
 }
 
 #[test]
-fn a_conflicted_copy_is_mentioned_and_forgiven() {
+fn a_conflicted_copy_is_only_a_legitimate_duplicate() {
     let (root, _) = corpus_store("conflicted");
     let source = root.join("revisions/03-other.rev.txt");
     fs::copy(
@@ -469,7 +469,7 @@ fn a_conflicted_copy_is_mentioned_and_forgiven() {
     assert!(
         report
             .notes()
-            .any(|finding| matches!(finding, Finding::SyncSuffixed { .. }))
+            .any(|finding| matches!(finding, Finding::DuplicateContent { .. }))
     );
 }
 

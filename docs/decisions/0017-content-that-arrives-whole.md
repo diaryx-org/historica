@@ -432,22 +432,28 @@ document adds the payload case to what that implementation will owe.
 **Re-rooting**, 0007's second open question, which now has a visible shape and
 deliberately no spelling.
 
-## Open questions
+## Resolved questions
 
 1. **Whether the tool can tell a resolved attachment from an unexamined one.**
-   It cannot, above, and `record --merge` takes what it finds. A marker file
-   beside the attachment would restore the refusal at the cost of writing
-   something into a person's folder that they must remember to delete.
+   It cannot infer the difference. [0027](0027-closing-the-small-questions.md)
+   therefore requires explicit acceptance when recording a contested byte
+   payload, rather than a marker file beside a person's attachment.
 2. **Whether `status` should say more about a changed attachment than that it
    changed.** A size, a dimension, a preview: all of it is the tool reading
    content it has decided not to understand, and all of it is what a person
-   actually wants to know.
+   actually wants to know. [0027](0027-closing-the-small-questions.md) keeps
+   core status to identity and change; optional type-specific presentation may
+   say more without becoming store semantics.
 3. **Whether NUL belongs to the tool or the format.** It is the tool's here, so
    a hand-written store may hold a `text` payload with a NUL in it and every
-   operation on it will work. That is either correct minimalism or a rule
-   written in the wrong place.
+   operation on it will work. [0027](0027-closing-the-small-questions.md)
+   confirms that boundary: valid UTF-8 is the format rule, while NUL is only a
+   recorder's signal to choose bytes.
 4. **Whether `record` should perform the `drop` and `add` itself** when a text
    file stops being UTF-8. It refuses and says so, on 0011's principle that a
    rename is the one fact a person states — but a file that was rewritten by a
    tool the person did not think of as a rewrite is a different case, and the
    refusal may read as an obstacle rather than as a question.
+   [0027](0027-closing-the-small-questions.md) keeps the refusal by default and
+   permits an explicit replacement option to perform the `drop` and fresh
+   `add`; identity never changes silently.

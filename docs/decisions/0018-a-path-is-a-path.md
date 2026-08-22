@@ -177,14 +177,16 @@ already covers it.
 sits.** A tool answering a question the folder should answer. 0003's promise is
 about the folder.
 
-## Open questions
+## Resolved questions
 
 1. **Whether `arrange` should refuse a store it cannot fully arrange**, rather
    than arranging what it can and reporting the file whose path was too long.
-   It reports, on the same reasoning 0016 gives for arranging in place: a
-   partial tidy is not a fault.
+   Answered by [0025](0025-the-folder-is-asked-for.md): it arranges what it can
+   and returns structured failures, so a stricter caller may refuse.
 2. **Whether a revision's directory should hold the files it did not touch**,
    as empty directories or otherwise, so that the folder is the tree at that
    revision rather than the diff of it. Refused implicitly here — the directory
    means "what this revision did" — but a person browsing may want the other
-   thing, and that is what `files` and `cat` are for until they don't suffice.
+   thing. [0027](0027-closing-the-small-questions.md) confirms the refusal:
+   untouched files would make the readable diff a second snapshot
+   representation; `files` and `cat` answer tree questions.

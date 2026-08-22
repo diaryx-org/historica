@@ -277,15 +277,17 @@ not where people look.
 decision does not add one: a bookmark is a file, and removing it is `rm`. Worth
 revisiting when `names` has enough in it that a person stops wanting to look.
 
-## Open questions
+## Resolved questions
 
 1. **Whether a file bookmark should follow a file across a `drop` and a fresh
    `add`.** It does not, and cannot: 0008 says a resurrection is a new file with
    a new identifier. The bookmark then names something history holds and the
    tree does not, which is reported where it is used rather than being silently
-   repointed.
+   repointed. [0027](0027-closing-the-small-questions.md) confirms that
+   behavior: following would silently discard file identity.
 2. **What a file bookmark means at a revision that predates the file.** It
    resolves to an identifier the tree at that revision does not hold, and the
    refusal names both. Whether that should instead be silence is a question
    about how often a person addresses an old revision by a name they made for a
-   new one.
+   new one. [0027](0027-closing-the-small-questions.md) keeps the explicit
+   refusal; silence would not distinguish absence from an invalid name.

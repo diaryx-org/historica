@@ -103,11 +103,6 @@ pub enum Finding {
         /// Every file holding it.
         files: Vec<PathBuf>,
     },
-    /// A filename a sync tool produced when it could not decide.
-    SyncSuffixed {
-        /// The file.
-        file: PathBuf,
-    },
     /// A symbolic link where a document would be, which the walk never follows.
     Unfollowed {
         /// The link.
@@ -219,7 +214,6 @@ impl Finding {
             Finding::MissingParent { .. }
             | Finding::DanglingBookmark { .. }
             | Finding::DuplicateContent { .. }
-            | Finding::SyncSuffixed { .. }
             | Finding::ForeignFile { .. }
             | Finding::Unfollowed { .. }
             | Finding::MissingOperations { .. }
@@ -287,11 +281,6 @@ impl fmt::Display for Finding {
                 files.len(),
                 display_files(files)
             ),
-            Finding::SyncSuffixed { file } => write!(
-                f,
-                "{} looks like a sync tool's conflicted copy; both files are legitimate revisions",
-                file.display()
-            ),
             Finding::Unfollowed { file } => write!(
                 f,
                 "{} is a symbolic link, and a store reads the files it holds \
@@ -311,7 +300,8 @@ impl fmt::Display for Finding {
             ),
             Finding::MissingPayload { payload, named_by } => write!(
                 f,
-                "{} names the content {}, which is not here yet",
+                "{} names the content {}, which is not here; it may not have \
+                 arrived yet, or another writer may have overwritten it",
                 named_by.abbreviate(12),
                 payload.abbreviate(12)
             ),
@@ -407,16 +397,6 @@ impl Report {
     }
 }
 
-/// Filenames a sync tool writes when two replicas disagree.
-///
-/// Deliberately narrow: guessing more broadly would flag arranged names that
-/// merely end in a number, and decision 0006 makes notes cheap only as long as
-/// they are true.
-fn sync_suffixed(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    lower.contains("conflicted copy") || lower.contains(".sync-conflict")
-}
-
 /// A filename that claims to be a digest, if it does.
 ///
 /// Decision 0020 gives a document a two-part suffix, which `file_stem` sees
@@ -478,10 +458,6 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
             report.push(Finding::ForeignFile { file: path.clone() });
             continue;
         }
-        if sync_suffixed(&name) {
-            report.push(Finding::SyncSuffixed { file: path.clone() });
-        }
-
         let bytes = match files.read(&path) {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -599,9 +575,6 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
             continue;
         }
         let is_document = claims(&path, &OPERATION_SUFFIXES);
-        if is_document && sync_suffixed(&name) {
-            report.push(Finding::SyncSuffixed { file: path.clone() });
-        }
 
         let bytes = match files.read(&path) {
             Ok(bytes) => bytes,

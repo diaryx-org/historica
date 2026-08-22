@@ -280,17 +280,16 @@ the same seam arrived at earlier for the same reason. Nothing more is owed.
 
 ## Open questions
 
-1. **Whether `arrange` should refuse a store it cannot fully arrange**, which
-   0018 left open and this move does not close. It still reports rather than
-   refuses: a partial tidy is not a fault, and a name that was taken is now a
-   value in the returned `Arrangement` rather than a line of prose, so a caller
-   that wants to refuse can.
 2. **Whether the trait should offer a bulk or streaming read**, since `check`
    hashes every payload one `read` at a time. On disk this is right. Over a
    network-backed provider it may be a round trip per photograph.
 
 ## Resolved questions
 
+1. **Whether `arrange` should refuse a store it cannot fully arrange.** No:
+   [0027](0027-closing-the-small-questions.md) confirms the behavior this
+   decision supplied. A partial tidy is not a fault, and the returned
+   `Arrangement` lets a stricter caller refuse.
 3. **Whether `write` should be atomic.** Answered by
    [0026](0026-atomic-mutable-files.md): atomic replacement is part of the
    `Filesystem` contract, and `Disk` implements it by writing a sibling

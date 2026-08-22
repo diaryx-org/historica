@@ -95,12 +95,12 @@ write is one of four things:
    depth precisely so a person may file a history however they please.
 4. **A sync tool's conflicted copy, or corruption.**
 
-Only the fourth is a fault, and `check` already reports every version of it —
-`SyncSuffixed`, `DuplicateContent`, `FilenameLies`, `ImpossibleCollision`,
-`Unparsable` — all of them derived from *content*, which is the only place this
-format looks for faults. A lint over names could not tell the third case from
-the first, so it would report a person's deliberate filing as something to fix,
-in a store whose central promise is that they may do exactly that.
+Only the fourth is a fault, and `check` reports the versions content can prove —
+`DuplicateContent`, `FilenameLies`, `ImpossibleCollision`, `Unparsable`.
+Decision 0027 removes `SyncSuffixed`, which guessed from a name rather than
+content. A lint over names could not tell the third case from the first, so it
+would report a person's deliberate filing as something to fix, in a store whose
+central promise is that they may do exactly that.
 
 So: `check` owns faults and looks at content. `arrange` applies a scheme and
 looks at names. Neither is a lint over the other, and the fact that a store's
@@ -178,13 +178,17 @@ and 0003's promise is about the folder rather than about the documentation.
 
 **A lint.** Above: it cannot tell a person's filing from an old tool's.
 
-## Open questions
+## Resolved questions
 
 1. **Whether `record` should rename a colliding sibling.** It does not, above.
    The case for reconsidering is that a store should not have two spellings of
    one scheme in it; the case against is that a write path that renames is the
    thing 0016 warned about, for a coincidence that `arrange` already settles.
+   [0027](0027-closing-the-small-questions.md) keeps that boundary: `record`
+   creates its chosen name or reports the collision; `arrange` alone tidies.
 2. **Whether a person who has filed a store by hand should be able to say so**,
    so that a later `arrange` leaves it alone rather than undoing the work. A
    file in `history/` would do it, and it would be the second thing in this
    format that exists to record a preference.
+   [0027](0027-closing-the-small-questions.md) adds no preference file: invoking
+   `arrange` is the explicit request to apply its scheme.

@@ -141,12 +141,16 @@ that disagree.
 **A separate `README.txt` beside `historica.txt`.** Two files where one will
 do, and the second would have to say what the first already says.
 
-## Open questions
+## Resolved questions
 
 1. **Whether the note should be checked.** It is prose in a file a reader takes
    one line from, so a person may edit or delete it and nothing notices. That
    is either the right amount of respect for their folder or a note that will
    quietly rot away from what the store actually holds.
+   [0027](0027-closing-the-small-questions.md) leaves it unchecked and
+   user-editable; only the first line is machine state.
 2. **Whether `cache/` should carry its own note**, since it is the one
    directory whose contents a person is invited to delete and the only way to
-   know that is to have read this document.
+   know that is to have read this document. Answered yes by
+   [0027](0027-closing-the-small-questions.md): `init` writes
+   `cache/README.txt`, which is itself disposable.

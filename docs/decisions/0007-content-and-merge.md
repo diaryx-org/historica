@@ -380,9 +380,16 @@ which is a tree question about what an entry may point at.
 2. **Whether a re-rooting revision should exist**, stating content outright so
    that history can be truncated. It would restore shallow clones and would put
    a second, snapshot-shaped thing in a format that just argued for one shape.
+
+## Resolved questions
+
 3. **How a file with no final newline merges.** `\ no newline` is a property of
    the last item, so two branches that concurrently append to a file whose last
    line lacked a terminator are asserting two different things about one item.
+   Answered by [0027](0027-closing-the-small-questions.md): the terminator is
+   part of that item, so incompatible concurrent assertions are a contested
+   region and neither branch wins.
 4. **Whether contested regions should ever be recorded.** They are ephemeral
-   here. An `x-` header naming them would let a reviewer see what an automatic
-   merge decided, at the cost of writing down something derived.
+   and remain so by [0027](0027-closing-the-small-questions.md). Canonical
+   history records the resolution a person chose, not a diagnostic derived by
+   one merge implementation.

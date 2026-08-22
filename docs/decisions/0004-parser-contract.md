@@ -213,13 +213,14 @@ An immutable, content-addressed history cannot afford it.
   parse, differing in whether the correction is printed or applied to produce a
   new revision.
 
-## Open questions
+## Resolved questions
 
 1. **Whether `normalize` should exist at all**, given that its output is a
    different revision. It may be honest only as a pre-commit step on a file
-   that has never been recorded, and dishonest on one that has.
-
-## Resolved questions
+   that has never been recorded, and dishonest on one that has. Answered by
+   [0027](0027-closing-the-small-questions.md): there is no `normalize` command
+   for a recorded revision. A formatter may produce candidate bytes before
+   recording, but replacing identified history is a new revision.
 
 2. **What version 0 promises about itself.** Answered by
    [0017](0017-content-that-arrives-whole.md): version 0 was not the format's

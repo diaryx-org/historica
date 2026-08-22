@@ -124,6 +124,15 @@ leaving out.
 `historica help` lists what the tool can do with all of this.
 ";
 
+/// What `init` puts inside the disposable cache directory.
+///
+/// Decision 0027 puts the permission to delete a cache at the point where a
+/// person is about to do it. The file is itself derived and disposable.
+const CACHE_NOTE: &str = "\
+Everything in this directory is derived from other files.
+You may delete any or all of it; Historica will rebuild what it needs.
+";
+
 /// Names the store does not own, matched on a file's last component.
 ///
 /// Decision 0022: 0018 gave payloads the names their files have, and a name is
@@ -359,13 +368,16 @@ impl<F: Filesystem> Store<F> {
                 format!("{}\n\n{HEADER_NOTE}", Version::V1.preamble()).as_bytes(),
             )
             .map_err(|error| StoreError::io(&header, error))?;
-        // Decision 0022: recording is append-only and forgetting is not built,
-        // so a first run that sweeps a folder of operating-system metadata
-        // into a permanent history is a mistake a person cannot take back.
+        // Decision 0027: explain the syntax but state no rules. A host or
+        // project that knows what its files mean owns every default.
         let skipped = root.join(SKIPPED_FILE);
         files
             .write(&skipped, crate::working::DEFAULT_SKIPPED.as_bytes())
             .map_err(|error| StoreError::io(&skipped, error))?;
+        let cache_note = root.join(CACHE_DIR).join("README.txt");
+        files
+            .write(&cache_note, CACHE_NOTE.as_bytes())
+            .map_err(|error| StoreError::io(&cache_note, error))?;
         Self::open_on(files, root)
     }
 

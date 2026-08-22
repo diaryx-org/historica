@@ -72,18 +72,12 @@ impl fmt::Display for Rule {
 
 /// What `init` writes into `history/skipped.txt`.
 ///
-/// Decision 0022: these are the files an operating system leaves in a folder
-/// without being asked, and a history that is append-only is the wrong place
-/// for them. A default a person can see and delete is the smaller imposition.
+/// Decision 0027: the file explains the rule syntax and states no rules.
+/// Defaults belong to a host or project that knows what its files mean; the
+/// history library does not silently leave anything out.
 pub const DEFAULT_SKIPPED: &str = "\
 # What recording does not take. One rule a line: `skip <path>`, `skip <path>/`
 # for everything under it, or `skip-suffix <ending>`. A `#` line says nothing.
-#
-# These are written by an operating system rather than by anyone, and this is a
-# default rather than a decision — delete any line you disagree with.
-skip-suffix .DS_Store
-skip-suffix Thumbs.db
-skip-suffix desktop.ini
 ";
 
 impl Skipped {

@@ -107,6 +107,19 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
     assert!(header.contains("Identity comes from content"), "{header}");
     assert!(header.contains("revisions/"), "{header}");
     assert!(header.contains("cache/"), "{header}");
+    let cache_note =
+        fs::read_to_string(directory.join("history/cache/README.txt")).expect("the cache note");
+    assert!(
+        cache_note.contains("Everything in this directory is derived"),
+        "{cache_note}"
+    );
+    let skipped = fs::read_to_string(directory.join("history/skipped.txt")).expect("the rule file");
+    assert!(
+        skipped
+            .lines()
+            .all(|line| line.is_empty() || line.starts_with('#')),
+        "nothing is skipped by default: {skipped}"
+    );
 
     let again = stderr(&directory, &["init"]);
     assert!(again.contains("already a store"), "{again}");
@@ -173,7 +186,8 @@ fn check_takes_a_store_or_what_holds_one() {
 #[test]
 fn check_reports_a_note_without_failing() {
     let directory = store_from("check-note", "tree");
-    // Decision 0006: a sync tool's conflicted copy is a legitimate state.
+    // Decision 0027: a sync tool's conflicted copy is a legitimate duplicate,
+    // with no guess about which tool chose its filename.
     let revisions = directory.join("history/revisions");
     fs::copy(
         revisions.join("01-start.rev.txt"),
@@ -1543,10 +1557,11 @@ fn skip_writes_the_line_a_person_would_have_typed() {
     assert!(written.contains("skip target/"), "{written}");
     assert!(written.contains("skip-suffix .tmp"), "{written}");
 
-    // Appended to the default `init` wrote, rather than instead of it.
+    // Appended after the syntax note `init` wrote. Nothing is skipped by
+    // default; defaults belong to the host or project.
     let text = fs::read_to_string(directory.join("history/skipped.txt")).expect("the file");
     assert!(text.starts_with('#'), "{text}");
-    assert!(text.contains("skip-suffix .DS_Store"), "{text}");
+    assert!(!text.contains("skip-suffix .DS_Store"), "{text}");
     assert!(text.ends_with("skip target/\nskip-suffix .tmp\n"), "{text}");
 
     // With no arguments it prints them, as `names` prints the bookmarks.

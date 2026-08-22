@@ -133,12 +133,14 @@ ways that are not this project's to explain.
 **Naming every payload with a digest suffix, always.** Sound, and it gives up
 the readable folder that four decisions have been spent buying.
 
-## Open questions
+## Resolved questions
 
 1. **Whether a missing payload should stay a note in `check`.** It means "not
    delivered yet" and it also means "overwritten", and this document found the
    second while the wording assumed the first.
-2. **Whether the default `skipped.txt` should carry more than platform
-   metadata** — `target/`, `node_modules/`, and the rest of the list every tool
-   ships. The reason to stop here is that those are a project's business and a
-   `.DS_Store` is nobody's.
+   [0027](0027-closing-the-small-questions.md) keeps it a note because absence
+   cannot distinguish the two, and changes the wording to name both.
+2. **Whether `skipped.txt` should carry defaults.** Answered no by
+   [0027](0027-closing-the-small-questions.md): `init` writes syntax help and
+   no rules. Platform, project, and user defaults belong to a higher layer that
+   knows what the folder means.
