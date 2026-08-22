@@ -148,6 +148,13 @@ impl Filesystem for Memory {
         Ok(None)
     }
 
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let mut held = self.held.lock().expect("the lock");
+        let bytes = held.files.remove(from).ok_or_else(|| missing(from))?;
+        held.files.insert(to.to_path_buf(), bytes);
+        Ok(())
+    }
+
     fn remove_file(&self, path: &Path) -> io::Result<()> {
         let mut held = self.held.lock().expect("the lock");
         held.files
@@ -376,6 +383,81 @@ fn create_new_is_what_makes_two_writers_of_one_revision_agree() {
     assert_eq!(memory.read(path).expect("the file"), b"first");
 }
 
+#[test]
+fn arranging_gives_a_folder_readable_names_without_a_folder() {
+    let (memory, store, _first, _second) = history();
+
+    // Recording already writes readable names — decision 0019 — so a store
+    // this tool wrote has nothing to arrange, and that is the first claim.
+    let settled = store.arrangement().expect("a plan");
+    assert!(
+        settled.is_empty(),
+        "a store written by `record` is already arranged: {:?}",
+        settled.renames
+    );
+
+    // Now the digest-named store 0003 says is equally legal. Rewrite every
+    // file in `operations/` under its own digest, which is the default writer
+    // and the least readable thing a correct store can be.
+    let scattered: Vec<PathBuf> = {
+        let held = memory.held.lock().expect("the lock");
+        held.files
+            .keys()
+            .filter(|path| path.to_string_lossy().contains("/operations/"))
+            .cloned()
+            .collect()
+    };
+    assert!(!scattered.is_empty());
+    let operations = Path::new(ROOT).join("history").join("operations");
+    for path in &scattered {
+        let bytes = memory.read(path).expect("a file");
+        let mut digest = format!("{:x?}", bytes.len());
+        digest.push_str(&path.to_string_lossy().len().to_string());
+        memory.remove_file(path).expect("moving it aside");
+        memory
+            .write(&operations.join(&digest), &bytes)
+            .expect("a digest name");
+    }
+
+    let mut store = Store::open_on(memory.clone(), store.root()).expect("reopening the flat store");
+    let plan = store.arrangement().expect("a plan");
+    assert_eq!(
+        plan.renames.len(),
+        scattered.len(),
+        "every flattened file should have somewhere to go"
+    );
+
+    let done = store.arrange().expect("arranging");
+    assert_eq!(done.renames, plan.renames, "the plan is what was done");
+
+    // Decision 0018: the name of a thing is the path, as directories. The
+    // entry two revisions down is filed under a folder called `docs`.
+    let held = memory.held.lock().expect("the lock");
+    let names: Vec<String> = held
+        .files
+        .keys()
+        .filter(|path| path.starts_with(&operations))
+        .map(|path| {
+            path.strip_prefix(&operations)
+                .expect("under operations")
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert!(
+        names.iter().any(|name| name.contains("docs/plan.md")),
+        "the entry belongs under its own path: {names:?}"
+    );
+    assert!(
+        names.iter().all(|name| name.contains('/')),
+        "everything is filed under the revision that named it: {names:?}"
+    );
+    drop(held);
+
+    // And arranging an arranged store moves nothing, in memory as on disk.
+    assert!(store.arrange().expect("again").is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // The capability the type parameter buys
 // ---------------------------------------------------------------------------
@@ -412,6 +494,9 @@ impl Filesystem for Awkward {
     }
     fn look(&self, path: &Path) -> io::Result<Option<Kind>> {
         self.held.look(path)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        self.held.rename(from, to)
     }
     fn remove_file(&self, path: &Path) -> io::Result<()> {
         self.held.remove_file(path)

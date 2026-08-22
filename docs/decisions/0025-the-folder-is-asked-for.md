@@ -16,7 +16,7 @@ the operating system is offering this process, which was never argued for.
 ## The decision
 
 - **The library reaches the folder through `historica::fs::Filesystem`**, an
-  object-safe trait of eight methods.
+  object-safe trait of nine methods.
 - **`Store<F = Disk>` and `Working<F = Disk>` carry it as a type parameter.**
   The bound lives on the `impl` blocks, never on the struct.
 - **`historica::fs::Disk` is that trait over `std::fs`**, and is what the
@@ -58,7 +58,7 @@ A type parameter makes the derived implementations conditional instead. The
 trait requires nothing:
 
 ```rust
-pub trait Filesystem { /* eight methods */ }
+pub trait Filesystem { /* nine methods */ }
 
 #[derive(Debug, Clone)]
 pub struct Store<F = Disk> { files: F, /* … */ }
@@ -118,13 +118,15 @@ store — is why it should be.
 
 ## What the trait is, and what it is not
 
-Eight methods: `read`, `write`, `create_new`, `create_directory`, `entries`,
-`look`, `remove_file`, `remove_directory`. Four things are deliberately absent.
+Nine methods: `read`, `write`, `create_new`, `create_directory`, `entries`,
+`look`, `rename`, `remove_file`, `remove_directory`. Three things are
+deliberately absent, and the ninth arrived a day later.
 
-**No `rename`.** Nothing in the library renames anything, and that is 0019's
-doing rather than an oversight: *a writer names the file it is creating rather
-than renaming it afterwards*. The one command that renames is `arrange`, which
-is a CLI command on `std::fs` — see the open question below, which is live.
+**One `rename`, and only `arrange` uses it.** 0019 is why nothing else does:
+*a writer names the file it is creating rather than renaming it afterwards*, so
+a rename in this crate is always presentation being tidied and never a document
+being written. This document first shipped without the method, with `arrange`
+left in the CLI on `std::fs`; the next section is why that lasted a day.
 
 **No `canonicalize`, and therefore no `Store::discover` off disk.** Discovery
 walks up from a canonicalised path looking for a `historica.txt`. "Resolve this
@@ -165,6 +167,45 @@ replicas loading one store must agree and a `readdir` order is not something
 either of them chose. The in-memory filesystem in `tests/filesystem.rs` returns
 its entries reversed on purpose, so that a sort dropped anywhere in the library
 fails a test rather than a sync.
+
+## `arrange` belongs in the library
+
+The command that renames documents to `YYYY-MM-DD summary.rev.txt` and files
+each operation document under the revision that named it was the last thing
+holding a `std::fs` call that mattered, and the argument for leaving it in the
+front end was that a rename is presentation.
+
+That argument is backwards. **Readability is the offering.** 0003's promise is
+that a person can open the folder and read the history without the tool, and
+`arrange` is the command that makes the folder worth opening. A host syncing a
+store into somebody's iCloud folder wants the arranged names for exactly the
+reason a person at a terminal does — more so, because that host's user will
+never see a terminal.
+
+The tell was already in the tree: `operation_names`, the ninety lines that
+materialise each revision's tree and resolve which revision claims a shared
+document, is pure library work and it was sitting in `src/cli/`. It touches no
+filesystem, prints nothing, and implements 0016, 0017 and 0018 between them.
+
+So `Store::arrangement()` and `Store::arrange()` join `prunable`/`prune` and
+`forget_plan`/`forget`, on the same promise: the plan is what gets done, so a
+dry run and the real thing can never name different files. What stays in the
+front end is what a front end is for — which lines to print, in which order,
+and the `--dry-run` flag that chooses between the two calls.
+
+Three details the move had to keep:
+
+- **The target is looked at once more immediately before each file moves.**
+  Planning and acting are two passes over a folder a person may be touching,
+  and a name that filled in between them is one arranging leaves alone. The
+  returned `Arrangement` is therefore what happened, not what was intended.
+- **Tidying upwards stops on a refusal.** `remove_directory` failing on a
+  directory that holds something is the guard, not an error — which is why the
+  trait's method must refuse rather than recurse.
+- **The payload index is invalidated.** Names are presentation and identity is
+  content, so the documents a store holds are unchanged by arranging; the index
+  from digests to paths is not, and it is rebuilt on next need the way `prune`
+  rebuilds it.
 
 ## Why paths are not abstracted
 
@@ -239,12 +280,11 @@ the same seam arrived at earlier for the same reason. Nothing more is owed.
 
 ## Open questions
 
-1. **Whether `arrange` should move into the library.** Live, and leaning yes:
-   the core offering is readability, and `arrange` is the command that makes a
-   folder readable — so a host syncing a store wants the arranged names for the
-   same reason a person does. It is the only thing `rename` is wanted for, and
-   it is already shaped like `prunable`/`prune` and `forget_plan`/`forget`,
-   with `operation_names` sitting in `src/cli/` doing pure library work today.
+1. **Whether `arrange` should refuse a store it cannot fully arrange**, which
+   0018 left open and this move does not close. It still reports rather than
+   refuses: a partial tidy is not a fault, and a name that was taken is now a
+   value in the returned `Arrangement` rather than a line of prose, so a caller
+   that wants to refuse can.
 2. **Whether the trait should offer a bulk or streaming read**, since `check`
    hashes every payload one `read` at a time. On disk this is right. Over a
    network-backed provider it may be a round trip per photograph.

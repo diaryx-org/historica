@@ -48,10 +48,12 @@ use crate::replay::{self, ReplayError, State};
 use crate::tree::{self, Kind, MergedTree, Tree, TreeError};
 use crate::working::{MalformedSkip, Rule, SKIPPED_FILE, Skipped};
 
+mod arrange;
 mod check;
 mod forget;
 mod prune;
 
+pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Rename, Tally};
 pub use check::{Finding, Report, Severity};
 pub use forget::{ForgetError, Forgetting, Forgotten};
 pub use prune::Pruned;

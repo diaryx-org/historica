@@ -130,7 +130,7 @@ recorder is allowed signals a format may not use. Only a rename has to be
 stated, with `--move`, which performs it if the person has not.
 
 The `fs` module is the folder itself, asked for rather than assumed. Everything
-that persists anything goes through `fs::Filesystem` — eight methods, no
+that persists anything goes through `fs::Filesystem` — nine methods, no
 metadata beyond what a directory entry is, and nothing that follows a symbolic
 link — and `fs::Disk` is that trait over `std::fs`, behind the default `disk`
 feature. `Store<F = Disk>` and `Working<F = Disk>` carry it as a type
@@ -188,6 +188,10 @@ Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.
+`arrange` is the library's rather than the front end's — decision 0025 — so a
+host that syncs a store gets the readable folder for the same reason a person
+does; `store::arrangement` is the plan and `store::arrange` carries it out, on
+the pairing `prunable`/`prune` already has.
 The naming scheme is `naming`, and both the writer and `arrange` use it, which
 is what makes them agree: revisions are `YYYY-MM-DD summary.rev.txt`, so the
 file a person double-clicks opens in the editor they already have, and each

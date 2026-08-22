@@ -45,7 +45,8 @@
 //! # What is abstracted, and what is not
 //!
 //! **Operations are.** Reading bytes, creating a file that must not already
-//! exist, listing a directory without following what it links to.
+//! exist, listing a directory without following what it links to, moving one
+//! to the name a person would rather read.
 //!
 //! **Naming is not.** A path is still [`std::path::Path`], which decision 0018
 //! already argued for from the other side: a path is filed as a path, with
@@ -116,8 +117,8 @@ pub struct Entry {
 
 /// The folder a store lives in, whoever is holding it.
 ///
-/// Eight methods, and the fewest that the store, the working copy, and `check`
-/// between them actually perform. Every one takes `&self`, because a store
+/// Nine methods, and the fewest that the store, the working copy, `check` and
+/// `arrange` between them actually perform. Every one takes `&self`, because a store
 /// reads through its filesystem while handing out references to its own
 /// documents — so an implementation that needs mutable state of its own keeps
 /// it behind a cell or a lock.
@@ -191,6 +192,19 @@ pub trait Filesystem {
     /// fault. An error means the question could not be answered.
     fn look(&self, path: &Path) -> io::Result<Option<Kind>>;
 
+    /// Move a file to another name, replacing nothing.
+    ///
+    /// Only `arrange` renames. Decision 0019 is why nothing else does: *a
+    /// writer names the file it is creating rather than renaming it
+    /// afterwards*, so a rename here is always presentation being tidied, and
+    /// never a document being written.
+    ///
+    /// `to`'s parent is made first by the caller, so an implementation is not
+    /// required to create directories. Whether an occupied `to` is replaced is
+    /// not relied on: `arrange` looks before it moves and leaves a name that
+    /// is taken.
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
+
     /// Remove one file.
     fn remove_file(&self, path: &Path) -> io::Result<()>;
 
@@ -223,6 +237,9 @@ impl<T: Filesystem + ?Sized> Filesystem for &T {
     }
     fn look(&self, path: &Path) -> io::Result<Option<Kind>> {
         (**self).look(path)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        (**self).rename(from, to)
     }
     fn remove_file(&self, path: &Path) -> io::Result<()> {
         (**self).remove_file(path)
@@ -258,6 +275,9 @@ macro_rules! forwarding {
             }
             fn look(&self, path: &Path) -> io::Result<Option<Kind>> {
                 (**self).look(path)
+            }
+            fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+                (**self).rename(from, to)
             }
             fn remove_file(&self, path: &Path) -> io::Result<()> {
                 (**self).remove_file(path)
@@ -354,6 +374,10 @@ impl Filesystem for Disk {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        std::fs::rename(from, to)
     }
 
     fn remove_file(&self, path: &Path) -> io::Result<()> {
