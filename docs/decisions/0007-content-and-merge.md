@@ -362,13 +362,21 @@ by 0006, stays with the tree, where the first path will be.
 image. The likely answer is that such a file names its bytes and never merges,
 which is a tree question about what an entry may point at.
 
-## Open questions
+## Resolved questions
 
 1. **Whether the tool should refuse unsafe drops or only report them.** The
-   format now knows when discarding a superseded revision destroys the
-   ability to re-derive retained content. Refusing makes `abandon` fail for
-   reasons a person did not cause; reporting makes it their problem to
-   understand.
+   Answer is refusal: [0013](0013-abandoning-and-pruning.md) permits `prune` to
+   remove a superseded revision only when no retained revision names it as a
+   parent.
+5. **Whether Fugue's ordering is the right permanent choice**, and what a
+   conformance suite against the reference implementation has to cover before
+   that is more than a reading of two papers. Answered by the independent
+   reference CRDT in `tests/conformance.rs`: every history both implementations
+   can express must produce the same bytes, and concurrent paragraphs must not
+   interleave. Fugue remains the choice unless that suite finds a counterexample.
+
+## Open questions
+
 2. **Whether a re-rooting revision should exist**, stating content outright so
    that history can be truncated. It would restore shallow clones and would put
    a second, snapshot-shaped thing in a format that just argued for one shape.
@@ -378,6 +386,3 @@ which is a tree question about what an entry may point at.
 4. **Whether contested regions should ever be recorded.** They are ephemeral
    here. An `x-` header naming them would let a reviewer see what an automatic
    merge decided, at the cost of writing down something derived.
-5. **Whether Fugue's ordering is the right permanent choice**, and what a
-   conformance suite against the reference implementation has to cover before
-   that is more than a reading of two papers.

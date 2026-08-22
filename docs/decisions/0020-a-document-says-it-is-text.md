@@ -111,13 +111,13 @@ they already know. Left as an open question rather than done for symmetry.
 - Nothing in `format`, `core`, `merge`, `replay`, or `tree` changes at all,
   which is the sign that this is a filename decision and not a format one.
 
-## Open questions
+## Resolved questions
 
 1. **Whether `historica`, `names/*`, and `skipped` should follow.** Each is a
-   text file a person might open and none carries an extension. The reason to
-   leave them is that their filenames are load-bearing in a way a document's is
-   not; the reason to reconsider is that a folder where four files open and
-   three do not is a folder that has to be explained.
-2. **Whether the payload rule can ever be retired.** Only by refusing `.ops`,
-   which needs a moment when no store written under it exists — a moment this
-   format cannot know it has reached.
+   text file a person might open and none carries an extension. Answered by
+   [0021](0021-the-store-explains-itself.md): they become `historica.txt`,
+   `names/*.txt`, and `skipped.txt`.
+2. **Whether the payload rule can ever be retired.** Answered by
+   [0021](0021-the-store-explains-itself.md), which spends the one
+   pre-deployment moment when no outside store exists: `.rev` and `.ops` stop
+   being accepted, leaving only `.rev.txt` and `.ops.txt`.

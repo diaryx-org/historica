@@ -118,12 +118,14 @@ trees and signatures would then continue.
 - `src/format/` is owed as a module distinct from `src/core/`, and the store
   from decision 0003 holds documents rather than revisions.
 
-## Open questions
+## Resolved questions
 
 1. **Whether `when` should be the moment work began or the moment it was
-   recorded.** Copying forward makes the distinction visible: an amended
-   revision keeps a `when` that is now hours old, which reads correctly under
-   one reading and staler than the truth under the other.
+   recorded.** Answered by [0010](0010-writer.md): it is the moment the change
+   was first recorded, copied forward through amendments.
+
+## Open questions
+
 2. **Whether an author is a free-text line or a structured identity.**
    `Name <address>` is a convention here, unparsed, which keeps the format out
    of the identity business until signatures force it in.

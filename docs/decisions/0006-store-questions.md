@@ -157,10 +157,11 @@ later rewrites nothing. A flat directory is browsable at journal scale, and the
 question becomes real only with evidence that it is not.
 
 **Spelling paths that are not valid UTF-8** (decision 0002's third question)
-also stays open, and cannot be closed here: nothing in the format has a path
-yet. It belongs with the first path, which is the tree's — and the tree is now
-0008, [0007](0007-content-and-merge.md) having taken content and merge without
-introducing a path of its own.
+cannot be closed here: nothing in the format has a path yet. It belongs with
+the first path, which is the tree's — and the tree is now 0008,
+[0007](0007-content-and-merge.md) having taken content and merge without
+introducing a path of its own. [0008](0008-tree.md) later closes it by requiring
+UTF-8 rather than introducing an escape.
 
 ## Answered by building it
 

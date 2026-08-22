@@ -218,6 +218,10 @@ An immutable, content-addressed history cannot afford it.
 1. **Whether `normalize` should exist at all**, given that its output is a
    different revision. It may be honest only as a pre-commit step on a file
    that has never been recorded, and dishonest on one that has.
-2. **What version 0 promises about itself.** Whether `0` means "unstable, may
-   change under you" and a `1` is owed before anyone stores real history, or
-   whether 0 is already the commitment.
+
+## Resolved questions
+
+2. **What version 0 promises about itself.** Answered by
+   [0017](0017-content-that-arrives-whole.md): version 0 was not the format's
+   final commitment, version 1 was introduced before deployment, and a version
+   1 reader nevertheless reads version 0 documents forever.

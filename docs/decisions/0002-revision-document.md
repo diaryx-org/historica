@@ -263,9 +263,12 @@ be the authority, not a projection of it.
    [0004](0004-parser-contract.md): it is kept. The usual objection assumes a
    format can retire a spelling, and a content-addressed one cannot.
 
-## Open questions
+## Resolved questions
 
 3. **How paths that are not valid UTF-8 will be spelled** when trees arrive in
    decision 0008. The no-escaping rule cannot survive that untouched, and it
    would be better to choose an escape that is visible only when needed than to
    quote every path forever.
+
+   Answered by [0008](0008-tree.md): paths are UTF-8, and a path that is not
+   UTF-8 is refused rather than escaped.
