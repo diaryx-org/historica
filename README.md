@@ -269,6 +269,26 @@ the other architecture — a live per-replica Fugue tree, placement computed at
 the source, messages instead of replay — that the event-graph merge is held
 to agree with, step by step, across randomised histories.
 
+## Installing
+
+historica is published to [crates.io](https://crates.io/crates/historica), so
+the command line below is a `cargo install` away:
+
+```console
+cargo install historica
+```
+
+The library is the same crate — `historica = "0.1"` in a `Cargo.toml` — because
+the binary decides nothing the library has not, and every answer the commands
+give is one a caller can ask for directly. It builds on stable Rust 1.88 or
+newer, which is the floor the `msrv` job holds it to, and it is MIT or
+Apache-2.0 at the reader's choice: [`LICENSE-MIT`](LICENSE-MIT) and
+[`LICENSE-APACHE`](LICENSE-APACHE).
+
+Version 0.1 is an experiment rather than a promise. What the format guarantees
+is decision 0004's rule — a reader's vocabulary only ever grows, so a document
+written today still parses — and the Rust API carries no such rule yet.
+
 ## The command line
 
 ```console
@@ -490,10 +510,10 @@ cd tests/corpus/whole && shasum -a 256 -c MANIFEST
 
 ### Releasing
 
-historica is not published to any registry; a release is a tag and the GitHub
-release cut from it. `cargo xtask release` does the mechanical half — bump the
-version, regenerate the changelog's unreleased region into a section under the
-new version, commit both, tag — and stops there:
+A release is a tag, the GitHub release cut from it, and a `cargo publish` run by
+hand. `cargo xtask release` does the mechanical half — bump the version,
+regenerate the changelog's unreleased region into a section under the new
+version, commit both, tag — and stops there:
 
 ```console
 cargo xtask changelog --write   # refresh the unreleased region
@@ -505,6 +525,11 @@ Without `--push` nothing leaves the machine, and the command prints the two
 pushes it did not run. `.github/workflows/release.yml` is what the tag starts,
 and it asks `cargo xtask release-notes` for the body rather than keeping its own
 copy of the notes.
+
+What the tag does not do is publish. crates.io is a separate `cargo publish` a
+person runs, deliberately, because it is the only step here that cannot be taken
+back: a GitHub release can be deleted and cut again, and a version number on
+crates.io can never be reused, even after a yank.
 
 The changelog's generated region needs [git-cliff]; `nix profile install
 nixpkgs#git-cliff` or `cargo install git-cliff`. Its **Behavioural changes**

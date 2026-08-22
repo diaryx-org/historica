@@ -106,6 +106,59 @@ commit_preprocessors = [
   # `Behavioural-change:` trailers live down there, would truncate the last
   # sentence a consumer reads.
   { pattern = '^(?P<subject>[^\n]*?)[ \t]*\.[ \t]*(?P<rest>\n|$)', replace = "${subject}${rest}" },
+  # The pre-convention stretch, triaged. Every subject through `6ce4ab9` is
+  # mapped below onto the type and scope it would have carried had the
+  # convention existed, so those commits group with everything written after
+  # them instead of sitting in a bucket the first release would have to ship.
+  # The rule below this block is what catches anything they miss. The mapping is
+  # by subject text rather than by hash, because a preprocessor only ever sees
+  # the message; that is safe here and nowhere else, since these are the one
+  # part of this history that will never be rewritten.
+  #
+  # Two judgments are baked in. A commit that only revised a decision document
+  # is `docs`, and drops out — including `e73d4f9`, which also moved a constant
+  # in `core`, because "a change ID is now 96 bits" is not a difference anyone
+  # can observe against a release that does not exist. And `Initial commit` is
+  # given a subject it never had, since the one it has says nothing and a first
+  # release's **Added** list is the only place a reader meets the core module.
+  #
+  # These rules have to precede the `legacy:` rule below, which tests for a
+  # leading capital: they rewrite the subject to start with a lowercase type,
+  # which is exactly how a triaged commit stops looking pre-convention.
+  { pattern = '^Initial commit', replace = "add(core): a causal history that merges by union" },
+  { pattern = '^Give every revision two identities', replace = "add(core): give every revision two identities" },
+  { pattern = '^Read and write the revision document', replace = "add(format): read and write the revision document" },
+  { pattern = '^Read and write the operation document', replace = "add(format): read and write the operation document" },
+  { pattern = '^Read and write the store', replace = "add(store): read and write the store" },
+  { pattern = '^Hold a store to the files it says it holds', replace = "add(store): hold a store to the files it says it holds" },
+  { pattern = '^Materialise a history that has a merge in it', replace = "add(store): materialise a history that has a merge in it" },
+  { pattern = '^Replay a linear history into the file it produced', replace = "add(replay): replay a linear history into the file it produced" },
+  { pattern = '^Record operations from an edited file', replace = "add(diff): record operations from an edited file" },
+  { pattern = '^Read a tree, and replay one', replace = "add(tree): read a tree, and replay one" },
+  { pattern = '^Merge concurrent branches by walking their event graph', replace = "add(merge): merge concurrent branches by walking their event graph" },
+  { pattern = '^Read a store from the command line', replace = "add(cli): read a store from the command line" },
+  { pattern = '^Show how the folder differs from what is recorded', replace = "add(cli): show how the folder differs from what is recorded" },
+  { pattern = '^Record a revision from the folder beside the store', replace = "add(record): record a revision from the folder beside the store" },
+  { pattern = '^Merge two lines of work, and record the resolution', replace = "add(conflict): merge two lines of work, and record the resolution" },
+  { pattern = '^File a history where a person can find it, and say what it skips', replace = "add(arrange): file a history where a person can find it, and say what it skips" },
+  { pattern = '^Keep the error a caller returns small', replace = "refactor(store): keep the error a caller returns small" },
+  { pattern = '^Propose the readable revision document', replace = "docs(decisions): propose the readable revision document" },
+  { pattern = '^Free revision identity from the filename', replace = "docs(decisions): free revision identity from the filename" },
+  { pattern = '^Answer the questions the format left open', replace = "docs(decisions): answer the questions the format left open" },
+  { pattern = '^Spell the version as a preamble and shorten the change ID', replace = "docs(decisions): spell the version as a preamble and shorten the change ID" },
+  { pattern = '^Reconcile the earlier decisions with content and merge', replace = "docs(decisions): reconcile the earlier decisions with content and merge" },
+  { pattern = '^Require the blank line in an operation document', replace = "docs(decisions): require the blank line in an operation document" },
+  { pattern = '^Decide how operations are recorded from an edited file', replace = "docs(decisions): decide how operations are recorded from an edited file" },
+  { pattern = '^Decide the tree: files, paths, existence, and rename', replace = "docs(decisions): decide the tree — files, paths, existence, and rename" },
+  { pattern = '^Decide where a change ID, an author, and a time come from', replace = "docs(decisions): decide where a change ID, an author, and a time come from" },
+  { pattern = "^Close the writer's open questions", replace = "docs(decisions): close the writer's open questions" },
+  { pattern = '^Decide what a writer is given', replace = "docs(decisions): decide what a writer is given" },
+  { pattern = '^Decide how a conflict is shown and how a resolution is recorded', replace = "docs(decisions): decide how a conflict is shown and how a resolution is recorded" },
+  { pattern = '^Decide how work is thrown away and how a store is pruned', replace = "docs(decisions): decide how work is thrown away and how a store is pruned" },
+  { pattern = '^Decide what forgetting means under sync', replace = "docs(decisions): decide what forgetting means under sync" },
+  { pattern = '^Decide what status shows and what it is allowed to know', replace = "docs(decisions): decide what status shows and what it is allowed to know" },
+  { pattern = '^Decide how a store reads to the person browsing it', replace = "docs(decisions): decide how a store reads to the person browsing it" },
+  { pattern = '^Update \.gitignore', replace = "chore: update .gitignore" },
   # The pre-convention stretch: every commit through `6ce4ab9` is a bare
   # declarative sentence with no type — `Decide what forgetting means under
   # sync` — and git-conventional cannot parse one. Left alone, that costs far

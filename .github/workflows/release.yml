@@ -8,9 +8,10 @@ name: Release
 # are byte-identical to the ones the repository ships, a handwritten release
 # intro comes along with them, and the runner needs no git-cliff.
 #
-# historica publishes to no registry, so there is nothing here that cannot be
-# undone: a release can be deleted and re-cut. The tag is the part that has
-# already left, which is why `release` asks for `--push` explicitly.
+# This workflow publishes nothing — crates.io is a `cargo publish` a person runs
+# — so there is nothing here that cannot be undone: a release can be deleted and
+# re-cut. The tag is the part that has already left, which is why `release` asks
+# for `--push` explicitly.
 on:
   push: { tags: [v*.*.*] }
   workflow_dispatch:
