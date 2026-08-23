@@ -11,7 +11,9 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use historica::record::survey;
-use historica::store::{Forgetting, HEADER_FILE, Name, STORE_DIR, Store, StoreError};
+use historica::store::{
+    Forgetting, HEADER_FILE, MutableConflict, Name, STORE_DIR, Store, StoreError,
+};
 use historica::working::{Rule, SKIPPED_FILE, Working};
 
 mod arrange;
@@ -46,6 +48,8 @@ writing a store
                            on it, with a tombstone that says why
   prune [--dry-run]        delete superseded revisions nothing stands on, and
                            content only they name, printing every file
+  receive <dir> [--dry-run] [--join-unrelated]
+                           import immutable history from another local store
   forget <target> <path> --lines <first>..<last> [--dry-run]
                            destroy those lines everywhere history quotes
                            them, leaving their shape; the file's paths,
@@ -174,6 +178,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "amend" => record::amend(locate(&base)?, rest),
         "abandon" => record::abandon(&base, locate(&base)?, rest),
         "prune" => prune(&base, rest),
+        "receive" => receive(&base, rest),
         "forget" => forget(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
@@ -292,6 +297,101 @@ fn prune(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         let verb = if dry_run { "would remove" } else { "removed" };
         for file in &pruned.files {
             writeln!(out, "{verb} {STORE_DIR}/{}", file.display())?;
+        }
+        Ok(())
+    })
+}
+
+/// `receive <dir> [--dry-run] [--join-unrelated]`.
+///
+/// Copying remains transport. Receiving is the content-aware union needed
+/// after two copies have changed independently: immutable documents are added,
+/// mutable disagreements stop the operation, and neither working copy moves.
+fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut dry_run = false;
+    let mut join_unrelated = false;
+    let mut source = None;
+    for argument in arguments {
+        match argument.as_str() {
+            "-n" | "--dry-run" => dry_run = true,
+            "--join-unrelated" => join_unrelated = true,
+            other if other.starts_with('-') => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `receive` takes"
+                )));
+            }
+            other if source.is_none() => source = Some(other.to_owned()),
+            other => {
+                return Err(Failure::usage(format!(
+                    "`receive` wants one source directory, not `{other}`"
+                )));
+            }
+        }
+    }
+    let source = source.ok_or_else(|| Failure::usage("`receive` wants a source directory"))?;
+    let root = locate(base)?;
+    let mut here = Store::open(root)?;
+    let there = Store::open(named(base, &source))?;
+
+    if dry_run {
+        let plan = here
+            .receive_plan(&there, join_unrelated)
+            .map_err(Failure::error)?;
+        let conflicts = !plan.conflicts().is_empty();
+        printing(|out| {
+            writeln!(out, "would receive {} revisions", plan.revisions().len())?;
+            writeln!(
+                out,
+                "would receive {} operation documents",
+                plan.operations().len()
+            )?;
+            writeln!(out, "would receive {} payloads", plan.payloads().len())?;
+            for name in plan.names().keys() {
+                writeln!(out, "would receive name {name}")?;
+            }
+            if plan.receives_skipped() {
+                writeln!(out, "would receive {SKIPPED_FILE}")?;
+            }
+            if !plan.destroys().is_empty() {
+                writeln!(
+                    out,
+                    "would destroy {} forgotten originals",
+                    plan.destroys().len()
+                )?;
+            }
+            for conflict in plan.conflicts() {
+                match conflict {
+                    MutableConflict::Name { name, here, there } => {
+                        writeln!(
+                            out,
+                            "conflict: name {name} is {here} here and {there} there"
+                        )?;
+                    }
+                    MutableConflict::Skipped => {
+                        writeln!(out, "conflict: both stores changed {SKIPPED_FILE}")?;
+                    }
+                }
+            }
+            Ok(())
+        })?;
+        return Ok(u8::from(conflicts));
+    }
+
+    let received = here
+        .receive(&there, join_unrelated)
+        .map_err(Failure::error)?;
+    printing(|out| {
+        writeln!(out, "received {} revisions", received.revisions)?;
+        writeln!(out, "received {} operation documents", received.operations)?;
+        writeln!(out, "received {} payloads", received.payloads)?;
+        if received.names != 0 {
+            writeln!(out, "received {} names", received.names)?;
+        }
+        if received.skipped {
+            writeln!(out, "received {SKIPPED_FILE}")?;
+        }
+        if received.destroyed != 0 {
+            writeln!(out, "destroyed {} forgotten originals", received.destroyed)?;
         }
         Ok(())
     })

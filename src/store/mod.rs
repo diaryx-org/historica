@@ -52,11 +52,13 @@ mod arrange;
 mod check;
 mod forget;
 mod prune;
+mod receive;
 
 pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Rename, Tally};
 pub use check::{Finding, Report, Severity};
 pub use forget::{ForgetError, Forgetting, Forgotten};
 pub use prune::Pruned;
+pub use receive::{MutableConflict, ReceiveError, ReceivePlan, Received};
 
 /// The directory a store lives in, relative to the repository root.
 pub const STORE_DIR: &str = "history";

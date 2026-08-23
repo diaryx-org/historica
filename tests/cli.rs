@@ -1178,6 +1178,124 @@ fn copy_tree(from: &Path, to: &Path) {
 }
 
 #[test]
+fn receive_unions_independent_work_without_touching_either_working_copy() {
+    let here = repository("receive-here");
+    write(&here, "notes.md", "common\n");
+    out(recorded(&here, &["record", "-m", "Common root"]));
+
+    let there = scratch("receive-there");
+    copy_tree(&here, &there);
+    write(&here, "notes.md", "ours\n");
+    out(recorded(&here, &["record", "-m", "Work done here"]));
+    write(&there, "notes.md", "theirs\n");
+    out(recorded(&there, &["record", "-m", "Work done there"]));
+
+    let source = there.to_string_lossy();
+    let before_source = walk_names(&there.join("history"));
+    let planned = run(&here, &["receive", &source, "--dry-run"]);
+    assert!(planned.status.success());
+    let planned = String::from_utf8(planned.stdout).expect("printed text");
+    assert!(planned.contains("would receive 1 revisions"), "{planned}");
+    assert!(
+        !stdout(&here, &["log"]).contains("Work done there"),
+        "a dry run imported history"
+    );
+
+    let received = stdout(&here, &["receive", &source]);
+    assert!(received.contains("received 1 revisions"), "{received}");
+    let log = stdout(&here, &["log"]);
+    assert!(log.contains("Work done here"), "{log}");
+    assert!(log.contains("Work done there"), "{log}");
+    assert_eq!(
+        fs::read_to_string(here.join("notes.md")).expect("working file"),
+        "ours\n"
+    );
+    assert_eq!(
+        fs::read_to_string(there.join("notes.md")).expect("working file"),
+        "theirs\n"
+    );
+    assert_eq!(walk_names(&there.join("history")), before_source);
+    assert!(stdout(&here, &["check"]).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn receive_reports_mutable_conflicts_before_writing_history() {
+    let here = repository("receive-conflict-here");
+    write(&here, "notes.md", "common\n");
+    out(recorded(&here, &["record", "-m", "Common root"]));
+    let there = scratch("receive-conflict-there");
+    copy_tree(&here, &there);
+
+    write(&here, "notes.md", "ours\n");
+    out(recorded(&here, &["record", "-m", "Work done here"]));
+    out(recorded(&here, &["name", "shared", "head"]));
+    write(&there, "notes.md", "theirs\n");
+    out(recorded(&there, &["record", "-m", "Work done there"]));
+    out(recorded(&there, &["name", "shared", "head"]));
+
+    let source = there.to_string_lossy();
+    let planned = run(&here, &["receive", &source, "--dry-run"]);
+    assert_eq!(planned.status.code(), Some(1));
+    let planned = String::from_utf8(planned.stdout).expect("printed text");
+    assert!(planned.contains("conflict: name shared"), "{planned}");
+
+    let complaint = stderr(&here, &["receive", &source]);
+    assert!(complaint.contains("mutable"), "{complaint}");
+    assert!(
+        !stdout(&here, &["log"]).contains("Work done there"),
+        "a refused receive wrote immutable history before noticing the conflict"
+    );
+}
+
+#[test]
+fn receiving_a_forgetting_document_destroys_the_original() {
+    let here = repository("receive-forgetting-here");
+    write(&here, "notes.md", "public\nsecret\n");
+    out(recorded(&here, &["record", "-m", "A secret"]));
+    let there = scratch("receive-forgetting-there");
+    copy_tree(&here, &there);
+
+    let target = head_of(&there);
+    out(recorded(
+        &there,
+        &["forget", &target, "notes.md", "--lines", "2"],
+    ));
+    assert_eq!(
+        stdout(&here, &["cat", "head", "notes.md"]),
+        "public\nsecret\n"
+    );
+
+    let source = there.to_string_lossy();
+    let received = stdout(&here, &["receive", &source]);
+    assert!(received.contains("destroyed"), "{received}");
+    assert_eq!(
+        stdout(&here, &["cat", "head", "notes.md"]),
+        "public\n\\ forgotten\n"
+    );
+    assert_eq!(
+        fs::read_to_string(here.join("notes.md")).expect("working file"),
+        "public\nsecret\n",
+        "receive changed the working copy"
+    );
+}
+
+#[test]
+fn receive_requires_an_explicit_join_for_unrelated_histories() {
+    let here = repository("receive-unrelated-here");
+    write(&here, "here.md", "here\n");
+    out(recorded(&here, &["record", "-m", "Here"]));
+    let there = repository("receive-unrelated-there");
+    write(&there, "there.md", "there\n");
+    out(recorded(&there, &["record", "-m", "There"]));
+
+    let source = there.to_string_lossy();
+    let complaint = stderr(&here, &["receive", &source]);
+    assert!(complaint.contains("unrelated"), "{complaint}");
+    out(recorded(&here, &["receive", &source, "--join-unrelated"]));
+    assert!(stdout(&here, &["log"]).contains("There"));
+}
+
+#[test]
 fn arrange_renames_a_filed_revision_where_it_sits() {
     let directory = store_from("arrange-nested", "tree");
     let revisions = directory.join("history/revisions");
