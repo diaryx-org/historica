@@ -166,6 +166,10 @@ impl<F: Filesystem> Store<F> {
             // that uses its vocabulary.
             document.version = Version::V2;
             document.forgets = Some(*target);
+            // Decision 0031: a forgetting document states no result. The
+            // base's result names the destroyed state, and a digest of
+            // destroyed content would confirm a guess at it.
+            document.result = None;
             for (operation, item) in forget {
                 let held = &mut document.operations[*operation].items[*item];
                 if !held.forgotten {

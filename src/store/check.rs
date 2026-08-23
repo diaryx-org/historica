@@ -422,7 +422,7 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
             // Decision 0021: the first line is the version, and the rest is
             // the note a person reads.
             let line = text.lines().next().unwrap_or_default().to_owned();
-            let known = [Version::V0, Version::V1, Version::V2]
+            let known = [Version::V0, Version::V1, Version::V2, Version::V3]
                 .iter()
                 .any(|version| line == version.preamble());
             if !known {

@@ -477,7 +477,7 @@ fn a_conflicted_copy_is_only_a_legitimate_duplicate() {
 fn a_store_of_an_unknown_version_refuses_rather_than_guesses() {
     let root = scratch("version").join("history");
     Store::init(&root).expect("a new store");
-    fs::write(root.join("historica.txt"), "historica-v3\n").expect("a newer store");
+    fs::write(root.join("historica.txt"), "historica-v4\n").expect("a newer store");
 
     assert!(Store::open(&root).is_err());
     let report = Store::check(&root);

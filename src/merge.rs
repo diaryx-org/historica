@@ -1024,7 +1024,8 @@ mod tests {
                     String::from_utf8(document.write())
                         .expect("a document is text")
                         .lines()
-                        .skip(2)
+                        .skip_while(|line| !line.is_empty())
+                        .skip(1)
                         .map(str::to_owned)
                         .collect()
                 });

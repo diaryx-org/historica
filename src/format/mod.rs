@@ -81,6 +81,10 @@ pub enum Version {
     /// Decision 0014: forgetting — the `forgets` header, and the
     /// `\ forgotten` marker standing where a destroyed item stood.
     V2,
+    /// Decision 0031: an operation document states its result — the digest
+    /// of the file its operations produce — so a hand replay has a
+    /// checkpoint and an independent replayer has an answer to agree with.
+    V3,
 }
 
 impl Version {
@@ -91,7 +95,7 @@ impl Version {
     /// under version 1 — and under the readers already published for it —
     /// while a store that has forgotten something is refused whole, at the
     /// gate, by a reader that knows less.
-    pub const CURRENT: Version = Version::V2;
+    pub const CURRENT: Version = Version::V3;
 
     /// The preamble line a document of this version opens with.
     pub const fn preamble(self) -> &'static str {
@@ -99,6 +103,7 @@ impl Version {
             Version::V0 => "historica-v0",
             Version::V1 => "historica-v1",
             Version::V2 => "historica-v2",
+            Version::V3 => "historica-v3",
         }
     }
 
@@ -108,6 +113,7 @@ impl Version {
             Version::V0 => 0,
             Version::V1 => 1,
             Version::V2 => 2,
+            Version::V3 => 3,
         }
     }
 }
@@ -375,6 +381,7 @@ fn check_preamble(line: &str, terminated: bool) -> Result<Version, ParseError> {
         line if line == Version::V0.preamble() => Version::V0,
         line if line == Version::V1.preamble() => Version::V1,
         line if line == Version::V2.preamble() => Version::V2,
+        line if line == Version::V3.preamble() => Version::V3,
         line => {
             let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
                 ParseErrorKind::UnknownVersion {

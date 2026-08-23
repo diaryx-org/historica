@@ -238,6 +238,15 @@ pub struct OperationDocument {
     /// destroyed digest, and a reader that cannot find it looks for a
     /// document that says it `forgets` it.
     pub forgets: Option<RevisionId>,
+    /// The digest of the file these operations produce.
+    ///
+    /// Decision 0031: the SHA-256 of the file's bytes after this document is
+    /// applied, which is what `shasum -a 256` prints for the file a correct
+    /// replay writes — a checkpoint for a hand replayer, and an answer an
+    /// independent implementation is held to. Mandatory from version 3, and
+    /// forbidden in a forgetting document, whose result is the destroyed
+    /// state and whose digest would confirm a guess at it.
+    pub result: Option<RevisionId>,
     /// What the revision did, in position order. Never empty.
     pub operations: Vec<Operation>,
 }
@@ -270,6 +279,9 @@ impl OperationDocument {
         out.push('\n');
         if let Some(forgets) = &self.forgets {
             out.push_str(&format!("forgets {forgets}\n"));
+        }
+        if let Some(result) = &self.result {
+            out.push_str(&format!("result {result}\n"));
         }
         out.push('\n');
         for operation in order {
@@ -321,6 +333,9 @@ impl OperationDocument {
     /// forgotten nothing stays readable by every reader version 1 already
     /// has.
     pub fn needs(&self) -> Version {
+        if self.result.is_some() {
+            return Version::V3;
+        }
         let forgets = self.forgets.is_some()
             || self
                 .operations
@@ -416,10 +431,12 @@ impl Parser<'_> {
         let version = check_preamble(line, terminated)?;
         self.version = version;
 
-        // The one header this document may carry, per decision 0014: which
-        // document this one stands in for. Read before the separator, where a
-        // revision document's headers sit.
+        // The two headers this document may carry, read before the separator
+        // where a revision document's headers sit: which document this one
+        // stands in for (decision 0014), and the digest of the file its
+        // operations produce (decision 0031).
         let forgets = self.forgets()?;
+        let result = self.result(forgets.is_some())?;
 
         // The blank line is mandatory though no header precedes it: both
         // documents in the format open the same way, so a person learns one
@@ -445,6 +462,7 @@ impl Parser<'_> {
         Ok(OperationDocument {
             version,
             forgets,
+            result,
             operations,
         })
     }
@@ -484,6 +502,50 @@ impl Parser<'_> {
             )
         })?;
         Ok(Some(forgets))
+    }
+
+    /// The `result` header, if the next line is one.
+    ///
+    /// Decision 0031: forbidden beside `forgets`, because the result of the
+    /// operations a forgetting document restates is the destroyed state, and
+    /// a digest of destroyed content would confirm a guess at it.
+    fn result(&mut self, forgetting: bool) -> Result<Option<RevisionId>, ParseError> {
+        let mark = self.lines.mark();
+        let Some((line, terminated)) = self.lines.next() else {
+            return Ok(None);
+        };
+        let Some(value) = line.strip_prefix("result ") else {
+            self.lines.reset(mark);
+            return Ok(None);
+        };
+        let at = self.lines.line;
+        if !terminated {
+            return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
+        }
+        carriage_return(line, at)?;
+        if forgetting {
+            return Err(ParseError::new(at, ParseErrorKind::ResultOfForgetting));
+        }
+        if self.version < Version::V3 {
+            return Err(ParseError::new(
+                at,
+                ParseErrorKind::HeaderNeedsVersion {
+                    key: "result".to_owned(),
+                    found: self.version,
+                    needs: Version::V3,
+                },
+            ));
+        }
+        let result = value.parse().map_err(|_| {
+            ParseError::new(
+                at,
+                ParseErrorKind::MalformedDigest {
+                    key: "result",
+                    found: value.to_owned(),
+                },
+            )
+        })?;
+        Ok(Some(result))
     }
 
     fn operations(&mut self) -> Result<Vec<Operation>, ParseError> {
@@ -829,6 +891,7 @@ mod tests {
         let reversed = OperationDocument {
             version: Version::CURRENT,
             forgets: None,
+            result: None,
             operations: document.operations.iter().rev().cloned().collect(),
         };
         assert_eq!(reversed.write(), document.write());
@@ -1046,10 +1109,16 @@ mod tests {
         );
         assert_eq!(
             OperationDocument::parse(b"historica-v3\n\ninsert 0\n+a\n")
+                .expect("version 3 reads")
+                .version,
+            Version::V3
+        );
+        assert_eq!(
+            OperationDocument::parse(b"historica-v4\n\ninsert 0\n+a\n")
                 .expect_err("a later version")
                 .kind,
             ParseErrorKind::UnknownVersion {
-                found: "3".to_owned()
+                found: "4".to_owned()
             }
         );
         assert_eq!(

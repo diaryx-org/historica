@@ -23,7 +23,7 @@
 
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 
-use crate::format::{Operation, OperationDocument, Version};
+use crate::format::{Operation, OperationDocument, Version, digest};
 use crate::replay::State;
 
 /// The matcher this tool records with.
@@ -92,11 +92,15 @@ pub fn diff(parent: &State, child: &State) -> Option<OperationDocument> {
     let mut document = OperationDocument {
         version: Version::V1,
         forgets: None,
+        // Decision 0031: the document states the digest of the file it
+        // produces, which is the file this diff was handed — the checkpoint
+        // a hand replay is held to.
+        result: Some(digest(child.text().as_bytes())),
         operations,
     };
-    // A delete quoting a forgotten parent item carries the marker, which is
-    // version 2's vocabulary; everything else this writes is version 1's,
-    // and a document claims the lowest version that expresses it.
+    // Stating a result is version 3's vocabulary, so every document this
+    // writes claims it; a document claims the lowest version that expresses
+    // it, and `needs` is what knows.
     document.version = document.needs();
     Some(document)
 }
@@ -180,7 +184,9 @@ mod tests {
         let parent = State::from_items([Item::line("kept"), Item::forgotten()]);
         let child = State::from_text("kept\n");
         let document = diff(&parent, &child).expect("a document");
-        assert_eq!(document.version, Version::V2);
+        // The marker is version 2's vocabulary; the result the document also
+        // states is version 3's, and a document claims the highest it needs.
+        assert_eq!(document.version, Version::V3);
         let bytes = document.write();
         assert!(
             String::from_utf8(bytes.clone())
@@ -204,7 +210,10 @@ mod tests {
     fn a_files_first_version_is_one_insert_of_every_line() {
         assert_eq!(
             text("", "one\ntwo\n"),
-            "historica-v1\n\ninsert 0\n+one\n+two\n"
+            format!(
+                "historica-v3\nresult {}\n\ninsert 0\n+one\n+two\n",
+                digest(b"one\ntwo\n")
+            )
         );
     }
 
@@ -213,7 +222,10 @@ mod tests {
         // Decision 0009 settling what 0007 spelled two ways.
         assert_eq!(
             text("a\nb\nc\n", "a\nB\nc\n"),
-            "historica-v1\n\ndelete 1 1\n-b\ninsert 1\n+B\n"
+            format!(
+                "historica-v3\nresult {}\n\ndelete 1 1\n-b\ninsert 1\n+B\n",
+                digest(b"a\nB\nc\n")
+            )
         );
     }
 
@@ -243,9 +255,12 @@ mod tests {
                 "first paragraph\n\nsecond paragraph\n",
                 "entirely new prose\n\nand more of it\n",
             ),
-            "historica-v1\n\n\
-             delete 0 1\n-first paragraph\ninsert 0\n+entirely new prose\n\
-             delete 2 1\n-second paragraph\ninsert 2\n+and more of it\n"
+            format!(
+                "historica-v3\nresult {}\n\n\
+                 delete 0 1\n-first paragraph\ninsert 0\n+entirely new prose\n\
+                 delete 2 1\n-second paragraph\ninsert 2\n+and more of it\n",
+                digest(b"entirely new prose\n\nand more of it\n")
+            )
         );
     }
 
@@ -255,17 +270,26 @@ mod tests {
         // in that item and is recorded as a rewrite of the last line.
         assert_eq!(
             text("one\ntwo", "one\ntwo\n"),
-            "historica-v1\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n"
+            format!(
+                "historica-v3\nresult {}\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n",
+                digest(b"one\ntwo\n")
+            )
         );
         assert_eq!(
             text("one\ntwo\n", "one\ntwo"),
-            "historica-v1\n\ndelete 1 1\n-two\ninsert 1\n+two\n\\ no newline\n"
+            format!(
+                "historica-v3\nresult {}\n\ndelete 1 1\n-two\ninsert 1\n+two\n\\ no newline\n",
+                digest(b"one\ntwo")
+            )
         );
         // Appending past an unterminated last line rewrites it, which is what
         // replay demands and what decision 0007's third question asked about.
         assert_eq!(
             text("one\ntwo", "one\ntwo\nthree\n"),
-            "historica-v1\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n+three\n"
+            format!(
+                "historica-v3\nresult {}\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n+three\n",
+                digest(b"one\ntwo\nthree\n")
+            )
         );
     }
 
@@ -273,7 +297,10 @@ mod tests {
     fn a_carriage_return_is_content_and_survives_a_recording() {
         assert_eq!(
             text("a\r\nb\r\n", "a\r\nB\r\n"),
-            "historica-v1\n\ndelete 1 1\n-b\r\ninsert 1\n+B\r\n"
+            format!(
+                "historica-v3\nresult {}\n\ndelete 1 1\n-b\r\ninsert 1\n+B\r\n",
+                digest(b"a\r\nB\r\n")
+            )
         );
     }
 

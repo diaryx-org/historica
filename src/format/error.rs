@@ -68,6 +68,12 @@ pub enum ParseErrorKind {
         /// The key as spelled in the file.
         key: String,
     },
+    /// A `result` header in a forgetting document.
+    ///
+    /// Decision 0031: the result of the operations a forgetting document
+    /// restates is the destroyed state, and a digest of destroyed content
+    /// would let anyone who can guess the sentence confirm it.
+    ResultOfForgetting,
     /// A header a later version defines, in a document that predates it.
     HeaderNeedsVersion {
         /// The key as spelled in the file.
@@ -286,6 +292,12 @@ impl fmt::Display for ParseErrorKind {
                 "this document is version {found} and this reader knows up to version {}; \
                  upgrade Historica rather than trusting what it would leave out",
                 super::Version::CURRENT.number()
+            ),
+            ResultOfForgetting => write!(
+                f,
+                "a forgetting document states no result: a digest of the \
+                 destroyed state would confirm a guess at what was destroyed; \
+                 delete the line"
             ),
             HeaderNeedsVersion { key, found, needs } => write!(
                 f,

@@ -23,7 +23,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use historica::core::RevisionId;
-use historica::format::{Item, OperationDocument, OperationKind, ParseErrorKind, digest};
+use historica::format::{Item, OperationDocument, OperationKind, ParseErrorKind, Version, digest};
 use historica::replay::{State, replay};
 
 fn corpus() -> PathBuf {
@@ -126,6 +126,27 @@ fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
             ParseErrorKind::DeleteCountDisagrees {
                 stated: 2,
                 found: 1,
+            },
+        ),
+        (
+            // Decision 0031: a digest of the destroyed state would confirm a
+            // guess at what was destroyed.
+            "invalid/result-of-forgetting.ops.txt",
+            ParseErrorKind::ResultOfForgetting,
+        ),
+        (
+            "invalid/result-before-version-three.ops.txt",
+            ParseErrorKind::HeaderNeedsVersion {
+                key: "result".to_owned(),
+                found: Version::V1,
+                needs: Version::V3,
+            },
+        ),
+        (
+            "invalid/malformed-result.ops.txt",
+            ParseErrorKind::MalformedDigest {
+                key: "result",
+                found: "not-a-digest".to_owned(),
             },
         ),
         ("invalid/empty-delete.ops.txt", ParseErrorKind::EmptyDelete),

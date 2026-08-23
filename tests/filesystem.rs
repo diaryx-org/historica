@@ -349,6 +349,7 @@ fn pruning_removes_files_from_the_map_and_tidies_what_it_empties() {
         .insert_operation(&historica::format::OperationDocument {
             version: historica::format::Version::V1,
             forgets: None,
+            result: None,
             operations: Vec::new(),
         })
         .expect("an operation document nothing names");

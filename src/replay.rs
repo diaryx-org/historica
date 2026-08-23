@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::format::{Item, Operation, OperationDocument, OperationKind, Version};
+use crate::format::{Item, Operation, OperationDocument, OperationKind, Version, digest};
 
 /// The operation document a `text` payload is exactly equivalent to.
 ///
@@ -40,9 +40,15 @@ pub fn creation(text: &str) -> Option<OperationDocument> {
     Some(OperationDocument {
         // A payload's lines are never forgotten — forgetting one destroys
         // the payload and leaves a stand-in — so this is version 1's
-        // vocabulary and claims no more.
+        // vocabulary and claims no more. The synthesised version is not
+        // raised by the result below, because this document is never
+        // written: it is the equivalence 0017 states, held in memory.
         version: Version::V1,
         forgets: None,
+        // Decision 0031: a creation's result is the payload itself — 0017
+        // already named the file's content by digest, and this makes the
+        // synthesised document verifiable on the same terms as a written one.
+        result: Some(digest(text.as_bytes())),
         operations: vec![Operation::insert(0, items)],
     })
 }
@@ -200,7 +206,27 @@ impl State {
             return Err(ReplayError::UnterminatedItemNotLast { position });
         }
 
-        Ok(Self { items })
+        let produced = Self { items };
+
+        // Decision 0031: a document states the digest of the file it
+        // produces, and a replay is held to it — the checkpoint a hand
+        // replayer has, an implementation must not be spared. Verification
+        // stops where forgetting begins, because a state showing markers has
+        // bytes the recorder never hashed: 0014's structure-not-content
+        // sentence, collecting one more thing.
+        if let Some(stated) = &document.result
+            && !produced.items.iter().any(|item| item.forgotten)
+        {
+            let found = digest(produced.text().as_bytes());
+            if found != *stated {
+                return Err(ReplayError::ResultDisagrees {
+                    stated: *stated,
+                    found,
+                });
+            }
+        }
+
+        Ok(produced)
     }
 }
 
@@ -278,6 +304,17 @@ pub enum ReplayError {
         /// Where that item ended up.
         position: usize,
     },
+    /// The document's stated result is not what replaying it produces.
+    ///
+    /// Decision 0031: one of the two is wrong — the document, the parent it
+    /// was applied to, or the replayer — and refusing is friendlier than
+    /// carrying the disagreement forward.
+    ResultDisagrees {
+        /// The digest the document states.
+        stated: crate::core::RevisionId,
+        /// The digest of what replaying actually produced.
+        found: crate::core::RevisionId,
+    },
 }
 
 impl fmt::Display for ReplayError {
@@ -320,6 +357,12 @@ impl fmt::Display for ReplayError {
                 "only a file's last line may end without a newline, and item {position} of the \
                  result does not end with one; delete that line and add it back with a \
                  terminator, in the revision that puts items after it"
+            ),
+            ReplayError::ResultDisagrees { stated, found } => write!(
+                f,
+                "this document says it produces {stated} and replaying it produces {found}; \
+                 the document, its parent, or the replayer is wrong, and `shasum -a 256` on \
+                 the replayed file is how to see which"
             ),
         }
     }
@@ -546,6 +589,7 @@ mod tests {
         let scrambled = OperationDocument {
             version: Version::CURRENT,
             forgets: None,
+            result: None,
             operations: canonical.operations.iter().rev().cloned().collect(),
         };
         let parent = State::from_text("a\nb\nc\n");
@@ -560,5 +604,46 @@ mod tests {
                 Operation::delete(0, [Item::line("a")]),
             ]
         );
+    }
+
+    #[test]
+    fn a_result_that_lies_is_refused() {
+        // Decision 0031: the document, its parent, or the replayer is wrong,
+        // and carrying the disagreement forward would compound it silently.
+        let honest = OperationDocument::parse(
+            b"historica-v3\n\
+              result c3f9c8c283a2b1f2f1896f27a01cbe3cddc0c9d93f752e4639035a0f5b36f6e8\n\
+              \ninsert 0\n+one\n+two\n",
+        )
+        .expect("a document");
+        assert_eq!(
+            State::empty().apply(&honest).expect("a replay").text(),
+            "one\ntwo\n"
+        );
+
+        let mut lying = honest.clone();
+        lying.result = Some(digest(b"something else entirely"));
+        assert!(matches!(
+            State::empty().apply(&lying),
+            Err(ReplayError::ResultDisagrees { .. })
+        ));
+    }
+
+    #[test]
+    fn a_state_showing_a_marker_is_not_held_to_a_result() {
+        // Decision 0031 under decision 0014: the bytes that would hash are
+        // marker bytes, not the bytes the recorder hashed, so structure is
+        // provable and content is not.
+        let parent = State::from_items([Item::line("kept"), Item::forgotten()]);
+        let document = OperationDocument::parse(
+            b"historica-v3\n\
+              result c3f9c8c283a2b1f2f1896f27a01cbe3cddc0c9d93f752e4639035a0f5b36f6e8\n\
+              \ninsert 0\n+new\n",
+        )
+        .expect("a document");
+        // The result is for a state this replay cannot produce, and that is
+        // not an error: verification is suspended where forgetting reaches.
+        let replayed = parent.apply(&document).expect("a replay");
+        assert!(replayed.items().iter().any(|item| item.forgotten));
     }
 }

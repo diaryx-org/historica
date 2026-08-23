@@ -323,10 +323,12 @@ fn a_forgetting_document_round_trips_and_is_gated_at_version_two() {
 }
 
 #[test]
-fn a_store_claims_version_two_only_when_it_forgets_something() {
-    // A document claims the lowest version that expresses it, so a store
-    // that never forgets keeps reading under version 1 — and under every
-    // reader version 1 already has.
+fn a_store_claims_version_three_when_it_records_a_result() {
+    // A document claims the lowest version that expresses it. Before 0031
+    // that let a store which never forgot keep reading under version 1;
+    // stating a result is version 3's vocabulary and every recording states
+    // one, so the first record is what raises the gate now, and forgetting
+    // no longer raises anything it has not already raised.
     let directory = scratch("version");
     assert!(run(&directory, &["init"]).status.success());
     let header = || {
@@ -343,15 +345,11 @@ fn a_store_claims_version_two_only_when_it_forgets_something() {
     let first = out(&directory, &["record", "-m", "Start"]);
     write(&directory, "notes.md", "one\ntwo\nthree\n");
     out(&directory, &["record", "-m", "More"]);
-    assert_eq!(header(), "historica-v1", "recording claims nothing newer");
+    assert_eq!(header(), "historica-v3", "a recording states its result");
 
     out(
         &directory,
         &["forget", &digest_in(&first), "notes.md", "--lines", "2"],
     );
-    assert_eq!(
-        header(),
-        "historica-v2",
-        "forgetting is what raises the gate"
-    );
+    assert_eq!(header(), "historica-v3", "a version is never lowered");
 }
