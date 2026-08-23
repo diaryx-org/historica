@@ -101,7 +101,7 @@ impl State {
     /// the file has it where a run of lines used to be, and nothing else in
     /// the history moves.
     pub fn text(&self) -> String {
-        let mut out = String::new();
+        let mut out = String::with_capacity(self.width());
         for item in &self.items {
             out.push_str(item.shown());
             if item.terminated {
@@ -109,6 +109,37 @@ impl State {
             }
         }
         out
+    }
+
+    /// How many bytes [`State::text`] will produce.
+    ///
+    /// Counted rather than guessed, so the one allocation is the right size:
+    /// materialising a long history builds this string once per revision, and
+    /// growing it by doubling is the difference between one allocation and a
+    /// dozen.
+    fn width(&self) -> usize {
+        self.items
+            .iter()
+            .map(|item| item.shown().len() + usize::from(item.terminated))
+            .sum()
+    }
+
+    /// The digest of [`State::text`], without building it.
+    ///
+    /// Decision 0031 has every replay hash the file it produced, which means
+    /// this happens once per revision walked. The bytes are the same bytes;
+    /// what is saved is materialising them into a `String` only to hand them
+    /// to the hasher and drop them — this is the number `shasum -a 256`
+    /// prints for the file, and the number the document states.
+    pub fn digest(&self) -> crate::core::RevisionId {
+        let mut hasher = crate::format::Hasher::new();
+        for item in &self.items {
+            hasher.update(item.shown().as_bytes());
+            if item.terminated {
+                hasher.update(b"\n");
+            }
+        }
+        hasher.finish()
     }
 
     /// The items, in file order.
@@ -149,6 +180,19 @@ impl State {
     /// of order are applied to the same result, because every position is
     /// stated against `self` and none of them move.
     pub fn apply(&self, document: &OperationDocument) -> Result<Self, ReplayError> {
+        self.clone().applied(document)
+    }
+
+    /// The same, consuming the state it counts into.
+    ///
+    /// [`State::apply`] is this with a clone in front of it. Materialising a
+    /// file walks a chain of revisions and wants none of the intermediate
+    /// states afterwards, and every item an operation does not touch — which
+    /// is nearly all of them, in nearly every revision — survives the step
+    /// unchanged. Given the state by value, those items are moved into the
+    /// result rather than copied out of it, so replaying a long history stops
+    /// reallocating the whole file once per revision.
+    pub fn applied(mut self, document: &OperationDocument) -> Result<Self, ReplayError> {
         let length = self.items.len();
         let mut deleted = vec![false; length];
         let mut inserted: BTreeMap<usize, Vec<Item>> = BTreeMap::new();
@@ -184,13 +228,13 @@ impl State {
             }
         }
 
-        let mut items = Vec::with_capacity(length);
-        for (position, item) in self.items.iter().enumerate() {
+        let mut items = Vec::with_capacity(length + inserted.values().map(Vec::len).sum::<usize>());
+        for (position, item) in std::mem::take(&mut self.items).into_iter().enumerate() {
             if let Some(new) = inserted.remove(&position) {
                 items.extend(new);
             }
             if !deleted[position] {
-                items.push(item.clone());
+                items.push(item);
             }
         }
         // An insert at the end names the gap past the last item, which the
@@ -220,7 +264,7 @@ impl State {
         if let Some(stated) = &document.result
             && !produced.items.iter().any(|item| item.forgotten)
         {
-            let found = digest(produced.text().as_bytes());
+            let found = produced.digest();
             if found != *stated {
                 return Err(ReplayError::ResultDisagrees {
                     stated: *stated,

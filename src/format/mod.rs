@@ -201,11 +201,48 @@ pub const CHANGE_ID_CHARS: usize = CHANGE_ID_LEN * 2;
 /// This is what `shasum -a 256` prints, which is the whole point: verification
 /// needs no Historica.
 pub fn digest(bytes: &[u8]) -> RevisionId {
-    let mut hasher = Sha256::new();
+    let mut hasher = Hasher::new();
     hasher.update(bytes);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&hasher.finalize());
-    RevisionId::from_bytes(out)
+    hasher.finish()
+}
+
+/// The same digest, over bytes that arrive in pieces.
+///
+/// What [`digest`] is, with the one buffer left out: a caller that would have
+/// concatenated its bytes into a `Vec` purely to hash them can hand them over
+/// as they come. The answer is identical — this is SHA-256 either way, and
+/// `shasum -a 256` still prints it.
+pub struct Hasher(Sha256);
+
+impl Hasher {
+    /// A hasher over nothing yet.
+    pub fn new() -> Self {
+        Self(Sha256::new())
+    }
+
+    /// Take the next run of bytes.
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    /// The digest of everything taken.
+    pub fn finish(self) -> RevisionId {
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&self.0.finalize());
+        RevisionId::from_bytes(out)
+    }
+}
+
+impl Default for Hasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for Hasher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Hasher")
+    }
 }
 
 /// One revision document: every header, and the verbatim message.
