@@ -354,7 +354,7 @@ fn pruning_removes_files_from_the_map_and_tidies_what_it_empties() {
             operations: Vec::new(),
         })
         .expect("an operation document nothing names");
-    assert!(store.operation(&orphan).is_some());
+    assert!(store.operation(&orphan).unwrap().is_some());
 
     let before = memory.count();
     let pruned = store.prune().expect("pruning");

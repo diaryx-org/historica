@@ -158,7 +158,7 @@ impl<F: Filesystem> Store<F> {
         for (target, forget) in &items {
             plan.targets.push(*target);
             let base = self
-                .effective_operation(target)
+                .effective_operation(target)?
                 .or_else(|| self.creation_base(target))
                 .ok_or(ForgetError::MissingQuoted { document: *target })?;
             let mut document = base.clone();
@@ -219,10 +219,10 @@ impl<F: Filesystem> Store<F> {
                 .map_err(|error| StoreError::io(&path, error))?;
         }
         for target in &plan.targets {
-            self.operations.remove(target);
+            self.bodies_mut()?.operations.remove(target);
         }
         // The payload index maps digests to paths that may just have gone.
-        *self.payloads.borrow_mut() = None;
+        self.forget_payloads();
         remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
         Ok(plan)
     }

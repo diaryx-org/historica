@@ -556,8 +556,63 @@ fn a_store_materialises_the_tree_and_the_files_it_describes() {
         store.content(&head, file).expect("the README").text(),
         "# Notes\n\nA journal kept in Historica, and the notes that came with it.\n"
     );
-    assert_eq!(store.operations().count(), 4);
+    assert_eq!(store.operations().unwrap().count(), 4);
     assert!(Store::check(&root).is_ok());
+}
+
+#[test]
+fn a_broken_operation_document_stops_the_question_that_needs_it_and_nothing_else() {
+    // Opening reads `revisions/` and not `operations/`, so a graph question is
+    // answerable in a store whose content documents are unreadable, and the
+    // strictness lands on whatever first asks what a revision did. `check` is
+    // the command that reads everything deliberately, and it says so either
+    // way.
+    let (root, store) = tree_corpus_store("broken-operations");
+    let head = head_of(&store);
+    let before = store.tree(&head).expect("the file set at the head");
+    let file = *before.files().next().expect("the surviving file").0;
+
+    let directory = root.join("operations");
+    let broken = fs::read_dir(&directory)
+        .expect("operations")
+        .map(|entry| entry.expect("an entry").path())
+        .next()
+        .expect("a document to break");
+    fs::write(
+        &broken,
+        b"historica-v1
+nonsense
+",
+    )
+    .expect("breaking it");
+
+    let store = Store::open(&root).expect("a store whose revisions still parse");
+    assert_eq!(store.len(), 4);
+    assert_eq!(store.tree(&head).expect("the file set"), before);
+
+    let name = broken
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("a name");
+    let Err(error) = store.operations() else {
+        panic!("the directory does not parse");
+    };
+    let rendered = error.to_string();
+    assert!(rendered.contains(name), "{rendered}");
+
+    let rendered = store
+        .content(&head, &file)
+        .expect_err("and neither does the content that needs it")
+        .to_string();
+    assert!(rendered.contains(name), "{rendered}");
+
+    let report = Store::check(&root);
+    assert!(!report.is_ok());
+    assert!(
+        report
+            .errors()
+            .any(|finding| matches!(finding, Finding::Unparsable { .. }))
+    );
 }
 
 #[test]
@@ -576,7 +631,7 @@ fn renaming_every_operation_document_changes_nothing() {
 
     let store = Store::open(&root).expect("reopening a renamed store");
     assert_eq!(store.tree(&head).expect("a tree"), before);
-    assert_eq!(store.operations().count(), 4);
+    assert_eq!(store.operations().unwrap().count(), 4);
     assert!(Store::check(&root).is_ok());
 }
 

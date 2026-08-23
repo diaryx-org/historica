@@ -621,12 +621,12 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             // holds, and `show` prints whichever it used, byte for byte,
             // because the readable file is the authority.
             if let Some(operations) = document.edited.get(&file) {
-                match store.operation(operations) {
+                match store.operation(operations).map_err(Failure::error)? {
                     Some(document) => document.write(),
                     // Decision 0014: the bytes were destroyed, and what is
                     // stored — and printed, byte for byte — is what stands
                     // in for them.
-                    None => stands_in(&store, operations).ok_or_else(|| {
+                    None => stands_in(&store, operations)?.ok_or_else(|| {
                         Failure::error(format!(
                             "{} names the operation document {operations}, \
                              which this store does not hold yet",
@@ -641,7 +641,7 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             {
                 match store.payload(payload).map_err(Failure::error)? {
                     Some(bytes) => bytes,
-                    None => stands_in(&store, payload).ok_or_else(|| {
+                    None => stands_in(&store, payload)?.ok_or_else(|| {
                         Failure::error(format!(
                             "{} names the content {payload}, \
                              which this store does not hold yet",
@@ -665,17 +665,20 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 ///
 /// Several forgetting documents may name one digest — replicas redact
 /// independently — and each is a real file of the store, so each is printed.
-fn stands_in(store: &Store, target: &historica::core::RevisionId) -> Option<Vec<u8>> {
-    let standing = store.forgetting(target);
+fn stands_in(
+    store: &Store,
+    target: &historica::core::RevisionId,
+) -> Result<Option<Vec<u8>>, Failure> {
+    let standing = store.forgetting(target).map_err(Failure::error)?;
     if standing.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(
+    Ok(Some(
         standing
             .iter()
             .flat_map(|document| document.write())
             .collect(),
-    )
+    ))
 }
 
 /// `files <target>` — the file set, which is what the tree facts replay to.

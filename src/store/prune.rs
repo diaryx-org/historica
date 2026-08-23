@@ -67,7 +67,7 @@ impl<F: Filesystem> Store<F> {
         // line still names the destroyed digest, and the forgetting document
         // is what answers for it (decision 0014). It stays while what it
         // stands in for is named.
-        for (id, document) in &self.operations {
+        for (id, document) in self.operations()? {
             if let Some(forgets) = &document.forgets
                 && referenced.contains(forgets)
             {
@@ -130,11 +130,11 @@ impl<F: Filesystem> Store<F> {
             self.documents.remove(id);
         }
         for id in &pruned.operations {
-            self.operations.remove(id);
+            self.bodies_mut()?.operations.remove(id);
         }
         // The payload index maps digests to paths that may just have gone;
         // it is derived, so it is rebuilt on next need rather than repaired.
-        *self.payloads.borrow_mut() = None;
+        self.forget_payloads();
         for directory in [REVISIONS_DIR, OPERATIONS_DIR] {
             remove_empty_directories(self.filesystem(), &self.root.join(directory))?;
         }

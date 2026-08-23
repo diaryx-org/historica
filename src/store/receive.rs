@@ -131,21 +131,27 @@ impl<F: Filesystem> Store<F> {
             return Err(ReceiveError::Unrelated);
         }
 
-        let mut plan = ReceivePlan::default();
-        plan.forgotten = self
-            .operations()
-            .chain(source.operations())
+        // Each store's operation documents, read once: every filter below
+        // asks what one of them holds, and none can call `?` inside a closure.
+        let held: BTreeSet<RevisionId> = self.operations()?.map(|(id, _)| *id).collect();
+        let forgotten: BTreeSet<RevisionId> = self
+            .operations()?
+            .chain(source.operations()?)
             .filter_map(|(_, document)| document.forgets)
             .collect();
+        let mut plan = ReceivePlan {
+            forgotten,
+            ..ReceivePlan::default()
+        };
 
         plan.revisions = source
             .iter()
             .filter_map(|(id, _)| self.get(id).is_none().then_some(*id))
             .collect();
         plan.operations = source
-            .operations()
+            .operations()?
             .filter_map(|(id, _)| {
-                (self.operation(id).is_none() && !plan.forgotten.contains(id)).then_some(*id)
+                (!held.contains(id) && !plan.forgotten.contains(id)).then_some(*id)
             })
             .collect();
 
@@ -153,7 +159,7 @@ impl<F: Filesystem> Store<F> {
         plan.destroys = plan
             .forgotten
             .iter()
-            .filter(|id| self.operation(id).is_some() || ours.contains_key(id))
+            .filter(|id| held.contains(id) || ours.contains_key(id))
             .copied()
             .collect();
         plan.payloads = source
@@ -218,9 +224,10 @@ impl<F: Filesystem> Store<F> {
         }
         for id in &plan.operations {
             let document = source
-                .operation(id)
-                .expect("an operation named by the plan remains in the open source");
-            self.insert_operation_at(document, &format!("{id}{OPERATION_SUFFIX}"))?;
+                .operation(id)?
+                .expect("an operation named by the plan remains in the open source")
+                .clone();
+            self.insert_operation_at(&document, &format!("{id}{OPERATION_SUFFIX}"))?;
             received.operations += 1;
         }
         received.destroyed = self.comply_with_forgetting(&plan.destroys)?;
@@ -272,7 +279,7 @@ impl<F: Filesystem> Store<F> {
         }
         for target in forgotten {
             if let Some(path) = self.payload_path(target)? {
-                destroys.insert(path);
+                destroys.insert(path.to_path_buf());
             }
         }
         for path in &destroys {
@@ -281,9 +288,9 @@ impl<F: Filesystem> Store<F> {
                 .map_err(|error| StoreError::io(path, error))?;
         }
         for target in forgotten {
-            self.operations.remove(target);
+            self.bodies_mut()?.operations.remove(target);
         }
-        *self.payloads.borrow_mut() = None;
+        self.forget_payloads();
         super::prune::remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
         Ok(destroys.len())
     }

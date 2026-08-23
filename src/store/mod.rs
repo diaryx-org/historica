@@ -25,14 +25,19 @@
 //!
 //! `operations/` holds two kinds of file, on the rule `revisions/` already
 //! keeps: only a name ending `.ops.txt` is an operation document, and every
-//! other file
-//! is a payload — decision 0017's content that arrives whole, carrying no
-//! format of its own and identified by the digest of its bytes. Payloads are
-//! not read when a store is opened. A history with photographs in it must not
-//! cost a full hash to run `log`, so the directory is indexed on first need
-//! and `check` is where every payload is hashed deliberately.
+//! other file is a payload — decision 0017's content that arrives whole,
+//! carrying no format of its own and identified by the digest of its bytes.
+//!
+//! Nothing in `operations/` is read when a store is opened. A history with
+//! photographs in it must not cost a full hash to run `log`, and the reason
+//! does not stop at the payloads: those documents are what a revision *did*,
+//! and `log`, `files` and `names` ask only what a revision *is*. So the
+//! directory is read on first need — indexed by digest for the payloads,
+//! parsed for the documents — and `check` is where all of it is read
+//! deliberately, which is why an unreadable file there is that command's
+//! finding and not a failure to open.
 
-use std::cell::RefCell;
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
@@ -399,15 +404,28 @@ pub struct Store<F = Disk> {
     /// header states and therefore the gate a reader is refused at.
     version: Version,
     documents: BTreeMap<RevisionId, RevisionDocument>,
+    /// What the revisions did, parsed on first need and never at open.
+    bodies: OnceCell<Bodies>,
+    /// Where each payload sits, by digest. Built on first need, never at open.
+    payloads: OnceCell<BTreeMap<RevisionId, PathBuf>>,
+    names: BTreeMap<String, Name>,
+    skipped: Skipped,
+}
+
+/// What `operations/` states, in both of its grammars.
+///
+/// One cell rather than two, because one walk of the directory finds both and
+/// the body of each file is what says which it is: parsing either means having
+/// read all of them, so there is no state in which one is loaded and the other
+/// is not.
+#[derive(Debug, Clone, Default)]
+struct Bodies {
+    /// Decision 0007: what a revision did to one file, line by line.
     operations: BTreeMap<RevisionId, OperationDocument>,
     /// Decision 0032: a merge's file, stated whole by reference. Named by
     /// `edit` lines exactly as operation documents are, and told apart by
     /// their bodies.
     resolutions: BTreeMap<RevisionId, ResolutionDocument>,
-    /// Where each payload sits, by digest. Built on first need, never at open.
-    payloads: RefCell<Option<BTreeMap<RevisionId, PathBuf>>>,
-    names: BTreeMap<String, Name>,
-    skipped: Skipped,
 }
 
 /// The store's short constructors, which are the long ones on [`Disk`].
@@ -505,6 +523,14 @@ impl<F: Filesystem> Store<F> {
     /// strictness where the machine reads, exactly as in decision 0002. Use
     /// [`Store::check_on`] when the point is to enumerate every fault rather
     /// than to stop at the first.
+    ///
+    /// Opening reads `revisions/` and `names/`, and nothing in `operations/`.
+    /// What the revisions did is read on first need, so the strictness above
+    /// reaches an operation document at the moment something asks what it
+    /// says — from [`Store::operation`], or from any materialising call — and
+    /// not before. `check` is where a store is read through deliberately, and
+    /// it reports an unparsable document there whether or not anything ever
+    /// asks for it.
     pub fn open_on(files: F, root: impl AsRef<Path>) -> Result<Self, StoreError> {
         let root = root.as_ref().to_path_buf();
         let version = read_version(&files, &root)?;
@@ -525,31 +551,6 @@ impl<F: Filesystem> Store<F> {
             documents.insert(digest(&bytes), document);
         }
 
-        let mut operations = BTreeMap::new();
-        let mut resolutions = BTreeMap::new();
-        for path in files_claiming(&files, &root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
-            let bytes = files
-                .read(&path)
-                .map_err(|error| StoreError::io(&path, error))?;
-            // Decision 0032: two content-document grammars share the suffix,
-            // and the body says which one the bytes are held to.
-            if format::is_resolution(&bytes) {
-                let document =
-                    ResolutionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
-                        file: path.clone(),
-                        error,
-                    })?;
-                resolutions.insert(digest(&bytes), document);
-            } else {
-                let document =
-                    OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
-                        file: path.clone(),
-                        error,
-                    })?;
-                operations.insert(digest(&bytes), document);
-            }
-        }
-
         let mut names = BTreeMap::new();
         for (name, path) in name_files(&files, &root)? {
             let text =
@@ -566,9 +567,8 @@ impl<F: Filesystem> Store<F> {
             root,
             version,
             documents,
-            resolutions,
-            operations,
-            payloads: RefCell::new(None),
+            bodies: OnceCell::new(),
+            payloads: OnceCell::new(),
             names,
             skipped,
         })
@@ -629,9 +629,36 @@ impl<F: Filesystem> Store<F> {
         history
     }
 
+    /// What the revisions did, read from `operations/` on first need.
+    ///
+    /// The first call reads and parses every operation and resolution
+    /// document; every call after it is a lookup. A command that only asks
+    /// graph questions — `log`, `files`, `names` — never reaches here, and so
+    /// never pays for a directory it has no question about. Decision 0017
+    /// already answered this for payloads; the documents beside them read no
+    /// differently.
+    fn bodies(&self) -> Result<&Bodies, StoreError> {
+        if let Some(bodies) = self.bodies.get() {
+            return Ok(bodies);
+        }
+        let bodies = read_bodies(&self.files, &self.root)?;
+        // Empty, because nothing above could have filled it: `read_bodies`
+        // takes `&self.files` and cannot re-enter.
+        Ok(self.bodies.get_or_init(|| bodies))
+    }
+
+    /// The same, to write into.
+    ///
+    /// Loaded first, so that a document inserted before anything read the
+    /// directory is not lost when the directory is finally read.
+    fn bodies_mut(&mut self) -> Result<&mut Bodies, StoreError> {
+        self.bodies()?;
+        Ok(self.bodies.get_mut().expect("just loaded"))
+    }
+
     /// One operation document by digest.
-    pub fn operation(&self, id: &RevisionId) -> Option<&OperationDocument> {
-        self.operations.get(id)
+    pub fn operation(&self, id: &RevisionId) -> Result<Option<&OperationDocument>, StoreError> {
+        Ok(self.bodies()?.operations.get(id))
     }
 
     /// Every held forgetting document standing in for `target`.
@@ -639,11 +666,13 @@ impl<F: Filesystem> Store<F> {
     /// Decision 0014: a revision's `edit` line still names the destroyed
     /// digest, and a reader that cannot find it looks for a document that
     /// says it `forgets` it.
-    pub fn forgetting(&self, target: &RevisionId) -> Vec<&OperationDocument> {
-        self.operations
+    pub fn forgetting(&self, target: &RevisionId) -> Result<Vec<&OperationDocument>, StoreError> {
+        Ok(self
+            .bodies()?
+            .operations
             .values()
             .filter(|document| document.forgets == Some(*target))
-            .collect()
+            .collect())
     }
 
     /// The document a reader consumes for one digest.
@@ -652,26 +681,40 @@ impl<F: Filesystem> Store<F> {
     /// folded over every forgetting document that names it: an item is
     /// forgotten if any of them forgets it. `None` when the store holds
     /// neither the document nor anything standing in for it.
-    pub fn effective_operation(&self, named: &RevisionId) -> Option<OperationDocument> {
-        crate::format::stand_in(self.operations.get(named), &self.forgetting(named))
+    pub fn effective_operation(
+        &self,
+        named: &RevisionId,
+    ) -> Result<Option<OperationDocument>, StoreError> {
+        let bodies = self.bodies()?;
+        Ok(crate::format::stand_in(
+            bodies.operations.get(named),
+            &self.forgetting(named)?,
+        ))
     }
 
     /// One resolution document, if the digest names one.
     ///
     /// Decision 0032: an `edit` line names either grammar, and this is how a
     /// caller asks which one it named.
-    pub fn resolution(&self, named: &RevisionId) -> Option<&ResolutionDocument> {
-        self.resolutions.get(named)
+    pub fn resolution(
+        &self,
+        named: &RevisionId,
+    ) -> Result<Option<&ResolutionDocument>, StoreError> {
+        Ok(self.bodies()?.resolutions.get(named))
     }
 
     /// Every resolution document, in digest order.
-    pub fn resolutions(&self) -> impl Iterator<Item = (&RevisionId, &ResolutionDocument)> {
-        self.resolutions.iter()
+    pub fn resolutions(
+        &self,
+    ) -> Result<impl Iterator<Item = (&RevisionId, &ResolutionDocument)>, StoreError> {
+        Ok(self.bodies()?.resolutions.iter())
     }
 
     /// Every operation document, in digest order.
-    pub fn operations(&self) -> impl Iterator<Item = (&RevisionId, &OperationDocument)> {
-        self.operations.iter()
+    pub fn operations(
+        &self,
+    ) -> Result<impl Iterator<Item = (&RevisionId, &OperationDocument)>, StoreError> {
+        Ok(self.bodies()?.operations.iter())
     }
 
     /// The highest document version this store holds.
@@ -690,8 +733,8 @@ impl<F: Filesystem> Store<F> {
         };
         let bytes = self
             .files
-            .read(&path)
-            .map_err(|error| StoreError::io(&path, error))?;
+            .read(path)
+            .map_err(|error| StoreError::io(path, error))?;
         Ok(Some(bytes))
     }
 
@@ -700,29 +743,16 @@ impl<F: Filesystem> Store<F> {
     /// Hashes the directory the first time it is asked and remembers the
     /// answer, so a command that never reads content never reads a payload.
     pub fn payloads(&self) -> Result<BTreeMap<RevisionId, PathBuf>, StoreError> {
-        self.index_payloads()?;
-        Ok(self
-            .payloads
-            .borrow()
-            .as_ref()
-            .expect("just indexed")
-            .clone())
+        Ok(self.indexed_payloads()?.clone())
     }
 
-    fn payload_path(&self, id: &RevisionId) -> Result<Option<PathBuf>, StoreError> {
-        self.index_payloads()?;
-        Ok(self
-            .payloads
-            .borrow()
-            .as_ref()
-            .expect("just indexed")
-            .get(id)
-            .cloned())
+    fn payload_path(&self, id: &RevisionId) -> Result<Option<&Path>, StoreError> {
+        Ok(self.indexed_payloads()?.get(id).map(PathBuf::as_path))
     }
 
-    fn index_payloads(&self) -> Result<(), StoreError> {
-        if self.payloads.borrow().is_some() {
-            return Ok(());
+    fn indexed_payloads(&self) -> Result<&BTreeMap<RevisionId, PathBuf>, StoreError> {
+        if let Some(found) = self.payloads.get() {
+            return Ok(found);
         }
         let mut found: BTreeMap<RevisionId, PathBuf> = BTreeMap::new();
         // Sorted by `walk`, so two copies of one payload resolve to the same
@@ -734,8 +764,13 @@ impl<F: Filesystem> Store<F> {
                 .map_err(|error| StoreError::io(&path, error))?;
             found.entry(digest(&bytes)).or_insert(path);
         }
-        *self.payloads.borrow_mut() = Some(found);
-        Ok(())
+        Ok(self.payloads.get_or_init(|| found))
+    }
+
+    /// Forget where the payloads were found, for the same reason as
+    /// [`Store::forget_bodies`]: the paths may just have gone.
+    fn forget_payloads(&mut self) {
+        self.payloads.take();
     }
 
     /// Every revision `head` descends from, itself included, each beside its
@@ -910,7 +945,8 @@ impl<F: Filesystem> Store<F> {
     /// arrived whole as. Redactions are folded in, because a `keep` of a
     /// forgotten item is a `keep` of the marker standing where it was.
     pub fn minted(&self, named: &RevisionId) -> Result<Option<Vec<Item>>, MaterialiseError> {
-        if let Some(resolution) = self.resolutions.get(named) {
+        let bodies = self.bodies().map_err(MaterialiseError::unreadable)?;
+        if let Some(resolution) = bodies.resolutions.get(named) {
             return Ok(Some(
                 resolution
                     .pieces
@@ -923,7 +959,10 @@ impl<F: Filesystem> Store<F> {
                     .collect(),
             ));
         }
-        if let Some(document) = self.effective_operation(named) {
+        if let Some(document) = self
+            .effective_operation(named)
+            .map_err(MaterialiseError::unreadable)?
+        {
             return Ok(Some(minted_by(&document)));
         }
         // A digest naming neither is a payload's, or nothing at all.
@@ -942,6 +981,7 @@ impl<F: Filesystem> Store<F> {
     /// which states no resolution — which is every merge recorded before
     /// version 3, and nothing a version 3 writer produces.
     fn stated_content(&self, head: &RevisionId, file: &FileId) -> Result<Stated, MaterialiseError> {
+        let bodies = self.bodies().map_err(MaterialiseError::unreadable)?;
         let mut known: BTreeMap<RevisionId, Stated> = BTreeMap::new();
         let mut stack = vec![*head];
         while let Some(id) = stack.last().copied() {
@@ -957,7 +997,7 @@ impl<F: Filesystem> Store<F> {
             // A resolution is the file, stated: nothing before it is read,
             // which is the floor 0032 puts under materialising a long history.
             if let Some(named) = document.edited.get(file)
-                && let Some(resolution) = self.resolutions.get(named)
+                && let Some(resolution) = bodies.resolutions.get(named)
             {
                 let assembled = self.assemble(resolution, id, *file)?;
                 known.insert(id, Stated::Known(assembled));
@@ -1009,12 +1049,13 @@ impl<F: Filesystem> Store<F> {
                     // A file nothing said anything about before is one whose
                     // operations are counted into an empty state.
                     base => {
-                        let operations = self.effective_operation(named).ok_or(
-                            MaterialiseError::MissingOperations {
+                        let operations = self
+                            .effective_operation(named)
+                            .map_err(MaterialiseError::unreadable)?
+                            .ok_or(MaterialiseError::MissingOperations {
                                 document: *named,
                                 named_by: id,
-                            },
-                        )?;
+                            })?;
                         let before = match base {
                             Stated::Known(state) => state,
                             _ => State::empty(),
@@ -1084,21 +1125,23 @@ impl<F: Filesystem> Store<F> {
         documents: &[(RevisionId, &RevisionDocument)],
         file: &FileId,
     ) -> Result<BTreeMap<RevisionId, Held>, MaterialiseError> {
+        let bodies = self.bodies().map_err(MaterialiseError::unreadable)?;
         let mut held: BTreeMap<RevisionId, Held> = BTreeMap::new();
         for &(revision, document) in documents {
             if let Some(named) = document.edited.get(file) {
                 // Decision 0032: an `edit` line names either grammar, and
                 // which one it named is a fact about the bytes in the store.
-                if let Some(resolution) = self.resolutions.get(named) {
+                if let Some(resolution) = bodies.resolutions.get(named) {
                     held.insert(revision, Held::Resolution(*named, resolution.clone()));
                     continue;
                 }
-                let effective =
-                    self.effective_operation(named)
-                        .ok_or(MaterialiseError::MissingOperations {
-                            document: *named,
-                            named_by: revision,
-                        })?;
+                let effective = self
+                    .effective_operation(named)
+                    .map_err(MaterialiseError::unreadable)?
+                    .ok_or(MaterialiseError::MissingOperations {
+                        document: *named,
+                        named_by: revision,
+                    })?;
                 held.insert(revision, Held::Operations(*named, effective));
             } else if let Some(payload) = document.text.get(file)
                 && let Some(creation) = self.creation_for(payload, revision)?
@@ -1141,7 +1184,9 @@ impl<F: Filesystem> Store<F> {
             }
             None => None,
         };
-        let forgetting = self.forgetting(payload);
+        let forgetting = self
+            .forgetting(payload)
+            .map_err(MaterialiseError::unreadable)?;
         if base.is_none() && forgetting.is_empty() {
             // An empty payload is never named (decision 0017), so a named
             // payload with no bytes and no stand-in is one nothing delivered.
@@ -1271,13 +1316,13 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        if self.operations.contains_key(&id) {
+        if self.bodies()?.operations.contains_key(&id) {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
-        self.operations.insert(id, document.clone());
+        self.bodies_mut()?.operations.insert(id, document.clone());
         Ok(id)
     }
 
@@ -1294,13 +1339,13 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        if self.resolutions.contains_key(&id) {
+        if self.bodies()?.resolutions.contains_key(&id) {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
-        self.resolutions.insert(id, document.clone());
+        self.bodies_mut()?.resolutions.insert(id, document.clone());
         Ok(id)
     }
 
@@ -1333,7 +1378,7 @@ impl<F: Filesystem> Store<F> {
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         write_once(&self.files, &path, bytes)?;
-        if let Some(index) = self.payloads.borrow_mut().as_mut() {
+        if let Some(index) = self.payloads.get_mut() {
             index.entry(id).or_insert(path);
         }
         Ok(id)
@@ -1587,6 +1632,37 @@ pub fn walk<F: Filesystem + ?Sized>(
     Ok(found)
 }
 
+/// Read and parse everything `operations/` states, in both grammars.
+///
+/// Free rather than a method so that [`Store::bodies`] can call it while the
+/// cell it fills is untouched, which is what makes filling that cell sound.
+fn read_bodies<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Bodies, StoreError> {
+    let mut bodies = Bodies::default();
+    for path in files_claiming(files, root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
+        let bytes = files
+            .read(&path)
+            .map_err(|error| StoreError::io(&path, error))?;
+        // Decision 0032: two content-document grammars share the suffix,
+        // and the body says which one the bytes are held to.
+        if format::is_resolution(&bytes) {
+            let document =
+                ResolutionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
+                    file: path.clone(),
+                    error,
+                })?;
+            bodies.resolutions.insert(digest(&bytes), document);
+        } else {
+            let document =
+                OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
+                    file: path.clone(),
+                    error,
+                })?;
+            bodies.operations.insert(digest(&bytes), document);
+        }
+    }
+    Ok(bodies)
+}
+
 /// Every payload in `operations/`, at any depth.
 ///
 /// Decision 0017: only `*.ops` is an operation document there, and every other
@@ -1664,6 +1740,18 @@ pub enum MaterialiseError {
         /// The revision that names it.
         named_by: RevisionId,
     },
+    /// `operations/` could not be read, so what the revisions did is not
+    /// there to answer with.
+    ///
+    /// Opening a store does not read that directory — decision 0017's rule
+    /// for payloads, applied to the documents beside them — so a file that
+    /// will not parse is found here, the first time something asks what it
+    /// says, rather than at [`Store::open`].
+    UnreadableOperations {
+        /// What the store said: a filesystem error, or a parse error naming
+        /// the file it came from.
+        because: String,
+    },
     /// A payload the filesystem would not hand over.
     Unreadable {
         /// The payload.
@@ -1735,6 +1823,19 @@ pub enum MaterialiseError {
     },
 }
 
+impl MaterialiseError {
+    /// Decision 0002's strictness, reported where the reading now happens.
+    ///
+    /// Every other filesystem failure in this module names the thing it was
+    /// after; this one is for the directory as a whole, which is read once
+    /// and answers for every document in it.
+    fn unreadable(error: StoreError) -> Self {
+        MaterialiseError::UnreadableOperations {
+            because: error.to_string(),
+        }
+    }
+}
+
 impl fmt::Display for MaterialiseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1762,6 +1863,9 @@ impl fmt::Display for MaterialiseError {
             ),
             MaterialiseError::Unreadable { payload, because } => {
                 write!(f, "the content {payload} could not be read: {because}")
+            }
+            MaterialiseError::UnreadableOperations { because } => {
+                write!(f, "what the revisions did could not be read: {because}")
             }
             MaterialiseError::PayloadNotText { payload, named_by } => write!(
                 f,

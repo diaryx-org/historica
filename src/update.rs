@@ -335,7 +335,7 @@ pub fn plan<F: Filesystem>(
                 }
                 Some(digest) => match store.payload(digest)? {
                     Some(bytes) => bytes,
-                    None if !store.forgetting(digest).is_empty() => {
+                    None if !store.forgetting(digest)?.is_empty() => {
                         refuse(
                             path,
                             format!(

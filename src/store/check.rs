@@ -684,6 +684,12 @@ fn check_resolutions<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mu
     let Ok(store) = super::Store::open_on(files, root) else {
         return;
     };
+    // Opening no longer reads `operations/`, and this check is entirely about
+    // what an `edit` line names there. A directory that will not parse has
+    // already been reported file by file, on the same reasoning as above.
+    if store.resolutions().is_err() {
+        return;
+    }
 
     // Decision 0032 defers binary at a merge: 0008 makes two concurrent
     // `bytes` a divergence and 0028 makes accepting one explicit, and a
@@ -726,7 +732,7 @@ fn check_resolutions<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mu
             let resolves = document
                 .edited
                 .get(file)
-                .is_some_and(|named| store.resolution(named).is_some());
+                .is_some_and(|named| matches!(store.resolution(named), Ok(Some(_))));
             match (differ, resolves) {
                 (false, true) => report.push(Finding::ResolvedWithoutDisagreement {
                     revision: *revision,
