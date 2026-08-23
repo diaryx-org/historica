@@ -1947,6 +1947,75 @@ fn a_store_written_by_hand_is_one_this_tool_reads_and_carries_on_from() {
     assert!(out(recorded(&directory, &["check"])).ends_with("nothing to report\n"));
 }
 
+/// Decision 0033: a folder that hands back a decomposed name records the
+/// composed one, and goes on holding the file it already had.
+#[test]
+fn a_decomposed_filename_is_recorded_under_one_spelling() {
+    let directory = repository("nfc");
+    // `café.md`, written with `e` and a combining acute — which is what a
+    // filesystem that normalises to NFD hands back, and what some editors
+    // and some keyboards produce directly.
+    write(&directory, "cafe\u{301}.md", "un café\n");
+    let recording = out(recorded(&directory, &["record", "-m", "a decomposed name"]));
+    assert!(recording.contains("caf\u{e9}.md"), "{recording}");
+
+    let document = out(recorded(&directory, &["show", "head"]));
+    assert!(
+        document.contains("caf\u{e9}.md"),
+        "the store records the composed spelling: {document}"
+    );
+    assert!(
+        !document.contains("cafe\u{301}.md"),
+        "and only that one: {document}"
+    );
+
+    // Reading it back works under either spelling a person might type.
+    for spelling in ["caf\u{e9}.md", "cafe\u{301}.md"] {
+        assert_eq!(
+            out(recorded(&directory, &["cat", "head", spelling])),
+            "un café\n",
+            "{spelling:?}"
+        );
+    }
+
+    // And nothing has changed: the folder is the file it already had, under
+    // the name it already had, whatever the store spells it.
+    let status = out(recorded(&directory, &["status"]));
+    assert!(status.contains("nothing"), "{status}");
+
+    // An update that has to write goes to the file the folder holds rather
+    // than laying a composed twin beside a decomposed original.
+    write(&directory, "cafe\u{301}.md", "un café serré\n");
+    out(recorded(&directory, &["record", "-m", "stronger"]));
+    let stronger = out(recorded(&directory, &["log"]))
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .expect("the head")
+        .to_owned();
+    out(recorded(
+        &directory,
+        &["abandon", &stronger, "-m", "not that strong"],
+    ));
+    out(recorded(&directory, &["update"]));
+    assert_eq!(
+        fs::read_to_string(directory.join("cafe\u{301}.md")).expect("the file the folder holds"),
+        "un café\n"
+    );
+
+    let names: Vec<String> = fs::read_dir(&directory)
+        .expect("the repository")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".md"))
+        .collect();
+    assert_eq!(
+        names.len(),
+        1,
+        "no second file was laid beside it: {names:?}"
+    );
+}
+
 #[test]
 fn a_recorded_merge_states_its_resolution_and_the_next_revision_counts_into_it() {
     let (directory, mine, theirs) = diverged(

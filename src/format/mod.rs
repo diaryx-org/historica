@@ -32,10 +32,12 @@
 //! has no preamble and no grammar, because it is the file itself — see
 //! [`crate::store`], which is where bytes with no format of their own live.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use sha2::{Digest, Sha256};
+use unicode_normalization::{IsNormalized, UnicodeNormalization};
 
 use crate::core::{CHANGE_ID_LEN, ChangeId, FileId, Revision, RevisionId};
 
@@ -804,6 +806,22 @@ fn parse_path(value: &str, at: usize) -> Result<String, ParseError> {
     Ok(value.to_owned())
 }
 
+/// One path, in Unicode normal form C.
+///
+/// The store's spelling, per decision 0033. Applied wherever a path arrives
+/// from outside — a directory listing, an argument a person typed — so that
+/// two replicas whose filesystems disagree about how to spell a name record
+/// one path rather than two files.
+///
+/// Borrowed where the path is already normalised, which is every ASCII path
+/// and therefore very nearly all of them.
+pub fn nfc(value: &str) -> Cow<'_, str> {
+    if value.is_ascii() || unicode_normalization::is_nfc_quick(value.chars()) == IsNormalized::Yes {
+        return Cow::Borrowed(value);
+    }
+    Cow::Owned(value.nfc().collect())
+}
+
 /// Whether `value` is a path a revision document may name.
 ///
 /// Decision 0008's rules, and 0002's rules for any header value. A writer
@@ -834,6 +852,13 @@ pub fn check_path(value: &str) -> Result<(), MalformedPath> {
         if component == "." || component == ".." {
             return refuse("`.` and `..` are not components");
         }
+    }
+    // Decision 0033: the store spells a path one way, so that a name a
+    // filesystem hands back decomposed is the same path it was written as.
+    if nfc(value) != value {
+        return refuse(
+            "it is not in Unicode normal form C, which is the one spelling a store records",
+        );
     }
     Ok(())
 }
@@ -1350,6 +1375,9 @@ mod tests {
             "../escape.md",
             "notes/../escape.md",
             " leading-space.md",
+            // Decision 0033: `café` with a combining acute, which is the same
+            // name and not the spelling a store records it under.
+            "cafe\u{301}.md",
         ];
         for path in bad {
             assert!(
@@ -1362,6 +1390,34 @@ mod tests {
                 ),
                 "`{path}` should be refused"
             );
+        }
+    }
+
+    /// Decision 0033: one spelling per path, so that two replicas whose
+    /// filesystems disagree about how to write a name record one file.
+    #[test]
+    fn a_path_is_spelled_in_normal_form_c() {
+        // The two spellings of `café`: precomposed, and `e` with a combining
+        // acute accent. They are the same name and different bytes.
+        let composed = "caf\u{e9}.md";
+        let decomposed = "cafe\u{301}.md";
+        assert_ne!(composed, decomposed);
+        assert_eq!(nfc(decomposed), composed);
+        assert!(check_path(composed).is_ok());
+        assert!(check_path(decomposed).is_err());
+
+        // An ASCII path is already normalised, and normalising it copies
+        // nothing — which is very nearly every path there is.
+        assert!(matches!(nfc("notes/2026-08-19.md"), Cow::Borrowed(_)));
+        assert!(matches!(nfc(composed), Cow::Borrowed(_)));
+        assert!(matches!(nfc(decomposed), Cow::Owned(_)));
+
+        // Normalising is idempotent, which is what lets it happen at every
+        // boundary without anyone tracking whether it already has.
+        for path in ["a.md", composed, decomposed, "🌛/\u{1e9b}\u{323}.md"] {
+            let once = nfc(path).into_owned();
+            assert_eq!(nfc(&once), once, "{path:?}");
+            assert!(check_path(&once).is_ok(), "{path:?}");
         }
     }
 

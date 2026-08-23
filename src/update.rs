@@ -419,9 +419,19 @@ pub fn apply<F: Filesystem>(
 ) -> Result<Applied, UpdateError> {
     let filesystem = working.filesystem();
     let mut applied = Applied::default();
+    // Decision 0033: the tree spells a path in normal form C, and a folder may
+    // spell the same name decomposed. Where the walk already found the file,
+    // it is opened under the spelling the folder actually uses, so an update
+    // rewrites that file rather than laying a second one beside it.
+    let on_disk = |path: &String| {
+        working
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| repository.join(path))
+    };
 
     for remove in &update.removes {
-        let on_disk = repository.join(&remove.path);
+        let on_disk = on_disk(&remove.path);
         match read(filesystem, &on_disk)? {
             Some(held) if held == remove.held => {
                 filesystem
@@ -443,7 +453,7 @@ pub fn apply<F: Filesystem>(
     }
 
     for write in &update.writes {
-        let on_disk = repository.join(&write.path);
+        let on_disk = on_disk(&write.path);
         if read(filesystem, &on_disk)? != write.replaces {
             applied.left.push((
                 write.path.clone(),
@@ -477,7 +487,7 @@ pub fn apply<F: Filesystem>(
         if !applied.wrote.contains(&write.path) {
             continue;
         }
-        let on_disk = repository.join(&write.path);
+        let on_disk = on_disk(&write.path);
         if read(filesystem, &on_disk)?.as_deref() != Some(write.bytes.as_slice()) {
             applied.folded.push(write.path.clone());
         }

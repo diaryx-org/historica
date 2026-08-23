@@ -89,7 +89,10 @@ pub fn file_in(store: &Store, revision: &RevisionId, spelling: &str) -> Result<F
     if let Some(named) = spelling.strip_prefix(FILE_PREFIX) {
         return file_named(store, &tree, revision, named);
     }
-    let path = spelling.strip_prefix(PATH_PREFIX).unwrap_or(spelling);
+    // Decision 0033: a store spells a path in normal form C, and a person's
+    // keyboard, shell, and tab completion may not.
+    let path = historica::format::nfc(spelling.strip_prefix(PATH_PREFIX).unwrap_or(spelling));
+    let path = path.as_ref();
 
     match tree.at(path).as_slice() {
         [] => Err(Failure::error(format!(

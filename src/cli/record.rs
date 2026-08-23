@@ -8,6 +8,7 @@ use std::process::Command;
 
 use historica::conflict;
 use historica::core::{FileId, RevisionId};
+use historica::format;
 use historica::record::{
     Abandoning, Amendment, Clock, Platform, Recording, abandon as abandon_revision,
     abandonment_plan, amend as amend_revision, amendment_plan, identity, plan as plan_for,
@@ -51,14 +52,14 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                 let (file, path) = stated
                     .split_once('=')
                     .ok_or_else(|| Failure::usage("`--at` is spelled `--at <file>=<path>`"))?;
-                at.push((file.to_owned(), path.to_owned()));
+                at.push((file.to_owned(), format::nfc(path).into_owned()));
             }
             "--move" => {
                 let stated = value("--move")?;
                 let (from, to) = stated
                     .split_once('=')
                     .ok_or_else(|| Failure::usage("`--move` is spelled `--move <old>=<new>`"))?;
-                moves.push((from.to_owned(), to.to_owned()));
+                moves.push((format::nfc(from).into_owned(), format::nfc(to).into_owned()));
             }
             "-n" | "--dry-run" => dry_run = true,
             other => {
@@ -186,7 +187,7 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 let (from, to) = stated
                     .split_once('=')
                     .ok_or_else(|| Failure::usage("`--move` is spelled `--move <old>=<new>`"))?;
-                moves.push((from.to_owned(), to.to_owned()));
+                moves.push((format::nfc(from).into_owned(), format::nfc(to).into_owned()));
             }
             "-n" | "--dry-run" => dry_run = true,
             other if other.starts_with('-') => {

@@ -62,7 +62,10 @@ in this order, and repeated ones are sorted by the value that follows them:
   x-<anything> <value>            an advisory header some other tool wrote.
                                   Ignore it; it hashes like everything else.
 
-Paths are slash-separated and relative to the folder beside this one.
+Paths are slash-separated and relative to the folder beside this one, and
+spelled in Unicode normal form C — so `café.md` holds one U+00E9 rather than
+`e` and a combining acute. That is what most things write; if your editor
+writes the other one, the two look identical and only one of them parses.
 
 
 operations/*.ops.txt — what a revision did to one file

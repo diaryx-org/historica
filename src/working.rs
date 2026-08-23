@@ -117,10 +117,10 @@ impl Skipped {
             }
             rules.push(match key {
                 "skip" if value.ends_with('/') => {
-                    Rule::Under(value.trim_end_matches('/').to_owned())
+                    Rule::Under(crate::format::nfc(value.trim_end_matches('/')).into_owned())
                 }
-                "skip" => Rule::Path(value.to_owned()),
-                "skip-suffix" => Rule::Suffix(value.to_owned()),
+                "skip" => Rule::Path(crate::format::nfc(value).into_owned()),
+                "skip-suffix" => Rule::Suffix(crate::format::nfc(value).into_owned()),
                 _ => {
                     return Err(MalformedSkip {
                         at,
@@ -346,6 +346,11 @@ fn walk<F: Filesystem + ?Sized>(
             refused.push((path, because));
             continue;
         };
+        // Decision 0033: the store spells a path in normal form C, and this
+        // is where a name the filesystem handed back decomposed becomes the
+        // path it was recorded as. `on_disk` keeps the spelling the folder
+        // actually uses, because that is what has to be opened.
+        let name = crate::format::nfc(&name).into_owned();
         let path = if prefix.is_empty() {
             name
         } else {
