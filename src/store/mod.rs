@@ -39,7 +39,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::{ChangeId, FileId, History, RevisionId};
-use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, digest};
+use crate::format::{
+    self, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, Version, digest,
+};
 // `fs` here is `crate::fs`, never `std::fs` — this module reaches the folder
 // only through the trait, and the qualified form is what keeps that visible.
 use crate::fs::{self, Disk, Entry, Filesystem, read_to_string};
@@ -294,6 +296,10 @@ pub struct Store<F = Disk> {
     version: Version,
     documents: BTreeMap<RevisionId, RevisionDocument>,
     operations: BTreeMap<RevisionId, OperationDocument>,
+    /// Decision 0032: a merge's file, stated whole by reference. Named by
+    /// `edit` lines exactly as operation documents are, and told apart by
+    /// their bodies.
+    resolutions: BTreeMap<RevisionId, ResolutionDocument>,
     /// Where each payload sits, by digest. Built on first need, never at open.
     payloads: RefCell<Option<BTreeMap<RevisionId, PathBuf>>>,
     names: BTreeMap<String, Name>,
@@ -410,16 +416,28 @@ impl<F: Filesystem> Store<F> {
         }
 
         let mut operations = BTreeMap::new();
+        let mut resolutions = BTreeMap::new();
         for path in files_claiming(&files, &root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
             let bytes = files
                 .read(&path)
                 .map_err(|error| StoreError::io(&path, error))?;
-            let document =
-                OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
-                    file: path.clone(),
-                    error,
-                })?;
-            operations.insert(digest(&bytes), document);
+            // Decision 0032: two content-document grammars share the suffix,
+            // and the body says which one the bytes are held to.
+            if format::is_resolution(&bytes) {
+                let document =
+                    ResolutionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
+                        file: path.clone(),
+                        error,
+                    })?;
+                resolutions.insert(digest(&bytes), document);
+            } else {
+                let document =
+                    OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
+                        file: path.clone(),
+                        error,
+                    })?;
+                operations.insert(digest(&bytes), document);
+            }
         }
 
         let mut names = BTreeMap::new();
@@ -438,6 +456,7 @@ impl<F: Filesystem> Store<F> {
             root,
             version,
             documents,
+            resolutions,
             operations,
             payloads: RefCell::new(None),
             names,
