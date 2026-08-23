@@ -58,10 +58,13 @@ visible, to be triaged into its real group before the tag is cut.
 - **check** — hold a merge to what it owes a resolution for ([`16c6b43`](https://github.com/diaryx-org/historica/commit/16c6b43320718b5a44897e5aa5673180edad40ed))
 - **store** — a store carries the format it is written in ([`cb55fc3`](https://github.com/diaryx-org/historica/commit/cb55fc3d0db83470b2d067522941ad97ec592c39))
 - **format** — one spelling for a path ([`2c73a76`](https://github.com/diaryx-org/historica/commit/2c73a76aebfdf54cc8e54368ce366ede0eca7999))
+- **check** — say which heads a store holds the history of and cannot produce ([`32e85d9`](https://github.com/diaryx-org/historica/commit/32e85d91102e01b547f807893952f131bcecb32c))
+- **format** — a file can be run ([`0318e4d`](https://github.com/diaryx-org/historica/commit/0318e4d46607c67b3f81fdcdd814bb08b9872d78))
 
 ### Fixed
 
 - **merge** — anchor to the next element in the traversal, tombstones included ([`03dae53`](https://github.com/diaryx-org/historica/commit/03dae53908009565eb5ccaefa36bf35981943fb6))
+- **cli** — merge joins the heads it was not told about ([`4c57101`](https://github.com/diaryx-org/historica/commit/4c57101685334f6a00c22e68a313b8c2ab3502d5))
 
 ### Changed
 
@@ -146,6 +149,62 @@ contain. A folder holding two names that differ only in normalisation
 is now recorded as one file rather than two; `check` cannot see the
 case, and the deliberate version of it is what decision 0033 accepts
 losing. `historica` gains a dependency on `unicode-normalization`.
+
+- `historica merge` with no arguments joins every
+  standing head, and with one argument joins it with every head not
+  named. It refused both before. A store with one head and nothing named
+  still refuses, with a message that says which situation it is in.
+
+- The `historica record --merge ...` line that `merge`
+  prints now names every head the merge joined, not only the ones typed
+  on the `merge` command line. Scripts parsing that line get more
+  `--merge` flags than they did.
+
+- Refusals that ask for a head — `status` and `record`
+  with several heads, `cat head`, `update` — print several lines per
+  head instead of one, carrying the change ID, author, time, and message
+  summary. Anything matching those refusals line by line will need to
+  look again.
+
+- `historica check` prints one further line when the
+  store cannot produce one of its heads, after the error and note
+  summary, and one note per such head. Its exit code is unchanged: notes
+  still never fail.
+
+- `historica check --complete` is new, and exits
+  non-zero when any head's history is not all here. Ordinary `check`
+  answers whether the store contradicts itself; this answers whether
+  delivery has finished.
+
+- `store::Report` gains `is_complete` and `incomplete`,
+  and `store::Finding` gains an `Incomplete` variant. The enum is
+  `#[non_exhaustive]`, so matches on it already carry a wildcard arm.
+
+- A revision may state the mode of a file it names, as
+  `executable` or `plain`, and a document that does claims `historica-v4`. A
+  store gains that version the first time one is written and not before, so a
+  history that never marks anything executable is still read by every reader
+  published for version 3.
+
+- `record` states a mode change it observes, `status` and
+  `log` report it as `mode`, and `update` sets the bit on files it writes and
+  on files already holding the right bytes with the wrong bit — printing each
+  one. An executable file recorded before this upgrade is still recorded as
+  plain; the first record after it states the change.
+
+- `Filesystem` gains `executable` and `set_executable`, both
+  with default implementations that model no mode, so existing implementors
+  keep compiling and keep behaving correctly. A host that can see the bit
+  should override them.
+
+- `tree::Entry` gains `mode`, `tree::TreeContest` gains
+  `Mode`, `format::RevisionDocument` gains `modes`, and `format::Mode` is new.
+  Code constructing an `Entry` or a `RevisionDocument` by hand needs the new
+  field.
+
+- A store marker of `historica-v4` is now read rather than
+  refused. `historica-v5` is what a reader that knows less than this one says
+  it cannot read.
 
 <!-- git-cliff:end -->
 
