@@ -200,6 +200,81 @@ fn check_reports_a_note_without_failing() {
     assert!(!report.contains("error:"), "{report}");
 }
 
+/// A store missing an ancestor contradicts nothing, so `check` still passes
+/// it — and still says what it costs. `--complete` is the caller who has
+/// decided that for this store, at this moment, delivery should have finished.
+#[test]
+fn check_says_which_heads_it_cannot_produce_and_complete_fails_on_them() {
+    let directory = store_from("check-complete", "tree");
+    assert!(stdout(&directory, &["check"]).contains("nothing to report"));
+    assert!(run(&directory, &["check", "--complete"]).status.success());
+
+    // Remove the root, which every later revision stands on.
+    let revisions = directory.join("history/revisions");
+    fs::remove_file(revisions.join("01-start.rev.txt")).expect("the root");
+
+    let report = stdout(&directory, &["check"]);
+    assert!(report.contains("note:"), "{report}");
+    assert!(!report.contains("error:"), "{report}");
+    assert!(report.contains("cannot produce"), "{report}");
+    assert!(
+        report.contains("head here cannot be produced"),
+        "the summary should say the consequence: {report}"
+    );
+
+    // Notes never fail, exactly as decision 0006 requires.
+    assert!(run(&directory, &["check"]).status.success());
+    let asked = run(&directory, &["check", "--complete"]);
+    assert!(!asked.status.success());
+    assert!(
+        String::from_utf8_lossy(&asked.stdout).contains("cannot produce"),
+        "the reason belongs with the failure"
+    );
+}
+
+/// An undelivered payload is as fatal to producing a head as a missing
+/// ancestor, and is counted the same way.
+#[test]
+fn check_complete_counts_content_the_store_does_not_hold() {
+    let directory = repository("check-complete-content");
+    write(&directory, "f.md", "one\ntwo\n");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    assert!(run(&directory, &["check", "--complete"]).status.success());
+
+    // The payload a created file arrives as, per decision 0017.
+    let operations = directory.join("history/operations");
+    let payload = walk(&operations)
+        .into_iter()
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| !name.ends_with(".ops.txt"))
+        })
+        .expect("the payload");
+    fs::remove_file(payload).expect("removing the payload");
+
+    let report = out(recorded(&directory, &["check"]));
+    assert!(report.contains("cannot produce"), "{report}");
+    assert!(!run(&directory, &["check", "--complete"]).status.success());
+}
+
+/// Every file under a directory, to any depth.
+fn walk(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = fs::read_dir(root) else {
+        return found;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(walk(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found
+}
+
 #[test]
 fn log_reads_from_the_work_back() {
     let directory = store_from("log", "tree");

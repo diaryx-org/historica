@@ -389,7 +389,21 @@ pub fn report(out: &mut impl Write, root: &Path, report: &Report) -> io::Result<
     } else {
         format!("{}, {}", counted(errors, "error"), counted(notes, "note"))
     };
-    writeln!(out, "{}: {summary}", root.display())
+    writeln!(out, "{}: {summary}", root.display())?;
+
+    // Said after the summary rather than counted into it: an incomplete store
+    // is not a broken one, and `--complete` is the caller who has decided that
+    // for this particular store, at this particular moment, it is.
+    if !report.is_complete() {
+        let heads = report.incomplete().count();
+        writeln!(
+            out,
+            "{}: {} here cannot be produced from what is here",
+            root.display(),
+            counted(heads, "head")
+        )?;
+    }
+    Ok(())
 }
 
 /// `1 error`, `2 errors`, `no errors`.

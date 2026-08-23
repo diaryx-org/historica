@@ -11,6 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
@@ -237,6 +238,24 @@ pub enum Finding {
         /// The document whose destruction it undercuts.
         forgets: RevisionId,
     },
+    /// A head whose history is not all here, so nothing can produce it.
+    ///
+    /// A note, because every reason for it is one: a missing parent, an
+    /// undelivered operation document, a payload still in transit. What this
+    /// adds to those is the consequence they leave a person to work out — that
+    /// `files`, `cat`, and `update` cannot answer for this head until the rest
+    /// arrives, and that the readable files are not yet the authority for
+    /// anything at its tip.
+    ///
+    /// `check --complete` is the caller who wants this to fail: a sync that
+    /// should have finished, a backup about to be trusted, a store about to be
+    /// carried somewhere the other half of it is not.
+    Incomplete {
+        /// The head that cannot be produced.
+        head: RevisionId,
+        /// Every digest its history names and this store does not hold.
+        missing: BTreeSet<RevisionId>,
+    },
 }
 
 impl Finding {
@@ -266,7 +285,8 @@ impl Finding {
             | Finding::Resurrected { .. }
             | Finding::UnstatedMerge { .. }
             | Finding::MissingReference { .. }
-            | Finding::StillQuoted { .. } => Severity::Note,
+            | Finding::StillQuoted { .. }
+            | Finding::Incomplete { .. } => Severity::Note,
         }
     }
 }
@@ -410,8 +430,33 @@ impl fmt::Display for Finding {
                 document.abbreviate(12),
                 forgets.abbreviate(12)
             ),
+            Finding::Incomplete { head, missing } => write!(
+                f,
+                "{} is a head this store cannot produce: its history names {}, \
+                 which is not here",
+                head.abbreviate(12),
+                display_missing(missing)
+            ),
         }
     }
+}
+
+/// The digests a head is waiting on, said without becoming a wall of hex.
+///
+/// One is the ordinary number — a store mid-sync is usually one document
+/// behind — and a long list says the same thing as a short one plus a count.
+fn display_missing(missing: &BTreeSet<RevisionId>) -> String {
+    const SHOWN: usize = 3;
+    let mut out = missing
+        .iter()
+        .take(SHOWN)
+        .map(|id| id.abbreviate(12))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if missing.len() > SHOWN {
+        let _ = write!(out, " and {} more", missing.len() - SHOWN);
+    }
+    out
 }
 
 fn display_files(files: &[PathBuf]) -> String {
@@ -453,6 +498,24 @@ impl Report {
     /// Whether the store can be trusted. Notes do not affect this.
     pub fn is_ok(&self) -> bool {
         self.errors().next().is_none()
+    }
+
+    /// Every head this store holds the history of but cannot produce.
+    pub fn incomplete(&self) -> impl Iterator<Item = &Finding> {
+        self.findings
+            .iter()
+            .filter(|finding| matches!(finding, Finding::Incomplete { .. }))
+    }
+
+    /// Whether every head here can be materialised from what is here.
+    ///
+    /// Separate from [`Report::is_ok`] on purpose. A store missing half its
+    /// history contradicts nothing and is not broken — decision 0006 is right
+    /// that transport having more to deliver is ordinary — but a caller who
+    /// believes delivery has finished is asking a different question, and this
+    /// is that question.
+    pub fn is_complete(&self) -> bool {
+        self.incomplete().next().is_none()
     }
 
     fn push(&mut self, finding: Finding) {
@@ -997,6 +1060,102 @@ fn check_replay<F: Filesystem + ?Sized>(
     }
     for (document, forgets) in undercut {
         report.push(Finding::StillQuoted { document, forgets });
+    }
+
+    check_completeness(
+        documents,
+        operations,
+        resolutions,
+        payloads,
+        &forgetting,
+        report,
+    );
+}
+
+/// Which heads this store can actually produce, and which it only describes.
+///
+/// Every missing piece is already a note of its own, and each says what is
+/// absent. None says what that costs, and the cost is not proportional to the
+/// count: one undelivered payload at the root of a history makes every file
+/// downstream of it unreadable, while ten of them in a branch nothing stands
+/// on cost nothing at all. The difference is reachability, so reachability is
+/// what this reports.
+///
+/// Structural rather than replayed on purpose. A head is producible exactly
+/// when its whole ancestry is here and every digest that ancestry names is
+/// here; that is a walk of the graph, and it stays cheap on a store far too
+/// large to materialise twice for the sake of a report.
+fn check_completeness(
+    documents: &BTreeMap<RevisionId, RevisionDocument>,
+    operations: &BTreeMap<RevisionId, OperationDocument>,
+    resolutions: &BTreeMap<RevisionId, ResolutionDocument>,
+    payloads: &BTreeMap<RevisionId, PathBuf>,
+    forgetting: &BTreeMap<RevisionId, Vec<&OperationDocument>>,
+    report: &mut Report,
+) {
+    // What one revision names and this store does not hold. A document that
+    // has been forgotten is *here* for this purpose: decision 0014 destroys
+    // the bytes and keeps the shape, so the file still materialises.
+    let missing_from = |document: &RevisionDocument| {
+        let mut missing = BTreeSet::new();
+        let held = |named: &RevisionId| {
+            operations.contains_key(named)
+                || resolutions.contains_key(named)
+                || payloads.contains_key(named)
+                || forgetting.contains_key(named)
+        };
+        for named in document.edited.values() {
+            if !held(named) {
+                missing.insert(*named);
+                continue;
+            }
+            // A resolution is not self-contained: it keeps runs of documents
+            // it names, and a `keep` of something absent is a hole in the
+            // file exactly as a missing operation document is.
+            if let Some(resolution) = resolutions.get(named) {
+                for piece in &resolution.pieces {
+                    if let crate::format::Piece::Keep { document, .. } = piece
+                        && !held(document)
+                    {
+                        missing.insert(*document);
+                    }
+                }
+            }
+        }
+        for named in document.text.values().chain(document.bytes.values()) {
+            if !held(named) {
+                missing.insert(*named);
+            }
+        }
+        missing
+    };
+
+    let mut parents: BTreeSet<RevisionId> = BTreeSet::new();
+    for document in documents.values() {
+        parents.extend(document.parents.iter().copied());
+    }
+
+    for head in documents.keys().filter(|id| !parents.contains(id)) {
+        let mut missing: BTreeSet<RevisionId> = BTreeSet::new();
+        let mut seen: BTreeSet<RevisionId> = BTreeSet::new();
+        let mut stack = vec![*head];
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(document) = documents.get(&id) else {
+                missing.insert(id);
+                continue;
+            };
+            missing.extend(missing_from(document));
+            stack.extend(document.parents.iter().copied());
+        }
+        if !missing.is_empty() {
+            report.push(Finding::Incomplete {
+                head: *head,
+                missing,
+            });
+        }
     }
 }
 

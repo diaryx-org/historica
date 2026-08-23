@@ -62,7 +62,9 @@ writing a store
                            authors, and times stay recorded
   identity <author>        say who you are, once, for every repository
   init [<dir>]             make a store in <dir>/history
-  check [<dir>]            read a store and report every fault
+  check [<dir>] [--complete]
+                           read a store and report every fault; --complete
+                           also fails when a head's history is not all here
   arrange [-n]             rename revision files to readable ones
   name <bookmark> <target> [<path>] [--revision]
                            point a bookmark at a change, pin a revision, or
@@ -216,12 +218,21 @@ fn init(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
 /// `check [<dir>]` — every fault at once, errors and notes kept apart.
 fn check(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
-    let mut arguments = arguments.into_iter();
-    let root = match arguments.next() {
+    let mut complete = false;
+    let mut rest = Vec::new();
+    for argument in arguments {
+        match argument.as_str() {
+            "--complete" => complete = true,
+            other => rest.push(other.to_owned()),
+        }
+    }
+
+    let mut rest = rest.into_iter();
+    let root = match rest.next() {
         Some(path) => named(base, &path),
         None => locate(base)?,
     };
-    if let Some(extra) = arguments.next() {
+    if let Some(extra) = rest.next() {
         return Err(Failure::usage(format!(
             "`check` takes one directory, and `{extra}` is a second"
         )));
@@ -233,8 +244,11 @@ fn check(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let shown = root.canonicalize().unwrap_or(root);
     printing(|out| render::report(out, &shown, &report))?;
     // Decision 0006: notes never fail, so this can be run in anger without
-    // teaching anyone to ignore it.
-    Ok(u8::from(!report.is_ok()))
+    // teaching anyone to ignore it. `--complete` asks the second question —
+    // whether delivery has finished — and only that question fails on a note.
+    Ok(u8::from(
+        !report.is_ok() || (complete && !report.is_complete()),
+    ))
 }
 
 /// `arrange [-n]` — advisory names, deterministically.

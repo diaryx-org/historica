@@ -381,6 +381,15 @@ whose own name begins `file:`. `historica help` lists the rest. `check` exits no
 be run in anger; a duplicate, an undelivered parent, or a sync tool's
 conflicted copy is a note, and notes never fail.
 
+What those notes leave a person to work out is what they cost, and the cost is
+not the count: one undelivered payload under the root makes every file after it
+unreadable, while ten in a branch nothing stands on cost nothing. So `check`
+says the consequence as well as the symptom — which heads this store holds the
+history of and cannot produce — and `check --complete` is the caller who wants
+that to fail, being a sync that should have finished or a backup about to be
+trusted. It is still not an error: the store contradicts nothing, and the
+readable files are simply not all here yet.
+
 A refusal that turns on a person having to choose a head says which heads those
 are in the terms they would recognise — the change, any bookmark, who wrote it,
 when, and what it says — because a digest is the one thing about a revision
