@@ -233,7 +233,10 @@ conflicted in the format — two heads already are the conflict, and 0007's walk
 recomputes it from the same files on every machine — so a contested span is
 rendered into the working copy between marker lines, with each run inside it
 labelled by the revision that wrote it. `historica merge` writes that view and
-prints the command that records it; `record --merge` recomputes the merge,
+prints the command that records it. What it joins is what is named and every
+head that is not, so divergence — the state the command exists for — needs no
+argument at all, and the command it prints back names every head it joined
+rather than only the ones a person typed. `record --merge` recomputes the merge,
 refuses while any line the renderer wrote still stands in a contested file, and
 otherwise diffs the folder against *the merge result*, so what it records is
 exactly the resolution. Detection is per line and scoped to a merge record,
@@ -377,6 +380,11 @@ the files at that revision, and `path:` says the rest is a path for the file
 whose own name begins `file:`. `historica help` lists the rest. `check` exits non-zero only when the store cannot be trusted, so it can
 be run in anger; a duplicate, an undelivered parent, or a sync tool's
 conflicted copy is a note, and notes never fail.
+
+A refusal that turns on a person having to choose a head says which heads those
+are in the terms they would recognise — the change, any bookmark, who wrote it,
+when, and what it says — because a digest is the one thing about a revision
+that says nothing about which line of work it is.
 
 ## Decisions
 

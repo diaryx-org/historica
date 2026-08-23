@@ -50,8 +50,8 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 several => {
                     return Err(Failure::error(format!(
                         "this store has {several} heads, so nothing here is `the` latest; \
-                         name the one the folder should hold:{}",
-                        target::listed(heads.iter().map(|head| target::spelled(&store, head)))
+                         name the one the folder should hold:\n{}",
+                        target::described(&store, &heads)
                     )));
                 }
             }
@@ -63,9 +63,10 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let update = plan(&store, &working, &repository, &target).map_err(|error| match error {
         UpdateError::NotAHead { target, heads } => Failure::error(format!(
             "{} is not a head, and the folder only ever holds one; \
-             reading the past is `show` and `cat`, and going back is `abandon`. the heads:{}",
+             reading the past is `show` and `cat`, and going back is `abandon`. \
+             the heads:\n{}",
             target::spelled(&store, &target),
-            target::listed(heads.iter().map(|head| target::spelled(&store, head)))
+            target::described(&store, &heads.iter().copied().collect())
         )),
         other => Failure::error(other),
     })?;

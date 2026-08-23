@@ -287,10 +287,46 @@ pub fn the_head(store: &Store) -> Result<Option<RevisionId>, Failure> {
         1 => Ok(heads.into_iter().next()),
         several => Err(Failure::error(format!(
             "this store has {several} heads, so nothing here is `the` latest; \
-             name one with --onto:{}",
-            listed(heads.iter().map(|head| spelled(store, head)))
+             name one with --onto, or join them with `historica merge`:\n{}",
+            described(store, &heads)
         ))),
     }
+}
+
+/// Every head, said in enough detail to choose between them.
+///
+/// A person meeting this list is choosing between lines of work, and the
+/// digest is the one thing about a revision that tells them nothing about
+/// which line it is. The change ID, any bookmark, who wrote it, when, and the
+/// first line of the message are what they recognise — so this prints what
+/// `log` prints, for the heads and nothing else.
+pub fn described(store: &Store, heads: &BTreeSet<RevisionId>) -> String {
+    let mut out = String::new();
+    for head in heads {
+        let mut first = head.abbreviate(12);
+        if let Some(document) = store.get(head) {
+            let _ = write!(first, "  {}", document.change);
+        }
+        for name in bookmarks(store, head) {
+            let _ = write!(first, "  {name}");
+        }
+        let _ = writeln!(out, "  {first}");
+        let Some(document) = store.get(head) else {
+            continue;
+        };
+        let _ = writeln!(out, "      {}  {}", document.author, document.when);
+        if let Some(summary) = document.message.lines().next()
+            && !summary.is_empty()
+        {
+            let _ = writeln!(out, "      {summary}");
+        }
+    }
+    // The caller's message ends with this, and a trailing blank line after a
+    // list is a line nobody wrote.
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    out
 }
 
 /// A revision abbreviated, with any bookmark that resolves to it.
@@ -331,8 +367,9 @@ fn head(store: &Store) -> Result<RevisionId, Failure> {
         0 => Err(Failure::error("this store holds no revisions yet")),
         1 => Ok(heads.into_iter().next().expect("one head")),
         several => Err(Failure::error(format!(
-            "this store has {several} heads, so `head` names none of them:{}",
-            listed(heads.iter().map(|head| head.abbreviate(12)))
+            "this store has {several} heads, so `head` names none of them; \
+             name one, or join them with `historica merge`:\n{}",
+            described(store, &heads)
         ))),
     }
 }

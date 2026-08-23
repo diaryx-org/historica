@@ -43,7 +43,8 @@ writing a store
          [--at <file>=<path>] [--accept <path>] [--dry-run]
   amend [<target>]         rewrite the head as the folder now stands
         [-m <message>] [--move <old>=<new>] [--dry-run]
-  merge <target>           write what two lines of work say together
+  merge [<target>...]      write what two lines of work say together:
+                           what is named, and every head that is not
   update [<target>] [--dry-run]
                            make the folder hold a head: write what it
                            records, remove what it does not, touch nothing

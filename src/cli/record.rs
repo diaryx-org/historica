@@ -389,16 +389,20 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
     })
 }
 
-/// `merge <target>` — write what two lines of work say together.
+/// `merge [<target>...]` — write what two lines of work say together.
 ///
 /// Decision 0012: nothing conflicted is recorded and nothing is remembered.
 /// This renders the merge into the folder and prints the command that records
 /// it, so the pending merge lives in the person's terminal.
+///
+/// One rule decides what is joined: **what is named, and every head that is
+/// not**. Divergence is the state this command exists for, and in it the store
+/// already knows both answers — so naming one head is enough, and naming none
+/// is enough when divergence is the whole of what there is to join. A target
+/// that is not a head is still joined to every head, which is how a person
+/// merges a line of work they had abandoned the tip of.
 pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let spellings: Vec<String> = arguments;
-    if spellings.is_empty() {
-        return Err(Failure::usage("`merge` wants the work to join"));
-    }
 
     let store = Store::open(&root)?;
     let repository = root
@@ -407,23 +411,27 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         .to_path_buf();
 
     let mut heads: Vec<RevisionId> = Vec::new();
+    // What a person typed for each head they typed, so the command printed at
+    // the end says their bookmark back to them rather than a digest they now
+    // have to match up. A head they did not name has no such spelling.
+    let mut as_typed: BTreeMap<RevisionId, String> = BTreeMap::new();
     for spelling in &spellings {
         let head = target::resolve(&store, spelling)?;
+        as_typed.entry(head).or_insert_with(|| spelling.clone());
         if !heads.contains(&head) {
             heads.push(head);
         }
     }
     let standing = target::current_heads(&store);
-    if heads.len() == 1
-        && let Some(mine) = standing.iter().next().copied()
-        && standing.len() == 1
-        && !heads.contains(&mine)
-    {
-        heads.push(mine);
+    for head in &standing {
+        if !heads.contains(head) {
+            heads.push(*head);
+        }
     }
     if heads.len() < 2 {
         return Err(Failure::error(
-            "merging is joining two lines of work; name the other one too",
+            "merging is joining two lines of work, and this store has one; \
+             name the other, or record on both sides first",
         ));
     }
     heads.sort();
@@ -532,12 +540,21 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 if contested == 1 { " holds" } else { "s hold" }
             )?;
         }
+        // Every head this merge joined, not only the ones named: `record`
+        // derives nothing here, so a command that left one out would record a
+        // different merge from the one just rendered into the folder.
         writeln!(
             out,
             "  historica record{} -m <message>",
-            spellings
+            heads
                 .iter()
-                .map(|spelling| format!(" --merge {spelling}"))
+                .map(|head| {
+                    let spelling = as_typed
+                        .get(head)
+                        .cloned()
+                        .unwrap_or_else(|| head.abbreviate(12));
+                    format!(" --merge {spelling}")
+                })
                 .collect::<String>()
         )
     })

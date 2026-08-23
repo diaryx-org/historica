@@ -2361,9 +2361,85 @@ fn status_with_several_heads_refuses_and_names_them() {
         "a head a person named should say so: {refused}"
     );
 
+    // A digest is the one thing about a head that says nothing about which
+    // line of work it is. What a person recognises is the message they wrote,
+    // the name on it, and the moment — so the refusal states all three.
+    assert!(refused.contains("mine"), "{refused}");
+    assert!(refused.contains("theirs"), "{refused}");
+    assert!(
+        refused.contains("Adam Harris <adam@example.com>"),
+        "{refused}"
+    );
+    assert!(
+        refused.contains("historica merge"),
+        "the refusal should say what joins them: {refused}"
+    );
+
     // Naming one is the whole of the fix, and the same flag `record` takes.
     let named = out(recorded(&directory, &["status", "--onto", &mine]));
     assert!(named.contains("journal"), "{named}");
+}
+
+/// Divergence is the state `merge` exists for, and in it the store already
+/// knows both answers — so naming neither is enough, and the command printed
+/// afterwards states every head it joined rather than only the ones typed.
+#[test]
+fn merge_joins_the_standing_heads_without_being_told_which() {
+    let (directory, _mine, _theirs) =
+        diverged("merge-bare", "MINE\ntwo\nthree\n", "one\ntwo\nTHEIRS\n");
+
+    let merging = out(recorded(&directory, &["merge"]));
+    assert!(merging.contains("nothing is contested"), "{merging}");
+    assert_eq!(
+        merging.matches("--merge").count(),
+        2,
+        "the printed record must name both heads: {merging}"
+    );
+
+    // The folder now holds both edits, and the printed command records it.
+    let joined = fs::read_to_string(directory.join("f.md")).expect("the merged file");
+    assert_eq!(joined, "MINE\ntwo\nTHEIRS\n");
+
+    let recording: Vec<&str> = merging
+        .lines()
+        .find(|line| line.contains("historica record"))
+        .expect("the printed command")
+        .split_whitespace()
+        .skip(1)
+        .collect();
+    let mut arguments = recording;
+    let last = arguments.pop().expect("the message placeholder");
+    assert_eq!(last, "<message>");
+    arguments.push("joined");
+    out(recorded(&directory, &arguments));
+
+    let log = out(recorded(&directory, &["log"]));
+    assert_eq!(log.matches("(head").count(), 1, "{log}");
+    assert!(log.contains("merge"), "{log}");
+}
+
+/// Naming one head is enough too: the other is the one thing left.
+#[test]
+fn merge_fills_in_the_head_that_was_not_named() {
+    let (directory, mine, _theirs) =
+        diverged("merge-one", "MINE\ntwo\nthree\n", "one\ntwo\nTHEIRS\n");
+
+    let merging = out(recorded(&directory, &["merge", &mine]));
+    assert_eq!(merging.matches("--merge").count(), 2, "{merging}");
+    // The spelling a person typed is said back to them, not a digest they
+    // would have to match up against the one they used.
+    assert!(merging.contains(&format!("--merge {mine}")), "{merging}");
+}
+
+/// One head and nothing named is not a merge, and says so.
+#[test]
+fn merge_with_one_line_of_work_refuses() {
+    let directory = repository("merge-linear");
+    write(&directory, "f.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "root"]));
+
+    let refused = String::from_utf8_lossy(&recorded(&directory, &["merge"]).stderr).into_owned();
+    assert!(refused.contains("two lines of work"), "{refused}");
 }
 
 #[test]
