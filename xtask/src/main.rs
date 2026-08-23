@@ -16,6 +16,7 @@
 //! There are no dependencies on purpose. Every CI job builds this crate before
 //! it can start, so its build time is paid several times over per push.
 
+mod bench;
 mod release;
 
 use std::env;
@@ -209,6 +210,7 @@ fn main() -> ExitCode {
             print!("{}", usage());
             return ExitCode::SUCCESS;
         }
+        ["bench", ref rest @ ..] => bench::bench(&sh, rest),
         ["ci"] => ci(&sh),
         ["ci-matrix"] => {
             println!("{}", ci_matrix());
@@ -286,6 +288,12 @@ fn usage() -> String {
     out.push_str(&format!(
         "  {:<20}{}\n",
         "ci-matrix", "the job table as JSON, for the workflow matrix"
+    ));
+    // Measuring is not CI either: see `bench` for why a timing must not fail
+    // a build.
+    out.push_str(&format!(
+        "  {:<20}{}\n",
+        "bench [<shape>]", "time the reading commands on a store built to order"
     ));
     // Releasing is not CI, so it is not in the table above — these are run by
     // hand, not by every push.
