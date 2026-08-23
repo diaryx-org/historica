@@ -218,6 +218,119 @@ fn forgetting_destroys_the_copies_a_cache_would_otherwise_keep() {
     assert!(!stdout(&directory, &["cat", &head, "notes.txt"]).contains(secret));
 }
 
+/// The catalogue file, which decision 0036 puts in `cache/` under a name.
+fn catalogue_of(directory: &Path) -> PathBuf {
+    cache_of(directory).join("operations.txt")
+}
+
+#[test]
+fn the_catalogue_is_written_and_then_taken() {
+    let directory = recorded("catalogue-kept");
+    let head = head(&directory);
+    let first = stdout(&directory, &["cat", &head, "notes.txt"]);
+
+    let catalogue = catalogue_of(&directory);
+    let held = fs::read_to_string(&catalogue).expect("a catalogue");
+    assert!(held.starts_with("historica-catalogue-"), "{held}");
+    // One line per file in `operations/`, and every one of them names a path
+    // under it — a catalogue that named anything else would be sending a
+    // reader somewhere the store does not keep its documents.
+    let lines: Vec<&str> = held.lines().skip(1).collect();
+    assert!(!lines.is_empty());
+    for line in &lines {
+        let path = line.splitn(3, ' ').nth(2).expect("a path on every line");
+        assert!(path.starts_with("operations/"), "{line}");
+        assert!(
+            directory.join("history").join(path).exists(),
+            "the catalogue names a file that is there: {line}"
+        );
+    }
+
+    // Reading again with it in place is the same answer, and leaves it alone:
+    // nothing changed, so nothing is rewritten.
+    assert_eq!(stdout(&directory, &["cat", &head, "notes.txt"]), first);
+    assert_eq!(
+        fs::read_to_string(&catalogue).expect("still a catalogue"),
+        held
+    );
+}
+
+#[test]
+fn deleting_the_catalogue_loses_neither_information_nor_meaning() {
+    let directory = recorded("catalogue-disposable");
+    let head = head(&directory);
+
+    let with = stdout(&directory, &["cat", &head, "notes.txt"]);
+    let files = stdout(&directory, &["files", &head]);
+    let status = stdout(&directory, &["status"]);
+
+    fs::remove_file(catalogue_of(&directory)).expect("deleting the catalogue");
+    assert_eq!(stdout(&directory, &["cat", &head, "notes.txt"]), with);
+    assert_eq!(stdout(&directory, &["files", &head]), files);
+    assert_eq!(stdout(&directory, &["status"]), status);
+    assert!(run(&directory, &["check"]).status.success());
+    // And it is back, because the pass that answered without it wrote it.
+    assert!(catalogue_of(&directory).exists());
+}
+
+#[test]
+fn a_catalogue_that_lies_about_where_a_document_is_changes_no_answer() {
+    let directory = recorded("catalogue-lying");
+    let head = head(&directory);
+    let with = stdout(&directory, &["cat", &head, "notes.txt"]);
+
+    // Every path in the catalogue pointed at the wrong file. The path set it
+    // names is still the set the directory holds, so nothing about the
+    // *shape* of it is suspicious — what refuses this is the rule that a
+    // lookup hashes what it reads before believing it.
+    let catalogue = catalogue_of(&directory);
+    let held = fs::read_to_string(&catalogue).expect("a catalogue");
+    let mut lines = held.lines();
+    let header = lines.next().expect("a header");
+    let rows: Vec<&str> = lines.collect();
+    let mut swapped = String::from(header);
+    swapped.push('\n');
+    for (index, line) in rows.iter().enumerate() {
+        let (digest, rest) = line.split_once(' ').expect("a digest");
+        let (forgets, _) = rest.split_once(' ').expect("a forgets field");
+        // Somebody else's path, from the row after this one.
+        let elsewhere = rows[(index + 1) % rows.len()]
+            .splitn(3, ' ')
+            .nth(2)
+            .expect("a path");
+        swapped.push_str(&format!("{digest} {forgets} {elsewhere}\n"));
+    }
+    fs::write(&catalogue, swapped).expect("planting it");
+
+    assert_eq!(stdout(&directory, &["cat", &head, "notes.txt"]), with);
+    assert!(run(&directory, &["check"]).status.success());
+}
+
+#[test]
+fn a_document_recorded_after_the_catalogue_was_written_is_still_found() {
+    let directory = recorded("catalogue-appended");
+    let before = head(&directory);
+    // Reading writes the catalogue; recording then adds a file it does not
+    // name. The next reader has to notice, which is the whole of what makes a
+    // catalogue safe to keep.
+    let _ = stdout(&directory, &["cat", &before, "notes.txt"]);
+    assert!(catalogue_of(&directory).exists());
+
+    fs::write(directory.join("notes.txt"), "a line nobody had written\n")
+        .expect("editing the file");
+    assert!(
+        run(&directory, &["record", "-m", "after the catalogue"])
+            .status
+            .success()
+    );
+    let head = head(&directory);
+    assert_eq!(
+        stdout(&directory, &["cat", &head, "notes.txt"]),
+        "a line nobody had written\n"
+    );
+    assert!(run(&directory, &["check"]).status.success());
+}
+
 /// `shasum -a 256`, for planting an entry that is honestly named.
 fn sha256_hex(bytes: &[u8]) -> String {
     historica::format::digest(bytes).to_string()

@@ -556,7 +556,7 @@ fn a_store_materialises_the_tree_and_the_files_it_describes() {
         store.content(&head, file).expect("the README").text(),
         "# Notes\n\nA journal kept in Historica, and the notes that came with it.\n"
     );
-    assert_eq!(store.operations().unwrap().count(), 4);
+    assert_eq!(store.operations().unwrap().len(), 4);
     assert!(Store::check(&root).is_ok());
 }
 
@@ -570,48 +570,73 @@ fn a_broken_operation_document_stops_the_question_that_needs_it_and_nothing_else
     let (root, store) = tree_corpus_store("broken-operations");
     let head = head_of(&store);
     let before = store.tree(&head).expect("the file set at the head");
+    // The corpus drops the entry at its head, so the README is the file that
+    // survives and the entry's documents are on nothing this asks about.
     let file = *before.files().next().expect("the surviving file").0;
+    let readable = store.content(&head, &file).expect("the README").text();
 
     let directory = root.join("operations");
-    let broken = fs::read_dir(&directory)
-        .expect("operations")
-        .map(|entry| entry.expect("an entry").path())
-        .next()
-        .expect("a document to break");
-    fs::write(
-        &broken,
-        b"historica-v1
+    let break_it = |name: &str| {
+        fs::write(
+            directory.join(name),
+            b"historica-v1
 nonsense
 ",
-    )
-    .expect("breaking it");
+        )
+        .expect("breaking it");
+    };
 
+    // A document belonging to the file this head dropped.
+    break_it("01-entry.ops.txt");
     let store = Store::open(&root).expect("a store whose revisions still parse");
     assert_eq!(store.len(), 4);
     assert_eq!(store.tree(&head).expect("the file set"), before);
 
-    let name = broken
-        .file_name()
-        .and_then(|name| name.to_str())
-        .expect("a name");
+    // Asking what the directory holds is asking about every file in it, so
+    // that is where the parse failure lands, named.
     let Err(error) = store.operations() else {
         panic!("the directory does not parse");
     };
     let rendered = error.to_string();
-    assert!(rendered.contains(name), "{rendered}");
+    assert!(rendered.contains("01-entry.ops.txt"), "{rendered}");
 
-    let rendered = store
+    // And nothing else: the README's own history is untouched by a broken
+    // document that belongs to another file, which decision 0036 is what
+    // makes true — a reader fetches the digests it needs rather than parsing
+    // the directory before it will answer anything.
+    assert_eq!(
+        store
+            .content(&head, &file)
+            .expect("still the README")
+            .text(),
+        readable
+    );
+
+    // The document that file *does* need is the other half of the claim.
+    // Decision 0036 makes the refusal about a digest rather than a filename:
+    // identity is content, so bytes a person overwrote are a document this
+    // store no longer holds, whatever the file is still called.
+    break_it("03-readme.ops.txt");
+    let store = Store::open(&root).expect("a store whose revisions still parse");
+    store
         .content(&head, &file)
-        .expect_err("and neither does the content that needs it")
-        .to_string();
-    assert!(rendered.contains(name), "{rendered}");
+        .expect_err("the content that needed it");
 
+    // `check` reads everything deliberately, and is where a file that will
+    // not parse is named as the fault it is.
     let report = Store::check(&root);
     assert!(!report.is_ok());
     assert!(
         report
             .errors()
             .any(|finding| matches!(finding, Finding::Unparsable { .. }))
+    );
+    assert!(
+        report
+            .errors()
+            .any(|finding| finding.to_string().contains("03-readme.ops.txt")),
+        "check names the file: {:?}",
+        report.errors().map(ToString::to_string).collect::<Vec<_>>()
     );
 }
 
@@ -631,7 +656,7 @@ fn renaming_every_operation_document_changes_nothing() {
 
     let store = Store::open(&root).expect("reopening a renamed store");
     assert_eq!(store.tree(&head).expect("a tree"), before);
-    assert_eq!(store.operations().unwrap().count(), 4);
+    assert_eq!(store.operations().unwrap().len(), 4);
     assert!(Store::check(&root).is_ok());
 }
 

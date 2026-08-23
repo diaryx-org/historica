@@ -71,7 +71,7 @@ impl<F: Filesystem> Store<F> {
             if let Some(forgets) = &document.forgets
                 && referenced.contains(forgets)
             {
-                referenced.insert(*id);
+                referenced.insert(id);
             }
         }
 
@@ -130,11 +130,11 @@ impl<F: Filesystem> Store<F> {
             self.documents.remove(id);
         }
         for id in &pruned.operations {
-            self.bodies_mut()?.remove_operation(id);
+            self.catalogue_mut()?.remove(id);
         }
         // The payload index maps digests to paths that may just have gone;
         // it is derived, so it is rebuilt on next need rather than repaired.
-        self.forget_payloads();
+        self.forget_catalogue();
         // So is `cache/`, and pruning has just deleted content some of it may
         // hold. Nothing there is reported, because nothing there is lost.
         self.clear_cache();

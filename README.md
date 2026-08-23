@@ -189,6 +189,18 @@ it claims to have edited, which is the error 0007 asked for and 0008 unblocked.
 A store can materialise a file — `tree` and `content` at a revision — and
 refuses a history with a merge in it rather than ordering it arbitrarily.
 
+What that costs is decision 0036. Identity coming from content is what left the
+store no way to find a digest but to open every file in `operations/` and hash
+it, so a `cat` that a cache could answer in one read still paid fifteen
+thousand opens first. A **catalogue** in `cache/` says where each digest is,
+and it is believed on one condition — that the set of paths it names is the set
+the directory holds, which a walk checks without opening anything. Everything
+it does not account for is read. A lookup still hashes what it finds before
+believing it, and a catalogue that cannot answer costs a pass over the
+directory rather than an answer, so deleting it, truncating it or filling it
+with lies changes how long a command takes and nothing else. `check` builds its
+own by reading, because it is the command that wants the work.
+
 The `historica` binary is the front end decision 0006 said was owed. `init`,
 `check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
 `cat`, and `names` read a store and render it; `status` reads the folder beside
@@ -549,6 +561,16 @@ Choices that constrain later work are written down as they are made.
   reporting `false`, which is what makes a store safe to carry between a Mac
   and a Windows machine without configuration; and it is `historica-v4`,
   claimed only by the documents that use it.
+- [`docs/decisions/0036-where-a-digest-is.md`](docs/decisions/0036-where-a-digest-is.md)
+  — identity coming from content is what left the store reading every file in
+  `operations/` to find one digest, which 0035's cache could not help with
+  because reaching the cache meant paying it first. A catalogue in `cache/`
+  says where each digest is, believed only while the paths it names are the
+  paths the directory holds, and a lookup still hashes what it reads. A
+  catalogue that is missing, stale or wrong costs a pass over the directory
+  and never an answer, which is 0003's promise; what a reader believes
+  unread is which documents forget something, and `check` is excluded for
+  exactly that reason.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

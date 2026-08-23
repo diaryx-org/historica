@@ -19,7 +19,9 @@
 //! ├── revisions/      # one revision document per file, under any name
 //! ├── operations/     # what each revision did, per file — decisions 0007, 0017
 //! ├── names/          # bookmarks, `<name>.txt` — the only mutable files
-//! ├── cache/          # derived, disposable, deletable without loss
+//! ├── cache/          # derived, disposable, deletable without loss:
+//! │                   #   states by digest (0035), and `operations.txt`,
+//! │                   #   which says where each digest is (0036)
 //! └── skipped.txt     # what recording does not take
 //! ```
 //!
@@ -37,8 +39,8 @@
 //! deliberately, which is why an unreadable file there is that command's
 //! finding and not a failure to open.
 
-use std::cell::OnceCell;
-use std::collections::BTreeMap;
+use std::cell::{Cell, OnceCell, RefCell};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -57,12 +59,14 @@ use crate::tree::{self, Kind, MergedTree, Tree, TreeError};
 use crate::working::{MalformedSkip, Rule, SKIPPED_FILE, Skipped};
 
 mod arrange;
+mod catalogue;
 mod check;
 mod forget;
 mod prune;
 mod receive;
 
 pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Rename, Tally};
+use catalogue::Catalogue;
 pub use check::{Finding, Report, Severity};
 pub use forget::{ForgetError, Forgetting, Forgotten};
 pub use prune::Pruned;
@@ -138,8 +142,9 @@ into directories of your own breaks nothing either.
   names/          bookmarks, one line each. The only files here that change.
   cache/          derived and disposable: files you have already read, kept
                   under the digest their history says they hash to, so that
-                  reading them again does not replay it. Deleting all of it
-                  loses nothing.
+                  reading them again does not replay it, and operations.txt,
+                  which says where in operations/ each digest is. Deleting
+                  all of it loses nothing.
   skipped.txt     what recording does not take.
   format.txt      every grammar above, spelled out: what each line of each
                   document means, and how to materialise a file from them
@@ -448,70 +453,61 @@ pub struct Store<F = Disk> {
     /// header states and therefore the gate a reader is refused at.
     version: Version,
     documents: BTreeMap<RevisionId, RevisionDocument>,
-    /// What the revisions did, parsed on first need and never at open.
-    bodies: OnceCell<Bodies>,
-    /// Where each payload sits, by digest. Built on first need, never at open.
-    payloads: OnceCell<BTreeMap<RevisionId, PathBuf>>,
+    /// Where everything in `operations/` is, by digest. Built on first need,
+    /// never at open, and taken from `cache/` where decision 0036 allows.
+    catalogue: OnceCell<Catalogue>,
+    /// The documents read so far, so that one command asking for one digest
+    /// twice reads the file once. Emptied with the catalogue.
+    read: RefCell<Read>,
+    /// Whether the directory has been read in full because the catalogue
+    /// could not answer. Decision 0003 lets a cache be deleted without losing
+    /// meaning, and a catalogue that is *wrong* has to cost no more than one
+    /// that is missing — so a lookup it cannot satisfy falls back to the
+    /// directory, once, rather than reporting an absence.
+    scanned: Cell<bool>,
+    /// Whether the catalogue may come from `cache/`.
+    ///
+    /// False for `check` alone. Decision 0035 keeps that command away from
+    /// every cached answer, because it is the one caller that wants the work
+    /// rather than the result — and 0036 makes a catalogue's account of what
+    /// forgets what the one thing a reader believes without re-reading it, so
+    /// the command that holds a store to its own rules must not take it.
+    cached: bool,
     names: BTreeMap<String, Name>,
     skipped: Skipped,
 }
 
-/// What `operations/` states, in both of its grammars.
+/// Documents this store has already read, by digest.
 ///
-/// One cell rather than two, because one walk of the directory finds both and
-/// the body of each file is what says which it is: parsing either means having
-/// read all of them, so there is no state in which one is loaded and the other
-/// is not.
+/// A walk asks for one document per revision per file, and several callers
+/// ask about one digest in succession — `stated_result` and then
+/// `effective_operation` is the ordinary pair. Holding what was read keeps
+/// that at one read rather than one per question.
 #[derive(Debug, Clone, Default)]
-struct Bodies {
-    /// Decision 0007: what a revision did to one file, line by line.
+struct Read {
     operations: BTreeMap<RevisionId, OperationDocument>,
+    resolutions: BTreeMap<RevisionId, ResolutionDocument>,
+    /// Digests looked for and not found, so a miss is not re-read either.
+    absent: BTreeSet<RevisionId>,
+}
+
+impl Read {
+    /// Let go of everything, because the directory beneath it has moved.
+    fn clear(&mut self) {
+        self.operations.clear();
+        self.resolutions.clear();
+        self.absent.clear();
+    }
+}
+
+/// What one file in `operations/` turned out to be, once read.
+enum Body {
+    /// Decision 0007: what a revision did to one file, line by line.
+    Operation(OperationDocument),
     /// Decision 0032: a merge's file, stated whole by reference. Named by
     /// `edit` lines exactly as operation documents are, and told apart by
     /// their bodies.
-    resolutions: BTreeMap<RevisionId, ResolutionDocument>,
-    /// Which held documents forget which digest, by the digest they forget.
-    ///
-    /// Derived from `operations` and nothing else — the same answer as asking
-    /// every document what it forgets, which is what this replaces. Decision
-    /// 0014 makes a forgetting document's stand-in the thing a reader
-    /// consumes, so *every* materialised operation asks this question, once
-    /// per revision per file. Answering it by walking the directory made that
-    /// walk quadratic in the size of the store, and a history whose lines
-    /// nobody has ever forgotten paid it in full.
-    ///
-    /// Kept beside the map it indexes rather than in its own cell, so the two
-    /// cannot disagree: one insert maintains both.
-    forgetting: BTreeMap<RevisionId, Vec<RevisionId>>,
-}
-
-impl Bodies {
-    /// Hold one operation document, indexing what it forgets.
-    fn insert_operation(&mut self, id: RevisionId, document: OperationDocument) {
-        if let Some(target) = document.forgets {
-            let standing = self.forgetting.entry(target).or_default();
-            if !standing.contains(&id) {
-                standing.push(id);
-            }
-        }
-        self.operations.insert(id, document);
-    }
-
-    /// Let go of one operation document, and of the index entry standing for
-    /// it. Pruning and forgetting both destroy documents, and an index that
-    /// outlived what it points at would answer for files that are gone.
-    fn remove_operation(&mut self, id: &RevisionId) -> Option<OperationDocument> {
-        let document = self.operations.remove(id)?;
-        if let Some(target) = document.forgets
-            && let Some(standing) = self.forgetting.get_mut(&target)
-        {
-            standing.retain(|held| held != id);
-            if standing.is_empty() {
-                self.forgetting.remove(&target);
-            }
-        }
-        Some(document)
-    }
+    Resolution(ResolutionDocument),
 }
 
 /// The store's short constructors, which are the long ones on [`Disk`].
@@ -653,8 +649,10 @@ impl<F: Filesystem> Store<F> {
             root,
             version,
             documents,
-            bodies: OnceCell::new(),
-            payloads: OnceCell::new(),
+            catalogue: OnceCell::new(),
+            read: RefCell::new(Read::default()),
+            scanned: Cell::new(false),
+            cached: true,
             names,
             skipped,
         })
@@ -666,6 +664,19 @@ impl<F: Filesystem> Store<F> {
     /// never fail. See `docs/decisions/0006-store-questions.md`.
     pub fn check_on(files: &F, root: impl AsRef<Path>) -> Report {
         check::check(files, root.as_ref())
+    }
+
+    /// The same store, reading `operations/` itself rather than `cache/`.
+    ///
+    /// Decision 0035 keeps `check` away from every cached answer, because it
+    /// is the one caller that wants the work rather than the result. 0036
+    /// puts the catalogue under the same rule: it is believed about what
+    /// forgets what, and the command that holds a store to its own rules is
+    /// the one that must not believe anything.
+    pub fn reading_everything(mut self) -> Self {
+        self.cached = false;
+        self.forget_catalogue();
+        self
     }
 
     /// The directory this store occupies.
@@ -715,52 +726,196 @@ impl<F: Filesystem> Store<F> {
         history
     }
 
-    /// What the revisions did, read from `operations/` on first need.
+    /// Where everything in `operations/` is, catalogued on first need.
     ///
-    /// The first call reads and parses every operation and resolution
-    /// document; every call after it is a lookup. A command that only asks
-    /// graph questions — `log`, `files`, `names` — never reaches here, and so
-    /// never pays for a directory it has no question about. Decision 0017
-    /// already answered this for payloads; the documents beside them read no
-    /// differently.
-    fn bodies(&self) -> Result<&Bodies, StoreError> {
-        if let Some(bodies) = self.bodies.get() {
-            return Ok(bodies);
+    /// The first call walks the directory — names, not contents — and reads
+    /// only the files `cache/` cannot already account for. A command that
+    /// asks graph questions alone — `log`, `files`, `names` — never reaches
+    /// here, and so never pays for a directory it has no question about.
+    /// Decision 0036 is the argument, and 0017 is where the same reasoning
+    /// first applied to payloads.
+    fn catalogue(&self) -> Result<&Catalogue, StoreError> {
+        if let Some(catalogue) = self.catalogue.get() {
+            return Ok(catalogue);
         }
-        let bodies = read_bodies(&self.files, &self.root)?;
-        // Empty, because nothing above could have filled it: `read_bodies`
-        // takes `&self.files` and cannot re-enter.
-        Ok(self.bodies.get_or_init(|| bodies))
+        let (catalogue, parsed) = catalogue::read(&self.files, &self.root, self.cached)?;
+        // Whatever cataloguing had to parse is already the answer to a
+        // question this store is about to be asked, so it is kept rather than
+        // dropped and read again.
+        self.read.borrow_mut().operations.extend(parsed);
+        // Empty, because nothing above could have filled it: `read` takes
+        // `&self.files` and cannot re-enter.
+        Ok(self.catalogue.get_or_init(|| catalogue))
     }
 
     /// The same, to write into.
     ///
-    /// Loaded first, so that a document inserted before anything read the
-    /// directory is not lost when the directory is finally read.
-    fn bodies_mut(&mut self) -> Result<&mut Bodies, StoreError> {
-        self.bodies()?;
-        Ok(self.bodies.get_mut().expect("just loaded"))
+    /// Catalogued first, so that a document inserted before anything read the
+    /// directory is not lost when the directory is finally walked.
+    fn catalogue_mut(&mut self) -> Result<&mut Catalogue, StoreError> {
+        self.catalogue()?;
+        Ok(self.catalogue.get_mut().expect("just catalogued"))
+    }
+
+    /// One file in `operations/`, read and hashed before it is believed.
+    ///
+    /// The catalogue says where a digest is; this is what makes that a hint
+    /// rather than an authority. A path whose bytes do not hash to the digest
+    /// asked for is not the file wanted, whoever renamed or edited it, and it
+    /// is refused exactly where decision 0035 refuses a stale cached state.
+    fn body(&self, id: &RevisionId) -> Result<Option<Body>, StoreError> {
+        let catalogue = self.catalogue()?;
+        let Some(filed) = catalogue.at(id) else {
+            return Ok(None);
+        };
+        if !filed.document {
+            return Ok(None);
+        }
+        let path = self.root.join(&filed.path);
+        let bytes = match self.files.read(&path) {
+            Ok(bytes) => bytes,
+            // A file the catalogue named and the directory has since lost is
+            // a file this store does not hold. The walk finds that on the
+            // next open; nothing here has to fail over it.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(StoreError::io(&path, error)),
+        };
+        if digest(&bytes) != *id {
+            return Ok(None);
+        }
+        Ok(Some(if format::is_resolution(&bytes) {
+            Body::Resolution(ResolutionDocument::parse(&bytes).map_err(|error| {
+                StoreError::Unparsable {
+                    file: path.clone(),
+                    error,
+                }
+            })?)
+        } else {
+            Body::Operation(OperationDocument::parse(&bytes).map_err(|error| {
+                StoreError::Unparsable {
+                    file: path.clone(),
+                    error,
+                }
+            })?)
+        }))
+    }
+
+    /// Read one digest, holding what came back for the rest of this command.
+    fn read_body(&self, id: &RevisionId) -> Result<(), StoreError> {
+        {
+            let read = self.read.borrow();
+            if read.operations.contains_key(id)
+                || read.resolutions.contains_key(id)
+                || read.absent.contains(id)
+            {
+                return Ok(());
+            }
+        }
+        // Read with nothing borrowed: `body` reads the filesystem, and a
+        // borrow held across it would be a borrow held across a call that can
+        // ask this store questions of its own.
+        let mut body = self.body(id)?;
+        // The catalogue could not produce it. That is an undelivered document
+        // most of the time and a catalogue somebody edited the rest of it,
+        // and the two are told apart by looking — which decision 0003
+        // requires, since a cache that turns a held document into a missing
+        // one has changed an answer.
+        if body.is_none() {
+            self.scan()?;
+            let read = self.read.borrow();
+            if read.operations.contains_key(id) || read.resolutions.contains_key(id) {
+                return Ok(());
+            }
+            drop(read);
+            body = self.body(id)?;
+        }
+        let mut read = self.read.borrow_mut();
+        match body {
+            Some(Body::Operation(document)) => {
+                read.operations.insert(*id, document);
+            }
+            Some(Body::Resolution(document)) => {
+                read.resolutions.insert(*id, document);
+            }
+            None => {
+                read.absent.insert(*id);
+            }
+        }
+        Ok(())
+    }
+
+    /// Read every document in `operations/`, once, because the catalogue
+    /// could not answer something.
+    ///
+    /// Tolerant where [`Store::read_all`] refuses: a file that will not parse
+    /// is a document this store does not hold, which is what a reader needs
+    /// and what `check` reports by name. What this restores is decision
+    /// 0003's promise — a catalogue that is missing, stale or wrong costs
+    /// time, never an answer.
+    fn scan(&self) -> Result<(), StoreError> {
+        if self.scanned.replace(true) {
+            return Ok(());
+        }
+        for path in files_claiming(&self.files, &self.root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
+            let Ok(bytes) = self.files.read(&path) else {
+                continue;
+            };
+            let id = digest(&bytes);
+            let mut read = self.read.borrow_mut();
+            if format::is_resolution(&bytes) {
+                if let Ok(document) = ResolutionDocument::parse(&bytes) {
+                    read.resolutions.insert(id, document);
+                    read.absent.remove(&id);
+                }
+            } else if let Ok(document) = OperationDocument::parse(&bytes) {
+                read.operations.insert(id, document);
+                read.absent.remove(&id);
+            }
+        }
+        Ok(())
+    }
+
+    /// Where a payload is, having read the directory because the catalogue
+    /// could not say. [`Store::scan`]'s rule, for the files with no grammar.
+    fn scan_for_payload(&self, id: &RevisionId) -> Result<Option<Vec<u8>>, StoreError> {
+        for path in payload_files(&self.files, &self.root)? {
+            let Ok(bytes) = self.files.read(&path) else {
+                continue;
+            };
+            if digest(&bytes) == *id {
+                return Ok(Some(bytes));
+            }
+        }
+        Ok(None)
     }
 
     /// One operation document by digest.
-    pub fn operation(&self, id: &RevisionId) -> Result<Option<&OperationDocument>, StoreError> {
-        Ok(self.bodies()?.operations.get(id))
+    pub fn operation(&self, id: &RevisionId) -> Result<Option<OperationDocument>, StoreError> {
+        self.read_body(id)?;
+        Ok(self.read.borrow().operations.get(id).cloned())
     }
 
     /// Every held forgetting document standing in for `target`.
     ///
     /// Decision 0014: a revision's `edit` line still names the destroyed
     /// digest, and a reader that cannot find it looks for a document that
-    /// says it `forgets` it.
-    pub fn forgetting(&self, target: &RevisionId) -> Result<Vec<&OperationDocument>, StoreError> {
-        let bodies = self.bodies()?;
-        Ok(match bodies.forgetting.get(target) {
-            Some(standing) => standing
-                .iter()
-                .filter_map(|id| bodies.operations.get(id))
-                .collect(),
-            None => Vec::new(),
-        })
+    /// says it `forgets` it. Which documents those are is what the catalogue
+    /// holds and 0036 says why it may be believed.
+    pub fn forgetting(&self, target: &RevisionId) -> Result<Vec<OperationDocument>, StoreError> {
+        let standing: Vec<RevisionId> = self.catalogue()?.forgetting(target).to_vec();
+        let mut documents = Vec::new();
+        for id in standing {
+            // Read, hashed, parsed — and then asked again what it forgets.
+            // The catalogue said so, and this is the document itself saying
+            // it: a catalogue that named the wrong file cannot make a reader
+            // treat an ordinary document as a redaction.
+            if let Some(document) = self.operation(&id)?
+                && document.forgets == Some(*target)
+            {
+                documents.push(document);
+            }
+        }
+        Ok(documents)
     }
 
     /// The document a reader consumes for one digest.
@@ -773,10 +928,11 @@ impl<F: Filesystem> Store<F> {
         &self,
         named: &RevisionId,
     ) -> Result<Option<OperationDocument>, StoreError> {
-        let bodies = self.bodies()?;
+        let held = self.operation(named)?;
+        let standing = self.forgetting(named)?;
         Ok(crate::format::stand_in(
-            bodies.operations.get(named),
-            &self.forgetting(named)?,
+            held.as_ref(),
+            &standing.iter().collect::<Vec<_>>(),
         ))
     }
 
@@ -784,25 +940,75 @@ impl<F: Filesystem> Store<F> {
     ///
     /// Decision 0032: an `edit` line names either grammar, and this is how a
     /// caller asks which one it named.
-    pub fn resolution(
-        &self,
-        named: &RevisionId,
-    ) -> Result<Option<&ResolutionDocument>, StoreError> {
-        Ok(self.bodies()?.resolutions.get(named))
+    pub fn resolution(&self, named: &RevisionId) -> Result<Option<ResolutionDocument>, StoreError> {
+        self.read_body(named)?;
+        Ok(self.read.borrow().resolutions.get(named).cloned())
     }
 
     /// Every resolution document, in digest order.
-    pub fn resolutions(
-        &self,
-    ) -> Result<impl Iterator<Item = (&RevisionId, &ResolutionDocument)>, StoreError> {
-        Ok(self.bodies()?.resolutions.iter())
+    ///
+    /// Reads the whole directory, because that is the question, and reads it
+    /// *itself* rather than through the catalogue. A caller asking what the
+    /// directory holds is asking about the directory: a document a person has
+    /// edited in place is one this must refuse over rather than pass by, and
+    /// only reading it can tell. A caller that wants one document asks for it
+    /// by digest and pays for one file.
+    pub fn resolutions(&self) -> Result<BTreeMap<RevisionId, ResolutionDocument>, StoreError> {
+        let mut found = BTreeMap::new();
+        for (id, body) in self.read_all()? {
+            if let Body::Resolution(document) = body {
+                found.insert(id, document);
+            }
+        }
+        Ok(found)
     }
 
     /// Every operation document, in digest order.
-    pub fn operations(
-        &self,
-    ) -> Result<impl Iterator<Item = (&RevisionId, &OperationDocument)>, StoreError> {
-        Ok(self.bodies()?.operations.iter())
+    ///
+    /// Reads the whole directory, for the reason [`Store::resolutions`] does.
+    pub fn operations(&self) -> Result<BTreeMap<RevisionId, OperationDocument>, StoreError> {
+        let mut found = BTreeMap::new();
+        for (id, body) in self.read_all()? {
+            if let Body::Operation(document) = body {
+                found.insert(id, document);
+            }
+        }
+        Ok(found)
+    }
+
+    /// Read and parse every document in `operations/`, in both grammars.
+    ///
+    /// The pass the catalogue exists to avoid, kept for the callers whose
+    /// question is the directory rather than a digest — `check`, `prune`, and
+    /// receiving — and refusing over a file that does not parse, wherever the
+    /// catalogue would have quietly not found it.
+    fn read_all(&self) -> Result<Vec<(RevisionId, Body)>, StoreError> {
+        let mut found = Vec::new();
+        for path in files_claiming(&self.files, &self.root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
+            let bytes = self
+                .files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
+            // Decision 0032: two content-document grammars share the suffix,
+            // and the body says which one the bytes are held to.
+            let body = if format::is_resolution(&bytes) {
+                Body::Resolution(ResolutionDocument::parse(&bytes).map_err(|error| {
+                    StoreError::Unparsable {
+                        file: path.clone(),
+                        error,
+                    }
+                })?)
+            } else {
+                Body::Operation(OperationDocument::parse(&bytes).map_err(|error| {
+                    StoreError::Unparsable {
+                        file: path.clone(),
+                        error,
+                    }
+                })?)
+            };
+            found.push((digest(&bytes), body));
+        }
+        Ok(found)
     }
 
     /// The highest document version this store holds.
@@ -816,49 +1022,59 @@ impl<F: Filesystem> Store<F> {
     /// nothing to parse and nothing that can be malformed. The only claim it
     /// makes is its digest, and that claim is what finds it here.
     pub fn payload(&self, id: &RevisionId) -> Result<Option<Vec<u8>>, StoreError> {
-        let Some(path) = self.payload_path(id)? else {
-            return Ok(None);
-        };
-        let bytes = self
-            .files
-            .read(path)
-            .map_err(|error| StoreError::io(path, error))?;
-        Ok(Some(bytes))
+        if let Some(filed) = self.catalogue()?.at(id)
+            && !filed.document
+        {
+            let path = self.root.join(&filed.path);
+            match self.files.read(&path) {
+                // Hashed before it is believed, as every other lookup through
+                // the catalogue is: a payload's whole claim is its digest,
+                // and content that does not make the claim is not what was
+                // asked for.
+                Ok(bytes) if digest(&bytes) == *id => return Ok(Some(bytes)),
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(StoreError::io(&path, error)),
+            }
+        }
+        // The catalogue could not produce it, so the directory is asked —
+        // decision 0003's promise, kept for the files that carry no grammar.
+        self.scan_for_payload(id)
     }
 
     /// Where every payload sits, by digest.
     ///
-    /// Hashes the directory the first time it is asked and remembers the
+    /// Catalogues the directory the first time it is asked and remembers the
     /// answer, so a command that never reads content never reads a payload.
     pub fn payloads(&self) -> Result<BTreeMap<RevisionId, PathBuf>, StoreError> {
-        Ok(self.indexed_payloads()?.clone())
+        Ok(self
+            .catalogue()?
+            .iter()
+            .filter(|(_, filed)| !filed.document)
+            .map(|(id, filed)| (*id, self.root.join(&filed.path)))
+            .collect())
     }
 
-    fn payload_path(&self, id: &RevisionId) -> Result<Option<&Path>, StoreError> {
-        Ok(self.indexed_payloads()?.get(id).map(PathBuf::as_path))
+    /// Let go of the catalogue and everything read through it.
+    ///
+    /// Called where the store destroys or renames files: the paths may just
+    /// have gone, and a catalogue that outlived what it points at would
+    /// answer for them.
+    fn forget_catalogue(&mut self) {
+        self.catalogue.take();
+        self.read.borrow_mut().clear();
     }
 
-    fn indexed_payloads(&self) -> Result<&BTreeMap<RevisionId, PathBuf>, StoreError> {
-        if let Some(found) = self.payloads.get() {
-            return Ok(found);
+    /// Where a file just written sits, as the catalogue records it.
+    ///
+    /// Relative to the root, because that is what a catalogue holds and what
+    /// makes one portable between a store and a copy of it.
+    fn located(&self, path: &Path, forgets: Option<RevisionId>) -> catalogue::Located {
+        catalogue::Located {
+            path: path.strip_prefix(&self.root).unwrap_or(path).to_path_buf(),
+            forgets,
+            document: true,
         }
-        let mut found: BTreeMap<RevisionId, PathBuf> = BTreeMap::new();
-        // Sorted by `walk`, so two copies of one payload resolve to the same
-        // path on every replica: the first one found keeps the entry.
-        for path in payload_files(&self.files, &self.root)? {
-            let bytes = self
-                .files
-                .read(&path)
-                .map_err(|error| StoreError::io(&path, error))?;
-            found.entry(digest(&bytes)).or_insert(path);
-        }
-        Ok(self.payloads.get_or_init(|| found))
-    }
-
-    /// Forget where the payloads were found, for the same reason as
-    /// [`Store::forget_bodies`]: the paths may just have gone.
-    fn forget_payloads(&mut self) {
-        self.payloads.take();
     }
 
     /// Every revision `head` descends from, itself included, each beside its
@@ -1057,8 +1273,10 @@ impl<F: Filesystem> Store<F> {
     /// arrived whole as. Redactions are folded in, because a `keep` of a
     /// forgotten item is a `keep` of the marker standing where it was.
     pub fn minted(&self, named: &RevisionId) -> Result<Option<Vec<Item>>, MaterialiseError> {
-        let bodies = self.bodies().map_err(MaterialiseError::unreadable)?;
-        if let Some(resolution) = bodies.resolutions.get(named) {
+        if let Some(resolution) = self
+            .resolution(named)
+            .map_err(MaterialiseError::unreadable)?
+        {
             return Ok(Some(
                 resolution
                     .pieces
@@ -1098,7 +1316,6 @@ impl<F: Filesystem> Store<F> {
         file: &FileId,
         caching: Caching,
     ) -> Result<Stated, MaterialiseError> {
-        let bodies = self.bodies().map_err(MaterialiseError::unreadable)?;
         let mut known: BTreeMap<RevisionId, Stated> = BTreeMap::new();
         let mut stack = vec![*head];
         // What this walk cost, in revisions it had to replay rather than
@@ -1134,9 +1351,11 @@ impl<F: Filesystem> Store<F> {
             // A resolution is the file, stated: nothing before it is read,
             // which is the floor 0032 puts under materialising a long history.
             if let Some(named) = document.edited.get(file)
-                && let Some(resolution) = bodies.resolutions.get(named)
+                && let Some(resolution) = self
+                    .resolution(named)
+                    .map_err(MaterialiseError::unreadable)?
             {
-                let assembled = self.assemble(resolution, id, *file)?;
+                let assembled = self.assemble(&resolution, id, *file)?;
                 known.insert(id, Stated::Known(assembled));
                 stack.pop();
                 continue;
@@ -1324,11 +1543,12 @@ impl<F: Filesystem> Store<F> {
     /// document written before that, which is why the cache can only ever
     /// make a store faster and never make an older one unreadable.
     fn stated_result(&self, named: &RevisionId) -> Result<Option<RevisionId>, StoreError> {
-        let bodies = self.bodies()?;
-        if let Some(resolution) = bodies.resolutions.get(named) {
+        self.read_body(named)?;
+        let read = self.read.borrow();
+        if let Some(resolution) = read.resolutions.get(named) {
             return Ok(Some(resolution.result));
         }
-        Ok(bodies.operations.get(named).and_then(|held| held.result))
+        Ok(read.operations.get(named).and_then(|held| held.result))
     }
 
     /// Assemble one resolution, fetching the documents its `keep` lines name.
@@ -1376,14 +1596,16 @@ impl<F: Filesystem> Store<F> {
         documents: &[(RevisionId, &RevisionDocument)],
         file: &FileId,
     ) -> Result<BTreeMap<RevisionId, Held>, MaterialiseError> {
-        let bodies = self.bodies().map_err(MaterialiseError::unreadable)?;
         let mut held: BTreeMap<RevisionId, Held> = BTreeMap::new();
         for &(revision, document) in documents {
             if let Some(named) = document.edited.get(file) {
                 // Decision 0032: an `edit` line names either grammar, and
                 // which one it named is a fact about the bytes in the store.
-                if let Some(resolution) = bodies.resolutions.get(named) {
-                    held.insert(revision, Held::Resolution(*named, resolution.clone()));
+                if let Some(resolution) = self
+                    .resolution(named)
+                    .map_err(MaterialiseError::unreadable)?
+                {
+                    held.insert(revision, Held::Resolution(*named, resolution));
                     continue;
                 }
                 let effective = self
@@ -1446,7 +1668,10 @@ impl<F: Filesystem> Store<F> {
                 named_by,
             });
         }
-        Ok(crate::format::stand_in(base.as_ref(), &forgetting))
+        Ok(crate::format::stand_in(
+            base.as_ref(),
+            &forgetting.iter().collect::<Vec<_>>(),
+        ))
     }
 
     /// What one file holds at `head`, whichever kind of file it is.
@@ -1574,13 +1799,22 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        if self.bodies()?.operations.contains_key(&id) {
+        if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
-        self.bodies_mut()?.insert_operation(id, document.clone());
+        // Catalogued from what was just written rather than by reading it
+        // back: a writer knows the path, the digest and what the document
+        // forgets, so recording does not pay for a pass over the directory
+        // to learn what it has itself done.
+        let filed = self.located(&path, document.forgets);
+        self.catalogue_mut()?.insert(id, filed);
+        self.read
+            .borrow_mut()
+            .operations
+            .insert(id, document.clone());
         Ok(id)
     }
 
@@ -1597,13 +1831,20 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        if self.bodies()?.resolutions.contains_key(&id) {
+        if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
-        self.bodies_mut()?.resolutions.insert(id, document.clone());
+        // A resolution forgets nothing: 0014 destroys the payload of an
+        // operation document, and a resolution holds no items to destroy.
+        let filed = self.located(&path, None);
+        self.catalogue_mut()?.insert(id, filed);
+        self.read
+            .borrow_mut()
+            .resolutions
+            .insert(id, document.clone());
         Ok(id)
     }
 
@@ -1631,14 +1872,16 @@ impl<F: Filesystem> Store<F> {
         name: &str,
     ) -> Result<RevisionId, StoreError> {
         let id = digest(bytes);
-        if self.payload_path(&id)?.is_some() {
+        if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         write_once(&self.files, &path, bytes)?;
-        if let Some(index) = self.payloads.get_mut() {
-            index.entry(id).or_insert(path);
-        }
+        // Catalogued from what was written: a payload carries no grammar, so
+        // there is nothing here for a reader to have learned by parsing it.
+        let mut filed = self.located(&path, None);
+        filed.document = false;
+        self.catalogue_mut()?.insert(id, filed);
         Ok(id)
     }
 
@@ -1888,37 +2131,6 @@ pub fn walk<F: Filesystem + ?Sized>(
     found.files.sort();
     found.links.sort();
     Ok(found)
-}
-
-/// Read and parse everything `operations/` states, in both grammars.
-///
-/// Free rather than a method so that [`Store::bodies`] can call it while the
-/// cell it fills is untouched, which is what makes filling that cell sound.
-fn read_bodies<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Bodies, StoreError> {
-    let mut bodies = Bodies::default();
-    for path in files_claiming(files, root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
-        let bytes = files
-            .read(&path)
-            .map_err(|error| StoreError::io(&path, error))?;
-        // Decision 0032: two content-document grammars share the suffix,
-        // and the body says which one the bytes are held to.
-        if format::is_resolution(&bytes) {
-            let document =
-                ResolutionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
-                    file: path.clone(),
-                    error,
-                })?;
-            bodies.resolutions.insert(digest(&bytes), document);
-        } else {
-            let document =
-                OperationDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
-                    file: path.clone(),
-                    error,
-                })?;
-            bodies.insert_operation(digest(&bytes), document);
-        }
-    }
-    Ok(bodies)
 }
 
 /// Every payload in `operations/`, at any depth.

@@ -261,7 +261,7 @@ impl<F: Filesystem> Store<F> {
         // Names are presentation and identity is content, so no document has
         // changed and `self.documents` is still true. The payload index is
         // not: it maps digests to paths, and the paths have just moved.
-        self.forget_payloads();
+        self.forget_catalogue();
         Ok(done)
     }
 

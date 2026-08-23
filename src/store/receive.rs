@@ -133,9 +133,10 @@ impl<F: Filesystem> Store<F> {
 
         // Each store's operation documents, read once: every filter below
         // asks what one of them holds, and none can call `?` inside a closure.
-        let held: BTreeSet<RevisionId> = self.operations()?.map(|(id, _)| *id).collect();
+        let held: BTreeSet<RevisionId> = self.operations()?.into_keys().collect();
         let forgotten: BTreeSet<RevisionId> = self
             .operations()?
+            .into_iter()
             .chain(source.operations()?)
             .filter_map(|(_, document)| document.forgets)
             .collect();
@@ -150,9 +151,8 @@ impl<F: Filesystem> Store<F> {
             .collect();
         plan.operations = source
             .operations()?
-            .filter_map(|(id, _)| {
-                (!held.contains(id) && !plan.forgotten.contains(id)).then_some(*id)
-            })
+            .into_keys()
+            .filter(|id| !held.contains(id) && !plan.forgotten.contains(id))
             .collect();
 
         let ours = self.payloads()?;
@@ -278,8 +278,8 @@ impl<F: Filesystem> Store<F> {
             }
         }
         for target in forgotten {
-            if let Some(path) = self.payload_path(target)? {
-                destroys.insert(path.to_path_buf());
+            if let Some(path) = self.catalogue()?.at(target).map(|filed| filed.path.clone()) {
+                destroys.insert(self.root.join(path));
             }
         }
         for path in &destroys {
@@ -288,9 +288,9 @@ impl<F: Filesystem> Store<F> {
                 .map_err(|error| StoreError::io(path, error))?;
         }
         for target in forgotten {
-            self.bodies_mut()?.remove_operation(target);
+            self.catalogue_mut()?.remove(target);
         }
-        self.forget_payloads();
+        self.forget_catalogue();
         super::prune::remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
         Ok(destroys.len())
     }

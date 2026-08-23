@@ -684,6 +684,10 @@ fn check_resolutions<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mu
     let Ok(store) = super::Store::open_on(files, root) else {
         return;
     };
+    // Decision 0036: `check` catalogues `operations/` by reading it, never by
+    // taking what `cache/` says. Everything else this store answers is the
+    // arithmetic itself, and this is the one command that exists to run it.
+    let store = store.reading_everything();
     // Opening no longer reads `operations/`, and this check is entirely about
     // what an `edit` line names there. A directory that will not parse has
     // already been reported file by file, on the same reasoning as above.

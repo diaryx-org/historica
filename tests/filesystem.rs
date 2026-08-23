@@ -351,7 +351,14 @@ fn pruning_removes_files_from_the_map_and_tidies_what_it_empties() {
             version: historica::format::Version::V1,
             forgets: None,
             result: None,
-            operations: Vec::new(),
+            // A document with an operation in it, because a document with
+            // none is not one the format parses — and prune reads what the
+            // directory holds rather than what this process remembers
+            // inserting.
+            operations: vec![historica::format::Operation::insert(
+                0,
+                [historica::format::Item::line("nothing names this")],
+            )],
         })
         .expect("an operation document nothing names");
     assert!(store.operation(&orphan).unwrap().is_some());
