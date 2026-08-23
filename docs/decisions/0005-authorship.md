@@ -124,8 +124,10 @@ trees and signatures would then continue.
    recorded.** Answered by [0010](0010-writer.md): it is the moment the change
    was first recorded, copied forward through amendments.
 
-## Open questions
+## Deferred
 
 2. **Whether an author is a free-text line or a structured identity.**
    `Name <address>` is a convention here, unparsed, which keeps the format out
-   of the identity business until signatures force it in.
+   of the identity business until signatures force it in. Decision
+   [0028](0028-accepting-by-path.md) keeps it deferred until a real key
+   authority and trust boundary say what structure is needed.

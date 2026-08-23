@@ -187,6 +187,14 @@ pub fn status(
     for (path, lines) in &survey.standing {
         writeln!(out, "{:<7} {path} ({lines} left)", "marked")?;
     }
+    for path in &survey.contested_bytes {
+        writeln!(
+            out,
+            "{:<7} {path}: selected revisions state different bytes; \
+             record with --accept {path}",
+            "accept"
+        )?;
+    }
 
     // Only where a person said they were joining work. A contest deeper in the
     // graph was settled when its merge was recorded, and repeating it under
@@ -199,7 +207,11 @@ pub fn status(
         }
     }
 
-    if survey.is_empty() && survey.refused.is_empty() && survey.unsettled.is_empty() {
+    if survey.is_empty()
+        && survey.refused.is_empty()
+        && survey.unsettled.is_empty()
+        && survey.contested_bytes.is_empty()
+    {
         writeln!(out, "nothing here differs from what is recorded")?;
     }
 

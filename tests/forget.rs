@@ -5,6 +5,7 @@
 //! and merges exactly as it did outside the forgotten runs — and the
 //! destroyed text is recoverable from nothing the store still holds.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -185,6 +186,7 @@ fn record_folder(
             message: message.to_owned(),
             moves: Vec::new(),
             at: Vec::new(),
+            accepted: BTreeSet::new(),
         },
         &mut platform,
     )

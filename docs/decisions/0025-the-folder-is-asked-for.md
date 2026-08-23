@@ -278,11 +278,13 @@ library that could write a store it could not then examine.
 `record::Platform` already isolates both behind `Clock` and `Entropy`, which is
 the same seam arrived at earlier for the same reason. Nothing more is owed.
 
-## Open questions
+## Deferred
 
 2. **Whether the trait should offer a bulk or streaming read**, since `check`
    hashes every payload one `read` at a time. On disk this is right. Over a
-   network-backed provider it may be a round trip per photograph.
+   network-backed provider it may be a round trip per photograph. Decision
+   [0028](0028-accepting-by-path.md) keeps it deferred until a real provider
+   supplies the latency, cancellation, and consistency constraints.
 
 ## Resolved questions
 

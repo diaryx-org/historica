@@ -37,7 +37,7 @@ reading a store
 writing a store
   record [-m <message>]    record what the folder now says
          [--onto <target>] [--merge <target>] [--move <old>=<new>]
-         [--at <file>=<path>] [--dry-run]
+         [--at <file>=<path>] [--accept <path>] [--dry-run]
   amend [<target>]         rewrite the head as the folder now stands
         [-m <message>] [--move <old>=<new>] [--dry-run]
   merge <target>           write what two lines of work say together

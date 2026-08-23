@@ -375,11 +375,13 @@ which is a tree question about what an entry may point at.
    can express must produce the same bytes, and concurrent paragraphs must not
    interleave. Fugue remains the choice unless that suite finds a counterexample.
 
-## Open questions
+## Deferred
 
 2. **Whether a re-rooting revision should exist**, stating content outright so
    that history can be truncated. It would restore shallow clones and would put
    a second, snapshot-shaped thing in a format that just argued for one shape.
+   Decision [0028](0028-accepting-by-path.md) keeps it deferred until Historica
+   has a transport boundary and a concrete shallow-history operation.
 
 ## Resolved questions
 

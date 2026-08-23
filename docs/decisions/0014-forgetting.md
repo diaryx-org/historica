@@ -336,10 +336,12 @@ the whole payload goes and only its digest and length remain.
 **Enumerable replica sets**, which is tier 2 above and the thing that would let
 `prune` say what people already assume it says.
 
-## Open questions
+## Deferred
 
 Whether a person should be able to forget an item **without** propagating the
 request — destroying it here while saying nothing to any other replica. It is
 strictly less useful and strictly more honest, and which one a journal wants
 probably depends on whether the other replicas are other people or other
-laptops.
+laptops. Decision [0028](0028-accepting-by-path.md) observes that Historica has
+no remote or tracked replica to propagate to: stores meet by external copying.
+“Local only” therefore has no stable counterpart yet, and remains deferred.

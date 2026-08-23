@@ -90,13 +90,20 @@ partially reading a history it does not understand.
   complete parseable files.
 - Decision 0025's third open question is closed.
 
-## Open questions
+## Deferred
 
 1. **Whether mutable writes eventually need comparison as well as atomicity.**
    `append_skipped` reads, extends, and replaces; two simultaneous calls can
    each commit a complete file while one loses the other's new rules. Solving
    that requires a generation a provider can compare, or making the rule file
    append-only in the format. No observed use needs that machinery yet.
+
+   Decision [0028](0028-accepting-by-path.md) keeps this deferred until a real
+   provider or concurrent writer supplies a comparison primitive and an
+   observed lost update.
+
+## Open questions
+
 2. **Whether abandoned temporary siblings should receive a specific `check`
    note.** They are currently foreign files like any other. A stable spelling
    would let `check` identify them, but would couple the format's diagnostics to

@@ -1769,6 +1769,91 @@ fn a_merge_is_rendered_resolved_and_then_recorded() {
 }
 
 #[test]
+fn a_contested_attachment_is_recorded_only_when_accepted_by_path() {
+    let directory = repository("merge-attachment");
+    fs::write(directory.join("photo.bin"), [0x00, 0x01]).expect("the root attachment");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    let root = out(recorded(&directory, &["log"]))
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("the root")
+        .to_owned();
+
+    fs::write(directory.join("photo.bin"), [0x00, 0x02]).expect("our attachment");
+    out(recorded(&directory, &["record", "-m", "mine"]));
+    fs::write(directory.join("photo.bin"), [0x00, 0x03]).expect("their attachment");
+    out(recorded(
+        &directory,
+        &["record", "--onto", &root, "-m", "theirs"],
+    ));
+
+    let log = out(recorded(&directory, &["log"]));
+    let mut heads = log
+        .lines()
+        .filter(|line| line.contains("(head"))
+        .map(|line| line.split_whitespace().next().expect("a change").to_owned());
+    let (mine, theirs) = (heads.next().expect("a head"), heads.next().expect("a head"));
+
+    let status = out(recorded(
+        &directory,
+        &["status", "--merge", &mine, "--merge", &theirs],
+    ));
+    assert!(status.contains("accept  photo.bin"), "{status}");
+    assert!(status.contains("--accept photo.bin"), "{status}");
+
+    let refused = recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    );
+    assert!(!refused.status.success());
+    let complaint = String::from_utf8_lossy(&refused.stderr);
+    assert!(complaint.contains("--accept photo.bin"), "{complaint}");
+
+    let unnecessary = recorded(
+        &directory,
+        &[
+            "record",
+            "--merge",
+            &mine,
+            "--merge",
+            &theirs,
+            "--accept",
+            "photo.bin",
+            "--accept",
+            "other.bin",
+            "-m",
+            "Join",
+        ],
+    );
+    assert!(!unnecessary.status.success());
+    assert!(
+        String::from_utf8_lossy(&unnecessary.stderr).contains("other.bin"),
+        "an acceptance must name contested bytes"
+    );
+
+    let joined = out(recorded(
+        &directory,
+        &[
+            "record",
+            "--merge",
+            &mine,
+            "--merge",
+            &theirs,
+            "--accept",
+            "photo.bin",
+            "-m",
+            "Join",
+        ],
+    ));
+    assert!(joined.contains("joins 2 lines"), "{joined}");
+    assert_eq!(
+        run(&directory, &["cat", "head", "photo.bin"]).stdout,
+        [0x00, 0x03]
+    );
+}
+
+#[test]
 fn a_merge_that_needed_no_help_records_no_operations() {
     let directory = repository("merge-clean");
     write(&directory, "a.md", "a\n");

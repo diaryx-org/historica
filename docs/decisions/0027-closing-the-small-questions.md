@@ -104,9 +104,10 @@ file with an invalid name.
 - `init` writes a comment-only `skipped.txt` and `cache/README.txt`.
 - `check` removes sync-suffix recognition and describes a missing payload
   without assuming why it is absent.
-- The explicit attachment-acceptance and text-to-bytes replacement options are
-  interface work owed by `record`; their semantics are settled here before
-  their spelling is chosen.
+- [0028](0028-accepting-by-path.md) supplies `--accept <path>` for contested
+  attachments. The text-to-bytes replacement option remains interface work
+  owed by `record`; its semantics are settled here before its spelling is
+  chosen.
 - Re-rooting, authors bound to signatures, streaming reads, local forgetting,
-  and atomic compare-and-swap remain open because each needs the larger feature
-  that would supply evidence for it.
+  and atomic compare-and-swap remain deferred because each needs the larger
+  feature that would supply evidence for it.

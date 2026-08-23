@@ -113,6 +113,12 @@ pub struct Survey {
     pub unsettled: BTreeMap<String, Vec<FileId>>,
     /// Marker lines still standing, by path, when joining.
     pub standing: Vec<(String, usize)>,
+    /// Byte payloads whose selected parents state different content.
+    ///
+    /// There is no marker to find in a file of bytes. Decision 0028 requires a
+    /// person to accept each path explicitly before a merge records what the
+    /// folder happens to hold.
+    pub contested_bytes: BTreeSet<String>,
     /// The revisions this was surveyed against.
     pub parents: Vec<RevisionId>,
 }
@@ -203,6 +209,8 @@ pub struct Recording {
     /// editing it, and by identifier because after a merge a path may name two
     /// files.
     pub at: Vec<(FileId, String)>,
+    /// Contested byte payloads a person explicitly accepts from the folder.
+    pub accepted: BTreeSet<String>,
 }
 
 /// What a person supplies to rewrite a revision.
@@ -406,7 +414,13 @@ pub fn survey<F: Filesystem>(
             // Nothing to compare line by line, so the comparison is the whole
             // of it: the payload it holds now against the payload it held.
             let before = match file {
-                Some(file) if !parents.is_empty() => held_bytes(store, parents, &file)?,
+                Some(file) if !parents.is_empty() => match held_bytes(store, parents, &file)? {
+                    HeldBytes::One(bytes) => Some(bytes),
+                    HeldBytes::Contested => {
+                        survey.contested_bytes.insert(path.clone());
+                        None
+                    }
+                },
                 _ => None,
             };
             if before.as_deref() != Some(bytes.as_slice()) {
@@ -536,18 +550,20 @@ fn renames<F: Filesystem>(
     Ok(renames)
 }
 
-/// The payload a file of bytes holds at these parents, if it holds one.
-///
-/// `None` where concurrent revisions each stated one: 0008 refuses to pick,
-/// so what the folder holds now is the change, whatever it is.
+/// The payload a file of bytes holds at these parents.
+enum HeldBytes {
+    One(Vec<u8>),
+    Contested,
+}
+
 fn held_bytes<F: Filesystem>(
     store: &Store<F>,
     parents: &[RevisionId],
     file: &FileId,
-) -> Result<Option<Vec<u8>>, RecordError> {
+) -> Result<HeldBytes, RecordError> {
     match store.content_at_heads(parents, file) {
-        Ok(content) => Ok(Some(content.bytes())),
-        Err(MaterialiseError::ContestedContent { .. }) => Ok(None),
+        Ok(content) => Ok(HeldBytes::One(content.bytes())),
+        Err(MaterialiseError::ContestedContent { .. }) => Ok(HeldBytes::Contested),
         Err(error) => Err(error.into()),
     }
 }
@@ -606,6 +622,22 @@ fn plan_with<F: Filesystem>(
         return Err(RecordError::Unresolved {
             files: surveyed.standing.clone(),
         });
+    }
+    let unaccepted: Vec<String> = surveyed
+        .contested_bytes
+        .difference(&recording.accepted)
+        .cloned()
+        .collect();
+    if !unaccepted.is_empty() {
+        return Err(RecordError::UnacceptedAttachments { paths: unaccepted });
+    }
+    let unnecessary: Vec<String> = recording
+        .accepted
+        .difference(&surveyed.contested_bytes)
+        .cloned()
+        .collect();
+    if !unnecessary.is_empty() {
+        return Err(RecordError::NothingToAccept { paths: unnecessary });
     }
 
     let mut minted: BTreeMap<String, FileId> = BTreeMap::new();
@@ -923,6 +955,7 @@ fn rewriting<F: Filesystem>(
             .unwrap_or_else(|| previous.message.clone()),
         moves: amendment.moves.clone(),
         at,
+        accepted: BTreeSet::new(),
     };
     Ok((previous, recording, kept))
 }
@@ -1255,6 +1288,16 @@ pub enum RecordError {
         /// Each file, and how many marker lines still stand in it.
         files: Vec<(String, usize)>,
     },
+    /// Contested byte payloads a person has not explicitly accepted.
+    UnacceptedAttachments {
+        /// Every path requiring `--accept`.
+        paths: Vec<String>,
+    },
+    /// An acceptance naming a path whose selected parents do not contest bytes.
+    NothingToAccept {
+        /// Every unnecessary path.
+        paths: Vec<String>,
+    },
     /// Paths the folder holds that the format cannot take.
     ///
     /// Every one of them at once, per decision 0015: the fix is a set of
@@ -1418,6 +1461,34 @@ impl fmt::Display for RecordError {
                 files
                     .iter()
                     .map(|(path, lines)| format!("\n  {path} ({lines} left)"))
+                    .collect::<String>()
+            ),
+            RecordError::UnacceptedAttachments { paths } => write!(
+                f,
+                "concurrent work states different bytes for {}; inspect {} and \
+                 explicitly accept what the folder holds:{}",
+                if paths.len() == 1 {
+                    "one attachment"
+                } else {
+                    "these attachments"
+                },
+                if paths.len() == 1 { "it" } else { "them" },
+                paths
+                    .iter()
+                    .map(|path| format!("\n  --accept {path}"))
+                    .collect::<String>()
+            ),
+            RecordError::NothingToAccept { paths } => write!(
+                f,
+                "{}; remove the unnecessary acceptance:{}",
+                if paths.len() == 1 {
+                    "this path is not a contested attachment"
+                } else {
+                    "these paths are not contested attachments"
+                },
+                paths
+                    .iter()
+                    .map(|path| format!("\n  --accept {path}"))
                     .collect::<String>()
             ),
             RecordError::Refused { files } => write!(

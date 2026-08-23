@@ -438,6 +438,7 @@ deliberately no spelling.
    It cannot infer the difference. [0027](0027-closing-the-small-questions.md)
    therefore requires explicit acceptance when recording a contested byte
    payload, rather than a marker file beside a person's attachment.
+   [0028](0028-accepting-by-path.md) spells that `--accept <path>`.
 2. **Whether `status` should say more about a changed attachment than that it
    changed.** A size, a dimension, a preview: all of it is the tool reading
    content it has decided not to understand, and all of it is what a person

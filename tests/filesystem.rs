@@ -226,6 +226,7 @@ fn record_folder(
             message: message.to_owned(),
             moves: Vec::new(),
             at: Vec::new(),
+            accepted: BTreeSet::new(),
         },
         &mut platform,
     )

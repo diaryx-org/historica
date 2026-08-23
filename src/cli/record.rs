@@ -1,6 +1,6 @@
 //! `record` and `identity`: the two commands that write on a person's behalf.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -29,6 +29,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     // file bookmark, and a bookmark is a file in the store rather than a
     // spelling that can be parsed on its own.
     let mut at: Vec<(String, String)> = Vec::new();
+    let mut accepted: BTreeSet<String> = BTreeSet::new();
     let mut dry_run = false;
 
     let mut arguments = arguments.into_iter();
@@ -42,6 +43,9 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
             "-m" | "--message" => message = Some(value("-m")?),
             "--onto" => onto = Some(value("--onto")?),
             "--merge" => joining.push(value("--merge")?),
+            "--accept" => {
+                accepted.insert(value("--accept")?);
+            }
             "--at" => {
                 let stated = value("--at")?;
                 let (file, path) = stated
@@ -95,6 +99,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         message,
         moves: moves.clone(),
         at: at.clone(),
+        accepted: accepted.clone(),
     };
 
     if dry_run {
