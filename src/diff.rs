@@ -23,7 +23,8 @@
 
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 
-use crate::format::{Operation, OperationDocument, Version, digest};
+use crate::core::RevisionId;
+use crate::format::{Operation, OperationDocument, Piece, ResolutionDocument, Version, digest};
 use crate::replay::State;
 
 /// The matcher this tool records with.
@@ -105,6 +106,123 @@ pub fn diff(parent: &State, child: &State) -> Option<OperationDocument> {
     Some(document)
 }
 
+/// The resolution a merge states, given what the walk proposed and what the
+/// folder holds.
+///
+/// Decision 0032's writing half. The proposal is the event-graph merge's
+/// answer — the tool's draft, which a person then edits — and `after` is what
+/// they left. Aligning the two says which of the proposed items survived, and
+/// a surviving item is *named* rather than restated: that is the decision's
+/// load-bearing choice, because a restated line would be a new item and the
+/// first merge reaching across this one would meet the same text twice.
+///
+/// `None` where the alignment leaves nothing at all. The grammar has no
+/// spelling for a file with no pieces, and neither does the operation
+/// document's: an empty file is one nothing can state.
+pub fn resolve(
+    proposed: &State,
+    references: &[(RevisionId, usize)],
+    after: &State,
+) -> Option<ResolutionDocument> {
+    let old = proposed.items();
+    let new = after.items();
+
+    // Which proposed items survive, and what the person wrote between them.
+    // Positions are into `old`, which is what the matcher counts in.
+    let mut dropped = vec![false; old.len()];
+    let mut written: Vec<(usize, usize, usize)> = Vec::new();
+    let mut drop = |at: usize, len: usize| {
+        for gone in &mut dropped[at..at + len] {
+            *gone = true;
+        }
+    };
+    for operation in capture_diff_slices(ALGORITHM, old, new) {
+        match operation {
+            DiffOp::Equal { .. } => {}
+            DiffOp::Delete {
+                old_index, old_len, ..
+            } => drop(old_index, old_len),
+            DiffOp::Insert {
+                old_index,
+                new_index,
+                new_len,
+            } => written.push((old_index, new_index, new_len)),
+            DiffOp::Replace {
+                old_index,
+                old_len,
+                new_index,
+                new_len,
+            } => {
+                drop(old_index, old_len);
+                written.push((old_index, new_index, new_len));
+            }
+        }
+    }
+
+    let mut pieces: Vec<Piece> = Vec::new();
+    // Pieces are maximal: a `keep` that continues the one before it is the
+    // same run, and two inserts that meet are one insert. Exactly one byte
+    // sequence parses per resolution, and this is where that is arranged.
+    let push_keep = |pieces: &mut Vec<Piece>, document: RevisionId, at: usize| {
+        if let Some(Piece::Keep {
+            document: same,
+            first,
+            count,
+        }) = pieces.last_mut()
+            && *same == document
+            && *first + *count == at
+        {
+            *count += 1;
+            return;
+        }
+        pieces.push(Piece::Keep {
+            document,
+            first: at,
+            count: 1,
+        });
+    };
+    let push_insert = |pieces: &mut Vec<Piece>, items: &[crate::format::Item]| {
+        if items.is_empty() {
+            return;
+        }
+        if let Some(Piece::Insert { items: run }) = pieces.last_mut() {
+            run.extend(items.iter().cloned());
+            return;
+        }
+        pieces.push(Piece::Insert {
+            items: items.to_vec(),
+        });
+    };
+
+    let at_position = |pieces: &mut Vec<Piece>, position: usize| {
+        for (_, from, len) in written.iter().filter(|(at, _, _)| *at == position) {
+            push_insert(pieces, &new[*from..*from + *len]);
+        }
+    };
+    for position in 0..old.len() {
+        at_position(&mut pieces, position);
+        if !dropped[position] {
+            let (document, ordinal) = references[position];
+            push_keep(&mut pieces, document, ordinal);
+        }
+    }
+    // What the person wrote past the last proposed item.
+    at_position(&mut pieces, old.len());
+
+    if pieces.is_empty() {
+        return None;
+    }
+    Some(ResolutionDocument {
+        // `keep` and `result` are both version 3's vocabulary, so a
+        // resolution never claims anything lower.
+        version: Version::V3,
+        // Decision 0031, which 0032 is what landed first for: the digest a
+        // hand-assembled resolution is checked against.
+        result: digest(after.text().as_bytes()),
+        pieces,
+    })
+}
+
 /// Put the operations into the one spelling the format has for them.
 ///
 /// The matcher is not held to Historica's rules, so this holds it to them:
@@ -148,6 +266,129 @@ fn canonical(mut deletes: Vec<Operation>, mut inserts: Vec<Operation>) -> Vec<Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A proposed merge whose items come from two documents, alternating by
+    /// the `from` mask, and the resolution recording `after` against it.
+    fn resolved(proposed: &str, from: &[u8], after: &str) -> Option<ResolutionDocument> {
+        let mut names = [0u8; 32];
+        names[0] = 1;
+        let left = crate::core::RevisionId::from_bytes(names);
+        names[0] = 2;
+        let right = crate::core::RevisionId::from_bytes(names);
+
+        // Each document's ordinals count only its own items, which is what
+        // "in document order" means.
+        let (mut mine, mut theirs) = (0, 0);
+        let references: Vec<(RevisionId, usize)> = from
+            .iter()
+            .map(|side| {
+                if *side == 0 {
+                    mine += 1;
+                    (left, mine - 1)
+                } else {
+                    theirs += 1;
+                    (right, theirs - 1)
+                }
+            })
+            .collect();
+
+        let proposed = State::from_text(proposed);
+        assert_eq!(proposed.len(), references.len(), "one name per item");
+        let after = State::from_text(after);
+        let resolution = resolve(&proposed, &references, &after);
+
+        // Every resolution this produces parses, and assembles to the file it
+        // was recorded from. Nothing below is worth reading if these two fail.
+        if let Some(document) = &resolution {
+            let bytes = document.write();
+            ResolutionDocument::parse(&bytes)
+                .unwrap_or_else(|error| panic!("should parse: {error}\n{document}"));
+            let held = |name: &RevisionId| {
+                let side = if *name == left { 0 } else { 1 };
+                proposed
+                    .items()
+                    .iter()
+                    .zip(from)
+                    .filter(|(_, which)| **which == side)
+                    .map(|(item, _)| item.clone())
+                    .collect::<Vec<_>>()
+            };
+            let (mine, theirs) = (held(&left), held(&right));
+            let assembled = crate::replay::assemble(document, |name| {
+                Some(if *name == left { &mine } else { &theirs })
+            })
+            .expect("should assemble");
+            assert_eq!(assembled.text(), after.text());
+        } else {
+            assert!(after.is_empty(), "only an empty file states nothing");
+        }
+        resolution
+    }
+
+    /// Decision 0032: a surviving line is named, never restated, because a
+    /// restated line would be a new item and the next merge across this one
+    /// would meet the same text twice.
+    #[test]
+    fn a_clean_merge_still_states_its_file_and_restates_nothing() {
+        let resolution = resolved("a\nb\nc\n", &[0, 1, 0], "a\nb\nc\n").expect("a resolution");
+        assert_eq!(
+            resolution.pieces.len(),
+            3,
+            "three runs, because the items alternate between two documents"
+        );
+        assert_eq!(resolution.minted(), 0, "nothing is restated");
+    }
+
+    #[test]
+    fn what_the_person_wrote_is_minted_and_the_rest_is_kept() {
+        let resolution =
+            resolved("a\nMINE\nTHEIRS\nz\n", &[0, 0, 1, 0], "a\nBOTH\nz\n").expect("a resolution");
+        assert_eq!(resolution.minted(), 1);
+        // A run split by a removal is two keeps, and they are not adjacent:
+        // item 1 of the left document went.
+        assert_eq!(
+            resolution.pieces,
+            vec![
+                Piece::Keep {
+                    document: resolution_document(1),
+                    first: 0,
+                    count: 1
+                },
+                Piece::Insert {
+                    items: vec![crate::format::Item::line("BOTH")]
+                },
+                Piece::Keep {
+                    document: resolution_document(1),
+                    first: 2,
+                    count: 1
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn runs_are_maximal_so_one_byte_sequence_spells_each_resolution() {
+        // Four consecutive items of one document are one `keep`, and two
+        // lines written in one place are one `insert`.
+        let resolution = resolved("a\nb\nc\nd\n", &[0, 0, 0, 0], "a\nb\nc\nd\none\ntwo\n")
+            .expect("a resolution");
+        assert_eq!(resolution.pieces.len(), 2);
+        assert!(matches!(resolution.pieces[0], Piece::Keep { count: 4, .. }));
+        assert_eq!(resolution.minted(), 2);
+    }
+
+    #[test]
+    fn a_file_resolved_to_nothing_has_no_spelling() {
+        // The grammar has no resolution with no pieces, exactly as it has no
+        // operation document with no operations.
+        assert!(resolved("a\nb\n", &[0, 0], "").is_none());
+    }
+
+    fn resolution_document(byte: u8) -> RevisionId {
+        let mut bytes = [0u8; 32];
+        bytes[0] = byte;
+        RevisionId::from_bytes(bytes)
+    }
 
     fn record(parent: &str, child: &str) -> Option<OperationDocument> {
         let parent = State::from_text(parent);

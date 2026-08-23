@@ -136,6 +136,13 @@ pub struct Merged {
     /// labels each run inside a contested span with the revision that wrote
     /// it, which is more than a three-way tool can say.
     pub origins: Vec<RevisionId>,
+    /// The name a `keep` line quotes for each item, in the same order.
+    ///
+    /// The document that minted the item, and its ordinal in that document's
+    /// order. Decision 0032: this is what turns a proposed merge into a
+    /// resolution — the surviving items are named rather than restated, so
+    /// they keep the identities a later merge across this one needs.
+    pub references: Vec<(RevisionId, usize)>,
     /// Where two branches touched one region. Never written to disk.
     pub contested: Vec<Contested>,
 }
@@ -211,9 +218,10 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Merged, 
 fn linear(graph: &Graph<'_>) -> Result<Merged, MergeError> {
     let mut items: Vec<Item> = Vec::new();
     let mut origins: Vec<RevisionId> = Vec::new();
+    let mut references: Vec<(RevisionId, usize)> = Vec::new();
 
     for event in &graph.order {
-        let Some((_, document)) = graph.events[*event].operation_document() else {
+        let Some((named, document)) = graph.events[*event].operation_document() else {
             continue;
         };
         let revision = graph.events[*event].revision;
@@ -271,23 +279,32 @@ fn linear(graph: &Graph<'_>) -> Result<Merged, MergeError> {
         // end names the gap past the last item.
         let mut kept: Vec<Item> = Vec::with_capacity(length);
         let mut wrote: Vec<RevisionId> = Vec::with_capacity(length);
+        let mut named_by: Vec<(RevisionId, usize)> = Vec::with_capacity(length);
+        // How many items this document has minted so far, which is the
+        // ordinal half of the name a `keep` quotes.
+        let mut minted = 0usize;
         for position in 0..=length {
             if let Some(new) = added.remove(&position) {
                 wrote.extend(std::iter::repeat_n(revision, new.len()));
+                named_by.extend((minted..minted + new.len()).map(|at| (named, at)));
+                minted += new.len();
                 kept.extend(new);
             }
             if position < length && !removed[position] {
                 kept.push(items[position].clone());
                 wrote.push(origins[position]);
+                named_by.push(references[position]);
             }
         }
         items = kept;
         origins = wrote;
+        references = named_by;
     }
 
     Ok(Merged {
         contested: terminators(&items),
         origins,
+        references,
         state: State::from_items(items),
     })
 }
@@ -930,6 +947,7 @@ impl Tree {
         let contests = self.contests(graph);
         let mut items: Vec<Item> = Vec::new();
         let mut authors: Vec<usize> = Vec::new();
+        let mut references: Vec<(RevisionId, usize)> = Vec::new();
         let mut marked: Vec<Option<(Contest, BTreeSet<RevisionId>)>> = Vec::new();
         for at in self.order() {
             let element = &self.elements[at];
@@ -938,6 +956,7 @@ impl Tree {
             }
             items.push(element.item.clone());
             authors.push(element.author);
+            references.push(element.reference);
             marked.push(contests[at].clone());
         }
 
@@ -976,6 +995,7 @@ impl Tree {
                 .iter()
                 .map(|author| graph.events[*author].revision)
                 .collect(),
+            references,
             state: State::from_items(items),
             contested,
         }

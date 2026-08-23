@@ -844,9 +844,26 @@ impl<F: Filesystem> Store<F> {
     /// is what answers where the rule does not reach, which is every merge
     /// recorded before version 3: those read exactly as they did, forever.
     pub fn content(&self, head: &RevisionId, file: &FileId) -> Result<State, MaterialiseError> {
+        Ok(self.content_of(head, file)?.unwrap_or_else(State::empty))
+    }
+
+    /// The content of one file at `head`, or `None` where that history
+    /// mentions the file nowhere at all.
+    ///
+    /// The distinction decision 0032's merge rule turns on: a side that never
+    /// saw a file is not a side that disagrees about it, so a merge owes no
+    /// resolution for a file only one of its parents has ever heard of.
+    pub fn content_of(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+    ) -> Result<Option<State>, MaterialiseError> {
         match self.stated_content(head, file)? {
-            Some(state) => Ok(state),
-            None => Ok(self.merged_content(head, file)?.state),
+            Stated::Known(state) => Ok(Some(state)),
+            Stated::Absent => Ok(None),
+            // Every merge recorded before version 3 lands here, and reads
+            // exactly as it always did.
+            Stated::Unstated => Ok(Some(self.merged_content(head, file)?.state)),
         }
     }
 
@@ -889,11 +906,7 @@ impl<F: Filesystem> Store<F> {
     /// It does not reach a merge whose parents disagree about the file and
     /// which states no resolution — which is every merge recorded before
     /// version 3, and nothing a version 3 writer produces.
-    fn stated_content(
-        &self,
-        head: &RevisionId,
-        file: &FileId,
-    ) -> Result<Option<State>, MaterialiseError> {
+    fn stated_content(&self, head: &RevisionId, file: &FileId) -> Result<Stated, MaterialiseError> {
         let mut known: BTreeMap<RevisionId, Stated> = BTreeMap::new();
         let mut stack = vec![*head];
         while let Some(id) = stack.last().copied() {
@@ -988,13 +1001,7 @@ impl<F: Filesystem> Store<F> {
             known.insert(id, stated);
         }
 
-        Ok(match known.remove(head) {
-            Some(Stated::Known(state)) => Some(state),
-            // A file this history never mentions is a file with no content,
-            // which the walk also says and says more slowly.
-            Some(Stated::Absent) => Some(State::empty()),
-            Some(Stated::Unstated) | None => None,
-        })
+        Ok(known.remove(head).unwrap_or(Stated::Unstated))
     }
 
     /// Assemble one resolution, fetching the documents its `keep` lines name.
@@ -1236,6 +1243,29 @@ impl<F: Filesystem> Store<F> {
         self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
         self.operations.insert(id, document.clone());
+        Ok(id)
+    }
+
+    /// Write a resolution into the store under `name`, within `operations/`.
+    ///
+    /// Decision 0032 files a resolution exactly where an operation document
+    /// goes and under the same suffix, because an `edit` line names either
+    /// and a person reading the store should find the file beside the
+    /// revision that wrote it either way.
+    pub fn insert_resolution_at(
+        &mut self,
+        document: &ResolutionDocument,
+        name: &str,
+    ) -> Result<RevisionId, StoreError> {
+        let bytes = document.write();
+        let id = digest(&bytes);
+        if self.resolutions.contains_key(&id) {
+            return Ok(id);
+        }
+        let path = within(&self.root.join(OPERATIONS_DIR), name);
+        self.raise_version(document.version)?;
+        write_once(&self.files, &path, &bytes)?;
+        self.resolutions.insert(id, document.clone());
         Ok(id)
     }
 

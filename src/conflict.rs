@@ -174,6 +174,9 @@ mod tests {
         Merged {
             state: State::from_text(text),
             origins: origins.iter().map(|byte| revision(*byte)).collect(),
+            // Rendering never looks at these; a merge is a statement about
+            // which items survived, and this is about how they are shown.
+            references: origins.iter().map(|byte| (revision(*byte), 0)).collect(),
             contested,
         }
     }

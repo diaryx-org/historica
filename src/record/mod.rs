@@ -17,9 +17,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::core::{ChangeId, FileId, RevisionId};
-use crate::diff::diff;
-use crate::format::{OperationDocument, RevisionDocument, Timestamp, Version, digest};
+use crate::diff::{diff, resolve};
+use crate::format::{
+    OperationDocument, ResolutionDocument, RevisionDocument, Timestamp, Version, digest,
+};
 use crate::fs::Filesystem;
+use crate::merge::Merged;
 use crate::naming;
 use crate::replay::State;
 use crate::store::{MaterialiseError, Name, REVISION_SUFFIX, Store, StoreError};
@@ -44,6 +47,9 @@ pub use source::{Clock, Entropy, Platform, SourceError};
 pub enum Change {
     /// An operation document, against the file as its parents leave it.
     Operations(OperationDocument),
+    /// Decision 0032's resolution: a merge's file, stated whole by reference,
+    /// for a file its parents disagree about.
+    Resolution(ResolutionDocument),
     /// The lines a file is created with, which `text` names.
     Created(Vec<u8>),
     /// A file's whole content, which `bytes` names.
@@ -113,6 +119,13 @@ pub struct Survey {
     pub unsettled: BTreeMap<String, Vec<FileId>>,
     /// Marker lines still standing, by path, when joining.
     pub standing: Vec<(String, usize)>,
+    /// Paths a merge would have to empty, which no resolution can spell.
+    ///
+    /// Decision 0032's grammar has no resolution with no pieces, exactly as
+    /// 0007's has no operation document with no operations. A merge that
+    /// leaves a contested file with nothing in it is a merge and a deletion
+    /// at once, and the second half belongs in the revision after.
+    pub emptied: Vec<String>,
     /// Byte payloads whose selected parents state different content.
     ///
     /// There is no marker to find in a file of bytes. Decision 0028 requires a
@@ -443,26 +456,9 @@ pub fn survey<F: Filesystem>(
             }
         };
 
-        let before = match file {
-            Some(file) if !parents.is_empty() => {
-                let merged = store.merged_content_of(parents, &file)?;
-                // Decision 0012: while recording a merge, a contested file
-                // holding any line the renderer wrote is refused — per line,
-                // because a person can edit inside a fence and leave it
-                // standing. Here it is counted; `plan` is what refuses.
-                if joining && !merged.contested.is_empty() {
-                    let standing = crate::conflict::unresolved(&merged, &text);
-                    if !standing.is_empty() {
-                        survey.standing.push((path.clone(), standing.len()));
-                    }
-                }
-                merged.state
-            }
-            _ => State::empty(),
-        };
-
         // A file being created states its lines outright rather than as an
         // insert of every one of them, which is decision 0017's whole point.
+        // Nothing before it exists to compare against.
         if file.is_none() {
             if !text.is_empty() {
                 survey
@@ -471,12 +467,61 @@ pub fn survey<F: Filesystem>(
             }
             continue;
         }
+        let file = file.expect("a file the tree holds");
+
+        if parents.is_empty() {
+            let after = State::from_text(&text);
+            if let Some(document) = diff(&State::empty(), &after) {
+                survey
+                    .edited
+                    .insert(path.clone(), Change::Operations(document));
+            }
+            continue;
+        }
+
+        // Decision 0032 splits what a merge says about a file in two. Where
+        // the parents leave it identically there is nothing to resolve, and
+        // the merge states a delta against that agreed state or nothing at
+        // all. Where they differ the merge owes a resolution, and the walk is
+        // demoted to what proposes one.
+        let joined = if joining {
+            joined_content(store, parents, &file)?
+        } else {
+            Joined::Agreed(store.content(&parents[0], &file)?)
+        };
 
         let after = State::from_text(&text);
-        if let Some(document) = diff(&before, &after) {
-            survey
-                .edited
-                .insert(path.clone(), Change::Operations(document));
+        match joined {
+            Joined::Agreed(before) => {
+                if let Some(document) = diff(&before, &after) {
+                    survey
+                        .edited
+                        .insert(path.clone(), Change::Operations(document));
+                }
+            }
+            Joined::Proposed(merged) => {
+                // Decision 0012: while recording a merge, a contested file
+                // holding any line the renderer wrote is refused — per line,
+                // because a person can edit inside a fence and leave it
+                // standing. Here it is counted; `plan` is what refuses.
+                if !merged.contested.is_empty() {
+                    let standing = crate::conflict::unresolved(&merged, &text);
+                    if !standing.is_empty() {
+                        survey.standing.push((path.clone(), standing.len()));
+                        continue;
+                    }
+                }
+                match resolve(&merged.state, &merged.references, &after) {
+                    Some(resolution) => {
+                        survey
+                            .edited
+                            .insert(path.clone(), Change::Resolution(resolution));
+                    }
+                    // The grammar has no spelling for a file with no pieces,
+                    // so a merge cannot be the revision that empties one.
+                    None => survey.emptied.push(path.clone()),
+                }
+            }
         }
     }
 
@@ -492,6 +537,51 @@ pub fn survey<F: Filesystem>(
     survey.renames = renames(store, parents, &survey.dropped, &arrived)?;
     survey.held = held;
     Ok(survey)
+}
+
+/// What a merge's parents leave one file as.
+///
+/// Decision 0032's two cases, and which one it is decides what the merge may
+/// state: an agreed file takes a delta or nothing, and a disagreed one takes
+/// a resolution and nothing else.
+enum Joined {
+    /// Every parent leaves the file exactly here.
+    Agreed(State),
+    /// They differ, so the merge owes a resolution. This is what the walk
+    /// proposes, which is the draft a person edits.
+    Proposed(Box<Merged>),
+}
+
+/// What the parents leave one file as, for a merge being recorded.
+///
+/// The parents' states come from decision 0032's reader — arithmetic and
+/// reference-following — rather than from the walk, because "where the
+/// parents' states for a file are identical" is a claim about what each side
+/// *is*, which is exactly what the reader answers.
+fn joined_content<F: Filesystem>(
+    store: &Store<F>,
+    parents: &[RevisionId],
+    file: &FileId,
+) -> Result<Joined, RecordError> {
+    let mut agreed: Option<State> = None;
+    for parent in parents {
+        // A side whose history never mentions the file disagrees with nobody
+        // about it: the tree decides whether the file exists, and 0008
+        // already has that rule.
+        let Some(state) = store.content_of(parent, file)? else {
+            continue;
+        };
+        match &agreed {
+            Some(held) if held == &state => {}
+            None => agreed = Some(state),
+            Some(_) => {
+                return Ok(Joined::Proposed(Box::new(
+                    store.merged_content_of(parents, file)?,
+                )));
+            }
+        }
+    }
+    Ok(Joined::Agreed(agreed.unwrap_or_else(State::empty)))
 }
 
 /// A dropped path and an added path holding exactly the same bytes.
@@ -621,6 +711,11 @@ fn plan_with<F: Filesystem>(
     if !surveyed.standing.is_empty() {
         return Err(RecordError::Unresolved {
             files: surveyed.standing.clone(),
+        });
+    }
+    if !surveyed.emptied.is_empty() {
+        return Err(RecordError::EmptiedByMerge {
+            paths: surveyed.emptied.clone(),
         });
     }
     let unaccepted: Vec<String> = surveyed
@@ -1155,10 +1250,13 @@ fn content_of(plan: &Plan) -> Content {
     for (file, held) in &plan.edited {
         let held_id = match held {
             Change::Operations(document) => digest(&document.write()),
+            Change::Resolution(document) => digest(&document.write()),
             Change::Created(payload) | Change::Whole(payload) => digest(payload),
         };
         match held {
-            Change::Operations(_) => content.edited.insert(*file, held_id),
+            // Decision 0032: an `edit` line names either grammar, because
+            // both say what the file is at this revision.
+            Change::Operations(_) | Change::Resolution(_) => content.edited.insert(*file, held_id),
             Change::Created(_) => content.text.insert(*file, held_id),
             Change::Whole(_) => content.bytes.insert(*file, held_id),
         };
@@ -1166,7 +1264,7 @@ fn content_of(plan: &Plan) -> Content {
             content.filings.push(naming::Filing {
                 held: held_id,
                 path: path.clone(),
-                document: matches!(held, Change::Operations(_)),
+                document: matches!(held, Change::Operations(_) | Change::Resolution(_)),
             });
         }
     }
@@ -1197,6 +1295,9 @@ fn file_content<F: Filesystem>(
         match held {
             Change::Operations(document) => {
                 store.insert_operation_at(document, &name(&digest(&document.write())))?;
+            }
+            Change::Resolution(document) => {
+                store.insert_resolution_at(document, &name(&digest(&document.write())))?;
             }
             Change::Created(payload) | Change::Whole(payload) => {
                 store.insert_payload_at(payload, &name(&digest(payload)))?;
@@ -1237,6 +1338,14 @@ fn one_file_at(placed: &BTreeMap<FileId, String>, path: &str) -> Result<FileId, 
 pub enum RecordError {
     /// Nothing about the folder differs from the parent.
     NothingToRecord,
+    /// A merge that would leave a contested file with nothing in it.
+    ///
+    /// Decision 0032: a resolution states what the file *is*, and the grammar
+    /// has no spelling for a file that is nothing.
+    EmptiedByMerge {
+        /// The paths in question.
+        paths: Vec<String>,
+    },
     /// An amendment that would say exactly what it is rewriting says.
     NothingToAmend {
         /// The revision that already says it.
@@ -1447,6 +1556,17 @@ impl fmt::Display for RecordError {
                  that work out of the ancestry too; abandon up to the merge, \
                  or the other line first",
                 revision.abbreviate(12)
+            ),
+            RecordError::EmptiedByMerge { paths } => write!(
+                f,
+                "a merge states what each contested file is, and there is no way to state \
+                 that one is empty; leave {} something and remove it in the revision \
+                 after, or drop it here:{}",
+                if paths.len() == 1 { "it" } else { "them" },
+                paths
+                    .iter()
+                    .map(|path| format!("\n  {path}"))
+                    .collect::<String>()
             ),
             RecordError::Unresolved { files } => write!(
                 f,

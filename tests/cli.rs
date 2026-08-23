@@ -1887,6 +1887,79 @@ fn a_merge_is_rendered_resolved_and_then_recorded() {
 }
 
 #[test]
+fn a_recorded_merge_states_its_resolution_and_the_next_revision_counts_into_it() {
+    let (directory, mine, theirs) = diverged(
+        "merge-resolution",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+    write(&directory, "f.md", "one\nBOTH\nthree\n");
+    out(recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+
+    // Decision 0032: the merge's `edit` line names a resolution, and a
+    // resolution names the documents its lines come from rather than
+    // restating them.
+    let operations = directory.join("history/operations");
+    let resolution = walk_names(&operations)
+        .into_iter()
+        .map(|name| fs::read_to_string(operations.join(name)).expect("a document"))
+        .find(|text| text.contains("\nkeep "))
+        .expect("a resolution");
+    assert!(
+        resolution.starts_with("historica-v3\nresult "),
+        "{resolution}"
+    );
+    // `one` and `three` survive under their own names, so the only line the
+    // resolution restates is the one the person wrote while resolving.
+    assert_eq!(
+        resolution.lines().filter(|line| *line == "+BOTH").count(),
+        1,
+        "{resolution}"
+    );
+    assert_eq!(
+        resolution
+            .lines()
+            .filter(|line| line.starts_with('+'))
+            .count(),
+        1,
+        "{resolution}"
+    );
+
+    // And the revision after counts its positions into the file the merge
+    // stated, which is arithmetic rather than an algorithm.
+    write(&directory, "f.md", "one\nBOTH\nthree\nfour\n");
+    out(recorded(&directory, &["record", "-m", "carry on"]));
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "f.md"])),
+        "one\nBOTH\nthree\nfour\n"
+    );
+    assert!(out(recorded(&directory, &["check"])).ends_with("nothing to report\n"));
+}
+
+/// Decision 0032's grammar has no resolution with no pieces, so a merge
+/// cannot also be the revision that empties a contested file.
+#[test]
+fn a_merge_that_would_empty_a_contested_file_says_so() {
+    let (directory, mine, theirs) = diverged(
+        "merge-emptied",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+    write(&directory, "f.md", "");
+    let refused = recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    );
+    assert!(!refused.status.success());
+    let complaint = String::from_utf8_lossy(&refused.stderr);
+    assert!(complaint.contains("f.md"), "{complaint}");
+    assert!(complaint.contains("no way to state"), "{complaint}");
+}
+
+#[test]
 fn a_contested_attachment_is_recorded_only_when_accepted_by_path() {
     let directory = repository("merge-attachment");
     fs::write(directory.join("photo.bin"), [0x00, 0x01]).expect("the root attachment");
