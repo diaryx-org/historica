@@ -51,6 +51,13 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — arrange is the library's, not the front end's ([`7a74def`](https://github.com/diaryx-org/historica/commit/7a74def782e768f23203489206fe8ebd2a57cd29))
 - comparison to other VCS ([`46eb876`](https://github.com/diaryx-org/historica/commit/46eb8768b516d34282bb697eb7fcd7f9c5389b7a))
 - **update** — the folder catches up to a head ([`a824e5f`](https://github.com/diaryx-org/historica/commit/a824e5fbb27474d56a904bef2ad03b85c7be3db2))
+- **format** — an operation document states its result ([`26f2e6e`](https://github.com/diaryx-org/historica/commit/26f2e6ec2825c3cfb8082436814c1b48220e5e9e))
+- **format** — the resolution document, 0032's grammar ([`3ad606e`](https://github.com/diaryx-org/historica/commit/3ad606ea2294264cbfa157d1e233d74393e43d0b))
+- **store** — materialise a file by following its resolutions ([`804a6a9`](https://github.com/diaryx-org/historica/commit/804a6a93f55071aeab732fc89c909ec7ccad263e))
+- **record** — a merge writes the resolution it read both sides for ([`9320286`](https://github.com/diaryx-org/historica/commit/9320286266e8cc21938a1c91e8da75c915cdcb45))
+- **check** — hold a merge to what it owes a resolution for ([`16c6b43`](https://github.com/diaryx-org/historica/commit/16c6b43320718b5a44897e5aa5673180edad40ed))
+- **store** — a store carries the format it is written in ([`cb55fc3`](https://github.com/diaryx-org/historica/commit/cb55fc3d0db83470b2d067522941ad97ec592c39))
+- **format** — one spelling for a path ([`2c73a76`](https://github.com/diaryx-org/historica/commit/2c73a76aebfdf54cc8e54368ce366ede0eca7999))
 
 ### Fixed
 
@@ -67,6 +74,8 @@ visible, to be triaged into its real group before the tag is cut.
 - replace mutable files atomically ([`f2b42c8`](https://github.com/diaryx-org/historica/commit/f2b42c8553f5436d5d6cf82855bdb2ee54f3bc5d))
 - require acceptance for contested attachments ([`8545421`](https://github.com/diaryx-org/historica/commit/8545421f5589c7bbd27a6ccb40e88fb7a65525a7))
 - Add content-aware local store receive ([`55e346d`](https://github.com/diaryx-org/historica/commit/55e346d7d26f7fc5c04302344d5f9222bc8b0ef4))
+- load resolution documents beside operation documents ([`0c675af`](https://github.com/diaryx-org/historica/commit/0c675af9eb787eba4efc5d723807b42a54999ed1))
+- cross a resolution in the event-graph walk ([`1889a0e`](https://github.com/diaryx-org/historica/commit/1889a0ecfe2a79700f0e59025142b6218b58b235))
 
 ### Behavioural changes
 
@@ -105,6 +114,38 @@ read back exactly as recorded (previously misordered on ~half of all
 digests); merges of concurrent histories may order differently than the
 same merge computed by an earlier build, and a merge recorded by one is
 unaffected, since a recorded merge is a revision, not a recomputation.
+
+- Every document `record`, `amend`, and
+  `record --merge` writes now claims `historica-v3` and carries a
+  `result` line, and a store's header rises to v3 on the first record
+  after upgrading. Readers built before this refuse such a store at the
+  gate. Documents written earlier still read exactly as they did.
+
+- `merge::Event`'s `operations` field is replaced by
+`stated`, which carries the digest naming the document beside the
+document itself; build one with `Event::nothing`, `Event::operations`,
+or `Event::resolution`. `MergeError` gains `UnknownReference`, for a
+`keep` naming an item its author's view does not hold.
+
+- `Store::content` at a merge recorded under version
+3 follows the revision's resolution instead of running the event-graph
+walk, and reports `MaterialiseError::Content` where a `keep` names a
+document this store does not hold or a run longer than that document
+has items. `Store::minted` is new: the items one document mints, in
+document order, which is the run a `keep` counts into.
+
+- `record --merge` writes a resolution document for
+every file its parents' states differ about, including files that
+merged cleanly — before this, such a file was recorded as a delta
+against the algorithmic merge, or not recorded at all. `Change` gains
+a `Resolution` variant and `RecordError` gains `EmptiedByMerge`.
+
+- a revision document naming a path that is not in
+normal form C is refused at load, which no store this tool wrote can
+contain. A folder holding two names that differ only in normalisation
+is now recorded as one file rather than two; `check` cannot see the
+case, and the deliberate version of it is what decision 0033 accepts
+losing. `historica` gains a dependency on `unicode-normalization`.
 
 <!-- git-cliff:end -->
 
