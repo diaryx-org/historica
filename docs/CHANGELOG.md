@@ -49,6 +49,24 @@ visible, to be triaged into its real group before the tag is cut.
 
 - **fs** — ask for the folder rather than assume std::fs ([`a86a2f5`](https://github.com/diaryx-org/historica/commit/a86a2f56ec91956ab39636ba4936c3ed2267f27e))
 - **store** — arrange is the library's, not the front end's ([`7a74def`](https://github.com/diaryx-org/historica/commit/7a74def782e768f23203489206fe8ebd2a57cd29))
+- comparison to other VCS ([`46eb876`](https://github.com/diaryx-org/historica/commit/46eb8768b516d34282bb697eb7fcd7f9c5389b7a))
+- **update** — the folder catches up to a head ([`a824e5f`](https://github.com/diaryx-org/historica/commit/a824e5fbb27474d56a904bef2ad03b85c7be3db2))
+
+### Fixed
+
+- **merge** — anchor to the next element in the traversal, tombstones included ([`03dae53`](https://github.com/diaryx-org/historica/commit/03dae53908009565eb5ccaefa36bf35981943fb6))
+
+### Changed
+
+- **store** — carry the digest out of the ancestry walk ([`203fcb5`](https://github.com/diaryx-org/historica/commit/203fcb5647fb79582528931a8fffd0e94753e486))
+- **merge,tree** — store an ancestry, not a set per revision ([`9c9da52`](https://github.com/diaryx-org/historica/commit/9c9da52683f7d3682c6711dfd04522602f4a31ef))
+- **merge** — apply a chain arithmetically instead of building the tree ([`5959505`](https://github.com/diaryx-org/historica/commit/5959505ad6ec7dcc2595406244f87f50b54f0807))
+
+### Uncategorised — triage before release
+
+- replace mutable files atomically ([`f2b42c8`](https://github.com/diaryx-org/historica/commit/f2b42c8553f5436d5d6cf82855bdb2ee54f3bc5d))
+- require acceptance for contested attachments ([`8545421`](https://github.com/diaryx-org/historica/commit/8545421f5589c7bbd27a6ccb40e88fb7a65525a7))
+- Add content-aware local store receive ([`55e346d`](https://github.com/diaryx-org/historica/commit/55e346d7d26f7fc5c04302344d5f9222bc8b0ef4))
 
 ### Behavioural changes
 
@@ -72,6 +90,21 @@ visible, to be triaged into its real group before the tag is cut.
 - `arrange` prints each directory's renames before the names
   it left as duplicates, rather than interleaving them in walk order. The
   lines, the counts and the summary are otherwise as they were.
+
+- `Store::reachable` and `Store::reachable_from` return
+`Vec<(RevisionId, &RevisionDocument)>` rather than `Vec<&RevisionDocument>`.
+The digest of each document now comes back beside it, because the store
+already knows it and recomputing it costs a re-serialisation. A caller that
+only wants the documents can add `.into_iter().map(|(_, document)| document)`;
+a caller that was calling `RevisionDocument::id` on each result should drop
+that call and take the first element of the pair instead.
+
+- merge output changes wherever an insertion's left
+neighbour held a tombstoned right child. Linear histories now always
+read back exactly as recorded (previously misordered on ~half of all
+digests); merges of concurrent histories may order differently than the
+same merge computed by an earlier build, and a merge recorded by one is
+unaffected, since a recorded merge is a revision, not a recomputation.
 
 <!-- git-cliff:end -->
 
