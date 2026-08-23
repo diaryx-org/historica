@@ -812,7 +812,7 @@ fn malformed(kind: OperationKind, at: usize) -> ParseError {
 /// A position or a count: decimal digits, no sign, and no leading zero.
 ///
 /// A second spelling of one number would be a second spelling of one document.
-fn number(field: &str, at: usize) -> Result<usize, ParseError> {
+pub(super) fn number(field: &str, at: usize) -> Result<usize, ParseError> {
     let canonical = !field.is_empty()
         && field.bytes().all(|byte| byte.is_ascii_digit())
         && (field.len() == 1 || !field.starts_with('0'));
@@ -835,7 +835,7 @@ fn number(field: &str, at: usize) -> Result<usize, ParseError> {
 }
 
 /// A carriage return in the format's own line, which content lines may hold.
-fn carriage_return(line: &str, at: usize) -> Result<(), ParseError> {
+pub(super) fn carriage_return(line: &str, at: usize) -> Result<(), ParseError> {
     if line.contains('\r') {
         return Err(ParseError::new(
             at,

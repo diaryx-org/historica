@@ -68,6 +68,17 @@ pub enum ParseErrorKind {
         /// The key as spelled in the file.
         key: String,
     },
+    /// A `keep` that keeps nothing.
+    EmptyKeep,
+    /// Two `keep`s of one document whose ranges meet, which are one `keep`.
+    AdjacentKeeps,
+    /// Two `insert` pieces that meet, which are one `insert`.
+    AdjacentInserts,
+    /// An `insert` with a position, in a document that has no positions.
+    ResolutionInsertWithPosition {
+        /// What followed the keyword.
+        found: String,
+    },
     /// A `result` header in a forgetting document.
     ///
     /// Decision 0031: the result of the operations a forgetting document
@@ -292,6 +303,26 @@ impl fmt::Display for ParseErrorKind {
                 "this document is version {found} and this reader knows up to version {}; \
                  upgrade Historica rather than trusting what it would leave out",
                 super::Version::CURRENT.number()
+            ),
+            EmptyKeep => write!(
+                f,
+                "a `keep` that keeps nothing states nothing; delete the line"
+            ),
+            AdjacentKeeps => write!(
+                f,
+                "two `keep`s of one document whose ranges meet are one `keep`; \
+                 join them, so that one byte sequence spells this resolution"
+            ),
+            AdjacentInserts => write!(
+                f,
+                "two `insert`s that meet are one `insert`; join them, so that \
+                 one byte sequence spells this resolution"
+            ),
+            ResolutionInsertWithPosition { found } => write!(
+                f,
+                "a resolution's `insert` takes no position — the pieces are \
+                 the file, in order — and `insert {found}` states one; \
+                 delete the number"
             ),
             ResultOfForgetting => write!(
                 f,
