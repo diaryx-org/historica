@@ -130,11 +130,14 @@ impl<F: Filesystem> Store<F> {
             self.documents.remove(id);
         }
         for id in &pruned.operations {
-            self.bodies_mut()?.operations.remove(id);
+            self.bodies_mut()?.remove_operation(id);
         }
         // The payload index maps digests to paths that may just have gone;
         // it is derived, so it is rebuilt on next need rather than repaired.
         self.forget_payloads();
+        // So is `cache/`, and pruning has just deleted content some of it may
+        // hold. Nothing there is reported, because nothing there is lost.
+        self.clear_cache();
         for directory in [REVISIONS_DIR, OPERATIONS_DIR] {
             remove_empty_directories(self.filesystem(), &self.root.join(directory))?;
         }

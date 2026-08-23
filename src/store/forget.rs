@@ -219,10 +219,14 @@ impl<F: Filesystem> Store<F> {
                 .map_err(|error| StoreError::io(&path, error))?;
         }
         for target in &plan.targets {
-            self.bodies_mut()?.operations.remove(target);
+            self.bodies_mut()?.remove_operation(target);
         }
         // The payload index maps digests to paths that may just have gone.
         self.forget_payloads();
+        // Decision 0014 destroys bytes, and `cache/` is where copies of them
+        // would be. Everything there is replayable, so this loses nothing
+        // that forgetting was not meant to take.
+        self.clear_cache();
         remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
         Ok(plan)
     }

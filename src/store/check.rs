@@ -715,7 +715,7 @@ fn check_resolutions<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mu
             }
             let mut states = Vec::new();
             for parent in &parents {
-                match store.content_of(parent, file) {
+                match store.replayed_content_of(parent, file) {
                     // A side whose history never mentions the file is not a
                     // side that disagrees about it.
                     Ok(None) => {}
@@ -752,7 +752,7 @@ fn check_resolutions<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mu
                 continue;
             }
             let named = document.edited[file];
-            if let Err(error) = store.content_of(revision, file) {
+            if let Err(error) = store.replayed_content_of(revision, file) {
                 match error {
                     MaterialiseError::Content {
                         error: ReplayError::UnknownDocument { document },

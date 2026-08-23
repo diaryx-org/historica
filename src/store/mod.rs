@@ -136,7 +136,10 @@ into directories of your own breaks nothing either.
                   that revision deleted and inserted; every other file there is
                   a file's own content, stored whole.
   names/          bookmarks, one line each. The only files here that change.
-  cache/          derived and disposable. Deleting all of it loses nothing.
+  cache/          derived and disposable: files you have already read, kept
+                  under the digest their history says they hash to, so that
+                  reading them again does not replay it. Deleting all of it
+                  loses nothing.
   skipped.txt     what recording does not take.
   format.txt      every grammar above, spelled out: what each line of each
                   document means, and how to materialise a file from them
@@ -157,6 +160,15 @@ leaving out.
 const CACHE_NOTE: &str = "\
 Everything in this directory is derived from other files.
 You may delete any or all of it; Historica will rebuild what it needs.
+
+Each file here is named by the SHA-256 of its own bytes, as everything in this
+store is, and holds one of your files as it stood at one revision. That is a
+number the operation document for that revision already states, which is how
+the file is found again; the bytes are hashed before they are used, so an
+entry that has been edited or half-written is ignored rather than believed.
+
+Nothing points at this directory and nothing depends on it. Deleting it costs
+a little time and no information.
 ";
 
 /// Names the store does not own, matched on a file's last component.
@@ -326,6 +338,38 @@ fn minted_by(document: &OperationDocument) -> Vec<Item> {
         .collect()
 }
 
+/// How many revisions a walk must replay before its answer is worth keeping.
+///
+/// A cache with no limit on it grows one entry per file per revision anybody
+/// ever looked at, which on this store's own history is a `cache/` many times
+/// the size of the store — a poor trade for a walk that was about to be one
+/// step long. Keeping only the answers that cost something turns the entries
+/// into checkpoints: a walk stops at the first one it meets, so it replays at
+/// most this many revisions, and the store holds at most one entry per file
+/// per this many revisions of history.
+///
+/// The number is a guess, and deliberately a round one — there are no
+/// real-world measurements to fit it to yet, and both of the things it trades
+/// off are bounded by it, so being wrong is slow or roomy rather than
+/// incorrect. `cargo xtask bench` is what would move it.
+const CACHE_AFTER: usize = 16;
+
+/// Whether materialising may take an answer `cache/` already holds.
+///
+/// Two callers, and they want opposite things: a person reading a file wants
+/// the file, and `check` wants every step of the arithmetic that produces it
+/// actually run. Decision 0003 makes the cache disposable, which is only true
+/// if something still does the work when it is gone — this is the switch that
+/// says which caller is which.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Caching {
+    /// Take a cached state where one is held, and keep the answer.
+    Take,
+    /// Replay every revision, reading nothing from `cache/` and writing
+    /// nothing to it.
+    Replay,
+}
+
 /// What one revision effectively stated about one file, and what named it.
 ///
 /// Effective, in decision 0014's sense: redactions are folded in and a `text`
@@ -426,6 +470,48 @@ struct Bodies {
     /// `edit` lines exactly as operation documents are, and told apart by
     /// their bodies.
     resolutions: BTreeMap<RevisionId, ResolutionDocument>,
+    /// Which held documents forget which digest, by the digest they forget.
+    ///
+    /// Derived from `operations` and nothing else — the same answer as asking
+    /// every document what it forgets, which is what this replaces. Decision
+    /// 0014 makes a forgetting document's stand-in the thing a reader
+    /// consumes, so *every* materialised operation asks this question, once
+    /// per revision per file. Answering it by walking the directory made that
+    /// walk quadratic in the size of the store, and a history whose lines
+    /// nobody has ever forgotten paid it in full.
+    ///
+    /// Kept beside the map it indexes rather than in its own cell, so the two
+    /// cannot disagree: one insert maintains both.
+    forgetting: BTreeMap<RevisionId, Vec<RevisionId>>,
+}
+
+impl Bodies {
+    /// Hold one operation document, indexing what it forgets.
+    fn insert_operation(&mut self, id: RevisionId, document: OperationDocument) {
+        if let Some(target) = document.forgets {
+            let standing = self.forgetting.entry(target).or_default();
+            if !standing.contains(&id) {
+                standing.push(id);
+            }
+        }
+        self.operations.insert(id, document);
+    }
+
+    /// Let go of one operation document, and of the index entry standing for
+    /// it. Pruning and forgetting both destroy documents, and an index that
+    /// outlived what it points at would answer for files that are gone.
+    fn remove_operation(&mut self, id: &RevisionId) -> Option<OperationDocument> {
+        let document = self.operations.remove(id)?;
+        if let Some(target) = document.forgets
+            && let Some(standing) = self.forgetting.get_mut(&target)
+        {
+            standing.retain(|held| held != id);
+            if standing.is_empty() {
+                self.forgetting.remove(&target);
+            }
+        }
+        Some(document)
+    }
 }
 
 /// The store's short constructors, which are the long ones on [`Disk`].
@@ -667,12 +753,14 @@ impl<F: Filesystem> Store<F> {
     /// digest, and a reader that cannot find it looks for a document that
     /// says it `forgets` it.
     pub fn forgetting(&self, target: &RevisionId) -> Result<Vec<&OperationDocument>, StoreError> {
-        Ok(self
-            .bodies()?
-            .operations
-            .values()
-            .filter(|document| document.forgets == Some(*target))
-            .collect())
+        let bodies = self.bodies()?;
+        Ok(match bodies.forgetting.get(target) {
+            Some(standing) => standing
+                .iter()
+                .filter_map(|id| bodies.operations.get(id))
+                .collect(),
+            None => Vec::new(),
+        })
     }
 
     /// The document a reader consumes for one digest.
@@ -928,7 +1016,31 @@ impl<F: Filesystem> Store<F> {
         head: &RevisionId,
         file: &FileId,
     ) -> Result<Option<State>, MaterialiseError> {
-        match self.stated_content(head, file)? {
+        self.content_of_with(head, file, Caching::Take)
+    }
+
+    /// The same, replaying every step rather than taking a cached answer.
+    ///
+    /// What `check` asks, and the only caller that should. Taking a cached
+    /// state means not applying the operations that produce it, and so not
+    /// running decision 0031's check that they produce what the document says
+    /// they do — which is exactly the check `check` exists to run. Every
+    /// other command wants the answer; this one wants the work.
+    pub(crate) fn replayed_content_of(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+    ) -> Result<Option<State>, MaterialiseError> {
+        self.content_of_with(head, file, Caching::Replay)
+    }
+
+    fn content_of_with(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+        caching: Caching,
+    ) -> Result<Option<State>, MaterialiseError> {
+        match self.stated_content(head, file, caching)? {
             Stated::Known(state) => Ok(Some(state)),
             Stated::Absent => Ok(None),
             // Every merge recorded before version 3 lands here, and reads
@@ -980,10 +1092,18 @@ impl<F: Filesystem> Store<F> {
     /// It does not reach a merge whose parents disagree about the file and
     /// which states no resolution — which is every merge recorded before
     /// version 3, and nothing a version 3 writer produces.
-    fn stated_content(&self, head: &RevisionId, file: &FileId) -> Result<Stated, MaterialiseError> {
+    fn stated_content(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+        caching: Caching,
+    ) -> Result<Stated, MaterialiseError> {
         let bodies = self.bodies().map_err(MaterialiseError::unreadable)?;
         let mut known: BTreeMap<RevisionId, Stated> = BTreeMap::new();
         let mut stack = vec![*head];
+        // What this walk cost, in revisions it had to replay rather than
+        // read. It is what decides whether the answer is kept.
+        let mut replayed = 0usize;
         while let Some(id) = stack.last().copied() {
             if known.contains_key(&id) {
                 stack.pop();
@@ -993,6 +1113,23 @@ impl<F: Filesystem> Store<F> {
                 .documents
                 .get(&id)
                 .ok_or(MaterialiseError::Unknown { revision: id })?;
+
+            // The file as this revision left it, if a previous reader kept
+            // it. Nothing above this revision is read and nothing below it is
+            // replayed: the document already states the digest of the file it
+            // produces, so a cache entry under that name is the answer and
+            // the walk stops here.
+            if caching == Caching::Take
+                && let Some(named) = document.edited.get(file)
+                && let Some(result) = self
+                    .stated_result(named)
+                    .map_err(MaterialiseError::unreadable)?
+                && let Some(state) = self.cached(&result)
+            {
+                known.insert(id, Stated::Known(state));
+                stack.pop();
+                continue;
+            }
 
             // A resolution is the file, stated: nothing before it is read,
             // which is the floor 0032 puts under materialising a long history.
@@ -1029,7 +1166,7 @@ impl<F: Filesystem> Store<F> {
             // a creation is the first thing said about that identifier.
             if let Some(payload) = document.text.get(file) {
                 let created = match self.creation_for(payload, id)? {
-                    Some(creation) => State::empty().apply(&creation).map_err(|error| {
+                    Some(creation) => State::empty().applied(&creation).map_err(|error| {
                         MaterialiseError::Content {
                             revision: id,
                             file: *file,
@@ -1042,6 +1179,7 @@ impl<F: Filesystem> Store<F> {
                 continue;
             }
 
+            replayed += 1;
             let base = agreed(document.parents.iter().map(|parent| &known[parent]));
             let stated = match document.edited.get(file) {
                 Some(named) => match base {
@@ -1060,7 +1198,7 @@ impl<F: Filesystem> Store<F> {
                             Stated::Known(state) => state,
                             _ => State::empty(),
                         };
-                        Stated::Known(before.apply(&operations).map_err(|error| {
+                        Stated::Known(before.applied(&operations).map_err(|error| {
                             MaterialiseError::Content {
                                 revision: id,
                                 file: *file,
@@ -1077,7 +1215,120 @@ impl<F: Filesystem> Store<F> {
             known.insert(id, stated);
         }
 
-        Ok(known.remove(head).unwrap_or(Stated::Unstated))
+        let stated = known.remove(head).unwrap_or(Stated::Unstated);
+        // Keep what the walk cost, so the next reader does not pay it again —
+        // and only when it cost something. One entry, for the state that was
+        // asked for: writing every step would be the whole file once per
+        // revision of history, and the next reader needs one checkpoint to
+        // stop at, not a copy of every stop along the way.
+        if caching == Caching::Take
+            && replayed >= CACHE_AFTER
+            && let Stated::Known(state) = &stated
+        {
+            self.cache(state);
+        }
+        Ok(stated)
+    }
+
+    /// One file's content, if `cache/` already holds bytes with this digest.
+    ///
+    /// Decision 0003 gives `cache/` its one promise — *deleting every cache
+    /// must lose neither information nor meaning* — and this is the whole of
+    /// what keeps it. An entry is a file named by the SHA-256 of its own
+    /// bytes, exactly as everything else in the store is, holding the content
+    /// of some file at some revision. Nothing points at it, nothing depends
+    /// on it, and it is found by asking for a digest a document already
+    /// states.
+    ///
+    /// The bytes are hashed before they are believed. That is what makes the
+    /// entry impossible to be *stale* rather than merely unlikely to be:
+    /// content named by its own digest either is what it claims or is
+    /// discarded, so an entry left behind by an older version of this program,
+    /// half-written by an interrupted one, or edited by a person, is refused
+    /// here rather than returned as a file's history.
+    fn cached(&self, digest: &RevisionId) -> Option<State> {
+        let bytes = self
+            .files
+            .read(&self.root.join(CACHE_DIR).join(digest.to_string()))
+            .ok()?;
+        if format::digest(&bytes) != *digest {
+            return None;
+        }
+        Some(State::from_text(std::str::from_utf8(&bytes).ok()?))
+    }
+
+    /// Keep this state, so the next reader does not replay the history to it.
+    ///
+    /// Named by the digest of its own bytes, which is what
+    /// [`Store::cached`] looks it up by and what the document that produced
+    /// it already states (decision 0031). Writing under the *found* digest
+    /// rather than the *stated* one is what makes a wrong entry unreachable
+    /// instead of dangerous: a state carrying forgetting's markers hashes to
+    /// something no document names, so it is filed where nothing will ask for
+    /// it rather than filed under the digest of the bytes that were
+    /// destroyed.
+    ///
+    /// Every failure here is ignored on purpose. A store on a read-only
+    /// filesystem, a full disk, and a `cache/` somebody deleted mid-command
+    /// are all conditions under which reading a file must still succeed —
+    /// there is nothing to report, because nothing was lost.
+    fn cache(&self, state: &State) {
+        let text = state.text();
+        let path = self
+            .root
+            .join(CACHE_DIR)
+            .join(format::digest(text.as_bytes()).to_string());
+        // `create_new`, so two commands racing to cache one state cannot meet
+        // half a file: the loser's write fails and the bytes were identical
+        // anyway. The directory may be missing — `init` makes it, and a
+        // person is free to delete it — so it is made first.
+        let _ = self.files.create_directory(&self.root.join(CACHE_DIR));
+        let _ = self.files.create_new(&path, text.as_bytes());
+    }
+
+    /// Empty `cache/`, and say nothing about it.
+    ///
+    /// Called where the store destroys content: forgetting and pruning.
+    /// Decision 0014 is a promise that bytes are *gone*, and a cache holding
+    /// the file as it read before the redaction would make that promise
+    /// false — so the derived copies go with the originals. Pruning has less
+    /// to prove but the same shape, and clearing is cheap next to what
+    /// pruning already walks.
+    ///
+    /// Everything here is replayable by definition, so this cannot fail in a
+    /// way worth reporting: a file that will not delete is a file the next
+    /// reader hashes, finds intact, and correctly uses — and one that is
+    /// half-deleted is one the next reader hashes and discards.
+    fn clear_cache(&self) {
+        let directory = self.root.join(CACHE_DIR);
+        let Ok(entries) = self.files.entries(&directory) else {
+            return;
+        };
+        for entry in entries {
+            if entry.kind == fs::Kind::File
+                // A person's own note in `cache/` — `init` writes one — is
+                // not a cache entry: an entry is named by a digest and
+                // nothing else is.
+                && let Some(name) = entry.path.file_name().and_then(|name| name.to_str())
+                && name.parse::<RevisionId>().is_ok()
+            {
+                let _ = self.files.remove_file(&entry.path);
+            }
+        }
+    }
+
+    /// The digest one content document states its result to be.
+    ///
+    /// Decision 0031, asked of either grammar: a resolution always states one
+    /// and an operation document states one from version 3. `None` is a
+    /// document written before that, which is why the cache can only ever
+    /// make a store faster and never make an older one unreadable.
+    fn stated_result(&self, named: &RevisionId) -> Result<Option<RevisionId>, StoreError> {
+        let bodies = self.bodies()?;
+        if let Some(resolution) = bodies.resolutions.get(named) {
+            return Ok(Some(resolution.result));
+        }
+        Ok(bodies.operations.get(named).and_then(|held| held.result))
     }
 
     /// Assemble one resolution, fetching the documents its `keep` lines name.
@@ -1223,7 +1474,14 @@ impl<F: Filesystem> Store<F> {
             .entry(file)
             .ok_or(MaterialiseError::NoSuchFile { file: *file })?;
         match entry.kind {
-            Kind::Lines => Ok(Content::Lines(self.merged_content_of(heads, file)?.state)),
+            // One head is decision 0032's rule, which is what `update` reads a
+            // file by and what `content` documents — the merge below is the
+            // same answer arrived at the long way, and is what several heads
+            // between them still need.
+            Kind::Lines => Ok(Content::Lines(match heads {
+                [head] => self.content(head, file)?,
+                heads => self.merged_content_of(heads, file)?.state,
+            })),
             Kind::Whole => {
                 let payload = entry
                     .payload
@@ -1322,7 +1580,7 @@ impl<F: Filesystem> Store<F> {
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
-        self.bodies_mut()?.operations.insert(id, document.clone());
+        self.bodies_mut()?.insert_operation(id, document.clone());
         Ok(id)
     }
 
@@ -1657,7 +1915,7 @@ fn read_bodies<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Bodies,
                     file: path.clone(),
                     error,
                 })?;
-            bodies.operations.insert(digest(&bytes), document);
+            bodies.insert_operation(digest(&bytes), document);
         }
     }
     Ok(bodies)

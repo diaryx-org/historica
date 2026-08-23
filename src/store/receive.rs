@@ -288,7 +288,7 @@ impl<F: Filesystem> Store<F> {
                 .map_err(|error| StoreError::io(path, error))?;
         }
         for target in forgotten {
-            self.bodies_mut()?.operations.remove(target);
+            self.bodies_mut()?.remove_operation(target);
         }
         self.forget_payloads();
         super::prune::remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
