@@ -1886,6 +1886,67 @@ fn a_merge_is_rendered_resolved_and_then_recorded() {
     );
 }
 
+/// Decision 0032's tool-less merge, carried out and then read.
+///
+/// `tests/by-hand.sh` builds a whole store — root, two branches, a merge
+/// stating its resolution, and a revision counting into what that merge
+/// stated — with nothing but `cat` and a checksum program. Before 0032 the
+/// merge in it could not be written at all: not laboriously, not carefully,
+/// at all, because the only spelling of a resolution was a delta positioned
+/// into a state no editor can compute.
+///
+/// What this asserts is the other direction of the same claim. The tool reads
+/// what the hand wrote, finds nothing to report, materialises the file, and
+/// records on top of it.
+#[test]
+fn a_store_written_by_hand_is_one_this_tool_reads_and_carries_on_from() {
+    let directory = scratch("by-hand");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/by-hand.sh");
+    let built = Command::new("sh")
+        .arg(&script)
+        .arg(directory.join("history"))
+        .output()
+        .expect("a shell");
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    assert!(
+        out(recorded(&directory, &["check"])).ends_with("nothing to report\n"),
+        "a store written with an editor is a store"
+    );
+    let log = out(recorded(&directory, &["log"]));
+    assert!(
+        log.contains("Read both sides and say what the file is"),
+        "{log}"
+    );
+
+    // The merge materialises by following its resolution, and the revision
+    // after it by arithmetic against what that resolution stated.
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "notes.txt"])),
+        "alpha\ndelta\nbravo\necho\ngolf\n"
+    );
+
+    // And the tool carries on from it: the folder is written out, edited, and
+    // recorded, against a history no part of which this binary wrote.
+    out(recorded(&directory, &["update"]));
+    assert_eq!(
+        fs::read_to_string(directory.join("notes.txt")).expect("the materialised file"),
+        "alpha\ndelta\nbravo\necho\ngolf\n"
+    );
+    write(
+        &directory,
+        "notes.txt",
+        "alpha\ndelta\nbravo\necho\ngolf\nhotel\n",
+    );
+    let recording = out(recorded(&directory, &["record", "-m", "and on"]));
+    assert!(recording.contains("edited  notes.txt"), "{recording}");
+    assert!(out(recorded(&directory, &["check"])).ends_with("nothing to report\n"));
+}
+
 #[test]
 fn a_recorded_merge_states_its_resolution_and_the_next_revision_counts_into_it() {
     let (directory, mine, theirs) = diverged(

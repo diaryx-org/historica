@@ -410,6 +410,45 @@ fn a_resolution_that_does_not_assemble_to_its_result_is_an_error() {
     );
 }
 
+/// The corpus is not a fixture somebody generated: it is what an editor and a
+/// checksum program print.
+///
+/// `tests/by-hand.sh` is decision 0032's tool-less merge as a list of
+/// commands, and what it builds is this directory, byte for byte. Holding the
+/// two together is what keeps the corpus honest — a hand-written fixture that
+/// quietly stopped being writable by hand would prove nothing.
+#[test]
+fn the_corpus_is_what_an_editor_and_a_checksum_produce() {
+    let scratch = Path::new(env!("CARGO_TARGET_TMPDIR")).join("by-hand-corpus");
+    let _ = fs::remove_dir_all(&scratch);
+    fs::create_dir_all(&scratch).expect("a scratch directory");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/by-hand.sh");
+    let built = std::process::Command::new("sh")
+        .arg(&script)
+        .arg(scratch.join("history"))
+        .output()
+        .expect("a shell");
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let written: BTreeMap<String, RevisionId> = manifest()
+        .into_keys()
+        .filter(|name| name.starts_with("revisions/") || name.starts_with("operations/"))
+        .map(|name| {
+            let bytes = fs::read(scratch.join("history").join(&name))
+                .unwrap_or_else(|_| panic!("the script wrote {name}"));
+            (name, digest(&bytes))
+        })
+        .collect();
+    for (name, produced) in &written {
+        assert_eq!(digest(&read(name)), *produced, "{name}");
+    }
+    assert_eq!(written.len(), 11, "one file per document in the corpus");
+}
+
 /// The store carries the description of itself that makes "readable without
 /// the tool" true, so the examples in it are corpus files rather than prose
 /// somebody typed and nobody checked again.
