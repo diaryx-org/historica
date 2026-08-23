@@ -60,6 +60,8 @@ visible, to be triaged into its real group before the tag is cut.
 - **format** — one spelling for a path ([`2c73a76`](https://github.com/diaryx-org/historica/commit/2c73a76aebfdf54cc8e54368ce366ede0eca7999))
 - **check** — say which heads a store holds the history of and cannot produce ([`32e85d9`](https://github.com/diaryx-org/historica/commit/32e85d91102e01b547f807893952f131bcecb32c))
 - **format** — a file can be run ([`0318e4d`](https://github.com/diaryx-org/historica/commit/0318e4d46607c67b3f81fdcdd814bb08b9872d78))
+- **store** — keep a file a walk materialised, in cache/ ([`ae509e3`](https://github.com/diaryx-org/historica/commit/ae509e350d06a6e2206973d410b27317262d6b2c))
+- **xtask** — time the reading commands on a store built to order ([`7de53a2`](https://github.com/diaryx-org/historica/commit/7de53a25a85a6769f32907a85b15ee45d64d9767))
 
 ### Fixed
 
@@ -72,6 +74,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **merge,tree** — store an ancestry, not a set per revision ([`9c9da52`](https://github.com/diaryx-org/historica/commit/9c9da52683f7d3682c6711dfd04522602f4a31ef))
 - **merge** — apply a chain arithmetically instead of building the tree ([`5959505`](https://github.com/diaryx-org/historica/commit/5959505ad6ec7dcc2595406244f87f50b54f0807))
 - **store** — read operations/ on first need, not at open ([`ce87443`](https://github.com/diaryx-org/historica/commit/ce8744311635bfe8e95add20896eca90f026a729))
+- **replay** — move a file through a replay step instead of copying it ([`fb55a07`](https://github.com/diaryx-org/historica/commit/fb55a07b0f5e7cd6ae7803945d9c1a1e0f6691ab))
 
 ### Uncategorised — triage before release
 
@@ -225,6 +228,19 @@ losing. `historica` gains a dependency on `unicode-normalization`.
   carrying what the store said when that directory would not read or parse.
   The enum is `#[non_exhaustive]`, so a matching caller already has a
   wildcard arm.
+
+- A store now gains files under `history/cache/`, named by
+  digest, when a command materialises a file whose history was long enough
+  to be worth keeping. Nothing references them, `check` ignores them, and
+  deleting the directory loses nothing but time. `forget` and `prune` now
+  delete every entry, which is what keeps forgetting's promise true.
+
+- `cat <revision> <path>` at a single revision now answers
+  by decision 0032's stated rule rather than by merging the reachable
+  history. The two agree wherever the rule reaches, and where it does not —
+  every merge recorded before version 3 — it still falls back to the merge,
+  so no store reads differently. It is now the same code path `update`
+  writes files from, which is what makes them unable to disagree.
 
 <!-- git-cliff:end -->
 
