@@ -1179,6 +1179,24 @@ mod tests {
             self
         }
 
+        /// A merge stating a resolution already built, for the randomised
+        /// tests that draft one from a proposal.
+        fn resolved(
+            &mut self,
+            name: &str,
+            parents: &[&str],
+            document: ResolutionDocument,
+        ) -> &mut Self {
+            self.resolutions.push(document);
+            let at = At::Resolution(self.resolutions.len() - 1);
+            self.events.push((
+                digest(name.as_bytes()),
+                parents.iter().map(|name| digest(name.as_bytes())).collect(),
+                Some(at),
+            ));
+            self
+        }
+
         /// The digest naming the document one revision stated its file in,
         /// which is the half of an item's name a `keep` line quotes.
         fn document(&self, name: &str) -> RevisionId {
@@ -1387,6 +1405,89 @@ mod tests {
             merge(history.events()).expect_err("a reference to nothing"),
             MergeError::UnknownReference { .. }
         ));
+    }
+
+    /// The walk-order property, over graphs that hold a resolution.
+    ///
+    /// Decision 0032 leaves the walk in place for merging branches that reach
+    /// across a recorded merge, so everything 0007's acceptance test claims
+    /// has to keep holding once a resolution is in the graph: an element's
+    /// place is decided by what its own author had seen, and any order that
+    /// puts an event after its parents produces one file.
+    #[test]
+    fn a_graph_holding_a_resolution_walks_to_one_file_in_every_order() {
+        let mut rng = Rng(0x0032_0007_c0de_f00d);
+        let mut resolutions = 0;
+        for round in 0..120 {
+            let mut history = History::default();
+            history.revision("root", &[], Some(&["insert 0", "+a", "+b", "+c", "+d"]));
+
+            // Two hands on the root, neither having seen the other.
+            let mut branches = Vec::new();
+            for replica in 0..2 {
+                let (text, document) = edit(&mut rng, "a\nb\nc\nd\n");
+                let Some(document) = document else { continue };
+                let name = format!("branch-{replica}");
+                history.documents.push(document);
+                let at = At::Operations(history.documents.len() - 1);
+                history
+                    .events
+                    .push((digest(name.as_bytes()), vec![digest(b"root")], Some(at)));
+                branches.push((name, text));
+            }
+            if branches.len() < 2 {
+                continue;
+            }
+
+            // A person reads both sides, edits, and records what the file is.
+            let proposed = merge(history.events()).expect("a merge");
+            let (text, _) = edit(&mut rng, &proposed.state.text());
+            let after = State::from_text(&text);
+            let Some(resolution) =
+                crate::diff::resolve(&proposed.state, &proposed.references, &after)
+            else {
+                continue;
+            };
+            let sides: Vec<&str> = branches.iter().map(|(name, _)| name.as_str()).collect();
+            history.resolved("merge", &sides, resolution);
+            resolutions += 1;
+
+            // And a third hand, taken from one branch before the merge —
+            // counting into *that* branch's file, as its author would — whose
+            // edits must land on the items the resolution kept rather than on
+            // copies of them.
+            let (_, aside) = edit(&mut rng, &branches[0].1);
+            if let Some(document) = aside {
+                history.documents.push(document);
+                let at = At::Operations(history.documents.len() - 1);
+                history.events.push((
+                    digest(b"aside"),
+                    vec![digest(sides[0].as_bytes())],
+                    Some(at),
+                ));
+                history.events.push((
+                    digest(b"after"),
+                    vec![digest(b"merge"), digest(b"aside")],
+                    None,
+                ));
+            }
+
+            let graph = Graph::new(history.events()).expect("a graph");
+            let orders = history.topological_orders();
+            let expected =
+                walk(&graph, &orders[0]).unwrap_or_else(|error| panic!("round {round}: {error}"));
+            for order in &orders {
+                assert_eq!(
+                    walk(&graph, order).expect("a merge"),
+                    expected,
+                    "round {round}, order {order:?}"
+                );
+            }
+        }
+        assert!(
+            resolutions > 40,
+            "only {resolutions} rounds actually held a resolution"
+        );
     }
 
     /// A chain is recognised as one, and replays to the file that was edited.

@@ -18,8 +18,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use historica::core::RevisionId;
-use historica::diff::diff;
-use historica::format::{Item, OperationDocument, OperationKind, digest};
+use historica::diff::{diff, resolve};
+use historica::format::{
+    Item, OperationDocument, OperationKind, Piece, ResolutionDocument, digest,
+};
 use historica::merge::{Event, merge};
 use historica::replay::State;
 
@@ -46,6 +48,11 @@ enum Side {
 enum Message {
     Insert {
         key: Key,
+        /// The name decision 0032 lets a `keep` quote: the document that
+        /// minted the item, and its ordinal in that document's order. It
+        /// travels with the placement because a resolution arriving later
+        /// refers to items by it.
+        reference: (RevisionId, usize),
         item: Item,
         parent: Option<Key>,
         side: Side,
@@ -69,6 +76,7 @@ struct Node {
 struct Replica {
     nodes: Vec<Node>,
     by_key: BTreeMap<Key, usize>,
+    by_reference: BTreeMap<(RevisionId, usize), usize>,
 }
 
 const ROOT: usize = 0;
@@ -84,6 +92,7 @@ impl Replica {
                 right: Vec::new(),
             }],
             by_key: BTreeMap::new(),
+            by_reference: BTreeMap::new(),
         }
     }
 
@@ -141,6 +150,7 @@ impl Replica {
         match message {
             Message::Insert {
                 key,
+                reference,
                 item,
                 parent,
                 side,
@@ -157,6 +167,7 @@ impl Replica {
                     right: Vec::new(),
                 });
                 self.by_key.insert(*key, at);
+                self.by_reference.entry(*reference).or_insert(at);
                 let parent = parent.map_or(ROOT, |key| self.by_key[&key]);
                 let siblings = match side {
                     Side::Left => &mut self.nodes[parent].left,
@@ -207,6 +218,8 @@ impl Replica {
         // Positions are stated against the state at the parents and never
         // move, so the view is captured once, before anything is applied.
         let prepare = self.visible();
+        let named = digest(&document.write());
+        let mut minted = 0usize;
         let mut messages = Vec::new();
         for (index, operation) in document.operations.iter().enumerate() {
             match operation.kind {
@@ -237,16 +250,92 @@ impl Replica {
                         };
                         let message = Message::Insert {
                             key,
+                            reference: (named, minted),
                             item: item.clone(),
                             parent: parent.and_then(|node| self.nodes[node].key),
                             side,
                         };
                         self.apply(&message);
                         messages.push(message);
+                        minted += 1;
                         left = Some(self.by_key[&key]);
                     }
                 }
             }
+        }
+        messages
+    }
+
+    /// Turn one merge's resolution into messages, the same way: at the source,
+    /// from what this replica knows.
+    ///
+    /// Decision 0032 in the live architecture. A resolution states the file
+    /// whole, so what travels is what that costs the tree — a delete for
+    /// every visible item it does not keep, and an insert for every item it
+    /// mints, anchored after the piece before it. Nothing is restated, so a
+    /// kept item's node is untouched and keeps its identity.
+    fn derive_resolution(
+        &mut self,
+        revision: RevisionId,
+        named: RevisionId,
+        resolution: &ResolutionDocument,
+    ) -> Vec<Message> {
+        let prepare = self.visible();
+        let mut kept: BTreeSet<usize> = BTreeSet::new();
+        let mut left: Option<usize> = None;
+        let mut minted = 0usize;
+        let mut messages = Vec::new();
+
+        for (index, piece) in resolution.pieces.iter().enumerate() {
+            match piece {
+                Piece::Keep {
+                    document,
+                    first,
+                    count,
+                } => {
+                    for offset in 0..*count {
+                        let at = *self
+                            .by_reference
+                            .get(&(*document, first + offset))
+                            .expect("a keep of an item this replica has seen");
+                        kept.insert(at);
+                        left = Some(at);
+                    }
+                }
+                Piece::Insert { items } => {
+                    for (offset, item) in items.iter().enumerate() {
+                        let (parent, side) = self.anchor(left);
+                        let key = Key {
+                            revision,
+                            index: minted,
+                            operation: index,
+                            offset,
+                        };
+                        let message = Message::Insert {
+                            key,
+                            reference: (named, minted),
+                            item: item.clone(),
+                            parent: parent.and_then(|node| self.nodes[node].key),
+                            side,
+                        };
+                        self.apply(&message);
+                        messages.push(message);
+                        minted += 1;
+                        left = Some(self.by_key[&key]);
+                    }
+                }
+            }
+        }
+
+        for at in prepare {
+            if kept.contains(&at) {
+                continue;
+            }
+            let message = Message::Delete {
+                key: self.nodes[at].key.expect("a non-root node"),
+            };
+            self.apply(&message);
+            messages.push(message);
         }
         messages
     }
@@ -301,12 +390,20 @@ fn edit(rng: &mut Rng, text: &str, salt: usize) -> (String, Option<OperationDocu
     (out, document)
 }
 
+/// Which of the two content grammars one event stated its file in.
+#[derive(Debug, Clone, Copy)]
+enum At {
+    Operations(usize),
+    Resolution(usize),
+}
+
 /// A whole simulation: several replicas, one shared history, two machines.
 struct Sim {
     documents: Vec<OperationDocument>,
+    resolutions: Vec<ResolutionDocument>,
     /// `(revision, parents, document, messages)`, in creation order — which
     /// is a causal order, since a parent exists before its child.
-    events: Vec<(RevisionId, Vec<RevisionId>, usize, Vec<Message>)>,
+    events: Vec<(RevisionId, Vec<RevisionId>, At, Vec<Message>)>,
     replicas: Vec<Replica>,
     known: Vec<BTreeSet<usize>>,
     minted: usize,
@@ -316,6 +413,7 @@ impl Sim {
     fn new(replicas: usize) -> Self {
         Self {
             documents: Vec::new(),
+            resolutions: Vec::new(),
             events: Vec::new(),
             replicas: (0..replicas).map(|_| Replica::new()).collect(),
             known: vec![BTreeSet::new(); replicas],
@@ -343,20 +441,38 @@ impl Sim {
     }
 
     /// The historica side of one replica's view: the event-graph merge.
-    fn merged(&self, replica: usize) -> String {
-        let events: Vec<Event<'_>> = self.known[replica]
+    fn events(&self, replica: usize) -> Vec<Event<'_>> {
+        self.known[replica]
             .iter()
             .map(|at| {
-                let (revision, parents, document, _) = &self.events[*at];
-                let document = &self.documents[*document];
-                Event::operations(
-                    *revision,
-                    parents.clone(),
-                    digest(&document.write()),
-                    document,
-                )
+                let (revision, parents, stated, _) = &self.events[*at];
+                match stated {
+                    At::Operations(at) => {
+                        let document = &self.documents[*at];
+                        Event::operations(
+                            *revision,
+                            parents.clone(),
+                            digest(&document.write()),
+                            document,
+                        )
+                    }
+                    At::Resolution(at) => {
+                        let document = &self.resolutions[*at];
+                        Event::resolution(
+                            *revision,
+                            parents.clone(),
+                            digest(&document.write()),
+                            document,
+                        )
+                    }
+                }
             })
-            .collect();
+            .collect()
+    }
+
+    /// The historica side of one replica's view: the event-graph merge.
+    fn merged(&self, replica: usize) -> String {
+        let events = self.events(replica);
         if events.is_empty() {
             return String::new();
         }
@@ -369,9 +485,37 @@ impl Sim {
         let parents = self.heads(replica);
         let messages = self.replicas[replica].derive(revision, &document);
         self.documents.push(document);
-        self.events
-            .push((revision, parents, self.documents.len() - 1, messages));
+        let at = At::Operations(self.documents.len() - 1);
+        self.events.push((revision, parents, at, messages));
         self.known[replica].insert(self.events.len() - 1);
+    }
+
+    /// One replica reads both sides and records what the file is.
+    ///
+    /// Decision 0032's merge, on both architectures at once: the resolution
+    /// is written from what the event-graph side proposes, and derived into
+    /// messages from what the live tree holds. Nothing forces the two to name
+    /// the same items, which is exactly the claim being tested.
+    fn merge(&mut self, rng: &mut Rng, replica: usize, salt: usize) -> bool {
+        let parents = self.heads(replica);
+        if parents.len() < 2 {
+            return false;
+        }
+        let proposed = merge(self.events(replica)).expect("a history that merges");
+        let (text, _) = edit(rng, &proposed.state.text(), salt);
+        let after = State::from_text(&text);
+        let Some(resolution) = resolve(&proposed.state, &proposed.references, &after) else {
+            return false;
+        };
+
+        let revision = self.mint();
+        let named = digest(&resolution.write());
+        let messages = self.replicas[replica].derive_resolution(revision, named, &resolution);
+        self.resolutions.push(resolution);
+        let at = At::Resolution(self.resolutions.len() - 1);
+        self.events.push((revision, parents, at, messages));
+        self.known[replica].insert(self.events.len() - 1);
+        true
     }
 
     /// One replica edits what it currently sees, at random.
@@ -430,11 +574,28 @@ fn the_event_graph_replay_conforms_to_the_reference_crdt() {
         }
 
         for action in 0..12 {
-            match rng.below(3) {
+            match rng.below(4) {
                 0 | 1 => {
                     let replica = rng.below(replicas);
                     sim.edit(&mut rng, replica, action);
                     sim.agree(replica, round);
+                }
+                // Decision 0032: a replica holding two heads reads both sides
+                // and records what the file is. The history then holds a
+                // resolution, and everything downstream of it — every later
+                // edit, every later merge, every partial sync — is walked
+                // across one.
+                2 => {
+                    // Whichever replica is holding two heads, since a merge
+                    // is not something a replica can do on request.
+                    let first = rng.below(replicas);
+                    for offset in 0..replicas {
+                        let replica = (first + offset) % replicas;
+                        if sim.merge(&mut rng, replica, action) {
+                            sim.agree(replica, round);
+                            break;
+                        }
+                    }
                 }
                 _ => {
                     let into = rng.below(replicas);
