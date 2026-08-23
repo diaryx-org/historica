@@ -110,8 +110,8 @@ impl<F: Filesystem> Store<F> {
 
         // Every quote of those items, across the whole history this store
         // holds — the deletes included, which is the walk's whole point.
-        let every: Vec<&crate::format::RevisionDocument> =
-            self.iter().map(|(_, document)| document).collect();
+        let every: Vec<(RevisionId, &crate::format::RevisionDocument)> =
+            self.iter().map(|(id, document)| (*id, document)).collect();
         let everywhere = self.quotes_over(&every, &forgetting.file)?;
 
         // The document each revision names for this file, which is what the
@@ -226,19 +226,16 @@ impl<F: Filesystem> Store<F> {
     /// Every item every revision ever wrote to one file, quotes and all.
     fn quotes_over(
         &self,
-        documents: &[&crate::format::RevisionDocument],
+        documents: &[(RevisionId, &crate::format::RevisionDocument)],
         file: &FileId,
     ) -> Result<Vec<Quoted>, ForgetError> {
         let held = self.effective_for(documents, file)?;
         let events: Vec<merge::Event<'_>> = documents
             .iter()
-            .map(|document| {
-                let revision = document.id();
-                merge::Event {
-                    revision,
-                    parents: document.parents.iter().copied().collect(),
-                    operations: held.get(&revision),
-                }
+            .map(|(revision, document)| merge::Event {
+                revision: *revision,
+                parents: document.parents.iter().copied().collect(),
+                operations: held.get(revision),
             })
             .collect();
         Ok(merge::quotes(events)?)

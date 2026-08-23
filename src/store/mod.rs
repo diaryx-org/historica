@@ -596,15 +596,27 @@ impl<F: Filesystem> Store<F> {
         Ok(())
     }
 
-    /// Every revision `head` descends from, itself included.
+    /// Every revision `head` descends from, itself included, each beside its
+    /// digest.
     ///
     /// A DAG rather than a chain: merging is what decides the rest, and it
     /// needs the whole ancestry to know what is concurrent with what.
-    pub fn reachable(&self, head: &RevisionId) -> Result<Vec<&RevisionDocument>, MaterialiseError> {
+    ///
+    /// The digest comes back with the document because the store already has
+    /// it — a document is filed under the digest of the bytes it was read
+    /// from, so returning the document alone would make every caller recompute
+    /// what the map key already says, and
+    /// [`RevisionDocument::id`](crate::format::RevisionDocument::id) costs a
+    /// re-serialisation of the whole document.
+    pub fn reachable(
+        &self,
+        head: &RevisionId,
+    ) -> Result<Vec<(RevisionId, &RevisionDocument)>, MaterialiseError> {
         self.reachable_from(&[*head])
     }
 
-    /// Every revision several heads descend from, itself included.
+    /// Every revision several heads descend from, itself included, each beside
+    /// its digest.
     ///
     /// What merging two lines of work walks, before any revision joins them:
     /// decision 0012's `merge` asks this of a store to render a conflict that
@@ -612,7 +624,7 @@ impl<F: Filesystem> Store<F> {
     pub fn reachable_from(
         &self,
         heads: &[RevisionId],
-    ) -> Result<Vec<&RevisionDocument>, MaterialiseError> {
+    ) -> Result<Vec<(RevisionId, &RevisionDocument)>, MaterialiseError> {
         let mut seen = BTreeMap::new();
         let mut queue: Vec<RevisionId> = heads.to_vec();
         while let Some(id) = queue.pop() {
@@ -634,7 +646,7 @@ impl<F: Filesystem> Store<F> {
                 queue.push(*parent);
             }
         }
-        Ok(seen.into_values().collect())
+        Ok(seen.into_iter().collect())
     }
 
     /// The file set at `head`, and what was decided by rule deciding it.
@@ -651,10 +663,11 @@ impl<F: Filesystem> Store<F> {
             // A merge of nothing is the empty tree, and nothing names it.
             RevisionId::from_bytes([0; crate::core::REVISION_ID_LEN])
         });
-        tree::merge(reachable.into_iter().map(|document| tree::Event {
-            revision: document.id(),
-            document,
-        }))
+        tree::merge(
+            reachable
+                .into_iter()
+                .map(|(revision, document)| tree::Event { revision, document }),
+        )
         .map_err(|error| MaterialiseError::Tree {
             revision: head,
             error,
@@ -692,8 +705,7 @@ impl<F: Filesystem> Store<F> {
 
         let held = self.effective_for(&reachable, file)?;
         let mut events = Vec::with_capacity(reachable.len());
-        for document in reachable {
-            let revision = document.id();
+        for (revision, document) in reachable {
             events.push(merge::Event {
                 revision,
                 parents: document.parents.iter().copied().collect(),
@@ -725,12 +737,11 @@ impl<F: Filesystem> Store<F> {
     /// which spelling it was handed.
     pub(crate) fn effective_for(
         &self,
-        documents: &[&RevisionDocument],
+        documents: &[(RevisionId, &RevisionDocument)],
         file: &FileId,
     ) -> Result<BTreeMap<RevisionId, OperationDocument>, MaterialiseError> {
         let mut held: BTreeMap<RevisionId, OperationDocument> = BTreeMap::new();
-        for document in documents {
-            let revision = document.id();
+        for &(revision, document) in documents {
             if let Some(named) = document.edited.get(file) {
                 let effective =
                     self.effective_operation(named)
