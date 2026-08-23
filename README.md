@@ -257,6 +257,15 @@ exactly the resolution. Detection is per line and scoped to a merge record,
 which is why this repository can hold a decision document full of marker lines
 and record it without complaint.
 
+Two files claiming one path is the other thing a merge cannot resolve on its
+own, and there the command printed carries the `--at` that settles it — naming
+the path the merge wrote each file to, so following it records the folder as it
+stands, and any other path may be typed in its place. The file written beside
+the one that keeps the path is named for the reason rather than by a counter,
+with the marker in front of the extension so it still opens in the editor that
+would have opened it, and with no character on it that a Windows filesystem
+would refuse.
+
 A file of bytes takes the same route through all of it and stops at the merge:
 0008 makes two concurrent `bytes` a divergence to report, and there is nothing
 to render between marker lines in a JPEG, so `merge` names the contested path,

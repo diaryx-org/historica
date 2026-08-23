@@ -2731,6 +2731,110 @@ fn a_path_two_files_claim_prints_under_status_and_refuses_under_record() {
     assert!(complaint.contains("--at"), "{complaint}");
 }
 
+/// The command `merge` prints has to be one that records.
+///
+/// A path two files claim is settled by `--at` and by nothing else, so the
+/// command printed without one refuses the moment it is typed — which is
+/// exactly the state a person reaches by following the instructions. This
+/// runs what was printed, verbatim.
+#[test]
+fn the_command_a_merge_prints_records_the_path_two_files_claim() {
+    let directory = repository("merge-prints-at");
+    write(&directory, "root.md", "a\n");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    let root = head_of(&directory);
+
+    write(&directory, "notes.md", "mine\n");
+    out(recorded(&directory, &["record", "-m", "mine"]));
+    fs::remove_file(directory.join("notes.md")).expect("removing it");
+    write(&directory, "notes.md", "theirs\n");
+    out(recorded(
+        &directory,
+        &["record", "--onto", &root, "-m", "theirs"],
+    ));
+
+    let printed = out(recorded(&directory, &["merge"]));
+    assert!(printed.contains("--at"), "{printed}");
+
+    // The second file is written beside the first under a name Windows will
+    // accept and an editor will still open: no colon, and the marker before
+    // the extension rather than after it.
+    let beside: Vec<PathBuf> = fs::read_dir(&directory)
+        .expect("the folder")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.contains("historica"))
+        })
+        .collect();
+    let beside = match beside.as_slice() {
+        [only] => only.file_name().and_then(|n| n.to_str()).expect("a name"),
+        other => panic!("one file beside the path, not {other:?}"),
+    };
+    assert!(!beside.contains(':'), "no colon in `{beside}`");
+    assert!(beside.ends_with(".md"), "still a .md file: `{beside}`");
+
+    // Everything after `historica ` on the printed line, run as it stands.
+    let line = printed
+        .lines()
+        .find(|line| line.trim_start().starts_with("historica record"))
+        .expect("the command it printed");
+    let arguments = shell_words(line.trim().trim_start_matches("historica "));
+    let arguments: Vec<&str> = arguments
+        .iter()
+        .map(String::as_str)
+        .map(|argument| {
+            if argument == "<message>" {
+                "Join them"
+            } else {
+                argument
+            }
+        })
+        .collect();
+    let joined = out(recorded(&directory, &arguments));
+    assert!(joined.contains("joins 2 lines of work"), "{joined}");
+
+    // Both files survive the merge, under the two paths the command named.
+    let files = out(recorded(&directory, &["files", &head_of(&directory)]));
+    assert!(files.contains("notes.md"), "{files}");
+    assert!(files.contains(beside), "{files}");
+}
+
+/// Split a printed command the way a shell would, honouring double quotes.
+///
+/// A rendered path has a space in it by construction, so the command names it
+/// quoted; a test that split on whitespace would be testing something no
+/// person types.
+fn shell_words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quoted = false;
+    let mut any = false;
+    for character in line.chars() {
+        match character {
+            '"' => {
+                quoted = !quoted;
+                any = true;
+            }
+            character if character.is_whitespace() && !quoted => {
+                if any {
+                    words.push(std::mem::take(&mut word));
+                    any = false;
+                }
+            }
+            character => {
+                word.push(character);
+                any = true;
+            }
+        }
+    }
+    if any {
+        words.push(word);
+    }
+    words
+}
+
 #[test]
 fn an_amendment_keeps_the_work_and_works_the_folder_out_again() {
     let directory = repository("amend");

@@ -449,7 +449,7 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         said.push(render::contest_line(contest));
         if let TreeContest::Path { path, files } = contest {
             for file in files.iter().skip(1) {
-                beside.insert(*file, format!("{path} (historica: {})", file.abbreviate(8)));
+                beside.insert(*file, beside_name(path, file));
             }
         }
     }
@@ -538,26 +538,48 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         }
     }
 
+    // Decision 0012: a path two files claim is settled by `--at` and by
+    // nothing else, so a command printed without one is a command that
+    // refuses. The paths are the ones this merge just wrote beside, which
+    // makes following it record the folder exactly as it now stands. Each
+    // pair is quoted because a rendered name has a space in it by
+    // construction, and the identifier is spelled in full because `--at`
+    // names a file against a survey rather than against a revision, and so
+    // takes no abbreviation.
+    let settling: String = beside
+        .iter()
+        .map(|(file, path)| format!(" --at \"{file}={path}\""))
+        .collect();
+
     printing(|out| {
         for line in &said {
             writeln!(out, "{line}")?;
         }
-        if contested == 0 {
-            writeln!(out, "nothing is contested; record it with:")?;
-        } else {
+        if !beside.is_empty() {
+            writeln!(
+                out,
+                "a path two files claim is settled below by where this merge \
+                 wrote them; type other paths there if you would rather"
+            )?;
+        }
+        if contested > 0 {
             writeln!(
                 out,
                 "{contested} file{} work that met; resolve it, delete the lines \
                  historica wrote, and record it with:",
                 if contested == 1 { " holds" } else { "s hold" }
             )?;
+        } else if beside.is_empty() {
+            writeln!(out, "nothing is contested; record it with:")?;
+        } else {
+            writeln!(out, "no lines met; record it with:")?;
         }
         // Every head this merge joined, not only the ones named: `record`
         // derives nothing here, so a command that left one out would record a
         // different merge from the one just rendered into the folder.
         writeln!(
             out,
-            "  historica record{} -m <message>",
+            "  historica record{}{settling} -m <message>",
             heads
                 .iter()
                 .map(|head| {
@@ -570,6 +592,37 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 .collect::<String>()
         )
     })
+}
+
+/// The name a file is written under beside a path another file keeps.
+///
+/// Two files claiming one path is a state 0008 lets a merge produce and
+/// forbids the format resolving on its own, so one keeps the path and the
+/// other is written beside it under a name whose reason a person can read.
+/// Two rules shape how it is spelled.
+///
+/// The marker carries no colon. `:` is a character NTFS and exFAT refuse in a
+/// name, so the older spelling could not be written at all on Windows or onto
+/// a removable drive — on the one path where a merge has to write a second
+/// file in order to make any progress at all.
+///
+/// And it goes *before* the final extension, because 0020's point is that the
+/// file a person double-clicks opens in the editor they already have, and a
+/// marker after `.txt` takes that away.
+fn beside_name(path: &str, file: &FileId) -> String {
+    let marker = format!("(historica {})", file.abbreviate(8));
+    let (directory, name) = match path.rsplit_once('/') {
+        Some((directory, name)) => (&path[..directory.len() + 1], name),
+        None => ("", path),
+    };
+    match name.rsplit_once('.') {
+        // A leading dot is the whole of a name like `.env` rather than an
+        // extension in front of an empty one.
+        Some((stem, extension)) if !stem.is_empty() => {
+            format!("{directory}{stem} {marker}.{extension}")
+        }
+        _ => format!("{directory}{name} {marker}"),
+    }
 }
 
 /// The revisions that each stated one contested file's whole content.
