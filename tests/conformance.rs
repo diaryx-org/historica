@@ -348,11 +348,13 @@ impl Sim {
             .iter()
             .map(|at| {
                 let (revision, parents, document, _) = &self.events[*at];
-                Event {
-                    revision: *revision,
-                    parents: parents.clone(),
-                    operations: Some(&self.documents[*document]),
-                }
+                let document = &self.documents[*document];
+                Event::operations(
+                    *revision,
+                    parents.clone(),
+                    digest(&document.write()),
+                    document,
+                )
             })
             .collect();
         if events.is_empty() {
@@ -478,15 +480,19 @@ fn document(lines: &[&str]) -> OperationDocument {
 /// A root event and the named events after it, merged to a file.
 fn merged(root: &OperationDocument, events: &[(String, Vec<String>, OperationDocument)]) -> String {
     merge(
-        std::iter::once(Event {
-            revision: digest(b"root"),
-            parents: Vec::new(),
-            operations: Some(root),
-        })
-        .chain(events.iter().map(|(name, parents, operations)| Event {
-            revision: digest(name.as_bytes()),
-            parents: parents.iter().map(|name| digest(name.as_bytes())).collect(),
-            operations: Some(operations),
+        std::iter::once(Event::operations(
+            digest(b"root"),
+            Vec::new(),
+            digest(&root.write()),
+            root,
+        ))
+        .chain(events.iter().map(|(name, parents, operations)| {
+            Event::operations(
+                digest(name.as_bytes()),
+                parents.iter().map(|name| digest(name.as_bytes())).collect(),
+                digest(&operations.write()),
+                operations,
+            )
         })),
     )
     .expect("a history that merges")

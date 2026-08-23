@@ -14,11 +14,13 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
-use crate::format::{OperationDocument, ParseError, RevisionDocument, Version, digest};
+use crate::format::{
+    self, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, Version, digest,
+};
 use crate::fs::{Entry, Filesystem, read_to_string};
 
 use super::{
-    HEADER_FILE, MalformedName, NAME_SUFFIX, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES,
+    HEADER_FILE, Held, MalformedName, NAME_SUFFIX, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES,
     OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims, platform_name,
 };
 
@@ -523,8 +525,15 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
         }
     }
 
-    let (operations, payloads) = check_operations(files, root, &mut report);
-    check_replay(files, &documents, &operations, &payloads, &mut report);
+    let (operations, resolutions, payloads) = check_operations(files, root, &mut report);
+    check_replay(
+        files,
+        &documents,
+        &operations,
+        &resolutions,
+        &payloads,
+        &mut report,
+    );
     if let Ok(text) = read_to_string(files, &root.join(crate::working::SKIPPED_FILE))
         && let Err(error) = crate::working::Skipped::parse(&text)
     {
@@ -546,18 +555,20 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
 /// puts two kinds of file here: only `*.ops` is an operation document, and
 /// every other file is a payload, hashed and kept as bytes. This is the one
 /// command that hashes every payload deliberately.
-type Held = (
+type Stored = (
     BTreeMap<RevisionId, OperationDocument>,
+    BTreeMap<RevisionId, ResolutionDocument>,
     BTreeMap<RevisionId, PathBuf>,
 );
 
-fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) -> Held {
+fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) -> Stored {
     let found = super::walk(files, root, OPERATIONS_DIR).unwrap_or_default();
     for link in &found.links {
         report.push(Finding::Unfollowed { file: link.clone() });
     }
 
     let mut documents = BTreeMap::new();
+    let mut resolutions = BTreeMap::new();
     let mut payloads: BTreeMap<RevisionId, PathBuf> = BTreeMap::new();
     let mut files_by_digest: BTreeMap<RevisionId, Vec<PathBuf>> = BTreeMap::new();
 
@@ -607,6 +618,18 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
             continue;
         }
 
+        // Decision 0032: two content-document grammars share the suffix, and
+        // the body says which strict parser the bytes are held to.
+        if format::is_resolution(&bytes) {
+            match ResolutionDocument::parse(&bytes) {
+                Ok(document) => {
+                    resolutions.insert(id, document);
+                }
+                Err(error) => report.push(Finding::Unparsable { file: path, error }),
+            }
+            continue;
+        }
+
         match OperationDocument::parse(&bytes) {
             Ok(document) => {
                 documents.insert(id, document);
@@ -623,7 +646,7 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
             });
         }
     }
-    (documents, payloads)
+    (documents, resolutions, payloads)
 }
 
 /// Hold every revision to the tree and the files it claims to have edited.
@@ -637,6 +660,7 @@ fn check_replay<F: Filesystem + ?Sized>(
     files: &F,
     documents: &BTreeMap<RevisionId, RevisionDocument>,
     operations: &BTreeMap<RevisionId, OperationDocument>,
+    resolutions: &BTreeMap<RevisionId, ResolutionDocument>,
     payloads: &BTreeMap<RevisionId, PathBuf>,
     report: &mut Report,
 ) {
@@ -666,9 +690,15 @@ fn check_replay<F: Filesystem + ?Sized>(
     // it has to be UTF-8, because a later `edit` quotes its items into a
     // document that is. Keyed by revision *and* file: one revision creates as
     // many files as it likes, and each of them arrives with its own content.
-    let mut held: BTreeMap<(RevisionId, FileId), OperationDocument> = BTreeMap::new();
+    let mut held: BTreeMap<(RevisionId, FileId), Held> = BTreeMap::new();
     for (id, document) in documents {
         for (file, named) in &document.edited {
+            // Decision 0032: an `edit` line names either grammar, and a
+            // resolution states its file whole rather than as a delta.
+            if let Some(resolution) = resolutions.get(named) {
+                held.insert((*id, *file), Held::Resolution(*named, resolution.clone()));
+                continue;
+            }
             let standing = forgetting.get(named).cloned().unwrap_or_default();
             match crate::format::stand_in(operations.get(named), &standing) {
                 Some(effective) => {
@@ -678,7 +708,7 @@ fn check_replay<F: Filesystem + ?Sized>(
                             named_by: *id,
                         });
                     }
-                    held.insert((*id, *file), effective);
+                    held.insert((*id, *file), Held::Operations(*named, effective));
                 }
                 None => report.push(Finding::MissingOperations {
                     document: *named,
@@ -735,7 +765,7 @@ fn check_replay<F: Filesystem + ?Sized>(
                 }
             };
             if let Some(effective) = crate::format::stand_in(base.as_ref(), &standing) {
-                held.insert((*id, *file), effective);
+                held.insert((*id, *file), Held::Operations(*named, effective));
             }
         }
     }
@@ -786,14 +816,16 @@ fn check_replay<F: Filesystem + ?Sized>(
         for file in edited {
             let events: Vec<crate::merge::Event<'_>> = reachable
                 .iter()
-                .map(|(id, document)| crate::merge::Event {
-                    revision: *id,
-                    parents: document.parents.iter().copied().collect(),
+                .map(|(id, document)| {
+                    let parents = document.parents.iter().copied().collect();
                     // Decision 0017: a creation stated whole replays as the
                     // document it is equivalent to, and decision 0014's
                     // redactions are already folded in — what is checked here
                     // is what a person materialising would get.
-                    operations: held.get(&(*id, file)),
+                    match held.get(&(*id, file)) {
+                        Some(stated) => stated.event(*id, parents),
+                        None => crate::merge::Event::nothing(*id, parents),
+                    }
                 })
                 .collect();
             match crate::merge::quotes(events) {
@@ -820,7 +852,7 @@ fn check_replay<F: Filesystem + ?Sized>(
 /// run, and sync delivers them one file at a time.
 fn still_quoted(
     documents: &BTreeMap<RevisionId, RevisionDocument>,
-    held: &BTreeMap<(RevisionId, FileId), OperationDocument>,
+    held: &BTreeMap<(RevisionId, FileId), Held>,
     file: &FileId,
     quoted: &[crate::merge::Quoted],
     undercut: &mut BTreeSet<(RevisionId, RevisionId)>,
@@ -842,6 +874,7 @@ fn still_quoted(
             if let Some(named) = named_for(revision) {
                 let forgotten = held
                     .get(&(*revision, *file))
+                    .and_then(Held::operations)
                     .map(|document| document.operations[*operation].items[*at].forgotten)
                     .unwrap_or(false);
                 sites.push((named, forgotten));

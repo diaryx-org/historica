@@ -236,10 +236,12 @@ impl<F: Filesystem> Store<F> {
         let held = self.effective_for(documents, file)?;
         let events: Vec<merge::Event<'_>> = documents
             .iter()
-            .map(|(revision, document)| merge::Event {
-                revision: *revision,
-                parents: document.parents.iter().copied().collect(),
-                operations: held.get(revision),
+            .map(|(revision, document)| {
+                let parents = document.parents.iter().copied().collect();
+                match held.get(revision) {
+                    Some(stated) => stated.event(*revision, parents),
+                    None => merge::Event::nothing(*revision, parents),
+                }
             })
             .collect();
         Ok(merge::quotes(events)?)

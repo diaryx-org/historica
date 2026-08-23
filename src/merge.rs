@@ -36,8 +36,21 @@ use std::fmt;
 
 use crate::ancestry::Ancestry;
 use crate::core::RevisionId;
-use crate::format::{Item, OperationDocument, OperationKind};
+use crate::format::{Item, OperationDocument, OperationKind, Piece, ResolutionDocument};
 use crate::replay::State;
+
+/// What one revision stated about one file.
+///
+/// Two spellings, and decision 0032 is the second: a revision either says what
+/// it *did* to the file, against the state at its parents, or — where a merge's
+/// parents disagree — says what the file *is*, whole, by reference.
+#[derive(Debug, Clone, Copy)]
+pub enum Stated<'a> {
+    /// Decision 0007's operations, positioned into the state at the parents.
+    Operations(&'a OperationDocument),
+    /// Decision 0032's resolution: the file at this merge, stated whole.
+    Resolution(&'a ResolutionDocument),
+}
 
 /// One revision's contribution to one file.
 ///
@@ -49,8 +62,66 @@ pub struct Event<'a> {
     pub revision: RevisionId,
     /// Its causal parents.
     pub parents: Vec<RevisionId>,
-    /// What it did to this file, if anything.
-    pub operations: Option<&'a OperationDocument>,
+    /// What it stated about this file, beside the digest naming the document
+    /// it stated it in — an operation document's, a resolution's, or the
+    /// payload's for a file that arrived whole.
+    ///
+    /// The digest is the half of an item's name a `keep` line quotes, which is
+    /// why it travels with the document rather than being recomputed: a
+    /// redacted document's bytes are not the bytes its revision named.
+    pub stated: Option<(RevisionId, Stated<'a>)>,
+}
+
+impl<'a> Event<'a> {
+    /// An event that says nothing about this file.
+    pub fn nothing(revision: RevisionId, parents: Vec<RevisionId>) -> Self {
+        Self {
+            revision,
+            parents,
+            stated: None,
+        }
+    }
+
+    /// An event stating operations, named by `document`.
+    pub fn operations(
+        revision: RevisionId,
+        parents: Vec<RevisionId>,
+        document: RevisionId,
+        operations: &'a OperationDocument,
+    ) -> Self {
+        Self {
+            revision,
+            parents,
+            stated: Some((document, Stated::Operations(operations))),
+        }
+    }
+
+    /// An event stating a resolution, named by `document`.
+    pub fn resolution(
+        revision: RevisionId,
+        parents: Vec<RevisionId>,
+        document: RevisionId,
+        resolution: &'a ResolutionDocument,
+    ) -> Self {
+        Self {
+            revision,
+            parents,
+            stated: Some((document, Stated::Resolution(resolution))),
+        }
+    }
+
+    /// The operations this event states, if that is what it states.
+    fn operation_document(&self) -> Option<(RevisionId, &'a OperationDocument)> {
+        match self.stated {
+            Some((named, Stated::Operations(document))) => Some((named, document)),
+            _ => None,
+        }
+    }
+
+    /// Whether this event states its file by reference rather than by delta.
+    fn resolves(&self) -> bool {
+        matches!(self.stated, Some((_, Stated::Resolution(_))))
+    }
 }
 
 /// A merged file, and where concurrent work met inside it.
@@ -108,7 +179,10 @@ pub enum Contest {
 /// read its files in.
 pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Merged, MergeError> {
     let graph = Graph::new(events.into_iter().collect())?;
-    if graph.chain() {
+    // A resolution is a merge's spelling, so a chain holding one is a history
+    // nothing here wrote; the walk is what knows how to cross it, and the fast
+    // path stays the arithmetic it was.
+    if graph.chain() && !graph.events.iter().any(|event| event.resolves()) {
         return linear(&graph);
     }
     let order = graph.order.clone();
@@ -139,7 +213,7 @@ fn linear(graph: &Graph<'_>) -> Result<Merged, MergeError> {
     let mut origins: Vec<RevisionId> = Vec::new();
 
     for event in &graph.order {
-        let Some(document) = graph.events[*event].operations else {
+        let Some((_, document)) = graph.events[*event].operation_document() else {
             continue;
         };
         let revision = graph.events[*event].revision;
@@ -263,8 +337,11 @@ pub fn quotes<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Vec<Quo
                 deletes: element
                     .deleted_by
                     .iter()
-                    .map(|(event, (operation, item))| {
-                        (graph.events[*event].revision, *operation, *item)
+                    .filter_map(|(event, quote)| {
+                        // A resolution drops an item by not keeping it, and a
+                        // removal that quotes nothing is nothing to redact.
+                        let (operation, item) = (*quote)?;
+                        Some((graph.events[*event].revision, operation, item))
                     })
                     .collect(),
                 forgotten: element.item.forgotten,
@@ -423,6 +500,16 @@ struct Element {
     /// `(R, i)`: the revision that wrote it, and its index within that
     /// revision. Derived, never stored, and unique because a digest is.
     id: (RevisionId, usize),
+    /// The name a `keep` line quotes: the *document* that minted the item, and
+    /// the item's ordinal in that document's order.
+    ///
+    /// Decision 0032 counts references this way because a person reading a
+    /// resolution has the `edit` line in front of them, not the revision's
+    /// digest. It is coarser than `id` by exactly one case — two concurrent
+    /// revisions naming one byte-identical document — where the two items it
+    /// cannot tell apart hold the same text, so nothing a reference decides
+    /// depends on which is taken.
+    reference: (RevisionId, usize),
     item: Item,
     /// The event that wrote it.
     author: usize,
@@ -434,7 +521,11 @@ struct Element {
     wrote: (usize, usize),
     /// Every event that removed it, and where in that event's document the
     /// removal quotes it. Concurrent deletions agree.
-    deleted_by: BTreeMap<usize, (usize, usize)>,
+    ///
+    /// `None` where the removal quotes nothing: decision 0032's resolution
+    /// drops an item by not keeping it, and there is no line of text for a
+    /// redaction to chase.
+    deleted_by: BTreeMap<usize, Option<(usize, usize)>>,
     left: Vec<usize>,
     right: Vec<usize>,
 }
@@ -490,14 +581,116 @@ impl Tree {
     }
 
     fn replay(&mut self, graph: &Graph<'_>, event: usize) -> Result<(), MergeError> {
-        let Some(document) = graph.events[event].operations else {
-            return Ok(());
-        };
+        match graph.events[event].stated {
+            None => Ok(()),
+            Some((named, Stated::Operations(document))) => {
+                self.operations(graph, event, named, document)
+            }
+            Some((named, Stated::Resolution(document))) => {
+                self.resolution(graph, event, named, document)
+            }
+        }
+    }
+
+    /// Decision 0032's resolution, crossed.
+    ///
+    /// The resolution is the recorded truth of this file at this revision, so
+    /// the walk takes it as stated rather than deriving anything: an item the
+    /// resolution does not keep is dead here, exactly as a delete; the items
+    /// it inserts are its own; and the items it keeps survive **under their
+    /// own names**, which is what lets a concurrent branch's edits to those
+    /// same items merge normally instead of colliding with copies.
+    fn resolution(
+        &mut self,
+        graph: &Graph<'_>,
+        event: usize,
+        named: RevisionId,
+        document: &ResolutionDocument,
+    ) -> Result<(), MergeError> {
+        let revision = graph.events[event].revision;
+        let order = self.order();
+        // The same view an operation document's positions are counted into:
+        // what this author had before they started.
+        let prepare = self.visible(&order, graph, event);
+
+        // Where each name the author could see sits in that view. The first
+        // wins where two elements share a name, which is the byte-identical
+        // case `Element::reference` describes.
+        let mut by_reference: BTreeMap<(RevisionId, usize), usize> = BTreeMap::new();
+        for (position, at) in prepare.iter().enumerate() {
+            by_reference
+                .entry(self.elements[*at].reference)
+                .or_insert(position);
+        }
+
+        let mut kept: BTreeSet<usize> = BTreeSet::new();
+        // The element the next piece follows, which is what anchors an insert.
+        let mut left: Option<usize> = None;
+        let mut minted = 0usize;
+        for (index, piece) in document.pieces.iter().enumerate() {
+            match piece {
+                Piece::Keep {
+                    document: from,
+                    first,
+                    count,
+                } => {
+                    for offset in 0..*count {
+                        let name = (*from, first + offset);
+                        let Some(position) = by_reference.get(&name).copied() else {
+                            return Err(MergeError::UnknownReference {
+                                revision,
+                                document: *from,
+                                item: first + offset,
+                            });
+                        };
+                        kept.insert(position);
+                        left = Some(prepare[position]);
+                    }
+                }
+                Piece::Insert { items } => {
+                    for (offset, item) in items.iter().enumerate() {
+                        let (parent, side) = self.anchor(left, graph, event);
+                        left = Some(self.attach(
+                            (revision, minted),
+                            (named, minted),
+                            item.clone(),
+                            event,
+                            (index, offset),
+                            parent,
+                            side,
+                        ));
+                        minted += 1;
+                    }
+                }
+            }
+        }
+
+        // Everything the author could see and the resolution did not keep.
+        // Recorded as a removal that quotes nothing, because a resolution
+        // states what survives rather than what went.
+        for (position, at) in prepare.iter().enumerate() {
+            if !kept.contains(&position) {
+                self.elements[*at].deleted_by.insert(event, None);
+            }
+        }
+        Ok(())
+    }
+
+    fn operations(
+        &mut self,
+        graph: &Graph<'_>,
+        event: usize,
+        named: RevisionId,
+        document: &OperationDocument,
+    ) -> Result<(), MergeError> {
         let revision = graph.events[event].revision;
         let order = self.order();
         // Every operation of one revision is stated against the state at its
         // parents, so this view is computed once and never moves under them.
         let prepare = self.visible(&order, graph, event);
+        // How many items this document has minted so far, which is the ordinal
+        // half of the name decision 0032 lets a `keep` quote.
+        let mut minted = 0usize;
 
         for (index, operation) in document.operations.iter().enumerate() {
             let at = operation.at;
@@ -527,7 +720,7 @@ impl Tree {
                         }
                         self.elements[target]
                             .deleted_by
-                            .insert(event, (index, offset));
+                            .insert(event, Some((index, offset)));
                     }
                 }
                 OperationKind::Insert => {
@@ -543,12 +736,14 @@ impl Tree {
                         let (parent, side) = self.anchor(left, graph, event);
                         left = Some(self.attach(
                             (revision, index + offset),
+                            (named, minted),
                             item.clone(),
                             event,
                             (index, offset),
                             parent,
                             side,
                         ));
+                        minted += 1;
                     }
                 }
             }
@@ -595,9 +790,11 @@ impl Tree {
     }
 
     /// Put an element into the tree, among its siblings in name order.
+    #[allow(clippy::too_many_arguments)]
     fn attach(
         &mut self,
         id: (RevisionId, usize),
+        reference: (RevisionId, usize),
         item: Item,
         author: usize,
         wrote: (usize, usize),
@@ -607,6 +804,7 @@ impl Tree {
         let at = self.elements.len();
         self.elements.push(Element {
             id,
+            reference,
             item,
             author,
             wrote,
@@ -809,6 +1007,19 @@ pub enum MergeError {
         /// How many items its author could see.
         length: usize,
     },
+    /// A resolution keeps an item its author could not see.
+    ///
+    /// Decision 0032: a `keep` names a document and a run of its items, and
+    /// this is the run naming something no document in the causal past minted
+    /// — or minted and something already removed.
+    UnknownReference {
+        /// The revision whose resolution it was.
+        revision: RevisionId,
+        /// The document the `keep` names.
+        document: RevisionId,
+        /// Which of its items.
+        item: usize,
+    },
     /// A recorded item is not the item its author was editing.
     ItemDisagrees {
         /// The revision whose operation it was.
@@ -844,6 +1055,16 @@ impl fmt::Display for MergeError {
                 "{revision} names position {position} of a file its author saw {length} items of; \
                  the document was recorded against a different history"
             ),
+            MergeError::UnknownReference {
+                revision,
+                document,
+                item,
+            } => write!(
+                f,
+                "{revision} keeps item {item} of {document}, which its author's view of the \
+                 file does not hold; the resolution names a document outside this merge's \
+                 past, or a run longer than that document has items"
+            ),
             MergeError::ItemDisagrees {
                 revision,
                 position,
@@ -872,7 +1093,15 @@ mod tests {
     #[derive(Default)]
     struct History {
         documents: Vec<OperationDocument>,
-        events: Vec<(RevisionId, Vec<RevisionId>, Option<usize>)>,
+        resolutions: Vec<ResolutionDocument>,
+        events: Vec<(RevisionId, Vec<RevisionId>, Option<At>)>,
+    }
+
+    /// Which of the two content grammars a revision stated its file in.
+    #[derive(Debug, Clone, Copy)]
+    enum At {
+        Operations(usize),
+        Resolution(usize),
     }
 
     impl History {
@@ -894,7 +1123,7 @@ mod tests {
             });
             let at = document.map(|document| {
                 self.documents.push(document);
-                self.documents.len() - 1
+                At::Operations(self.documents.len() - 1)
             });
             self.events.push((
                 digest(name.as_bytes()),
@@ -904,13 +1133,70 @@ mod tests {
             self
         }
 
+        /// A merge stating decision 0032's resolution, whose `result` is the
+        /// digest of the file the pieces assemble to.
+        fn resolving(
+            &mut self,
+            name: &str,
+            parents: &[&str],
+            assembles: &str,
+            pieces: &[&str],
+        ) -> &mut Self {
+            let mut text = format!("{PREAMBLE}\nresult {}\n\n", digest(assembles.as_bytes()));
+            for line in pieces {
+                text.push_str(line);
+                text.push('\n');
+            }
+            let document =
+                ResolutionDocument::parse(text.as_bytes()).expect("a resolution that parses");
+            self.resolutions.push(document);
+            let at = At::Resolution(self.resolutions.len() - 1);
+            self.events.push((
+                digest(name.as_bytes()),
+                parents.iter().map(|name| digest(name.as_bytes())).collect(),
+                Some(at),
+            ));
+            self
+        }
+
+        /// The digest naming the document one revision stated its file in,
+        /// which is the half of an item's name a `keep` line quotes.
+        fn document(&self, name: &str) -> RevisionId {
+            let revision = digest(name.as_bytes());
+            let (_, _, at) = self
+                .events
+                .iter()
+                .find(|(id, _, _)| *id == revision)
+                .expect("a revision by that name");
+            match at.expect("a revision that stated something") {
+                At::Operations(at) => digest(&self.documents[at].write()),
+                At::Resolution(at) => digest(&self.resolutions[at].write()),
+            }
+        }
+
         fn events(&self) -> Vec<Event<'_>> {
             self.events
                 .iter()
-                .map(|(revision, parents, at)| Event {
-                    revision: *revision,
-                    parents: parents.clone(),
-                    operations: at.map(|at| &self.documents[at]),
+                .map(|(revision, parents, at)| match at {
+                    Some(At::Operations(at)) => {
+                        let document = &self.documents[*at];
+                        Event::operations(
+                            *revision,
+                            parents.clone(),
+                            digest(&document.write()),
+                            document,
+                        )
+                    }
+                    Some(At::Resolution(at)) => {
+                        let document = &self.resolutions[*at];
+                        Event::resolution(
+                            *revision,
+                            parents.clone(),
+                            digest(&document.write()),
+                            document,
+                        )
+                    }
+                    None => Event::nothing(*revision, parents.clone()),
                 })
                 .collect()
         }
@@ -958,6 +1244,129 @@ mod tests {
             walk(&graph, &mut taken, &mut current, &mut orders);
             orders
         }
+    }
+
+    /// Decision 0032: the walk takes a resolution as the recorded truth of
+    /// the file at that revision.
+    #[test]
+    fn a_resolution_says_what_survived_and_what_did_not() {
+        let mut history = History::default();
+        history
+            .revision("root", &[], Some(&["insert 0", "+a", "+b", "+c"]))
+            .revision("left", &["root"], Some(&["insert 1", "+L"]))
+            .revision("right", &["root"], Some(&["insert 2", "+R"]));
+
+        // Unresolved, the two branches meet and both lines stand.
+        assert_eq!(history.text(), "a\nL\nb\nR\nc\n");
+
+        let (root, left) = (history.document("root"), history.document("left"));
+        history.resolving(
+            "merge",
+            &["left", "right"],
+            "a\nL\nb\nc\nX\n",
+            &[
+                &format!("keep {root} 0 1"),
+                &format!("keep {left} 0 1"),
+                &format!("keep {root} 1 2"),
+                "insert",
+                "+X",
+            ],
+        );
+
+        // What the resolution states, and nothing of the line it dropped.
+        assert_eq!(history.text(), "a\nL\nb\nc\nX\n");
+        // An item the resolution does not keep is dead there, exactly as a
+        // delete: every walk order agrees, because a tombstone is a fact.
+        for order in history.topological_orders() {
+            let graph = Graph::new(history.events()).expect("a graph");
+            assert_eq!(
+                walk(&graph, &order).expect("a merge").state.text(),
+                "a\nL\nb\nc\nX\n"
+            );
+        }
+    }
+
+    /// The property the decision calls load-bearing: a kept item survives
+    /// under its own name, so a branch that edits it merges rather than
+    /// colliding with a copy.
+    #[test]
+    fn a_kept_item_keeps_its_name_and_a_concurrent_edit_still_lands_on_it() {
+        let mut history = History::default();
+        history
+            .revision("root", &[], Some(&["insert 0", "+a", "+b"]))
+            .revision("left", &["root"], Some(&["insert 1", "+L"]))
+            .revision("right", &["root"], Some(&["insert 2", "+R"]));
+        let (root, left) = (history.document("root"), history.document("left"));
+        history
+            .resolving(
+                "merge",
+                &["left", "right"],
+                "a\nL\nb\n",
+                &[
+                    &format!("keep {root} 0 1"),
+                    &format!("keep {left} 0 1"),
+                    &format!("keep {root} 1 1"),
+                ],
+            )
+            // Taken from `left`, concurrently with the merge, and deleting the
+            // very line the resolution kept.
+            .revision("aside", &["left"], Some(&["delete 1 1", "-L"]))
+            .revision("after", &["merge", "aside"], None);
+
+        // One `L`, and it is gone: the delete met the item the resolution
+        // kept rather than a restated copy standing beside it.
+        assert_eq!(history.text(), "a\nb\n");
+    }
+
+    /// A resolution quotes nothing it drops, so a redaction has nothing to
+    /// chase there — decision 0032's reason for references over bytes.
+    #[test]
+    fn dropping_an_item_by_not_keeping_it_quotes_nothing() {
+        let mut history = History::default();
+        history
+            .revision("root", &[], Some(&["insert 0", "+a", "+b"]))
+            .revision("left", &["root"], Some(&["insert 2", "+L"]))
+            .revision("right", &["root"], Some(&["insert 2", "+R"]));
+        let root = history.document("root");
+        history.resolving(
+            "merge",
+            &["left", "right"],
+            "a\nb\n",
+            &[&format!("keep {root} 0 2")],
+        );
+
+        let quoted = quotes(history.events()).expect("a history that merges");
+        let dropped: Vec<&Quoted> = quoted.iter().filter(|item| !item.visible).collect();
+        assert_eq!(dropped.len(), 2, "both branches' lines are gone");
+        for item in dropped {
+            assert!(
+                item.deletes.is_empty(),
+                "a resolution states what survives, so it quotes nothing"
+            );
+        }
+    }
+
+    /// A `keep` naming something the author could not see is the store
+    /// contradicting itself, not a merge that failed.
+    #[test]
+    fn a_keep_of_an_item_nobody_wrote_is_refused() {
+        let mut history = History::default();
+        history
+            .revision("root", &[], Some(&["insert 0", "+a"]))
+            .revision("left", &["root"], Some(&["insert 1", "+L"]))
+            .revision("right", &["root"], Some(&["insert 1", "+R"]));
+        let root = history.document("root");
+        history.resolving(
+            "merge",
+            &["left", "right"],
+            "a\n",
+            // `root` minted one item, so its item 4 is nothing at all.
+            &[&format!("keep {root} 4 1")],
+        );
+        assert!(matches!(
+            merge(history.events()).expect_err("a reference to nothing"),
+            MergeError::UnknownReference { .. }
+        ));
     }
 
     /// A chain is recognised as one, and replays to the file that was edited.
@@ -1384,7 +1793,7 @@ mod tests {
                 let Some(document) = document else { continue };
                 let name = format!("replica-{replica}");
                 history.documents.push(document);
-                let at = history.documents.len() - 1;
+                let at = At::Operations(history.documents.len() - 1);
                 history
                     .events
                     .push((digest(name.as_bytes()), vec![digest(b"root")], Some(at)));
@@ -1403,7 +1812,7 @@ mod tests {
                 .collect();
             let at = document.map(|document| {
                 history.documents.push(document);
-                history.documents.len() - 1
+                At::Operations(history.documents.len() - 1)
             });
             history
                 .events
@@ -1440,7 +1849,7 @@ mod tests {
                 match document {
                     Some(document) => {
                         history.documents.push(document);
-                        let at = history.documents.len() - 1;
+                        let at = At::Operations(history.documents.len() - 1);
                         history.events.push((
                             digest(name.as_bytes()),
                             vec![digest(b"root")],

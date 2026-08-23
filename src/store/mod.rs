@@ -253,6 +253,42 @@ impl fmt::Display for MalformedName {
 
 impl std::error::Error for MalformedName {}
 
+/// What one revision effectively stated about one file, and what named it.
+///
+/// Effective, in decision 0014's sense: redactions are folded in and a `text`
+/// payload has already become the creation document 0017 makes it equivalent
+/// to. The digest is the one the revision's own line carries, which is what a
+/// `keep` quotes and what a person reads.
+#[derive(Debug, Clone)]
+pub(crate) enum Held {
+    /// Decision 0007's operations, against the state at the parents.
+    Operations(RevisionId, OperationDocument),
+    /// Decision 0032's resolution: the file at this merge, stated whole.
+    Resolution(RevisionId, ResolutionDocument),
+}
+
+impl Held {
+    /// The event a merge walks, for a revision that stated this.
+    pub(crate) fn event(&self, revision: RevisionId, parents: Vec<RevisionId>) -> merge::Event<'_> {
+        match self {
+            Held::Operations(named, document) => {
+                merge::Event::operations(revision, parents, *named, document)
+            }
+            Held::Resolution(named, document) => {
+                merge::Event::resolution(revision, parents, *named, document)
+            }
+        }
+    }
+
+    /// The operations, where that is what was stated.
+    pub(crate) fn operations(&self) -> Option<&OperationDocument> {
+        match self {
+            Held::Operations(_, document) => Some(document),
+            Held::Resolution(..) => None,
+        }
+    }
+}
+
 /// What a file holds, which depends on what kind of file it is.
 ///
 /// Decision 0017: lines that merge, or one payload whole.
@@ -725,10 +761,10 @@ impl<F: Filesystem> Store<F> {
         let held = self.effective_for(&reachable, file)?;
         let mut events = Vec::with_capacity(reachable.len());
         for (revision, document) in reachable {
-            events.push(merge::Event {
-                revision,
-                parents: document.parents.iter().copied().collect(),
-                operations: held.get(&revision),
+            let parents = document.parents.iter().copied().collect();
+            events.push(match held.get(&revision) {
+                Some(stated) => stated.event(revision, parents),
+                None => merge::Event::nothing(revision, parents),
             });
         }
         merge::merge(events).map_err(|error| MaterialiseError::Merge {
@@ -747,32 +783,43 @@ impl<F: Filesystem> Store<F> {
         Ok(self.merged_content(head, file)?.state)
     }
 
-    /// What each of these revisions effectively did to one file.
+    /// What each of these revisions effectively stated about one file.
     ///
     /// Owned, because the merge may consume documents the store never held
     /// as bytes: a forgetting document changes what a stored document says
     /// (decision 0014), and a `text` payload is exactly the document that
     /// inserts every line at 0 (decision 0017) — and the merge never learns
     /// which spelling it was handed.
+    ///
+    /// The digest each one was named by travels with it, because decision
+    /// 0032 lets a later revision quote an item as `(document, i)` and a
+    /// redacted document's bytes are no longer the bytes its `edit` line
+    /// named.
     pub(crate) fn effective_for(
         &self,
         documents: &[(RevisionId, &RevisionDocument)],
         file: &FileId,
-    ) -> Result<BTreeMap<RevisionId, OperationDocument>, MaterialiseError> {
-        let mut held: BTreeMap<RevisionId, OperationDocument> = BTreeMap::new();
+    ) -> Result<BTreeMap<RevisionId, Held>, MaterialiseError> {
+        let mut held: BTreeMap<RevisionId, Held> = BTreeMap::new();
         for &(revision, document) in documents {
             if let Some(named) = document.edited.get(file) {
+                // Decision 0032: an `edit` line names either grammar, and
+                // which one it named is a fact about the bytes in the store.
+                if let Some(resolution) = self.resolutions.get(named) {
+                    held.insert(revision, Held::Resolution(*named, resolution.clone()));
+                    continue;
+                }
                 let effective =
                     self.effective_operation(named)
                         .ok_or(MaterialiseError::MissingOperations {
                             document: *named,
                             named_by: revision,
                         })?;
-                held.insert(revision, effective);
+                held.insert(revision, Held::Operations(*named, effective));
             } else if let Some(payload) = document.text.get(file)
                 && let Some(creation) = self.creation_for(payload, revision)?
             {
-                held.insert(revision, creation);
+                held.insert(revision, Held::Operations(*payload, creation));
             }
         }
         Ok(held)
