@@ -108,8 +108,114 @@ pub enum Contest {
 /// read its files in.
 pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Merged, MergeError> {
     let graph = Graph::new(events.into_iter().collect())?;
+    if graph.chain() {
+        return linear(&graph);
+    }
     let order = graph.order.clone();
     walk(&graph, &order)
+}
+
+/// The merged file of a history with nothing concurrent in it.
+///
+/// Decision 0007 promised this and named the reason:
+///
+/// > When no two operations in the region are concurrent — one person, one
+/// > device, or any history that has already been merged — the internal
+/// > structure is never built and replay is application.
+///
+/// Application is all it is. Positions are stated against the state at the
+/// parent, and in a chain that state is simply the file so far, so a
+/// revision's operations are read against one frozen view and then applied as
+/// arithmetic. No element identities are minted, no tree is built, no ancestry
+/// is consulted, and nothing is tombstoned: a deleted item is gone at the end
+/// of the revision that deleted it, because in a chain nothing can arrive
+/// later that needed to see it.
+///
+/// This must agree with [`walk`] byte for byte on every history both can
+/// express, including `origins` and the terminator report — the tests hold it
+/// to that over generated chains rather than trusting the argument.
+fn linear(graph: &Graph<'_>) -> Result<Merged, MergeError> {
+    let mut items: Vec<Item> = Vec::new();
+    let mut origins: Vec<RevisionId> = Vec::new();
+
+    for event in &graph.order {
+        let Some(document) = graph.events[*event].operations else {
+            continue;
+        };
+        let revision = graph.events[*event].revision;
+        let length = items.len();
+        let mut removed = vec![false; length];
+        let mut added: BTreeMap<usize, Vec<Item>> = BTreeMap::new();
+
+        // Every position is counted into the state at the parent, so all of
+        // them are read before any of them moves anything.
+        for operation in &document.operations {
+            match operation.kind {
+                OperationKind::Delete => {
+                    let end = operation.at.saturating_add(operation.items.len());
+                    if end > length {
+                        return Err(MergeError::OutOfRange {
+                            revision,
+                            position: end,
+                            length,
+                        });
+                    }
+                    for (offset, recorded) in operation.items.iter().enumerate() {
+                        let position = operation.at + offset;
+                        let found = &items[position];
+                        // A forgotten item on either side matches, per
+                        // decision 0014, exactly as it does in the walk.
+                        if !recorded.matches(found) {
+                            return Err(MergeError::ItemDisagrees {
+                                revision,
+                                position,
+                                recorded: recorded.text.clone(),
+                                found: found.text.clone(),
+                            });
+                        }
+                        removed[position] = true;
+                    }
+                }
+                OperationKind::Insert => {
+                    if operation.at > length {
+                        return Err(MergeError::OutOfRange {
+                            revision,
+                            position: operation.at,
+                            length,
+                        });
+                    }
+                    added
+                        .entry(operation.at)
+                        .or_default()
+                        .extend(operation.items.iter().cloned());
+                }
+            }
+        }
+
+        // An insert at a position goes before whatever the parent held there,
+        // which is where the walk's anchoring puts it too; an insert at the
+        // end names the gap past the last item.
+        let mut kept: Vec<Item> = Vec::with_capacity(length);
+        let mut wrote: Vec<RevisionId> = Vec::with_capacity(length);
+        for position in 0..=length {
+            if let Some(new) = added.remove(&position) {
+                wrote.extend(std::iter::repeat_n(revision, new.len()));
+                kept.extend(new);
+            }
+            if position < length && !removed[position] {
+                kept.push(items[position].clone());
+                wrote.push(origins[position]);
+            }
+        }
+        items = kept;
+        origins = wrote;
+    }
+
+    Ok(Merged {
+        contested: terminators(&items),
+        origins,
+        state: State::from_items(items),
+    })
 }
 
 /// One item of one file, and everywhere its bytes are quoted.
@@ -270,6 +376,11 @@ impl<'a> Graph<'a> {
             ancestry: Ancestry::new(&order, &parents),
             order,
         })
+    }
+
+    /// Whether this graph is one chain, so nothing in it is concurrent.
+    fn chain(&self) -> bool {
+        matches!(self.ancestry, Ancestry::Chain { .. })
     }
 
     /// Whether neither of these two events had seen the other.
@@ -889,8 +1000,8 @@ mod tests {
                         let at = rng.below(lines.len());
                         lines.remove(at);
                     }
-                    // Delete the tail, so the next append has no right
-                    // neighbour and the anchor falls through to its third case.
+                    // Delete the tail, so the next append sees no visible
+                    // right neighbour and anchors to a tombstone.
                     2 if !lines.is_empty() => {
                         lines.pop();
                     }
@@ -937,11 +1048,20 @@ mod tests {
                 text,
                 "round {round}: the replayer disagrees with the edit"
             );
+            // [`merge`] sends a chain to [`linear`]; the walk is held to the
+            // same answer directly, item for item, so the two paths cannot
+            // drift apart behind the dispatch.
             let merged = merge(history.events()).expect("a merge");
             assert_eq!(
                 merged.state.text(),
                 text,
-                "round {round}: the walk disagrees with the edit"
+                "round {round}: the linear path disagrees with the edit"
+            );
+            let order = graph.order.clone();
+            assert_eq!(
+                walk(&graph, &order).expect("a walk"),
+                merged,
+                "round {round}: the walk disagrees with the linear path"
             );
             assert!(
                 merged.contested.is_empty(),
