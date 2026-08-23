@@ -71,6 +71,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — carry the digest out of the ancestry walk ([`203fcb5`](https://github.com/diaryx-org/historica/commit/203fcb5647fb79582528931a8fffd0e94753e486))
 - **merge,tree** — store an ancestry, not a set per revision ([`9c9da52`](https://github.com/diaryx-org/historica/commit/9c9da52683f7d3682c6711dfd04522602f4a31ef))
 - **merge** — apply a chain arithmetically instead of building the tree ([`5959505`](https://github.com/diaryx-org/historica/commit/5959505ad6ec7dcc2595406244f87f50b54f0807))
+- **store** — read operations/ on first need, not at open ([`ce87443`](https://github.com/diaryx-org/historica/commit/ce8744311635bfe8e95add20896eca90f026a729))
 
 ### Uncategorised — triage before release
 
@@ -205,6 +206,25 @@ losing. `historica` gains a dependency on `unicode-normalization`.
 - A store marker of `historica-v4` is now read rather than
   refused. `historica-v5` is what a reader that knows less than this one says
   it cannot read.
+
+- `Store::open` and `Store::open_on` no longer read
+  `operations/`, so a store holding an unparsable operation or resolution
+  document now opens. The `StoreError::Unparsable` it used to fail with,
+  naming the same file, is raised by the first call that needs what that
+  document says. A caller that opened a store as a validity check should
+  use `Store::check`, which reports every fault in the folder at once and
+  is unchanged.
+
+- `Store::operation`, `Store::operations`,
+  `Store::resolution`, `Store::resolutions`, `Store::forgetting` and
+  `Store::effective_operation` now return `Result<_, StoreError>`, since
+  each may have to read `operations/` first. The success values are what
+  they were.
+
+- `MaterialiseError` gains `UnreadableOperations`,
+  carrying what the store said when that directory would not read or parse.
+  The enum is `#[non_exhaustive]`, so a matching caller already has a
+  wildcard arm.
 
 <!-- git-cliff:end -->
 
