@@ -97,6 +97,18 @@ pub const REVISION_SUFFIXES: [&str; 1] = [REVISION_SUFFIX];
 /// Every suffix that is a file's claim to be an operation document.
 pub const OPERATION_SUFFIXES: [&str; 1] = [OPERATION_SUFFIX];
 
+/// The file `init` writes the readable format into.
+///
+/// Not hashed and referenced by nothing, exactly as [`HEADER_FILE`] is not.
+/// A store whose claim is that it needs no tool should carry the description
+/// of itself that makes the claim true, rather than leaving a person to find
+/// it in a repository they may not have.
+pub const FORMAT_FILE: &str = "format.txt";
+
+/// What `init` writes into [`FORMAT_FILE`]: every grammar in this store, and
+/// how to materialise a file from them by hand.
+pub const FORMAT_NOTE: &str = include_str!("format.txt");
+
 /// What `init` writes into [`HEADER_FILE`], below the version line.
 ///
 /// Decision 0021: a person who opens `history/` should not have to be told
@@ -121,6 +133,10 @@ into directories of your own breaks nothing either.
   names/          bookmarks, one line each. The only files here that change.
   cache/          derived and disposable. Deleting all of it loses nothing.
   skipped.txt     what recording does not take.
+  format.txt      every grammar above, spelled out: what each line of each
+                  document means, and how to materialise a file from them
+                  with an editor and `shasum`. Read that one if you have no
+                  Historica and want your files back.
 
 The first line of this file states the format version. A reader that does not
 know that version refuses the store rather than guessing at what it would be
@@ -470,6 +486,12 @@ impl<F: Filesystem> Store<F> {
         files
             .write(&skipped, crate::working::DEFAULT_SKIPPED.as_bytes())
             .map_err(|error| StoreError::io(&skipped, error))?;
+        // A store that says it needs no tool carries the description that
+        // makes that true, rather than pointing at a repository.
+        let format = root.join(FORMAT_FILE);
+        files
+            .write(&format, FORMAT_NOTE.as_bytes())
+            .map_err(|error| StoreError::io(&format, error))?;
         let cache_note = root.join(CACHE_DIR).join("README.txt");
         files
             .write(&cache_note, CACHE_NOTE.as_bytes())

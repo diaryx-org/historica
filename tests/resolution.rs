@@ -410,6 +410,47 @@ fn a_resolution_that_does_not_assemble_to_its_result_is_an_error() {
     );
 }
 
+/// The store carries the description of itself that makes "readable without
+/// the tool" true, so the examples in it are corpus files rather than prose
+/// somebody typed and nobody checked again.
+#[test]
+fn the_format_a_store_explains_itself_with_quotes_the_corpus_verbatim() {
+    let explained = historica::store::FORMAT_NOTE;
+    for name in [
+        "revisions/01-root.rev.txt",
+        "operations/03-notes.ops.txt",
+        "operations/04-notes.ops.txt",
+    ] {
+        let text = String::from_utf8(read(name)).expect("a corpus file is UTF-8");
+        // Indented by two, and blank lines left blank rather than indented.
+        let quoted: String = text
+            .lines()
+            .map(|line| {
+                if line.is_empty() {
+                    "\n".to_owned()
+                } else {
+                    format!("  {line}\n")
+                }
+            })
+            .collect();
+        assert!(explained.contains(&quoted), "{name} is not quoted as it is");
+    }
+
+    // And every digest it prints is one this corpus actually holds, so a
+    // reader following the example lands on the file it names.
+    let held: BTreeMap<RevisionId, String> = manifest()
+        .into_iter()
+        .map(|(name, digest)| (digest, name))
+        .collect();
+    for word in explained.split(|c: char| !c.is_ascii_hexdigit()) {
+        if word.len() != 64 {
+            continue;
+        }
+        let digest: RevisionId = word.parse().expect("64 hexadecimal characters");
+        assert!(held.contains_key(&digest), "{word} names nothing here");
+    }
+}
+
 #[test]
 fn every_invalid_resolution_is_refused_for_its_own_reason() {
     for (name, wanted) in invalid() {

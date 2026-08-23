@@ -1,0 +1,214 @@
+How to read this store without Historica
+========================================
+
+Everything here is UTF-8 text with Unix line endings, and every document is
+named by the SHA-256 of its own bytes. `shasum -a 256 <file>` prints that
+digest, and it is the only name a document has: a filename is presentation
+and may be anything.
+
+Every document begins with a preamble line — `historica-v0`, `historica-v1`,
+and so on — which states the lowest format version that can express it. A
+reader that does not know a version refuses that document rather than guessing
+at what it would be leaving out.
+
+Two identifiers appear throughout and are never digests, because they are
+spelled in an alphabet no hexadecimal digest can be:
+
+  a change ID    24 characters from `k` to `z`. The piece of work a revision
+                 is a version of. Amending produces a new revision with the
+                 same change ID.
+  a file ID      24 characters from `k` to `z`. A file, for as long as it
+                 exists, whatever path it is at. Paths are properties of a
+                 file, never its identity.
+
+
+revisions/*.rev.txt — who recorded what, when, and why
+------------------------------------------------------
+
+  historica-v0
+  change qpvuntsmwlrkzxonmvtplsyq
+  author Adam Harris <adam@example.com>
+  when 2026-08-19T09:12:04-06:00
+  add nrqvtkzlmwyxsptonvqrklmz notes.txt
+  add swtlmnkqvzyrxopwstlnmkqv README.md
+  edit nrqvtkzlmwyxsptonvqrklmz 33f863f19e9b19f47ae42e41b4c25f03acc3c14acca2da65ea6bb141016b487a
+  edit swtlmnkqvzyrxopwstlnmkqv 1fc8cee55d2f8d75c19cffb918672c4e5741c2fbd99656d66487e6507962b2fc
+
+  Start the notes both hands will edit
+
+A root, so no `parent` line. Headers, then one blank line, then the message
+verbatim; a document with no message has no blank line either. Headers appear
+in this order, and repeated ones are sorted by the value that follows them:
+
+  change <change ID>              exactly once.
+  parent <digest>                 a revision this one is recorded against.
+                                  None means a root; two or more means a merge.
+  supersedes <digest>             a revision this one replaces.
+  author <name and address>       who did the work.
+  when <RFC 3339 timestamp>       when they did it.
+  revised-by <name and address>   who rewrote it, if that is someone else.
+  revised <RFC 3339 timestamp>    when it was rewritten. Present exactly when
+                                  `supersedes` is.
+  add <file ID> <path>            a file this revision brings into existence.
+  move <file ID> <path>           where a file this revision moves goes.
+  drop <file ID>                  a file this revision removes from the file
+                                  set. Its history is untouched.
+  edit <file ID> <digest>         the document in `operations/` that says what
+                                  this revision did to that file.
+  text <file ID> <digest>         the payload in `operations/` an added file
+                                  arrives as, read as lines.
+  bytes <file ID> <digest>        the payload that is a file's whole content,
+                                  which has no lines and never merges.
+  x-<anything> <value>            an advisory header some other tool wrote.
+                                  Ignore it; it hashes like everything else.
+
+Paths are slash-separated and relative to the folder beside this one.
+
+
+operations/*.ops.txt — what a revision did to one file
+-------------------------------------------------------
+
+  historica-v3
+  result cb6ada97d1b93c8500aa1b3312fade8453a118126196c2a0f257b801f7b56118
+
+  delete 2 1
+  -charlie
+  insert 3
+  +echo
+
+Preamble, then headers, then one blank line, then the operations.
+
+  result <digest>   the SHA-256 of the file this document produces. Optional,
+                    and version 3 vocabulary. It is the checkpoint: replay the
+                    operations by hand, `shasum -a 256` the file you get, and
+                    compare.
+  forgets <digest>  this document stands in for another whose bytes were
+                    destroyed. See "Forgetting" below.
+
+Each operation is a line, then the lines it concerns:
+
+  insert <at>          followed by one `+line` per item inserted.
+  delete <at> <count>  followed by one `-line` per item removed, quoted
+                       verbatim so a replay can check itself.
+
+**Positions are indices into the state at the revision's parents**, counted
+from zero, and none of them move. `delete 2 1` then `insert 3` both count into
+the same fixed file, which is what lets you check a document by eye against
+one state. An insert at a position goes before whatever that state held there;
+an insert at the state's length goes at the end.
+
+Operations are sorted by position, never overlap, and never state one fact
+twice, so exactly one byte sequence spells any set of operations.
+
+Two lines stand outside the item grammar, and both begin with a backslash:
+
+  \ no newline   the item above it is the file's last and ends without a
+                 newline. Only a file's last item may.
+  \ forgotten    the item above it had its text destroyed. See below.
+
+An item's own text may hold anything, including a carriage return; the
+document's newline is the terminator, and the text is everything before it.
+
+
+operations/*.ops.txt — a merge's file, stated whole
+----------------------------------------------------
+
+A file at a merge whose parents disagree is stated by reference rather than as
+a delta. It is filed under the same suffix, and its body is what tells the two
+apart: this one begins with `keep` or a bare `insert`.
+
+  historica-v3
+  result 6ca6c14ef2adc8050792d39e9f46b2500af1b9cb71287b3124bc73b8a040c7bf
+
+  keep 33f863f19e9b19f47ae42e41b4c25f03acc3c14acca2da65ea6bb141016b487a 0 1
+  keep e61a80aae881c9ea01aeefebdb4ddf28c2bd0e1e9ddf9c682cd435dda9f14d9c 0 1
+  keep 33f863f19e9b19f47ae42e41b4c25f03acc3c14acca2da65ea6bb141016b487a 1 1
+  insert
+  +foxtrot
+  keep aabe29113ea5a8aa65b5b15d70eaa5f27e22b8b1177406b38683cac53d44fde9 0 1
+
+The pieces are the file, in file order, and assembling them is concatenation.
+
+  keep <digest> <first> <count>   a run of items taken from another document,
+                                  counted in that document's order. A document
+                                  "mints" the items its `+` lines insert, in
+                                  the order they appear; a payload mints its
+                                  lines. `keep D 0 1` is D's first such item.
+  insert                          followed by one `+line` per item, exactly as
+                                  above, `\ no newline` included.
+
+A run kept is a run *named*, never restated, which is why a resolution is not
+self-contained prose: reading one means opening the documents it names. That
+is the price of the property it buys — a kept line survives under its own
+name, so a branch that edits it merges with it rather than colliding with a
+copy of it.
+
+Pieces are maximal. Two `keep`s of one document whose ranges meet are one
+`keep`, and two `insert`s that meet are one `insert`, so exactly one byte
+sequence spells any resolution. A `result` is mandatory here.
+
+
+operations/<anything else> — a file's own content
+--------------------------------------------------
+
+Every other file in `operations/` is a payload: a file's content, stored
+whole, with no format of its own. Its only claim is its digest. A `text` line
+names one that is read as lines; a `bytes` line names one that is not.
+
+
+What a file holds at a revision
+--------------------------------
+
+One recursive rule, with no algorithm in it:
+
+  - a file **created** here (a `text` line) is that payload;
+  - a file **edited** here (an `edit` line naming an operation document) is
+    the parent's state with those operations applied;
+  - a file at a **merge whose parents leave it identically** is that agreed
+    state, and the merge says nothing about it;
+  - a file at a **merge whose parents differ** is its resolution: fetch each
+    `keep`'s run from the document it names, splice the inserts, concatenate.
+
+Every step is one you can do with an editor, and `result` is what you check it
+against. You never have to walk back further than the nearest resolution,
+because a resolution *is* the file.
+
+Revisions recorded before version 3 have merges that state nothing where their
+parents differ. Those need the merge algorithm — the one thing here that is
+not arithmetic — and `docs/decisions/0007-content-and-merge.md` in the
+Historica source describes it.
+
+
+Forgetting
+----------
+
+A line can be destroyed without rewriting history. What replaces the document
+holding it is a document with the same shape — the same operations, at the
+same positions, with the same counts and terminators — and `\ forgotten` where
+the text was. It carries `forgets <digest>` naming what it stands in for.
+
+An item forgotten anywhere is forgotten everywhere: if any document that
+quotes it says `\ forgotten`, it is gone, and a file materialising through it
+shows the marker where the lines were. A state showing a marker is not checked
+against a `result`, because those are not the bytes anybody hashed.
+
+
+names/*.txt — bookmarks
+-----------------------
+
+One line each, and the only files here that change. The bookmark's name is its
+filename without `.txt`.
+
+  change <change ID>   follows the work forward as it is amended.
+  revision <digest>    a pin, which does not move.
+  file <file ID>       a file, wherever it is.
+
+
+Checking a store by hand
+-------------------------
+
+  shasum -a 256 revisions/*.rev.txt operations/*
+
+Every digest a document names should appear in that output. Every `result`
+should match the file you get by replaying. Nothing else in this folder is
+hashed, this file included.
