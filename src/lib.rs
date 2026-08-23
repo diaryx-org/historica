@@ -11,6 +11,8 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod ancestry;
+
 pub mod conflict;
 pub mod core;
 pub mod diff;

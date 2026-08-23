@@ -23,9 +23,10 @@
 //! facts — where a `drop` loses to an edit, and two files may legitimately
 //! claim one path — is decided in 0008 and not built.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 
+use crate::ancestry::Ancestry;
 use crate::core::{FileId, RevisionId};
 use crate::format::RevisionDocument;
 
@@ -388,7 +389,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
                 .touches
                 .iter()
                 .copied()
-                .filter(|touch| touch != drop && !is_ancestor(&ancestors, touch, drop))
+                .filter(|touch| touch != drop && !ancestors.is_ancestor(touch, drop))
                 .collect();
             if concurrent.is_empty() {
                 gone = true;
@@ -410,7 +411,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
                 .iter()
                 .filter(|(revision, _)| {
                     !held.placements.iter().any(|(other, _)| {
-                        other != revision && is_ancestor(&ancestors, revision, other)
+                        other != revision && ancestors.is_ancestor(revision, other)
                     })
                 })
                 .cloned()
@@ -440,7 +441,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
                 .iter()
                 .filter(|(revision, _)| {
                     !held.wholes.iter().any(|(other, _)| {
-                        other != revision && is_ancestor(&ancestors, revision, other)
+                        other != revision && ancestors.is_ancestor(revision, other)
                     })
                 })
                 .copied()
@@ -508,73 +509,85 @@ struct Facts {
     whole: bool,
 }
 
+/// Who had seen whom, over the revisions a caller supplied.
+///
+/// [`crate::ancestry`] answers by index, because that is what lets a chain
+/// cost a position per revision instead of a set; this is the digests those
+/// indices stand for.
+struct Ancestors {
+    /// Where each revision sits in the indexed graph.
+    index: BTreeMap<RevisionId, usize>,
+    /// What each of those had seen.
+    ancestry: Ancestry,
+}
+
+impl Ancestors {
+    /// Whether `earlier` is an ancestor of `later`, itself excluded.
+    fn is_ancestor(&self, earlier: &RevisionId, later: &RevisionId) -> bool {
+        match (self.index.get(earlier), self.index.get(later)) {
+            (Some(earlier), Some(later)) => self.ancestry.saw(*later, *earlier),
+            _ => false,
+        }
+    }
+}
+
 /// Every revision's ancestors, which is what makes concurrency decidable.
 ///
 /// A parent outside the set is one the caller did not supply — a store hands
 /// over a whole ancestry — so it is an undelivered ancestor rather than a root.
-fn ancestry(events: &[Event<'_>]) -> Result<BTreeMap<RevisionId, BTreeSet<RevisionId>>, TreeError> {
+fn ancestry(events: &[Event<'_>]) -> Result<Ancestors, TreeError> {
     let held: BTreeMap<RevisionId, &RevisionDocument> = events
         .iter()
         .map(|event| (event.revision, event.document))
         .collect();
+    let index: BTreeMap<RevisionId, usize> = held
+        .keys()
+        .enumerate()
+        .map(|(at, revision)| (*revision, at))
+        .collect();
 
-    let mut ancestors: BTreeMap<RevisionId, BTreeSet<RevisionId>> = BTreeMap::new();
-    let mut ready: Vec<RevisionId> = Vec::new();
-    let mut waiting: BTreeMap<RevisionId, usize> = BTreeMap::new();
-    let mut children: BTreeMap<RevisionId, Vec<RevisionId>> = BTreeMap::new();
-
-    for (revision, document) in &held {
-        let mut count = 0;
+    let mut parents: Vec<Vec<usize>> = Vec::with_capacity(held.len());
+    let mut children: Vec<Vec<usize>> = vec![Vec::new(); held.len()];
+    let mut waiting: Vec<usize> = Vec::with_capacity(held.len());
+    for (at, (revision, document)) in held.iter().enumerate() {
+        let mut of = Vec::with_capacity(document.parents.len());
         for parent in &document.parents {
-            if !held.contains_key(parent) {
-                return Err(TreeError::Undelivered {
-                    parent: *parent,
-                    named_by: *revision,
-                });
-            }
-            count += 1;
-            children.entry(*parent).or_default().push(*revision);
+            let found = index.get(parent).ok_or(TreeError::Undelivered {
+                parent: *parent,
+                named_by: *revision,
+            })?;
+            children[*found].push(at);
+            of.push(*found);
         }
-        waiting.insert(*revision, count);
-        if count == 0 {
-            ready.push(*revision);
-        }
+        waiting.push(of.len());
+        parents.push(of);
     }
 
+    let mut ready: Vec<usize> = waiting
+        .iter()
+        .enumerate()
+        .filter(|(_, count)| **count == 0)
+        .map(|(at, _)| at)
+        .collect();
+    let mut order = Vec::with_capacity(held.len());
     while let Some(revision) = ready.pop() {
-        let document = held[&revision];
-        let mut set = BTreeSet::new();
-        for parent in &document.parents {
-            set.insert(*parent);
-            set.extend(ancestors[parent].iter().copied());
-        }
-        ancestors.insert(revision, set);
-
-        for child in children.get(&revision).into_iter().flatten() {
-            let count = waiting.get_mut(child).expect("a revision in the set");
-            *count -= 1;
-            if *count == 0 {
+        order.push(revision);
+        for child in &children[revision] {
+            waiting[*child] -= 1;
+            if waiting[*child] == 0 {
                 ready.push(*child);
             }
         }
     }
 
-    if ancestors.len() != held.len() {
+    if order.len() != held.len() {
         // Unreachable for digests, which cannot name a descendant.
         return Err(TreeError::Cyclic);
     }
-    Ok(ancestors)
-}
-
-/// Whether `earlier` is an ancestor of `later`.
-fn is_ancestor(
-    ancestors: &BTreeMap<RevisionId, BTreeSet<RevisionId>>,
-    earlier: &RevisionId,
-    later: &RevisionId,
-) -> bool {
-    ancestors
-        .get(later)
-        .is_some_and(|held| held.contains(earlier))
+    Ok(Ancestors {
+        ancestry: Ancestry::new(&order, &parents),
+        index,
+    })
 }
 
 /// Why a revision could not be applied to the file set it names.

@@ -34,6 +34,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use crate::ancestry::Ancestry;
 use crate::core::RevisionId;
 use crate::format::{Item, OperationDocument, OperationKind};
 use crate::replay::State;
@@ -167,6 +168,26 @@ pub fn quotes<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Vec<Quo
         .collect())
 }
 
+/// Every item claiming a terminator the file cannot give it.
+///
+/// Only a file's last item may lack one. A chain cannot produce a file that
+/// breaks that — [`crate::replay`] refuses the document that would — but
+/// concurrency can, and decision 0007 left that open; reporting it is what
+/// this can honestly do. Shared so the two paths cannot drift.
+fn terminators(items: &[Item]) -> Vec<Contested> {
+    items
+        .iter()
+        .enumerate()
+        .filter(|(position, item)| !item.terminated && position + 1 != items.len())
+        .map(|(position, _)| Contested {
+            at: position,
+            len: 1,
+            revisions: Vec::new(),
+            kind: Contest::Terminator,
+        })
+        .collect()
+}
+
 /// Replay a graph in one causal order.
 ///
 /// Which order is a matter of taste and not of result: an element's place in
@@ -184,8 +205,8 @@ fn walk(graph: &Graph<'_>, order: &[usize]) -> Result<Merged, MergeError> {
 /// The event graph, indexed and causally ordered.
 struct Graph<'a> {
     events: Vec<Event<'a>>,
-    /// For each event, every event in its causal past, itself included.
-    ancestors: Vec<BTreeSet<usize>>,
+    /// Which events each event had seen.
+    ancestry: Ancestry,
     /// Causal order, ties broken by digest.
     order: Vec<usize>,
 }
@@ -230,14 +251,8 @@ impl<'a> Graph<'a> {
             .collect();
 
         let mut order = Vec::with_capacity(events.len());
-        let mut ancestors: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); events.len()];
         while let Some(next) = ready.iter().next().copied() {
             ready.remove(&next);
-            let mut past: BTreeSet<usize> = BTreeSet::from([next]);
-            for parent in &parents[next] {
-                past.extend(ancestors[*parent].iter().copied());
-            }
-            ancestors[next] = past;
             order.push(next);
             for child in &children[next] {
                 remaining[*child] -= 1;
@@ -252,23 +267,31 @@ impl<'a> Graph<'a> {
 
         Ok(Self {
             events,
-            ancestors,
+            ancestry: Ancestry::new(&order, &parents),
             order,
         })
     }
 
     /// Whether neither of these two events had seen the other.
     fn concurrent(&self, one: usize, other: usize) -> bool {
-        one != other
-            && !self.ancestors[one].contains(&other)
-            && !self.ancestors[other].contains(&one)
+        one != other && !self.ancestry.knows(one, other) && !self.ancestry.knows(other, one)
     }
 
-    /// Everything the author of `event` had seen, itself excluded.
-    fn past(&self, event: usize) -> BTreeSet<usize> {
-        let mut past = self.ancestors[event].clone();
-        past.remove(&event);
-        past
+    /// Whether the author of `event` had seen `other`, or is `other`.
+    ///
+    /// The view an insertion is placed against: an element written earlier by
+    /// this same revision is one its author can see, because they wrote it.
+    fn knows(&self, event: usize, other: usize) -> bool {
+        self.ancestry.knows(event, other)
+    }
+
+    /// Whether `other` is strictly in `event`'s past.
+    ///
+    /// The view an operation's positions are counted into: what the author had
+    /// before they started, which is their parents' state and nothing of their
+    /// own.
+    fn saw(&self, event: usize, other: usize) -> bool {
+        self.ancestry.saw(event, other)
     }
 }
 
@@ -343,27 +366,27 @@ impl Tree {
     }
 
     /// The elements one event's author could see, in order.
-    fn visible(&self, order: &[usize], seen: &BTreeSet<usize>) -> Vec<usize> {
+    fn visible(&self, order: &[usize], graph: &Graph<'_>, event: usize) -> Vec<usize> {
         order
             .iter()
             .copied()
             .filter(|at| {
                 let element = &self.elements[*at];
-                seen.contains(&element.author)
-                    && !element.deleted_by.keys().any(|by| seen.contains(by))
+                graph.saw(event, element.author)
+                    && !element.deleted_by.keys().any(|by| graph.saw(event, *by))
             })
             .collect()
     }
 
-    /// Whether this element has a right child the author of `known` knows.
-    fn has_right(&self, at: Option<usize>, known: &BTreeSet<usize>) -> bool {
+    /// Whether this element has a right child the author of `event` knows.
+    fn has_right(&self, at: Option<usize>, graph: &Graph<'_>, event: usize) -> bool {
         let children = match at {
             Some(at) => &self.elements[at].right,
             None => &self.root,
         };
         children
             .iter()
-            .any(|child| known.contains(&self.elements[*child].author))
+            .any(|child| graph.knows(event, self.elements[*child].author))
     }
 
     fn replay(&mut self, graph: &Graph<'_>, event: usize) -> Result<(), MergeError> {
@@ -371,11 +394,10 @@ impl Tree {
             return Ok(());
         };
         let revision = graph.events[event].revision;
-        let past = graph.past(event);
         let order = self.order();
         // Every operation of one revision is stated against the state at its
         // parents, so this view is computed once and never moves under them.
-        let prepare = self.visible(&order, &past);
+        let prepare = self.visible(&order, graph, event);
 
         for (index, operation) in document.operations.iter().enumerate() {
             let at = operation.at;
@@ -419,8 +441,7 @@ impl Tree {
                     let mut left = at.checked_sub(1).map(|before| prepare[before]);
                     let right = prepare.get(at).copied();
                     for (offset, item) in operation.items.iter().enumerate() {
-                        let known = &graph.ancestors[event];
-                        let (parent, side) = self.anchor(left, right, known);
+                        let (parent, side) = self.anchor(left, right, graph, event);
                         left = Some(self.attach(
                             (revision, index + offset),
                             item.clone(),
@@ -451,9 +472,10 @@ impl Tree {
         &self,
         left: Option<usize>,
         right: Option<usize>,
-        known: &BTreeSet<usize>,
+        graph: &Graph<'_>,
+        event: usize,
     ) -> (Option<usize>, Side) {
-        if !self.has_right(left, known) {
+        if !self.has_right(left, graph, event) {
             return (left, Side::Right);
         }
         if let Some(right) = right {
@@ -462,7 +484,7 @@ impl Tree {
         let last = self
             .order()
             .into_iter()
-            .rfind(|at| known.contains(&self.elements[*at].author));
+            .rfind(|at| graph.knows(event, self.elements[*at].author));
         (last, Side::Right)
     }
 
@@ -642,19 +664,7 @@ impl Tree {
             position = end + 1;
         }
 
-        // Only a file's last item may lack a terminator, and concurrency can
-        // produce a file where two of them claim to. Decision 0007 left that
-        // open; reporting it is what this can honestly do.
-        for (position, item) in items.iter().enumerate() {
-            if !item.terminated && position + 1 != items.len() {
-                contested.push(Contested {
-                    at: position,
-                    len: 1,
-                    revisions: Vec::new(),
-                    kind: Contest::Terminator,
-                });
-            }
-        }
+        contested.extend(terminators(&items));
         contested.sort_by_key(|contest| (contest.at, contest.len));
 
         Merged {
@@ -827,9 +837,8 @@ mod tests {
                     if taken[next] {
                         continue;
                     }
-                    let ready = graph.ancestors[next]
-                        .iter()
-                        .all(|ancestor| *ancestor == next || taken[*ancestor]);
+                    let ready = (0..graph.events.len())
+                        .all(|ancestor| !graph.saw(next, ancestor) || taken[ancestor]);
                     if !ready {
                         continue;
                     }
@@ -842,6 +851,184 @@ mod tests {
             }
             walk(&graph, &mut taken, &mut current, &mut orders);
             orders
+        }
+    }
+
+    /// A chain is recognised as one, and replays to the file that was edited.
+    ///
+    /// [`Ancestry::Chain`] is the whole reason a history with no fork in it
+    /// costs a position per event rather than a row of bits, so the shape has
+    /// to be detected on the histories a person actually records rather than
+    /// on the two-revision ones written by hand below.
+    ///
+    /// What this cannot yet check is that [`merge`] returns that same file:
+    /// see [`the_tree_walk_orders_causal_siblings_by_digest`].
+    #[test]
+    fn a_chain_is_stored_as_one_and_replays_to_what_was_edited() {
+        struct Rng(u64);
+        impl Rng {
+            fn below(&mut self, bound: usize) -> usize {
+                self.0 ^= self.0 << 13;
+                self.0 ^= self.0 >> 7;
+                self.0 ^= self.0 << 17;
+                (self.0.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 33) as usize % bound.max(1)
+            }
+        }
+
+        let mut rng = Rng(0x0007_11ea_c4a1_0000);
+        for round in 0..400 {
+            let mut text = String::from("alpha\nbeta\ngamma\n");
+            let mut history = History::default();
+            let names: Vec<String> = (0..10).map(|at| format!("r{round}-{at}")).collect();
+            history.revision(
+                &names[0],
+                &[],
+                Some(&["insert 0", "+alpha", "+beta", "+gamma"]),
+            );
+
+            for step in 1..names.len() {
+                let before = State::from_text(&text);
+                let mut lines: Vec<String> = text.lines().map(|line| format!("{line}\n")).collect();
+                match rng.below(5) {
+                    // Append past the end, where a chain of right children forms.
+                    0 => lines.push(format!("added {round}-{step}\n")),
+                    // Delete a line, leaving a tombstone the tree keeps.
+                    1 if !lines.is_empty() => {
+                        let at = rng.below(lines.len());
+                        lines.remove(at);
+                    }
+                    // Delete the tail, so the next append has no right
+                    // neighbour and the anchor falls through to its third case.
+                    2 if !lines.is_empty() => {
+                        lines.pop();
+                    }
+                    // Insert in the middle, beside whatever is there.
+                    3 => {
+                        let at = rng.below(lines.len() + 1);
+                        lines.insert(at, format!("wedged {round}-{step}\n"));
+                    }
+                    // Rewrite a run, which is a delete and an insert at once.
+                    _ if !lines.is_empty() => {
+                        let at = rng.below(lines.len());
+                        lines[at] = format!("rewritten {round}-{step}\n");
+                    }
+                    _ => lines.push(format!("added {round}-{step}\n")),
+                }
+                text = lines.concat();
+                let after = State::from_text(&text);
+                let document = diff(&before, &after);
+                let written: Option<Vec<String>> = document.as_ref().map(|document| {
+                    String::from_utf8(document.write())
+                        .expect("a document is text")
+                        .lines()
+                        .skip(2)
+                        .map(str::to_owned)
+                        .collect()
+                });
+                let borrowed: Option<Vec<&str>> = written
+                    .as_ref()
+                    .map(|lines| lines.iter().map(String::as_str).collect());
+                history.revision(&names[step], &[&names[step - 1]], borrowed.as_deref());
+            }
+
+            let graph = Graph::new(history.events()).expect("a graph");
+            assert!(
+                matches!(graph.ancestry, Ancestry::Chain { .. }),
+                "round {round}: one parent each is a chain, and must be stored as one"
+            );
+
+            // The oracle is the edit itself: each revision was recorded from a
+            // real before-and-after pair, so the text edited into place is
+            // what the history means.
+            assert_eq!(
+                replay(history.documents.iter()).expect("a replay").text(),
+                text,
+                "round {round}: the replayer disagrees with the edit"
+            );
+            let merged = merge(history.events()).expect("a merge");
+            assert!(
+                merged.contested.is_empty(),
+                "round {round}: nothing in a chain is concurrent, so nothing is contested"
+            );
+            assert_eq!(
+                merged.origins.len(),
+                merged.state.len(),
+                "round {round}: every item has an author"
+            );
+        }
+    }
+
+    /// A known defect in the tree walk, kept executable rather than in prose.
+    ///
+    /// [`Tree::attach`] orders siblings by name — the digest, then the index —
+    /// which is the right tie-break between elements written concurrently and
+    /// the wrong one between elements that are causally ordered. Two of the
+    /// latter become siblings whenever an insertion's left neighbour already
+    /// has a right child that is a tombstone: the anchor falls to its second
+    /// case and hands both elements the same parent and side.
+    ///
+    /// Below, `c` collects `b`, `d` and `f` as left children. `d` and `f` sit
+    /// four revisions apart in one chain with nothing concurrent anywhere in
+    /// it, and the file reads `a d f c` on roughly half of all digests and
+    /// `a f d c` on the other half. [`crate::replay`] — and so `check` — is
+    /// right on every one of them, so the two accounts this crate keeps of a
+    /// chain disagree, and this is the one that is wrong.
+    ///
+    /// Ignored because it fails, and it should fail until the ordering rule
+    /// accounts for causality. `cargo test -- --ignored` is the reminder.
+    #[test]
+    #[ignore = "the tree walk orders causally ordered siblings by digest; see decision 0007"]
+    fn the_tree_walk_orders_causal_siblings_by_digest() {
+        let mut wrong = 0;
+        for salt in 0..200 {
+            let names: Vec<String> = (1..=7).map(|at| format!("s{salt}-r{at}")).collect();
+            let at: Vec<&str> = names.iter().map(String::as_str).collect();
+            let mut history = History::default();
+            history
+                .revision(at[0], &[], Some(&["insert 0", "+a", "+c"]))
+                .revision(at[1], &[at[0]], Some(&["insert 1", "+b"]))
+                .revision(at[2], &[at[1]], Some(&["delete 1 1", "-b"]))
+                .revision(at[3], &[at[2]], Some(&["insert 1", "+d"]))
+                .revision(at[4], &[at[3]], Some(&["insert 2", "+e"]))
+                .revision(at[5], &[at[4]], Some(&["delete 2 1", "-e"]))
+                .revision(at[6], &[at[5]], Some(&["insert 2", "+f"]));
+
+            let graph = Graph::new(history.events()).expect("a graph");
+            let order = graph.order.clone();
+            if walk(&graph, &order).expect("a walk").state.text() != "a\nd\nf\nc\n" {
+                wrong += 1;
+            }
+        }
+        assert_eq!(wrong, 0, "the walk misordered {wrong} of 200 chains");
+    }
+
+    /// The same chains, held to the answer [`crate::replay`] gives.
+    ///
+    /// This is what `check` computes for these histories, and it is right on
+    /// every digest. [`merge`] is not, which is the defect above: `cat`
+    /// returns these bytes in the wrong order, `status` then calls the file
+    /// edited the moment after it was recorded, and the next `record` writes
+    /// a document saying its author moved a line they never touched.
+    #[test]
+    fn the_replayer_does_not_reorder_a_chain_around_a_tombstone() {
+        for salt in 0..200 {
+            let names: Vec<String> = (1..=7).map(|at| format!("s{salt}-r{at}")).collect();
+            let at: Vec<&str> = names.iter().map(String::as_str).collect();
+            let mut history = History::default();
+            history
+                .revision(at[0], &[], Some(&["insert 0", "+a", "+c"]))
+                .revision(at[1], &[at[0]], Some(&["insert 1", "+b"]))
+                .revision(at[2], &[at[1]], Some(&["delete 1 1", "-b"]))
+                .revision(at[3], &[at[2]], Some(&["insert 1", "+d"]))
+                .revision(at[4], &[at[3]], Some(&["insert 2", "+e"]))
+                .revision(at[5], &[at[4]], Some(&["delete 2 1", "-e"]))
+                .revision(at[6], &[at[5]], Some(&["insert 2", "+f"]));
+
+            assert_eq!(
+                replay(history.documents.iter()).expect("a replay").text(),
+                "a\nd\nf\nc\n",
+                "salt {salt}: the replayer reordered a chain"
+            );
         }
     }
 
