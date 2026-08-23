@@ -634,6 +634,19 @@ impl<F: Filesystem> Store<F> {
         crate::format::stand_in(self.operations.get(named), &self.forgetting(named))
     }
 
+    /// One resolution document, if the digest names one.
+    ///
+    /// Decision 0032: an `edit` line names either grammar, and this is how a
+    /// caller asks which one it named.
+    pub fn resolution(&self, named: &RevisionId) -> Option<&ResolutionDocument> {
+        self.resolutions.get(named)
+    }
+
+    /// Every resolution document, in digest order.
+    pub fn resolutions(&self) -> impl Iterator<Item = (&RevisionId, &ResolutionDocument)> {
+        self.resolutions.iter()
+    }
+
     /// Every operation document, in digest order.
     pub fn operations(&self) -> impl Iterator<Item = (&RevisionId, &OperationDocument)> {
         self.operations.iter()

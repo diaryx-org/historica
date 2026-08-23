@@ -256,6 +256,160 @@ fn the_corpus_is_a_store_that_checks_clean() {
     assert!(errors.is_empty(), "{errors:#?}");
 }
 
+/// The merged corpus as a store, stopping at the merge, with the resolution
+/// and the merge document put through `resolution` and `merge` on the way in.
+///
+/// Editing either moves the merge's digest, so `05-after` — which names it as
+/// a parent — is left out rather than rewritten. Every check below wants a
+/// store that is the corpus in exactly one respect other than this.
+fn tampered(
+    test: &str,
+    keep: &[&str],
+    resolution: impl FnOnce(String) -> String,
+    merge: impl FnOnce(String) -> String,
+) -> PathBuf {
+    let scratch = Path::new(env!("CARGO_TARGET_TMPDIR")).join(test);
+    let _ = fs::remove_dir_all(&scratch);
+    let root = scratch.join("history");
+    Store::init(&root).expect("a new store");
+    for name in keep {
+        let to = root.join(name);
+        fs::create_dir_all(to.parent().expect("a directory")).expect("a directory");
+        fs::copy(corpus().join(name), &to).expect("copying a corpus file");
+    }
+
+    let was = id("operations/04-notes.ops.txt");
+    let text = resolution(
+        String::from_utf8(read("operations/04-notes.ops.txt")).expect("a resolution is UTF-8"),
+    );
+    fs::write(root.join("operations/04-notes.ops.txt"), &text).expect("the resolution");
+    let now = digest(text.as_bytes());
+
+    let document =
+        merge(String::from_utf8(read("revisions/04-merge.rev.txt")).expect("a revision is UTF-8"))
+            .replace(&was.to_string(), &now.to_string());
+    fs::write(root.join("revisions/04-merge.rev.txt"), document).expect("the merge");
+    root
+}
+
+/// Everything the corpus holds up to and excluding the merge.
+const BEFORE_THE_MERGE: &[&str] = &[
+    "operations/01-notes.ops.txt",
+    "operations/01-readme.ops.txt",
+    "operations/02-notes.ops.txt",
+    "operations/03-notes.ops.txt",
+    "revisions/01-root.rev.txt",
+    "revisions/02-left.rev.txt",
+    "revisions/03-right.rev.txt",
+];
+
+fn findings(root: &Path) -> Vec<String> {
+    Store::check(root)
+        .findings()
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// Decision 0032, both directions at once: the resolution is moved onto the
+/// file both parents agree about, which leaves the file they disagree about
+/// with nothing stated for it.
+#[test]
+fn a_merge_owes_a_resolution_where_its_parents_differ_and_nowhere_else() {
+    let root = tampered(
+        "merged-misplaced",
+        BEFORE_THE_MERGE,
+        |text| text,
+        |text| text.replace(&format!("edit {NOTES} "), &format!("edit {README} ")),
+    );
+    let report = Store::check(&root);
+    let errors: Vec<String> = report.errors().map(ToString::to_string).collect();
+    let notes: Vec<String> = report.notes().map(ToString::to_string).collect();
+    assert!(
+        errors
+            .iter()
+            .any(|finding| finding.contains("both its parents leave exactly the same")),
+        "a resolution where there was nothing to resolve: {errors:#?}"
+    );
+    assert!(
+        notes
+            .iter()
+            .any(|finding| finding.contains("states no resolution")),
+        "and nothing stated where there was: {notes:#?}"
+    );
+}
+
+/// A resolution is not self-contained prose, and this is one of the documents
+/// it names not having arrived.
+#[test]
+fn a_keep_of_a_document_nothing_holds_is_a_note() {
+    let held: Vec<&str> = BEFORE_THE_MERGE
+        .iter()
+        .copied()
+        .filter(|name| *name != "operations/01-notes.ops.txt")
+        .collect();
+    let root = tampered("merged-undelivered", &held, |text| text, |text| text);
+    let report = Store::check(&root);
+    assert!(
+        report
+            .notes()
+            .any(|finding| finding.to_string().contains("keeps items of")),
+        "{:#?}",
+        findings(&root)
+    );
+    assert!(
+        report
+            .errors()
+            .all(|finding| !finding.to_string().contains("keeps items of")),
+        "an undelivered document is ordinary, not a contradiction"
+    );
+}
+
+/// A run longer than the document it names has items is the store
+/// contradicting itself, and no amount of syncing fixes it.
+#[test]
+fn a_keep_past_the_end_of_its_document_is_an_error() {
+    let root = tampered(
+        "merged-overrun",
+        BEFORE_THE_MERGE,
+        |text| {
+            let notes = id("operations/01-notes.ops.txt");
+            text.replace(&format!("keep {notes} 1 1"), &format!("keep {notes} 1 9"))
+        },
+        |text| text,
+    );
+    let errors: Vec<String> = Store::check(&root)
+        .errors()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        errors.iter().any(|finding| finding.contains("which mints")),
+        "{errors:#?}"
+    );
+}
+
+/// Decision 0031 is what 0032 landed second for: a hand-assembled resolution
+/// is verified by `shasum` like everything else.
+#[test]
+fn a_resolution_that_does_not_assemble_to_its_result_is_an_error() {
+    let root = tampered(
+        "merged-lying-result",
+        BEFORE_THE_MERGE,
+        |text| text.replace("+foxtrot", "+something else entirely"),
+        |text| text,
+    );
+    let errors: Vec<String> = Store::check(&root)
+        .errors()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        errors
+            .iter()
+            .any(|finding| finding.contains("and replaying it produces")),
+        "{errors:#?}"
+    );
+}
+
 #[test]
 fn every_invalid_resolution_is_refused_for_its_own_reason() {
     for (name, wanted) in invalid() {

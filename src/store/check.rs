@@ -18,10 +18,12 @@ use crate::format::{
     self, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, Version, digest,
 };
 use crate::fs::{Entry, Filesystem, read_to_string};
+use crate::replay::ReplayError;
 
 use super::{
-    HEADER_FILE, Held, MalformedName, NAME_SUFFIX, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES,
-    OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims, platform_name,
+    HEADER_FILE, Held, MalformedName, MaterialiseError, NAME_SUFFIX, Name, OPERATION_SUFFIX,
+    OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims,
+    platform_name,
 };
 
 /// Whether a finding means the store is broken or merely worth mentioning.
@@ -186,6 +188,44 @@ pub enum Finding {
         /// The document whose bytes are back.
         document: RevisionId,
     },
+    /// A merge naming a resolution for a file its parents already agree about.
+    ///
+    /// Decision 0032: a resolution states what a merge decided between two
+    /// different states, and where there was one state there was nothing to
+    /// decide. A reader following the agreement and a reader following the
+    /// resolution would get different files, which is the store contradicting
+    /// itself.
+    ResolvedWithoutDisagreement {
+        /// The merge.
+        revision: RevisionId,
+        /// The file both parents leave identically.
+        file: FileId,
+    },
+    /// A merge whose parents differ about a file, stating no resolution.
+    ///
+    /// A note rather than an error, because this is exactly how every merge
+    /// recorded before version 3 reads and decision 0032 promises those go on
+    /// reading as they always did. What it costs is the thing 0032 bought:
+    /// materialising this file past this merge needs a correct implementation
+    /// of the merge algorithm, on every reader, forever.
+    UnstatedMerge {
+        /// The merge.
+        revision: RevisionId,
+        /// The file its parents disagree about.
+        file: FileId,
+    },
+    /// A `keep` naming a document this store does not hold.
+    ///
+    /// A note on the same terms as a missing operation document: transport
+    /// having more to deliver is ordinary, and a resolution is not
+    /// self-contained prose — reading one means opening the documents it
+    /// names.
+    MissingReference {
+        /// The document nothing here holds.
+        document: RevisionId,
+        /// The resolution that keeps items of it.
+        named_by: RevisionId,
+    },
     /// A document still quoting items another document says were destroyed.
     ///
     /// Mid-sync is a legitimate way to be in this state — a redaction that
@@ -212,6 +252,7 @@ impl Finding {
             | Finding::TreeDisagrees { .. }
             | Finding::ContentDisagrees { .. }
             | Finding::PayloadNotText { .. }
+            | Finding::ResolvedWithoutDisagreement { .. }
             | Finding::MalformedSkipped { .. } => Severity::Error,
             Finding::MissingParent { .. }
             | Finding::DanglingBookmark { .. }
@@ -223,6 +264,8 @@ impl Finding {
             | Finding::UnnamedPayload { .. }
             | Finding::Forgotten { .. }
             | Finding::Resurrected { .. }
+            | Finding::UnstatedMerge { .. }
+            | Finding::MissingReference { .. }
             | Finding::StillQuoted { .. } => Severity::Note,
         }
     }
@@ -341,6 +384,24 @@ impl fmt::Display for Finding {
                  sync; the redaction still holds, and `forget` run again \
                  destroys them again",
                 document.abbreviate(12)
+            ),
+            Finding::ResolvedWithoutDisagreement { revision, file } => write!(
+                f,
+                "{revision} states a resolution for the file {file}, which both its parents \
+                 leave exactly the same; a merge resolves where its parents differ, and \
+                 where they agree the file is that agreed state"
+            ),
+            Finding::UnstatedMerge { revision, file } => write!(
+                f,
+                "{revision} is a merge whose parents differ about the file {file} and which \
+                 states no resolution; reading that file past this revision needs the merge \
+                 algorithm rather than arithmetic, which is how every merge recorded before \
+                 version 3 reads"
+            ),
+            Finding::MissingReference { document, named_by } => write!(
+                f,
+                "the resolution {named_by} keeps items of {document}, \
+                 which this store does not hold yet"
             ),
             Finding::StillQuoted { document, forgets } => write!(
                 f,
@@ -543,9 +604,103 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
         });
     }
 
+    check_resolutions(files, root, &mut report);
     check_names(files, root, &documents, &mut report);
     report.findings.sort_by_key(|finding| finding.severity());
     report
+}
+
+/// Decision 0032's obligation, held in both directions.
+///
+/// A merge revision must name a resolution for every file whose parents'
+/// states differ, and may not name one anywhere else. Both halves are claims
+/// about what a *reader* gets, so both are checked with the reader rather
+/// than with a second copy of it: a store that will not open has already been
+/// reported on line by line, and there is nothing here to add.
+fn check_resolutions<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) {
+    let Ok(store) = super::Store::open_on(files, root) else {
+        return;
+    };
+
+    // Decision 0032 defers binary at a merge: 0008 makes two concurrent
+    // `bytes` a divergence and 0028 makes accepting one explicit, and a
+    // payload needs no resolution grammar because a payload has no items.
+    let whole: BTreeSet<FileId> = store
+        .iter()
+        .flat_map(|(_, document)| document.bytes.keys().copied())
+        .collect();
+
+    for (revision, document) in store.iter() {
+        let parents: Vec<RevisionId> = document.parents.iter().copied().collect();
+        if parents.len() < 2 {
+            continue;
+        }
+        // Only files that exist here: content is a question about a file the
+        // tree holds, and 0008 already decided which those are.
+        let Ok(tree) = store.tree(revision) else {
+            continue;
+        };
+        for (file, _) in tree.files() {
+            if whole.contains(file) {
+                continue;
+            }
+            let mut states = Vec::new();
+            for parent in &parents {
+                match store.content_of(parent, file) {
+                    // A side whose history never mentions the file is not a
+                    // side that disagrees about it.
+                    Ok(None) => {}
+                    Ok(Some(state)) => states.push(state),
+                    // Anything undelivered is already a finding of its own.
+                    Err(_) => {
+                        states.clear();
+                        break;
+                    }
+                }
+            }
+            let differ = states.windows(2).any(|pair| pair[0] != pair[1]);
+
+            let resolves = document
+                .edited
+                .get(file)
+                .is_some_and(|named| store.resolution(named).is_some());
+            match (differ, resolves) {
+                (false, true) => report.push(Finding::ResolvedWithoutDisagreement {
+                    revision: *revision,
+                    file: *file,
+                }),
+                (true, false) => report.push(Finding::UnstatedMerge {
+                    revision: *revision,
+                    file: *file,
+                }),
+                _ => {}
+            }
+
+            // Every reference the resolution makes, to a document and a range
+            // that exist. Assembling it is what asks both questions at once,
+            // and holds the `result` line 0031 makes it state.
+            if !resolves {
+                continue;
+            }
+            let named = document.edited[file];
+            if let Err(error) = store.content_of(revision, file) {
+                match error {
+                    MaterialiseError::Content {
+                        error: ReplayError::UnknownDocument { document },
+                        ..
+                    } => report.push(Finding::MissingReference {
+                        document,
+                        named_by: named,
+                    }),
+                    error => report.push(Finding::ContentDisagrees {
+                        revision: *revision,
+                        file: *file,
+                        because: error.to_string(),
+                    }),
+                }
+            }
+        }
+    }
 }
 
 /// Read `operations/` under the rules `revisions/` is read under.
