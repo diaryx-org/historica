@@ -178,7 +178,11 @@ refuses a history with a merge in it rather than ordering it arbitrarily.
 The `historica` binary is the front end decision 0006 said was owed. `init`,
 `check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
 `cat`, and `names` read a store and render it; `status` reads the folder beside
-it and says how the two differ; `record` writes one and `amend` rewrites one,
+it and says how the two differ; `update` makes the folder hold a head, writing
+what the store records, removing what it does not, and touching nothing
+unrecorded — decision 0030, which is also where checkout-to-the-past is
+declined and the stored position it would need is refused for good; `record`
+writes one and `amend` rewrites one,
 `skip` writes the rule saying what recording does not take, and `identity` says
 who is writing. `name` writes a bookmark, and takes the third argument `show`
 takes: with a path it names the file at that path rather than the work, so

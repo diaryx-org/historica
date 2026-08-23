@@ -2749,3 +2749,224 @@ fn prune_refuses_a_store_check_calls_broken() {
     // Nothing was deleted on the way to the refusal.
     assert!(directory.join("history/revisions/broken.rev.txt").exists());
 }
+
+/// Decision 0030: a received store updates an empty folder to files
+/// byte-identical with the source's, payloads included.
+#[test]
+fn update_fills_an_empty_folder_from_a_received_store() {
+    let there = repository("update-fill-source");
+    write(&there, "notes/2026-08-20.md", "# Notes\n\nA journal.\n");
+    fs::write(there.join("photo.bin"), [0xffu8, 0x00, 0x7f]).expect("a payload");
+    out(recorded(&there, &["record", "-m", "Start a journal"]));
+
+    let here = scratch("update-fill");
+    assert!(run(&here, &["init"]).status.success());
+    let source = there.to_string_lossy();
+    stdout(&here, &["receive", &source]);
+
+    let updated = stdout(&here, &["update"]);
+    assert!(updated.contains("wrote   notes/2026-08-20.md"), "{updated}");
+    assert!(updated.contains("wrote   photo.bin"), "{updated}");
+    assert!(updated.contains("the folder holds"), "{updated}");
+    assert_eq!(
+        fs::read_to_string(here.join("notes/2026-08-20.md")).expect("the entry"),
+        "# Notes\n\nA journal.\n"
+    );
+    assert_eq!(
+        fs::read(here.join("photo.bin")).expect("the payload"),
+        [0xffu8, 0x00, 0x7f]
+    );
+
+    // Updating twice is the identity the second time.
+    let again = stdout(&here, &["update"]);
+    assert!(again.contains("the folder already holds"), "{again}");
+    assert!(!again.contains("wrote"), "{again}");
+}
+
+/// An update refuses, all of it, while one path holds unrecorded bytes.
+#[test]
+fn update_refuses_while_unrecorded_work_stands_in_the_way() {
+    let directory = repository("update-refuses");
+    write(&directory, "f.md", "recorded\n");
+    write(&directory, "g.md", "recorded too\n");
+    out(recorded(&directory, &["record", "-m", "both"]));
+    write(&directory, "f.md", "recorded\nagain\n");
+    out(recorded(&directory, &["record", "-m", "more"]));
+
+    // Stand the folder at the older revision, then edit one file: the edit is
+    // work nothing has recorded, so nothing at all may move.
+    write(&directory, "f.md", "recorded\n");
+    write(&directory, "g.md", "unrecorded\n");
+    let said = stderr(&directory, &["update"]);
+    assert!(said.contains("nothing was written"), "{said}");
+    assert!(
+        said.contains("g.md: it holds work nothing has recorded"),
+        "{said}"
+    );
+    assert_eq!(
+        fs::read_to_string(directory.join("f.md")).expect("untouched"),
+        "recorded\n",
+        "a refusal writes nothing"
+    );
+}
+
+/// A two-headed store switches the folder between heads and back, leaving a
+/// stray unrecorded file untouched throughout.
+#[test]
+fn update_switches_between_heads_and_back() {
+    let (directory, one, two) = diverged(
+        "update-switch",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+    // `diverged` promises two heads, not which is which.
+    let (mine, theirs) = if stdout(&directory, &["cat", &one, "f.md"]).contains("MINE") {
+        (one, two)
+    } else {
+        (two, one)
+    };
+    write(&directory, "stray.md", "nobody recorded this\n");
+
+    stdout(&directory, &["update", &mine]);
+    assert_eq!(
+        fs::read_to_string(directory.join("f.md")).expect("the file"),
+        "one\nMINE\nthree\n"
+    );
+    stdout(&directory, &["update", &theirs]);
+    assert_eq!(
+        fs::read_to_string(directory.join("f.md")).expect("the file"),
+        "one\nTHEIRS\nthree\n"
+    );
+    assert_eq!(
+        fs::read_to_string(directory.join("stray.md")).expect("still here"),
+        "nobody recorded this\n",
+        "a stray unrecorded file is not update's to touch"
+    );
+}
+
+/// A folder standing at a superseded state catches up to the head with no
+/// flags: the rule is bytes some revision records, not bytes the head holds.
+#[test]
+fn update_catches_the_folder_up_with_no_flags() {
+    let directory = repository("update-catch-up");
+    write(&directory, "f.md", "one\n");
+    write(&directory, "notes/g.md", "g\n");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    write(&directory, "f.md", "one\ntwo\n");
+    fs::remove_file(directory.join("notes/g.md")).expect("a deletion");
+    out(recorded(&directory, &["record", "-m", "second"]));
+
+    // Put the folder back at the first revision's state, by hand — every byte
+    // of it is recorded, so update may replace it.
+    write(&directory, "f.md", "one\n");
+    write(&directory, "notes/g.md", "g\n");
+
+    let updated = stdout(&directory, &["update"]);
+    assert!(updated.contains("wrote   f.md"), "{updated}");
+    assert!(updated.contains("removed notes/g.md"), "{updated}");
+    assert_eq!(
+        fs::read_to_string(directory.join("f.md")).expect("the file"),
+        "one\ntwo\n"
+    );
+    assert!(
+        !directory.join("notes").exists(),
+        "a removal that empties a directory removes the directory"
+    );
+}
+
+/// `abandon` then `update` returns the folder to the state before the run,
+/// removing the file the run added: going back, on the record.
+#[test]
+fn abandon_then_update_returns_the_folder() {
+    let directory = repository("update-abandon");
+    write(&directory, "entry.md", "keep\n");
+    out(recorded(&directory, &["record", "-m", "good"]));
+    write(&directory, "entry.md", "keep\nruin\n");
+    write(&directory, "mess.md", "mess\n");
+    out(recorded(&directory, &["record", "-m", "bad"]));
+
+    let head = head_of(&directory);
+    out(recorded(
+        &directory,
+        &["abandon", &head, "-m", "a bad afternoon"],
+    ));
+
+    let updated = stdout(&directory, &["update"]);
+    assert!(updated.contains("wrote   entry.md"), "{updated}");
+    assert!(updated.contains("removed mess.md"), "{updated}");
+    assert_eq!(
+        fs::read_to_string(directory.join("entry.md")).expect("the entry"),
+        "keep\n"
+    );
+    assert!(!directory.join("mess.md").exists());
+}
+
+/// A revision that is not a head is refused by name, and the refusal says
+/// what serves the want instead.
+#[test]
+fn update_refuses_a_revision_that_is_not_a_head() {
+    let directory = repository("update-not-a-head");
+    write(&directory, "f.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    let root = head_of(&directory);
+    write(&directory, "f.md", "one\ntwo\n");
+    out(recorded(&directory, &["record", "-m", "second"]));
+
+    let said = stderr(&directory, &["update", &root]);
+    assert!(said.contains("is not a head"), "{said}");
+    assert!(said.contains("abandon"), "{said}");
+}
+
+/// `--dry-run` prints the plan and writes nothing.
+#[test]
+fn update_dry_run_writes_nothing() {
+    let directory = repository("update-dry-run");
+    write(&directory, "f.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    write(&directory, "f.md", "one\ntwo\n");
+    out(recorded(&directory, &["record", "-m", "second"]));
+    write(&directory, "f.md", "one\n");
+
+    let planned = stdout(&directory, &["update", "--dry-run"]);
+    assert!(planned.contains("write   f.md"), "{planned}");
+    assert_eq!(
+        fs::read_to_string(directory.join("f.md")).expect("untouched"),
+        "one\n",
+        "a dry run writes nothing"
+    );
+}
+
+/// A store missing a payload refuses to update: a folder cannot be partially
+/// at a head, and receiving the rest is the fix.
+#[test]
+fn update_refuses_when_the_store_cannot_produce_a_file() {
+    let directory = repository("update-missing-payload");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x7f]).expect("a payload");
+    write(&directory, "f.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "first"]));
+
+    // The payload leaves — an undelivered store is a legitimate state — and
+    // so does the folder's copy, so an update would have to write it back.
+    let payload = find_bytes(&directory.join("history/operations"), &[0xffu8, 0x00, 0x7f])
+        .expect("the payload file");
+    fs::remove_file(payload).expect("removing the payload");
+    fs::remove_file(directory.join("photo.bin")).expect("the folder's copy");
+
+    let said = stderr(&directory, &["update"]);
+    assert!(said.contains("photo.bin"), "{said}");
+    assert!(said.contains("does not hold the content"), "{said}");
+}
+
+/// The one file beneath `path` holding exactly these bytes.
+fn find_bytes(path: &Path, bytes: &[u8]) -> Option<PathBuf> {
+    if path.is_dir() {
+        fs::read_dir(path)
+            .expect("a directory")
+            .filter_map(|entry| find_bytes(&entry.expect("an entry").path(), bytes))
+            .next()
+    } else if fs::read(path).is_ok_and(|held| held == bytes) {
+        Some(path.to_path_buf())
+    } else {
+        None
+    }
+}

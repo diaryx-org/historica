@@ -413,7 +413,7 @@ fn change_by_prefix(store: &Store, prefix: &str) -> Result<ChangeId, Failure> {
 }
 
 /// Candidates, one per line, indented under the sentence that introduced them.
-fn listed(items: impl IntoIterator<Item = impl std::fmt::Display>) -> String {
+pub fn listed(items: impl IntoIterator<Item = impl std::fmt::Display>) -> String {
     let mut out = String::new();
     for item in items {
         let _ = write!(out, "\n  {item}");

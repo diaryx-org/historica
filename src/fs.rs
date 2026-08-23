@@ -169,12 +169,15 @@ pub trait Filesystem {
 
     /// Write a file, atomically replacing whatever was there.
     ///
-    /// Used only for the store's mutable files — the version header, a
-    /// bookmark, `skipped.txt` — which decision 0003 counts on one hand and
-    /// calls the store's entire conflict surface. Everything else is written
-    /// with [`create_new`](Filesystem::create_new). Until replacement commits,
-    /// a reader must see the complete old file; afterwards it must see the
-    /// complete new one, never a missing or partially written destination.
+    /// Used for the store's mutable files — the version header, a bookmark,
+    /// `skipped.txt` — which decision 0003 counts on one hand and calls the
+    /// store's entire conflict surface, and for the working files an `update`
+    /// replaces, which decision 0030 holds to the same contract: a reader
+    /// mid-update meets a complete old file or a complete new one. Every
+    /// store document is written with [`create_new`](Filesystem::create_new)
+    /// instead. Until replacement commits, a reader must see the complete old
+    /// file; afterwards it must see the complete new one, never a missing or
+    /// partially written destination.
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()>;
 
     /// Write a file that must not already exist, indivisibly.

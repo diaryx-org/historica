@@ -24,4 +24,5 @@ pub mod record;
 pub mod replay;
 pub mod store;
 pub mod tree;
+pub mod update;
 pub mod working;

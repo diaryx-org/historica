@@ -540,3 +540,48 @@ fn the_disk_store_keeps_every_capability_it_had() {
     is_send::<historica::working::Working<historica::fs::Disk>>();
     is_clone::<historica::working::Working<historica::fs::Disk>>();
 }
+
+/// Decision 0030 over decision 0025: the folder catches up to a head through
+/// the trait, so a host holding its documents in maps — or an iCloud folder —
+/// updates them the way a person at a terminal does.
+#[test]
+fn the_folder_updates_in_memory_too() {
+    let (memory, store, _first, second) = history();
+
+    // Stand the folder at the first revision by hand — every byte recorded —
+    // and leave a stray beside it that nothing has recorded.
+    put(&memory, "notes.md", "First thought.\n");
+    put(&memory, "stray.md", "unrecorded\n");
+
+    let working = Working::read_on(memory.clone(), Path::new(ROOT), store.skipped())
+        .expect("the folder in memory");
+    let plan = historica::update::plan(&store, &working, Path::new(ROOT), &second).expect("a plan");
+    assert_eq!(plan.writes.len(), 1, "one file differs");
+    let applied =
+        historica::update::apply(&working, Path::new(ROOT), &plan).expect("applying the plan");
+    assert_eq!(applied.wrote, ["notes.md"]);
+    assert!(applied.left.is_empty() && applied.folded.is_empty());
+    assert_eq!(
+        memory
+            .read(&Path::new(ROOT).join("notes.md"))
+            .expect("the file"),
+        b"First thought.\nA second one.\n"
+    );
+    assert_eq!(
+        memory
+            .read(&Path::new(ROOT).join("stray.md"))
+            .expect("still here"),
+        b"unrecorded\n",
+        "a stray unrecorded file is not update's to touch"
+    );
+
+    // Unrecorded bytes at a path the head holds refuse the whole update.
+    put(&memory, "notes.md", "an unrecorded edit\n");
+    let working = Working::read_on(memory.clone(), Path::new(ROOT), store.skipped())
+        .expect("the folder in memory");
+    let refused = historica::update::plan(&store, &working, Path::new(ROOT), &second);
+    assert!(matches!(
+        refused,
+        Err(historica::update::UpdateError::Refused { .. })
+    ));
+}

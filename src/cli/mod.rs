@@ -20,6 +20,7 @@ mod arrange;
 mod record;
 mod render;
 mod target;
+mod update;
 
 /// What `historica help` prints, and what a usage error prints after itself.
 pub const USAGE: &str = "\
@@ -43,6 +44,10 @@ writing a store
   amend [<target>]         rewrite the head as the folder now stands
         [-m <message>] [--move <old>=<new>] [--dry-run]
   merge <target>           write what two lines of work say together
+  update [<target>] [--dry-run]
+                           make the folder hold a head: write what it
+                           records, remove what it does not, touch nothing
+                           unrecorded
   abandon <target> [-m <why>] [--dry-run]
                            supersede this revision, and everything standing
                            on it, with a tombstone that says why
@@ -181,6 +186,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "receive" => receive(&base, rest),
         "forget" => forget(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
+        "update" => update::update(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
         other => Err(Failure::usage(format!("there is no `{other}` command"))),
     }

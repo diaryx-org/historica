@@ -11,4 +11,4 @@ Comparison to other version control systems
 | CRDT metadata on disk | **none** | n/a | n/a | yes (graph) | n/a | grows forever |
 | Redaction preserving structure | **yes (`forget`)** | no (rewrites all hashes) | no | no | `shun` | no |
 | Remote / transport | **none** | yes | yes | yes | yes | yes |
-| Checkout to a past revision | **no** | yes | yes | yes | yes | n/a
+| Checkout to a past revision | **no** (`update` reaches heads, by decision) | yes | yes | yes | yes | n/a
