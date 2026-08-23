@@ -1515,7 +1515,7 @@ fn read_version<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Versio
     // prose for whoever opens the folder. Nothing hashes this file, so a person
     // may write what they like there.
     let line = text.lines().next().unwrap_or_default();
-    for version in [Version::V0, Version::V1, Version::V2, Version::V3] {
+    for version in Version::ALL {
         if line == version.preamble() {
             return Ok(version);
         }

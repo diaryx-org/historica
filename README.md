@@ -105,6 +105,20 @@ exactly when a file's path names it. An entry also says what it points at: an
 operation chain, or one payload whole, decided when the file was added and
 never again, so an `edit` addressed to a photograph is refused by name.
 
+An entry also carries a mode, which decision 0034 makes the one POSIX bit this
+format has an opinion about. `mode <file> executable` and `mode <file> plain`
+are tree facts stated by the revision that changes them, as `move` states a
+path that changed, and a file no `mode` line has ever named is plain — so
+every store written before this says what it always meant. The rest of a mode
+is deliberately absent: a umask is a fact about a machine rather than about a
+history, and a format that could say `setuid` would have a merge algorithm
+with a privilege question in it. Two concurrent modes resolve by digest and
+are reported, which is 0008's rule for two concurrent `move`s unchanged. A
+filesystem with no such bit answers `None` rather than `false`, and a recorder
+that gets `None` states nothing and leaves the recorded value standing — which
+is what stops two machines flipping the bit at each other forever, without
+anybody having to know a configuration flag exists.
+
 The `diff` module is the writing half, specified by 0009. Given the file at a
 revision's parent and the file as it stands, it records what the revision did:
 line matching from `similar`, configured to histogram and to no deadline, and
@@ -518,6 +532,14 @@ Choices that constrain later work are written down as they are made.
   system gets: its own identifier cannot be Historica's, since digits would
   break the alphabets and 0008 mints rather than derives, but it can be the
   *name* of a bookmark, because a name is only ever a string.
+- [`docs/decisions/0034-a-file-can-be-run.md`](docs/decisions/0034-a-file-can-be-run.md)
+  — the executable bit, which 0008 left out for a narrow reason and `update`
+  then destroyed: a file recorded runnable came back plain, silently, in
+  somebody's own folder. `mode <file> <value>` carries one bit and spells it
+  as a word; a filesystem that cannot see the bit says so rather than
+  reporting `false`, which is what makes a store safe to carry between a Mac
+  and a Windows machine without configuration; and it is `historica-v4`,
+  claimed only by the documents that use it.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
@@ -550,6 +572,7 @@ cd tests/corpus/operations && shasum -a 256 -c MANIFEST
 cd tests/corpus/diffs && shasum -a 256 -c MANIFEST
 cd tests/corpus/tree && shasum -a 256 -c MANIFEST
 cd tests/corpus/whole && shasum -a 256 -c MANIFEST
+cd tests/corpus/modes && shasum -a 256 -c MANIFEST
 ```
 
 ### Releasing

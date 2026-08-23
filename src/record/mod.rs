@@ -19,7 +19,7 @@ use std::fmt;
 use crate::core::{ChangeId, FileId, RevisionId};
 use crate::diff::{diff, resolve};
 use crate::format::{
-    OperationDocument, ResolutionDocument, RevisionDocument, Timestamp, Version, digest,
+    Mode, OperationDocument, ResolutionDocument, RevisionDocument, Timestamp, Version, digest,
 };
 use crate::fs::Filesystem;
 use crate::merge::Merged;
@@ -67,6 +67,8 @@ pub enum Fact {
     Dropped,
     /// A file whose content differs from the parent's.
     Edited,
+    /// A file the folder can run and the tree cannot, or the reverse.
+    Mode,
 }
 
 impl fmt::Display for Fact {
@@ -77,6 +79,7 @@ impl fmt::Display for Fact {
             Fact::Moved => "moved",
             Fact::Dropped => "dropped",
             Fact::Edited => "edited",
+            Fact::Mode => "mode",
         })
     }
 }
@@ -103,6 +106,13 @@ pub struct Survey {
     /// about states an `added` and a `dropped`, and `renames` is where this
     /// says it noticed.
     pub moved: BTreeMap<FileId, String>,
+    /// Files the folder gives a mode the tree does not, with that mode.
+    ///
+    /// Decision 0034: keyed by path, like everything a survey observes,
+    /// because the identifier for an added file is not minted yet. A
+    /// filesystem with no executable bit contributes nothing here, so a
+    /// recorded mode survives a machine that cannot see it.
+    pub modes: BTreeMap<String, Mode>,
     /// Files the tree holds and the folder does not, with where they sat.
     pub dropped: BTreeMap<FileId, String>,
     /// What each path's content contributes, added paths included.
@@ -143,6 +153,7 @@ impl Survey {
             && self.moved.is_empty()
             && self.dropped.is_empty()
             && self.edited.is_empty()
+            && self.modes.is_empty()
     }
 
     /// Every fact, by the path it concerns, for a person reading.
@@ -160,6 +171,16 @@ impl Survey {
                 .keys()
                 .filter(|path| !self.added.contains(*path))
                 .map(|path| (Fact::Edited, path.clone())),
+        );
+        // Decision 0034: a revision that states only a mode still states
+        // something, and a fact `record` writes that `status` never mentioned
+        // is what decision 0015 exists to prevent. A file being added carries
+        // its mode in with it and needs no second line.
+        facts.extend(
+            self.modes
+                .keys()
+                .filter(|path| !self.added.contains(*path))
+                .map(|path| (Fact::Mode, path.clone())),
         );
         facts.sort();
         facts
@@ -180,6 +201,8 @@ pub struct Plan {
     pub dropped: BTreeSet<FileId>,
     /// What each edited file's revision did to it.
     pub edited: BTreeMap<FileId, Change>,
+    /// Files whose mode this revision states, and what it states.
+    pub modes: BTreeMap<FileId, Mode>,
     /// Where each file sits after this revision, for rendering.
     pub paths: BTreeMap<FileId, String>,
     /// The revisions this would be recorded against.
@@ -423,6 +446,18 @@ pub fn survey<F: Filesystem>(
             arrived.insert(path.clone(), bytes.clone());
         }
 
+        // Decision 0034, before the kinds part company: a mode is a fact about
+        // a file rather than about its content, so a photograph has one for
+        // the same reasons a script does. `None` from the filesystem means it
+        // has no such bit, and the recorded value stands.
+        if let Some(executable) = working.executable(path)? {
+            let observed = Mode::of(executable);
+            let recorded = file.and_then(|file| tree.mode(&file)).unwrap_or_default();
+            if observed != recorded {
+                survey.modes.insert(path.clone(), observed);
+            }
+        }
+
         if kind == Kind::Whole {
             // Nothing to compare line by line, so the comparison is the whole
             // of it: the payload it holds now against the payload it held.
@@ -451,6 +486,7 @@ pub fn survey<F: Filesystem>(
                 let refusal = WorkingError::NotText { path: path.clone() };
                 survey.refused.push((path.clone(), refusal.because()));
                 survey.added.remove(path);
+                survey.modes.remove(path);
                 arrived.remove(path);
                 continue;
             }
@@ -768,15 +804,41 @@ fn plan_with<F: Filesystem>(
         paths.insert(*file, path.clone());
     }
 
+    let mut modes = BTreeMap::new();
+    for (path, mode) in &surveyed.modes {
+        let file = minted
+            .get(path)
+            .or_else(|| surveyed.held.get(path))
+            .copied();
+        if let Some(file) = file {
+            modes.insert(file, *mode);
+        }
+    }
+
     Ok(Plan {
         added,
         moved: surveyed.moved.clone(),
         dropped: surveyed.dropped.keys().copied().collect(),
         edited,
+        modes,
         paths,
         parents: surveyed.parents.clone(),
         survey: surveyed,
     })
+}
+
+/// The version a revision document claims: the lowest one that expresses it.
+///
+/// Decision 0004's asymmetry made concrete. A store gains a version the day it
+/// first holds a document that needs one, so a history of prose stays readable
+/// by every reader ever published for it, and only a history that actually
+/// marks something executable asks for a reader that knows decision 0034.
+fn version_for(document: &RevisionDocument) -> Version {
+    if document.modes.is_empty() {
+        Version::V1
+    } else {
+        Version::V4
+    }
 }
 
 /// Record a revision, writing the documents it names before the revision.
@@ -802,8 +864,8 @@ pub fn record<F: Filesystem>(
 
     let content = content_of(&plan);
     let document = RevisionDocument {
-        // Version 1: a revision document has no version 2 vocabulary to
-        // claim, and a document claims the lowest version that expresses it.
+        // Raised below to the lowest version that expresses this document,
+        // which needs the tree facts that are being assembled here.
         version: Version::V1,
         change,
         parents: recording.parents.iter().copied().collect(),
@@ -814,12 +876,17 @@ pub fn record<F: Filesystem>(
         revised: None,
         added: plan.added.clone(),
         moved: plan.moved.clone(),
+        modes: plan.modes.clone(),
         dropped: plan.dropped.clone(),
         edited: content.edited.clone(),
         text: content.text.clone(),
         bytes: content.bytes.clone(),
         extensions: BTreeMap::new(),
         message: recording.message.clone(),
+    };
+    let document = RevisionDocument {
+        version: version_for(&document),
+        ..document
     };
 
     // Decision 0019: the name a file is written under is the name it keeps, so
@@ -948,8 +1015,8 @@ fn rewrite<F: Filesystem>(
 
     let content = content_of(&plan);
     let document = RevisionDocument {
-        // Version 1: a revision document has no version 2 vocabulary to
-        // claim, and a document claims the lowest version that expresses it.
+        // Raised below to the lowest version that expresses this document,
+        // which needs the tree facts that are being assembled here.
         version: Version::V1,
         change: previous.change,
         parents: previous.parents.clone(),
@@ -962,6 +1029,7 @@ fn rewrite<F: Filesystem>(
         revised: Some(amendment.revised.clone()),
         added: plan.added.clone(),
         moved: plan.moved.clone(),
+        modes: plan.modes.clone(),
         dropped: plan.dropped.clone(),
         edited: content.edited.clone(),
         text: content.text.clone(),
@@ -971,6 +1039,10 @@ fn rewrite<F: Filesystem>(
         // worst available.
         extensions: previous.extensions.clone(),
         message: recording.message.clone(),
+    };
+    let document = RevisionDocument {
+        version: version_for(&document),
+        ..document
     };
     if says_the_same(&document, &previous) {
         return Err(RecordError::NothingToAmend {
@@ -1143,8 +1215,8 @@ pub fn abandon<F: Filesystem>(
 
     let change = entropy.change()?;
     let document = RevisionDocument {
-        // Version 1: a revision document has no version 2 vocabulary to
-        // claim, and a document claims the lowest version that expresses it.
+        // Raised below to the lowest version that expresses this document,
+        // which needs the tree facts that are being assembled here.
         version: Version::V1,
         change,
         parents: first.parents.clone(),
@@ -1158,6 +1230,7 @@ pub fn abandon<F: Filesystem>(
         revised: Some(abandoning.when.clone()),
         added: BTreeMap::new(),
         moved: BTreeMap::new(),
+        modes: BTreeMap::new(),
         dropped: BTreeSet::new(),
         edited: BTreeMap::new(),
         text: BTreeMap::new(),

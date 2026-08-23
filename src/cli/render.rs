@@ -100,6 +100,17 @@ fn tree_facts(document: &RevisionDocument) -> String {
     [
         ("added", document.added.len()),
         ("moved", document.moved.len()),
+        // Decision 0034, counted apart from an edit because it is not one. A
+        // file created executable says so with its `add` and is not counted
+        // twice.
+        (
+            "mode",
+            document
+                .modes
+                .keys()
+                .filter(|file| !document.added.contains_key(*file))
+                .count(),
+        ),
         ("dropped", document.dropped.len()),
         ("edited", document.edited.len()),
         // Decision 0017: content stated whole, counted apart from an edit
@@ -278,6 +289,16 @@ pub fn contest_line(contest: &TreeContest) -> String {
             paths
                 .iter()
                 .map(|(_, path)| path.as_str())
+                .collect::<Vec<_>>()
+                .join(" and ")
+        ),
+        TreeContest::Mode { file, modes } => format!(
+            "{} is {}, which is the lower digest of {}",
+            file.abbreviate(8),
+            modes[0].1,
+            modes
+                .iter()
+                .map(|(_, mode)| mode.spelling())
                 .collect::<Vec<_>>()
                 .join(" and ")
         ),

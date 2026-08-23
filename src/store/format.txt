@@ -51,6 +51,10 @@ in this order, and repeated ones are sorted by the value that follows them:
                                   `supersedes` is.
   add <file ID> <path>            a file this revision brings into existence.
   move <file ID> <path>           where a file this revision moves goes.
+  mode <file ID> <plain|executable>
+                                  whether a file can be run, stated by the
+                                  revision that changes it. A file no `mode`
+                                  line has ever named is plain.
   drop <file ID>                  a file this revision removes from the file
                                   set. Its history is untouched.
   edit <file ID> <digest>         the document in `operations/` that says what

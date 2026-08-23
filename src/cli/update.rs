@@ -79,6 +79,9 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             for remove in &update.removes {
                 writeln!(out, "{:<7} {}", "remove", remove.path)?;
             }
+            for chmod in &update.modes {
+                writeln!(out, "{:<7} {}  ({})", "mode", chmod.path, chmod.mode)?;
+            }
             for (path, because) in &update.leaves {
                 writeln!(out, "left {path} alone: {because}")?;
             }
@@ -114,6 +117,12 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         }
         for path in &applied.removed {
             writeln!(out, "{:<7} {}", "removed", path)?;
+        }
+        // Decision 0034: making a file runnable is a change to a file in
+        // somebody's folder, and `prune` already sets the rule that such a
+        // thing is printed.
+        for (path, mode) in &applied.set {
+            writeln!(out, "{:<7} {path}  ({mode})", "mode")?;
         }
         for (path, because) in update.leaves.iter().chain(&applied.left) {
             writeln!(out, "left {path} alone: {because}")?;

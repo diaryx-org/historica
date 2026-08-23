@@ -22,6 +22,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
+use crate::format::Mode;
 use crate::fs::{Filesystem, Kind as OnDisk};
 use crate::store::{MaterialiseError, STORE_DIR, Store, StoreError};
 use crate::tree::Kind;
@@ -37,6 +38,26 @@ pub struct Write {
     pub bytes: Vec<u8>,
     /// What the plan found at the path: recorded bytes to replace, or nothing.
     pub replaces: Option<Vec<u8>>,
+    /// The mode the target records.
+    ///
+    /// Stated by the plan and applied by [`apply`], which is where a
+    /// filesystem with no such bit turns setting it into nothing. Asking here
+    /// would mean asking about a path that does not exist yet.
+    pub mode: Mode,
+}
+
+/// One file whose bytes are already what the target records and whose mode is
+/// not.
+///
+/// Decision 0034 puts this inside 0030's promise rather than beside it: the
+/// mode of a recorded file is recorded, so a folder holding the right bytes
+/// with the wrong bit does not yet hold the head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Chmod {
+    /// Where the file sits, relative to the repository root.
+    pub path: String,
+    /// What the target records.
+    pub mode: Mode,
 }
 
 /// One file the update removes: a path the target does not hold, whose bytes
@@ -58,6 +79,8 @@ pub struct Update {
     pub removes: Vec<Remove>,
     /// Paths already holding exactly what the target records.
     pub kept: Vec<String>,
+    /// Files whose bytes are right and whose mode is not, in path order.
+    pub modes: Vec<Chmod>,
     /// Paths left alone, with the reason: a tracked file the target does not
     /// hold, whose bytes no revision records. Not a refusal — the file simply
     /// stays, and the next survey reports it as `added`.
@@ -67,7 +90,7 @@ pub struct Update {
 impl Update {
     /// Whether there is nothing to do: the folder already holds the target.
     pub fn is_settled(&self) -> bool {
-        self.writes.is_empty() && self.removes.is_empty()
+        self.writes.is_empty() && self.removes.is_empty() && self.modes.is_empty()
     }
 }
 
@@ -87,6 +110,11 @@ pub struct Applied {
     /// folded two of the tree's paths onto one file, per decision 0027, and
     /// cannot represent this tree.
     pub folded: Vec<String>,
+    /// Paths whose mode was set, with what it was set to.
+    ///
+    /// A deletion a person asked for in one word is printed, and so is this:
+    /// making a file runnable is a change to a file in their folder.
+    pub set: Vec<(String, Mode)>,
 }
 
 /// Why an update could not be planned or performed.
@@ -338,13 +366,21 @@ pub fn plan<F: Filesystem>(
 
         if working.holds(path) {
             let held = working.bytes(path)?;
+            let held_mode = working.executable(path)?.map(Mode::of);
             if held == bytes {
-                update.kept.push((*path).to_owned());
+                match held_mode {
+                    Some(mode) if mode != entry.mode => update.modes.push(Chmod {
+                        path: (*path).to_owned(),
+                        mode: entry.mode,
+                    }),
+                    _ => update.kept.push((*path).to_owned()),
+                }
             } else if recorded.holds(path, &held) {
                 update.writes.push(Write {
                     path: (*path).to_owned(),
                     bytes,
                     replaces: Some(held),
+                    mode: entry.mode,
                 });
             } else {
                 refuse(path, UNRECORDED.to_owned());
@@ -356,6 +392,7 @@ pub fn plan<F: Filesystem>(
                     path: (*path).to_owned(),
                     bytes,
                     replaces: None,
+                    mode: entry.mode,
                 }),
                 Some(OnDisk::Directory) => {
                     refuse(path, "a directory stands there".to_owned());
@@ -405,6 +442,41 @@ pub fn plan<F: Filesystem>(
         refused.dedup();
         Err(UpdateError::Refused { paths: refused })
     }
+}
+
+/// Set one file's mode, and say so only where the filesystem has one to set.
+///
+/// Decision 0034 asks after rather than before: a filesystem with no
+/// executable bit turns the set into nothing, and reading the answer back is
+/// how this tells that apart from having set it. Nothing is reported on a
+/// filesystem that does not model modes, because nothing happened.
+fn set_mode<F: Filesystem + ?Sized>(
+    filesystem: &F,
+    on_disk: &Path,
+    mode: Mode,
+    path: &str,
+    applied: &mut Applied,
+) -> Result<(), UpdateError> {
+    let before = filesystem
+        .executable(on_disk)
+        .map_err(|error| UpdateError::Io {
+            path: on_disk.to_path_buf(),
+            error,
+        })?;
+    let Some(before) = before else {
+        return Ok(());
+    };
+    if Mode::of(before) == mode {
+        return Ok(());
+    }
+    filesystem
+        .set_executable(on_disk, mode.is_executable())
+        .map_err(|error| UpdateError::Io {
+            path: on_disk.to_path_buf(),
+            error,
+        })?;
+    applied.set.push((path.to_owned(), mode));
+    Ok(())
 }
 
 /// Perform a plan, looking at each destination once more immediately before
@@ -475,7 +547,24 @@ pub fn apply<F: Filesystem>(
                 path: on_disk.clone(),
                 error,
             })?;
+        set_mode(filesystem, &on_disk, write.mode, &write.path, &mut applied)?;
         applied.wrote.push(write.path.clone());
+    }
+
+    // Decision 0034: the bytes were already right and the bit was not, so
+    // this is the whole of what the folder was missing.
+    for chmod in &update.modes {
+        let on_disk = on_disk(&chmod.path);
+        // A file that changed underneath the update is left alone here for the
+        // reason it is left alone above: what comes back is what happened.
+        if read(filesystem, &on_disk)?.is_none() {
+            applied.left.push((
+                chmod.path.clone(),
+                "it went away underneath the update".to_owned(),
+            ));
+            continue;
+        }
+        set_mode(filesystem, &on_disk, chmod.mode, &chmod.path, &mut applied)?;
     }
 
     // Read each written file back. Bytes that are not what was just written

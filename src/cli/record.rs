@@ -8,7 +8,8 @@ use std::process::Command;
 
 use historica::conflict;
 use historica::core::{FileId, RevisionId};
-use historica::format;
+use historica::format::{self, Mode};
+use historica::fs::{Disk, Filesystem as _};
 use historica::record::{
     Abandoning, Amendment, Clock, Platform, Recording, abandon as abandon_revision,
     abandonment_plan, amend as amend_revision, amendment_plan, identity, plan as plan_for,
@@ -524,6 +525,17 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 .map_err(|error| Failure::error(format!("{}: {error}", directory.display())))?;
         }
         fs::write(&on_disk, &rendered).map_err(|error| Failure::error(format!("{at}: {error}")))?;
+        // Decision 0034: the folder is what `record --merge` surveys, so a
+        // merged file laid down with the wrong bit would be recorded as a mode
+        // change nobody made — undoing the chmod one side of the merge
+        // performed, silently, as part of joining the work that contained it.
+        if let Ok(Some(held)) = Disk.executable(&on_disk)
+            && Mode::of(held) != entry.mode
+        {
+            Disk.set_executable(&on_disk, entry.mode.is_executable())
+                .map_err(|error| Failure::error(format!("{at}: {error}")))?;
+            said.push(format!("made {at} {}", entry.mode));
+        }
     }
 
     printing(|out| {

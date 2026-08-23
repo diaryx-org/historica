@@ -21,6 +21,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use historica::core::RevisionId;
+use historica::format::{Mode, RevisionDocument, Version};
 use historica::fs::{Entry, Filesystem, Kind};
 use historica::record::{Clock as _, Platform, Recording, record};
 use historica::store::{Name, Severity, Store};
@@ -462,6 +463,86 @@ fn arranging_gives_a_folder_readable_names_without_a_folder() {
 
 // ---------------------------------------------------------------------------
 // The capability the type parameter buys
+
+/// A filesystem with no executable bit must never record one changing.
+///
+/// Decision 0034's safety property, and the reason `Filesystem::executable`
+/// answers `Option<bool>` rather than `bool`. `Memory` models no modes, so it
+/// takes the default and says `None`. A recorder that read that as `false`
+/// would state `mode <file> plain` for every executable file in the history,
+/// and a person's two machines would then take turns flipping the bit off and
+/// on, each recording a change the other had to undo.
+#[test]
+fn a_filesystem_that_models_no_modes_records_none_and_erases_none() {
+    let memory = Memory::new();
+    memory
+        .create_directory(Path::new(ROOT))
+        .expect("the working copy");
+    let mut store =
+        Store::init_on(memory.clone(), Path::new(ROOT).join("history")).expect("a new store");
+
+    put(&memory, "run.sh", "#!/bin/sh\necho hi\n");
+    let root = record_folder(&memory, &mut store, Vec::new(), "a script");
+
+    // The map has no such bit, and says so rather than guessing.
+    assert_eq!(
+        memory
+            .executable(&Path::new(ROOT).join("run.sh"))
+            .expect("asking is not an error"),
+        None
+    );
+
+    // Somebody else's machine, which could see the bit, recorded it.
+    let held = store.get(&root).expect("the root").clone();
+    let file = *held.added.keys().next().expect("the script");
+    let runnable = RevisionDocument {
+        version: Version::V4,
+        change: "kxryzmorwlvtnsqpkzmuprys".parse().expect("a change ID"),
+        parents: BTreeSet::from([root]),
+        supersedes: BTreeSet::new(),
+        author: AUTHOR.to_owned(),
+        when: held.when.clone(),
+        revised_by: None,
+        revised: None,
+        added: BTreeMap::new(),
+        moved: BTreeMap::new(),
+        modes: BTreeMap::from([(file, Mode::Executable)]),
+        dropped: BTreeSet::new(),
+        edited: BTreeMap::new(),
+        text: BTreeMap::new(),
+        bytes: BTreeMap::new(),
+        extensions: BTreeMap::new(),
+        message: "make it runnable".to_owned(),
+    };
+    let runnable = store.insert(&runnable).expect("writing the revision");
+    assert_eq!(
+        store.tree(&runnable).expect("the tree").mode(&file),
+        Some(Mode::Executable)
+    );
+
+    // Now record an ordinary edit here, where the bit cannot be seen. What
+    // the folder cannot observe, it must not state.
+    put(&memory, "run.sh", "#!/bin/sh\necho there\n");
+    let after = record_folder(&memory, &mut store, vec![runnable], "edit the script");
+    let document = store.get(&after).expect("the edit");
+    assert!(
+        document.modes.is_empty(),
+        "a folder that cannot see the bit stated one: {:?}",
+        document.modes
+    );
+    assert_eq!(
+        document.version,
+        Version::V1,
+        "and claimed a version for it"
+    );
+    assert_eq!(
+        store.tree(&after).expect("the tree").mode(&file),
+        Some(Mode::Executable),
+        "the recorded bit survived a machine that cannot see it"
+    );
+    assert!(Store::check_on(memory.as_ref(), Path::new(ROOT).join("history")).is_ok());
+}
+
 // ---------------------------------------------------------------------------
 
 /// A filesystem that is `!Send`, `!Sync`, and not `Debug`.

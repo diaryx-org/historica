@@ -1,0 +1,10 @@
+historica-v4
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2025-09-02T09:41:07-06:00
+mode nrqvtkzlmwyxsptonvqrklmz executable
+mode nrqvtkzlmwyxsptonvqrklmz plain
+
+One file, one mode, one revision
+
+Two lines about one file are a document that cannot say what it did.

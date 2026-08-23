@@ -1,0 +1,11 @@
+historica-v4
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2025-09-02T09:41:07-06:00
+mode nrqvtkzlmwyxsptonvqrklmz executable
+drop nrqvtkzlmwyxsptonvqrklmz
+
+A file leaving the file set has no mode to have
+
+Decision 0008's rule, extended to 0034's fact: one revision says one thing
+about one file's existence.

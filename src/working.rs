@@ -295,6 +295,21 @@ impl<F: Filesystem> Working<F> {
             .read(on_disk)
             .map_err(|error| WorkingError::io(on_disk, error))
     }
+
+    /// Whether one tracked file can be run, or `None` where this filesystem
+    /// has no such bit.
+    ///
+    /// Decision 0034: `None` is not `false`. A recorder that cannot see the
+    /// bit states nothing about it and leaves the recorded value standing,
+    /// which is what stops two machines flipping it at each other.
+    pub fn executable(&self, path: &str) -> Result<Option<bool>, WorkingError> {
+        let on_disk = self.files.get(path).ok_or_else(|| WorkingError::Missing {
+            path: path.to_owned(),
+        })?;
+        self.filesystem
+            .executable(on_disk)
+            .map_err(|error| WorkingError::io(on_disk, error))
+    }
 }
 
 /// Which kind of file a person has just put in the folder.

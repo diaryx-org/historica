@@ -1,0 +1,7 @@
+historica-v3
+result 9efd8f9886ce9f18d1e684dfa45bccf5fdaec9cae1f9705db37b50ff2ed3a0aa
+
+delete 1 1
+-# Publish the journal.
+insert 1
++# Publish the journal to the path given.

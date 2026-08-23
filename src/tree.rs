@@ -28,7 +28,7 @@ use std::fmt;
 
 use crate::ancestry::Ancestry;
 use crate::core::{FileId, RevisionId};
-use crate::format::RevisionDocument;
+use crate::format::{Mode, RevisionDocument};
 
 /// What a file's entry points at.
 ///
@@ -65,6 +65,14 @@ pub struct Entry {
     /// `None` only where concurrent revisions each stated one: 0008 calls that
     /// a divergence to report, and refuses to pick a winner.
     pub payload: Option<RevisionId>,
+    /// Whether the file can be run, per decision 0034.
+    ///
+    /// Unlike [`Entry::kind`] this is not fixed when the file is added: a mode
+    /// is a fact about a file that changes, and `chmod +x` is a thing people
+    /// do to files they already have. A file no `mode` line has ever named is
+    /// [`Mode::Plain`], which is every file in every store written before
+    /// version 4.
+    pub mode: Mode,
 }
 
 /// The files that exist at one revision, and where each of them sits.
@@ -92,6 +100,11 @@ impl Tree {
     /// Whether a file is lines or bytes, or `None` if it does not exist here.
     pub fn kind(&self, file: &FileId) -> Option<Kind> {
         self.files.get(file).map(|entry| entry.kind)
+    }
+
+    /// Whether a file can be run, or `None` if it does not exist here.
+    pub fn mode(&self, file: &FileId) -> Option<Mode> {
+        self.files.get(file).map(|entry| entry.mode)
     }
 
     /// The files at a path.
@@ -156,6 +169,10 @@ impl Tree {
                         None => Kind::Lines,
                     },
                     payload,
+                    // Decision 0034: a file created executable states `add`
+                    // and `mode` together, and a file that states no `mode`
+                    // anywhere is plain.
+                    mode: revision.modes.get(file).copied().unwrap_or_default(),
                 },
             );
         }
@@ -165,6 +182,24 @@ impl Tree {
                 None => {
                     return Err(TreeError::Unknown {
                         key: "move",
+                        file: *file,
+                    });
+                }
+            }
+        }
+        // Decision 0034: after the move, because a mode is a fact about the
+        // file rather than about where it sits, and before the drop, because a
+        // file leaving the file set has no mode to have. A `mode` on a file
+        // this revision adds was applied with the `add` above.
+        for (file, mode) in &revision.modes {
+            if revision.added.contains_key(file) {
+                continue;
+            }
+            match files.get_mut(file) {
+                Some(entry) => entry.mode = *mode,
+                None => {
+                    return Err(TreeError::Unknown {
+                        key: "mode",
                         file: *file,
                     });
                 }
@@ -320,6 +355,17 @@ pub enum TreeContest {
         /// order.
         payloads: Vec<(RevisionId, RevisionId)>,
     },
+    /// Concurrent `mode`s, resolved to the lower digest's value.
+    ///
+    /// Decision 0034 takes 0008's rule for two concurrent `move`s unchanged:
+    /// deterministic, dependent on nothing a clock said, and reported so that
+    /// a person is told what was decided by rule rather than by agreement.
+    Mode {
+        /// The file two revisions gave different modes.
+        file: FileId,
+        /// Every mode claimed, with the revision claiming it, in digest order.
+        modes: Vec<(RevisionId, Mode)>,
+    },
     /// Two files claiming one path. Neither is renamed: 0008 forbids that.
     Path {
         /// The path both hold.
@@ -360,6 +406,11 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
         }
         for file in &document.dropped {
             facts.entry(*file).or_default().drops.push(event.revision);
+        }
+        for (file, mode) in &document.modes {
+            let held = facts.entry(*file).or_default();
+            held.modes.push((event.revision, *mode));
+            held.touches.push(event.revision);
         }
         for file in document.edited.keys() {
             facts.entry(*file).or_default().touches.push(event.revision);
@@ -460,12 +511,36 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
             }
         };
 
+        // The same walk again, for the same reason and with the same ending:
+        // decision 0034 resolves two concurrent modes by digest exactly as
+        // 0008 resolves two concurrent moves.
+        let mut stated: Vec<(RevisionId, Mode)> =
+            held.modes
+                .iter()
+                .filter(|(revision, _)| {
+                    !held.modes.iter().any(|(other, _)| {
+                        other != revision && ancestors.is_ancestor(revision, other)
+                    })
+                })
+                .copied()
+                .collect();
+        stated.sort();
+        stated.dedup();
+        let mode = stated.first().map(|(_, mode)| *mode).unwrap_or_default();
+        if stated.len() > 1 {
+            contested.push(TreeContest::Mode {
+                file,
+                modes: stated,
+            });
+        }
+
         files.insert(
             file,
             Entry {
                 path,
                 kind,
                 payload,
+                mode,
             },
         );
     }
@@ -505,6 +580,8 @@ struct Facts {
     added: Vec<RevisionId>,
     /// `bytes`, with the payload each stated.
     wholes: Vec<(RevisionId, RevisionId)>,
+    /// `mode`, with the value each stated.
+    modes: Vec<(RevisionId, Mode)>,
     /// Whether the `add` said this file is bytes rather than lines.
     whole: bool,
 }

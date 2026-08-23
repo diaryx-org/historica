@@ -89,9 +89,24 @@ pub enum Version {
     /// of the file its operations produce — so a hand replay has a
     /// checkpoint and an independent replayer has an answer to agree with.
     V3,
+    /// Decision 0034: `mode`, which says a file can be run.
+    V4,
 }
 
 impl Version {
+    /// Every version this reader knows, oldest first.
+    ///
+    /// One list, because three copies of it is how a version gets added to the
+    /// parser and not to the store's gate — which reads, exactly once, as a
+    /// reader refusing a store it wrote itself.
+    pub const ALL: [Version; 5] = [
+        Version::V0,
+        Version::V1,
+        Version::V2,
+        Version::V3,
+        Version::V4,
+    ];
+
     /// The highest version this reader knows.
     ///
     /// Not what a writer claims: a document claims the lowest version that
@@ -99,7 +114,7 @@ impl Version {
     /// under version 1 — and under the readers already published for it —
     /// while a store that has forgotten something is refused whole, at the
     /// gate, by a reader that knows less.
-    pub const CURRENT: Version = Version::V3;
+    pub const CURRENT: Version = Version::V4;
 
     /// The preamble line a document of this version opens with.
     pub const fn preamble(self) -> &'static str {
@@ -108,6 +123,7 @@ impl Version {
             Version::V1 => "historica-v1",
             Version::V2 => "historica-v2",
             Version::V3 => "historica-v3",
+            Version::V4 => "historica-v4",
         }
     }
 
@@ -118,6 +134,7 @@ impl Version {
             Version::V1 => 1,
             Version::V2 => 2,
             Version::V3 => 3,
+            Version::V4 => 4,
         }
     }
 }
@@ -125,6 +142,54 @@ impl Version {
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.preamble())
+    }
+}
+
+/// Whether a file can be run.
+///
+/// Decision 0034 carries one bit and spells it as a word, because `executable`
+/// is what the line means and `100755` is a file format's internal constant
+/// wearing a document's clothes. Every other POSIX mode bit is deliberately
+/// absent: a umask is a fact about a machine rather than about a history, and
+/// a format that could say `setuid` would have a merge algorithm with a
+/// privilege question in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum Mode {
+    /// An ordinary file. What every file with no `mode` line anywhere in its
+    /// history is, which is every file in every store written before 0034.
+    #[default]
+    Plain,
+    /// A file that can be run.
+    Executable,
+}
+
+impl Mode {
+    /// The word this is written as.
+    pub const fn spelling(self) -> &'static str {
+        match self {
+            Mode::Plain => "plain",
+            Mode::Executable => "executable",
+        }
+    }
+
+    /// Whether this is the bit set.
+    pub const fn is_executable(self) -> bool {
+        matches!(self, Mode::Executable)
+    }
+
+    /// The mode a filesystem's answer means.
+    pub const fn of(executable: bool) -> Self {
+        if executable {
+            Mode::Executable
+        } else {
+            Mode::Plain
+        }
+    }
+}
+
+impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.spelling())
     }
 }
 
@@ -169,6 +234,12 @@ pub struct RevisionDocument {
     pub added: BTreeMap<FileId, String>,
     /// Files this revision moves, and where to.
     pub moved: BTreeMap<FileId, String>,
+    /// Files whose mode this revision changes, and what to.
+    ///
+    /// Decision 0034: a tree fact stated by the revision that changes it, as
+    /// `move` states a path that changed. A file named by no `mode` line
+    /// anywhere in its history is [`Mode::Plain`].
+    pub modes: BTreeMap<FileId, Mode>,
     /// Files this revision removes.
     pub dropped: BTreeSet<FileId>,
     /// The operation document this revision contributed to each file it edited.
@@ -226,6 +297,9 @@ impl RevisionDocument {
         }
         for (file, path) in &self.moved {
             out.push_str(&format!("move {file} {path}\n"));
+        }
+        for (file, mode) in &self.modes {
+            out.push_str(&format!("mode {file} {mode}\n"));
         }
         for file in &self.dropped {
             out.push_str(&format!("drop {file}\n"));
@@ -286,23 +360,27 @@ fn rank(key: &str) -> Option<u8> {
         // is what gives 0007 the total order operation identity needs.
         "add" => Some(7),
         "move" => Some(8),
-        "drop" => Some(9),
-        "edit" => Some(10),
+        // Decision 0034: where a file is, then what it is, then whether it is
+        // still here. A mode is a fact about the file rather than its content,
+        // so it reads with the facts about the file.
+        "mode" => Some(9),
+        "drop" => Some(10),
+        "edit" => Some(11),
         // Decision 0017's payloads follow the operation document they stand in
         // for, so a file's content is read after its existence either way.
-        "text" => Some(11),
-        "bytes" => Some(12),
-        key if key.starts_with("x-") => Some(13),
+        "text" => Some(12),
+        "bytes" => Some(13),
+        key if key.starts_with("x-") => Some(14),
         _ => None,
     }
 }
 
 /// The rank `x-` headers share, which sort against each other by key.
-const EXTENSION_RANK: u8 = 13;
+const EXTENSION_RANK: u8 = 14;
 
 /// Whether a rank may appear more than once.
 fn repeatable(rank: u8) -> bool {
-    matches!(rank, 1 | 2 | 7 | 8 | 9 | 10 | 11 | 12 | EXTENSION_RANK)
+    matches!(rank, 1 | 2 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | EXTENSION_RANK)
 }
 
 /// One header line, kept with its position so an error can name it.
@@ -381,12 +459,12 @@ fn check_byte_order_mark(bytes: &[u8]) -> Result<(), ParseError> {
 /// file says how to hash itself, and can be identified by content rather than
 /// by the extension it happens to carry.
 fn check_preamble(line: &str, terminated: bool) -> Result<Version, ParseError> {
-    let version = match line {
-        line if line == Version::V0.preamble() => Version::V0,
-        line if line == Version::V1.preamble() => Version::V1,
-        line if line == Version::V2.preamble() => Version::V2,
-        line if line == Version::V3.preamble() => Version::V3,
-        line => {
+    let known = Version::ALL
+        .into_iter()
+        .find(|version| line == version.preamble());
+    let version = match known {
+        Some(version) => version,
+        None => {
             let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
                 ParseErrorKind::UnknownVersion {
                     found: version.to_owned(),
@@ -478,6 +556,7 @@ impl<'a> Parser<'a> {
         let mut revised: Option<Timestamp> = None;
         let mut added: BTreeMap<FileId, String> = BTreeMap::new();
         let mut moved: BTreeMap<FileId, String> = BTreeMap::new();
+        let mut modes: BTreeMap<FileId, Mode> = BTreeMap::new();
         let mut dropped: BTreeSet<FileId> = BTreeSet::new();
         let mut edited: BTreeMap<FileId, RevisionId> = BTreeMap::new();
         let mut text: BTreeMap<FileId, RevisionId> = BTreeMap::new();
@@ -497,6 +576,19 @@ impl<'a> Parser<'a> {
                         key: key.clone(),
                         found: version,
                         needs: Version::V1,
+                    },
+                ));
+            }
+            // Decision 0034, on the same terms: a store that never marks
+            // anything executable never becomes version 4, and every reader
+            // published before it goes on reading every document in it.
+            if version < Version::V4 && key == "mode" {
+                return Err(ParseError::new(
+                    at,
+                    ParseErrorKind::HeaderNeedsVersion {
+                        key: key.clone(),
+                        found: version,
+                        needs: Version::V4,
                     },
                 ));
             }
@@ -575,6 +667,31 @@ impl<'a> Parser<'a> {
                             at,
                             ParseErrorKind::FileStatedTwice {
                                 key,
+                                file: file.to_string(),
+                            },
+                        ));
+                    }
+                }
+                "mode" => {
+                    let (file, spelling) = split_entry(&value, at, "mode")?;
+                    let file = parse_file_id(file, at)?;
+                    let mode = match spelling {
+                        "plain" => Mode::Plain,
+                        "executable" => Mode::Executable,
+                        other => {
+                            return Err(ParseError::new(
+                                at,
+                                ParseErrorKind::UnknownMode {
+                                    found: other.to_owned(),
+                                },
+                            ));
+                        }
+                    };
+                    if modes.insert(file, mode).is_some() {
+                        return Err(ParseError::new(
+                            at,
+                            ParseErrorKind::FileStatedTwice {
+                                key: "mode",
                                 file: file.to_string(),
                             },
                         ));
@@ -698,6 +815,12 @@ impl<'a> Parser<'a> {
             if bytes.contains_key(file) {
                 return Err(contradiction("drop", "bytes", file));
             }
+            // Decision 0034: a file leaving the file set has no mode to have.
+            // `add` with `mode` is the one pairing that is not a
+            // contradiction, because a file may be created executable.
+            if modes.contains_key(file) {
+                return Err(contradiction("drop", "mode", file));
+            }
         }
         // Decision 0017: a file's content is stated once, one way. `text`
         // states the lines a creation arrives with, so it says nothing about a
@@ -732,6 +855,7 @@ impl<'a> Parser<'a> {
             revised,
             added,
             moved,
+            modes,
             dropped,
             edited,
             text,

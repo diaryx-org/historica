@@ -68,6 +68,11 @@ pub enum ParseErrorKind {
         /// The key as spelled in the file.
         key: String,
     },
+    /// A `mode` whose value is neither `plain` nor `executable`.
+    UnknownMode {
+        /// What stood where the value should be.
+        found: String,
+    },
     /// A `keep` that keeps nothing.
     EmptyKeep,
     /// Two `keep`s of one document whose ranges meet, which are one `keep`.
@@ -346,6 +351,11 @@ impl fmt::Display for ParseErrorKind {
                 f,
                 "`{key}` is not a header this version knows; \
                  spell it `x-{key}` if a reader may ignore it, or upgrade Historica if not"
+            ),
+            UnknownMode { found } => write!(
+                f,
+                "`{found}` is not a mode; a file is `plain` or `executable`, \
+                 and decision 0034 carries no other bit"
             ),
             EmptyValue => write!(
                 f,

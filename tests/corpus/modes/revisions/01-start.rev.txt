@@ -1,0 +1,11 @@
+historica-v1
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2025-09-02T08:14:33-06:00
+add nrqvtkzlmwyxsptonvqrklmz run.sh
+text nrqvtkzlmwyxsptonvqrklmz bd9c59d3260ed2318b10924d7d946eb75f462485d16c6ab6684326720edd9c0f
+
+File the publish script
+
+It arrives as itself, and it arrives plain: a file no `mode` line has named
+is not one that can be run.

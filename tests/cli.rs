@@ -2455,6 +2455,142 @@ fn status_with_several_heads_refuses_and_names_them() {
     assert!(named.contains("journal"), "{named}");
 }
 
+/// Decision 0034's whole point: record an executable file, remove it, put it
+/// back from the store, and it is still executable.
+#[cfg(unix)]
+#[test]
+fn the_executable_bit_survives_a_round_trip_through_the_store() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let executable = |directory: &Path, path: &str| {
+        fs::metadata(directory.join(path))
+            .expect("the file")
+            .permissions()
+            .mode()
+            & 0o111
+            != 0
+    };
+
+    let directory = repository("mode-round-trip");
+    write(&directory, "run.sh", "#!/bin/sh\necho hi\n");
+    write(&directory, "notes.md", "prose\n");
+    fs::set_permissions(directory.join("run.sh"), fs::Permissions::from_mode(0o755))
+        .expect("a runnable script");
+
+    // Before it is recorded, `status` says so — a fact `record` writes that
+    // `status` never mentioned is what decision 0015 exists to prevent.
+    out(recorded(&directory, &["record", "-m", "a script"]));
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(shown.contains("mode "), "{shown}");
+    assert!(shown.contains("executable"), "{shown}");
+    assert!(shown.starts_with("historica-v4"), "{shown}");
+
+    // A store gains the version the day it first holds a document that needs
+    // one, and not before.
+    let header = fs::read_to_string(directory.join("history/historica.txt")).expect("the marker");
+    assert!(header.starts_with("historica-v4"), "{header}");
+
+    fs::remove_file(directory.join("run.sh")).expect("removing the script");
+    let updated = out(recorded(&directory, &["update"]));
+    assert!(updated.contains("wrote   run.sh"), "{updated}");
+    assert!(
+        updated.contains("mode    run.sh  (executable)"),
+        "{updated}"
+    );
+    assert!(executable(&directory, "run.sh"), "the bit came back");
+    assert!(
+        !executable(&directory, "notes.md"),
+        "prose is not a program"
+    );
+
+    // The bit alone is a change, and `update` is what puts it back when the
+    // bytes were right all along.
+    fs::set_permissions(directory.join("run.sh"), fs::Permissions::from_mode(0o644))
+        .expect("taking the bit off");
+    let status = out(recorded(&directory, &["status"]));
+    assert!(status.contains("mode    run.sh"), "{status}");
+    let updated = out(recorded(&directory, &["update"]));
+    assert!(
+        updated.contains("mode    run.sh  (executable)"),
+        "{updated}"
+    );
+    assert!(executable(&directory, "run.sh"), "the bit came back again");
+
+    // And taking it off is an ordinary thing to record.
+    fs::set_permissions(directory.join("run.sh"), fs::Permissions::from_mode(0o644))
+        .expect("taking the bit off");
+    out(recorded(&directory, &["record", "-m", "not a program"]));
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(shown.contains("mode "), "{shown}");
+    assert!(shown.contains("plain"), "{shown}");
+    assert!(out(recorded(&directory, &["check"])).contains("nothing to report"));
+}
+
+/// A merge lays the merged mode down with the merged content. If it did not,
+/// the survey `record --merge` runs would see the folder's stale bit and
+/// record a mode change nobody made — undoing, silently, the chmod that was
+/// one side of the work being joined.
+#[cfg(unix)]
+#[test]
+fn a_merge_writes_the_mode_it_resolved_into_the_folder() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let directory = repository("mode-merge");
+    write(&directory, "run.sh", "#!/bin/sh\necho one\n");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    let root = out(recorded(&directory, &["log"]))
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("the root")
+        .to_owned();
+
+    // One side edits the content; the other makes it runnable.
+    write(&directory, "run.sh", "#!/bin/sh\necho two\n");
+    out(recorded(&directory, &["record", "-m", "edited"]));
+    write(&directory, "run.sh", "#!/bin/sh\necho one\n");
+    fs::set_permissions(directory.join("run.sh"), fs::Permissions::from_mode(0o755))
+        .expect("a runnable script");
+    out(recorded(
+        &directory,
+        &["record", "--onto", &root, "-m", "made runnable"],
+    ));
+
+    // Put the folder back where the edit left it, bit and all, so the merge
+    // has something stale to correct.
+    fs::set_permissions(directory.join("run.sh"), fs::Permissions::from_mode(0o644))
+        .expect("taking the bit off");
+    write(&directory, "run.sh", "#!/bin/sh\necho two\n");
+
+    let merging = out(recorded(&directory, &["merge"]));
+    assert!(merging.contains("made run.sh executable"), "{merging}");
+    assert!(
+        fs::metadata(directory.join("run.sh"))
+            .expect("the script")
+            .permissions()
+            .mode()
+            & 0o111
+            != 0
+    );
+
+    let mut arguments: Vec<&str> = merging
+        .lines()
+        .find(|line| line.contains("historica record"))
+        .expect("the printed command")
+        .split_whitespace()
+        .skip(1)
+        .collect();
+    arguments.pop();
+    arguments.push("joined");
+    out(recorded(&directory, &arguments));
+
+    // The merge states the content it resolved and nothing about the mode,
+    // because nothing about the mode changed at the merge.
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(!shown.contains("mode "), "{shown}");
+    assert!(out(recorded(&directory, &["status"])).contains("nothing here differs"));
+}
+
 /// Divergence is the state `merge` exists for, and in it the store already
 /// knows both answers — so naming neither is enough, and the command printed
 /// afterwards states every head it joined rather than only the ones typed.

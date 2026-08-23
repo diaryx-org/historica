@@ -12,3 +12,4 @@ Comparison to other version control systems
 | Redaction preserving structure | **yes (`forget`)** | no (rewrites all hashes) | no | no | `shun` | no |
 | Remote / transport | **none** | yes | yes | yes | yes | yes |
 | Checkout to a past revision | **no** (`update` reaches heads, by decision) | yes | yes | yes | yes | n/a
+| File modes | one bit, `executable` | one bit | one bit | one bit | one bit | n/a

@@ -1,0 +1,12 @@
+historica-v4
+change mzvwutklsyoxwqmpwsroymvz
+parent a60cccbfc5c365a56e3c67cfa68e63456684dece98497994cfdfaa2c02929cf1
+author Adam Harris <adam@example.com>
+when 2025-09-03T11:20:02-06:00
+mode nrqvtkzlmwyxsptonvqrklmz plain
+edit nrqvtkzlmwyxsptonvqrklmz 422f0d02542510bcd76b0a38923e72328dedef9968b29aa2e357f3ced8fa11d1
+
+Say what the argument is, and stop shipping it as a program
+
+Both facts in one document, in the order the format writes them: what the
+file is comes before what this revision did to it.

@@ -1,0 +1,10 @@
+historica-v4
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2025-09-02T09:41:07-06:00
+mode nrqvtkzlmwyxsptonvqrklmz 755
+
+A mode is a word, and there are two of them
+
+Decision 0034 carries one bit. A number here would be a file format's
+internal constant wearing a document's clothes.

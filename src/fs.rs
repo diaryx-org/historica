@@ -159,6 +159,11 @@ pub struct Entry {
 /// makes an unbounded walk safe: a tree of real directories cannot contain
 /// itself, so there is no loop to guard against and no depth to cap.
 ///
+/// **A mode is answered or declined, never guessed.**
+/// [`executable`](Filesystem::executable) returns `None` where the filesystem
+/// has no such bit, and an implementation that cannot see one must say so
+/// rather than answer `false` — decision 0034 turns on the difference.
+///
 /// **Order is not promised.** [`entries`](Filesystem::entries) may return a
 /// directory in any order; this crate sorts what it needs sorted, because two
 /// replicas loading one store must agree and a `readdir` order is not
@@ -227,6 +232,32 @@ pub trait Filesystem {
     /// implementation that removed a directory recursively here would delete a
     /// person's history one level at a time.
     fn remove_directory(&self, path: &Path) -> io::Result<()>;
+
+    /// Whether a regular file can be run, or `None` where that is not a thing
+    /// this filesystem has.
+    ///
+    /// Decision 0034, and `None` is the load-bearing answer. A filesystem that
+    /// cannot observe the bit — Windows, an in-memory map, a document provider
+    /// handing over opaque blobs — must not report `false`, because a recorder
+    /// would then state `mode <file> plain` for every executable file in the
+    /// history and a person's two machines would take turns flipping the bit
+    /// off and on forever. Saying "I do not model this" is what stops that,
+    /// and it is the default, so an implementation that has no opinion is
+    /// already correct.
+    fn executable(&self, path: &Path) -> io::Result<Option<bool>> {
+        let _ = path;
+        Ok(None)
+    }
+
+    /// Make a regular file runnable, or not.
+    ///
+    /// A filesystem whose [`executable`](Filesystem::executable) is `None` has
+    /// nothing to set, and the default does nothing. Nothing else about the
+    /// file changes: this is one bit, not a mode.
+    fn set_executable(&self, path: &Path, executable: bool) -> io::Result<()> {
+        let (_, _) = (path, executable);
+        Ok(())
+    }
 }
 
 /// A reference to a filesystem is a filesystem.
@@ -401,6 +432,54 @@ impl Filesystem for Disk {
 
     fn remove_directory(&self, path: &Path) -> io::Result<()> {
         std::fs::remove_dir(path)
+    }
+
+    #[cfg(unix)]
+    fn executable(&self, path: &Path) -> io::Result<Option<bool>> {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        // The link itself, like everything else this trait answers. A symlink
+        // is refused by the working copy before its mode is anybody's
+        // question, and following one here would report the target's.
+        let metadata = std::fs::symlink_metadata(path)?;
+        Ok(Some(metadata.permissions().mode() & 0o111 != 0))
+    }
+
+    /// Windows has no such bit, which is a true fact about Windows rather than
+    /// a limitation to work around: `None` is the accurate answer, and it is
+    /// what keeps a store carried between the two from losing the bit.
+    #[cfg(not(unix))]
+    fn executable(&self, path: &Path) -> io::Result<Option<bool>> {
+        let _ = path;
+        Ok(None)
+    }
+
+    #[cfg(unix)]
+    fn set_executable(&self, path: &Path, executable: bool) -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let mut permissions = std::fs::metadata(path)?.permissions();
+        let held = permissions.mode();
+        // Every bit the person's own umask chose is theirs. Decision 0034
+        // carries one bit, and this sets one bit: the execute bits follow the
+        // read bits, so a file readable by its group becomes runnable by its
+        // group and a private file stays private.
+        let mode = if executable {
+            held | ((held & 0o444) >> 2)
+        } else {
+            held & !0o111
+        };
+        if mode == held {
+            return Ok(());
+        }
+        permissions.set_mode(mode);
+        std::fs::set_permissions(path, permissions)
+    }
+
+    #[cfg(not(unix))]
+    fn set_executable(&self, path: &Path, executable: bool) -> io::Result<()> {
+        let (_, _) = (path, executable);
+        Ok(())
     }
 }
 
