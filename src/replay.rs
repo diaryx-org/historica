@@ -23,7 +23,10 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::format::{Item, Operation, OperationDocument, OperationKind, Version, digest};
+use crate::core::RevisionId;
+use crate::format::{
+    Item, Operation, OperationDocument, OperationKind, Piece, ResolutionDocument, Version, digest,
+};
 
 /// The operation document a `text` payload is exactly equivalent to.
 ///
@@ -230,6 +233,71 @@ impl State {
     }
 }
 
+/// The file a resolution states, assembled.
+///
+/// Decision 0032's rule, and there is no algorithm in it: fetch each `keep`'s
+/// run of items from the document it names, splice the inserts, concatenate,
+/// and hold the result to the digest the document states. `minted` answers
+/// what items one document mints, in document order, which is the run a
+/// `keep` counts into.
+///
+/// A person does this with an editor and `shasum`, which is the whole point:
+/// materialising past a merge stops needing a correct Fugue implementation
+/// and starts needing patience.
+pub fn assemble<'a>(
+    document: &ResolutionDocument,
+    minted: impl Fn(&RevisionId) -> Option<&'a [Item]>,
+) -> Result<State, ReplayError> {
+    let mut items: Vec<Item> = Vec::new();
+    for piece in &document.pieces {
+        match piece {
+            Piece::Keep {
+                document: from,
+                first,
+                count,
+            } => {
+                let held = minted(from).ok_or(ReplayError::UnknownDocument { document: *from })?;
+                let end = first.saturating_add(*count);
+                if end > held.len() {
+                    return Err(ReplayError::ReferenceOutOfRange {
+                        document: *from,
+                        wanted: end,
+                        holds: held.len(),
+                    });
+                }
+                items.extend_from_slice(&held[*first..end]);
+            }
+            Piece::Insert { items: new } => items.extend(new.iter().cloned()),
+        }
+    }
+
+    // The same rule replay is held to: only a file's last line may end
+    // without a newline, and a resolution assembling one into the middle is
+    // one whose pieces were counted out against a different file.
+    if let Some(position) = items
+        .iter()
+        .take(items.len().saturating_sub(1))
+        .position(|item| !item.terminated)
+    {
+        return Err(ReplayError::UnterminatedItemNotLast { position });
+    }
+
+    let assembled = State { items };
+    // Decision 0031, which 0032 is what landed first for: a hand-assembled
+    // resolution is verified by `shasum` like everything else. Verification
+    // stops where forgetting begins, for 0014's reason.
+    if !assembled.items.iter().any(|item| item.forgotten) {
+        let found = digest(assembled.text().as_bytes());
+        if found != document.result {
+            return Err(ReplayError::ResultDisagrees {
+                stated: document.result,
+                found,
+            });
+        }
+    }
+    Ok(assembled)
+}
+
 /// Replay a linear chain of documents from the root.
 ///
 /// Every document is applied to the state the one before it produced, so the
@@ -304,6 +372,23 @@ pub enum ReplayError {
         /// Where that item ended up.
         position: usize,
     },
+    /// A `keep` names a document nothing here holds.
+    ///
+    /// Decision 0032: a resolution is not self-contained prose, and reading
+    /// one means opening the documents it names. This is one of them missing.
+    UnknownDocument {
+        /// The document the `keep` names.
+        document: RevisionId,
+    },
+    /// A `keep` names a run longer than the document it names has items.
+    ReferenceOutOfRange {
+        /// The document the `keep` names.
+        document: RevisionId,
+        /// One past the last item wanted.
+        wanted: usize,
+        /// How many items that document mints.
+        holds: usize,
+    },
     /// The document's stated result is not what replaying it produces.
     ///
     /// Decision 0031: one of the two is wrong — the document, the parent it
@@ -357,6 +442,22 @@ impl fmt::Display for ReplayError {
                 "only a file's last line may end without a newline, and item {position} of the \
                  result does not end with one; delete that line and add it back with a \
                  terminator, in the revision that puts items after it"
+            ),
+            ReplayError::UnknownDocument { document } => write!(
+                f,
+                "this resolution keeps items of {document}, which nothing here holds; \
+                 a resolution names the documents its lines come from, and that one \
+                 has not arrived"
+            ),
+            ReplayError::ReferenceOutOfRange {
+                document,
+                wanted,
+                holds,
+            } => write!(
+                f,
+                "this resolution keeps up to item {wanted} of {document}, which mints \
+                 {holds}; count the `+` lines of that document to see what the run \
+                 should say"
             ),
             ReplayError::ResultDisagrees { stated, found } => write!(
                 f,

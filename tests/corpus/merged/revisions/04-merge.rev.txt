@@ -1,0 +1,12 @@
+historica-v0
+change nwlxsqotvkzmuprysltnwxqk
+parent 148d0ef1c47d041729562bb3dd9d16e790e5410c7e5e7d3b2061898d8b152b7f
+parent be3badf5949783837f98752696b21bd3208cc6ac1ae2277be790ea0dd88bf466
+author Adam Harris <adam@example.com>
+when 2026-08-19T17:20:39-06:00
+edit nrqvtkzlmwyxsptonvqrklmz bec06445b271baeea2fa81bbd057f660a64d09b4dd2216eab1520c756d43f5c1
+
+Read both sides and say what the file is
+
+README.md is not mentioned: both parents leave it exactly as the root wrote
+it, so there is nothing to resolve and the file is that agreed state.

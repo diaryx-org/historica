@@ -1,0 +1,5 @@
+alpha
+delta
+bravo
+echo
+golf

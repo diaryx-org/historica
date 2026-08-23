@@ -40,7 +40,8 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{ChangeId, FileId, History, RevisionId};
 use crate::format::{
-    self, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, Version, digest,
+    self, Item, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, Version,
+    digest,
 };
 // `fs` here is `crate::fs`, never `std::fs` — this module reaches the folder
 // only through the trait, and the qualified form is what keeps that visible.
@@ -252,6 +253,57 @@ impl fmt::Display for MalformedName {
 }
 
 impl std::error::Error for MalformedName {}
+
+/// What one revision's history says one file holds, under decision 0032's
+/// recursive rule.
+#[derive(Debug, Clone)]
+enum Stated {
+    /// The rule does not reach here: a merge whose parents disagree about the
+    /// file and which states no resolution. The walk is what answers.
+    Unstated,
+    /// Nothing in this revision's past mentions the file at all — which is
+    /// not the same as holding it empty, because a side that never saw a file
+    /// disagrees with nobody about it.
+    Absent,
+    /// The file, stated.
+    Known(State),
+}
+
+/// What several parents agree one file holds.
+///
+/// Decision 0032: "where the parents' states for a file are identical,
+/// nothing is stated and the content is that state — the rule a reader can
+/// check without any algorithm". A side that never saw the file is not a
+/// side that disagrees, so it is dropped rather than counted as empty; if
+/// what is left disagrees, the merge owed a resolution and this rule stops.
+fn agreed<'a>(parents: impl IntoIterator<Item = &'a Stated>) -> Stated {
+    let mut agreed: Option<&State> = None;
+    for parent in parents {
+        match parent {
+            Stated::Unstated => return Stated::Unstated,
+            Stated::Absent => continue,
+            Stated::Known(state) => match agreed {
+                None => agreed = Some(state),
+                Some(held) if held == state => {}
+                Some(_) => return Stated::Unstated,
+            },
+        }
+    }
+    match agreed {
+        Some(state) => Stated::Known(state.clone()),
+        None => Stated::Absent,
+    }
+}
+
+/// The items one operation document mints, in document order.
+fn minted_by(document: &OperationDocument) -> Vec<Item> {
+    document
+        .operations
+        .iter()
+        .filter(|operation| operation.kind == crate::format::OperationKind::Insert)
+        .flat_map(|operation| operation.items.iter().cloned())
+        .collect()
+}
 
 /// What one revision effectively stated about one file, and what named it.
 ///
@@ -779,8 +831,198 @@ impl<F: Filesystem> Store<F> {
     /// A file the tree no longer holds still has content here, because
     /// dropping a file removes it from the file set and history is not a place
     /// things are removed from. Ask [`Store::tree`] whether it exists.
+    ///
+    /// Decision 0032 makes this one recursive rule with no algorithm in it:
+    ///
+    /// - a file created here is its payload;
+    /// - a file edited on one line of history is the parent's state with the
+    ///   document's operations applied — 0007's arithmetic;
+    /// - a file at a merge whose parents agree is that agreed state;
+    /// - a file at a merge whose parents differ is its resolution.
+    ///
+    /// Every step is one a person can do by hand and check by hand. The walk
+    /// is what answers where the rule does not reach, which is every merge
+    /// recorded before version 3: those read exactly as they did, forever.
     pub fn content(&self, head: &RevisionId, file: &FileId) -> Result<State, MaterialiseError> {
-        Ok(self.merged_content(head, file)?.state)
+        match self.stated_content(head, file)? {
+            Some(state) => Ok(state),
+            None => Ok(self.merged_content(head, file)?.state),
+        }
+    }
+
+    /// The items one document mints, in document order.
+    ///
+    /// The run a `keep` counts into (decision 0032), whichever of the three
+    /// things a digest can name here: a resolution's `insert` pieces, an
+    /// operation document's inserts, or the lines of the payload a file
+    /// arrived whole as. Redactions are folded in, because a `keep` of a
+    /// forgotten item is a `keep` of the marker standing where it was.
+    pub fn minted(&self, named: &RevisionId) -> Result<Option<Vec<Item>>, MaterialiseError> {
+        if let Some(resolution) = self.resolutions.get(named) {
+            return Ok(Some(
+                resolution
+                    .pieces
+                    .iter()
+                    .filter_map(|piece| match piece {
+                        crate::format::Piece::Insert { items } => Some(items.iter().cloned()),
+                        crate::format::Piece::Keep { .. } => None,
+                    })
+                    .flatten()
+                    .collect(),
+            ));
+        }
+        if let Some(document) = self.effective_operation(named) {
+            return Ok(Some(minted_by(&document)));
+        }
+        // A digest naming neither is a payload's, or nothing at all.
+        match self.creation_for(named, *named) {
+            Ok(Some(creation)) => Ok(Some(minted_by(&creation))),
+            Ok(None) => Ok(None),
+            Err(MaterialiseError::MissingPayload { .. }) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// One file at `head` by decision 0032's rule, or `None` where the rule
+    /// does not reach.
+    ///
+    /// It does not reach a merge whose parents disagree about the file and
+    /// which states no resolution — which is every merge recorded before
+    /// version 3, and nothing a version 3 writer produces.
+    fn stated_content(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+    ) -> Result<Option<State>, MaterialiseError> {
+        let mut known: BTreeMap<RevisionId, Stated> = BTreeMap::new();
+        let mut stack = vec![*head];
+        while let Some(id) = stack.last().copied() {
+            if known.contains_key(&id) {
+                stack.pop();
+                continue;
+            }
+            let document = self
+                .documents
+                .get(&id)
+                .ok_or(MaterialiseError::Unknown { revision: id })?;
+
+            // A resolution is the file, stated: nothing before it is read,
+            // which is the floor 0032 puts under materialising a long history.
+            if let Some(named) = document.edited.get(file)
+                && let Some(resolution) = self.resolutions.get(named)
+            {
+                let assembled = self.assemble(resolution, id, *file)?;
+                known.insert(id, Stated::Known(assembled));
+                stack.pop();
+                continue;
+            }
+
+            let unknown: Vec<RevisionId> = document
+                .parents
+                .iter()
+                .copied()
+                .filter(|parent| !known.contains_key(parent))
+                .collect();
+            if !unknown.is_empty() {
+                for parent in unknown {
+                    if !self.documents.contains_key(&parent) {
+                        return Err(MaterialiseError::MissingParent {
+                            parent,
+                            named_by: id,
+                        });
+                    }
+                    stack.push(parent);
+                }
+                continue;
+            }
+            stack.pop();
+
+            // A file created here is its payload, whatever the parents hold:
+            // a creation is the first thing said about that identifier.
+            if let Some(payload) = document.text.get(file) {
+                let created = match self.creation_for(payload, id)? {
+                    Some(creation) => State::empty().apply(&creation).map_err(|error| {
+                        MaterialiseError::Content {
+                            revision: id,
+                            file: *file,
+                            error,
+                        }
+                    })?,
+                    None => State::empty(),
+                };
+                known.insert(id, Stated::Known(created));
+                continue;
+            }
+
+            let base = agreed(document.parents.iter().map(|parent| &known[parent]));
+            let stated = match document.edited.get(file) {
+                Some(named) => match base {
+                    Stated::Unstated => Stated::Unstated,
+                    // A file nothing said anything about before is one whose
+                    // operations are counted into an empty state.
+                    base => {
+                        let operations = self.effective_operation(named).ok_or(
+                            MaterialiseError::MissingOperations {
+                                document: *named,
+                                named_by: id,
+                            },
+                        )?;
+                        let before = match base {
+                            Stated::Known(state) => state,
+                            _ => State::empty(),
+                        };
+                        Stated::Known(before.apply(&operations).map_err(|error| {
+                            MaterialiseError::Content {
+                                revision: id,
+                                file: *file,
+                                error,
+                            }
+                        })?)
+                    }
+                },
+                // A revision that says nothing about the file says what its
+                // parents say, and a merge whose parents disagree says nothing
+                // this rule can read.
+                None => base,
+            };
+            known.insert(id, stated);
+        }
+
+        Ok(match known.remove(head) {
+            Some(Stated::Known(state)) => Some(state),
+            // A file this history never mentions is a file with no content,
+            // which the walk also says and says more slowly.
+            Some(Stated::Absent) => Some(State::empty()),
+            Some(Stated::Unstated) | None => None,
+        })
+    }
+
+    /// Assemble one resolution, fetching the documents its `keep` lines name.
+    fn assemble(
+        &self,
+        resolution: &crate::format::ResolutionDocument,
+        revision: RevisionId,
+        file: FileId,
+    ) -> Result<State, MaterialiseError> {
+        // Gathered first, because the items are owned: a redacted document is
+        // not the bytes the store holds, and a payload is not held as items
+        // at all.
+        let mut held: BTreeMap<RevisionId, Vec<Item>> = BTreeMap::new();
+        for piece in &resolution.pieces {
+            if let crate::format::Piece::Keep { document, .. } = piece
+                && !held.contains_key(document)
+                && let Some(items) = self.minted(document)?
+            {
+                held.insert(*document, items);
+            }
+        }
+        replay::assemble(resolution, |document| held.get(document).map(Vec::as_slice)).map_err(
+            |error| MaterialiseError::Content {
+                revision,
+                file,
+                error,
+            },
+        )
     }
 
     /// What each of these revisions effectively stated about one file.

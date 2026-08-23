@@ -1,0 +1,7 @@
+historica-v3
+result 3eca7ea48b0da0ad30bee679c92c7b68d487547068b6914d10a64e8cedb03f51
+
+insert 0
++alpha
++bravo
++charlie
