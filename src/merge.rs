@@ -378,17 +378,6 @@ impl Tree {
             .collect()
     }
 
-    /// Whether this element has a right child the author of `event` knows.
-    fn has_right(&self, at: Option<usize>, graph: &Graph<'_>, event: usize) -> bool {
-        let children = match at {
-            Some(at) => &self.elements[at].right,
-            None => &self.root,
-        };
-        children
-            .iter()
-            .any(|child| graph.knows(event, self.elements[*child].author))
-    }
-
     fn replay(&mut self, graph: &Graph<'_>, event: usize) -> Result<(), MergeError> {
         let Some(document) = graph.events[event].operations else {
             return Ok(());
@@ -439,9 +428,8 @@ impl Tree {
                         });
                     }
                     let mut left = at.checked_sub(1).map(|before| prepare[before]);
-                    let right = prepare.get(at).copied();
                     for (offset, item) in operation.items.iter().enumerate() {
-                        let (parent, side) = self.anchor(left, right, graph, event);
+                        let (parent, side) = self.anchor(left, graph, event);
                         left = Some(self.attach(
                             (revision, index + offset),
                             item.clone(),
@@ -457,35 +445,42 @@ impl Tree {
         Ok(())
     }
 
-    /// Where an element written between `left` and `right` belongs in the tree.
+    /// Where an element written after `left` belongs in the tree.
     ///
     /// Fugue's rule, in its tree formulation: an element attaches to its left
-    /// neighbour when that neighbour has nothing to its right yet, and to its
-    /// right neighbour otherwise. A run written by one author therefore becomes
-    /// one subtree, and a subtree is read out contiguously — which is the
-    /// guarantee against interleaving that decision 0007 chose Fugue for.
-    ///
-    /// The third case is the end of a file whose last items are tombstones:
-    /// there is no right neighbour to attach to, so the element goes after
-    /// everything its author knows.
+    /// neighbour when that neighbour has nothing to its right yet, and
+    /// otherwise as a left child of the element that follows the left
+    /// neighbour in its author's view of the tree — *tombstones included*,
+    /// which is why the author's next visible element cannot say where. That
+    /// next element is the leftmost known node under the left neighbour's
+    /// first known right child, so a run written by one author becomes one
+    /// subtree, read out contiguously — the guarantee against interleaving
+    /// that decision 0007 chose Fugue for — and two elements only ever become
+    /// same-side siblings when their authors had not seen each other, which
+    /// is what entitles [`Tree::attach`] to break sibling ties by digest.
     fn anchor(
         &self,
         left: Option<usize>,
-        right: Option<usize>,
         graph: &Graph<'_>,
         event: usize,
     ) -> (Option<usize>, Side) {
-        if !self.has_right(left, graph, event) {
+        let known = |children: &[usize]| {
+            children
+                .iter()
+                .copied()
+                .find(|child| graph.knows(event, self.elements[*child].author))
+        };
+        let children = match left {
+            Some(at) => &self.elements[at].right,
+            None => &self.root,
+        };
+        let Some(mut at) = known(children) else {
             return (left, Side::Right);
+        };
+        while let Some(next) = known(&self.elements[at].left) {
+            at = next;
         }
-        if let Some(right) = right {
-            return (Some(right), Side::Left);
-        }
-        let last = self
-            .order()
-            .into_iter()
-            .rfind(|at| graph.knows(event, self.elements[*at].author));
-        (last, Side::Right)
+        (Some(at), Side::Left)
     }
 
     /// Put an element into the tree, among its siblings in name order.
@@ -860,9 +855,6 @@ mod tests {
     /// costs a position per event rather than a row of bits, so the shape has
     /// to be detected on the histories a person actually records rather than
     /// on the two-revision ones written by hand below.
-    ///
-    /// What this cannot yet check is that [`merge`] returns that same file:
-    /// see [`the_tree_walk_orders_causal_siblings_by_digest`].
     #[test]
     fn a_chain_is_stored_as_one_and_replays_to_what_was_edited() {
         struct Rng(u64);
@@ -946,6 +938,11 @@ mod tests {
                 "round {round}: the replayer disagrees with the edit"
             );
             let merged = merge(history.events()).expect("a merge");
+            assert_eq!(
+                merged.state.text(),
+                text,
+                "round {round}: the walk disagrees with the edit"
+            );
             assert!(
                 merged.contested.is_empty(),
                 "round {round}: nothing in a chain is concurrent, so nothing is contested"
@@ -958,27 +955,22 @@ mod tests {
         }
     }
 
-    /// A known defect in the tree walk, kept executable rather than in prose.
+    /// A defect the tree walk used to have, kept executable rather than in
+    /// prose.
     ///
-    /// [`Tree::attach`] orders siblings by name — the digest, then the index —
-    /// which is the right tie-break between elements written concurrently and
-    /// the wrong one between elements that are causally ordered. Two of the
-    /// latter become siblings whenever an insertion's left neighbour already
-    /// has a right child that is a tombstone: the anchor falls to its second
-    /// case and hands both elements the same parent and side.
+    /// [`Tree::anchor`] once took the author's next *visible* element as the
+    /// right origin, where Fugue takes the next element in the traversal,
+    /// tombstones included. Whenever an insertion's left neighbour held a
+    /// tombstoned right child, that handed two causally ordered elements one
+    /// parent and side, and [`Tree::attach`]'s digest tie-break — right
+    /// between concurrent elements, wrong between ordered ones — read them
+    /// out on a coin flip: 94 of these 200 chains once misordered.
     ///
-    /// Below, `c` collects `b`, `d` and `f` as left children. `d` and `f` sit
-    /// four revisions apart in one chain with nothing concurrent anywhere in
-    /// it, and the file reads `a d f c` on roughly half of all digests and
-    /// `a f d c` on the other half. [`crate::replay`] — and so `check` — is
-    /// right on every one of them, so the two accounts this crate keeps of a
-    /// chain disagree, and this is the one that is wrong.
-    ///
-    /// Ignored because it fails, and it should fail until the ordering rule
-    /// accounts for causality. `cargo test -- --ignored` is the reminder.
+    /// Below, `d` and `f` sit four revisions apart in one chain with nothing
+    /// concurrent anywhere in it, and the file must read `a d f c` on every
+    /// digest, as [`crate::replay`] — and so `check` — always said.
     #[test]
-    #[ignore = "the tree walk orders causally ordered siblings by digest; see decision 0007"]
-    fn the_tree_walk_orders_causal_siblings_by_digest() {
+    fn the_tree_walk_keeps_a_chain_in_causal_order_around_tombstones() {
         let mut wrong = 0;
         for salt in 0..200 {
             let names: Vec<String> = (1..=7).map(|at| format!("s{salt}-r{at}")).collect();
@@ -1004,11 +996,11 @@ mod tests {
 
     /// The same chains, held to the answer [`crate::replay`] gives.
     ///
-    /// This is what `check` computes for these histories, and it is right on
-    /// every digest. [`merge`] is not, which is the defect above: `cat`
-    /// returns these bytes in the wrong order, `status` then calls the file
-    /// edited the moment after it was recorded, and the next `record` writes
-    /// a document saying its author moved a line they never touched.
+    /// This is what `check` computes for these histories, and while the walk
+    /// carried the defect above it was the account that stayed right: `cat`
+    /// returned the walk's bytes in the wrong order, `status` then called the
+    /// file edited the moment after it was recorded, and the next `record`
+    /// wrote a document saying its author moved a line they never touched.
     #[test]
     fn the_replayer_does_not_reorder_a_chain_around_a_tombstone() {
         for salt in 0..200 {

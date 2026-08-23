@@ -375,6 +375,19 @@ which is a tree question about what an entry may point at.
    can express must produce the same bytes, and concurrent paragraphs must not
    interleave. Fugue remains the choice unless that suite finds a counterexample.
 
+   The suite has one blind spot worth recording, because it bit. Both
+   implementations first transcribed Fugue's anchoring rule with the author's
+   next *visible* element as the right origin, where the rule wants the next
+   element in the tree traversal, tombstones included. The two agreed with
+   each other and were both wrong: whenever an insertion's left neighbour held
+   a tombstoned right child, two causally ordered elements became siblings and
+   the digest tie-break — correct only between concurrent elements — read a
+   plain linear chain out in digest order, against what `crate::replay` said
+   the same history meant. A shared specification line is exactly what a
+   conformance suite cannot check; what caught it was holding the walk to the
+   replayer on random linear chains, and that differential test is now pinned
+   in `src/merge.rs` alongside the chain that reproduced the defect.
+
 ## Deferred
 
 2. **Whether a re-rooting revision should exist**, stating content outright so

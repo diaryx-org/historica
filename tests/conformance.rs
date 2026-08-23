@@ -183,21 +183,22 @@ impl Replica {
     }
 
     /// Fugue's anchoring rule, at the source: attach to the left neighbour
-    /// when it has nothing to its right yet, to the right neighbour
-    /// otherwise, and after everything this replica holds when there is no
-    /// right neighbour to attach to.
-    fn anchor(&self, left: Option<usize>, right: Option<usize>) -> (Option<usize>, Side) {
-        let empty = match left {
-            Some(left) => self.nodes[left].right.is_empty(),
-            None => self.nodes[ROOT].right.is_empty(),
+    /// when it has nothing to its right yet, and otherwise as a left child of
+    /// the node that follows the left neighbour in the traversal — tombstones
+    /// included, which is the leftmost node under its first right child.
+    fn anchor(&self, left: Option<usize>) -> (Option<usize>, Side) {
+        let children = match left {
+            Some(left) => &self.nodes[left].right,
+            None => &self.nodes[ROOT].right,
         };
-        if empty {
+        let Some(&first) = children.first() else {
             return (left, Side::Right);
+        };
+        let mut at = first;
+        while let Some(&next) = self.nodes[at].left.first() {
+            at = next;
         }
-        if let Some(right) = right {
-            return (Some(right), Side::Left);
-        }
-        (self.order().last().copied(), Side::Right)
+        (Some(at), Side::Left)
     }
 
     /// Turn one revision's document into messages, applying each locally as
@@ -226,9 +227,8 @@ impl Replica {
                 }
                 OperationKind::Insert => {
                     let mut left = operation.at.checked_sub(1).map(|before| prepare[before]);
-                    let right = prepare.get(operation.at).copied();
                     for (offset, item) in operation.items.iter().enumerate() {
-                        let (parent, side) = self.anchor(left, right);
+                        let (parent, side) = self.anchor(left);
                         let key = Key {
                             revision,
                             index: index + offset,
@@ -586,8 +586,8 @@ fn paragraphs_typed_backwards_do_not_interleave_either() {
 
 #[test]
 fn the_reference_and_the_replay_agree_at_the_end_of_a_tombstoned_file() {
-    // The anchoring rule's third case: an append where the file's last items
-    // are tombstones, so there is no right neighbour to attach to. The least
+    // An append where the file's last items are tombstones, so the right
+    // origin is a tombstone rather than anything visible. The least
     // travelled branch in both implementations, held to agreement explicitly.
     let mut sim = Sim::new(2);
     sim.record(0, document(&["insert 0", "+a", "+b", "+c"]));
