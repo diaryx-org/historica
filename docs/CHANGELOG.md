@@ -83,6 +83,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — skipped/, one rule to a file ([`34a81f8`](https://github.com/diaryx-org/historica/commit/34a81f86f30c07ea21f158d9c9790642bb39cd24))
 - **check** — note the work a rewrite did not reach ([`342ac5f`](https://github.com/diaryx-org/historica/commit/342ac5fd96aee7cb11d52f35e9abf7cbba504a7c))
 - **update** — lay a revision out in a directory that holds nothing ([`b2c6fb0`](https://github.com/diaryx-org/historica/commit/b2c6fb05b5988a956bbaa8bde33cf46e060adc31))
+- **store** — ask what a digest is, not which grammar you hoped for ([`ad8ac7e`](https://github.com/diaryx-org/historica/commit/ad8ac7ee98f68c63daa3f343596ecba775004a97))
 
 ### Fixed
 
@@ -92,6 +93,9 @@ visible, to be triaged into its real group before the tag is cut.
 - **cli** — print a merge command that settles the path it says is claimed ([`57086c3`](https://github.com/diaryx-org/historica/commit/57086c3ce627b64ebaf8724e7d6e302ca6ded8c8))
 - **record** — a link nobody touched is a link nobody retargeted ([`2ab9962`](https://github.com/diaryx-org/historica/commit/2ab9962fdc831a975cfbc7b42fb7ae99b4598fb3))
 - **store** — add @eaDir to the names the store cannot own ([`4db3b94`](https://github.com/diaryx-org/historica/commit/4db3b94adb0c5bab400a6e221f2c4298694e8e09))
+- **show** — print the resolution a merge states ([`8cd293c`](https://github.com/diaryx-org/historica/commit/8cd293c9abcee8055a2e04cb108a53357ff50c42))
+- **receive** — carry the resolution documents a merge names ([`861d943`](https://github.com/diaryx-org/historica/commit/861d9437b180bc550d68d84581641687f3012e65))
+- **forget** — say why it cannot reach into a resolution ([`5f74c3b`](https://github.com/diaryx-org/historica/commit/5f74c3b45f124a46da3b9bb8b5a55e7fccbeca1e))
 
 ### Changed
 
@@ -426,6 +430,28 @@ the version line in `export`'s output.
   revision. It never fails, so `check`'s exit status is unchanged, and
   `Finding` is `#[non_exhaustive]`, so the new variant breaks no match.
   `merge` prints one line per such head before its other output.
+
+- `historica::store::Body` is public, and `Store` gains
+  `body` and `bodies`. Nothing existing changed shape.
+
+- `show <merge> <path>` prints the resolution document
+  instead of failing with "which this store does not hold yet". The
+  undelivered-document message itself now says "content document" rather
+  than "operation document", since either grammar can be the thing that is
+  missing.
+
+- `receive` transfers resolution documents, so a store
+  that received a merge from an earlier version is missing documents and
+  should receive again — the second run now copies what the first left
+  behind. Its counts print as "content documents" rather than "operation
+  documents", and count both grammars. `ReceivePlan::operations` is
+  `ReceivePlan::documents` and `Received::operations` is
+  `Received::documents`.
+
+- `forget` refuses a span including lines minted by a
+  resolution with a message naming that limit, instead of reporting the
+  resolution as undelivered. `ForgetError::MintedByResolution` is a new
+  variant of an already `#[non_exhaustive]` enum.
 
 <!-- git-cliff:end -->
 
