@@ -152,7 +152,7 @@ property test cannot see; `examples/matchers.rs` is the measurement decision
 
 The `record` module is the writer 0010 and 0011 specify, and `working` is what
 it is given: the folder beside the store, everything in it tracked except what
-`history/skipped.txt` names — and a rule there covering a file the tree already
+`history/skipped/` names — and a rule there covering a file the tree already
 holds is refused, because the walk would stop offering the path and the next
 record would spell a request for privacy as a deletion of the file it names. A change ID is 96 bits from the operating system, an
 author comes from a person's own configuration and is never guessed, and the
@@ -582,7 +582,7 @@ Choices that constrain later work are written down as they are made.
   rewrite the tool performs on its own behalf copies all three, so two replicas
   that rebase one change write one file.
 - [`docs/decisions/0011-working-copy.md`](docs/decisions/0011-working-copy.md)
-  — the folder beside the store is the working copy, `history/skipped.txt` says
+  — the folder beside the store is the working copy, `history/skipped/` says
   what it does not take, the parent is the head, and a rename is the one fact
   a person has to state. Nothing is remembered between commands.
 - [`docs/decisions/0012-conflicts.md`](docs/decisions/0012-conflicts.md) —
@@ -648,8 +648,8 @@ Choices that constrain later work are written down as they are made.
   payload, because Finder writes a `.DS_Store` into every folder it displays.
   A payload is never filed under a name the store does not own, a file with
   such a name inside the store is somebody else's rather than content, and
-  `init` writes a `skipped.txt` that keeps them out of a history that is
-  append-only.
+  `init` writes a note in `skipped/` explaining the rule that keeps them out
+  of a history that is append-only.
 - [`docs/decisions/0023-what-an-amendment-keeps.md`](docs/decisions/0023-what-an-amendment-keeps.md)
   — the head, rewritten: the change, the author, and the moment the work was
   first recorded are copied, `revised` is stamped because amending is an act a
@@ -783,8 +783,9 @@ Choices that constrain later work are written down as they are made.
   platform names apply unchanged. Removal has no tombstone and a later receive
   may resurrect a rule, which is the recoverable half of 0011's asymmetry and
   loud besides, since `record` already refuses over a rule covering a tracked
-  file. The marker rises to `historica-v2`, because a reader that cannot see
-  the rules would record what somebody asked it to keep out.
+  file, and `check` names the rule file to delete where one arrives that way.
+  The old `skipped.txt` is not read, not converted, and reported by `check`,
+  which is the whole of the migration a library this young owes anybody.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

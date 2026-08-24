@@ -36,12 +36,16 @@ sequence — and a sequence is the thing two writers cannot both append to.
   at all, since `skip docs/drafts/` contains a character no filename holds.
 
 - **The label a writer picks mirrors the path.** `skip docs/drafts/` is written
-  to `skipped/docs/drafts.txt`, `skip .DS_Store` to `skipped/.DS_Store.txt`,
-  and `skip-suffix .tmp` — which names no path — to `skipped/suffix .tmp.txt`.
-  A name already taken by a *different* rule takes a digest suffix, which is
-  0018's answer to the same collision. A label the filesystem will not accept
-  is replaced by the digest of the rule alone. A person writing a file by hand
-  may call it whatever they like; the rule is what is inside it.
+  to `skipped/docs/drafts/all.txt`, `skip .DS_Store` to
+  `skipped/.DS_Store.txt`, and `skip-suffix .tmp` — which names no path — to
+  `skipped/suffix .tmp.txt`. A directory rule sits *inside* the directory it
+  names, which is what parts it from the exact-path rule spelling the same
+  characters without either label having to carry a trailing slash. A label
+  the store cannot own — a platform name (0022), a name already meaning
+  something here, a component no filesystem will take — is the digest of the
+  rule instead, and so is a label another rule already holds, which is 0018's
+  collision suffix reached by 0018's reasoning. A person writing a file by
+  hand may call it whatever they like; the rule is what is inside it.
 
 - **A file states one rule, and a `#` line states nothing.** The grammar of the
   line is 0011's, word for word, and 0022's comments come with it. A file
@@ -60,15 +64,16 @@ sequence — and a sequence is the thing two writers cannot both append to.
 - **A rule that arrives covering a file the tree already holds is accepted, and
   `record` refuses as it already does.** `check` gains a finding for the state,
   naming the rule file and what it covers, because the fix is now to delete one
-  file and the message can say so.
+  file and the message can say so. It also notes two files stating one rule,
+  which is what a `receive` meeting two labels for one rule leaves behind.
 
 - **`init` writes the directory and one file that states no rule.** 0027 has
   the default explain the grammar and state nothing; a comment-only file is
   that, with no special case in the reader, and it unions with the identical
   file on every other replica to itself.
 
-- **`historica.txt` states `historica-v2`.** Reasoning below: this is the one
-  kind of change an older reader must not read past.
+- **A `skipped.txt` is not read, not converted, and reported.** Reasoning
+  below.
 
 ## Why removal cannot be exact, and should not be
 
@@ -109,24 +114,25 @@ What this genuinely costs: **a person who wants a rule gone must say so on
 every replica.** Not a paragraph of hedging — say it in the error message, name
 the store the rule came back from, and let the person decide.
 
-## Why this is a version boundary
+## What happens to a `skipped.txt`
 
-An older reader opening a store with `skipped/` sees a directory it does not
-know, no `skipped.txt`, and therefore no rules. It would then record every file
-the person asked it to keep out, into an append-only history. That is precisely
-the outcome the previous section calls unrecoverable, so it is not a
-compatibility question with two defensible answers.
+Nothing reads it. There is no migration, no dual reader, and no conversion
+command: this library is young enough that the number of stores holding rules
+is small and the number holding rules somebody would mourn is smaller, and a
+compatibility path is a thing every later decision has to keep working.
 
-The version marker is the gate that exists for it. 0017 makes the marker the
-reader's refusal point, and while its subject there is document grammar, its
-sentence is general — a reader that knows less refuses. This is a store whose
-rules a v1 reader cannot see, so a v1 reader must refuse the store.
+That leaves one danger, which is the danger of every silent removal. A store
+carrying rules a reader cannot see records the files those rules kept out, into
+an append-only history — the unrecoverable direction again. So the file is
+*reported*: `check` calls a `skipped.txt` beside the store an error, saying it
+states nothing now and that rules are one to a file in `skipped/`. One finding,
+no reading, and the person moves the lines themselves.
 
-The rejected alternative is to keep writing `skipped.txt` alongside the
-directory for older readers. Two files stating the same truth is the shape 0011
-spent a section refusing, under the name *which of five files won*, and a
-shadow file whose staleness nothing detects is worse than a refusal a person
-can read.
+The rejected alternative is the version marker. `historica.txt` states the
+highest *document* version a store holds, no document grammar changed here, and
+a marker raised for a layout change would refuse stores over a difference the
+documents do not have. What this really wants is a gate on the layout, which is
+noted under Deferred and not built.
 
 ## What the label can and cannot carry
 
@@ -193,33 +199,36 @@ they exist or who added them, this is the decision to revisit.
 ## Consequences
 
 - `history/skipped.txt` becomes `history/skipped/`. `SKIPPED_FILE` becomes
-  `SKIPPED_DIR`; `DEFAULT_SKIPPED` becomes the text of the one file `init`
-  writes.
-- `Skipped` keeps its API — `skips`, `skips_directory`, `rules`, `len`,
-  `is_empty` are unchanged, and every caller in `record`, `working`, `blame`
-  and `export` compiles as it stands. `Skipped::parse` is joined by a reader
-  over a directory, and `Rule` gains the label a writer files it under.
-- `Store::append_skipped` becomes an add that writes one file per rule with
-  `create_new`. Two concurrent `skip` commands on one machine can no longer
-  lose a rule, which is 0026's property arriving where 0026 could not put it:
-  atomic replacement keeps a value whole, and creation makes two values
-  impossible to confuse.
+  `SKIPPED_DIR`; `DEFAULT_SKIPPED` becomes `SKIPPED_NOTE`, the text of the one
+  file `init` writes.
+- `Skipped` keeps the API its callers use — `skips`, `skips_directory`,
+  `rules`, `len`, `is_empty` are unchanged, and `record`, `working`, `blame`
+  and `export` compile as they stand. `Skipped::parse` becomes
+  `Skipped::rule_in`, which reads one file and returns at most one rule;
+  `from_rules` and `stated` build the set; `stating` and `file_of` say which
+  file states a rule, since that file is what deleting it means. `Rule` gains
+  `parse`, `label` and `digest_label`.
+- `Store::append_skipped` becomes `Store::add_skipped`, which writes one file
+  per rule with `create_new` and returns the labels it wrote. Two concurrent
+  `skip` commands on one machine can no longer lose a rule, which is 0026's
+  property arriving where 0026 could not put it: atomic replacement keeps a
+  value whole, and creation makes two values impossible to confuse.
 - `MutableConflict::Skipped` is removed, `ReceivePlan::receives_skipped`
-  becomes a count of rules, and `Received::skipped` becomes `usize`. All three
-  are public, so the implementing commit carries a `Behavioural-change:`
-  trailer.
-- `check` gains: a file in `skipped/` that is not one rule (error, naming the
-  file), a rule covering a file the tree holds (error, naming both), two files
-  stating one rule (note), and a legacy `skipped.txt` (note).
-- A legacy `skipped.txt` is still read and its rules still apply, so no store
-  breaks on upgrade. Nothing converts it automatically: the note says the rules
-  can move and the person deletes the file, because a migration that deletes a
-  synced file on one replica is the resurrection problem wearing a hat.
-- `export` excludes the directory where it excluded the file (0042), and the
-  store's own listing in `store/mod.rs` and `store/format.txt` gains a
-  directory where it had a file — the layout 0003 counts on one hand now counts
-  `names/` and the marker as its mutable surface, with `skipped/` create-only
-  beside them.
+  becomes `ReceivePlan::skipped` returning the rules, and `Received::skipped`
+  becomes a `usize`. All three are public, so the implementing commit carries a
+  `Behavioural-change:` trailer.
+- `check` gains four findings: a file in `skipped/` that is not one rule
+  (error), a rule covering a file the tree holds (error, naming the file to
+  delete), two files stating one rule (note), and a `skipped.txt` beside the
+  store (error).
+- `skip` with no arguments prints the rules with the file stating each, where
+  it used to print the file. 0016 said the preview is `cat`, and that was an
+  answer for as long as there was one file to cat.
+- `export` builds a store whose `skipped/` holds the note and nothing else,
+  which is what it did with the file (0042). The store's listing in
+  `store/mod.rs` gains a directory where it had a file, and the layout 0003
+  counts on one hand now has `names/` and the marker as its mutable surface,
+  with `skipped/` create-only beside them.
 
 ## Deferred
 
@@ -230,8 +239,10 @@ of the answer and this decision declines to build it, because the case is
 hypothetical and the tombstone is permanent. What would justify it is somebody
 meeting the loop in practice.
 
-**A store-layout gate distinct from the document-version gate.** `historica.txt`
-now carries two meanings: the highest document version a store holds, and
-whether the reader understands the layout. They will not always move together.
-One gate that occasionally refuses more than it must beats two gates a writer
-can forget, so this is noted and not fixed.
+**A store-layout gate.** `historica.txt` gates document grammar and nothing
+else, so there is no version of anything a reader can consult to learn that a
+store's rules live somewhere it does not look. This decision needed one and
+spent a `check` finding instead, which works because the layout it warns about
+is the one this decision replaced and not a general answer. The next layout
+change that can be misread rather than merely unread is where the gate has to
+be designed, and designing it then beats guessing at it now.

@@ -25,7 +25,7 @@ use historica::format::{LinkTarget, Mode, RevisionDocument, Version};
 use historica::fs::{Entry, Filesystem, Kind};
 use historica::record::{Clock as _, Platform, Recording, Restriction, record};
 use historica::store::{Name, Placement, Severity, Store};
-use historica::working::{Skipped, Working};
+use historica::working::{Rule, Working};
 
 // ---------------------------------------------------------------------------
 // A filesystem made of two maps
@@ -262,7 +262,7 @@ fn a_history_is_recorded_and_read_back_with_no_filesystem_at_all() {
     assert!(store.get(&first).is_some() && store.get(&second).is_some());
 
     // Every byte of it is in the map and nowhere else — including the header
-    // and the default `skipped.txt` that `init` writes.
+    // and the note `init` writes into `skipped/`.
     assert!(memory.count() >= 4, "held {} files", memory.count());
     assert!(
         !Path::new(ROOT).exists(),
@@ -312,18 +312,15 @@ fn a_bookmark_and_the_skipped_rules_survive_a_reopen() {
     store
         .set_name("main", Name::Revision(second))
         .expect("a bookmark");
-    let rules: Vec<_> = Skipped::parse("skip build.log\n")
-        .expect("a rule")
-        .rules()
-        .cloned()
-        .collect();
-    store.append_skipped(&rules).expect("a rule");
+    let rule = Rule::parse("skip build.log").expect("a rule");
+    let written = store.add_skipped(&[rule]).expect("a rule");
+    assert_eq!(written, vec!["build.log.txt".to_owned()]);
 
     let reopened = Store::open_on(memory.clone(), store.root()).expect("reopening");
     assert_eq!(reopened.name("main"), Some(Name::Revision(second)));
     assert!(
         reopened.skipped().skips("build.log"),
-        "the appended rule should be read back"
+        "the written rule should be read back"
     );
 }
 

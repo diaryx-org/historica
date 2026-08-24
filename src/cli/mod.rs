@@ -15,7 +15,7 @@ use historica::record::{Restriction, survey};
 use historica::store::{
     Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store, StoreError,
 };
-use historica::working::{Rule, SKIPPED_FILE, Working};
+use historica::working::{Rule, SKIPPED_DIR, Working};
 
 mod arrange;
 mod blame;
@@ -417,8 +417,8 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             for name in plan.names().keys() {
                 writeln!(out, "would receive name {name}")?;
             }
-            if plan.receives_skipped() {
-                writeln!(out, "would receive {SKIPPED_FILE}")?;
+            if !plan.skipped().is_empty() {
+                writeln!(out, "would receive {} rules", plan.skipped().len())?;
             }
             if !plan.destroys().is_empty() {
                 writeln!(
@@ -434,9 +434,6 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                             out,
                             "conflict: name {name} is {here} here and {there} there"
                         )?;
-                    }
-                    MutableConflict::Skipped => {
-                        writeln!(out, "conflict: both stores changed {SKIPPED_FILE}")?;
                     }
                 }
             }
@@ -455,8 +452,8 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         if received.names != 0 {
             writeln!(out, "received {} names", received.names)?;
         }
-        if received.skipped {
-            writeln!(out, "received {SKIPPED_FILE}")?;
+        if received.skipped != 0 {
+            writeln!(out, "received {} rules", received.skipped)?;
         }
         if received.destroyed != 0 {
             writeln!(out, "destroyed {} forgotten originals", received.destroyed)?;
@@ -998,12 +995,20 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
     let mut store = open(base)?;
     if wanted.is_empty() {
-        // The file itself, not a rendering of the rules in it. Decision 0016
-        // said the preview is `cat`, and decision 0022 gave the file comments
-        // worth keeping in view.
-        let path = store.root().join(SKIPPED_FILE);
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        return printing(|out| out.write_all(text.as_bytes()));
+        // The rules, each with the file stating it, since decision 0045 makes
+        // that file the whole of what deleting a rule means. `cat` was the
+        // preview 0016 asked for while there was one file to cat.
+        let rules: Vec<(String, String)> = store
+            .skipped()
+            .stating()
+            .map(|(rule, file)| (rule.to_string(), file.unwrap_or_default().to_owned()))
+            .collect();
+        return printing(|out| {
+            for (rule, file) in &rules {
+                writeln!(out, "{rule}\n  {STORE_DIR}/{SKIPPED_DIR}/{file}")?;
+            }
+            Ok(())
+        });
     }
 
     // Decision 0011, checked against every head rather than one: a rule is a
@@ -1053,11 +1058,11 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             fresh.push(rule);
         }
     }
-    store.append_skipped(&fresh)?;
+    let written = store.add_skipped(&fresh)?;
 
     printing(|out| {
-        for line in fresh.iter().map(Rule::to_string).collect::<Vec<_>>() {
-            writeln!(out, "{STORE_DIR}/{SKIPPED_FILE}: {line}")?;
+        for (rule, label) in fresh.iter().zip(&written) {
+            writeln!(out, "{rule}\n  {STORE_DIR}/{SKIPPED_DIR}/{label}")?;
         }
         for line in &already {
             writeln!(out, "already there: {line}")?;

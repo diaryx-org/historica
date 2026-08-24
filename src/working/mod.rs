@@ -2,7 +2,7 @@
 //!
 //! Specified by `docs/decisions/0011-working-copy.md`. The working copy is the
 //! directory holding `history/`, everything in it is tracked, and
-//! `history/skipped.txt` names the exceptions. Nothing here is remembered between
+//! `history/skipped/` names the exceptions. Nothing here is remembered between
 //! commands: reading a working copy is a walk of the filesystem, every time.
 //!
 //! Decision 0043 leaves that sentence standing and makes it cheaper to keep.
@@ -27,20 +27,50 @@ use crate::store::STORE_DIR;
 
 mod catalogue;
 
-/// The file in the store that says what history does not take.
-pub const SKIPPED_FILE: &str = "skipped.txt";
+/// The directory in the store that says what history does not take.
+///
+/// Decision 0045: one rule to a file. What a single `skipped.txt` held was
+/// always a set — [`Skipped::skips`] is `any(covers)`, so there is no order to
+/// lose, a rule stated twice means what one means, and no rule can cancel
+/// another because 0011 refused negation. Only the container was a sequence,
+/// and a sequence is the thing two writers cannot both append to.
+pub const SKIPPED_DIR: &str = "skipped";
 
-/// What `history/skipped.txt` says.
+/// What a rule file is called, after the label.
+pub const RULE_SUFFIX: &str = ".txt";
+
+/// The file `init` writes there: the grammar, and no rule.
+///
+/// It needs no special case in the reader. A file of comments states nothing,
+/// which is exactly what decision 0027 asked the default to say.
+pub const SKIPPED_NOTE_FILE: &str = "README.txt";
+
+/// The name a directory rule takes inside the directory it names.
+///
+/// `skip target/` is `skipped/target/all.txt`, which parts it from
+/// `skip target` at `skipped/target.txt` without either label having to spell
+/// a trailing slash a filename cannot hold.
+pub const UNDER_FILE: &str = "all.txt";
+
+/// Label components longer than this are a name a filesystem may refuse.
+///
+/// Every filesystem in use allows 255 bytes; the margin is for the collision
+/// suffix, and for the fact that a path component here is a path component
+/// there.
+const LABEL_BYTES: usize = 200;
+
+/// What `history/skipped/` says.
 ///
 /// Two keys, and deliberately no pattern language: decision 0011 argues that
 /// the part people get wrong about gitignore is never the pattern but which of
 /// five files won.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Skipped {
-    rules: Vec<Rule>,
+    /// Each rule, with the file of `skipped/` that states it where one does.
+    rules: Vec<(Rule, Option<String>)>,
 }
 
-/// One line of `history/skipped.txt`.
+/// One rule, which is one file of `history/skipped/`.
 ///
 /// Public because writing the file is a thing a command does, and a rule that
 /// renders itself is what keeps the writer from spelling a line the reader
@@ -56,6 +86,104 @@ pub enum Rule {
 }
 
 impl Rule {
+    /// Read one stated rule.
+    ///
+    /// An unknown key is an error rather than something to ignore. Decision
+    /// 0011: a reader that ignored a key it had not heard of would record
+    /// files somebody asked it to keep out, into a history that is
+    /// append-only, and refusing to record is the recoverable half of that.
+    pub fn parse(line: &str) -> Result<Self, MalformedSkip> {
+        Self::parse_at(line, 1)
+    }
+
+    /// The same, saying which line of its file the rule was on.
+    fn parse_at(line: &str, at: usize) -> Result<Self, MalformedSkip> {
+        let (key, value) = line.split_once(' ').ok_or(MalformedSkip {
+            at,
+            because: "a line is a key, a space, and a value",
+        })?;
+        if value.is_empty() || value != value.trim() {
+            return Err(MalformedSkip {
+                at,
+                because: "a value is not empty and carries no leading or trailing space",
+            });
+        }
+        Ok(match key {
+            "skip" if value.ends_with('/') => {
+                Rule::Under(crate::format::nfc(value.trim_end_matches('/')).into_owned())
+            }
+            "skip" => Rule::Path(crate::format::nfc(value).into_owned()),
+            "skip-suffix" => Rule::Suffix(crate::format::nfc(value).into_owned()),
+            _ => {
+                return Err(MalformedSkip {
+                    at,
+                    because: "the keys are `skip` and `skip-suffix`",
+                });
+            }
+        })
+    }
+
+    /// Where a writer files this rule, relative to `skipped/`.
+    ///
+    /// Decision 0045: the label is presentation and the content is the rule,
+    /// which is 0003's sentence about every other file in the store. It has to
+    /// be, because `skip docs/drafts/` holds a character no filename does — so
+    /// the label mirrors the path into real directories instead, and the walk
+    /// that reads them already recurses.
+    ///
+    /// A label the store cannot own falls back to the digest of the rule:
+    /// 0018's collision suffix, arrived at from the rule alone rather than
+    /// from what a directory already holds, so two replicas spelling one rule
+    /// spell one filename.
+    pub fn label(&self) -> String {
+        let natural = match self {
+            Rule::Path(path) => format!("{}{RULE_SUFFIX}", crate::naming::scrubbed(path)),
+            Rule::Under(path) => format!("{}/{UNDER_FILE}", crate::naming::scrubbed(path)),
+            Rule::Suffix(suffix) => {
+                format!("suffix {}{RULE_SUFFIX}", crate::naming::scrubbed(suffix))
+            }
+        };
+        match self.spellable(&natural) {
+            true => natural,
+            false => self.digest_label(),
+        }
+    }
+
+    /// The label a rule takes where the natural one is somebody else's.
+    ///
+    /// Derived from the rule and nothing else, so two replicas that both have
+    /// to fall back fall back to one name.
+    pub fn digest_label(&self) -> String {
+        format!(
+            "{}{RULE_SUFFIX}",
+            crate::format::digest(self.to_string().as_bytes())
+                .abbreviate(crate::naming::DIGEST_CHARS)
+        )
+    }
+
+    /// Whether the natural label is one this directory can carry.
+    ///
+    /// Four ways it is not, and each would lose a rule silently rather than
+    /// loudly: a name the reader skips as the platform's (0022), a name
+    /// already meaning something else here, a component no filesystem will
+    /// take, and a suffix rule whose value would nest it under directories
+    /// that are not there.
+    fn spellable(&self, natural: &str) -> bool {
+        let last = natural.rsplit('/').next().unwrap_or(natural);
+        if crate::store::platform_name(last) || natural == SKIPPED_NOTE_FILE {
+            return false;
+        }
+        if last == UNDER_FILE && !matches!(self, Rule::Under(_)) {
+            return false;
+        }
+        if matches!(self, Rule::Suffix(_)) && natural.contains('/') {
+            return false;
+        }
+        natural
+            .split('/')
+            .all(|component| !component.is_empty() && component.len() <= LABEL_BYTES)
+    }
+
     /// Whether this rule covers a path.
     pub fn covers(&self, path: &str) -> bool {
         match self {
@@ -83,30 +211,58 @@ impl fmt::Display for Rule {
     }
 }
 
-/// What `init` writes into `history/skipped.txt`.
+/// What `init` writes into `history/skipped/README.txt`.
 ///
 /// Decision 0027: the file explains the rule syntax and states no rules.
 /// Defaults belong to a host or project that knows what its files mean; the
 /// history library does not silently leave anything out.
-pub const DEFAULT_SKIPPED: &str = "\
-# What recording does not take. One rule a line: `skip <path>`, `skip <path>/`
-# for everything under it, or `skip-suffix <ending>`. A `#` line says nothing.
+pub const SKIPPED_NOTE: &str = "\
+# What recording does not take: one rule to a file, and this file states none.
+# A rule is a key, a space, and a value — `skip <path>`, `skip <path>/` for
+# everything under it, or `skip-suffix <ending>`. A `#` line says nothing.
+#
+# The filename is a label for whoever opens this folder; the rule is what the
+# file holds. Delete a file to drop its rule, and note that a store you receive
+# from can hand it back, because a copy cannot tell a rule you deleted from a
+# rule it has not seen yet.
 ";
 
 impl Skipped {
-    /// Skip nothing, which is what a store with no such file says.
+    /// Skip nothing, which is what a store with an empty directory says.
     pub fn none() -> Self {
         Self::default()
     }
 
-    /// Read the file's text.
+    /// Every rule these files state, with a rule stated twice counted once.
     ///
-    /// An unknown key is an error rather than something to ignore. Decision
-    /// 0011: a reader that ignored a key it had not heard of would record
-    /// files somebody asked it to keep out, into a history that is
-    /// append-only, and refusing to record is the recoverable half of that.
-    pub fn parse(text: &str) -> Result<Self, MalformedSkip> {
-        let mut rules = Vec::new();
+    /// The order is the order they were found in, which is the order the
+    /// directory sorts — and it means nothing, because [`Skipped::skips`] asks
+    /// every rule.
+    pub fn from_rules(rules: impl IntoIterator<Item = Rule>) -> Self {
+        Self::stated(rules.into_iter().map(|rule| (rule, None)))
+    }
+
+    /// The same, each rule with the file of `skipped/` that states it.
+    ///
+    /// The file is what deleting a rule means, so it is what a message about
+    /// a rule has to be able to name.
+    pub fn stated(rules: impl IntoIterator<Item = (Rule, Option<String>)>) -> Self {
+        let mut held: Vec<(Rule, Option<String>)> = Vec::new();
+        for (rule, file) in rules {
+            if !held.iter().any(|(had, _)| *had == rule) {
+                held.push((rule, file));
+            }
+        }
+        Self { rules: held }
+    }
+
+    /// The rule one file states, or none where it states only comments.
+    ///
+    /// A file stating two rules is refused, and the error names the file
+    /// rather than a line inside it — which is the better half of the trade
+    /// decision 0045 makes, since the fix is now to split one file in two.
+    pub fn rule_in(text: &str) -> Result<Option<Rule>, MalformedSkip> {
+        let mut found: Option<Rule> = None;
         for (index, line) in text.lines().enumerate() {
             let at = index + 1;
             if line.is_empty() {
@@ -118,36 +274,20 @@ impl Skipped {
             if line.starts_with('#') {
                 continue;
             }
-            let (key, value) = line.split_once(' ').ok_or(MalformedSkip {
-                at,
-                because: "a line is a key, a space, and a value",
-            })?;
-            if value.is_empty() || value != value.trim() {
+            if found.is_some() {
                 return Err(MalformedSkip {
                     at,
-                    because: "a value is not empty and carries no leading or trailing space",
+                    because: "a file states one rule, and this is a second",
                 });
             }
-            rules.push(match key {
-                "skip" if value.ends_with('/') => {
-                    Rule::Under(crate::format::nfc(value.trim_end_matches('/')).into_owned())
-                }
-                "skip" => Rule::Path(crate::format::nfc(value).into_owned()),
-                "skip-suffix" => Rule::Suffix(crate::format::nfc(value).into_owned()),
-                _ => {
-                    return Err(MalformedSkip {
-                        at,
-                        because: "the keys are `skip` and `skip-suffix`",
-                    });
-                }
-            });
+            found = Some(Rule::parse_at(line, at)?);
         }
-        Ok(Self { rules })
+        Ok(found)
     }
 
     /// Whether history takes this path.
     pub fn skips(&self, path: &str) -> bool {
-        self.rules.iter().any(|rule| rule.covers(path))
+        self.rules.iter().any(|(rule, _)| rule.covers(path))
     }
 
     /// Whether a directory is skipped whole, so that walking it is pointless.
@@ -156,29 +296,45 @@ impl Skipped {
     /// a file in it, and a command that could not tell "no such path" from
     /// "a rule keeps that path out" would say the wrong one of the two.
     pub fn skips_directory(&self, path: &str) -> bool {
-        self.rules.iter().any(|rule| match rule {
+        self.rules.iter().any(|(rule, _)| match rule {
             Rule::Under(prefix) | Rule::Path(prefix) => path == prefix,
             Rule::Suffix(_) => false,
         })
     }
 
-    /// Every rule, in the order the file states them.
+    /// Every rule, in the order the directory states them.
     pub fn rules(&self) -> impl Iterator<Item = &Rule> {
-        self.rules.iter()
+        self.rules.iter().map(|(rule, _)| rule)
     }
 
-    /// How many rules the file states.
+    /// Every rule with the file of `skipped/` that states it, where the rules
+    /// were read from a store rather than assembled.
+    pub fn stating(&self) -> impl Iterator<Item = (&Rule, Option<&str>)> {
+        self.rules
+            .iter()
+            .map(|(rule, file)| (rule, file.as_deref()))
+    }
+
+    /// Which file of `skipped/` states this rule.
+    pub fn file_of(&self, rule: &Rule) -> Option<&str> {
+        self.rules
+            .iter()
+            .find(|(had, _)| had == rule)
+            .and_then(|(_, file)| file.as_deref())
+    }
+
+    /// How many rules the directory states.
     pub fn len(&self) -> usize {
         self.rules.len()
     }
 
-    /// Whether the file states no rules.
+    /// Whether the directory states no rules.
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
     }
 }
 
-/// A line of `history/skipped.txt` that was not one rule.
+/// A file of `history/skipped/` that was not one rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MalformedSkip {
     /// The line, counted from one.
@@ -718,23 +874,23 @@ impl fmt::Display for WorkingError {
             WorkingError::NotUtf8 { path } => write!(
                 f,
                 "{path} is not a name this format can hold: a path is UTF-8; \
-                 rename it, or `skip` it in `{STORE_DIR}/{SKIPPED_FILE}`"
+                 rename it, or `skip` it in `{STORE_DIR}/{SKIPPED_DIR}/`"
             ),
             WorkingError::Unusable { path, because } => write!(
                 f,
                 "`{path}` cannot be a path here: {because}; rename it, or `skip` \
-                 it in `{STORE_DIR}/{SKIPPED_FILE}`"
+                 it in `{STORE_DIR}/{SKIPPED_DIR}/`"
             ),
             WorkingError::NotAFile { path } => write!(
                 f,
                 "`{path}` is neither a regular file nor a link, and this format \
-                 spells nothing else; `skip` it in `{STORE_DIR}/{SKIPPED_FILE}`"
+                 spells nothing else; `skip` it in `{STORE_DIR}/{SKIPPED_DIR}/`"
             ),
             WorkingError::LinkNotUtf8 { path } => write!(
                 f,
                 "`{path}` points at a name that is not UTF-8, and this store is \
                  UTF-8 text; point it somewhere spellable, or `skip` it in \
-                 `{STORE_DIR}/{SKIPPED_FILE}`"
+                 `{STORE_DIR}/{SKIPPED_DIR}/`"
             ),
             WorkingError::IsALink { path } => write!(
                 f,
@@ -762,7 +918,11 @@ mod tests {
     use super::*;
 
     fn skipped(text: &str) -> Skipped {
-        Skipped::parse(text).expect("rules the reader accepts")
+        Skipped::from_rules(text.lines().filter(|line| !line.is_empty()).map(|line| {
+            Skipped::rule_in(line)
+                .expect("a rule the reader accepts")
+                .expect("a line that states one")
+        }))
     }
 
     #[test]
@@ -784,15 +944,81 @@ mod tests {
 
     #[test]
     fn an_unknown_key_is_an_error_naming_the_line() {
-        let refused = Skipped::parse("skip target/\nignore secrets\n").expect_err("refused");
+        let refused = Skipped::rule_in("# a note\nignore secrets\n").expect_err("refused");
         assert_eq!(refused.at, 2);
         assert!(refused.to_string().contains("`skip` and `skip-suffix`"));
     }
 
     #[test]
     fn a_line_that_is_not_a_rule_is_an_error() {
-        assert!(Skipped::parse("skip\n").is_err());
-        assert!(Skipped::parse("skip \n").is_err());
-        assert!(Skipped::parse("skip  padded\n").is_err());
+        assert!(Skipped::rule_in("skip\n").is_err());
+        assert!(Skipped::rule_in("skip \n").is_err());
+        assert!(Skipped::rule_in("skip  padded\n").is_err());
+    }
+
+    #[test]
+    fn a_file_states_one_rule() {
+        // Decision 0045: the second rule is refused where a line number used
+        // to be reported, because the fix is now to split the file in two.
+        let refused = Skipped::rule_in("skip target/\nskip-suffix .tmp\n").expect_err("refused");
+        assert_eq!(refused.at, 2);
+        assert!(refused.to_string().contains("one rule"));
+    }
+
+    #[test]
+    fn a_file_of_comments_states_nothing() {
+        assert_eq!(Skipped::rule_in(SKIPPED_NOTE), Ok(None));
+    }
+
+    #[test]
+    fn a_rule_stated_twice_is_stated_once() {
+        let rules = skipped("skip target/\nskip target/\nskip-suffix .tmp\n");
+        assert_eq!(rules.len(), 2);
+    }
+
+    #[test]
+    fn a_label_mirrors_the_path() {
+        assert_eq!(
+            Rule::Path("docs/notes.md".into()).label(),
+            "docs/notes.md.txt"
+        );
+        assert_eq!(Rule::Under("target".into()).label(), "target/all.txt");
+        assert_eq!(Rule::Suffix(".tmp".into()).label(), "suffix .tmp.txt");
+        // The two rules that would otherwise want one name.
+        assert_ne!(
+            Rule::Path("target".into()).label(),
+            Rule::Under("target".into()).label()
+        );
+    }
+
+    #[test]
+    fn a_label_the_store_cannot_own_is_the_rules_digest() {
+        // A name the reader would skip as the platform's (0022), the name
+        // `init` writes, and the name a directory rule takes.
+        for rule in [
+            Rule::Path("._resources".into()),
+            Rule::Path("README".into()),
+            Rule::Path("docs/all".into()),
+        ] {
+            assert_eq!(rule.label(), rule.digest_label(), "{rule}");
+        }
+        // And the digest is the rule's, so two replicas agree on it.
+        assert_eq!(
+            Rule::Path("._resources".into()).label(),
+            Rule::Path("._resources".into()).digest_label()
+        );
+    }
+
+    #[test]
+    fn a_label_is_read_back_as_the_rule_it_states() {
+        for rule in [
+            Rule::Path("docs/notes.md".into()),
+            Rule::Under("target".into()),
+            Rule::Suffix(".tmp".into()),
+            Rule::Path("._resources".into()),
+        ] {
+            let stated = format!("{rule}\n");
+            assert_eq!(Skipped::rule_in(&stated), Ok(Some(rule)));
+        }
     }
 }

@@ -2177,7 +2177,7 @@ impl fmt::Display for RecordError {
             RecordError::Refused { files } => write!(
                 f,
                 "{} the folder holds {} not something this format can record; \
-                 rename or `skip` {} in `{}/{}`:{}",
+                 rename or `skip` {} in `{}/{}/`:{}",
                 if files.len() == 1 {
                     "one file".to_owned()
                 } else {
@@ -2186,7 +2186,7 @@ impl fmt::Display for RecordError {
                 if files.len() == 1 { "is" } else { "are" },
                 if files.len() == 1 { "it" } else { "them" },
                 crate::store::STORE_DIR,
-                crate::working::SKIPPED_FILE,
+                crate::working::SKIPPED_DIR,
                 files
                     .iter()
                     .map(|(path, because)| format!("\n  {path} ({because})"))
@@ -2194,11 +2194,11 @@ impl fmt::Display for RecordError {
             ),
             RecordError::SkipsTracked { paths } => write!(
                 f,
-                "`{}/{}` skips {} history already holds, so recording would \
+                "`{}/{}/` skips {} history already holds, so recording would \
                  spell {} as a deletion; delete the {} first and record that, \
                  or drop the rule — history holds what it holds:{}",
                 crate::store::STORE_DIR,
-                crate::working::SKIPPED_FILE,
+                crate::working::SKIPPED_DIR,
                 if paths.len() == 1 {
                     "a file".to_owned()
                 } else {
@@ -2228,11 +2228,11 @@ impl fmt::Display for RecordError {
             ),
             RecordError::NamedButSkipped { paths } => write!(
                 f,
-                "`{}/{}` says history does not take {}, and naming {} here \
+                "`{}/{}/` says history does not take {}, and naming {} here \
                  does not make {} an exception; remove the rule if {} to be \
                  recorded:{}",
                 crate::store::STORE_DIR,
-                crate::working::SKIPPED_FILE,
+                crate::working::SKIPPED_DIR,
                 if paths.len() == 1 { "this" } else { "these" },
                 if paths.len() == 1 { "it" } else { "them" },
                 if paths.len() == 1 { "it" } else { "them" },

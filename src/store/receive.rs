@@ -7,12 +7,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::core::RevisionId;
-use crate::fs::{Filesystem, read_to_string};
-use crate::working::{DEFAULT_SKIPPED, SKIPPED_FILE, Skipped};
+use crate::fs::Filesystem;
+use crate::working::Rule;
 
 use super::{
     Name, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIX, Store, StoreError,
@@ -31,8 +30,6 @@ pub enum MutableConflict {
         /// What the source store says.
         there: Name,
     },
-    /// Both stores carry non-default, differing rule files.
-    Skipped,
 }
 
 /// A content-identity union worked out before anything is written.
@@ -42,7 +39,7 @@ pub struct ReceivePlan {
     operations: Vec<RevisionId>,
     payloads: Vec<RevisionId>,
     names: BTreeMap<String, Name>,
-    skipped: Option<String>,
+    skipped: Vec<Rule>,
     forgotten: BTreeSet<RevisionId>,
     destroys: BTreeSet<RevisionId>,
     conflicts: Vec<MutableConflict>,
@@ -69,9 +66,13 @@ impl ReceivePlan {
         &self.names
     }
 
-    /// Whether the source rule file will replace an absent or default one.
-    pub fn receives_skipped(&self) -> bool {
-        self.skipped.is_some()
+    /// Rules the source states and the receiver does not.
+    ///
+    /// Decision 0045: a union, never a conflict. Two replicas that each wrote
+    /// a rule were never disagreeing — `skips` asks every rule, so both apply
+    /// — and the container that made it look like a disagreement is gone.
+    pub fn skipped(&self) -> &[Rule] {
+        &self.skipped
     }
 
     /// Forgotten originals that will be destroyed.
@@ -90,7 +91,7 @@ impl ReceivePlan {
             && self.operations.is_empty()
             && self.payloads.is_empty()
             && self.names.is_empty()
-            && self.skipped.is_none()
+            && self.skipped.is_empty()
             && self.destroys.is_empty()
     }
 }
@@ -106,8 +107,8 @@ pub struct Received {
     pub payloads: usize,
     /// Bookmarks copied.
     pub names: usize,
-    /// Whether `skipped.txt` was copied.
-    pub skipped: bool,
+    /// Rules copied.
+    pub skipped: usize,
     /// Original operation documents or payloads destroyed in compliance with
     /// received forgetting documents.
     pub destroyed: usize,
@@ -181,17 +182,14 @@ impl<F: Filesystem> Store<F> {
             }
         }
 
-        let here = optional_read(self.filesystem(), &self.root().join(SKIPPED_FILE))?;
-        let there = optional_read(source.filesystem(), &source.root().join(SKIPPED_FILE))?;
-        match (here.as_deref(), there.as_deref()) {
-            (_, None) => {}
-            (Some(here), Some(there)) if here == there => {}
-            (None, Some(there)) => plan.skipped = Some(there.to_owned()),
-            (Some(here), Some(there)) if here == DEFAULT_SKIPPED => {
-                plan.skipped = Some(there.to_owned());
+        // Decision 0045: rules union like the documents do, because a set is
+        // what the file always held. What replaced three branches guessing
+        // whether a rule file was really stated or merely what `init` left is
+        // this line, and the guess was only ever a property of the container.
+        for rule in source.skipped().rules() {
+            if !self.skipped.rules().any(|had| had == rule) {
+                plan.skipped.push(rule.clone());
             }
-            (Some(_), Some(there)) if there == DEFAULT_SKIPPED => {}
-            (Some(_), Some(_)) => plan.conflicts.push(MutableConflict::Skipped),
         }
 
         Ok(plan)
@@ -241,18 +239,7 @@ impl<F: Filesystem> Store<F> {
             self.set_name(name, *target)?;
             received.names += 1;
         }
-        if let Some(text) = &plan.skipped {
-            let path = self.root.join(SKIPPED_FILE);
-            let parsed = Skipped::parse(text).map_err(|error| StoreError::MalformedSkipped {
-                file: path.clone(),
-                error,
-            })?;
-            self.files
-                .write(&path, text.as_bytes())
-                .map_err(|error| StoreError::io(&path, error))?;
-            self.skipped = parsed;
-            received.skipped = true;
-        }
+        received.skipped = self.add_skipped(&plan.skipped)?.len();
         Ok(received)
     }
 
@@ -321,14 +308,6 @@ fn related<F: Filesystem, G: Filesystem>(here: &Store<F>, there: &Store<G>) -> b
     })
 }
 
-fn optional_read<F: Filesystem>(files: &F, path: &Path) -> Result<Option<String>, StoreError> {
-    match read_to_string(files, path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(StoreError::io(path, error)),
-    }
-}
-
 /// Why one store could not receive another.
 #[derive(Debug)]
 pub enum ReceiveError {
@@ -377,9 +356,6 @@ impl fmt::Display for ReceiveError {
                     match conflict {
                         MutableConflict::Name { name, here, there } => {
                             writeln!(f, "  name {name}: here `{here}`, there `{there}`")?;
-                        }
-                        MutableConflict::Skipped => {
-                            writeln!(f, "  skipped.txt differs")?;
                         }
                     }
                 }

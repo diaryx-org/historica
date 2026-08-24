@@ -68,12 +68,39 @@ pub enum Finding {
         /// The files in question.
         files: Vec<PathBuf>,
     },
-    /// `skipped.txt` was not rules, which would silently record what it names.
+    /// A file of `skipped/` was not one rule, which would silently record
+    /// what it names.
     MalformedSkipped {
         /// The file.
         file: PathBuf,
         /// Which line, and what was wanted there.
         error: crate::working::MalformedSkip,
+    },
+    /// A rule covers a file the tree already holds, so `record` refuses.
+    ///
+    /// Decision 0045: rules union and never conflict, which means a rule can
+    /// arrive by `receive` without passing the refusal `skip` makes before
+    /// writing one. Deleting the file that states it is the whole fix, so the
+    /// finding names that file.
+    RuleCoversTracked {
+        /// The file of `skipped/` stating the rule.
+        file: PathBuf,
+        /// The rule, as its file states it.
+        rule: String,
+        /// A path it covers that the history holds.
+        path: String,
+    },
+    /// Two files of `skipped/` state one rule.
+    DuplicateRule {
+        /// The rule both state.
+        rule: String,
+        /// The files stating it.
+        files: Vec<PathBuf>,
+    },
+    /// A `skipped.txt` beside the store, which nothing reads.
+    StaleSkipped {
+        /// The file.
+        file: PathBuf,
     },
     /// A bookmark was not one valid line.
     MalformedBookmark {
@@ -272,7 +299,9 @@ impl Finding {
             | Finding::ContentDisagrees { .. }
             | Finding::PayloadNotText { .. }
             | Finding::ResolvedWithoutDisagreement { .. }
-            | Finding::MalformedSkipped { .. } => Severity::Error,
+            | Finding::MalformedSkipped { .. }
+            | Finding::RuleCoversTracked { .. }
+            | Finding::StaleSkipped { .. } => Severity::Error,
             Finding::MissingParent { .. }
             | Finding::DanglingBookmark { .. }
             | Finding::DuplicateContent { .. }
@@ -286,6 +315,7 @@ impl Finding {
             | Finding::UnstatedMerge { .. }
             | Finding::MissingReference { .. }
             | Finding::StillQuoted { .. }
+            | Finding::DuplicateRule { .. }
             | Finding::Incomplete { .. } => Severity::Note,
         }
     }
@@ -328,6 +358,26 @@ impl fmt::Display for Finding {
                 "{}: {error}; a rule that does not read would take a file \
                  somebody asked it to leave",
                 file.display()
+            ),
+            Finding::RuleCoversTracked { file, rule, path } => write!(
+                f,
+                "{} states `{rule}`, which covers `{path}` in this history; \
+                 `record` refuses while it stands, and deleting that file is \
+                 the fix — history holds what it holds",
+                file.display()
+            ),
+            Finding::DuplicateRule { rule, files } => write!(
+                f,
+                "`{rule}` is stated twice, which means what stating it once \
+                 means; either file may go:{}",
+                display_files(files)
+            ),
+            Finding::StaleSkipped { file } => write!(
+                f,
+                "{} states nothing: rules are one to a file in `{}/`, and \
+                 leaving this here says history skips what it does not",
+                file.display(),
+                crate::working::SKIPPED_DIR
             ),
             Finding::Unreadable { file, reason } => write!(f, "{}: {reason}", file.display()),
             Finding::MissingParent { parent, named_by } => write!(
@@ -658,14 +708,7 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
         &payloads,
         &mut report,
     );
-    if let Ok(text) = read_to_string(files, &root.join(crate::working::SKIPPED_FILE))
-        && let Err(error) = crate::working::Skipped::parse(&text)
-    {
-        report.push(Finding::MalformedSkipped {
-            file: root.join(crate::working::SKIPPED_FILE),
-            error,
-        });
-    }
+    check_skipped(files, root, &mut report);
 
     check_resolutions(files, root, &mut report);
     check_names(files, root, &documents, &mut report);
@@ -1232,6 +1275,90 @@ fn reachable(
         queue.extend(document.parents.iter().copied());
     }
     Some(seen.into_iter().collect())
+}
+
+/// Decision 0045's directory, read the way `check` reads everything: through.
+///
+/// Three things the loader cannot say. A file that is not one rule stops every
+/// command, so `check` names it here rather than at the next `record`. A rule
+/// stated twice is harmless and means somebody's `receive` met a label two
+/// replicas spelled differently. And a rule covering a file the history holds
+/// is the one state a union can arrive at that `skip` refuses to write: rules
+/// no longer conflict, so nothing stops one reaching a store where it is not
+/// writable, and the fix is to delete the file that states it.
+fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) {
+    // The file this directory replaced. It is not read, and a store carrying
+    // one is a store whose rules a reader cannot see.
+    let stale = root.join("skipped.txt");
+    if read_to_string(files, &stale).is_ok() {
+        report.push(Finding::StaleSkipped { file: stale });
+    }
+
+    let found = super::walk(files, root, crate::working::SKIPPED_DIR).unwrap_or_default();
+    let mut stated: Vec<(crate::working::Rule, PathBuf)> = Vec::new();
+    for path in found.files {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        // Decision 0022, in the directory that decision most expects Finder to
+        // visit: a folder built to be opened is a folder that gets opened.
+        if platform_name(name) {
+            continue;
+        }
+        let text = match read_to_string(files, &path) {
+            Ok(text) => text,
+            Err(error) => {
+                report.push(Finding::Unreadable {
+                    file: path.clone(),
+                    reason: error.to_string(),
+                });
+                continue;
+            }
+        };
+        match crate::working::Skipped::rule_in(&text) {
+            Ok(Some(rule)) => stated.push((rule, path)),
+            // The note `init` writes, and any other prose somebody keeps here.
+            Ok(None) => {}
+            Err(error) => report.push(Finding::MalformedSkipped { file: path, error }),
+        }
+    }
+
+    let mut by_rule: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+    for (rule, path) in &stated {
+        by_rule
+            .entry(rule.to_string())
+            .or_default()
+            .push(path.clone());
+    }
+    for (rule, files) in by_rule {
+        if files.len() > 1 {
+            report.push(Finding::DuplicateRule { rule, files });
+        }
+    }
+
+    // Against every head, for `skip`'s own reason: a rule is a fact about the
+    // repository, so a path any line of work holds is a path it cannot cover.
+    let Ok(store) = super::Store::open_on(files, root) else {
+        return;
+    };
+    let mut said: BTreeSet<String> = BTreeSet::new();
+    for head in store.history().heads() {
+        let Ok(tree) = store.tree(&head) else {
+            continue;
+        };
+        for (_, path) in tree.files() {
+            for (rule, file) in &stated {
+                if rule.covers(path) && said.insert(rule.to_string()) {
+                    report.push(Finding::RuleCoversTracked {
+                        file: file.clone(),
+                        rule: rule.to_string(),
+                        path: path.to_owned(),
+                    });
+                }
+            }
+        }
+    }
 }
 
 fn check_names<F: Filesystem + ?Sized>(

@@ -23,7 +23,7 @@
 //! ├── cache/          # derived, disposable, deletable without loss:
 //! │                   #   states by digest (0035), and `operations.txt`,
 //! │                   #   which says where each digest is (0036)
-//! └── skipped.txt     # what recording does not take
+//! └── skipped/       # what recording does not take, one rule to a file
 //! ```
 //!
 //! `operations/` holds two kinds of file, on the rule `revisions/` already
@@ -57,7 +57,7 @@ use crate::fs::{self, Disk, Entry, Filesystem, read_to_string};
 use crate::merge::{self, Merged};
 use crate::replay::{self, ReplayError, State};
 use crate::tree::{self, Kind, MergedTree, Tree, TreeError};
-use crate::working::{MalformedSkip, Rule, SKIPPED_FILE, Skipped};
+use crate::working::{MalformedSkip, Rule, SKIPPED_DIR, Skipped};
 
 mod arrange;
 mod catalogue;
@@ -150,7 +150,7 @@ into directories of your own breaks nothing either.
                   reading them again does not replay it, and operations.txt,
                   which says where in operations/ each digest is. Deleting
                   all of it loses nothing.
-  skipped.txt     what recording does not take.
+  skipped/        what recording does not take, one rule to a file.
   format.txt      every grammar above, spelled out: what each line of each
                   document means, and how to materialise a file from them
                   with an editor and `shasum`. Read that one if you have no
@@ -584,7 +584,13 @@ impl<F: Filesystem> Store<F> {
         if crate::fs::exists(&files, &header).map_err(|error| StoreError::io(&header, error))? {
             return Err(StoreError::AlreadyAStore { path: root });
         }
-        for directory in [REVISIONS_DIR, OPERATIONS_DIR, NAMES_DIR, CACHE_DIR] {
+        for directory in [
+            REVISIONS_DIR,
+            OPERATIONS_DIR,
+            NAMES_DIR,
+            CACHE_DIR,
+            SKIPPED_DIR,
+        ] {
             let path = root.join(directory);
             files
                 .create_directory(&path)
@@ -601,10 +607,14 @@ impl<F: Filesystem> Store<F> {
             )
             .map_err(|error| StoreError::io(&header, error))?;
         // Decision 0027: explain the syntax but state no rules. A host or
-        // project that knows what its files mean owns every default.
-        let skipped = root.join(SKIPPED_FILE);
+        // project that knows what its files mean owns every default. Decision
+        // 0045 needs no special case for it: a file of comments states
+        // nothing, which is what stating no rules means here.
+        let skipped = root
+            .join(SKIPPED_DIR)
+            .join(crate::working::SKIPPED_NOTE_FILE);
         files
-            .write(&skipped, crate::working::DEFAULT_SKIPPED.as_bytes())
+            .write(&skipped, crate::working::SKIPPED_NOTE.as_bytes())
             .map_err(|error| StoreError::io(&skipped, error))?;
         // A store that says it needs no tool carries the description that
         // makes that true, rather than pointing at a repository.
@@ -1989,41 +1999,76 @@ impl<F: Filesystem> Store<F> {
         Ok(())
     }
 
-    /// Add rules to `history/skipped.txt`, leaving what it already says alone.
+    /// Add rules to `history/skipped/`, one file to a rule.
     ///
-    /// An append rather than a rewrite of the parsed rules, which would render
-    /// back a file with every blank line gone. The parser ignores those, but a
-    /// person grouping their rules with them meant something by them, and this
-    /// is not the command that decides they were noise.
+    /// Creation rather than replacement, which is where decision 0026's
+    /// property finally reaches this file: two `skip` commands running at once
+    /// no longer read, modify and write over one another, because neither
+    /// writes a file the other is writing. A rule already stated is left where
+    /// it is, under whatever label states it.
     ///
-    /// Decision 0011 puts the file in `names/`'s company — mutable, synced,
-    /// and a fact about the repository rather than about the person.
-    pub fn append_skipped(&mut self, rules: &[Rule]) -> Result<(), StoreError> {
-        if rules.is_empty() {
-            return Ok(());
-        }
-        let path = self.root.join(SKIPPED_FILE);
-        let existing = match read_to_string(&self.files, &path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
-            Err(error) => return Err(StoreError::io(&path, error)),
-        };
-        let mut text = existing;
-        // A file whose last line was never terminated would otherwise take the
-        // first new rule onto the end of it, and the pair would parse as one
-        // line neither of them says.
-        if !text.is_empty() && !text.ends_with('\n') {
-            text.push('\n');
-        }
+    /// Returns the file each new rule was written to, since that is what a
+    /// person needs to delete it again.
+    ///
+    /// Decision 0011 puts these in `names/`'s company — synced, and a fact
+    /// about the repository rather than about the person.
+    pub fn add_skipped(&mut self, rules: &[Rule]) -> Result<Vec<String>, StoreError> {
+        let directory = self.root.join(SKIPPED_DIR);
+        let mut written = Vec::new();
+        let mut added: Vec<(Rule, Option<String>)> = Vec::new();
         for rule in rules {
-            text.push_str(&format!("{rule}\n"));
+            if self.skipped.rules().any(|had| had == rule)
+                || added.iter().any(|(had, _)| had == rule)
+            {
+                continue;
+            }
+            let line = format!("{rule}\n");
+            let mut label = rule.label();
+            // A label another rule already holds yields to the one derived
+            // from the rule itself, which is 0018's collision suffix reached
+            // by 0018's reasoning: a name that depends on what a directory
+            // holds depends on which replica is looking.
+            if !self.write_rule(&within(&directory, &label), &line)? {
+                label = rule.digest_label();
+                self.write_rule(&within(&directory, &label), &line)?;
+            }
+            added.push((rule.clone(), Some(label.clone())));
+            written.push(label);
         }
-        self.files
-            .write(&path, text.as_bytes())
-            .map_err(|error| StoreError::io(&path, error))?;
-        self.skipped = Skipped::parse(&text)
-            .map_err(|error| StoreError::MalformedSkipped { file: path, error })?;
-        Ok(())
+        self.skipped = Skipped::stated(
+            self.skipped
+                .stating()
+                .map(|(rule, file)| (rule.clone(), file.map(str::to_owned)))
+                .chain(added),
+        );
+        Ok(written)
+    }
+
+    /// Write one rule file, saying whether the name was this rule's to take.
+    ///
+    /// A file already there stating the same rule is this rule's file: two
+    /// replicas that spelled one rule spelled one name, which is what makes
+    /// receiving a copy rather than a merge.
+    fn write_rule(&self, path: &Path, line: &str) -> Result<bool, StoreError> {
+        if let Some(parent) = path.parent() {
+            self.files
+                .create_directory(parent)
+                .map_err(|error| StoreError::io(parent, error))?;
+        }
+        match self.files.create_new(path, line.as_bytes()) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                let text = read_to_string(&self.files, path)
+                    .map_err(|error| StoreError::io(path, error))?;
+                let held =
+                    Skipped::rule_in(&text).map_err(|error| StoreError::MalformedSkipped {
+                        file: path.to_path_buf(),
+                        error,
+                    })?;
+                Ok(held.is_some_and(|held| format!("{held}\n") == line))
+            }
+            Err(error) => Err(StoreError::io(path, error)),
+        }
     }
 }
 
@@ -2074,17 +2119,44 @@ fn write_once<F: Filesystem + ?Sized>(
     Ok(())
 }
 
-/// Read `history/skipped.txt`, which a store need not have.
+/// Read `history/skipped/`, which a store need not have.
+///
+/// Decision 0045: every file states one rule, the label states nothing, and a
+/// rule stated twice is stated once. Read at the top of a walk that already
+/// recurses, so a person may group their rules into directories exactly as
+/// 0016 lets them group everything else.
 fn read_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Skipped, StoreError> {
-    let path = root.join(SKIPPED_FILE);
-    match read_to_string(files, &path) {
-        Ok(text) => Skipped::parse(&text).map_err(|error| StoreError::MalformedSkipped {
+    let directory = root.join(SKIPPED_DIR);
+    let mut rules = Vec::new();
+    for path in walk(files, root, SKIPPED_DIR)?.files {
+        // Decision 0022: Finder writes into every directory it is shown, and
+        // this is a directory built to be opened.
+        if platform_file(&path) {
+            continue;
+        }
+        let text = read_to_string(files, &path).map_err(|error| StoreError::io(&path, error))?;
+        let rule = Skipped::rule_in(&text).map_err(|error| StoreError::MalformedSkipped {
             file: path.clone(),
             error,
-        }),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Skipped::none()),
-        Err(error) => Err(StoreError::io(&path, error)),
+        })?;
+        if let Some(rule) = rule {
+            rules.push((rule, label_of(&directory, &path)));
+        }
     }
+    Ok(Skipped::stated(rules))
+}
+
+/// What a rule file is called, under `skipped/`, with `/` for a separator.
+fn label_of(directory: &Path, path: &Path) -> Option<String> {
+    let rest = path.strip_prefix(directory).ok()?;
+    let mut label = String::new();
+    for component in rest.components() {
+        if !label.is_empty() {
+            label.push('/');
+        }
+        label.push_str(&component.as_os_str().to_string_lossy());
+    }
+    Some(label)
 }
 
 /// Read and validate the store's version header.

@@ -113,7 +113,8 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
         cache_note.contains("Everything in this directory is derived"),
         "{cache_note}"
     );
-    let skipped = fs::read_to_string(directory.join("history/skipped.txt")).expect("the rule file");
+    let skipped =
+        fs::read_to_string(directory.join("history/skipped/README.txt")).expect("the rule note");
     assert!(
         skipped
             .lines()
@@ -1143,15 +1144,15 @@ fn a_file_browser_writing_into_the_store_breaks_nothing() {
     // somebody else's rather than content.
     let directory = repository("record-platform-names");
     write(&directory, "notes.md", "an entry\n");
-    // Recorded deliberately, so `skipped.txt`'s default is not what is under
-    // test: a person may record one, and the store still has to survive it.
+    // Recorded deliberately, so no default rule is what is under test: a
+    // person may record one, and the store still has to survive it.
     fs::write(directory.join(".DS_Store"), [0x00, 0x01, 0x42, 0xff]).expect("metadata");
     out(recorded(&directory, &["skip"]));
-    fs::write(
-        directory.join("history/skipped.txt"),
+    write(
+        &directory,
+        "history/skipped/nothing-at-all.txt",
         "skip nothing-at-all\n",
-    )
-    .expect("rules");
+    );
     out(recorded(&directory, &["record", "-m", "Initial state"]));
 
     let filed = walk_names(&directory.join("history/operations"));
@@ -1171,6 +1172,9 @@ fn a_file_browser_writing_into_the_store_breaks_nothing() {
         directory.join("history"),
         directory.join("history/revisions"),
         directory.join("history/names"),
+        // Decision 0045 built one more folder for a person to open, which is
+        // one more folder Finder writes into.
+        directory.join("history/skipped"),
         operations.clone(),
     ];
     for name in &filed {
@@ -1661,6 +1665,57 @@ fn receive_reports_mutable_conflicts_before_writing_history() {
         !stdout(&here, &["log"]).contains("Work done there"),
         "a refused receive wrote immutable history before noticing the conflict"
     );
+}
+
+#[test]
+fn two_replicas_that_each_wrote_a_rule_union_them() {
+    // Decision 0045, and the failure it was written from: this was a conflict
+    // `receive` refused over, and the merge it refused to perform was *both
+    // lines*. `skips` asks every rule, so neither replica ever contradicted
+    // the other — only the file they were written into could.
+    let here = repository("receive-rules-here");
+    write(&here, "notes.md", "common\n");
+    out(recorded(&here, &["record", "-m", "Common root"]));
+    let there = scratch("receive-rules-there");
+    copy_tree(&here, &there);
+
+    out(recorded(&here, &["skip", "target"]));
+    out(recorded(&there, &["skip", "--suffix", ".tmp"]));
+    write(&there, "notes.md", "theirs\n");
+    out(recorded(&there, &["record", "-m", "Work done there"]));
+
+    let source = there.to_string_lossy();
+    let planned = run(&here, &["receive", &source, "--dry-run"]);
+    assert_eq!(planned.status.code(), Some(0), "a union is not a conflict");
+    let planned = String::from_utf8(planned.stdout).expect("printed text");
+    assert!(planned.contains("would receive 1 rules"), "{planned}");
+
+    let received = stdout(&here, &["receive", &source]);
+    assert!(received.contains("received 1 rules"), "{received}");
+    let listed = out(recorded(&here, &["skip"]));
+    assert!(listed.contains("skip target"), "{listed}");
+    assert!(listed.contains("skip-suffix .tmp"), "{listed}");
+
+    // The rule arrived as the file that states it, under the label the writer
+    // chose, so deleting it is what dropping the rule means.
+    assert_eq!(
+        fs::read_to_string(here.join("history/skipped/suffix .tmp.txt")).expect("the rule"),
+        "skip-suffix .tmp\n"
+    );
+
+    // And receiving again adds nothing, because a rule already stated is a
+    // rule this store has.
+    let again = stdout(&here, &["receive", &source]);
+    assert!(!again.contains("rules"), "{again}");
+
+    // A rule deleted here and still stated there comes back, which decision
+    // 0045 accepts as the recoverable direction: keeping a file out of a
+    // history can be undone, and taking one in cannot.
+    fs::remove_file(here.join("history/skipped/suffix .tmp.txt")).expect("the rule");
+    assert!(!out(recorded(&here, &["skip"])).contains(".tmp"));
+    let back = stdout(&here, &["receive", &source]);
+    assert!(back.contains("received 1 rules"), "{back}");
+    assert!(out(recorded(&here, &["skip"])).contains("skip-suffix .tmp"));
 }
 
 #[test]
@@ -2170,7 +2225,7 @@ fn a_path_nothing_answers_to_is_refused_by_name() {
     out(recorded(&directory, &["skip", "notes.tmp"]));
     write(&directory, "notes.tmp", "scratch\n");
     let skipped = refused(&directory, &["record", "notes.tmp", "-m", "x"]);
-    assert!(skipped.contains("skipped.txt"), "{skipped}");
+    assert!(skipped.contains("skipped/"), "{skipped}");
     assert!(skipped.contains("notes.tmp"), "{skipped}");
 
     // Neither refusal recorded anything on its way past the file that changed.
@@ -2217,7 +2272,7 @@ fn what_the_format_cannot_hold_is_refused_by_name() {
     assert!(complaint.contains("skip"), "{complaint}");
 
     // Which is the fix the message names.
-    write(&directory, "history/skipped.txt", "skip link\n");
+    write(&directory, "history/skipped/link.txt", "skip link\n");
     assert!(out(recorded(&directory, &["record", "-m", "Everything"])).contains("fine.md"));
 
     // And nothing to say is refused too.
@@ -2312,28 +2367,51 @@ fn skip_writes_the_line_a_person_would_have_typed() {
     ));
     assert!(written.contains("skip target/"), "{written}");
     assert!(written.contains("skip-suffix .tmp"), "{written}");
+    // Decision 0045: it says which file states each rule, since deleting that
+    // file is the whole of what removing a rule means.
+    assert!(
+        written.contains("history/skipped/target/all.txt"),
+        "{written}"
+    );
+    assert!(
+        written.contains("history/skipped/suffix .tmp.txt"),
+        "{written}"
+    );
 
-    // Appended after the syntax note `init` wrote. Nothing is skipped by
-    // default; defaults belong to the host or project.
-    let text = fs::read_to_string(directory.join("history/skipped.txt")).expect("the file");
-    assert!(text.starts_with('#'), "{text}");
-    assert!(!text.contains("skip-suffix .DS_Store"), "{text}");
-    assert!(text.ends_with("skip target/\nskip-suffix .tmp\n"), "{text}");
+    // One rule to a file, and the label is a label: what the file holds is the
+    // line a person would have typed.
+    assert_eq!(
+        fs::read_to_string(directory.join("history/skipped/target/all.txt")).expect("the file"),
+        "skip target/\n"
+    );
+    assert_eq!(
+        fs::read_to_string(directory.join("history/skipped/suffix .tmp.txt")).expect("the file"),
+        "skip-suffix .tmp\n"
+    );
+    // Nothing is skipped by default; defaults belong to the host or project.
+    let note = fs::read_to_string(directory.join("history/skipped/README.txt")).expect("the note");
+    assert!(!note.contains("skip-suffix .DS_Store"), "{note}");
 
     // With no arguments it prints them, as `names` prints the bookmarks.
-    assert_eq!(out(recorded(&directory, &["skip"])), text);
+    let listed = out(recorded(&directory, &["skip"]));
+    assert!(listed.contains("skip target/"), "{listed}");
+    assert!(
+        listed.contains("history/skipped/suffix .tmp.txt"),
+        "{listed}"
+    );
 
     // And the rules are the ones recording honours.
     let first = out(recorded(&directory, &["record", "-m", "First"]));
     assert!(first.contains("notes/a.md"), "{first}");
     assert!(!first.contains("out.bin"), "{first}");
 
-    // Saying it twice writes one line and says so.
+    // Saying it twice writes one file and says so.
     let again = out(recorded(&directory, &["skip", "target/"]));
     assert!(again.contains("already there"), "{again}");
     assert_eq!(
-        fs::read_to_string(directory.join("history/skipped.txt")).expect("the file"),
-        text
+        walk_names(&directory.join("history/skipped")).len(),
+        3,
+        "the note and the two rules"
     );
 }
 
@@ -2352,27 +2430,44 @@ fn skip_refuses_a_rule_over_what_history_holds_and_writes_nothing() {
 
     // Nothing is written, the good rule in the same command included: a
     // command that half-applied would leave a person guessing which half.
-    let text = fs::read_to_string(directory.join("history/skipped.txt")).expect("the file");
-    assert!(!text.contains("drafts"), "{text}");
-    assert!(!text.contains(".tmp"), "{text}");
+    assert_eq!(
+        walk_names(&directory.join("history/skipped")),
+        vec!["README.txt".to_owned()],
+        "only the note `init` wrote"
+    );
 }
 
 #[test]
-fn skip_leaves_the_file_a_person_wrote_alone() {
+fn skip_leaves_the_files_a_person_wrote_alone() {
     let directory = repository("skip-command-append");
+    // A person's own files, under their own names, with their own comments.
     write(
         &directory,
-        "history/skipped.txt",
-        "skip one/\n\nskip-suffix .bin\n",
+        "history/skipped/mine/one.txt",
+        "# the build\nskip one/\n",
+    );
+    write(
+        &directory,
+        "history/skipped/binaries.txt",
+        "skip-suffix .bin\n",
     );
 
     out(recorded(&directory, &["skip", "two/"]));
 
-    // The blank line the parser ignores is a blank line the person meant.
+    // Decision 0045: adding a rule creates a file, so there is no file to
+    // rewrite and nothing of anybody's to lose.
     assert_eq!(
-        fs::read_to_string(directory.join("history/skipped.txt")).expect("the file"),
-        "skip one/\n\nskip-suffix .bin\nskip two/\n"
+        fs::read_to_string(directory.join("history/skipped/mine/one.txt")).expect("the file"),
+        "# the build\nskip one/\n"
     );
+    assert_eq!(
+        fs::read_to_string(directory.join("history/skipped/two/all.txt")).expect("the file"),
+        "skip two/\n"
+    );
+    let listed = out(recorded(&directory, &["skip"]));
+    for rule in ["skip one/", "skip-suffix .bin", "skip two/"] {
+        assert!(listed.contains(rule), "{listed}");
+    }
 }
 
 #[test]
@@ -2385,16 +2480,34 @@ fn a_skip_rule_over_a_tracked_file_is_refused() {
     // The harm decision 0011 names: the walk stops offering the path, so the
     // next record would spell a request for privacy as a deletion of the very
     // file it names, into a history that is append-only.
-    write(&directory, "history/skipped.txt", "skip drafts/\n");
+    write(
+        &directory,
+        "history/skipped/drafts/all.txt",
+        "skip drafts/\n",
+    );
     let refused = recorded(&directory, &["record", "-m", "Second"]);
     assert!(!refused.status.success());
     let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
     assert!(complaint.contains("drafts/one.md"), "{complaint}");
-    assert!(complaint.contains("history/skipped.txt"), "{complaint}");
+    assert!(complaint.contains("history/skipped/"), "{complaint}");
+
+    // And `check` says the same thing about the store, naming the one file
+    // that has to go — the state decision 0045 lets a `receive` produce.
+    let checked = String::from_utf8_lossy(&recorded(&directory, &["check"]).stdout).into_owned();
+    assert!(
+        checked.contains("history/skipped/drafts/all.txt"),
+        "{checked}"
+    );
+
+    fs::remove_file(directory.join("history/skipped/drafts/all.txt")).expect("the rule");
 
     // A rule over a path nothing has recorded is ordinary, which is the whole
     // point of the file.
-    write(&directory, "history/skipped.txt", "skip-suffix .tmp\n");
+    write(
+        &directory,
+        "history/skipped/suffix .tmp.txt",
+        "skip-suffix .tmp\n",
+    );
     write(&directory, "scratch.tmp", "noise\n");
     write(&directory, "kept.md", "edited\n");
     let recorded_second = out(recorded(&directory, &["record", "-m", "Second"]));
@@ -2408,7 +2521,11 @@ fn a_skip_rule_over_a_tracked_file_is_refused() {
     // the deletion, and only then does the rule become sayable.
     fs::remove_dir_all(directory.join("drafts")).expect("the drafts");
     out(recorded(&directory, &["record", "-m", "Away"]));
-    write(&directory, "history/skipped.txt", "skip drafts/\n");
+    write(
+        &directory,
+        "history/skipped/drafts/all.txt",
+        "skip drafts/\n",
+    );
     write(&directory, "kept.md", "again\n");
     assert!(
         recorded(&directory, &["record", "-m", "Third"])

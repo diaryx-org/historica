@@ -171,13 +171,13 @@ fn an_export_is_a_repository_a_stranger_can_open() {
         out(&copy, &["names"]).contains("no bookmarks"),
         "the exporter's bookmarks travelled"
     );
-    let rules = fs::read_to_string(copy.join("history/skipped.txt")).expect("a rule file");
-    assert!(
-        rules
-            .lines()
-            .all(|line| line.is_empty() || line.starts_with('#')),
-        "the exporter's rules travelled: {rules}"
-    );
+    // Decision 0045: one rule to a file, so the copy's `skipped/` holds the
+    // note `init` writes and no rule at all.
+    let rules: Vec<_> = fs::read_dir(copy.join("history/skipped"))
+        .expect("a rule directory")
+        .map(|entry| entry.expect("an entry").file_name())
+        .collect();
+    assert_eq!(rules, vec!["README.txt"], "the exporter's rules travelled");
     // A cache is nobody's, so none of the exporter's travels. What the copy
     // has in `cache/` is what it wrote for itself on the way: the note `init`
     // leaves, the catalogue saying where in its *own* `operations/` each
