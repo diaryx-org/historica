@@ -67,6 +67,9 @@ visible, to be triaged into its real group before the tag is cut.
 - **cli** — colour for `diff`, and the words that changed inside a line ([`0d85a89`](https://github.com/diaryx-org/historica/commit/0d85a891d20aecc672da9de76cdefb3325c93e8b))
 - **cli** — `log` narrowed, where a path follows the file rather than the name ([`21c6725`](https://github.com/diaryx-org/historica/commit/21c6725fcb8be5668e3a4037dbef52ddb6f4382b))
 - **record** — name the paths, where the rest is unlooked at rather than unchanged ([`b9e90c0`](https://github.com/diaryx-org/historica/commit/b9e90c02d095345c5f079e61a32ffd37150e2d90))
+- **store** — file a revision under its month, where a folder is opened rather than scrolled ([`c0b1168`](https://github.com/diaryx-org/historica/commit/c0b11681471e1d9705c6e8940df2e048ae879ff7))
+- **cli** — `export`, where the copy is assembled rather than mirrored ([`17b3f19`](https://github.com/diaryx-org/historica/commit/17b3f19262e9933657f5012a53e70e8220768c75))
+- **format** — a file can be a link ([`54c69b2`](https://github.com/diaryx-org/historica/commit/54c69b2ab19585d7f1374681ad7e4ee03deab58b))
 
 ### Fixed
 
@@ -276,6 +279,59 @@ appear and be rewritten whenever `operations/` gains or loses a file.
   exactly as before. For callers of the library, `Recording` carries a new
   `only` field and `record::survey` takes a `&Restriction` argument;
   `Restriction::Everything` is what both meant until now.
+
+- A revision recorded by this version is written to
+`revisions/YYYY-MM/<date> <summary>.rev.txt` and its content to
+`operations/YYYY-MM/<date> <summary>/...`, rather than directly under
+`revisions/` and `operations/`. The filename itself is unchanged. Anything
+scripting against store paths with a one-level glob — `revisions/*.rev.txt`,
+`ls history/operations` — must walk instead. Identity is unaffected: a
+filename is presentation, no digest or reference moves, and a store written
+by an older version loads exactly as before. Running `arrange` once files an
+existing store into the new layout, and reports every move; `arrange` on a
+store this version wrote does nothing. `arrange` also no longer keeps a
+revision in a directory a person filed it into by hand — it files it under
+its month like every other — which is a change for anyone who arranged a
+store that way and then ran the command.
+
+- The walk no longer refuses a symbolic link, so a folder
+  holding one now records where it used to stop. Every link in such a folder is
+  recorded the first time it is surveyed, `status` lists them as `added`, and a
+  `skip` rule written to work around the old refusal keeps working and now keeps
+  a link out that would otherwise be recorded. A link whose target is not UTF-8
+  is still refused, by name.
+
+- A revision may state where a link points, as
+  `link <file ID> <target>`, and a document that does claims `historica-v5`. A
+  store gains that version the first time one is written and not before, so a
+  history with no links in it is still read by every reader published for
+  version 4.
+
+- `Filesystem` gains `link_target` and `set_link`, both
+  defaulted, so existing implementors keep compiling. `Ok(None)` from
+  `link_target` is reserved for a filesystem that models no links at all — an
+  implementation that models them answers with a target or with an error, never
+  with `None` — and `update` refuses by name on a filesystem that answers
+  `None` rather than writing a plain file holding the target. The forwarding
+  implementations for `&T`, `Arc<T>`, `Rc<T>` and `Box<T>` now also forward
+  `executable` and `set_executable`, which they did not: a wrapped `Disk`
+  previously reported no executable bit at all.
+
+- `tree::Kind` gains `Link` and `tree::Entry` gains `target`;
+  `tree::TreeContest` gains `Target` and `Referenced`; `tree::TreeError` gains
+  `Dangling`; `format::RevisionDocument` gains `links`; `format::LinkTarget`,
+  `format::check_link_target` and `update::materialise` are new. Code
+  constructing an `Entry` or a `RevisionDocument` by hand needs the new field,
+  and code matching on `Kind` needs the new arm.
+
+- `store::content_at` and `content_at_heads` refuse a link
+  with the new `MaterialiseError::IsALink` rather than producing bytes, and
+  `cat` and `blame` refuse one by name. `update::Remove` gains `link`,
+  `update::Update` gains `links`, and `update::Applied` gains `linked`.
+
+- A store marker of `historica-v5` is now read rather than
+  refused. `historica-v6` is what a reader that knows less than this one says it
+  cannot read.
 
 <!-- git-cliff:end -->
 
