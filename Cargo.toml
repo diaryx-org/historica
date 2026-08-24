@@ -6,6 +6,14 @@ rust-version.workspace = true
 description = "A readable, convergent version-control experiment"
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/historica"
+# What a person searching crates.io would type. `version-control` and `vcs` are
+# the two spellings of the same search; `crdt` and `merge` are what makes this
+# one different from the rest of that shelf, since decision 0007 is why it
+# converges; `readable` is the claim the whole format exists to make.
+keywords = ["version-control", "vcs", "crdt", "merge", "readable"]
+categories = ["development-tools", "command-line-utilities", "filesystem"]
 
 # `xtask` is historica's CI, as a program: `cargo xtask <job>` runs one CI job
 # and the workflow runs nothing else. It is a member so `cargo test --workspace`

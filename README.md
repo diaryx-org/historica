@@ -453,16 +453,37 @@ the command line below is a `cargo install` away:
 cargo install historica
 ```
 
-The library is the same crate — `historica = "0.1"` in a `Cargo.toml` — because
-the binary decides nothing the library has not, and every answer the commands
-give is one a caller can ask for directly. It builds on stable Rust 1.88 or
-newer, which is the floor the `msrv` job holds it to, and it is MIT or
+The library is the same crate — `historica = "1.0"` in a `Cargo.toml` —
+because the binary decides nothing the library has not, and every answer the
+commands give is one a caller can ask for directly. It builds on stable Rust
+1.88 or newer, which is the floor the `msrv` job holds it to, and it is MIT or
 Apache-2.0 at the reader's choice: [`LICENSE-MIT`](LICENSE-MIT) and
 [`LICENSE-APACHE`](LICENSE-APACHE).
 
-Version 0.1 is an experiment rather than a promise. What the format guarantees
-is decision 0004's rule — a reader's vocabulary only ever grows, so a document
-written today still parses — and the Rust API carries no such rule yet.
+### What 1.0 promises
+
+Two things, and they are not the same promise.
+
+The **format** promises what decision 0047 spells on line one. A document
+headed `historica` parses under the grammar this version reads, and 0004's
+rule holds inside it: a reader's vocabulary only ever grows, so a document
+written today still parses. A format that cannot keep that takes a new
+spelling — `historica-2` — rather than a number, and the pre-1.0 spellings
+`historica-v0` through `historica-v5` are refused by name and never reused.
+This is the promise that would be expensive to retract, which is why it is the
+one 1.0 was cut for.
+
+The **Rust API** promises ordinary semver, which before 1.0 it did not: a
+change a caller would have to edit their own code for takes a 2.0, and the
+smaller differences are written down as `Behavioural-change:` trailers, which
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md) collects under each release.
+
+Three things are outside both. `history/cache/` is disposable by decision 0003
+and its contents are nobody's interface — deleting it changes how long a
+command takes and nothing else. The exact wording a command prints is not an
+API, though what it has to say is, since a person reads it and 0021 makes that
+a design constraint. And `xtask` is this repository's CI rather than a
+published thing, which is what `publish = false` says.
 
 ## The command line
 
