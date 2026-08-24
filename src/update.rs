@@ -224,9 +224,13 @@ const UNRECORDED: &str = "it holds work nothing has recorded";
 /// target must be a current head: decision 0030's position answer is that the
 /// folder is only ever given one, which is what keeps `record` and `status`
 /// able to derive their positions instead of storing them.
-pub fn plan<F: Filesystem>(
+///
+/// The store and the folder are two filesystems rather than one, because
+/// decision 0042's export is exactly this pair pointed at a folder somewhere
+/// else. `update` passes the same one twice and cannot tell.
+pub fn plan<F: Filesystem, G: Filesystem>(
     store: &Store<F>,
-    working: &Working<F>,
+    working: &Working<G>,
     repository: &Path,
     target: &RevisionId,
 ) -> Result<Update, UpdateError> {

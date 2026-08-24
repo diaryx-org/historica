@@ -20,6 +20,7 @@ use historica::working::{Rule, SKIPPED_FILE, Working};
 mod arrange;
 mod blame;
 mod diff;
+mod export;
 mod record;
 mod render;
 mod target;
@@ -82,6 +83,13 @@ writing a store
                            content only they name, printing every file
   receive <dir> [--dry-run] [--join-unrelated]
                            import immutable history from another local store
+  export <dir> [<target>] [--dry-run]
+                           write a fresh repository at <dir>: the folder as
+                           <target> has it, and the history that leads there.
+                           bookmarks, rules and the cache stay here, and
+                           nothing unrecorded or skipped can travel, because
+                           the copy is assembled rather than mirrored.
+                           compressing it is tar's job
   forget <target> <path> --lines <first>..<last> [--dry-run]
                            destroy those lines everywhere history quotes
                            them, leaving their shape; the file's paths,
@@ -215,6 +223,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "abandon" => record::abandon(&base, locate(&base)?, rest),
         "prune" => prune(&base, rest),
         "receive" => receive(&base, rest),
+        "export" => export::export(&base, locate(&base)?, rest),
         "forget" => forget(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "update" => update::update(locate(&base)?, rest),

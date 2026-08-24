@@ -221,7 +221,13 @@ The `historica` binary is the front end decision 0006 said was owed. `init`,
 it and says how the two differ; `update` makes the folder hold a head, writing
 what the store records, removing what it does not, and touching nothing
 unrecorded — decision 0030, which is also where checkout-to-the-past is
-declined and the stored position it would need is refused for good; `record`
+declined and the stored position it would need is refused for good; `receive`
+combines another local store with this one, and `export <dir>` is the journey
+in the other direction — a fresh repository written somewhere else, holding
+the folder as one revision has it and the ancestry that leads there, which is
+decision 0042 and the half 0029 said was missing. Nothing unrecorded and
+nothing a `skip` rule names can appear in a copy that is assembled rather than
+mirrored, and compressing the result is tar's job. `record`
 writes one and `amend` rewrites one,
 `skip` writes the rule saying what recording does not take, and `identity` says
 who is writing. `diff` is what changed — the folder against the
@@ -657,6 +663,20 @@ Choices that constrain later work are written down as they are made.
   spelled so every replica files alike, and the filename keeps the whole date.
   `arrange` is the migration because it was already the command that applies
   the scheme; nothing in the loader changes, because it never read a name.
+- [`docs/decisions/0042-a-copy-to-take-away.md`](docs/decisions/0042-a-copy-to-take-away.md)
+  — `export <dir> [<target>]`, the sending half 0029 named by saying what it is
+  not. No directory on disk holds the bytes a stranger should be given: the
+  folder carries unrecorded edits and every file a `skip` rule exists to keep
+  private, and `history/` carries bookmarks, rules, and a cache that are the
+  exporter's. So the command *builds* that directory — the folder as the
+  target has it, and the target's ancestry closed over the documents and
+  payloads it names and every forgetting document touching any of it, since
+  0014 always travels. The header states the lowest version the copy's own
+  documents come to, which is 0004 read backwards, and the result is an
+  ordinary store whose pull is `receive`, so clone and pull turn out to have
+  been one design. Ancestry closes over parents and nothing else: a
+  `supersedes` line may name a digest the copy does not hold, which is what
+  0001 has said all along — the successor carries the evidence.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

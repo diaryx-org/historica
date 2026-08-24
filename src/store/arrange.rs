@@ -157,7 +157,7 @@ impl<F: Filesystem> Store<F> {
     /// What `arrange` would rename, without renaming anything.
     pub fn arrangement(&self) -> Result<Arrangement, ArrangeError> {
         let stems = naming::stems(self.iter());
-        let operations = self.operation_names(&stems)?;
+        let operations = self.operation_names(&stems, self.iter())?;
         let mut plan = Arrangement::default();
 
         // The store's own walk, so arranging handles exactly the files the
@@ -353,10 +353,16 @@ impl<F: Filesystem> Store<F> {
     /// each revision has to be materialised to find it. That is real work, and
     /// it is affordable for one reason: `arrange` is a manual tidying command
     /// that nothing runs in a loop.
-    fn operation_names(
-        &self,
+    ///
+    /// `revisions` is which revisions may claim a document, which is the whole
+    /// store for `arrange` and the ancestry that travels for
+    /// [`Store::export_onto`]: a name decided by a revision the copy does not
+    /// hold is a name the copy's own `arrange` would immediately disagree with.
+    pub(super) fn operation_names<'a>(
+        &'a self,
         stems: &BTreeMap<RevisionId, String>,
-    ) -> Result<BTreeMap<RevisionId, (String, String)>, ArrangeError> {
+        revisions: impl IntoIterator<Item = (&'a RevisionId, &'a crate::format::RevisionDocument)>,
+    ) -> Result<BTreeMap<RevisionId, (String, String)>, MaterialiseError> {
         // A document is one document however many files arrive at its content,
         // so the same digest can be claimed by several paths and several
         // revisions. It can only live in one directory, so one claim has to
@@ -367,7 +373,7 @@ impl<F: Filesystem> Store<F> {
         // where the content first appeared — and it is deterministic, which is
         // the property that matters.
         let mut claims: BTreeMap<RevisionId, (RevisionId, String, bool)> = BTreeMap::new();
-        for (id, document) in self.iter() {
+        for (id, document) in revisions {
             if document.edited.is_empty() && document.text.is_empty() && document.bytes.is_empty() {
                 continue;
             }

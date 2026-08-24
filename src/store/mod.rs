@@ -62,6 +62,7 @@ use crate::working::{MalformedSkip, Rule, SKIPPED_FILE, Skipped};
 mod arrange;
 mod catalogue;
 mod check;
+mod export;
 mod forget;
 mod prune;
 mod receive;
@@ -69,6 +70,7 @@ mod receive;
 pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Rename, Tally};
 use catalogue::Catalogue;
 pub use check::{Finding, Report, Severity};
+pub use export::{ExportError, ExportPlan, Exported};
 pub use forget::{ForgetError, Forgetting, Forgotten};
 pub use prune::Pruned;
 pub use receive::{MutableConflict, ReceiveError, ReceivePlan, Received};
@@ -1896,6 +1898,16 @@ impl<F: Filesystem> Store<F> {
         if version <= self.version {
             return Ok(());
         }
+        self.state_version(version)
+    }
+
+    /// State the version this store holds, whichever way it moves.
+    ///
+    /// The only caller that lowers one is [`Store::export_onto`], and it is
+    /// the only caller entitled to: an export knows the whole of what it has
+    /// written, where every other writer knows only the document in its hand
+    /// and must therefore never state less than the header already does.
+    pub(super) fn state_version(&mut self, version: Version) -> Result<(), StoreError> {
         let header = self.root.join(HEADER_FILE);
         // Only the first line moves: whatever a person wrote under it is
         // theirs, and a version bump is no reason to take it away.
