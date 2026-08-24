@@ -107,6 +107,8 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — say where a digest is, instead of hashing the directory to find it ([`6c6b06e`](https://github.com/diaryx-org/historica/commit/6c6b06e7d8a67cf2e3717e42b28063a8cc909336))
 - **store** — hash a payload in pieces rather than holding it whole ([`f89db41`](https://github.com/diaryx-org/historica/commit/f89db4146f12c57b33e61d8cab03b298818e70b0))
 - **working** — catalogue what the folder hashed to, so a photograph is not read twice ([`e14a9e0`](https://github.com/diaryx-org/historica/commit/e14a9e0a722cae9fa8b32366274592e49d4d5b3f))
+- **check** — replay a chain forward rather than walking it ([`dc80af4`](https://github.com/diaryx-org/historica/commit/dc80af4864f8267d9850f834f305b861654d1980))
+- **store** — take the catalogue without walking the directory ([`2a77605`](https://github.com/diaryx-org/historica/commit/2a7760590b4c180de86b23cf2e8f2b567af1927e))
 
 ### Behavioural changes
 
@@ -452,6 +454,12 @@ the version line in `export`'s output.
   resolution with a message naming that limit, instead of reporting the
   resolution as undelivered. `ForgetError::MintedByResolution` is a new
   variant of an already `#[non_exhaustive]` enum.
+
+- `check` states a chain's contradiction in the
+replayer's words rather than the merge walk's — "the document deletes `x`
+at position 1, where the parent holds `y`" where it used to describe the
+same fault as a walk that could not place an item. The finding, its
+severity and the exit code are unchanged.
 
 <!-- git-cliff:end -->
 
