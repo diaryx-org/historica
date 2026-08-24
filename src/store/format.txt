@@ -214,7 +214,12 @@ filename without `.txt`.
 Checking a store by hand
 -------------------------
 
-  shasum -a 256 revisions/*.rev.txt operations/*
+  find revisions operations -type f -exec shasum -a 256 {} +
+
+Both directories nest — a revision is filed under the year and month it was
+recorded in, and what it did is filed under it at the path each file had — so
+this walks rather than globs. Depth means nothing to a reader: a file in this
+folder is what its bytes are, wherever it sits.
 
 Every digest a document names should appear in that output. Every `result`
 should match the file you get by replaying. Nothing else in this folder is

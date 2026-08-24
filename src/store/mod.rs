@@ -16,7 +16,8 @@
 //! ```text
 //! history/
 //! ├── historica.txt   # the version, and a note saying what this folder is
-//! ├── revisions/      # one revision document per file, under any name
+//! ├── revisions/      # one revision document per file, under any name, at
+//! │                   #   any depth — written under `YYYY-MM/` (decision 0041)
 //! ├── operations/     # what each revision did, per file — decisions 0007, 0017
 //! ├── names/          # bookmarks, `<name>.txt` — the only mutable files
 //! ├── cache/          # derived, disposable, deletable without loss:
@@ -134,11 +135,13 @@ presentation. Renaming anything in this folder breaks nothing, and filing it
 into directories of your own breaks nothing either.
 
   revisions/      one file per revision: who recorded what, when, and why, and
-                  which revisions came before it, named by digest.
+                  which revisions came before it, filed under the year and
+                  month it was recorded in.
   operations/     what each revision did, filed under the revision that did it,
-                  at the path the file had. A `.ops.txt` file lists the lines
-                  that revision deleted and inserted; every other file there is
-                  a file's own content, stored whole.
+                  at the path the file had, under that same year and month. A
+                  `.ops.txt` file lists the lines that revision deleted and
+                  inserted; every other file there is a file's own content,
+                  stored whole.
   names/          bookmarks, one line each. The only files here that change.
   cache/          derived and disposable: files you have already read, kept
                   under the digest their history says they hash to, so that

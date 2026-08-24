@@ -1000,9 +1000,22 @@ fn arrange_files_operation_documents_under_the_revision_that_names_them() {
             .any(|name| name.ends_with("Say more/src/cli/mod.rs.ops.txt")),
         "one path, two revisions, two directories: {filed:?}"
     );
-    // And the directories are real ones a person can open.
-    let journal = fs::read_dir(&operations)
+    // Decision 0041: and the whole of that sits under the revision's month,
+    // which is the one directory `operations/` itself now holds. The month
+    // is the date the name already carries, so the name checks itself.
+    for name in &filed {
+        let (month, rest) = name.split_once('/').expect("a month directory");
+        assert_eq!(month, &rest[..month.len()], "{filed:?}");
+    }
+    let months: Vec<String> = fs::read_dir(&operations)
         .expect("the operations directory")
+        .filter_map(|entry| Some(entry.ok()?.file_name().to_string_lossy().into_owned()))
+        .collect();
+    assert_eq!(months.len(), 1, "one month, one directory: {months:?}");
+
+    // And the directories are real ones a person can open.
+    let journal = fs::read_dir(operations.join(&months[0]))
+        .expect("the month directory")
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .find(|path| path.to_string_lossy().ends_with("Start a journal"))
@@ -1337,6 +1350,17 @@ fn a_store_is_written_readable_and_arrange_has_nothing_to_do() {
         "{filed:?} {revisions:?}"
     );
 
+    // Decision 0041: and the writer files each of them under the revision's
+    // own month, so a store kept the way a journal is kept never becomes one
+    // flat listing of thousands. The month is the first seven characters of
+    // the date the name already carries, which is what lets the name be
+    // checked against itself without this test knowing what day it is.
+    for name in filed.iter().chain(&revisions) {
+        let (month, rest) = name.split_once('/').expect("a month directory");
+        assert_eq!(month.len(), "2026-08".len(), "{name}");
+        assert_eq!(month, &rest[..month.len()], "{name}");
+    }
+
     assert_eq!(stdout(&directory, &["cat", "head", "notes/a.md"]), "two\n");
     let done = stdout(&directory, &["arrange"]);
     assert!(done.contains("0 renamed, 2 already arranged"), "{done}");
@@ -1368,6 +1392,60 @@ fn arranging_is_the_same_wherever_it_is_done() {
         walk_names(&two.join("history")),
         "two replicas disagreed about a name"
     );
+}
+
+#[test]
+fn arrange_files_a_flat_store_and_then_has_nothing_left_to_do() {
+    // Decision 0041's migration, which is the reason it needed no new command:
+    // a store written flat — by an older version, by another tool, or by hand
+    // — is one `arrange` away from the layout this version writes, and a
+    // second `arrange` moves nothing.
+    let directory = repository("arrange-flatten");
+    write(&directory, "notes/a.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+    write(&directory, "notes/a.md", "two\n");
+    out(recorded(&directory, &["record", "-m", "Say more"]));
+
+    // The store as the version before this one would have left it: the same
+    // names, one level up.
+    let history = directory.join("history");
+    for directory in ["revisions", "operations"] {
+        let within = history.join(directory);
+        let months: Vec<PathBuf> = fs::read_dir(&within)
+            .expect("the directory")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .collect();
+        assert_eq!(months.len(), 1, "one month was written: {months:?}");
+        for month in months {
+            for entry in fs::read_dir(&month).expect("the month").flatten() {
+                fs::rename(entry.path(), within.join(entry.file_name())).expect("flattening");
+            }
+            fs::remove_dir(&month).expect("the emptied month");
+        }
+    }
+    let before = stdout(&directory, &["log"]);
+    let flat = walk_names(&history.join("revisions"));
+    assert!(
+        flat.iter().all(|name| !name.contains('/')),
+        "the store is flat to start with: {flat:?}"
+    );
+
+    let done = stdout(&directory, &["arrange"]);
+    assert!(done.contains("2 renamed"), "{done}");
+    for name in walk_names(&history.join("revisions")) {
+        let (month, rest) = name.split_once('/').expect("a month directory");
+        assert_eq!(month, &rest[..month.len()], "{done}");
+    }
+    // The bytes never moved, so neither did the history.
+    assert_eq!(stdout(&directory, &["log"]), before);
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "a filed store is as valid as a flat one"
+    );
+
+    let again = stdout(&directory, &["arrange"]);
+    assert!(again.contains("0 renamed, 2 already arranged"), "{again}");
 }
 
 /// Every file under a directory, relative and sorted, directories included in
@@ -1529,31 +1607,39 @@ fn receive_requires_an_explicit_join_for_unrelated_histories() {
 }
 
 #[test]
-fn arrange_renames_a_filed_revision_where_it_sits() {
+fn arrange_files_a_revision_under_its_month_wherever_it_sat() {
     let directory = store_from("arrange-nested", "tree");
     let revisions = directory.join("history/revisions");
-    let filed = revisions.join("early/2025");
-    fs::create_dir_all(&filed).expect("directories");
+    let elsewhere = revisions.join("early/2025");
+    fs::create_dir_all(&elsewhere).expect("directories");
     fs::rename(
         revisions.join("01-start.rev.txt"),
-        filed.join("01-start.rev.txt"),
+        elsewhere.join("01-start.rev.txt"),
     )
     .expect("filing a revision away");
 
     let before = stdout(&directory, &["log"]);
     let done = stdout(&directory, &["arrange"]);
 
-    // Renamed, not moved. A person who filed it there meant to.
+    // Decision 0041: a revision goes to its month, which is the one layout
+    // `arrange` produces. Until it, arranging kept whatever folder a person
+    // had chosen — but a scheme `arrange` declines to apply is a scheme no
+    // store can be migrated to, and the loader reads files rather than names,
+    // so nothing about the history noticed either way.
     assert!(
-        filed.join("2025-08-19 Start a journal.rev.txt").exists(),
+        revisions
+            .join("2025-08/2025-08-19 Start a journal.rev.txt")
+            .exists(),
         "{done}"
     );
     assert!(
-        !revisions
+        !elsewhere
             .join("2025-08-19 Start a journal.rev.txt")
             .exists(),
-        "arranging must not flatten what a person arranged"
+        "{done}"
     );
+    // And the folder it left is gone, rather than an empty husk of one.
+    assert!(!revisions.join("early").exists(), "{done}");
     assert_eq!(stdout(&directory, &["log"]), before);
 
     // And arranging an arranged store is a no-op, at whatever depth.
@@ -1579,7 +1665,7 @@ fn arrange_renames_presentation_and_changes_nothing_else() {
     assert!(done.contains("4 renamed"), "{done}");
     assert!(
         directory
-            .join("history/revisions/2025-08-19 Start a journal.rev.txt")
+            .join("history/revisions/2025-08/2025-08-19 Start a journal.rev.txt")
             .exists(),
         "{done}"
     );
@@ -3309,9 +3395,8 @@ fn amending_a_revision_that_renamed_a_file_keeps_the_rename() {
     // Decision 0019's third tier, which nothing could reach until an
     // amendment existed: three revisions want one name here, and each is
     // written under its own without anything being renamed or overwritten.
-    let filed: Vec<String> = fs::read_dir(directory.join("history/revisions"))
-        .expect("the revisions directory")
-        .filter_map(|entry| Some(entry.ok()?.file_name().to_string_lossy().into_owned()))
+    let filed: Vec<String> = walk_names(&directory.join("history/revisions"))
+        .into_iter()
         .filter(|name| name.contains("File the notes"))
         .collect();
     assert_eq!(filed.len(), 3, "{filed:?}");

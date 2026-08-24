@@ -275,9 +275,17 @@ file a person double-clicks opens in the editor they already have, and each
 revision's operation documents and payloads sit under a directory of the same
 name, at the path they had — as real directories, so a revision's folder is the
 subtree of the repository that revision touched and `notes/photo.png` inside it
-opens as a picture. Its rule to keep is that two replicas must produce one set
-of filenames, so a collision resolves by change ID and then by digest, never by
-a counter, which would depend on what else was in the directory. `arrange` is
+opens as a picture. Both of those are filed under the revision's own year and
+month — decision 0041 — so a journal kept for a decade is a hundred and twenty
+folders rather than one listing of thousands, which is the thing a person
+scrolls rather than opens; the filename keeps the whole date, so a file
+separated from its folder still says when it is from. The month is read from
+the revision's `when` as spelled, in the offset the author experienced, since
+no part of a name may come from the clock the machine happens to have. Its rule
+to keep is that two replicas must produce one set of filenames, so a collision
+resolves by change ID and then by digest, never by a counter, which would
+depend on what else was in the directory — and the month is the directory that
+rule is now applied inside, which changes nothing about it. `arrange` is
 what applies that scheme to a store that does not have it — one written by an
 older version, by another tool, or by hand — and on a store this version wrote
 it does nothing. It is deliberately not a lint: a name that differs is usually
@@ -441,6 +449,8 @@ $ historica cat nwlxsqot file:readme
 
 A journal kept in Historica, and the notes that came with it.
 $ ls history/revisions
+2025-08
+$ ls history/revisions/2025-08
 '2025-08-19 Start a journal.rev.txt'
 '2025-08-19 Say why a path is not an identity.rev.txt'
 '2025-08-20 File the README under docs, and say what it covers.rev.txt'
@@ -639,6 +649,14 @@ Choices that constrain later work are written down as they are made.
   anything, nothing is remembered past the command, and every fact recorded is
   still one the folder stated. A restriction may not spell half a rename, and
   a merge, which states what every contested file is, takes no paths at all.
+- [`docs/decisions/0041-where-a-revision-is-filed.md`](docs/decisions/0041-where-a-revision-is-filed.md)
+  — the flat directories 0016 chose, answered where 0003 deferred it: a store
+  kept the way a journal is kept passes ten thousand entries without ever
+  having been large, and a listing of five thousand is not a folder anybody
+  opens. A revision is filed under its own year and month, read from `when` as
+  spelled so every replica files alike, and the filename keeps the whole date.
+  `arrange` is the migration because it was already the command that applies
+  the scheme; nothing in the loader changes, because it never read a name.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

@@ -1,10 +1,11 @@
 //! `arrange`: the advisory names decision 0006 made deterministic.
 //!
 //! Identity comes from content, so a revision's filename means nothing to the
-//! reader and everything to the person browsing the folder. This renames each
-//! revision document to `YYYY-MM-DD summary.rev.txt` and files each operation
-//! document and payload under the revision that named it, at the path it had —
-//! and touches no file's bytes, so no identity moves and no reference dangles.
+//! reader and everything to the person browsing the folder. This files each
+//! revision document at `YYYY-MM/YYYY-MM-DD summary.rev.txt` and each
+//! operation document and payload under the revision that named it, at the
+//! path it had — and touches no file's bytes, so no identity moves and no
+//! reference dangles.
 //!
 //! It lives here rather than in the command-line front end because the thing
 //! being offered is readability. A host syncing a store into somebody's iCloud
@@ -33,7 +34,7 @@ use crate::naming::{self, Filing};
 
 use super::{
     MaterialiseError, OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, Store,
-    StoreError, claims, walk,
+    StoreError, claims, walk, within,
 };
 
 /// Which of the store's two arranged directories a file sits in.
@@ -172,13 +173,13 @@ impl<F: Filesystem> Store<F> {
                 // read these same files when the store was opened.
                 return Err(ArrangeError::Changed { file: path });
             };
-            // Renamed where it sits, never moved. A revision is one file, so
-            // there is nothing for a directory to group, and a person who
-            // filed one somewhere meant to.
-            let target = path
-                .parent()
-                .unwrap_or(&revisions)
-                .join(format!("{stem}{REVISION_SUFFIX}"));
+            // Moved, not merely renamed where it sat. Until decision 0041 a
+            // revision was one file with nothing for a directory to group, so
+            // arranging kept whatever folder a person had put it in; the month
+            // is what a directory now groups, and a scheme `arrange` declined
+            // to apply is a scheme no flat store could ever be migrated to.
+            // This is what `operations/` has always done, for the same reason.
+            let target = within(&revisions, &format!("{stem}{REVISION_SUFFIX}"));
             self.place(&mut plan, path, target, Filed::Revision)?;
         }
 
@@ -196,10 +197,7 @@ impl<F: Filesystem> Store<F> {
             // directory carries the revision, so a document in the wrong one
             // is in the wrong place rather than merely misnamed. Decision
             // 0018: the rest of the name is the path, as directories.
-            let mut target = operations_dir.join(stem);
-            for component in name.split('/') {
-                target.push(component);
-            }
+            let target = within(&operations_dir, &format!("{stem}/{name}"));
             self.place(&mut plan, path, target, Filed::Operation)?;
         }
 
@@ -249,11 +247,12 @@ impl<F: Filesystem> Store<F> {
             // emptying one can empty the one above it — and `remove_directory`
             // refuses a directory holding anything, which is the guard: a
             // directory a person put something else in survives, and so does
-            // everything above it.
-            if rename.filed == Filed::Operation
-                && let Some(parent) = from.parent()
-            {
-                self.tidy(parent);
+            // everything above it. Revisions are tidied on the same terms
+            // since decision 0041 made them move rather than be renamed where
+            // they sat; the store's own directory is where it stops, so the
+            // month directory this pass is filling is never a candidate.
+            if let Some(parent) = from.parent() {
+                self.tidy(parent, rename.filed.directory());
             }
             done.renames.push(rename);
         }
@@ -309,11 +308,12 @@ impl<F: Filesystem> Store<F> {
     ///
     /// Failure is the stop condition rather than an error: `remove_directory`
     /// refuses a directory that holds anything, and that refusal is the whole
-    /// guard.
-    fn tidy(&self, from: &Path) {
-        let operations = self.root.join(OPERATIONS_DIR);
+    /// guard. `until` is the store directory the file belongs to, which is
+    /// never removed however empty a pass leaves it.
+    fn tidy(&self, from: &Path, until: &str) {
+        let boundary = self.root.join(until);
         let mut empty = from;
-        while empty != operations && self.files.remove_directory(empty).is_ok() {
+        while empty != boundary && self.files.remove_directory(empty).is_ok() {
             match empty.parent() {
                 Some(parent) => empty = parent,
                 None => break,
@@ -333,9 +333,11 @@ impl<F: Filesystem> Store<F> {
     /// Where everything in `operations/` belongs: a directory, and a path.
     ///
     /// Decision 0016. The directory is the revision's own arranged stem, so
-    /// `revisions/2026-08-20 Initial state.rev.txt` and
-    /// `operations/2026-08-20 Initial state/` are visibly the same thing, and
-    /// what is left to say is the path — which decision 0018 says as a path,
+    /// `revisions/2026-08/2026-08-20 Initial state.rev.txt` and
+    /// `operations/2026-08/2026-08-20 Initial state/` are visibly the same
+    /// thing — including decision 0041's month, which is part of the stem and
+    /// so files both halves alike without either side being told about it.
+    /// What is left to say is the path — which decision 0018 says as a path,
     /// in real directories, rather than spelling one into a filename. So a
     /// revision's folder is the subtree of the repository that revision
     /// touched, and `notes/photo.png` inside it opens as a picture from a

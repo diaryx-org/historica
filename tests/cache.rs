@@ -331,6 +331,60 @@ fn a_document_recorded_after_the_catalogue_was_written_is_still_found() {
     assert!(run(&directory, &["check"]).status.success());
 }
 
+#[test]
+fn filing_a_flat_store_costs_a_catalogue_and_never_an_answer() {
+    // Decision 0041 moves every file in a flat store one level down, which is
+    // exactly the condition 0036 refuses to believe a catalogue under: the
+    // paths it names are no longer the paths the directory holds. What that
+    // costs is one pass over `operations/`; what it must never cost is an
+    // answer, so every one of them is the same before and after.
+    let directory = recorded("catalogue-filed");
+    let head = head(&directory);
+    let before = stdout(&directory, &["cat", &head, "notes.txt"]);
+    let files = stdout(&directory, &["files", &head]);
+
+    let operations = directory.join("history/operations");
+    let months: Vec<PathBuf> = fs::read_dir(&operations)
+        .expect("the operations directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    assert!(!months.is_empty(), "the writer filed nothing");
+    let held = fs::read_to_string(catalogue_of(&directory)).expect("a catalogue");
+    for month in &months {
+        let name = month.file_name().expect("a month").to_string_lossy();
+        assert!(
+            held.lines()
+                .skip(1)
+                .all(|line| line.contains(&format!("operations/{name}/"))),
+            "a filed path is just a longer string in the set: {held}"
+        );
+        // Flattened, as a store written before this version would have been.
+        for entry in fs::read_dir(month).expect("the month").flatten() {
+            fs::rename(entry.path(), operations.join(entry.file_name())).expect("flattening");
+        }
+        fs::remove_dir(month).expect("the emptied month");
+    }
+
+    // The catalogue on disk still names the old paths, and every answer holds.
+    assert_eq!(stdout(&directory, &["cat", &head, "notes.txt"]), before);
+    assert_eq!(stdout(&directory, &["files", &head]), files);
+    assert!(run(&directory, &["arrange"]).status.success());
+    assert_eq!(stdout(&directory, &["cat", &head, "notes.txt"]), before);
+    assert_eq!(stdout(&directory, &["files", &head]), files);
+    assert!(run(&directory, &["check"]).status.success());
+
+    // And the catalogue that came back names where the files now are.
+    let after = fs::read_to_string(catalogue_of(&directory)).expect("a catalogue again");
+    for line in after.lines().skip(1) {
+        let path = line.splitn(3, ' ').nth(2).expect("a path on every line");
+        assert!(
+            directory.join("history").join(path).exists(),
+            "the catalogue names a file that is there: {line}"
+        );
+    }
+}
+
 /// `shasum -a 256`, for planting an entry that is honestly named.
 fn sha256_hex(bytes: &[u8]) -> String {
     historica::format::digest(bytes).to_string()

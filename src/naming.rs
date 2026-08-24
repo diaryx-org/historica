@@ -1,6 +1,6 @@
 //! The names a store's files are written under, which nothing reads.
 //!
-//! Specified by decisions 0006, 0016, 0018 and 0019. One rule from 0003
+//! Specified by decisions 0006, 0016, 0018, 0019 and 0041. One rule from 0003
 //! governs everything here:
 //!
 //! > Identity comes from content. Filenames are presentation.
@@ -12,17 +12,27 @@
 //! running a command.
 //!
 //! ```text
-//! revisions/2026-08-20 File the photograph.rev
-//! operations/2026-08-20 File the photograph/notes/photo.png
-//! operations/2026-08-20 Say more/src/cli/mod.rs.ops
+//! revisions/2026-08/2026-08-20 File the photograph.rev.txt
+//! operations/2026-08/2026-08-20 File the photograph/notes/photo.png
+//! operations/2026-08/2026-08-20 Say more/src/cli/mod.rs.ops.txt
 //! ```
+//!
+//! Decision 0041 is the `2026-08/` in front. The names already began with a
+//! date, and a store kept the way a journal is kept passes ten thousand
+//! entries without ever having been large; a directory of five thousand is not
+//! a folder a person opens, which is the whole thing these names exist for.
+//! The month comes from the revision's own `when` as spelled — the wall clock
+//! in its own offset, exactly as the date in the filename already is — so no
+//! replica consults its own clock or zone for any part of a name.
 //!
 //! The one hard rule is determinism. Two replicas arranging one history must
 //! produce one set of filenames, or sync sees two files per document and a
 //! scheme meant to make a folder readable fills it with conflicted copies.
 //! That is why a collision appends a change ID rather than a counter: a
 //! counter depends on what else is in the directory, and a content-derived
-//! suffix does not.
+//! suffix does not. The month directory is the scope a collision is judged in
+//! now, which changes nothing about the rule, since a suffix that does not
+//! depend on the directory does not depend on which one either.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,6 +48,13 @@ use crate::store::{OPERATION_SUFFIX, platform_name};
 pub const SUMMARY_CHARS: usize = 60;
 /// Change ID characters where a name needs one.
 pub const CHANGE_CHARS: usize = 8;
+/// Characters of a timestamp that spell its month: `2026-08`.
+///
+/// Decision 0041's directory. A [`Timestamp`] has exactly one spelling and it
+/// is ASCII of a fixed width, so this is a prefix rather than a parse.
+const MONTH_CHARS: usize = 7;
+/// Characters of a timestamp that spell its date: `2026-08-20`.
+const DATE_CHARS: usize = 10;
 /// Digest characters where two revisions of one change would still collide.
 pub const DIGEST_CHARS: usize = 12;
 
@@ -45,7 +62,8 @@ pub const DIGEST_CHARS: usize = 12;
 ///
 /// Decision 0006's scheme, over a whole store: the date the author
 /// experienced, the first line of the message, and a suffix only where two
-/// would otherwise meet.
+/// would otherwise meet — under the month directory decision 0041 files it in,
+/// so a stem carries a `/` and names two components rather than one.
 pub fn stems<'a>(
     documents: impl IntoIterator<Item = (&'a RevisionId, &'a RevisionDocument)>,
 ) -> BTreeMap<RevisionId, String> {
@@ -99,6 +117,11 @@ pub fn stems<'a>(
 /// under, because a writer that renames is the thing 0016 warned about.
 /// [`stems`] gives both a suffix, so `arrange` will move the older one if it
 /// is ever run; both spellings are unambiguous in the meantime.
+///
+/// Two revisions only collide if they share a date, and two revisions that
+/// share a date share a month, so decision 0041's directory neither creates a
+/// collision nor hides one: `existing` is the whole store either way, and the
+/// month is part of the base being compared.
 ///
 /// The three tiers are [`stems`]'s, and the third had no caller until decision
 /// 0023: two revisions *of one change* under one summary is what an amendment
@@ -279,14 +302,25 @@ fn base(document: &RevisionDocument) -> String {
     compose(&document.when, &document.message, &document.change)
 }
 
-/// The date and the summary, which is what a revision is called.
+/// The month directory, the date, and the summary — where a revision is filed
+/// and what it is called there.
 ///
-/// The date comes from `when` as written, so it is the date in the offset the
-/// author experienced. Decision 0002 keeps timestamps out of identity and
-/// ordering, which is exactly what frees them for this.
+/// Both halves come from `when` as written, so they are the month and the date
+/// in the offset the author experienced. Decision 0002 keeps timestamps out of
+/// identity and ordering, which is exactly what frees them for this, and it is
+/// the document's own spelling rather than any clock this process can read,
+/// which is what makes two replicas file one history alike.
+///
+/// The filename keeps the whole date, so a file separated from its folder
+/// still says when it is from and a name that sorted correctly flat still
+/// does. The prefix is the one thing decision 0041 adds; the `SUMMARY_CHARS`
+/// arithmetic below is untouched by it, because a directory component and a
+/// filename are measured separately by every filesystem in use.
 fn compose(when: &Timestamp, message: &str, change: &ChangeId) -> String {
-    let date: String = when.as_str().chars().take(10).collect();
-    format!("{date} {}", summary(message, change))
+    let spelled = when.as_str();
+    let month: String = spelled.chars().take(MONTH_CHARS).collect();
+    let date: String = spelled.chars().take(DATE_CHARS).collect();
+    format!("{month}/{date} {}", summary(message, change))
 }
 
 fn summary(message: &str, change: &ChangeId) -> String {
@@ -362,7 +396,7 @@ mod tests {
             "2025-08-19T00:47:11-06:00",
             "Start a journal\n\nA second paragraph the filename does not want.\n",
         );
-        assert_eq!(base(&document), "2025-08-19 Start a journal");
+        assert_eq!(base(&document), "2025-08/2025-08-19 Start a journal");
     }
 
     #[test]
@@ -402,7 +436,7 @@ mod tests {
             "2025-08-20T01:00:00+13:00",
             "Late\n",
         );
-        assert_eq!(base(&document), "2025-08-20 Late");
+        assert_eq!(base(&document), "2025-08/2025-08-20 Late");
     }
 
     #[test]
@@ -412,7 +446,10 @@ mod tests {
             "2025-08-19T00:47:11-06:00",
             "File  docs/README.md  under docs\n",
         );
-        assert_eq!(base(&document), "2025-08-19 File docs README.md under docs");
+        assert_eq!(
+            base(&document),
+            "2025-08/2025-08-19 File docs README.md under docs"
+        );
     }
 
     #[test]
@@ -434,7 +471,9 @@ mod tests {
             &format!("{long}\n"),
         );
         let name = base(&document);
-        let summary = name.strip_prefix("2025-08-19 ").expect("the date");
+        let summary = name
+            .strip_prefix("2025-08/2025-08-19 ")
+            .expect("the month and the date");
         assert!(summary.chars().count() <= SUMMARY_CHARS);
         assert!(long.starts_with(summary));
         assert!(!summary.ends_with(' '));
@@ -443,7 +482,47 @@ mod tests {
     #[test]
     fn an_empty_message_falls_back_to_the_change_id() {
         let document = document("qpvuntsmwlrkzxonmvtplsyq", "2025-08-19T00:47:11-06:00", "");
-        assert_eq!(base(&document), "2025-08-19 qpvuntsm");
+        assert_eq!(base(&document), "2025-08/2025-08-19 qpvuntsm");
+    }
+
+    #[test]
+    fn a_revision_is_filed_under_the_month_the_author_experienced() {
+        // Decision 0041, on 0006's terms: the month is the date's own first
+        // seven characters, read from `when` as spelled, so 01:00 on the 1st
+        // at +13:00 is filed in the month the person had rather than the month
+        // it was in UTC — and no clock this process could read comes into it.
+        let document = document(
+            "qpvuntsmwlrkzxonmvtplsyq",
+            "2025-09-01T01:00:00+13:00",
+            "Late\n",
+        );
+        assert_eq!(base(&document), "2025-09/2025-09-01 Late");
+    }
+
+    #[test]
+    fn two_months_are_two_directories_and_the_filename_still_says_the_date() {
+        // The filename carries the whole date, so a file separated from its
+        // folder still says when it is from, and a name that sorted correctly
+        // flat still does.
+        let documents = [
+            document(
+                "qpvuntsmwlrkzxonmvtplsyq",
+                "2025-08-31T23:00:00-06:00",
+                "August\n",
+            ),
+            document(
+                "mzvwutklopqrsnyxwkltvmzu",
+                "2025-09-01T01:00:00-06:00",
+                "September\n",
+            ),
+        ];
+        assert_eq!(
+            arranged(&documents),
+            [
+                "2025-08/2025-08-31 August".to_owned(),
+                "2025-09/2025-09-01 September".to_owned()
+            ]
+        );
     }
 
     #[test]
@@ -461,8 +540,8 @@ mod tests {
         assert_eq!(
             arranged(&[one, two]),
             [
-                "2025-08-19 Notes qpvuntsm".to_owned(),
-                "2025-08-19 Notes mzvwutkl".to_owned()
+                "2025-08/2025-08-19 Notes qpvuntsm".to_owned(),
+                "2025-08/2025-08-19 Notes mzvwutkl".to_owned()
             ]
         );
     }
@@ -482,7 +561,12 @@ mod tests {
         let names = arranged(&[one.clone(), two.clone()]);
         assert_ne!(names[0], names[1]);
         for (name, document) in names.iter().zip([&one, &two]) {
-            assert!(name.starts_with("2025-08-19 Notes qpvuntsm "));
+            assert!(name.starts_with("2025-08/2025-08-19 Notes qpvuntsm "));
+            // Both tiers of suffix land on the filename. A collision is two
+            // names meeting in one directory, and decision 0041 made that
+            // directory the month — which is the one place a suffix must not
+            // go, or the two would be parted by living in different folders.
+            assert_eq!(name.matches('/').count(), 1, "{name}");
             assert!(name.ends_with(&document.id().abbreviate(DIGEST_CHARS)));
         }
     }
@@ -518,12 +602,12 @@ mod tests {
                 existing.iter().copied(),
             )
         };
-        assert_eq!(named(&one, &[]), "2025-08-19 Notes");
-        assert_eq!(named(&two, &[&one]), "2025-08-19 Notes mzvwutkl");
+        assert_eq!(named(&one, &[]), "2025-08/2025-08-19 Notes");
+        assert_eq!(named(&two, &[&one]), "2025-08/2025-08-19 Notes mzvwutkl");
         assert_eq!(
             named(&again, &[&one, &two]),
             format!(
-                "2025-08-19 Notes mzvwutkl {}",
+                "2025-08/2025-08-19 Notes mzvwutkl {}",
                 again.id().abbreviate(DIGEST_CHARS)
             )
         );
