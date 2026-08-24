@@ -81,6 +81,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — `arrange --refile`, where the month is asked for rather than imposed ([`698bd8a`](https://github.com/diaryx-org/historica/commit/698bd8a1a8b8bdb80aa82a2e03970506da9a8f83))
 - **fs** — let a folder stamp a file, and hand one over in pieces ([`48f2482`](https://github.com/diaryx-org/historica/commit/48f24822028bc4ea55c16a0f61bd6e2ef5a36d01))
 - **store** — skipped/, one rule to a file ([`34a81f8`](https://github.com/diaryx-org/historica/commit/34a81f86f30c07ea21f158d9c9790642bb39cd24))
+- **check** — note the work a rewrite did not reach ([`342ac5f`](https://github.com/diaryx-org/historica/commit/342ac5fd96aee7cb11d52f35e9abf7cbba504a7c))
 
 ### Fixed
 
@@ -418,6 +419,12 @@ that wrote one. `RevisionDocument`, `OperationDocument`, and
 `ResolutionDocument` lose their `version` field, `Version` is gone from
 the public API along with `Store::version`, `ExportPlan::version`, and
 the version line in `export`'s output.
+
+- `check` emits a new note, `StandsOnSuperseded`, where a
+  store holds both a supersession and a live descendant of the superseded
+  revision. It never fails, so `check`'s exit status is unchanged, and
+  `Finding` is `#[non_exhaustive]`, so the new variant breaks no match.
+  `merge` prints one line per such head before its other output.
 
 <!-- git-cliff:end -->
 
