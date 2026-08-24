@@ -640,6 +640,263 @@ fn a_folder_that_models_no_links_refuses_rather_than_inventing_one() {
 }
 
 // ---------------------------------------------------------------------------
+// Decision 0043's capability, declined and taken
+// ---------------------------------------------------------------------------
+
+/// The same two maps, with a modification time and a read counter.
+///
+/// `Memory` above models no [`Stamp`], so it takes the default and says
+/// `None` — which is the case decision 0043 has to lose nothing on, and the
+/// case the tests before this one have been exercising all along. This one
+/// models one: a tick that advances on every write, which is what a
+/// modification time is for the purpose the catalogue puts it to. Between the
+/// two, the same history is recorded and described with the capability and
+/// without it, and the reads are counted so that "the folder was not read
+/// again" is an assertion rather than a stopwatch.
+struct Stamped {
+    held: Arc<Memory>,
+    /// A tick per write. Nanoseconds, so that the times are far enough apart
+    /// for a real filesystem's granularity to be irrelevant to the test.
+    ticks: Mutex<u64>,
+    times: Mutex<BTreeMap<PathBuf, std::time::SystemTime>>,
+    reads: Mutex<BTreeMap<PathBuf, usize>>,
+}
+
+impl Stamped {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            held: Memory::new(),
+            ticks: Mutex::new(0),
+            times: Mutex::new(BTreeMap::new()),
+            reads: Mutex::new(BTreeMap::new()),
+        })
+    }
+
+    /// Stamp a path with the next tick, as writing to it does.
+    fn touch(&self, path: &Path) {
+        let mut ticks = self.ticks.lock().expect("the lock");
+        *ticks += 1;
+        self.times.lock().expect("the lock").insert(
+            path.to_path_buf(),
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(*ticks),
+        );
+    }
+
+    /// How many times one path has been read.
+    fn reads_of(&self, path: &str) -> usize {
+        let path = Path::new(ROOT).join(path);
+        *self
+            .reads
+            .lock()
+            .expect("the lock")
+            .get(&path)
+            .unwrap_or(&0)
+    }
+}
+
+impl Filesystem for Stamped {
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        *self
+            .reads
+            .lock()
+            .expect("the lock")
+            .entry(path.to_path_buf())
+            .or_default() += 1;
+        self.held.read(path)
+    }
+    fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        self.held.write(path, bytes)?;
+        self.touch(path);
+        Ok(())
+    }
+    fn create_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        self.held.create_new(path, bytes)?;
+        self.touch(path);
+        Ok(())
+    }
+    fn create_directory(&self, path: &Path) -> io::Result<()> {
+        self.held.create_directory(path)
+    }
+    fn entries(&self, path: &Path) -> io::Result<Vec<Entry>> {
+        self.held.entries(path)
+    }
+    fn look(&self, path: &Path) -> io::Result<Option<Kind>> {
+        self.held.look(path)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        self.held.rename(from, to)?;
+        self.touch(to);
+        Ok(())
+    }
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        self.held.remove_file(path)
+    }
+    fn remove_directory(&self, path: &Path) -> io::Result<()> {
+        self.held.remove_directory(path)
+    }
+    fn stamp(&self, path: &Path) -> io::Result<Option<historica::fs::Stamp>> {
+        // Straight out of the map, and deliberately not through `read` above:
+        // asking a directory what it already knows is not a read, which is the
+        // whole of what this capability is for.
+        let Some(modified) = self.times.lock().expect("the lock").get(path).copied() else {
+            return Ok(None);
+        };
+        let size = self.held.read(path).map(|bytes| bytes.len() as u64)?;
+        Ok(Some(historica::fs::Stamp { size, modified }))
+    }
+}
+
+/// Describe the folder, and say what recording it would state.
+fn describe<F: Filesystem>(
+    store: &Store<F>,
+    working: &Working<F>,
+    parents: Vec<RevisionId>,
+) -> String {
+    let surveyed =
+        historica::record::survey(store, working, &parents, &[], &[], &Restriction::Everything)
+            .expect("surveying the folder");
+    format!(
+        "added {:?} dropped {:?} edited {:?} modes {:?}",
+        surveyed.added,
+        surveyed.dropped.values().collect::<Vec<_>>(),
+        surveyed.edited.keys().collect::<Vec<_>>(),
+        surveyed.modes,
+    )
+}
+
+/// A folder nobody has touched is described without being read again.
+///
+/// Decision 0043's whole claim, made countable. The first survey hashes the
+/// photograph because nothing has ever said what it holds; the second is
+/// answered out of `history/cache/working.txt`, because the directory reports
+/// the same size and the same modification time it reported then — and reports
+/// them without the file being opened.
+#[test]
+fn a_folder_nobody_has_touched_is_not_read_a_second_time() {
+    let files = Stamped::new();
+    files
+        .create_directory(Path::new(ROOT))
+        .expect("the working copy");
+    let mut store =
+        Store::init_on(files.clone(), Path::new(ROOT).join("history")).expect("a new store");
+
+    // A file of bytes, which is the case that costs: 0017 stores it whole, so
+    // "has it changed" used to be both copies of it read and compared.
+    let photograph = Path::new(ROOT).join("photo.png");
+    files
+        .write(&photograph, &[0u8, 1, 2, 0, 255, 3])
+        .expect("a picture");
+    let root = record_at(&files, &mut store, Vec::new(), "a picture");
+
+    let working = Working::read_on(files.clone(), Path::new(ROOT), store.skipped())
+        .expect("the folder in memory");
+    let first = describe(&store, &working, vec![root]);
+    let reads = files.reads_of("photo.png");
+    assert!(reads > 0, "the first pass has to read it");
+
+    let working = Working::read_on(files.clone(), Path::new(ROOT), store.skipped())
+        .expect("the folder again");
+    assert_eq!(describe(&store, &working, vec![root]), first);
+    assert_eq!(
+        files.reads_of("photo.png"),
+        reads,
+        "the second pass read a file the directory said nobody had written to"
+    );
+
+    // And a file somebody *has* written to is read, whatever the catalogue
+    // says about it, because the stamp it was catalogued under is gone.
+    files
+        .write(&photograph, &[0u8, 1, 2, 0, 255, 4])
+        .expect("editing the picture");
+    let working = Working::read_on(files.clone(), Path::new(ROOT), store.skipped())
+        .expect("the folder once more");
+    let said = describe(&store, &working, vec![root]);
+    assert!(said.contains("edited [\"photo.png\"]"), "{said}");
+    assert!(files.reads_of("photo.png") > reads);
+}
+
+/// A filesystem that reports no stamp keeps every answer and none of the
+/// saving.
+///
+/// The other half of the same claim, and the reason both new methods are
+/// defaulted: `Memory` models neither, so it reads the folder on every command
+/// exactly as it did before decision 0043 — and says the same things about it
+/// as the filesystem that models both. Nothing about correctness may turn on a
+/// capability a host does not have.
+#[test]
+fn a_filesystem_that_reports_no_stamp_answers_alike_and_writes_no_catalogue() {
+    let plain = Memory::new();
+    plain
+        .create_directory(Path::new(ROOT))
+        .expect("the working copy");
+    let mut store =
+        Store::init_on(plain.clone(), Path::new(ROOT).join("history")).expect("a new store");
+    put(&plain, "notes.md", "First thought.\n");
+    plain
+        .write(&Path::new(ROOT).join("photo.png"), &[0u8, 1, 2, 0, 255, 3])
+        .expect("a picture");
+    let root = record_folder(&plain, &mut store, Vec::new(), "a journal and a picture");
+
+    assert_eq!(
+        plain
+            .stamp(&Path::new(ROOT).join("photo.png"))
+            .expect("asking is not an error"),
+        None,
+        "a filesystem with nothing to report must say so rather than guess"
+    );
+
+    let working = Working::read_on(plain.clone(), Path::new(ROOT), store.skipped())
+        .expect("the folder in memory");
+    let said = describe(&store, &working, vec![root]);
+    // Twice, because a folder that reads the same twice is the property, and
+    // because the second pass is where a catalogue would have been consulted.
+    let working = Working::read_on(plain.clone(), Path::new(ROOT), store.skipped())
+        .expect("the folder again");
+    assert_eq!(describe(&store, &working, vec![root]), said);
+    assert!(said.contains("edited []"), "nothing differs: {said}");
+
+    // And nothing was written to `cache/` about a folder nothing can be
+    // believed about: a catalogue no reader could ever check is a file with no
+    // reason to exist.
+    let held = plain.held.lock().expect("the lock");
+    assert!(
+        !held
+            .files
+            .contains_key(&Path::new(ROOT).join("history/cache/working.txt")),
+        "a filesystem that reports no stamp wrote a catalogue anyway"
+    );
+}
+
+/// The same as `record_folder`, for a filesystem that is not `Memory`.
+fn record_at<F: Filesystem + Clone>(
+    files: &F,
+    store: &mut Store<F>,
+    parents: Vec<RevisionId>,
+    message: &str,
+) -> RevisionId {
+    let mut platform = Platform;
+    let working =
+        Working::read_on(files.clone(), Path::new(ROOT), store.skipped()).expect("the folder");
+    record(
+        store,
+        &working,
+        &Recording {
+            parents,
+            author: AUTHOR.to_owned(),
+            when: platform.now().expect("a clock"),
+            message: message.to_owned(),
+            moves: Vec::new(),
+            at: Vec::new(),
+            accepted: BTreeSet::new(),
+            only: Restriction::Everything,
+        },
+        &mut platform,
+    )
+    .expect("recording")
+    .revision
+}
+
+// ---------------------------------------------------------------------------
 
 /// A filesystem that is `!Send`, `!Sync`, and not `Debug`.
 ///

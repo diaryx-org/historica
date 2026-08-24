@@ -385,6 +385,187 @@ fn filing_a_flat_store_costs_a_catalogue_and_never_an_answer() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The folder's own catalogue, decision 0043
+// ---------------------------------------------------------------------------
+
+/// The catalogue of the working folder, which 0043 puts beside 0036's.
+fn folder_catalogue_of(directory: &Path) -> PathBuf {
+    cache_of(directory).join("working.txt")
+}
+
+/// A store with a file of bytes in it, which is the case that costs: decision
+/// 0017 stores one whole, so "has it changed" was both copies read and
+/// compared, on every command.
+fn photographed(test: &str) -> PathBuf {
+    let directory = scratch(test);
+    assert!(run(&directory, &["init"]).status.success());
+    fs::write(directory.join("notes.txt"), "one\ntwo\n").expect("a file of lines");
+    fs::write(directory.join("photo.png"), [0u8, 1, 2, 0, 255, 3]).expect("a file of bytes");
+    assert!(
+        run(&directory, &["record", "-m", "a journal and a picture"])
+            .status
+            .success()
+    );
+    directory
+}
+
+#[test]
+fn the_folder_catalogue_is_written_and_then_taken() {
+    let directory = photographed("folder-kept");
+    let first = stdout(&directory, &["status"]);
+
+    let catalogue = folder_catalogue_of(&directory);
+    let held = fs::read_to_string(&catalogue).expect("a catalogue of the folder");
+    assert!(held.starts_with("historica-working-"), "{held}");
+    // One line per path the folder holds, and every one of them names a file
+    // that is there — this is a claim about the folder as it stands, never a
+    // version of a file kept anywhere else. Decision 0011 refuses an index.
+    let mut named: Vec<&str> = held
+        .lines()
+        .skip(1)
+        .map(|line| line.splitn(4, ' ').nth(3).expect("a path on every line"))
+        .collect();
+    named.sort_unstable();
+    assert_eq!(named, ["notes.txt", "photo.png"]);
+    for path in &named {
+        assert!(directory.join(path).is_file(), "{path}");
+    }
+
+    // Asking again is the same answer, and leaves it alone: nothing was
+    // learned, so nothing is rewritten.
+    assert_eq!(stdout(&directory, &["status"]), first);
+    assert_eq!(
+        fs::read_to_string(&catalogue).expect("still a catalogue"),
+        held
+    );
+}
+
+#[test]
+fn deleting_the_folder_catalogue_loses_neither_information_nor_meaning() {
+    let directory = photographed("folder-disposable");
+    let head = head(&directory);
+
+    // A folder that differs from the store, so that what is compared is more
+    // than "nothing changed" — an edited file, a new one, and a deleted one.
+    fs::write(directory.join("notes.txt"), "one\ntwo\nthree\n").expect("editing");
+    fs::write(directory.join("later.txt"), "unrecorded\n").expect("a new file");
+    fs::write(directory.join("photo.png"), [9u8, 9, 9]).expect("another picture");
+    let status = stdout(&directory, &["status"]);
+    let differences = stdout(&directory, &["diff"]);
+    assert!(folder_catalogue_of(&directory).exists());
+
+    fs::remove_file(folder_catalogue_of(&directory)).expect("deleting the catalogue");
+    assert_eq!(stdout(&directory, &["status"]), status);
+    assert_eq!(stdout(&directory, &["diff"]), differences);
+    assert_eq!(
+        stdout(&directory, &["cat", &head, "notes.txt"]),
+        "one\ntwo\n"
+    );
+    assert!(run(&directory, &["check"]).status.success());
+    // And it is back, because the pass that answered without it wrote it.
+    assert!(folder_catalogue_of(&directory).exists());
+}
+
+#[test]
+fn a_folder_catalogue_that_lies_about_what_a_file_holds_changes_no_answer() {
+    let directory = photographed("folder-lying");
+    fs::write(directory.join("notes.txt"), "one\ntwo\nthree\n").expect("editing");
+    let status = stdout(&directory, &["status"]);
+    let differences = stdout(&directory, &["diff"]);
+
+    // Every line kept — the paths, the sizes and the times are all honest, so
+    // nothing about the *shape* of this is suspicious — with the one field the
+    // catalogue exists to supply replaced by a digest of somebody else's
+    // bytes. What refuses it is 0036's rule one level up: the catalogue says
+    // where to look and never what is there, so a read that disagrees with it
+    // is the folder disagreeing, and the folder is the authority.
+    let catalogue = folder_catalogue_of(&directory);
+    let held = fs::read_to_string(&catalogue).expect("a catalogue");
+    let mut lies = String::new();
+    for (index, line) in held.lines().enumerate() {
+        if index == 0 {
+            lies.push_str(line);
+            lies.push('\n');
+            continue;
+        }
+        let rest = line.split_once(' ').expect("a digest").1;
+        lies.push_str(&format!("{} {rest}\n", sha256_hex(b"nothing of the sort")));
+    }
+    fs::write(&catalogue, &lies).expect("planting it");
+
+    assert_eq!(stdout(&directory, &["status"]), status);
+    assert_eq!(stdout(&directory, &["diff"]), differences);
+    assert!(run(&directory, &["check"]).status.success());
+
+    // And the lie cost one read of each file rather than one on every command:
+    // what the reads found is what the catalogue now says.
+    let corrected = fs::read_to_string(&catalogue).expect("a catalogue again");
+    assert_ne!(corrected, lies, "a wrong catalogue was left standing");
+    assert!(
+        corrected
+            .lines()
+            .skip(1)
+            .all(|line| !line.starts_with(&sha256_hex(b"nothing of the sort"))),
+        "{corrected}"
+    );
+}
+
+#[test]
+fn a_truncated_folder_catalogue_changes_no_answer() {
+    let directory = photographed("folder-truncated");
+    fs::write(directory.join("photo.png"), [4u8, 5, 6, 7]).expect("another picture");
+    let status = stdout(&directory, &["status"]);
+
+    for damage in ["", "historica-working-1\n", "not a catalogue at all\n"] {
+        fs::write(folder_catalogue_of(&directory), damage).expect("damaging it");
+        assert_eq!(stdout(&directory, &["status"]), status, "after {damage:?}");
+    }
+}
+
+#[test]
+fn a_file_no_older_than_the_catalogue_is_hashed_rather_than_believed() {
+    let directory = photographed("folder-racy");
+    let photo = directory.join("photo.png");
+
+    // The racy case, built rather than waited for. A modification time in the
+    // future is a time the catalogue's own write cannot get past, so the entry
+    // written for this file is not strictly older than the catalogue holding
+    // it — which is exactly the shape of a file written twice inside one tick
+    // of the filesystem's clock, and is what git calls racily clean.
+    let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(600);
+    set_modified(&photo, ahead);
+    let status = stdout(&directory, &["status"]);
+    assert!(status.contains("nothing here differs"), "{status}");
+    let held = fs::read_to_string(folder_catalogue_of(&directory)).expect("a catalogue");
+    assert!(
+        held.lines().any(|line| line.ends_with(" photo.png")),
+        "the catalogue should still hold a line for it: {held}"
+    );
+
+    // Now change the bytes without changing anything the directory reports:
+    // the same length, and the same modification time the entry recorded. The
+    // size cannot tell, and the time cannot tell — the rule is what tells.
+    fs::write(&photo, [7u8, 7, 7, 7, 7, 7]).expect("rewriting the picture");
+    set_modified(&photo, ahead);
+    let said = stdout(&directory, &["status"]);
+    assert!(
+        said.contains("photo.png"),
+        "an unverifiable entry was believed: {said}"
+    );
+}
+
+/// Set a file's modification time, which is how a race is arranged rather than
+/// waited for.
+fn set_modified(path: &Path, when: std::time::SystemTime) {
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .expect("the file")
+        .set_modified(when)
+        .expect("setting a modification time");
+}
+
 /// `shasum -a 256`, for planting an entry that is honestly named.
 fn sha256_hex(bytes: &[u8]) -> String {
     historica::format::digest(bytes).to_string()

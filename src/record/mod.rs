@@ -666,21 +666,6 @@ pub fn survey<F: Filesystem>(
             continue;
         }
 
-        let bytes = working.bytes(path)?;
-
-        // Decision 0017: a file the tree holds is addressed as the kind it was
-        // added as, and a file nobody has recorded yet is sniffed once, here.
-        let kind = match file.and_then(|file| tree.kind(&file)) {
-            Some(kind) => kind,
-            None if working::is_text(&bytes) => Kind::Lines,
-            None => Kind::Whole,
-        };
-        debug_assert_ne!(kind, Kind::Link, "a link left the walk above");
-
-        if file.is_none() {
-            arrived.insert(path.clone(), bytes.clone());
-        }
-
         // Decision 0034, before the kinds part company: a mode is a fact about
         // a file rather than about its content, so a photograph has one for
         // the same reasons a script does. `None` from the filesystem means it
@@ -693,60 +678,72 @@ pub fn survey<F: Filesystem>(
             }
         }
 
-        if kind == Kind::Whole {
-            // Nothing to compare line by line, so the comparison is the whole
-            // of it: the payload it holds now against the payload it held.
-            let before = match file {
-                Some(file) if !parents.is_empty() => match held_bytes(store, parents, &file)? {
-                    HeldBytes::One(bytes) => Some(bytes),
-                    HeldBytes::Contested => {
-                        survey.contested_bytes.insert(path.clone());
-                        None
-                    }
-                },
-                _ => None,
-            };
-            if before.as_deref() != Some(bytes.as_slice()) {
+        // A file nobody has recorded yet is read whole, and has to be: its own
+        // bytes decide which kind of file it is (0017), and the revision about
+        // to be written states them. Nothing is being compared, so there is no
+        // digest that would answer instead.
+        let Some(file) = file else {
+            let bytes = working.bytes(path)?;
+            arrived.insert(path.clone(), bytes.clone());
+            // Decision 0017: valid UTF-8 with no NUL is lines and everything
+            // else is bytes, sniffed once, here, and never again.
+            if !working::is_text(&bytes) {
                 survey.edited.insert(path.clone(), Change::Whole(bytes));
-            }
-            continue;
-        }
-
-        let text = match String::from_utf8(bytes) {
-            Ok(text) => text,
-            Err(_) => {
-                // 0015: a refusal is a line of the report rather than the end
-                // of it. 0017 narrows what is refused to this one case — a
-                // file recorded as lines that no longer holds any.
-                let refusal = WorkingError::NotText { path: path.clone() };
-                survey.refused.push((path.clone(), refusal.because()));
-                survey.added.remove(path);
-                survey.modes.remove(path);
-                arrived.remove(path);
                 continue;
             }
-        };
-
-        // A file being created states its lines outright rather than as an
-        // insert of every one of them, which is decision 0017's whole point.
-        // Nothing before it exists to compare against.
-        if file.is_none() {
-            if !text.is_empty() {
+            // A file being created states its lines outright rather than as an
+            // insert of every one of them, which is decision 0017's whole
+            // point. Nothing before it exists to compare against.
+            if let Ok(text) = String::from_utf8(bytes)
+                && !text.is_empty()
+            {
                 survey
                     .edited
                     .insert(path.clone(), Change::Created(text.into_bytes()));
             }
             continue;
-        }
-        let file = file.expect("a file the tree holds");
+        };
 
-        if parents.is_empty() {
-            let after = State::from_text(&text);
-            if let Some(document) = diff(&State::empty(), &after) {
-                survey
-                    .edited
-                    .insert(path.clone(), Change::Operations(document));
+        // Decision 0017: a file the tree holds is addressed as the kind it was
+        // added as. `placed` is built from the tree, so the entry is there.
+        let Some(kind) = tree.kind(&file) else {
+            debug_assert!(false, "a placed file the tree does not hold");
+            continue;
+        };
+        debug_assert_ne!(kind, Kind::Link, "a link left the walk above");
+
+        if kind == Kind::Whole {
+            // Nothing to compare line by line, so the comparison is the whole
+            // of it — and decision 0043 makes it a comparison of digests
+            // rather than of bytes. The tree already *states* the payload this
+            // file holds (0017's `bytes <file> <digest>`), so an unchanged
+            // photograph is settled without either copy of it being read.
+            let recorded = if parents.is_empty() {
+                None
+            } else {
+                match tree.entry(&file).and_then(|entry| entry.payload) {
+                    Some(payload) => Some(payload),
+                    // 0008 calls two concurrent `bytes` a divergence to report
+                    // rather than a winner to pick, which is what an absent
+                    // payload on a file the tree holds means.
+                    None => {
+                        survey.contested_bytes.insert(path.clone());
+                        None
+                    }
+                }
+            };
+            if recorded == Some(working.digest(path)?) {
+                continue;
             }
+            // Read, and then asked again: what the folder holds is what the
+            // read found, whatever `cache/working.txt` said about it. So a
+            // catalogue that was wrong about this file costs this one read and
+            // states nothing.
+            let (bytes, found) = working.bytes_and_digest(path)?;
+            if recorded == Some(found) {
+                continue;
+            }
+            survey.edited.insert(path.clone(), Change::Whole(bytes));
             continue;
         }
 
@@ -755,10 +752,42 @@ pub fn survey<F: Filesystem>(
         // the merge states a delta against that agreed state or nothing at
         // all. Where they differ the merge owes a resolution, and the walk is
         // demoted to what proposes one.
-        let joined = if joining {
+        let joined = if parents.is_empty() {
+            Joined::Agreed(State::empty())
+        } else if joining {
             joined_content(store, parents, &file)?
         } else {
             Joined::Agreed(store.content(&parents[0], &file)?)
+        };
+
+        // Decision 0043 again, on the other kind of file: where the parents
+        // agree, what this revision has to say about the file is nothing at
+        // all if the folder holds what they left — and that is a comparison of
+        // digests, so the file is not opened. A merge is excluded, because a
+        // proposed resolution has to be stated whether or not the folder
+        // matches it.
+        if let Joined::Agreed(before) = &joined
+            && before.digest() == working.digest(path)?
+        {
+            continue;
+        }
+
+        // Read, and hashed as it is read, for the reason the whole branch
+        // above is: a catalogue that spoke wrongly for this path is corrected
+        // by the read it caused, and `diff` below says nothing about a file
+        // that turns out not to have changed.
+        let text = match working.text_and_digest(path) {
+            Ok((text, _)) => text,
+            // 0015: a refusal is a line of the report rather than the end of
+            // it. 0017 narrows what is refused to this one case — a file
+            // recorded as lines that no longer holds any.
+            Err(WorkingError::NotText { .. }) => {
+                let refusal = WorkingError::NotText { path: path.clone() };
+                survey.refused.push((path.clone(), refusal.because()));
+                survey.modes.remove(path);
+                continue;
+            }
+            Err(error) => return Err(error.into()),
         };
 
         let after = State::from_text(&text);
@@ -886,6 +915,12 @@ pub fn survey<F: Filesystem>(
 
     survey.renames = renames(store, parents, &survey.dropped, &arrived)?;
     survey.held = held;
+    // Decision 0043: one write, here, where the folder has finished being
+    // asked. A survey that wrote after every question would rewrite the whole
+    // catalogue once per file, which is quadratic in the size of the folder —
+    // and a survey that never wrote one would leave the next command doing
+    // exactly this work again.
+    working.remember();
     Ok(survey)
 }
 
@@ -1067,24 +1102,6 @@ fn renames<F: Filesystem>(
         }
     }
     Ok(renames)
-}
-
-/// The payload a file of bytes holds at these parents.
-enum HeldBytes {
-    One(Vec<u8>),
-    Contested,
-}
-
-fn held_bytes<F: Filesystem>(
-    store: &Store<F>,
-    parents: &[RevisionId],
-    file: &FileId,
-) -> Result<HeldBytes, RecordError> {
-    match store.content_at_heads(parents, file) {
-        Ok(content) => Ok(HeldBytes::One(content.bytes())),
-        Err(MaterialiseError::ContestedContent { .. }) => Ok(HeldBytes::Contested),
-        Err(error) => Err(error.into()),
-    }
 }
 
 /// Work out what recording would state, without writing anything.

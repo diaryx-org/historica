@@ -4,15 +4,28 @@
 //! directory holding `history/`, everything in it is tracked, and
 //! `history/skipped.txt` names the exceptions. Nothing here is remembered between
 //! commands: reading a working copy is a walk of the filesystem, every time.
+//!
+//! Decision 0043 leaves that sentence standing and makes it cheaper to keep.
+//! [`Working::digest`] is what a comparison against the store actually asks
+//! for, and `history/cache/working.txt` says what each path hashed to last
+//! time — believed only where the directory still reports the size and the
+//! modification time that digest was taken at, and only where that time is
+//! strictly older than the catalogue's own. It is not an index and holds no
+//! content: delete it and every command says exactly what it said before,
+//! having read the folder, which is what it would have done anyway.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::core::RevisionId;
 use crate::format::check_path;
-use crate::fs::{Disk, Entry, Filesystem, read_to_string};
+use crate::fs::{Disk, Entry, Filesystem, Stamp, read_to_string};
 use crate::store::STORE_DIR;
+
+mod catalogue;
 
 /// The file in the store that says what history does not take.
 pub const SKIPPED_FILE: &str = "skipped.txt";
@@ -193,6 +206,8 @@ impl std::error::Error for MalformedSkip {}
 #[derive(Debug, Clone)]
 pub struct Working<F = Disk> {
     filesystem: F,
+    /// The folder this is, which is also where `history/cache/` is found.
+    root: PathBuf,
     files: BTreeMap<String, PathBuf>,
     /// Which tracked paths are links, and what each points at.
     ///
@@ -201,7 +216,34 @@ pub struct Working<F = Disk> {
     /// cannot read the target — 0034's answer, doing 0034's work — and a
     /// recorder that gets it states nothing about that link.
     links: BTreeMap<String, Option<String>>,
+    /// What the directory said about each tracked regular file, where it says
+    /// anything at all.
+    ///
+    /// Decision 0043. Empty on a filesystem that reports no
+    /// [`Stamp`](crate::fs::Stamp), which is the whole of what such a
+    /// filesystem loses: every digest below is worked out by reading.
+    stamps: BTreeMap<String, Stamp>,
+    /// The digest of each tracked file, once anything has asked for it.
+    ///
+    /// Seeded from `history/cache/working.txt` with the entries the stamps
+    /// above allow, and filled in by reading for everything else. Behind a
+    /// cell because a working copy is read through a shared reference while it
+    /// answers questions about itself — the same reason the store's own reads
+    /// are.
+    known: RefCell<Known>,
     refused: Vec<(String, String)>,
+}
+
+/// What this pass knows about the folder's content, and whether it learned any
+/// of it the expensive way.
+#[derive(Debug, Clone, Default)]
+struct Known {
+    digests: BTreeMap<String, RevisionId>,
+    /// Whether anything here was worked out rather than taken from the
+    /// catalogue. A folder nobody has touched learns nothing, and rewriting
+    /// the file for it would be the whole catalogue's bytes for no change at
+    /// all, on every command.
+    learned: bool,
 }
 
 #[cfg(feature = "disk")]
@@ -235,10 +277,22 @@ impl<F: Filesystem> Working<F> {
     pub fn read_on(filesystem: F, root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
         let mut found = Found::default();
         walk(&filesystem, root, "", skipped, &mut found)?;
+        // Decision 0043: what the last command hashed, kept only where the
+        // directory still reports the size and the time it hashed it at. A
+        // filesystem that reports neither hands back nothing here, and every
+        // digest below is worked out by reading — which is what every command
+        // did before this existed.
+        let digests = catalogue::believed(&filesystem, &root.join(STORE_DIR), &found.stamps);
         Ok(Self {
             filesystem,
+            root: root.to_path_buf(),
             files: found.files,
             links: found.links,
+            stamps: found.stamps,
+            known: RefCell::new(Known {
+                digests,
+                learned: false,
+            }),
             refused: found.refused,
         })
     }
@@ -306,6 +360,88 @@ impl<F: Filesystem> Working<F> {
         self.filesystem
             .read(on_disk)
             .map_err(|error| WorkingError::io(on_disk, error))
+    }
+
+    /// What one tracked file's bytes hash to.
+    ///
+    /// Decision 0043, and the question `status` and `record` ask before they
+    /// ask for a file's content: identity comes from content, so *has this
+    /// changed* is a comparison of digests, and the digest the store already
+    /// states is on the other side of it.
+    ///
+    /// Answered from `history/cache/working.txt` where the directory says the
+    /// file has not been written to since that digest was taken, and by
+    /// reading the file otherwise — in pieces where the filesystem offers
+    /// them, so a photograph costs a buffer rather than its own size. Which of
+    /// the two happened changes how long this took and nothing else.
+    pub fn digest(&self, path: &str) -> Result<RevisionId, WorkingError> {
+        let on_disk = self.regular(path)?;
+        if let Some(known) = self.known.borrow().digests.get(path).copied() {
+            return Ok(known);
+        }
+        let digest = crate::fs::digest_of(&self.filesystem, on_disk)
+            .map_err(|error| WorkingError::io(on_disk, error))?;
+        let mut known = self.known.borrow_mut();
+        known.digests.insert(path.to_owned(), digest);
+        known.learned = true;
+        Ok(digest)
+    }
+
+    /// One file's bytes, and the digest this read found them to have.
+    ///
+    /// Decision 0036's rule, applied one level up: *a lookup hashes what it
+    /// reads before believing it*. The catalogue says where to look and never
+    /// what is there, so whatever it said about this path, these bytes are
+    /// what the path holds — and a catalogue that was wrong about a file is
+    /// corrected by the read it caused rather than costing that read on every
+    /// command afterwards.
+    pub fn bytes_and_digest(&self, path: &str) -> Result<(Vec<u8>, RevisionId), WorkingError> {
+        let bytes = self.bytes(path)?;
+        let found = crate::format::digest(&bytes);
+        self.correct(path, found);
+        Ok((bytes, found))
+    }
+
+    /// One file's text, and the digest this read found its bytes to have.
+    ///
+    /// [`Working::bytes_and_digest`] for the files that are lines.
+    pub fn text_and_digest(&self, path: &str) -> Result<(String, RevisionId), WorkingError> {
+        let text = self.text(path)?;
+        let found = crate::format::digest(text.as_bytes());
+        self.correct(path, found);
+        Ok((text, found))
+    }
+
+    /// Replace what is known about a path with what a read of it found.
+    fn correct(&self, path: &str, found: RevisionId) {
+        let mut known = self.known.borrow_mut();
+        if known.digests.insert(path.to_owned(), found) != Some(found) {
+            known.learned = true;
+        }
+    }
+
+    /// Write down what this pass worked out, so the next one need not.
+    ///
+    /// Called once, by whatever has finished asking — the catalogue is
+    /// rewritten whole, and a caller that wrote it after every question would
+    /// be quadratic in the size of the folder. Nothing is reported: a folder
+    /// on a read-only filesystem and a `cache/` somebody deleted mid-command
+    /// are both conditions under which describing a folder must still succeed,
+    /// and nothing was lost, because nothing here was information.
+    ///
+    /// A folder that learned nothing writes nothing, so a `status` on a folder
+    /// nobody has touched leaves `cache/` exactly as it found it.
+    pub fn remember(&self) {
+        let known = self.known.borrow();
+        if !known.learned || self.stamps.is_empty() {
+            return;
+        }
+        catalogue::write(
+            &self.filesystem,
+            &self.root.join(STORE_DIR),
+            &known.digests,
+            &self.stamps,
+        );
     }
 
     /// Whether one tracked file can be run, or `None` where this filesystem
@@ -383,6 +519,7 @@ pub fn is_text(bytes: &[u8]) -> bool {
 struct Found {
     files: BTreeMap<String, PathBuf>,
     links: BTreeMap<String, Option<String>>,
+    stamps: BTreeMap<String, Stamp>,
     refused: Vec<(String, String)>,
 }
 
@@ -474,6 +611,15 @@ fn walk<F: Filesystem + ?Sized>(
                 Err(error) => return Err(WorkingError::io(&on_disk, error)),
             };
             found.links.insert(path.clone(), target);
+        } else if let Ok(Some(stamp)) = filesystem.stamp(&on_disk) {
+            // Decision 0043: taken here, with the walk, because this is where
+            // the entry is known to be a regular file and because a stamp
+            // taken later would be a stamp of a folder that has moved on.
+            // A filesystem with no such thing to report, and a file that
+            // vanished between the listing and the question, are the same
+            // answer: nothing is remembered about it and the next command that
+            // wants its digest reads it.
+            found.stamps.insert(path.clone(), stamp);
         }
         found.files.insert(path, on_disk);
     }

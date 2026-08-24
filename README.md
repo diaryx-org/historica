@@ -179,9 +179,14 @@ paths at all: 0032 has it state what every contested file is, and half of that
 is a revision meaning something other than what it says.
 
 The `fs` module is the folder itself, asked for rather than assumed. Everything
-that persists anything goes through `fs::Filesystem` — nine methods, no
-metadata beyond what a directory entry is, and nothing that follows a symbolic
-link — and `fs::Disk` is that trait over `std::fs`, behind the default `disk`
+that persists anything goes through `fs::Filesystem` — nine methods an
+implementation must provide, nothing that follows a symbolic link, and a
+handful of defaulted ones on top that a folder may decline without losing
+anything: whether a file can be run (0034), where a link points (0040), and
+decision 0043's two, a size and a modification time, and a file handed over in
+pieces rather than whole. Declining any of them is answering `None`, and the
+consequence of `None` is always that a command reads what it would have read
+anyway. `fs::Disk` is that trait over `std::fs`, behind the default `disk`
 feature. `Store<F = Disk>` and `Working<F = Disk>` carry it as a type
 parameter, so the trait itself requires nothing at all: not `Send`, not `Sync`,
 not `Debug`. A store over a filesystem that has those has them, and one over a
@@ -235,6 +240,25 @@ believing it, and a catalogue that cannot answer costs a pass over the
 directory rather than an answer, so deleting it, truncating it or filling it
 with lies changes how long a command takes and nothing else. `check` builds its
 own by reading, because it is the command that wants the work.
+
+Decision 0043 is the same argument twice more. The folder gets a catalogue of
+its own — `cache/working.txt`, a digest per tracked path with the size and the
+modification time the directory reported when it was taken — believed per entry
+while both numbers still stand, so `status` on a folder with a photograph in it
+compares the digest 0017 already states with a digest nobody had to re-read the
+photograph for. A file modified twice inside one tick of the filesystem's clock
+is what git calls racily clean, and the guard is git's: an entry whose time is
+not strictly older than the catalogue's own is unverifiable and its file is
+read. A size and a time are what 0025 kept out of `Filesystem` on the grounds
+that identity comes from content, and they are allowed back on the condition
+that keeps the grounds intact — nothing here is ever an answer, only ever
+whether an answer already worked out may be taken again, so a folder that
+reports neither reads every file on every command and says exactly the same
+things about it. The other half is that a payload read purely to be hashed is
+no longer held: `prune`, `forget`, `receive`, `arrange`, the payload search,
+and the catalogue itself take a digest in pieces, so a store of photographs
+costs a buffer rather than a photograph. `check` is excluded from both, for the
+reason it is excluded from everything in `cache/`.
 
 The `historica` binary is the front end decision 0006 said was owed. `init`,
 `check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
@@ -720,6 +744,18 @@ Choices that constrain later work are written down as they are made.
   been one design. Ancestry closes over parents and nothing else: a
   `supersedes` line may name a digest the copy does not hold, which is what
   0001 has said all along — the successor carries the evidence.
+- [`docs/decisions/0043-what-a-command-does-not-have-to-read.md`](docs/decisions/0043-what-a-command-does-not-have-to-read.md)
+  — the folder gets 0036's catalogue, and a payload stops being held to be
+  hashed. `cache/working.txt` says what each tracked path hashed to, believed
+  per entry while the directory still reports the size and the time it was
+  taken at, and refused for any entry not strictly older than the catalogue
+  itself — git's racily-clean rule, for git's reason. The size and the time
+  0025 kept out of `Filesystem` come back as a declinable capability, because
+  nothing here is ever an answer: a folder that reports neither reads every
+  file and says the same things. And `fs::digest_of` streams, so the six places
+  that read a file whole purely to learn which digest it is now hold a buffer
+  instead. Deleting `cache/working.txt` changes how long a command takes and
+  nothing else.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
