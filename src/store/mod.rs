@@ -517,7 +517,13 @@ impl Read {
 }
 
 /// What one file in `operations/` turned out to be, once read.
-enum Body {
+///
+/// Decision 0032 gave `operations/` two grammars and one suffix, so "what
+/// does this `edit` line name?" has two answers and a caller that asks for
+/// only one of them is asking the wrong question. [`Store::body`] is how a
+/// caller asks it without choosing first, and this is what comes back.
+#[derive(Debug, Clone)]
+pub enum Body {
     /// Decision 0007: what a revision did to one file, line by line.
     Operation(OperationDocument),
     /// Decision 0032: a merge's file, stated whole by reference. Named by
@@ -784,7 +790,7 @@ impl<F: Filesystem> Store<F> {
     /// rather than an authority. A path whose bytes do not hash to the digest
     /// asked for is not the file wanted, whoever renamed or edited it, and it
     /// is refused exactly where decision 0035 refuses a stale cached state.
-    fn body(&self, id: &RevisionId) -> Result<Option<Body>, StoreError> {
+    fn filed_body(&self, id: &RevisionId) -> Result<Option<Body>, StoreError> {
         let catalogue = self.catalogue()?;
         let Some(filed) = catalogue.at(id) else {
             return Ok(None);
@@ -832,10 +838,10 @@ impl<F: Filesystem> Store<F> {
                 return Ok(());
             }
         }
-        // Read with nothing borrowed: `body` reads the filesystem, and a
-        // borrow held across it would be a borrow held across a call that can
-        // ask this store questions of its own.
-        let mut body = self.body(id)?;
+        // Read with nothing borrowed: `filed_body` reads the filesystem, and
+        // a borrow held across it would be a borrow held across a call that
+        // can ask this store questions of its own.
+        let mut body = self.filed_body(id)?;
         // The catalogue could not produce it. That is an undelivered document
         // most of the time and a catalogue somebody edited the rest of it,
         // and the two are told apart by looking — which decision 0003
@@ -848,7 +854,7 @@ impl<F: Filesystem> Store<F> {
                 return Ok(());
             }
             drop(read);
-            body = self.body(id)?;
+            body = self.filed_body(id)?;
         }
         let mut read = self.read.borrow_mut();
         match body {
@@ -963,6 +969,24 @@ impl<F: Filesystem> Store<F> {
         ))
     }
 
+    /// The content document one digest names, in whichever grammar it is
+    /// written.
+    ///
+    /// Decision 0032: an `edit` line names either grammar, so this is what a
+    /// consumer of an `edit` digest asks. [`Store::operation`] and
+    /// [`Store::resolution`] each answer half of it, and are for the caller
+    /// that has already established which half it is holding — a caller that
+    /// asks one of them about an arbitrary `edit` digest gets `None` for a
+    /// document this store is holding perfectly well.
+    pub fn body(&self, named: &RevisionId) -> Result<Option<Body>, StoreError> {
+        self.read_body(named)?;
+        let read = self.read.borrow();
+        if let Some(document) = read.resolutions.get(named) {
+            return Ok(Some(Body::Resolution(document.clone())));
+        }
+        Ok(read.operations.get(named).cloned().map(Body::Operation))
+    }
+
     /// One resolution document, if the digest names one.
     ///
     /// Decision 0032: an `edit` line names either grammar, and this is how a
@@ -982,7 +1006,7 @@ impl<F: Filesystem> Store<F> {
     /// by digest and pays for one file.
     pub fn resolutions(&self) -> Result<BTreeMap<RevisionId, ResolutionDocument>, StoreError> {
         let mut found = BTreeMap::new();
-        for (id, body) in self.read_all()? {
+        for (id, body) in self.bodies()? {
             if let Body::Resolution(document) = body {
                 found.insert(id, document);
             }
@@ -995,12 +1019,23 @@ impl<F: Filesystem> Store<F> {
     /// Reads the whole directory, for the reason [`Store::resolutions`] does.
     pub fn operations(&self) -> Result<BTreeMap<RevisionId, OperationDocument>, StoreError> {
         let mut found = BTreeMap::new();
-        for (id, body) in self.read_all()? {
+        for (id, body) in self.bodies()? {
             if let Body::Operation(document) = body {
                 found.insert(id, document);
             }
         }
         Ok(found)
+    }
+
+    /// Every content document in `operations/`, in digest order, in whichever
+    /// grammar each is written.
+    ///
+    /// What [`Store::body`] is to one digest, this is to the directory: a
+    /// caller whose question is "what does this store hold?" — copying it,
+    /// counting it, checking it — is asking about both grammars, and the two
+    /// filters above are for the caller that means one of them.
+    pub fn bodies(&self) -> Result<BTreeMap<RevisionId, Body>, StoreError> {
+        Ok(self.read_all()?.into_iter().collect())
     }
 
     /// Read and parse every document in `operations/`, in both grammars.
