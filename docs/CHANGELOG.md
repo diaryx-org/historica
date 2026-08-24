@@ -45,12 +45,6 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
-_No commits since the last tag._
-
-<!-- git-cliff:end -->
-
-## v1.0.0 — 2026-08-24
-
 ### Breaking
 
 - **format** — one spelling for the format ([`422ff71`](https://github.com/diaryx-org/historica/commit/422ff71bdc6598b93782fc8ac8eceec48c0ed613))
@@ -59,10 +53,14 @@ _No commits since the last tag._
 
 - **fs** — ask for the folder rather than assume std::fs ([`a86a2f5`](https://github.com/diaryx-org/historica/commit/a86a2f56ec91956ab39636ba4936c3ed2267f27e))
 - **store** — arrange is the library's, not the front end's ([`7a74def`](https://github.com/diaryx-org/historica/commit/7a74def782e768f23203489206fe8ebd2a57cd29))
+- **record** — require acceptance for contested attachments ([`8545421`](https://github.com/diaryx-org/historica/commit/8545421f5589c7bbd27a6ccb40e88fb7a65525a7))
+- **store** — receive another store, by content rather than by filename ([`55e346d`](https://github.com/diaryx-org/historica/commit/55e346d7d26f7fc5c04302344d5f9222bc8b0ef4))
 - comparison to other VCS ([`46eb876`](https://github.com/diaryx-org/historica/commit/46eb8768b516d34282bb697eb7fcd7f9c5389b7a))
 - **update** — the folder catches up to a head ([`a824e5f`](https://github.com/diaryx-org/historica/commit/a824e5fbb27474d56a904bef2ad03b85c7be3db2))
 - **format** — an operation document states its result ([`26f2e6e`](https://github.com/diaryx-org/historica/commit/26f2e6ec2825c3cfb8082436814c1b48220e5e9e))
 - **format** — the resolution document, 0032's grammar ([`3ad606e`](https://github.com/diaryx-org/historica/commit/3ad606ea2294264cbfa157d1e233d74393e43d0b))
+- **store** — load resolution documents beside operation documents ([`0c675af`](https://github.com/diaryx-org/historica/commit/0c675af9eb787eba4efc5d723807b42a54999ed1))
+- **merge** — cross a resolution in the event-graph walk ([`1889a0e`](https://github.com/diaryx-org/historica/commit/1889a0ecfe2a79700f0e59025142b6218b58b235))
 - **store** — materialise a file by following its resolutions ([`804a6a9`](https://github.com/diaryx-org/historica/commit/804a6a93f55071aeab732fc89c909ec7ccad263e))
 - **record** — a merge writes the resolution it read both sides for ([`9320286`](https://github.com/diaryx-org/historica/commit/9320286266e8cc21938a1c91e8da75c915cdcb45))
 - **check** — hold a merge to what it owes a resolution for ([`16c6b43`](https://github.com/diaryx-org/historica/commit/16c6b43320718b5a44897e5aa5673180edad40ed))
@@ -86,6 +84,7 @@ _No commits since the last tag._
 
 ### Fixed
 
+- **fs** — replace mutable files atomically ([`f2b42c8`](https://github.com/diaryx-org/historica/commit/f2b42c8553f5436d5d6cf82855bdb2ee54f3bc5d))
 - **merge** — anchor to the next element in the traversal, tombstones included ([`03dae53`](https://github.com/diaryx-org/historica/commit/03dae53908009565eb5ccaefa36bf35981943fb6))
 - **cli** — merge joins the heads it was not told about ([`4c57101`](https://github.com/diaryx-org/historica/commit/4c57101685334f6a00c22e68a313b8c2ab3502d5))
 - **cli** — print a merge command that settles the path it says is claimed ([`57086c3`](https://github.com/diaryx-org/historica/commit/57086c3ce627b64ebaf8724e7d6e302ca6ded8c8))
@@ -102,14 +101,6 @@ _No commits since the last tag._
 - **store** — say where a digest is, instead of hashing the directory to find it ([`6c6b06e`](https://github.com/diaryx-org/historica/commit/6c6b06e7d8a67cf2e3717e42b28063a8cc909336))
 - **store** — hash a payload in pieces rather than holding it whole ([`f89db41`](https://github.com/diaryx-org/historica/commit/f89db4146f12c57b33e61d8cab03b298818e70b0))
 - **working** — catalogue what the folder hashed to, so a photograph is not read twice ([`e14a9e0`](https://github.com/diaryx-org/historica/commit/e14a9e0a722cae9fa8b32366274592e49d4d5b3f))
-
-### Uncategorised — triage before release
-
-- replace mutable files atomically ([`f2b42c8`](https://github.com/diaryx-org/historica/commit/f2b42c8553f5436d5d6cf82855bdb2ee54f3bc5d))
-- require acceptance for contested attachments ([`8545421`](https://github.com/diaryx-org/historica/commit/8545421f5589c7bbd27a6ccb40e88fb7a65525a7))
-- Add content-aware local store receive ([`55e346d`](https://github.com/diaryx-org/historica/commit/55e346d7d26f7fc5c04302344d5f9222bc8b0ef4))
-- load resolution documents beside operation documents ([`0c675af`](https://github.com/diaryx-org/historica/commit/0c675af9eb787eba4efc5d723807b42a54999ed1))
-- cross a resolution in the event-graph walk ([`1889a0e`](https://github.com/diaryx-org/historica/commit/1889a0ecfe2a79700f0e59025142b6218b58b235))
 
 ### Behavioural changes
 
@@ -428,6 +419,7 @@ that wrote one. `RevisionDocument`, `OperationDocument`, and
 the public API along with `Store::version`, `ExportPlan::version`, and
 the version line in `export`'s output.
 
+<!-- git-cliff:end -->
 
 ## v0.2.0 — 2026-08-21
 

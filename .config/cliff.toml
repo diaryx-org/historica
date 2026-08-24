@@ -177,6 +177,19 @@ commit_preprocessors = [
   # every commit in that stretch begins with a capitalised verb. A new commit
   # written off-convention starting lowercase still reaches triage by the
   # catch-all parser; one starting with a capital reaches it through here.
+  # Five later commits that are off-convention a different way: they carry a
+  # scope and a subject and no type at all — `fs: replace mutable files
+  # atomically` — so git-conventional reads `fs` as the type, finds no rule for
+  # it, and drops them into the triage bucket. They are triaged the same way
+  # the pre-convention stretch is, by naming the type each would have carried,
+  # because the alternative is a released section with an "Uncategorised —
+  # triage before release" heading in it, which is a note to the author printed
+  # for the reader.
+  { pattern = '^fs: replace mutable files atomically', replace = "fix(fs): replace mutable files atomically" },
+  { pattern = '^record: require acceptance for contested attachments', replace = "add(record): require acceptance for contested attachments" },
+  { pattern = '^Add content-aware local store receive', replace = "add(store): receive another store, by content rather than by filename" },
+  { pattern = '^store: load resolution documents beside operation documents', replace = "add(store): load resolution documents beside operation documents" },
+  { pattern = '^merge: cross a resolution in the event-graph walk', replace = "add(merge): cross a resolution in the event-graph walk" },
   { pattern = '^(?P<subject>[A-Z][^\n]*)', replace = "legacy: ${subject}" },
   # A bare `<rev>` is HTML once the bullet is rendered, and the word disappears.
   # Backtick anything angle-bracketed that isn't already — where "already" has
