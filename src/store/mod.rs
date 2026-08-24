@@ -884,10 +884,16 @@ impl<F: Filesystem> Store<F> {
     /// could not say. [`Store::scan`]'s rule, for the files with no grammar.
     fn scan_for_payload(&self, id: &RevisionId) -> Result<Option<Vec<u8>>, StoreError> {
         for path in payload_files(&self.files, &self.root)? {
-            let Ok(bytes) = self.files.read(&path) else {
+            // Decision 0043: this is a search, and every file but one of them
+            // is being asked a question and then put down again. Only the file
+            // that answers is read.
+            let Ok(found) = crate::fs::digest_of(&self.files, &path) else {
                 continue;
             };
-            if digest(&bytes) == *id {
+            if found == *id
+                && let Ok(bytes) = self.files.read(&path)
+                && digest(&bytes) == *id
+            {
                 return Ok(Some(bytes));
             }
         }

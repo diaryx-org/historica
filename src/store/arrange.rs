@@ -37,7 +37,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
-use crate::format::digest;
 use crate::fs::Filesystem;
 use crate::naming::{self, Filing};
 
@@ -371,12 +370,11 @@ impl<F: Filesystem> Store<F> {
     }
 
     /// What a file in the store hashes to, which is what it is.
+    ///
+    /// Decision 0043: taken in pieces, because arranging a folder full of
+    /// photographs is a question about their names.
     fn digest_of(&self, path: &Path) -> Result<RevisionId, ArrangeError> {
-        let bytes = self
-            .files
-            .read(path)
-            .map_err(|error| StoreError::io(path, error))?;
-        Ok(digest(&bytes))
+        crate::fs::digest_of(&self.files, path).map_err(|error| StoreError::io(path, error).into())
     }
 
     /// Where everything in `operations/` belongs: a directory, and a path.

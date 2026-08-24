@@ -11,7 +11,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
-use crate::format::digest;
 use crate::fs::{Filesystem, read_to_string};
 use crate::working::{DEFAULT_SKIPPED, SKIPPED_FILE, Skipped};
 
@@ -269,11 +268,11 @@ impl<F: Filesystem> Store<F> {
             OPERATIONS_DIR,
             &OPERATION_SUFFIXES,
         )? {
-            let bytes = self
-                .files
-                .read(&path)
+            // Decision 0043: the question is which digest this file is, and
+            // the answer arrives in pieces.
+            let id = crate::fs::digest_of(&self.files, &path)
                 .map_err(|error| StoreError::io(&path, error))?;
-            if forgotten.contains(&digest(&bytes)) {
+            if forgotten.contains(&id) {
                 destroys.insert(path);
             }
         }

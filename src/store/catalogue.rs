@@ -197,16 +197,26 @@ pub(super) fn read<F: Filesystem + ?Sized>(
                 accounted += 1;
                 (*id, *forgets)
             }
+            // A payload has no grammar to read: what this pass wants of it is
+            // its digest, and decision 0043 takes that in pieces rather than
+            // holding a photograph to hash it.
+            None if !document => {
+                let id = crate::fs::digest_of(files, &path)
+                    .map_err(|error| StoreError::io(&path, error))?;
+                (id, None)
+            }
             None => {
                 let bytes = files
                     .read(&path)
                     .map_err(|error| StoreError::io(&path, error))?;
                 let id = digest(&bytes);
                 // Only a document can forget, and only a parse can say what
-                // it forgets. A payload is bytes with no grammar, and a
-                // resolution has no items to destroy — 0032 defers binary at
-                // a merge and 0014 destroys an operation document's payload.
-                let forgets = if document && !format::is_resolution(&bytes) {
+                // it forgets. A resolution has no items to destroy — 0032
+                // defers binary at a merge and 0014 destroys an operation
+                // document's payload.
+                let forgets = if format::is_resolution(&bytes) {
+                    None
+                } else {
                     match OperationDocument::parse(&bytes) {
                         Ok(document) => {
                             let forgets = document.forgets;
@@ -217,8 +227,6 @@ pub(super) fn read<F: Filesystem + ?Sized>(
                         // to refuse to catalogue where the file is.
                         Err(_) => None,
                     }
-                } else {
-                    None
                 };
                 (id, forgets)
             }

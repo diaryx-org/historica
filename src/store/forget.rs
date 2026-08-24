@@ -16,7 +16,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::core::{FileId, RevisionId};
-use crate::format::{OperationDocument, Version, digest};
+use crate::format::{OperationDocument, Version};
 use crate::fs::Filesystem;
 use crate::merge::{self, MergeError, Quoted};
 use crate::tree::Kind;
@@ -191,10 +191,12 @@ impl<F: Filesystem> Store<F> {
             .into_iter()
             .chain(payload_files(files, &self.root)?)
         {
-            let bytes = files
-                .read(&path)
-                .map_err(|error| StoreError::io(&path, error))?;
-            if plan.targets.contains(&digest(&bytes)) {
+            // Decision 0043: found by content, and content is what it hashes
+            // to — so the bytes about to be destroyed are not held in order to
+            // decide that they should be.
+            let id =
+                crate::fs::digest_of(files, &path).map_err(|error| StoreError::io(&path, error))?;
+            if plan.targets.contains(&id) {
                 plan.destroys.push(self.relative(&path));
             }
         }

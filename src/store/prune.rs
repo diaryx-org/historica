@@ -15,7 +15,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
-use crate::format::digest;
 use crate::fs::{Entry, Filesystem};
 
 use super::{
@@ -81,30 +80,27 @@ impl<F: Filesystem> Store<F> {
         let mut pruned = Pruned::default();
         let files = self.filesystem();
         for path in files_claiming(files, &self.root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
-            let bytes = files
-                .read(&path)
-                .map_err(|error| StoreError::io(&path, error))?;
-            let id = digest(&bytes);
+            // Decision 0043: what a file hashes to is what it is, and nothing
+            // here wants the file. Every one of these three loops reads every
+            // byte of the store and keeps none of it.
+            let id =
+                crate::fs::digest_of(files, &path).map_err(|error| StoreError::io(&path, error))?;
             if deletable.contains(&id) {
                 push_unique(&mut pruned.revisions, id);
                 pruned.files.push(self.relative(&path));
             }
         }
         for path in files_claiming(files, &self.root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
-            let bytes = files
-                .read(&path)
-                .map_err(|error| StoreError::io(&path, error))?;
-            let id = digest(&bytes);
+            let id =
+                crate::fs::digest_of(files, &path).map_err(|error| StoreError::io(&path, error))?;
             if !referenced.contains(&id) {
                 push_unique(&mut pruned.operations, id);
                 pruned.files.push(self.relative(&path));
             }
         }
         for path in payload_files(files, &self.root)? {
-            let bytes = files
-                .read(&path)
-                .map_err(|error| StoreError::io(&path, error))?;
-            let id = digest(&bytes);
+            let id =
+                crate::fs::digest_of(files, &path).map_err(|error| StoreError::io(&path, error))?;
             if !referenced.contains(&id) {
                 push_unique(&mut pruned.payloads, id);
                 pruned.files.push(self.relative(&path));
