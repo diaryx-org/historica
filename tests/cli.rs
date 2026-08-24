@@ -4343,3 +4343,154 @@ fn a_record_can_name_a_link_and_nothing_else() {
     assert!(said.contains("link    current"), "{said}");
     assert!(!said.contains("a.md"), "{said}: the rest was not looked at");
 }
+
+/// The same rename, with nobody touching the link — which is what a person who
+/// runs `mv` actually has, since `mv` never rewrites the links pointing at what
+/// it moved. The stale string is what `update` last wrote, so it is not an
+/// observation of anything, and the record states no `link` line at all.
+#[test]
+#[cfg(unix)]
+fn a_move_of_the_target_alone_states_nothing_about_the_link() {
+    let directory = repository("link-target-moves");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    fs::rename(directory.join("2026/july.md"), directory.join("2026/07.md")).expect("a rename");
+    // The link still spells `2026/july.md`, which the new tree does not hold.
+    assert_eq!(points_at(&directory, "current"), "2026/july.md");
+    let said = out(recorded(
+        &directory,
+        &[
+            "record",
+            "-m",
+            "Shorten it",
+            "--move",
+            "2026/july.md=2026/07.md",
+        ],
+    ));
+    assert!(said.contains("moved"), "{said}");
+    assert!(
+        !said.contains("link    current"),
+        "{said}: nobody retargeted"
+    );
+
+    // Nothing was stated about the link, so the reference stands — and `cat`
+    // reads it as the file at its new path rather than as a dead string.
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(!shown.contains("link "), "{shown}");
+    let said = refused(&directory, &["cat", "head", "current"]);
+    assert!(said.contains("2026/07.md"), "{said}");
+
+    // The folder is briefly stale, and 0030's command is what fixes it: the
+    // link is rewritten to where the file is now, and said out loud.
+    let said = out(recorded(&directory, &["update"]));
+    assert!(said.contains("linked  current"), "{said}");
+    assert!(said.contains("2026/07.md"), "{said}");
+    assert_eq!(points_at(&directory, "current"), "2026/07.md");
+
+    // And what `update` wrote records as nothing, which closes the trip.
+    assert!(
+        refused(&directory, &["record", "-m", "Again"]).contains("would mean nothing"),
+        "recording what `update` wrote states nothing"
+    );
+}
+
+/// The other half of the rule: a person who rewrites the string said
+/// something, and it is recorded.
+#[test]
+#[cfg(unix)]
+fn a_retarget_beside_a_move_of_the_target_is_still_recorded() {
+    let directory = repository("link-retarget-and-move");
+    write(&directory, "2026/july.md", "July\n");
+    write(&directory, "2026/august.md", "August\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    // July moves, and the person points the link at August in the same breath.
+    fs::rename(directory.join("2026/july.md"), directory.join("2026/07.md")).expect("a rename");
+    link(&directory, "current", "2026/august.md");
+    let said = out(recorded(
+        &directory,
+        &[
+            "record",
+            "-m",
+            "August now",
+            "--move",
+            "2026/july.md=2026/07.md",
+        ],
+    ));
+    assert!(said.contains("link    current"), "{said}");
+
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(shown.contains("link "), "{shown}");
+    let said = refused(&directory, &["cat", "head", "current"]);
+    assert!(said.contains("2026/august.md"), "{said}");
+}
+
+/// The drop restatement takes precedence over the unchanged string: the folder
+/// holds exactly what `update` wrote, and the record restates it verbatim
+/// anyway, because the fact it stood for is one the new tree cannot hold.
+#[test]
+#[cfg(unix)]
+fn dropping_the_target_restates_a_link_nobody_touched() {
+    let directory = repository("link-dangling-untouched");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    // Not one byte of the link changed; the file it names went.
+    fs::remove_file(directory.join("2026/july.md")).expect("taking the month out");
+    assert_eq!(points_at(&directory, "current"), "2026/july.md");
+    let said = out(recorded(&directory, &["record", "-m", "Take July out"]));
+    assert!(said.contains("dropped 2026/july.md"), "{said}");
+    assert!(said.contains("link    current"), "{said}");
+
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(shown.contains("link "), "{shown}");
+    assert!(!shown.contains("file:"), "{shown}: nothing to point at");
+    let checked = out(recorded(&directory, &["check"]));
+    assert!(checked.contains("nothing to report"), "{checked}");
+}
+
+/// An amendment works the folder out again against the amended revision's
+/// parents, where the target still sits at its old path — so it inherits the
+/// same rule, and does not turn the reference it is rewriting into a string.
+#[test]
+#[cfg(unix)]
+fn amending_a_move_of_the_target_leaves_the_reference_alone() {
+    let directory = repository("link-amend-move");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    fs::rename(directory.join("2026/july.md"), directory.join("2026/07.md")).expect("a rename");
+    out(recorded(
+        &directory,
+        &[
+            "record",
+            "-m",
+            "Shorten it",
+            "--move",
+            "2026/july.md=2026/07.md",
+        ],
+    ));
+
+    // The folder is still stale, exactly as the record left it, and the
+    // amendment surveys against the grandparent, where July is still July and
+    // the string the folder holds is the one that was written for it.
+    assert_eq!(points_at(&directory, "current"), "2026/july.md");
+    let said = out(recorded(
+        &directory,
+        &["amend", "-m", "Shorten it, better said"],
+    ));
+    assert!(
+        !said.contains("link    current"),
+        "{said}: nobody retargeted"
+    );
+
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(!shown.contains("link "), "{shown}");
+    let said = refused(&directory, &["cat", "head", "current"]);
+    assert!(said.contains("2026/07.md"), "{said}");
+}

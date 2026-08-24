@@ -824,6 +824,21 @@ pub fn survey<F: Filesystem>(
     }
 
     for (path, spelling) in &pointing {
+        // What the recorded fact spells at the parent: the arithmetic `update`
+        // does, done where the last `update` did it. A string equal to that is
+        // not an observation of anything — 0034's reasoning about a machine
+        // blind to a fact, here about a person who touched nothing — so the
+        // recorded target stands and this revision says nothing about it.
+        //
+        // This is what keeps a reference through a move of its *target*: `mv`
+        // never rewrites the links pointing at what it moved, so the folder
+        // goes on spelling the old path, which resolves to nothing in the tree
+        // this revision states. Resolving it would demote the reference to
+        // that dead string — a retarget nobody made, undoing the one property
+        // the reference exists for, at the moment it earns its keep.
+        if standing(&tree, &held, &survey.dropped, path).as_deref() == Some(spelling.as_str()) {
+            continue;
+        }
         let observed = match resolution(path, spelling) {
             Some(at) if stated.contains_key(at.as_str()) => Targeted::Reference(at),
             // Escaping the folder, absolute, or naming nothing this history
@@ -872,6 +887,39 @@ pub fn survey<F: Filesystem>(
     survey.renames = renames(store, parents, &survey.dropped, &arrived)?;
     survey.held = held;
     Ok(survey)
+}
+
+/// What the recorded link at a path spells, materialised at the parent.
+///
+/// Decision 0040's materialisation, run backwards: the string the last
+/// `update` wrote into the folder for the fact the parent states. The
+/// recorder resolves only what differs from this, because a folder holding
+/// exactly what it was given is a folder nobody changed, and a fact stated
+/// about it is a fact nobody made.
+///
+/// `None` where no link is recorded here, where this record drops it, or —
+/// the one case that matters — where this record drops the file a reference
+/// names. That drop owes the mandatory verbatim restatement of 0040's "When
+/// the target is dropped", which takes precedence over any silence: an
+/// unchanged string is only an unchanged fact while the fact is still one the
+/// resulting tree can hold.
+fn standing(
+    tree: &Tree,
+    held: &BTreeMap<String, FileId>,
+    dropped: &BTreeMap<FileId, String>,
+    path: &str,
+) -> Option<String> {
+    let file = held.get(path).filter(|file| !dropped.contains_key(file))?;
+    let target = tree.target(file)?;
+    if let LinkTarget::Reference(named) = target
+        && dropped.contains_key(named)
+    {
+        return None;
+    }
+    // Spelled from where the link sat at the parent, since that is where the
+    // arithmetic was done: a `mv` of the link itself no more rewrites its own
+    // string than a `mv` of the target rewrites the links pointing at it.
+    crate::update::materialise(tree, tree.path(file)?, target)
 }
 
 /// Where a link's target lands, as a store path, or `None` where it lands

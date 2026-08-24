@@ -195,3 +195,40 @@ things. If it earns its place it earns it later.
 recorder states facts on change, and silently upgrading a spelling is a
 change nobody made. A person who wants the reference retargets the link,
 or asks a future command to do exactly that, out loud.
+
+## Since
+
+The rule above says the recorder chooses by resolution, and left unsaid
+what it resolves. It resolves what changed, and nothing else.
+
+Materialisation runs at the parent before anything is looked up: the
+recorded target, spelled the way `update` spells it, from where the link
+sat. A folder holding exactly that string is a folder nobody edited, and
+the recorded target stands — no `link` line, no fact, the same silence
+0034 gives a mode on a machine that cannot see one. Resolution, and the
+demotion to verbatim it can end in, happen only for a string that
+genuinely differs from what was written there.
+
+The case this was missing is the one the reference exists for. A record
+that `--move`s the *target* leaves the link on disk spelling the old path,
+because `mv` has never rewritten the links pointing at what it moved. That
+old path resolves to nothing in the new tree, so resolving it recorded a
+retarget onto a dead string — nobody's edit, stated as a fact, undoing
+rename survival at the exact moment it was earning its keep. Nothing about
+the tree asked for that: the reference is still true after the move, since
+the file is still there, at a new path. The revision now states nothing
+about the link, and the folder is briefly stale until `update` writes the
+new spelling and prints the line — 0030's job, and the same answer it
+gives a file whose bytes are right and whose mode is wrong.
+
+The comparison is one comparison, so a verbatim target gets it too, which
+is what makes the deferral above a rule rather than an omission: a
+verbatim link whose target becomes tracked is a string nobody touched, and
+is left alone by the same line of code that leaves a reference alone.
+
+**The drop restatement takes precedence.** An unchanged string is an
+unchanged fact only while the fact is one the resulting tree can hold.
+Where the record drops the file a `file:` link names, "When the target is
+dropped" is unweakened: the reference is about to be false, the folder's
+string is restated verbatim in the same revision as the `drop`, and no
+amount of not touching the link exempts it.
