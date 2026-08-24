@@ -45,6 +45,16 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
+_No commits since the last tag._
+
+<!-- git-cliff:end -->
+
+## v1.0.0 — 2026-08-24
+
+### Breaking
+
+- **format** — one spelling for the format ([`422ff71`](https://github.com/diaryx-org/historica/commit/422ff71bdc6598b93782fc8ac8eceec48c0ed613))
+
 ### Added
 
 - **fs** — ask for the folder rather than assume std::fs ([`a86a2f5`](https://github.com/diaryx-org/historica/commit/a86a2f56ec91956ab39636ba4936c3ed2267f27e))
@@ -72,6 +82,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **format** — a file can be a link ([`54c69b2`](https://github.com/diaryx-org/historica/commit/54c69b2ab19585d7f1374681ad7e4ee03deab58b))
 - **store** — `arrange --refile`, where the month is asked for rather than imposed ([`698bd8a`](https://github.com/diaryx-org/historica/commit/698bd8a1a8b8bdb80aa82a2e03970506da9a8f83))
 - **fs** — let a folder stamp a file, and hand one over in pieces ([`48f2482`](https://github.com/diaryx-org/historica/commit/48f24822028bc4ea55c16a0f61bd6e2ef5a36d01))
+- **store** — skipped/, one rule to a file ([`34a81f8`](https://github.com/diaryx-org/historica/commit/34a81f86f30c07ea21f158d9c9790642bb39cd24))
 
 ### Fixed
 
@@ -401,7 +412,22 @@ moves, and a store written by any version loads as before. In library terms,
   a payload legitimately named `@eaDir` at its own name stops being able
   to produce it; `arrange` refiles it. No document's bytes change.
 
-<!-- git-cliff:end -->
+- `history/skipped.txt` is no longer read; rules live
+in `history/skipped/`, one file each, and `check` reports a leftover
+`skipped.txt`. `skip` with no argument prints rules with their files
+instead of the file's bytes, `receive` reports "received N rules" instead
+of "received skipped.txt", and the skipped-file receive conflict no
+longer exists.
+
+- every document and store header is written with the
+preamble `historica`; the numbered `historica-v0`..`historica-v5`
+preambles are refused by name, so a store written by a 0.x release is no
+longer readable — there is no migration, and nothing was ever published
+that wrote one. `RevisionDocument`, `OperationDocument`, and
+`ResolutionDocument` lose their `version` field, `Version` is gone from
+the public API along with `Store::version`, `ExportPlan::version`, and
+the version line in `export`'s output.
+
 
 ## v0.2.0 — 2026-08-21
 
