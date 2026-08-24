@@ -68,6 +68,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// What something in a directory turned out to be.
 ///
@@ -104,6 +105,21 @@ impl Kind {
     pub fn is_symlink(self) -> bool {
         self == Kind::Symlink
     }
+}
+
+/// What a directory already says about a file, without it being opened.
+///
+/// Decision 0043, and the whole of what a catalogue of the working folder
+/// needs: two numbers that change when a file's bytes change, so that a digest
+/// worked out once can be believed a second time. Nothing here is ever an
+/// answer — it only ever says *whether the answer already known still stands* —
+/// which is why a filesystem that cannot report it loses nothing but time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stamp {
+    /// How many bytes the file holds.
+    pub size: u64,
+    /// When it was last written, as the platform reports it.
+    pub modified: SystemTime,
 }
 
 /// One thing found in a directory.
@@ -171,6 +187,18 @@ pub struct Entry {
 /// 0040, spelled the other way round: `Ok(None)` is reserved for a filesystem
 /// that models no links at all, so an implementation that models them answers
 /// with a target or with an error and never with `None`.
+///
+/// **A capability declined costs time and never an answer.**
+/// [`stamp`](Filesystem::stamp) and
+/// [`read_in_pieces`](Filesystem::read_in_pieces) are decision 0043's, and
+/// they are the two methods here that nothing is allowed to *mean* anything
+/// by. Both default to `None`; a filesystem that takes the default makes every
+/// command read what it would have read before either existed, and gets the
+/// same answers in the same words. That is what lets the trait offer a size
+/// and a modification time at all, which decision 0025 kept out of it for the
+/// good reason that identity comes from content — nothing here decides
+/// anything by a clock, it only declines to re-read a file the directory says
+/// nobody has written to.
 ///
 /// **Order is not promised.** [`entries`](Filesystem::entries) may return a
 /// directory in any order; this crate sorts what it needs sorted, because two
@@ -310,6 +338,46 @@ pub trait Filesystem {
             "this filesystem does not model symbolic links",
         ))
     }
+
+    /// What this directory already says about a file, or `None` where it says
+    /// nothing.
+    ///
+    /// Decision 0043, on 0034's terms doing 0034's work. Decision 0025 keeps
+    /// this trait free of metadata for a reason that still holds — *identity
+    /// comes from content*, and a store that decided anything by a clock would
+    /// be deciding it by something two replicas disagree about. So nothing here
+    /// is ever consulted for an answer. It is consulted for whether an answer
+    /// already worked out may be taken again instead of worked out afresh, and
+    /// `None` means only that a command reads what it would have read anyway.
+    ///
+    /// Answered about the link itself where a path holds one, like everything
+    /// else this trait reports.
+    fn stamp(&self, path: &Path) -> io::Result<Option<Stamp>> {
+        let _ = path;
+        Ok(None)
+    }
+
+    /// Hand one file's bytes over in pieces, or `None` to be asked for it
+    /// whole.
+    ///
+    /// Decision 0043's other half. A caller that only wants a file's digest
+    /// has no use for the file, and a photograph read whole to be hashed is a
+    /// buffer the size of the photograph held for the length of a SHA-256.
+    /// This is the same bytes in the same order, arriving in whatever runs the
+    /// implementation finds convenient — the reader concatenating them gets
+    /// exactly [`read`](Filesystem::read)'s answer.
+    ///
+    /// `Ok(None)` is reserved for *this filesystem hands a file over whole*,
+    /// and an implementation answering it **must have called `each` no times**:
+    /// the caller falls back to [`read`](Filesystem::read), and a partial feed
+    /// followed by a whole one would hash a file with a prefix of itself in
+    /// front. A filesystem that does read in pieces answers `Ok(Some(()))`, or
+    /// an error — an absent file is [`NotFound`](io::ErrorKind::NotFound) here
+    /// as everywhere.
+    fn read_in_pieces(&self, path: &Path, each: &mut dyn FnMut(&[u8])) -> io::Result<Option<()>> {
+        let (_, _) = (path, each);
+        Ok(None)
+    }
 }
 
 /// A reference to a filesystem is a filesystem.
@@ -352,6 +420,12 @@ impl<T: Filesystem + ?Sized> Filesystem for &T {
     }
     fn set_link(&self, path: &Path, target: &str) -> io::Result<()> {
         (**self).set_link(path, target)
+    }
+    fn stamp(&self, path: &Path) -> io::Result<Option<Stamp>> {
+        (**self).stamp(path)
+    }
+    fn read_in_pieces(&self, path: &Path, each: &mut dyn FnMut(&[u8])) -> io::Result<Option<()>> {
+        (**self).read_in_pieces(path, each)
     }
 }
 
@@ -408,6 +482,16 @@ macro_rules! forwarding {
             fn set_link(&self, path: &Path, target: &str) -> io::Result<()> {
                 (**self).set_link(path, target)
             }
+            fn stamp(&self, path: &Path) -> io::Result<Option<Stamp>> {
+                (**self).stamp(path)
+            }
+            fn read_in_pieces(
+                &self,
+                path: &Path,
+                each: &mut dyn FnMut(&[u8]),
+            ) -> io::Result<Option<()>> {
+                (**self).read_in_pieces(path, each)
+            }
         }
     };
 }
@@ -426,6 +510,28 @@ forwarding!(Box<T>);
 pub fn read_to_string<F: Filesystem + ?Sized>(files: &F, path: &Path) -> io::Result<String> {
     let bytes = files.read(path)?;
     String::from_utf8(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+/// The digest of a file's bytes, without holding them.
+///
+/// Decision 0043. Identity comes from content, so a great deal of this crate
+/// asks a file only what it hashes to — which path holds a payload, whether a
+/// document is one this store may delete, whether the folder still holds what
+/// was recorded. None of those wants the file, and every one of them used to
+/// read it whole to find out. This is the same SHA-256, taken over the pieces
+/// [`Filesystem::read_in_pieces`] hands over, falling back to reading the file
+/// whole where that is all a filesystem offers — so the answer never depends
+/// on which of the two happened.
+pub fn digest_of<F: Filesystem + ?Sized>(
+    files: &F,
+    path: &Path,
+) -> io::Result<crate::core::RevisionId> {
+    let mut hasher = crate::format::Hasher::new();
+    let streamed = files.read_in_pieces(path, &mut |piece| hasher.update(piece))?;
+    if streamed.is_none() {
+        hasher.update(&files.read(path)?);
+    }
+    Ok(hasher.finish())
 }
 
 /// Whether anything is at this path.
@@ -615,7 +721,47 @@ impl Filesystem for Disk {
             "this host does not hand out symbolic links",
         ))
     }
+
+    fn stamp(&self, path: &Path) -> io::Result<Option<Stamp>> {
+        // The link itself, as every other question this trait answers is: a
+        // stamp read through a link would describe the file at the other end,
+        // and the walk that asks for one has already refused to follow it.
+        let metadata = std::fs::symlink_metadata(path)?;
+        // A platform with no modification time is one this cannot speak for,
+        // and saying so costs a command the read it would have done anyway.
+        let Ok(modified) = metadata.modified() else {
+            return Ok(None);
+        };
+        Ok(Some(Stamp {
+            size: metadata.len(),
+            modified,
+        }))
+    }
+
+    fn read_in_pieces(&self, path: &Path, each: &mut dyn FnMut(&[u8])) -> io::Result<Option<()>> {
+        use io::Read as _;
+
+        let mut file = std::fs::File::open(path)?;
+        // One buffer, reused, and the only memory a fifty-megabyte photograph
+        // costs a command that wanted its digest.
+        let mut buffer = vec![0u8; PIECE];
+        loop {
+            let read = file.read(&mut buffer)?;
+            if read == 0 {
+                return Ok(Some(()));
+            }
+            each(&buffer[..read]);
+        }
+    }
 }
+
+/// How much of a file `Disk` holds at once while reading it in pieces.
+///
+/// Large enough that the per-read overhead is not the cost and small enough to
+/// be nothing at all next to a file worth streaming. Nothing depends on the
+/// number: the digest of a file is the digest of a file however it arrived.
+#[cfg(feature = "disk")]
+const PIECE: usize = 64 * 1024;
 
 /// The order matters: a symlink to a directory is a symlink.
 #[cfg(feature = "disk")]
