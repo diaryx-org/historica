@@ -832,6 +832,17 @@ Choices that constrain later work are written down as they are made.
   No migration, because nothing was published and re-preambling a
   content-addressed store is a rewrite no command should pretend otherwise
   about.
+- [`docs/decisions/0048-asking-for-what-is-missing.md`](docs/decisions/0048-asking-for-what-is-missing.md)
+  — the incremental half 0042 deferred, which turns out not to be a set
+  difference: a fetcher already knows its own half, and what a URL cannot do
+  is say what it holds. `historica offer` prints that listing — kind, digest,
+  what the entry forgets, and the path, with the heads above it — and
+  `historica fetch <url>` asks for what it lacks, verifying every arriving
+  file against the digest before believing it. The convention is one
+  sentence: `offer.txt` at a root, paths relative to it, nothing a plain web
+  server does not already do. `check` on the source is the rule that cannot
+  survive a URL, and what replaces it is stated rather than assumed. `export`
+  and an archive stay the clone; this is the pull.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
