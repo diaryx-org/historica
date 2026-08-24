@@ -71,6 +71,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **cli** — `export`, where the copy is assembled rather than mirrored ([`17b3f19`](https://github.com/diaryx-org/historica/commit/17b3f19262e9933657f5012a53e70e8220768c75))
 - **format** — a file can be a link ([`54c69b2`](https://github.com/diaryx-org/historica/commit/54c69b2ab19585d7f1374681ad7e4ee03deab58b))
 - **store** — `arrange --refile`, where the month is asked for rather than imposed ([`698bd8a`](https://github.com/diaryx-org/historica/commit/698bd8a1a8b8bdb80aa82a2e03970506da9a8f83))
+- **fs** — let a folder stamp a file, and hand one over in pieces ([`48f2482`](https://github.com/diaryx-org/historica/commit/48f24822028bc4ea55c16a0f61bd6e2ef5a36d01))
 
 ### Fixed
 
@@ -87,6 +88,8 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — read operations/ on first need, not at open ([`ce87443`](https://github.com/diaryx-org/historica/commit/ce8744311635bfe8e95add20896eca90f026a729))
 - **replay** — move a file through a replay step instead of copying it ([`fb55a07`](https://github.com/diaryx-org/historica/commit/fb55a07b0f5e7cd6ae7803945d9c1a1e0f6691ab))
 - **store** — say where a digest is, instead of hashing the directory to find it ([`6c6b06e`](https://github.com/diaryx-org/historica/commit/6c6b06e7d8a67cf2e3717e42b28063a8cc909336))
+- **store** — hash a payload in pieces rather than holding it whole ([`f89db41`](https://github.com/diaryx-org/historica/commit/f89db4146f12c57b33e61d8cab03b298818e70b0))
+- **working** — catalogue what the folder hashed to, so a photograph is not read twice ([`e14a9e0`](https://github.com/diaryx-org/historica/commit/e14a9e0a722cae9fa8b32366274592e49d4d5b3f))
 
 ### Uncategorised — triage before release
 
@@ -360,6 +363,35 @@ filed under the month by either spelling of `arrange`, since its directories
 are named by the revision rather than chosen by a person. Identity is
 unaffected throughout: a filename is presentation, no digest or reference
 moves, and a store written by any version loads as before. In library terms,
+
+- `Filesystem` gains `stamp` and `read_in_pieces`, both
+  defaulted, so existing implementors keep compiling and keep behaving
+  identically. `Ok(None)` from either means "this filesystem does not report
+  that", and the only consequence is that a command reads what it would have
+  read anyway — nothing about correctness may turn on either method answering
+  `Some`. An implementation that answers `Ok(None)` from `read_in_pieces` must
+  have called the reader no times, since the caller then asks for the file
+  whole.
+
+- `fs::Stamp` and `fs::digest_of` are new and public.
+
+- `history/cache/working.txt` is a new file, written by
+  `status`, `record`, `amend` and `diff`. It holds no content and states
+  nothing about the history: one line per tracked path, saying what that file
+  hashed to and the size and time the directory reported for it. Deleting it is
+  always safe and always correct — every command then reads the folder, which
+  is what it did before this existed, and writes the file again. It is not
+  copied by `export` and is not `check`'s business.
+
+- A file of bytes whose payload the store has not received no
+  longer stops `status` or `record` where the folder holds those bytes. The
+  tree states the digest, the folder hashes to it, and the file is unchanged;
+  it previously failed with an error naming the undelivered payload.
+
+- `Working` gains `digest`, `bytes_and_digest`,
+  `text_and_digest` and `remember`, and `record::survey` calls `remember` once
+  when it is done. A caller driving `survey` directly needs nothing new;
+  a caller that built its own comparison out of `Working::bytes` still can.
 
 <!-- git-cliff:end -->
 
