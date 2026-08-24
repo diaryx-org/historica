@@ -62,11 +62,13 @@ visible, to be triaged into its real group before the tag is cut.
 - **format** — a file can be run ([`0318e4d`](https://github.com/diaryx-org/historica/commit/0318e4d46607c67b3f81fdcdd814bb08b9872d78))
 - **store** — keep a file a walk materialised, in cache/ ([`ae509e3`](https://github.com/diaryx-org/historica/commit/ae509e350d06a6e2206973d410b27317262d6b2c))
 - **xtask** — time the reading commands on a store built to order ([`7de53a2`](https://github.com/diaryx-org/historica/commit/7de53a25a85a6769f32907a85b15ee45d64d9767))
+- **cli** — `diff`, where a rename is a fact rather than a resemblance ([`a190130`](https://github.com/diaryx-org/historica/commit/a190130884639ee7c0ee9a2e8362c43b2a6a150d))
 
 ### Fixed
 
 - **merge** — anchor to the next element in the traversal, tombstones included ([`03dae53`](https://github.com/diaryx-org/historica/commit/03dae53908009565eb5ccaefa36bf35981943fb6))
 - **cli** — merge joins the heads it was not told about ([`4c57101`](https://github.com/diaryx-org/historica/commit/4c57101685334f6a00c22e68a313b8c2ab3502d5))
+- **cli** — print a merge command that settles the path it says is claimed ([`57086c3`](https://github.com/diaryx-org/historica/commit/57086c3ce627b64ebaf8724e7d6e302ca6ded8c8))
 
 ### Changed
 
@@ -75,6 +77,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **merge** — apply a chain arithmetically instead of building the tree ([`5959505`](https://github.com/diaryx-org/historica/commit/5959505ad6ec7dcc2595406244f87f50b54f0807))
 - **store** — read operations/ on first need, not at open ([`ce87443`](https://github.com/diaryx-org/historica/commit/ce8744311635bfe8e95add20896eca90f026a729))
 - **replay** — move a file through a replay step instead of copying it ([`fb55a07`](https://github.com/diaryx-org/historica/commit/fb55a07b0f5e7cd6ae7803945d9c1a1e0f6691ab))
+- **store** — say where a digest is, instead of hashing the directory to find it ([`6c6b06e`](https://github.com/diaryx-org/historica/commit/6c6b06e7d8a67cf2e3717e42b28063a8cc909336))
 
 ### Uncategorised — triage before release
 
@@ -241,6 +244,28 @@ losing. `historica` gains a dependency on `unicode-normalization`.
   every merge recorded before version 3 — it still falls back to the merge,
   so no store reads differently. It is now the same code path `update`
   writes files from, which is what makes them unable to disagree.
+
+- `historica merge` now prints `--at "<file>=<path>"` pairs
+in the command it suggests whenever two files claim one path, where it
+previously printed a command that `record` refused. A script matching the
+printed command exactly will see the new arguments. The file written beside
+the contested path is now named `notes (historica abcd1234).md` rather than
+`notes.md (historica: abcd1234)`; nothing reads that name back, but a script
+that matched the old spelling will not match the new one.
+
+- `Store::operation`, `Store::resolution` and
+
+- a store whose `operations/` holds one unparsable document
+no longer refuses every content question. `Store::content` answers for every
+file whose own history does not name that document, and the parse failure is
+reported by `Store::operations`, `Store::resolutions` and `check` as before. A
+caller relying on the coarser refusal will now get answers where it got an
+error.
+
+- reading a store writes `history/cache/operations.txt`.
+Stores on read-only media are unaffected — every failure to write it is
+ignored — but a tool watching the store directory for changes will see it
+appear and be rewritten whenever `operations/` gains or loses a file.
 
 <!-- git-cliff:end -->
 
