@@ -4945,3 +4945,99 @@ fn amending_a_move_of_the_target_leaves_the_reference_alone() {
     let said = refused(&directory, &["cat", "head", "current"]);
     assert!(said.contains("2026/07.md"), "{said}");
 }
+
+/// A chain whose arithmetic does not add up is still reported.
+///
+/// A history with no merge in it is replayed forward rather than walked, and
+/// the walk is what used to notice this. The document here quotes a line its
+/// parent does not hold, with every digest around it recomputed so the store
+/// is self-consistent about everything except the one fact that matters.
+#[test]
+fn a_chain_whose_delete_quotes_the_wrong_line_is_reported() {
+    use historica::format::digest;
+
+    let directory = repository("chain-disagrees");
+    fs::write(directory.join("a.txt"), "alpha\nbeta\ngamma\n").expect("a file");
+    out(recorded(&directory, &["record", "-m", "one"]));
+    fs::write(directory.join("a.txt"), "alpha\nBETA\ngamma\n").expect("a file");
+    out(recorded(&directory, &["record", "-m", "two"]));
+
+    // The head is the revision that names a parent, and the document it
+    // names is found the way the store finds one: by hashing, not by name.
+    let revisions = files_under(&directory.join("history/revisions"));
+    let head = revisions
+        .iter()
+        .find(|path| {
+            String::from_utf8_lossy(&fs::read(path).expect("a revision")).contains("\nparent ")
+        })
+        .expect("a revision with a parent");
+    let text = fs::read_to_string(head).expect("a revision");
+    let named: String = text
+        .lines()
+        .find_map(|line| line.strip_prefix("edit "))
+        .and_then(|rest| rest.split_once(' '))
+        .map(|(_, id)| id.to_owned())
+        .expect("an edit line");
+
+    let operations = files_under(&directory.join("history/operations"));
+    let document = operations
+        .iter()
+        .find(|path| digest(&fs::read(path).expect("a document")).to_string() == named)
+        .expect("the document the head names")
+        .clone();
+
+    // One quoted line, replaced by a line the parent never held. The counts,
+    // the positions and the stated result are all left alone: what is wrong
+    // is only what the delete claims to be deleting.
+    let stored = fs::read_to_string(&document).expect("a document");
+    let corrupted = stored.replace("\n-beta\n", "\n-never this\n");
+    assert_ne!(corrupted, stored, "the document quoted the line it deleted");
+    let renamed = digest(corrupted.as_bytes()).to_string();
+    fs::remove_file(&document).expect("the old document");
+    fs::write(
+        document.with_file_name(format!("{renamed}.ops.txt")),
+        &corrupted,
+    )
+    .expect("the corrupted document");
+    // And the revision naming it, which nothing stands on, so nothing else
+    // has to move with it.
+    fs::remove_file(head).expect("the old revision");
+    let rewritten = text.replace(&named, &renamed);
+    // Named by its own digest, because a filename that claims one is held to
+    // it — and the fault under test here is not a name.
+    let stem = digest(rewritten.as_bytes()).to_string();
+    fs::write(head.with_file_name(format!("{stem}.rev.txt")), &rewritten)
+        .expect("the rewritten revision");
+
+    let report = run(&directory, &["check"]);
+    let said = String::from_utf8_lossy(&report.stdout).into_owned()
+        + &String::from_utf8_lossy(&report.stderr);
+    assert!(
+        !report.status.success(),
+        "a store that disagrees passed: {said}"
+    );
+    assert!(
+        said.contains(
+            "the document deletes `never this` at position 1, where the parent holds `beta`"
+        ),
+        "{said}"
+    );
+}
+
+/// Every file under a directory, at any depth, for a test doing surgery.
+fn files_under(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = fs::read_dir(root) else {
+        return found;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(files_under(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found.sort();
+    found
+}

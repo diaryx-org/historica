@@ -770,7 +770,7 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
     );
     check_skipped(files, root, &mut report);
 
-    check_resolutions(files, root, &mut report);
+    check_resolutions(files, root, &documents, &mut report);
     check_names(files, root, &documents, &mut report);
     report.findings.sort_by_key(|finding| finding.severity());
     report
@@ -783,7 +783,23 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
 /// about what a *reader* gets, so both are checked with the reader rather
 /// than with a second copy of it: a store that will not open has already been
 /// reported on line by line, and there is nothing here to add.
-fn check_resolutions<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) {
+fn check_resolutions<F: Filesystem + ?Sized>(
+    files: &F,
+    root: &Path,
+    documents: &BTreeMap<RevisionId, RevisionDocument>,
+    report: &mut Report,
+) {
+    // Every finding below is stated about a revision with two parents, and
+    // asking for them costs a second pass over `operations/` — decision 0036's
+    // catalogue is refused here on purpose, so the pass is the directory
+    // itself. A history with no merge in it has no obligation 0032 states, so
+    // it is owed no reading to discover that.
+    if documents
+        .values()
+        .all(|document| document.parents.len() < 2)
+    {
+        return;
+    }
     let Ok(store) = super::Store::open_on(files, root) else {
         return;
     };
@@ -1144,6 +1160,52 @@ fn check_replay<F: Filesystem + ?Sized>(
             edited.extend(document.text.keys().copied());
         }
 
+        // Decision 0007: the walk is what concurrency costs. A Fugue replay
+        // rebuilds the document's order once per event, so a history with no
+        // merge in it pays a quadratic price for an answer arithmetic already
+        // gives — and arithmetic is exactly what `replay` holds a chain to,
+        // against the parent each document names. So a chain is replayed
+        // forward instead, one document applied to the state the one before
+        // it produced.
+        //
+        // Three conditions, and each is the walk saying something this cannot.
+        // A redaction anywhere means `still_quoted` has a question, and it is
+        // asked of the whole graph. A resolution states its file whole and is
+        // not a delta to apply. And a chain with a document missing from it is
+        // a chain whose arithmetic would fail for a reason already reported as
+        // an absence, which would read as the store contradicting itself.
+        if forgetting.is_empty()
+            && let Some(chain) = chain(*head, documents)
+            && chain.iter().all(|(id, document)| {
+                document
+                    .edited
+                    .keys()
+                    .chain(document.text.keys())
+                    .all(|file| matches!(held.get(&(*id, *file)), Some(Held::Operations(..))))
+            })
+        {
+            for file in &edited {
+                let mut state = crate::replay::State::empty();
+                for (id, _) in &chain {
+                    let Some(Held::Operations(_, document)) = held.get(&(*id, *file)) else {
+                        continue;
+                    };
+                    match state.apply(document) {
+                        Ok(next) => state = next,
+                        Err(error) => {
+                            report.push(Finding::ContentDisagrees {
+                                revision: *head,
+                                file: *file,
+                                because: error.to_string(),
+                            });
+                            break;
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
         for file in edited {
             let events: Vec<crate::merge::Event<'_>> = reachable
                 .iter()
@@ -1320,6 +1382,35 @@ fn still_quoted(
 }
 
 /// Every revision one head descends from, or `None` if one is undelivered.
+/// A head's ancestry as a chain, oldest first, or nothing if it is not one.
+///
+/// Nothing when a revision on it has two parents — which is the state the
+/// merge walk exists for — and nothing when a parent is missing, which is
+/// already a note of its own and leaves no chain to replay.
+fn chain(
+    head: RevisionId,
+    documents: &BTreeMap<RevisionId, RevisionDocument>,
+) -> Option<Vec<(RevisionId, &RevisionDocument)>> {
+    let mut chain = Vec::new();
+    let mut at = Some(head);
+    while let Some(id) = at {
+        let document = documents.get(&id)?;
+        if document.parents.len() > 1 {
+            return None;
+        }
+        chain.push((id, document));
+        at = document.parents.iter().next().copied();
+        // A cycle cannot happen — a parent is named by digest and a digest
+        // covers the parent line — but a store is a folder anyone may write,
+        // and a walk that trusted that would hang rather than report.
+        if chain.len() > documents.len() {
+            return None;
+        }
+    }
+    chain.reverse();
+    Some(chain)
+}
+
 fn reachable(
     head: RevisionId,
     documents: &BTreeMap<RevisionId, RevisionDocument>,
