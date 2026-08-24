@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use historica::format::Timestamp;
 use historica::record::{Restriction, survey};
 use historica::store::{
-    Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store, StoreError,
+    Body, Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store, StoreError,
 };
 use historica::working::{Rule, SKIPPED_DIR, Working};
 
@@ -775,15 +775,20 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             // Decision 0017 gives a revision three ways to say what one file
             // holds, and `show` prints whichever it used, byte for byte,
             // because the readable file is the authority.
-            if let Some(operations) = document.edited.get(&file) {
-                match store.operation(operations).map_err(Failure::error)? {
-                    Some(document) => document.write(),
+            if let Some(named) = document.edited.get(&file) {
+                // Decision 0032: an `edit` line names either grammar, and
+                // `show` prints what is stored — so it asks which grammar
+                // rather than assuming the older one. A merge is exactly
+                // where a person most wants the stored bytes.
+                match store.body(named).map_err(Failure::error)? {
+                    Some(Body::Operation(document)) => document.write(),
+                    Some(Body::Resolution(document)) => document.write(),
                     // Decision 0014: the bytes were destroyed, and what is
                     // stored — and printed, byte for byte — is what stands
                     // in for them.
-                    None => stands_in(&store, operations)?.ok_or_else(|| {
+                    None => stands_in(&store, named)?.ok_or_else(|| {
                         Failure::error(format!(
-                            "{} names the operation document {operations}, \
+                            "{} names the content document {named}, \
                              which this store does not hold yet",
                             id.abbreviate(12)
                         ))

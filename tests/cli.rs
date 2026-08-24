@@ -1641,6 +1641,32 @@ fn receive_unions_independent_work_without_touching_either_working_copy() {
     assert!(stdout(&here, &["check"]).ends_with("nothing to report\n"));
 }
 
+/// `show` prints what is stored, and decision 0032 made "what is stored" have
+/// two possible grammars. Asking only the older one reported a document the
+/// store was holding perfectly well as one it had not received.
+#[test]
+fn show_prints_the_resolution_a_merge_states() {
+    let (directory, mine, theirs) = diverged(
+        "show-resolution",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+    out(recorded(&directory, &["merge", &mine, &theirs]));
+    write(&directory, "f.md", "one\nBOTH\nthree\n");
+    out(recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+
+    let document = stdout(&directory, &["show", "head", "f.md"]);
+    assert!(document.starts_with("historica\nresult "), "{document}");
+    assert!(document.contains("\nkeep "), "{document}");
+    assert!(
+        document.contains("\ninsert\n+BOTH\n"),
+        "the line typed while resolving is in the document: {document}"
+    );
+}
+
 #[test]
 fn receive_reports_mutable_conflicts_before_writing_history() {
     let here = repository("receive-conflict-here");
