@@ -865,6 +865,19 @@ fn cat(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
     let id = target::resolve(&store, &spelling)?;
     let file = target::file_in(&store, &id, &path)?;
+    // Decision 0040: a link has no bytes, and printing the target where the
+    // content goes would be a rendering standing in for a file. Named here
+    // rather than left to the store's own refusal so that the reader is told
+    // what it points at, which is the question they were asking.
+    let tree = store.tree(&id).map_err(Failure::error)?;
+    if let Some(target) = tree.target(&file) {
+        return Err(Failure::error(format!(
+            "`{path}` is a link to `{}`, so there is nothing to print; \
+             what it holds is where it points",
+            historica::update::materialise(&tree, tree.path(&file).unwrap_or(&path), target)
+                .unwrap_or_else(|| target.to_string())
+        )));
+    }
     // Decision 0017: whichever kind of file it is, byte for byte. A picture
     // written to a terminal is a mess and a picture written to a pipe is a
     // picture, and choosing between those is the shell's business.

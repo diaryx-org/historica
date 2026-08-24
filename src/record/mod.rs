@@ -19,7 +19,8 @@ use std::fmt;
 use crate::core::{ChangeId, FileId, RevisionId};
 use crate::diff::{diff, resolve};
 use crate::format::{
-    Mode, OperationDocument, ResolutionDocument, RevisionDocument, Timestamp, Version, digest,
+    LinkTarget, Mode, OperationDocument, ResolutionDocument, RevisionDocument, Timestamp, Version,
+    check_link_target, digest, nfc,
 };
 use crate::fs::Filesystem;
 use crate::merge::Merged;
@@ -69,6 +70,8 @@ pub enum Fact {
     Edited,
     /// A file the folder can run and the tree cannot, or the reverse.
     Mode,
+    /// A link the folder points somewhere the tree does not.
+    Link,
 }
 
 impl fmt::Display for Fact {
@@ -80,7 +83,30 @@ impl fmt::Display for Fact {
             Fact::Dropped => "dropped",
             Fact::Edited => "edited",
             Fact::Mode => "mode",
+            Fact::Link => "link",
         })
+    }
+}
+
+/// Where a link points, as a survey can say it.
+///
+/// The same two spellings decision 0040 records, one step earlier: a reference
+/// is a path here, because a survey mints nothing and the file at that path
+/// may be one this record is adding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Targeted {
+    /// A path in the tree this revision states.
+    Reference(String),
+    /// A string, exactly as the folder holds it.
+    Verbatim(String),
+}
+
+impl Targeted {
+    /// What a person reading `status` or `diff` is shown.
+    pub fn shown(&self) -> &str {
+        match self {
+            Targeted::Reference(path) | Targeted::Verbatim(path) => path.as_str(),
+        }
     }
 }
 
@@ -113,6 +139,13 @@ pub struct Survey {
     /// filesystem with no executable bit contributes nothing here, so a
     /// recorded mode survives a machine that cannot see it.
     pub modes: BTreeMap<String, Mode>,
+    /// Links whose target this revision states, and what it states.
+    ///
+    /// Decision 0040: keyed by path like everything else a survey observes,
+    /// and a reference is held as the *path* it resolved to, because the
+    /// identifier of a file the same record is adding is not minted yet.
+    /// [`plan`] is where a path becomes a file.
+    pub links: BTreeMap<String, Targeted>,
     /// Files the tree holds and the folder does not, with where they sat.
     pub dropped: BTreeMap<FileId, String>,
     /// What each path's content contributes, added paths included.
@@ -154,6 +187,7 @@ impl Survey {
             && self.dropped.is_empty()
             && self.edited.is_empty()
             && self.modes.is_empty()
+            && self.links.is_empty()
     }
 
     /// Every fact, by the path it concerns, for a person reading.
@@ -182,6 +216,15 @@ impl Survey {
                 .filter(|path| !self.added.contains(*path))
                 .map(|path| (Fact::Mode, path.clone())),
         );
+        // Decision 0040, on the same terms: a retarget is the whole of what
+        // some revisions say, and a link arriving carries its target in with
+        // its `add`.
+        facts.extend(
+            self.links
+                .keys()
+                .filter(|path| !self.added.contains(*path))
+                .map(|path| (Fact::Link, path.clone())),
+        );
         facts.sort();
         facts
     }
@@ -203,6 +246,8 @@ pub struct Plan {
     pub edited: BTreeMap<FileId, Change>,
     /// Files whose mode this revision states, and what it states.
     pub modes: BTreeMap<FileId, Mode>,
+    /// Links whose target this revision states, and what it states.
+    pub links: BTreeMap<FileId, LinkTarget>,
     /// Where each file sits after this revision, for rendering.
     pub paths: BTreeMap<FileId, String>,
     /// The revisions this would be recorded against.
@@ -556,6 +601,11 @@ pub fn survey<F: Filesystem>(
     // Kept only for the paths that turn out to be added, since that is the
     // only place the bytes are wanted twice.
     let mut arrived: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    // The target each link on disk spells, before resolution — which cannot
+    // happen until the whole folder has been walked, because decision 0040
+    // resolves against the tree *this revision states* and a target added by
+    // the same record has to resolve.
+    let mut pointing: BTreeMap<String, String> = BTreeMap::new();
 
     // A path in the folder is either a file the tree already holds, or a file
     // nobody has recorded yet, which recording mints an identifier for.
@@ -568,9 +618,52 @@ pub fn survey<F: Filesystem>(
         if survey.unsettled.contains_key(path.as_str()) {
             continue;
         }
-        let file = held.get(path.as_str()).copied();
+        let mut file = held.get(path.as_str()).copied();
+
+        // Decision 0040: a link is a third kind of file, fixed at `add`, so a
+        // path that changed between a link and a file is a `drop` and an
+        // `add` — the same answer 0017 gives a file whose content model
+        // changed, and for the same reason.
+        let was = file.and_then(|file| tree.kind(&file));
+        if let Some(previous) = file
+            && working.is_link(path) != (was == Some(Kind::Link))
+        {
+            survey.dropped.insert(previous, path.clone());
+            survey.moved.remove(&previous);
+            file = None;
+        }
         if file.is_none() {
             survey.added.insert(path.clone());
+        }
+
+        if working.is_link(path) {
+            match working.link_target(path) {
+                Some(target) => {
+                    if let Err(unusable) = check_link_target(target) {
+                        survey.refused.push((
+                            path.clone(),
+                            format!("it points at a target this format cannot hold: {unusable}"),
+                        ));
+                        survey.added.remove(path);
+                        continue;
+                    }
+                    pointing.insert(path.clone(), target.to_owned());
+                }
+                // Decision 0034's rule, doing decision 0040's work: a
+                // filesystem blind to the fact states nothing about it and
+                // leaves the recorded target standing. A link nobody has
+                // recorded yet cannot be added that way, because there is
+                // nothing to leave standing.
+                None if file.is_none() => {
+                    survey.refused.push((
+                        path.clone(),
+                        "a link this folder reports and cannot read".to_owned(),
+                    ));
+                    survey.added.remove(path);
+                }
+                None => {}
+            }
+            continue;
         }
 
         let bytes = working.bytes(path)?;
@@ -582,6 +675,7 @@ pub fn survey<F: Filesystem>(
             None if working::is_text(&bytes) => Kind::Lines,
             None => Kind::Whole,
         };
+        debug_assert_ne!(kind, Kind::Link, "a link left the walk above");
 
         if file.is_none() {
             arrived.insert(path.clone(), bytes.clone());
@@ -714,9 +808,112 @@ pub fn survey<F: Filesystem>(
         }
     }
 
+    // Decision 0040's resolution, once the whole folder is known. The tree
+    // this revision states is `placed` less what it drops, plus what it adds —
+    // so a link pointing at a file arriving in the same record resolves to it,
+    // and a link pointing at a file leaving in the same record does not.
+    let mut stated: BTreeMap<&str, Option<FileId>> = BTreeMap::new();
+    for (file, path) in &placed {
+        if survey.dropped.contains_key(file) {
+            continue;
+        }
+        stated.insert(path.as_str(), Some(*file));
+    }
+    for path in &survey.added {
+        stated.insert(path.as_str(), None);
+    }
+
+    for (path, spelling) in &pointing {
+        let observed = match resolution(path, spelling) {
+            Some(at) if stated.contains_key(at.as_str()) => Targeted::Reference(at),
+            // Escaping the folder, absolute, or naming nothing this history
+            // holds: the honest record is the string a person chose.
+            _ => Targeted::Verbatim(spelling.clone()),
+        };
+        // What the tree says now, spelled the same way, so that "did this
+        // change" is one comparison rather than two shapes of one.
+        let recorded = held
+            .get(path.as_str())
+            .filter(|file| !survey.dropped.contains_key(file))
+            .and_then(|file| tree.target(file))
+            .and_then(|target| match target {
+                LinkTarget::Verbatim(spelling) => Some(Targeted::Verbatim(spelling.clone())),
+                // A reference whose file this record drops is a reference
+                // about to be false, and there is nothing to agree with: the
+                // restatement below is the whole point of asking.
+                LinkTarget::Reference(named) if survey.dropped.contains_key(named) => None,
+                LinkTarget::Reference(named) => placed.get(named).cloned().map(Targeted::Reference),
+            });
+        if recorded.as_ref() != Some(&observed) {
+            survey.links.insert(path.clone(), observed);
+        }
+    }
+
+    // The dangling-reference rule, from the other end. The survey satisfies
+    // `tree::apply` without anyone's help wherever it can see the link — the
+    // link resolves to nothing tracked and is restated verbatim above — so
+    // what is left here is a link this record was not looking at, which no
+    // restatement can reach.
+    for (file, path) in &placed {
+        if survey.dropped.contains_key(file) || pointing.contains_key(path) {
+            continue;
+        }
+        let Some(named) = tree.target(file).and_then(LinkTarget::reference) else {
+            continue;
+        };
+        if let Some(gone) = survey.dropped.get(&named) {
+            return Err(RecordError::WouldDangle {
+                link: path.clone(),
+                target: gone.clone(),
+            });
+        }
+    }
+
     survey.renames = renames(store, parents, &survey.dropped, &arrived)?;
     survey.held = held;
     Ok(survey)
+}
+
+/// Where a link's target lands, as a store path, or `None` where it lands
+/// outside this history's reach.
+///
+/// Decision 0040: lexical, against the tree, never against the filesystem.
+/// The target is joined to the link's own directory, `.` and `..` are folded as
+/// text, and the result takes 0033's normal form C — it is claiming to be a
+/// store path now, so it is spelled as one. What lexical folding gets wrong —
+/// a `..` walked through a directory that is itself a link on some machine —
+/// is exactly the machine-dependence that makes such a target *outside* this
+/// history, and it comes back `None`, correctly.
+fn resolution(link: &str, target: &str) -> Option<String> {
+    // A person who spelled an absolute path said something about a machine,
+    // and rewriting it into a reference would change what the folder said.
+    if target.starts_with('/') {
+        return None;
+    }
+    // A target naming a directory names no file, and there are no directories
+    // in this format for it to name.
+    if target.ends_with('/') {
+        return None;
+    }
+    let mut at: Vec<&str> = match link.rsplit_once('/') {
+        Some((directory, _)) => directory.split('/').collect(),
+        None => Vec::new(),
+    };
+    for component in target.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                // Above the folder, which is outside this history by
+                // construction.
+                at.pop()?;
+            }
+            component => at.push(component),
+        }
+    }
+    if at.is_empty() {
+        return None;
+    }
+    Some(nfc(&at.join("/")).into_owned())
 }
 
 /// What a merge's parents leave one file as.
@@ -799,8 +996,12 @@ fn renames<F: Filesystem>(
         let bytes = match store.content_at_heads(parents, file) {
             Ok(content) => content.bytes(),
             // A file whose content two branches disagree about is not a file
-            // this can offer a rename for.
-            Err(MaterialiseError::ContestedContent { .. }) => continue,
+            // this can offer a rename for, and neither is a link: decision
+            // 0040 gives it a target where the bytes would be, and two links
+            // pointing the same way are not one link that moved.
+            Err(MaterialiseError::ContestedContent { .. } | MaterialiseError::IsALink { .. }) => {
+                continue;
+            }
             Err(error) => return Err(error.into()),
         };
         if !bytes.is_empty() {
@@ -960,12 +1161,36 @@ fn plan_with<F: Filesystem>(
         }
     }
 
+    // Decision 0040: a reference the survey held as a path becomes the file at
+    // that path, which is where the identifiers minted above are what makes a
+    // link to a file arriving in the same record spellable at all.
+    let mut links = BTreeMap::new();
+    for (path, target) in &surveyed.links {
+        let file = minted
+            .get(path)
+            .or_else(|| surveyed.held.get(path))
+            .copied();
+        let Some(file) = file else { continue };
+        let target = match target {
+            Targeted::Verbatim(spelling) => LinkTarget::Verbatim(spelling.clone()),
+            Targeted::Reference(at) => match minted.get(at).or_else(|| surveyed.held.get(at)) {
+                Some(named) => LinkTarget::Reference(*named),
+                // A path no single file answers to — two claim it, and this
+                // record is not the one settling that. There is no identity
+                // to point at, so the string is the honest record.
+                None => LinkTarget::Verbatim(at.clone()),
+            },
+        };
+        links.insert(file, target);
+    }
+
     Ok(Plan {
         added,
         moved: surveyed.moved.clone(),
         dropped: surveyed.dropped.keys().copied().collect(),
         edited,
         modes,
+        links,
         paths,
         parents: surveyed.parents.clone(),
         survey: surveyed,
@@ -977,12 +1202,15 @@ fn plan_with<F: Filesystem>(
 /// Decision 0004's asymmetry made concrete. A store gains a version the day it
 /// first holds a document that needs one, so a history of prose stays readable
 /// by every reader ever published for it, and only a history that actually
-/// marks something executable asks for a reader that knows decision 0034.
+/// marks something executable asks for a reader that knows decision 0034, and
+/// only a history that actually holds a link asks for one that knows 0040.
 fn version_for(document: &RevisionDocument) -> Version {
-    if document.modes.is_empty() {
-        Version::V1
-    } else {
+    if !document.links.is_empty() {
+        Version::V5
+    } else if !document.modes.is_empty() {
         Version::V4
+    } else {
+        Version::V1
     }
 }
 
@@ -1022,6 +1250,7 @@ pub fn record<F: Filesystem>(
         added: plan.added.clone(),
         moved: plan.moved.clone(),
         modes: plan.modes.clone(),
+        links: plan.links.clone(),
         dropped: plan.dropped.clone(),
         edited: content.edited.clone(),
         text: content.text.clone(),
@@ -1175,6 +1404,7 @@ fn rewrite<F: Filesystem>(
         added: plan.added.clone(),
         moved: plan.moved.clone(),
         modes: plan.modes.clone(),
+        links: plan.links.clone(),
         dropped: plan.dropped.clone(),
         edited: content.edited.clone(),
         text: content.text.clone(),
@@ -1380,6 +1610,7 @@ pub fn abandon<F: Filesystem>(
         added: BTreeMap::new(),
         moved: BTreeMap::new(),
         modes: BTreeMap::new(),
+        links: BTreeMap::new(),
         dropped: BTreeSet::new(),
         edited: BTreeMap::new(),
         text: BTreeMap::new(),
@@ -1568,6 +1799,19 @@ pub enum RecordError {
         /// The paths in question.
         paths: Vec<String>,
     },
+    /// A `drop` that would leave a link this record is not looking at
+    /// pointing at a file the tree no longer holds.
+    ///
+    /// Decision 0040: the survey restates such a link verbatim in the same
+    /// revision, and can do so for every link it is looking at. A restriction
+    /// that names the target and not the link is the one way to ask for the
+    /// drop without the restatement.
+    WouldDangle {
+        /// The link, where it sits.
+        link: String,
+        /// The file it points at, where that sat.
+        target: String,
+    },
     /// An amendment that would say exactly what it is rewriting says.
     NothingToAmend {
         /// The revision that already says it.
@@ -1737,6 +1981,12 @@ impl fmt::Display for RecordError {
                 f,
                 "nothing here differs from what is already recorded, and a \
                  revision that states nothing would mean nothing"
+            ),
+            RecordError::WouldDangle { link, target } => write!(
+                f,
+                "`{target}` is going, and `{link}` is a link to it that this record is not \
+                 looking at; name `{link}` too, so its target can be written down as the \
+                 string it will be"
             ),
             RecordError::NothingToAmend { revision } => write!(
                 f,

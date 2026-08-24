@@ -129,7 +129,7 @@ fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
         (
             "invalid/unknown-version.rev.txt",
             ParseErrorKind::UnknownVersion {
-                found: "5".to_owned(),
+                found: "6".to_owned(),
             },
         ),
         (

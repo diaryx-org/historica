@@ -1,0 +1,12 @@
+historica-v5
+change qpvuntsmwlrkzxonmvtplsyq
+parent 0e5977f3cb7b942537bcd85946d08db7f667410c1aea0c781df5cf66f4e76107
+author Adam Harris <adam@example.com>
+when 2026-08-02T09:00:00-06:00
+link nrqvtkzlmwyxsptonvqrklmz ../elsewhere.md
+
+A `link` addressed to a file that is not one
+
+The kind is fixed when the file is added. A file that became a link is
+a `drop` and an `add`, both facts recorded against the things they are
+about.

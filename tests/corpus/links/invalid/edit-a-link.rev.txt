@@ -1,0 +1,11 @@
+historica-v1
+change qpvuntsmwlrkzxonmvtplsyq
+parent 0e5977f3cb7b942537bcd85946d08db7f667410c1aea0c781df5cf66f4e76107
+author Adam Harris <adam@example.com>
+when 2026-08-02T09:00:00-06:00
+edit lqxstvnmpkwyzrolvtsqnkxm e2664ed8873fc4f52f23364ef08b72e0a7d84c97981a93b15b4958072ba31727
+
+An `edit` addressed to a link
+
+A link has no lines, so an `edit`'s positions would count into a path
+to somewhere else. Decision 0040 refuses it by name.

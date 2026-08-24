@@ -63,6 +63,22 @@ in this order, and repeated ones are sorted by the value that follows them:
                                   arrives as, read as lines.
   bytes <file ID> <digest>        the payload that is a file's whole content,
                                   which has no lines and never merges.
+  link <file ID> <target>         where a link points, stated by the revision
+                                  that adds it — where `text` or `bytes` would
+                                  have stated content — and restated by any
+                                  revision that changes it. The target is the
+                                  rest of the line, and has two spellings:
+
+                                    link kx.. file:<file ID>
+                                    link kx.. ../elsewhere/notes.txt
+
+                                  The first is a link to a file *in this
+                                  history*, by identity, so it follows that
+                                  file through every rename. The second is the
+                                  string a person wrote, kept as the string it
+                                  is, for a target this history knows nothing
+                                  about. No revision may drop a file while a
+                                  `file:` link still names it.
   x-<anything> <value>            an advisory header some other tool wrote.
                                   Ignore it; it hashes like everything else.
 
@@ -175,6 +191,11 @@ One recursive rule, with no algorithm in it:
     state, and the merge says nothing about it;
   - a file at a **merge whose parents differ** is its resolution: fetch each
     `keep`'s run from the document it names, splice the inserts, concatenate.
+
+A file a `link` line names holds none of that: it holds a target, stated by the
+most recent revision to state one. Where two concurrent revisions state
+different targets, the one in the revision with the lower digest wins, exactly
+as it does for two concurrent `move`s.
 
 Every step is one you can do with an editor, and `result` is what you check it
 against. You never have to walk back further than the nearest resolution,

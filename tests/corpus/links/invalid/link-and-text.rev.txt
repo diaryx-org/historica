@@ -1,0 +1,13 @@
+historica-v5
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2026-07-04T09:12:04-06:00
+add lqxstvnmpkwyzrolvtsqnkxm current
+text lqxstvnmpkwyzrolvtsqnkxm e2664ed8873fc4f52f23364ef08b72e0a7d84c97981a93b15b4958072ba31727
+link lqxstvnmpkwyzrolvtsqnkxm 2026/august.md
+
+A link is a third kind of file, not a file with a target beside it
+
+Decision 0017 fixed a file as lines or bytes for its whole life because they
+are different things to store. A link is a third: no content to diff, no
+lines to merge, a target instead of either.

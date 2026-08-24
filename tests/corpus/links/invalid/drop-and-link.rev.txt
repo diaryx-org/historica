@@ -1,0 +1,11 @@
+historica-v5
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2026-07-04T09:12:04-06:00
+drop lqxstvnmpkwyzrolvtsqnkxm
+link lqxstvnmpkwyzrolvtsqnkxm 2026/august.md
+
+A file leaving the file set points nowhere
+
+Decision 0008's rule, extended to 0040's fact: one revision says one thing
+about one file's existence.

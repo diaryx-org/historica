@@ -1,0 +1,12 @@
+historica-v5
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2026-07-04T09:12:04-06:00
+add lqxstvnmpkwyzrolvtsqnkxm current
+link lqxstvnmpkwyzrolvtsqnkxm file:august
+
+`file:` is a claim about the alphabet after it
+
+Decision 0024's spelling, in the format itself: the prefix says an identity
+follows, and `august` is not one. A path that wanted to be spelled `file:...`
+is the one string the two spellings cannot share a column with.

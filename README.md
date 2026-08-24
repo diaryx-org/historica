@@ -102,8 +102,29 @@ replaying those facts produces. Files carry identifiers and paths hang off
 them, so a rename keeps everything recorded against the file and no heuristic
 has to recover the connection later. There are no directories: one exists
 exactly when a file's path names it. An entry also says what it points at: an
-operation chain, or one payload whole, decided when the file was added and
-never again, so an `edit` addressed to a photograph is refused by name.
+operation chain, one payload whole, or 0040's link, decided when the file was
+added and never again, so an `edit` addressed to a photograph is refused by
+name.
+
+A link is a third kind of file, and it carries a target where the other two
+carry content. Decision 0040 gives that target two spellings and lets the
+recorder choose between them by resolution: a link to a file *in this history*
+— `current -> 2026/august.md` — is recorded as `link <file> file:<file>`, a
+reference to a thing the store knows by identity, so renaming the target leaves
+it pointing at the same file and every other tool's symlink dangles silently.
+A link to something *outside* — `config -> /etc/myapp` — is not a reference to
+anything the store knows, so the honest record is the string, and it is
+recorded verbatim. Resolution is lexical and against the tree, never against
+the filesystem: the target is joined to the link's own directory, `.` and `..`
+are folded as text, and the result is looked up in the tree the revision
+states. Nothing follows anything, which is what makes writing links down safe —
+a link pointing at `/` does not make the walk enumerate the machine. `update`
+materialises each spelling as itself, a reference as the relative path to
+where the target sits *now*; a folder that cannot hold links refuses by name
+rather than writing a plain file holding the target. And a revision may not
+drop a file while a `file:` link still names it: the recorder satisfies that
+by restating such a link verbatim in the same revision, so the dangling link a
+person actually has is recorded as the dangling string it actually is.
 
 An entry also carries a mode, which decision 0034 makes the one POSIX bit this
 format has an opinion about. `mode <file> executable` and `mode <file> plain`
@@ -655,6 +676,20 @@ Choices that constrain later work are written down as they are made.
   anything, nothing is remembered past the command, and every fact recorded is
   still one the folder stated. A restriction may not spell half a rename, and
   a merge, which states what every contested file is, takes no paths at all.
+- [`docs/decisions/0040-a-file-can-be-a-link.md`](docs/decisions/0040-a-file-can-be-a-link.md)
+  — a symlink, which the walk used to refuse and now writes down. There are
+  two kinds of link and every other tool records them as one: a link to a file
+  in this history is a reference to something the store knows by identity, and
+  a path is 0008's least favourite way to spell an identity, so it is recorded
+  as `file:<file ID>` and follows its target through every rename. A link to
+  something outside is a string a person chose, and the honest record is the
+  string. Resolution is lexical and against the tree, so nothing is ever
+  followed and a received store saying `link kx.. ../../etc/passwd` produces an
+  honest symlink and nothing else. The one cross-file rule this format has
+  lives here too: a revision may not drop a file while a `file:` link still
+  names it, and the recorder satisfies it by restating that link as the string
+  the folder holds. It is `historica-v5`, claimed only by the documents that
+  use it.
 - [`docs/decisions/0041-where-a-revision-is-filed.md`](docs/decisions/0041-where-a-revision-is-filed.md)
   — the flat directories 0016 chose, answered where 0003 deferred it: a store
   kept the way a journal is kept passes ten thousand entries without ever

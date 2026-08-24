@@ -1,0 +1,14 @@
+historica-v5
+change zvkmrtlqnwsxypokzvmtrlqn
+parent 13efe935ccffe4229455a1d2ef24d28b150a71c6e80d6cd2250713c7ea7dce59
+author Adam Harris <adam@example.com>
+when 2026-09-02T10:15:00-06:00
+drop swtlmnkqvzyrxopwstlnmkqv
+link lqxstvnmpkwyzrolvtsqnkxm 2026/08.md
+
+Take August out, and say what `current` points at now
+
+A revision may not drop a file while a `file:` link still names it. The
+recorder satisfies that without anyone's help: the survey sees the
+target resolve to nothing tracked, and restates the link as the string
+the folder holds — which is the dangling link a person actually has.

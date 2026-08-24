@@ -208,6 +208,16 @@ fn tree_facts(document: &RevisionDocument) -> String {
                 .filter(|file| !document.added.contains_key(*file))
                 .count(),
         ),
+        // Decision 0040, counted the same way and for the same reason: a link
+        // arriving says so with its `add`, and a retarget is its own fact.
+        (
+            "link",
+            document
+                .links
+                .keys()
+                .filter(|file| !document.added.contains_key(*file))
+                .count(),
+        ),
         ("dropped", document.dropped.len()),
         ("edited", document.edited.len()),
         // Decision 0017: content stated whole, counted apart from an edit
@@ -398,6 +408,30 @@ pub fn contest_line(contest: &TreeContest) -> String {
                 .map(|(_, mode)| mode.spelling())
                 .collect::<Vec<_>>()
                 .join(" and ")
+        ),
+        TreeContest::Target { file, targets } => format!(
+            "{} points at {}, which is the lower digest of {}",
+            file.abbreviate(8),
+            targets[0].1,
+            targets
+                .iter()
+                .map(|(_, target)| target.to_string())
+                .collect::<Vec<_>>()
+                .join(" and ")
+        ),
+        TreeContest::Referenced { file, by, links } => format!(
+            "kept {} : {} dropped it, and {} still {} at it",
+            file.abbreviate(8),
+            by.iter()
+                .map(|revision| revision.abbreviate(8))
+                .collect::<Vec<_>>()
+                .join(", "),
+            links
+                .iter()
+                .map(|link| link.abbreviate(8))
+                .collect::<Vec<_>>()
+                .join(", "),
+            if links.len() == 1 { "points" } else { "point" }
         ),
         TreeContest::Content { file, payloads } => format!(
             "{} was stated whole by {} concurrent revisions, and bytes do not merge; \

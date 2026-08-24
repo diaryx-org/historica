@@ -494,6 +494,40 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         // contested one is reported and the folder is left exactly as it is.
         // The tool cannot tell a resolution from an oversight here, and saying
         // so is better than pretending otherwise.
+        // Decision 0040, on decision 0034's reason: the folder is what
+        // `record --merge` surveys, so a link laid down pointing the old way
+        // would be recorded as a retarget nobody made — undoing one side of
+        // the merge as part of joining the work that contained it.
+        if entry.kind == Kind::Link {
+            let Some(target) = entry
+                .target
+                .as_ref()
+                .and_then(|target| historica::update::materialise(&merged.tree, at, target))
+            else {
+                said.push(format!("left {at} alone: it is a link naming nowhere"));
+                continue;
+            };
+            match Disk.link_target(&on_disk) {
+                Ok(None) => {
+                    said.push(format!(
+                        "left {at} alone: this folder cannot hold a symbolic link"
+                    ));
+                }
+                Ok(Some(held)) if held == target => {}
+                Ok(_) | Err(_) => {
+                    if let Some(directory) = on_disk.parent() {
+                        fs::create_dir_all(directory).map_err(|error| {
+                            Failure::error(format!("{}: {error}", directory.display()))
+                        })?;
+                    }
+                    Disk.set_link(&on_disk, &target)
+                        .map_err(|error| Failure::error(format!("{at}: {error}")))?;
+                    said.push(format!("pointed {at} at {target}"));
+                }
+            }
+            continue;
+        }
+
         let rendered = match entry.kind {
             Kind::Whole => {
                 let Some(payload) = entry.payload else {
@@ -527,6 +561,7 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 }
                 bytes
             }
+            Kind::Link => unreachable!("a link was laid down above"),
             Kind::Lines => {
                 let content = store
                     .merged_content_of(&heads, file)

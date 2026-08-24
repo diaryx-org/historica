@@ -160,6 +160,11 @@ fn folder(store: &Store, root: &Path, spelling: &str) -> Result<Vec<Row>, Failur
              as a revision left it"
         )));
     }
+    // Decision 0040: asked before the read, because reading a link's path
+    // would open what it points at rather than the link.
+    if working.is_link(&path) {
+        lines_only(Some(Kind::Link), &path)?;
+    }
     let bytes = working.bytes(&path).map_err(Failure::error)?;
     // A file the tree holds keeps the kind it was added with (0017); one the
     // tree does not is whatever the recorder would call it.
@@ -273,12 +278,17 @@ fn overlay(before: &State, origins: &[RevisionId], after: &State) -> Vec<Row> {
     rows
 }
 
-/// A file of bytes has no lines to attribute, per decision 0017.
+/// A file of bytes has no lines to attribute, per decision 0017, and neither
+/// has a link, per decision 0040.
 fn lines_only(kind: Option<Kind>, path: &str) -> Result<(), Failure> {
     match kind {
         Some(Kind::Whole) => Err(Failure::error(format!(
             "{path} is a file of bytes: decision 0017 gives it no lines, and there \
              is nothing to attribute line by line"
+        ))),
+        Some(Kind::Link) => Err(Failure::error(format!(
+            "{path} is a link: what it holds is where it points, which the revision \
+             that stated it is the whole of the answer for"
         ))),
         _ => Ok(()),
     }

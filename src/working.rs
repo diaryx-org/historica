@@ -194,6 +194,13 @@ impl std::error::Error for MalformedSkip {}
 pub struct Working<F = Disk> {
     filesystem: F,
     files: BTreeMap<String, PathBuf>,
+    /// Which tracked paths are links, and what each points at.
+    ///
+    /// Decision 0040: read during the walk, with the walk's own promise that
+    /// nothing is followed. `None` against a path is the filesystem saying it
+    /// cannot read the target — 0034's answer, doing 0034's work — and a
+    /// recorder that gets it states nothing about that link.
+    links: BTreeMap<String, Option<String>>,
     refused: Vec<(String, String)>,
 }
 
@@ -209,9 +216,14 @@ impl<F: Filesystem> Working<F> {
     /// Walk `root` on `filesystem`, taking every file the rules leave.
     ///
     /// `history/` is never tracked and needs no rule. A name that is not UTF-8,
-    /// a symlink, or anything that is not a regular file is refused by name
-    /// rather than skipped quietly: decision 0011 puts the difference between
-    /// losing work and not at one error message.
+    /// or anything that is neither a regular file nor a link, is refused by
+    /// name rather than skipped quietly: decision 0011 puts the difference
+    /// between losing work and not at one error message.
+    ///
+    /// Decision 0040 takes symbolic links off that list. A link is a thing a
+    /// folder holds, so the walk *reads* it — with
+    /// [`Filesystem::link_target`], which follows nothing — and takes it as a
+    /// tracked path whose content is a target rather than bytes.
     ///
     /// Decision 0015: the refusals are collected rather than raised one at a
     /// time, so that `status` can list a folder's whole set and a person can
@@ -221,13 +233,13 @@ impl<F: Filesystem> Working<F> {
     /// about the folder, it is not knowing, and a walk that collected it would
     /// describe a folder while quietly missing part of it.
     pub fn read_on(filesystem: F, root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
-        let mut files = BTreeMap::new();
-        let mut refused = Vec::new();
-        walk(&filesystem, root, "", skipped, &mut files, &mut refused)?;
+        let mut found = Found::default();
+        walk(&filesystem, root, "", skipped, &mut found)?;
         Ok(Self {
             filesystem,
-            files,
-            refused,
+            files: found.files,
+            links: found.links,
+            refused: found.refused,
         })
     }
 
@@ -273,9 +285,7 @@ impl<F: Filesystem> Working<F> {
     /// to [`kind_of`] instead, which decides what kind it is rather than
     /// refusing it.
     pub fn text(&self, path: &str) -> Result<String, WorkingError> {
-        let on_disk = self.files.get(path).ok_or_else(|| WorkingError::Missing {
-            path: path.to_owned(),
-        })?;
+        let on_disk = self.regular(path)?;
         match read_to_string(&self.filesystem, on_disk) {
             Ok(text) => Ok(text),
             Err(error) if error.kind() == io::ErrorKind::InvalidData => {
@@ -292,9 +302,7 @@ impl<F: Filesystem> Working<F> {
     /// Decision 0017: a file that is not text is content that arrives whole
     /// rather than content this format cannot hold.
     pub fn bytes(&self, path: &str) -> Result<Vec<u8>, WorkingError> {
-        let on_disk = self.files.get(path).ok_or_else(|| WorkingError::Missing {
-            path: path.to_owned(),
-        })?;
+        let on_disk = self.regular(path)?;
         self.filesystem
             .read(on_disk)
             .map_err(|error| WorkingError::io(on_disk, error))
@@ -314,6 +322,45 @@ impl<F: Filesystem> Working<F> {
             .executable(on_disk)
             .map_err(|error| WorkingError::io(on_disk, error))
     }
+
+    /// Whether one tracked path is a symbolic link.
+    pub fn is_link(&self, path: &str) -> bool {
+        self.links.contains_key(path)
+    }
+
+    /// What one tracked link points at, as the folder spells it.
+    ///
+    /// `None` for a path that is not a link, and for a link on a filesystem
+    /// that reports links and cannot read one — which a caller tells apart
+    /// with [`Working::is_link`], and which decision 0040 makes the same
+    /// answer either way: state nothing.
+    pub fn link_target(&self, path: &str) -> Option<&str> {
+        self.links.get(path)?.as_deref()
+    }
+
+    /// Every tracked link, with what it points at.
+    pub fn links(&self) -> impl Iterator<Item = (&String, Option<&str>)> {
+        self.links
+            .iter()
+            .map(|(path, target)| (path, target.as_deref()))
+    }
+
+    /// Where a tracked *regular* file is on disk.
+    ///
+    /// The one guard that keeps decision 0040's standing rule true by
+    /// construction: a link is tracked now, and reading its path through
+    /// `read` would open what it points at rather than the link. A caller that
+    /// wants a link asks for its target.
+    fn regular(&self, path: &str) -> Result<&PathBuf, WorkingError> {
+        if self.links.contains_key(path) {
+            return Err(WorkingError::IsALink {
+                path: path.to_owned(),
+            });
+        }
+        self.files.get(path).ok_or_else(|| WorkingError::Missing {
+            path: path.to_owned(),
+        })
+    }
 }
 
 /// Which kind of file a person has just put in the folder.
@@ -331,14 +378,21 @@ pub fn is_text(bytes: &[u8]) -> bool {
     !bytes.contains(&0) && std::str::from_utf8(bytes).is_ok()
 }
 
+/// What one walk of the folder turned up.
+#[derive(Default)]
+struct Found {
+    files: BTreeMap<String, PathBuf>,
+    links: BTreeMap<String, Option<String>>,
+    refused: Vec<(String, String)>,
+}
+
 /// One directory, then its subdirectories, in name order.
 fn walk<F: Filesystem + ?Sized>(
     filesystem: &F,
     directory: &Path,
     prefix: &str,
     skipped: &Skipped,
-    files: &mut BTreeMap<String, PathBuf>,
-    refused: &mut Vec<(String, String)>,
+    found: &mut Found,
 ) -> Result<(), WorkingError> {
     let mut entries = filesystem
         .entries(directory)
@@ -362,7 +416,7 @@ fn walk<F: Filesystem + ?Sized>(
             // beneath it.
             let path = on_disk.to_string_lossy().into_owned();
             let because = WorkingError::NotUtf8 { path: path.clone() }.because();
-            refused.push((path, because));
+            found.refused.push((path, because));
             continue;
         };
         // Decision 0033: the store spells a path in normal form C, and this
@@ -383,16 +437,16 @@ fn walk<F: Filesystem + ?Sized>(
 
         if kind.is_directory() {
             if !skipped.skips_directory(&path) {
-                walk(filesystem, &on_disk, &path, skipped, files, refused)?;
+                walk(filesystem, &on_disk, &path, skipped, found)?;
             }
             continue;
         }
         if skipped.skips(&path) {
             continue;
         }
-        if !kind.is_file() {
+        if !kind.is_file() && !kind.is_symlink() {
             let because = WorkingError::NotAFile { path: path.clone() }.because();
-            refused.push((path, because));
+            found.refused.push((path, because));
             continue;
         }
         if let Err(unusable) = check_path(&path) {
@@ -401,10 +455,27 @@ fn walk<F: Filesystem + ?Sized>(
                 because: unusable.to_string(),
             }
             .because();
-            refused.push((path, because));
+            found.refused.push((path, because));
             continue;
         }
-        files.insert(path, on_disk);
+        // Decision 0040: read here, once, with the walk — because this is
+        // where the entry is known to be a link, and asking later would mean
+        // asking a folder that has moved on. A filesystem that reports a link
+        // and cannot say where it points answers `None`, and the recorder
+        // leaves whatever is recorded standing.
+        if kind.is_symlink() {
+            let target = match filesystem.link_target(&on_disk) {
+                Ok(target) => target,
+                Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                    let because = WorkingError::LinkNotUtf8 { path: path.clone() }.because();
+                    found.refused.push((path, because));
+                    continue;
+                }
+                Err(error) => return Err(WorkingError::io(&on_disk, error)),
+            };
+            found.links.insert(path.clone(), target);
+        }
+        found.files.insert(path, on_disk);
     }
     Ok(())
 }
@@ -425,8 +496,21 @@ pub enum WorkingError {
         /// What is wrong with it.
         because: String,
     },
-    /// A symlink, a device, or anything else that is not a regular file.
+    /// A device, a socket, or anything else that is neither a file nor a link.
     NotAFile {
+        /// The path.
+        path: String,
+    },
+    /// A link whose target is not UTF-8, which this store cannot write down.
+    LinkNotUtf8 {
+        /// The path.
+        path: String,
+    },
+    /// A link asked for as though it held bytes.
+    ///
+    /// Decision 0040's standing rule, made structural: reading a link's path
+    /// would open what it points at, so nothing here does.
+    IsALink {
         /// The path.
         path: String,
     },
@@ -467,6 +551,12 @@ impl WorkingError {
             WorkingError::NotUtf8 { .. } => "not a name this format can hold".to_owned(),
             WorkingError::Unusable { because, .. } => because.clone(),
             WorkingError::NotAFile { .. } => "not a regular file".to_owned(),
+            WorkingError::LinkNotUtf8 { .. } => {
+                "a link pointing at a name that is not UTF-8".to_owned()
+            }
+            WorkingError::IsALink { .. } => {
+                "a link, which holds a target rather than bytes".to_owned()
+            }
             WorkingError::NotText { .. } => {
                 "recorded as lines and no longer UTF-8 text; drop it and add it again".to_owned()
             }
@@ -491,8 +581,19 @@ impl fmt::Display for WorkingError {
             ),
             WorkingError::NotAFile { path } => write!(
                 f,
-                "`{path}` is not a regular file, and nothing in this format \
-                 spells a symlink; `skip` it in `{STORE_DIR}/{SKIPPED_FILE}`"
+                "`{path}` is neither a regular file nor a link, and this format \
+                 spells nothing else; `skip` it in `{STORE_DIR}/{SKIPPED_FILE}`"
+            ),
+            WorkingError::LinkNotUtf8 { path } => write!(
+                f,
+                "`{path}` points at a name that is not UTF-8, and this store is \
+                 UTF-8 text; point it somewhere spellable, or `skip` it in \
+                 `{STORE_DIR}/{SKIPPED_FILE}`"
+            ),
+            WorkingError::IsALink { path } => write!(
+                f,
+                "`{path}` is a link, which holds a target rather than bytes; \
+                 nothing reads through a link, so ask it where it points"
             ),
             WorkingError::NotText { path } => write!(
                 f,

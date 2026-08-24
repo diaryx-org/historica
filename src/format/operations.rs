@@ -1121,10 +1121,16 @@ mod tests {
         );
         assert_eq!(
             OperationDocument::parse(b"historica-v5\n\ninsert 0\n+a\n")
+                .expect("version 5 reads")
+                .version,
+            Version::V5
+        );
+        assert_eq!(
+            OperationDocument::parse(b"historica-v6\n\ninsert 0\n+a\n")
                 .expect_err("a later version")
                 .kind,
             ParseErrorKind::UnknownVersion {
-                found: "5".to_owned()
+                found: "6".to_owned()
             }
         );
         assert_eq!(

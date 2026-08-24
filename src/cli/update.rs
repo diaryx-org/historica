@@ -82,6 +82,9 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             for chmod in &update.modes {
                 writeln!(out, "{:<7} {}  ({})", "mode", chmod.path, chmod.mode)?;
             }
+            for link in &update.links {
+                writeln!(out, "{:<7} {}  ({})", "link", link.path, link.target)?;
+            }
             for (path, because) in &update.leaves {
                 writeln!(out, "left {path} alone: {because}")?;
             }
@@ -123,6 +126,11 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         // thing is printed.
         for (path, mode) in &applied.set {
             writeln!(out, "{:<7} {path}  ({mode})", "mode")?;
+        }
+        // Decision 0040: a link made in somebody's folder is a change to it,
+        // and where it points is the whole of what it is.
+        for (path, target) in &applied.linked {
+            writeln!(out, "{:<7} {path}  ({target})", "linked")?;
         }
         for (path, because) in update.leaves.iter().chain(&applied.left) {
             writeln!(out, "left {path} alone: {because}")?;

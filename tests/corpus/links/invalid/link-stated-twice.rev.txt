@@ -1,0 +1,12 @@
+historica-v5
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2026-07-04T09:12:04-06:00
+add lqxstvnmpkwyzrolvtsqnkxm current
+link lqxstvnmpkwyzrolvtsqnkxm 2026/august.md
+link lqxstvnmpkwyzrolvtsqnkxm 2026/july.md
+
+A link points one way
+
+Two targets for one file is a revision disagreeing with itself, and there
+would be no rule for reading it that was not a preference.

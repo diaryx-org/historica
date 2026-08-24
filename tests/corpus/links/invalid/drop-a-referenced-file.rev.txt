@@ -1,0 +1,12 @@
+historica-v1
+change qpvuntsmwlrkzxonmvtplsyq
+parent 0e5977f3cb7b942537bcd85946d08db7f667410c1aea0c781df5cf66f4e76107
+author Adam Harris <adam@example.com>
+when 2026-08-02T09:00:00-06:00
+drop swtlmnkqvzyrxopwstlnmkqv
+
+A `drop` of a file a link still names
+
+The one fact here that a fact about a different file can make false, so
+it gets the one rule this format has for that shape. Restate the link
+verbatim in the same revision, as `04-gone` does.

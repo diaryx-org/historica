@@ -1726,6 +1726,17 @@ impl<F: Filesystem> Store<F> {
                     .ok_or(MaterialiseError::MissingPayload { payload, named_by })?;
                 Ok(Content::Whole(bytes))
             }
+            // Decision 0040: there are no bytes, and inventing some would be a
+            // rendering. What a link holds is where it points, which is a
+            // question with its own answer and its own spelling.
+            Kind::Link => Err(MaterialiseError::IsALink {
+                file: *file,
+                target: entry
+                    .target
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            }),
         }
     }
 
@@ -2261,6 +2272,17 @@ pub enum MaterialiseError {
         /// The file they disagree about.
         file: FileId,
     },
+    /// A link, asked for as though it held content.
+    ///
+    /// Decision 0040: a link has a target instead of bytes, and materialising
+    /// one into the string it points at would be a rendering standing where a
+    /// file's content goes.
+    IsALink {
+        /// The link.
+        file: FileId,
+        /// Where it points, as the revision spells it.
+        target: String,
+    },
     /// A revision this store does not hold.
     Unknown {
         /// The revision asked for.
@@ -2366,6 +2388,11 @@ impl fmt::Display for MaterialiseError {
                 "concurrent revisions each state the whole content of the file {file}, \
                  and bytes do not merge; \
                  record the version you mean, which is the only thing that can decide it"
+            ),
+            MaterialiseError::IsALink { file, target } => write!(
+                f,
+                "the file {file} is a link to `{target}`, so it has no content to produce; \
+                 what it holds is where it points"
             ),
             MaterialiseError::Tree { revision, error } => write!(f, "{revision}: {error}"),
             MaterialiseError::Content {

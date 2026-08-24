@@ -22,10 +22,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
-use crate::format::Mode;
+use crate::format::{LinkTarget, Mode};
 use crate::fs::{Filesystem, Kind as OnDisk};
 use crate::store::{MaterialiseError, STORE_DIR, Store, StoreError};
-use crate::tree::Kind;
+use crate::tree::{Kind, Tree};
 use crate::working::{Working, WorkingError};
 
 /// One file the update writes: the bytes the target records for a path, and
@@ -60,6 +60,39 @@ pub struct Chmod {
     pub mode: Mode,
 }
 
+/// One link the update makes: the target the tree records, spelled for a
+/// folder, and what the plan found at the path.
+///
+/// Decision 0040: a `file:` target becomes the relative path from the link's
+/// own directory to the target's *current* path, in the host's separators — so
+/// the link follows its target through every rename, which is the point — and
+/// a verbatim target becomes exactly its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Linking {
+    /// Where the link sits, relative to the repository root.
+    pub path: String,
+    /// What it will point at.
+    pub target: String,
+    /// What the plan found at the path, so that applying can look again.
+    pub replaces: Stood,
+}
+
+/// What was at a path when the plan looked.
+///
+/// A link is not read as bytes and bytes are not read as a link, so what
+/// applying compares against has to say which of the two it saw — decision
+/// 0025's promise, held for a kind of entry that has no content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Stood {
+    /// Nothing at all.
+    Nothing,
+    /// A link, pointing exactly here.
+    Link(String),
+    /// A regular file, holding these bytes — which some revision records, or
+    /// the plan would have refused rather than planned to replace it.
+    File(Vec<u8>),
+}
+
 /// One file the update removes: a path the target does not hold, whose bytes
 /// some revision records.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +101,11 @@ pub struct Remove {
     pub path: String,
     /// The recorded bytes the plan saw there, so that applying can look again.
     pub held: Vec<u8>,
+    /// The link the plan saw there instead, where the path holds one.
+    ///
+    /// Decision 0040: what a link holds is a target, so this is what applying
+    /// looks at again — reading the path itself would read through it.
+    pub link: Option<String>,
 }
 
 /// What one update would do, computed before anything is done.
@@ -81,6 +119,8 @@ pub struct Update {
     pub kept: Vec<String>,
     /// Files whose bytes are right and whose mode is not, in path order.
     pub modes: Vec<Chmod>,
+    /// The links to make, in path order.
+    pub links: Vec<Linking>,
     /// Paths left alone, with the reason: a tracked file the target does not
     /// hold, whose bytes no revision records. Not a refusal — the file simply
     /// stays, and the next survey reports it as `added`.
@@ -90,7 +130,10 @@ pub struct Update {
 impl Update {
     /// Whether there is nothing to do: the folder already holds the target.
     pub fn is_settled(&self) -> bool {
-        self.writes.is_empty() && self.removes.is_empty() && self.modes.is_empty()
+        self.writes.is_empty()
+            && self.removes.is_empty()
+            && self.modes.is_empty()
+            && self.links.is_empty()
     }
 }
 
@@ -115,6 +158,8 @@ pub struct Applied {
     /// A deletion a person asked for in one word is printed, and so is this:
     /// making a file runnable is a change to a file in their folder.
     pub set: Vec<(String, Mode)>,
+    /// The links made, with what each was pointed at.
+    pub linked: Vec<(String, String)>,
 }
 
 /// Why an update could not be planned or performed.
@@ -217,6 +262,125 @@ impl From<MaterialiseError> for UpdateError {
 /// The reason a path in the way refuses, spelled once: `merge` says the same
 /// words when it declines to overwrite.
 const UNRECORDED: &str = "it holds work nothing has recorded";
+
+/// What a folder with no links is told, and why it is told rather than
+/// quietly given something else.
+///
+/// Decision 0040: writing a plain file holding the target invents content no
+/// revision stated, which is what git's `core.symlinks=false` does and then
+/// explains forever; skipping it silently leaves a folder half-holding a head,
+/// which decision 0030 refuses.
+const NO_LINKS: &str = "this folder cannot hold a symbolic link, and a plain file holding the target \
+     would be content no revision stated";
+
+/// How a folder spells one link's target, or `None` where the tree does not
+/// hold the file a reference names.
+///
+/// Decision 0040's materialisation, in one place because three callers need
+/// exactly it: the update that writes the link, the merge that lays the folder
+/// out for `record --merge` to survey, and the check that asks whether a link
+/// already on disk is one some revision recorded.
+///
+/// `at` is where the link sits, since a reference is spelled relative to the
+/// link's own directory. The round trip is what this is for: recording what
+/// this produced resolves to the same identity, and states nothing.
+pub fn materialise(tree: &Tree, at: &str, target: &LinkTarget) -> Option<String> {
+    match target {
+        // Exactly its bytes: a person who spelled this said something about a
+        // machine, and tidying it would change what the folder said.
+        LinkTarget::Verbatim(spelling) => Some(spelling.clone()),
+        LinkTarget::Reference(named) => Some(host_separators(&relative(
+            directory_of(at),
+            tree.path(named)?,
+        ))),
+    }
+}
+
+/// The directory part of a store path, empty at the root.
+fn directory_of(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(directory, _)| directory)
+}
+
+/// The path from one directory to one file, both spelled as the store spells
+/// them.
+///
+/// Decision 0040: this is what a `file:` target materialises as, so that the
+/// link follows its target through every rename — the rename being a fact the
+/// store recorded rather than a resemblance anything had to recover.
+fn relative(from: &str, to: &str) -> String {
+    let from: Vec<&str> = if from.is_empty() {
+        Vec::new()
+    } else {
+        from.split('/').collect()
+    };
+    let to: Vec<&str> = to.split('/').collect();
+    let shared = from
+        .iter()
+        .zip(&to)
+        .take_while(|(here, there)| here == there)
+        .count();
+    let mut parts: Vec<&str> = vec![".."; from.len() - shared];
+    parts.extend(&to[shared..]);
+    if parts.is_empty() {
+        return ".".to_owned();
+    }
+    parts.join("/")
+}
+
+/// A store path, in the separators the host writes.
+///
+/// Only a `file:` target passes through here: it is a store path being spelled
+/// for a folder. A verbatim target is a string a person chose, and is written
+/// as itself.
+fn host_separators(spelling: &str) -> String {
+    if std::path::MAIN_SEPARATOR == '/' {
+        return spelling.to_owned();
+    }
+    spelling.replace('/', std::path::MAIN_SEPARATOR_STR)
+}
+
+/// The bytes of a regular file at a path, where some revision records them.
+fn recorded_at<F: Filesystem, G: Filesystem>(
+    working: &Working<G>,
+    recorded: &RecordedBytes<'_, F>,
+    path: &str,
+) -> Result<Option<Vec<u8>>, UpdateError> {
+    if !working.holds(path) || working.is_link(path) {
+        return Ok(None);
+    }
+    let held = working.bytes(path)?;
+    Ok(recorded.holds(path, &held).then_some(held))
+}
+
+/// Whether some revision recorded a link at this path pointing exactly here.
+///
+/// Decision 0030's overwrite rule asked of the one string a link holds instead
+/// of bytes. A `file:` target is materialised at the revision that stated it,
+/// because that is where the target's path was what it was — the same
+/// arithmetic `update` does now, done then.
+fn recorded_link<F: Filesystem>(
+    store: &Store<F>,
+    recorded: &RecordedBytes<'_, F>,
+    path: &str,
+    held: &str,
+) -> Result<bool, UpdateError> {
+    for file in recorded.files_at(path) {
+        for (id, document) in store.iter() {
+            let Some(target) = document.links.get(&file) else {
+                continue;
+            };
+            let tree = store.tree(id)?;
+            let Some(at) = tree.path(&file) else { continue };
+            let Some(spelled) = materialise(&tree, at, target) else {
+                continue;
+            };
+            if spelled == held {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
 
 /// What one update would do, or why it cannot happen whole.
 ///
@@ -327,6 +491,75 @@ pub fn plan<F: Filesystem, G: Filesystem>(
             continue; // Already refused above: two files hold the path.
         };
         let entry = tree.entry(file).expect("the tree placed this file");
+
+        // Decision 0040: a link is written as a link, and the two spellings
+        // are materialised as themselves. This happens before the content
+        // branch below because a link has no content to reach for.
+        if entry.kind == Kind::Link {
+            let Some(target) = entry.target.as_ref() else {
+                refuse(path, "it is a link that names nowhere".to_owned());
+                continue;
+            };
+            let Some(wanted) = materialise(&tree, path, target) else {
+                // `tree::apply` and the merge both refuse a reference the tree
+                // does not hold, so this is a store contradicting itself
+                // rather than a state an update should invent a target for.
+                refuse(path, "it names a file this tree does not hold".to_owned());
+                continue;
+            };
+            let on_disk = working
+                .get(path)
+                .cloned()
+                .unwrap_or_else(|| repository.join(path));
+            // One question settles whether this folder has links at all, per
+            // the contract in `Filesystem::link_target`: only the default
+            // answers `Ok(None)`, and it answers it for every path.
+            let held = match working.filesystem().link_target(&on_disk) {
+                Ok(None) => {
+                    refuse(path, NO_LINKS.to_owned());
+                    continue;
+                }
+                Ok(some) => some,
+                // Anything else is this filesystem saying the path holds no
+                // link, which the look below is what decides what to do about.
+                Err(_) => None,
+            };
+            match (held, look(working.filesystem(), &on_disk)?) {
+                (Some(held), _) if held == wanted => update.kept.push((*path).to_owned()),
+                (Some(held), _) => update.links.push(Linking {
+                    path: (*path).to_owned(),
+                    target: wanted,
+                    replaces: Stood::Link(held),
+                }),
+                (None, None) => update.links.push(Linking {
+                    path: (*path).to_owned(),
+                    target: wanted,
+                    replaces: Stood::Nothing,
+                }),
+                (None, Some(OnDisk::Directory)) => {
+                    refuse(path, "a directory stands there".to_owned());
+                }
+                // A regular file where a link goes: replaced only where its
+                // bytes are recorded, which is decision 0030's rule unchanged.
+                (None, Some(_)) => match recorded_at(working, &recorded, path)? {
+                    Some(bytes) => update.links.push(Linking {
+                        path: (*path).to_owned(),
+                        target: wanted,
+                        replaces: Stood::File(bytes),
+                    }),
+                    None => refuse(path, UNRECORDED.to_owned()),
+                },
+            }
+            continue;
+        }
+
+        // A link where the tree wants a file: nothing recorded the string it
+        // holds, and reading it would read through it.
+        if working.is_link(path) {
+            refuse(path, "a symbolic link stands there".to_owned());
+            continue;
+        }
+
         let bytes = match entry.kind {
             Kind::Whole => match &entry.payload {
                 None => {
@@ -366,6 +599,7 @@ pub fn plan<F: Filesystem, G: Filesystem>(
                     continue;
                 }
             },
+            Kind::Link => unreachable!("a link was materialised above"),
         };
 
         if working.holds(path) {
@@ -428,11 +662,33 @@ pub fn plan<F: Filesystem, G: Filesystem>(
         if placed.contains_key(path.as_str()) {
             continue;
         }
+        // Decision 0040: a link the target does not hold goes only where some
+        // revision recorded a link at that path pointing exactly there —
+        // 0030's rule, asked of the one string a link holds instead of bytes.
+        if let Some(held) = working.link_target(path) {
+            if recorded_link(store, &recorded, path, held)? {
+                update.removes.push(Remove {
+                    path: path.clone(),
+                    held: Vec::new(),
+                    link: Some(held.to_owned()),
+                });
+            } else if tracked.contains(path) {
+                update.leaves.push((path.clone(), UNRECORDED.to_owned()));
+            }
+            continue;
+        }
+        // A link this filesystem reports and cannot read is one whose string
+        // nothing here can be sure of, so it stays where it is.
+        if working.is_link(path) {
+            update.leaves.push((path.clone(), UNRECORDED.to_owned()));
+            continue;
+        }
         let held = working.bytes(path)?;
         if recorded.holds(path, &held) {
             update.removes.push(Remove {
                 path: path.clone(),
                 held,
+                link: None,
             });
         } else if tracked.contains(path) {
             update.leaves.push((path.clone(), UNRECORDED.to_owned()));
@@ -508,6 +764,34 @@ pub fn apply<F: Filesystem>(
 
     for remove in &update.removes {
         let on_disk = on_disk(&remove.path);
+        // Decision 0040: a link is looked at again as a link. `read` would
+        // open what it points at, and compare the wrong thing about the wrong
+        // file.
+        if let Some(spelled) = &remove.link {
+            match filesystem.link_target(&on_disk) {
+                Ok(Some(held)) if &held == spelled => {
+                    filesystem
+                        .remove_file(&on_disk)
+                        .map_err(|error| UpdateError::Io {
+                            path: on_disk.clone(),
+                            error,
+                        })?;
+                    applied.removed.push(remove.path.clone());
+                }
+                Ok(_) => applied.left.push((
+                    remove.path.clone(),
+                    "it changed underneath the update".to_owned(),
+                )),
+                // Gone, or no longer a link, which is where a removal was
+                // headed or a change to look at again.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(_) => applied.left.push((
+                    remove.path.clone(),
+                    "it changed underneath the update".to_owned(),
+                )),
+            }
+            continue;
+        }
         match read(filesystem, &on_disk)? {
             Some(held) if held == remove.held => {
                 filesystem
@@ -553,6 +837,47 @@ pub fn apply<F: Filesystem>(
             })?;
         set_mode(filesystem, &on_disk, write.mode, &write.path, &mut applied)?;
         applied.wrote.push(write.path.clone());
+    }
+
+    // Decision 0040: a link is made, never written through. Whatever stands
+    // in the way is removed and the link put in its place, which is what
+    // `set_link` promises and what keeps 0026's atomic-replace path — a path
+    // that opens the destination — away from an entry whose destination is
+    // somebody else's file.
+    for link in &update.links {
+        let on_disk = on_disk(&link.path);
+        let now = match filesystem.link_target(&on_disk) {
+            Ok(Some(held)) => Stood::Link(held),
+            // Nothing, or something that is not a link: read it as what it is.
+            _ => match read(filesystem, &on_disk)? {
+                Some(bytes) => Stood::File(bytes),
+                None => Stood::Nothing,
+            },
+        };
+        if now != link.replaces {
+            applied.left.push((
+                link.path.clone(),
+                "it changed underneath the update".to_owned(),
+            ));
+            continue;
+        }
+        if let Some(directory) = on_disk.parent() {
+            filesystem
+                .create_directory(directory)
+                .map_err(|error| UpdateError::Io {
+                    path: directory.to_path_buf(),
+                    error,
+                })?;
+        }
+        filesystem
+            .set_link(&on_disk, &link.target)
+            .map_err(|error| UpdateError::Io {
+                path: on_disk.clone(),
+                error,
+            })?;
+        applied
+            .linked
+            .push((link.path.clone(), link.target.clone()));
     }
 
     // Decision 0034: the bytes were already right and the bit was not, so
@@ -627,6 +952,14 @@ impl<'a, F: Filesystem> RecordedBytes<'a, F> {
             }
         }
         Self { store, ever_at }
+    }
+
+    /// Every file some revision ever put at this path.
+    fn files_at(&self, path: &str) -> Vec<FileId> {
+        self.ever_at
+            .get(path)
+            .map(|files| files.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     /// Whether some revision records exactly these bytes for a file that has

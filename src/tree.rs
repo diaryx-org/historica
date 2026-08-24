@@ -28,19 +28,25 @@ use std::fmt;
 
 use crate::ancestry::Ancestry;
 use crate::core::{FileId, RevisionId};
-use crate::format::{Mode, RevisionDocument};
+use crate::format::{LinkTarget, Mode, RevisionDocument};
 
 /// What a file's entry points at.
 ///
 /// Decision 0008 asked the question and left the second answer unbuilt; 0017
-/// builds it. A file is one kind or the other for its whole life, and changing
-/// kind is `drop` and `add`.
+/// builds it and 0040 adds a third. A file is one kind for its whole life, and
+/// changing kind is `drop` and `add`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
     /// Lines, which merge: the operation chain the revisions name.
     Lines,
     /// One payload, whole, which never merges.
     Whole,
+    /// A link, whose target stands where content would. Decision 0040.
+    ///
+    /// The target itself is [`Entry::target`], for the reason
+    /// [`Entry::payload`] is not in here either: which of the three a file is
+    /// never changes, and what it points at does.
+    Link,
 }
 
 impl fmt::Display for Kind {
@@ -48,6 +54,7 @@ impl fmt::Display for Kind {
         match self {
             Kind::Lines => write!(f, "lines"),
             Kind::Whole => write!(f, "bytes"),
+            Kind::Link => write!(f, "a link"),
         }
     }
 }
@@ -57,7 +64,7 @@ impl fmt::Display for Kind {
 pub struct Entry {
     /// Where the file sits.
     pub path: String,
-    /// Lines or bytes, fixed when the file was added.
+    /// Lines, bytes, or a link, fixed when the file was added.
     pub kind: Kind,
     /// The payload a file of bytes holds.
     ///
@@ -65,6 +72,13 @@ pub struct Entry {
     /// `None` only where concurrent revisions each stated one: 0008 calls that
     /// a divergence to report, and refuses to pick a winner.
     pub payload: Option<RevisionId>,
+    /// What a link points at, per decision 0040.
+    ///
+    /// `Some` for every [`Kind::Link`] file and `None` for every other, since
+    /// a link is the only thing here with a target and it always has one: the
+    /// revision that adds it states one, and the `file:` spelling can never
+    /// name a file the tree does not hold.
+    pub target: Option<LinkTarget>,
     /// Whether the file can be run, per decision 0034.
     ///
     /// Unlike [`Entry::kind`] this is not fixed when the file is added: a mode
@@ -105,6 +119,11 @@ impl Tree {
     /// Whether a file can be run, or `None` if it does not exist here.
     pub fn mode(&self, file: &FileId) -> Option<Mode> {
         self.files.get(file).map(|entry| entry.mode)
+    }
+
+    /// What a link points at, or `None` if this file is not one.
+    pub fn target(&self, file: &FileId) -> Option<&LinkTarget> {
+        self.files.get(file).and_then(|entry| entry.target.as_ref())
     }
 
     /// The files at a path.
@@ -160,15 +179,22 @@ impl Tree {
             // added with `bytes` is bytes; anything else is lines, an empty
             // file included.
             let payload = revision.bytes.get(file).copied();
+            // Decision 0040: a `link` beside the `add` is the third kind, and
+            // it is fixed here for the same reason the other two are — a file
+            // whose kind could change would give `edit` a parent that is a
+            // path to somewhere else.
+            let target = revision.links.get(file).cloned();
             files.insert(
                 *file,
                 Entry {
                     path: path.clone(),
-                    kind: match payload {
-                        Some(_) => Kind::Whole,
-                        None => Kind::Lines,
+                    kind: match (&target, payload) {
+                        (Some(_), _) => Kind::Link,
+                        (None, Some(_)) => Kind::Whole,
+                        (None, None) => Kind::Lines,
                     },
                     payload,
+                    target,
                     // Decision 0034: a file created executable states `add`
                     // and `mode` together, and a file that states no `mode`
                     // anywhere is plain.
@@ -196,10 +222,43 @@ impl Tree {
                 continue;
             }
             match files.get_mut(file) {
+                // Decision 0040: a link has no executable bit to state.
+                Some(entry) if entry.kind == Kind::Link => {
+                    return Err(TreeError::WrongKind {
+                        key: "mode",
+                        file: *file,
+                        kind: entry.kind,
+                    });
+                }
                 Some(entry) => entry.mode = *mode,
                 None => {
                     return Err(TreeError::Unknown {
                         key: "mode",
+                        file: *file,
+                    });
+                }
+            }
+        }
+        // Decision 0040: a retarget, in the same place a restated path is
+        // applied and for the same reason — the link is the same file it was,
+        // pointing somewhere else. A `link` on a file this revision adds was
+        // applied with the `add` above.
+        for (file, target) in &revision.links {
+            if revision.added.contains_key(file) {
+                continue;
+            }
+            match files.get_mut(file) {
+                Some(entry) if entry.kind != Kind::Link => {
+                    return Err(TreeError::WrongKind {
+                        key: "link",
+                        file: *file,
+                        kind: entry.kind,
+                    });
+                }
+                Some(entry) => entry.target = Some(target.clone()),
+                None => {
+                    return Err(TreeError::Unknown {
+                        key: "link",
                         file: *file,
                     });
                 }
@@ -210,6 +269,23 @@ impl Tree {
                 return Err(TreeError::Unknown {
                     key: "drop",
                     file: *file,
+                });
+            }
+        }
+        // Decision 0040: a reference is the one fact here that a fact about a
+        // *different* file can make false, so it gets the one rule this format
+        // has for that shape. Held to the result rather than to each `drop`,
+        // so that a revision which drops a link and its target together — and
+        // one that swaps a reference to the file it is about to drop — are
+        // ordinary rather than caught on the way past.
+        for (file, entry) in &files {
+            let Some(named) = entry.target.as_ref().and_then(LinkTarget::reference) else {
+                continue;
+            };
+            if !files.contains_key(&named) {
+                return Err(TreeError::Dangling {
+                    link: *file,
+                    target: named,
                 });
             }
         }
@@ -305,8 +381,8 @@ pub fn operations_for<'a>(
 /// heuristic could recover: a file is identified, so a rename is a `move` that
 /// names the same file the edits before and after it name, and following one
 /// costs no more than following any other fact. Every key a revision can state
-/// a file under is read, `mode` and a payload included, because a revision that
-/// only made a file executable is one that did something to it.
+/// a file under is read, `mode`, `link` and a payload included, because a
+/// revision that only made a file executable is one that did something to it.
 pub fn touches(revision: &RevisionDocument, file: &FileId) -> bool {
     revision.added.contains_key(file)
         || revision.moved.contains_key(file)
@@ -315,6 +391,7 @@ pub fn touches(revision: &RevisionDocument, file: &FileId) -> bool {
         || revision.edited.contains_key(file)
         || revision.text.contains_key(file)
         || revision.bytes.contains_key(file)
+        || revision.links.contains_key(file)
 }
 
 /// One revision's contribution to the file set, with its place in the graph.
@@ -384,6 +461,32 @@ pub enum TreeContest {
         /// Every mode claimed, with the revision claiming it, in digest order.
         modes: Vec<(RevisionId, Mode)>,
     },
+    /// Concurrent `link`s, resolved to the lower digest's target.
+    ///
+    /// Decision 0040 takes `move`'s rule over the stated line, whichever
+    /// spelling it holds. The case every path-spelled symlink gets wrong — a
+    /// rename of the *target* concurrent with anything at all — is not here at
+    /// all: the reference is to the identity, so there was nothing to
+    /// disagree about.
+    Target {
+        /// The link two revisions pointed different ways.
+        file: FileId,
+        /// Every target claimed, with the revision claiming it, in digest
+        /// order.
+        targets: Vec<(RevisionId, LinkTarget)>,
+    },
+    /// A `drop` that lost to a concurrent link naming the file it dropped.
+    ///
+    /// Decision 0040, on the rule a drop already obeys against an edit and for
+    /// the same reason: destruction yields to reference, and a person is told.
+    Referenced {
+        /// The file that stayed.
+        file: FileId,
+        /// The revisions that dropped it.
+        by: Vec<RevisionId>,
+        /// The links still naming it.
+        links: Vec<FileId>,
+    },
     /// Two files claiming one path. Neither is renamed: 0008 forbids that.
     Path {
         /// The path both hold.
@@ -416,6 +519,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
             held.touches.push(event.revision);
             held.added.push(event.revision);
             held.whole = document.bytes.contains_key(file);
+            held.link = document.links.contains_key(file);
         }
         for (file, path) in &document.moved {
             let held = facts.entry(*file).or_default();
@@ -438,10 +542,19 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
             held.wholes.push((event.revision, *payload));
             held.touches.push(event.revision);
         }
+        for (file, target) in &document.links {
+            let held = facts.entry(*file).or_default();
+            held.targets.push((event.revision, target.clone()));
+            held.touches.push(event.revision);
+        }
     }
 
     let mut files = BTreeMap::new();
     let mut contested = Vec::new();
+    // Files a `drop` took, kept rather than discarded: decision 0040 lets a
+    // link still naming one bring it back, and that cannot be decided until
+    // every file's entry is known.
+    let mut buried: BTreeMap<FileId, Buried> = BTreeMap::new();
 
     for (file, held) in facts {
         if held.added.is_empty() {
@@ -452,7 +565,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
 
         // A `drop` wins only where nothing concurrent says the file matters.
         let mut lost = Vec::new();
-        let mut gone = false;
+        let mut gone = Vec::new();
         for drop in &held.drops {
             let concurrent: Vec<RevisionId> = held
                 .touches
@@ -461,17 +574,18 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
                 .filter(|touch| touch != drop && !ancestors.is_ancestor(touch, drop))
                 .collect();
             if concurrent.is_empty() {
-                gone = true;
+                gone.push(*drop);
             } else {
                 lost.push(*drop);
             }
         }
-        if gone {
-            continue;
-        }
+        gone.sort();
+        // Held until this file is known to survive: a contest about a file the
+        // merge does not hold is a decision nobody is making.
+        let mut mine: Vec<TreeContest> = Vec::new();
         if !lost.is_empty() {
             lost.sort();
-            contested.push(TreeContest::Dropped { file, by: lost });
+            mine.push(TreeContest::Dropped { file, by: lost });
         }
 
         // The path comes from the placements nothing later replaced.
@@ -495,7 +609,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
         if latest.len() > 1 {
             // Decision 0008: by digest, because a timestamp is not trusted and
             // a change ID is an unverifiable claim.
-            contested.push(TreeContest::Moved {
+            mine.push(TreeContest::Moved {
                 file,
                 paths: latest,
             });
@@ -504,7 +618,13 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
         // The same walk for content stated whole, and a different ending:
         // 0008 reports two concurrent `bytes` as a divergence and never picks
         // one, so a contested file holds no payload until somebody records it.
-        let kind = if held.whole { Kind::Whole } else { Kind::Lines };
+        let kind = if held.link {
+            Kind::Link
+        } else if held.whole {
+            Kind::Whole
+        } else {
+            Kind::Lines
+        };
         let mut current: Vec<(RevisionId, RevisionId)> =
             held.wholes
                 .iter()
@@ -521,7 +641,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
             0 => None,
             1 => Some(current[0].1),
             _ => {
-                contested.push(TreeContest::Content {
+                mine.push(TreeContest::Content {
                     file,
                     payloads: current,
                 });
@@ -546,21 +666,69 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
         stated.dedup();
         let mode = stated.first().map(|(_, mode)| *mode).unwrap_or_default();
         if stated.len() > 1 {
-            contested.push(TreeContest::Mode {
+            mine.push(TreeContest::Mode {
                 file,
                 modes: stated,
             });
         }
 
-        files.insert(
+        // And once more for a link's target: decision 0040 gives it `move`'s
+        // rule over the stated line, whichever of the two spellings it holds.
+        let mut pointed: Vec<(RevisionId, LinkTarget)> =
+            held.targets
+                .iter()
+                .filter(|(revision, _)| {
+                    !held.targets.iter().any(|(other, _)| {
+                        other != revision && ancestors.is_ancestor(revision, other)
+                    })
+                })
+                .cloned()
+                .collect();
+        pointed.sort();
+        pointed.dedup();
+        let target = pointed.first().map(|(_, target)| target.clone());
+        if pointed.len() > 1 {
+            mine.push(TreeContest::Target {
+                file,
+                targets: pointed,
+            });
+        }
+
+        let entry = Entry {
+            path,
+            kind,
+            payload,
+            target,
+            mode,
+        };
+        if gone.is_empty() {
+            contested.append(&mut mine);
+            files.insert(file, entry);
+        } else {
+            buried.insert(
+                file,
+                Buried {
+                    entry,
+                    by: gone,
+                    contested: mine,
+                },
+            );
+        }
+    }
+
+    // Decision 0040: destruction yields to reference. A file a `drop` took,
+    // that a surviving link still names, comes back — and so does whatever
+    // *that* file's own target names, which is why this runs to a fixed point
+    // rather than once.
+    while let Some((file, links)) = raised(&files, &buried) {
+        let mut raised = buried.remove(&file).expect("a file the walk just found");
+        files.insert(file, raised.entry);
+        contested.append(&mut raised.contested);
+        contested.push(TreeContest::Referenced {
             file,
-            Entry {
-                path,
-                kind,
-                payload,
-                mode,
-            },
-        );
+            by: raised.by,
+            links,
+        });
     }
 
     // Two files at one path is a legitimate state a person resolves, so it is
@@ -585,6 +753,34 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
     })
 }
 
+/// A file a `drop` took, kept in case a link turns out to still name it.
+struct Buried {
+    entry: Entry,
+    /// The drops that took it, in digest order.
+    by: Vec<RevisionId>,
+    /// What it would have been reported as, had it survived.
+    contested: Vec<TreeContest>,
+}
+
+/// The next buried file some surviving link still names, if there is one.
+///
+/// Decision 0040's drop-versus-reference contest, asked once per file raised so
+/// that a link brought back by another link's reference is itself consulted.
+fn raised(
+    files: &BTreeMap<FileId, Entry>,
+    buried: &BTreeMap<FileId, Buried>,
+) -> Option<(FileId, Vec<FileId>)> {
+    let mut naming: BTreeMap<FileId, Vec<FileId>> = BTreeMap::new();
+    for (file, entry) in files {
+        if let Some(named) = entry.target.as_ref().and_then(LinkTarget::reference) {
+            naming.entry(named).or_default().push(*file);
+        }
+    }
+    naming
+        .into_iter()
+        .find(|(named, _)| buried.contains_key(named))
+}
+
 /// What one file's revisions said about it.
 #[derive(Debug, Default)]
 struct Facts {
@@ -600,8 +796,12 @@ struct Facts {
     wholes: Vec<(RevisionId, RevisionId)>,
     /// `mode`, with the value each stated.
     modes: Vec<(RevisionId, Mode)>,
+    /// `link`, with the target each stated.
+    targets: Vec<(RevisionId, LinkTarget)>,
     /// Whether the `add` said this file is bytes rather than lines.
     whole: bool,
+    /// Whether the `add` said this file is a link, which outranks both.
+    link: bool,
 }
 
 /// Who had seen whom, over the revisions a caller supplied.
@@ -723,6 +923,18 @@ pub enum TreeError {
     },
     /// A parent edge naming a descendant, which digests make impossible.
     Cyclic,
+    /// A `file:` link would be left naming a file the tree does not hold.
+    ///
+    /// Decision 0040's one cross-file rule, stated rather than discovered: a
+    /// revision may not drop a file while a link still points at it. The
+    /// recorder satisfies it without anyone's help, by restating such a link
+    /// verbatim in the same revision as the `drop`.
+    Dangling {
+        /// The link left pointing nowhere.
+        link: FileId,
+        /// The file it names, which this revision does not leave standing.
+        target: FileId,
+    },
     /// Two files would hold one path after this revision.
     PathTaken {
         /// The contested path.
@@ -761,6 +973,12 @@ impl fmt::Display for TreeError {
             TreeError::Cyclic => write!(
                 f,
                 "a parent edge names a descendant, which a digest cannot do"
+            ),
+            TreeError::Dangling { link, target } => write!(
+                f,
+                "the link {link} names the file {target}, which this revision does not leave \
+                 standing; a link to a file that is going away is a link to a string, \
+                 so restate it as the path it holds on disk"
             ),
             TreeError::PathTaken { path, file, other } => write!(
                 f,

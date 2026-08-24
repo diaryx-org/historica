@@ -223,6 +223,44 @@ struct Pair {
     after: Option<Content>,
     /// The mode on each side, where they differ. Decision 0034.
     modes: Option<(Mode, Mode)>,
+    /// Where a link pointed on each side, where they differ. Decision 0040.
+    ///
+    /// Either half is `None` where that side holds no link at all, which is
+    /// how a link arriving or leaving says where it pointed.
+    targets: Option<(Option<Shown>, Option<Shown>)>,
+}
+
+/// The two sides' targets, where they are worth saying out loud.
+fn retargeting(was: Option<Shown>, now: Option<Shown>) -> Option<(Option<Shown>, Option<Shown>)> {
+    if was == now {
+        return None;
+    }
+    Some((was, now))
+}
+
+/// A link's target, as a person reads it.
+///
+/// Decision 0040: `diff` renders a `file:` target by the path it resolves to
+/// at that revision, beside the identity, since a person reads paths — and the
+/// identity is what makes it survive the rename the path would not.
+struct Shown {
+    at: String,
+    file: Option<FileId>,
+}
+
+impl std::fmt::Display for Shown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.file {
+            Some(file) => write!(f, "{} (file:{})", self.at, file.abbreviate(8)),
+            None => f.write_str(&self.at),
+        }
+    }
+}
+
+impl PartialEq for Shown {
+    fn eq(&self, other: &Self) -> bool {
+        self.at == other.at && self.file == other.file
+    }
 }
 
 impl Pair {
@@ -230,6 +268,7 @@ impl Pair {
     fn differs(&self) -> bool {
         self.from != self.to
             || self.modes.is_some()
+            || self.targets.is_some()
             || match (&self.before, &self.after) {
                 (Some(before), Some(after)) => before.bytes() != after.bytes(),
                 (None, None) => false,
@@ -274,27 +313,52 @@ fn recorded(
         {
             continue;
         }
+        // Decision 0040: a link holds a target instead of content, so asking
+        // for its content would be asking a question it has no answer to.
+        let content = |entry: Option<&historica::tree::Entry>, at: RevisionId| {
+            match entry {
+                Some(entry) if entry.kind != Kind::Link => {
+                    Some(store.content_at(&at, &file).map_err(Failure::error))
+                }
+                _ => None,
+            }
+            .transpose()
+        };
         let pair = Pair {
             from: was.map(|entry| entry.path.clone()),
             to: now.map(|entry| entry.path.clone()),
-            before: match (was, left) {
-                (Some(_), Some(id)) => Some(store.content_at(&id, &file).map_err(Failure::error)?),
-                _ => None,
+            before: match left {
+                Some(id) => content(was, id)?,
+                None => None,
             },
-            after: now
-                .map(|_| store.content_at(&right, &file))
-                .transpose()
-                .map_err(Failure::error)?,
+            after: content(now, right)?,
             modes: match (was, now) {
                 (Some(was), Some(now)) if was.mode != now.mode => Some((was.mode, now.mode)),
                 _ => None,
             },
+            targets: retargeting(
+                was.and_then(|was| shown(&before, was)),
+                now.and_then(|now| shown(&after, now)),
+            ),
         };
         if pair.differs() {
             pairs.push(pair);
         }
     }
     Ok(pairs)
+}
+
+/// One entry's target, spelled the way a person reads it at that revision.
+///
+/// `None` for anything that is not a link, which is what makes "did the target
+/// change" a comparison rather than a case analysis.
+fn shown(tree: &Tree, entry: &historica::tree::Entry) -> Option<Shown> {
+    let target = entry.target.as_ref()?;
+    Some(Shown {
+        at: historica::update::materialise(tree, &entry.path, target)
+            .unwrap_or_else(|| target.to_string()),
+        file: target.reference(),
+    })
 }
 
 /// A revision and the folder, paired by path.
@@ -335,11 +399,24 @@ fn folder(
         {
             continue;
         }
+        let entry = file.and_then(|file| tree.entry(&file));
+        let recorded_link = entry.filter(|entry| entry.kind == Kind::Link);
         let before = match (file, left) {
-            (Some(file), Some(id)) => Some(store.content_at(&id, &file).map_err(Failure::error)?),
+            (Some(file), Some(id)) if recorded_link.is_none() => {
+                Some(store.content_at(&id, &file).map_err(Failure::error)?)
+            }
             _ => None,
         };
-        let after = if there {
+        // Decision 0040: a link on either side has a target instead of
+        // content, and the two are compared as targets on their own line.
+        let targets = retargeting(
+            recorded_link.and_then(|entry| shown(&tree, entry)),
+            working.link_target(&path).map(|held| Shown {
+                at: held.to_owned(),
+                file: None,
+            }),
+        );
+        let after = if there && !working.is_link(&path) {
             let bytes = working.bytes(&path).map_err(Failure::error)?;
             // A file the tree holds keeps the kind it was added with (0017);
             // one the tree does not is whatever the recorder would call it.
@@ -359,9 +436,10 @@ fn folder(
         // and a reader that gets `None` states nothing — the same rule that
         // stops two machines flipping the bit at each other forever.
         let modes = match (
-            file.and_then(|file| tree.entry(&file))
+            entry
+                .filter(|entry| entry.kind != Kind::Link)
                 .map(|entry| entry.mode),
-            there,
+            there && !working.is_link(&path),
         ) {
             (Some(recorded), true) => match working.executable(&path).map_err(Failure::error)? {
                 Some(held) if Mode::of(held) != recorded => Some((recorded, Mode::of(held))),
@@ -375,6 +453,7 @@ fn folder(
             before,
             after,
             modes,
+            targets,
         };
         if pair.differs() {
             pairs.push(pair);
@@ -497,6 +576,22 @@ fn render(out: &mut impl Write, pair: &Pair, paint: Paint) -> std::io::Result<()
     if let Some((was, now)) = pair.modes {
         let path = pair.to.as_deref().or(pair.from.as_deref()).unwrap_or("?");
         writeln!(out, "{meta}mode {path} {was} -> {now}{off}")?;
+    }
+    // Decision 0040: one line, before and after. A target change is the whole
+    // of what a revision can say about a link, and there are no hunks under
+    // it — a link has a target where a file has content.
+    if let Some((was, now)) = &pair.targets {
+        let path = pair.to.as_deref().or(pair.from.as_deref()).unwrap_or("?");
+        let spelled = |side: &Option<Shown>| {
+            side.as_ref()
+                .map_or_else(String::new, |shown| format!(" {shown}"))
+        };
+        writeln!(
+            out,
+            "{meta}link {path}{} ->{}{off}",
+            spelled(was),
+            spelled(now)
+        )?;
     }
 
     let left = pair

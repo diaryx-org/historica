@@ -155,14 +155,22 @@ pub struct Entry {
 /// a truncate followed by writes does not satisfy this contract.
 ///
 /// **Nothing follows a link.** [`entries`](Filesystem::entries) and
-/// [`look`](Filesystem::look) report [`Kind::Symlink`] and stop. This is what
-/// makes an unbounded walk safe: a tree of real directories cannot contain
-/// itself, so there is no loop to guard against and no depth to cap.
+/// [`look`](Filesystem::look) report [`Kind::Symlink`] and stop, and
+/// [`link_target`](Filesystem::link_target) reads the link rather than what it
+/// points at. This is what makes an unbounded walk safe: a tree of real
+/// directories cannot contain itself, so there is no loop to guard against and
+/// no depth to cap — and decision 0040, which writes links down, does not
+/// relax it. Reading a link is what makes recording one safe; following one
+/// would make a link pointing at `/` enumerate the machine.
 ///
 /// **A mode is answered or declined, never guessed.**
 /// [`executable`](Filesystem::executable) returns `None` where the filesystem
 /// has no such bit, and an implementation that cannot see one must say so
 /// rather than answer `false` — decision 0034 turns on the difference.
+/// [`link_target`](Filesystem::link_target) is the same promise for decision
+/// 0040, spelled the other way round: `Ok(None)` is reserved for a filesystem
+/// that models no links at all, so an implementation that models them answers
+/// with a target or with an error and never with `None`.
 ///
 /// **Order is not promised.** [`entries`](Filesystem::entries) may return a
 /// directory in any order; this crate sorts what it needs sorted, because two
@@ -258,6 +266,50 @@ pub trait Filesystem {
         let (_, _) = (path, executable);
         Ok(())
     }
+
+    /// What the symbolic link at a path points at, **read rather than
+    /// followed**.
+    ///
+    /// Decision 0040, and `Ok(None)` is the load-bearing answer, on 0034's
+    /// terms doing the same work: it means *this filesystem does not model
+    /// links at all*, and a recorder that gets it states nothing and leaves
+    /// the recorded target standing — because two machines, one blind to the
+    /// fact, must not take turns rewriting it.
+    ///
+    /// That makes `Ok(None)` the default's answer and **never an
+    /// implementation's**. A filesystem that does model links answers with the
+    /// target, or with an error where the path holds no link — which is what
+    /// `readlink` already does, and what lets one question settle whether a
+    /// folder can hold a link at all.
+    ///
+    /// A target that is not UTF-8 is [`InvalidData`](io::ErrorKind::InvalidData):
+    /// this store is UTF-8 text, and the honest answer is that the string
+    /// cannot be written down rather than a lossy rendering of it.
+    fn link_target(&self, path: &Path) -> io::Result<Option<String>> {
+        let _ = path;
+        Ok(None)
+    }
+
+    /// Make a symbolic link at a path, pointing at a target.
+    ///
+    /// Whatever is at the path is replaced by the link — decision 0026's
+    /// atomic-rename path included, because a link is removed and remade
+    /// rather than written through. Nothing here opens the target: a received
+    /// store may say `link kx.. ../../etc/passwd` and the only consequence is
+    /// an honest symlink, pointing where symlinks are allowed to point.
+    ///
+    /// The default refuses, because a filesystem with no links has nowhere to
+    /// put one and writing a plain file holding the target would invent
+    /// content no revision stated. `update` asks
+    /// [`link_target`](Filesystem::link_target) first and refuses by name, so
+    /// this is the answer to a caller that went round it.
+    fn set_link(&self, path: &Path, target: &str) -> io::Result<()> {
+        let (_, _) = (path, target);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this filesystem does not model symbolic links",
+        ))
+    }
 }
 
 /// A reference to a filesystem is a filesystem.
@@ -288,6 +340,18 @@ impl<T: Filesystem + ?Sized> Filesystem for &T {
     }
     fn remove_directory(&self, path: &Path) -> io::Result<()> {
         (**self).remove_directory(path)
+    }
+    fn executable(&self, path: &Path) -> io::Result<Option<bool>> {
+        (**self).executable(path)
+    }
+    fn set_executable(&self, path: &Path, executable: bool) -> io::Result<()> {
+        (**self).set_executable(path, executable)
+    }
+    fn link_target(&self, path: &Path) -> io::Result<Option<String>> {
+        (**self).link_target(path)
+    }
+    fn set_link(&self, path: &Path, target: &str) -> io::Result<()> {
+        (**self).set_link(path, target)
     }
 }
 
@@ -326,6 +390,23 @@ macro_rules! forwarding {
             }
             fn remove_directory(&self, path: &Path) -> io::Result<()> {
                 (**self).remove_directory(path)
+            }
+            // Forwarded like everything else, because a capability that
+            // disappears behind an `Arc` is worse than one that was never
+            // there: the default answers "this filesystem models no modes and
+            // no links", and a wrapper answering that of a `Disk` would drop
+            // every bit and every target the folder actually holds.
+            fn executable(&self, path: &Path) -> io::Result<Option<bool>> {
+                (**self).executable(path)
+            }
+            fn set_executable(&self, path: &Path, executable: bool) -> io::Result<()> {
+                (**self).set_executable(path, executable)
+            }
+            fn link_target(&self, path: &Path) -> io::Result<Option<String>> {
+                (**self).link_target(path)
+            }
+            fn set_link(&self, path: &Path, target: &str) -> io::Result<()> {
+                (**self).set_link(path, target)
             }
         }
     };
@@ -480,6 +561,59 @@ impl Filesystem for Disk {
     fn set_executable(&self, path: &Path, executable: bool) -> io::Result<()> {
         let (_, _) = (path, executable);
         Ok(())
+    }
+
+    #[cfg(unix)]
+    fn link_target(&self, path: &Path) -> io::Result<Option<String>> {
+        // `read_link` reads the link and does not follow it, which is the
+        // whole of what decision 0040 asks of this: a link pointing at `/`
+        // hands back a string, and never makes anything enumerate a machine.
+        // It errors where the path holds no link, which is what keeps
+        // `Ok(None)` meaning "this filesystem has no such thing".
+        let target = std::fs::read_link(path)?;
+        match target.to_str() {
+            Some(target) => Ok(Some(target.to_owned())),
+            None => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "{} points at a name that is not UTF-8, and this store is UTF-8 text",
+                    path.display()
+                ),
+            )),
+        }
+    }
+
+    /// Windows has symbolic links and does not hand them out: creating one
+    /// wants a privilege an ordinary account does not have, so the honest
+    /// answer is that this filesystem does not model them, and a store carried
+    /// between the two keeps every target it arrived with.
+    #[cfg(not(unix))]
+    fn link_target(&self, path: &Path) -> io::Result<Option<String>> {
+        let _ = path;
+        Ok(None)
+    }
+
+    #[cfg(unix)]
+    fn set_link(&self, path: &Path, target: &str) -> io::Result<()> {
+        // Removed and remade rather than written through — decision 0040's
+        // standing rule, and the reason the atomic-replace path of 0026 is not
+        // reached here: every write this performs addresses the entry itself,
+        // never the entry's referent.
+        match std::fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        std::os::unix::fs::symlink(target, path)
+    }
+
+    #[cfg(not(unix))]
+    fn set_link(&self, path: &Path, target: &str) -> io::Result<()> {
+        let (_, _) = (path, target);
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this host does not hand out symbolic links",
+        ))
     }
 }
 

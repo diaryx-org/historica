@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use historica::core::RevisionId;
-use historica::format::{Mode, RevisionDocument, Version};
+use historica::core::{FileId, RevisionId};
+use historica::format::{LinkTarget, Mode, RevisionDocument, Version};
 use historica::fs::{Entry, Filesystem, Kind};
 use historica::record::{Clock as _, Platform, Recording, Restriction, record};
 use historica::store::{Name, Severity, Store};
@@ -515,6 +515,7 @@ fn a_filesystem_that_models_no_modes_records_none_and_erases_none() {
         added: BTreeMap::new(),
         moved: BTreeMap::new(),
         modes: BTreeMap::from([(file, Mode::Executable)]),
+        links: BTreeMap::new(),
         dropped: BTreeSet::new(),
         edited: BTreeMap::new(),
         text: BTreeMap::new(),
@@ -549,6 +550,85 @@ fn a_filesystem_that_models_no_modes_records_none_and_erases_none() {
         "the recorded bit survived a machine that cannot see it"
     );
     assert!(Store::check_on(memory.as_ref(), Path::new(ROOT).join("history")).is_ok());
+}
+
+/// A folder with no links refuses the update, naming the links and the reason.
+///
+/// Decision 0040's other half. `Memory` models no links, so `link_target`
+/// takes the default and answers `Ok(None)` — which the contract reserves for
+/// exactly that, so one question settles it. Writing a plain file holding the
+/// target would invent content no revision stated, which is what git's
+/// `core.symlinks=false` does and then explains forever; skipping it silently
+/// would leave a folder half-holding a head, which decision 0030 refuses. So
+/// it refuses, whole, and says which files and why.
+#[test]
+fn a_folder_that_models_no_links_refuses_rather_than_inventing_one() {
+    let memory = Memory::new();
+    memory
+        .create_directory(Path::new(ROOT))
+        .expect("the working copy");
+    let mut store =
+        Store::init_on(memory.clone(), Path::new(ROOT).join("history")).expect("a new store");
+
+    put(&memory, "2026/july.md", "July\n");
+    let root = record_folder(&memory, &mut store, Vec::new(), "a month");
+
+    // The map has no such thing, and says so rather than guessing.
+    assert_eq!(
+        memory
+            .link_target(&Path::new(ROOT).join("2026/july.md"))
+            .expect("asking is not an error"),
+        None
+    );
+
+    // Somebody else's machine, which has links, recorded one.
+    let held = store.get(&root).expect("the root").clone();
+    let month = *held.added.keys().next().expect("the month");
+    let current: FileId = "lqxstvnmpkwyzrolvtsqnkxm".parse().expect("a file ID");
+    let linked = RevisionDocument {
+        version: Version::V5,
+        change: "kxryzmorwlvtnsqpkzmuprys".parse().expect("a change ID"),
+        parents: BTreeSet::from([root]),
+        supersedes: BTreeSet::new(),
+        author: AUTHOR.to_owned(),
+        when: held.when.clone(),
+        revised_by: None,
+        revised: None,
+        added: BTreeMap::from([(current, "current".to_owned())]),
+        moved: BTreeMap::new(),
+        modes: BTreeMap::new(),
+        links: BTreeMap::from([(current, LinkTarget::Reference(month))]),
+        dropped: BTreeSet::new(),
+        edited: BTreeMap::new(),
+        text: BTreeMap::new(),
+        bytes: BTreeMap::new(),
+        extensions: BTreeMap::new(),
+        message: "point at the month".to_owned(),
+    };
+    let linked = store.insert(&linked).expect("writing the revision");
+    assert_eq!(
+        store.tree(&linked).expect("the tree").target(&current),
+        Some(&LinkTarget::Reference(month))
+    );
+
+    let working = Working::read_on(memory.clone(), Path::new(ROOT), store.skipped())
+        .expect("the working copy");
+    let refused = historica::update::plan(&store, &working, Path::new(ROOT), &linked)
+        .expect_err("a folder with no links cannot hold this tree");
+    let said = refused.to_string();
+    assert!(said.contains("current"), "{said}: it names the link");
+    assert!(
+        said.contains("cannot hold a symbolic link"),
+        "{said}: and the reason"
+    );
+
+    // Nothing was written, and nothing was invented in its place.
+    assert_eq!(
+        memory
+            .look(&Path::new(ROOT).join("current"))
+            .expect("asking is not an error"),
+        None
+    );
 }
 
 // ---------------------------------------------------------------------------

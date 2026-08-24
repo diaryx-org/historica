@@ -2065,9 +2065,17 @@ fn a_bookmark_follows_the_work_forward() {
 #[test]
 #[cfg(unix)]
 fn what_the_format_cannot_hold_is_refused_by_name() {
+    use std::os::unix::ffi::OsStrExt as _;
+
     let directory = repository("record-refusals");
     write(&directory, "fine.md", "text\n");
-    std::os::unix::fs::symlink("/etc/hosts", directory.join("link")).expect("a symlink");
+    // Decision 0040 records a link rather than refusing one — but not a link
+    // to a name this store cannot spell, because a store is UTF-8 text.
+    std::os::unix::fs::symlink(
+        std::ffi::OsStr::from_bytes(b"/etc/\xffhosts"),
+        directory.join("link"),
+    )
+    .expect("a symlink");
 
     let refused = recorded(&directory, &["record", "-m", "Everything"]);
     assert!(!refused.status.success());
@@ -2783,7 +2791,15 @@ fn status_lists_every_refusal_and_the_facts_beside_them() {
     write(&directory, "fine.md", "text\n");
     fs::write(directory.join("picture.bin"), [0xff, 0xfe, 0x00]).expect("bytes");
     #[cfg(unix)]
-    std::os::unix::fs::symlink("/etc/hosts", directory.join("link")).expect("a symlink");
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+
+        std::os::unix::fs::symlink(
+            std::ffi::OsStr::from_bytes(b"/etc/\xffhosts"),
+            directory.join("link"),
+        )
+        .expect("a symlink");
+    }
 
     // The point of the list: one command names every file, so the `skip` rules
     // are written in one pass rather than one command per file.
@@ -2793,7 +2809,7 @@ fn status_lists_every_refusal_and_the_facts_beside_them() {
     assert!(listed.contains("added   picture.bin"), "{listed}");
     #[cfg(unix)]
     assert!(
-        listed.contains("refused link: not a regular file"),
+        listed.contains("refused link: a link pointing at a name that is not UTF-8"),
         "{listed}"
     );
 
@@ -3984,4 +4000,346 @@ fn find_bytes(path: &Path, bytes: &[u8]) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+// ---------------------------------------------------------------------------
+// Decision 0040: a file can be a link
+
+/// Where a link points, read rather than followed.
+#[cfg(unix)]
+fn points_at(directory: &Path, path: &str) -> String {
+    fs::read_link(directory.join(path))
+        .expect("a symbolic link")
+        .to_str()
+        .expect("a UTF-8 target")
+        .to_owned()
+}
+
+#[cfg(unix)]
+fn link(directory: &Path, at: &str, target: &str) {
+    let file = directory.join(at);
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent).expect("a directory");
+    }
+    let _ = fs::remove_file(&file);
+    std::os::unix::fs::symlink(target, file).expect("a symlink");
+}
+
+/// The store beside a repository, as an argument.
+fn history_of(directory: &Path) -> String {
+    directory
+        .join("history")
+        .to_str()
+        .expect("a path")
+        .to_owned()
+}
+
+/// The digest of the newest revision, as `log` prints it.
+fn head_digest(directory: &Path) -> String {
+    out(recorded(directory, &["log", "--limit", "1"]))
+        .lines()
+        .next()
+        .expect("a head")
+        .split_whitespace()
+        .nth(1)
+        .expect("a digest")
+        .to_owned()
+}
+
+/// Every current head, as `log` marks them.
+fn heads_of(directory: &Path) -> Vec<String> {
+    out(recorded(directory, &["log"]))
+        .lines()
+        .filter(|line| line.contains("(head"))
+        .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
+        .collect()
+}
+
+/// The two spellings, chosen by resolution and nothing else.
+#[test]
+#[cfg(unix)]
+fn a_link_inside_is_recorded_as_a_file_and_one_outside_as_a_string() {
+    let directory = repository("link-two-spellings");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    link(&directory, "config", "/etc/journal");
+
+    let status = out(recorded(&directory, &["status"]));
+    assert!(status.contains("added   current"), "{status}");
+    assert!(status.contains("added   config"), "{status}");
+
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+    let shown = out(recorded(&directory, &["show", "head"]));
+    // One resolves to a file this history holds, and is that file.
+    assert!(shown.contains(" file:"), "{shown}");
+    // The other is a machine, and is the string a person wrote.
+    assert!(shown.contains("/etc/journal"), "{shown}");
+    // Only a document with a link in it claims version 5.
+    assert!(shown.starts_with("historica-v5\n"), "{shown}");
+
+    // And recording again states nothing: the round trip is stable.
+    assert!(
+        refused(&directory, &["record", "-m", "Again"]).contains("would mean nothing"),
+        "recording what the folder already says states nothing"
+    );
+}
+
+/// The point of the reference: the link follows its target through a rename,
+/// which is the case every path-spelled symlink gets wrong.
+#[test]
+#[cfg(unix)]
+fn a_reference_follows_its_target_through_a_rename() {
+    let directory = repository("link-follows");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    // The rename, stated as decision 0011 requires. The link on disk is
+    // pointed at the new name in the same breath, which is what a person who
+    // renamed the file by hand would do.
+    fs::rename(directory.join("2026/july.md"), directory.join("2026/07.md")).expect("a rename");
+    link(&directory, "current", "2026/07.md");
+    out(recorded(
+        &directory,
+        &[
+            "record",
+            "-m",
+            "Shorten it",
+            "--move",
+            "2026/july.md=2026/07.md",
+        ],
+    ));
+
+    // The rename did not restate the link: a reference is to the identity.
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(!shown.contains("link "), "{shown}");
+
+    // A second folder catches up, and the link it is given points at where the
+    // file is now rather than at where it was.
+    let elsewhere = scratch("link-follows-elsewhere");
+    assert!(run(&elsewhere, &["init"]).status.success());
+    out(recorded(&elsewhere, &["receive", &history_of(&directory)]));
+    let said = out(recorded(&elsewhere, &["update"]));
+    assert!(said.contains("linked  current"), "{said}");
+    assert_eq!(points_at(&elsewhere, "current"), "2026/07.md");
+
+    // And the folder now holds the head, so recording it states nothing.
+    assert!(
+        refused(&elsewhere, &["record", "-m", "Again"]).contains("would mean nothing"),
+        "recording what `update` wrote states nothing"
+    );
+}
+
+/// A retarget is a `link` line and nothing else, and `diff` says so on one
+/// line, with the path a `file:` target resolves to beside the identity.
+#[test]
+#[cfg(unix)]
+fn a_retarget_is_one_fact_and_reads_as_one_line() {
+    let directory = repository("link-retarget");
+    write(&directory, "2026/july.md", "July\n");
+    write(&directory, "2026/august.md", "August\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    link(&directory, "current", "2026/august.md");
+    let seen = out(recorded(&directory, &["diff"]));
+    assert!(seen.contains("link current 2026/july.md (file:"), "{seen}");
+    assert!(seen.contains("-> 2026/august.md"), "{seen}");
+
+    let status = out(recorded(&directory, &["status"]));
+    assert!(status.contains("link    current"), "{status}");
+
+    let said = out(recorded(&directory, &["record", "-m", "Point at August"]));
+    assert!(said.contains("link    current"), "{said}");
+    let logged = out(recorded(&directory, &["log", "--limit", "1"]));
+    assert!(logged.contains("link 1"), "{logged}");
+}
+
+/// A verbatim target that leaves the folder round trips as itself.
+#[test]
+#[cfg(unix)]
+fn a_link_out_of_the_folder_keeps_the_string_a_person_wrote() {
+    let directory = repository("link-outside");
+    write(&directory, "notes.md", "notes\n");
+    link(&directory, "deep/away", "../../elsewhere/thing");
+    out(recorded(&directory, &["record", "-m", "A link outward"]));
+
+    let elsewhere = scratch("link-outside-elsewhere");
+    assert!(run(&elsewhere, &["init"]).status.success());
+    out(recorded(&elsewhere, &["receive", &history_of(&directory)]));
+    out(recorded(&elsewhere, &["update"]));
+    assert_eq!(points_at(&elsewhere, "deep/away"), "../../elsewhere/thing");
+    assert!(
+        refused(&elsewhere, &["record", "-m", "Again"]).contains("would mean nothing"),
+        "recording what `update` wrote states nothing"
+    );
+}
+
+/// `cat` on a link says where it points rather than inventing bytes.
+#[test]
+#[cfg(unix)]
+fn cat_on_a_link_names_the_target() {
+    let directory = repository("link-cat");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    let said = refused(&directory, &["cat", "head", "current"]);
+    assert!(said.contains("is a link to"), "{said}");
+    assert!(said.contains("2026/july.md"), "{said}");
+}
+
+/// Taking the target out restates the link as the string the folder holds, in
+/// the same revision as the drop.
+#[test]
+#[cfg(unix)]
+fn dropping_a_target_restates_the_link_verbatim() {
+    let directory = repository("link-dangling");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    fs::remove_file(directory.join("2026/july.md")).expect("taking the month out");
+    let said = out(recorded(&directory, &["record", "-m", "Take July out"]));
+    assert!(said.contains("dropped 2026/july.md"), "{said}");
+    assert!(said.contains("link    current"), "{said}");
+
+    let shown = out(recorded(&directory, &["show", "head"]));
+    assert!(shown.contains("link "), "{shown}");
+    assert!(!shown.contains("file:"), "{shown}: nothing to point at");
+
+    // The store reads, which is the whole of what the rule protects.
+    let checked = out(recorded(&directory, &["check"]));
+    assert!(checked.contains("nothing to report"), "{checked}");
+}
+
+/// A restriction that names the target and not the link is the one way to ask
+/// for a drop the restatement cannot reach, and it is refused by name.
+#[test]
+#[cfg(unix)]
+fn a_drop_that_would_dangle_a_link_nobody_is_looking_at_is_refused() {
+    let directory = repository("link-dangling-narrow");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    fs::remove_file(directory.join("2026/july.md")).expect("taking the month out");
+    let said = refused(&directory, &["record", "-m", "Just the month", "2026"]);
+    assert!(said.contains("current"), "{said}");
+    assert!(said.contains("2026/july.md"), "{said}");
+}
+
+/// A path that changed between a link and a file is a `drop` and an `add`.
+#[test]
+#[cfg(unix)]
+fn a_link_that_becomes_a_file_is_a_drop_and_an_add() {
+    let directory = repository("link-kind-change");
+    write(&directory, "2026/july.md", "July\n");
+    link(&directory, "current", "2026/july.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    fs::remove_file(directory.join("current")).expect("the link");
+    write(&directory, "current", "July, copied\n");
+    let said = out(recorded(&directory, &["record", "-m", "Make it real"]));
+    assert!(said.contains("added   current"), "{said}");
+    assert!(said.contains("dropped current"), "{said}");
+
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "current"])),
+        "July, copied\n"
+    );
+}
+
+/// Two folders retarget one link, and the merge decides by digest and says so.
+#[test]
+#[cfg(unix)]
+fn concurrent_retargets_resolve_by_digest_and_are_reported() {
+    let directory = repository("link-merge-target");
+    write(&directory, "a.md", "a\n");
+    write(&directory, "b.md", "b\n");
+    write(&directory, "c.md", "c\n");
+    link(&directory, "current", "a.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+    let root = head_digest(&directory);
+
+    link(&directory, "current", "b.md");
+    out(recorded(&directory, &["record", "-m", "Point at b"]));
+
+    // The other side, recorded against the same root.
+    link(&directory, "current", "c.md");
+    out(recorded(
+        &directory,
+        &["record", "-m", "Point at c", "--onto", &root],
+    ));
+
+    let merged = out(recorded(&directory, &["merge"]));
+    assert!(merged.contains("points at"), "{merged}");
+    assert!(merged.contains("which is the lower digest of"), "{merged}");
+    // The folder was laid out to match, so joining the work does not record a
+    // retarget nobody made.
+    let heads = heads_of(&directory);
+    out(recorded(
+        &directory,
+        &[
+            "record", "--merge", &heads[0], "--merge", &heads[1], "-m", "Join",
+        ],
+    ));
+    assert!(
+        refused(&directory, &["record", "-m", "Again"]).contains("would mean nothing"),
+        "the merge left the folder holding what it recorded"
+    );
+}
+
+/// Destruction yields to reference: a `drop` concurrent with a link naming the
+/// file it drops loses, and a person is told.
+#[test]
+#[cfg(unix)]
+fn a_drop_loses_to_a_concurrent_link_that_names_it() {
+    let directory = repository("link-merge-drop");
+    write(&directory, "a.md", "a\n");
+    write(&directory, "b.md", "b\n");
+    link(&directory, "current", "b.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+    let root = head_digest(&directory);
+
+    // One side points the link at `a.md`.
+    link(&directory, "current", "a.md");
+    out(recorded(&directory, &["record", "-m", "Point at a"]));
+
+    // The other drops `a.md`, having never seen that.
+    link(&directory, "current", "b.md");
+    fs::remove_file(directory.join("a.md")).expect("taking a out");
+    out(recorded(
+        &directory,
+        &["record", "-m", "Drop a", "--onto", &root],
+    ));
+
+    let merged = out(recorded(&directory, &["merge"]));
+    assert!(merged.contains("still points at it"), "{merged}");
+    // The merge lays the folder out as the joined tree, and the file that was
+    // dropped is in it: destruction yields to reference.
+    assert!(
+        directory.join("a.md").is_file(),
+        "{merged}: the file stayed"
+    );
+}
+
+/// Naming one link is a record about one link.
+#[test]
+#[cfg(unix)]
+fn a_record_can_name_a_link_and_nothing_else() {
+    let directory = repository("link-named");
+    write(&directory, "a.md", "a\n");
+    write(&directory, "b.md", "b\n");
+    link(&directory, "current", "a.md");
+    out(recorded(&directory, &["record", "-m", "The journal"]));
+
+    write(&directory, "a.md", "a, edited\n");
+    link(&directory, "current", "b.md");
+    let said = out(recorded(
+        &directory,
+        &["record", "-m", "Just the link", "current"],
+    ));
+    assert!(said.contains("link    current"), "{said}");
+    assert!(!said.contains("a.md"), "{said}: the rest was not looked at");
 }

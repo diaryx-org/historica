@@ -91,6 +91,8 @@ pub enum Version {
     V3,
     /// Decision 0034: `mode`, which says a file can be run.
     V4,
+    /// Decision 0040: `link`, which says a file is a link to somewhere.
+    V5,
 }
 
 impl Version {
@@ -99,12 +101,13 @@ impl Version {
     /// One list, because three copies of it is how a version gets added to the
     /// parser and not to the store's gate — which reads, exactly once, as a
     /// reader refusing a store it wrote itself.
-    pub const ALL: [Version; 5] = [
+    pub const ALL: [Version; 6] = [
         Version::V0,
         Version::V1,
         Version::V2,
         Version::V3,
         Version::V4,
+        Version::V5,
     ];
 
     /// The highest version this reader knows.
@@ -114,7 +117,7 @@ impl Version {
     /// under version 1 — and under the readers already published for it —
     /// while a store that has forgotten something is refused whole, at the
     /// gate, by a reader that knows less.
-    pub const CURRENT: Version = Version::V4;
+    pub const CURRENT: Version = Version::V5;
 
     /// The preamble line a document of this version opens with.
     pub const fn preamble(self) -> &'static str {
@@ -124,6 +127,7 @@ impl Version {
             Version::V2 => "historica-v2",
             Version::V3 => "historica-v3",
             Version::V4 => "historica-v4",
+            Version::V5 => "historica-v5",
         }
     }
 
@@ -135,6 +139,7 @@ impl Version {
             Version::V2 => 2,
             Version::V3 => 3,
             Version::V4 => 4,
+            Version::V5 => 5,
         }
     }
 }
@@ -192,6 +197,96 @@ impl fmt::Display for Mode {
         f.write_str(self.spelling())
     }
 }
+
+/// The prefix that tells a link's two spellings apart.
+///
+/// Decision 0024's spelling, in the format itself and for the same reason it
+/// exists in the front end: a position that holds every string a person may
+/// name needs a prefix no path a person would write is.
+pub const FILE_PREFIX: &str = "file:";
+
+/// What a link points at.
+///
+/// Decision 0040's two spellings, and the recorder chooses between them by
+/// resolution rather than by preference. A target that resolves to a file this
+/// history already holds is that file — an identity, which survives the
+/// rename that makes every other tool's symlink dangle. Everything else is the
+/// string a person chose, recorded as the string it is, because the store
+/// knows nothing it could be a reference to.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LinkTarget {
+    /// A file in this history, whatever path it is at now.
+    Reference(FileId),
+    /// A string, exactly as the folder holds it.
+    Verbatim(String),
+}
+
+impl LinkTarget {
+    /// The file this names, where it names one.
+    pub const fn reference(&self) -> Option<FileId> {
+        match self {
+            LinkTarget::Reference(file) => Some(*file),
+            LinkTarget::Verbatim(_) => None,
+        }
+    }
+
+    /// The string this is written as, which is what the header carries.
+    pub fn spelling(&self) -> Cow<'_, str> {
+        match self {
+            LinkTarget::Reference(file) => Cow::Owned(format!("{FILE_PREFIX}{file}")),
+            LinkTarget::Verbatim(target) => Cow::Borrowed(target.as_str()),
+        }
+    }
+}
+
+impl fmt::Display for LinkTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.spelling())
+    }
+}
+
+/// Whether a string can stand in a `link` header as a verbatim target.
+///
+/// Decision 0040 refuses three targets by name, and this is where the refusal
+/// is decided so that `record` can name the file and the fix rather than a
+/// parser meeting bytes nobody has written yet. Two of them — a newline, and
+/// the padding that would not survive a round trip — are decision 0002's rules
+/// for any header value, met here by a string that came from a folder rather
+/// than from a document.
+pub fn check_link_target(value: &str) -> Result<(), MalformedTarget> {
+    let refuse = |because: &'static str| Err(MalformedTarget(because));
+    if value.is_empty() {
+        return refuse("it is empty, and a link with no target is not a link");
+    }
+    if value.starts_with(FILE_PREFIX) {
+        return refuse(
+            "it begins with `file:`, which is how this format spells a link to a file \
+             it holds; rename it, or point it somewhere else",
+        );
+    }
+    if value.starts_with(' ') || value.ends_with(' ') {
+        return refuse("it has leading or trailing space, which a header value cannot keep");
+    }
+    if value.chars().any(char::is_control) {
+        return refuse("it holds a control character, and a header is one line");
+    }
+    Ok(())
+}
+
+/// Why a string cannot be a link's target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MalformedTarget(
+    /// What is wrong with it, as a sentence a person can act on.
+    pub &'static str,
+);
+
+impl fmt::Display for MalformedTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for MalformedTarget {}
 
 /// Characters in a change ID's readable spelling.
 pub const CHANGE_ID_CHARS: usize = CHANGE_ID_LEN * 2;
@@ -292,6 +387,13 @@ pub struct RevisionDocument {
     /// Decisions 0008 and 0017: such a file never merges, and two concurrent
     /// `bytes` lines for one file are a divergence to report.
     pub bytes: BTreeMap<FileId, RevisionId>,
+    /// What each link this revision states points at.
+    ///
+    /// Decision 0040: stated by the revision that adds the file, where `text`
+    /// or `bytes` would have stated content, and restated by any revision that
+    /// changes the target — exactly as `move` restates a path that changed.
+    /// A file this names is a link and nothing else, for its whole life.
+    pub links: BTreeMap<FileId, LinkTarget>,
     /// Advisory `x-` headers, keyed by their full spelling including the prefix.
     pub extensions: BTreeMap<String, String>,
     /// The message, verbatim. Empty means the file had no separator at all.
@@ -350,6 +452,9 @@ impl RevisionDocument {
         for (file, payload) in &self.bytes {
             out.push_str(&format!("bytes {file} {payload}\n"));
         }
+        for (file, target) in &self.links {
+            out.push_str(&format!("link {file} {target}\n"));
+        }
         for (key, value) in &self.extensions {
             out.push_str(&format!("{key} {value}\n"));
         }
@@ -407,17 +512,23 @@ fn rank(key: &str) -> Option<u8> {
         // for, so a file's content is read after its existence either way.
         "text" => Some(12),
         "bytes" => Some(13),
-        key if key.starts_with("x-") => Some(14),
+        // Decision 0040: a link's target stands where its content would have,
+        // because for a link that is what it is instead of content.
+        "link" => Some(14),
+        key if key.starts_with("x-") => Some(15),
         _ => None,
     }
 }
 
 /// The rank `x-` headers share, which sort against each other by key.
-const EXTENSION_RANK: u8 = 14;
+const EXTENSION_RANK: u8 = 15;
 
 /// Whether a rank may appear more than once.
 fn repeatable(rank: u8) -> bool {
-    matches!(rank, 1 | 2 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | EXTENSION_RANK)
+    matches!(
+        rank,
+        1 | 2 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | EXTENSION_RANK
+    )
 }
 
 /// One header line, kept with its position so an error can name it.
@@ -598,6 +709,7 @@ impl<'a> Parser<'a> {
         let mut edited: BTreeMap<FileId, RevisionId> = BTreeMap::new();
         let mut text: BTreeMap<FileId, RevisionId> = BTreeMap::new();
         let mut bytes: BTreeMap<FileId, RevisionId> = BTreeMap::new();
+        let mut links: BTreeMap<FileId, LinkTarget> = BTreeMap::new();
         let mut extensions: BTreeMap<String, String> = BTreeMap::new();
 
         let mut previous: Option<(u8, String, String)> = None;
@@ -626,6 +738,19 @@ impl<'a> Parser<'a> {
                         key: key.clone(),
                         found: version,
                         needs: Version::V4,
+                    },
+                ));
+            }
+            // Decision 0040, on the same terms again: a store with no links in
+            // it never becomes version 5, so every reader published for
+            // version 4 goes on reading every document such a store holds.
+            if version < Version::V5 && key == "link" {
+                return Err(ParseError::new(
+                    at,
+                    ParseErrorKind::HeaderNeedsVersion {
+                        key: key.clone(),
+                        found: version,
+                        needs: Version::V5,
                     },
                 ));
             }
@@ -770,6 +895,27 @@ impl<'a> Parser<'a> {
                         ));
                     }
                 }
+                "link" => {
+                    let (file, target) = split_entry(&value, at, "link")?;
+                    let file = parse_file_id(file, at)?;
+                    // Decision 0040: the target is the rest of the line, so a
+                    // target holding a space is a target rather than a
+                    // malformed pair. The one string the two spellings cannot
+                    // share a column with is the one the prefix claims.
+                    let target = match target.strip_prefix(FILE_PREFIX) {
+                        Some(named) => LinkTarget::Reference(parse_file_id(named, at)?),
+                        None => LinkTarget::Verbatim(target.to_owned()),
+                    };
+                    if links.insert(file, target).is_some() {
+                        return Err(ParseError::new(
+                            at,
+                            ParseErrorKind::FileStatedTwice {
+                                key: "link",
+                                file: file.to_string(),
+                            },
+                        ));
+                    }
+                }
                 _ => {
                     extensions.insert(key, value);
                 }
@@ -858,6 +1004,28 @@ impl<'a> Parser<'a> {
             if modes.contains_key(file) {
                 return Err(contradiction("drop", "mode", file));
             }
+            // Decision 0040: a file leaving the file set points nowhere.
+            if links.contains_key(file) {
+                return Err(contradiction("drop", "link", file));
+            }
+        }
+        // Decision 0040: a link is a third kind of file, so a revision that
+        // says a file is a link and in the same breath states its content, or
+        // its mode, has said two things about what kind of file it is. A link
+        // has no bytes to hold and no bit to run.
+        for file in links.keys() {
+            if text.contains_key(file) {
+                return Err(contradiction("link", "text", file));
+            }
+            if bytes.contains_key(file) {
+                return Err(contradiction("link", "bytes", file));
+            }
+            if edited.contains_key(file) {
+                return Err(contradiction("link", "edit", file));
+            }
+            if modes.contains_key(file) {
+                return Err(contradiction("link", "mode", file));
+            }
         }
         // Decision 0017: a file's content is stated once, one way. `text`
         // states the lines a creation arrives with, so it says nothing about a
@@ -897,6 +1065,7 @@ impl<'a> Parser<'a> {
             edited,
             text,
             bytes,
+            links,
             extensions,
             message,
         })

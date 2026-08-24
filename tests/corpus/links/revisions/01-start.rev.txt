@@ -1,0 +1,16 @@
+historica-v5
+change qpvuntsmwlrkzxonmvtplsyq
+author Adam Harris <adam@example.com>
+when 2026-07-04T09:12:04-06:00
+add lqxstvnmpkwyzrolvtsqnkxm current
+add nrqvtkzlmwyxsptonvqrklmz 2026/july.md
+add ptkwnrvzlmyxqsotnkwlpvzr config
+text nrqvtkzlmwyxsptonvqrklmz e2664ed8873fc4f52f23364ef08b72e0a7d84c97981a93b15b4958072ba31727
+link lqxstvnmpkwyzrolvtsqnkxm file:nrqvtkzlmwyxsptonvqrklmz
+link ptkwnrvzlmyxqsotnkwlpvzr /etc/journal
+
+Start the journal, with a link to the month in hand
+
+`current` is a link to a file this history holds, so it is recorded as
+that file. `config` points at a machine, so it is recorded as the string
+a person wrote. Decision 0040 chooses between the two by resolution.
