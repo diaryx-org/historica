@@ -756,6 +756,21 @@ Choices that constrain later work are written down as they are made.
   that read a file whole purely to learn which digest it is now hold a buffer
   instead. Deleting `cache/working.txt` changes how long a command takes and
   nothing else.
+- [`docs/decisions/0044-what-this-copy-has-held.md`](docs/decisions/0044-what-this-copy-has-held.md)
+  — 0022 could not tell a payload still in transit from one something
+  overwrote, because absence cannot. This copy can: it was present for its own
+  history. `cache/witnessed.txt` holds a digest per line for every payload and
+  document `record` filed, `receive` accepted, or `check` walked past, and a
+  witnessed absence is an error where an unwitnessed one stays the note 0027
+  worded. It is consulted only where `check` already decided to report
+  something, so a forgetting document still reads as `Forgotten`; it produces
+  a severity and never a byte, which is what makes a fact nothing can verify
+  safe to keep; and it is a cache, so deleting it drops every error back to
+  the note it was. It does not travel, because a replica that never held a
+  payload should not inherit the claim that it did. The same document gives
+  `PLATFORM_NAMES` the criterion 0022 said it would need — a name a program
+  writes into every directory it touches, unprompted — adds `@eaDir` on it,
+  and says why the list is not gated by the platform running it.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
