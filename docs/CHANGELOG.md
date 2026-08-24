@@ -79,6 +79,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **cli** — merge joins the heads it was not told about ([`4c57101`](https://github.com/diaryx-org/historica/commit/4c57101685334f6a00c22e68a313b8c2ab3502d5))
 - **cli** — print a merge command that settles the path it says is claimed ([`57086c3`](https://github.com/diaryx-org/historica/commit/57086c3ce627b64ebaf8724e7d6e302ca6ded8c8))
 - **record** — a link nobody touched is a link nobody retargeted ([`2ab9962`](https://github.com/diaryx-org/historica/commit/2ab9962fdc831a975cfbc7b42fb7ae99b4598fb3))
+- **store** — add @eaDir to the names the store cannot own ([`4db3b94`](https://github.com/diaryx-org/historica/commit/4db3b94adb0c5bab400a6e221f2c4298694e8e09))
 
 ### Changed
 
@@ -392,6 +393,13 @@ moves, and a store written by any version loads as before. In library terms,
   `text_and_digest` and `remember`, and `record::survey` calls `remember` once
   when it is done. A caller driving `survey` directly needs nothing new;
   a caller that built its own comparison out of `Working::bytes` still can.
+
+- a payload whose file is named `@eaDir` is now filed
+  under `@eaDir <digest>` rather than under its own name, and a file
+  called `@eaDir` inside `history/operations/` is no longer indexed as a
+  payload or reported by `check`. A store written before this that holds
+  a payload legitimately named `@eaDir` at its own name stops being able
+  to produce it; `arrange` refiles it. No document's bytes change.
 
 <!-- git-cliff:end -->
 
