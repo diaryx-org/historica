@@ -199,12 +199,24 @@ Three properties matter more than the mechanism:
 
 The insertion-ordering rule inside the replay is a parameter of the algorithm.
 The reference implementation uses a Yjs-style rule; this decision adopts
-Fugue's (Weidner and Kleppmann), which carries the strongest published
-guarantee against interleaving — the failure where two concurrently written
-paragraphs merge into alternating lines of each. Readability is the project's
-rule, and interleaved text is the least readable thing a merge can produce.
-Conformance against the reference implementation is owed before this is called
-done.
+Fugue's (Weidner and Kleppmann), which is proved *forward non-interleaving*:
+two runs written left to right by two authors never merge into alternating
+lines of each, which is the failure that makes merged text unreadable.
+Readability is the project's rule, and interleaved text is the least readable
+thing a merge can produce. Conformance against the reference implementation is
+owed before this is called done.
+
+The same paper carries a strictly stronger rule, and this decision does not
+take it. FugueMax orders right-side siblings by the reverse order of their
+right origins rather than by identity, and is proved *maximally*
+non-interleaving — forward and backward both, to the extent any algorithm can
+be. The two differ only where one author's insertion point has been split by
+two others concurrently, which the paper expects to be rare and which
+`tests/fugue.rs` reproduces from the paper's own Figure 7. Historica produces
+Fugue's answer there, not FugueMax's. The gap is one transposition in a rare
+shape, against sibling ordering that would have to carry a second origin per
+element; taking the stronger rule later changes future merges and reinterprets
+nothing recorded, for the reason the next paragraph gives.
 
 Unlike the parser contract of 0004, **merge semantics cannot be append-only**.
 A reader's vocabulary may only grow; a merge rule that changed would change
@@ -387,6 +399,15 @@ which is a tree question about what an entry may point at.
    conformance suite cannot check; what caught it was holding the walk to the
    replayer on random linear chains, and that differential test is now pinned
    in `src/merge.rs` alongside the chain that reproduced the defect.
+
+   Two implementations agreeing is still not either of them matching the
+   paper, and that gap is what `tests/fugue.rs` closes: the executions of
+   Figures 6 and 7, with the orders the paper's own Definition 4 states,
+   checked against nothing historica believes. Figure 6 is the case both of
+   the paper's algorithms must satisfy and historica does. Figure 7 is the
+   case that separates them, and it says plainly which one is implemented
+   here — the answer is Fugue, recorded above rather than left to be inferred
+   from the sibling comparison in `Tree::attach`.
 
    The suite's simulated edits are items rather than text, so the content it
    searches over includes empty lines, lines carrying a carriage return, and
