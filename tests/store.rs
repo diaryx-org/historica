@@ -924,6 +924,95 @@ fn record_folder(
     .expect("recording")
 }
 
+/// Decision 0030 deferred "materialising a revision into a directory
+/// elsewhere", which needs no position and no rule beyond an empty
+/// destination, and left it waiting for something to need it.
+///
+/// This is that, and the whole shape of what needs it: lay a past revision out
+/// somewhere, work in it, and record the result against that revision — with
+/// the folder beside the store never moving, so 0030's refusal is untouched
+/// and no position is written anywhere. What makes it worth sharing `update`'s
+/// machinery rather than writing the loop per caller is the three files here:
+/// a payload is written as its bytes rather than as text, and a mode comes
+/// with the file it belongs to.
+#[test]
+fn a_revision_is_laid_out_in_an_empty_directory_and_recorded_back_from_it() {
+    use historica::fs::{Disk, Filesystem as _};
+    use historica::update;
+    use historica::working::Working;
+
+    let root = scratch("lay-out");
+    let base = root.join("repo");
+    fs::create_dir_all(&base).expect("a repository");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+
+    fs::write(base.join("notes.md"), "First thought.\n").expect("a file");
+    fs::write(base.join("photo.bin"), [0u8, 159, 146, 150]).expect("bytes, not lines");
+    fs::write(base.join("run.sh"), "#!/bin/sh\necho hi\n").expect("a script");
+    Disk.set_executable(&base.join("run.sh"), true)
+        .expect("a mode this platform has");
+    let first = record_folder(&mut store, &base, Vec::new(), "Start a journal");
+
+    fs::write(base.join("notes.md"), "First thought.\nA draft.\n").expect("a file");
+    record_folder(&mut store, &base, vec![first.revision], "A draft");
+
+    let elsewhere = root.join("elsewhere");
+    fs::create_dir_all(&elsewhere).expect("an empty directory");
+    let into = Working::read(&elsewhere, store.skipped()).expect("walking nothing");
+    let plan =
+        update::plan_into(&store, &into, &elsewhere, &first.revision).expect("laying it out");
+    let applied = update::apply(&into, &elsewhere, &plan).expect("applying");
+    assert_eq!(applied.wrote.len(), 3, "{applied:?}");
+
+    assert_eq!(
+        fs::read_to_string(elsewhere.join("notes.md")).expect("the file"),
+        "First thought.\n",
+        "the past revision, not the head"
+    );
+    assert_eq!(
+        fs::read(elsewhere.join("photo.bin")).expect("the payload"),
+        vec![0u8, 159, 146, 150],
+        "a payload is its bytes"
+    );
+    assert_eq!(
+        Disk.executable(&elsewhere.join("run.sh")).expect("asking"),
+        Some(true),
+        "the mode came with the file"
+    );
+
+    // Work in it, and record against the revision it holds. The store is the
+    // origin's throughout: nothing was exported and no history was copied.
+    fs::write(elsewhere.join("notes.md"), "First thought.\nAnother way.\n").expect("a file");
+    let branched = record_folder(&mut store, &elsewhere, vec![first.revision], "Another way");
+    let tree = store.tree(&branched.revision).expect("its tree");
+    let (file, _) = tree
+        .files()
+        .find(|(_, path)| *path == "notes.md")
+        .expect("notes.md");
+    assert_eq!(
+        store
+            .content(&branched.revision, file)
+            .expect("its content")
+            .text(),
+        "First thought.\nAnother way.\n"
+    );
+
+    // The folder beside the store never moved, which is the whole point.
+    assert_eq!(
+        fs::read_to_string(base.join("notes.md")).expect("the folder"),
+        "First thought.\nA draft.\n"
+    );
+    assert!(Store::check(store.root()).is_ok());
+
+    // And the safety rule: a directory holding something is refused by name.
+    let again = Working::read(&elsewhere, store.skipped()).expect("walking it again");
+    let error = update::plan_into(&store, &again, &elsewhere, &first.revision)
+        .expect_err("a directory that holds something");
+    let rendered = error.to_string();
+    assert!(rendered.contains("notes.md"), "{rendered}");
+    assert!(rendered.contains("holding nothing"), "{rendered}");
+}
+
 #[test]
 fn abandoning_a_head_leaves_the_change_abandoned_and_the_content_its_parents() {
     use historica::record::{Abandoning, Clock as _, Platform, abandon};

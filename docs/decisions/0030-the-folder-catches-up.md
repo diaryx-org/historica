@@ -299,7 +299,7 @@ a smaller size.
 **Materialising a revision into a directory elsewhere.** Reading a past state
 whole — the folder-shaped version of `cat` — needs no position and no safety
 rule beyond an empty destination, and it is export rather than checkout. It
-waits for something to need it.
+waits for something to need it. *Since built: `update::plan_into`, below.*
 
 **Working forward from a revision that is not a head.** The one want update
 declines to serve. Whatever decision builds it inherits the position question
@@ -309,3 +309,39 @@ would have to begin.
 **A pointer from `receive`.** A receive that changed the head could print the
 `update` line a person will want next, the way `merge` prints its `record`
 line. Interface polish, cheap, and not this decision's to make binding.
+
+## Since
+
+The first deferral above is built, and what needed it says something about
+where this decision's line actually falls.
+
+`update::plan_into` lays the tree at any revision out in a directory that
+holds nothing. It is the same plan [`plan`] computes and the same [`apply`]
+performs — so a payload arrives as its bytes, a link as a link, and a mode
+with the file it belongs to — with the head rule replaced by the emptiness
+rule this document already named as the only one such a thing needs. A
+directory that held nothing cannot afterwards be asked which of its files the
+target put there; one that held something can be asked and cannot answer,
+which is why that is a refusal rather than a warning.
+
+What needed it is a caller building a working tree of its own, and the reason
+that does not reopen the position question is worth stating. `Working::read`
+takes any root and `record::record` takes the working copy as an argument, so
+a tool can lay a revision out somewhere, let a person work in it, and record
+the result against that revision, straight into the origin store. Nothing is
+exported and no history is copied. The folder beside the store never moves,
+which means `record` and `status` go on deriving their positions from the two
+things there have always been.
+
+The trap this document is built around is specifically about *that* folder —
+the one a bare `historica record` reads. A directory some tool made, and
+knows it made, is not that folder. A position it keeps about its own working
+tree is not `history/at`: it is not in the store, it does not sync, it
+describes something the tool created rather than something anyone might touch,
+and losing it loses a scratch directory rather than the meaning of the next
+revision. The refusal stands exactly where it stood.
+
+No command was added. The consumer is a library caller; a person at a terminal
+has `cat` for one file and `export` for a whole repository, and a bare tree
+with no store beside it is an awkward thing to hand somebody. If that changes,
+the flag is small and this is the function under it.

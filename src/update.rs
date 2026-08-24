@@ -168,6 +168,17 @@ pub struct Applied {
 pub enum UpdateError {
     /// The store holds no revisions, so there is nothing to hold the folder to.
     NothingRecorded,
+    /// The directory a revision was to be laid out in already holds something.
+    ///
+    /// [`plan_into`]'s whole safety rule. An empty directory cannot afterwards
+    /// be asked which of its files the target put there, and one that is not
+    /// empty can be asked and cannot answer.
+    NotEmpty {
+        /// The directory.
+        directory: PathBuf,
+        /// What it holds.
+        holds: Vec<PathBuf>,
+    },
     /// The target is not a current head, and the folder only ever holds one.
     NotAHead {
         /// The revision that was named.
@@ -208,6 +219,29 @@ impl fmt::Display for UpdateError {
                     f,
                     "nothing is recorded here yet, so there is nothing for the folder to hold"
                 )
+            }
+            UpdateError::NotEmpty { directory, holds } => {
+                write!(
+                    f,
+                    "{} already holds {}; laying a revision out wants a \
+                     directory holding nothing, because nothing afterwards \
+                     could say which files it put there",
+                    directory.display(),
+                    holds
+                        .iter()
+                        .take(3)
+                        .map(|path| path
+                            .file_name()
+                            .unwrap_or(path.as_os_str())
+                            .to_string_lossy()
+                            .into_owned())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )?;
+                if holds.len() > 3 {
+                    write!(f, " and {} more", holds.len() - 3)?;
+                }
+                Ok(())
             }
             UpdateError::NotAHead { target, heads } => {
                 write!(
@@ -382,6 +416,19 @@ fn recorded_link<F: Filesystem>(
     Ok(false)
 }
 
+/// The heads a person is standing on: every head nothing supersedes, or every
+/// head where a successor has not been delivered and filtering leaves nothing.
+///
+/// Decision 0023's rendering answer, which `plan` needs to say what the folder
+/// may be given and `plan_at` needs to say which paths are tracked anywhere.
+fn current_heads<F: Filesystem>(store: &Store<F>) -> BTreeSet<RevisionId> {
+    let history = store.history();
+    let heads = history.heads();
+    let superseded = history.superseded();
+    let current: BTreeSet<RevisionId> = heads.difference(&superseded).copied().collect();
+    if current.is_empty() { heads } else { current }
+}
+
 /// What one update would do, or why it cannot happen whole.
 ///
 /// `repository` is the directory holding the store — the folder itself. The
@@ -401,18 +448,80 @@ pub fn plan<F: Filesystem, G: Filesystem>(
     if store.is_empty() {
         return Err(UpdateError::NothingRecorded);
     }
-    let history = store.history();
-    let heads = history.heads();
-    let superseded = history.superseded();
-    let mut current: BTreeSet<RevisionId> = heads.difference(&superseded).copied().collect();
-    if current.is_empty() {
-        current = heads;
-    }
+    let current = current_heads(store);
     if !current.contains(target) {
         return Err(UpdateError::NotAHead {
             target: *target,
             heads: current.into_iter().collect(),
         });
+    }
+
+    plan_at(store, working, repository, target)
+}
+
+/// Lay the tree at any revision out in a directory that holds nothing.
+///
+/// Decision 0030 deferred this in as many words — "materialising a revision
+/// into a directory elsewhere ... needs no position and no safety rule beyond
+/// an empty destination, and it is export rather than checkout" — and left it
+/// waiting for something to need it. What needs it is a caller building a
+/// working tree of its own: `Working::read` takes any root and
+/// [`crate::record::record`] takes the working copy as an argument, so a tool
+/// can lay a past revision out somewhere, let a person work in it, and record
+/// the result against that revision without the folder beside the store ever
+/// moving.
+///
+/// This is not checkout and does not become it. 0030's refusal is about the
+/// folder `record` and `status` derive their position from, which still only
+/// ever holds a head; nothing here writes a position anywhere, and a caller
+/// that keeps one keeps it about a directory it made itself. What makes the
+/// difference safe is the emptiness rule: a directory holding nothing cannot
+/// afterwards be asked which of its files came from the target and which were
+/// already there, because there were none.
+///
+/// The plan it returns is [`plan`]'s, performed by the same [`apply`], so a
+/// payload, a link and a mode are laid down the way `update` lays them down
+/// rather than the way each caller would have guessed. Every refusal `plan`
+/// states about the tree is stated here too, the `skip` rules included: a
+/// caller reading that directory back through the origin's rules would not be
+/// offered a file one covers, and would record its absence as a deletion.
+pub fn plan_into<F: Filesystem, G: Filesystem>(
+    store: &Store<F>,
+    into: &Working<G>,
+    directory: &Path,
+    target: &RevisionId,
+) -> Result<Update, UpdateError> {
+    let holds = into
+        .filesystem()
+        .entries(directory)
+        .map_err(|error| UpdateError::Io {
+            path: directory.to_path_buf(),
+            error,
+        })?;
+    if !holds.is_empty() {
+        let mut names: Vec<PathBuf> = holds.into_iter().map(|entry| entry.path).collect();
+        names.sort();
+        return Err(UpdateError::NotEmpty {
+            directory: directory.to_path_buf(),
+            holds: names,
+        });
+    }
+
+    plan_at(store, into, directory, target)
+}
+
+/// The plan itself, with no opinion about where the target sits in the history.
+///
+/// Both entry points above have already had theirs: [`plan`] that the target
+/// is a current head, [`plan_into`] that the destination holds nothing.
+fn plan_at<F: Filesystem, G: Filesystem>(
+    store: &Store<F>,
+    working: &Working<G>,
+    repository: &Path,
+    target: &RevisionId,
+) -> Result<Update, UpdateError> {
+    if store.is_empty() {
+        return Err(UpdateError::NothingRecorded);
     }
 
     let tree = store.tree(target)?;
@@ -653,9 +762,11 @@ pub fn plan<F: Filesystem, G: Filesystem>(
     // loud; a stray nobody has recorded coexists in silence, exactly as it
     // did before the update.
     let mut tracked: BTreeSet<String> = BTreeSet::new();
-    for head in &current {
-        for (_, entry) in store.tree(head)?.entries() {
-            tracked.insert(entry.path.clone());
+    if working.iter().next().is_some() {
+        for head in &current_heads(store) {
+            for (_, entry) in store.tree(head)?.entries() {
+                tracked.insert(entry.path.clone());
+            }
         }
     }
     for (path, _) in working.iter() {

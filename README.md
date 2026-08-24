@@ -264,7 +264,15 @@ The `historica` binary is the front end decision 0006 said was owed. `init`,
 it and says how the two differ; `update` makes the folder hold a head, writing
 what the store records, removing what it does not, and touching nothing
 unrecorded — decision 0030, which is also where checkout-to-the-past is
-declined and the stored position it would need is refused for good; `receive`
+declined and the stored position it would need is refused for good. That
+decision's one deferral is `update::plan_into`, which lays the tree at any
+revision out in a directory holding nothing: the same plan and the same apply,
+so a payload, a link and a mode arrive as themselves, with the head rule
+replaced by the emptiness rule. It has no command, because what wanted it is a
+caller building a working tree of its own — `Working::read` takes any root and
+`record` takes the working copy as an argument, so a tool can lay a revision
+out, let a person work in it, and record against that revision without the
+folder beside the store ever moving. `receive`
 combines another local store with this one, and `export <dir>` is the journey
 in the other direction — a fresh repository written somewhere else, holding
 the folder as one revision has it and the ancestry that leads there, which is
