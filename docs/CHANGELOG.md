@@ -70,6 +70,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — file a revision under its month, where a folder is opened rather than scrolled ([`c0b1168`](https://github.com/diaryx-org/historica/commit/c0b11681471e1d9705c6e8940df2e048ae879ff7))
 - **cli** — `export`, where the copy is assembled rather than mirrored ([`17b3f19`](https://github.com/diaryx-org/historica/commit/17b3f19262e9933657f5012a53e70e8220768c75))
 - **format** — a file can be a link ([`54c69b2`](https://github.com/diaryx-org/historica/commit/54c69b2ab19585d7f1374681ad7e4ee03deab58b))
+- **store** — `arrange --refile`, where the month is asked for rather than imposed ([`698bd8a`](https://github.com/diaryx-org/historica/commit/698bd8a1a8b8bdb80aa82a2e03970506da9a8f83))
 
 ### Fixed
 
@@ -344,6 +345,21 @@ store that way and then ran the command.
   likewise stays verbatim while its string is unchanged, as 0040 said it should.
   A deliberate retarget, and the verbatim restatement owed when a record drops
   the target, are unchanged.
+
+- `arrange` files a revision document under `YYYY-MM/` only
+when asked, with the new `arrange --refile`. Plain `arrange` renames a revision
+where it sits, including one sitting flat in `revisions/`, which is what it did
+before this release and what anyone who filed a store by hand relies on. So a
+flat store is no longer migrated by running `arrange` — it is migrated by
+running `arrange --refile` once, after which both spellings of the command move
+nothing. What is new since the last release is the writer: a revision recorded
+by this version is written to `revisions/YYYY-MM/<date> <summary>.rev.txt` and
+its content to `operations/YYYY-MM/<date> <summary>/...`, so anything scripting
+against store paths with a one-level glob must walk instead. `operations/` is
+filed under the month by either spelling of `arrange`, since its directories
+are named by the revision rather than chosen by a person. Identity is
+unaffected throughout: a filename is presentation, no digest or reference
+moves, and a store written by any version loads as before. In library terms,
 
 <!-- git-cliff:end -->
 
