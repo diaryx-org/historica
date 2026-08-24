@@ -63,6 +63,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — keep a file a walk materialised, in cache/ ([`ae509e3`](https://github.com/diaryx-org/historica/commit/ae509e350d06a6e2206973d410b27317262d6b2c))
 - **xtask** — time the reading commands on a store built to order ([`7de53a2`](https://github.com/diaryx-org/historica/commit/7de53a25a85a6769f32907a85b15ee45d64d9767))
 - **cli** — `diff`, where a rename is a fact rather than a resemblance ([`a190130`](https://github.com/diaryx-org/historica/commit/a190130884639ee7c0ee9a2e8362c43b2a6a150d))
+- **cli** — `blame`, where the author of a line is read rather than guessed ([`7ce2441`](https://github.com/diaryx-org/historica/commit/7ce2441677dada3ffde537ba9a643bb13561ffae))
 
 ### Fixed
 
