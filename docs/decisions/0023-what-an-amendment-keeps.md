@@ -285,7 +285,8 @@ none of the other two.
 ## Deferred
 
 **Amending anything but a head**, which is the same wall abandoning meets, and
-will be lifted by the same work.
+will be lifted by the same work. The `## Since` section below is what the wall
+looks like from the other side, where a receive has already walked around it.
 
 **Rewording in an editor**, above.
 
@@ -296,3 +297,62 @@ elsewhere as its own act with its own row in the table, and giving `amend` an
 **Undoing an amendment.** A superseded revision is still there and can be
 amended back into place by hand, but there is no command for it, and whether
 one is wanted is a question about how often people reach for it.
+
+## Since
+
+"`check` is unaffected" above is true, and was written when it could not be
+tested. If only a head can be amended then no command can leave a revision
+standing on one that has been withdrawn, and the state that paragraph excuses
+was unreachable. 0029's `receive` reaches it. One replica amends a revision;
+another, not having seen that, records on it; a union holds both. Neither
+machine did anything a command would refuse, and the wall this document put
+in front of `amend` is not in front of transport.
+
+**Supersession does not travel along parent edges.** That is the rule, stated
+here rather than left as a gap: it is a claim about which revisions of one
+change are current, and parenthood is a different graph, which 0001 keeps
+separate on purpose. So a rewrite reaches what it rewrote and nothing built on
+it, and a store holding both the supersession and a descendant of the
+superseded revision is holding a rewrite that stopped halfway.
+
+What that costs is not confusion about the past. It is a merge. An item's name
+is its revision and its index, so a rewrite mints its own items for the lines
+its predecessor already minted, and the two sides hold the same lines under
+different names. Every one of them is concurrent. A person joining those heads
+is shown their own paragraph twice, attributed to two revisions, and asked to
+resolve work nobody did twice — and the honest resolution, deleting one copy,
+is indistinguishable at the keyboard from deleting somebody's work.
+
+**It is reported and it is not an error.** `check` names the nearest revision
+nothing supersedes that stands on one something does, along with what
+withdrew it:
+
+```console
+note: b8be0e2368d2 stands on 0bedbcb95ea3, which aa78c9c6272e supersedes;
+      the rewrite did not reach it
+```
+
+A note, on 0006's rule and for its reason: every document parses, hashes and
+replays, and nothing here contradicts anything. What the store lacks is the
+rest of the rewrite, which is a thing transport may yet deliver — the same
+shape as an undelivered parent. `merge` says it too, before it writes a
+marker, because that is where a person meets the consequence rather than the
+fact. A revision that is itself superseded is passed over: a withdrawn
+revision standing on a withdrawn revision is the trailing history every
+finished rewrite leaves, and `tests/corpus/revisions/` is a finished one — 05
+amends 02, 06 carries the merge across, and nothing is reported.
+
+**The format does not change for this, and should not.** The repair is the
+re-diff this document deferred: materialise the descendant's intended result,
+re-diff it against the successor, and record it as an ordinary revision whose
+`supersedes` names the descendant. Existing grammar throughout, which is why
+non-tip rewriting stays a tool question rather than a format one. The shape
+that would need grammar — an edge meaning "this line of work has been
+rewritten past here", so that a merge could consult it — is rejected on 0001's
+grounds: it would make merging depend on supersession, and the whole reason
+those are two graphs is that a merge must be computable from parents alone,
+identically, on every machine.
+
+Until the re-diff exists, the note is the whole of the answer, and the manual
+repair is the one a person can already perform: amend the descendants onto the
+successor by hand, tip first.
