@@ -68,6 +68,31 @@ pub fn resolve(store: &Store, spelling: &str) -> Result<RevisionId, Failure> {
     )))
 }
 
+/// Whether a spelling could name a target at all.
+///
+/// Decision 0001's disjoint alphabets, asked as a question rather than
+/// answered as a lookup: a change ID is `k`–`z` and a digest is `0`–`9`,
+/// `a`–`f`, so a string outside both that no bookmark claims is not a target
+/// somebody mistyped — it is not a target. That is what lets one argument
+/// position hold either a target or a path without either having to be
+/// guessed at: `diff notes.md` is a path because nothing else could name it,
+/// and `diff kxry` is a target because nothing else could, whether or not
+/// this store happens to hold one.
+pub fn could_be_target(store: &Store, spelling: &str) -> bool {
+    if spelling.is_empty() {
+        return false;
+    }
+    if spelling == "head" || store.name(spelling).is_some() {
+        return true;
+    }
+    spelling
+        .chars()
+        .all(|character| character.is_ascii_hexdigit())
+        || spelling
+            .chars()
+            .all(|character| ('k'..='z').contains(&character))
+}
+
 /// The spelling that introduces a file identifier where a path is expected.
 ///
 /// Decision 0024: the format's own word for this thing, with a colon where the

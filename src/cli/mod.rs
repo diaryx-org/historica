@@ -17,6 +17,7 @@ use historica::store::{
 use historica::working::{Rule, SKIPPED_FILE, Working};
 
 mod arrange;
+mod diff;
 mod record;
 mod render;
 mod target;
@@ -34,6 +35,13 @@ reading a store
                            did to one file
   files <target>           the file set at a revision
   cat <target> <path>      one file's content at a revision
+  diff [<target>] [<path>] [--onto <target>]
+                           what changed: the folder against the position,
+                           or what a revision did. A rendering, not the
+                           stored document — `show` is that. A rename
+                           between two revisions is stated, because the
+                           store recorded it; one in the folder is a drop
+                           and an add, because the folder cannot see it
   names                    the bookmarks, and what they point at
   skip                     the rules saying what history does not take
 
@@ -179,6 +187,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "show" => show(&base, rest),
         "files" => files(&base, rest),
         "cat" => cat(&base, rest),
+        "diff" => diff::diff_command(&base, rest),
         "names" => names(&base, rest),
         "name" => name(&base, rest),
         "skip" => skip(&base, rest),

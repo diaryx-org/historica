@@ -210,7 +210,18 @@ unrecorded — decision 0030, which is also where checkout-to-the-past is
 declined and the stored position it would need is refused for good; `record`
 writes one and `amend` rewrites one,
 `skip` writes the rule saying what recording does not take, and `identity` says
-who is writing. `name` writes a bookmark, and takes the third argument `show`
+who is writing. `diff` is what changed — the folder against the
+position, or what a revision did — and decision 0037 makes it the one command
+that renders rather than prints, in the unified shape every other tool already
+reads. What separates it from every other tool's is 0008: two revisions carry
+file identifiers, so a rename between them is *stated*, with the edit that
+came with it underneath, where a similarity heuristic would have guessed and
+missed. The folder gets the opposite treatment for the opposite reason — it
+holds paths and no identifiers, so a rename there is a drop and an add until
+somebody says `--move`, and rendering it as a rename would invent a fact
+`record` would decline to write down. The hunks are `crate::diff`'s own
+decomposition rather than a second one, so what a person is shown and what
+recording would state are one answer. `name` writes a bookmark, and takes the third argument `show`
 takes: with a path it names the file at that path rather than the work, so
 `history/names/` holds `file` lines beside `change` and `revision` ones and
 `cat <target> file:<bookmark>` is that file wherever it has since been moved to.
@@ -571,6 +582,13 @@ Choices that constrain later work are written down as they are made.
   and never an answer, which is 0003's promise; what a reader believes
   unread is which documents forget something, and `check` is excluded for
   exactly that reason.
+- [`docs/decisions/0037-what-changed.md`](docs/decisions/0037-what-changed.md)
+  — `diff`, and the one place this tool renders rather than prints. The shape
+  is borrowed because the world already reads it, the hunks are the
+  decomposition `record` would write rather than a second one, and the
+  difference from every other tool's diff is 0008: a rename between two
+  revisions is a fact rather than a resemblance, while a rename in the folder
+  is not a fact at all and is not rendered as one.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
