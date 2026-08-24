@@ -209,3 +209,45 @@ payload needs no resolution grammar because a payload has no items.
 the walk shrinks to a proposal engine and the conformance suite shrinks
 with it. Nothing forces that question yet, and the walk earns its keep
 previewing every merge a person is still deciding about.
+
+## Since
+
+This decision gave `operations/` a second grammar under the same suffix, and
+that is a change to what every consumer of an `edit` digest is asking. Three
+of them were still asking the older, narrower question, and each failed in the
+same shape: a document the store was holding perfectly well came back as
+`None`, and the branch that handles `None` said something untrue about it.
+
+**`receive` dropped resolutions on the floor.** Decision
+[0029](0029-receiving-another-store.md) plans a transfer by asking each store
+what it holds, and it asked with `Store::operations`, which answers about the
+first grammar only. A merge's resolution was therefore planned as neither a
+document nor a payload, and never copied. The receiving store reported
+success, reported nothing left to receive on the next run, and could not read
+the head it had just been given — `check --complete` caught it and nothing in
+the transfer path did. `export` had the same question to answer and answered
+it correctly, because it was written after this decision; `receive` was
+written before it and was never swept.
+
+**`show` accused the store of missing a file that was sitting there.** The
+command exists to print what is stored, byte for byte, and a merge is where a
+person most wants that. It asked `Store::operation` and reported the resolution
+as undelivered.
+
+**`forget` cannot reach a resolution, and now says so.** Decision
+[0014](0014-forgetting.md)'s stand-in is written in the operation grammar: a
+`forgets` line, and a marker standing where each destroyed item's text stood.
+A resolution has neither. Lines a merge only *kept* are still forgotten where
+they were written — the `keep` meets the stand-in, and the shape 0014 preserves
+is exactly what makes that work — but text a person typed while resolving
+exists only as `insert` items in the resolution, and there is no way yet to say
+that one of those is destroyed. That is a real hole in 0014's promise rather
+than a missing branch, and closing it is a format change: see the deferral
+added to 0014. What is fixed here is the refusal, which claimed the document
+had not arrived.
+
+The shared cause is that a caller could ask half the question without saying
+so. `Store::body` and `Store::bodies` are the whole question — one digest and
+the directory — and `Store::operation`, `Store::resolution`,
+`Store::operations` and `Store::resolutions` are now for the caller that has
+already established which grammar it is holding.

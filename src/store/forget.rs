@@ -156,6 +156,23 @@ impl<F: Filesystem> Store<F> {
             ..Forgotten::default()
         };
         for (target, forget) in &items {
+            // Decision 0032 gave `operations/` a second grammar, and 0014's
+            // stand-in is written in the first: a resolution has no `forgets`
+            // line and no marker to stand where an item's text stood, so text
+            // a person typed while resolving a merge cannot yet be redacted.
+            // Refusing by name, because the alternative — asking
+            // `effective_operation`, which only ever answers about the first
+            // grammar — reports a document this store is holding as one it
+            // has not received.
+            if self.resolution(target)?.is_some() {
+                return Err(ForgetError::MintedByResolution {
+                    document: *target,
+                    named_by: named
+                        .iter()
+                        .find(|(_, names)| *names == target)
+                        .map(|(revision, _)| *revision),
+                });
+            }
             plan.targets.push(*target);
             let base = self
                 .effective_operation(target)?
@@ -289,6 +306,14 @@ pub enum ForgetError {
         /// The document.
         document: RevisionId,
     },
+    /// The span includes items a resolution minted, which decision 0014's
+    /// stand-in grammar cannot yet say anything about.
+    MintedByResolution {
+        /// The resolution.
+        document: RevisionId,
+        /// The merge whose `edit` line names it, where one is still held.
+        named_by: Option<RevisionId>,
+    },
     /// The file's history could not be materialised.
     Materialise(Box<MaterialiseError>),
     /// The file's history could not be merged.
@@ -334,6 +359,23 @@ impl fmt::Display for ForgetError {
                  part of a file that has no items is not built; \
                  decision 0014 defers it"
             ),
+            ForgetError::MintedByResolution { document, named_by } => {
+                write!(
+                    f,
+                    "the span includes lines written while resolving a merge, \
+                     which the resolution {document} states"
+                )?;
+                if let Some(revision) = named_by {
+                    write!(f, " for {}", revision.abbreviate(12))?;
+                }
+                write!(
+                    f,
+                    "; forgetting preserves a document's shape, and a \
+                     resolution has no way yet to say that an item it minted \
+                     is destroyed. lines the merge only kept can still be \
+                     forgotten where they were written"
+                )
+            }
             ForgetError::MissingQuoted { document } => write!(
                 f,
                 "the span is quoted in {document}, which this store does not \

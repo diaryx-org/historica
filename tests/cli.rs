@@ -1711,6 +1711,78 @@ fn show_prints_the_resolution_a_merge_states() {
     );
 }
 
+/// Decision 0014's stand-in is written in the operation grammar, so a
+/// resolution cannot yet say that an item it minted is destroyed. What
+/// `forget` owes a person there is the truth about that, rather than a claim
+/// that the document has not arrived.
+#[test]
+fn forget_says_why_it_cannot_reach_into_a_resolution() {
+    let (directory, mine, theirs) = diverged(
+        "forget-resolution",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+    out(recorded(&directory, &["merge", &mine, &theirs]));
+
+    // Resolved by keeping both runs in the order the walk proposed them —
+    // which side comes first is settled by digest — and typing one line under
+    // them. Only that line is minted by the resolution; the rest are `keep`s.
+    let rendered = fs::read_to_string(directory.join("f.md")).expect("the merged file");
+    let mut lines: Vec<&str> = rendered
+        .lines()
+        .filter(|line| !line.starts_with("vvv historica: ") && !line.starts_with("^^^ historica: "))
+        .collect();
+    lines.push("SECRET");
+    write(&directory, "f.md", &format!("{}\n", lines.join("\n")));
+    out(recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+
+    let at = |wanted: &str| {
+        lines
+            .iter()
+            .position(|line| *line == wanted)
+            .map(|index| format!("{n}..{n}", n = index + 1))
+            .expect("a line of the resolved file")
+    };
+
+    let refused = stderr(
+        &directory,
+        &["forget", "head", "f.md", "--lines", &at("SECRET")],
+    );
+    assert!(
+        refused.contains("written while resolving a merge"),
+        "{refused}"
+    );
+    assert!(
+        !refused.contains("does not hold"),
+        "the store holds that document: {refused}"
+    );
+
+    // A line the merge only kept is forgotten where it was written, merge or
+    // no merge.
+    let forgotten = stdout(
+        &directory,
+        &["forget", "head", "f.md", "--lines", &at("MINE")],
+    );
+    assert!(forgotten.contains("forgetting document"), "{forgotten}");
+
+    // The merge still reads: its `keep` of that document now meets the
+    // stand-in, which is what decision 0014 preserves the shape for.
+    let read = stdout(&directory, &["cat", "head", "f.md"]);
+    assert!(!read.contains("MINE"), "the text was destroyed: {read}");
+    assert!(
+        read.contains("SECRET"),
+        "the rest of the file survives: {read}"
+    );
+    let checked = stdout(&directory, &["check"]);
+    assert!(
+        checked.contains("no errors, 1 note"),
+        "a destroyed digest is a note and never a fault: {checked}"
+    );
+}
+
 #[test]
 fn receive_reports_mutable_conflicts_before_writing_history() {
     let here = repository("receive-conflict-here");
