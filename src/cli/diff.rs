@@ -16,8 +16,10 @@
 //! those two cases the same way would mean either inventing a rename the
 //! folder cannot see or discarding one the store wrote down.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
+use std::ops::Range;
 use std::path::Path;
 
 use historica::core::{FileId, RevisionId};
@@ -27,6 +29,7 @@ use historica::replay::State;
 use historica::store::{Content, Store};
 use historica::tree::{Kind, Tree};
 use historica::working::{self, Working};
+use similar::{Algorithm, DiffOp, capture_diff_slices};
 
 use super::{Failure, locate, printing, target};
 
@@ -35,7 +38,7 @@ use super::{Failure, locate, printing, target};
 /// Three, which is what every tool that reads this format defaults to.
 const CONTEXT: usize = 3;
 
-/// `diff [<target>] [<path>] [--onto <target>]`
+/// `diff [<target>] [<path>] [--onto <target>] [--color <when>]`
 ///
 /// The left side is `--onto` where it is given. Where it is not, it is the
 /// named revision's parent — so `diff <target>` is "what that revision did",
@@ -43,10 +46,18 @@ const CONTEXT: usize = 3;
 /// named revision, or the folder when nothing is named.
 pub fn diff_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut onto: Option<String> = None;
+    let mut when = When::Auto;
     let mut rest: Vec<String> = Vec::new();
 
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
+        // Both spellings, because `--color=always` is the one every other tool
+        // takes and a person who types it here has not made a mistake worth an
+        // error message.
+        if let Some(value) = argument.strip_prefix("--color=") {
+            when = When::parse(value)?;
+            continue;
+        }
         match argument.as_str() {
             "--onto" => {
                 onto = Some(
@@ -54,6 +65,12 @@ pub fn diff_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> 
                         .next()
                         .ok_or_else(|| Failure::usage("`--onto` wants a value"))?,
                 );
+            }
+            "--color" => {
+                let value = arguments.next().ok_or_else(|| {
+                    Failure::usage("`--color` wants `auto`, `always`, or `never`")
+                })?;
+                when = When::parse(&value)?;
             }
             _ => rest.push(argument),
         }
@@ -112,12 +129,16 @@ pub fn diff_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> 
         None => folder(&store, &root, left, limit.as_ref())?,
     };
 
+    // Decided once, before anything is written, so that every line of one run
+    // agrees about whether it is decorated.
+    let paint = Paint(when.decorates());
+
     printing(|out| {
         if pairs.is_empty() {
             return writeln!(out, "nothing differs");
         }
         for pair in &pairs {
-            render(out, pair)?;
+            render(out, pair, paint)?;
         }
         Ok(())
     })
@@ -362,6 +383,92 @@ fn folder(
     Ok(pairs)
 }
 
+/// When to decorate, as `--color` spells it.
+#[derive(Clone, Copy)]
+enum When {
+    /// Decorated where a person is looking at it, and never into a pipe.
+    Auto,
+    Always,
+    Never,
+}
+
+impl When {
+    fn parse(value: &str) -> Result<Self, Failure> {
+        match value {
+            "auto" => Ok(When::Auto),
+            "always" => Ok(When::Always),
+            "never" => Ok(When::Never),
+            other => Err(Failure::usage(format!(
+                "`{other}` is not a `--color` setting; it is `auto`, which \
+                 decorates a terminal and nothing else, `always`, or `never`"
+            ))),
+        }
+    }
+
+    /// Whether this run decorates.
+    ///
+    /// `NO_COLOR` is answered here rather than in [`When::parse`] because it is
+    /// what a person means by "unless I say otherwise": it settles `auto` and
+    /// leaves `--color always` alone, which is the whole point of having said
+    /// `always` out loud.
+    fn decorates(self) -> bool {
+        match self {
+            When::Always => true,
+            When::Never => false,
+            When::Auto => {
+                std::io::stdout().is_terminal()
+                    && !std::env::var_os("NO_COLOR").is_some_and(|value| !value.is_empty())
+            }
+        }
+    }
+}
+
+/// Bold, which is what `git diff` prints a fact about a file in.
+const META: &str = "\x1b[1m";
+/// Cyan, for a hunk header.
+const FRAGMENT: &str = "\x1b[36m";
+const REMOVED: &str = "\x1b[31m";
+const ARRIVED: &str = "\x1b[32m";
+/// Inverse video, for the part of a line that differs from the line it
+/// replaced — which is what `diff-highlight` has drawn it in for a decade.
+const EMPHASIS: &str = "\x1b[7m";
+/// Inverse video off, and only that: the line's own colour outlives it.
+const PLAINLY: &str = "\x1b[27m";
+const OFF: &str = "\x1b[0m";
+
+/// Whether this rendering is decorated.
+///
+/// Off, every escape below is the empty string, so the bytes are the ones this
+/// command wrote before there was a `--color` at all. That is the property the
+/// tests hold it to, and the reason colour is a decoration rather than a
+/// change: `historica diff | patch` sees exactly what it always saw.
+#[derive(Clone, Copy)]
+struct Paint(bool);
+
+impl Paint {
+    fn pick(self, code: &'static str) -> &'static str {
+        if self.0 { code } else { "" }
+    }
+
+    /// What a `-`, `+`, or context line is drawn in.
+    fn sign(self, sign: char) -> &'static str {
+        match sign {
+            '-' => self.pick(REMOVED),
+            '+' => self.pick(ARRIVED),
+            _ => "",
+        }
+    }
+}
+
+/// What closes a decoration, and nothing at all where there was none.
+///
+/// Derived from the opening escape rather than from [`Paint`] so that an
+/// undecorated line — a context line, in a run that is otherwise coloured —
+/// cannot end with a stray reset.
+fn ends(code: &str) -> &'static str {
+    if code.is_empty() { "" } else { OFF }
+}
+
 /// One file's difference, in the shape other tools read.
 ///
 /// The facts about the file come first and the content after, so that a
@@ -369,16 +476,18 @@ fn folder(
 /// would otherwise be the only clue. A file whose content did not change
 /// prints no `---`/`+++` pair at all: there is nothing under it, and a header
 /// with nothing under it reads like something went wrong.
-fn render(out: &mut impl Write, pair: &Pair) -> std::io::Result<()> {
+fn render(out: &mut impl Write, pair: &Pair, paint: Paint) -> std::io::Result<()> {
+    let meta = paint.pick(META);
+    let off = ends(meta);
     match (&pair.from, &pair.to) {
-        (None, Some(path)) => writeln!(out, "new file {path}")?,
-        (Some(path), None) => writeln!(out, "deleted file {path}")?,
+        (None, Some(path)) => writeln!(out, "{meta}new file {path}{off}")?,
+        (Some(path), None) => writeln!(out, "{meta}deleted file {path}{off}")?,
         // Decision 0008 records identity, so this is read rather than
         // guessed at — and on the folder side it never happens, because the
         // folder has no identifiers to read it from.
         (Some(from), Some(to)) if from != to => {
-            writeln!(out, "rename from {from}")?;
-            writeln!(out, "rename to {to}")?;
+            writeln!(out, "{meta}rename from {from}{off}")?;
+            writeln!(out, "{meta}rename to {to}{off}")?;
         }
         _ => {}
     }
@@ -387,7 +496,7 @@ fn render(out: &mut impl Write, pair: &Pair) -> std::io::Result<()> {
     // files' hunks would belong to neither of them.
     if let Some((was, now)) = pair.modes {
         let path = pair.to.as_deref().or(pair.from.as_deref()).unwrap_or("?");
-        writeln!(out, "mode {path} {was} -> {now}")?;
+        writeln!(out, "{meta}mode {path} {was} -> {now}{off}")?;
     }
 
     let left = pair
@@ -408,9 +517,9 @@ fn render(out: &mut impl Write, pair: &Pair) -> std::io::Result<()> {
     };
     let (Some(before), Some(after)) = (lines(pair.before.as_ref()), lines(pair.after.as_ref()))
     else {
-        writeln!(out, "--- {left}")?;
-        writeln!(out, "+++ {right}")?;
-        return writeln!(out, "binary files differ");
+        writeln!(out, "{meta}--- {left}{off}")?;
+        writeln!(out, "{meta}+++ {right}{off}")?;
+        return writeln!(out, "{meta}binary files differ{off}");
     };
 
     // The same decomposition `record` would write down, rendered — so what a
@@ -421,14 +530,26 @@ fn render(out: &mut impl Write, pair: &Pair) -> std::io::Result<()> {
     let Some(document) = diff::diff(&before, &after) else {
         return Ok(());
     };
-    writeln!(out, "--- {left}")?;
-    writeln!(out, "+++ {right}")?;
+    writeln!(out, "{meta}--- {left}{off}")?;
+    writeln!(out, "{meta}+++ {right}{off}")?;
+    let fragment = paint.pick(FRAGMENT);
     for hunk in hunks(&before, &document) {
-        writeln!(out, "{}", hunk.header())?;
-        for line in &hunk.lines {
-            writeln!(out, "{}{}", line.sign, line.text)?;
+        writeln!(out, "{fragment}{}{}", hunk.header(), ends(fragment))?;
+        // Only when there is colour: emphasis has no plain-text spelling that
+        // would not change the bytes, and changing them is the one thing this
+        // may not do.
+        let emphasis = if paint.0 {
+            differing(&hunk.lines)
+        } else {
+            vec![Vec::new(); hunk.lines.len()]
+        };
+        for (line, spans) in hunk.lines.iter().zip(&emphasis) {
+            let code = paint.sign(line.sign);
+            let shut = ends(code);
+            let text = marked(&line.text, spans);
+            writeln!(out, "{code}{}{text}{shut}", line.sign)?;
             if !line.terminated {
-                writeln!(out, "\\ no newline at end of file")?;
+                writeln!(out, "{code}\\ no newline at end of file{shut}")?;
             }
         }
     }
@@ -618,4 +739,283 @@ fn group(lines: Vec<Line>) -> Vec<Hunk> {
             }
         })
         .collect()
+}
+
+/// Which byte spans of each line differ from the line it replaced.
+///
+/// This is a second comparison, and decision 0037 declined one — so it is
+/// worth saying exactly why this is not the thing that was declined. What 0037
+/// rules out is a second *decomposition*: an answer about what changed that
+/// could disagree with the one `record` would write down. By the time this
+/// runs that answer is settled — which lines are here, in which order, carrying
+/// which bytes — and nothing below can move a line, add one, or alter a byte of
+/// one. All it decides is which part of a line to draw brighter, which is also
+/// why it may only run when there is colour to draw it in: emphasis has no
+/// plain-text spelling that would not change the output.
+fn differing(lines: &[Line]) -> Vec<Vec<Range<usize>>> {
+    let mut spans: Vec<Vec<Range<usize>>> = vec![Vec::new(); lines.len()];
+    let mut at = 0;
+    while at < lines.len() {
+        let removed = run(lines, at, '-');
+        let arrived = run(lines, at + removed, '+');
+        // A run replaced one-for-one pairs up without anybody guessing which
+        // line became which. An unequal run has no such pairing, and inventing
+        // one here would be the resemblance 0037 refuses for renames — cheaper
+        // to be wrong about, but wrong in the same way.
+        if removed > 0 && removed == arrived {
+            for offset in 0..removed {
+                let (was, now) = (&lines[at + offset], &lines[at + removed + offset]);
+                if let Some((left, right)) = apart(&was.text, &now.text) {
+                    spans[at + offset] = left;
+                    spans[at + removed + offset] = right;
+                }
+            }
+        }
+        at += (removed + arrived).max(1);
+    }
+    spans
+}
+
+/// How many lines from `at` carry `sign`.
+fn run(lines: &[Line], at: usize, sign: char) -> usize {
+    lines[at..]
+        .iter()
+        .take_while(|line| line.sign == sign)
+        .count()
+}
+
+/// The most tokens either line may be compared in.
+///
+/// A generated file is one enormous line and the matcher is quadratic in the
+/// worst case, so this is what stops a decoration deciding how long the
+/// command takes.
+const LONGEST: usize = 1024;
+
+/// Where one pair of lines differs: the removal's byte spans, then the
+/// arrival's.
+type Sides = (Vec<Range<usize>>, Vec<Range<usize>>);
+
+/// The byte spans in which two lines differ, or `None` where saying so would
+/// tell a reader nothing.
+///
+/// Nothing where the two share no word: emphasis covering the whole of both
+/// lines says only what the `-` and the `+` already said, and a line drawn
+/// entirely in inverse video is harder to read than one drawn plainly. That is
+/// `diff-highlight`'s rule as well, arrived at the same way.
+fn apart(was: &str, now: &str) -> Option<Sides> {
+    let old = words(was);
+    let new = words(now);
+    if old.len() > LONGEST || new.len() > LONGEST {
+        return None;
+    }
+
+    // The tokens tile their line exactly, so a token index becomes a byte
+    // offset by adding up the lengths before it.
+    let span = |tokens: &[&str], from: usize, len: usize| {
+        let start: usize = tokens[..from].iter().map(|word| word.len()).sum();
+        let width: usize = tokens[from..from + len].iter().map(|word| word.len()).sum();
+        start..start + width
+    };
+
+    let mut left: Vec<Range<usize>> = Vec::new();
+    let mut right: Vec<Range<usize>> = Vec::new();
+    let mut shared = false;
+    for operation in capture_diff_slices(Algorithm::Myers, &old, &new) {
+        match operation {
+            DiffOp::Equal { old_index, len, .. } => {
+                shared = shared
+                    || old[old_index..old_index + len]
+                        .iter()
+                        .any(|word| !word.trim().is_empty());
+            }
+            DiffOp::Delete {
+                old_index, old_len, ..
+            } => left.push(span(&old, old_index, old_len)),
+            DiffOp::Insert {
+                new_index, new_len, ..
+            } => right.push(span(&new, new_index, new_len)),
+            DiffOp::Replace {
+                old_index,
+                old_len,
+                new_index,
+                new_len,
+            } => {
+                left.push(span(&old, old_index, old_len));
+                right.push(span(&new, new_index, new_len));
+            }
+        }
+    }
+    if !shared || (left.is_empty() && right.is_empty()) {
+        return None;
+    }
+    Some((left, right))
+}
+
+/// One line cut into the units a person would call changed or unchanged.
+///
+/// A run of letters and digits is one token and every other character is one
+/// on its own, so `v1` becoming `v2` is two characters of emphasis rather than
+/// a whole identifier of it, and a space that arrived is visible.
+fn words(line: &str) -> Vec<&str> {
+    let mut words = Vec::new();
+    let mut start = 0;
+    let mut lettered = false;
+    for (index, character) in line.char_indices() {
+        if character.is_alphanumeric() {
+            if !lettered {
+                start = index;
+                lettered = true;
+            }
+            continue;
+        }
+        if lettered {
+            words.push(&line[start..index]);
+            lettered = false;
+        }
+        words.push(&line[index..index + character.len_utf8()]);
+    }
+    if lettered {
+        words.push(&line[start..]);
+    }
+    words
+}
+
+/// One line's text with its differing spans wrapped in inverse video.
+fn marked<'a>(text: &'a str, spans: &[Range<usize>]) -> Cow<'a, str> {
+    if spans.is_empty() {
+        return Cow::Borrowed(text);
+    }
+    let mut marked = String::with_capacity(text.len() + spans.len() * 8);
+    let mut at = 0;
+    for span in spans {
+        marked.push_str(&text[at..span.start]);
+        marked.push_str(EMPHASIS);
+        marked.push_str(&text[span.start..span.end]);
+        marked.push_str(PLAINLY);
+        at = span.end;
+    }
+    marked.push_str(&text[at..]);
+    Cow::Owned(marked)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(sign: char, text: &str) -> Line {
+        Line {
+            sign,
+            text: text.to_owned(),
+            terminated: true,
+        }
+    }
+
+    /// What a reader sees, with the emphasis written where a test can read it.
+    fn shown(lines: &[Line]) -> Vec<String> {
+        differing(lines)
+            .iter()
+            .zip(lines)
+            .map(|(spans, line)| {
+                marked(&line.text, spans)
+                    .replace(EMPHASIS, "[")
+                    .replace(PLAINLY, "]")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_line_keeps_the_words_it_shares_with_the_one_it_replaced() {
+        let lines = [line('-', "alpha beta gamma"), line('+', "alpha BETA gamma")];
+        assert_eq!(shown(&lines), ["alpha [beta] gamma", "alpha [BETA] gamma"]);
+    }
+
+    /// Every other character is a token of its own, so a version number is two
+    /// characters of emphasis rather than a whole identifier of it.
+    fn version(text: &str) -> String {
+        shown(&[line('-', "let v = \"v1\";"), line('+', text)])[1].clone()
+    }
+
+    #[test]
+    fn punctuation_is_a_boundary_and_a_run_of_letters_is_not() {
+        assert_eq!(version("let v = \"v2\";"), "let v = \"[v2]\";");
+    }
+
+    /// `diff-highlight`'s rule, arrived at the same way: emphasis covering the
+    /// whole of both lines says only what the `-` and the `+` already said.
+    #[test]
+    fn two_lines_with_nothing_in_common_are_left_plain() {
+        let lines = [line('-', "beta"), line('+', "BETA")];
+        assert_eq!(shown(&lines), ["beta", "BETA"]);
+    }
+
+    /// A run of one length becoming a run of another has no pairing, and one
+    /// invented here would be a resemblance rather than a reading.
+    #[test]
+    fn an_unequal_run_is_not_paired_up() {
+        let lines = [
+            line('-', "alpha one"),
+            line('+', "alpha two"),
+            line('+', "alpha three"),
+        ];
+        assert_eq!(shown(&lines), ["alpha one", "alpha two", "alpha three"]);
+    }
+
+    #[test]
+    fn a_removal_with_no_arrival_is_left_alone() {
+        let lines = [line(' ', "alpha"), line('-', "beta"), line(' ', "gamma")];
+        assert_eq!(shown(&lines), ["alpha", "beta", "gamma"]);
+    }
+
+    /// Each pair is its own comparison, so the second run below is emphasised
+    /// against the line it replaced rather than against the first one.
+    #[test]
+    fn a_run_pairs_line_by_line() {
+        let lines = [
+            line('-', "one alpha"),
+            line('-', "two beta"),
+            line('+', "one ALPHA"),
+            line('+', "two BETA"),
+        ];
+        assert_eq!(
+            shown(&lines),
+            ["one [alpha]", "two [beta]", "one [ALPHA]", "two [BETA]"]
+        );
+    }
+
+    /// The tokens tile the line, which is what makes a token index a byte
+    /// offset — and what stops a multi-byte character being cut in half.
+    #[test]
+    fn tokens_tile_the_line_they_came_from() {
+        for text in ["", "a", " ", "élan vital — ok", "a1_b2", "  x  "] {
+            assert_eq!(words(text).concat(), text, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn emphasis_lands_between_characters_rather_than_inside_one() {
+        let lines = [line('-', "café noir"), line('+', "café blanc")];
+        assert_eq!(shown(&lines), ["café [noir]", "café [blanc]"]);
+    }
+
+    /// Off, nothing here is reachable at all — but the escapes are still the
+    /// empty string, which is the property the piped output depends on.
+    #[test]
+    fn an_undecorated_run_writes_no_escapes() {
+        let paint = Paint(false);
+        for code in [paint.pick(META), paint.pick(FRAGMENT), paint.sign('-')] {
+            assert_eq!(code, "");
+            assert_eq!(ends(code), "");
+        }
+    }
+
+    #[test]
+    fn a_color_setting_is_one_of_three_words() {
+        assert!(matches!(When::parse("always"), Ok(When::Always)));
+        assert!(matches!(When::parse("never"), Ok(When::Never)));
+        assert!(matches!(When::parse("auto"), Ok(When::Auto)));
+        assert!(When::parse("yes").is_err());
+        // Whatever the terminal is, these two answer without asking it.
+        assert!(When::Always.decorates());
+        assert!(!When::Never.decorates());
+    }
 }

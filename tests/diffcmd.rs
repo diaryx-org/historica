@@ -17,13 +17,23 @@ fn scratch(test: &str) -> PathBuf {
 }
 
 fn run(directory: &Path, arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_historica"))
+    with(directory, arguments, &[])
+}
+
+fn with(directory: &Path, arguments: &[&str], environment: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_historica"));
+    command
         .arg("-C")
         .arg(directory)
         .args(arguments)
         .env("HISTORICA_AUTHOR", "Adam Harris <adam@example.com>")
-        .output()
-        .expect("the binary this test crate builds")
+        // The test harness inherits whatever the person running it has set,
+        // and `auto` reads this — so every run here says what it means.
+        .env_remove("NO_COLOR");
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    command.output().expect("the binary this test crate builds")
 }
 
 fn out(directory: &Path, arguments: &[&str]) -> String {
@@ -289,6 +299,149 @@ fn a_file_with_no_final_newline_says_so() {
         rendered.contains("\\ no newline at end of file"),
         "{rendered}"
     );
+}
+
+/// A repository whose one file has a line replaced, with words on either side
+/// of the replacement that both versions share.
+fn edited(test: &str) -> PathBuf {
+    let directory = repository(test);
+    write(&directory, "notes.md", "alpha\nbeta gamma delta\nepsilon\n");
+    assert!(run(&directory, &["record", "-m", "base"]).status.success());
+    write(&directory, "notes.md", "alpha\nbeta GAMMA delta\nepsilon\n");
+    directory
+}
+
+/// Every escape sequence taken back out, which should leave the bytes the
+/// undecorated run wrote.
+fn undecorated(text: &str) -> String {
+    let mut plain = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('\x1b') {
+        plain.push_str(&rest[..at]);
+        let after = &rest[at..];
+        assert!(after.starts_with("\x1b["), "a lone escape in {text:?}");
+        let end = after
+            .find(|character: char| character.is_ascii_alphabetic())
+            .expect("an escape sequence ends in a letter");
+        rest = &after[end + 1..];
+    }
+    plain.push_str(rest);
+    plain
+}
+
+/// The property that makes colour a decoration rather than a change: a pipe
+/// sees the bytes it saw before there was a `--color` at all, so
+/// `historica diff | patch` is unaffected and no caller has to be told.
+#[test]
+fn a_pipe_is_never_decorated() {
+    let directory = edited("piped");
+    let piped = out(&directory, &["diff"]);
+    assert!(!piped.contains('\x1b'), "{piped:?}");
+    assert_eq!(out(&directory, &["diff", "--color", "never"]), piped);
+    assert_eq!(out(&directory, &["diff", "--color=never"]), piped);
+    assert_eq!(out(&directory, &["diff", "--color", "auto"]), piped);
+
+    // And `NO_COLOR` settles `auto`, which is the only thing it can settle
+    // here — a pipe has already settled it the same way.
+    let output = with(&directory, &["diff"], &[("NO_COLOR", "1")]);
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("printed text"),
+        piped
+    );
+}
+
+/// `always` is a person saying so, and `NO_COLOR` is a person not having said
+/// anything — so the one that was said out loud wins.
+#[test]
+fn saying_always_outranks_no_color() {
+    let directory = edited("no-color");
+    for value in ["1", "true", ""] {
+        let output = with(
+            &directory,
+            &["diff", "--color=always"],
+            &[("NO_COLOR", value)],
+        );
+        assert!(output.status.success());
+        let rendered = String::from_utf8(output.stdout).expect("printed text");
+        // An empty `NO_COLOR` is not set as far as anyone is concerned, so
+        // this holds for all three.
+        assert!(rendered.contains("\x1b[31m"), "{rendered:?}");
+    }
+}
+
+/// The conventions eyes trained on `git diff` already read: removals red,
+/// arrivals green, hunk headers cyan, facts about the file bold.
+#[test]
+fn colour_is_the_one_every_other_tool_uses() {
+    let directory = edited("always");
+    let rendered = out(&directory, &["diff", "--color=always"]);
+    assert!(
+        rendered.contains("\x1b[1m--- a/notes.md\x1b[0m"),
+        "{rendered:?}"
+    );
+    assert!(
+        rendered.contains("\x1b[1m+++ b/notes.md\x1b[0m"),
+        "{rendered:?}"
+    );
+    assert!(
+        rendered.contains("\x1b[36m@@ -1,3 +1,3 @@\x1b[0m"),
+        "{rendered:?}"
+    );
+    assert!(rendered.contains("\x1b[31m-beta "), "{rendered:?}");
+    assert!(rendered.contains("\x1b[32m+beta "), "{rendered:?}");
+    // A context line is not decorated, so it carries no reset either.
+    assert!(rendered.contains("\n alpha\n"), "{rendered:?}");
+
+    // Taking the escapes back out leaves what the pipe was given, byte for
+    // byte: nothing here moves a line or alters one.
+    assert_eq!(undecorated(&rendered), out(&directory, &["diff"]));
+}
+
+/// Emphasis inside the pair: what the two lines share stays plain and what
+/// differs is drawn in inverse video, as `diff-highlight` has drawn it for a
+/// decade. Display only — the hunks are still `crate::diff`'s decomposition,
+/// which is why the escapes come back out to the same bytes.
+#[test]
+fn the_changed_words_inside_a_replaced_line_are_emphasised() {
+    let directory = edited("intra-line");
+    let rendered = out(&directory, &["diff", "--color=always"]);
+    assert!(
+        rendered.contains("\x1b[31m-beta \x1b[7mgamma\x1b[27m delta\x1b[0m"),
+        "{rendered:?}"
+    );
+    assert!(
+        rendered.contains("\x1b[32m+beta \x1b[7mGAMMA\x1b[27m delta\x1b[0m"),
+        "{rendered:?}"
+    );
+    assert_eq!(undecorated(&rendered), out(&directory, &["diff"]));
+}
+
+/// Nothing shared means nothing worth emphasising: a line drawn entirely in
+/// inverse video says only what its `-` already said.
+#[test]
+fn two_lines_with_nothing_in_common_stay_plain_inside() {
+    let directory = repository("intra-line-plain");
+    write(&directory, "notes.md", "alpha\nbeta\ngamma\n");
+    assert!(run(&directory, &["record", "-m", "base"]).status.success());
+    write(&directory, "notes.md", "alpha\nBETA\ngamma\n");
+
+    let rendered = out(&directory, &["diff", "--color=always"]);
+    assert!(rendered.contains("\x1b[31m-beta\x1b[0m"), "{rendered:?}");
+    assert!(rendered.contains("\x1b[32m+BETA\x1b[0m"), "{rendered:?}");
+    assert!(!rendered.contains("\x1b[7m"), "{rendered:?}");
+}
+
+#[test]
+fn an_unknown_color_setting_says_what_the_three_are() {
+    let directory = edited("color-usage");
+    let refused = run(&directory, &["diff", "--color", "sometimes"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let complaint = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(complaint.contains("sometimes"), "{complaint}");
+    for word in ["auto", "always", "never"] {
+        assert!(complaint.contains(word), "{complaint}");
+    }
 }
 
 /// `diff` renders; `show` is what prints the stored document. A rendering

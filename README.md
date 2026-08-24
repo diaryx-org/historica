@@ -221,7 +221,12 @@ holds paths and no identifiers, so a rename there is a drop and an add until
 somebody says `--move`, and rendering it as a rename would invent a fact
 `record` would decline to write down. The hunks are `crate::diff`'s own
 decomposition rather than a second one, so what a person is shown and what
-recording would state are one answer. `blame` is the same trick applied to the
+recording would state are one answer. `--color` is `auto`, which is a terminal
+and nothing else and which `NO_COLOR` settles; decorated, the ± lines carry the
+changed words inside them in inverse video, which is a decoration of lines
+`crate::diff` has already chosen rather than a second opinion about them.
+Undecorated, every escape is the empty string, so a pipe gets the bytes it got
+before there was a flag. `blame` is the same trick applied to the
 other question — who wrote each line — and decision 0038 makes it the one
 command every other tool has to guess at and this one does not. A revision
 records the items it *inserted* and a merge records which items it *kept* and

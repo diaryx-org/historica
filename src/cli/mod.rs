@@ -36,13 +36,15 @@ reading a store
                            did to one file
   files <target>           the file set at a revision
   cat <target> <path>      one file's content at a revision
-  diff [<target>] [<path>] [--onto <target>]
+  diff [<target>] [<path>] [--onto <target>] [--color <when>]
                            what changed: the folder against the position,
                            or what a revision did. A rendering, not the
                            stored document — `show` is that. A rename
                            between two revisions is stated, because the
                            store recorded it; one in the folder is a drop
-                           and an add, because the folder cannot see it
+                           and an add, because the folder cannot see it.
+                           <when> is `auto`, which colours a terminal and
+                           nothing else, `always`, or `never`
   blame [<target>] <path> [--lines <first>..<last>]
                            who wrote each line: the change, the author, and
                            the day. Read from the operations rather than

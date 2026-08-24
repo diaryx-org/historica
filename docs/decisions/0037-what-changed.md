@@ -86,6 +86,37 @@ Nothing in Historica parses it, and a future that wanted an exchange format
 would want 0007's operation documents, which are already exact, already
 readable, and already what the store holds.
 
+## Since
+
+Both of the above were built, on terms the section above is what set.
+
+- **`--color <auto|always|never>`**, with `auto` meaning a terminal and nothing
+  else, and `NO_COLOR` settling `auto` the way an unset preference settles
+  anything — it does not overrule a person who typed `always`. The colours are
+  the ones `git diff` uses, because the point of borrowing a shape is that eyes
+  already trained on it need no second training. Undecorated, every escape is
+  the empty string, so a pipe gets the bytes it got before there was a flag:
+  `historica diff | patch` is unaffected, and there is nothing here for a
+  caller to be told about.
+
+- **Intra-line emphasis**, and the distinction the section above draws is
+  exactly what makes it allowed. What was ruled out is a second
+  *decomposition* — an answer about what changed that could disagree with the
+  one `record` would write down. This is not one. By the time it runs, the
+  lines, their order, and their bytes are all settled by `crate::diff`, and it
+  can move none of them; it says only which part of an already-chosen line to
+  draw brighter. That it may run only when there is colour is the same point
+  said in the output: emphasis has no plain-text spelling that would not change
+  the bytes, so there is no rendering in which the two answers could be seen to
+  differ.
+
+  It emphasises a run of `-` lines against the run of `+` lines that replaced
+  it, one for one, and only where the two runs are the same length — an unequal
+  run has no pairing, and inventing one would be the resemblance this whole
+  decision refuses for renames. Two lines that share no word are left plain, on
+  `diff-highlight`'s reasoning: emphasis covering the whole of both says only
+  what the `-` and the `+` already said.
+
 ## Consequences
 
 - `cli::diff` is the new module, and `target::could_be_target` is the alphabet
