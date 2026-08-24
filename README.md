@@ -771,6 +771,20 @@ Choices that constrain later work are written down as they are made.
   `PLATFORM_NAMES` the criterion 0022 said it would need — a name a program
   writes into every directory it touches, unprompted — adds `@eaDir` on it,
   and says why the list is not gated by the platform running it.
+- [`docs/decisions/0045-one-rule-to-a-file.md`](docs/decisions/0045-one-rule-to-a-file.md)
+  — `skipped.txt` becomes `skipped/`, one rule to a file. What the file held
+  was always a set — `skips` is `any(covers)`, with no order, no duplicates and
+  no negation — and only the container was a sequence, which is the thing two
+  writers cannot both append to. So two replicas each adding a rule stop being
+  a conflict `receive` refuses over, and two `skip` commands on one machine
+  stop being a read-modify-write, because adding a rule is `create_new`. The
+  label mirrors the path and the content is the rule, since `skip docs/drafts/`
+  holds a character no filename does; 0018's collision suffix and 0022's
+  platform names apply unchanged. Removal has no tombstone and a later receive
+  may resurrect a rule, which is the recoverable half of 0011's asymmetry and
+  loud besides, since `record` already refuses over a rule covering a tracked
+  file. The marker rises to `historica-v2`, because a reader that cannot see
+  the rules would record what somebody asked it to keep out.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
