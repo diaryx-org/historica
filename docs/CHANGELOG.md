@@ -64,6 +64,9 @@ visible, to be triaged into its real group before the tag is cut.
 - **xtask** — time the reading commands on a store built to order ([`7de53a2`](https://github.com/diaryx-org/historica/commit/7de53a25a85a6769f32907a85b15ee45d64d9767))
 - **cli** — `diff`, where a rename is a fact rather than a resemblance ([`a190130`](https://github.com/diaryx-org/historica/commit/a190130884639ee7c0ee9a2e8362c43b2a6a150d))
 - **cli** — `blame`, where the author of a line is read rather than guessed ([`7ce2441`](https://github.com/diaryx-org/historica/commit/7ce2441677dada3ffde537ba9a643bb13561ffae))
+- **cli** — colour for `diff`, and the words that changed inside a line ([`0d85a89`](https://github.com/diaryx-org/historica/commit/0d85a891d20aecc672da9de76cdefb3325c93e8b))
+- **cli** — `log` narrowed, where a path follows the file rather than the name ([`21c6725`](https://github.com/diaryx-org/historica/commit/21c6725fcb8be5668e3a4037dbef52ddb6f4382b))
+- **record** — name the paths, where the rest is unlooked at rather than unchanged ([`b9e90c0`](https://github.com/diaryx-org/historica/commit/b9e90c02d095345c5f079e61a32ffd37150e2d90))
 
 ### Fixed
 
@@ -267,6 +270,12 @@ error.
 Stores on read-only media are unaffected — every failure to write it is
 ignored — but a tool watching the store directory for changes will see it
 appear and be rewritten whenever `operations/` gains or loses a file.
+
+- `historica record` accepts paths, and with any named it
+  compares only those with the tree. With none, it surveys the whole folder
+  exactly as before. For callers of the library, `Recording` carries a new
+  `only` field and `record::survey` takes a `&Restriction` argument;
+  `Restriction::Everything` is what both meant until now.
 
 <!-- git-cliff:end -->
 
