@@ -843,6 +843,25 @@ Choices that constrain later work are written down as they are made.
   server does not already do. `check` on the source is the rule that cannot
   survive a URL, and what replaces it is stated rather than assumed. `export`
   and an archive stay the clone; this is the pull.
+- [`docs/decisions/0049-two-axes-for-a-rule.md`](docs/decisions/0049-two-axes-for-a-rule.md)
+  — 0042 called rules the exporter's and 0045 called them a fact about the
+  repository, and both cannot hold: `receive` unions them and `export` drops
+  them, so a copy reaches a collaborator without the `skip target/` that
+  would keep their build output out of it, while the privacy that buys is
+  undone by the first receive from an origin. So a rule has a second axis. A
+  `skip` rule travels and `private <path>` does not, spelled as a key rather
+  than a bit on a rule, because a bit has to merge and a key cannot disagree
+  with itself — and where both spellings cover one path, that is a
+  contradiction `check` names at error rather than a tie-break the union has
+  to invent. Travel being orthogonal makes the keys a cross product, so the
+  matching side is settled too: `skip-name <name>`, one path component in
+  which `*` matches any run of characters, subsumes `skip-suffix` and reaches
+  the `draft-*.md` that prefix and suffix together cannot. The danger in a
+  glob was never the star but the separator, and a value holding no `/` has
+  no dialect to quarrel over. Four keys, and the set closes. The ceiling is
+  stated outright: an export carries operation documents verbatim, so no rule
+  can filter recorded content without costing the copy its replica identity,
+  and `private` is a rule about a rule.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
