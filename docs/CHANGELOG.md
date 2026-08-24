@@ -76,6 +76,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **merge** — anchor to the next element in the traversal, tombstones included ([`03dae53`](https://github.com/diaryx-org/historica/commit/03dae53908009565eb5ccaefa36bf35981943fb6))
 - **cli** — merge joins the heads it was not told about ([`4c57101`](https://github.com/diaryx-org/historica/commit/4c57101685334f6a00c22e68a313b8c2ab3502d5))
 - **cli** — print a merge command that settles the path it says is claimed ([`57086c3`](https://github.com/diaryx-org/historica/commit/57086c3ce627b64ebaf8724e7d6e302ca6ded8c8))
+- **record** — a link nobody touched is a link nobody retargeted ([`2ab9962`](https://github.com/diaryx-org/historica/commit/2ab9962fdc831a975cfbc7b42fb7ae99b4598fb3))
 
 ### Changed
 
@@ -332,6 +333,17 @@ store that way and then ran the command.
 - A store marker of `historica-v5` is now read rather than
   refused. `historica-v6` is what a reader that knows less than this one says it
   cannot read.
+
+- A record that moves a file some `file:` link points at no
+  longer states a `link` line for that link. It previously restated the link
+  verbatim, as the now-dead path the folder still spelled, which silently turned
+  a reference into a string and left the link dangling after the next rename.
+  The revision is now smaller by that line, `status` and `record` no longer list
+  the link, and `update` afterwards rewrites the stale symlink to the target's
+  new path and prints it. A verbatim link whose target has since become tracked
+  likewise stays verbatim while its string is unchanged, as 0040 said it should.
+  A deliberate retarget, and the verbatim restatement owed when a record drops
+  the target, are unchanged.
 
 <!-- git-cliff:end -->
 
