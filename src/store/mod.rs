@@ -481,6 +481,11 @@ pub struct Store<F = Disk> {
     /// that is missing — so a lookup it cannot satisfy falls back to the
     /// directory, once, rather than reporting an absence.
     scanned: Cell<bool>,
+    /// The same, built by a pass over the directory rather than taken from
+    /// `cache/`. Filled when something needs an answer the cheap one cannot
+    /// give — an absence, or a writer asking what is already held — and
+    /// preferred over the cheap one from then on.
+    walked: OnceCell<Catalogue>,
     /// Whether the catalogue may come from `cache/`.
     ///
     /// False for `check` alone. Decision 0035 keeps that command away from
@@ -505,6 +510,14 @@ struct Read {
     resolutions: BTreeMap<RevisionId, ResolutionDocument>,
     /// Digests looked for and not found, so a miss is not re-read either.
     absent: BTreeSet<RevisionId>,
+    /// Which held documents forget which digest, as a full pass found them.
+    ///
+    /// A catalogue taken from `cache/` alone is believed about where a digest
+    /// is and checked by hashing; what it cannot be checked on is a
+    /// forgetting document nobody has read. So the pass that reads every
+    /// document — the one a miss already pays for — answers that question
+    /// itself from then on, and this is where it puts the answer.
+    forgetting: BTreeMap<RevisionId, Vec<RevisionId>>,
 }
 
 impl Read {
@@ -677,6 +690,7 @@ impl<F: Filesystem> Store<F> {
             root,
             documents,
             catalogue: OnceCell::new(),
+            walked: OnceCell::new(),
             read: RefCell::new(Read::default()),
             scanned: Cell::new(false),
             cached: true,
@@ -762,8 +776,22 @@ impl<F: Filesystem> Store<F> {
     /// Decision 0036 is the argument, and 0017 is where the same reasoning
     /// first applied to payloads.
     fn catalogue(&self) -> Result<&Catalogue, StoreError> {
+        if let Some(catalogue) = self.walked.get() {
+            return Ok(catalogue);
+        }
         if let Some(catalogue) = self.catalogue.get() {
             return Ok(catalogue);
+        }
+        // Decision 0036 believed a catalogue only after a walk proved the
+        // path set it names. A lookup does not need that proof: it names a
+        // path, and the reader hashes what it finds there before believing a
+        // byte of it, so a catalogue that is wrong about where a digest is
+        // costs the fallback every reader already has. The walk is what
+        // *absence* needs, and absence is what `scan` is for.
+        if self.cached
+            && let Some(catalogue) = catalogue::cached(&self.files, &self.root)
+        {
+            return Ok(self.catalogue.get_or_init(|| catalogue));
         }
         let (catalogue, parsed) = catalogue::read(&self.files, &self.root, self.cached)?;
         // Whatever cataloguing had to parse is already the answer to a
@@ -775,13 +803,34 @@ impl<F: Filesystem> Store<F> {
         Ok(self.catalogue.get_or_init(|| catalogue))
     }
 
+    /// Catalogue the directory, where the cheap catalogue could not answer.
+    ///
+    /// This is the pass decision 0036 describes: names first, and only the
+    /// files `cache/` cannot account for are read. It is what a `no` costs —
+    /// a digest not placed, a writer asking whether these bytes are held —
+    /// and it is cheaper than the scan behind it, which reads every document
+    /// in the directory. Once per store, since what it builds is kept.
+    fn upgrade(&self) -> Result<(), StoreError> {
+        if self.walked.get().is_some() {
+            return Ok(());
+        }
+        let (catalogue, parsed) = catalogue::read(&self.files, &self.root, self.cached)?;
+        self.read.borrow_mut().operations.extend(parsed);
+        let _ = self.walked.set(catalogue);
+        Ok(())
+    }
+
     /// The same, to write into.
     ///
     /// Catalogued first, so that a document inserted before anything read the
     /// directory is not lost when the directory is finally walked.
     fn catalogue_mut(&mut self) -> Result<&mut Catalogue, StoreError> {
-        self.catalogue()?;
-        Ok(self.catalogue.get_mut().expect("just catalogued"))
+        // A writer asks the directory, because a writer is about to add to
+        // it: the question is whether the store already holds these bytes,
+        // and `no` is what a catalogue taken from `cache/` cannot be
+        // believed about. Once per command rather than once per document.
+        self.upgrade()?;
+        Ok(self.walked.get_mut().expect("just catalogued"))
     }
 
     /// One file in `operations/`, read and hashed before it is believed.
@@ -848,6 +897,12 @@ impl<F: Filesystem> Store<F> {
         // requires, since a cache that turns a held document into a missing
         // one has changed an answer.
         if body.is_none() {
+            // The pass over the directory first: it reads only what `cache/`
+            // could not place, where the scan behind it reads everything.
+            self.upgrade()?;
+            body = self.filed_body(id)?;
+        }
+        if body.is_none() {
             self.scan()?;
             let read = self.read.borrow();
             if read.operations.contains_key(id) || read.resolutions.contains_key(id) {
@@ -895,6 +950,12 @@ impl<F: Filesystem> Store<F> {
                     read.absent.remove(&id);
                 }
             } else if let Ok(document) = OperationDocument::parse(&bytes) {
+                if let Some(target) = document.forgets {
+                    let standing = read.forgetting.entry(target).or_default();
+                    if !standing.contains(&id) {
+                        standing.push(id);
+                    }
+                }
                 read.operations.insert(id, document);
                 read.absent.remove(&id);
             }
@@ -928,6 +989,45 @@ impl<F: Filesystem> Store<F> {
         Ok(self.read.borrow().operations.get(id).cloned())
     }
 
+    /// The forgetting documents standing in for bytes this store still holds.
+    ///
+    /// Decision 0014 destroys the original when a forgetting document is
+    /// complied with, so holding those bytes — read, and hashed to the digest
+    /// asked for — is this store saying it has complied with none. Asking the
+    /// directory to confirm that would be a pass over it on every content
+    /// read, and a store holding an original beside a document that forgets
+    /// it is the state `check` reports as `Resurrected`.
+    fn stand_ins_beside(&self, named: &RevisionId) -> Result<Vec<OperationDocument>, StoreError> {
+        let mut documents = Vec::new();
+        for id in self.standing(named)? {
+            if let Some(document) = self.operation(&id)?
+                && document.forgets == Some(*named)
+            {
+                documents.push(document);
+            }
+        }
+        Ok(documents)
+    }
+
+    /// Which digests forget `target`, as this store already knows it.
+    ///
+    /// A pass over the directory has answered this for every digest at once
+    /// and is the better answer, because it was read rather than believed.
+    /// Where no pass has happened the catalogue's account stands, which is
+    /// decision 0036's one unread claim.
+    fn standing(&self, target: &RevisionId) -> Result<Vec<RevisionId>, StoreError> {
+        if self.scanned.get() {
+            return Ok(self
+                .read
+                .borrow()
+                .forgetting
+                .get(target)
+                .cloned()
+                .unwrap_or_default());
+        }
+        Ok(self.catalogue()?.forgetting(target).to_vec())
+    }
+
     /// Every held forgetting document standing in for `target`.
     ///
     /// Decision 0014: a revision's `edit` line still names the destroyed
@@ -935,7 +1035,18 @@ impl<F: Filesystem> Store<F> {
     /// says it `forgets` it. Which documents those are is what the catalogue
     /// holds and 0036 says why it may be believed.
     pub fn forgetting(&self, target: &RevisionId) -> Result<Vec<OperationDocument>, StoreError> {
-        let standing: Vec<RevisionId> = self.catalogue()?.forgetting(target).to_vec();
+        let mut standing = self.standing(target)?;
+        // *Nothing stands in for this* is the one answer a catalogue taken
+        // from `cache/` alone must not give. Where a digest is is a claim the
+        // reader checks by hashing what it finds; that a digest is forgotten
+        // by nothing is a claim about every other file in the directory, and
+        // only reading them says so. This is reached when a document or a
+        // payload was not found, which has already paid for that pass — and
+        // where it has not, an absence is worth one.
+        if standing.is_empty() && !self.scanned.get() {
+            self.upgrade()?;
+            standing = self.standing(target)?;
+        }
         let mut documents = Vec::new();
         for id in standing {
             // Read, hashed, parsed — and then asked again what it forgets.
@@ -962,7 +1073,17 @@ impl<F: Filesystem> Store<F> {
         named: &RevisionId,
     ) -> Result<Option<OperationDocument>, StoreError> {
         let held = self.operation(named)?;
-        let standing = self.forgetting(named)?;
+        // Decision 0014 destroys the original when a forgetting document is
+        // complied with, so holding those bytes — read, and hashed to the
+        // digest asked for — is this store saying it has complied with none.
+        // Asking the directory to confirm that would be a full pass on every
+        // content read, and `check` is where a store holding both at once is
+        // reported.
+        let standing = if held.is_some() {
+            self.stand_ins_beside(named)?
+        } else {
+            self.forgetting(named)?
+        };
         Ok(crate::format::stand_in(
             held.as_ref(),
             &standing.iter().collect::<Vec<_>>(),
@@ -1104,6 +1225,11 @@ impl<F: Filesystem> Store<F> {
     /// Catalogues the directory the first time it is asked and remembers the
     /// answer, so a command that never reads content never reads a payload.
     pub fn payloads(&self) -> Result<BTreeMap<RevisionId, PathBuf>, StoreError> {
+        // Every payload here, which is a question about the directory rather
+        // than about one digest: a catalogue taken from `cache/` is believed
+        // about where a digest is and never about what the whole of it holds,
+        // so this is one of the callers that pays for the pass.
+        self.upgrade()?;
         Ok(self
             .catalogue()?
             .iter()
@@ -1119,6 +1245,7 @@ impl<F: Filesystem> Store<F> {
     /// answer for them.
     fn forget_catalogue(&mut self) {
         self.catalogue.take();
+        self.walked.take();
         self.read.borrow_mut().clear();
     }
 
@@ -1714,9 +1841,14 @@ impl<F: Filesystem> Store<F> {
             }
             None => None,
         };
-        let forgetting = self
-            .forgetting(payload)
-            .map_err(MaterialiseError::unreadable)?;
+        // Its own bytes are here, so nothing here has redacted them: the
+        // directory is not asked to confirm an absence a hash already did.
+        let forgetting = if base.is_some() {
+            self.stand_ins_beside(payload)
+        } else {
+            self.forgetting(payload)
+        }
+        .map_err(MaterialiseError::unreadable)?;
         if base.is_none() && forgetting.is_empty() {
             // An empty payload is never named (decision 0017), so a named
             // payload with no bytes and no stand-in is one nothing delivered.
@@ -1866,6 +1998,10 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
+        // The walked catalogue, because what is asked here is whether the
+        // store already holds these bytes, and `no` is what a cheap one
+        // cannot say.
+        self.upgrade()?;
         if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }
@@ -1897,6 +2033,10 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
+        // The walked catalogue, because what is asked here is whether the
+        // store already holds these bytes, and `no` is what a cheap one
+        // cannot say.
+        self.upgrade()?;
         if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }
@@ -1937,6 +2077,10 @@ impl<F: Filesystem> Store<F> {
         name: &str,
     ) -> Result<RevisionId, StoreError> {
         let id = digest(bytes);
+        // The walked catalogue, because what is asked here is whether the
+        // store already holds these bytes, and `no` is what a cheap one
+        // cannot say.
+        self.upgrade()?;
         if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }

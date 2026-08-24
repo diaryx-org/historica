@@ -649,6 +649,7 @@ struct Stamped {
     ticks: Mutex<u64>,
     times: Mutex<BTreeMap<PathBuf, std::time::SystemTime>>,
     reads: Mutex<BTreeMap<PathBuf, usize>>,
+    listings: Mutex<BTreeMap<PathBuf, usize>>,
 }
 
 impl Stamped {
@@ -658,6 +659,7 @@ impl Stamped {
             ticks: Mutex::new(0),
             times: Mutex::new(BTreeMap::new()),
             reads: Mutex::new(BTreeMap::new()),
+            listings: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -669,6 +671,18 @@ impl Stamped {
             path.to_path_buf(),
             std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(*ticks),
         );
+    }
+
+    /// How many times a directory at or under `path` has been listed.
+    fn listings_under(&self, path: &str) -> usize {
+        let path = Path::new(ROOT).join(path);
+        self.listings
+            .lock()
+            .expect("the lock")
+            .iter()
+            .filter(|(listed, _)| listed.starts_with(&path))
+            .map(|(_, count)| count)
+            .sum()
     }
 
     /// How many times one path has been read.
@@ -707,6 +721,12 @@ impl Filesystem for Stamped {
         self.held.create_directory(path)
     }
     fn entries(&self, path: &Path) -> io::Result<Vec<Entry>> {
+        *self
+            .listings
+            .lock()
+            .expect("the lock")
+            .entry(path.to_path_buf())
+            .or_default() += 1;
         self.held.entries(path)
     }
     fn look(&self, path: &Path) -> io::Result<Option<Kind>> {
@@ -1008,4 +1028,69 @@ fn the_folder_updates_in_memory_too() {
         refused,
         Err(historica::update::UpdateError::Refused { .. })
     ));
+}
+
+/// A read places a digest without asking what the directory holds.
+///
+/// Decision 0036 believed a catalogue only once a walk had proved the set of
+/// paths it names is the set the directory holds, and every content command
+/// paid for that walk. A lookup does not need the proof: the catalogue says
+/// where to look, the reader hashes what it finds there, and a catalogue that
+/// is wrong costs the pass every reader already falls back to. So the walk is
+/// what an *absence* costs, and this is the presence.
+#[test]
+fn a_content_read_does_not_list_the_directory_the_catalogue_places_it_in() {
+    let files = Stamped::new();
+    files
+        .create_directory(Path::new(ROOT))
+        .expect("the working copy");
+    let mut store =
+        Store::init_on(files.clone(), Path::new(ROOT).join("history")).expect("a new store");
+    files
+        .write(&Path::new(ROOT).join("notes.md"), b"First thought.\n")
+        .expect("a journal");
+    let root = record_at(&files, &mut store, Vec::new(), "a journal");
+    files
+        .write(
+            &Path::new(ROOT).join("notes.md"),
+            b"First thought.\nSecond thought.\n",
+        )
+        .expect("a second thought");
+    let second = record_at(&files, &mut store, vec![root], "a second thought");
+    let file = *store
+        .tree(&second)
+        .expect("a tree")
+        .files()
+        .next()
+        .expect("the file")
+        .0;
+
+    // One read to bring `cache/` up to date with what recording wrote: the
+    // pass writes the catalogue before the documents it is about to add, so
+    // the first reader after a write is the one that pays for them.
+    let opened = Store::open_on(files.clone(), Path::new(ROOT).join("history")).expect("the store");
+    let first = opened.content(&second, &file).expect("the content");
+    drop(opened);
+
+    let listings = files.listings_under("history/operations");
+    let opened = Store::open_on(files.clone(), Path::new(ROOT).join("history")).expect("the store");
+    assert_eq!(
+        opened.content(&second, &file).expect("the content"),
+        first,
+        "the same file, read the cheap way"
+    );
+    assert_eq!(
+        files.listings_under("history/operations"),
+        listings,
+        "a read asked the directory what it holds"
+    );
+
+    // And a digest nothing places still costs the pass, because *not here* is
+    // the answer a catalogue may not give.
+    let absent = historica::format::digest(b"nothing wrote these bytes");
+    assert!(opened.operation(&absent).expect("a lookup").is_none());
+    assert!(
+        files.listings_under("history/operations") > listings,
+        "an absence was reported without reading the directory"
+    );
 }

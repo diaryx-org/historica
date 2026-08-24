@@ -83,6 +83,15 @@ pub(super) struct Catalogue {
     /// A duplicate resolves to the first path in walk order, which is sorted,
     /// so two replicas holding one store answer alike.
     at: BTreeMap<RevisionId, Located>,
+    /// The held catalogue, as its own bytes, for the reader that took it
+    /// without a pass over the directory.
+    ///
+    /// Parsing it whole is the cost this avoids: a store of fifteen hundred
+    /// revisions over thirty files has thirty-six thousand lines here, and a
+    /// command that wants one of them wanted one of them. The file is written
+    /// in digest order — [`write`] renders a map keyed by digest — so a line
+    /// is found by looking, and only that line is parsed.
+    held: Option<Held>,
     /// Which held documents forget which digest, by the digest forgotten.
     ///
     /// Decision 0014 makes a forgetting document the thing a reader consumes,
@@ -91,14 +100,84 @@ pub(super) struct Catalogue {
     forgetting: BTreeMap<RevisionId, Vec<RevisionId>>,
 }
 
+/// A held catalogue's text, and where each of its lines begins.
+///
+/// Sorted by digest, which is checked while the offsets are taken: a file
+/// somebody sorted differently is one this cannot binary-search, and it is
+/// dropped rather than searched wrongly — which costs the pass every reader
+/// already falls back to.
+#[derive(Debug, Clone)]
+struct Held {
+    text: String,
+    lines: Vec<u32>,
+}
+
+impl Held {
+    /// The line for this digest, if the file names it.
+    fn line(&self, id: &RevisionId) -> Option<&str> {
+        let wanted = id.to_string();
+        let mut low = 0usize;
+        let mut high = self.lines.len();
+        while low < high {
+            let middle = (low + high) / 2;
+            let line = self.at(middle);
+            match line.get(..wanted.len()).cmp(&Some(wanted.as_str())) {
+                std::cmp::Ordering::Less => low = middle + 1,
+                std::cmp::Ordering::Greater => high = middle,
+                std::cmp::Ordering::Equal => return Some(line),
+            }
+        }
+        None
+    }
+
+    /// One line, by position.
+    fn at(&self, index: usize) -> &str {
+        let start = self.lines[index] as usize;
+        let rest = &self.text[start..];
+        match rest.find('\n') {
+            Some(end) => &rest[..end],
+            None => rest,
+        }
+    }
+}
+
 impl Catalogue {
     /// Where the bytes with this digest are, if this store holds them.
-    pub(super) fn at(&self, id: &RevisionId) -> Option<&Located> {
-        self.at.get(id)
+    ///
+    /// Owned rather than borrowed because a held catalogue holds text: what
+    /// is returned is parsed out of one line at the moment it is asked for.
+    pub(super) fn at(&self, id: &RevisionId) -> Option<Located> {
+        if let Some(filed) = self.at.get(id) {
+            return Some(filed.clone());
+        }
+        let line = self.held.as_ref()?.line(id)?;
+        let (_, rest) = line.split_once(' ')?;
+        let (forgets, path) = rest.split_once(' ')?;
+        let forgets = match forgets {
+            "-" => None,
+            stated => Some(stated.parse::<RevisionId>().ok()?),
+        };
+        let path = PathBuf::from(path);
+        Some(Located {
+            document: claims(&path, &OPERATION_SUFFIXES),
+            path,
+            forgets,
+        })
     }
 
     /// Every digest catalogued, with where it is.
+    ///
+    /// Only ever asked of a catalogue a pass built. What the whole of a
+    /// directory holds is the one question a held catalogue is not believed
+    /// about — it is believed about where a digest is, and a reader checks
+    /// that by hashing — so a caller wanting all of them asks for the pass
+    /// first. [`Store::payloads`] is the caller, and the assertion is here so
+    /// that the next one cannot arrive quietly.
     pub(super) fn iter(&self) -> impl Iterator<Item = (&RevisionId, &Located)> {
+        debug_assert!(
+            self.held.is_none(),
+            "a held catalogue cannot say what the directory holds"
+        );
         self.at.iter()
     }
 
@@ -145,6 +224,82 @@ impl Catalogue {
             }
         }
     }
+}
+
+/// What `cache/` says, with nothing asked of the directory.
+///
+/// The pass below proves a held catalogue by walking the directory and
+/// comparing path sets, which is what makes it safe to believe about what
+/// forgets what. This asks for less and pays for less: it believes the file
+/// about *where a digest is*, which is a claim every reader already checks by
+/// hashing what it finds there, and about which documents forget which, which
+/// is the one claim the store cannot check without reading.
+///
+/// The difference between the two is a window rather than a hole. A digest
+/// this cannot place is not an absence — the caller falls back to the
+/// directory, once, exactly as it does for a catalogue that is missing — and
+/// a digest it places wrongly is caught by the hash. What it cannot see is a
+/// forgetting document that arrived after it was written *while the original
+/// it destroys is still here*, and complying with a forgetting document is
+/// what destroys the original: `forget` deletes those bytes, `receive`
+/// complies before it writes, and a store holding both at once is the state
+/// `check` reports as `Resurrected` — with `check` itself refusing every
+/// cached answer there is.
+pub(super) fn cached<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Option<Catalogue> {
+    let bytes = files
+        .read(&root.join(CACHE_DIR).join(CATALOGUE_FILE))
+        .ok()?;
+    let text = String::from_utf8(bytes).ok()?;
+    let mut rest = text.as_str();
+    let header = rest.split('\n').next()?;
+    if header != CATALOGUE_HEADER {
+        return None;
+    }
+    let mut lines: Vec<u32> = Vec::new();
+    let mut forgetting: BTreeMap<RevisionId, Vec<RevisionId>> = BTreeMap::new();
+    let mut at = header.len() + 1;
+    rest = rest.get(at..)?;
+    let mut previous: Option<(usize, usize)> = None;
+    for line in rest.split('\n') {
+        let start = at;
+        at += line.len() + 1;
+        if line.is_empty() {
+            continue;
+        }
+        // The digest, and then the field after it, which is `-` for all but
+        // the documents 0014 wrote. Nothing else on the line is looked at
+        // until somebody asks for it.
+        let (id, tail) = line.split_once(' ')?;
+        // Sorted, or not searchable. A file written by [`write`] is in digest
+        // order because it renders a map keyed by digest; one that is not was
+        // written by something else, and guessing at it would be worse than
+        // the pass this refuses in favour of.
+        if let Some((was, length)) = previous
+            && text.get(was..was + length)? >= id
+        {
+            return None;
+        }
+        previous = Some((start, id.len()));
+        if let Some((forgets, _)) = tail.split_once(' ')
+            && forgets != "-"
+        {
+            let target = forgets.parse::<RevisionId>().ok()?;
+            let named = id.parse::<RevisionId>().ok()?;
+            let standing = forgetting.entry(target).or_default();
+            if !standing.contains(&named) {
+                standing.push(named);
+            }
+        }
+        lines.push(u32::try_from(start).ok()?);
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    Some(Catalogue {
+        at: BTreeMap::new(),
+        forgetting,
+        held: Some(Held { text, lines }),
+    })
 }
 
 /// Catalogue `operations/`, taking what `cache/` already knows where it can.
