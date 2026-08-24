@@ -191,13 +191,28 @@ a little time and no information.
 ///
 /// A blocklist, and it will need adding to. The failure modes are not
 /// symmetrical: a name missing from it costs a payload, and a name on it that
-/// need not be costs a digest suffix on one filename.
-pub const PLATFORM_NAMES: [&str; 5] = [
+/// need not be costs a digest suffix on one filename — and, since `check`
+/// skips these names wherever it walks, one foreign file it will never
+/// mention. Still asymmetrical, so the list may lean long.
+///
+/// Decision 0044 gives the criterion an addition has to meet, so that the
+/// list grows by argument rather than by anecdote: **a name a program writes
+/// into every directory it touches, unprompted.** That is what `.DS_Store`
+/// and `._` have in common, and what a sync tool's once-per-root marker does
+/// not. `@eaDir` is a Synology NAS doing Finder's trick under another name.
+///
+/// The list is not gated by the platform it runs on. `naming` consults it to
+/// decide what a payload is *filed* as, so a gate would make one store put
+/// one payload at two paths depending on the machine that recorded it; and
+/// stores travel, so the folders a copy passes through are not ones the
+/// recorder knows. `Thumbs.db` on macOS has always been the same rule.
+pub const PLATFORM_NAMES: [&str; 6] = [
     ".DS_Store",
     "Thumbs.db",
     "desktop.ini",
     ".localized",
     ".directory",
+    "@eaDir",
 ];
 /// The prefix macOS puts on the file it writes beside every other file when a
 /// folder is copied to a drive that cannot hold a resource fork.
