@@ -84,6 +84,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **check** — note the work a rewrite did not reach ([`342ac5f`](https://github.com/diaryx-org/historica/commit/342ac5fd96aee7cb11d52f35e9abf7cbba504a7c))
 - **update** — lay a revision out in a directory that holds nothing ([`b2c6fb0`](https://github.com/diaryx-org/historica/commit/b2c6fb05b5988a956bbaa8bde33cf46e060adc31))
 - **store** — ask what a digest is, not which grammar you hoped for ([`ad8ac7e`](https://github.com/diaryx-org/historica/commit/ad8ac7ee98f68c63daa3f343596ecba775004a97))
+- **format** — a resolution can forget what it minted ([`cfc6763`](https://github.com/diaryx-org/historica/commit/cfc676320905b5e928672bb6694145c5df072505))
 
 ### Fixed
 
@@ -460,6 +461,25 @@ replayer's words rather than the merge walk's — "the document deletes `x`
 at position 1, where the parent holds `y`" where it used to describe the
 same fault as a walk that could not place an item. The finding, its
 severity and the exit code are unchanged.
+
+- `forget` redacts lines a merge minted, where it
+  refused before, and follows a forgotten line to the copy a resolution
+  made of it when the person moved that run while resolving. A store
+  redacted with an earlier version may still hold such a copy in
+  plaintext; forgetting the span again reaches it.
+
+- `ResolutionDocument::result` is `Option<RevisionId>`
+  and the struct gains `forgets`. A resolution this tool writes still
+  always states a result; a forgetting one must not.
+
+- `Forgotten::writes` holds `store::Body` rather than
+  `OperationDocument`, since a stand-in is written in the grammar of
+  what it stands in for. `ForgetError::MintedByResolution` is gone, the
+  refusal it named having become a capability.
+
+- `merge::Quoted` gains `text` and `dropped_by`, the
+  latter naming revisions that removed an item without quoting it, which
+  is how a resolution drops one.
 
 <!-- git-cliff:end -->
 
