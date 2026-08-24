@@ -11,7 +11,7 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use historica::format::Timestamp;
-use historica::record::survey;
+use historica::record::{Restriction, survey};
 use historica::store::{
     Forgetting, HEADER_FILE, MutableConflict, Name, STORE_DIR, Store, StoreError,
 };
@@ -62,7 +62,9 @@ reading a store
   skip                     the rules saying what history does not take
 
 writing a store
-  record [-m <message>]    record what the folder now says
+  record [<path>...] [-m <message>]
+                           record what the folder now says; with paths, only
+                           what those say, the rest being left unlooked at
          [--onto <target>] [--merge <target>] [--move <old>=<new>]
          [--at <file>=<path>] [--accept <path>] [--dry-run]
   amend [<target>]         rewrite the head as the folder now stands
@@ -598,7 +600,18 @@ fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // suggestion beside them is where the survey says it noticed.
     let parents = target::parents(&store, onto.as_deref(), &joining)?;
     let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
-    let surveyed = survey(&store, &working, &parents, &[], &[]).map_err(Failure::error)?;
+    // The whole folder: `status` says how the folder and the store differ, and
+    // a report of some of that difference is a report a person has to
+    // remember the shape of.
+    let surveyed = survey(
+        &store,
+        &working,
+        &parents,
+        &[],
+        &[],
+        &Restriction::Everything,
+    )
+    .map_err(Failure::error)?;
 
     printing(|out| render::status(out, &store, &parents, &surveyed))
 }

@@ -143,6 +143,20 @@ bytes. That last rule is the tool's rather than the format's, because a
 recorder is allowed signals a format may not use. Only a rename has to be
 stated, with `--move`, which performs it if the person has not.
 
+A record can be told to look at some of the folder rather than all of it —
+decision 0039, `record <path>...`, where a directory means the files under it.
+What it narrows is what is *observed*: the paths left out are compared with
+nothing, so nothing is recorded about them, they stay in the folder, and
+`status` goes on listing every one of them. That is the whole difference
+between this and an index, which holds a version of a file that is in neither
+the folder nor the history and records a state that never existed. A named
+path the folder no longer holds records the deletion, because absence is still
+a fact; a path nothing answers to is refused, and so is a `--move` with one end
+outside the restriction, since a restriction that spelled half a rename would
+record the other half as a file appearing out of nowhere. A merge takes no
+paths at all: 0032 has it state what every contested file is, and half of that
+is a revision meaning something other than what it says.
+
 The `fs` module is the folder itself, asked for rather than assumed. Everything
 that persists anything goes through `fs::Filesystem` — nine methods, no
 metadata beyond what a directory entry is, and nothing that follows a symbolic
@@ -619,6 +633,12 @@ Choices that constrain later work are written down as they are made.
   it (0032), and a line the store recorded as new is new even where a person
   would call it moved. With no target the folder is the right side, as in
   0037, and a line only the folder has is marked rather than attributed.
+- [`docs/decisions/0039-recording-some-of-the-folder.md`](docs/decisions/0039-recording-some-of-the-folder.md)
+  — `record <path>...`, which restricts what a record observes without
+  inventing the index 0011 refused: the unnamed paths are not compared with
+  anything, nothing is remembered past the command, and every fact recorded is
+  still one the folder stated. A restriction may not spell half a rename, and
+  a merge, which states what every contested file is, takes no paths at all.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

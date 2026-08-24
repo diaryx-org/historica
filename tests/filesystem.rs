@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use historica::core::RevisionId;
 use historica::format::{Mode, RevisionDocument, Version};
 use historica::fs::{Entry, Filesystem, Kind};
-use historica::record::{Clock as _, Platform, Recording, record};
+use historica::record::{Clock as _, Platform, Recording, Restriction, record};
 use historica::store::{Name, Severity, Store};
 use historica::working::{Skipped, Working};
 
@@ -228,6 +228,7 @@ fn record_folder(
             moves: Vec::new(),
             at: Vec::new(),
             accepted: BTreeSet::new(),
+            only: Restriction::Everything,
         },
         &mut platform,
     )

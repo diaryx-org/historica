@@ -138,7 +138,11 @@ impl Skipped {
     }
 
     /// Whether a directory is skipped whole, so that walking it is pointless.
-    fn skips_directory(&self, path: &str) -> bool {
+    ///
+    /// Public because a path a person typed may name the directory rather than
+    /// a file in it, and a command that could not tell "no such path" from
+    /// "a rule keeps that path out" would say the wrong one of the two.
+    pub fn skips_directory(&self, path: &str) -> bool {
         self.rules.iter().any(|rule| match rule {
             Rule::Under(prefix) | Rule::Path(prefix) => path == prefix,
             Rule::Suffix(_) => false,

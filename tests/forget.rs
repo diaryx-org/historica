@@ -12,7 +12,7 @@ use std::process::{Command, Output};
 
 use historica::core::RevisionId;
 use historica::format::{OperationDocument, stand_in};
-use historica::record::{Clock as _, Platform, Recording, record};
+use historica::record::{Clock as _, Platform, Recording, Restriction, record};
 use historica::store::{Finding, Forgetting, Store};
 use historica::working::Working;
 
@@ -187,6 +187,7 @@ fn record_folder(
             moves: Vec::new(),
             at: Vec::new(),
             accepted: BTreeSet::new(),
+            only: Restriction::Everything,
         },
         &mut platform,
     )

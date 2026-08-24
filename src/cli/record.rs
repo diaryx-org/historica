@@ -11,9 +11,9 @@ use historica::core::{FileId, RevisionId};
 use historica::format::{self, Mode};
 use historica::fs::{Disk, Filesystem as _};
 use historica::record::{
-    Abandoning, Amendment, Clock, Platform, Recording, abandon as abandon_revision,
-    abandonment_plan, amend as amend_revision, amendment_plan, identity, plan as plan_for,
-    record as record_revision,
+    Abandoning, Amendment, Clock, Platform, Recording, Restriction, abandon as abandon_revision,
+    abandonment_plan, amend as amend_revision, amendment_plan, check_restriction, identity,
+    plan as plan_for, record as record_revision,
 };
 use historica::store::Store;
 use historica::tree::{Kind, TreeContest};
@@ -21,7 +21,13 @@ use historica::working::Working;
 
 use super::{Failure, printing, render, target};
 
-/// `record [-m <message>] [--onto <target>] [--move <old>=<new>] [--dry-run]`.
+/// `record [<path>...] [-m <message>] [--onto <target>] [--move <old>=<new>]
+/// [--dry-run]`.
+///
+/// A path narrows what is surveyed and nothing else: the files left out are
+/// not compared with the tree, so this records an observed state as much as
+/// the unrestricted command does. There is still no index — nothing here is
+/// remembered past the end of the command.
 pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut message: Option<String> = None;
     let mut onto: Option<String> = None;
@@ -32,6 +38,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     // spelling that can be parsed on its own.
     let mut at: Vec<(String, String)> = Vec::new();
     let mut accepted: BTreeSet<String> = BTreeSet::new();
+    let mut named: BTreeSet<String> = BTreeSet::new();
     let mut dry_run = false;
 
     let mut arguments = arguments.into_iter();
@@ -63,13 +70,31 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                 moves.push((format::nfc(from).into_owned(), format::nfc(to).into_owned()));
             }
             "-n" | "--dry-run" => dry_run = true,
-            other => {
+            other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `record` takes"
                 )));
             }
+            // A path, relative to the repository, spelled as `--move` and
+            // `--at` already spell one. A trailing slash is the way a person
+            // says directory and their shell says it for them.
+            other => {
+                let path = format::nfc(other.trim_end_matches('/')).into_owned();
+                if path.is_empty() {
+                    return Err(Failure::usage(
+                        "`record` takes the paths to record, and an empty one \
+                         names nothing",
+                    ));
+                }
+                named.insert(path);
+            }
         }
     }
+    let only = if named.is_empty() {
+        Restriction::Everything
+    } else {
+        Restriction::Paths(named)
+    };
 
     let mut store = Store::open(&root)?;
     let repository = root
@@ -87,13 +112,6 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     // so `status` derives the same position this does.
     let parents = target::parents(&store, onto.as_deref(), &joining)?;
 
-    for (from, to) in &moves {
-        perform(&repository, from, to)?;
-    }
-
-    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
-    let mut platform = Platform;
-
     let recording = |author: String, when, message| Recording {
         parents: parents.clone(),
         author,
@@ -102,7 +120,21 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         moves: moves.clone(),
         at: at.clone(),
         accepted: accepted.clone(),
+        only: only.clone(),
     };
+
+    // What a restriction refuses outright, asked before the rename below
+    // rearranges the folder: a refusal that had moved a file on its way to
+    // saying no is a refusal that did something.
+    check_restriction(&recording(String::new(), placeholder(), String::new()))
+        .map_err(Failure::error)?;
+
+    for (from, to) in &moves {
+        perform(&repository, from, to)?;
+    }
+
+    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+    let mut platform = Platform;
 
     if dry_run {
         let asked = recording(String::new(), placeholder(), String::new());

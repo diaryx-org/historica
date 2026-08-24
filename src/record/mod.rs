@@ -226,6 +226,60 @@ impl Plan {
     }
 }
 
+/// Which paths a survey looks at.
+///
+/// Decision 0011 compares the whole folder with the tree, and that stays what
+/// naming nothing means. Naming paths narrows what is *observed*: the paths
+/// left out are not compared with anything, so nothing is recorded about them
+/// and the next survey that does look sees whatever they hold. This is not an
+/// index — there is nothing to remember between commands, because a
+/// restriction is one argument list and lives exactly as long as it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Restriction {
+    /// Every tracked path, which is `record` with no paths named.
+    #[default]
+    Everything,
+    /// Only these paths, and everything beneath any that is a directory.
+    Paths(BTreeSet<String>),
+}
+
+impl Restriction {
+    /// Whether this looks at the whole folder.
+    pub fn is_everything(&self) -> bool {
+        matches!(self, Restriction::Everything)
+    }
+
+    /// Whether a path is one of the ones being looked at.
+    ///
+    /// A named directory covers everything beneath it, which is the rule
+    /// `skipped.txt` spells with a trailing slash. There are no directories in
+    /// this format — 0008 — so naming one can only mean the files under it.
+    pub fn covers(&self, path: &str) -> bool {
+        match self {
+            Restriction::Everything => true,
+            Restriction::Paths(paths) => paths.iter().any(|named| beneath(named, path)),
+        }
+    }
+
+    /// Every path named, and nothing at all where the whole folder is meant.
+    pub fn paths(&self) -> impl Iterator<Item = &String> {
+        match self {
+            Restriction::Everything => None,
+            Restriction::Paths(paths) => Some(paths),
+        }
+        .into_iter()
+        .flatten()
+    }
+}
+
+/// Whether `path` is `named` or sits under it.
+fn beneath(named: &str, path: &str) -> bool {
+    path == named
+        || path
+            .strip_prefix(named)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// What a person supplies, beside the folder itself.
 #[derive(Debug, Clone)]
 pub struct Recording {
@@ -247,6 +301,8 @@ pub struct Recording {
     pub at: Vec<(FileId, String)>,
     /// Contested byte payloads a person explicitly accepts from the folder.
     pub accepted: BTreeSet<String>,
+    /// Which paths to look at, where a person named some.
+    pub only: Restriction,
 }
 
 /// What a person supplies to rewrite a revision.
@@ -325,20 +381,60 @@ pub struct Recorded {
     pub advanced: Vec<String>,
 }
 
+/// What a restriction refuses, before the folder is read.
+///
+/// Both refusals are here rather than only inside the survey, because a front
+/// end performs a stated rename before it walks the folder, and a refusal that
+/// waited for the survey would arrive after the folder had been rearranged.
+pub fn check_restriction(recording: &Recording) -> Result<(), RecordError> {
+    restricted(&recording.parents, &recording.moves, &recording.only)
+}
+
+fn restricted(
+    parents: &[RevisionId],
+    moves: &[(String, String)],
+    only: &Restriction,
+) -> Result<(), RecordError> {
+    if only.is_everything() {
+        return Ok(());
+    }
+    // Decision 0032: a merge states what each contested file is, all of them,
+    // in the one revision that joins the work. Half of that is not a smaller
+    // merge, it is a merge that lies about the files it left out.
+    if parents.len() > 1 {
+        return Err(RecordError::PartialMerge {
+            paths: only.paths().cloned().collect(),
+        });
+    }
+    // A restriction that spelled one end of a rename would record the other
+    // end as a deletion, or as a file arriving from nowhere.
+    for (from, to) in moves {
+        if !only.covers(from) || !only.covers(to) {
+            return Err(RecordError::HalfARename {
+                from: from.clone(),
+                to: to.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// Work out what the folder says, without minting or writing anything.
 ///
 /// The primitive decision 0015 makes this: everything expensive happens here,
 /// and both `status` and `record` read the result rather than computing their
-/// own. What a person stated — the parents, the renames, and where a contested
-/// file goes — is passed in, because those are the three things that cannot be
-/// observed.
+/// own. What a person stated — the parents, the renames, where a contested
+/// file goes, and which paths to look at — is passed in, because those are the
+/// things that cannot be observed.
 pub fn survey<F: Filesystem>(
     store: &Store<F>,
     working: &Working<F>,
     parents: &[RevisionId],
     moves: &[(String, String)],
     at: &[(FileId, String)],
+    only: &Restriction,
 ) -> Result<Survey, RecordError> {
+    restricted(parents, moves, only)?;
     let joining = parents.len() > 1;
     let (tree, contested) = if parents.is_empty() {
         (Tree::empty(), Vec::new())
@@ -388,6 +484,33 @@ pub fn survey<F: Filesystem>(
         return Err(RecordError::SkipsTracked { paths: covered });
     }
 
+    // A named path nothing answers to. Asked of the folder, of the tree, and
+    // of where the stated renames put things, so that `--move a=b` with both
+    // named finds `a` in the tree and `b` in the folder — and a path a rule
+    // keeps out is told apart from a path nobody has, because the two have
+    // different fixes.
+    let mut absent: Vec<String> = Vec::new();
+    let mut kept_out: Vec<String> = Vec::new();
+    for named in only.paths() {
+        let known = working.iter().any(|(path, _)| beneath(named, path))
+            || tree.files().any(|(_, path)| beneath(named, path))
+            || placed.values().any(|path| beneath(named, path));
+        if known {
+            continue;
+        }
+        if skipped.skips(named) || skipped.skips_directory(named) {
+            kept_out.push(named.clone());
+        } else {
+            absent.push(named.clone());
+        }
+    }
+    if !kept_out.is_empty() {
+        return Err(RecordError::NamedButSkipped { paths: kept_out });
+    }
+    if !absent.is_empty() {
+        return Err(RecordError::NothingAtPath { paths: absent });
+    }
+
     // A path two files claim is not a name for either of them. 0008 lets a
     // merge produce this and 0012's `--at` is how a person settles it; until
     // they have, it is reported rather than resolved to whichever a map kept.
@@ -399,12 +522,17 @@ pub fn survey<F: Filesystem>(
     let mut unsettled: BTreeMap<String, Vec<FileId>> = BTreeMap::new();
     for (path, files) in claimants {
         match files.as_slice() {
-            [only] => {
-                held.insert(path.to_owned(), *only);
+            [one] => {
+                held.insert(path.to_owned(), *one);
             }
-            several => {
+            // A path nobody is looking at is a contest nobody has to settle
+            // yet: `plan` refuses on this list, and refusing over a file this
+            // record was never going to state would be the restriction
+            // failing to restrict.
+            several if only.covers(path) => {
                 unsettled.insert(path.to_owned(), several.to_vec());
             }
+            _ => {}
         }
     }
 
@@ -413,7 +541,15 @@ pub fn survey<F: Filesystem>(
         contested,
         unsettled,
         parents: parents.to_vec(),
-        refused: working.refused().to_vec(),
+        // A file the format cannot take stops a record, so a restriction that
+        // did not narrow this would let a symlink in a corner of the folder
+        // refuse a record about one file elsewhere.
+        refused: working
+            .refused()
+            .iter()
+            .filter(|(path, _)| only.covers(path))
+            .cloned()
+            .collect(),
         ..Survey::default()
     };
 
@@ -424,6 +560,11 @@ pub fn survey<F: Filesystem>(
     // A path in the folder is either a file the tree already holds, or a file
     // nobody has recorded yet, which recording mints an identifier for.
     for (path, _) in working.iter() {
+        // A path outside the restriction is not compared with anything, which
+        // is what leaves it exactly as unrecorded as it was.
+        if !only.covers(path) {
+            continue;
+        }
         if survey.unsettled.contains_key(path.as_str()) {
             continue;
         }
@@ -564,6 +705,9 @@ pub fn survey<F: Filesystem>(
     // A file the tree holds and the folder does not is gone, which is a fact
     // rather than a guess — decision 0011's reason for having no `--drop`.
     for (file, path) in &placed {
+        if !only.covers(path) {
+            continue;
+        }
         if !working.holds(path) {
             survey.dropped.insert(*file, path.clone());
             survey.moved.remove(file);
@@ -728,6 +872,7 @@ fn plan_with<F: Filesystem>(
         &recording.parents,
         &recording.moves,
         &recording.at,
+        &recording.only,
     )?;
 
     // Three things the survey reports and recording refuses. Decision 0015
@@ -1123,6 +1268,10 @@ fn rewriting<F: Filesystem>(
         moves: amendment.moves.clone(),
         at,
         accepted: BTreeSet::new(),
+        // Decision 0023: an amendment restates the whole of what its
+        // predecessor said, so there is no half of the folder it could be
+        // asked about.
+        only: Restriction::Everything,
     };
     Ok((previous, recording, kept))
 }
@@ -1499,6 +1648,32 @@ pub enum RecordError {
         /// Each tracked path a rule covers.
         paths: Vec<String>,
     },
+    /// A named path neither the folder nor the history holds.
+    NothingAtPath {
+        /// Every path nothing answers to.
+        paths: Vec<String>,
+    },
+    /// A named path a `skip` rule covers.
+    ///
+    /// Naming a path says which of the observable files to observe, and a
+    /// skipped file is not one of them. Decision 0011: what history takes is
+    /// the repository's rule rather than one command line's.
+    NamedButSkipped {
+        /// Every named path a rule covers.
+        paths: Vec<String>,
+    },
+    /// A merge restricted to some of the files it joins.
+    PartialMerge {
+        /// The paths that were named.
+        paths: Vec<String>,
+    },
+    /// A stated rename with one end outside the paths being surveyed.
+    HalfARename {
+        /// Where the file was.
+        from: String,
+        /// Where it is now.
+        to: String,
+    },
     /// A `--move` naming a path the tree does not hold.
     NotInTheTree {
         /// The path as given.
@@ -1720,6 +1895,59 @@ impl fmt::Display for RecordError {
                     .iter()
                     .map(|path| format!("\n  {path}"))
                     .collect::<String>()
+            ),
+            RecordError::NothingAtPath { paths } => write!(
+                f,
+                "{} neither in the folder nor in this history, so there is \
+                 nothing there to observe; check the spelling, or name no \
+                 paths at all and record everything the folder says:{}",
+                if paths.len() == 1 {
+                    "this path is"
+                } else {
+                    "these paths are"
+                },
+                paths
+                    .iter()
+                    .map(|path| format!("\n  {path}"))
+                    .collect::<String>()
+            ),
+            RecordError::NamedButSkipped { paths } => write!(
+                f,
+                "`{}/{}` says history does not take {}, and naming {} here \
+                 does not make {} an exception; remove the rule if {} to be \
+                 recorded:{}",
+                crate::store::STORE_DIR,
+                crate::working::SKIPPED_FILE,
+                if paths.len() == 1 { "this" } else { "these" },
+                if paths.len() == 1 { "it" } else { "them" },
+                if paths.len() == 1 { "it" } else { "them" },
+                if paths.len() == 1 {
+                    "it is"
+                } else {
+                    "they are"
+                },
+                paths
+                    .iter()
+                    .map(|path| format!("\n  {path}"))
+                    .collect::<String>()
+            ),
+            RecordError::PartialMerge { paths } => write!(
+                f,
+                "a merge states what every contested file is, and a merge of \
+                 some of them would leave the rest joined and unstated; record \
+                 the merge with no paths named, and restrict the record after \
+                 it:{}",
+                paths
+                    .iter()
+                    .map(|path| format!("\n  {path}"))
+                    .collect::<String>()
+            ),
+            RecordError::HalfARename { from, to } => write!(
+                f,
+                "`{from}` and `{to}` are one rename, and only one of them is \
+                 among the paths this would record, which would spell the \
+                 other end as a file appearing or disappearing; name both \
+                 `{from}` and `{to}`, or record with no paths named"
             ),
             RecordError::NotInTheTree { path } => write!(
                 f,

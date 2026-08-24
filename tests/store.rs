@@ -755,7 +755,7 @@ fn record_folder(
     parents: Vec<RevisionId>,
     message: &str,
 ) -> historica::record::Recorded {
-    use historica::record::{Clock as _, Platform, Recording, record};
+    use historica::record::{Clock as _, Platform, Recording, Restriction, record};
     use historica::working::Working;
 
     let mut platform = Platform;
@@ -771,6 +771,7 @@ fn record_folder(
             moves: Vec::new(),
             at: Vec::new(),
             accepted: BTreeSet::new(),
+            only: Restriction::Everything,
         },
         &mut platform,
     )

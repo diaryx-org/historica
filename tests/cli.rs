@@ -1781,6 +1781,184 @@ fn a_rename_is_stated_and_performed() {
 }
 
 #[test]
+fn naming_paths_records_those_and_leaves_the_rest_unlooked_at() {
+    let directory = repository("record-paths");
+    write(&directory, "a.md", "one\n");
+    write(&directory, "b.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+
+    write(&directory, "a.md", "one\ntwo\n");
+    write(&directory, "b.md", "one\ntwo\n");
+    write(&directory, "c.md", "arrived\n");
+
+    let planned = out(recorded(
+        &directory,
+        &["record", "a.md", "c.md", "--dry-run"],
+    ));
+    assert_eq!(
+        planned, "added   c.md\nedited  a.md\n",
+        "only what was named is compared with the tree"
+    );
+
+    let restricted = out(recorded(
+        &directory,
+        &["record", "a.md", "c.md", "-m", "The two I meant"],
+    ));
+    assert!(restricted.contains("added   c.md"), "{restricted}");
+    assert!(restricted.contains("edited  a.md"), "{restricted}");
+    assert!(!restricted.contains("b.md"), "{restricted}");
+
+    // Nothing was said about `b.md`, so history still holds what it held and
+    // the folder still holds what a person wrote — which is what `status`
+    // says, and what the next record with nothing named takes.
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "b.md"])),
+        "one\n",
+        "an unnamed file is not recorded, and not touched either"
+    );
+    let after = out(recorded(&directory, &["status"]));
+    assert!(after.contains("edited  b.md"), "{after}");
+    let rest = out(recorded(&directory, &["record", "-m", "And the rest"]));
+    assert!(rest.contains("edited  b.md"), "{rest}");
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "b.md"])),
+        "one\ntwo\n"
+    );
+    assert!(out(recorded(&directory, &["check"])).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn a_named_path_the_folder_no_longer_holds_is_a_deletion_observed() {
+    let directory = repository("record-paths-dropped");
+    write(&directory, "a.md", "one\n");
+    write(&directory, "docs/b.md", "one\n");
+    write(&directory, "docs/c.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+
+    // A path in the tree and not in the folder: absence is a fact, and it is
+    // one of the facts a person may name.
+    fs::remove_file(directory.join("docs/b.md")).expect("removing a file");
+    write(&directory, "a.md", "one\ntwo\n");
+    let dropped = out(recorded(&directory, &["record", "docs/b.md", "-m", "Gone"]));
+    assert_eq!(
+        dropped.lines().next(),
+        Some("dropped docs/b.md"),
+        "{dropped}"
+    );
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "a.md"])),
+        "one\n",
+        "the edit nobody named is still unrecorded"
+    );
+
+    // A directory names everything under it, there being no directories in
+    // this format for it to name instead.
+    write(&directory, "docs/c.md", "one\ntwo\n");
+    write(&directory, "docs/d.md", "arrived\n");
+    let under = out(recorded(&directory, &["record", "docs", "-m", "The docs"]));
+    assert!(under.contains("edited  docs/c.md"), "{under}");
+    assert!(under.contains("added   docs/d.md"), "{under}");
+    assert!(!under.contains("a.md"), "{under}");
+}
+
+#[test]
+fn a_restriction_may_not_spell_half_a_rename() {
+    let directory = repository("record-paths-move");
+    write(&directory, "notes.md", "one\n");
+    write(&directory, "other.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+
+    let refused_move = refused(
+        &directory,
+        &[
+            "record",
+            "other.md",
+            "--move",
+            "notes.md=docs/notes.md",
+            "-m",
+            "File it",
+        ],
+    );
+    assert!(refused_move.contains("notes.md"), "{refused_move}");
+    assert!(refused_move.contains("docs/notes.md"), "{refused_move}");
+    // And it refused before it rearranged anything: `--move` performs the
+    // rename, so a refusal that arrived afterwards would have left the folder
+    // holding a move nobody recorded.
+    assert!(
+        directory.join("notes.md").is_file() && !directory.join("docs/notes.md").exists(),
+        "the folder is where it was"
+    );
+
+    // Both ends named is an ordinary rename.
+    let moved = out(recorded(
+        &directory,
+        &[
+            "record",
+            "notes.md",
+            "docs/notes.md",
+            "--move",
+            "notes.md=docs/notes.md",
+            "-m",
+            "File it",
+        ],
+    ));
+    assert!(moved.contains("moved   docs/notes.md"), "{moved}");
+    assert!(directory.join("docs/notes.md").is_file());
+}
+
+#[test]
+fn a_merge_states_every_contested_file_or_is_not_recorded() {
+    let (directory, mine, theirs) = diverged("record-paths-merge", "one\nMINE\n", "one\nTHEIRS\n");
+    out(recorded(&directory, &["merge", &mine, &theirs]));
+    write(&directory, "f.md", "one\nBOTH\n");
+
+    let refused_merge = refused(
+        &directory,
+        &[
+            "record", "f.md", "--merge", &mine, "--merge", &theirs, "-m", "Join",
+        ],
+    );
+    assert!(
+        refused_merge.contains("every contested file"),
+        "{refused_merge}"
+    );
+    assert!(refused_merge.contains("no paths named"), "{refused_merge}");
+
+    // The whole merge is still there to record.
+    let joined = out(recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+    assert!(joined.contains("this joins 2 lines of work"), "{joined}");
+}
+
+#[test]
+fn a_path_nothing_answers_to_is_refused_by_name() {
+    let directory = repository("record-paths-unknown");
+    write(&directory, "a.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+
+    write(&directory, "a.md", "one\ntwo\n");
+    let unknown = refused(&directory, &["record", "nowhere.md", "-m", "x"]);
+    assert!(unknown.contains("nowhere.md"), "{unknown}");
+    assert!(
+        unknown.contains("neither in the folder nor in this history"),
+        "{unknown}"
+    );
+
+    // A path a rule keeps out is told apart from a path nobody has, because
+    // the two have different fixes.
+    out(recorded(&directory, &["skip", "notes.tmp"]));
+    write(&directory, "notes.tmp", "scratch\n");
+    let skipped = refused(&directory, &["record", "notes.tmp", "-m", "x"]);
+    assert!(skipped.contains("skipped.txt"), "{skipped}");
+    assert!(skipped.contains("notes.tmp"), "{skipped}");
+
+    // Neither refusal recorded anything on its way past the file that changed.
+    assert_eq!(out(recorded(&directory, &["cat", "head", "a.md"])), "one\n");
+}
+
+#[test]
 fn a_bookmark_follows_the_work_forward() {
     let directory = repository("record-bookmark");
     write(&directory, "a.md", "one\n");
