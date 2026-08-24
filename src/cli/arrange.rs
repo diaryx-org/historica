@@ -8,23 +8,28 @@
 //! `--dry-run` asks for the plan and prints it. Without it the plan is carried
 //! out and what is printed is what happened, which is the same pairing `prune`
 //! has.
+//!
+//! `--refile` is decision 0041's month, applied to revision documents a person
+//! filed somewhere of their own. Without it those stay where they are, which
+//! is what `arrange` has always promised them; with it a flat store becomes a
+//! filed one, which is the only reason the flag exists.
 
 use std::io::{self, Write as _};
 use std::path::Path;
 
-use historica::store::{Arrangement, Filed, Store, Tally};
+use historica::store::{Arrangement, Filed, Placement, Store, Tally};
 
 use super::Failure;
 
 /// Rename every document to its arranged name.
-pub fn arrange(root: &Path, dry_run: bool) -> Result<u8, Failure> {
+pub fn arrange(root: &Path, dry_run: bool, placement: Placement) -> Result<u8, Failure> {
     // Opening first means a store that does not parse is refused before
     // anything is renamed, and refused in the parser's own words.
     let mut store = Store::open(root)?;
     let done = if dry_run {
-        store.arrangement()
+        store.arrangement(placement)
     } else {
-        store.arrange()
+        store.arrange(placement)
     }
     .map_err(Failure::error)?;
 

@@ -24,7 +24,7 @@ use historica::core::{FileId, RevisionId};
 use historica::format::{LinkTarget, Mode, RevisionDocument, Version};
 use historica::fs::{Entry, Filesystem, Kind};
 use historica::record::{Clock as _, Platform, Recording, Restriction, record};
-use historica::store::{Name, Severity, Store};
+use historica::store::{Name, Placement, Severity, Store};
 use historica::working::{Skipped, Working};
 
 // ---------------------------------------------------------------------------
@@ -400,7 +400,7 @@ fn arranging_gives_a_folder_readable_names_without_a_folder() {
 
     // Recording already writes readable names — decision 0019 — so a store
     // this tool wrote has nothing to arrange, and that is the first claim.
-    let settled = store.arrangement().expect("a plan");
+    let settled = store.arrangement(Placement::Kept).expect("a plan");
     assert!(
         settled.is_empty(),
         "a store written by `record` is already arranged: {:?}",
@@ -431,14 +431,14 @@ fn arranging_gives_a_folder_readable_names_without_a_folder() {
     }
 
     let mut store = Store::open_on(memory.clone(), store.root()).expect("reopening the flat store");
-    let plan = store.arrangement().expect("a plan");
+    let plan = store.arrangement(Placement::Kept).expect("a plan");
     assert_eq!(
         plan.renames.len(),
         scattered.len(),
         "every flattened file should have somewhere to go"
     );
 
-    let done = store.arrange().expect("arranging");
+    let done = store.arrange(Placement::Kept).expect("arranging");
     assert_eq!(done.renames, plan.renames, "the plan is what was done");
 
     // Decision 0018: the name of a thing is the path, as directories. The
@@ -465,8 +465,16 @@ fn arranging_gives_a_folder_readable_names_without_a_folder() {
     );
     drop(held);
 
-    // And arranging an arranged store moves nothing, in memory as on disk.
-    assert!(store.arrange().expect("again").is_empty());
+    // And arranging an arranged store moves nothing, in memory as on disk —
+    // under either placement, since `operations/` is filed the same way by
+    // both and the revisions here never left their month.
+    assert!(store.arrange(Placement::Kept).expect("again").is_empty());
+    assert!(
+        store
+            .arrange(Placement::Refiled)
+            .expect("and refiling")
+            .is_empty()
+    );
 }
 
 // ---------------------------------------------------------------------------

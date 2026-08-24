@@ -67,7 +67,7 @@ mod forget;
 mod prune;
 mod receive;
 
-pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Rename, Tally};
+pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Placement, Rename, Tally};
 use catalogue::Catalogue;
 pub use check::{Finding, Report, Severity};
 pub use export::{ExportError, ExportPlan, Exported};

@@ -1362,8 +1362,22 @@ fn a_store_is_written_readable_and_arrange_has_nothing_to_do() {
     }
 
     assert_eq!(stdout(&directory, &["cat", "head", "notes/a.md"]), "two\n");
+    let untouched = walk_names(&directory.join("history"));
     let done = stdout(&directory, &["arrange"]);
     assert!(done.contains("0 renamed, 2 already arranged"), "{done}");
+    // And `--refile` has nothing to do either: a writer-fresh store is
+    // already where refiling would put it, so the migration is a no-op on
+    // everything that never needed migrating.
+    let refiled = stdout(&directory, &["arrange", "--refile"]);
+    assert!(
+        refiled.contains("0 renamed, 2 already arranged"),
+        "{refiled}"
+    );
+    assert_eq!(
+        walk_names(&directory.join("history")),
+        untouched,
+        "neither placement moved a file the writer had already placed"
+    );
     assert!(
         stdout(&directory, &["check"]).ends_with("nothing to report\n"),
         "a store nobody arranged is an ordinary store"
@@ -1392,14 +1406,76 @@ fn arranging_is_the_same_wherever_it_is_done() {
         walk_names(&two.join("history")),
         "two replicas disagreed about a name"
     );
+
+    // And again with the placement that moves things, since a rule about two
+    // replicas is a rule about what one command produces from one input.
+    out(recorded(&one, &["arrange", "--refile"]));
+    out(recorded(&two, &["arrange", "--refile"]));
+    assert_eq!(
+        walk_names(&one.join("history")),
+        walk_names(&two.join("history")),
+        "two replicas disagreed about where a name goes"
+    );
 }
 
 #[test]
-fn arrange_files_a_flat_store_and_then_has_nothing_left_to_do() {
-    // Decision 0041's migration, which is the reason it needed no new command:
-    // a store written flat — by an older version, by another tool, or by hand
-    // — is one `arrange` away from the layout this version writes, and a
-    // second `arrange` moves nothing.
+fn a_collision_suffix_is_the_same_whichever_placement_arranged_it() {
+    // Decision 0006's hard rule reaches both placements. A suffix is derived
+    // from the documents — the change ID, then the digest — so it cannot
+    // depend on the directory the file was going to land in, and two stores
+    // of one history arranged the two ways differ by a month directory and by
+    // nothing else at all.
+    let kept = repository("arrange-collide-kept");
+    write(&kept, "notes/a.md", "one\n");
+    out(recorded(&kept, &["record", "-m", "Notes"]));
+    write(&kept, "notes/a.md", "two\n");
+    out(recorded(&kept, &["record", "-m", "Notes"]));
+
+    // Flat to start with, so both placements have something to do.
+    flatten(&kept.join("history"));
+    let refiled = scratch("arrange-collide-refiled");
+    copy_tree(&kept.join("history"), &refiled.join("history"));
+
+    out(recorded(&kept, &["arrange"]));
+    out(recorded(&refiled, &["arrange", "--refile"]));
+
+    let here = walk_names(&kept.join("history/revisions"));
+    let there = walk_names(&refiled.join("history/revisions"));
+    assert_eq!(here.len(), 2, "{here:?}");
+    assert!(
+        here.iter().all(|name| name.contains("Notes ")),
+        "two revisions under one summary needed a suffix: {here:?}"
+    );
+    assert!(here.iter().all(|name| !name.contains('/')), "{here:?}");
+    assert!(there.iter().all(|name| name.contains('/')), "{there:?}");
+
+    let filename = |names: &[String]| -> Vec<String> {
+        names
+            .iter()
+            .map(|name| name.rsplit('/').next().expect("a filename").to_owned())
+            .collect()
+    };
+    assert_eq!(
+        filename(&here),
+        filename(&there),
+        "a suffix that differed by placement would not be content-derived"
+    );
+    // And `operations/` is one tree either way, because it is filed by the
+    // revision's stem under both.
+    assert_eq!(
+        walk_names(&kept.join("history/operations")),
+        walk_names(&refiled.join("history/operations")),
+    );
+}
+
+#[test]
+fn refiling_files_a_flat_store_and_then_has_nothing_left_to_do() {
+    // Decision 0041's migration, which is what `--refile` is: a store written
+    // flat — by an older version, by another tool, or by hand — is one
+    // `arrange --refile` away from the layout this version writes, and a
+    // second one moves nothing. Plain `arrange` is deliberately not that
+    // command, because a revision sitting in `revisions/` is indistinguishable
+    // from one a person put there.
     let directory = repository("arrange-flatten");
     write(&directory, "notes/a.md", "one\n");
     out(recorded(&directory, &["record", "-m", "Start a journal"]));
@@ -1409,6 +1485,57 @@ fn arrange_files_a_flat_store_and_then_has_nothing_left_to_do() {
     // The store as the version before this one would have left it: the same
     // names, one level up.
     let history = directory.join("history");
+    flatten(&history);
+    let before = stdout(&directory, &["log"]);
+    let flat = walk_names(&history.join("revisions"));
+    assert!(
+        flat.iter().all(|name| !name.contains('/')),
+        "the store is flat to start with: {flat:?}"
+    );
+
+    // Plain `arrange` files `operations/`, which has been its territory since
+    // 0016 — the directory there says which revision and which path, which is
+    // a fact about the history rather than a folder anybody chose — and
+    // leaves the revision documents exactly where they are.
+    let kept = stdout(&directory, &["arrange"]);
+    let still = walk_names(&history.join("revisions"));
+    assert!(
+        still.iter().all(|name| !name.contains('/')),
+        "plain arranging must not move what a person may have filed: {still:?} {kept}"
+    );
+    for name in walk_names(&history.join("operations")) {
+        let (month, rest) = name.split_once('/').expect("a month directory");
+        assert_eq!(month, &rest[..month.len()], "{kept}");
+    }
+
+    // `--refile` is the migration, and it is the revisions it comes for.
+    let done = stdout(&directory, &["arrange", "--refile"]);
+    assert!(done.contains("2 renamed"), "{done}");
+    for name in walk_names(&history.join("revisions")) {
+        let (month, rest) = name.split_once('/').expect("a month directory");
+        assert_eq!(month, &rest[..month.len()], "{done}");
+    }
+    // The bytes never moved, so neither did the history.
+    assert_eq!(stdout(&directory, &["log"]), before);
+    assert!(
+        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
+        "a filed store is as valid as a flat one"
+    );
+
+    // Refiling twice moves nothing, and neither does the default afterwards:
+    // a store that has been migrated is a store the writer could have written.
+    let again = stdout(&directory, &["arrange", "--refile"]);
+    assert!(again.contains("0 renamed, 2 already arranged"), "{again}");
+    let settled = stdout(&directory, &["arrange"]);
+    assert!(
+        settled.contains("0 renamed, 2 already arranged"),
+        "{settled}"
+    );
+}
+
+/// Lift both store directories out of their months, leaving the flat store a
+/// version before decision 0041 would have written.
+fn flatten(history: &Path) {
     for directory in ["revisions", "operations"] {
         let within = history.join(directory);
         let months: Vec<PathBuf> = fs::read_dir(&within)
@@ -1424,28 +1551,6 @@ fn arrange_files_a_flat_store_and_then_has_nothing_left_to_do() {
             fs::remove_dir(&month).expect("the emptied month");
         }
     }
-    let before = stdout(&directory, &["log"]);
-    let flat = walk_names(&history.join("revisions"));
-    assert!(
-        flat.iter().all(|name| !name.contains('/')),
-        "the store is flat to start with: {flat:?}"
-    );
-
-    let done = stdout(&directory, &["arrange"]);
-    assert!(done.contains("2 renamed"), "{done}");
-    for name in walk_names(&history.join("revisions")) {
-        let (month, rest) = name.split_once('/').expect("a month directory");
-        assert_eq!(month, &rest[..month.len()], "{done}");
-    }
-    // The bytes never moved, so neither did the history.
-    assert_eq!(stdout(&directory, &["log"]), before);
-    assert!(
-        stdout(&directory, &["check"]).ends_with("nothing to report\n"),
-        "a filed store is as valid as a flat one"
-    );
-
-    let again = stdout(&directory, &["arrange"]);
-    assert!(again.contains("0 renamed, 2 already arranged"), "{again}");
 }
 
 /// Every file under a directory, relative and sorted, directories included in
@@ -1607,44 +1712,59 @@ fn receive_requires_an_explicit_join_for_unrelated_histories() {
 }
 
 #[test]
-fn arrange_files_a_revision_under_its_month_wherever_it_sat() {
+fn arrange_renames_a_filed_revision_where_it_sits() {
     let directory = store_from("arrange-nested", "tree");
     let revisions = directory.join("history/revisions");
-    let elsewhere = revisions.join("early/2025");
-    fs::create_dir_all(&elsewhere).expect("directories");
+    let filed = revisions.join("early/2025");
+    fs::create_dir_all(&filed).expect("directories");
     fs::rename(
         revisions.join("01-start.rev.txt"),
-        elsewhere.join("01-start.rev.txt"),
+        filed.join("01-start.rev.txt"),
     )
     .expect("filing a revision away");
 
     let before = stdout(&directory, &["log"]);
     let done = stdout(&directory, &["arrange"]);
 
-    // Decision 0041: a revision goes to its month, which is the one layout
-    // `arrange` produces. Until it, arranging kept whatever folder a person
-    // had chosen — but a scheme `arrange` declines to apply is a scheme no
-    // store can be migrated to, and the loader reads files rather than names,
-    // so nothing about the history noticed either way.
+    // Renamed, not moved. A person who filed it there meant to — decision
+    // 0016's rule about a name that differs, which decision 0041's revision
+    // extends from `check` to `arrange` itself. The filename is the whole
+    // date either way, so the file still says when it is from.
     assert!(
-        revisions
+        filed.join("2025-08-19 Start a journal.rev.txt").exists(),
+        "{done}"
+    );
+    assert!(
+        !revisions
             .join("2025-08/2025-08-19 Start a journal.rev.txt")
             .exists(),
-        "{done}"
+        "arranging must not flatten what a person arranged: {done}"
     );
-    assert!(
-        !elsewhere
-            .join("2025-08-19 Start a journal.rev.txt")
-            .exists(),
-        "{done}"
-    );
-    // And the folder it left is gone, rather than an empty husk of one.
-    assert!(!revisions.join("early").exists(), "{done}");
+    assert!(revisions.join("early").exists(), "{done}");
     assert_eq!(stdout(&directory, &["log"]), before);
 
     // And arranging an arranged store is a no-op, at whatever depth.
     let again = stdout(&directory, &["arrange"]);
     assert!(again.contains("4 already arranged"), "{again}");
+
+    // `--refile` is the one thing that overrules the folder they chose, and
+    // it takes the emptied folder with it rather than leaving a husk.
+    let refiled = stdout(&directory, &["arrange", "--refile"]);
+    assert!(
+        revisions
+            .join("2025-08/2025-08-19 Start a journal.rev.txt")
+            .exists(),
+        "{refiled}"
+    );
+    assert!(!revisions.join("early").exists(), "{refiled}");
+    assert_eq!(stdout(&directory, &["log"]), before);
+
+    // After which the default has nothing left to disagree with.
+    let settled = stdout(&directory, &["arrange"]);
+    assert!(
+        settled.contains("0 renamed, 4 already arranged"),
+        "{settled}"
+    );
 }
 
 #[test]
@@ -1663,9 +1783,11 @@ fn arrange_renames_presentation_and_changes_nothing_else() {
 
     let done = stdout(&directory, &["arrange"]);
     assert!(done.contains("4 renamed"), "{done}");
+    // In `revisions/` itself, because that is where these sat: a corpus store
+    // is flat, and flat is a placement `arrange` respects like any other.
     assert!(
         directory
-            .join("history/revisions/2025-08/2025-08-19 Start a journal.rev.txt")
+            .join("history/revisions/2025-08-19 Start a journal.rev.txt")
             .exists(),
         "{done}"
     );
@@ -1679,6 +1801,17 @@ fn arrange_renames_presentation_and_changes_nothing_else() {
 
     let again = stdout(&directory, &["arrange"]);
     assert!(again.contains("0 renamed, 4 already arranged"), "{again}");
+
+    // And `--refile` is what puts the same names under decision 0041's month.
+    let refiled = stdout(&directory, &["arrange", "--refile"]);
+    assert!(refiled.contains("4 renamed"), "{refiled}");
+    assert!(
+        directory
+            .join("history/revisions/2025-08/2025-08-19 Start a journal.rev.txt")
+            .exists(),
+        "{refiled}"
+    );
+    assert_eq!(stdout(&directory, &["log"]), before);
 }
 
 #[test]

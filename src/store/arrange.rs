@@ -1,11 +1,20 @@
 //! `arrange`: the advisory names decision 0006 made deterministic.
 //!
 //! Identity comes from content, so a revision's filename means nothing to the
-//! reader and everything to the person browsing the folder. This files each
-//! revision document at `YYYY-MM/YYYY-MM-DD summary.rev.txt` and each
+//! reader and everything to the person browsing the folder. This gives each
+//! revision document the name `YYYY-MM-DD summary.rev.txt` and files each
 //! operation document and payload under the revision that named it, at the
 //! path it had — and touches no file's bytes, so no identity moves and no
 //! reference dangles.
+//!
+//! Where the revision document *sits* is [`Placement`]'s question, and the
+//! default answer is: wherever it already does. Decision 0016 says a name that
+//! differs is usually a person filing their own history, and a revision is one
+//! file with nothing for a directory to group, so a folder around one is that
+//! person's statement rather than an accident to be tidied away. Decision 0041
+//! gave the writer a month to file under; [`Placement::Refiled`] is what
+//! applies that to a store written before it, and is the whole of the
+//! migration.
 //!
 //! It lives here rather than in the command-line front end because the thing
 //! being offered is readability. A host syncing a store into somebody's iCloud
@@ -36,6 +45,32 @@ use super::{
     MaterialiseError, OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, Store,
     StoreError, claims, walk, within,
 };
+
+/// Whether `arrange` decides where a revision document sits, or only what it
+/// is called there.
+///
+/// Only revision documents have the question. `operations/` is the scheme's
+/// own territory — decisions 0016, 0017 and 0018 make its directories say
+/// which revision and which path, which is a fact about the history rather
+/// than a place a person chose — so it is filed the same way under both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Placement {
+    /// Rename a revision document where it sits.
+    ///
+    /// The default, and what `arrange` did before decision 0041: a directory
+    /// a person put a revision in is a directory they meant, and the store
+    /// loads from any depth, so keeping it costs the reader nothing. A store
+    /// the writer produced is already in its month, so this leaves it there.
+    #[default]
+    Kept,
+    /// File every revision document under decision 0041's month, wherever it
+    /// sat.
+    ///
+    /// The migration for a store written flat — by an older version, by
+    /// another tool, or by hand — and the one thing that overrules a person's
+    /// own filing, which is why it has to be asked for.
+    Refiled,
+}
 
 /// Which of the store's two arranged directories a file sits in.
 ///
@@ -155,7 +190,7 @@ pub struct Tally {
 
 impl<F: Filesystem> Store<F> {
     /// What `arrange` would rename, without renaming anything.
-    pub fn arrangement(&self) -> Result<Arrangement, ArrangeError> {
+    pub fn arrangement(&self, placement: Placement) -> Result<Arrangement, ArrangeError> {
         let stems = naming::stems(self.iter());
         let operations = self.operation_names(&stems, self.iter())?;
         let mut plan = Arrangement::default();
@@ -173,13 +208,20 @@ impl<F: Filesystem> Store<F> {
                 // read these same files when the store was opened.
                 return Err(ArrangeError::Changed { file: path });
             };
-            // Moved, not merely renamed where it sat. Until decision 0041 a
-            // revision was one file with nothing for a directory to group, so
-            // arranging kept whatever folder a person had put it in; the month
-            // is what a directory now groups, and a scheme `arrange` declined
-            // to apply is a scheme no flat store could ever be migrated to.
-            // This is what `operations/` has always done, for the same reason.
-            let target = within(&revisions, &format!("{stem}{REVISION_SUFFIX}"));
+            // Renamed where it sits, unless refiling was asked for. A revision
+            // is one file, so there is nothing for a directory to group, and a
+            // person who filed one somewhere meant to — decision 0016's rule,
+            // which decision 0041 keeps by making its month `--refile`'s to
+            // apply rather than every run's. Both spellings of the name are
+            // the same stem: the month is only the directory half of it, so a
+            // rename in place uses the filename half and moves nothing.
+            let target = match placement {
+                Placement::Kept => path
+                    .parent()
+                    .unwrap_or(&revisions)
+                    .join(format!("{}{REVISION_SUFFIX}", leaf(stem))),
+                Placement::Refiled => within(&revisions, &format!("{stem}{REVISION_SUFFIX}")),
+            };
             self.place(&mut plan, path, target, Filed::Revision)?;
         }
 
@@ -193,10 +235,15 @@ impl<F: Filesystem> Store<F> {
                 plan.unnamed.push(self.relative(&path));
                 continue;
             };
-            // Here a file *is* moved, which is the whole of the nesting: the
-            // directory carries the revision, so a document in the wrong one
-            // is in the wrong place rather than merely misnamed. Decision
-            // 0018: the rest of the name is the path, as directories.
+            // Here a file *is* moved, under both placements, which is the
+            // whole of the nesting: the directory carries the revision, so a
+            // document in the wrong one is in the wrong place rather than
+            // merely misnamed. Decision 0018: the rest of the name is the
+            // path, as directories. The stem is the whole stem, month and
+            // all, so a revision's folder is named by what the revision is
+            // rather than by where its document happens to sit — which is the
+            // relationship `operations/` has always had, and the only one that
+            // could be derived from the documents alone.
             let target = within(&operations_dir, &format!("{stem}/{name}"));
             self.place(&mut plan, path, target, Filed::Operation)?;
         }
@@ -212,8 +259,8 @@ impl<F: Filesystem> Store<F> {
     /// touching, and a name that filled in between them is a name arranging
     /// leaves alone rather than overwrites. The returned [`Arrangement`] is
     /// therefore what happened, not what was intended.
-    pub fn arrange(&mut self) -> Result<Arrangement, ArrangeError> {
-        let planned = self.arrangement()?;
+    pub fn arrange(&mut self, placement: Placement) -> Result<Arrangement, ArrangeError> {
+        let planned = self.arrangement(placement)?;
         let mut done = Arrangement {
             already: planned.already,
             occupied: planned.occupied,
@@ -247,10 +294,12 @@ impl<F: Filesystem> Store<F> {
             // emptying one can empty the one above it — and `remove_directory`
             // refuses a directory holding anything, which is the guard: a
             // directory a person put something else in survives, and so does
-            // everything above it. Revisions are tidied on the same terms
-            // since decision 0041 made them move rather than be renamed where
-            // they sat; the store's own directory is where it stops, so the
-            // month directory this pass is filling is never a candidate.
+            // everything above it. Revisions are tidied on the same terms,
+            // which matters only under [`Placement::Refiled`], the one mode
+            // that empties a directory of them: a rename in place leaves the
+            // file in the folder being offered, so the offer is refused. The
+            // store's own directory is where it stops, so the month directory
+            // this pass is filling is never a candidate.
             if let Some(parent) = from.parent() {
                 self.tidy(parent, rename.filed.directory());
             }
@@ -337,6 +386,11 @@ impl<F: Filesystem> Store<F> {
     /// `operations/2026-08/2026-08-20 Initial state/` are visibly the same
     /// thing — including decision 0041's month, which is part of the stem and
     /// so files both halves alike without either side being told about it.
+    /// A revision document kept in a folder of somebody's own is the one case
+    /// where the two part company, and the directory here still follows the
+    /// stem: it has to be derivable from the documents alone, or two replicas
+    /// that filed their revisions differently by hand would grow two
+    /// `operations/` trees for one history.
     /// What is left to say is the path — which decision 0018 says as a path,
     /// in real directories, rather than spelling one into a filename. So a
     /// revision's folder is the subtree of the repository that revision
@@ -434,6 +488,19 @@ impl<F: Filesystem> Store<F> {
             }
         }
         Ok(out)
+    }
+}
+
+/// The filename half of a stem, which is all a rename in place may use.
+///
+/// Decision 0041 made a stem two components — the month, then the name — and
+/// [`Placement::Kept`] keeps the directory the file is in, so it takes the
+/// second. The filename still carries the whole date, so a revision kept in a
+/// folder of somebody's own says as much about itself as one in its month.
+fn leaf(stem: &str) -> &str {
+    match stem.rsplit_once('/') {
+        Some((_, name)) => name,
+        None => stem,
     }
 }
 

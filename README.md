@@ -315,11 +315,17 @@ depend on what else was in the directory — and the month is the directory that
 rule is now applied inside, which changes nothing about it. `arrange` is
 what applies that scheme to a store that does not have it — one written by an
 older version, by another tool, or by hand — and on a store this version wrote
-it does nothing. It is deliberately not a lint: a name that differs is usually
-a person filing their own history, which `check` has no business calling a
-fault, and every fault `check` does report it finds in content. The loader
-walks both directories to any depth and never follows a symbolic link, which is
-what lets a person file a history however they please.
+it does nothing. What it will not do unasked is move a revision document out of
+a folder somebody put it in: it renames one where it sits, because a revision
+is one file with nothing for a directory to group, so a folder around one is a
+statement. `arrange --refile` is the one that applies the month to those too,
+and is how a flat store catches up. `operations/` is filed by the revision's
+stem under both, since the directory there says which revision and which path
+rather than anything a person chose. None of it is a lint: a name that differs
+is usually a person filing their own history, which `check` has no business
+calling a fault, and every fault `check` does report it finds in content. The
+loader walks both directories to any depth and never follows a symbolic link,
+which is what lets a person file a history however they please.
 
 The `tree` module also merges. Decision 0008's rules for concurrent tree facts
 are here rather than in prose now: a `drop` concurrent with an edit or a move
@@ -696,8 +702,10 @@ Choices that constrain later work are written down as they are made.
   having been large, and a listing of five thousand is not a folder anybody
   opens. A revision is filed under its own year and month, read from `when` as
   spelled so every replica files alike, and the filename keeps the whole date.
-  `arrange` is the migration because it was already the command that applies
-  the scheme; nothing in the loader changes, because it never read a name.
+  `arrange --refile` is the migration; plain `arrange` renames a revision where
+  it sits, because 0016's "a name that differs is usually a person filing their
+  own history" is as true of the command with hands as of `check`. Nothing in
+  the loader changes, because it never read a name.
 - [`docs/decisions/0042-a-copy-to-take-away.md`](docs/decisions/0042-a-copy-to-take-away.md)
   — `export <dir> [<target>]`, the sending half 0029 named by saying what it is
   not. No directory on disk holds the bytes a stranger should be given: the

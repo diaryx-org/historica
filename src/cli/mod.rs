@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use historica::format::Timestamp;
 use historica::record::{Restriction, survey};
 use historica::store::{
-    Forgetting, HEADER_FILE, MutableConflict, Name, STORE_DIR, Store, StoreError,
+    Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store, StoreError,
 };
 use historica::working::{Rule, SKIPPED_FILE, Working};
 
@@ -99,7 +99,10 @@ writing a store
   check [<dir>] [--complete]
                            read a store and report every fault; --complete
                            also fails when a head's history is not all here
-  arrange [-n]             rename revision files to readable ones
+  arrange [-n] [--refile]  rename revision files to readable ones, where they
+                           sit: a folder you put a revision in is one you
+                           meant. --refile moves them under `YYYY-MM/` too,
+                           which is how a store written flat catches up
   name <bookmark> <target> [<path>] [--revision]
                            point a bookmark at a change, pin a revision, or
                            name the file that <path> holds
@@ -288,13 +291,20 @@ fn check(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     ))
 }
 
-/// `arrange [-n]` — advisory names, deterministically.
+/// `arrange [-n] [--refile]` — advisory names, deterministically.
+///
+/// `--refile` is the only thing that overrules a person's own filing, which is
+/// why it is a flag rather than the default: decision 0041 files a revision
+/// under its month, and decision 0016 says a name — or a folder — that differs
+/// is usually somebody arranging their own history.
 fn arrange(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut dry_run = false;
+    let mut placement = Placement::Kept;
     let mut rest = Vec::new();
     for argument in arguments {
         match argument.as_str() {
             "-n" | "--dry-run" => dry_run = true,
+            "--refile" => placement = Placement::Refiled,
             other => rest.push(other.to_owned()),
         }
     }
@@ -304,7 +314,7 @@ fn arrange(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         )));
     }
 
-    arrange::arrange(&locate(base)?, dry_run)
+    arrange::arrange(&locate(base)?, dry_run, placement)
 }
 
 /// `prune [--dry-run]` — the disk half of decision 0013.

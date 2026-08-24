@@ -102,3 +102,57 @@ Deferred until a second scheme has a store that needs it.
 entries are bounded by `CACHE_AFTER`; neither directory is one a person
 browses. If the cache directory ever grows past what a filesystem is happy
 listing, it can shard by digest prefix precisely because nobody reads it.
+
+## Since
+
+"`arrange` produces the same layout" was written above about a scheme and
+read, when it was built, as a licence to move a file out of a folder
+somebody had put it in. That was wrong, and the sentence three bullets
+below it is why: *a name that differs is usually a person filing their own
+history*. 0016 said that about `check`, to explain why filing is not a
+lint. It is just as true of `arrange`, which is the command that actually
+has hands.
+
+**`arrange` respects a person's filing, and always did.** A revision
+document sitting in a directory somebody chose keeps that directory;
+`arrange` renames it there, to the readable stem this decision's scheme
+composes. A revision is one file — there is nothing inside it for a
+directory to group — so a folder around one is a statement rather than an
+accident, and the loader walks to any depth, so honouring it costs the
+reader nothing. That includes a revision sitting directly in `revisions/`,
+which is indistinguishable from one somebody filed there flat, and is
+exactly why the next paragraph exists.
+
+**`arrange --refile` is the migration.** It applies the month to every
+revision document wherever it sat, moving files out of whatever folders
+they are in and tidying away the ones it empties. A flat store — written
+by an older version, by another tool, or by hand — becomes a filed one by
+running it once, and running it again moves nothing. So does plain
+`arrange` afterwards: the two agree about every name, and disagree only
+about whether they may choose the folder.
+
+**The writer is untouched.** A revision recorded by this version is born
+in its month, as the first bullet above says. Nothing about `record`
+changes here, and a store the writer produced is one both placements leave
+alone.
+
+**`operations/` is filed by the stem under both**, which is what it has
+always been. The directory there says which revision and which path — 0016,
+0017 and 0018 — so it is a fact about the history rather than a folder
+anybody chose, and this decision's month is part of the stem, so both
+halves are filed alike without either being told about the other. The
+consequence worth stating plainly: on a flat store, plain `arrange` files
+`operations/` into months and leaves `revisions/` where it is. That is not
+an inconsistency but the rule showing through — one directory's layout is
+derived, the other's may be somebody's own. It is also the only rule
+available, because a folder a person invented cannot be derived from the
+documents, and two replicas that filed their revisions differently by hand
+would otherwise grow two `operations/` trees for one history.
+
+**Determinism is unchanged, and is about one input.** Two replicas running
+the same command over the same history produce the same names, which is
+what the hard rule has always said. The collision suffix — change ID, then
+digest — is composed from the documents by `naming::stems` before any
+directory is chosen, so it is identical under both placements; the
+filename a revision gets is the same either way, and only its parent
+differs.
