@@ -22,6 +22,12 @@
 //! history can state — an item that is neither terminated nor last — which
 //! decision 0007 left open and `historica::merge` reports rather than
 //! resolves.
+//!
+//! Each round is drawn as a value before it runs, from a seed the environment
+//! may replace. That is what lets CI search somewhere new every run without
+//! giving up on reproducing what it finds: a failure prints the seed, and the
+//! failing round shrunk to the fewest replicas and actions that still produce
+//! it.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -365,6 +371,62 @@ impl Replica {
     }
 }
 
+/// One file, with the bytes that do not print made visible.
+///
+/// Two files differing only in whether the last line carries its terminator
+/// look identical otherwise, and a carriage return looks like nothing at all
+/// — which are two of the three shapes this suite searches over, so a failure
+/// that shows the bytes plainly would be a failure nobody could read.
+fn shown(text: &str) -> String {
+    let mut out = String::new();
+    for line in text.split_inclusive('\n') {
+        out.push_str("    ");
+        for character in line.chars() {
+            match character {
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\\' => out.push_str("\\\\"),
+                other => out.push(other),
+            }
+        }
+        out.push('\n');
+    }
+    if out.is_empty() {
+        out.push_str("    (the file is empty)\n");
+    }
+    out.pop();
+    out
+}
+
+/// The seed the suite searches from, when nothing says otherwise.
+const SEED: u64 = 0x0007_c04f_0000_f00d;
+
+/// The seed this run searches from.
+///
+/// Fixed by default, so that `cargo test` twice is `cargo test` twice, and
+/// overridable through `HISTORICA_CONFORMANCE_SEED` so that CI can rotate it.
+/// A suite that searches the same hundred and fifty cases forever stops
+/// finding anything the day it first passes; one that searches a fresh
+/// hundred and fifty every run keeps looking, and is only useful if a failure
+/// says which ones it looked at. Every failure below prints the seed, and
+/// putting it back in the variable brings the same case out again.
+fn seed() -> u64 {
+    let Ok(given) = std::env::var("HISTORICA_CONFORMANCE_SEED") else {
+        return SEED;
+    };
+    let given = given.trim();
+    let parsed = match given
+        .strip_prefix("0x")
+        .or_else(|| given.strip_prefix("0X"))
+    {
+        Some(hexadecimal) => u64::from_str_radix(hexadecimal, 16),
+        None => given.parse(),
+    };
+    parsed.unwrap_or_else(|_| {
+        panic!("HISTORICA_CONFORMANCE_SEED is not a number: {given:?}");
+    })
+}
+
 /// The generator `src/merge.rs` uses, again: deterministic, so a surprising
 /// round can be looked at twice.
 struct Rng(u64);
@@ -615,18 +677,34 @@ impl Sim {
         }
     }
 
-    /// The claim under test: both architectures read one file.
-    fn agree(&self, replica: usize, round: usize) {
+    /// The claim under test, answered rather than asserted.
+    ///
+    /// A value, because the search below has to ask a candidate plan whether
+    /// it still fails, and it cannot ask that of an assertion.
+    fn checked(&self, replica: usize, step: usize) -> Result<(), String> {
         let proposal = self.proposal(replica);
         if let Some(merged) = &proposal {
             self.note(merged);
         }
         let merged = proposal.map_or_else(String::new, |merged| merged.state.text());
-        assert_eq!(
-            self.replicas[replica].text(),
-            merged,
-            "round {round}: replica {replica} disagrees with the event-graph replay"
-        );
+        let held = self.replicas[replica].text();
+        if held == merged {
+            return Ok(());
+        }
+        Err(format!(
+            "at step {step}, replica {replica} disagrees with the event-graph replay\n\
+             \x20 the reference tree reads:\n{}\n\
+             \x20 the event-graph replay reads:\n{}",
+            shown(&held),
+            shown(&merged),
+        ))
+    }
+
+    /// The claim under test: both architectures read one file.
+    fn agree(&self, replica: usize, round: usize) {
+        if let Err(failure) = self.checked(replica, round) {
+            panic!("round {round}: {failure}");
+        }
     }
 
     /// Record which of the widened generator's targets this merge reached.
@@ -651,103 +729,358 @@ impl Sim {
     }
 }
 
-#[test]
-fn the_event_graph_replay_conforms_to_the_reference_crdt() {
-    // Random replicas, random edits, random partial syncs — and after every
-    // single step, the transient event-graph replay must read the same file
-    // the live tree has been maintaining all along.
-    let mut rng = Rng(0x0007_c04f_0000_f00d);
-    let mut reached = Reached::default();
-    for round in 0..150 {
-        let replicas = 2 + rng.below(2);
-        let mut sim = Sim::new(replicas);
+/// One thing a round does, drawn before the round runs.
+///
+/// A plan is a value rather than a path through a generator, which is what
+/// makes a failing round shrinkable: the search below takes actions out of it
+/// and asks whether it still fails. Each action carries its own seed, so
+/// removing one leaves what the others do untouched — the property a
+/// generator consulted inline as it goes cannot have.
+#[derive(Debug, Clone, Copy)]
+enum Action {
+    /// One replica edits what it sees.
+    Edit { replica: usize, seed: u64 },
+    /// Whichever replica from `first` onwards is holding two heads reads both
+    /// sides and records what the file is.
+    Merge { first: usize, seed: u64 },
+    /// Everything one replica knows, delivered to another.
+    Sync { into: usize, from: usize },
+}
 
-        // A shared root, so concurrent edits have something to disagree on —
-        // sometimes holding an empty line, and sometimes ending without a
-        // terminator, since a file that arrives that way is one people have.
+impl std::fmt::Display for Action {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::Edit { replica, seed } => {
+                write!(out, "replica {replica} edits (seed 0x{seed:016x})")
+            }
+            Action::Merge { first, seed } => {
+                write!(out, "a merge, from replica {first} (seed 0x{seed:016x})")
+            }
+            Action::Sync { into, from } => write!(out, "replica {into} hears from {from}"),
+        }
+    }
+}
+
+/// One whole round, as a value.
+#[derive(Debug, Clone)]
+struct Plan {
+    replicas: usize,
+    /// Where the shared root holds an empty line, if it holds one.
+    blank: Option<usize>,
+    /// Whether the shared root's last line carries its terminator.
+    terminated: bool,
+    actions: Vec<Action>,
+}
+
+impl Plan {
+    /// The shared root, so concurrent edits have something to disagree on —
+    /// sometimes holding an empty line, and sometimes ending without a
+    /// terminator, since a file that arrives that way is one people have.
+    fn root(&self) -> OperationDocument {
         let mut items: Vec<Item> = ["alpha", "beta", "gamma", "delta"]
             .into_iter()
             .map(Item::line)
             .collect();
-        if rng.below(3) == 0 {
-            items.insert(1 + rng.below(3), Item::line(""));
+        if let Some(at) = self.blank {
+            items.insert(at, Item::line(""));
         }
-        if rng.below(3) == 0 {
+        if !self.terminated {
             items.last_mut().expect("a root with lines").terminated = false;
         }
-        let root = diff(&State::empty(), &State::from_items(items)).expect("a root document");
-        sim.record(0, root);
-        for replica in 1..replicas {
-            sim.sync(replica, 0);
-        }
+        diff(&State::empty(), &State::from_items(items)).expect("a root document")
+    }
 
-        for action in 0..12 {
-            match rng.below(4) {
-                0 | 1 => {
-                    let replica = rng.below(replicas);
-                    sim.edit(&mut rng, replica, action);
-                    sim.agree(replica, round);
-                }
-                // Decision 0032: a replica holding two heads reads both sides
-                // and records what the file is. The history then holds a
-                // resolution, and everything downstream of it — every later
-                // edit, every later merge, every partial sync — is walked
-                // across one.
-                2 => {
-                    // Whichever replica is holding two heads, since a merge
-                    // is not something a replica can do on request.
-                    let first = rng.below(replicas);
-                    for offset in 0..replicas {
-                        let replica = (first + offset) % replicas;
-                        if sim.merge(&mut rng, replica, action) {
-                            sim.agree(replica, round);
-                            break;
-                        }
-                    }
-                }
-                _ => {
-                    let into = rng.below(replicas);
-                    let from = rng.below(replicas);
-                    if into != from {
-                        sim.sync(into, from);
-                        sim.agree(into, round);
+    /// The same plan with one replica taken out of it, and every action that
+    /// named it dropped. Only ever the last replica, so the others keep the
+    /// numbers they had and every remaining action still means what it did.
+    fn without(&self, gone: usize) -> Self {
+        let replicas = self.replicas - 1;
+        let actions = self
+            .actions
+            .iter()
+            .filter_map(|action| match *action {
+                Action::Edit { replica, .. } if replica == gone => None,
+                Action::Sync { into, from } if into == gone || from == gone => None,
+                Action::Merge { first, seed } => Some(Action::Merge {
+                    first: first % replicas,
+                    seed,
+                }),
+                other => Some(other),
+            })
+            .collect();
+        Self {
+            replicas,
+            actions,
+            ..self.clone()
+        }
+    }
+}
+
+/// Draw one round.
+fn plan(rng: &mut Rng) -> Plan {
+    let replicas = 2 + rng.below(2);
+    let blank = (rng.below(3) == 0).then(|| 1 + rng.below(3));
+    let terminated = rng.below(3) != 0;
+    let actions = (0..12)
+        .map(|_| match rng.below(4) {
+            0 | 1 => Action::Edit {
+                replica: rng.below(replicas),
+                seed: rng.next() | 1,
+            },
+            2 => Action::Merge {
+                first: rng.below(replicas),
+                seed: rng.next() | 1,
+            },
+            _ => Action::Sync {
+                into: rng.below(replicas),
+                from: rng.below(replicas),
+            },
+        })
+        .collect();
+    Plan {
+        replicas,
+        blank,
+        terminated,
+        actions,
+    }
+}
+
+/// Run one plan, and say what it reached or how it failed.
+///
+/// Random replicas, random edits, random partial syncs — and after every
+/// single step, the transient event-graph replay must read the same file the
+/// live tree has been maintaining all along.
+fn run(plan: &Plan) -> Result<Reached, String> {
+    let mut sim = Sim::new(plan.replicas);
+    sim.record(0, plan.root());
+    for replica in 1..plan.replicas {
+        sim.sync(replica, 0);
+    }
+
+    for (step, action) in plan.actions.iter().enumerate() {
+        match *action {
+            Action::Edit { replica, seed } => {
+                sim.edit(&mut Rng(seed), replica, salt(seed));
+                sim.checked(replica, step)?;
+            }
+            // Decision 0032: a replica holding two heads reads both sides and
+            // records what the file is. The history then holds a resolution,
+            // and everything downstream of it — every later edit, every later
+            // merge, every partial sync — is walked across one. Which replica
+            // is holding two heads is not something a plan can know in
+            // advance, so it names where to start looking.
+            Action::Merge { first, seed } => {
+                let mut rng = Rng(seed);
+                for offset in 0..plan.replicas {
+                    let replica = (first + offset) % plan.replicas;
+                    if sim.merge(&mut rng, replica, salt(seed)) {
+                        sim.checked(replica, step)?;
+                        break;
                     }
                 }
             }
-        }
-
-        // Full sync: everyone reads one file, in both architectures.
-        for into in 0..replicas {
-            for from in 0..replicas {
+            Action::Sync { into, from } => {
                 if into != from {
                     sim.sync(into, from);
+                    sim.checked(into, step)?;
                 }
             }
         }
-        let first = sim.replicas[0].text();
-        for replica in 0..replicas {
-            sim.agree(replica, round);
-            assert_eq!(
-                sim.replicas[replica].text(),
-                first,
-                "round {round}: the reference replicas did not converge"
-            );
+    }
+
+    // Full sync: everyone reads one file, in both architectures.
+    for into in 0..plan.replicas {
+        for from in 0..plan.replicas {
+            if into != from {
+                sim.sync(into, from);
+            }
+        }
+    }
+    let first = sim.replicas[0].text();
+    for replica in 0..plan.replicas {
+        sim.checked(replica, plan.actions.len())?;
+        let held = sim.replicas[replica].text();
+        if held != first {
+            return Err(format!(
+                "after a full sync the reference replicas did not converge\n\
+                 \x20 replica 0 reads:\n{}\n\
+                 \x20 replica {replica} reads:\n{}",
+                shown(&first),
+                shown(&held),
+            ));
+        }
+    }
+    Ok(sim.reached.get())
+}
+
+/// What the written lines of one action are labelled with, so that two
+/// actions do not mint the same text — derived from the action's own seed
+/// rather than its position, since shrinking moves positions and a label that
+/// moved with them would change what every later action produced.
+fn salt(seed: u64) -> usize {
+    (seed % 1000) as usize
+}
+
+/// Run one plan, catching a panic from anywhere further in.
+///
+/// A `merge` that returns an error and a merge that disagrees are both this
+/// suite finding something, and the search below has to treat them the same
+/// way — otherwise it shrinks towards whichever failure it can see and walks
+/// away from the other.
+fn attempt(plan: &Plan) -> Result<Reached, String> {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(plan)));
+    outcome.unwrap_or_else(|panic| {
+        let said = panic
+            .downcast_ref::<&str>()
+            .map(|said| (*said).to_owned())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "a panic that said nothing".to_owned());
+        Err(format!("panicked: {said}"))
+    })
+}
+
+/// Make a failing plan smaller, one candidate at a time.
+///
+/// Delta debugging at the size this suite needs: take an action out, take a
+/// replica out, plainen the root, and keep whatever still fails. Repeat until
+/// a pass changes nothing.
+///
+/// There is no shrinking library here on purpose. A general one shrinks the
+/// values a plan is made of; what makes a counterexample readable is knowing
+/// that a merge action does nothing unless some replica holds two heads, that
+/// a sync to oneself is a no-op, and that dropping the highest-numbered
+/// replica leaves every other action meaning what it meant. That is domain
+/// knowledge, and it is about thirty lines of it.
+///
+/// Bounded, because a shrink that runs all afternoon is worse than a
+/// counterexample that is a little too big.
+fn shrink(plan: Plan) -> Plan {
+    /// How many candidate plans the search may run. Each is a whole round, so
+    /// this is seconds, not minutes.
+    const CANDIDATES: usize = 1_500;
+
+    // The hook, not the panics: a candidate that panics is the search working
+    // as intended, and printing fifteen hundred backtraces would bury the one
+    // report that matters. The suite is already failing by the time this
+    // runs, which is the only reason a global hook is acceptable here.
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+
+    let mut best = plan;
+    let mut spent = 0usize;
+    let mut improved = true;
+    while improved && spent < CANDIDATES {
+        improved = false;
+
+        // Fewer actions first: the shortest history is the readable one.
+        let mut at = best.actions.len();
+        while at > 0 && spent < CANDIDATES {
+            at -= 1;
+            let mut candidate = best.clone();
+            candidate.actions.remove(at);
+            spent += 1;
+            if attempt(&candidate).is_err() {
+                best = candidate;
+                improved = true;
+            }
         }
 
-        let round = sim.reached.get();
-        reached.terminator_contests += round.terminator_contests;
-        reached.unterminated_not_last += round.unterminated_not_last;
+        // Then fewer hands, then the plainest root the failure survives.
+        let mut simpler: Vec<Plan> = Vec::new();
+        if best.replicas > 2 {
+            simpler.push(best.without(best.replicas - 1));
+        }
+        if best.blank.is_some() {
+            simpler.push(Plan {
+                blank: None,
+                ..best.clone()
+            });
+        }
+        if !best.terminated {
+            simpler.push(Plan {
+                terminated: true,
+                ..best.clone()
+            });
+        }
+        for candidate in simpler {
+            if spent >= CANDIDATES {
+                break;
+            }
+            spent += 1;
+            if attempt(&candidate).is_err() {
+                best = candidate;
+                improved = true;
+            }
+        }
+    }
+
+    std::panic::set_hook(hook);
+    best
+}
+
+/// What a failing round has to say to be worth being woken up for.
+fn report(seed: u64, round: usize, plan: &Plan, failure: &str) -> String {
+    let mut out = String::new();
+    out.push_str("the conformance suite found a disagreement.\n\n");
+    out.push_str(failure);
+    out.push_str("\n\nthe whole run repeats with:\n");
+    out.push_str(&format!(
+        "    HISTORICA_CONFORMANCE_SEED=0x{seed:016x} cargo test --test conformance\n"
+    ));
+    out.push_str(&format!(
+        "\nround {round}, shrunk to {} replicas and {} actions:\n",
+        plan.replicas,
+        plan.actions.len()
+    ));
+    out.push_str("    the root is alpha, beta, gamma, delta");
+    if let Some(at) = plan.blank {
+        out.push_str(&format!(", with an empty line at {at}"));
+    }
+    if !plan.terminated {
+        out.push_str(", ending without a terminator");
+    }
+    out.push('\n');
+    for (step, action) in plan.actions.iter().enumerate() {
+        out.push_str(&format!("    {step:2}. {action}\n"));
+    }
+    out.push_str("\nto pin it as a test of its own, this is the plan:\n    ");
+    out.push_str(&format!("{plan:?}\n"));
+    out
+}
+
+#[test]
+fn the_event_graph_replay_conforms_to_the_reference_crdt() {
+    let seed = seed();
+    let mut rng = Rng(seed);
+    let mut reached = Reached::default();
+    for round in 0..150 {
+        let plan = plan(&mut rng);
+        match attempt(&plan) {
+            Ok(found) => {
+                reached.terminator_contests += found.terminator_contests;
+                reached.unterminated_not_last += found.unterminated_not_last;
+            }
+            Err(_) => {
+                // The first failure is not the one to report. Shrink it, then
+                // report the failure the smaller plan produces, since that is
+                // the one the plan printed underneath it actually reproduces.
+                let smaller = shrink(plan);
+                let failure = attempt(&smaller).expect_err("a shrunk plan still fails");
+                panic!("{}", report(seed, round, &smaller, &failure));
+            }
+        }
     }
 
     // The generator is widened to reach these, and a suite that stops
     // reaching them fails rather than passing quietly on a narrower search.
     assert!(
         reached.unterminated_not_last > 0,
-        "no round produced a merged file whose unterminated item was not last: {reached:?}"
+        "no round produced a merged file whose unterminated item was not last \
+         (seed 0x{seed:016x}): {reached:?}"
     );
     assert!(
         reached.terminator_contests > 0,
-        "no round reported a contested terminator: {reached:?}"
+        "no round reported a contested terminator (seed 0x{seed:016x}): {reached:?}"
     );
 }
 
@@ -800,7 +1133,8 @@ fn concurrent_paragraphs_do_not_interleave_however_many_hands_write_them() {
     // Yjs-style rule for. Several replicas each write a paragraph at one
     // position, line by line, across several revisions — the shape a person
     // typing actually produces — and each paragraph must come out whole.
-    let mut rng = Rng(0x1e_af_1e_55);
+    let seed = seed() ^ 0x1e_af_1e_55;
+    let mut rng = Rng(seed);
     for round in 0..100 {
         let replicas = 2 + rng.below(2);
         let root = document(&["insert 0", "+a", "+b"]);
@@ -829,13 +1163,22 @@ fn concurrent_paragraphs_do_not_interleave_however_many_hands_write_them() {
         }
 
         let text = merged(&root, &events);
-        assert!(text.starts_with("a\n"), "round {round}: {text}");
-        assert!(text.ends_with("b\n"), "round {round}: {text}");
+        assert!(
+            text.starts_with("a\n"),
+            "round {round} (seed 0x{seed:016x}): {text}"
+        );
+        assert!(
+            text.ends_with("b\n"),
+            "round {round} (seed 0x{seed:016x}): {text}"
+        );
         for (replica, run) in runs.iter().enumerate() {
             let run: Vec<&str> = run.iter().map(String::as_str).collect();
             assert!(
                 contiguous(&text, &run),
-                "round {round}: replica {replica}'s paragraph interleaved:\n{text}"
+                "round {round} (seed 0x{seed:016x}): replica {replica}'s paragraph \
+                 interleaved, and the whole run repeats with \
+                 HISTORICA_CONFORMANCE_SEED=0x{:016x}:\n{text}",
+                seed ^ 0x1e_af_1e_55,
             );
         }
     }

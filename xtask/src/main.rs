@@ -112,8 +112,40 @@ fn clippy(sh: &Sh) -> Result<()> {
     ])
 }
 
+/// The workspace test suite, with the conformance suite pointed somewhere new.
+///
+/// `tests/conformance.rs` searches randomly from a seed, and its default is a
+/// constant: a hundred and fifty cases that are the same hundred and fifty
+/// every time, which stop being a search the day they first pass. CI hands it
+/// a fresh one, so every run looks somewhere it has not looked before.
+///
+/// The seed is echoed with the command that used it — a rotated search is only
+/// worth running if a red run can be made red again, and `Sh::run` prints the
+/// environment alongside the command so the log reads as something to paste
+/// back. The suite prints it again in any failure, for the same reason.
 fn test(sh: &Sh) -> Result<()> {
-    sh.cargo(&["test", "--workspace"])
+    let seed = format!("0x{:016x}", rotating_seed());
+    sh.cargo_with(
+        &[("HISTORICA_CONFORMANCE_SEED", seed.as_str())],
+        &["test", "--workspace"],
+    )
+}
+
+/// A seed nobody chose.
+///
+/// The clock, which is all this needs: the point is to look somewhere other
+/// than last run, not to be unguessable. Mixed rather than used raw so that
+/// two runs a moment apart do not search two nearly identical places.
+fn rotating_seed() -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos() as u64);
+    let mut seed = now ^ 0x9e37_79b9_7f4a_7c15;
+    seed ^= seed >> 30;
+    seed = seed.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    seed ^= seed >> 27;
+    seed = seed.wrapping_mul(0x94d0_49bb_1331_11eb);
+    seed ^ (seed >> 31)
 }
 
 /// Build the library with `disk` off, and grep for what must not be there.
@@ -351,18 +383,35 @@ impl Sh {
         self.run(&cargo, args)
     }
 
+    /// The same, with environment the job wants the command to see.
+    fn cargo_with(&self, environment: &[(&str, &str)], args: &[&str]) -> Result<()> {
+        let cargo = self.cargo.clone();
+        self.run_with(environment, &cargo, args)
+    }
+
     /// Run a command at the workspace root, echoing it first so a CI log reads
     /// as a transcript of commands anyone can paste back.
     fn run(&self, program: &str, args: &[&str]) -> Result<()> {
+        self.run_with(&[], program, args)
+    }
+
+    /// The same, with environment — echoed in front of the command, since a
+    /// transcript that leaves out what the command was told is not one.
+    fn run_with(&self, environment: &[(&str, &str)], program: &str, args: &[&str]) -> Result<()> {
         let shown = if program == self.cargo {
             "cargo"
         } else {
             program
         };
-        println!("\x1b[2m$ {} {}\x1b[0m", shown, args.join(" "));
+        let prefix: String = environment
+            .iter()
+            .map(|(name, value)| format!("{name}={value} "))
+            .collect();
+        println!("\x1b[2m$ {prefix}{} {}\x1b[0m", shown, args.join(" "));
 
         let status = Command::new(program)
             .args(args)
+            .envs(environment.iter().copied())
             .current_dir(&self.root)
             .status()
             .map_err(|e| format!("could not run `{shown}`: {e}"))?;
@@ -370,7 +419,10 @@ impl Sh {
         if status.success() {
             Ok(())
         } else {
-            Err(format!("`{shown} {}` failed ({status})", args.join(" ")))
+            Err(format!(
+                "`{prefix}{shown} {}` failed ({status})",
+                args.join(" ")
+            ))
         }
     }
 

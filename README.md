@@ -808,6 +808,18 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test
 ```
 
+The conformance suite searches randomly from a seed, and `cargo test` runs it
+at a fixed one so that two runs are the same run. `cargo xtask test` rotates it
+and echoes what it chose, so that CI looks somewhere new each time and a red run
+can still be made red again:
+
+```console
+HISTORICA_CONFORMANCE_SEED=0x0007c04f0000f00d cargo test --test conformance
+```
+
+A failure prints that line for you, along with the failing round shrunk to the
+fewest replicas and actions that still reproduce it.
+
 The corpus checks with tools that are already installed, which is the claim the
 format exists to make:
 
