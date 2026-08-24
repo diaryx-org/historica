@@ -10,6 +10,7 @@ use std::fmt;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
+use historica::format::Timestamp;
 use historica::record::survey;
 use historica::store::{
     Forgetting, HEADER_FILE, MutableConflict, Name, STORE_DIR, Store, StoreError,
@@ -31,7 +32,14 @@ usage: historica [-C <dir>] <command> [<arguments>]
 reading a store
   status [--onto <target>] [--merge <target>]
                            how the folder differs from what is recorded
-  log [<target>]           the history, newest first
+  log [<target>] [--limit <count>] [--author <text>] [--grep <text>]
+      [--since <when>] [--until <when>] [--path <path>]
+                           the history, newest first; the filters compose and
+                           --limit counts what they left. --path follows the
+                           file rather than the name, so a rename is not a
+                           break in it. --since and --until are read in each
+                           revision's own offset, and a bare `YYYY-MM-DD` is
+                           that whole day there
   show <target> [<path>]   one document as stored: a revision, or what it
                            did to one file
   files <target>           the file set at a revision
@@ -595,21 +603,121 @@ fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     printing(|out| render::status(out, &store, &parents, &surveyed))
 }
 
-/// `log [<target>]` — the graph, newest first.
+/// `log [<target>]` — the graph, newest first, and what to leave out of it.
+///
+/// The filters compose by keeping only what satisfies all of them, and
+/// `--limit` counts what they left rather than what they were given: a limit
+/// applied first would silently mean "of the newest N revisions, the ones that
+/// match", which is a different question and never the one asked.
 fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let store = open(base)?;
+    let mut spelling: Option<String> = None;
+    let mut path: Option<String> = None;
+    let mut filter = render::Filter::default();
+
     let mut arguments = arguments.into_iter();
-    let from = match arguments.next() {
-        Some(spelling) => Some(target::resolve(&store, &spelling)?),
-        None => None,
-    };
-    if let Some(extra) = arguments.next() {
-        return Err(Failure::usage(format!(
-            "`log` takes one target, and `{extra}` is a second"
-        )));
+    while let Some(argument) = arguments.next() {
+        let mut value = |flag: &str| {
+            arguments
+                .next()
+                .ok_or_else(|| Failure::usage(format!("`{flag}` wants a value")))
+        };
+        match argument.as_str() {
+            "--limit" => {
+                let count = value("--limit")?;
+                filter.limit = Some(count.parse().map_err(|_| {
+                    Failure::usage(format!(
+                        "`--limit` wants how many entries to stop after, and \
+                         `{count}` is not a count"
+                    ))
+                })?);
+            }
+            "--author" => filter.author = Some(value("--author")?),
+            "--grep" => filter.grep = Some(value("--grep")?),
+            "--since" => filter.since = Some(bound("--since", &value("--since")?, "00:00:00")?),
+            "--until" => filter.until = Some(bound("--until", &value("--until")?, "23:59:59")?),
+            "--path" => path = Some(value("--path")?),
+            other if other.starts_with('-') => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `log` takes"
+                )));
+            }
+            other if spelling.is_none() => spelling = Some(other.to_owned()),
+            other => {
+                return Err(Failure::usage(format!(
+                    "`log` takes one target, and `{other}` is a second"
+                )));
+            }
+        }
     }
 
-    printing(|out| render::log(out, &store, from))
+    let from = match &spelling {
+        Some(spelling) => Some(target::resolve(&store, spelling)?),
+        None => None,
+    };
+    if let Some(path) = &path {
+        // Decision 0008: a path is a fact about a file rather than the file's
+        // name, so what a person typed is read once, at one revision, and the
+        // file it named is what the log then follows — through the `move` that
+        // renamed it as readily as through the edits either side.
+        let at = read_at(&store, from, path)?;
+        filter.file = Some(target::file_in(&store, &at, path)?);
+    }
+
+    printing(|out| render::log(out, &store, from, &filter))
+}
+
+/// The revision a `--path` value is read at.
+///
+/// The revision `log` was given, and the head where it was given none, which is
+/// the position every other command works from. Where there are several heads
+/// there is no such position, and inventing one would mean answering about a
+/// line of work nobody named.
+fn read_at(
+    store: &Store,
+    from: Option<historica::core::RevisionId>,
+    path: &str,
+) -> Result<historica::core::RevisionId, Failure> {
+    if let Some(id) = from {
+        return Ok(id);
+    }
+    let heads = target::current_heads(store);
+    match heads.len() {
+        0 => Err(Failure::error("this store holds no revisions yet")),
+        1 => Ok(heads.into_iter().next().expect("one head")),
+        several => Err(Failure::error(format!(
+            "this store has {several} heads, so there is no one place to read \
+             `{path}` at; say which revision to read it at, as \
+             `historica log <target> --path {path}`:\n{}",
+            target::described(store, &heads)
+        ))),
+    }
+}
+
+/// The wall clock a `--since` or `--until` value bounds.
+///
+/// The format keeps the offset each author was in and decision 0002 keeps
+/// timestamps out of identity, causality, and ordering alike, so there is no
+/// shared instant here for a bound to name. What a bound compares against is
+/// therefore the date and time the author read, in their own offset — and a
+/// bare date is that whole day there, which is why the two flags fill in a
+/// different time of day for one.
+fn bound(flag: &str, value: &str, time: &str) -> Result<String, Failure> {
+    if let Ok(timestamp) = value.parse::<Timestamp>() {
+        return Ok(render::wall(timestamp.as_str()).to_owned());
+    }
+    // Held to being a real date by the parser that already knows about leap
+    // years, with an offset supplied only to give it something to check.
+    if format!("{value}T00:00:00+00:00")
+        .parse::<Timestamp>()
+        .is_ok()
+    {
+        return Ok(format!("{value}T{time}"));
+    }
+    Err(Failure::usage(format!(
+        "`{flag}` wants a date, as `YYYY-MM-DD`, or a whole time, as \
+         `YYYY-MM-DDThh:mm:ss±hh:mm`; `{value}` is neither"
+    )))
 }
 
 /// `show <target> [<path>]` — a stored document, byte for byte.

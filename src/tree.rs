@@ -299,6 +299,24 @@ pub fn operations_for<'a>(
         .collect()
 }
 
+/// Whether a revision states any fact about one file.
+///
+/// The question "which revisions touched this file" has an answer here that no
+/// heuristic could recover: a file is identified, so a rename is a `move` that
+/// names the same file the edits before and after it name, and following one
+/// costs no more than following any other fact. Every key a revision can state
+/// a file under is read, `mode` and a payload included, because a revision that
+/// only made a file executable is one that did something to it.
+pub fn touches(revision: &RevisionDocument, file: &FileId) -> bool {
+    revision.added.contains_key(file)
+        || revision.moved.contains_key(file)
+        || revision.modes.contains_key(file)
+        || revision.dropped.contains(file)
+        || revision.edited.contains_key(file)
+        || revision.text.contains_key(file)
+        || revision.bytes.contains_key(file)
+}
+
 /// One revision's contribution to the file set, with its place in the graph.
 ///
 /// The same shape [`crate::merge::Event`] has, and for the same reason: a

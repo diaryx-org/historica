@@ -314,6 +314,164 @@ fn log_takes_a_target_and_shows_only_its_ancestry() {
     assert!(ancestry.contains("Start a journal"), "{ancestry}");
 }
 
+/// The first line of each entry a log printed.
+///
+/// Every other line of an entry is indented, and a message's blank lines are
+/// printed as blank lines, so what is left is one line per revision shown.
+fn entries(log: &str) -> Vec<&str> {
+    log.lines()
+        .filter(|line| !line.is_empty() && !line.starts_with(' '))
+        .collect()
+}
+
+#[test]
+fn log_stops_after_the_limit() {
+    let directory = store_from("log-limit", "tree");
+    assert_eq!(entries(&stdout(&directory, &["log"])).len(), 4);
+
+    let two = stdout(&directory, &["log", "--limit", "2"]);
+    assert_eq!(entries(&two).len(), 2);
+    assert!(two.contains("Withdraw the entry"), "{two}");
+    assert!(!two.contains("Start a journal"), "{two}");
+
+    let refused = stderr(&directory, &["log", "--limit", "soon"]);
+    assert!(refused.contains("is not a count"), "{refused}");
+}
+
+/// Decision 0005 copies authorship forward, so the author is the person whose
+/// work it is — and a reviser who rewrote it is somebody else.
+#[test]
+fn log_by_author_reads_the_author_and_not_the_reviser() {
+    let directory = store_from("log-author", "revisions");
+    let everything = stdout(&directory, &["log"]);
+    assert!(everything.contains("revised by Rowan Vale"), "{everything}");
+
+    let rowan = stdout(&directory, &["log", "--author", "Rowan"]);
+    assert_eq!(entries(&rowan).len(), 1);
+    assert!(
+        rowan.contains("Name parents a revision has not received yet"),
+        "{rowan}"
+    );
+
+    let nobody = stdout(&directory, &["log", "--author", "Nobody"]);
+    assert!(nobody.contains("no revision here matches"), "{nobody}");
+}
+
+#[test]
+fn log_by_grep_reads_the_message() {
+    let directory = store_from("log-grep", "tree");
+    let readme = stdout(&directory, &["log", "--grep", "README"]);
+    assert_eq!(entries(&readme).len(), 1);
+    assert!(readme.contains("File the README under docs"), "{readme}");
+}
+
+/// Decision 0008 is what makes this answerable: the path is read once, and
+/// what the log follows is the file it named, through the `move` that renamed
+/// it and the edits either side of it.
+#[test]
+fn log_by_path_follows_the_file_through_a_rename() {
+    let directory = store_from("log-path", "tree");
+    let readme = stdout(&directory, &["log", "--path", "docs/README.md"]);
+    assert_eq!(entries(&readme).len(), 2);
+    assert!(readme.contains("File the README under docs"), "{readme}");
+    // Added as `README.md`, two revisions before it acquired that path.
+    assert!(readme.contains("Start a journal"), "{readme}");
+    assert!(
+        !readme.contains("Say why a path is not an identity"),
+        "that revision edited the other file: {readme}"
+    );
+
+    // The identifier is the name that never moved, and it selects the same
+    // revisions the path it currently sits at does.
+    assert_eq!(stdout(&directory, &["log", "--path", "file:swtl"]), readme);
+
+    // A path is read at the revision named, where the old one still names it.
+    let before = stdout(&directory, &["log", "kxryzmor", "--path", "README.md"]);
+    assert_eq!(entries(&before).len(), 1);
+    assert!(before.contains("Start a journal"), "{before}");
+
+    let gone = stderr(&directory, &["log", "--path", "README.md"]);
+    assert!(gone.contains("holds no file at README.md"), "{gone}");
+}
+
+/// The bound is read in each revision's own offset, because decision 0002
+/// leaves no shared instant here to compare against.
+#[test]
+fn log_since_and_until_bound_the_recorded_time() {
+    let directory = store_from("log-when", "tree");
+
+    let after = stdout(&directory, &["log", "--since", "2025-08-20"]);
+    assert_eq!(entries(&after).len(), 2);
+    assert!(!after.contains("Start a journal"), "{after}");
+
+    // A whole date is that whole day: the second revision was recorded at
+    // 09:02:40 on it, and is inside `--until` for it.
+    let before = stdout(&directory, &["log", "--until", "2025-08-19"]);
+    assert_eq!(entries(&before).len(), 2);
+    assert!(
+        before.contains("Say why a path is not an identity"),
+        "{before}"
+    );
+
+    // The stored spelling is taken as it is written, and both bounds include
+    // the moment they name.
+    let exact = stdout(&directory, &["log", "--since", "2025-08-19T09:02:40-06:00"]);
+    assert_eq!(entries(&exact).len(), 3);
+
+    let both = stdout(
+        &directory,
+        &["log", "--since", "2025-08-19", "--until", "2025-08-20"],
+    );
+    assert_eq!(entries(&both).len(), 3);
+    assert!(!both.contains("Withdraw the entry"), "{both}");
+
+    let refused = stderr(&directory, &["log", "--since", "yesterday"]);
+    assert!(refused.contains("is neither"), "{refused}");
+    let impossible = stderr(&directory, &["log", "--until", "2025-02-30"]);
+    assert!(impossible.contains("is neither"), "{impossible}");
+}
+
+#[test]
+fn log_filters_compose_and_the_limit_counts_what_they_left() {
+    let directory = store_from("log-filters", "tree");
+    let combined = stdout(
+        &directory,
+        &["log", "--path", "docs/README.md", "--since", "2025-08-20"],
+    );
+    assert_eq!(entries(&combined).len(), 1);
+    assert!(
+        combined.contains("File the README under docs"),
+        "{combined}"
+    );
+
+    // The newest revision of all is the drop, which touched the other file. A
+    // limit applied before the filters would have left this printing nothing.
+    let newest = stdout(
+        &directory,
+        &["log", "--path", "docs/README.md", "--limit", "1"],
+    );
+    assert_eq!(entries(&newest).len(), 1);
+    assert!(newest.contains("File the README under docs"), "{newest}");
+
+    let none = stdout(
+        &directory,
+        &["log", "--grep", "README", "--author", "Rowan"],
+    );
+    assert!(none.contains("no revision here matches"), "{none}");
+}
+
+#[test]
+fn log_marks_the_head_whatever_is_filtered_out() {
+    let directory = store_from("log-head", "tree");
+    let newest = stdout(&directory, &["log", "--limit", "1"]);
+    assert!(newest.contains("(head)"), "{newest}");
+
+    // And invents none where the head is not shown.
+    let older = stdout(&directory, &["log", "--grep", "Start a journal"]);
+    assert_eq!(entries(&older).len(), 1);
+    assert!(!older.contains("(head)"), "{older}");
+}
+
 #[test]
 fn a_target_is_a_bookmark_a_change_or_a_digest() {
     let directory = store_from("targets", "tree");

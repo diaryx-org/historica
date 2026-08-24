@@ -240,7 +240,14 @@ exactly what a three-way merge cannot say. `name` writes a bookmark, and takes t
 takes: with a path it names the file at that path rather than the work, so
 `history/names/` holds `file` lines beside `change` and `revision` ones and
 `cat <target> file:<bookmark>` is that file wherever it has since been moved to.
-Nothing there decides anything
+What `log` prints is narrowed by `--limit`, `--author`, `--grep`, `--since`,
+`--until`, and `--path`; they compose, and `--limit` counts what the rest left
+rather than what they were given. `--path` is where 0008 pays: the path is read
+once, at one revision, and what the log follows is the *file* it named — so a
+rename is not a break in a file's history and no heuristic is asked to guess
+that it was one. A time bound is read in each revision's own offset, since
+0002 leaves no shared instant here to compare against, and a bare `YYYY-MM-DD`
+is that whole day there. Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.

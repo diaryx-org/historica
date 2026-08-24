@@ -11,7 +11,7 @@ use std::fmt::Display;
 use std::io::{self, Write};
 use std::path::Path;
 
-use historica::core::{ChangeId, ChangeState, History, RevisionId};
+use historica::core::{ChangeId, ChangeState, FileId, History, RevisionId};
 use historica::format::{RevisionDocument, Timestamp};
 use historica::record::Survey;
 use historica::store::{Name, Report, Store};
@@ -27,8 +27,93 @@ const DIGEST_FLOOR: usize = 8;
 /// Change ID characters shown, on the same terms.
 pub(super) const CHANGE_FLOOR: usize = 8;
 
+/// Characters of a timestamp before its offset: `2025-08-19T00:47:11`.
+const WALL: usize = 19;
+
+/// A timestamp's wall clock, which is the date and time its author read.
+///
+/// Decision 0002 keeps timestamps out of identity, causality, and ordering, so
+/// there is no shared instant here for a bound to be compared against. What is
+/// left is the fact the format kept deliberately: the day and hour each author
+/// had, in the offset they were in.
+pub fn wall(spelled: &str) -> &str {
+    spelled.get(..WALL).unwrap_or(spelled)
+}
+
+/// What `log` was asked to leave out.
+///
+/// Every field is a reason to skip a revision, so an empty filter keeps
+/// everything, and several compose by keeping only what satisfies all of them.
+/// The limit is not one of those reasons: it counts what survived them.
+#[derive(Debug, Default)]
+pub struct Filter {
+    /// Stop after this many entries.
+    pub limit: Option<usize>,
+    /// Keep a revision whose author line holds this text.
+    pub author: Option<String>,
+    /// Keep a revision whose message holds this text.
+    pub grep: Option<String>,
+    /// Keep a revision recorded at or after this wall clock.
+    pub since: Option<String>,
+    /// Keep a revision recorded at or before this wall clock.
+    pub until: Option<String>,
+    /// Keep a revision stating any fact about this file.
+    pub file: Option<FileId>,
+}
+
+impl Filter {
+    /// Whether anything but the limit was asked for.
+    fn selects(&self) -> bool {
+        self.author.is_some()
+            || self.grep.is_some()
+            || self.since.is_some()
+            || self.until.is_some()
+            || self.file.is_some()
+    }
+
+    /// Whether this revision survives every filter but the limit.
+    fn keeps(&self, document: &RevisionDocument) -> bool {
+        if let Some(author) = &self.author
+            && !document.author.contains(author.as_str())
+        {
+            return false;
+        }
+        if let Some(text) = &self.grep
+            && !document.message.contains(text.as_str())
+        {
+            return false;
+        }
+        if let Some(since) = &self.since
+            && wall(document.when.as_str()) < since.as_str()
+        {
+            return false;
+        }
+        if let Some(until) = &self.until
+            && wall(document.when.as_str()) > until.as_str()
+        {
+            return false;
+        }
+        if let Some(file) = &self.file
+            && !historica::tree::touches(document, file)
+        {
+            return false;
+        }
+        true
+    }
+}
+
 /// `log`: every revision, or one revision's ancestry, newest first.
-pub fn log(out: &mut impl Write, store: &Store, from: Option<RevisionId>) -> io::Result<()> {
+///
+/// A filter takes entries out of the list and changes nothing about the ones
+/// that stay: `(head)` is a fact about the graph rather than about this
+/// listing, so a head stays marked as one whether or not its children were
+/// asked for.
+pub fn log(
+    out: &mut impl Write,
+    store: &Store,
+    from: Option<RevisionId>,
+    filter: &Filter,
+) -> io::Result<()> {
     let history = store.history();
     let heads = history.heads();
     let superseded = history.superseded();
@@ -45,7 +130,19 @@ pub fn log(out: &mut impl Write, store: &Store, from: Option<RevisionId>) -> io:
     let digests = abbreviations(store.iter().map(|(id, _)| *id), DIGEST_FLOOR);
     let changes = abbreviations(history.changes(), CHANGE_FLOOR);
 
-    for (index, id) in presentation(store, &shown).iter().enumerate() {
+    let kept: Vec<RevisionId> = presentation(store, &shown)
+        .into_iter()
+        .filter(|id| store.get(id).is_some_and(|document| filter.keeps(document)))
+        .collect();
+    if kept.is_empty() && filter.selects() {
+        return writeln!(out, "no revision here matches all of those");
+    }
+
+    for (index, id) in kept
+        .iter()
+        .take(filter.limit.unwrap_or(usize::MAX))
+        .enumerate()
+    {
         let Some(document) = store.get(id) else {
             continue;
         };
