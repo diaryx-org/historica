@@ -469,8 +469,35 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     }
     heads.sort();
 
-    let merged = store.merged_tree_of(&heads).map_err(Failure::error)?;
+    // Decision 0023, amended: supersession is a statement about one change's
+    // revisions and does not travel along parent edges, so a head can stand on
+    // a revision somebody has since rewritten. Merging it is not merging
+    // concurrent work. A rewrite mints its own items for lines its predecessor
+    // already minted, so both sides hold the same lines under different names
+    // and every one of them arrives here contested — which reads, in the
+    // folder, as the other side having retyped work that was already there.
+    // Saying so before the markers is the difference between a person
+    // resolving a conflict and a person deleting their own work to be rid of
+    // one. `check` says it too; this is the command where they meet it.
     let mut said = Vec::new();
+    let withdrawn = store.history().superseded();
+    if !withdrawn.is_empty() {
+        for (id, document) in store.reachable_from(&heads).map_err(Failure::error)? {
+            if withdrawn.contains(&id) {
+                continue;
+            }
+            for parent in document.parents.iter().filter(|p| withdrawn.contains(p)) {
+                said.push(format!(
+                    "{} stands on {}, which something rewrote; what meets below \
+                     may be that rewrite rather than work done twice",
+                    id.abbreviate(8),
+                    parent.abbreviate(8)
+                ));
+            }
+        }
+    }
+
+    let merged = store.merged_tree_of(&heads).map_err(Failure::error)?;
     let mut contested = 0usize;
 
     // A path two files claim cannot be a folder's truth: one keeps the path

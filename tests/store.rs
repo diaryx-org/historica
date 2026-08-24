@@ -21,6 +21,14 @@ fn scratch(test: &str) -> PathBuf {
     path
 }
 
+/// The digest one corpus revision has, which is the digest of its own bytes.
+fn corpus_revision(name: &str) -> RevisionId {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/corpus/revisions")
+        .join(name);
+    digest(&fs::read(path).expect("a corpus file"))
+}
+
 fn corpus_files() -> Vec<PathBuf> {
     let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/revisions");
     let mut files: Vec<PathBuf> = fs::read_dir(corpus)
@@ -314,6 +322,65 @@ fn a_root_directory_this_format_does_not_name_is_left_alone() {
     assert!(claim.is_file(), "the claim is where its own tool put it");
     assert!(policy.is_file(), "and so is the policy");
     assert!(Store::check(&root).is_ok(), "arranging broke nothing");
+}
+
+/// Decision 0023, amended: a rewrite reaches what it rewrote and nothing
+/// standing on it, because supersession is a statement about one change's
+/// revisions and parenthood is a different graph.
+///
+/// The corpus is a finished rewrite and the shape the half-delivered one
+/// arrives in. 05 amends 02, and 06 is the rebase that carried the merge
+/// standing on 02 across to the amendment — so every revision on the old side
+/// is itself superseded, and there is no gap to report. Take 06 away, which is
+/// the state a receive leaves when one replica rewrote a revision and the
+/// other built on it, and the merge is live again on a revision that has been
+/// withdrawn. That is a note: every document here still parses, hashes and
+/// replays, and what the store lacks is the rest of the rewrite.
+#[test]
+fn work_left_standing_on_a_rewritten_revision_is_a_note() {
+    let (root, _) = corpus_store("unreached-rewrite");
+
+    let finished = Store::check(&root);
+    assert!(
+        !finished
+            .findings()
+            .iter()
+            .any(|finding| matches!(finding, Finding::StandsOnSuperseded { .. })),
+        "a rewrite that reached its descendants leaves no gap"
+    );
+
+    let concurrent = corpus_revision("02-concurrent.rev.txt");
+    let merge = corpus_revision("04-merge.rev.txt");
+    let amended = corpus_revision("05-amended.rev.txt");
+    fs::remove_file(root.join("revisions/06-rebased.rev.txt")).expect("the undelivered rebase");
+
+    let report = Store::check(&root);
+    assert!(report.is_ok(), "the store contradicts nothing");
+    let unreached: Vec<&Finding> = report
+        .findings()
+        .iter()
+        .filter(|finding| matches!(finding, Finding::StandsOnSuperseded { .. }))
+        .collect();
+    assert_eq!(unreached.len(), 1, "{unreached:?}");
+
+    let Finding::StandsOnSuperseded {
+        revision,
+        superseded,
+        successors,
+    } = unreached[0]
+    else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(*revision, merge, "the merge is what was left behind");
+    assert_eq!(
+        *superseded, concurrent,
+        "standing on the withdrawn revision"
+    );
+    assert!(
+        successors.contains(&amended),
+        "and the amendment is where that work belongs instead"
+    );
+    assert_eq!(unreached[0].severity(), Severity::Note);
 }
 
 #[test]

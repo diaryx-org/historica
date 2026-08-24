@@ -3282,6 +3282,65 @@ fn a_merge_writes_the_mode_it_resolved_into_the_folder() {
 /// Divergence is the state `merge` exists for, and in it the store already
 /// knows both answers — so naming neither is enough, and the command printed
 /// afterwards states every head it joined rather than only the ones typed.
+/// Decision 0023, amended: `amend` refuses to rewrite a revision something
+/// stands on, and a receive delivers exactly that anyway — one replica rewrote
+/// a revision, the other built on it, and a union holds both.
+///
+/// Merging the two is not merging concurrent work. A rewrite mints its own
+/// items for the lines its predecessor already minted, so both sides carry the
+/// same lines under different names and every one of them arrives contested —
+/// which reads, in the folder, as the other side having retyped work that was
+/// already there. So `merge` says whose ground it is standing on before it
+/// writes a marker, and `check` says the same thing about the store.
+#[test]
+fn merging_onto_a_rewrite_nobody_finished_says_so_first() {
+    let here = repository("unreached-here");
+    write(&here, "note.txt", "one\ntwo\n");
+    out(recorded(&here, &["record", "-m", "Start the note"]));
+
+    // A replica taken before the rewrite, which is the whole of how this state
+    // is reached: neither side did anything a command would refuse.
+    let there = scratch("unreached-there");
+    copy_tree(&here, &there);
+
+    write(&here, "note.txt", "one\ntwo\nthree\n");
+    out(recorded(
+        &here,
+        &["amend", "-m", "Start the note, with three"],
+    ));
+    write(&there, "note.txt", "one\ntwo\nfour\n");
+    out(recorded(&there, &["record", "-m", "Add four"]));
+
+    let source = there.to_string_lossy();
+    out(recorded(&here, &["receive", &source]));
+
+    // The store contradicts nothing, so this never fails — it says what the
+    // rewrite did not reach, which is the thing no other finding covers.
+    let checked = stdout(&here, &["check"]);
+    assert!(
+        checked.contains("the rewrite did not reach it"),
+        "{checked}"
+    );
+    assert!(checked.contains("no errors"), "{checked}");
+
+    let merged = out(recorded(&here, &["merge"]));
+    let (first, _) = merged.split_once('\n').expect("a line before the rest");
+    assert!(
+        first.contains("which something rewrote"),
+        "the warning comes before the markers: {merged}"
+    );
+    assert!(
+        first.contains("rather than work done twice"),
+        "and says what the contest below is likely to be: {merged}"
+    );
+
+    // The lines the rewrite re-minted do meet, which is what the warning is
+    // for: `one` and `two` were typed once and are contested anyway.
+    let held = fs::read_to_string(here.join("note.txt")).expect("the merged folder");
+    assert_eq!(held.matches("one").count(), 2, "{held}");
+    assert_eq!(held.matches("two").count(), 2, "{held}");
+}
+
 #[test]
 fn merge_joins_the_standing_heads_without_being_told_which() {
     let (directory, _mine, _theirs) =

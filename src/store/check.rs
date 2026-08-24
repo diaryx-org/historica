@@ -121,6 +121,28 @@ pub enum Finding {
         /// A revision that names it.
         named_by: RevisionId,
     },
+    /// Work standing on a revision something has since superseded.
+    ///
+    /// Decision 0023, amended: supersession is a statement about one change's
+    /// revisions and does not travel along parent edges, so a rewrite reaches
+    /// what was rewritten and nothing built on it. `amend` refuses to make
+    /// this state and `receive` delivers it anyway — one replica rewrote a
+    /// revision, another built on it, and a union holds both. Nothing else
+    /// here would say so: both lines are ordinary heads, and merging them
+    /// would ask a person to resolve content that was never concurrent,
+    /// because a rewrite mints its own items for lines its predecessor
+    /// already minted.
+    ///
+    /// A note, because the store contradicts nothing — every document parses,
+    /// hashes and replays. What it lacks is the rest of the rewrite.
+    StandsOnSuperseded {
+        /// The revision nothing supersedes, standing on one something does.
+        revision: RevisionId,
+        /// The parent that was withdrawn.
+        superseded: RevisionId,
+        /// What withdrew it, which is where the work belongs instead.
+        successors: BTreeSet<RevisionId>,
+    },
     /// A bookmark naming a change or revision this store does not hold.
     DanglingBookmark {
         /// The bookmark.
@@ -304,6 +326,7 @@ impl Finding {
             | Finding::RuleCoversTracked { .. }
             | Finding::StaleSkipped { .. } => Severity::Error,
             Finding::MissingParent { .. }
+            | Finding::StandsOnSuperseded { .. }
             | Finding::DanglingBookmark { .. }
             | Finding::DuplicateContent { .. }
             | Finding::ForeignFile { .. }
@@ -386,6 +409,17 @@ impl fmt::Display for Finding {
                 "{} names parent {}, which is not here yet",
                 named_by.abbreviate(12),
                 parent.abbreviate(12)
+            ),
+            Finding::StandsOnSuperseded {
+                revision,
+                superseded,
+                successors,
+            } => write!(
+                f,
+                "{} stands on {}, which {} supersedes; the rewrite did not reach it",
+                revision.abbreviate(12),
+                superseded.abbreviate(12),
+                display_missing(successors)
             ),
             Finding::DanglingBookmark { name, target } => {
                 write!(f, "`{name}` points at `{target}`, which is not here yet")
@@ -691,6 +725,35 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
                 report.push(Finding::MissingParent {
                     parent: *parent,
                     named_by: *id,
+                });
+            }
+        }
+    }
+
+    // What each withdrawn revision was withdrawn by. Built from the documents
+    // that state it, so a supersession nobody here delivered is not one this
+    // store knows about, and the loop below stays silent about it.
+    let mut withdrawn: BTreeMap<RevisionId, BTreeSet<RevisionId>> = BTreeMap::new();
+    for (id, document) in &documents {
+        for predecessor in &document.supersedes {
+            withdrawn.entry(*predecessor).or_default().insert(*id);
+        }
+    }
+
+    // A revision that is itself superseded is passed over: a withdrawn
+    // revision standing on a withdrawn revision is the trailing history a
+    // finished rewrite leaves behind — the corpus's own amendment does
+    // exactly that — and reporting it would make every rewrite a note.
+    for (id, document) in &documents {
+        if withdrawn.contains_key(id) {
+            continue;
+        }
+        for parent in &document.parents {
+            if let Some(successors) = withdrawn.get(parent) {
+                report.push(Finding::StandsOnSuperseded {
+                    revision: *id,
+                    superseded: *parent,
+                    successors: successors.clone(),
                 });
             }
         }
