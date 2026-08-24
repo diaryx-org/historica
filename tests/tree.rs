@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use historica::core::{FileId, RevisionId};
 use historica::format::{OperationDocument, RevisionDocument, digest};
-use historica::replay::{State, replay as replay_content};
+use historica::replay::{State, creation, replay as replay_content};
 use historica::tree::{Tree, operations_for, replay as replay_tree};
 
 /// The journal entry, and the README, as the corpus names them.
@@ -68,11 +68,13 @@ fn history() -> Vec<RevisionDocument> {
 ///
 /// Keyed by content and never by name, which is decision 0003's rule arriving
 /// where it was always headed: the `edit` lines name digests, so the file names
-/// here are presentation and nothing reads them.
+/// here are presentation and nothing reads them. Only `.ops.txt` files carry
+/// the grammar; everything else under `operations/` is a payload, the file
+/// itself.
 fn documents() -> BTreeMap<RevisionId, OperationDocument> {
     manifest()
         .into_keys()
-        .filter(|name| name.starts_with("operations/"))
+        .filter(|name| name.starts_with("operations/") && name.ends_with(".ops.txt"))
         .map(|name| {
             let bytes = read(&name);
             let document =
@@ -82,16 +84,39 @@ fn documents() -> BTreeMap<RevisionId, OperationDocument> {
         .collect()
 }
 
+/// The payloads in the corpus, by digest, read as text.
+fn payloads() -> BTreeMap<RevisionId, String> {
+    manifest()
+        .into_keys()
+        .filter(|name| name.starts_with("operations/") && !name.ends_with(".ops.txt"))
+        .map(|name| {
+            let bytes = read(&name);
+            (
+                digest(&bytes),
+                String::from_utf8(bytes).expect("a text payload"),
+            )
+        })
+        .collect()
+}
+
 /// Materialise one file at the end of a chain of revisions.
+///
+/// The creation arrives as a payload (decision 0017), which is exactly the
+/// operation document that inserts every line at 0; the edits follow it.
 fn content(revisions: &[RevisionDocument], file: &FileId) -> State {
-    let documents = documents();
-    let chain: Vec<&OperationDocument> = operations_for(revisions, file)
+    let payloads = payloads();
+    let created: Option<OperationDocument> = revisions
         .iter()
-        .map(|id| {
+        .find_map(|revision| revision.text.get(file))
+        .map(|payload| creation(&payloads[payload]).expect("a payload with content"));
+    let documents = documents();
+    let chain: Vec<&OperationDocument> = created
+        .iter()
+        .chain(operations_for(revisions, file).iter().map(|id| {
             documents
                 .get(id)
                 .unwrap_or_else(|| panic!("the store holds {id}"))
-        })
+        }))
         .collect();
     replay_content(chain).expect("a linear chain")
 }
@@ -124,6 +149,12 @@ fn the_corpus_is_one_chain_and_every_reference_in_it_resolves() {
             assert!(
                 documents.contains_key(document),
                 "{document} is in the store"
+            );
+        }
+        for payload in revision.text.values() {
+            assert!(
+                payloads().contains_key(payload),
+                "{payload} is in the store"
             );
         }
         previous = Some(revision.id());
@@ -163,7 +194,7 @@ fn a_rename_keeps_everything_recorded_against_the_file() {
     // both of its operation documents — the one recorded when it was
     // `README.md` and the one recorded as it became `docs/README.md`.
     let history = history();
-    assert_eq!(operations_for(&history, &file(README)).len(), 2);
+    assert_eq!(operations_for(&history, &file(README)).len(), 1);
     assert_eq!(
         content(&history, &file(README)).text(),
         "# Notes\n\nA journal kept in Historica, and the notes that came with it.\n"
@@ -200,7 +231,7 @@ fn a_dropped_file_loses_its_path_and_keeps_its_history() {
     // is not a place things are removed from.
     let after = replay_tree(&history).expect("after");
     assert!(after.path(&file(ENTRY)).is_none());
-    assert_eq!(operations_for(&history, &file(ENTRY)).len(), 2);
+    assert_eq!(operations_for(&history, &file(ENTRY)).len(), 1);
     assert_eq!(content(&history, &file(ENTRY)).len(), 4);
 }
 
@@ -212,12 +243,16 @@ fn every_revision_replays_against_the_tree_it_was_recorded_from() {
     let history = history();
     let documents = documents();
 
+    let payloads = payloads();
     let mut tree = Tree::empty();
     let mut states: BTreeMap<FileId, State> = BTreeMap::new();
     for revision in &history {
         tree = tree
             .apply(revision)
             .unwrap_or_else(|error| panic!("{}: {error}", revision.id()));
+        for (file, payload) in &revision.text {
+            states.insert(*file, State::from_text(&payloads[payload]));
+        }
         for (file, id) in &revision.edited {
             let document = &documents[id];
             let state = states.entry(*file).or_insert_with(State::empty);

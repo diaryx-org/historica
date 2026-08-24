@@ -372,7 +372,7 @@ mod tests {
     /// A document with one message, one date, and one change ID.
     fn document(change: &str, when: &str, message: &str) -> RevisionDocument {
         let headers =
-            format!("historica-v0\nchange {change}\nauthor A <a@example.com>\nwhen {when}\n");
+            format!("historica\nchange {change}\nauthor A <a@example.com>\nwhen {when}\n");
         // A document with nothing to say ends at its headers: the blank line
         // is a separator, and the parser refuses one with nothing after it.
         let text = if message.is_empty() {

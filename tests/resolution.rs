@@ -107,6 +107,9 @@ fn every_canonical_file_parses_and_writes_back_byte_for_byte() {
         if name.starts_with("invalid/") || name.starts_with("states/") {
             continue;
         }
+        if !name.ends_with(".rev.txt") && !name.ends_with(".ops.txt") {
+            continue; // a payload is the file itself, and has no grammar
+        }
         let written = if name.ends_with(".rev.txt") {
             historica::format::RevisionDocument::parse(&bytes)
                 .unwrap_or_else(|error| panic!("{name}: {error}"))
@@ -133,8 +136,6 @@ fn the_merge_states_its_resolution_and_the_rest_state_operations() {
         "the merge's document is a resolution"
     );
     for name in [
-        "operations/01-notes.ops.txt",
-        "operations/01-readme.ops.txt",
         "operations/02-notes.ops.txt",
         "operations/03-notes.ops.txt",
         "operations/05-notes.ops.txt",
@@ -216,9 +217,9 @@ fn a_reader_assembles_the_merge_from_the_documents_it_names() {
     // touches the event graph.
     let store = merged_store("merged-by-hand");
     let assembled: String = [
-        (id("operations/01-notes.ops.txt"), 0, 1),
+        (id("operations/01-notes.txt"), 0, 1),
         (id("operations/02-notes.ops.txt"), 0, 1),
-        (id("operations/01-notes.ops.txt"), 1, 1),
+        (id("operations/01-notes.txt"), 1, 1),
     ]
     .into_iter()
     .map(|(document, first, count)| {
@@ -294,8 +295,8 @@ fn tampered(
 
 /// Everything the corpus holds up to and excluding the merge.
 const BEFORE_THE_MERGE: &[&str] = &[
-    "operations/01-notes.ops.txt",
-    "operations/01-readme.ops.txt",
+    "operations/01-notes.txt",
+    "operations/01-readme.md",
     "operations/02-notes.ops.txt",
     "operations/03-notes.ops.txt",
     "revisions/01-root.rev.txt",
@@ -346,7 +347,7 @@ fn a_keep_of_a_document_nothing_holds_is_a_note() {
     let held: Vec<&str> = BEFORE_THE_MERGE
         .iter()
         .copied()
-        .filter(|name| *name != "operations/01-notes.ops.txt")
+        .filter(|name| *name != "operations/01-notes.txt")
         .collect();
     let root = tampered("merged-undelivered", &held, |text| text, |text| text);
     let report = Store::check(&root);
@@ -373,7 +374,7 @@ fn a_keep_past_the_end_of_its_document_is_an_error() {
         "merged-overrun",
         BEFORE_THE_MERGE,
         |text| {
-            let notes = id("operations/01-notes.ops.txt");
+            let notes = id("operations/01-notes.txt");
             text.replace(&format!("keep {notes} 1 1"), &format!("keep {notes} 1 9"))
         },
         |text| text,
@@ -523,14 +524,6 @@ fn invalid() -> Vec<(&'static str, ParseErrorKind)> {
         (
             "keep-without-result.ops.txt",
             ParseErrorKind::MissingHeader { key: "result" },
-        ),
-        (
-            "keep-before-version-three.ops.txt",
-            ParseErrorKind::HeaderNeedsVersion {
-                key: String::new(),
-                found: historica::format::Version::V0,
-                needs: historica::format::Version::V3,
-            },
         ),
         (
             "malformed-keep.ops.txt",

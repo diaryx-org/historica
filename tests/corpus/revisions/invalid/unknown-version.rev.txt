@@ -1,10 +1,10 @@
-historica-v6
+historica-2
 change qpvuntsmwlrkzxonmvtplsyq
 author Adam Harris <adam@example.com>
 when 2025-08-19T00:47:11-06:00
 
 This revision needs a newer Historica
 
-Refusing is the honest answer: a reader that knows up to version 5 does not
-know what version 6 made required, so it cannot know what it would be leaving
+Refusing is the honest answer: a reader that reads `historica` does not know
+what `historica-2` made required, so it cannot know what it would be leaving
 out.

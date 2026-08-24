@@ -17,7 +17,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use historica::core::{FileId, RevisionId};
-use historica::format::{ParseErrorKind, RevisionDocument, Version, digest};
+use historica::format::{ParseErrorKind, RevisionDocument, digest};
 use historica::store::{Content, Store};
 use historica::tree::Kind;
 
@@ -80,9 +80,8 @@ fn every_file_hashes_to_what_the_manifest_says() {
 fn a_created_file_is_stored_as_itself() {
     let manifest = manifest();
     let bytes = fs::read(corpus().join("revisions/01-start.rev.txt")).expect("the revision");
-    let document = RevisionDocument::parse(&bytes).expect("a version 1 revision");
+    let document = RevisionDocument::parse(&bytes).expect("a revision");
 
-    assert_eq!(document.version, Version::V1);
     assert_eq!(document.added.len(), 2);
     assert!(document.edited.is_empty(), "a creation names no operations");
     assert_eq!(
@@ -221,14 +220,6 @@ fn every_invalid_file_is_refused_for_its_own_reason() {
                 first: "drop",
                 second: "bytes",
                 file: entry.clone(),
-            },
-        ),
-        (
-            "text-in-version-0.rev.txt",
-            ParseErrorKind::HeaderNeedsVersion {
-                key: "text".to_owned(),
-                found: Version::V0,
-                needs: Version::V1,
             },
         ),
     ];

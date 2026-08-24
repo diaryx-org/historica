@@ -1,6 +1,6 @@
-historica-v1
+historica
 change mzvwutklsyoxwqmpwsroymvz
-parent 0e5977f3cb7b942537bcd85946d08db7f667410c1aea0c781df5cf66f4e76107
+parent 458f2fbd2b9d6792bce84f36e5bd3332c79f8012490e14b660b221515f491386
 author Adam Harris <adam@example.com>
 when 2026-08-09T17:44:20-06:00
 move swtlmnkqvzyrxopwstlnmkqv 2026/08.md
@@ -8,5 +8,5 @@ move swtlmnkqvzyrxopwstlnmkqv 2026/08.md
 Shorten the month's name
 
 The revision that would have broken the link everywhere else. It states
-no `link` line at all, and claims version 1: the reference is to the
-file, and the file is where it always was.
+no `link` line at all: the reference is to the file, and the file is
+where it always was.

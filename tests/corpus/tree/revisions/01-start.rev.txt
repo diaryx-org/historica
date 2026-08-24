@@ -1,10 +1,10 @@
-historica-v0
+historica
 change qpvuntsmwlrkzxonmvtplsyq
 author Adam Harris <adam@example.com>
 when 2025-08-19T00:47:11-06:00
 add nrqvtkzlmwyxsptonvqrklmz notes/2025-08-19.md
 add swtlmnkqvzyrxopwstlnmkqv README.md
-edit nrqvtkzlmwyxsptonvqrklmz 14b840428bd35bb916cb7eae6d778b29661de25379d53e95018b5e3c2d1f80bd
-edit swtlmnkqvzyrxopwstlnmkqv 0437255c86ea3eefd48ba57c5472b83202ee9c1351ee7d174c3618a90d643254
+text nrqvtkzlmwyxsptonvqrklmz 6630663ba0ae08e477801ba50401d93b623b23a35aaf96acc2d89d325c952495
+text swtlmnkqvzyrxopwstlnmkqv 11db37f8c5cb4384341f3e5240d5c7f4d6fb3bdf90d95337f7c57b456a5eb162
 
 Start a journal

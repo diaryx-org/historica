@@ -69,10 +69,9 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
             }
             writeln!(
                 out,
-                "would make a copy of {} at {}, stating {}",
+                "would make a copy of {} at {}",
                 target::spelled(&store, &target),
-                into.display(),
-                plan.version()
+                into.display()
             )
         });
     }
@@ -97,10 +96,9 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         }
         writeln!(
             out,
-            "made a copy of {} at {}, stating {}",
+            "made a copy of {} at {}",
             target::spelled(&store, &target),
-            where_it_is.display(),
-            exported.version
+            where_it_is.display()
         )
     })
 }

@@ -49,7 +49,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
-use crate::format::{Piece, Version};
+use crate::format::Piece;
 #[cfg(feature = "disk")]
 use crate::fs::Disk;
 use crate::fs::Filesystem;
@@ -67,7 +67,6 @@ use super::{MaterialiseError, OPERATION_SUFFIX, REVISION_SUFFIX, STORE_DIR, Stor
 #[derive(Debug, Clone)]
 pub struct ExportPlan {
     target: RevisionId,
-    version: Version,
     revisions: Vec<RevisionId>,
     documents: Vec<RevisionId>,
     payloads: Vec<RevisionId>,
@@ -79,16 +78,6 @@ impl ExportPlan {
     /// The revision the copy ends at, which is its only head.
     pub fn target(&self) -> RevisionId {
         self.target
-    }
-
-    /// The version the copy's header will state.
-    ///
-    /// The lowest that expresses what it holds, computed from the documents
-    /// travelling rather than copied from the store they leave: an export of
-    /// an all-version-0 ancestry out of a version 4 store is a version 0
-    /// store, which is decision 0004 working in the other direction.
-    pub fn version(&self) -> Version {
-        self.version
     }
 
     /// Every revision document that travels, in digest order.
@@ -124,8 +113,6 @@ pub struct Exported {
     pub root: PathBuf,
     /// The revision it ends at.
     pub target: RevisionId,
-    /// The version its header states.
-    pub version: Version,
     /// Revision documents written.
     pub revisions: usize,
     /// Operation and resolution documents written.
@@ -149,11 +136,6 @@ impl<F: Filesystem> Store<F> {
         // revision outside the closure is left dangling on purpose: see the
         // module documentation, and `tests/export.rs`.
         let reachable = self.reachable(target)?;
-        let mut version = Version::V0;
-        for (_, document) in &reachable {
-            version = version.max(document.version);
-        }
-
         // Everything those revisions name, followed through decision 0032's
         // `keep` lines: a resolution is not self-contained prose, and the
         // documents it quotes items of have to travel with it.
@@ -177,7 +159,6 @@ impl<F: Filesystem> Store<F> {
                 continue;
             }
             if let Some(resolution) = self.resolution(&id)? {
-                version = version.max(resolution.version);
                 documents.insert(id);
                 for piece in &resolution.pieces {
                     if let Piece::Keep { document, .. } = piece {
@@ -186,8 +167,7 @@ impl<F: Filesystem> Store<F> {
                 }
                 continue;
             }
-            if let Some(document) = self.operation(&id)? {
-                version = version.max(document.version);
+            if self.operation(&id)?.is_some() {
                 documents.insert(id);
                 continue;
             }
@@ -209,7 +189,6 @@ impl<F: Filesystem> Store<F> {
                 .is_some_and(|target| named.contains(&target))
                 && !documents.contains(&id)
             {
-                version = version.max(document.version);
                 forgetting.push(id);
             }
         }
@@ -226,7 +205,6 @@ impl<F: Filesystem> Store<F> {
 
         Ok(ExportPlan {
             target: *target,
-            version,
             revisions: reachable.into_iter().map(|(id, _)| id).collect(),
             documents: documents.into_iter().collect(),
             payloads: payloads.into_iter().collect(),
@@ -317,11 +295,6 @@ impl<F: Filesystem> Store<F> {
             copy.insert_at(document, &format!("{stem}{REVISION_SUFFIX}"))?;
         }
 
-        // The header states what the copy holds rather than what the store it
-        // came from holds, which is the one place this has to be said out
-        // loud: writing raises a version and never lowers one.
-        copy.state_version(plan.version)?;
-
         // The folder half is `update`'s, materialised out of the copy's own
         // history — which is the first thing that proves the copy can produce
         // it — and written through the destination filesystem.
@@ -333,7 +306,6 @@ impl<F: Filesystem> Store<F> {
         Ok(Exported {
             root: directory.to_path_buf(),
             target: plan.target,
-            version: plan.version,
             revisions: plan.revisions.len(),
             documents: plan.documents.len(),
             payloads: plan.payloads.len(),

@@ -5,7 +5,8 @@
 //! operations against the state at that revision's parents:
 //!
 //! ```text
-//! historica-v1
+//! historica
+//! result 6da043726d44dd4e5790a415fb5a60ab645bc94f84c2641822d86b9ed3b6fefd
 //!
 //! delete 3 1
 //! -Nothing here chooses a document syntax yet.
@@ -40,7 +41,7 @@ use std::fmt;
 use crate::core::RevisionId;
 
 use super::{
-    Lines, ParseError, ParseErrorKind, Version, check_byte_order_mark, check_preamble, digest,
+    Lines, PREAMBLE, ParseError, ParseErrorKind, check_byte_order_mark, check_preamble, digest,
 };
 
 /// The line that says the item above it is the file's last and unterminated.
@@ -227,8 +228,6 @@ impl Operation {
 /// are read in: ascending by position, delete before insert at one position.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperationDocument {
-    /// The version this document was written under, and is written back as.
-    pub version: Version,
     /// The document this one stands in for, whose bytes were destroyed.
     ///
     /// Decision 0014: a forgetting document states the same operations at the
@@ -243,9 +242,11 @@ pub struct OperationDocument {
     /// Decision 0031: the SHA-256 of the file's bytes after this document is
     /// applied, which is what `shasum -a 256` prints for the file a correct
     /// replay writes — a checkpoint for a hand replayer, and an answer an
-    /// independent implementation is held to. Mandatory from version 3, and
-    /// forbidden in a forgetting document, whose result is the destroyed
-    /// state and whose digest would confirm a guess at it.
+    /// independent implementation is held to. Every document this tool
+    /// writes states one; a hand-written document that omits it loses the
+    /// checkpoint, not its meaning. Forbidden in a forgetting document,
+    /// whose result is the destroyed state and whose digest would confirm a
+    /// guess at it.
     pub result: Option<RevisionId>,
     /// What the revision did, in position order. Never empty.
     pub operations: Vec<Operation>,
@@ -260,7 +261,6 @@ impl OperationDocument {
         Parser {
             lines: Lines::new(text),
             markers: Vec::new(),
-            version: Version::V0,
         }
         .run()
     }
@@ -275,7 +275,7 @@ impl OperationDocument {
         order.sort_by_key(|operation| (operation.at, operation.kind));
 
         let mut out = String::new();
-        out.push_str(self.version.preamble());
+        out.push_str(PREAMBLE);
         out.push('\n');
         if let Some(forgets) = &self.forgets {
             out.push_str(&format!("forgets {forgets}\n"));
@@ -321,27 +321,6 @@ impl OperationDocument {
     /// which is what `shasum -a 256` prints.
     pub fn id(&self) -> RevisionId {
         digest(&self.write())
-    }
-
-    /// The lowest version that expresses this document, which is what a
-    /// writer claims.
-    ///
-    /// Decision 0004 makes evolution asymmetric — a version constrains
-    /// writers, never readers — and this is that asymmetry taken seriously:
-    /// `forgets` and the `\ forgotten` marker are version 2's vocabulary,
-    /// and a document using neither claims version 1, so a store that has
-    /// forgotten nothing stays readable by every reader version 1 already
-    /// has.
-    pub fn needs(&self) -> Version {
-        if self.result.is_some() {
-            return Version::V3;
-        }
-        let forgets = self.forgets.is_some()
-            || self
-                .operations
-                .iter()
-                .any(|operation| operation.items.iter().any(|item| item.forgotten));
-        if forgets { Version::V2 } else { Version::V1 }
     }
 }
 
@@ -419,7 +398,6 @@ struct Marker {
 struct Parser<'a> {
     lines: Lines<'a>,
     markers: Vec<Marker>,
-    version: Version,
 }
 
 impl Parser<'_> {
@@ -428,8 +406,7 @@ impl Parser<'_> {
             return Err(ParseError::new(1, ParseErrorKind::Empty));
         };
         carriage_return(line, 1)?;
-        let version = check_preamble(line, terminated)?;
-        self.version = version;
+        check_preamble(line, terminated)?;
 
         // The two headers this document may carry, read before the separator
         // where a revision document's headers sit: which document this one
@@ -460,7 +437,6 @@ impl Parser<'_> {
         }
         self.check_markers(&operations)?;
         Ok(OperationDocument {
-            version,
             forgets,
             result,
             operations,
@@ -482,16 +458,6 @@ impl Parser<'_> {
             return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
         }
         carriage_return(line, at)?;
-        if self.version < Version::V2 {
-            return Err(ParseError::new(
-                at,
-                ParseErrorKind::HeaderNeedsVersion {
-                    key: "forgets".to_owned(),
-                    found: self.version,
-                    needs: Version::V2,
-                },
-            ));
-        }
         let forgets = value.parse().map_err(|_| {
             ParseError::new(
                 at,
@@ -525,16 +491,6 @@ impl Parser<'_> {
         carriage_return(line, at)?;
         if forgetting {
             return Err(ParseError::new(at, ParseErrorKind::ResultOfForgetting));
-        }
-        if self.version < Version::V3 {
-            return Err(ParseError::new(
-                at,
-                ParseErrorKind::HeaderNeedsVersion {
-                    key: "result".to_owned(),
-                    found: self.version,
-                    needs: Version::V3,
-                },
-            ));
         }
         let result = value.parse().map_err(|_| {
             ParseError::new(
@@ -652,16 +608,6 @@ impl Parser<'_> {
                     return Err(ParseError::new(
                         self.lines.line,
                         ParseErrorKind::UnterminatedLine,
-                    ));
-                }
-                if self.version < Version::V2 {
-                    return Err(ParseError::new(
-                        self.lines.line,
-                        ParseErrorKind::HeaderNeedsVersion {
-                            key: FORGOTTEN.to_owned(),
-                            found: self.version,
-                            needs: Version::V2,
-                        },
                     ));
                 }
                 items.push(Item::forgotten());
@@ -851,7 +797,7 @@ mod tests {
 
     /// Assemble a file from the lines below the separator.
     fn file(lines: &[&str]) -> Vec<u8> {
-        let mut out = format!("{}\n\n", Version::CURRENT.preamble());
+        let mut out = format!("{PREAMBLE}\n\n");
         for line in lines {
             out.push_str(line);
             out.push('\n');
@@ -889,9 +835,8 @@ mod tests {
         // The same facts in the other order are the same document, so the
         // writer puts them back into the one order that parses.
         let reversed = OperationDocument {
-            version: Version::CURRENT,
             forgets: None,
-            result: None,
+            result: document.result,
             operations: document.operations.iter().rev().cloned().collect(),
         };
         assert_eq!(reversed.write(), document.write());
@@ -1081,56 +1026,40 @@ mod tests {
             ParseErrorKind::Empty
         );
         assert_eq!(
-            OperationDocument::parse(b"historica-v0\ninsert 0\n+a\n")
+            OperationDocument::parse(b"historica\ninsert 0\n+a\n")
                 .expect_err("no separator")
                 .kind,
             ParseErrorKind::MissingSeparator
         );
         assert_eq!(
-            OperationDocument::parse(b"historica-v0\n")
+            OperationDocument::parse(b"historica\n")
                 .expect_err("nothing after the preamble")
                 .kind,
             ParseErrorKind::MissingSeparator
         );
         // A revision that changes nothing about a file names no document.
         assert_eq!(
-            OperationDocument::parse(b"historica-v0\n\n")
+            OperationDocument::parse(b"historica\n\n")
                 .expect_err("no operations")
                 .kind,
             ParseErrorKind::NoOperations
         );
-        // Version 0 still reads exactly as version 0 read, which is decision
-        // 0004's asymmetry: a version constrains writers, never readers.
-        assert_eq!(
-            OperationDocument::parse(b"historica-v0\n\ninsert 0\n+a\n")
-                .expect("version 0 still reads")
-                .version,
-            Version::V0
-        );
+        // The pre-1.0 formats are refused at the preamble, by name.
         assert_eq!(
             OperationDocument::parse(b"historica-v3\n\ninsert 0\n+a\n")
-                .expect("version 3 reads")
-                .version,
-            Version::V3
-        );
-        assert_eq!(
-            OperationDocument::parse(b"historica-v4\n\ninsert 0\n+a\n")
-                .expect("version 4 reads")
-                .version,
-            Version::V4
-        );
-        assert_eq!(
-            OperationDocument::parse(b"historica-v5\n\ninsert 0\n+a\n")
-                .expect("version 5 reads")
-                .version,
-            Version::V5
-        );
-        assert_eq!(
-            OperationDocument::parse(b"historica-v6\n\ninsert 0\n+a\n")
-                .expect_err("a later version")
+                .expect_err("a pre-1.0 format")
                 .kind,
             ParseErrorKind::UnknownVersion {
-                found: "6".to_owned()
+                found: "v3".to_owned()
+            }
+        );
+        // So is a format newer than this reader.
+        assert_eq!(
+            OperationDocument::parse(b"historica-2\n\ninsert 0\n+a\n")
+                .expect_err("a later format")
+                .kind,
+            ParseErrorKind::UnknownVersion {
+                found: "2".to_owned()
             }
         );
         assert_eq!(
@@ -1141,7 +1070,7 @@ mod tests {
         );
         // Every line the parser reads ends with a newline.
         assert_eq!(
-            OperationDocument::parse(b"historica-v0\n\ninsert 0\n+a")
+            OperationDocument::parse(b"historica\n\ninsert 0\n+a")
                 .expect_err("unterminated")
                 .kind,
             ParseErrorKind::UnterminatedLine

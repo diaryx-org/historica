@@ -16,7 +16,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::core::{FileId, RevisionId};
-use crate::format::{OperationDocument, Version};
+use crate::format::OperationDocument;
 use crate::fs::Filesystem;
 use crate::merge::{self, MergeError, Quoted};
 use crate::tree::Kind;
@@ -162,9 +162,6 @@ impl<F: Filesystem> Store<F> {
                 .or_else(|| self.creation_base(target))
                 .ok_or(ForgetError::MissingQuoted { document: *target })?;
             let mut document = base.clone();
-            // The one document that claims version 2, because it is the one
-            // that uses its vocabulary.
-            document.version = Version::V2;
             document.forgets = Some(*target);
             // Decision 0031: a forgetting document states no result. The
             // base's result names the destroyed state, and a digest of
@@ -177,7 +174,6 @@ impl<F: Filesystem> Store<F> {
                 }
             }
             let mut said = base;
-            said.version = document.version;
             said.forgets = document.forgets;
             if document != said {
                 plan.writes.push(document);

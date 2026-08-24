@@ -58,17 +58,15 @@ invalid ones are each refused for their own stated reason by
 `tests/operations.rs`. `states/` is that file as it stands at each revision,
 hand-written, which is what the replayer is held to.
 
-Content that no operation produced is decision 0017, and it is where the
-format's version stops being a formality. A **payload** is a file of bytes in
-the store carrying no format of its own: `text <file> <digest>` names the lines
-a file is created with, `bytes <file> <digest>` names the whole content of a
-file that has no lines, and both are stored beside the documents they are not.
-So a created file is *itself* in the store rather than a second copy with `+`
-down the left margin, and a photograph is a photograph. A file is lines or
-bytes for its whole life, fixed when it is added. Retiring `add` with `edit` —
-which counted an edit's positions into a file that did not exist yet — is what
-makes this `historica-v1`, and 0004's rule that a reader's vocabulary only
-grows is why every version 0 document still parses exactly as it did.
+Content that no operation produced is decision 0017. A **payload** is a file
+of bytes in the store carrying no format of its own: `text <file> <digest>`
+names the lines a file is created with, `bytes <file> <digest>` names the
+whole content of a file that has no lines, and both are stored beside the
+documents they are not. So a created file is *itself* in the store rather
+than a second copy with `+` down the left margin, and a photograph is a
+photograph. A file is lines or bytes for its whole life, fixed when it is
+added — which is what retired `add` with `edit`, the early spelling that
+counted an edit's positions into a file that did not exist yet.
 
 `tests/corpus/whole/` is that executed: two revisions that file a photograph
 and the entry it belongs to, where the entry's first content is the entry and
@@ -557,8 +555,9 @@ Choices that constrain later work are written down as they are made.
 - [`docs/decisions/0003-store.md`](docs/decisions/0003-store.md) — the store:
   identity comes from content, filenames are presentation.
 - [`docs/decisions/0004-parser-contract.md`](docs/decisions/0004-parser-contract.md)
-  — strict reading, the `historica-v0` preamble, and why a reader's
-  vocabulary can only ever grow.
+  — strict reading, the preamble, and why a reader refuses what it does not
+  know rather than guessing. Its numbered-version machinery is 0047's now:
+  the format has one spelling, `historica`.
 - [`docs/decisions/0005-authorship.md`](docs/decisions/0005-authorship.md) —
   authorship is copied into every revision of a change, and is a claim rather
   than evidence.
@@ -613,8 +612,8 @@ Choices that constrain later work are written down as they are made.
   digest, stored beside the documents it is not one of, so a created file is
   itself in the store rather than a second copy with `+` down the left margin
   and an image is an image. `text` and `bytes` say which, a file's kind is
-  fixed when it is added, and retiring `add` with `edit` is what makes this
-  `historica-v1`.
+  fixed when it is added, and `add` with `edit` — the early spelling of a
+  creation — is retired.
 - [`docs/decisions/0018-a-path-is-a-path.md`](docs/decisions/0018-a-path-is-a-path.md)
   — a path is filed as a path: real directories for real components, nothing
   clipped, and no character standing in for `/`. 0016 nested the revision and
@@ -673,8 +672,7 @@ Choices that constrain later work are written down as they are made.
   somebody's own folder. `mode <file> <value>` carries one bit and spells it
   as a word; a filesystem that cannot see the bit says so rather than
   reporting `false`, which is what makes a store safe to carry between a Mac
-  and a Windows machine without configuration; and it is `historica-v4`,
-  claimed only by the documents that use it.
+  and a Windows machine without configuration.
 - [`docs/decisions/0036-where-a-digest-is.md`](docs/decisions/0036-where-a-digest-is.md)
   — identity coming from content is what left the store reading every file in
   `operations/` to find one digest, which 0035's cache could not help with
@@ -718,8 +716,7 @@ Choices that constrain later work are written down as they are made.
   honest symlink and nothing else. The one cross-file rule this format has
   lives here too: a revision may not drop a file while a `file:` link still
   names it, and the recorder satisfies it by restating that link as the string
-  the folder holds. It is `historica-v5`, claimed only by the documents that
-  use it.
+  the folder holds.
 - [`docs/decisions/0041-where-a-revision-is-filed.md`](docs/decisions/0041-where-a-revision-is-filed.md)
   — the flat directories 0016 chose, answered where 0003 deferred it: a store
   kept the way a journal is kept passes ten thousand entries without ever
@@ -738,10 +735,8 @@ Choices that constrain later work are written down as they are made.
   exporter's. So the command *builds* that directory — the folder as the
   target has it, and the target's ancestry closed over the documents and
   payloads it names and every forgetting document touching any of it, since
-  0014 always travels. The header states the lowest version the copy's own
-  documents come to, which is 0004 read backwards, and the result is an
-  ordinary store whose pull is `receive`, so clone and pull turn out to have
-  been one design. Ancestry closes over parents and nothing else: a
+  0014 always travels. The result is an ordinary store whose pull is
+  `receive`, so clone and pull turn out to have been one design. Ancestry closes over parents and nothing else: a
   `supersedes` line may name a digest the copy does not hold, which is what
   0001 has said all along — the successor carries the evidence.
 - [`docs/decisions/0043-what-a-command-does-not-have-to-read.md`](docs/decisions/0043-what-a-command-does-not-have-to-read.md)
@@ -786,6 +781,28 @@ Choices that constrain later work are written down as they are made.
   file, and `check` names the rule file to delete where one arrives that way.
   The old `skipped.txt` is not read, not converted, and reported by `check`,
   which is the whole of the migration a library this young owes anybody.
+- [`docs/decisions/0046-who-vouches-for-a-revision.md`](docs/decisions/0046-who-vouches-for-a-revision.md)
+  — the digest machinery answers whether these are the bytes and is silent on
+  whose word they are, and the answer is more readable files rather than a
+  signature spliced into the hashed object. A claim is a document vouching
+  for a revision's digest — which pins its whole ancestry — signed with
+  minisign, detached, in `history/claims/`, verified by a separate tool with
+  two commands and no Historica. Claims union freely because a claim is a
+  fact; the trust policy in `history/trust/` never crosses a store boundary,
+  because trust is an opinion and authority must not flow from the party it
+  exists to judge. Historica's whole contribution is tolerance, stated: a
+  root directory it does not name belongs to whichever tool wrote it.
+- [`docs/decisions/0047-one-spelling-for-the-format.md`](docs/decisions/0047-one-spelling-for-the-format.md)
+  — the numbered preambles retire. `historica-v0` through `historica-v5`
+  recorded the order this format was designed in, not a compatibility level
+  anyone shipped a reader for, so 1.0 flattens them to the one spelling
+  `historica` and the grammar under it is the union the versions were
+  converging on. The gate 0004 built is unchanged in kind — any other
+  spelling on line one is refused, the pre-1.0 spellings by name — and a
+  future incompatible format takes a new spelling rather than a number.
+  No migration, because nothing was published and re-preambling a
+  content-addressed store is a rewrite no command should pretend otherwise
+  about.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

@@ -516,13 +516,10 @@ fn a_copy_keeps_a_supersedes_line_whose_other_end_it_does_not_hold() {
 }
 
 #[test]
-fn the_copy_states_the_version_its_own_documents_come_to() {
-    // Decision 0004, working in the other direction: the header states the
-    // lowest version that expresses what the store holds, and what the copy
-    // holds is not what the store it came from holds. The corpus is entirely
-    // version 0 and `init` writes version 1, so a store that is a version 1
-    // header over version 0 documents exports as the version 0 store it
-    // actually is.
+fn the_copy_carries_the_header_that_makes_it_a_store() {
+    // Decision 0021: the copy explains itself to whoever opens it, so its
+    // header comes from `init` — the format's one spelling, and the note
+    // under it — rather than from the store it left.
     let origin = repository("version");
     let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/tree");
     for (from, into) in [("revisions", "revisions"), ("operations", "operations")] {
@@ -535,23 +532,15 @@ fn the_copy_states_the_version_its_own_documents_come_to() {
                 .expect("copying a corpus file");
         }
     }
-    assert_eq!(
-        fs::read_to_string(origin.join("history/historica.txt"))
-            .expect("a header")
-            .lines()
-            .next(),
-        Some("historica-v1")
-    );
 
     let copy = scratch("version-copy").join("journal");
-    let said = out(&origin, &["export", &copy.to_string_lossy()]);
-    assert!(said.contains("stating historica-v0"), "{said}");
+    out(&origin, &["export", &copy.to_string_lossy()]);
     assert_eq!(
         fs::read_to_string(copy.join("history/historica.txt"))
             .expect("the copy's header")
             .lines()
             .next(),
-        Some("historica-v0")
+        Some("historica")
     );
     assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
 }

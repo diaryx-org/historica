@@ -21,7 +21,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use historica::core::{FileId, RevisionId};
-use historica::format::{LinkTarget, Mode, RevisionDocument, Version};
+use historica::format::{LinkTarget, Mode, RevisionDocument};
 use historica::fs::{Entry, Filesystem, Kind};
 use historica::record::{Clock as _, Platform, Recording, Restriction, record};
 use historica::store::{Name, Placement, Severity, Store};
@@ -346,7 +346,6 @@ fn pruning_removes_files_from_the_map_and_tidies_what_it_empties() {
     // decision 0013's, and what it removes here is entries in a `BTreeMap`.
     let orphan = store
         .insert_operation(&historica::format::OperationDocument {
-            version: historica::format::Version::V1,
             forgets: None,
             result: None,
             // A document with an operation in it, because a document with
@@ -509,7 +508,6 @@ fn a_filesystem_that_models_no_modes_records_none_and_erases_none() {
     let held = store.get(&root).expect("the root").clone();
     let file = *held.added.keys().next().expect("the script");
     let runnable = RevisionDocument {
-        version: Version::V4,
         change: "kxryzmorwlvtnsqpkzmuprys".parse().expect("a change ID"),
         parents: BTreeSet::from([root]),
         supersedes: BTreeSet::new(),
@@ -543,11 +541,6 @@ fn a_filesystem_that_models_no_modes_records_none_and_erases_none() {
         document.modes.is_empty(),
         "a folder that cannot see the bit stated one: {:?}",
         document.modes
-    );
-    assert_eq!(
-        document.version,
-        Version::V1,
-        "and claimed a version for it"
     );
     assert_eq!(
         store.tree(&after).expect("the tree").mode(&file),
@@ -591,7 +584,6 @@ fn a_folder_that_models_no_links_refuses_rather_than_inventing_one() {
     let month = *held.added.keys().next().expect("the month");
     let current: FileId = "lqxstvnmpkwyzrolvtsqnkxm".parse().expect("a file ID");
     let linked = RevisionDocument {
-        version: Version::V5,
         change: "kxryzmorwlvtnsqpkzmuprys".parse().expect("a change ID"),
         parents: BTreeSet::from([root]),
         supersedes: BTreeSet::new(),

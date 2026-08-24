@@ -6,10 +6,9 @@ named by the SHA-256 of its own bytes. `shasum -a 256 <file>` prints that
 digest, and it is the only name a document has: a filename is presentation
 and may be anything.
 
-Every document begins with a preamble line — `historica-v0`, `historica-v1`,
-and so on — which states the lowest format version that can express it. A
-reader that does not know a version refuses that document rather than guessing
-at what it would be leaving out.
+Every document begins with the preamble line `historica`, which names the one
+format this store keeps. A reader that meets any other spelling there refuses
+that document rather than guessing at what it would be leaving out.
 
 Two identifiers appear throughout and are never digests, because they are
 spelled in an alphabet no hexadecimal digest can be:
@@ -25,14 +24,14 @@ spelled in an alphabet no hexadecimal digest can be:
 revisions/*.rev.txt — who recorded what, when, and why
 ------------------------------------------------------
 
-  historica-v0
+  historica
   change qpvuntsmwlrkzxonmvtplsyq
   author Adam Harris <adam@example.com>
   when 2026-08-19T09:12:04-06:00
   add nrqvtkzlmwyxsptonvqrklmz notes.txt
   add swtlmnkqvzyrxopwstlnmkqv README.md
-  edit nrqvtkzlmwyxsptonvqrklmz 33f863f19e9b19f47ae42e41b4c25f03acc3c14acca2da65ea6bb141016b487a
-  edit swtlmnkqvzyrxopwstlnmkqv 1fc8cee55d2f8d75c19cffb918672c4e5741c2fbd99656d66487e6507962b2fc
+  text nrqvtkzlmwyxsptonvqrklmz 3eca7ea48b0da0ad30bee679c92c7b68d487547068b6914d10a64e8cedb03f51
+  text swtlmnkqvzyrxopwstlnmkqv 11db37f8c5cb4384341f3e5240d5c7f4d6fb3bdf90d95337f7c57b456a5eb162
 
   Start the notes both hands will edit
 
@@ -91,7 +90,7 @@ writes the other one, the two look identical and only one of them parses.
 operations/*.ops.txt — what a revision did to one file
 -------------------------------------------------------
 
-  historica-v3
+  historica
   result cb6ada97d1b93c8500aa1b3312fade8453a118126196c2a0f257b801f7b56118
 
   delete 2 1
@@ -101,10 +100,10 @@ operations/*.ops.txt — what a revision did to one file
 
 Preamble, then headers, then one blank line, then the operations.
 
-  result <digest>   the SHA-256 of the file this document produces. Optional,
-                    and version 3 vocabulary. It is the checkpoint: replay the
-                    operations by hand, `shasum -a 256` the file you get, and
-                    compare.
+  result <digest>   the SHA-256 of the file this document produces. Every
+                    document this tool writes states one. It is the
+                    checkpoint: replay the operations by hand, `shasum -a 256`
+                    the file you get, and compare.
   forgets <digest>  this document stands in for another whose bytes were
                     destroyed. See "Forgetting" below.
 
@@ -140,15 +139,15 @@ A file at a merge whose parents disagree is stated by reference rather than as
 a delta. It is filed under the same suffix, and its body is what tells the two
 apart: this one begins with `keep` or a bare `insert`.
 
-  historica-v3
+  historica
   result 6ca6c14ef2adc8050792d39e9f46b2500af1b9cb71287b3124bc73b8a040c7bf
 
-  keep 33f863f19e9b19f47ae42e41b4c25f03acc3c14acca2da65ea6bb141016b487a 0 1
-  keep e61a80aae881c9ea01aeefebdb4ddf28c2bd0e1e9ddf9c682cd435dda9f14d9c 0 1
-  keep 33f863f19e9b19f47ae42e41b4c25f03acc3c14acca2da65ea6bb141016b487a 1 1
+  keep 3eca7ea48b0da0ad30bee679c92c7b68d487547068b6914d10a64e8cedb03f51 0 1
+  keep 10dcea499a0cf3294873721b1ba43287cc7493b83b7d0aa668047e8f2eaec271 0 1
+  keep 3eca7ea48b0da0ad30bee679c92c7b68d487547068b6914d10a64e8cedb03f51 1 1
   insert
   +foxtrot
-  keep aabe29113ea5a8aa65b5b15d70eaa5f27e22b8b1177406b38683cac53d44fde9 0 1
+  keep cbddb8c4c5a54826d39742b1fd53b9a5b4fa9c25cd919c2b82f7aa54198aa502 0 1
 
 The pieces are the file, in file order, and assembling them is concatenation.
 
@@ -201,10 +200,10 @@ Every step is one you can do with an editor, and `result` is what you check it
 against. You never have to walk back further than the nearest resolution,
 because a resolution *is* the file.
 
-Revisions recorded before version 3 have merges that state nothing where their
-parents differ. Those need the merge algorithm — the one thing here that is
-not arithmetic — and `docs/decisions/0007-content-and-merge.md` in the
-Historica source describes it.
+A merge that states nothing where its parents differ needs the merge
+algorithm — the one thing here that is not arithmetic. This tool never writes
+one, and `docs/decisions/0007-content-and-merge.md` in the Historica source
+describes what reading one takes.
 
 
 Forgetting

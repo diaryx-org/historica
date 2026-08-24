@@ -24,7 +24,7 @@
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 
 use crate::core::RevisionId;
-use crate::format::{Operation, OperationDocument, Piece, ResolutionDocument, Version, digest};
+use crate::format::{Operation, OperationDocument, Piece, ResolutionDocument, digest};
 use crate::replay::State;
 
 /// The matcher this tool records with.
@@ -90,20 +90,14 @@ pub fn diff(parent: &State, child: &State) -> Option<OperationDocument> {
     if operations.is_empty() {
         return None;
     }
-    let mut document = OperationDocument {
-        version: Version::V1,
+    Some(OperationDocument {
         forgets: None,
         // Decision 0031: the document states the digest of the file it
         // produces, which is the file this diff was handed — the checkpoint
         // a hand replay is held to.
         result: Some(digest(child.text().as_bytes())),
         operations,
-    };
-    // Stating a result is version 3's vocabulary, so every document this
-    // writes claims it; a document claims the lowest version that expresses
-    // it, and `needs` is what knows.
-    document.version = document.needs();
-    Some(document)
+    })
 }
 
 /// The resolution a merge states, given what the walk proposed and what the
@@ -213,9 +207,6 @@ pub fn resolve(
         return None;
     }
     Some(ResolutionDocument {
-        // `keep` and `result` are both version 3's vocabulary, so a
-        // resolution never claims anything lower.
-        version: Version::V3,
         // Decision 0031, which 0032 is what landed first for: the digest a
         // hand-assembled resolution is checked against.
         result: digest(after.text().as_bytes()),
@@ -417,17 +408,13 @@ mod tests {
     }
 
     #[test]
-    fn a_delete_quoting_a_forgotten_item_claims_the_version_that_spells_it() {
-        // The one case an ordinary recording needs version 2: the parent
-        // holds an item whose text was destroyed, and the delete quotes what
-        // is left of it — the marker. Everything else claims version 1.
+    fn a_delete_may_quote_a_forgotten_item_by_its_marker() {
+        // The parent holds an item whose text was destroyed, and the delete
+        // quotes what is left of it — the marker.
         use crate::format::Item;
         let parent = State::from_items([Item::line("kept"), Item::forgotten()]);
         let child = State::from_text("kept\n");
         let document = diff(&parent, &child).expect("a document");
-        // The marker is version 2's vocabulary; the result the document also
-        // states is version 3's, and a document claims the highest it needs.
-        assert_eq!(document.version, Version::V3);
         let bytes = document.write();
         assert!(
             String::from_utf8(bytes.clone())
@@ -452,7 +439,7 @@ mod tests {
         assert_eq!(
             text("", "one\ntwo\n"),
             format!(
-                "historica-v3\nresult {}\n\ninsert 0\n+one\n+two\n",
+                "historica\nresult {}\n\ninsert 0\n+one\n+two\n",
                 digest(b"one\ntwo\n")
             )
         );
@@ -464,7 +451,7 @@ mod tests {
         assert_eq!(
             text("a\nb\nc\n", "a\nB\nc\n"),
             format!(
-                "historica-v3\nresult {}\n\ndelete 1 1\n-b\ninsert 1\n+B\n",
+                "historica\nresult {}\n\ndelete 1 1\n-b\ninsert 1\n+B\n",
                 digest(b"a\nB\nc\n")
             )
         );
@@ -497,7 +484,7 @@ mod tests {
                 "entirely new prose\n\nand more of it\n",
             ),
             format!(
-                "historica-v3\nresult {}\n\n\
+                "historica\nresult {}\n\n\
                  delete 0 1\n-first paragraph\ninsert 0\n+entirely new prose\n\
                  delete 2 1\n-second paragraph\ninsert 2\n+and more of it\n",
                 digest(b"entirely new prose\n\nand more of it\n")
@@ -512,14 +499,14 @@ mod tests {
         assert_eq!(
             text("one\ntwo", "one\ntwo\n"),
             format!(
-                "historica-v3\nresult {}\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n",
+                "historica\nresult {}\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n",
                 digest(b"one\ntwo\n")
             )
         );
         assert_eq!(
             text("one\ntwo\n", "one\ntwo"),
             format!(
-                "historica-v3\nresult {}\n\ndelete 1 1\n-two\ninsert 1\n+two\n\\ no newline\n",
+                "historica\nresult {}\n\ndelete 1 1\n-two\ninsert 1\n+two\n\\ no newline\n",
                 digest(b"one\ntwo")
             )
         );
@@ -528,7 +515,7 @@ mod tests {
         assert_eq!(
             text("one\ntwo", "one\ntwo\nthree\n"),
             format!(
-                "historica-v3\nresult {}\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n+three\n",
+                "historica\nresult {}\n\ndelete 1 1\n-two\n\\ no newline\ninsert 1\n+two\n+three\n",
                 digest(b"one\ntwo\nthree\n")
             )
         );
@@ -539,7 +526,7 @@ mod tests {
         assert_eq!(
             text("a\r\nb\r\n", "a\r\nB\r\n"),
             format!(
-                "historica-v3\nresult {}\n\ndelete 1 1\n-b\r\ninsert 1\n+B\r\n",
+                "historica\nresult {}\n\ndelete 1 1\n-b\r\ninsert 1\n+B\r\n",
                 digest(b"a\r\nB\r\n")
             )
         );

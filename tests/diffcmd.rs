@@ -460,5 +460,5 @@ fn what_diff_prints_is_not_what_the_store_holds() {
     let stored = out(&directory, &["show", &head, "notes.md"]);
     assert!(rendered.contains("@@"), "{rendered}");
     assert!(!stored.contains("@@"), "{stored}");
-    assert!(stored.starts_with("historica-v"), "{stored}");
+    assert!(stored.starts_with("historica\n"), "{stored}");
 }

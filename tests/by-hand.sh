@@ -27,9 +27,9 @@ mkdir -p "$store/revisions" "$store/operations" "$store/names" "$store/cache"
 scratch="$store/../by-hand"
 mkdir -p "$scratch"
 
-# The first line is the format version, and the rest of that file is a note
-# for whoever opens the folder. A store with only the first line is a store.
-printf 'historica-v3\n' > "$store/historica.txt"
+# The first line is the format, and the rest of that file is a note for
+# whoever opens the folder. A store with only the first line is a store.
+printf 'historica\n' > "$store/historica.txt"
 
 # Two file identifiers, 24 characters from `k` to `z`. A person makes these up;
 # nothing derives them, and nothing but their spelling makes them identifiers.
@@ -37,42 +37,23 @@ notes=nrqvtkzlmwyxsptonvqrklmz
 readme=swtlmnkqvzyrxopwstlnmkqv
 
 # ---------------------------------------------------------------------------
-# The root. Two files, each created by an operation document that inserts its
-# lines at 0, and each stating the digest of the file it produces.
+# The root. Two files, each arriving as its payload: the file itself, stored
+# whole, named by the digest of its own bytes. A payload's lines are items
+# 0, 1, 2, ... in file order, which is what a `keep` later counts into.
 # ---------------------------------------------------------------------------
 
-printf 'alpha\nbravo\ncharlie\n' > "$scratch/01-root.txt"
-printf '# Notes\n\nA journal kept in Historica.\n' > "$scratch/README.txt"
-
-cat > "$store/operations/01-notes.ops.txt" <<EOF
-historica-v3
-result $(sum "$scratch/01-root.txt")
-
-insert 0
-+alpha
-+bravo
-+charlie
-EOF
-
-cat > "$store/operations/01-readme.ops.txt" <<EOF
-historica-v3
-result $(sum "$scratch/README.txt")
-
-insert 0
-+# Notes
-+
-+A journal kept in Historica.
-EOF
+printf 'alpha\nbravo\ncharlie\n' > "$store/operations/01-notes.txt"
+printf '# Notes\n\nA journal kept in Historica.\n' > "$store/operations/01-readme.md"
 
 cat > "$store/revisions/01-root.rev.txt" <<EOF
-historica-v0
+historica
 change qpvuntsmwlrkzxonmvtplsyq
 author Adam Harris <adam@example.com>
 when 2026-08-19T09:12:04-06:00
 add $notes notes.txt
 add $readme README.md
-edit $notes $(sum "$store/operations/01-notes.ops.txt")
-edit $readme $(sum "$store/operations/01-readme.ops.txt")
+text $notes $(sum "$store/operations/01-notes.txt")
+text $readme $(sum "$store/operations/01-readme.md")
 
 Start the notes both hands will edit
 EOF
@@ -85,7 +66,7 @@ root=$(sum "$store/revisions/01-root.rev.txt")
 
 printf 'alpha\ndelta\nbravo\ncharlie\n' > "$scratch/02-left.txt"
 cat > "$store/operations/02-notes.ops.txt" <<EOF
-historica-v3
+historica
 result $(sum "$scratch/02-left.txt")
 
 insert 1
@@ -93,7 +74,7 @@ insert 1
 EOF
 
 cat > "$store/revisions/02-left.rev.txt" <<EOF
-historica-v0
+historica
 change kxryzmornsvltwqpuzkymxol
 parent $root
 author Adam Harris <adam@example.com>
@@ -106,7 +87,7 @@ left=$(sum "$store/revisions/02-left.rev.txt")
 
 printf 'alpha\nbravo\necho\n' > "$scratch/03-right.txt"
 cat > "$store/operations/03-notes.ops.txt" <<EOF
-historica-v3
+historica
 result $(sum "$scratch/03-right.txt")
 
 delete 2 1
@@ -116,7 +97,7 @@ insert 3
 EOF
 
 cat > "$store/revisions/03-right.rev.txt" <<EOF
-historica-v0
+historica
 change mzvwutklopqrsnyxwkltvmzu
 parent $root
 author Rowan Ash <rowan@example.com>
@@ -133,8 +114,8 @@ right=$(sum "$store/revisions/03-right.rev.txt")
 # The person opens both branches, decides the file should read
 # alpha/delta/bravo/foxtrot/echo, and writes that down as a sequence of
 # references and one insertion. Each `keep` counts into a document they have
-# open: `01-notes.ops.txt` mints alpha, bravo, charlie as items 0, 1, 2 —
-# count the `+` lines — `02-notes.ops.txt` mints delta as item 0, and
+# open: the payload `01-notes.txt` mints alpha, bravo, charlie as items
+# 0, 1, 2 — count the lines — `02-notes.ops.txt` mints delta as item 0, and
 # `03-notes.ops.txt` mints echo as item 0.
 #
 # Nothing here needs the merge algorithm. Nothing here even needs to know what
@@ -143,12 +124,12 @@ right=$(sum "$store/revisions/03-right.rev.txt")
 
 printf 'alpha\ndelta\nbravo\nfoxtrot\necho\n' > "$scratch/04-merge.txt"
 cat > "$store/operations/04-notes.ops.txt" <<EOF
-historica-v3
+historica
 result $(sum "$scratch/04-merge.txt")
 
-keep $(sum "$store/operations/01-notes.ops.txt") 0 1
+keep $(sum "$store/operations/01-notes.txt") 0 1
 keep $(sum "$store/operations/02-notes.ops.txt") 0 1
-keep $(sum "$store/operations/01-notes.ops.txt") 1 1
+keep $(sum "$store/operations/01-notes.txt") 1 1
 insert
 +foxtrot
 keep $(sum "$store/operations/03-notes.ops.txt") 0 1
@@ -158,7 +139,7 @@ EOF
 # in digest order whichever branch the person thinks of as theirs.
 parents=$(printf 'parent %s\nparent %s\n' "$left" "$right" | sort)
 cat > "$store/revisions/04-merge.rev.txt" <<EOF
-historica-v0
+historica
 change nwlxsqotvkzmuprysltnwxqk
 $parents
 author Adam Harris <adam@example.com>
@@ -180,7 +161,7 @@ merge=$(sum "$store/revisions/04-merge.rev.txt")
 
 printf 'alpha\ndelta\nbravo\necho\ngolf\n' > "$scratch/05-after.txt"
 cat > "$store/operations/05-notes.ops.txt" <<EOF
-historica-v3
+historica
 result $(sum "$scratch/05-after.txt")
 
 delete 3 1
@@ -190,7 +171,7 @@ insert 5
 EOF
 
 cat > "$store/revisions/05-after.rev.txt" <<EOF
-historica-v0
+historica
 change lyqrxwnkmtvzsoplyqrxwnkm
 parent $merge
 author Adam Harris <adam@example.com>

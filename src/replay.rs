@@ -25,7 +25,7 @@ use std::fmt;
 
 use crate::core::RevisionId;
 use crate::format::{
-    Item, Operation, OperationDocument, OperationKind, Piece, ResolutionDocument, Version, digest,
+    Item, Operation, OperationDocument, OperationKind, Piece, ResolutionDocument, digest,
 };
 
 /// The operation document a `text` payload is exactly equivalent to.
@@ -41,12 +41,6 @@ pub fn creation(text: &str) -> Option<OperationDocument> {
         return None;
     }
     Some(OperationDocument {
-        // A payload's lines are never forgotten — forgetting one destroys
-        // the payload and leaves a stand-in — so this is version 1's
-        // vocabulary and claims no more. The synthesised version is not
-        // raised by the result below, because this document is never
-        // written: it is the equivalence 0017 states, held in memory.
-        version: Version::V1,
         forgets: None,
         // Decision 0031: a creation's result is the payload itself — 0017
         // already named the file's content by digest, and this makes the
@@ -732,7 +726,6 @@ mod tests {
         // out of order replays to what its canonical spelling replays to.
         let canonical = document(&["delete 0 1", "-a", "insert 3", "+z"]);
         let scrambled = OperationDocument {
-            version: Version::CURRENT,
             forgets: None,
             result: None,
             operations: canonical.operations.iter().rev().cloned().collect(),
@@ -756,7 +749,7 @@ mod tests {
         // Decision 0031: the document, its parent, or the replayer is wrong,
         // and carrying the disagreement forward would compound it silently.
         let honest = OperationDocument::parse(
-            b"historica-v3\n\
+            b"historica\n\
               result c3f9c8c283a2b1f2f1896f27a01cbe3cddc0c9d93f752e4639035a0f5b36f6e8\n\
               \ninsert 0\n+one\n+two\n",
         )
@@ -781,7 +774,7 @@ mod tests {
         // provable and content is not.
         let parent = State::from_items([Item::line("kept"), Item::forgotten()]);
         let document = OperationDocument::parse(
-            b"historica-v3\n\
+            b"historica\n\
               result c3f9c8c283a2b1f2f1896f27a01cbe3cddc0c9d93f752e4639035a0f5b36f6e8\n\
               \ninsert 0\n+new\n",
         )

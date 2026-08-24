@@ -19,7 +19,7 @@ use std::fmt;
 use crate::core::{ChangeId, FileId, RevisionId};
 use crate::diff::{diff, resolve};
 use crate::format::{
-    LinkTarget, Mode, OperationDocument, ResolutionDocument, RevisionDocument, Timestamp, Version,
+    LinkTarget, Mode, OperationDocument, ResolutionDocument, RevisionDocument, Timestamp,
     check_link_target, digest, nfc,
 };
 use crate::fs::Filesystem;
@@ -1262,23 +1262,6 @@ fn plan_with<F: Filesystem>(
     })
 }
 
-/// The version a revision document claims: the lowest one that expresses it.
-///
-/// Decision 0004's asymmetry made concrete. A store gains a version the day it
-/// first holds a document that needs one, so a history of prose stays readable
-/// by every reader ever published for it, and only a history that actually
-/// marks something executable asks for a reader that knows decision 0034, and
-/// only a history that actually holds a link asks for one that knows 0040.
-fn version_for(document: &RevisionDocument) -> Version {
-    if !document.links.is_empty() {
-        Version::V5
-    } else if !document.modes.is_empty() {
-        Version::V4
-    } else {
-        Version::V1
-    }
-}
-
 /// Record a revision, writing the documents it names before the revision.
 ///
 /// An interrupted record therefore leaves operation documents nothing points
@@ -1302,9 +1285,6 @@ pub fn record<F: Filesystem>(
 
     let content = content_of(&plan);
     let document = RevisionDocument {
-        // Raised below to the lowest version that expresses this document,
-        // which needs the tree facts that are being assembled here.
-        version: Version::V1,
         change,
         parents: recording.parents.iter().copied().collect(),
         supersedes: BTreeSet::new(),
@@ -1322,10 +1302,6 @@ pub fn record<F: Filesystem>(
         bytes: content.bytes.clone(),
         extensions: BTreeMap::new(),
         message: recording.message.clone(),
-    };
-    let document = RevisionDocument {
-        version: version_for(&document),
-        ..document
     };
 
     // Decision 0019: the name a file is written under is the name it keeps, so
@@ -1454,9 +1430,6 @@ fn rewrite<F: Filesystem>(
 
     let content = content_of(&plan);
     let document = RevisionDocument {
-        // Raised below to the lowest version that expresses this document,
-        // which needs the tree facts that are being assembled here.
-        version: Version::V1,
         change: previous.change,
         parents: previous.parents.clone(),
         supersedes: BTreeSet::from([amendment.revision]),
@@ -1479,10 +1452,6 @@ fn rewrite<F: Filesystem>(
         // worst available.
         extensions: previous.extensions.clone(),
         message: recording.message.clone(),
-    };
-    let document = RevisionDocument {
-        version: version_for(&document),
-        ..document
     };
     if says_the_same(&document, &previous) {
         return Err(RecordError::NothingToAmend {
@@ -1659,9 +1628,6 @@ pub fn abandon<F: Filesystem>(
 
     let change = entropy.change()?;
     let document = RevisionDocument {
-        // Raised below to the lowest version that expresses this document,
-        // which needs the tree facts that are being assembled here.
-        version: Version::V1,
         change,
         parents: first.parents.clone(),
         supersedes: run.iter().copied().collect(),

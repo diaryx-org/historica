@@ -5,7 +5,7 @@
 //! line names one of these instead of an operation document:
 //!
 //! ```text
-//! historica-v3
+//! historica
 //! result 4c6508965080889a0cd0250e5816021ff3b87c1c95891251f9642b67c42c8137
 //!
 //! keep 8f7256f6a3a4ff6c962ae60514119b901251d6264f3f61e1b8181edfe9e23b1c 0 13
@@ -32,7 +32,8 @@ use crate::core::RevisionId;
 
 use super::operations::{NO_NEWLINE, carriage_return, number};
 use super::{
-    Item, Lines, ParseError, ParseErrorKind, Version, check_byte_order_mark, check_preamble, digest,
+    Item, Lines, PREAMBLE, ParseError, ParseErrorKind, check_byte_order_mark, check_preamble,
+    digest,
 };
 
 /// One piece of a resolved file, in file order.
@@ -59,9 +60,6 @@ pub enum Piece {
 /// One resolution document: a merge's file, stated whole by reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolutionDocument {
-    /// The version this document was written under. `keep` is version 3's
-    /// vocabulary, so this is never less than [`Version::V3`].
-    pub version: Version,
     /// The digest of the assembled file, which decision 0031 makes every
     /// content document state and this document could not omit: it is the
     /// check a hand-assembled resolution is verified by.
@@ -87,7 +85,7 @@ impl ResolutionDocument {
     /// `write(parse(bytes)) == bytes` for every input `parse` accepts.
     pub fn write(&self) -> Vec<u8> {
         let mut out = String::new();
-        out.push_str(self.version.preamble());
+        out.push_str(PREAMBLE);
         out.push('\n');
         out.push_str(&format!("result {}\n", self.result));
         out.push('\n');
@@ -120,12 +118,6 @@ impl ResolutionDocument {
     /// The digest that names this document in a store.
     pub fn id(&self) -> RevisionId {
         digest(&self.write())
-    }
-
-    /// The lowest version that expresses this document: always version 3,
-    /// which introduced both `keep` and `result`.
-    pub fn needs(&self) -> Version {
-        Version::V3
     }
 
     /// How many items the resolution's `insert` pieces mint, in order —
@@ -175,20 +167,7 @@ impl Parser<'_> {
             return Err(ParseError::new(1, ParseErrorKind::Empty));
         };
         carriage_return(line, 1)?;
-        let version = check_preamble(line, terminated)?;
-
-        // `keep` is version 3's vocabulary, and so is the `result` the body
-        // cannot verify without.
-        if version < Version::V3 {
-            return Err(ParseError::new(
-                1,
-                ParseErrorKind::HeaderNeedsVersion {
-                    key: "keep".to_owned(),
-                    found: version,
-                    needs: Version::V3,
-                },
-            ));
-        }
+        check_preamble(line, terminated)?;
 
         let result = self.result()?;
 
@@ -210,11 +189,7 @@ impl Parser<'_> {
             ));
         }
 
-        Ok(ResolutionDocument {
-            version,
-            result,
-            pieces,
-        })
+        Ok(ResolutionDocument { result, pieces })
     }
 
     /// The mandatory `result` header.
@@ -396,7 +371,7 @@ mod tests {
     const RESULT: &str = "4c6508965080889a0cd0250e5816021ff3b87c1c95891251f9642b67c42c8137";
 
     fn text(body: &str) -> Vec<u8> {
-        format!("historica-v3\nresult {RESULT}\n\n{body}").into_bytes()
+        format!("historica\nresult {RESULT}\n\n{body}").into_bytes()
     }
 
     #[test]
@@ -413,20 +388,20 @@ mod tests {
 
     #[test]
     fn an_operation_document_is_not_mistaken_for_one() {
-        assert!(!is_resolution(b"historica-v3\n\ninsert 0\n+a\n"));
+        assert!(!is_resolution(b"historica\n\ninsert 0\n+a\n"));
         assert!(is_resolution(&text(&format!("keep {DIGEST} 0 1\n"))));
     }
 
     #[test]
-    fn the_version_gate_and_the_result_are_mandatory() {
-        let old = format!("historica-v2\nresult {RESULT}\n\nkeep {DIGEST} 0 1\n");
+    fn the_preamble_and_the_result_are_mandatory() {
+        let old = format!("historica-v3\nresult {RESULT}\n\nkeep {DIGEST} 0 1\n");
         assert!(matches!(
             ResolutionDocument::parse(old.as_bytes())
-                .expect_err("keep is version 3 vocabulary")
+                .expect_err("a pre-1.0 format")
                 .kind,
-            ParseErrorKind::HeaderNeedsVersion { .. }
+            ParseErrorKind::UnknownVersion { .. }
         ));
-        let unstated = format!("historica-v3\n\nkeep {DIGEST} 0 1\n");
+        let unstated = format!("historica\n\nkeep {DIGEST} 0 1\n");
         assert!(matches!(
             ResolutionDocument::parse(unstated.as_bytes())
                 .expect_err("a resolution states its result")

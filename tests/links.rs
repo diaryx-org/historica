@@ -19,7 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use historica::core::{FileId, RevisionId};
-use historica::format::{LinkTarget, ParseErrorKind, RevisionDocument, Version, digest};
+use historica::format::{LinkTarget, ParseErrorKind, RevisionDocument, digest};
 use historica::store::Store;
 use historica::tree::{Kind, Tree, TreeError};
 
@@ -75,7 +75,6 @@ fn store(name: &str) -> Store {
             fs::copy(&from, &to).expect("copying a corpus file");
         }
     }
-    fs::write(root.join("historica.txt"), "historica-v5\n").expect("the version this corpus is");
     Store::open(&root).expect("the corpus opens")
 }
 
@@ -110,17 +109,6 @@ fn every_canonical_file_round_trips() {
         let document = parsed(&name);
         assert_eq!(document.write(), bytes, "{name} did not round trip");
     }
-}
-
-/// A document claims the lowest version that expresses it, so the revision
-/// that renames the link's target — which states no `link` line, because there
-/// was nothing to restate — is still version 1.
-#[test]
-fn only_a_document_with_a_link_in_it_claims_version_five() {
-    assert_eq!(parsed("revisions/01-start.rev.txt").version, Version::V5);
-    assert_eq!(parsed("revisions/02-august.rev.txt").version, Version::V5);
-    assert_eq!(parsed("revisions/03-renamed.rev.txt").version, Version::V1);
-    assert_eq!(parsed("revisions/04-gone.rev.txt").version, Version::V5);
 }
 
 /// The two spellings, chosen by resolution: a target this history holds is
@@ -239,14 +227,6 @@ fn a_link_has_no_content_to_materialise() {
 #[test]
 fn every_invalid_document_is_refused_for_its_own_reason() {
     let parsing: Vec<(&str, ParseErrorKind)> = vec![
-        (
-            "invalid/link-in-version-4.rev.txt",
-            ParseErrorKind::HeaderNeedsVersion {
-                key: "link".to_owned(),
-                found: Version::V4,
-                needs: Version::V5,
-            },
-        ),
         (
             "invalid/malformed-file-reference.rev.txt",
             ParseErrorKind::MalformedFileId {

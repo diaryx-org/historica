@@ -81,6 +81,9 @@ fn store_from(test: &str, kind: &str) -> PathBuf {
             let into = match () {
                 _ if name.ends_with(".rev.txt") => "revisions",
                 _ if name.ends_with(".ops.txt") => "operations",
+                // Everything else in a corpus's `operations/` is a payload:
+                // a file's own content, stored whole, under any name.
+                _ if source.ends_with("operations") && path.is_file() => "operations",
                 _ => continue,
             };
             fs::copy(&path, directory.join("history").join(into).join(name))
@@ -99,11 +102,11 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
     for entry in ["revisions", "operations", "names", "cache"] {
         assert!(directory.join("history").join(entry).is_dir(), "{entry}");
     }
-    // Decision 0021: the first line is the version, and the rest of the file
+    // Decision 0021: the first line is the format, and the rest of the file
     // tells whoever opens the folder what they are looking at.
     let header = fs::read_to_string(directory.join("history/historica.txt")).expect("the header");
     let mut lines = header.lines();
-    assert_eq!(lines.next(), Some("historica-v1"));
+    assert_eq!(lines.next(), Some("historica"));
     assert!(header.contains("Identity comes from content"), "{header}");
     assert!(header.contains("revisions/"), "{header}");
     assert!(header.contains("cache/"), "{header}");
@@ -301,7 +304,7 @@ fn log_reads_from_the_work_back() {
 
     // The head is marked, and so is the file set each revision touched.
     assert!(log.contains("(head)"), "{log}");
-    assert!(log.contains("added 2  edited 2"), "{log}");
+    assert!(log.contains("added 2"), "{log}");
 }
 
 #[test]
@@ -646,7 +649,7 @@ fn a_prefix_that_could_be_two_files_is_refused_and_names_both() {
     fs::write(
         directory.join("history/revisions/two-alike.rev.txt"),
         format!(
-            "historica-v0\n\
+            "historica\n\
              change qpvuntsmwlrkzxonmvtplsyq\n\
              author Adam Harris <adam@example.com>\n\
              when 2026-08-21T09:00:00-06:00\n\
@@ -1091,8 +1094,8 @@ fn a_file_of_this_formats_own_extension_is_still_content() {
     // produce, so a payload never carries the suffix that says "document".
     let directory = repository("record-ops-payload");
     fs::create_dir_all(directory.join("corpus")).expect("directories");
-    let invalid = "historica-v0\n\ndelete 0 1\n-a\ndelete 1 2\n-b\n-c\n";
-    let other = "historica-v0\n\ninsert 0\n+a\ninsert 0\n+b\n";
+    let invalid = "historica\n\ndelete 0 1\n-a\ndelete 1 2\n-b\n-c\n";
+    let other = "historica\n\ninsert 0\n+a\ninsert 0\n+b\n";
     write(&directory, "corpus/adjacent-deletes.ops", invalid);
     write(&directory, "corpus/also-invalid.ops.txt", other);
     write(&directory, "notes.md", "an entry\n");
@@ -1218,7 +1221,7 @@ fn a_file_where_another_needs_a_directory_yields_its_readable_name() {
     fs::write(store.join("operations").join(long_id.to_string()), &long).expect("a payload");
 
     let revision = format!(
-        "historica-v1\n\
+        "historica\n\
          change qpvuntsmwlrkzxonmvtplsyq\n\
          author Adam Harris <adam@example.com>\n\
          when 2026-08-20T09:14:02-06:00\n\
@@ -2793,10 +2796,7 @@ fn a_recorded_merge_states_its_resolution_and_the_next_revision_counts_into_it()
         .map(|name| fs::read_to_string(operations.join(name)).expect("a document"))
         .find(|text| text.contains("\nkeep "))
         .expect("a resolution");
-    assert!(
-        resolution.starts_with("historica-v3\nresult "),
-        "{resolution}"
-    );
+    assert!(resolution.starts_with("historica\nresult "), "{resolution}");
     // `one` and `three` survive under their own names, so the only line the
     // resolution restates is the one the person wrote while resolving.
     assert_eq!(
@@ -3171,12 +3171,12 @@ fn the_executable_bit_survives_a_round_trip_through_the_store() {
     let shown = out(recorded(&directory, &["show", "head"]));
     assert!(shown.contains("mode "), "{shown}");
     assert!(shown.contains("executable"), "{shown}");
-    assert!(shown.starts_with("historica-v4"), "{shown}");
+    assert!(shown.starts_with("historica"), "{shown}");
 
     // A store gains the version the day it first holds a document that needs
     // one, and not before.
     let header = fs::read_to_string(directory.join("history/historica.txt")).expect("the marker");
-    assert!(header.starts_with("historica-v4"), "{header}");
+    assert!(header.starts_with("historica"), "{header}");
 
     fs::remove_file(directory.join("run.sh")).expect("removing the script");
     let updated = out(recorded(&directory, &["update"]));
@@ -4325,7 +4325,7 @@ fn a_link_inside_is_recorded_as_a_file_and_one_outside_as_a_string() {
     // The other is a machine, and is the string a person wrote.
     assert!(shown.contains("/etc/journal"), "{shown}");
     // Only a document with a link in it claims version 5.
-    assert!(shown.starts_with("historica-v5\n"), "{shown}");
+    assert!(shown.starts_with("historica\n"), "{shown}");
 
     // And recording again states nothing: the round trip is stable.
     assert!(

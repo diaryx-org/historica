@@ -60,7 +60,7 @@ fn init_creates_the_layout_and_open_finds_it() {
         assert!(root.join(directory).is_dir(), "{directory} should exist");
     }
     let header = fs::read_to_string(root.join("historica.txt")).expect("the header");
-    assert_eq!(header.lines().next(), Some("historica-v1"));
+    assert_eq!(header.lines().next(), Some("historica"));
     assert!(header.contains("Identity comes from content"), "{header}");
     assert!(Store::init(&root).is_err(), "twice is an error");
 }
@@ -258,7 +258,7 @@ fn a_file_that_does_not_parse_is_an_error_naming_the_file() {
     let (root, _) = corpus_store("unparsable");
     fs::write(
         root.join("revisions/broken.rev.txt"),
-        b"historica-v0\nnonsense\n",
+        b"historica\nnonsense\n",
     )
     .expect("a broken file");
 
@@ -512,10 +512,12 @@ fn tree_corpus_store(test: &str) -> (PathBuf, Store) {
     let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/tree");
     let root = scratch(test).join("history");
     let store = Store::init(&root).expect("a new store");
-    for (directory, suffix) in [("revisions", ".rev.txt"), ("operations", ".ops.txt")] {
+    for (directory, suffix) in [("revisions", ".rev.txt"), ("operations", "")] {
         for entry in fs::read_dir(corpus.join(directory)).expect("the corpus") {
             let path = entry.expect("an entry").path();
             let found = path.file_name().and_then(|name| name.to_str());
+            // `operations/` takes everything: documents by their suffix, and
+            // payloads — a file's own content — under any name at all.
             if let Some(name) = found.filter(|name| name.ends_with(suffix)) {
                 fs::copy(&path, root.join(directory).join(name)).expect("copying");
             }
@@ -556,7 +558,7 @@ fn a_store_materialises_the_tree_and_the_files_it_describes() {
         store.content(&head, file).expect("the README").text(),
         "# Notes\n\nA journal kept in Historica, and the notes that came with it.\n"
     );
-    assert_eq!(store.operations().unwrap().len(), 4);
+    assert_eq!(store.operations().unwrap().len(), 2);
     assert!(Store::check(&root).is_ok());
 }
 
@@ -579,15 +581,15 @@ fn a_broken_operation_document_stops_the_question_that_needs_it_and_nothing_else
     let break_it = |name: &str| {
         fs::write(
             directory.join(name),
-            b"historica-v1
+            b"historica
 nonsense
 ",
         )
         .expect("breaking it");
     };
 
-    // A document belonging to the file this head dropped.
-    break_it("01-entry.ops.txt");
+    // The document belonging to the file this head dropped.
+    break_it("02-entry.ops.txt");
     let store = Store::open(&root).expect("a store whose revisions still parse");
     assert_eq!(store.len(), 4);
     assert_eq!(store.tree(&head).expect("the file set"), before);
@@ -598,7 +600,7 @@ nonsense
         panic!("the directory does not parse");
     };
     let rendered = error.to_string();
-    assert!(rendered.contains("01-entry.ops.txt"), "{rendered}");
+    assert!(rendered.contains("02-entry.ops.txt"), "{rendered}");
 
     // And nothing else: the README's own history is untouched by a broken
     // document that belongs to another file, which decision 0036 is what
@@ -651,12 +653,19 @@ fn renaming_every_operation_document_changes_nothing() {
     let directory = root.join("operations");
     for (index, entry) in fs::read_dir(&directory).expect("operations").enumerate() {
         let path = entry.expect("an entry").path();
-        fs::rename(&path, directory.join(format!("{index}-renamed.ops.txt"))).expect("renaming");
+        // A document keeps a document suffix — the suffix is the claim to be
+        // one — and a payload keeps having none, for the same reason.
+        let name = if path.to_string_lossy().ends_with(".ops.txt") {
+            format!("{index}-renamed.ops.txt")
+        } else {
+            format!("{index}-renamed")
+        };
+        fs::rename(&path, directory.join(name)).expect("renaming");
     }
 
     let store = Store::open(&root).expect("reopening a renamed store");
     assert_eq!(store.tree(&head).expect("a tree"), before);
-    assert_eq!(store.operations().unwrap().len(), 4);
+    assert_eq!(store.operations().unwrap().len(), 2);
     assert!(Store::check(&root).is_ok());
 }
 
@@ -672,7 +681,7 @@ fn a_document_that_disagrees_with_its_file_is_an_error() {
         (*file, path.to_owned())
     };
 
-    let wrong = OperationDocument::parse(b"historica-v0\n\ndelete 0 1\n-not what is there\n")
+    let wrong = OperationDocument::parse(b"historica\n\ndelete 0 1\n-not what is there\n")
         .expect("a document that parses");
     let wrong = store.insert_operation(&wrong).expect("writing it");
 
@@ -716,17 +725,24 @@ fn an_undelivered_operation_document_is_a_note() {
     assert!(report.is_ok(), "{:?}", report.findings());
     let missing = report
         .notes()
-        .filter(|finding| matches!(finding, Finding::MissingOperations { .. }))
+        .filter(|finding| {
+            matches!(
+                finding,
+                Finding::MissingOperations { .. } | Finding::MissingPayload { .. }
+            )
+        })
         .count();
-    assert_eq!(missing, 4);
+    assert_eq!(missing, 4, "{:?}", report.findings());
 
-    // Asking for content says which document is missing rather than guessing.
+    // Asking for content says what is missing rather than guessing. The
+    // README's chain starts at its payload, so that is the absence it meets.
     let store = Store::open(store.root()).expect("reopening");
     let tree = store.tree(&head).expect("the tree still replays");
     let (file, _) = tree.files().next().expect("the README");
     assert!(matches!(
         store.content(&head, file),
-        Err(historica::store::MaterialiseError::MissingOperations { .. })
+        Err(historica::store::MaterialiseError::MissingPayload { .. }
+            | historica::store::MaterialiseError::MissingOperations { .. })
     ));
 }
 

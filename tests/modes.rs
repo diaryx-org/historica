@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use historica::core::{FileId, RevisionId};
-use historica::format::{Mode, ParseErrorKind, RevisionDocument, Version, digest};
+use historica::format::{Mode, ParseErrorKind, RevisionDocument, digest};
 use historica::store::Store;
 use historica::tree::{Tree, TreeError};
 
@@ -68,7 +68,6 @@ fn store(name: &str) -> Store {
             fs::copy(&from, &to).expect("copying a corpus file");
         }
     }
-    fs::write(root.join("historica.txt"), "historica-v4\n").expect("the version this corpus is");
     Store::open(&root).expect("the corpus opens")
 }
 
@@ -91,16 +90,6 @@ fn every_canonical_file_round_trips() {
         let document = parsed(&name);
         assert_eq!(document.write(), bytes, "{name} did not round trip");
     }
-}
-
-/// A document claims the lowest version that expresses it, so the revision
-/// that states no mode is still version 1 and readable by every reader ever
-/// published for it.
-#[test]
-fn only_a_document_with_a_mode_in_it_claims_version_four() {
-    assert_eq!(parsed("revisions/01-start.rev.txt").version, Version::V1);
-    assert_eq!(parsed("revisions/02-runnable.rev.txt").version, Version::V4);
-    assert_eq!(parsed("revisions/03-plain.rev.txt").version, Version::V4);
 }
 
 /// The tree is where a mode ends up, and where a `mode` line means anything.
@@ -163,14 +152,6 @@ fn a_mode_for_a_file_that_is_not_here_is_refused_by_name() {
 #[test]
 fn every_invalid_file_is_refused_for_its_own_reason() {
     let wanted: Vec<(&str, ParseErrorKind)> = vec![
-        (
-            "invalid/mode-in-version-3.rev.txt",
-            ParseErrorKind::HeaderNeedsVersion {
-                key: "mode".to_owned(),
-                found: Version::V3,
-                needs: Version::V4,
-            },
-        ),
         (
             "invalid/unknown-mode.rev.txt",
             ParseErrorKind::UnknownMode {

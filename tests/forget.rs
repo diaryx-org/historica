@@ -277,7 +277,7 @@ fn two_forgetting_documents_union_to_the_more_forgotten_result_either_way() {
     // Decision 0014: an item is forgotten if any held forgetting document
     // forgets it. Order-independent, and never less thorough than the most
     // thorough redaction that has arrived.
-    let original = OperationDocument::parse(b"historica-v2\n\ninsert 0\n+one\n+two\n+three\n")
+    let original = OperationDocument::parse(b"historica\n\ninsert 0\n+one\n+two\n+three\n")
         .expect("a document");
     let target = original.id();
 
@@ -303,8 +303,8 @@ fn two_forgetting_documents_union_to_the_more_forgotten_result_either_way() {
 }
 
 #[test]
-fn a_forgetting_document_round_trips_and_is_gated_at_version_two() {
-    let bytes = b"historica-v2\nforgets 6397b3a4b3b8abd444da81f2f731dd67c4f5bcea5dc03c4e8141783d1f1b4c53\n\ndelete 3 1\n-Nothing here chooses a document syntax yet.\ninsert 4\n\\ forgotten\n\\ forgotten\n";
+fn a_forgetting_document_round_trips() {
+    let bytes = b"historica\nforgets 6397b3a4b3b8abd444da81f2f731dd67c4f5bcea5dc03c4e8141783d1f1b4c53\n\ndelete 3 1\n-Nothing here chooses a document syntax yet.\ninsert 4\n\\ forgotten\n\\ forgotten\n";
     let document = OperationDocument::parse(bytes).expect("decision 0014's own example");
     assert!(document.forgets.is_some());
     assert!(
@@ -315,21 +315,10 @@ fn a_forgetting_document_round_trips_and_is_gated_at_version_two() {
     );
     assert!(!document.operations[0].items[0].forgotten);
     assert_eq!(document.write(), bytes.to_vec());
-
-    // The vocabulary is version 2's: a v1 document may not use it.
-    let v1 = b"historica-v1\n\ninsert 0\n\\ forgotten\n";
-    assert!(OperationDocument::parse(v1).is_err());
-    let v1_header = b"historica-v1\nforgets 6397b3a4b3b8abd444da81f2f731dd67c4f5bcea5dc03c4e8141783d1f1b4c53\n\ninsert 0\n+a\n";
-    assert!(OperationDocument::parse(v1_header).is_err());
 }
 
 #[test]
-fn a_store_claims_version_three_when_it_records_a_result() {
-    // A document claims the lowest version that expresses it. Before 0031
-    // that let a store which never forgot keep reading under version 1;
-    // stating a result is version 3's vocabulary and every recording states
-    // one, so the first record is what raises the gate now, and forgetting
-    // no longer raises anything it has not already raised.
+fn the_header_states_the_format_and_forgetting_never_moves_it() {
     let directory = scratch("version");
     assert!(run(&directory, &["init"]).status.success());
     let header = || {
@@ -337,20 +326,18 @@ fn a_store_claims_version_three_when_it_records_a_result() {
             .expect("the header")
             .lines()
             .next()
-            .expect("a version line")
+            .expect("a format line")
             .to_owned()
     };
-    assert_eq!(header(), "historica-v1");
+    assert_eq!(header(), "historica");
 
     write(&directory, "notes.md", "one\ntwo\n");
     let first = out(&directory, &["record", "-m", "Start"]);
     write(&directory, "notes.md", "one\ntwo\nthree\n");
     out(&directory, &["record", "-m", "More"]);
-    assert_eq!(header(), "historica-v3", "a recording states its result");
-
     out(
         &directory,
         &["forget", &digest_in(&first), "notes.md", "--lines", "2"],
     );
-    assert_eq!(header(), "historica-v3", "a version is never lowered");
+    assert_eq!(header(), "historica", "one spelling, before and after");
 }

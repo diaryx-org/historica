@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
 use crate::format::{
-    self, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, Version, digest,
+    self, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, digest,
 };
 use crate::fs::{Entry, Filesystem, read_to_string};
 use crate::replay::ReplayError;
@@ -47,7 +47,7 @@ pub enum Finding {
         /// Why it was refused.
         error: ParseError,
     },
-    /// No `historica` file, or one naming a version this reader lacks.
+    /// No `historica` file, or one naming a format this reader lacks.
     UnreadableStore {
         /// What the header said, if it said anything.
         found: Option<String>,
@@ -231,11 +231,12 @@ pub enum Finding {
     },
     /// A merge whose parents differ about a file, stating no resolution.
     ///
-    /// A note rather than an error, because this is exactly how every merge
-    /// recorded before version 3 reads and decision 0032 promises those go on
-    /// reading as they always did. What it costs is the thing 0032 bought:
-    /// materialising this file past this merge needs a correct implementation
-    /// of the merge algorithm, on every reader, forever.
+    /// A note rather than an error: this tool never writes one, but a store
+    /// is a folder anyone may write, and a hand that omitted the resolution
+    /// has understated rather than contradicted itself. What the omission
+    /// costs is the thing decision 0032 bought — materialising this file
+    /// past this merge needs a correct implementation of the merge
+    /// algorithm rather than arithmetic.
     UnstatedMerge {
         /// The merge.
         revision: RevisionId,
@@ -327,8 +328,8 @@ impl fmt::Display for Finding {
             Finding::Unparsable { file, error } => write!(f, "{}: {error}", file.display()),
             Finding::UnreadableStore { found: Some(found) } => write!(
                 f,
-                "this store says `{found}` and this reader knows up to `{}`",
-                Version::CURRENT
+                "this store says `{found}` and this reader reads `{}`",
+                format::PREAMBLE
             ),
             Finding::UnreadableStore { found: None } => {
                 write!(f, "no `{HEADER_FILE}` file, so this is not a store")
@@ -465,8 +466,7 @@ impl fmt::Display for Finding {
                 f,
                 "{revision} is a merge whose parents differ about the file {file} and which \
                  states no resolution; reading that file past this revision needs the merge \
-                 algorithm rather than arithmetic, which is how every merge recorded before \
-                 version 3 reads"
+                 algorithm rather than arithmetic"
             ),
             Finding::MissingReference { document, named_by } => write!(
                 f,
@@ -595,13 +595,10 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
 
     match read_to_string(files, &root.join(HEADER_FILE)) {
         Ok(text) => {
-            // Decision 0021: the first line is the version, and the rest is
+            // Decision 0021: the first line is the format, and the rest is
             // the note a person reads.
             let line = text.lines().next().unwrap_or_default().to_owned();
-            let known = Version::ALL
-                .iter()
-                .any(|version| line == version.preamble());
-            if !known {
+            if line != format::PREAMBLE {
                 report.push(Finding::UnreadableStore { found: Some(line) });
             }
         }

@@ -1,4 +1,4 @@
-historica-v0
+historica
 
 delete 3 1
 -Nothing here chooses a document syntax yet.

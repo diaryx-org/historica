@@ -1,11 +1,10 @@
 //! The readable documents a history is stored as, and the digests that name them.
 //!
 //! A revision is one text file, specified by `docs/decisions/0002-revision-document.md`
-//! and made strict by `docs/decisions/0004-parser-contract.md`, at the version
-//! decision 0017 moved it to:
+//! and made strict by `docs/decisions/0004-parser-contract.md`:
 //!
 //! ```text
-//! historica-v1
+//! historica
 //! change qpvuntsmwlrkzxonmvtplsyq
 //! author Adam Harris <adam@example.com>
 //! when 2025-08-19T00:47:11-06:00
@@ -53,102 +52,21 @@ pub use operations::{
 pub use resolution::{Piece, ResolutionDocument, is_resolution};
 pub use timestamp::{MalformedTimestamp, Timestamp};
 
-/// The newest preamble this reader accepts.
+/// The preamble every document opens with.
 ///
-/// Not a header: it carries no value, and its digit puts it outside the key
-/// grammar, so nothing can read it as `key value`. What a writer emits is
-/// per document — the lowest version that expresses it — so this is the
-/// reader's ceiling rather than the writer's habit.
-pub const PREAMBLE: &str = Version::CURRENT.preamble();
+/// Not a header: it carries no value, so nothing can read it as `key value`.
+/// One spelling, unnumbered, because this format is 1.0's promise kept: the
+/// grammar below it does not change. A future format that must break that
+/// promise takes a new spelling, and this reader refuses it at this line
+/// rather than guessing at what it would be leaving out.
+pub const PREAMBLE: &str = "historica";
 
-/// The format name the preamble begins with, used to tell an unknown version
-/// apart from a file that is not a revision at all.
-const PREAMBLE_PREFIX: &str = "historica-v";
-
-/// The format version a document was written under.
+/// The prefix every preamble spelling shares, used to tell a document in a
+/// format this reader lacks apart from a file that is not a document at all.
 ///
-/// Decision 0004 makes evolution asymmetric: a version constrains writers,
-/// never readers, so a version 1 reader parses every version 0 document
-/// exactly as version 0 did. The version is therefore carried on the document
-/// rather than assumed, and the grammar consults it — `add` with `edit` is
-/// version 0's spelling of a creation, refused by decision 0017 and still
-/// legal in the documents that already use it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub enum Version {
-    /// The first version: no `text`, no `bytes`, and a creation spelled as an
-    /// operation document inserting every line at 0.
-    V0,
-    /// Decision 0017: content that arrives whole, as a payload named by
-    /// `text` or `bytes`.
-    #[default]
-    V1,
-    /// Decision 0014: forgetting — the `forgets` header, and the
-    /// `\ forgotten` marker standing where a destroyed item stood.
-    V2,
-    /// Decision 0031: an operation document states its result — the digest
-    /// of the file its operations produce — so a hand replay has a
-    /// checkpoint and an independent replayer has an answer to agree with.
-    V3,
-    /// Decision 0034: `mode`, which says a file can be run.
-    V4,
-    /// Decision 0040: `link`, which says a file is a link to somewhere.
-    V5,
-}
-
-impl Version {
-    /// Every version this reader knows, oldest first.
-    ///
-    /// One list, because three copies of it is how a version gets added to the
-    /// parser and not to the store's gate — which reads, exactly once, as a
-    /// reader refusing a store it wrote itself.
-    pub const ALL: [Version; 6] = [
-        Version::V0,
-        Version::V1,
-        Version::V2,
-        Version::V3,
-        Version::V4,
-        Version::V5,
-    ];
-
-    /// The highest version this reader knows.
-    ///
-    /// Not what a writer claims: a document claims the lowest version that
-    /// expresses it, so a store that never forgets anything keeps reading
-    /// under version 1 — and under the readers already published for it —
-    /// while a store that has forgotten something is refused whole, at the
-    /// gate, by a reader that knows less.
-    pub const CURRENT: Version = Version::V5;
-
-    /// The preamble line a document of this version opens with.
-    pub const fn preamble(self) -> &'static str {
-        match self {
-            Version::V0 => "historica-v0",
-            Version::V1 => "historica-v1",
-            Version::V2 => "historica-v2",
-            Version::V3 => "historica-v3",
-            Version::V4 => "historica-v4",
-            Version::V5 => "historica-v5",
-        }
-    }
-
-    /// The digit the preamble spells, for an error that has to name it.
-    pub const fn number(self) -> u8 {
-        match self {
-            Version::V0 => 0,
-            Version::V1 => 1,
-            Version::V2 => 2,
-            Version::V3 => 3,
-            Version::V4 => 4,
-            Version::V5 => 5,
-        }
-    }
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.preamble())
-    }
-}
+/// The pre-1.0 formats spelled it `historica-v0` through `historica-v5`, one
+/// number per grammar change; those read only under a 0.x release.
+const PREAMBLE_PREFIX: &str = "historica-";
 
 /// Whether a file can be run.
 ///
@@ -346,8 +264,6 @@ impl fmt::Debug for Hasher {
 /// which is lossless precisely because the parser rejects any other order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevisionDocument {
-    /// The version this document was written under, and is written back as.
-    pub version: Version,
     /// The change this revision is a version of.
     pub change: ChangeId,
     /// Causal parents, by digest. Empty means a root.
@@ -414,7 +330,7 @@ impl RevisionDocument {
     /// `write(parse(bytes)) == bytes` for every input `parse` accepts.
     pub fn write(&self) -> Vec<u8> {
         let mut out = String::new();
-        out.push_str(self.version.preamble());
+        out.push_str(PREAMBLE);
         out.push('\n');
         out.push_str(&format!("change {}\n", self.change));
         for parent in &self.parents {
@@ -606,27 +522,21 @@ fn check_byte_order_mark(bytes: &[u8]) -> Result<(), ParseError> {
 /// Both documents in the format open this way, for decision 0004's reasons: a
 /// file says how to hash itself, and can be identified by content rather than
 /// by the extension it happens to carry.
-fn check_preamble(line: &str, terminated: bool) -> Result<Version, ParseError> {
-    let known = Version::ALL
-        .into_iter()
-        .find(|version| line == version.preamble());
-    let version = match known {
-        Some(version) => version,
-        None => {
-            let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
-                ParseErrorKind::UnknownVersion {
-                    found: version.to_owned(),
-                }
-            } else {
-                ParseErrorKind::MissingPreamble
-            };
-            return Err(ParseError::new(1, kind));
-        }
-    };
+fn check_preamble(line: &str, terminated: bool) -> Result<(), ParseError> {
+    if line != PREAMBLE {
+        let kind = if let Some(version) = line.strip_prefix(PREAMBLE_PREFIX) {
+            ParseErrorKind::UnknownVersion {
+                found: version.to_owned(),
+            }
+        } else {
+            ParseErrorKind::MissingPreamble
+        };
+        return Err(ParseError::new(1, kind));
+    }
     if !terminated {
         return Err(ParseError::new(1, ParseErrorKind::UnterminatedLine));
     }
-    Ok(version)
+    Ok(())
 }
 
 struct Parser<'a> {
@@ -654,12 +564,12 @@ impl<'a> Parser<'a> {
     }
 
     fn run(mut self) -> Result<RevisionDocument, ParseError> {
-        let version = self.preamble()?;
+        self.preamble()?;
         let (headers, message) = self.headers_and_message()?;
-        self.assemble(version, headers, message)
+        self.assemble(headers, message)
     }
 
-    fn preamble(&mut self) -> Result<Version, ParseError> {
+    fn preamble(&mut self) -> Result<(), ParseError> {
         let Some((line, terminated)) = self.next_line() else {
             return Err(ParseError::new(1, ParseErrorKind::Empty));
         };
@@ -691,7 +601,6 @@ impl<'a> Parser<'a> {
 
     fn assemble(
         self,
-        version: Version,
         headers: Vec<Header>,
         message: String,
     ) -> Result<RevisionDocument, ParseError> {
@@ -715,45 +624,6 @@ impl<'a> Parser<'a> {
         let mut previous: Option<(u8, String, String)> = None;
 
         for Header { at, key, value } in headers {
-            // Decision 0004: a version constrains writers, never readers, so a
-            // version 0 document refuses 0017's headers exactly as a version 0
-            // reader did — as headers it does not know.
-            if version < Version::V1 && matches!(key.as_str(), "text" | "bytes") {
-                return Err(ParseError::new(
-                    at,
-                    ParseErrorKind::HeaderNeedsVersion {
-                        key: key.clone(),
-                        found: version,
-                        needs: Version::V1,
-                    },
-                ));
-            }
-            // Decision 0034, on the same terms: a store that never marks
-            // anything executable never becomes version 4, and every reader
-            // published before it goes on reading every document in it.
-            if version < Version::V4 && key == "mode" {
-                return Err(ParseError::new(
-                    at,
-                    ParseErrorKind::HeaderNeedsVersion {
-                        key: key.clone(),
-                        found: version,
-                        needs: Version::V4,
-                    },
-                ));
-            }
-            // Decision 0040, on the same terms again: a store with no links in
-            // it never becomes version 5, so every reader published for
-            // version 4 goes on reading every document such a store holds.
-            if version < Version::V5 && key == "link" {
-                return Err(ParseError::new(
-                    at,
-                    ParseErrorKind::HeaderNeedsVersion {
-                        key: key.clone(),
-                        found: version,
-                        needs: Version::V5,
-                    },
-                ));
-            }
             let Some(this_rank) = rank(&key) else {
                 return Err(ParseError::new(
                     at,
@@ -980,9 +850,8 @@ impl<'a> Parser<'a> {
                 return Err(contradiction("add", "drop", file));
             }
             // Decision 0017: an `edit`'s positions are counted into the file at
-            // this revision's parents, and a file added here is not there. It
-            // was version 0's spelling of a creation and stays legal there.
-            if version >= Version::V1 && edited.contains_key(file) {
+            // this revision's parents, and a file added here is not there.
+            if edited.contains_key(file) {
                 return Err(contradiction("add", "edit", file));
             }
         }
@@ -1050,7 +919,6 @@ impl<'a> Parser<'a> {
         }
 
         Ok(RevisionDocument {
-            version,
             change,
             parents,
             supersedes,
@@ -1310,8 +1178,6 @@ mod tests {
 
     #[test]
     fn a_key_is_lowercase_letters_and_hyphens() {
-        // The rule the preamble depends on: a digit cannot be part of a key,
-        // so `historica-v0` can never be read as a header.
         assert!(matches!(
             refuse(&[CHANGE, "author-2 Adam", WHEN], Some("m")),
             ParseErrorKind::MalformedKey { .. }
@@ -1320,7 +1186,9 @@ mod tests {
             refuse(&[CHANGE, "Author Adam", WHEN], Some("m")),
             ParseErrorKind::MalformedKey { .. }
         ));
-        assert_eq!(rank("historica-v0"), None);
+        // The preamble is not a header: it carries no value, and it is not a
+        // key the grammar defines.
+        assert_eq!(rank(PREAMBLE), None);
     }
 
     #[test]
@@ -1446,13 +1314,13 @@ mod tests {
             ParseErrorKind::Empty
         );
         assert_eq!(
-            RevisionDocument::parse("\u{feff}historica-v0\n".as_bytes())
+            RevisionDocument::parse("\u{feff}historica\n".as_bytes())
                 .expect_err("bom")
                 .kind,
             ParseErrorKind::ByteOrderMark
         );
         assert_eq!(
-            RevisionDocument::parse(b"historica-v0")
+            RevisionDocument::parse(b"historica")
                 .expect_err("no newline")
                 .kind,
             ParseErrorKind::UnterminatedLine
@@ -1647,35 +1515,51 @@ mod tests {
     }
 
     #[test]
-    fn a_version_0_document_still_reads_the_way_version_0_read_it() {
-        // Decision 0004: a version constrains writers, never readers, so the
-        // spelling 0017 retired stays legal in the documents that used it —
-        // otherwise every revision written before this reader existed would
-        // stop being verifiable.
+    fn a_pre_1_0_document_is_refused_at_the_preamble_by_name() {
+        // The pre-1.0 formats numbered their preambles `historica-v0` through
+        // `historica-v5`, one number per grammar change. This reader refuses
+        // them at the first line rather than guessing at what it would be
+        // leaving out; a 0.x release still reads them.
         let older = format!(
-            "{}\nchange {}\nauthor {}\nwhen {}\nadd {FILE} a.md\nedit {FILE} {A}\n\nm",
-            Version::V0.preamble(),
+            "historica-v0\nchange {}\nauthor {}\nwhen {}\nadd {FILE} a.md\nedit {FILE} {A}\n\nm",
             &CHANGE[7..],
             &AUTHOR[7..],
             &WHEN[5..],
         );
-        let document = RevisionDocument::parse(older.as_bytes()).expect("version 0 still reads");
-        assert_eq!(document.version, Version::V0);
-        assert_eq!(document.added.len(), 1);
-        assert_eq!(document.edited.len(), 1);
-        // And it writes back as what it was, byte for byte.
-        assert_eq!(document.write(), older.as_bytes());
-
-        // What a version 0 document may not do is use a version 1 header.
-        let newer = older.replace(&format!("edit {FILE} {A}"), &format!("text {FILE} {A}"));
+        assert_eq!(
+            RevisionDocument::parse(older.as_bytes())
+                .expect_err("a pre-1.0 format")
+                .kind,
+            ParseErrorKind::UnknownVersion {
+                found: "v0".to_owned()
+            }
+        );
+        // A format newer than this reader is refused on the same terms.
+        let newer = format!("historica-2\nchange {}\n\nm", &CHANGE[7..]);
         assert_eq!(
             RevisionDocument::parse(newer.as_bytes())
-                .expect_err("a version says what its writer may use")
+                .expect_err("a later format")
                 .kind,
-            ParseErrorKind::HeaderNeedsVersion {
-                key: "text".to_owned(),
-                found: Version::V0,
-                needs: Version::V1,
+            ParseErrorKind::UnknownVersion {
+                found: "2".to_owned()
+            }
+        );
+        // And the spelling 0017 retired — a creation as `add` with `edit` —
+        // is a contradiction here, whatever it once was.
+        let retired = format!(
+            "{PREAMBLE}\nchange {}\nauthor {}\nwhen {}\nadd {FILE} a.md\nedit {FILE} {A}\n\nm",
+            &CHANGE[7..],
+            &AUTHOR[7..],
+            &WHEN[5..],
+        );
+        assert_eq!(
+            RevisionDocument::parse(retired.as_bytes())
+                .expect_err("add with edit contradicts itself")
+                .kind,
+            ParseErrorKind::ContradictoryFileFacts {
+                first: "add",
+                second: "edit",
+                file: FILE.to_owned(),
             }
         );
     }

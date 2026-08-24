@@ -1,4 +1,5 @@
-historica-v0
+historica
+result 523b2e6111e6f9692c2c694fb735b2c4568fa7798ebb6119f4dcde1f79231ce8
 
 insert 3
 +Renaming a file must not lose what was recorded against it.

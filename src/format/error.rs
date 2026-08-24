@@ -53,9 +53,9 @@ pub enum ParseErrorKind {
     UnterminatedLine,
     /// The first line was not the preamble.
     MissingPreamble,
-    /// The preamble named a version this reader does not have.
+    /// The preamble named a format this reader does not have.
     UnknownVersion {
-        /// The version as spelled in the file.
+        /// What followed `historica-`, as spelled in the file.
         found: String,
     },
     /// A key was not lowercase letters and hyphens.
@@ -63,7 +63,7 @@ pub enum ParseErrorKind {
         /// The key as spelled in the file.
         key: String,
     },
-    /// A known-looking key this version does not define, without the `x-` prefix.
+    /// A known-looking key this format does not define, without the `x-` prefix.
     UnknownHeader {
         /// The key as spelled in the file.
         key: String,
@@ -90,15 +90,6 @@ pub enum ParseErrorKind {
     /// restates is the destroyed state, and a digest of destroyed content
     /// would let anyone who can guess the sentence confirm it.
     ResultOfForgetting,
-    /// A header a later version defines, in a document that predates it.
-    HeaderNeedsVersion {
-        /// The key as spelled in the file.
-        key: String,
-        /// The version the document claims.
-        found: super::Version,
-        /// The version that first defined the key.
-        needs: super::Version,
-    },
     /// A header line carried no value.
     EmptyValue,
     /// A value had leading or trailing space.
@@ -303,12 +294,20 @@ impl fmt::Display for ParseErrorKind {
                 "a Historica document opens with `{}`; add it as the first line",
                 super::PREAMBLE
             ),
-            UnknownVersion { found } => write!(
-                f,
-                "this document is version {found} and this reader knows up to version {}; \
-                 upgrade Historica rather than trusting what it would leave out",
-                super::Version::CURRENT.number()
-            ),
+            UnknownVersion { found } => match found.as_str() {
+                "v0" | "v1" | "v2" | "v3" | "v4" | "v5" => write!(
+                    f,
+                    "this document is `historica-{found}`, a pre-1.0 format this \
+                     release no longer reads; a 0.x Historica still reads it"
+                ),
+                _ => write!(
+                    f,
+                    "this document is `historica-{found}` and this reader reads \
+                     `{}`; upgrade Historica rather than trusting what it would \
+                     leave out",
+                    super::PREAMBLE
+                ),
+            },
             EmptyKeep => write!(
                 f,
                 "a `keep` that keeps nothing states nothing; delete the line"
@@ -335,13 +334,6 @@ impl fmt::Display for ParseErrorKind {
                  destroyed state would confirm a guess at what was destroyed; \
                  delete the line"
             ),
-            HeaderNeedsVersion { key, found, needs } => write!(
-                f,
-                "`{key}` is a version {} header and this document is `{found}`; \
-                 a version says what its writer may use, so change the preamble \
-                 to `{needs}` or delete the line",
-                needs.number()
-            ),
             MalformedKey { key } => write!(
                 f,
                 "`{key}` is not a key: keys are lowercase letters and hyphens; \
@@ -349,7 +341,7 @@ impl fmt::Display for ParseErrorKind {
             ),
             UnknownHeader { key } => write!(
                 f,
-                "`{key}` is not a header this version knows; \
+                "`{key}` is not a header this format knows; \
                  spell it `x-{key}` if a reader may ignore it, or upgrade Historica if not"
             ),
             UnknownMode { found } => write!(
@@ -384,7 +376,14 @@ impl fmt::Display for ParseErrorKind {
                     "`{key}` appears once in a revision; delete the second line"
                 )
             }
-            MissingHeader { key } => write!(f, "a revision states `{key}`; add the line"),
+            MissingHeader { key } => match *key {
+                "result" => write!(
+                    f,
+                    "a content document states the digest of the file it produces; \
+                     add the `result` line — `shasum -a 256` on that file prints it"
+                ),
+                key => write!(f, "a revision states `{key}`; add the line"),
+            },
             MalformedChangeId { found } => write!(
                 f,
                 "`{found}` is not a change ID: {} characters of `k` to `z`, \

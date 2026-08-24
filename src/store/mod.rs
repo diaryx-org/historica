@@ -48,8 +48,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{ChangeId, FileId, History, RevisionId};
 use crate::format::{
-    self, Item, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, Version,
-    digest,
+    self, Item, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, digest,
 };
 // `fs` here is `crate::fs`, never `std::fs` — this module reaches the folder
 // only through the trait, and the qualified form is what keeps that visible.
@@ -77,7 +76,7 @@ pub use receive::{MutableConflict, ReceiveError, ReceivePlan, Received};
 
 /// The directory a store lives in, relative to the repository root.
 pub const STORE_DIR: &str = "history";
-/// The file that marks a directory as a store, and states its format version.
+/// The file that marks a directory as a store, and states its format.
 pub const HEADER_FILE: &str = "historica.txt";
 /// Revision documents. Only `*.rev` files here are read as revisions.
 pub const REVISIONS_DIR: &str = "revisions";
@@ -121,7 +120,7 @@ pub const FORMAT_FILE: &str = "format.txt";
 /// how to materialise a file from them by hand.
 pub const FORMAT_NOTE: &str = include_str!("format.txt");
 
-/// What `init` writes into [`HEADER_FILE`], below the version line.
+/// What `init` writes into [`HEADER_FILE`], below the format line.
 ///
 /// Decision 0021: a person who opens `history/` should not have to be told
 /// what they are looking at by somebody who already knows. Nothing hashes this
@@ -156,8 +155,8 @@ into directories of your own breaks nothing either.
                   with an editor and `shasum`. Read that one if you have no
                   Historica and want your files back.
 
-The first line of this file states the format version. A reader that does not
-know that version refuses the store rather than guessing at what it would be
+The first line of this file states the format. A reader that does not know
+that format refuses the store rather than guessing at what it would be
 leaving out.
 
 `historica help` lists what the tool can do with all of this.
@@ -469,9 +468,6 @@ pub struct Store<F = Disk> {
     /// reaches whatever the caller handed it.
     files: F,
     root: PathBuf,
-    /// The highest document version this store holds, which is what its
-    /// header states and therefore the gate a reader is refused at.
-    version: Version,
     documents: BTreeMap<RevisionId, RevisionDocument>,
     /// Where everything in `operations/` is, by digest. Built on first need,
     /// never at open, and taken from `cache/` where decision 0036 allows.
@@ -596,14 +592,10 @@ impl<F: Filesystem> Store<F> {
                 .create_directory(&path)
                 .map_err(|error| StoreError::io(&path, error))?;
         }
-        // Version 1, not the reader's ceiling: the header states the highest
-        // document version the store holds, an empty store holds nothing,
-        // and version 1's vocabulary is everything short of forgetting.
-        // `raise_version` moves it the day a newer document lands.
         files
             .write(
                 &header,
-                format!("{}\n\n{HEADER_NOTE}", Version::V1.preamble()).as_bytes(),
+                format!("{}\n\n{HEADER_NOTE}", format::PREAMBLE).as_bytes(),
             )
             .map_err(|error| StoreError::io(&header, error))?;
         // Decision 0027: explain the syntax but state no rules. A host or
@@ -645,7 +637,7 @@ impl<F: Filesystem> Store<F> {
     /// asks for it.
     pub fn open_on(files: F, root: impl AsRef<Path>) -> Result<Self, StoreError> {
         let root = root.as_ref().to_path_buf();
-        let version = read_version(&files, &root)?;
+        check_header(&files, &root)?;
 
         let mut documents = BTreeMap::new();
         for path in files_claiming(&files, &root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
@@ -677,7 +669,6 @@ impl<F: Filesystem> Store<F> {
         Ok(Self {
             files,
             root,
-            version,
             documents,
             catalogue: OnceCell::new(),
             read: RefCell::new(Read::default()),
@@ -1047,11 +1038,6 @@ impl<F: Filesystem> Store<F> {
         Ok(found)
     }
 
-    /// The highest document version this store holds.
-    pub fn version(&self) -> Version {
-        self.version
-    }
-
     /// One payload's bytes, or `None` if nothing has delivered it.
     ///
     /// Decision 0017: a payload carries no format of its own, so there is
@@ -1251,8 +1237,8 @@ impl<F: Filesystem> Store<F> {
     /// - a file at a merge whose parents differ is its resolution.
     ///
     /// Every step is one a person can do by hand and check by hand. The walk
-    /// is what answers where the rule does not reach, which is every merge
-    /// recorded before version 3: those read exactly as they did, forever.
+    /// is what answers where the rule does not reach: a merge that states no
+    /// resolution, which this tool never writes and a hand may omit.
     pub fn content(&self, head: &RevisionId, file: &FileId) -> Result<State, MaterialiseError> {
         Ok(self.content_of(head, file)?.unwrap_or_else(State::empty))
     }
@@ -1295,8 +1281,8 @@ impl<F: Filesystem> Store<F> {
         match self.stated_content(head, file, caching)? {
             Stated::Known(state) => Ok(Some(state)),
             Stated::Absent => Ok(None),
-            // Every merge recorded before version 3 lands here, and reads
-            // exactly as it always did.
+            // A merge that states no resolution lands here — a hand that
+            // omitted it — and reads by the algorithm instead.
             Stated::Unstated => Ok(Some(self.merged_content(head, file)?.state)),
         }
     }
@@ -1344,8 +1330,8 @@ impl<F: Filesystem> Store<F> {
     /// does not reach.
     ///
     /// It does not reach a merge whose parents disagree about the file and
-    /// which states no resolution — which is every merge recorded before
-    /// version 3, and nothing a version 3 writer produces.
+    /// which states no resolution — which nothing this tool writes, and a
+    /// hand-written store may hold.
     fn stated_content(
         &self,
         head: &RevisionId,
@@ -1574,10 +1560,10 @@ impl<F: Filesystem> Store<F> {
 
     /// The digest one content document states its result to be.
     ///
-    /// Decision 0031, asked of either grammar: a resolution always states one
-    /// and an operation document states one from version 3. `None` is a
-    /// document written before that, which is why the cache can only ever
-    /// make a store faster and never make an older one unreadable.
+    /// Decision 0031, asked of either grammar: a resolution always states
+    /// one, and an operation document states one unless a hand omitted it.
+    /// `None` is such a document, which is why the cache can only ever make
+    /// a store faster and never make one unreadable.
     fn stated_result(&self, named: &RevisionId) -> Result<Option<RevisionId>, StoreError> {
         self.read_body(named)?;
         let read = self.read.borrow();
@@ -1815,7 +1801,6 @@ impl<F: Filesystem> Store<F> {
         let id = digest(&bytes);
         let path = within(&self.root.join(REVISIONS_DIR), name);
 
-        self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
         self.documents.insert(id, document.clone());
         Ok(id)
@@ -1850,7 +1835,6 @@ impl<F: Filesystem> Store<F> {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
-        self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
         // Catalogued from what was just written rather than by reading it
         // back: a writer knows the path, the digest and what the document
@@ -1882,7 +1866,6 @@ impl<F: Filesystem> Store<F> {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
-        self.raise_version(document.version)?;
         write_once(&self.files, &path, &bytes)?;
         // A resolution forgets nothing: 0014 destroys the payload of an
         // operation document, and a resolution holds no items to destroy.
@@ -1930,42 +1913,6 @@ impl<F: Filesystem> Store<F> {
         filed.document = false;
         self.catalogue_mut()?.insert(id, filed);
         Ok(id)
-    }
-
-    /// State a version the store now holds, rewriting the header if it grew.
-    ///
-    /// Decision 0017: the header is the reader's gate, so it must never
-    /// understate what the directory contains.
-    fn raise_version(&mut self, version: Version) -> Result<(), StoreError> {
-        if version <= self.version {
-            return Ok(());
-        }
-        self.state_version(version)
-    }
-
-    /// State the version this store holds, whichever way it moves.
-    ///
-    /// The only caller that lowers one is [`Store::export_onto`], and it is
-    /// the only caller entitled to: an export knows the whole of what it has
-    /// written, where every other writer knows only the document in its hand
-    /// and must therefore never state less than the header already does.
-    pub(super) fn state_version(&mut self, version: Version) -> Result<(), StoreError> {
-        let header = self.root.join(HEADER_FILE);
-        // Only the first line moves: whatever a person wrote under it is
-        // theirs, and a version bump is no reason to take it away.
-        let held = read_to_string(&self.files, &header).unwrap_or_default();
-        let rest: String = held
-            .split_once('\n')
-            .map(|(_, rest)| rest.to_owned())
-            .unwrap_or_else(|| format!("\n{HEADER_NOTE}"));
-        self.files
-            .write(
-                &header,
-                format!("{}\n{rest}", version.preamble()).as_bytes(),
-            )
-            .map_err(|error| StoreError::io(&header, error))?;
-        self.version = version;
-        Ok(())
     }
 
     /// Point a bookmark at something, creating or moving it.
@@ -2159,13 +2106,13 @@ fn label_of(directory: &Path, path: &Path) -> Option<String> {
     Some(label)
 }
 
-/// Read and validate the store's version header.
+/// Read and validate the store's header.
 ///
-/// Decision 0017: the header states the highest document version the store
-/// holds, which makes it the reader's gate — a reader that knows less refuses
-/// the store at the file that says so, rather than reading four fifths of it
-/// and calling the result a history.
-fn read_version<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Version, StoreError> {
+/// Decision 0017 made the header the reader's gate, and it still is: a reader
+/// that does not know the format the first line names refuses the store at
+/// the file that says so, rather than reading four fifths of it and calling
+/// the result a history.
+fn check_header<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<(), StoreError> {
     let header = root.join(HEADER_FILE);
     let text = match read_to_string(files, &header) {
         Ok(text) => text,
@@ -2176,14 +2123,12 @@ fn read_version<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<Versio
         }
         Err(error) => return Err(StoreError::io(&header, error)),
     };
-    // Decision 0021: the first line is the version and everything under it is
+    // Decision 0021: the first line is the format and everything under it is
     // prose for whoever opens the folder. Nothing hashes this file, so a person
     // may write what they like there.
     let line = text.lines().next().unwrap_or_default();
-    for version in Version::ALL {
-        if line == version.preamble() {
-            return Ok(version);
-        }
+    if line == format::PREAMBLE {
+        return Ok(());
     }
     Err(StoreError::UnknownVersion {
         found: line.to_owned(),
@@ -2513,7 +2458,7 @@ pub enum StoreError {
         /// The existing store.
         path: PathBuf,
     },
-    /// The store states a version this reader does not have.
+    /// The store's header states a format this reader does not have.
     UnknownVersion {
         /// The header line as found.
         found: String,
@@ -2581,11 +2526,22 @@ impl fmt::Display for StoreError {
             StoreError::AlreadyAStore { path } => {
                 write!(f, "{} is already a store", path.display())
             }
-            StoreError::UnknownVersion { found } => write!(
-                f,
-                "this store says `{found}` and this reader knows up to `{}`; upgrade Historica",
-                Version::CURRENT
-            ),
+            StoreError::UnknownVersion { found } => match found
+                .strip_prefix("historica-v")
+                .map(|rest| matches!(rest, "0" | "1" | "2" | "3" | "4" | "5"))
+            {
+                Some(true) => write!(
+                    f,
+                    "this store says `{found}`, a pre-1.0 format this release no \
+                     longer reads; a 0.x Historica still reads it"
+                ),
+                _ => write!(
+                    f,
+                    "this store says `{found}` and this reader reads `{}`; \
+                     upgrade Historica",
+                    format::PREAMBLE
+                ),
+            },
             StoreError::Unparsable { file, error } => {
                 write!(f, "{}: {error}", file.display())
             }

@@ -23,7 +23,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use historica::core::RevisionId;
-use historica::format::{Item, OperationDocument, OperationKind, ParseErrorKind, Version, digest};
+use historica::format::{Item, OperationDocument, OperationKind, ParseErrorKind, digest};
 use historica::replay::{State, replay};
 
 fn corpus() -> PathBuf {
@@ -133,14 +133,6 @@ fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
             // guess at what was destroyed.
             "invalid/result-of-forgetting.ops.txt",
             ParseErrorKind::ResultOfForgetting,
-        ),
-        (
-            "invalid/result-before-version-three.ops.txt",
-            ParseErrorKind::HeaderNeedsVersion {
-                key: "result".to_owned(),
-                found: Version::V1,
-                needs: Version::V3,
-            },
         ),
         (
             "invalid/malformed-result.ops.txt",
@@ -335,7 +327,7 @@ fn an_items_bytes_are_its_own_and_survive_untouched() {
     let verbatim = parse("verbatim-items.ops.txt");
     let items = &verbatim.operations[0].items;
     let texts: Vec<&str> = items.iter().map(|item| item.text.as_str()).collect();
-    assert!(texts.contains(&"historica-v0"));
+    assert!(texts.contains(&"historica"));
     assert!(texts.contains(&""));
     assert!(texts.contains(&"insert 4"));
     assert!(texts.contains(&"-not a deletion"));
