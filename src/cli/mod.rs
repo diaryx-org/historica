@@ -410,8 +410,8 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             writeln!(out, "would receive {} revisions", plan.revisions().len())?;
             writeln!(
                 out,
-                "would receive {} operation documents",
-                plan.operations().len()
+                "would receive {} content documents",
+                plan.documents().len()
             )?;
             writeln!(out, "would receive {} payloads", plan.payloads().len())?;
             for name in plan.names().keys() {
@@ -447,7 +447,7 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         .map_err(Failure::error)?;
     printing(|out| {
         writeln!(out, "received {} revisions", received.revisions)?;
-        writeln!(out, "received {} operation documents", received.operations)?;
+        writeln!(out, "received {} content documents", received.documents)?;
         writeln!(out, "received {} payloads", received.payloads)?;
         if received.names != 0 {
             writeln!(out, "received {} names", received.names)?;

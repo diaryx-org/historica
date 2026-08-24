@@ -111,3 +111,13 @@ store copy is wanted.
 5. A mutable-conflict resolution command. Existing file and bookmark commands
    are sufficient until repeated conflicts show a coherent larger interface.
 
+## Since
+
+"the immutable documents" above meant one grammar when this was written.
+Decision [0032](0032-a-merge-states-its-resolution.md) added a second, and the
+planning here went on asking about the first — so a merge's revisions travelled
+and the resolution its `edit` line names did not, leaving a receiving store
+that reported success and could not read its own head. The plan and its counts
+are now about `operations/` rather than about operation documents; 0032's
+`## Since` has the sweep.
+

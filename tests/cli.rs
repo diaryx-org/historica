@@ -1641,6 +1641,50 @@ fn receive_unions_independent_work_without_touching_either_working_copy() {
     assert!(stdout(&here, &["check"]).ends_with("nothing to report\n"));
 }
 
+/// Decision 0032 gave `operations/` a second grammar, and transport carries
+/// it. A receive that copied only operation documents delivered every
+/// revision of a merge and not the document its `edit` line names — and then
+/// said, on the next run, that there was nothing left to send, while the head
+/// it had just delivered would not read.
+#[test]
+fn receive_carries_the_resolution_a_merge_states() {
+    let (there, mine, theirs) = diverged(
+        "receive-merge-there",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+    out(recorded(&there, &["merge", &mine, &theirs]));
+    write(&there, "f.md", "one\nMINE\nBOTH\nTHEIRS\nthree\n");
+    out(recorded(
+        &there,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+
+    let here = repository("receive-merge-here");
+    let source = there.to_string_lossy();
+    let received = stdout(&here, &["receive", &source]);
+    assert!(received.contains("received 4 revisions"), "{received}");
+
+    // The head reads, which is the whole claim: the resolution arrived.
+    assert_eq!(
+        stdout(&here, &["cat", "head", "f.md"]),
+        "one\nMINE\nBOTH\nTHEIRS\nthree\n"
+    );
+    assert!(
+        stdout(&here, &["check", "--complete"]).contains("nothing to report"),
+        "a store that received a merge is complete"
+    );
+    // Byte for byte, in the grammar it was written in.
+    assert_eq!(
+        stdout(&here, &["show", "head", "f.md"]),
+        stdout(&there, &["show", "head", "f.md"])
+    );
+
+    let again = stdout(&here, &["receive", &source]);
+    assert!(again.contains("received 0 revisions"), "{again}");
+    assert!(again.contains("received 0 content documents"), "{again}");
+}
+
 /// `show` prints what is stored, and decision 0032 made "what is stored" have
 /// two possible grammars. Asking only the older one reported a document the
 /// store was holding perfectly well as one it had not received.

@@ -14,8 +14,8 @@ use crate::fs::Filesystem;
 use crate::working::Rule;
 
 use super::{
-    Name, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIX, Store, StoreError,
-    files_claiming,
+    Body, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIX, Store,
+    StoreError, files_claiming,
 };
 
 /// One mutable value two stores disagree about.
@@ -36,7 +36,7 @@ pub enum MutableConflict {
 #[derive(Debug, Clone, Default)]
 pub struct ReceivePlan {
     revisions: Vec<RevisionId>,
-    operations: Vec<RevisionId>,
+    documents: Vec<RevisionId>,
     payloads: Vec<RevisionId>,
     names: BTreeMap<String, Name>,
     skipped: Vec<Rule>,
@@ -51,9 +51,14 @@ impl ReceivePlan {
         &self.revisions
     }
 
-    /// Operation and forgetting documents the receiver lacks.
-    pub fn operations(&self) -> &[RevisionId] {
-        &self.operations
+    /// Content documents the receiver lacks, in either grammar.
+    ///
+    /// Decision 0032: an `edit` line names an operation document or a
+    /// resolution, so a transfer that carried only the first grammar would
+    /// deliver a merge whose file cannot be read — and then say, correctly,
+    /// that there was nothing left to send.
+    pub fn documents(&self) -> &[RevisionId] {
+        &self.documents
     }
 
     /// Whole-content payloads the receiver lacks.
@@ -88,7 +93,7 @@ impl ReceivePlan {
     /// Whether applying this plan would change the receiver.
     pub fn is_empty(&self) -> bool {
         self.revisions.is_empty()
-            && self.operations.is_empty()
+            && self.documents.is_empty()
             && self.payloads.is_empty()
             && self.names.is_empty()
             && self.skipped.is_empty()
@@ -101,8 +106,8 @@ impl ReceivePlan {
 pub struct Received {
     /// Revision documents copied.
     pub revisions: usize,
-    /// Operation and forgetting documents copied.
-    pub operations: usize,
+    /// Content documents copied, in either grammar.
+    pub documents: usize,
     /// Whole-content payloads copied.
     pub payloads: usize,
     /// Bookmarks copied.
@@ -131,9 +136,13 @@ impl<F: Filesystem> Store<F> {
             return Err(ReceiveError::Unrelated);
         }
 
-        // Each store's operation documents, read once: every filter below
-        // asks what one of them holds, and none can call `?` inside a closure.
-        let held: BTreeSet<RevisionId> = self.operations()?.into_keys().collect();
+        // What each store holds in `operations/`, read once: every filter
+        // below asks what one of them holds, and none can call `?` inside a
+        // closure. Both grammars, because decision 0032 gave that directory
+        // two and a transfer is a question about the directory.
+        let held: BTreeSet<RevisionId> = self.bodies()?.into_keys().collect();
+        // Only the first grammar can forget: a `forgets` line is decision
+        // 0014's, and a resolution has no shape to preserve the shape of.
         let forgotten: BTreeSet<RevisionId> = self
             .operations()?
             .into_iter()
@@ -149,8 +158,8 @@ impl<F: Filesystem> Store<F> {
             .iter()
             .filter_map(|(id, _)| self.get(id).is_none().then_some(*id))
             .collect();
-        plan.operations = source
-            .operations()?
+        plan.documents = source
+            .bodies()?
             .into_keys()
             .filter(|id| !held.contains(id) && !plan.forgotten.contains(id))
             .collect();
@@ -219,13 +228,22 @@ impl<F: Filesystem> Store<F> {
             self.insert_payload_at(&bytes, &id.to_string())?;
             received.payloads += 1;
         }
-        for id in &plan.operations {
-            let document = source
-                .operation(id)?
-                .expect("an operation named by the plan remains in the open source")
-                .clone();
-            self.insert_operation_at(&document, &format!("{id}{OPERATION_SUFFIX}"))?;
-            received.operations += 1;
+        for id in &plan.documents {
+            // Written back in the grammar it was read in. A resolution
+            // rewritten as anything else would be a different digest, and the
+            // `edit` line naming it would stop finding it.
+            match source
+                .body(id)?
+                .expect("a document named by the plan remains in the open source")
+            {
+                Body::Operation(document) => {
+                    self.insert_operation_at(&document, &format!("{id}{OPERATION_SUFFIX}"))?;
+                }
+                Body::Resolution(document) => {
+                    self.insert_resolution_at(&document, &format!("{id}{OPERATION_SUFFIX}"))?;
+                }
+            }
+            received.documents += 1;
         }
         received.destroyed = self.comply_with_forgetting(&plan.destroys)?;
         for id in &plan.revisions {
