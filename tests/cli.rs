@@ -1711,22 +1711,22 @@ fn show_prints_the_resolution_a_merge_states() {
     );
 }
 
-/// Decision 0014's stand-in is written in the operation grammar, so a
-/// resolution cannot yet say that an item it minted is destroyed. What
-/// `forget` owes a person there is the truth about that, rather than a claim
-/// that the document has not arrived.
+/// Decision 0014 reaching decision 0032's second grammar.
+///
+/// Text a person types while resolving a merge exists only as `insert` items
+/// in the resolution, so before the resolution grammar could say an item was
+/// destroyed there was no way to redact it at all.
 #[test]
-fn forget_says_why_it_cannot_reach_into_a_resolution() {
+fn forget_reaches_the_lines_a_merge_minted() {
     let (directory, mine, theirs) = diverged(
-        "forget-resolution",
+        "forget-minted",
         "one\nMINE\nthree\n",
         "one\nTHEIRS\nthree\n",
     );
     out(recorded(&directory, &["merge", &mine, &theirs]));
 
-    // Resolved by keeping both runs in the order the walk proposed them —
-    // which side comes first is settled by digest — and typing one line under
-    // them. Only that line is minted by the resolution; the rest are `keep`s.
+    // Both runs kept in the order the walk proposed them, and one line typed
+    // under them — the only piece this resolution mints.
     let rendered = fs::read_to_string(directory.join("f.md")).expect("the merged file");
     let mut lines: Vec<&str> = rendered
         .lines()
@@ -1739,47 +1739,150 @@ fn forget_says_why_it_cannot_reach_into_a_resolution() {
         &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
     ));
 
-    let at = |wanted: &str| {
-        lines
-            .iter()
-            .position(|line| *line == wanted)
-            .map(|index| format!("{n}..{n}", n = index + 1))
-            .expect("a line of the resolved file")
-    };
-
-    let refused = stderr(
-        &directory,
-        &["forget", "head", "f.md", "--lines", &at("SECRET")],
-    );
-    assert!(
-        refused.contains("written while resolving a merge"),
-        "{refused}"
-    );
-    assert!(
-        !refused.contains("does not hold"),
-        "the store holds that document: {refused}"
-    );
-
-    // A line the merge only kept is forgotten where it was written, merge or
-    // no merge.
+    let at = lines.len();
     let forgotten = stdout(
         &directory,
-        &["forget", "head", "f.md", "--lines", &at("MINE")],
+        &["forget", "head", "f.md", "--lines", &format!("{at}..{at}")],
     );
     assert!(forgotten.contains("forgetting document"), "{forgotten}");
 
-    // The merge still reads: its `keep` of that document now meets the
-    // stand-in, which is what decision 0014 preserves the shape for.
     let read = stdout(&directory, &["cat", "head", "f.md"]);
-    assert!(!read.contains("MINE"), "the text was destroyed: {read}");
+    assert!(!read.contains("SECRET"), "the text was destroyed: {read}");
     assert!(
-        read.contains("SECRET"),
-        "the rest of the file survives: {read}"
+        read.contains("\\ forgotten"),
+        "its shape and place are kept: {read}"
     );
-    let checked = stdout(&directory, &["check"]);
+
+    // The stand-in is a resolution, because a stand-in has the shape of what
+    // it stands in for: `forgets`, no `result`, every `keep` intact.
+    let document = stdout(&directory, &["show", "head", "f.md"]);
+    assert!(document.contains("\nforgets "), "{document}");
+    assert!(!document.contains("\nresult "), "{document}");
+    assert!(document.contains("\ninsert\n\\ forgotten\n"), "{document}");
+
+    let checked = stdout(&directory, &["check", "--complete"]);
+    assert!(checked.contains("no errors"), "{checked}");
     assert!(
-        checked.contains("no errors, 1 note"),
-        "a destroyed digest is a note and never a fault: {checked}"
+        stdout(
+            &directory,
+            &["forget", "head", "f.md", "--lines", &format!("{at}..{at}")]
+        )
+        .contains("already forgotten"),
+        "forgetting twice is a no-op"
+    );
+}
+
+/// A resolution cannot reorder the items it keeps — the walk records which
+/// survive, never where they go — so a person who moves a run while resolving
+/// leaves the recorder no way to name it and it is minted again, under the
+/// resolution's own name. That copy is the same text with a different name.
+///
+/// Redacting the original alone destroyed the bytes, passed `check`, and left
+/// the text readable at the head, with `forget` reporting success.
+#[test]
+fn forget_reaches_the_copy_a_merge_made_of_a_moved_line() {
+    let (directory, mine, theirs) =
+        diverged("forget-moved", "one\nMINE\nthree\n", "one\nTHEIRS\nthree\n");
+    out(recorded(&directory, &["merge", &mine, &theirs]));
+
+    // The two runs in the opposite order to the one the walk proposed, which
+    // is what makes the recorder mint a copy of the one that moved.
+    let rendered = fs::read_to_string(directory.join("f.md")).expect("the merged file");
+    let mut lines: Vec<&str> = rendered
+        .lines()
+        .filter(|line| !line.starts_with("vvv historica: ") && !line.starts_with("^^^ historica: "))
+        .collect();
+    lines.swap(1, 2);
+    write(&directory, "f.md", &format!("{}\n", lines.join("\n")));
+    out(recorded(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+    let moved = lines[1].to_owned();
+    assert!(
+        stdout(&directory, &["show", "head", "f.md"]).contains(&format!("\n+{moved}\n")),
+        "the merge restated the run it could not name"
+    );
+
+    // Forget it where it was written, which is an ancestor of the merge and
+    // says nothing about the copy. Found by what the revision holds rather
+    // than by which head came back first.
+    let wrote = [&mine, &theirs]
+        .into_iter()
+        .find(|head| stdout(&directory, &["cat", head, "f.md"]).lines().nth(1) == Some(&moved))
+        .expect("the branch that wrote the run that moved");
+    let forgotten = stdout(&directory, &["forget", wrote, "f.md", "--lines", "2..2"]);
+    assert!(forgotten.contains("forgetting document"), "{forgotten}");
+
+    let read = stdout(&directory, &["cat", "head", "f.md"]);
+    assert!(
+        !read.contains(&moved),
+        "the copy the merge minted is still readable at the head: {read}"
+    );
+    // Only that run: the other branch's line is nobody's redaction.
+    assert!(
+        read.contains(lines[2]),
+        "the run that did not move is untouched: {read}"
+    );
+    let checked = stdout(&directory, &["check", "--complete"]);
+    assert!(checked.contains("no errors"), "{checked}");
+}
+
+/// A forgetting document is named by nothing — a revision's `edit` line still
+/// names the digest whose bytes were destroyed — so every command that keeps
+/// one alive, carries it, or complies with it finds it by asking each
+/// document what it forgets. Each of them has to ask both grammars.
+#[test]
+fn a_redacted_merge_travels_and_stays_redacted() {
+    let (there, mine, theirs) = diverged(
+        "redacted-merge-there",
+        "one\nMINE\nthree\n",
+        "one\nTHEIRS\nthree\n",
+    );
+    out(recorded(&there, &["merge", &mine, &theirs]));
+    let rendered = fs::read_to_string(there.join("f.md")).expect("the merged file");
+    let mut lines: Vec<&str> = rendered
+        .lines()
+        .filter(|line| !line.starts_with("vvv historica: ") && !line.starts_with("^^^ historica: "))
+        .collect();
+    lines.push("SECRET");
+    write(&there, "f.md", &format!("{}\n", lines.join("\n")));
+    out(recorded(
+        &there,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    ));
+    let at = lines.len();
+    out(recorded(
+        &there,
+        &["forget", "head", "f.md", "--lines", &format!("{at}..{at}")],
+    ));
+    let redacted = stdout(&there, &["cat", "head", "f.md"]);
+    assert!(!redacted.contains("SECRET"), "{redacted}");
+
+    // Received into a store that never held the original.
+    let here = repository("redacted-merge-here");
+    let source = there.to_string_lossy();
+    out(recorded(&here, &["receive", &source]));
+    assert_eq!(stdout(&here, &["cat", "head", "f.md"]), redacted);
+    assert!(
+        stdout(&here, &["check", "--complete"]).contains("no errors"),
+        "a received redaction leaves a sound store"
+    );
+
+    // And exported out of the redacted store, which has to carry a stand-in
+    // nothing names.
+    let copy = scratch("redacted-merge-copy").join("out");
+    out(recorded(&there, &["export", &copy.to_string_lossy()]));
+    assert_eq!(stdout(&copy, &["cat", "head", "f.md"]), redacted);
+    assert!(
+        stdout(&copy, &["check", "--complete"]).contains("no errors"),
+        "an exported redaction leaves a sound store"
+    );
+    assert!(
+        !fs::read_to_string(copy.join("f.md"))
+            .expect("the folder")
+            .contains("SECRET"),
+        "the folder the export wrote holds the redacted file"
     );
 }
 

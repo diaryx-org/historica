@@ -234,17 +234,18 @@ command exists to print what is stored, byte for byte, and a merge is where a
 person most wants that. It asked `Store::operation` and reported the resolution
 as undelivered.
 
-**`forget` cannot reach a resolution, and now says so.** Decision
+**`forget` could not reach a resolution.** Decision
 [0014](0014-forgetting.md)'s stand-in is written in the operation grammar: a
 `forgets` line, and a marker standing where each destroyed item's text stood.
-A resolution has neither. Lines a merge only *kept* are still forgotten where
-they were written — the `keep` meets the stand-in, and the shape 0014 preserves
-is exactly what makes that work — but text a person typed while resolving
-exists only as `insert` items in the resolution, and there is no way yet to say
-that one of those is destroyed. That is a real hole in 0014's promise rather
-than a missing branch, and closing it is a format change: see the deferral
-added to 0014. What is fixed here is the refusal, which claimed the document
-had not arrived.
+A resolution had neither. Lines a merge only *kept* were forgotten where they
+were written all along — the `keep` meets the stand-in, and the shape 0014
+preserves is what makes that work — but text a person typed while resolving
+exists only as `insert` items in the resolution. That was a real hole in
+0014's promise rather than a missing branch, and it turned out to be wider
+than it looked, because a resolution cannot reorder what it keeps and so
+restates any run the person moves. Decision
+[0050](0050-forgetting-a-merges-own-text.md) closes it, additively and under
+the same preamble.
 
 The shared cause is that a caller could ask half the question without saying
 so. `Store::body` and `Store::bodies` are the whole question — one digest and

@@ -545,6 +545,23 @@ pub enum Body {
     Resolution(ResolutionDocument),
 }
 
+impl Body {
+    /// What this document stands in for, whichever grammar it is written in.
+    ///
+    /// Decision 0014's `forgets` line, asked without choosing a grammar
+    /// first. A forgetting document is named by nothing — a revision's `edit`
+    /// line still names the digest whose bytes were destroyed — so every
+    /// caller that has to keep one alive, carry it, or comply with it finds
+    /// it by asking each document what it forgets, and each of them has to
+    /// ask both grammars.
+    pub fn forgets(&self) -> Option<RevisionId> {
+        match self {
+            Body::Operation(document) => document.forgets,
+            Body::Resolution(document) => document.forgets,
+        }
+    }
+}
+
 /// The store's short constructors, which are the long ones on [`Disk`].
 ///
 /// [`Disk`]: crate::fs::Disk
@@ -946,6 +963,12 @@ impl<F: Filesystem> Store<F> {
             let mut read = self.read.borrow_mut();
             if format::is_resolution(&bytes) {
                 if let Ok(document) = ResolutionDocument::parse(&bytes) {
+                    if let Some(target) = document.forgets {
+                        let standing = read.forgetting.entry(target).or_default();
+                        if !standing.contains(&id) {
+                            standing.push(id);
+                        }
+                    }
                     read.resolutions.insert(id, document);
                     read.absent.remove(&id);
                 }
@@ -1106,6 +1129,114 @@ impl<F: Filesystem> Store<F> {
             return Ok(Some(Body::Resolution(document.clone())));
         }
         Ok(read.operations.get(named).cloned().map(Body::Operation))
+    }
+
+    /// Every held forgetting resolution standing in for `target`.
+    ///
+    /// [`Store::forgetting`]'s question, asked of the second grammar. The two
+    /// are kept apart rather than merged because a stand-in must have the
+    /// shape of what it stands in for, and the grammars have no shape in
+    /// common: an operation document that claimed to forget a resolution
+    /// would be set aside by `stand_in` and reported by `check`.
+    pub fn forgetting_resolution(
+        &self,
+        target: &RevisionId,
+    ) -> Result<Vec<ResolutionDocument>, StoreError> {
+        let mut standing = self.standing(target)?;
+        // *Nothing stands in for this* is the answer no cheap catalogue may
+        // give, for the reason [`Store::forgetting`] states.
+        if standing.is_empty() && !self.scanned.get() {
+            self.upgrade()?;
+            standing = self.standing(target)?;
+        }
+        let mut documents = Vec::new();
+        for id in standing {
+            if let Some(document) = self.resolution(&id)?
+                && document.forgets == Some(*target)
+            {
+                documents.push(document);
+            }
+        }
+        Ok(documents)
+    }
+
+    /// The content document a reader consumes for one digest, in whichever
+    /// grammar answers.
+    ///
+    /// [`Store::body`] with decision 0014 folded in: the original where the
+    /// store holds it, redactions applied, and where it does not, whatever
+    /// stands in for it. This is what every reader of an `edit` digest wants,
+    /// and asking it *here* rather than one grammar at a time is what keeps
+    /// decision 0049's bargain — holding the bytes is this store saying it has
+    /// complied with nothing about them, so a hit costs no walk, and a miss
+    /// costs exactly one for both grammars rather than one apiece.
+    pub fn effective_body(&self, named: &RevisionId) -> Result<Option<Body>, StoreError> {
+        match self.body(named)? {
+            Some(Body::Operation(held)) => {
+                let standing = self.stand_ins_beside(named)?;
+                return Ok(crate::format::stand_in(
+                    Some(&held),
+                    &standing.iter().collect::<Vec<_>>(),
+                )
+                .map(Body::Operation));
+            }
+            Some(Body::Resolution(held)) => {
+                let standing = self.resolutions_beside(named)?;
+                return Ok(crate::format::stand_in_resolution(
+                    Some(&held),
+                    &standing.iter().collect::<Vec<_>>(),
+                )
+                .map(Body::Resolution));
+            }
+            None => {}
+        }
+        // Nothing held, which is the absence that costs the pass. `forgetting`
+        // pays for it, and the resolution question below finds the catalogue
+        // already walked.
+        let standing = self.forgetting(named)?;
+        if !standing.is_empty() {
+            return Ok(
+                crate::format::stand_in(None, &standing.iter().collect::<Vec<_>>())
+                    .map(Body::Operation),
+            );
+        }
+        let standing = self.forgetting_resolution(named)?;
+        Ok(
+            crate::format::stand_in_resolution(None, &standing.iter().collect::<Vec<_>>())
+                .map(Body::Resolution),
+        )
+    }
+
+    /// The forgetting resolutions standing in for bytes this store still
+    /// holds. [`Store::stand_ins_beside`]'s counterpart, for 0049's reason.
+    fn resolutions_beside(
+        &self,
+        named: &RevisionId,
+    ) -> Result<Vec<ResolutionDocument>, StoreError> {
+        let mut beside = Vec::new();
+        for id in self.standing(named)? {
+            if let Some(document) = self.resolution(&id)?
+                && document.forgets == Some(*named)
+            {
+                beside.push(document);
+            }
+        }
+        Ok(beside)
+    }
+
+    /// The resolution a reader consumes for one digest, or `None` where the
+    /// digest names the other grammar.
+    ///
+    /// [`Store::effective_operation`]'s counterpart, and a filter over
+    /// [`Store::effective_body`] so a miss is paid for once.
+    pub fn effective_resolution(
+        &self,
+        named: &RevisionId,
+    ) -> Result<Option<ResolutionDocument>, StoreError> {
+        Ok(match self.effective_body(named)? {
+            Some(Body::Resolution(document)) => Some(document),
+            _ => None,
+        })
     }
 
     /// One resolution document, if the digest names one.
@@ -1458,7 +1589,7 @@ impl<F: Filesystem> Store<F> {
     /// forgotten item is a `keep` of the marker standing where it was.
     pub fn minted(&self, named: &RevisionId) -> Result<Option<Vec<Item>>, MaterialiseError> {
         if let Some(resolution) = self
-            .resolution(named)
+            .effective_resolution(named)
             .map_err(MaterialiseError::unreadable)?
         {
             return Ok(Some(
@@ -1536,7 +1667,7 @@ impl<F: Filesystem> Store<F> {
             // which is the floor 0032 puts under materialising a long history.
             if let Some(named) = document.edited.get(file)
                 && let Some(resolution) = self
-                    .resolution(named)
+                    .effective_resolution(named)
                     .map_err(MaterialiseError::unreadable)?
             {
                 let assembled = self.assemble(&resolution, id, *file)?;
@@ -1730,7 +1861,7 @@ impl<F: Filesystem> Store<F> {
         self.read_body(named)?;
         let read = self.read.borrow();
         if let Some(resolution) = read.resolutions.get(named) {
-            return Ok(Some(resolution.result));
+            return Ok(resolution.result);
         }
         Ok(read.operations.get(named).and_then(|held| held.result))
     }
@@ -1785,21 +1916,23 @@ impl<F: Filesystem> Store<F> {
             if let Some(named) = document.edited.get(file) {
                 // Decision 0032: an `edit` line names either grammar, and
                 // which one it named is a fact about the bytes in the store.
-                if let Some(resolution) = self
-                    .resolution(named)
+                match self
+                    .effective_body(named)
                     .map_err(MaterialiseError::unreadable)?
                 {
-                    held.insert(revision, Held::Resolution(*named, resolution));
-                    continue;
+                    Some(Body::Resolution(resolution)) => {
+                        held.insert(revision, Held::Resolution(*named, resolution));
+                    }
+                    Some(Body::Operation(effective)) => {
+                        held.insert(revision, Held::Operations(*named, effective));
+                    }
+                    None => {
+                        return Err(MaterialiseError::MissingOperations {
+                            document: *named,
+                            named_by: revision,
+                        });
+                    }
                 }
-                let effective = self
-                    .effective_operation(named)
-                    .map_err(MaterialiseError::unreadable)?
-                    .ok_or(MaterialiseError::MissingOperations {
-                        document: *named,
-                        named_by: revision,
-                    })?;
-                held.insert(revision, Held::Operations(*named, effective));
             } else if let Some(payload) = document.text.get(file)
                 && let Some(creation) = self.creation_for(payload, revision)?
             {
@@ -2042,9 +2175,10 @@ impl<F: Filesystem> Store<F> {
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         write_once(&self.files, &path, &bytes)?;
-        // A resolution forgets nothing: 0014 destroys the payload of an
-        // operation document, and a resolution holds no items to destroy.
-        let filed = self.located(&path, None);
+        // A resolution can forget too: what it holds of its own is the items
+        // its `insert` pieces mint, and 0014 destroys those exactly as it
+        // destroys an operation document's.
+        let filed = self.located(&path, document.forgets);
         self.catalogue_mut()?.insert(id, filed);
         self.read
             .borrow_mut()

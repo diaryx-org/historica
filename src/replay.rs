@@ -324,13 +324,15 @@ pub fn assemble<'a>(
     // Decision 0031, which 0032 is what landed first for: a hand-assembled
     // resolution is verified by `shasum` like everything else. Verification
     // stops where forgetting begins, for 0014's reason.
-    if !assembled.items.iter().any(|item| item.forgotten) {
+    // A forgetting resolution states no result at all, for the same reason
+    // the check below stops at a forgotten item: the file it assembles is the
+    // destroyed state, and a digest would confirm a guess at it.
+    if let Some(stated) = document.result
+        && !assembled.items.iter().any(|item| item.forgotten)
+    {
         let found = digest(assembled.text().as_bytes());
-        if found != document.result {
-            return Err(ReplayError::ResultDisagrees {
-                stated: document.result,
-                found,
-            });
+        if found != stated {
+            return Err(ReplayError::ResultDisagrees { stated, found });
         }
     }
     Ok(assembled)

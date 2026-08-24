@@ -333,22 +333,11 @@ interface rather than discovered.
 file has no items to preserve, so forgetting one is nearer to prov's case:
 the whole payload goes and only its digest and length remain.
 
-**Text minted in a resolution.** Decision
-[0032](0032-a-merge-states-its-resolution.md) arrived after this one and gave
-`operations/` a second grammar, in which a merge states a contested file whole:
-runs kept from documents it names, and `insert` blocks holding lines the person
-typed while resolving. The stand-in above is written in the first grammar — a
-`forgets` line, and a marker standing where an item's text stood — and the
-resolution grammar has neither, so a line that exists only inside an `insert`
-cannot be destroyed while its shape is kept. Lines a merge merely kept are
-unaffected: they are forgotten in the document that wrote them, and the merge's
-`keep` meets the stand-in, which is the whole point of preserving shape.
-`forget` refuses the rest by name rather than pretending the resolution has not
-arrived. Closing it means the resolution grammar learning to say both things —
-which document this one forgets, and which of its minted items are destroyed —
-and a new spelling under [0047](0047-one-spelling-for-the-format.md), since a
-reader that has not learnt the marker would refuse the file. It is a format
-decision and has not been taken.
+**Text minted in a resolution** — answered by decision
+[0050](0050-forgetting-a-merges-own-text.md), which gave the resolution
+grammar a `forgets` header and a marker of its own. Recorded here because the
+gap was real: 0032 arrived after this decision, and the text a merge states
+that exists nowhere else was for a while the one text this could not reach.
 
 **Enumerable replica sets**, which is tier 2 above and the thing that would let
 `prune` say what people already assume it says.

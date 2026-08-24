@@ -66,9 +66,9 @@ impl<F: Filesystem> Store<F> {
         // line still names the destroyed digest, and the forgetting document
         // is what answers for it (decision 0014). It stays while what it
         // stands in for is named.
-        for (id, document) in self.operations()? {
-            if let Some(forgets) = &document.forgets
-                && referenced.contains(forgets)
+        for (id, body) in self.bodies()? {
+            if let Some(forgets) = body.forgets()
+                && referenced.contains(&forgets)
             {
                 referenced.insert(id);
             }

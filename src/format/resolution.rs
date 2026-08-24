@@ -30,7 +30,7 @@ use std::fmt;
 
 use crate::core::RevisionId;
 
-use super::operations::{NO_NEWLINE, carriage_return, number};
+use super::operations::{FORGOTTEN, NO_NEWLINE, carriage_return, number};
 use super::{
     Item, Lines, PREAMBLE, ParseError, ParseErrorKind, check_byte_order_mark, check_preamble,
     digest,
@@ -60,10 +60,22 @@ pub enum Piece {
 /// One resolution document: a merge's file, stated whole by reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolutionDocument {
+    /// The resolution this one stands in for, whose bytes were destroyed.
+    ///
+    /// Decision 0014, reaching the second grammar. A `keep` carries a
+    /// reference and no text, so there is nothing in it to destroy; what a
+    /// resolution holds of its own is the items its `insert` pieces mint, and
+    /// those are the only text a merge ever states that exists nowhere else.
+    /// A forgetting resolution states the same pieces, keeping every `keep`
+    /// exactly and every `insert`'s length, with the items it forgets
+    /// replaced by a marker.
+    pub forgets: Option<RevisionId>,
     /// The digest of the assembled file, which decision 0031 makes every
-    /// content document state and this document could not omit: it is the
-    /// check a hand-assembled resolution is verified by.
-    pub result: RevisionId,
+    /// content document state: it is the check a hand-assembled resolution is
+    /// verified by. Present in every resolution this tool writes, and
+    /// forbidden in a forgetting one, whose assembled file is the destroyed
+    /// state and whose digest would confirm a guess at it.
+    pub result: Option<RevisionId>,
     /// The file, in order. Never empty.
     pub pieces: Vec<Piece>,
 }
@@ -87,7 +99,12 @@ impl ResolutionDocument {
         let mut out = String::new();
         out.push_str(PREAMBLE);
         out.push('\n');
-        out.push_str(&format!("result {}\n", self.result));
+        if let Some(forgets) = &self.forgets {
+            out.push_str(&format!("forgets {forgets}\n"));
+        }
+        if let Some(result) = &self.result {
+            out.push_str(&format!("result {result}\n"));
+        }
         out.push('\n');
         for piece in &self.pieces {
             match piece {
@@ -101,8 +118,14 @@ impl ResolutionDocument {
                 Piece::Insert { items } => {
                     out.push_str("insert\n");
                     for item in items {
-                        out.push('+');
-                        out.push_str(&item.text);
+                        if item.forgotten {
+                            // The marker stands where the `+` line stood, one
+                            // per destroyed item: shape without payload.
+                            out.push_str(FORGOTTEN);
+                        } else {
+                            out.push('+');
+                            out.push_str(&item.text);
+                        }
                         out.push('\n');
                         if !item.terminated {
                             out.push_str(NO_NEWLINE);
@@ -169,7 +192,11 @@ impl Parser<'_> {
         carriage_return(line, 1)?;
         check_preamble(line, terminated)?;
 
-        let result = self.result()?;
+        // The same two headers an operation document may carry, read in the
+        // same order: which document this one stands in for (decision 0014),
+        // and the digest of the file it assembles (decision 0031).
+        let forgets = self.forgets()?;
+        let result = self.result(forgets.is_some())?;
 
         match self.lines.next() {
             Some(("", _)) => {}
@@ -189,31 +216,79 @@ impl Parser<'_> {
             ));
         }
 
-        Ok(ResolutionDocument { result, pieces })
+        Ok(ResolutionDocument {
+            forgets,
+            result,
+            pieces,
+        })
     }
 
-    /// The mandatory `result` header.
-    fn result(&mut self) -> Result<RevisionId, ParseError> {
+    /// The `forgets` header, if the next line is one.
+    fn forgets(&mut self) -> Result<Option<RevisionId>, ParseError> {
         let mark = self.lines.mark();
         let Some((line, terminated)) = self.lines.next() else {
-            return Err(ParseError::new(
-                self.lines.line,
-                ParseErrorKind::MissingHeader { key: "result" },
-            ));
+            return Ok(None);
         };
-        let Some(value) = line.strip_prefix("result ") else {
+        let Some(value) = line.strip_prefix("forgets ") else {
             self.lines.reset(mark);
-            return Err(ParseError::new(
-                self.lines.line + 1,
-                ParseErrorKind::MissingHeader { key: "result" },
-            ));
+            return Ok(None);
         };
         let at = self.lines.line;
         if !terminated {
             return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
         }
         carriage_return(line, at)?;
-        value.parse().map_err(|_| {
+        let forgets = value.parse().map_err(|_| {
+            ParseError::new(
+                at,
+                ParseErrorKind::MalformedDigest {
+                    key: "forgets",
+                    found: value.to_owned(),
+                },
+            )
+        })?;
+        Ok(Some(forgets))
+    }
+
+    /// The `result` header, mandatory unless this resolution forgets one.
+    ///
+    /// Decision 0031's rule, said of the second grammar: a resolution states
+    /// the digest of the file it assembles, and a forgetting one must not,
+    /// because that file is the destroyed state and a digest would confirm a
+    /// guess at it.
+    fn result(&mut self, forgetting: bool) -> Result<Option<RevisionId>, ParseError> {
+        let mark = self.lines.mark();
+        let next = self.lines.next();
+        let Some((line, terminated)) = next else {
+            return if forgetting {
+                Ok(None)
+            } else {
+                Err(ParseError::new(
+                    self.lines.line,
+                    ParseErrorKind::MissingHeader { key: "result" },
+                ))
+            };
+        };
+        let Some(value) = line.strip_prefix("result ") else {
+            self.lines.reset(mark);
+            return if forgetting {
+                Ok(None)
+            } else {
+                Err(ParseError::new(
+                    self.lines.line + 1,
+                    ParseErrorKind::MissingHeader { key: "result" },
+                ))
+            };
+        };
+        let at = self.lines.line;
+        if !terminated {
+            return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
+        }
+        carriage_return(line, at)?;
+        if forgetting {
+            return Err(ParseError::new(at, ParseErrorKind::ResultOfForgetting));
+        }
+        let result = value.parse().map_err(|_| {
             ParseError::new(
                 at,
                 ParseErrorKind::MalformedDigest {
@@ -221,7 +296,8 @@ impl Parser<'_> {
                     found: value.to_owned(),
                 },
             )
-        })
+        })?;
+        Ok(Some(result))
     }
 
     fn pieces(&mut self) -> Result<Vec<Piece>, ParseError> {
@@ -316,6 +392,19 @@ impl Parser<'_> {
                 last.terminated = false;
                 continue;
             }
+            // Decision 0014: the marker stands where the `+` line stood, one
+            // per destroyed item, so here it is one item. A `\ no newline`
+            // after it still applies to it, because a terminator is shape.
+            if line == FORGOTTEN {
+                if !terminated {
+                    return Err(ParseError::new(
+                        self.lines.line,
+                        ParseErrorKind::UnterminatedLine,
+                    ));
+                }
+                items.push(Item::forgotten());
+                continue;
+            }
             let Some(text) = line.strip_prefix('+') else {
                 self.lines.reset(mark);
                 break;
@@ -333,6 +422,71 @@ impl Parser<'_> {
         }
         Ok(Piece::Insert { items })
     }
+}
+
+/// The resolution a reader consumes for one digest, given what the store holds.
+///
+/// Decision 0014's union rule, said of the second grammar and word for word
+/// the same: **an item is forgotten if any held forgetting resolution forgets
+/// it.** Monotone, order-independent, idempotent, and it fails safe, so a
+/// stale replica syncing back a less thorough redaction cannot un-forget
+/// anything.
+///
+/// `base` is the original where the store still holds it; with the original
+/// destroyed, the first forgetting resolution is the shape and the rest union
+/// into it. One whose shape disagrees is set aside rather than merged, and
+/// `check` is where that is reported.
+pub fn stand_in(
+    base: Option<&ResolutionDocument>,
+    forgetting: &[&ResolutionDocument],
+) -> Option<ResolutionDocument> {
+    let mut effective = match base {
+        Some(document) => document.clone(),
+        None => (*forgetting.first()?).clone(),
+    };
+    for document in forgetting {
+        if !same_shape(&effective, document) {
+            continue;
+        }
+        for (stated, held) in document.pieces.iter().zip(&mut effective.pieces) {
+            let (Piece::Insert { items: stated }, Piece::Insert { items: held }) = (stated, held)
+            else {
+                continue;
+            };
+            for (item, kept) in stated.iter().zip(held) {
+                if item.forgotten && !kept.forgotten {
+                    *kept = kept.forgetting();
+                }
+            }
+        }
+    }
+    Some(effective)
+}
+
+/// Whether two resolutions state the same pieces, minted payload aside.
+///
+/// Shape here is more than an operation document's, and more easily checked:
+/// a `keep` is a reference and no text at all, so it must match exactly, and
+/// an `insert` must mint the same number of items with the same terminators.
+/// The items' text is what a redaction destroys and the only thing it may
+/// differ in.
+fn same_shape(left: &ResolutionDocument, right: &ResolutionDocument) -> bool {
+    left.pieces.len() == right.pieces.len()
+        && left
+            .pieces
+            .iter()
+            .zip(&right.pieces)
+            .all(|(mine, theirs)| match (mine, theirs) {
+                (Piece::Keep { .. }, Piece::Keep { .. }) => mine == theirs,
+                (Piece::Insert { items: mine }, Piece::Insert { items: theirs }) => {
+                    mine.len() == theirs.len()
+                        && mine
+                            .iter()
+                            .zip(theirs)
+                            .all(|(a, b)| a.terminated == b.terminated)
+                }
+                _ => false,
+            })
 }
 
 /// Refuse a piece that should have been part of the one before it.
@@ -384,6 +538,84 @@ mod tests {
         assert_eq!(document.pieces.len(), 3);
         assert_eq!(document.minted(), 1);
         assert!(is_resolution(&bytes));
+    }
+
+    /// Decision 0014 reaching this grammar: a `keep` carries a reference and
+    /// no text, so what a resolution has of its own to destroy is exactly the
+    /// items its `insert` pieces mint.
+    #[test]
+    fn a_forgetting_resolution_round_trips() {
+        let bytes = format!(
+            "historica\nforgets {DIGEST}\n\nkeep {DIGEST} 0 2\ninsert\n\\ forgotten\n+kept\n"
+        )
+        .into_bytes();
+        let document = ResolutionDocument::parse(&bytes).expect("a forgetting resolution");
+        assert_eq!(document.write(), bytes);
+        assert_eq!(document.forgets, Some(DIGEST.parse().unwrap()));
+        assert_eq!(document.result, None);
+        assert!(is_resolution(&bytes));
+        let Piece::Insert { items } = &document.pieces[1] else {
+            panic!("an insert");
+        };
+        assert!(items[0].forgotten && items[0].text.is_empty());
+        assert!(!items[1].forgotten);
+        // The marker is one item, so the names a `keep` quotes do not move.
+        assert_eq!(document.minted(), 2);
+    }
+
+    /// Decision 0031's rule, and 0014's reason for it: the file a forgetting
+    /// resolution assembles is the destroyed state, and a digest of it would
+    /// confirm a guess at what was destroyed.
+    #[test]
+    fn a_forgetting_resolution_may_not_state_a_result() {
+        let bytes = format!("historica\nforgets {DIGEST}\nresult {RESULT}\n\nkeep {DIGEST} 0 1\n")
+            .into_bytes();
+        assert!(matches!(
+            ResolutionDocument::parse(&bytes)
+                .expect_err("a result beside a forgets")
+                .kind,
+            ParseErrorKind::ResultOfForgetting
+        ));
+        // And an ordinary resolution still must state one.
+        let bare = b"historica\n\nkeep 0 1\n";
+        assert!(ResolutionDocument::parse(bare).is_err());
+    }
+
+    /// The union rule, word for word decision 0014's: an item is forgotten if
+    /// any held forgetting resolution forgets it, so two replicas that redact
+    /// differently converge whichever order they meet in.
+    #[test]
+    fn redactions_union_whichever_order_they_arrive_in() {
+        let bytes =
+            format!("historica\nresult {RESULT}\n\ninsert\n+one\n+two\n+three\n").into_bytes();
+        let held = ResolutionDocument::parse(&bytes).expect("a resolution");
+        let forgetting = |which: &[usize]| {
+            let mut document = held.clone();
+            document.forgets = Some(held.id());
+            document.result = None;
+            let Piece::Insert { items } = &mut document.pieces[0] else {
+                panic!("an insert");
+            };
+            for at in which {
+                items[*at] = items[*at].forgetting();
+            }
+            document
+        };
+        let (first, second) = (forgetting(&[1]), forgetting(&[2]));
+        let one_way = stand_in(Some(&held), &[&first, &second]).expect("a stand-in");
+        let other_way = stand_in(Some(&held), &[&second, &first]).expect("a stand-in");
+        assert_eq!(one_way, other_way);
+        let Piece::Insert { items } = &one_way.pieces[0] else {
+            panic!("an insert");
+        };
+        assert!(!items[0].forgotten && items[1].forgotten && items[2].forgotten);
+        // With the original destroyed, the first stand-in is the shape and
+        // the rest union into it — so the pieces agree, and the headers are
+        // the ones a stand-in carries rather than the ones a base did.
+        let destroyed = stand_in(None, &[&first, &second]).expect("a stand-in");
+        assert_eq!(destroyed.pieces, one_way.pieces);
+        assert_eq!(destroyed.forgets, Some(held.id()));
+        assert_eq!(destroyed.result, None);
     }
 
     #[test]

@@ -855,7 +855,10 @@ fn check_resolutions<F: Filesystem + ?Sized>(
             let resolves = document
                 .edited
                 .get(file)
-                .is_some_and(|named| matches!(store.resolution(named), Ok(Some(_))));
+                // Decision 0014: a resolution whose bytes were destroyed is
+                // still the resolution this merge states, and the stand-in is
+                // what a reader gets for it.
+                .is_some_and(|named| matches!(store.effective_resolution(named), Ok(Some(_))));
             match (differ, resolves) {
                 (false, true) => report.push(Finding::ResolvedWithoutDisagreement {
                     revision: *revision,
@@ -1026,8 +1029,25 @@ fn check_replay<F: Filesystem + ?Sized>(
             forgetting.entry(*target).or_default().push(document);
         }
     }
-    for target in forgetting.keys() {
-        if operations.contains_key(target) || payloads.contains_key(target) {
+    // The same, in the second grammar. A resolution's `insert` items are the
+    // one thing a merge states that exists nowhere else, so decision 0014
+    // reaches them too, and a stand-in for one is written as a resolution
+    // because a stand-in has to have the shape of what it stands in for.
+    let mut forgetting_resolutions: BTreeMap<RevisionId, Vec<&ResolutionDocument>> =
+        BTreeMap::new();
+    for document in resolutions.values() {
+        if let Some(target) = &document.forgets {
+            forgetting_resolutions
+                .entry(*target)
+                .or_default()
+                .push(document);
+        }
+    }
+    for target in forgetting.keys().chain(forgetting_resolutions.keys()) {
+        if operations.contains_key(target)
+            || resolutions.contains_key(target)
+            || payloads.contains_key(target)
+        {
             report.push(Finding::Resurrected { document: *target });
         }
     }
@@ -1041,9 +1061,31 @@ fn check_replay<F: Filesystem + ?Sized>(
     for (id, document) in documents {
         for (file, named) in &document.edited {
             // Decision 0032: an `edit` line names either grammar, and a
-            // resolution states its file whole rather than as a delta.
-            if let Some(resolution) = resolutions.get(named) {
-                held.insert((*id, *file), Held::Resolution(*named, resolution.clone()));
+            // resolution states its file whole rather than as a delta. Its
+            // redactions fold in exactly as an operation document's do.
+            let standing_resolutions = forgetting_resolutions
+                .get(named)
+                .cloned()
+                .unwrap_or_default();
+            if resolutions.contains_key(named) || !standing_resolutions.is_empty() {
+                match crate::format::stand_in_resolution(
+                    resolutions.get(named),
+                    &standing_resolutions,
+                ) {
+                    Some(effective) => {
+                        if !resolutions.contains_key(named) {
+                            report.push(Finding::Forgotten {
+                                document: *named,
+                                named_by: *id,
+                            });
+                        }
+                        held.insert((*id, *file), Held::Resolution(*named, effective));
+                    }
+                    None => report.push(Finding::MissingOperations {
+                        document: *named,
+                        named_by: *id,
+                    }),
+                }
                 continue;
             }
             let standing = forgetting.get(named).cloned().unwrap_or_default();
@@ -1237,12 +1279,21 @@ fn check_replay<F: Filesystem + ?Sized>(
         report.push(Finding::StillQuoted { document, forgets });
     }
 
+    // Which digests something stands in for, in either grammar: what
+    // completeness asks is whether a name can be answered at all, and a
+    // forgotten document answers it (0014 keeps the shape).
+    let standing: BTreeSet<RevisionId> = forgetting
+        .keys()
+        .chain(forgetting_resolutions.keys())
+        .copied()
+        .collect();
     check_completeness(
         documents,
         operations,
         resolutions,
         payloads,
-        &forgetting,
+        &standing,
+        &forgetting_resolutions,
         report,
     );
 }
@@ -1265,7 +1316,8 @@ fn check_completeness(
     operations: &BTreeMap<RevisionId, OperationDocument>,
     resolutions: &BTreeMap<RevisionId, ResolutionDocument>,
     payloads: &BTreeMap<RevisionId, PathBuf>,
-    forgetting: &BTreeMap<RevisionId, Vec<&OperationDocument>>,
+    standing: &BTreeSet<RevisionId>,
+    forgetting_resolutions: &BTreeMap<RevisionId, Vec<&ResolutionDocument>>,
     report: &mut Report,
 ) {
     // What one revision names and this store does not hold. A document that
@@ -1277,7 +1329,7 @@ fn check_completeness(
             operations.contains_key(named)
                 || resolutions.contains_key(named)
                 || payloads.contains_key(named)
-                || forgetting.contains_key(named)
+                || standing.contains(named)
         };
         for named in document.edited.values() {
             if !held(named) {
@@ -1287,7 +1339,10 @@ fn check_completeness(
             // A resolution is not self-contained: it keeps runs of documents
             // it names, and a `keep` of something absent is a hole in the
             // file exactly as a missing operation document is.
-            if let Some(resolution) = resolutions.get(named) {
+            let stood_in_for = forgetting_resolutions
+                .get(named)
+                .and_then(|documents| documents.first().copied());
+            if let Some(resolution) = resolutions.get(named).or(stood_in_for) {
                 for piece in &resolution.pieces {
                     if let crate::format::Piece::Keep { document, .. } = piece
                         && !held(document)

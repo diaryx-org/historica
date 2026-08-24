@@ -57,7 +57,9 @@ use crate::naming;
 use crate::update::{self, UpdateError};
 use crate::working::Working;
 
-use super::{MaterialiseError, OPERATION_SUFFIX, REVISION_SUFFIX, STORE_DIR, Store, StoreError};
+use super::{
+    Body, MaterialiseError, OPERATION_SUFFIX, REVISION_SUFFIX, STORE_DIR, Store, StoreError,
+};
 
 /// What one export would write, worked out before anything is written.
 ///
@@ -183,10 +185,8 @@ impl<F: Filesystem> Store<F> {
         // Decision 0014 travels, always: a forgetting document is named by
         // nothing, so it is found by asking what each one forgets.
         let mut forgetting: Vec<RevisionId> = Vec::new();
-        for (id, document) in self.operations()? {
-            if document
-                .forgets
-                .is_some_and(|target| named.contains(&target))
+        for (id, body) in self.bodies()? {
+            if body.forgets().is_some_and(|target| named.contains(&target))
                 && !documents.contains(&id)
             {
                 forgetting.push(id);
@@ -274,21 +274,21 @@ impl<F: Filesystem> Store<F> {
                 .expect("a payload the plan named is still held");
             copy.insert_payload_at(&bytes, &name_of(id, false))?;
         }
-        for id in &plan.documents {
-            if let Some(resolution) = self.resolution(id)? {
-                copy.insert_resolution_at(&resolution, &name_of(id, true))?;
-                continue;
+        // Written back in the grammar it was read in, both here and for the
+        // stand-ins below: a document rewritten as the other grammar is a
+        // different digest, and the line naming it would stop finding it.
+        for id in plan.documents.iter().chain(&plan.forgetting) {
+            match self
+                .body(id)?
+                .expect("a document the plan named is still held")
+            {
+                Body::Resolution(document) => {
+                    copy.insert_resolution_at(&document, &name_of(id, true))?;
+                }
+                Body::Operation(document) => {
+                    copy.insert_operation_at(&document, &name_of(id, true))?;
+                }
             }
-            let document = self
-                .operation(id)?
-                .expect("a document the plan named is still held");
-            copy.insert_operation_at(&document, &name_of(id, true))?;
-        }
-        for id in &plan.forgetting {
-            let document = self
-                .operation(id)?
-                .expect("a forgetting document the plan named is still held");
-            copy.insert_operation_at(&document, &name_of(id, true))?;
         }
         for (id, document) in &held {
             let stem = stems.get(id).expect("every revision that travels is named");

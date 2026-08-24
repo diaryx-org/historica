@@ -207,9 +207,13 @@ pub fn resolve(
         return None;
     }
     Some(ResolutionDocument {
+        // A resolution the recorder writes states what it assembled, never
+        // that it stands in for something: decision 0014's `forgets` is
+        // written by `forget` and by nothing else.
+        forgets: None,
         // Decision 0031, which 0032 is what landed first for: the digest a
         // hand-assembled resolution is checked against.
-        result: digest(after.text().as_bytes()),
+        result: Some(digest(after.text().as_bytes())),
         pieces,
     })
 }

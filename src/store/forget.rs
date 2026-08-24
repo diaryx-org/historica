@@ -16,14 +16,14 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::core::{FileId, RevisionId};
-use crate::format::OperationDocument;
+use crate::format::{OperationDocument, Piece};
 use crate::fs::Filesystem;
 use crate::merge::{self, MergeError, Quoted};
 use crate::tree::Kind;
 
 use super::{
-    MaterialiseError, OPERATION_SUFFIXES, OPERATIONS_DIR, Store, StoreError, files_claiming,
-    payload_files, prune::remove_empty_directories,
+    Body, MaterialiseError, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, Store,
+    StoreError, files_claiming, payload_files, prune::remove_empty_directories,
 };
 
 /// What a person asks to forget: a span of one file, at one revision.
@@ -51,8 +51,9 @@ pub struct Forgotten {
     /// The digests whose bytes are destroyed.
     pub targets: Vec<RevisionId>,
     /// The forgetting documents written, one per destroyed digest that did
-    /// not already have an equally thorough stand-in.
-    pub writes: Vec<OperationDocument>,
+    /// not already have an equally thorough stand-in, each in the grammar of
+    /// the document it stands in for.
+    pub writes: Vec<Body>,
     /// Every file destroyed, relative to the store root.
     pub destroys: Vec<PathBuf>,
     /// How many of the span's items were already forgotten.
@@ -102,7 +103,7 @@ impl<F: Filesystem> Store<F> {
                 lines: visible.len(),
             });
         }
-        let span: BTreeSet<(RevisionId, usize, usize)> = visible
+        let mut span: BTreeSet<(RevisionId, usize, usize)> = visible
             [forgetting.first - 1..forgetting.last]
             .iter()
             .map(|quoted| (quoted.written_by, quoted.write.0, quoted.write.1))
@@ -113,6 +114,8 @@ impl<F: Filesystem> Store<F> {
         let every: Vec<(RevisionId, &crate::format::RevisionDocument)> =
             self.iter().map(|(id, document)| (*id, document)).collect();
         let everywhere = self.quotes_over(&every, &forgetting.file)?;
+
+        copies_into(&mut span, &everywhere);
 
         // The document each revision names for this file, which is what the
         // quote indices index into.
@@ -156,24 +159,36 @@ impl<F: Filesystem> Store<F> {
             ..Forgotten::default()
         };
         for (target, forget) in &items {
-            // Decision 0032 gave `operations/` a second grammar, and 0014's
-            // stand-in is written in the first: a resolution has no `forgets`
-            // line and no marker to stand where an item's text stood, so text
-            // a person typed while resolving a merge cannot yet be redacted.
-            // Refusing by name, because the alternative — asking
-            // `effective_operation`, which only ever answers about the first
-            // grammar — reports a document this store is holding as one it
-            // has not received.
-            if self.resolution(target)?.is_some() {
-                return Err(ForgetError::MintedByResolution {
-                    document: *target,
-                    named_by: named
-                        .iter()
-                        .find(|(_, names)| *names == target)
-                        .map(|(revision, _)| *revision),
-                });
-            }
             plan.targets.push(*target);
+            // Decision 0032 gave `operations/` two grammars, and a stand-in
+            // must have the shape of what it stands in for, so which one this
+            // digest is written in decides which one is written here.
+            if let Some(base) = self.effective_resolution(target)? {
+                let mut document = base.clone();
+                document.forgets = Some(*target);
+                // Decision 0031's rule, and 0014's reason for it: the file
+                // this assembles is now the destroyed state, and a digest
+                // would confirm a guess at it.
+                document.result = None;
+                for (piece, item) in forget {
+                    // Only an `insert` mints, and only what a document minted
+                    // is its own to destroy. A `keep` carries a reference and
+                    // no text, and is redacted where its items were written.
+                    if let Some(Piece::Insert { items }) = document.pieces.get_mut(*piece) {
+                        let held = &mut items[*item];
+                        if !held.forgotten {
+                            *held = held.forgetting();
+                        }
+                    }
+                }
+                let mut said = base;
+                said.forgets = document.forgets;
+                said.result = None;
+                if document != said {
+                    plan.writes.push(Body::Resolution(document));
+                }
+                continue;
+            }
             let base = self
                 .effective_operation(target)?
                 .or_else(|| self.creation_base(target))
@@ -193,7 +208,7 @@ impl<F: Filesystem> Store<F> {
             let mut said = base;
             said.forgets = document.forgets;
             if document != said {
-                plan.writes.push(document);
+                plan.writes.push(Body::Operation(document));
             }
         }
 
@@ -225,7 +240,13 @@ impl<F: Filesystem> Store<F> {
     pub fn forget(&mut self, forgetting: &Forgetting) -> Result<Forgotten, ForgetError> {
         let plan = self.forget_plan(forgetting)?;
         for document in &plan.writes {
-            self.insert_operation(document)?;
+            match document {
+                Body::Operation(document) => self.insert_operation(document)?,
+                Body::Resolution(document) => {
+                    let id = crate::format::digest(&document.write());
+                    self.insert_resolution_at(document, &format!("{id}{OPERATION_SUFFIX}"))?
+                }
+            };
         }
         for relative in &plan.destroys {
             let path = self.root.join(relative);
@@ -277,6 +298,54 @@ impl<F: Filesystem> Store<F> {
     }
 }
 
+/// Grow a span to hold every copy a resolution made of an item in it.
+///
+/// Decision 0032 states a merge's file as references, and says why: "a
+/// restated line would be a new item, and the first merge reaching across
+/// this one would meet the same text twice." A resolution cannot reorder the
+/// items it keeps — the walk records which survive, never where they go — so
+/// a person who moves a run while resolving leaves the recorder no way to
+/// name it, and it is minted again under the resolution's own name.
+///
+/// That copy is the same text with a different name, which is exactly what
+/// forgetting must not miss: redacting the original alone destroys the bytes,
+/// passes `check`, and leaves the text readable at the head.
+///
+/// The pairing is narrow on purpose. Only an item *this* resolution dropped
+/// is matched against what *this* resolution minted, so a line that reads the
+/// same because somebody typed it again is a different item and stays one —
+/// which is decision 0014's rule that redaction is per item, not per text. To
+/// a fixpoint, because a later merge can copy the copy.
+fn copies_into(span: &mut BTreeSet<(RevisionId, usize, usize)>, everywhere: &[Quoted]) {
+    loop {
+        let mut grew = false;
+        for quoted in everywhere {
+            if !span.contains(&(quoted.written_by, quoted.write.0, quoted.write.1)) {
+                continue;
+            }
+            // An item already forgotten has no text to have been copied, and
+            // nothing to match a copy against.
+            if quoted.forgotten {
+                continue;
+            }
+            for dropped_by in &quoted.dropped_by {
+                for candidate in everywhere {
+                    // What a merge wrote is what its resolution minted: a
+                    // kept item is still written by whoever wrote it.
+                    if candidate.written_by != *dropped_by || candidate.text != quoted.text {
+                        continue;
+                    }
+                    let name = (candidate.written_by, candidate.write.0, candidate.write.1);
+                    grew |= span.insert(name);
+                }
+            }
+        }
+        if !grew {
+            return;
+        }
+    }
+}
+
 /// Why nothing was forgotten.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -305,14 +374,6 @@ pub enum ForgetError {
     MissingQuoted {
         /// The document.
         document: RevisionId,
-    },
-    /// The span includes items a resolution minted, which decision 0014's
-    /// stand-in grammar cannot yet say anything about.
-    MintedByResolution {
-        /// The resolution.
-        document: RevisionId,
-        /// The merge whose `edit` line names it, where one is still held.
-        named_by: Option<RevisionId>,
     },
     /// The file's history could not be materialised.
     Materialise(Box<MaterialiseError>),
@@ -359,23 +420,6 @@ impl fmt::Display for ForgetError {
                  part of a file that has no items is not built; \
                  decision 0014 defers it"
             ),
-            ForgetError::MintedByResolution { document, named_by } => {
-                write!(
-                    f,
-                    "the span includes lines written while resolving a merge, \
-                     which the resolution {document} states"
-                )?;
-                if let Some(revision) = named_by {
-                    write!(f, " for {}", revision.abbreviate(12))?;
-                }
-                write!(
-                    f,
-                    "; forgetting preserves a document's shape, and a \
-                     resolution has no way yet to say that an item it minted \
-                     is destroyed. lines the merge only kept can still be \
-                     forgotten where they were written"
-                )
-            }
             ForgetError::MissingQuoted { document } => write!(
                 f,
                 "the span is quoted in {document}, which this store does not \

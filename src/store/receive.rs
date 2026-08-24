@@ -141,13 +141,15 @@ impl<F: Filesystem> Store<F> {
         // closure. Both grammars, because decision 0032 gave that directory
         // two and a transfer is a question about the directory.
         let held: BTreeSet<RevisionId> = self.bodies()?.into_keys().collect();
-        // Only the first grammar can forget: a `forgets` line is decision
-        // 0014's, and a resolution has no shape to preserve the shape of.
+        // What either store forgets, in either grammar: decision 0014 reaches
+        // a resolution's minted items too, and a stand-in for one is written
+        // as a resolution because a stand-in has the shape of what it stands
+        // in for.
         let forgotten: BTreeSet<RevisionId> = self
-            .operations()?
+            .bodies()?
             .into_iter()
-            .chain(source.operations()?)
-            .filter_map(|(_, document)| document.forgets)
+            .chain(source.bodies()?)
+            .filter_map(|(_, body)| body.forgets())
             .collect();
         let mut plan = ReceivePlan {
             forgotten,

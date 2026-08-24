@@ -543,7 +543,7 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                 out,
                 "{wrote} a forgetting document for {}",
                 document
-                    .forgets
+                    .forgets()
                     .expect("a stand-in names its target")
                     .abbreviate(12)
             )?;
@@ -829,16 +829,23 @@ fn stands_in(
     store: &Store,
     target: &historica::core::RevisionId,
 ) -> Result<Option<Vec<u8>>, Failure> {
-    let standing = store.forgetting(target).map_err(Failure::error)?;
-    if standing.is_empty() {
+    // Either grammar, because a resolution's minted items are destroyed by a
+    // stand-in written as a resolution — decision 0032's second grammar
+    // reaching 0014, and a stand-in has the shape of what it stands in for.
+    let mut bytes: Vec<u8> = Vec::new();
+    for document in store.forgetting(target).map_err(Failure::error)? {
+        bytes.extend(document.write());
+    }
+    for document in store
+        .forgetting_resolution(target)
+        .map_err(Failure::error)?
+    {
+        bytes.extend(document.write());
+    }
+    if bytes.is_empty() {
         return Ok(None);
     }
-    Ok(Some(
-        standing
-            .iter()
-            .flat_map(|document| document.write())
-            .collect(),
-    ))
+    Ok(Some(bytes))
 }
 
 /// `files <target>` — the file set, which is what the tree facts replay to.

@@ -49,7 +49,7 @@ pub use error::{ParseError, ParseErrorKind};
 pub use operations::{
     FORGOTTEN, Item, NO_NEWLINE, Operation, OperationDocument, OperationKind, stand_in,
 };
-pub use resolution::{Piece, ResolutionDocument, is_resolution};
+pub use resolution::{Piece, ResolutionDocument, is_resolution, stand_in as stand_in_resolution};
 pub use timestamp::{MalformedTimestamp, Timestamp};
 
 /// The preamble every document opens with.

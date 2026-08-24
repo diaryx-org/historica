@@ -150,7 +150,10 @@ fn the_merge_states_its_resolution_and_the_rest_state_operations() {
     assert_eq!(resolution.write(), read("operations/04-notes.ops.txt"));
     // One line the person wrote while resolving, and the rest by reference.
     assert_eq!(resolution.minted(), 1);
-    assert_eq!(resolution.result, digest(state("04-merge").as_bytes()));
+    assert_eq!(
+        resolution.result,
+        Some(digest(state("04-merge").as_bytes()))
+    );
 }
 
 #[test]
@@ -247,6 +250,7 @@ fn a_reader_assembles_the_merge_from_the_documents_it_names() {
         ResolutionDocument::parse(&read("operations/04-notes.ops.txt"))
             .expect("a resolution")
             .result
+            .expect("a resolution this tool wrote states its result")
     );
 }
 

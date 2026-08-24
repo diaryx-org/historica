@@ -322,9 +322,22 @@ pub struct Quoted {
     pub written_by: RevisionId,
     /// Which operation and item of that revision's document wrote it.
     pub write: (usize, usize),
+    /// The item's text, as the document that wrote it states it. Empty for an
+    /// item already forgotten, whose text is what was destroyed.
+    pub text: String,
     /// Every deletion quoting it: the deleting revision, and which operation
     /// and item of its document hold the quote.
     pub deletes: Vec<(RevisionId, usize, usize)>,
+    /// Every revision that dropped it without quoting it — which is how a
+    /// resolution removes an item, decision 0032 stating what survives rather
+    /// than what went.
+    ///
+    /// Separate from `deletes` because there is nothing in such a removal to
+    /// redact, and because it is the other half of a fact `forget` needs: a
+    /// resolution that drops an item and mints one reading the same has
+    /// copied it, which is the only way a merge can restate text that already
+    /// had a name.
+    pub dropped_by: Vec<RevisionId>,
     /// Whether the item's text is already destroyed where it was written.
     pub forgotten: bool,
     /// Whether the item is in the merged file, or a tombstone.
@@ -351,6 +364,7 @@ pub fn quotes<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Vec<Quo
             Quoted {
                 written_by: graph.events[element.author].revision,
                 write: element.wrote,
+                text: element.item.text.clone(),
                 deletes: element
                     .deleted_by
                     .iter()
@@ -360,6 +374,12 @@ pub fn quotes<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Vec<Quo
                         let (operation, item) = (*quote)?;
                         Some((graph.events[*event].revision, operation, item))
                     })
+                    .collect(),
+                dropped_by: element
+                    .deleted_by
+                    .iter()
+                    .filter(|(_, quote)| quote.is_none())
+                    .map(|(event, _)| graph.events[*event].revision)
                     .collect(),
                 forgotten: element.item.forgotten,
                 visible: element.deleted_by.is_empty(),
