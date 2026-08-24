@@ -388,6 +388,16 @@ which is a tree question about what an entry may point at.
    replayer on random linear chains, and that differential test is now pinned
    in `src/merge.rs` alongside the chain that reproduced the defect.
 
+   The suite's simulated edits are items rather than text, so the content it
+   searches over includes empty lines, lines carrying a carriage return, and
+   files that end without a terminator. That last shape is what reaches
+   resolved question 3 below: a merge of two well-formed files can hold an
+   item that is neither terminated nor last, which no single history can state
+   and `State::applied` refuses a document for producing. Both architectures
+   agree on those files, the merge reports the region as contested, and a run
+   that reaches neither shape fails the suite rather than passing on a
+   narrower search.
+
 ## Deferred
 
 2. **Whether a re-rooting revision should exist**, stating content outright so
