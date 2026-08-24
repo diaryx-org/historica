@@ -82,6 +82,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **fs** — let a folder stamp a file, and hand one over in pieces ([`48f2482`](https://github.com/diaryx-org/historica/commit/48f24822028bc4ea55c16a0f61bd6e2ef5a36d01))
 - **store** — skipped/, one rule to a file ([`34a81f8`](https://github.com/diaryx-org/historica/commit/34a81f86f30c07ea21f158d9c9790642bb39cd24))
 - **check** — note the work a rewrite did not reach ([`342ac5f`](https://github.com/diaryx-org/historica/commit/342ac5fd96aee7cb11d52f35e9abf7cbba504a7c))
+- **update** — lay a revision out in a directory that holds nothing ([`b2c6fb0`](https://github.com/diaryx-org/historica/commit/b2c6fb05b5988a956bbaa8bde33cf46e060adc31))
 
 ### Fixed
 
