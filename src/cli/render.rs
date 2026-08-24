@@ -25,7 +25,7 @@ use super::target;
 /// decision 0001 wants them abbreviated to the shortest that is.
 const DIGEST_FLOOR: usize = 8;
 /// Change ID characters shown, on the same terms.
-const CHANGE_FLOOR: usize = 8;
+pub(super) const CHANGE_FLOOR: usize = 8;
 
 /// `log`: every revision, or one revision's ancestry, newest first.
 pub fn log(out: &mut impl Write, store: &Store, from: Option<RevisionId>) -> io::Result<()> {
@@ -526,7 +526,7 @@ fn when(store: &Store, id: &RevisionId) -> Option<Timestamp> {
 /// Decision 0001 asks for exactly this, and for the reason that change ID
 /// prefixes survive rewriting. Digests get the same treatment because the
 /// alternative is a fixed width that is either noise or ambiguous.
-fn abbreviations<T: Copy + Ord + Display>(
+pub(super) fn abbreviations<T: Copy + Ord + Display>(
     ids: impl IntoIterator<Item = T>,
     floor: usize,
 ) -> BTreeMap<T, String> {

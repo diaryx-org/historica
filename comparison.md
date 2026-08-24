@@ -12,5 +12,7 @@ Comparison to other version control systems
 | Redaction preserving structure | **yes (`forget`)** | no (rewrites all hashes) | no | no | `shun` | no |
 | Remote / transport | **none** | yes | yes | yes | yes | yes |
 | Rename detection at diff | **recorded, not inferred** | heuristic | heuristic | recorded | heuristic | n/a |
+| Line attribution (`blame`) | **read from the operations** | re-diffed per commit | re-diffed per commit | patch-derived | re-diffed per commit | n/a |
+| A merge's kept lines keep their author | **yes** | no | no | yes | no | n/a |
 | Checkout to a past revision | **no** (`update` reaches heads, by decision) | yes | yes | yes | yes | n/a
 | File modes | one bit, `executable` | one bit | one bit | one bit | one bit | n/a

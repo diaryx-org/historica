@@ -221,7 +221,17 @@ holds paths and no identifiers, so a rename there is a drop and an add until
 somebody says `--move`, and rendering it as a rename would invent a fact
 `record` would decline to write down. The hunks are `crate::diff`'s own
 decomposition rather than a second one, so what a person is shown and what
-recording would state are one answer. `name` writes a bookmark, and takes the third argument `show`
+recording would state are one answer. `blame` is the same trick applied to the
+other question — who wrote each line — and decision 0038 makes it the one
+command every other tool has to guess at and this one does not. A revision
+records the items it *inserted* and a merge records which items it *kept* and
+under whose names, so `merge::Merged::origins` has said which revision wrote
+each item since 0012 needed it to label a contested span, and the command is
+that vector printed. A line therefore keeps its author through a rename, since
+0008 makes a file one file for its whole life, and through a merge, since
+0032's resolution keeps items under their own names rather than restating
+them — so a merge authors only the lines somebody typed into it, which is
+exactly what a three-way merge cannot say. `name` writes a bookmark, and takes the third argument `show`
 takes: with a path it names the file at that path rather than the work, so
 `history/names/` holds `file` lines beside `change` and `revision` ones and
 `cat <target> file:<bookmark>` is that file wherever it has since been moved to.
@@ -589,6 +599,14 @@ Choices that constrain later work are written down as they are made.
   difference from every other tool's diff is 0008: a rename between two
   revisions is a fact rather than a resemblance, while a rename in the folder
   is not a fact at all and is not rendered as one.
+- [`docs/decisions/0038-who-wrote-this-line.md`](docs/decisions/0038-who-wrote-this-line.md)
+  — `blame`, and the vector 0012 already computed. Attribution is read out of
+  the operations rather than recovered from the bytes, so there is nothing for
+  `-w` or `--ignore-rev` to steer and no similarity threshold to argue with; a
+  line keeps its author through a rename (0008) and through a merge that kept
+  it (0032), and a line the store recorded as new is new even where a person
+  would call it moved. With no target the folder is the right side, as in
+  0037, and a line only the folder has is marked rather than attributed.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 

@@ -17,6 +17,7 @@ use historica::store::{
 use historica::working::{Rule, SKIPPED_FILE, Working};
 
 mod arrange;
+mod blame;
 mod diff;
 mod record;
 mod render;
@@ -42,6 +43,11 @@ reading a store
                            between two revisions is stated, because the
                            store recorded it; one in the folder is a drop
                            and an add, because the folder cannot see it
+  blame [<target>] <path> [--lines <first>..<last>]
+                           who wrote each line: the change, the author, and
+                           the day. Read from the operations rather than
+                           guessed at, so a line keeps its author through a
+                           rename and through a merge that did not touch it
   names                    the bookmarks, and what they point at
   skip                     the rules saying what history does not take
 
@@ -188,6 +194,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "files" => files(&base, rest),
         "cat" => cat(&base, rest),
         "diff" => diff::diff_command(&base, rest),
+        "blame" => blame::blame_command(&base, rest),
         "names" => names(&base, rest),
         "name" => name(&base, rest),
         "skip" => skip(&base, rest),
@@ -529,7 +536,7 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 }
 
 /// A span of lines, as `--lines` spells it.
-fn span(spelled: &str) -> Result<(usize, usize), Failure> {
+pub(super) fn span(spelled: &str) -> Result<(usize, usize), Failure> {
     let malformed = || Failure::usage("a span is `<first>..<last>`, or one line number");
     match spelled.split_once("..") {
         Some((first, last)) => Ok((

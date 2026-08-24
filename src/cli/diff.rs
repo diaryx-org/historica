@@ -435,11 +435,14 @@ fn render(out: &mut impl Write, pair: &Pair) -> std::io::Result<()> {
     Ok(())
 }
 
-/// One line of a rendered hunk.
-struct Line {
-    sign: char,
-    text: String,
-    terminated: bool,
+/// One line of a comparison: a context line, a removal, or an arrival.
+pub(super) struct Line {
+    /// ` `, `-`, or `+`.
+    pub sign: char,
+    /// What the item shows a reader, which is the marker for a forgotten one.
+    pub text: String,
+    /// Whether it ends with a newline.
+    pub terminated: bool,
 }
 
 /// A run of changed lines with context around it.
@@ -460,13 +463,23 @@ impl Hunk {
     }
 }
 
+/// The whole comparison, cut into hunks with context around each run.
+fn hunks(before: &State, document: &historica::format::OperationDocument) -> Vec<Hunk> {
+    group(laid(before, document))
+}
+
 /// The operations, laid back over the parent as ` `, `-` and `+` lines.
 ///
 /// Positions are counted into the parent (decision 0007), which is what makes
 /// this arithmetic rather than a second diff: every operation names where in
 /// `before` it applies, so walking `before` once and consulting them in order
 /// produces the whole comparison.
-fn hunks(before: &State, document: &historica::format::OperationDocument) -> Vec<Hunk> {
+///
+/// This is that comparison, before it is cut into hunks — which is what `blame`
+/// wants too (decision 0038), because "which of the folder's lines are not
+/// recorded yet" is the same question as "which of them are `+`". Shared, so
+/// the two commands cannot answer it differently.
+pub(super) fn laid(before: &State, document: &historica::format::OperationDocument) -> Vec<Line> {
     use historica::format::OperationKind;
 
     let mut deleted: BTreeMap<usize, usize> = BTreeMap::new();
@@ -529,7 +542,7 @@ fn hunks(before: &State, document: &historica::format::OperationDocument) -> Vec
     // its last line.
     arrivals(&mut lines, items.len());
 
-    group(lines)
+    lines
 }
 
 /// Cut the whole comparison into hunks with [`CONTEXT`] lines around each run.
