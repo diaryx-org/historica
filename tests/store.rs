@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use historica::core::{ChangeState, FileId, RevisionId};
 use historica::format::{OperationDocument, RevisionDocument, digest};
-use historica::store::{Finding, Name, Severity, Store};
+use historica::store::{Finding, Name, Placement, Severity, Store};
 
 /// A fresh directory for one test, inside the target directory.
 fn scratch(test: &str) -> PathBuf {
@@ -251,6 +251,69 @@ fn only_rev_files_are_read_and_the_rest_are_merely_mentioned() {
         .collect();
     assert_eq!(foreign.len(), 1, "{foreign:?}");
     assert!(foreign[0].contains("notes.txt"), "{foreign:?}");
+}
+
+/// Decision 0046: a root directory this format does not name belongs to
+/// whichever tool wrote it.
+///
+/// The trust layer is that decision's case — `claims/` holds documents
+/// vouching for a revision's digest and `trust/` holds the policy that weighs
+/// them, both written and read by a separate tool with no Historica in it —
+/// and tolerance is the whole of what Historica contributes to it. So the
+/// promise is threefold and pinned here rather than left to the fact that
+/// nothing currently walks the root: such a directory is not loaded as
+/// history, not reported by `check` in any severity, and not moved by
+/// `arrange`, which is the one command that rewrites the store's own
+/// filenames. `Placement::Refiled` is the invasive spelling of it — the
+/// migration that lifts every revision document into decision 0041's month —
+/// and even that has no business here.
+#[test]
+fn a_root_directory_this_format_does_not_name_is_left_alone() {
+    let (root, store) = corpus_store("foreign-directory");
+    let held = store.len();
+
+    for directory in ["claims", "trust"] {
+        fs::create_dir(root.join(directory)).expect("a directory another tool owns");
+    }
+    let claim = root.join("claims").join("33f863f1.claim.txt");
+    fs::write(&claim, "claim-0\nrevision 33f863f1\nrole reviewer\n").expect("a claim");
+    let policy = root.join("trust").join("policy.txt");
+    fs::write(
+        &policy,
+        "key RWTd8LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3\n",
+    )
+    .expect("a policy");
+
+    let reopened = Store::open(&root).expect("reopening");
+    assert_eq!(reopened.len(), held, "a foreign directory is not history");
+
+    // Not an error, and not a note either. A tool that filed its own documents
+    // beside this store did nothing wrong, and a note saying so on every
+    // machine the trust layer has touched is a note that means nothing.
+    let report = Store::check(&root);
+    assert!(
+        report.is_ok(),
+        "a directory this format does not name is not a fault"
+    );
+    let mentions: Vec<String> = report
+        .findings()
+        .iter()
+        .map(ToString::to_string)
+        .filter(|finding| finding.contains("claims") || finding.contains("trust"))
+        .collect();
+    assert!(
+        mentions.is_empty(),
+        "check should say nothing about it: {mentions:?}"
+    );
+
+    let mut store = Store::open(&root).expect("reopening to arrange");
+    store
+        .arrange(Placement::Refiled)
+        .expect("arranging a store with a stranger's directory in it");
+
+    assert!(claim.is_file(), "the claim is where its own tool put it");
+    assert!(policy.is_file(), "and so is the policy");
+    assert!(Store::check(&root).is_ok(), "arranging broke nothing");
 }
 
 #[test]
