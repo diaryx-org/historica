@@ -105,6 +105,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **receive** — carry the resolution documents a merge names ([`861d943`](https://github.com/diaryx-org/historica/commit/861d9437b180bc550d68d84581641687f3012e65))
 - **forget** — say why it cannot reach into a resolution ([`5f74c3b`](https://github.com/diaryx-org/historica/commit/5f74c3b45f124a46da3b9bb8b5a55e7fccbeca1e))
 - **tests** — say who the cache tests are, rather than borrowing it ([`71f88b0`](https://github.com/diaryx-org/historica/commit/71f88b00064f92ce972d53551a323e543ef0ddb7))
+- **merge** — a keep of a name two concurrent revisions share lands once per element ([`8e538b3`](https://github.com/diaryx-org/historica/commit/8e538b3ad505e8524a508ea25711132f210c8b05))
 
 ### Changed
 
@@ -576,6 +577,14 @@ severity and the exit code are unchanged.
   answer changes — but a caller that watched `cache/` for writes or counted
   the files in it will see the difference. Deleting the file, truncating it
   or filling it with lies changes how long a command takes and nothing else.
+
+- merging across a recorded resolution that keeps one
+(document, ordinal) name more than once — possible only where concurrent
+revisions recorded byte-identical documents — now keeps one element per
+occurrence instead of folding them all onto the first element in view
+order, so such merges gain the items earlier versions dropped and read
+them where the resolution placed them. A resolution keeping a name more
+often than the author's view holds elements under it is now refused with
 
 <!-- git-cliff:end -->
 
