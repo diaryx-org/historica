@@ -86,6 +86,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — ask what a digest is, not which grammar you hoped for ([`ad8ac7e`](https://github.com/diaryx-org/historica/commit/ad8ac7ee98f68c63daa3f343596ecba775004a97))
 - **format** — a resolution can forget what it minted ([`cfc6763`](https://github.com/diaryx-org/historica/commit/cfc676320905b5e928672bb6694145c5df072505))
 - **skipped** — give a rule two axes, and close the key set ([`5d582c8`](https://github.com/diaryx-org/historica/commit/5d582c8259687374e432377e02b44a0326587fb2))
+- **store** — let a reserved directory declare how it travels ([`440f901`](https://github.com/diaryx-org/historica/commit/440f901cadbd849885882fd9b271c093c991bb87))
 
 ### Fixed
 
@@ -499,6 +500,28 @@ severity and the exit code are unchanged.
  copy's `history/skipped/`, where it previously wrote none. `Exported`
  and `ExportPlan` gain a count of the rules carried and a count of the
  private rules withheld, and `export` prints both.
+
+- `export` now carries `history/claims/` into the
+ copy — every file in it, whole, rather than the subset naming
+ exported revisions. `ExportPlan` gains `reserved()`, `Exported` gains
+ a `reserved` count, and `export` prints "carried N files another tool
+ wrote". A store with no such directory exports exactly as before.
+
+- `receive` now unions `history/claims/` from the
+ source, add-only: a filename the receiving store already holds is
+ left untouched and never read, and only names it lacks are written.
+ `ReceivePlan` gains `reserved()` and counts toward `is_empty()`,
+ `Received` gains a `reserved` count, and both `receive` and its dry
+ run print what they would take.
+
+- `history/trust/` is stated as never crossing a
+ store boundary, which is what both commands already did by accident
+ and now do by rule. A directory at the store root that nothing
+ reserved is likewise left alone in both directions.
+
+- `store::Travel`, `store::RESERVED_DIRS` and
+ `store::travel` are new, and are how a tool asks what historica
+ promises about a directory it reserved.
 
 <!-- git-cliff:end -->
 
