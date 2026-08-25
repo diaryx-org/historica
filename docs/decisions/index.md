@@ -579,6 +579,24 @@ depend on each other in.
   The inline acts — amend and abandon above a descendant, and moving a
   change — wait on the spelling questions the decision leaves open.
 
+- [0060 — The copy without the history](0060-the-copy-without-the-history.md)
+  0042 and 0052 both build a repository, which is the right default and not
+  always what was wanted: exporting the three-hundredth revision of a
+  six-hundred-revision store writes 14 MB, of which 13 is `history/`. Somebody
+  reading what a file said last month wants the other one. `export` already
+  reached the past — it accepts any target, not only a head — so what was
+  missing was a way to decline the ancestry, not a capability. It arrives as
+  `--files-only` rather than a command of its own, because a second command
+  would duplicate the target resolution, the materialisation, the rule
+  filtering and the printing to do strictly less, and because every name for
+  it describes a tool this is not. What that costs is admitted: no other flag
+  here changes what its command produces, and this one turns a repository into
+  a directory. The folder is the one a whole export writes, filtered by the
+  same travelling rules and pinned byte-identical by the tests; the
+  destination must be empty, because 0052's update-in-place needs the copy's
+  own history to say what the last run put there; and a broken store still
+  refuses, because a copy of a fault is two faults.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
