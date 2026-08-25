@@ -627,6 +627,33 @@ depend on each other in.
   there as superseded, along with the way each was wrong. What is left largest
   is the per-document stamp, measured here and deferred to its own decision.
 
+- [0062 — Two axes for a bookmark](0062-two-axes-for-a-bookmark.md)
+  0042 left bookmarks behind on the same sentence 0051 took apart for rules,
+  and the argument transfers whole: an export is a replica and `receive` is
+  its pull, so a copy that meets its origin unions the withheld names straight
+  back — an exclusion that binds only where it is useless. The half 0042 got
+  right transfers too, since `fix-acme-layoffs` states in its own filename
+  what `private clients/acme-layoffs/` exists to withhold. So a shared
+  bookmark travels, and `private` is a second line the file may carry. The
+  marker is a line rather than a sixth key because 0024 already proved the
+  pointing vocabulary open, and the cross product 0051 could afford this one
+  cannot; 0006 refused a second line that could *disagree* with the first,
+  which a travel axis cannot. It is a field rather than a key because 0051's
+  refusal turns on `skipped/` being a set — `names/` is a map with a
+  disagreement rule since 0006, so the target conflicts as it always did and
+  the axis joins toward private, reaching a person's other machines by the
+  transport that already runs. A bookmark pointing past the export stays
+  behind whatever its axis, on the rule that an export never manufactures a
+  finding the origin did not have. Reverses one sentence of 0052 and the test
+  named for it: a copy holds no record of which of its bookmarks an export
+  wrote, so the update is all or nothing, and withdrawing nothing would leave a
+  name in a world-readable directory after the origin made it private. `offer` gains a `name` kind and `fetch`
+  takes only names it lacks, so a publisher moving `main` costs a fetcher
+  nothing. The ceiling is stated outright: the revisions are in the copy, so
+  `private` withholds the label and nothing else. Declines the store-layout
+  gate a third time, and says why that is the document's least defensible
+  sentence.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
