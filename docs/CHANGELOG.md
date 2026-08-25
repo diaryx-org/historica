@@ -108,6 +108,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **forget** — say why it cannot reach into a resolution ([`5f74c3b`](https://github.com/diaryx-org/historica/commit/5f74c3b45f124a46da3b9bb8b5a55e7fccbeca1e))
 - **tests** — say who the cache tests are, rather than borrowing it ([`71f88b0`](https://github.com/diaryx-org/historica/commit/71f88b00064f92ce972d53551a323e543ef0ddb7))
 - **merge** — a keep of a name two concurrent revisions share lands once per element ([`8e538b3`](https://github.com/diaryx-org/historica/commit/8e538b3ad505e8524a508ea25711132f210c8b05))
+- **log** — refuse a document it cannot read, rather than printing a history without it ([`9e2918b`](https://github.com/diaryx-org/historica/commit/9e2918b593f894b72d093508cb790b0d7927a90c))
 
 ### Changed
 
@@ -122,6 +123,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **check** — replay a chain forward rather than walking it ([`dc80af4`](https://github.com/diaryx-org/historica/commit/dc80af4864f8267d9850f834f305b861654d1980))
 - **store** — take the catalogue without walking the directory ([`2a77605`](https://github.com/diaryx-org/historica/commit/2a7760590b4c180de86b23cf2e8f2b567af1927e))
 - **store** — read the revision, and leave the rest of the document alone ([`f145783`](https://github.com/diaryx-org/historica/commit/f145783ad002cd90766e3ab3a4491a016094884f))
+- **format** — name a revision by the digest its reader already has ([`c196552`](https://github.com/diaryx-org/historica/commit/c1965525537e04a93cac53676f575bd9de704a9b))
 
 ### Behavioural changes
 
