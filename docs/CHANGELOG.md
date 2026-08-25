@@ -91,6 +91,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — offer, the listing a directory has no way to give ([`6b72cec`](https://github.com/diaryx-org/historica/commit/6b72cec758d00348c8b3dda6b9a8ca1fbf338a62))
 - **store** — fetch, taking what is missing from a directory nothing can list ([`9026896`](https://github.com/diaryx-org/historica/commit/9026896989c84000fee4626ec960bb66db35adf5))
 - **cli** — fetch, over the stack the platform already maintains ([`12a49ea`](https://github.com/diaryx-org/historica/commit/12a49eaab5a04af1beb5c89a775923dd68f9e67c))
+- **store** — keep the revision documents, so that opening costs one read ([`ab2ae9e`](https://github.com/diaryx-org/historica/commit/ab2ae9ec9c5dd8c5506ccfaa615b96b51d88c927))
 
 ### Fixed
 
@@ -568,6 +569,13 @@ severity and the exit code are unchanged.
   downstream crate that does not want them builds with
   `--no-default-features --features disk`, which loses the `fetch`
   command and nothing else.
+
+- Opening a store now writes `history/cache/revisions.txt`,
+  where before it only ever read `cache/`. That directory is derived and
+  disposable by decision 0003 and its contents are nobody's interface, so no
+  answer changes — but a caller that watched `cache/` for writes or counted
+  the files in it will see the difference. Deleting the file, truncating it
+  or filling it with lies changes how long a command takes and nothing else.
 
 <!-- git-cliff:end -->
 
