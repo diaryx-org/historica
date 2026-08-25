@@ -654,6 +654,17 @@ depend on each other in.
   gate a third time, and says why that is the document's least defensible
   sentence.
 
+- [0063 — A range of revisions](0063-a-range-of-revisions.md)
+  `log <from>..<to>`: everything behind `to` that is not behind `from`, as a
+  subtraction of two ancestries rather than a walk, so it is defined for two
+  revisions the graph left concurrent. Git's spelling, for 0037's reason.
+  Goes in the argument position 0001 partitioned, where neither alphabet
+  holds a full stop; a bookmark is looked up whole first, on the rule that
+  already lets one beat `head`. Both ends are said outright, `a...b` is
+  refused by name, and an empty range is an answer rather than a fault. What
+  prompted it is that `bisect` was declined as a command and the shell script
+  standing in for it could not compute the set it had to bisect.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

@@ -61,14 +61,17 @@ usage: historica [-C <dir>] <command> [<arguments>]
 reading a store
   status [--onto <target>] [--merge <target>]
                            how the folder differs from what is recorded
-  log [<target>] [--limit <count>] [--author <text>] [--grep <text>]
-      [--since <when>] [--until <when>] [--path <path>]
+  log [<target>|<from>..<to>] [--limit <count>] [--author <text>]
+      [--grep <text>] [--since <when>] [--until <when>] [--path <path>]
                            the history, newest first; the filters compose and
-                           --limit counts what they left. --path follows the
-                           file rather than the name, so a rename is not a
-                           break in it. --since and --until are read in each
-                           revision's own offset, and a bare `YYYY-MM-DD` is
-                           that whole day there
+                           --limit counts what they left. a range covers what
+                           <to> has behind it and <from> does not, which is
+                           defined for two revisions the graph left concurrent
+                           as readily as for two along a chain. --path follows
+                           the file rather than the name, so a rename is not a
+                           break in it, and a range reads it at <to>. --since
+                           and --until are read in each revision's own offset,
+                           and a bare `YYYY-MM-DD` is that whole day there
   show <target> [<path>]   one document as stored: a revision, or what it
                            did to one file
   files <target>           the file set at a revision
@@ -163,7 +166,9 @@ const REST: &str = "  forget <target> <path> --lines <first>..<last> [--dry-run]
 a <target> is `head`, a bookmark, a change ID, or a revision digest; the last
 two may
 be abbreviated to any unambiguous prefix, and their alphabets do not overlap,
-so one argument accepts either.
+so one argument accepts either. `log` also takes two of them as
+`<from>..<to>`; a bookmark whose own name holds `..` is looked up whole first,
+so it still names itself.
 
 a <path> is a path, or `file:` and a file identifier or a file bookmark — an
 identifier abbreviates to any prefix unique among the files at that revision.
@@ -715,12 +720,17 @@ fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     printing(|out| render::status(out, &store, &parents, &surveyed))
 }
 
-/// `log [<target>]` — the graph, newest first, and what to leave out of it.
+/// `log [<target>|<from>..<to>]` — the graph, newest first, and what to leave
+/// out of it.
 ///
 /// The filters compose by keeping only what satisfies all of them, and
 /// `--limit` counts what they left rather than what they were given: a limit
 /// applied first would silently mean "of the newest N revisions, the ones that
 /// match", which is a different question and never the one asked.
+///
+/// Decision 0063 puts a range in the same argument position, because it
+/// answers the same question about a smaller part of the graph. The filters
+/// compose with it as they compose with each other.
 fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let store = open(base)?;
     let mut spelling: Option<String> = None;
@@ -757,14 +767,15 @@ fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             other if spelling.is_none() => spelling = Some(other.to_owned()),
             other => {
                 return Err(Failure::usage(format!(
-                    "`log` takes one target, and `{other}` is a second"
+                    "`log` takes one target or one range, and `{other}` is a \
+                     second"
                 )));
             }
         }
     }
 
-    let from = match &spelling {
-        Some(spelling) => Some(target::resolve(&store, spelling)?),
+    let reach = match &spelling {
+        Some(spelling) => Some(target::reach(&store, spelling)?),
         None => None,
     };
     if let Some(path) = &path {
@@ -772,8 +783,24 @@ fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         // name, so what a person typed is read once, at one revision, and the
         // file it named is what the log then follows — through the `move` that
         // renamed it as readily as through the edits either side.
-        let at = read_at(&store, from, path)?;
+        let at = read_at(&store, position(reach.as_ref()), path)?;
         filter.file = Some(target::file_in(&store, &at, path)?);
+    }
+
+    let shown = render::shown(&store, reach.as_ref());
+    if shown.is_empty() {
+        // An empty range is an answer rather than a fault, and a different
+        // answer from an empty store: it says the work asked about is already
+        // behind the revision it was held up against.
+        let said = match &reach {
+            Some(target::Reach::Between { from, to }) => format!(
+                "{} holds nothing {} does not",
+                target::spelled(&store, to),
+                target::spelled(&store, from)
+            ),
+            _ => "no revisions here yet".to_owned(),
+        };
+        return printing(|out| writeln!(out, "{said}"));
     }
 
     // Decision 0061: an author, a moment and a message all live in the part of
@@ -781,10 +808,23 @@ fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // they are parsed. Every document it covers is held to the parser here,
     // before a byte is printed — a history rendered with a revision quietly
     // missing from it would be the tool disagreeing with the files.
-    for id in &render::shown(&store, from) {
+    for id in &shown {
         store.get(id)?;
     }
-    printing(|out| render::log(out, &store, from, &filter))
+    printing(|out| render::log(out, &store, &shown, &filter))
+}
+
+/// The revision a target argument names, where it named one at all.
+///
+/// A range names a position at its far end. That is the end a `--path` is
+/// read at, and the choice is the same one [`read_at`] makes for a lone
+/// target: the file a person typed the name of is the file it is now.
+fn position(reach: Option<&target::Reach>) -> Option<historica::core::RevisionId> {
+    match reach {
+        None => None,
+        Some(target::Reach::From(id)) => Some(*id),
+        Some(target::Reach::Between { to, .. }) => Some(*to),
+    }
 }
 
 /// The revision a `--path` value is read at.

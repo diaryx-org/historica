@@ -102,29 +102,39 @@ impl Filter {
     }
 }
 
-/// `log`: every revision, or one revision's ancestry, newest first.
-///
-/// A filter takes entries out of the list and changes nothing about the ones
-/// that stay: `(head)` is a fact about the graph rather than about this
-/// listing, so a head stays marked as one whether or not its children were
-/// Which revisions a `log` covers: an ancestry, or the whole store.
+/// Which revisions a `log` covers: an ancestry, a range, or the whole store.
 ///
 /// Separate from the rendering so that the command can hold every document it
 /// covers to the parser before printing any of it — decision 0061 defers that
 /// parse to here, and a revision skipped for want of it would be a history
 /// printed with a hole in it rather than an error.
-pub fn shown(store: &Store, from: Option<RevisionId>) -> BTreeSet<RevisionId> {
-    match from {
-        Some(id) => ancestry(store, id),
+pub fn shown(store: &Store, reach: Option<&target::Reach>) -> BTreeSet<RevisionId> {
+    match reach {
         None => store.revisions().map(|(id, _)| *id).collect(),
+        Some(target::Reach::From(id)) => ancestry(store, *id),
+        // Decision 0063: what `to` has behind it and `from` does not. One
+        // ancestry taken out of another, which is defined for two revisions
+        // the graph leaves concurrent as readily as for two along a chain —
+        // the chain is only the case with nothing on the other side.
+        Some(target::Reach::Between { from, to }) => {
+            let had = ancestry(store, *from);
+            let mut shown = ancestry(store, *to);
+            shown.retain(|id| !had.contains(id));
+            shown
+        }
     }
 }
 
+/// `log`: every revision, or one revision's ancestry, newest first.
+///
+/// A filter takes entries out of the list and changes nothing about the ones
+/// that stay: `(head)` is a fact about the graph rather than about this
+/// listing, so a head stays marked as one whether or not its children were
 /// asked for.
 pub fn log(
     out: &mut impl Write,
     store: &Store,
-    from: Option<RevisionId>,
+    shown: &BTreeSet<RevisionId>,
     filter: &Filter,
 ) -> io::Result<()> {
     let history = store.history();
@@ -132,15 +142,10 @@ pub fn log(
     let superseded = history.superseded();
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
 
-    let shown = shown(store, from);
-    if shown.is_empty() {
-        return writeln!(out, "no revisions here yet");
-    }
-
     let digests = abbreviations(store.revisions().map(|(id, _)| *id), DIGEST_FLOOR);
     let changes = abbreviations(history.changes(), CHANGE_FLOOR);
 
-    let kept: Vec<RevisionId> = presentation(store, &shown)
+    let kept: Vec<RevisionId> = presentation(store, shown)
         .into_iter()
         .filter(|id| {
             store

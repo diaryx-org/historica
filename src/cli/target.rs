@@ -68,6 +68,69 @@ pub fn resolve(store: &Store, spelling: &str) -> Result<RevisionId, Failure> {
     )))
 }
 
+/// The separator between the two ends of a range.
+///
+/// Decision 0001 partitions this argument position by alphabet, and neither
+/// half of the partition contains a full stop: a change ID is `k`–`z` and a
+/// digest is `0`–`9`, `a`–`f`. So the separator cuts a spelling that no
+/// minted identifier could have been, and the only thing it can collide with
+/// is a name a person chose.
+const RANGE: &str = "..";
+
+/// What one target argument named: a position, or the two ends of a range.
+#[derive(Debug, Clone, Copy)]
+pub enum Reach {
+    /// One revision — and, where a log asked, everything behind it.
+    From(RevisionId),
+    /// Everything behind `to` that is not behind `from`.
+    Between {
+        /// The end whose ancestry is already had, and is therefore left out.
+        from: RevisionId,
+        /// The end being asked about, which is in the answer.
+        to: RevisionId,
+    },
+}
+
+/// The revision, or the two revisions, a target argument names.
+///
+/// Decision 0063. A bookmark is looked up whole before the string is cut, for
+/// the reason [`resolve`] lets one beat `head`: a name somebody chose beats a
+/// spelling the tool reserved, so a store with a bookmark called `before..after`
+/// means the bookmark.
+pub fn reach(store: &Store, spelling: &str) -> Result<Reach, Failure> {
+    if store.name(spelling).is_none()
+        && let Some((from, to)) = spelling.split_once(RANGE)
+    {
+        // `a...b` is git's symmetric difference, which has no spelling here.
+        // Said outright, because the generic refusal would send a person
+        // looking for a bookmark called `.b`.
+        if to.starts_with('.') {
+            return Err(Failure::usage(format!(
+                "`{spelling}` is spelled with three dots, which git reads as \
+                 the work either side of a fork; `<from>..<to>` is what `<to>` \
+                 has and `<from>` does not, and there is no spelling for the \
+                 other one"
+            )));
+        }
+        if from.is_empty() || to.is_empty() {
+            let left = if from.is_empty() && to.is_empty() {
+                "names neither end of a range"
+            } else {
+                "names one end of a range and leaves the other blank"
+            };
+            return Err(Failure::usage(format!(
+                "`{spelling}` {left}; both ends are said outright, as \
+                 `<from>..<to>`, and the head is spelled `head`"
+            )));
+        }
+        return Ok(Reach::Between {
+            from: resolve(store, from)?,
+            to: resolve(store, to)?,
+        });
+    }
+    Ok(Reach::From(resolve(store, spelling)?))
+}
+
 /// Whether a spelling could name a target at all.
 ///
 /// Decision 0001's disjoint alphabets, asked as a question rather than

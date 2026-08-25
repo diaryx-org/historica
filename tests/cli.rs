@@ -318,6 +318,118 @@ fn log_takes_a_target_and_shows_only_its_ancestry() {
     assert!(ancestry.contains("Start a journal"), "{ancestry}");
 }
 
+/// Decision 0063: `<from>..<to>` is what `<to>` has behind it and `<from>`
+/// does not, so the end already had is the one left out.
+#[test]
+fn log_takes_a_range_and_shows_what_the_far_end_has() {
+    let directory = store_from("log-range", "tree");
+    let range = stdout(&directory, &["log", "kxryzmor..head"]);
+
+    assert_eq!(entries(&range).len(), 2);
+    assert!(range.contains("Withdraw the entry"), "{range}");
+    assert!(range.contains("File the README under docs"), "{range}");
+    // The near end is behind the far one, so neither it nor anything behind
+    // it is in the answer.
+    assert!(
+        !range.contains("Say why a path is not an identity"),
+        "{range}"
+    );
+    assert!(!range.contains("Start a journal"), "{range}");
+}
+
+/// A range whose far end is already behind its near one is an answer rather
+/// than a fault, and a different answer from a store with nothing in it.
+#[test]
+fn log_over_a_range_holding_nothing_says_so_and_succeeds() {
+    let directory = store_from("log-range-empty", "tree");
+    let said = stdout(&directory, &["log", "head..kxryzmor"]);
+
+    assert!(said.contains("holds nothing"), "{said}");
+    assert!(!said.contains("no revisions here yet"), "{said}");
+}
+
+/// The subtraction is over two ancestries, so a range between two revisions
+/// the graph left concurrent is as well defined as one along a chain: what is
+/// shown is the other side of the fork, and the shared root is not on it.
+#[test]
+fn log_over_a_range_shows_the_other_side_of_a_fork() {
+    let directory = store_from("log-range-fork", "revisions");
+    let range = stdout(&directory, &["log", "mzvwutkl..nwlxsqot"]);
+
+    assert!(
+        range.contains("Reject two revisions claiming one digest"),
+        "{range}"
+    );
+    // The near end, and the root both ends share, are behind the near end.
+    assert!(
+        !range.contains("Name parents a revision has not received yet"),
+        "{range}"
+    );
+    assert_eq!(entries(&range).len(), 2);
+}
+
+/// The filters are about revisions and the range is about which revisions, so
+/// they compose the way the filters compose with each other.
+#[test]
+fn log_over_a_range_composes_with_the_filters() {
+    let directory = store_from("log-range-filters", "tree");
+
+    let limited = stdout(&directory, &["log", "qpvuntsm..head", "--limit", "1"]);
+    assert_eq!(entries(&limited).len(), 1);
+    assert!(limited.contains("Withdraw the entry"), "{limited}");
+
+    // Decision 0008 again: the path is read at the far end, which is the
+    // position the range names, and the file is followed from there.
+    let followed = stdout(
+        &directory,
+        &["log", "qpvuntsm..head", "--path", "docs/README.md"],
+    );
+    assert_eq!(entries(&followed).len(), 1);
+    assert!(
+        followed.contains("File the README under docs"),
+        "{followed}"
+    );
+}
+
+/// Both ends are said outright, and the refusal prints what to type instead.
+#[test]
+fn log_refuses_a_range_missing_an_end() {
+    let directory = store_from("log-range-refusals", "tree");
+
+    let one = stderr(&directory, &["log", "kxryzmor.."]);
+    assert!(one.contains("leaves the other blank"), "{one}");
+    assert!(one.contains("`head`"), "{one}");
+
+    let neither = stderr(&directory, &["log", ".."]);
+    assert!(neither.contains("names neither end"), "{neither}");
+
+    // Git's three-dot spelling means the work either side of a fork, which
+    // has no spelling here; the generic refusal would send a person looking
+    // for a bookmark called `.head`.
+    let symmetric = stderr(&directory, &["log", "kxryzmor...head"]);
+    assert!(symmetric.contains("three dots"), "{symmetric}");
+}
+
+/// A bookmark is looked up whole before the spelling is cut, for the reason
+/// one may be called `head`: a name somebody chose beats a spelling the tool
+/// reserved.
+#[test]
+fn a_bookmark_whose_name_holds_the_separator_still_names_itself() {
+    let directory = store_from("log-range-bookmark", "tree");
+    assert!(
+        run(&directory, &["name", "before..after", "kxryzmor"])
+            .status
+            .success()
+    );
+
+    let log = stdout(&directory, &["log", "before..after"]);
+    assert!(log.contains("Say why a path is not an identity"), "{log}");
+    // The bookmark's own ancestry, which a range between those two ends
+    // would not have been: `head` is not behind `kxryzmor`.
+    assert!(log.contains("Start a journal"), "{log}");
+    assert!(!log.contains("Withdraw the entry"), "{log}");
+}
+
 /// The first line of each entry a log printed.
 ///
 /// Every other line of an entry is indented, and a message's blank lines are

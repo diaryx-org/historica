@@ -387,7 +387,11 @@ once, at one revision, and what the log follows is the *file* it named — so a
 rename is not a break in a file's history and no heuristic is asked to guess
 that it was one. A time bound is read in each revision's own offset, since
 0002 leaves no shared instant here to compare against, and a bare `YYYY-MM-DD`
-is that whole day there. Nothing there decides anything
+is that whole day there. `log <from>..<to>` narrows which revisions are on
+offer in the first place, to everything behind `to` that is not behind `from`
+(0063) — a subtraction of two ancestries, so it says the other side of a fork
+as readily as the stretch along a chain, and the filters compose with it as
+they compose with each other. Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.
