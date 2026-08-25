@@ -4,6 +4,12 @@
 //! narrower operation that plain copying cannot perform safely when both
 //! stores changed: union documents by content identity, preserve mutable
 //! disagreements, and comply with forgetting documents.
+//!
+//! Decision 0053 adds the directories this store does not read. A reserved
+//! directory travels by its class: `claims/` unions add-only, `trust/` never
+//! crosses, and a directory nobody reserved is left alone in both directions.
+//! Nothing here opens one of those files, so the union is a union of names —
+//! which is exactly what the class promises the names support.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -40,6 +46,7 @@ pub struct ReceivePlan {
     payloads: Vec<RevisionId>,
     names: BTreeMap<String, Name>,
     skipped: Vec<Rule>,
+    reserved: Vec<String>,
     forgotten: BTreeSet<RevisionId>,
     destroys: BTreeSet<RevisionId>,
     conflicts: Vec<MutableConflict>,
@@ -80,6 +87,17 @@ impl ReceivePlan {
         &self.skipped
     }
 
+    /// Files of another tool's the source holds under a name this store has
+    /// no file under, relative to the store root.
+    ///
+    /// Decision 0053: a reserved directory of the `travels-and-unions` class
+    /// unions add-only. A name both stores hold is left as this store has it
+    /// and never read, because the rule that named it is a grammar 0046
+    /// promised historica would not learn.
+    pub fn reserved(&self) -> &[String] {
+        &self.reserved
+    }
+
     /// Forgotten originals that will be destroyed.
     pub fn destroys(&self) -> &BTreeSet<RevisionId> {
         &self.destroys
@@ -97,6 +115,7 @@ impl ReceivePlan {
             && self.payloads.is_empty()
             && self.names.is_empty()
             && self.skipped.is_empty()
+            && self.reserved.is_empty()
             && self.destroys.is_empty()
     }
 }
@@ -114,6 +133,8 @@ pub struct Received {
     pub names: usize,
     /// Rules copied.
     pub skipped: usize,
+    /// Files another tool wrote, unioned by their class (decision 0053).
+    pub reserved: usize,
     /// Original operation documents or payloads destroyed in compliance with
     /// received forgetting documents.
     pub destroyed: usize,
@@ -203,6 +224,17 @@ impl<F: Filesystem> Store<F> {
             }
         }
 
+        // Decision 0053: names, compared as names. A file the source holds
+        // under a name this store already has is not a disagreement to report
+        // and not a file to overwrite — it is what add-only means for a
+        // directory whose grammar nothing here reads.
+        let ours: BTreeSet<String> = self.travelling_files()?.into_iter().collect();
+        plan.reserved = source
+            .travelling_files()?
+            .into_iter()
+            .filter(|label| !ours.contains(label))
+            .collect();
+
         Ok(plan)
     }
 
@@ -260,6 +292,16 @@ impl<F: Filesystem> Store<F> {
             received.names += 1;
         }
         received.skipped = self.add_skipped(&plan.skipped)?.len();
+        // Add-only, and the plan is worked out from a listing rather than
+        // held under a lock, so a name that appeared in between is a name
+        // this store already has: `carry_travelling` reports it and nothing
+        // is overwritten.
+        for label in &plan.reserved {
+            let bytes = source.travelling_file(label)?;
+            if self.carry_travelling(label, &bytes)? {
+                received.reserved += 1;
+            }
+        }
         Ok(received)
     }
 

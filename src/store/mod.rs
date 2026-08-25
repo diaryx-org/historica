@@ -27,6 +27,15 @@
 //!                     #   four keys on two axes (0045, 0051)
 //! ```
 //!
+//! A directory here that is not one of those belongs to whichever tool wrote
+//! it (decision 0046), and decision 0053 adds the half that transport needs:
+//! a reservation declares how the directory travels, and `export` and
+//! `receive` act on that class rather than on which tool wrote it.
+//! [`RESERVED_DIRS`] is the registry — `claims/` travels and unions,
+//! `trust/` never crosses a boundary — and anything unreserved travels
+//! nowhere, because leaving something behind is the recoverable way to be
+//! wrong about it.
+//!
 //! `operations/` holds two kinds of file, on the rule `revisions/` already
 //! keeps: only a name ending `.ops.txt` is an operation document, and every
 //! other file is a payload — decision 0017's content that arrives whole,
@@ -87,6 +96,84 @@ pub const OPERATIONS_DIR: &str = "operations";
 pub const NAMES_DIR: &str = "names";
 /// Derived, disposable, and deletable without loss.
 pub const CACHE_DIR: &str = "cache";
+
+/// How a directory at the store root crosses a store boundary.
+///
+/// Decision 0053. Decision 0046 reserved two directory names for a tool
+/// outside historica and promised tolerance for the rest, which is enough for
+/// as long as nothing moves: `check` walks the directories it names and says
+/// nothing about the others. The moment a store crosses a boundary — an
+/// assembled copy at one end, a `receive` at the other — transport has to
+/// decide what becomes of a directory whose grammar historica has refused to
+/// learn, and the answer cannot be per tool without historica learning them
+/// all.
+///
+/// So a reservation declares a class, and `export` and `receive` act on the
+/// class. They never learn a tool's name, its grammar, or how it names files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub enum Travel {
+    /// Immutable, digest-named files that cross a boundary freely.
+    ///
+    /// `export` carries the directory into the copy and `receive` unions it,
+    /// add-only. That is decision 0003's concurrency story applied to files
+    /// nothing here reads: two stores holding one name hold one file, so
+    /// there is no merge rule to get wrong and none to write down.
+    TravelsAndUnions,
+    /// Never crosses a store boundary, in either direction, by any operation.
+    ///
+    /// Decision 0046's argument for `trust/`: a claim is a fact and trust is
+    /// an opinion, and the judgment file is the one thing in a store another
+    /// store must never write.
+    LocalOnly,
+    /// Nobody's, never travels, and deletable without loss.
+    ///
+    /// What parts this from [`LocalOnly`](Travel::LocalOnly) is not where it
+    /// goes, since neither goes anywhere, but what its absence costs: time,
+    /// and never information.
+    Derived,
+}
+
+/// Every directory at the store root reserved for a tool that is not
+/// historica, and how each one travels.
+///
+/// Decision 0053, and the whole of the registry: two names, both decision
+/// 0046's. It is short because each entry is an argument somebody wrote down,
+/// and it grows the way everything else here does — when a tool exists that
+/// wants one, with a decision behind it.
+///
+/// Historica's own [`CACHE_DIR`] is the [`Derived`](Travel::Derived) example
+/// and is not listed, because this table is what transport consults about
+/// directories it does not otherwise know.
+pub const RESERVED_DIRS: [(&str, Travel); 2] = [
+    ("claims", Travel::TravelsAndUnions),
+    ("trust", Travel::LocalOnly),
+];
+
+/// How a directory at the store root travels, asked of a name this store does
+/// not read.
+///
+/// [`Travel::LocalOnly`] for anything unreserved, which is the default rather
+/// than a refusal: an unclassified directory is somebody's, this store does
+/// not know whose, and the two ways to be wrong are not symmetrical. Leaving
+/// it behind costs a copy something that can be given again; carrying it
+/// discloses a file nobody said could travel.
+///
+/// The directories historica reads — [`REVISIONS_DIR`], [`OPERATIONS_DIR`],
+/// [`NAMES_DIR`] and `skipped/` — are outside this question. What becomes of
+/// each of those is its own account, argued in decisions 0042, 0045 and 0051,
+/// and reached by reading a grammar this store owns.
+pub fn travel(directory: &str) -> Travel {
+    match RESERVED_DIRS
+        .iter()
+        .find(|(name, _)| *name == directory)
+        .map(|(_, travel)| *travel)
+    {
+        Some(travel) => travel,
+        None if directory == CACHE_DIR => Travel::Derived,
+        None => Travel::LocalOnly,
+    }
+}
 /// The suffix a writer puts on a revision document.
 ///
 /// Decision 0020: the claim that says which kind of document this is comes
@@ -2334,6 +2421,64 @@ impl<F: Filesystem> Store<F> {
                 Ok(held.is_some_and(|held| format!("{held}\n") == line))
             }
             Err(error) => Err(StoreError::io(path, error)),
+        }
+    }
+
+    /// Every file under a reserved directory that travels, said relative to
+    /// the store root with `/` for a separator.
+    ///
+    /// Decision 0053. Found by the walk everything else here is found by, so
+    /// a tool may file its own directory however it likes, and never opened:
+    /// the class is the whole of what transport has to know, and reading one
+    /// of these files would be the grammar decision 0046 refused.
+    fn travelling_files(&self) -> Result<Vec<String>, StoreError> {
+        let mut found = Vec::new();
+        for (directory, travel) in RESERVED_DIRS {
+            if travel != Travel::TravelsAndUnions {
+                continue;
+            }
+            for path in walk(&self.files, &self.root, directory)?.files {
+                // Decision 0022: a file the platform wrote into our folder is
+                // somebody else's, here as everywhere else in this store.
+                if platform_file(&path) {
+                    continue;
+                }
+                if let Some(label) = label_of(&self.root, &path) {
+                    found.push(label);
+                }
+            }
+        }
+        found.sort();
+        Ok(found)
+    }
+
+    /// The bytes of one file [`Store::travelling_files`] named.
+    fn travelling_file(&self, label: &str) -> Result<Vec<u8>, StoreError> {
+        let path = within(&self.root, label);
+        self.files
+            .read(&path)
+            .map_err(|error| StoreError::io(&path, error))
+    }
+
+    /// Put one travelling file here, saying whether the name was free.
+    ///
+    /// `create_new`, and nothing after it. This is where the class parts from
+    /// [`write_once`]: that helper reads back what it found and insists on the
+    /// same bytes, because the name is a digest *this* code computed under a
+    /// rule it owns. Here the name was computed by somebody else under a rule
+    /// nothing here has read, so the only promise that can be kept is add-only
+    /// — a name already taken is left exactly as it is, unread.
+    fn carry_travelling(&self, label: &str, bytes: &[u8]) -> Result<bool, StoreError> {
+        let path = within(&self.root, label);
+        if let Some(parent) = path.parent() {
+            self.files
+                .create_directory(parent)
+                .map_err(|error| StoreError::io(parent, error))?;
+        }
+        match self.files.create_new(&path, bytes) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+            Err(error) => Err(StoreError::io(&path, error)),
         }
     }
 }

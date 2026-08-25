@@ -73,6 +73,17 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
             if plan.withheld() != 0 {
                 writeln!(out, "would hold back {} private rules", plan.withheld())?;
             }
+            // Decision 0053: said as what it is — files historica does not
+            // read, carried because the directory they sit in says they
+            // travel — since naming the tool is exactly what transport does
+            // not do.
+            if !plan.reserved().is_empty() {
+                writeln!(
+                    out,
+                    "would carry {} files another tool wrote",
+                    plan.reserved().len()
+                )?;
+            }
             for path in plan.paths() {
                 writeln!(out, "{:<7} {path}", "write")?;
             }
@@ -105,6 +116,13 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         }
         if exported.withheld != 0 {
             writeln!(out, "held back {} private rules", exported.withheld)?;
+        }
+        if exported.reserved != 0 {
+            writeln!(
+                out,
+                "carried {} files another tool wrote",
+                exported.reserved
+            )?;
         }
         for path in &exported.files {
             writeln!(out, "{:<7} {path}", "wrote")?;

@@ -231,6 +231,30 @@ filename without `.txt`.
   file <file ID>       a file, wherever it is.
 
 
+Directories another tool wrote
+-------------------------------
+
+A directory beside these that is not named here belongs to whichever tool
+wrote it. Historica reads nothing in one and reports nothing about one; what
+it does know is how each travels, which is declared once per name rather than
+worked out per tool:
+
+  claims/   travels and unions. Immutable files named by the digest of their
+            own bytes, which a copy carries whole and a receive adds to
+            without ever overwriting a name it already has. Two stores holding
+            one name hold one file, so there is nothing to merge.
+  trust/    local only. It never crosses a store boundary, in either
+            direction, by any operation. Copy it yourself if you mean to.
+
+Both are decided by `docs/decisions/0046-who-vouches-for-a-revision.md`, which
+gives them to a signing tool outside Historica. A directory nobody reserved
+travels nowhere: leaving a file behind can be undone by copying it again, and
+carrying one that should have stayed cannot.
+
+`cache/` is a third kind, and Historica's own: derived, nobody's, and
+deletable without loss.
+
+
 Checking a store by hand
 -------------------------
 

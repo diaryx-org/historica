@@ -33,6 +33,14 @@
 //! the rules did not. A `private` rule stays behind, and the copy is told how
 //! many did.
 //!
+//! A reserved directory travels by its class, which is decision 0053: whole,
+//! unread, and without export learning whose it is. `claims/` is carried and
+//! `trust/` is not. The directory is carried **whole** rather than filtered to
+//! the claims naming exported revisions, because the filter would need a
+//! grammar 0046 refused historica, and because a claim covers everything its
+//! revision descends from — so the claim worth having is usually one over a
+//! later head, which is exactly what such a filter would drop.
+//!
 //! # The supersession edge
 //!
 //! Ancestry closes over **parent** edges and nothing else. A revision in the
@@ -84,6 +92,7 @@ pub struct ExportPlan {
     paths: Vec<String>,
     rules: Vec<crate::working::Rule>,
     withheld: usize,
+    reserved: Vec<String>,
 }
 
 impl ExportPlan {
@@ -127,6 +136,14 @@ impl ExportPlan {
     pub fn withheld(&self) -> usize {
         self.withheld
     }
+
+    /// Every file of another tool's that travels, relative to the store root.
+    ///
+    /// Decision 0053: a reserved directory of the `travels-and-unions` class,
+    /// carried whole and unread. `claims/` is the one this store reserves.
+    pub fn reserved(&self) -> &[String] {
+        &self.reserved
+    }
 }
 
 /// What one export wrote.
@@ -148,6 +165,8 @@ pub struct Exported {
     pub rules: usize,
     /// Private rules the copy was not given.
     pub withheld: usize,
+    /// Files another tool wrote, carried by their class (decision 0053).
+    pub reserved: usize,
     /// The paths materialised into the folder, in the order they were written.
     pub files: Vec<String>,
 }
@@ -237,6 +256,7 @@ impl<F: Filesystem> Store<F> {
             paths,
             rules: self.skipped().travelling().cloned().collect(),
             withheld: self.skipped().withheld(),
+            reserved: self.travelling_files()?,
         })
     }
 
@@ -331,6 +351,16 @@ impl<F: Filesystem> Store<F> {
             copy.insert_at(document, &format!("{stem}{REVISION_SUFFIX}"))?;
         }
 
+        // Decision 0053, after the revisions for the reason the revisions come
+        // after the content: an interruption should leave the copy holding
+        // less than it will, never a file vouching for a revision that never
+        // arrived. The files keep the names they had, which is the whole of
+        // what makes the directory union wherever it lands next.
+        for label in &plan.reserved {
+            let bytes = self.travelling_file(label)?;
+            copy.carry_travelling(label, &bytes)?;
+        }
+
         // The folder half is `update`'s, materialised out of the copy's own
         // history — which is the first thing that proves the copy can produce
         // it — and written through the destination filesystem.
@@ -348,6 +378,7 @@ impl<F: Filesystem> Store<F> {
             forgetting: plan.forgetting.len(),
             rules: travelling.len(),
             withheld: plan.withheld,
+            reserved: plan.reserved.len(),
             files: applied.wrote,
         })
     }

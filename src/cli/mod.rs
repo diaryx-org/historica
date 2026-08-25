@@ -423,6 +423,15 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             if !plan.skipped().is_empty() {
                 writeln!(out, "would receive {} rules", plan.skipped().len())?;
             }
+            // Decision 0053: a class, not a tool, so this says what these
+            // files are rather than whose they are.
+            if !plan.reserved().is_empty() {
+                writeln!(
+                    out,
+                    "would receive {} files another tool wrote",
+                    plan.reserved().len()
+                )?;
+            }
             if !plan.destroys().is_empty() {
                 writeln!(
                     out,
@@ -457,6 +466,13 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         }
         if received.skipped != 0 {
             writeln!(out, "received {} rules", received.skipped)?;
+        }
+        if received.reserved != 0 {
+            writeln!(
+                out,
+                "received {} files another tool wrote",
+                received.reserved
+            )?;
         }
         if received.destroyed != 0 {
             writeln!(out, "destroyed {} forgotten originals", received.destroyed)?;

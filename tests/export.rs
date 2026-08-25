@@ -559,6 +559,89 @@ fn the_copy_carries_the_header_that_makes_it_a_store() {
     assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
 }
 
+/// Decision 0053: a reserved directory travels by the class its reservation
+/// declares, and export never learns whose it is. `claims/` travels and
+/// unions, `trust/` never crosses a boundary, and the claims travel **whole**
+/// rather than filtered to the ones naming exported revisions — which is what
+/// the second claim here pins, since the copy's history stops before the
+/// revision it vouches for.
+#[test]
+fn a_reserved_directory_travels_by_the_class_it_declares() {
+    let origin = repository("reserved");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    let first = head_of(&origin);
+    write(&origin, "notes.md", "one\ntwo\n");
+    out(&origin, &["record", "-m", "Second"]);
+    let second = head_of(&origin);
+
+    // What historica-sign leaves in the two directories 0046 reserved. None
+    // of it is read here or anywhere else in this crate, which is the point:
+    // the bytes below are opaque, and the class is the whole of what export
+    // consults.
+    write(
+        &origin,
+        "history/claims/over-the-first.claim.txt",
+        &format!("claim-0\nrevision {first}…\nrole author\n"),
+    );
+    write(
+        &origin,
+        "history/claims/over-the-first.claim.txt.minisig",
+        "untrusted comment: signature from minisign secret key\n",
+    );
+    write(
+        &origin,
+        "history/claims/over-the-second.claim.txt",
+        &format!("claim-0\nrevision {second}…\nrole author\n"),
+    );
+    write(
+        &origin,
+        "history/trust/adam.txt",
+        "trust-0\nkey RWTd8LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3\n",
+    );
+    // Decision 0046's tolerance, unchanged: historica reads none of this and
+    // reports none of it.
+    assert!(out(&origin, &["check"]).ends_with("nothing to report\n"));
+
+    let copy = scratch("reserved-copy").join("journal");
+    let said = out(&origin, &["export", &copy.to_string_lossy(), &first]);
+    assert!(
+        said.contains("carried 3 files another tool wrote"),
+        "{said}"
+    );
+
+    // Every file of the travelling directory, under the names it had, since
+    // the names are what makes it union wherever the copy lands next.
+    assert_eq!(
+        walk(&copy.join("history/claims")),
+        vec![
+            "over-the-first.claim.txt".to_owned(),
+            "over-the-first.claim.txt.minisig".to_owned(),
+            "over-the-second.claim.txt".to_owned(),
+        ]
+    );
+    assert_eq!(
+        fs::read_to_string(copy.join("history/claims/over-the-second.claim.txt"))
+            .expect("the claim over a revision the copy does not hold"),
+        format!("claim-0\nrevision {second}…\nrole author\n"),
+        "the copy holds the claim's bytes, byte for byte"
+    );
+    // Whole rather than filtered: the copy's history ends at the first
+    // revision, and the claim over the second travelled anyway. A claim
+    // covers everything its revision descends from (0046), so the claim over
+    // a later head is the one that vouches for this copy.
+    let log = out(&copy, &["log"]);
+    assert!(!log.contains("Second"), "a later revision travelled: {log}");
+
+    // Local only, in the one direction an export can be wrong in.
+    assert!(
+        !copy.join("history/trust").exists(),
+        "0046's trust policy travelled: a store seeded with another's keys \
+         verifies another's history"
+    );
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+}
+
 #[test]
 fn a_dry_run_and_the_export_describe_the_same_copy() {
     let origin = furnished("dry-run");

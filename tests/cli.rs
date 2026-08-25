@@ -1641,6 +1641,91 @@ fn receive_unions_independent_work_without_touching_either_working_copy() {
     assert!(stdout(&here, &["check"]).ends_with("nothing to report\n"));
 }
 
+/// Decision 0053: a reserved directory travels by its class. `claims/` is
+/// `travels-and-unions`, so a receive adds the names it lacks and leaves the
+/// names it holds exactly as they are — it never reads one, so "the same
+/// file" can only mean the same name. `trust/` is `local-only`, and a receive
+/// that wrote it would be authority arriving from the party the policy exists
+/// to judge.
+#[test]
+fn receive_unions_claims_and_never_writes_trust() {
+    let here = repository("receive-claims-here");
+    write(&here, "notes.md", "common\n");
+    out(recorded(&here, &["record", "-m", "Common root"]));
+
+    let there = scratch("receive-claims-there");
+    copy_tree(&here, &there);
+    write(&there, "notes.md", "theirs\n");
+    out(recorded(&there, &["record", "-m", "Work done there"]));
+
+    // A claim each, a name both stores hold under different bytes, and the
+    // trust policy the source states about itself.
+    write(&here, "history/claims/ours.claim.txt", "claim-0\nours\n");
+    write(
+        &here,
+        "history/claims/both.claim.txt",
+        "claim-0\nheld here\n",
+    );
+    write(
+        &there,
+        "history/claims/theirs.claim.txt",
+        "claim-0\ntheirs\n",
+    );
+    write(
+        &there,
+        "history/claims/theirs.claim.txt.minisig",
+        "untrusted comment: signature from minisign secret key\n",
+    );
+    write(
+        &there,
+        "history/claims/both.claim.txt",
+        "claim-0\nheld there\n",
+    );
+    write(&there, "history/trust/them.txt", "trust-0\nkey RWTd8LRC…\n");
+
+    let planned = stdout(&here, &["receive", &there.to_string_lossy(), "--dry-run"]);
+    assert!(
+        planned.contains("would receive 2 files another tool wrote"),
+        "{planned}"
+    );
+    let received = stdout(&here, &["receive", &there.to_string_lossy()]);
+    assert!(
+        received.contains("received 2 files another tool wrote"),
+        "{received}"
+    );
+
+    // Add-only: what arrived is what this store had no name for.
+    assert_eq!(
+        walk_names(&here.join("history/claims")),
+        vec![
+            "both.claim.txt".to_owned(),
+            "ours.claim.txt".to_owned(),
+            "theirs.claim.txt".to_owned(),
+            "theirs.claim.txt.minisig".to_owned(),
+        ]
+    );
+    assert_eq!(
+        fs::read_to_string(here.join("history/claims/both.claim.txt")).expect("the held claim"),
+        "claim-0\nheld here\n",
+        "a name this store already held was overwritten"
+    );
+    assert!(
+        !here.join("history/trust").exists(),
+        "0046's trust policy crossed a store boundary"
+    );
+    // Nothing went the other way either: a receive reads the source.
+    assert!(!there.join("history/claims/ours.claim.txt").exists());
+
+    // And a second run has nothing to add, which is what makes this a union
+    // rather than a copy that keeps arriving.
+    let again = stdout(&here, &["receive", &there.to_string_lossy()]);
+    assert!(
+        !again.contains("files another tool wrote"),
+        "the union is not idempotent: {again}"
+    );
+    assert!(stdout(&here, &["check"]).ends_with("nothing to report\n"));
+}
+
 /// Decision 0032 gave `operations/` a second grammar, and transport carries
 /// it. A receive that copied only operation documents delivered every
 /// revision of a merge and not the document its `edit` line names — and then
