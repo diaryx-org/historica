@@ -106,6 +106,12 @@ writing a store
   abandon <target> [-m <why>] [--dry-run]
                            supersede this revision, and everything standing
                            on it, with a tombstone that says why
+  carry [<target>] [--dry-run]
+                           restate work standing on a rewritten revision
+                           against the rewrite; with no target, every such
+                           revision. nothing is stamped or minted, so two
+                           replicas repairing one history write the same
+                           bytes
   prune [--dry-run]        delete superseded revisions nothing stands on, and
                            content only they name, printing every file
   receive <dir> [--dry-run] [--join-unrelated]
@@ -262,6 +268,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "record" => record::record(&base, locate(&base)?, rest),
         "amend" => record::amend(locate(&base)?, rest),
         "abandon" => record::abandon(&base, locate(&base)?, rest),
+        "carry" => record::carry(locate(&base)?, rest),
         "prune" => prune(&base, rest),
         "receive" => receive(&base, rest),
         "export" => export::export(&base, locate(&base)?, rest),

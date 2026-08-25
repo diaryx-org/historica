@@ -30,6 +30,7 @@ use crate::store::{MaterialiseError, Name, REVISION_SUFFIX, Store, StoreError};
 use crate::tree::{Kind, Tree, TreeContest};
 use crate::working::{self, Working, WorkingError};
 
+pub mod carry;
 pub mod identity;
 pub mod source;
 

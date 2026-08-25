@@ -422,6 +422,93 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
     })
 }
 
+/// `carry [<target>] [--dry-run]`.
+///
+/// Decision 0059: restate work standing on a rewritten revision against the
+/// rewrite. Everything derives from what the store holds — no clock, no
+/// random source, no author — which is what lets two replicas repairing one
+/// history write byte-identical files. With no target it finds every
+/// revision `check`'s note would name, and finding none is the ordinary
+/// answer rather than a refusal.
+pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut named: Option<String> = None;
+    let mut dry_run = false;
+    for argument in arguments {
+        match argument.as_str() {
+            "-n" | "--dry-run" => dry_run = true,
+            other if other.starts_with('-') => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `carry` takes"
+                )));
+            }
+            other if named.is_none() => named = Some(other.to_owned()),
+            other => {
+                return Err(Failure::usage(format!(
+                    "`carry` carries one line of work, and `{other}` is a second"
+                )));
+            }
+        }
+    }
+
+    let mut store = Store::open(&root)?;
+    let target = match &named {
+        Some(spelling) => Some(target::resolve(&store, spelling)?),
+        None => None,
+    };
+
+    let planned = if dry_run {
+        historica::record::carry::plan(&store, target.as_ref()).map_err(Failure::error)?
+    } else {
+        historica::record::carry::carry(&mut store, target.as_ref()).map_err(Failure::error)?
+    };
+
+    printing(|out| {
+        if planned.is_empty() {
+            return writeln!(
+                out,
+                "nothing stands on a rewritten revision; there is nothing to carry"
+            );
+        }
+        let mut restated = false;
+        for step in &planned.steps {
+            writeln!(
+                out,
+                "{} {} as {}, onto {}",
+                if dry_run { "would carry" } else { "carried" },
+                step.predecessor.abbreviate(12),
+                step.revision.abbreviate(12),
+                step.onto
+                    .iter()
+                    .map(|id| id.abbreviate(12))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            )?;
+            for path in &step.restated {
+                writeln!(out, "  restated {path}")?;
+            }
+            restated |= !step.restated.is_empty();
+        }
+        if !dry_run {
+            // Decision 0013's reason, one command over: the superseded
+            // revisions are the record of what the work was, and prune is
+            // the command that empties it.
+            writeln!(
+                out,
+                "what was carried is still here, superseded; `historica prune` \
+                 is what removes it"
+            )?;
+            if restated {
+                writeln!(
+                    out,
+                    "the folder is unchanged; `historica update` makes it hold \
+                     the carried head"
+                )?;
+            }
+        }
+        Ok(())
+    })
+}
+
 /// `merge [<target>...]` — write what two lines of work say together.
 ///
 /// Decision 0012: nothing conflicted is recorded and nothing is remembered.

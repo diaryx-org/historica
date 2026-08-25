@@ -463,7 +463,8 @@ impl fmt::Display for Finding {
                 successors,
             } => write!(
                 f,
-                "{} stands on {}, which {} supersedes; the rewrite did not reach it",
+                "{} stands on {}, which {} supersedes; it was authored before \
+                 the rewrite. Run `historica carry` to repair automatically",
                 revision.abbreviate(12),
                 superseded.abbreviate(12),
                 display_missing(successors)

@@ -471,10 +471,21 @@ content — the `shasum` claim above becomes conditional at that moment, and
 only then — and a store that has forgotten nothing is unaffected, which is
 nearly all of them.
 
-What is still owed of the rewriting half is everything that needs a
-descendant reparented: amending a revision that has one, abandoning it, and
-moving a change somewhere new are one piece of work — transforming operations
-against operations — and none of it is built.
+The rewriting half's wall — restating a descendant's operations against a
+parent whose content moved is 0007's merge under another name — is decision
+0059, walked through rather than around: `carry` restates work standing on a
+rewritten revision against the rewrite, which is the state transport can
+deliver and `check`'s note describes. Everything that describes the work is
+copied and `revised` comes from the rewrite that caused it, so nothing is
+stamped or minted and two replicas repairing one history write byte-identical
+files. A file the rewrite did not touch is carried verbatim, naming the same
+operation documents; one it did touch is restated through 0007's merge, the
+delta between the two bases replaying concurrently with the descendant's own
+operations — and where the two meet, the carry refuses whole, because
+resolving concurrent work is a person's. What is still owed on top of the
+primitive is the inline acts: amending or abandoning a revision that has a
+descendant, and moving a change somewhere new, each a spelling question 0059
+leaves open now that the machinery beneath all three is built.
 The ordering rule is held to convergence and to non-interleaving by property
 tests over every walk order of each graph they generate, and by the
 conformance suite 0007 asks for: an independent reference implementation of

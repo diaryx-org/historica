@@ -3791,7 +3791,7 @@ fn merging_onto_a_rewrite_nobody_finished_says_so_first() {
     // rewrite did not reach, which is the thing no other finding covers.
     let checked = stdout(&here, &["check"]);
     assert!(
-        checked.contains("the rewrite did not reach it"),
+        checked.contains("Run `historica carry` to repair automatically"),
         "{checked}"
     );
     assert!(checked.contains("no errors"), "{checked}");
@@ -5371,4 +5371,215 @@ fn files_under(root: &Path) -> Vec<PathBuf> {
     }
     found.sort();
     found
+}
+
+/// Every file under one store directory, by path relative to it, with its
+/// bytes — the whole answer to "did two replicas write the same thing".
+fn store_files(directory: &Path, under: &str) -> std::collections::BTreeMap<String, Vec<u8>> {
+    let root = directory.join("history").join(under);
+    files_under(&root)
+        .into_iter()
+        .map(|path| {
+            let relative = path
+                .strip_prefix(&root)
+                .expect("a file under the walked root")
+                .to_string_lossy()
+                .into_owned();
+            (relative, fs::read(&path).expect("a readable store file"))
+        })
+        .collect()
+}
+
+/// Decision 0059: the rewrite a receive delivered half of, finished by a
+/// command that derives everything from the store. The rewrite touched the
+/// first line and the stranded work appended, so the two never meet, and the
+/// carried head holds both.
+#[test]
+fn carry_finishes_a_rewrite_transport_delivered_half_of() {
+    let here = repository("carry-finishes");
+    write(&here, "note.txt", "one\ntwo\nthree\n");
+    out(recorded(&here, &["record", "-m", "Start the note"]));
+
+    let there = scratch("carry-finishes-there");
+    copy_tree(&here, &there);
+
+    write(&here, "note.txt", "uno\ntwo\nthree\n");
+    out(recorded(
+        &here,
+        &["amend", "-m", "Start the note, in Spanish"],
+    ));
+    write(&there, "note.txt", "one\ntwo\nthree\nfour\n");
+    out(recorded(&there, &["record", "-m", "Add four"]));
+
+    let source = there.to_string_lossy().into_owned();
+    out(recorded(&here, &["receive", &source]));
+    let checked = stdout(&here, &["check"]);
+    assert!(
+        checked.contains("Run `historica carry` to repair automatically"),
+        "{checked}"
+    );
+
+    let carried = stdout(&here, &["carry"]);
+    assert!(carried.contains("carried"), "{carried}");
+    assert!(carried.contains("restated note.txt"), "{carried}");
+
+    // The note is gone, and the folder catches up to a head holding both
+    // edits: the amendment's first line, the stranded revision's last.
+    let checked = stdout(&here, &["check"]);
+    assert!(!checked.contains("historica carry"), "{checked}");
+    out(recorded(&here, &["update"]));
+    let content = fs::read_to_string(here.join("note.txt")).expect("the updated folder");
+    assert_eq!(content, "uno\ntwo\nthree\nfour\n");
+
+    // Run again, it finds nothing: the repair is idempotent.
+    let again = stdout(&here, &["carry"]);
+    assert!(again.contains("nothing to carry"), "{again}");
+}
+
+/// Two replicas repairing one history write byte-identical files, under one
+/// filename: the carried revision derives everything from the store, so the
+/// replica holding the rewrite and the replica holding the descendant end up
+/// with one revision rather than two spellings of it.
+#[test]
+fn two_replicas_carrying_one_stack_write_identical_files() {
+    let here = repository("carry-converges");
+    write(&here, "note.txt", "one\ntwo\nthree\n");
+    out(recorded(&here, &["record", "-m", "Start the note"]));
+    let there = scratch("carry-converges-there");
+    copy_tree(&here, &there);
+
+    write(&here, "note.txt", "uno\ntwo\nthree\n");
+    out(recorded(
+        &here,
+        &["amend", "-m", "Start the note, in Spanish"],
+    ));
+    write(&there, "note.txt", "one\ntwo\nthree\nfour\n");
+    out(recorded(&there, &["record", "-m", "Add four"]));
+
+    let here_source = here.to_string_lossy().into_owned();
+    let there_source = there.to_string_lossy().into_owned();
+    out(recorded(&here, &["receive", &there_source]));
+    out(recorded(&there, &["receive", &here_source]));
+
+    let here_before = store_files(&here, "revisions");
+    let there_before = store_files(&there, "revisions");
+    out(recorded(&here, &["carry"]));
+    out(recorded(&there, &["carry"]));
+
+    let new = |after: std::collections::BTreeMap<String, Vec<u8>>,
+               before: &std::collections::BTreeMap<String, Vec<u8>>| {
+        after
+            .into_iter()
+            .filter(|(name, _)| !before.contains_key(name))
+            .collect::<Vec<_>>()
+    };
+    let here_new = new(store_files(&here, "revisions"), &here_before);
+    let there_new = new(store_files(&there, "revisions"), &there_before);
+    assert_eq!(here_new.len(), 1, "one carried revision");
+    assert_eq!(here_new, there_new);
+}
+
+/// A carry whose operations meet the rewrite's refuses whole: resolving
+/// concurrent work is a person's, and the store is left exactly as found.
+#[test]
+fn a_contested_carry_refuses_and_writes_nothing() {
+    let here = repository("carry-contested");
+    write(&here, "note.txt", "one\ntwo\n");
+    out(recorded(&here, &["record", "-m", "Start the note"]));
+    let there = scratch("carry-contested-there");
+    copy_tree(&here, &there);
+
+    // Both append at the same position, which is a contest to report rather
+    // than an order to invent.
+    write(&here, "note.txt", "one\ntwo\nthree\n");
+    out(recorded(
+        &here,
+        &["amend", "-m", "Start the note, with three"],
+    ));
+    write(&there, "note.txt", "one\ntwo\nfour\n");
+    out(recorded(&there, &["record", "-m", "Add four"]));
+
+    let source = there.to_string_lossy().into_owned();
+    out(recorded(&here, &["receive", &source]));
+
+    let revisions = store_files(&here, "revisions");
+    let operations = store_files(&here, "operations");
+    let refused = stderr(&here, &["carry"]);
+    assert!(refused.contains("by hand"), "{refused}");
+    assert_eq!(store_files(&here, "revisions"), revisions);
+    assert_eq!(store_files(&here, "operations"), operations);
+
+    // The note stands, because nothing was repaired.
+    let checked = stdout(&here, &["check"]);
+    assert!(checked.contains("historica carry"), "{checked}");
+}
+
+/// A reword moves no content, so the carried stack names the operation
+/// documents it already had: nothing is restated, and `operations/` gains
+/// nothing.
+#[test]
+fn a_carry_across_a_reword_is_verbatim() {
+    let here = repository("carry-reword");
+    write(&here, "note.txt", "one\ntwo\n");
+    out(recorded(&here, &["record", "-m", "Start the note"]));
+    let there = scratch("carry-reword-there");
+    copy_tree(&here, &there);
+
+    out(recorded(&here, &["amend", "-m", "Start the notebook"]));
+    write(&there, "note.txt", "one\ntwo\nthree\n");
+    out(recorded(&there, &["record", "-m", "Add three"]));
+
+    let source = there.to_string_lossy().into_owned();
+    out(recorded(&here, &["receive", &source]));
+
+    let operations = store_files(&here, "operations");
+    let carried = stdout(&here, &["carry"]);
+    assert!(!carried.contains("restated"), "{carried}");
+    assert_eq!(store_files(&here, "operations"), operations);
+    let checked = stdout(&here, &["check"]);
+    assert!(!checked.contains("historica carry"), "{checked}");
+}
+
+/// `carry` with a target wants a revision standing on a rewritten one, and
+/// `--dry-run` says what it would do while writing nothing.
+#[test]
+fn carry_names_its_target_and_dry_run_writes_nothing() {
+    let here = repository("carry-target");
+    write(&here, "note.txt", "one\ntwo\nthree\n");
+    out(recorded(&here, &["record", "-m", "Start the note"]));
+    let there = scratch("carry-target-there");
+    copy_tree(&here, &there);
+
+    write(&here, "note.txt", "uno\ntwo\nthree\n");
+    let amended = out(recorded(
+        &here,
+        &["amend", "-m", "Start the note, in Spanish"],
+    ));
+    let rewrite = amended
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("amended ")
+                .and_then(|rest| rest.split(" as ").nth(1))
+        })
+        .expect("the amendment's digest")
+        .to_owned();
+    write(&there, "note.txt", "one\ntwo\nthree\nfour\n");
+    out(recorded(&there, &["record", "-m", "Add four"]));
+
+    let source = there.to_string_lossy().into_owned();
+    out(recorded(&here, &["receive", &source]));
+
+    // The rewrite itself stands on nothing rewritten.
+    let refused = stderr(&here, &["carry", &rewrite]);
+    assert!(
+        refused.contains("does not stand on a rewritten revision"),
+        "{refused}"
+    );
+
+    let revisions = store_files(&here, "revisions");
+    let planned = stdout(&here, &["carry", "--dry-run"]);
+    assert!(planned.contains("would carry"), "{planned}");
+    assert_eq!(store_files(&here, "revisions"), revisions);
+    let checked = stdout(&here, &["check"]);
+    assert!(checked.contains("historica carry"), "{checked}");
 }
