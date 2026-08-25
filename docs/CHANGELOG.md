@@ -85,6 +85,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **update** — lay a revision out in a directory that holds nothing ([`b2c6fb0`](https://github.com/diaryx-org/historica/commit/b2c6fb05b5988a956bbaa8bde33cf46e060adc31))
 - **store** — ask what a digest is, not which grammar you hoped for ([`ad8ac7e`](https://github.com/diaryx-org/historica/commit/ad8ac7ee98f68c63daa3f343596ecba775004a97))
 - **format** — a resolution can forget what it minted ([`cfc6763`](https://github.com/diaryx-org/historica/commit/cfc676320905b5e928672bb6694145c5df072505))
+- **skipped** — give a rule two axes, and close the key set ([`5d582c8`](https://github.com/diaryx-org/historica/commit/5d582c8259687374e432377e02b44a0326587fb2))
 
 ### Fixed
 
@@ -480,6 +481,24 @@ severity and the exit code are unchanged.
 - `merge::Quoted` gains `text` and `dropped_by`, the
   latter naming revisions that removed an item without quoting it, which
   is how a resolution drops one.
+
+- `Rule` is no longer three flat variants. It is a
+ `scope` beside a `private` flag, and the scope is the new `Scope`
+ enum — `Path`, `Under`, `Name` and `NameUnder`, the last two holding
+ the new `Pattern` type. Construct with `Rule::shared(scope)` or
+ `Rule::private(scope)`. Rule equality includes the flag, so a private
+ rule and its shared twin are two rules to `Skipped::stated`, to
+ `receive`'s union, and to `skip`'s already-held check.
+
+- `skip-suffix` is refused by name. A store holding
+ one stops every command with an error naming `skip-name *<ending>`,
+ and `check` reports it with the exact replacement line. The `skip
+ --suffix` flag is refused in the same way, pointing at `--name`.
+
+- `export` now writes every shared rule into the
+ copy's `history/skipped/`, where it previously wrote none. `Exported`
+ and `ExportPlan` gain a count of the rules carried and a count of the
+ private rules withheld, and `export` prints both.
 
 <!-- git-cliff:end -->
 
