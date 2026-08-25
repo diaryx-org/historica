@@ -583,11 +583,18 @@ impl Filesystem for Disk {
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        use io::Write as _;
+        use fs_transaction::fs::Storage as _;
 
-        let mut file = atomic_write_file::AtomicWriteFile::open(path)?;
-        file.write_all(bytes)?;
-        file.commit()
+        // Decision 0026's atomic replacement, with the flushes it always
+        // implied: the bytes are staged in a temporary sibling, barriered so
+        // the rename cannot be seen before what it publishes, renamed over the
+        // destination, and the directory entry is flushed durable. `write` is
+        // what lands the store's mutable files — a bookmark, the marker — and
+        // those are the writes that *name* documents, so this durable landing
+        // is also the drain that caps every barrier `create_new` left behind:
+        // once a record's own write returns, nothing it names can be lost to a
+        // power cut it survived.
+        fs_transaction::exec::block_on(fs_transaction::StdFs.write_atomic(path, bytes))
     }
 
     fn create_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {

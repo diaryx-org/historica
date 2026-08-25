@@ -49,7 +49,7 @@ repository = "https://github.com/diaryx-org/historica"
 # transport through the trait instead.
 [features]
 default = ["disk", "http"]
-disk = ["dep:atomic-write-file"]
+disk = ["dep:fs-transaction"]
 http = ["dep:nyquest", "dep:nyquest-preset"]
 
 # The command-line front end is `std::fs` throughout, deliberately: decision
@@ -61,7 +61,13 @@ path = "src/main.rs"
 required-features = ["disk"]
 
 [dependencies]
-atomic-write-file = { version = "0.2.3", optional = true }
+# The write-safety layer under `Disk`, and nothing above it: decision 0026's
+# atomic replacement, the store's exclusive create, and the barrier-then-drain
+# ordering that keeps a record from surviving a crash the bytes it names did
+# not. `barrier-fsync` answers ordering barriers with `F_BARRIERFSYNC` on
+# Apple platforms instead of a drain of the drive's whole write cache, and is
+# inert everywhere else.
+fs-transaction = { version = "0.2", optional = true, features = ["barrier-fsync"] }
 getrandom = "0.4"
 # The platform's own HTTP stack, behind one interface: WinRT on Windows,
 # NSURLSession on Apple, libcurl elsewhere. Decision 0057 argues the choice —
