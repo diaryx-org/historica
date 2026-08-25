@@ -21,6 +21,7 @@ mod arrange;
 mod blame;
 mod diff;
 mod export;
+mod offer;
 mod record;
 mod render;
 mod target;
@@ -91,6 +92,12 @@ writing a store
                            nothing unrecorded or skipped can travel, because
                            the copy is assembled rather than mirrored.
                            compressing it is tar's job
+  offer <dir>              list the transferable files of a published copy, to
+                           standard output, for a reader that cannot list the
+                           directory it is fetching from: a kind, a digest,
+                           what the entry forgets, and the path. writes
+                           nothing — redirect it beside the copy, as
+                           `offer.txt`, after the `export` that made it
   forget <target> <path> --lines <first>..<last> [--dry-run]
                            destroy those lines everywhere history quotes
                            them, leaving their shape; the file's paths,
@@ -230,6 +237,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "prune" => prune(&base, rest),
         "receive" => receive(&base, rest),
         "export" => export::export(&base, locate(&base)?, rest),
+        "offer" => offer::offer(&base, rest),
         "forget" => forget(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "update" => update::update(locate(&base)?, rest),

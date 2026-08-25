@@ -302,6 +302,30 @@ pub(super) fn cached<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Option<C
     })
 }
 
+/// What one pass over `operations/` produced.
+///
+/// Three things, because the pass is the expensive part and every caller wants
+/// a different half of what it learned.
+pub(super) struct Pass {
+    /// Where each digest is, which is what the store looks a document up by.
+    pub(super) catalogue: Catalogue,
+    /// What this pass had to parse in order to learn what a document forgets.
+    ///
+    /// Handed back rather than dropped: the store is about to be asked for
+    /// some of it, and parsing one file twice in one command is the cost this
+    /// whole module exists to remove.
+    pub(super) parsed: BTreeMap<RevisionId, OperationDocument>,
+    /// One entry per **file**, in walk order.
+    ///
+    /// [`Catalogue::at`] is keyed by digest, so two files holding one set of
+    /// bytes collapse there to whichever path sorts first — harmless for a
+    /// lookup, which wants an address and takes any of them, and wrong for a
+    /// caller whose question is what the directory holds. Decision 0048's
+    /// listing is that caller: an offer names every file at the path it is
+    /// actually at, because the path is the only address a fetcher has.
+    pub(super) filings: Vec<(RevisionId, Located)>,
+}
+
 /// Catalogue `operations/`, taking what `cache/` already knows where it can.
 ///
 /// `cached` is false for the one caller that must not take it: `check` exists
@@ -311,7 +335,7 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     files: &F,
     root: &Path,
     cached: bool,
-) -> Result<(Catalogue, BTreeMap<RevisionId, OperationDocument>), StoreError> {
+) -> Result<Pass, StoreError> {
     // The directory as it stands, which is names and no contents. This is the
     // walk the store performed anyway, and it is what every belief below is
     // checked against.
@@ -332,11 +356,8 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     let mut accounted = 0usize;
 
     let mut catalogue = Catalogue::default();
-    // What this pass had to parse in order to learn what a document forgets.
-    // Handed back rather than dropped: the store is about to be asked for
-    // some of it, and parsing one file twice in one command is the cost this
-    // whole module exists to remove.
     let mut parsed: BTreeMap<RevisionId, OperationDocument> = BTreeMap::new();
+    let mut filings: Vec<(RevisionId, Located)> = Vec::new();
     for path in here {
         let relative = match path.strip_prefix(root) {
             Ok(relative) => relative.to_path_buf(),
@@ -386,13 +407,17 @@ pub(super) fn read<F: Filesystem + ?Sized>(
                 (id, forgets)
             }
         };
-        // Sorted by `walk`, so a duplicate resolves to the same path on every
-        // replica: the first one found keeps the entry.
-        catalogue.at.entry(id).or_insert(Located {
+        let filed = Located {
             path: relative,
             forgets,
             document,
-        });
+        };
+        // Every file, at the path it is at. What is lost below is only lost to
+        // the lookup, which wants one address per digest and is right to.
+        filings.push((id, filed.clone()));
+        // Sorted by `walk`, so a duplicate resolves to the same path on every
+        // replica: the first one found keeps the entry.
+        catalogue.at.entry(id).or_insert(filed);
     }
     catalogue.index();
 
@@ -405,7 +430,11 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     if cached && (accounted != held.len() || accounted != catalogue.at.len()) {
         write(files, root, &catalogue);
     }
-    Ok((catalogue, parsed))
+    Ok(Pass {
+        catalogue,
+        parsed,
+        filings,
+    })
 }
 
 /// What `cache/` says, by path, or nothing at all.

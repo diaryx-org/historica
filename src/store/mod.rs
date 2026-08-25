@@ -73,6 +73,7 @@ mod catalogue;
 mod check;
 mod export;
 mod forget;
+mod offer;
 mod prune;
 mod receive;
 
@@ -81,6 +82,7 @@ use catalogue::Catalogue;
 pub use check::{Finding, Report, Severity};
 pub use export::{ExportError, ExportPlan, Exported, Writes};
 pub use forget::{ForgetError, Forgetting, Forgotten};
+pub use offer::{OFFER_HEADER, Offer, OfferKind, Offered};
 pub use prune::Pruned;
 pub use receive::{MutableConflict, ReceiveError, ReceivePlan, Received};
 
@@ -910,14 +912,14 @@ impl<F: Filesystem> Store<F> {
         {
             return Ok(self.catalogue.get_or_init(|| catalogue));
         }
-        let (catalogue, parsed) = catalogue::read(&self.files, &self.root, self.cached)?;
+        let pass = catalogue::read(&self.files, &self.root, self.cached)?;
         // Whatever cataloguing had to parse is already the answer to a
         // question this store is about to be asked, so it is kept rather than
         // dropped and read again.
-        self.read.borrow_mut().operations.extend(parsed);
+        self.read.borrow_mut().operations.extend(pass.parsed);
         // Empty, because nothing above could have filled it: `read` takes
         // `&self.files` and cannot re-enter.
-        Ok(self.catalogue.get_or_init(|| catalogue))
+        Ok(self.catalogue.get_or_init(|| pass.catalogue))
     }
 
     /// Catalogue the directory, where the cheap catalogue could not answer.
@@ -931,9 +933,9 @@ impl<F: Filesystem> Store<F> {
         if self.walked.get().is_some() {
             return Ok(());
         }
-        let (catalogue, parsed) = catalogue::read(&self.files, &self.root, self.cached)?;
-        self.read.borrow_mut().operations.extend(parsed);
-        let _ = self.walked.set(catalogue);
+        let pass = catalogue::read(&self.files, &self.root, self.cached)?;
+        self.read.borrow_mut().operations.extend(pass.parsed);
+        let _ = self.walked.set(pass.catalogue);
         Ok(())
     }
 
