@@ -23,7 +23,8 @@
 //! ├── cache/          # derived, disposable, deletable without loss:
 //! │                   #   states by digest (0035), and `operations.txt`,
 //! │                   #   which says where each digest is (0036)
-//! └── skipped/       # what recording does not take, one rule to a file
+//! └── skipped/       # what recording does not take, one rule to a file:
+//!                     #   four keys on two axes (0045, 0049)
 //! ```
 //!
 //! `operations/` holds two kinds of file, on the rule `revisions/` already
@@ -149,7 +150,12 @@ into directories of your own breaks nothing either.
                   reading them again does not replay it, and operations.txt,
                   which says where in operations/ each digest is. Deleting
                   all of it loses nothing.
-  skipped/        what recording does not take, one rule to a file.
+  skipped/        what recording does not take, one rule to a file. A rule
+                  is a key, a space, and a value: `skip <path>` and `skip
+                  <path>/`, or `skip-name <name>` and `skip-name <name>/`,
+                  where the name is one path component and `*` is any run of
+                  characters in it. `private` and `private-name` say the same
+                  things and are not written into an `export`.
   format.txt      every grammar above, spelled out: what each line of each
                   document means, and how to materialise a file from them
                   with an editor and `shasum`. Read that one if you have no

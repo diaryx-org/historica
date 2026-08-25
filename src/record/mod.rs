@@ -2162,7 +2162,8 @@ impl fmt::Display for RecordError {
                 f,
                 "`{}/{}/` skips {} history already holds, so recording would \
                  spell {} as a deletion; delete the {} first and record that, \
-                 or drop the rule — history holds what it holds:{}",
+                 or drop the rule — history holds what it holds, and `forget` \
+                 is what removes recorded content:{}",
                 crate::store::STORE_DIR,
                 crate::working::SKIPPED_DIR,
                 if paths.len() == 1 {

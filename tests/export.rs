@@ -126,7 +126,8 @@ fn furnished(test: &str) -> PathBuf {
     out(&directory, &["record", "-m", "A second thought"]);
 
     out(&directory, &["name", "main", "head"]);
-    out(&directory, &["skip", "--suffix", ".tmp"]);
+    out(&directory, &["skip", "--name", "*.tmp"]);
+    out(&directory, &["skip", "--private", "clients/acme-layoffs/"]);
     write(&directory, "draft.tmp", "a file a rule keeps out\n");
     write(&directory, "notes.md", "one\ntwo\nunrecorded\n");
     directory
@@ -171,13 +172,26 @@ fn an_export_is_a_repository_a_stranger_can_open() {
         out(&copy, &["names"]).contains("no bookmarks"),
         "the exporter's bookmarks travelled"
     );
-    // Decision 0045: one rule to a file, so the copy's `skipped/` holds the
-    // note `init` writes and no rule at all.
-    let rules: Vec<_> = fs::read_dir(copy.join("history/skipped"))
-        .expect("a rule directory")
-        .map(|entry| entry.expect("an entry").file_name())
+    // Decision 0049: the shared rules travel and the private ones do not. A
+    // copy without `skip-name *.tmp` is a copy whose first `record` offers to
+    // record the recipient's editor droppings, which is the failure 0011 wrote
+    // rules to prevent, arriving because the rules did not.
+    assert!(said.contains("exported 1 rules"), "{said}");
+    assert!(said.contains("held back 1 private rules"), "{said}");
+    let rules: Vec<String> = walk(&copy.join("history/skipped"))
+        .into_iter()
+        .filter_map(|label| fs::read_to_string(copy.join("history/skipped").join(&label)).ok())
+        .filter(|text| !text.starts_with('#'))
         .collect();
-    assert_eq!(rules, vec!["README.txt"], "the exporter's rules travelled");
+    assert_eq!(
+        rules,
+        vec!["skip-name *.tmp\n".to_owned()],
+        "the copy states the shared rule and only that"
+    );
+    // And it says so, as a rule the copy can act on: the recipient's own
+    // `.tmp` files stay out of their history.
+    write(&copy, "theirs.tmp", "an editor's dropping\n");
+    assert!(!out(&copy, &["status"]).contains("theirs.tmp"));
     // A cache is nobody's, so none of the exporter's travels. What the copy
     // has in `cache/` is what it wrote for itself on the way: the note `init`
     // leaves, the catalogue saying where in its *own* `operations/` each

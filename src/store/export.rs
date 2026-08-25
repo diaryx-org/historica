@@ -21,9 +21,17 @@
 //! Every ancestor of the target, every operation document, resolution and
 //! payload those revisions name, and every forgetting document that touches
 //! any of it — decision 0014 always travels, or a copy would resurrect what a
-//! redaction destroyed. Not `names/`, not `skipped.txt`, not `cache/`.
-//! `historica.txt` and `format.txt` are written fresh, because decision 0021
-//! promises the copy explains itself to whoever opens it.
+//! redaction destroyed. Not `names/` and not `cache/`, which are the exporter's
+//! bookmarks and nobody's cache. `historica.txt` and `format.txt` are written
+//! fresh, because decision 0021 promises the copy explains itself to whoever
+//! opens it.
+//!
+//! Every **shared** rule travels, which is decision 0049 superseding the half
+//! of 0042 that called rules the exporter's. A copy that quietly dropped
+//! `skip target/` is one whose first `record` offers to record the recipient's
+//! build output — the failure 0011 wrote rules to prevent, arriving because
+//! the rules did not. A `private` rule stays behind, and the copy is told how
+//! many did.
 //!
 //! # The supersession edge
 //!
@@ -74,6 +82,8 @@ pub struct ExportPlan {
     payloads: Vec<RevisionId>,
     forgetting: Vec<RevisionId>,
     paths: Vec<String>,
+    rules: Vec<crate::working::Rule>,
+    withheld: usize,
 }
 
 impl ExportPlan {
@@ -106,6 +116,17 @@ impl ExportPlan {
     pub fn paths(&self) -> &[String] {
         &self.paths
     }
+
+    /// Every rule the copy will state, which is every shared rule this store
+    /// states.
+    pub fn rules(&self) -> &[crate::working::Rule] {
+        &self.rules
+    }
+
+    /// How many private rules stay behind.
+    pub fn withheld(&self) -> usize {
+        self.withheld
+    }
 }
 
 /// What one export wrote.
@@ -123,6 +144,10 @@ pub struct Exported {
     pub payloads: usize,
     /// Forgetting documents written.
     pub forgetting: usize,
+    /// Rules carried into the copy.
+    pub rules: usize,
+    /// Private rules the copy was not given.
+    pub withheld: usize,
     /// The paths materialised into the folder, in the order they were written.
     pub files: Vec<String>,
 }
@@ -210,6 +235,8 @@ impl<F: Filesystem> Store<F> {
             payloads: payloads.into_iter().collect(),
             forgetting,
             paths,
+            rules: self.skipped().travelling().cloned().collect(),
+            withheld: self.skipped().withheld(),
         })
     }
 
@@ -244,6 +271,15 @@ impl<F: Filesystem> Store<F> {
         // makes. What `init` also writes is a rule file stating no rules and
         // an empty `names/` — which is to say, nothing of the exporter's.
         let mut copy = Store::init_on(files, directory.join(STORE_DIR))?;
+
+        // Decision 0049: the rules that travel, written before the folder is
+        // materialised, because the copy's own walk reads them and a rule the
+        // copy states is a rule the copy has to be able to honour. None of
+        // them can cover a path the target holds — `skip` refuses to write one
+        // that does and `check` reports one that arrives — so this cannot take
+        // a file out of the folder it was about to write.
+        let travelling: Vec<crate::working::Rule> = plan.rules.clone();
+        copy.add_skipped(&travelling)?;
 
         // The names decision 0006 gives a store, computed over what travels
         // rather than over the store it leaves: a collision suffix that
@@ -310,6 +346,8 @@ impl<F: Filesystem> Store<F> {
             documents: plan.documents.len(),
             payloads: plan.payloads.len(),
             forgetting: plan.forgetting.len(),
+            rules: travelling.len(),
+            withheld: plan.withheld,
             files: applied.wrote,
         })
     }

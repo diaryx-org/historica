@@ -64,6 +64,15 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                     plan.forgetting().len()
                 )?;
             }
+            // Decision 0049 puts both counts on the same footing as the
+            // rest: a copy that quietly dropped rules is what it fixes, so
+            // the withheld count is printed even where it is the only one.
+            if !plan.rules().is_empty() || plan.withheld() != 0 {
+                writeln!(out, "would export {} rules", plan.rules().len())?;
+            }
+            if plan.withheld() != 0 {
+                writeln!(out, "would hold back {} private rules", plan.withheld())?;
+            }
             for path in plan.paths() {
                 writeln!(out, "{:<7} {path}", "write")?;
             }
@@ -90,6 +99,12 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         writeln!(out, "exported {} payloads", exported.payloads)?;
         if exported.forgetting != 0 {
             writeln!(out, "exported {} forgetting documents", exported.forgetting)?;
+        }
+        if exported.rules != 0 || exported.withheld != 0 {
+            writeln!(out, "exported {} rules", exported.rules)?;
+        }
+        if exported.withheld != 0 {
+            writeln!(out, "held back {} private rules", exported.withheld)?;
         }
         for path in &exported.files {
             writeln!(out, "{:<7} {path}", "wrote")?;

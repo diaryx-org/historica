@@ -102,6 +102,31 @@ pub enum Finding {
         /// The file.
         file: PathBuf,
     },
+    /// A file still stating `skip-suffix`, which decision 0049 retired.
+    ///
+    /// Worth more than "unknown key", which is all the loader can say, because
+    /// there is an exact replacement and this can spell it.
+    RetiredRule {
+        /// The file.
+        file: PathBuf,
+        /// The line that says the same thing.
+        replacement: String,
+    },
+    /// One path covered both privately and shared.
+    ///
+    /// Decision 0049: the two are separate rules, so a union takes both, so
+    /// the path is named in an export and the private rule accomplished
+    /// nothing. Privacy defeated by addition is the one contradiction this
+    /// format resolves by naming rather than by taking both, and the fix is
+    /// deleting whichever file the person did not mean.
+    PrivateAndShared {
+        /// The value both rules name.
+        value: String,
+        /// The file stating the private rule.
+        private: PathBuf,
+        /// The file stating the shared rule.
+        shared: PathBuf,
+    },
     /// A bookmark was not one valid line.
     MalformedBookmark {
         /// The bookmark file.
@@ -324,7 +349,9 @@ impl Finding {
             | Finding::ResolvedWithoutDisagreement { .. }
             | Finding::MalformedSkipped { .. }
             | Finding::RuleCoversTracked { .. }
-            | Finding::StaleSkipped { .. } => Severity::Error,
+            | Finding::StaleSkipped { .. }
+            | Finding::RetiredRule { .. }
+            | Finding::PrivateAndShared { .. } => Severity::Error,
             Finding::MissingParent { .. }
             | Finding::StandsOnSuperseded { .. }
             | Finding::DanglingBookmark { .. }
@@ -402,6 +429,26 @@ impl fmt::Display for Finding {
                  leaving this here says history skips what it does not",
                 file.display(),
                 crate::working::SKIPPED_DIR
+            ),
+            Finding::RetiredRule { file, replacement } => write!(
+                f,
+                "{} states `skip-suffix`, which is retired and no longer reads; \
+                 `{replacement}` says the same thing, matched against a file's \
+                 own name as the old key always was",
+                file.display()
+            ),
+            Finding::PrivateAndShared {
+                value,
+                private,
+                shared,
+            } => write!(
+                f,
+                "`{value}` is covered privately by {} and shared by {}: rules \
+                 union, so both stand, so the shared one names the path in \
+                 every copy and the private one accomplishes nothing; delete \
+                 whichever of the two you did not mean",
+                private.display(),
+                shared.display()
             ),
             Finding::Unreadable { file, reason } => write!(f, "{}: {reason}", file.display()),
             Finding::MissingParent { parent, named_by } => write!(
@@ -1485,13 +1532,18 @@ fn reachable(
 
 /// Decision 0045's directory, read the way `check` reads everything: through.
 ///
-/// Three things the loader cannot say. A file that is not one rule stops every
-/// command, so `check` names it here rather than at the next `record`. A rule
-/// stated twice is harmless and means somebody's `receive` met a label two
-/// replicas spelled differently. And a rule covering a file the history holds
-/// is the one state a union can arrive at that `skip` refuses to write: rules
-/// no longer conflict, so nothing stops one reaching a store where it is not
-/// writable, and the fix is to delete the file that states it.
+/// Five things the loader cannot say. A file that is not one rule stops every
+/// command, so `check` names it here rather than at the next `record`, and a
+/// file still stating decision 0049's retired `skip-suffix` is named with the
+/// `skip-name` line that replaces it. A rule stated twice is harmless and
+/// means somebody's `receive` met a label two replicas spelled differently.
+/// A rule covering a file the history holds is the one state a union can
+/// arrive at that `skip` refuses to write: rules no longer conflict, so
+/// nothing stops one reaching a store where it is not writable, and the fix is
+/// to delete the file that states it. And one path covered both privately and
+/// shared is decision 0049's one way the travel axis fails — privacy defeated
+/// by addition, in the one container whose every other contradiction is
+/// resolved by taking both.
 fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) {
     // The file this directory replaced. It is not read, and a store carrying
     // one is a store whose rules a reader cannot see.
@@ -1526,7 +1578,15 @@ fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Re
             Ok(Some(rule)) => stated.push((rule, path)),
             // The note `init` writes, and any other prose somebody keeps here.
             Ok(None) => {}
-            Err(error) => report.push(Finding::MalformedSkipped { file: path, error }),
+            // Decision 0049's retired key first, because "unknown key" is the
+            // true but useless half of what there is to say about it.
+            Err(error) => match crate::working::Skipped::retired_in(&text) {
+                Some(replacement) => report.push(Finding::RetiredRule {
+                    file: path,
+                    replacement,
+                }),
+                None => report.push(Finding::MalformedSkipped { file: path, error }),
+            },
         }
     }
 
@@ -1540,6 +1600,24 @@ fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Re
     for (rule, files) in by_rule {
         if files.len() > 1 {
             report.push(Finding::DuplicateRule { rule, files });
+        }
+    }
+
+    // Decision 0049's one way this fails: the same scope stated on both sides
+    // of the travel axis. Scope equality is the whole of it — a shared rule
+    // covering a private rule's path is not a leak, because what the copy
+    // carries is the shared rule's own text, which names something else.
+    for (rule, private_file) in &stated {
+        if !rule.private {
+            continue;
+        }
+        let twin = crate::working::Rule::shared(rule.scope.clone());
+        if let Some((_, shared_file)) = stated.iter().find(|(had, _)| *had == twin) {
+            report.push(Finding::PrivateAndShared {
+                value: rule.scope.to_string(),
+                private: private_file.clone(),
+                shared: shared_file.clone(),
+            });
         }
     }
 

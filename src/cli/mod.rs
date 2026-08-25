@@ -15,7 +15,7 @@ use historica::record::{Restriction, survey};
 use historica::store::{
     Body, Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store, StoreError,
 };
-use historica::working::{Rule, SKIPPED_DIR, Working};
+use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope, Working};
 
 mod arrange;
 mod blame;
@@ -86,7 +86,8 @@ writing a store
   export <dir> [<target>] [--dry-run]
                            write a fresh repository at <dir>: the folder as
                            <target> has it, and the history that leads there.
-                           bookmarks, rules and the cache stay here, and
+                           bookmarks and the cache stay here, the shared
+                           rules travel and the private ones do not, and
                            nothing unrecorded or skipped can travel, because
                            the copy is assembled rather than mirrored.
                            compressing it is tar's job
@@ -106,9 +107,11 @@ writing a store
   name <bookmark> <target> [<path>] [--revision]
                            point a bookmark at a change, pin a revision, or
                            name the file that <path> holds
-  skip <path>... [--suffix <suffix>]
-                           stop history taking a path, a directory, or an
-                           ending; with no arguments, print the rules
+  skip [--private] <path>... [--name <name>]
+                           stop history taking a path, a directory, or a
+                           name in which `*` is any run of characters.
+                           --private keeps the rule's own text out of an
+                           `export`; with no arguments, print the rules
 
 a <target> is `head`, a bookmark, a change ID, or a revision digest; the last
 two may
@@ -974,50 +977,83 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     printing(|out| writeln!(out, "{bookmark} -> {target}"))
 }
 
-/// `skip <path>... [--suffix <suffix>]` — write what history does not take.
+/// `skip [--private] <path>... [--name <name>]` — what history does not take.
 ///
-/// The file is two keys and a value, so this command is a convenience and
+/// The file is four keys and a value, so this command is a convenience and
 /// says so by refusing to be anything more: it appends the line a person
-/// would have typed, and every rule it writes is one `Skipped::parse` reads
+/// would have typed, and every rule it writes is one `Skipped::rule_in` reads
 /// back. What it adds over an editor is the refusal — decision 0011's rule
 /// that a rule may not cover a file the tree already holds, checked here
 /// before the file is written rather than at the next `record`, because the
 /// person is standing in front of the answer now.
 ///
+/// `--private` is decision 0049's travel axis, and it applies to the whole
+/// invocation rather than to the argument after it: a person writing one
+/// command means one thing by it, and a flag that moved rule by rule would be
+/// a precedence to read, which is what the rule file exists not to have.
+///
 /// With no arguments it prints the rules, as `names` prints the bookmarks.
 fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
-    let mut wanted: Vec<Rule> = Vec::new();
+    let mut scopes: Vec<Scope> = Vec::new();
+    let mut private = false;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
-            "--suffix" => {
-                let suffix = arguments
+            "--private" => private = true,
+            "--name" => {
+                let name = arguments
                     .next()
-                    .ok_or_else(|| Failure::usage("`--suffix` wants an ending"))?;
-                wanted.push(Rule::Suffix(usable(&suffix)?));
+                    .ok_or_else(|| Failure::usage("`--name` wants a name to match"))?;
+                scopes.push(name_scope(&name)?);
+            }
+            // Decision 0049 retires the key, so the flag that wrote it goes
+            // with it, and says what to type instead rather than what it is
+            // not.
+            "--suffix" => {
+                return Err(Failure::usage(
+                    "`--suffix` is retired: an ending is `--name` and `*` and the \
+                     ending, matched against a file's own name",
+                ));
             }
             other if other.starts_with("--") => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `skip` takes"
                 )));
             }
-            path => wanted.push(rule_for(base, path)?),
+            path => scopes.push(path_scope(base, path)?),
         }
     }
+    let wanted: Vec<Rule> = scopes
+        .into_iter()
+        .map(|scope| match private {
+            true => Rule::private(scope),
+            false => Rule::shared(scope),
+        })
+        .collect();
 
     let mut store = open(base)?;
     if wanted.is_empty() {
         // The rules, each with the file stating it, since decision 0045 makes
         // that file the whole of what deleting a rule means. `cat` was the
         // preview 0016 asked for while there was one file to cat.
-        let rules: Vec<(String, String)> = store
+        //
+        // Decision 0049 puts the kind on the second line: `export` treats the
+        // two differently and the word is what makes that visible without the
+        // reader having to know which of four keys travels.
+        let rules: Vec<(String, &'static str, String)> = store
             .skipped()
             .stating()
-            .map(|(rule, file)| (rule.to_string(), file.unwrap_or_default().to_owned()))
+            .map(|(rule, file)| {
+                let kind = match rule.travels() {
+                    true => "shared",
+                    false => "private",
+                };
+                (rule.to_string(), kind, file.unwrap_or_default().to_owned())
+            })
             .collect();
         return printing(|out| {
-            for (rule, file) in &rules {
-                writeln!(out, "{rule}\n  {STORE_DIR}/{SKIPPED_DIR}/{file}")?;
+            for (rule, kind, file) in &rules {
+                writeln!(out, "{rule}\n  {kind}  {STORE_DIR}/{SKIPPED_DIR}/{file}")?;
             }
             Ok(())
         });
@@ -1083,13 +1119,13 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     })
 }
 
-/// The rule a path on the command line means.
+/// What a path on the command line matches.
 ///
 /// A directory is spelled with the trailing slash the parser wants, which is
 /// the one thing a person is likely to leave off and the one place leaving it
 /// off changes the meaning — `skip target` matches a file called `target` and
 /// nothing beneath it.
-fn rule_for(base: &Path, path: &str) -> Result<Rule, Failure> {
+fn path_scope(base: &Path, path: &str) -> Result<Scope, Failure> {
     let root = locate(base)?
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
@@ -1099,9 +1135,27 @@ fn rule_for(base: &Path, path: &str) -> Result<Rule, Failure> {
     let directory = trimmed != path || root.join(&relative).is_dir();
     let value = usable(&relative)?;
     Ok(if directory {
-        Rule::Under(value)
+        Scope::Under(value)
     } else {
-        Rule::Path(value)
+        Scope::Path(value)
+    })
+}
+
+/// What a `--name` on the command line matches.
+///
+/// The same parting the paths make: without the trailing slash the value is a
+/// file's own name, with it a directory's and everything beneath. Refused here
+/// rather than written and re-read, so the message names the argument the
+/// person typed.
+fn name_scope(name: &str) -> Result<Scope, Failure> {
+    let trimmed = name.strip_suffix('/');
+    let value = usable(trimmed.unwrap_or(name))?;
+    let pattern = Pattern::parse(&value).map_err(|because| {
+        Failure::usage(format!("`{name}` cannot be a name to match: {because}"))
+    })?;
+    Ok(match trimmed.is_some() {
+        true => Scope::NameUnder(pattern),
+        false => Scope::Name(pattern),
     })
 }
 
