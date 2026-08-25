@@ -1217,3 +1217,170 @@ fn a_dry_run_of_an_update_names_what_would_leave_the_copy() {
         "the dry run named a different number of files than the run withdrew:\n{planned}\n{done}"
     );
 }
+
+// ── `--files-only`: the folder, and nothing under it ──────────────────────
+
+/// A repository of two revisions, so that the past is a place to reach.
+fn two_revisions(test: &str) -> (PathBuf, String, String) {
+    let origin = repository(test);
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    let root = digests(&origin).pop().expect("a root revision");
+    write(&origin, "notes.md", "one\ntwo\n");
+    out(&origin, &["record", "-m", "Second"]);
+    let head = digests(&origin).first().expect("a head").clone();
+    (origin, root, head)
+}
+
+#[test]
+fn files_only_writes_the_folder_and_no_store() {
+    let (origin, _, _) = two_revisions("files-only");
+    let into = scratch("files-only-into").join("folder");
+
+    let said = out(
+        &origin,
+        &["export", &into.to_string_lossy(), "--files-only"],
+    );
+    assert!(said.contains("wrote   notes.md"), "{said}");
+    assert!(said.contains("no history beside it"), "{said}");
+
+    assert_eq!(
+        fs::read_to_string(into.join("notes.md")).unwrap(),
+        "one\ntwo\n"
+    );
+    // The whole of what the flag means: there is no store under it, so nothing
+    // there can be recorded into, fetched from or received.
+    assert!(!into.join("history").exists(), "a store travelled");
+    assert_eq!(walk(&into), vec!["notes.md".to_owned()]);
+    assert!(!run(&into, &["log"]).status.success());
+}
+
+#[test]
+fn files_only_reaches_a_revision_that_is_not_the_head() {
+    let (origin, root, _) = two_revisions("files-only-past");
+    let into = scratch("files-only-past-into").join("folder");
+
+    out(
+        &origin,
+        &["export", &into.to_string_lossy(), &root, "--files-only"],
+    );
+    // The root's content rather than the head's, which is the question the
+    // flag exists to answer cheaply.
+    assert_eq!(fs::read_to_string(into.join("notes.md")).unwrap(), "one\n");
+}
+
+#[test]
+fn the_folder_agrees_with_the_one_a_whole_export_writes() {
+    // The contract that makes this a flag on `export` rather than a command of
+    // its own: what it writes is what `export` writes, with the store left
+    // out. A file of lines and a file of bytes, so decision 0017's two kinds
+    // are both in the comparison.
+    let (origin, _, _) = two_revisions("files-only-agrees");
+    fs::write(origin.join("photo.png"), [0u8, 1, 2, 3]).expect("a picture");
+    write(&origin, "under/deeper.md", "a file in a directory\n");
+    out(&origin, &["record", "-m", "Third"]);
+
+    let whole = scratch("files-only-agrees-whole").join("copy");
+    let folder = scratch("files-only-agrees-folder").join("copy");
+    out(&origin, &["export", &whole.to_string_lossy()]);
+    out(
+        &origin,
+        &["export", &folder.to_string_lossy(), "--files-only"],
+    );
+
+    let mut theirs = walk(&whole);
+    theirs.retain(|path| !path.starts_with("history/"));
+    theirs.sort();
+    let mut ours = walk(&folder);
+    ours.sort();
+    assert_eq!(ours, theirs, "the two folders hold different files");
+    assert!(ours.len() >= 3, "the comparison is too thin: {ours:?}");
+    for path in &ours {
+        assert_eq!(
+            fs::read(whole.join(path)).unwrap(),
+            fs::read(folder.join(path)).unwrap(),
+            "{path} differs between the two copies"
+        );
+    }
+}
+
+/// Decisions 0034 and 0040 arrive as themselves, which is the reason this goes
+/// through `update` rather than writing the bytes out.
+#[test]
+#[cfg(unix)]
+fn a_mode_and_a_link_arrive_in_a_files_only_copy() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let (origin, _, _) = two_revisions("files-only-modes");
+    write(&origin, "build.sh", "#!/bin/sh\necho hello\n");
+    fs::set_permissions(origin.join("build.sh"), fs::Permissions::from_mode(0o755))
+        .expect("making it runnable");
+    std::os::unix::fs::symlink("notes.md", origin.join("current")).expect("a link");
+    out(&origin, &["record", "-m", "Third"]);
+
+    let folder = scratch("files-only-modes-into").join("copy");
+    let said = out(
+        &origin,
+        &["export", &folder.to_string_lossy(), "--files-only"],
+    );
+    assert!(said.contains("mode"), "{said}");
+    assert!(said.contains("linked"), "{said}");
+
+    assert!(
+        fs::symlink_metadata(folder.join("current"))
+            .unwrap()
+            .is_symlink(),
+        "the link arrived as a plain file"
+    );
+    let mode = fs::metadata(folder.join("build.sh"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert!(
+        mode & 0o111 != 0,
+        "the runnable bit did not arrive: {mode:o}"
+    );
+}
+
+#[test]
+fn files_only_wants_a_directory_holding_nothing() {
+    let (origin, _, _) = two_revisions("files-only-occupied");
+    let into = scratch("files-only-occupied-into").join("folder");
+    fs::create_dir_all(&into).expect("the directory");
+    fs::write(into.join("theirs.txt"), "somebody's work\n").expect("their file");
+
+    // Decision 0052 lets a whole export be written over a copy of this store,
+    // because the copy's own history says what the last export put there. A
+    // folder with no store beside it cannot answer that, so there is nothing
+    // to diff and the destination has to be empty.
+    let said = refused(
+        &origin,
+        &["export", &into.to_string_lossy(), "--files-only"],
+    );
+    assert!(said.contains("theirs.txt"), "{said}");
+    assert!(said.contains("holding nothing"), "{said}");
+    // And it left their file exactly where it was.
+    assert_eq!(
+        fs::read_to_string(into.join("theirs.txt")).unwrap(),
+        "somebody's work\n"
+    );
+}
+
+#[test]
+fn a_files_only_dry_run_writes_nothing() {
+    let (origin, _, _) = two_revisions("files-only-dry");
+    let into = scratch("files-only-dry-into").join("folder");
+
+    let said = out(
+        &origin,
+        &[
+            "export",
+            &into.to_string_lossy(),
+            "--files-only",
+            "--dry-run",
+        ],
+    );
+    assert!(said.contains("write   notes.md"), "{said}");
+    assert!(said.contains("would write the folder"), "{said}");
+    assert!(walk(&into).is_empty(), "a dry run wrote something");
+}

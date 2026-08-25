@@ -308,7 +308,14 @@ nothing a `skip` rule names can appear in a copy that is assembled rather than
 mirrored, and compressing the result is tar's job. The rules themselves do
 travel — decision 0051, so a copy's first `record` does not offer to record
 the recipient's build output — and the copy says how many private rules stayed
-behind. `record`
+behind. `export --files-only` is that command with the store left out —
+decision 0060 — because a copy's ancestry is most of what it costs: exporting
+the three-hundredth revision of a six-hundred-revision store writes 14 MB, of
+which 13 is `history/`. It writes the same folder the full copy would, from
+the same target through the same materialisation and the same travelling
+rules, so the two agree byte for byte; what it does not write is anything to
+record into, which is why it is for looking at a revision rather than working
+on one, and why the directory it is given has to be empty. `record`
 writes one and `amend` rewrites one,
 `skip` writes the rule saying what recording does not take, and `identity` says
 who is writing. `diff` is what changed — the folder against the

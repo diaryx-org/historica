@@ -108,13 +108,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
-use crate::format::{Piece, RevisionDocument};
+use crate::format::{Mode, Piece, RevisionDocument};
 #[cfg(feature = "disk")]
 use crate::fs::Disk;
 use crate::fs::Filesystem;
 use crate::naming;
 use crate::update::{self, UpdateError};
-use crate::working::{SKIPPED_DIR, Working};
+use crate::working::{SKIPPED_DIR, Skipped, Working};
 
 use super::{
     Body, HEADER_FILE, MaterialiseError, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR,
@@ -886,6 +886,137 @@ fn stems_around<G: Filesystem>(
     stems
 }
 
+/// The folder a revision has, and nothing else.
+///
+/// Decision 0042 builds a copy a stranger can *work* in, and pays for it: the
+/// target's whole ancestry, every document and payload those revisions name,
+/// and the rules and reserved directories that go with them. Exporting the
+/// three-hundredth revision of a six-hundred-revision store writes 14 MB and
+/// takes a second and a half, of which 13 MB is `history/`.
+///
+/// Sometimes the ancestry is not what was wanted. A person looking at what a
+/// file said last month, a build of an old revision, a tree handed to somebody
+/// who does not have historica — each of those wants the folder and nothing
+/// underneath it. That is the same command with the store left out, because
+/// what it writes is the same folder: the same target, the same
+/// materialisation through [`crate::update`], and the same rules a full copy
+/// would have carried, so `export --files-only` and `export` write folders
+/// that agree byte for byte.
+///
+/// # What it is not
+///
+/// **Not a repository.** There is no `history/`, so nothing here can be
+/// recorded into, fetched from or received. An export at a past revision is
+/// still the way to *work* on one — the copy it writes has that revision as
+/// its only head — and this is the way to *look* at one.
+///
+/// **Not an update in place.** Decision 0052 lets an export be written over a
+/// copy of this store because the copy's own `history/` says what the last
+/// export put there; a folder with no store beside it cannot answer that
+/// question about a single file, so there is nothing to diff and nothing that
+/// could be safely withdrawn. The destination is empty or it is refused,
+/// which is [`crate::update::plan_into`]'s rule and the reason it has one.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ExportedFiles {
+    /// The directory that now holds the folder.
+    pub root: PathBuf,
+    /// The revision it holds.
+    pub target: RevisionId,
+    /// The paths written, in the order they were written.
+    pub files: Vec<String>,
+    /// The links made, with what each was pointed at.
+    pub links: Vec<(String, String)>,
+    /// The paths whose mode was set, with what it was set to.
+    pub modes: Vec<(String, Mode)>,
+    /// Paths left alone, with the reason.
+    ///
+    /// Empty on every ordinary run, and a fault rather than a note when it is
+    /// not: the destination was empty when this began, so there was nothing to
+    /// leave alone unless somebody wrote into it while this was working.
+    pub left: Vec<(String, String)>,
+    /// Paths whose read-back did not hold the bytes just written, because the
+    /// destination folds two of the tree's paths onto one file (decision 0027).
+    pub folded: Vec<String>,
+}
+
+impl<F: Filesystem> Store<F> {
+    /// What a files-only export would write, without writing anything.
+    ///
+    /// The plan is [`crate::update`]'s, so a caller can read it with the same
+    /// eyes it reads `update --dry-run` with.
+    pub fn export_files_plan_onto<G: Filesystem>(
+        &self,
+        files: G,
+        directory: &Path,
+        target: &RevisionId,
+    ) -> Result<update::Update, ExportError> {
+        // A copy of a fault is two faults, which is `export`'s rule and
+        // `prune`'s and `fetch`'s. Nothing about leaving the history behind
+        // makes it safe to copy a folder out of a store that contradicts
+        // itself.
+        if !Store::check_on(self.filesystem(), self.root()).is_ok() {
+            return Err(ExportError::BrokenStore);
+        }
+        let working = self.folder_at(&files, directory)?;
+        Ok(update::plan_into(self, &working, directory, target)?)
+    }
+
+    /// Lay the folder `target` has out at `directory`, writing no `history/`.
+    pub fn export_files_onto<G: Filesystem>(
+        &self,
+        files: G,
+        directory: &Path,
+        target: &RevisionId,
+    ) -> Result<ExportedFiles, ExportError> {
+        if !Store::check_on(self.filesystem(), self.root()).is_ok() {
+            return Err(ExportError::BrokenStore);
+        }
+        let working = self.folder_at(&files, directory)?;
+        let update = update::plan_into(self, &working, directory, target)?;
+        let applied = update::apply(&working, directory, &update)?;
+
+        // The plan's own and the apply's, together: into a directory that held
+        // nothing, both mean the same thing — somebody else is writing here —
+        // and a caller has no use for which half noticed.
+        let mut left = update.leaves.clone();
+        left.extend(applied.left.iter().cloned());
+
+        Ok(ExportedFiles {
+            root: directory.to_path_buf(),
+            target: *target,
+            files: applied.wrote,
+            links: applied.linked,
+            modes: applied.set,
+            left,
+            folded: applied.folded,
+        })
+    }
+
+    /// The destination as a folder, made if it is not there yet.
+    ///
+    /// Decision 0051's rules, filtered to the ones that travel: the folder a
+    /// full export writes is filtered by the rules the copy would have stated,
+    /// so a files-only copy filtered by anything else would not be the same
+    /// folder. A `private` rule keeps its own text out of a copy and is not a
+    /// statement about which files a copy holds.
+    fn folder_at<'a, G: Filesystem>(
+        &self,
+        files: &'a G,
+        directory: &Path,
+    ) -> Result<Working<&'a G>, ExportError> {
+        files.create_directory(directory).map_err(|error| {
+            ExportError::Update(Box::new(UpdateError::Io {
+                path: directory.to_path_buf(),
+                error,
+            }))
+        })?;
+        let skipped = Skipped::from_rules(self.skipped().travelling().cloned());
+        Working::read_on(files, directory, &skipped)
+            .map_err(|error| ExportError::Update(Box::new(UpdateError::Working(error))))
+    }
+}
+
 /// The short form, on the filesystem `std::fs` is.
 #[cfg(feature = "disk")]
 impl Store<Disk> {
@@ -896,6 +1027,15 @@ impl Store<Disk> {
         target: &RevisionId,
     ) -> Result<Exported, ExportError> {
         self.export_onto(Disk, directory.as_ref(), target)
+    }
+
+    /// Lay the folder `target` has out at `directory` on disk, with no store.
+    pub fn export_files(
+        &self,
+        directory: impl AsRef<Path>,
+        target: &RevisionId,
+    ) -> Result<ExportedFiles, ExportError> {
+        self.export_files_onto(Disk, directory.as_ref(), target)
     }
 }
 

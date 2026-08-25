@@ -4,6 +4,12 @@
 //! lines to print, which target the default is, and the `--dry-run` flag that
 //! chooses between planning and doing — decision 0006's division, and the
 //! shape `receive` already has on the other side of the same journey.
+//!
+//! `--files-only` is the same command with the store left out: the folder
+//! the target has, laid out at `<dir>` and nothing beneath it. What it is
+//! for is looking at a revision rather than working on one, and what it
+//! costs is the ancestry — the three-hundredth revision of a
+//! six-hundred-revision store exports 14 MB, of which 13 is `history/`.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -13,13 +19,15 @@ use historica::store::{STORE_DIR, Store};
 
 use super::{Failure, printing, target};
 
-/// `export <dir> [<target>] [-n|--dry-run]` — a fresh repository at `<dir>`.
+/// `export <dir> [<target>] [--files-only] [-n|--dry-run]` — a copy at `<dir>`.
 pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut dry_run = false;
+    let mut files_only = false;
     let mut rest: Vec<String> = Vec::new();
     for argument in arguments {
         match argument.as_str() {
             "-n" | "--dry-run" => dry_run = true,
+            "--files-only" => files_only = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `export` takes"
@@ -46,6 +54,10 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     // target is typed, so this is that answer rather than a second one.
     let target = target::resolve(&store, spelling.as_deref().unwrap_or("head"))?;
     let into = base.join(&directory);
+
+    if files_only {
+        return folder_only(&store, &into, &target, dry_run);
+    }
 
     if dry_run {
         let plan = store
@@ -166,4 +178,93 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
             where_it_is.display()
         )
     })
+}
+
+/// `export <dir> [<target>] --files-only` — the folder, and nothing under it.
+///
+/// The printing is `update`'s rather than `export`'s, because what this writes
+/// is what `update` writes: a folder, file by file, with the links and the
+/// modes said out loud for decisions 0040 and 0034's reason. What it is not is
+/// said on the last line, since a directory that looks like a repository and
+/// is not one is the one thing a person could take away from this wrongly.
+fn folder_only(
+    store: &Store,
+    into: &Path,
+    target: &historica::core::RevisionId,
+    dry_run: bool,
+) -> Result<u8, Failure> {
+    if dry_run {
+        let update = store
+            .export_files_plan_onto(Disk, into, target)
+            .map_err(Failure::error)?;
+        return printing(|out| {
+            for write in &update.writes {
+                writeln!(out, "{:<7} {}", "write", write.path)?;
+            }
+            for chmod in &update.modes {
+                writeln!(out, "{:<7} {}  ({})", "mode", chmod.path, chmod.mode)?;
+            }
+            for link in &update.links {
+                writeln!(out, "{:<7} {}  ({})", "link", link.path, link.target)?;
+            }
+            writeln!(
+                out,
+                "would write the folder {} has at {}, and no history beside it",
+                target::spelled(store, target),
+                into.display()
+            )
+        });
+    }
+
+    let wrote = store
+        .export_files_onto(Disk, into, target)
+        .map_err(Failure::error)?;
+    let where_it_is = wrote
+        .root
+        .canonicalize()
+        .unwrap_or_else(|_| wrote.root.clone());
+
+    let code = printing(|out| {
+        for path in &wrote.files {
+            writeln!(out, "{:<7} {path}", "wrote")?;
+        }
+        for (path, mode) in &wrote.modes {
+            writeln!(out, "{:<7} {path}  ({mode})", "mode")?;
+        }
+        for (path, points) in &wrote.links {
+            writeln!(out, "{:<7} {path}  ({points})", "linked")?;
+        }
+        for (path, because) in &wrote.left {
+            writeln!(out, "left {path} alone: {because}")?;
+        }
+        writeln!(
+            out,
+            "the folder {} has, at {}, and no history beside it",
+            target::spelled(store, target),
+            where_it_is.display()
+        )
+    })?;
+
+    // Decision 0027, and `update`'s wording for it.
+    if !wrote.folded.is_empty() {
+        return Err(Failure::error(format!(
+            "this folder folds paths the tree holds apart, and cannot represent it:{}",
+            wrote
+                .folded
+                .iter()
+                .map(|path| format!("\n  {path}"))
+                .collect::<String>()
+        )));
+    }
+    // Into a directory that held nothing, anything left alone means somebody
+    // else was writing there while this ran — which is a fault rather than the
+    // note it is for `update`, where a folder holding work is the ordinary
+    // case.
+    if !wrote.left.is_empty() {
+        return Err(Failure::error(
+            "something wrote into that directory while the folder was being laid out; \
+             some of it was left alone, above. export into an empty directory",
+        ));
+    }
+    Ok(code)
 }

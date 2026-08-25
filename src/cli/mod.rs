@@ -116,14 +116,17 @@ writing a store
                            content only they name, printing every file
   receive <dir> [--dry-run] [--join-unrelated]
                            import immutable history from another local store
-  export <dir> [<target>] [--dry-run]
+  export <dir> [<target>] [--files-only] [--dry-run]
                            write a fresh repository at <dir>: the folder as
                            <target> has it, and the history that leads there.
                            bookmarks and the cache stay here, the shared
                            rules travel and the private ones do not, and
                            nothing unrecorded or skipped can travel, because
                            the copy is assembled rather than mirrored.
-                           compressing it is tar's job
+                           compressing it is tar's job. --files-only writes
+                           the same folder and no history under it, which is
+                           for looking at a revision rather than working on
+                           one, and wants an empty directory
   offer <dir>              list the transferable files of a published copy, to
                            standard output, for a reader that cannot list the
                            directory it is fetching from: a kind, a digest,
