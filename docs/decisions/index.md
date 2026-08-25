@@ -541,6 +541,27 @@ depend on each other in.
   on by default, so `--no-default-features --features disk` builds every other
   command with no transport compiled in.
 
+- [0058 — What a command does not have to open](0058-what-a-command-does-not-have-to-open.md)
+  0036 removed the cost of finding a digest and 0043 the cost of taking one;
+  neither touched the directory every command reads first. Opening a store
+  performs one read and one parse per file in `revisions/`, and since a
+  revision document holds the whole of the graph, no command escapes it —
+  `names` opened six hundred files to print four lines. The bytes were never
+  the cost, the opens were. So `cache/revisions.txt` holds every revision
+  document verbatim, behind a line stating its digest, size, modification time
+  and path. Bytes rather than facts: a cache of parsed facts would be a second
+  grammar kept in step by hand and would have to be believed, where bytes can
+  be hashed for three tenths of a millisecond — the cheapest way to make a
+  cache incapable of inventing a history. An entry is taken only while its
+  bytes hash to the digest it claims, the directory reports the size and time
+  it recorded, and that time is strictly older than the file holding it, which
+  is 0043's racy rule unchanged. The stamps are what a store of immutable
+  files could be argued not to need, and they are here because the readable
+  files are the authority: a cache believed on immutability alone would go on
+  printing what a hand-edited document used to say. Nothing derived is written
+  down, so it is a cheaper way to reach the documents rather than an index of
+  the graph, and `check` opens everything itself.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
