@@ -94,6 +94,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — keep the revision documents, so that opening costs one read ([`ab2ae9e`](https://github.com/diaryx-org/historica/commit/ab2ae9ec9c5dd8c5506ccfaa615b96b51d88c927))
 - **record** — carry, finishing the rewrite transport delivered half of ([`5c44586`](https://github.com/diaryx-org/historica/commit/5c44586361ad0403dcba85ea616cd8ab503e430e))
 - **export** — --files-only, the folder without the history under it ([`b83bc41`](https://github.com/diaryx-org/historica/commit/b83bc416a11c4734bd1b4d50a981508785bd8881))
+- **names** — a bookmark travels, and a second line keeps one back ([`f00a314`](https://github.com/diaryx-org/historica/commit/f00a3145c0460c9e1d88f61e1974cace47a8ffcf))
 
 ### Fixed
 
@@ -610,6 +611,23 @@ often than the author's view holds elements under it is now refused with
  each other about one file — now opens without error and is refused at the
  moment something asks what that revision did. `check` is unchanged: it
  reads every document whole and reports every fault at once.
+
+- `Store::names` now maps to the new `Bookmark` rather
+  than to `Name`, and `MutableConflict::Name`'s `here` and `there` are
+  `Bookmark`s; `Store::name` still answers with the target alone, and
+  `Store::bookmark` is the new one that answers both halves.
+  `Finding::MalformedBookmark` and `StoreError::MalformedName` gain a
+  `because`, and `MalformedName` is a struct with a private field rather
+  than a unit. `Name::parse` takes the one target line rather than a
+  bookmark file's whole text, and no longer accepts a trailing newline —
+  `Bookmark::parse` reads the file. `OfferKind` gains `Name`, which older
+  fetchers discard on 0056's standing rule for an unknown kind. A bookmark
+  file carrying a second line is refused by any earlier historica, which
+  refuses the whole store; that is 0006's strict parser rather than
+  anything new here, and it is why nothing writes a second line unless
+  somebody asks for one. `export` now writes and withdraws the copy's
+  `names/`, so a bookmark made in a published copy that the origin does not
+  state is removed on the next export, where before it was left alone.
 
 <!-- git-cliff:end -->
 
