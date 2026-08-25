@@ -92,6 +92,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — fetch, taking what is missing from a directory nothing can list ([`9026896`](https://github.com/diaryx-org/historica/commit/9026896989c84000fee4626ec960bb66db35adf5))
 - **cli** — fetch, over the stack the platform already maintains ([`12a49ea`](https://github.com/diaryx-org/historica/commit/12a49eaab5a04af1beb5c89a775923dd68f9e67c))
 - **store** — keep the revision documents, so that opening costs one read ([`ab2ae9e`](https://github.com/diaryx-org/historica/commit/ab2ae9ec9c5dd8c5506ccfaa615b96b51d88c927))
+- **record** — carry, finishing the rewrite transport delivered half of ([`5c44586`](https://github.com/diaryx-org/historica/commit/5c44586361ad0403dcba85ea616cd8ab503e430e))
 
 ### Fixed
 
