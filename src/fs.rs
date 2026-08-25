@@ -598,13 +598,34 @@ impl Filesystem for Disk {
     }
 
     fn create_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
-        use io::Write as _;
+        use fs_transaction::fs::{Durability, Storage as _};
+        use fs_transaction::{OrderedBatch, StdFs, exec::block_on};
 
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?;
-        file.write_all(bytes)
+        // The store is append-only and content-addressed, so a half-written
+        // batch is a legal state — what it cannot tolerate is a *name* that
+        // survives a crash the bytes it stands for did not. So every document
+        // lands as one tier of an ordered batch with `Ordered` finality: the
+        // exclusive create (the whole concurrency story, unchanged), then a
+        // barrier on the file and on every directory that gained an entry,
+        // freshly minted parents included. Nothing here drains the drive; the
+        // batch's own landing may still go with a crash, wholly or in part,
+        // and the tree it leaves is one the store already reads. What turns
+        // the barriers durable is the next mutable write — the bookmark or
+        // marker that *names* this document lands through
+        // [`write`](Filesystem::write)'s durable flush, which carries
+        // everything barriered before it.
+        let directory = path.parent().filter(|held| !held.as_os_str().is_empty());
+        let (Some(directory), Some(name)) = (directory, path.file_name()) else {
+            // A bare relative name has no directory to root a batch in; the
+            // port's own create and barrier are the same first tier.
+            return block_on(async {
+                StdFs.create_new(path, bytes).await?;
+                StdFs.sync(path, Durability::Ordered).await
+            });
+        };
+        let mut batch = OrderedBatch::new();
+        batch.create_new(name, bytes);
+        block_on(batch.apply(&StdFs, directory, Durability::Ordered)).map_err(io_error)
     }
 
     fn create_directory(&self, path: &Path) -> io::Result<()> {
@@ -776,6 +797,22 @@ impl Filesystem for Disk {
             }
             each(&buffer[..read]);
         }
+    }
+}
+
+/// What a one-op batch failed with, said in this trait's currency.
+///
+/// [`std::io::Error`] is the vocabulary here, and a batch of one write can
+/// only fail as its one write — so the wrapper comes off, and the kinds the
+/// crate branches on ([`AlreadyExists`](io::ErrorKind::AlreadyExists) above
+/// all) arrive exactly as the filesystem said them. The other variants are
+/// journal and path machinery a single created file never reaches; a bare
+/// file name cannot escape the directory it is rooted in.
+#[cfg(feature = "disk")]
+fn io_error(error: fs_transaction::Error) -> io::Error {
+    match error {
+        fs_transaction::Error::Io(error) => error,
+        other => io::Error::other(other),
     }
 }
 
