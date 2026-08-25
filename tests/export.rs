@@ -12,6 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use historica::fs::Disk;
 use historica::store::Store;
 
 fn scratch(test: &str) -> PathBuf {
@@ -664,4 +665,549 @@ fn a_dry_run_and_the_export_describe_the_same_copy() {
     }
     assert!(done.contains("wrote   notes.md"), "{done}");
     assert!(done.contains("wrote   notes/photo.png"), "{done}");
+}
+
+// Decision 0052: exporting onto a copy this store already made.
+//
+// The claim under test throughout this half is that the copy is *diffed*
+// rather than rebuilt, and that the diff runs in both directions. Every test
+// below is one of the three outcomes a file can have — written, left, or
+// withdrawn — and the withdrawals are the half worth the most, since a
+// published copy that only ever grew would be a permanent record of
+// everything the origin ever held.
+
+/// A repository with one revision, exported to `copy`, ready to be exported
+/// onto a second time.
+fn published(test: &str) -> (PathBuf, PathBuf) {
+    let origin = repository(test);
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    let copy = scratch(&format!("{test}-copy")).join("journal");
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    (origin, copy)
+}
+
+/// Every revision digest the store at this repository holds.
+fn held(repository: &Path) -> BTreeSet<String> {
+    let store = Store::open(repository.join("history")).expect("the store opens");
+    store.iter().map(|(id, _)| id.to_string()).collect()
+}
+
+#[test]
+fn a_second_export_adds_exactly_what_the_copy_lacked() {
+    let (origin, copy) = published("again");
+    let before = walk(&copy.join("history/revisions"));
+
+    write(&origin, "notes.md", "one\ntwo\n");
+    out(&origin, &["record", "-m", "Second"]);
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+
+    // The difference and nothing else: one revision, the document it edited,
+    // and no payload, because the file it edits arrived with the first export
+    // and is still exactly where that export put it.
+    assert!(said.contains("exported 1 revisions"), "{said}");
+    assert!(said.contains("exported 1 operation documents"), "{said}");
+    assert!(said.contains("exported 0 payloads"), "{said}");
+    assert!(
+        !said.contains("withdrew"),
+        "an addition withdrew something: {said}"
+    );
+    assert!(said.contains("updated the copy of"), "{said}");
+
+    // Files are added and nothing moves, which is what makes a fetch in
+    // flight during an addition-only run work from a subset rather than miss.
+    let after = walk(&copy.join("history/revisions"));
+    assert!(
+        before.iter().all(|name| after.contains(name)),
+        "a file the first export wrote moved: {before:?} then {after:?}"
+    );
+    assert_eq!(after.len(), before.len() + 1);
+
+    assert_eq!(held(&origin), held(&copy));
+    assert_eq!(digests(&origin), digests(&copy));
+    assert_eq!(
+        fs::read_to_string(copy.join("notes.md")).expect("the copy's file"),
+        "one\ntwo\n",
+        "the folder did not catch up, which is decision 0030's half"
+    );
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn a_forget_at_the_origin_destroys_the_bytes_in_the_copy() {
+    let origin = repository("published-forget");
+    write(&origin, "notes.md", "public\nthe secret\n");
+    out(&origin, &["record", "-m", "A secret"]);
+    let target = head_of(&origin);
+    let copy = scratch("published-forget-copy").join("journal");
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(
+        walk(&copy.join("history"))
+            .iter()
+            .any(|file| fs::read(copy.join("history").join(file))
+                .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains("the secret"))),
+        "the first export did not publish the text this test is about"
+    );
+
+    // Decision 0014's promise is that the bytes are gone, and the one copy
+    // that is world-readable is the copy where that has to be true.
+    out(&origin, &["forget", &target, "notes.md", "--lines", "2"]);
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(said.contains("exported 1 forgetting documents"), "{said}");
+    assert!(said.contains("destroyed 1 forgotten originals"), "{said}");
+
+    for file in walk(&copy.join("history")) {
+        let bytes = fs::read(copy.join("history").join(&file)).expect("a stored file");
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains("the secret"),
+            "the copy still holds the forgotten text, in {file}"
+        );
+    }
+    // And the folder too, which is the half a `wget -r` of the copy takes.
+    assert_eq!(
+        fs::read_to_string(copy.join("notes.md")).expect("the copy's file"),
+        "public\n\\ forgotten\n"
+    );
+    assert_eq!(
+        out(&copy, &["cat", "head", "notes.md"]),
+        "public\n\\ forgotten\n"
+    );
+    assert!(out(&copy, &["check"]).contains("no errors, 1 note"));
+}
+
+#[test]
+fn what_a_prune_removed_at_the_origin_is_gone_from_the_copy() {
+    let origin = repository("published-prune");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    write(&origin, "notes.md", "one\ntwo\n");
+    out(&origin, &["record", "-m", "Second"]);
+    let copy = scratch("published-prune-copy").join("journal");
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    let superseded = head_of(&origin);
+
+    // An amendment leaves the superseded revision behind, and `prune` is what
+    // deletes it. Both reach the copy by the same mechanism — the set is the
+    // target's ancestry and the copy is diffed against it — which is the
+    // whole of what decision 0052 means by a prune propagating.
+    write(&origin, "notes.md", "one\ntwo three\n");
+    out(&origin, &["amend", "-m", "Second amended"]);
+    let pruned = out(&origin, &["prune"]);
+    assert!(pruned.contains("removed history/revisions"), "{pruned}");
+
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(said.contains("withdrew"), "{said}");
+    assert_eq!(
+        held(&origin),
+        held(&copy),
+        "the copy is not the replica of a pruned store"
+    );
+    let log = out(&copy, &["log"]);
+    assert!(
+        !log.contains("\n    Second\n"),
+        "the pruned revision survived: {log}"
+    );
+    assert!(
+        !digests(&copy).contains(&superseded),
+        "the copy still holds a revision the origin deleted"
+    );
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn a_target_moved_to_an_ancestor_withdraws_what_it_left_behind() {
+    let origin = repository("published-back");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    let first = head_of(&origin);
+    write(&origin, "notes.md", "one\ntwo\n");
+    fs::create_dir_all(origin.join("notes")).expect("a directory");
+    fs::write(origin.join("notes/photo.png"), [0u8, 1, 2, 255]).expect("a picture");
+    out(&origin, &["record", "-m", "Second"]);
+
+    let copy = scratch("published-back-copy").join("journal");
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(copy.join("notes/photo.png").is_file());
+
+    // The origin still holds every one of these. It is the *published set*
+    // that shrank, and the copy is what the set says rather than a record of
+    // what the set has ever said.
+    let said = out(&origin, &["export", &copy.to_string_lossy(), &first]);
+    assert!(said.contains("withdrew 3 files"), "{said}");
+    assert_eq!(digests(&copy), vec![first.clone()]);
+    assert_eq!(
+        fs::read_to_string(copy.join("notes.md")).expect("the copy's file"),
+        "one\n"
+    );
+    assert!(
+        !copy.join("notes/photo.png").exists(),
+        "the folder still holds a file the published revision never had"
+    );
+    assert!(
+        !walk(&copy.join("history/operations"))
+            .iter()
+            .any(|name| name.ends_with("photo.png")),
+        "the payload nothing published names is still in the copy"
+    );
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+    assert!(out(&copy, &["update"]).contains("already holds"));
+}
+
+#[test]
+fn withdrawals_descend_so_that_no_revision_ever_outlives_its_bytes() {
+    // The interruption invariant, pinned as the order it comes from: a
+    // revision document leaves before the documents it names, and those
+    // before the payloads. Cut the run short anywhere in that sequence and
+    // the copy understates what is reachable, which is what a fetch and a
+    // receive are both already built to meet. The rule files come last,
+    // because they are nothing's ancestor.
+    let origin = repository("descend");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    let first = head_of(&origin);
+    write(&origin, "notes.md", "one\ntwo\n");
+    fs::create_dir_all(origin.join("notes")).expect("a directory");
+    fs::write(origin.join("notes/photo.png"), [0u8, 1, 2, 255]).expect("a picture");
+    out(&origin, &["record", "-m", "Second"]);
+    out(&origin, &["skip", "--name", "*.tmp"]);
+
+    let copy = scratch("descend-copy").join("journal");
+    out(&origin, &["export", &copy.to_string_lossy()]);
+
+    // The rule stops travelling, so its file is withdrawn too.
+    for label in walk(&origin.join("history/skipped")) {
+        if label != "README.txt" {
+            fs::remove_file(origin.join("history/skipped").join(label)).expect("dropping a rule");
+        }
+    }
+
+    let store = Store::open(origin.join("history")).expect("the origin opens");
+    let target = store
+        .iter()
+        .map(|(id, _)| *id)
+        .find(|id| id.to_string().starts_with(&first))
+        .expect("the first revision");
+    let plan = store
+        .export_plan_onto(&Disk, &copy, &target)
+        .expect("a plan onto the copy");
+
+    let ranked: Vec<usize> = plan
+        .withdraws()
+        .iter()
+        .map(|path| {
+            let path = path.to_string_lossy().replace('\\', "/");
+            match () {
+                _ if path.starts_with("revisions/") => 0,
+                _ if path.starts_with("skipped/") => 3,
+                _ if path.ends_with(".ops.txt") => 1,
+                _ => 2,
+            }
+        })
+        .collect();
+    assert_eq!(
+        ranked,
+        vec![0, 1, 2, 3],
+        "the withdrawal order is not revisions, documents, payloads, rules: {:?}",
+        plan.withdraws()
+    );
+
+    // And the plan is what the run acts on, so the two cannot disagree.
+    let said = out(&origin, &["export", &copy.to_string_lossy(), &first]);
+    assert!(said.contains("withdrew 4 files"), "{said}");
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn a_copy_somebody_recorded_in_is_refused_and_told_to_receive() {
+    let (origin, copy) = published("recorded-in");
+
+    // Decision 0052: export assembles, and the machinery for combining two
+    // histories is a command that exists and should be run in the other
+    // direction first.
+    write(&copy, "notes.md", "one\ntheirs\n");
+    out(&copy, &["record", "-m", "Recorded in the copy"]);
+    let complaint = refused(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(
+        complaint.contains("which this store does not"),
+        "{complaint}"
+    );
+    assert!(complaint.contains("`historica receive`"), "{complaint}");
+
+    // And nothing was written: the refusal is decided before the copy is
+    // touched, which is what makes a dry run of it worth anything.
+    assert_eq!(
+        fs::read_to_string(copy.join("notes.md")).expect("the copy's file"),
+        "one\ntheirs\n"
+    );
+    let planned = refused(&origin, &["export", &copy.to_string_lossy(), "--dry-run"]);
+    assert!(planned.contains("`historica receive`"), "{planned}");
+
+    // The named remedy works, and then the export does.
+    out(&origin, &["receive", &copy.to_string_lossy()]);
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(said.contains("updated the copy of"), "{said}");
+    assert_eq!(held(&origin), held(&copy));
+}
+
+#[test]
+fn an_export_refuses_a_directory_holding_a_store_of_its_own() {
+    let origin = repository("stranger");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+
+    let stranger = scratch("stranger-elsewhere").join("journal");
+    fs::create_dir_all(&stranger).expect("a directory");
+    assert!(run(&stranger, &["init"]).status.success());
+    write(&stranger, "theirs.md", "somebody else's\n");
+    out(&stranger, &["record", "-m", "Elsewhere"]);
+
+    let complaint = refused(&origin, &["export", &stranger.to_string_lossy()]);
+    assert!(complaint.contains("shares no revision"), "{complaint}");
+    assert!(
+        fs::read_to_string(stranger.join("theirs.md")).is_ok(),
+        "a refused export wrote into somebody else's repository"
+    );
+
+    // A store that does not check out is refused as its own thing, because a
+    // copy built on a fault is two faults wherever the fault is.
+    let broken = scratch("stranger-broken").join("journal");
+    out(&origin, &["export", &broken.to_string_lossy()]);
+    fs::write(
+        broken.join("history/revisions/nonsense.rev.txt"),
+        "not a revision\n",
+    )
+    .expect("breaking the copy");
+    let complaint = refused(&origin, &["export", &broken.to_string_lossy()]);
+    assert!(complaint.contains("does not pass `check`"), "{complaint}");
+}
+
+#[test]
+fn a_rule_the_origin_made_private_is_withdrawn_from_the_copy() {
+    let origin = repository("rule-withdrawn");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    out(&origin, &["skip", "--name", "*.tmp"]);
+    let copy = scratch("rule-withdrawn-copy").join("journal");
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    let stated = |repository: &Path| -> Vec<String> {
+        walk(&repository.join("history/skipped"))
+            .into_iter()
+            .filter_map(|label| {
+                fs::read_to_string(repository.join("history/skipped").join(&label)).ok()
+            })
+            .filter(|text| !text.starts_with('#'))
+            .collect()
+    };
+    assert_eq!(stated(&copy), vec!["skip-name *.tmp\n".to_owned()]);
+
+    // Decision 0051's travel axis at the one boundary that can be crossed
+    // twice: the rule the copy was given is not the exporter's to leave there
+    // once its text has become the disclosure a `private` rule is about.
+    for label in walk(&origin.join("history/skipped")) {
+        if label != "README.txt" {
+            fs::remove_file(origin.join("history/skipped").join(label)).expect("dropping a rule");
+        }
+    }
+    out(&origin, &["skip", "--private", "--name", "*.tmp"]);
+
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(said.contains("held back 1 private rules"), "{said}");
+    assert!(said.contains("withdrew 1 files"), "{said}");
+    assert!(
+        stated(&copy).is_empty(),
+        "the copy still states a rule the origin made private: {:?}",
+        stated(&copy)
+    );
+    for file in walk(&copy.join("history/skipped")) {
+        let text = fs::read_to_string(copy.join("history/skipped").join(&file)).expect("a file");
+        assert!(
+            !text.lines().any(|line| line.starts_with("private")),
+            "the private rule's text travelled, in {file}"
+        );
+    }
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+
+    // And the other direction: a shared rule the origin gains is written.
+    out(&origin, &["skip", "--name", "*.bak"]);
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    assert_eq!(stated(&copy), vec!["skip-name *.bak\n".to_owned()]);
+}
+
+#[test]
+fn a_file_already_in_the_copy_is_never_renamed_to_make_room() {
+    // Decision 0052, on decision 0041's collision suffix: two revisions
+    // written on one day under one summary would both take the suffix in a
+    // fresh export, and the one already published keeps the plain name it was
+    // fetched under instead. Renaming a published file breaks a fetch in
+    // flight for no gain.
+    let origin = repository("collision");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "Note"]);
+    let copy = scratch("collision-copy").join("journal");
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    let published: Vec<String> = walk(&copy.join("history/revisions"));
+    assert_eq!(published.len(), 1);
+    assert!(published[0].ends_with("Note.rev.txt"), "{published:?}");
+
+    write(&origin, "notes.md", "one\ntwo\n");
+    out(&origin, &["record", "-m", "Note"]);
+    out(&origin, &["export", &copy.to_string_lossy()]);
+
+    let after = walk(&copy.join("history/revisions"));
+    assert_eq!(after.len(), 2, "{after:?}");
+    assert!(
+        after.contains(&published[0]),
+        "the published file was renamed: {published:?} became {after:?}"
+    );
+    assert!(
+        after
+            .iter()
+            .any(|name| name != &published[0] && name.contains("Note ")),
+        "the newcomer did not take the collision suffix: {after:?}"
+    );
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+
+    // The drift decision 0052 accepts, stated out loud: a fresh export of the
+    // same history gives *both* revisions the suffix, because it resolves the
+    // collision against a set that arrived all at once.
+    let fresh = scratch("collision-fresh").join("journal");
+    out(&origin, &["export", &fresh.to_string_lossy()]);
+    assert!(
+        walk(&fresh.join("history/revisions"))
+            .iter()
+            .all(|name| !name.ends_with("Note.rev.txt")),
+        "a fresh export gave one of them the plain name after all"
+    );
+}
+
+#[test]
+fn a_bookmark_made_in_the_copy_survives_an_update() {
+    let (origin, copy) = published("bookmarks");
+    out(&copy, &["name", "theirs", "head"]);
+
+    write(&origin, "notes.md", "one\ntwo\n");
+    out(&origin, &["record", "-m", "Second"]);
+    out(&origin, &["name", "mine", "head"]);
+    out(&origin, &["export", &copy.to_string_lossy()]);
+
+    // Decision 0052: `names/` is neither written nor removed. An export has
+    // never carried bookmarks, and one somebody made in the published copy is
+    // not the exporter's to delete.
+    let names = out(&copy, &["names"]);
+    assert!(names.contains("theirs"), "{names}");
+    assert!(
+        !names.contains("mine"),
+        "the exporter's bookmark travelled: {names}"
+    );
+
+    // `cache/` likewise: it is nobody's, and the copy's own is its own.
+    let cache = walk(&copy.join("history/cache"));
+    assert!(
+        cache
+            .iter()
+            .all(|name| name == "README.txt" || name == "operations.txt" || name == "working.txt"),
+        "the exporter's cache travelled: {cache:?}"
+    );
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn a_claim_the_origin_deleted_stays_in_the_published_copy() {
+    // Decision 0054. `claims/` is `travels-and-unions`, and a union adds. A
+    // name missing at the origin means "not yet arrived" rather than
+    // "deleted", because deciding otherwise would be a merge rule over a
+    // grammar 0046 promised historica would never learn — and because the one
+    // directory built for several parties to write into is the one where an
+    // absence at the origin is least likely to mean what mirroring would read
+    // it as.
+    let (origin, copy) = published("claims-union");
+    write(
+        &origin,
+        "history/claims/over-the-first.claim.txt",
+        "claim-0\nrole author\n",
+    );
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(
+        said.contains("carried 1 files another tool wrote"),
+        "{said}"
+    );
+
+    // A second signer writes into the published copy, which is what the
+    // directory is for.
+    write(
+        &copy,
+        "history/claims/a-second-signer.claim.txt",
+        "claim-0\nrole reviewer\n",
+    );
+
+    fs::remove_file(origin.join("history/claims/over-the-first.claim.txt")).expect("a deletion");
+    write(
+        &origin,
+        "history/claims/over-the-first-again.claim.txt",
+        "claim-0\nrole author\n",
+    );
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(
+        said.contains("carried 1 files another tool wrote"),
+        "{said}"
+    );
+
+    assert_eq!(
+        walk(&copy.join("history/claims")),
+        vec![
+            "a-second-signer.claim.txt".to_owned(),
+            "over-the-first-again.claim.txt".to_owned(),
+            "over-the-first.claim.txt".to_owned(),
+        ],
+        "an export withdrew a file it cannot read"
+    );
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+
+    // A run that carries nothing new says nothing, rather than counting what
+    // it offered.
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(!said.contains("another tool wrote"), "{said}");
+}
+
+#[test]
+fn a_dry_run_of_an_update_names_what_would_leave_the_copy() {
+    let origin = repository("update-dry-run");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    let first = head_of(&origin);
+    write(&origin, "notes.md", "one\ntwo\n");
+    out(&origin, &["record", "-m", "Second"]);
+    let copy = scratch("update-dry-run-copy").join("journal");
+    out(&origin, &["export", &copy.to_string_lossy()]);
+
+    let planned = out(
+        &origin,
+        &["export", &copy.to_string_lossy(), &first, "--dry-run"],
+    );
+    assert!(planned.contains("would export 0 revisions"), "{planned}");
+    assert!(
+        planned.contains("would withdraw history/revisions/"),
+        "{planned}"
+    );
+    assert!(planned.contains("would update the copy of"), "{planned}");
+    assert_eq!(
+        digests(&copy).len(),
+        2,
+        "a dry run withdrew something from the copy"
+    );
+
+    let done = out(&origin, &["export", &copy.to_string_lossy(), &first]);
+    assert!(done.contains("exported 0 revisions"), "{done}");
+    assert_eq!(
+        done.matches("withdrew").count(),
+        1,
+        "the run and the dry run disagree about withdrawing: {done}"
+    );
+    assert!(
+        done.contains(&format!(
+            "withdrew {} files",
+            planned.matches("would withdraw ").count()
+        )),
+        "the dry run named a different number of files than the run withdrew:\n{planned}\n{done}"
+    );
 }

@@ -57,24 +57,69 @@
 //! anything supersedes — reads a dangling edge exactly as it reads a delivered
 //! one. `tests/export.rs` pins all three.
 //!
+//! # Exporting onto a copy this store already made
+//!
+//! Decision 0052. A published export is a directory a stranger fetches from,
+//! and re-copying a whole store on every publish is not a thing anybody does
+//! on a timer — so a destination that already holds a copy of *this* store is
+//! updated in place rather than refused. The set is unchanged: the target's
+//! ancestry, closed, exactly as [`Store::export_plan`] states it. What is new
+//! is that the copy is **diffed** against that set, so every file has three
+//! outcomes rather than one — write it, leave it, or withdraw it.
+//!
+//! Withdrawal is the point rather than a tidy-up. A `forget` at the origin
+//! has to destroy bytes in the published copy or the redaction is defeated by
+//! the one copy that is world-readable; so does a `prune`, and so does a
+//! target that moves off a branch. An export that only ever added would
+//! publish a permanent record of everything the origin ever held, which is
+//! the opposite of what decision 0014 promises.
+//!
+//! Additions ascend — payloads, then documents, then revisions — and
+//! withdrawals descend, revisions first. Both keep one invariant at every
+//! moment in between: *no revision in the copy names bytes the copy does not
+//! hold*. The withdrawals are performed first, so an interruption redacts and
+//! then stops rather than stopping before it redacts; an interrupted run
+//! understates what is reachable, which is `receive`'s rule and 0048's, and
+//! the next run finishes the job.
+//!
+//! Two of 0052's sentences needed a clause the decision leaves implicit, and
+//! both are argued where the code is. The refusal over a revision the origin
+//! lacks asks whether the origin *names* it too, or a `prune` — which leaves
+//! the successor's `supersedes` line pointing at what it deleted — would
+//! refuse the very export 0052 says a prune must propagate through. And the
+//! folder is materialised under decision 0055's rule rather than 0030's flat
+//! one, because a run that withdraws destroys the record of what the copy's
+//! folder holds, and 0030 asked afterwards would call the exporter's own last
+//! output somebody's unrecorded work.
+//!
+//! Three things the copy holds are not the exporter's to touch. `names/` and
+//! `cache/` are neither written nor removed, which is 0042 unchanged. Nor is
+//! a reserved travelling directory: decision 0054 makes the update add-only
+//! there, because `travels-and-unions` is a class whose whole justification
+//! is that a name historica cannot read needs no merge rule — and deleting
+//! such a file on the strength of its absence somewhere else is a judgement
+//! about a grammar 0046 refused historica.
+//!
 //! [`History::superseded`]: crate::core::History::superseded
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
-use crate::format::Piece;
+use crate::format::{Piece, RevisionDocument};
 #[cfg(feature = "disk")]
 use crate::fs::Disk;
 use crate::fs::Filesystem;
 use crate::naming;
 use crate::update::{self, UpdateError};
-use crate::working::Working;
+use crate::working::{SKIPPED_DIR, Working};
 
 use super::{
-    Body, MaterialiseError, OPERATION_SUFFIX, REVISION_SUFFIX, STORE_DIR, Store, StoreError,
+    Body, HEADER_FILE, MaterialiseError, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR,
+    REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, STORE_DIR, Store, StoreError,
+    files_claiming, label_of, payload_files, within,
 };
 
 /// What one export would write, worked out before anything is written.
@@ -93,6 +138,49 @@ pub struct ExportPlan {
     rules: Vec<crate::working::Rule>,
     withheld: usize,
     reserved: Vec<String>,
+    /// Whether a copy of this store is already there to be updated.
+    updating: bool,
+    /// Every file that leaves the copy, relative to its store root, in the
+    /// order they are removed: revisions, then documents, then payloads, then
+    /// rule files. Empty for a fresh copy, which has nothing to withdraw.
+    withdraws: Vec<PathBuf>,
+    /// Where the rule files begin in `withdraws`. They are removed with the
+    /// rules that arrive, before the folder is materialised, because the
+    /// copy's own walk reads them; everything before this index is store
+    /// content and goes after the folder.
+    retires_from: usize,
+    /// The rules those files state, which is what deletes them.
+    retired: Vec<crate::working::Rule>,
+    /// Forgotten originals the copy still holds, destroyed where `receive`
+    /// destroys them.
+    destroys: BTreeSet<RevisionId>,
+    /// Everything either side forgets, which is what an export never writes.
+    forgotten: BTreeSet<RevisionId>,
+    /// What the copy already holds of the set, by digest, so that a second
+    /// export writes the difference and leaves the rest where it is.
+    holds: BTreeSet<RevisionId>,
+    /// What the copy already calls each revision it holds, so that decision
+    /// 0052's rule — an existing file is never renamed — can be kept while
+    /// the newcomers are named around it.
+    stems: BTreeMap<RevisionId, String>,
+}
+
+/// How many files one export will write.
+///
+/// Counted the way [`Exported`] counts what it wrote, which is the whole of
+/// what makes a dry run and the real thing describe one copy: for a fresh
+/// destination this is the plan's own lengths, and for a copy being updated
+/// it is the difference.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Writes {
+    /// Revision documents.
+    pub revisions: usize,
+    /// Operation and resolution documents.
+    pub documents: usize,
+    /// Whole-content payloads.
+    pub payloads: usize,
+    /// Forgetting documents.
+    pub forgetting: usize,
 }
 
 impl ExportPlan {
@@ -144,6 +232,49 @@ impl ExportPlan {
     pub fn reserved(&self) -> &[String] {
         &self.reserved
     }
+
+    /// Whether the destination already holds a copy this export will update.
+    ///
+    /// Decision 0052: false is a fresh repository written into an empty
+    /// directory, which is what an export was before.
+    pub fn updating(&self) -> bool {
+        self.updating
+    }
+
+    /// Every file that leaves the copy, relative to its store root, in the
+    /// order they are removed.
+    ///
+    /// Revisions first and payloads last, so that no intermediate moment
+    /// leaves a revision in the copy naming bytes the copy does not hold. A
+    /// rule file the origin no longer states shares the list, because it is
+    /// the same act: something the copy holds and the set no longer names.
+    pub fn withdraws(&self) -> &[PathBuf] {
+        &self.withdraws
+    }
+
+    /// Forgotten originals the copy still holds, which will be destroyed.
+    ///
+    /// Separate from [`ExportPlan::withdraws`] because it is a different
+    /// fact: these bytes are not merely out of the set, they are named by a
+    /// forgetting document that says they are gone.
+    pub fn destroys(&self) -> &BTreeSet<RevisionId> {
+        &self.destroys
+    }
+
+    /// How many files this export will write.
+    pub fn writes(&self) -> Writes {
+        let counted = |ids: &[RevisionId]| {
+            ids.iter()
+                .filter(|id| !self.holds.contains(id) && !self.forgotten.contains(id))
+                .count()
+        };
+        Writes {
+            revisions: counted(&self.revisions),
+            documents: counted(&self.documents),
+            payloads: counted(&self.payloads),
+            forgetting: counted(&self.forgetting),
+        }
+    }
 }
 
 /// What one export wrote.
@@ -167,6 +298,14 @@ pub struct Exported {
     pub withheld: usize,
     /// Files another tool wrote, carried by their class (decision 0053).
     pub reserved: usize,
+    /// Files withdrawn from a copy this export updated, because the set no
+    /// longer names them (decision 0052).
+    pub withdrawn: usize,
+    /// Forgotten originals destroyed in the copy, in compliance with the
+    /// forgetting documents that stand in for them.
+    pub destroyed: usize,
+    /// Whether a copy already there was updated rather than one written fresh.
+    pub updated: bool,
     /// The paths materialised into the folder, in the order they were written.
     pub files: Vec<String>,
 }
@@ -257,47 +396,284 @@ impl<F: Filesystem> Store<F> {
             rules: self.skipped().travelling().cloned().collect(),
             withheld: self.skipped().withheld(),
             reserved: self.travelling_files()?,
+            updating: false,
+            withdraws: Vec::new(),
+            retires_from: 0,
+            retired: Vec::new(),
+            destroys: BTreeSet::new(),
+            forgotten: BTreeSet::new(),
+            holds: BTreeSet::new(),
+            stems: BTreeMap::new(),
         })
     }
 
-    /// Write a fresh repository at `directory` on `files`, holding the folder
-    /// at `target` and the history that leads there.
+    /// The same plan, diffed against whatever `directory` already holds.
+    ///
+    /// Decision 0052. The set is [`Store::export_plan`]'s and is not touched
+    /// here; what this adds is the other half of an incremental publish — what
+    /// the copy already has, what it has that the set no longer names, and
+    /// what it calls the revisions it keeps. A destination that is empty or
+    /// absent yields exactly the plan a fresh export acts on.
+    ///
+    /// Every refusal an in-place export can state is stated here, so a dry run
+    /// refuses where the real thing would: a directory holding something that
+    /// is not this store's copy, a copy `check` calls broken, an unrelated
+    /// store, and a copy somebody recorded in.
+    pub fn export_plan_onto<G: Filesystem>(
+        &self,
+        files: &G,
+        directory: &Path,
+        target: &RevisionId,
+    ) -> Result<ExportPlan, ExportError> {
+        let mut plan = self.export_plan(target)?;
+        let Some(copy) = self.copy_at(files, directory)? else {
+            return Ok(plan);
+        };
+        self.diff_onto(&copy, &mut plan)?;
+        plan.updating = true;
+        Ok(plan)
+    }
+
+    /// The copy at `directory`, or nothing where a fresh export belongs there.
+    ///
+    /// Decision 0052 narrows the old refusal rather than removing it: a
+    /// destination holding a store that is related (0029) and passes `check`
+    /// is a copy to update, and unrelated, broken, or simply not a store still
+    /// refuses. A copy holding a revision this store neither holds nor names
+    /// refuses too, naming `receive` — somebody recorded in the published
+    /// copy, and export assembles rather than merges.
+    fn copy_at<'a, G: Filesystem>(
+        &self,
+        files: &'a G,
+        directory: &Path,
+    ) -> Result<Option<Store<&'a G>>, ExportError> {
+        match files.entries(directory) {
+            Ok(entries) if entries.is_empty() => return Ok(None),
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(StoreError::io(directory, error).into()),
+        }
+
+        let path = directory.to_path_buf();
+        let root = directory.join(STORE_DIR);
+        // The header is the reader's gate everywhere else, and it is the gate
+        // here too: a directory with no store under it is a directory holding
+        // somebody's files, whatever else it holds.
+        let header = root.join(HEADER_FILE);
+        if !crate::fs::exists(files, &header).map_err(|error| StoreError::io(&header, error))? {
+            return Err(ExportError::Occupied { path });
+        }
+        if !Store::check_on(files, &root).is_ok() {
+            return Err(ExportError::BrokenCopy { path });
+        }
+        let copy = Store::open_on(files, &root)?;
+        if !super::receive::related(self, &copy) {
+            return Err(ExportError::Unrelated { path });
+        }
+        // A revision this store neither holds nor names is one that was
+        // recorded in the copy: nothing here has ever heard of it, and
+        // withdrawing it would destroy the only copy there is.
+        //
+        // Named is the part decision 0052 leaves implicit and the prune case
+        // needs. `prune` deletes a superseded revision and leaves the
+        // successor's `supersedes` line naming it — decision 0001 put the
+        // evidence on the successor — so a copy still holding what the origin
+        // pruned holds a digest the origin's own graph still points at. That
+        // is 0052's other bullet arriving, and the two would contradict each
+        // other if the refusal asked only what this store holds.
+        let named: BTreeSet<RevisionId> = self
+            .iter()
+            .flat_map(|(_, document)| document.parents.iter().chain(&document.supersedes))
+            .copied()
+            .collect();
+        if let Some((revision, _)) = copy
+            .iter()
+            .find(|(id, _)| self.get(id).is_none() && !named.contains(id))
+        {
+            return Err(ExportError::Recorded {
+                path,
+                revision: *revision,
+            });
+        }
+        Ok(Some(copy))
+    }
+
+    /// Diff the copy against the set, filling in the other half of the plan.
+    ///
+    /// Files are found by content, never by name, which is `prune`'s rule
+    /// arriving at the one other command that destroys bytes: two copies of
+    /// one withdrawn document are both that document, wherever they sit and
+    /// whatever they are called.
+    fn diff_onto<G: Filesystem>(
+        &self,
+        copy: &Store<G>,
+        plan: &mut ExportPlan,
+    ) -> Result<(), ExportError> {
+        let revisions: BTreeSet<RevisionId> = plan.revisions.iter().copied().collect();
+        let documents: BTreeSet<RevisionId> = plan
+            .documents
+            .iter()
+            .chain(&plan.forgetting)
+            .copied()
+            .collect();
+        let payloads: BTreeSet<RevisionId> = plan.payloads.iter().copied().collect();
+
+        // What either side forgets, which is what neither side may hold. The
+        // copy's own is asked for on `receive`'s reasoning: a store that
+        // destroyed something must not be handed it back, and an export that
+        // wrote the original over a stand-in would resurrect exactly what
+        // decision 0014 destroyed.
+        let mut forgotten: BTreeSet<RevisionId> = BTreeSet::new();
+        for (id, body) in self.bodies()? {
+            if documents.contains(&id)
+                && let Some(target) = body.forgets()
+            {
+                forgotten.insert(target);
+            }
+        }
+        let theirs = copy.bodies()?;
+        for body in theirs.values() {
+            if let Some(target) = body.forgets() {
+                forgotten.insert(target);
+            }
+        }
+
+        let files = copy.filesystem();
+        let root = copy.root();
+        let revisions_dir = root.join(REVISIONS_DIR);
+        for path in files_claiming(files, root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
+            // Decision 0043: what a file hashes to is what it is, taken in
+            // pieces, and nothing here wants the file.
+            let id =
+                crate::fs::digest_of(files, &path).map_err(|error| StoreError::io(&path, error))?;
+            if !revisions.contains(&id) {
+                plan.withdraws.push(copy.relative(&path));
+                continue;
+            }
+            plan.holds.insert(id);
+            if let Some(stem) = label_of(&revisions_dir, &path)
+                .and_then(|label| label.strip_suffix(REVISION_SUFFIX).map(str::to_owned))
+            {
+                plan.stems.insert(id, stem);
+            }
+        }
+
+        for path in files_claiming(files, root, OPERATIONS_DIR, &OPERATION_SUFFIXES)? {
+            let id =
+                crate::fs::digest_of(files, &path).map_err(|error| StoreError::io(&path, error))?;
+            if forgotten.contains(&id) {
+                plan.destroys.insert(id);
+                continue;
+            }
+            // A stand-in the origin does not have, for a document the set
+            // still names: the copy forgot something the origin did not, and
+            // withdrawing the stand-in would leave the revision that names it
+            // pointing at nothing. Decision 0014 travels one way only.
+            let stands_in = theirs
+                .get(&id)
+                .and_then(|body| body.forgets())
+                .is_some_and(|target| documents.contains(&target) || payloads.contains(&target));
+            if documents.contains(&id) || stands_in {
+                plan.holds.insert(id);
+                continue;
+            }
+            plan.withdraws.push(copy.relative(&path));
+        }
+
+        for path in payload_files(files, root)? {
+            let id =
+                crate::fs::digest_of(files, &path).map_err(|error| StoreError::io(&path, error))?;
+            if forgotten.contains(&id) {
+                plan.destroys.insert(id);
+                continue;
+            }
+            if payloads.contains(&id) {
+                plan.holds.insert(id);
+                continue;
+            }
+            plan.withdraws.push(copy.relative(&path));
+        }
+
+        // Decision 0051's travel axis, arriving at the one boundary that can
+        // be crossed twice: a shared rule the origin gained is written below,
+        // and a rule file the copy holds goes when the origin deleted the rule
+        // or made it `private`. It is the only thing an export removes that a
+        // recipient might have been relying on.
+        plan.retires_from = plan.withdraws.len();
+        for (rule, file) in copy.skipped().stating() {
+            if plan.rules.iter().any(|travelling| travelling == rule) {
+                continue;
+            }
+            plan.retired.push(rule.clone());
+            if let Some(file) = file {
+                plan.withdraws.push(within(Path::new(SKIPPED_DIR), file));
+            }
+        }
+
+        plan.forgotten = forgotten;
+        Ok(())
+    }
+
+    /// Write a repository at `directory` on `files`, holding the folder at
+    /// `target` and the history that leads there.
     ///
     /// `directory` is the repository — the folder — and the store goes in the
-    /// `history/` beneath it, exactly as `init` makes one. It must not already
-    /// hold anything: seeding an existing store is `receive`'s job, and the
-    /// distinction is worth keeping sharp.
+    /// `history/` beneath it, exactly as `init` makes one. An empty or absent
+    /// directory gets a fresh copy. A directory already holding a copy *this*
+    /// store made gets that copy brought up to the target, which is decision
+    /// 0052; anything else is refused, because combining two histories is
+    /// `receive`'s job and the distinction is worth keeping sharp.
     pub fn export_onto<G: Filesystem>(
         &self,
         files: G,
         directory: &Path,
         target: &RevisionId,
     ) -> Result<Exported, ExportError> {
-        let plan = self.export_plan(target)?;
+        let plan = self.export_plan_onto(&files, directory, target)?;
+        let root = directory.join(STORE_DIR);
 
-        match files.entries(directory) {
-            Ok(entries) if entries.is_empty() => {}
-            Ok(_) => {
-                return Err(ExportError::Occupied {
-                    path: directory.to_path_buf(),
-                });
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(StoreError::io(directory, error).into()),
-        }
+        let mut copy = match plan.updating {
+            true => Store::open_on(files, &root)?,
+            // Decision 0021: `historica.txt` and `format.txt` come from
+            // `init`, because a copy that explains itself is the whole claim
+            // the format makes. What `init` also writes is a rule file stating
+            // no rules and an empty `names/` — which is to say, nothing of the
+            // exporter's.
+            false => Store::init_on(files, &root)?,
+        };
 
-        // Decision 0021: `historica.txt` and `format.txt` come from `init`,
-        // because a copy that explains itself is the whole claim the format
-        // makes. What `init` also writes is a rule file stating no rules and
-        // an empty `names/` — which is to say, nothing of the exporter's.
-        let mut copy = Store::init_on(files, directory.join(STORE_DIR))?;
+        // Whether the copy's folder is still exactly what the last export left
+        // there, asked *before* this one takes anything away. Decision 0052
+        // meets decision 0030 here and the meeting needs saying: a `forget` or
+        // a withdrawal at the origin takes with it the record of what the
+        // copy's folder holds, so 0030's overwrite rule — asked afterwards, as
+        // it would be — calls the exporter's own last output "work nothing has
+        // recorded" and refuses to replace it. Asked beforehand it answers the
+        // question that was actually meant: has anybody touched this folder
+        // since the export wrote it. Nobody has, and it is the export's to
+        // rewrite; somebody has, and 0030 refuses exactly as it always did.
+        //
+        // Only where something is being taken away, because that is the only
+        // case where the two rules disagree — and it is the run that is
+        // already paying for a pass over the copy.
+        let overwrite = match plan.updating
+            && (!plan.withdraws.is_empty() || !plan.destroys.is_empty())
+            && undisturbed(&copy, directory)?
+        {
+            true => update::Overwrite::Wholesale,
+            false => update::Overwrite::Recorded,
+        };
 
-        // Decision 0051: the rules that travel, written before the folder is
-        // materialised, because the copy's own walk reads them and a rule the
+        // Decision 0051, in both directions and before the folder is
+        // materialised, because the copy's own walk reads these and a rule the
         // copy states is a rule the copy has to be able to honour. None of
         // them can cover a path the target holds — `skip` refuses to write one
         // that does and `check` reports one that arrives — so this cannot take
-        // a file out of the folder it was about to write.
+        // a file out of the folder it is about to write. The rule that goes is
+        // one the origin deleted or made `private`, which decision 0052 makes
+        // the only thing an export removes that a recipient might have been
+        // relying on.
+        copy.remove_skipped(&plan.retired)?;
         let travelling: Vec<crate::working::Rule> = plan.rules.clone();
         copy.add_skipped(&travelling)?;
 
@@ -305,12 +681,15 @@ impl<F: Filesystem> Store<F> {
         // rather than over the store it leaves: a collision suffix that
         // depends on a revision the copy does not hold would be a name
         // `arrange` in the copy immediately disagreed with.
-        let held: Vec<(RevisionId, &crate::format::RevisionDocument)> = plan
+        let held: Vec<(RevisionId, &RevisionDocument)> = plan
             .revisions
             .iter()
             .map(|id| (*id, self.get(id).expect("a revision the plan named")))
             .collect();
-        let stems = naming::stems(held.iter().map(|(id, document)| (id, *document)));
+        let stems = match plan.updating {
+            false => naming::stems(held.iter().map(|(id, document)| (id, *document))),
+            true => stems_around(&plan, &copy, &held),
+        };
         let filed = self.operation_names(&stems, held.iter().map(|(id, doc)| (id, *doc)))?;
         let name_of = |id: &RevisionId, document: bool| match filed.get(id) {
             Some((stem, name)) => format!("{stem}/{name}"),
@@ -323,17 +702,32 @@ impl<F: Filesystem> Store<F> {
 
         // Content first and revisions last, on `receive`'s reasoning: an
         // interruption should understate what is reachable rather than leave
-        // a revision naming bytes that never arrived.
+        // a revision naming bytes that never arrived. What the copy already
+        // holds is left exactly where it is — an existing file is never
+        // renamed — and what either side forgot is never written at all.
+        let mut wrote = Writes::default();
         for id in &plan.payloads {
+            if plan.holds.contains(id) || plan.forgotten.contains(id) {
+                continue;
+            }
             let bytes = self
                 .payload(id)?
                 .expect("a payload the plan named is still held");
             copy.insert_payload_at(&bytes, &name_of(id, false))?;
+            wrote.payloads += 1;
         }
         // Written back in the grammar it was read in, both here and for the
         // stand-ins below: a document rewritten as the other grammar is a
         // different digest, and the line naming it would stop finding it.
-        for id in plan.documents.iter().chain(&plan.forgetting) {
+        let naming_documents = plan
+            .documents
+            .iter()
+            .map(|id| (id, false))
+            .chain(plan.forgetting.iter().map(|id| (id, true)));
+        for (id, forgetting) in naming_documents {
+            if plan.holds.contains(id) || plan.forgotten.contains(id) {
+                continue;
+            }
             match self
                 .body(id)?
                 .expect("a document the plan named is still held")
@@ -345,43 +739,151 @@ impl<F: Filesystem> Store<F> {
                     copy.insert_operation_at(&document, &name_of(id, true))?;
                 }
             }
+            match forgetting {
+                true => wrote.forgetting += 1,
+                false => wrote.documents += 1,
+            }
         }
+        // Decision 0014 is complied with here, between the documents and the
+        // revisions, because that is where `receive` complies with it: a
+        // forgetting document that has just arrived destroys the original the
+        // copy still holds, exactly as it does anywhere else.
+        let destroyed = copy.comply_with_forgetting(&plan.destroys)?;
         for (id, document) in &held {
+            if plan.holds.contains(id) {
+                continue;
+            }
             let stem = stems.get(id).expect("every revision that travels is named");
             copy.insert_at(document, &format!("{stem}{REVISION_SUFFIX}"))?;
+            wrote.revisions += 1;
         }
 
         // Decision 0053, after the revisions for the reason the revisions come
         // after the content: an interruption should leave the copy holding
         // less than it will, never a file vouching for a revision that never
         // arrived. The files keep the names they had, which is the whole of
-        // what makes the directory union wherever it lands next.
+        // what makes the directory union wherever it lands next — and decision
+        // 0054 makes the second run union too, adding what the copy lacks and
+        // withdrawing nothing.
+        let mut reserved = 0;
         for label in &plan.reserved {
             let bytes = self.travelling_file(label)?;
-            copy.carry_travelling(label, &bytes)?;
+            if copy.carry_travelling(label, &bytes)? {
+                reserved += 1;
+            }
         }
 
         // The folder half is `update`'s, materialised out of the copy's own
         // history — which is the first thing that proves the copy can produce
-        // it — and written through the destination filesystem.
+        // it — and written through the destination filesystem. Decision 0030
+        // catches a non-empty folder up, which is the whole of what is new
+        // here; what the call site loses is the assumption that the folder was
+        // empty, and it happens before the withdrawals because 0030's
+        // overwrite rule reads the very revisions they remove.
         let working = Working::read_on(copy.filesystem(), directory, copy.skipped())
             .map_err(|error| ExportError::Update(Box::new(UpdateError::Working(error))))?;
-        let update = update::plan(&copy, &working, directory, target)?;
+        let update = update::plan_at(&copy, &working, directory, target, overwrite)?;
         let applied = update::apply(&working, directory, &update)?;
+
+        // Withdrawals descend: the revisions, then the documents nothing kept
+        // names, then the payloads. Every one of them is something no revision
+        // the copy keeps names, so the invariant holds at every moment in
+        // between — a run cut short here understates what the copy is
+        // reachable from, and the next run finishes the job.
+        for relative in &plan.withdraws[..plan.retires_from] {
+            let path = root.join(relative);
+            copy_remove(copy.filesystem(), &path)?;
+        }
+        for directory in [REVISIONS_DIR, OPERATIONS_DIR] {
+            super::prune::remove_empty_directories(copy.filesystem(), &root.join(directory))?;
+        }
+        // Decision 0014's promise is that bytes are *gone*, so what `cache/`
+        // derived from them goes too. `forget` and `prune` clear it for this
+        // reason, and an export that destroyed or withdrew anything is the
+        // third command with something to destroy.
+        if !plan.withdraws.is_empty() || destroyed != 0 {
+            copy.clear_cache();
+        }
 
         Ok(Exported {
             root: directory.to_path_buf(),
             target: plan.target,
-            revisions: plan.revisions.len(),
-            documents: plan.documents.len(),
-            payloads: plan.payloads.len(),
-            forgetting: plan.forgetting.len(),
+            revisions: wrote.revisions,
+            documents: wrote.documents,
+            payloads: wrote.payloads,
+            forgetting: wrote.forgetting,
             rules: travelling.len(),
             withheld: plan.withheld,
-            reserved: plan.reserved.len(),
+            reserved,
+            withdrawn: plan.withdraws.len(),
+            destroyed,
+            updated: plan.updating,
             files: applied.wrote,
         })
     }
+}
+
+/// Whether the copy's folder still holds what its own history last put there.
+///
+/// The folder is read through the copy's own filesystem and against the copy's
+/// own rules, which is what makes this the question 0030 would ask of it
+/// rather than a question about the origin.
+fn undisturbed<G: Filesystem>(copy: &Store<G>, directory: &Path) -> Result<bool, ExportError> {
+    let working = Working::read_on(copy.filesystem(), directory, copy.skipped())
+        .map_err(|error| ExportError::Update(Box::new(UpdateError::Working(error))))?;
+    Ok(update::undisturbed(copy, &working, directory)?)
+}
+
+/// Remove one file the copy is giving up, tolerating one already gone.
+///
+/// The plan is worked out from a listing rather than held under a lock, so a
+/// file somebody deleted in between is a file that is where the plan wanted it
+/// to be. Everything else is reported.
+fn copy_remove<F: Filesystem + ?Sized>(files: &F, path: &Path) -> Result<(), ExportError> {
+    match files.remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(StoreError::io(path, error).into()),
+    }
+}
+
+/// The stem each revision takes in a copy that already holds files.
+///
+/// Decision 0052: an existing file is never renamed, so a revision the copy
+/// holds keeps the name it was written under and a newcomer whose readable
+/// name meets it takes the collision suffix — even where a fresh export would
+/// have given it the plain name. That is [`naming::stem_for`], which is the
+/// writer's own answer to the same question (0019, 0041), applied against the
+/// set the copy already holds rather than against the whole plan. The names
+/// drift from what a fresh export would produce, and nothing reads them but a
+/// fetcher, which discards them.
+fn stems_around<G: Filesystem>(
+    plan: &ExportPlan,
+    copy: &Store<G>,
+    held: &[(RevisionId, &RevisionDocument)],
+) -> BTreeMap<RevisionId, String> {
+    let mut stems = plan.stems.clone();
+    let mut existing: Vec<RevisionDocument> =
+        copy.iter().map(|(_, document)| document.clone()).collect();
+    // Digest order, which is `held`'s, so two replicas naming one set of
+    // newcomers around one copy name them alike.
+    for (id, document) in held {
+        if stems.contains_key(id) {
+            continue;
+        }
+        stems.insert(
+            *id,
+            naming::stem_for(
+                &document.when,
+                &document.message,
+                &document.change,
+                id,
+                existing.iter(),
+            ),
+        );
+        existing.push((*document).clone());
+    }
+    stems
 }
 
 /// The short form, on the filesystem `std::fs` is.
@@ -403,10 +905,28 @@ impl Store<Disk> {
 pub enum ExportError {
     /// The store `check` calls broken, which a copy would only double.
     BrokenStore,
-    /// The destination directory already holds something.
+    /// The destination directory holds something that is not this store's copy.
     Occupied {
         /// The directory.
         path: PathBuf,
+    },
+    /// The destination holds a copy `check` calls broken.
+    BrokenCopy {
+        /// The directory.
+        path: PathBuf,
+    },
+    /// The destination holds a store sharing no revision or edge with this one.
+    Unrelated {
+        /// The directory.
+        path: PathBuf,
+    },
+    /// The destination holds a revision this store does not: somebody recorded
+    /// in the published copy, and an export assembles rather than merges.
+    Recorded {
+        /// The directory.
+        path: PathBuf,
+        /// One revision the copy holds and this store does not.
+        revision: RevisionId,
     },
     /// The target's tree or content could not be materialised.
     Materialise(Box<MaterialiseError>),
@@ -444,10 +964,33 @@ impl fmt::Display for ExportError {
             ),
             ExportError::Occupied { path } => write!(
                 f,
-                "{} already holds something, and an export writes a fresh \
-                 repository; combining a copy with what is already there is \
-                 `receive`",
+                "{} already holds something that is not a copy of this store; \
+                 an export writes a fresh repository into an empty directory \
+                 and updates a copy it made, and combining a copy with what is \
+                 already there is `receive`",
                 path.display()
+            ),
+            ExportError::BrokenCopy { path } => write!(
+                f,
+                "{} holds a copy that does not pass `check`, and an export \
+                 writes nothing into a store whose faults it would build on; \
+                 `historica check` there says what is wrong",
+                path.display()
+            ),
+            ExportError::Unrelated { path } => write!(
+                f,
+                "{} holds a store that shares no revision or graph edge with \
+                 this one; an export updates a copy it made and refuses \
+                 anything else",
+                path.display()
+            ),
+            ExportError::Recorded { path, revision } => write!(
+                f,
+                "{} holds {}, which this store does not: somebody recorded in \
+                 the copy, and an export assembles rather than merges; \
+                 `historica receive` in this direction first",
+                path.display(),
+                revision.abbreviate(crate::naming::DIGEST_CHARS)
             ),
             ExportError::Materialise(error) => error.fmt(f),
             ExportError::Update(error) => error.fmt(f),

@@ -242,7 +242,11 @@ worked out per tool:
   claims/   travels and unions. Immutable files named by the digest of their
             own bytes, which a copy carries whole and a receive adds to
             without ever overwriting a name it already has. Two stores holding
-            one name hold one file, so there is nothing to merge.
+            one name hold one file, so there is nothing to merge. Adding is
+            all that ever happens: an export bringing a copy up to date
+            carries what the copy lacks and takes nothing away, however much
+            else that run withdraws, because a name missing at one end means
+            "not yet arrived" and never "deleted".
   trust/    local only. It never crosses a store boundary, in either
             direction, by any operation. Copy it yourself if you mean to.
 

@@ -79,7 +79,7 @@ mod receive;
 pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Placement, Rename, Tally};
 use catalogue::Catalogue;
 pub use check::{Finding, Report, Severity};
-pub use export::{ExportError, ExportPlan, Exported};
+pub use export::{ExportError, ExportPlan, Exported, Writes};
 pub use forget::{ForgetError, Forgetting, Forgotten};
 pub use prune::Pruned;
 pub use receive::{MutableConflict, ReceiveError, ReceivePlan, Received};
@@ -119,6 +119,13 @@ pub enum Travel {
     /// add-only. That is decision 0003's concurrency story applied to files
     /// nothing here reads: two stores holding one name hold one file, so
     /// there is no merge rule to get wrong and none to write down.
+    ///
+    /// Add-only in both directions and at every run, which is decision 0054:
+    /// an `export` onto a copy it already made carries what the copy lacks
+    /// and withdraws nothing, however much else that run withdraws. A rule
+    /// keyed on absence would be a merge rule after all — it would read a name
+    /// present here and missing there as *deleted* — and this is the one class
+    /// whose promise is that no such reading is needed.
     TravelsAndUnions,
     /// Never crosses a store boundary, in either direction, by any operation.
     ///
@@ -2395,6 +2402,40 @@ impl<F: Filesystem> Store<F> {
                 .chain(added),
         );
         Ok(written)
+    }
+
+    /// Drop these rules, deleting the file of `skipped/` each is stated in.
+    ///
+    /// The other direction of [`Store::add_skipped`], and the only caller is
+    /// decision 0052's export onto a copy it already made: a published copy
+    /// states the rules the origin shares, so a rule the origin deleted or
+    /// made `private` leaves the copy on the next export. Deletion rather than
+    /// rewriting, because decision 0045 made a rule a file — and a rule stated
+    /// in no file is simply forgotten, since there is nothing to remove.
+    ///
+    /// A file already gone is not an error: the plan naming it was worked out
+    /// from a listing rather than held under a lock, and a rule somebody
+    /// deleted in between is a rule where this wanted it.
+    pub(super) fn remove_skipped(&mut self, rules: &[Rule]) -> Result<usize, StoreError> {
+        let directory = self.root.join(SKIPPED_DIR);
+        let mut removed = 0;
+        let mut kept: Vec<(Rule, Option<String>)> = Vec::new();
+        for (rule, file) in self.skipped.stating() {
+            if !rules.iter().any(|dropped| dropped == rule) {
+                kept.push((rule.clone(), file.map(str::to_owned)));
+                continue;
+            }
+            let Some(file) = file else { continue };
+            let path = within(&directory, file);
+            match self.files.remove_file(&path) {
+                Ok(()) => removed += 1,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(StoreError::io(&path, error)),
+            }
+        }
+        self.skipped = Skipped::stated(kept);
+        prune::remove_empty_directories(&self.files, &directory)?;
+        Ok(removed)
     }
 
     /// Write one rule file, saying whether the name was this rule's to take.

@@ -9,7 +9,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use historica::fs::Disk;
-use historica::store::Store;
+use historica::store::{STORE_DIR, Store};
 
 use super::{Failure, printing, target};
 
@@ -48,20 +48,22 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     let into = base.join(&directory);
 
     if dry_run {
-        let plan = store.export_plan(&target).map_err(Failure::error)?;
+        let plan = store
+            .export_plan_onto(&Disk, &into, &target)
+            .map_err(Failure::error)?;
+        // Decision 0052: the counts are what this run writes, which is the
+        // whole set for a fresh copy and the difference for one being updated
+        // — the same numbers the real thing reports, from the same plan.
+        let writes = plan.writes();
         return printing(|out| {
-            writeln!(out, "would export {} revisions", plan.revisions().len())?;
-            writeln!(
-                out,
-                "would export {} operation documents",
-                plan.documents().len()
-            )?;
-            writeln!(out, "would export {} payloads", plan.payloads().len())?;
-            if !plan.forgetting().is_empty() {
+            writeln!(out, "would export {} revisions", writes.revisions)?;
+            writeln!(out, "would export {} operation documents", writes.documents)?;
+            writeln!(out, "would export {} payloads", writes.payloads)?;
+            if writes.forgetting != 0 {
                 writeln!(
                     out,
                     "would export {} forgetting documents",
-                    plan.forgetting().len()
+                    writes.forgetting
                 )?;
             }
             // Decision 0051 puts both counts on the same footing as the
@@ -84,12 +86,29 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                     plan.reserved().len()
                 )?;
             }
+            // Decision 0052: withdrawal is the point rather than a tidy-up, so
+            // it is said file by file, where `prune` and `forget` say what
+            // they destroy. The paths are the copy's, not this store's.
+            for file in plan.withdraws() {
+                writeln!(out, "would withdraw {STORE_DIR}/{}", file.display())?;
+            }
+            if !plan.destroys().is_empty() {
+                writeln!(
+                    out,
+                    "would destroy {} forgotten originals",
+                    plan.destroys().len()
+                )?;
+            }
             for path in plan.paths() {
                 writeln!(out, "{:<7} {path}", "write")?;
             }
             writeln!(
                 out,
-                "would make a copy of {} at {}",
+                "would {} of {} at {}",
+                match plan.updating() {
+                    true => "update the copy",
+                    false => "make a copy",
+                },
                 target::spelled(&store, &target),
                 into.display()
             )
@@ -124,12 +143,25 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                 exported.reserved
             )?;
         }
+        // Decision 0052: what left the copy, said as plainly as what arrived.
+        // `--dry-run` names the files; this says how many, because the lines
+        // under it are already a list of files.
+        if exported.withdrawn != 0 {
+            writeln!(out, "withdrew {} files", exported.withdrawn)?;
+        }
+        if exported.destroyed != 0 {
+            writeln!(out, "destroyed {} forgotten originals", exported.destroyed)?;
+        }
         for path in &exported.files {
             writeln!(out, "{:<7} {path}", "wrote")?;
         }
         writeln!(
             out,
-            "made a copy of {} at {}",
+            "{} of {} at {}",
+            match exported.updated {
+                true => "updated the copy",
+                false => "made a copy",
+            },
             target::spelled(&store, &target),
             where_it_is.display()
         )

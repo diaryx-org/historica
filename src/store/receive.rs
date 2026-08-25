@@ -306,7 +306,12 @@ impl<F: Filesystem> Store<F> {
     }
 
     /// Make every forgetting document this store holds effective on disk.
-    fn comply_with_forgetting(
+    ///
+    /// Shared with `export`, which complies where this does — between the
+    /// documents and the revisions — because an assembled copy that kept the
+    /// original a stand-in arrived for would be the one copy a redaction never
+    /// reached (decisions 0014, 0052).
+    pub(super) fn comply_with_forgetting(
         &mut self,
         forgotten: &BTreeSet<RevisionId>,
     ) -> Result<usize, StoreError> {
@@ -346,7 +351,11 @@ impl<F: Filesystem> Store<F> {
 
 /// Empty stores may be seeded. Otherwise one shared document or direct graph
 /// edge is evidence that these are partial views of one history.
-fn related<F: Filesystem, G: Filesystem>(here: &Store<F>, there: &Store<G>) -> bool {
+///
+/// Decision 0052 asks the same question of an export's destination, on the
+/// same terms: a directory holding a store this one is unrelated to is not a
+/// copy to update.
+pub(super) fn related<F: Filesystem, G: Filesystem>(here: &Store<F>, there: &Store<G>) -> bool {
     if here.is_empty() || there.is_empty() {
         return true;
     }

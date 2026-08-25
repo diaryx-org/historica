@@ -398,6 +398,9 @@ fn recorded_link<F: Filesystem>(
     path: &str,
     held: &str,
 ) -> Result<bool, UpdateError> {
+    if recorded.wholesale() {
+        return Ok(true);
+    }
     for file in recorded.files_at(path) {
         for (id, document) in store.iter() {
             let Some(target) = document.links.get(&file) else {
@@ -456,7 +459,40 @@ pub fn plan<F: Filesystem, G: Filesystem>(
         });
     }
 
-    plan_at(store, working, repository, target)
+    plan_at(store, working, repository, target, Overwrite::Recorded)
+}
+
+/// Whether this folder holds exactly what its own store last put there.
+///
+/// Decision 0052's question, asked of a copy an export is about to update: a
+/// folder still holding the tree at the store's own head is one nobody has
+/// touched since it was written, and an export that wrote every byte of it may
+/// write over it again. A folder that differs anywhere — an edit, a stray file
+/// at a tracked path, a mode changed by hand — is somebody's, and 0030's
+/// overwrite rule is what answers for it.
+///
+/// A store with no revisions, or with more than one head, answers `false`:
+/// neither is a folder an export left, and the recoverable way to be wrong
+/// about somebody's folder is to refuse to touch it.
+pub(crate) fn undisturbed<F: Filesystem, G: Filesystem>(
+    store: &Store<F>,
+    working: &Working<G>,
+    repository: &Path,
+) -> Result<bool, UpdateError> {
+    if store.is_empty() {
+        return Ok(false);
+    }
+    let heads = current_heads(store);
+    let mut heads = heads.into_iter();
+    let (Some(head), None) = (heads.next(), heads.next()) else {
+        return Ok(false);
+    };
+    match plan_at(store, working, repository, &head, Overwrite::Recorded) {
+        Ok(update) => Ok(update.is_settled()),
+        // A folder that refuses is a folder that differs, which is the answer.
+        Err(UpdateError::Refused { .. }) => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 /// Lay the tree at any revision out in a directory that holds nothing.
@@ -507,18 +543,46 @@ pub fn plan_into<F: Filesystem, G: Filesystem>(
         });
     }
 
-    plan_at(store, into, directory, target)
+    plan_at(store, into, directory, target, Overwrite::Recorded)
+}
+
+/// What a plan may write over at a path the folder already holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Overwrite {
+    /// Decision 0030's rule: only bytes some revision records. Everything
+    /// else is work nothing has recorded, and the update refuses it.
+    Recorded,
+    /// Everything, because the folder is the caller's own output.
+    ///
+    /// Decision 0052's export onto a copy it already made, and nothing else.
+    /// The caller has established that the folder still holds exactly what the
+    /// copy's own history last put there ([`undisturbed`]), so there is no
+    /// unrecorded work to protect — and the record of what it *does* hold is
+    /// about to be withdrawn or destroyed by the same run, which would make
+    /// 0030's rule call the exporter's own last output somebody's work.
+    Wholesale,
 }
 
 /// The plan itself, with no opinion about where the target sits in the history.
 ///
 /// Both entry points above have already had theirs: [`plan`] that the target
 /// is a current head, [`plan_into`] that the destination holds nothing.
-fn plan_at<F: Filesystem, G: Filesystem>(
+///
+/// Reachable inside the crate for one caller, which is decision 0052's export
+/// onto a copy it already made. That caller has a third guard, and it is
+/// neither of these: the destination is a store this run is assembling, whose
+/// only head *will be* the target, because the revisions outranking it are
+/// withdrawn later in the same run. The head check is not waived; it is paid
+/// at the end of the run rather than the beginning — and it has to be, because
+/// the folder's current bytes are explained by exactly the revisions being
+/// withdrawn, and decision 0030's overwrite rule reads them while they are
+/// still there. Nothing writes a position anywhere, here or there.
+pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
     store: &Store<F>,
     working: &Working<G>,
     repository: &Path,
     target: &RevisionId,
+    overwrite: Overwrite,
 ) -> Result<Update, UpdateError> {
     if store.is_empty() {
         return Err(UpdateError::NothingRecorded);
@@ -592,7 +656,7 @@ fn plan_at<F: Filesystem, G: Filesystem>(
         }
     }
 
-    let recorded = RecordedBytes::over(store);
+    let recorded = RecordedBytes::over(store, overwrite);
     let mut update = Update::default();
 
     for (path, files) in &placed {
@@ -1052,17 +1116,28 @@ pub fn apply<F: Filesystem>(
 struct RecordedBytes<'a, F> {
     store: &'a Store<F>,
     ever_at: BTreeMap<&'a str, BTreeSet<FileId>>,
+    overwrite: Overwrite,
 }
 
 impl<'a, F: Filesystem> RecordedBytes<'a, F> {
-    fn over(store: &'a Store<F>) -> Self {
+    fn over(store: &'a Store<F>, overwrite: Overwrite) -> Self {
         let mut ever_at: BTreeMap<&str, BTreeSet<FileId>> = BTreeMap::new();
         for (_, document) in store.iter() {
             for (file, path) in document.added.iter().chain(document.moved.iter()) {
                 ever_at.entry(path.as_str()).or_default().insert(*file);
             }
         }
-        Self { store, ever_at }
+        Self {
+            store,
+            ever_at,
+            overwrite,
+        }
+    }
+
+    /// Whether anything at a path may be written over without being asked
+    /// about, which is [`Overwrite::Wholesale`] and nothing else.
+    fn wholesale(&self) -> bool {
+        self.overwrite == Overwrite::Wholesale
     }
 
     /// Every file some revision ever put at this path.
@@ -1076,6 +1151,9 @@ impl<'a, F: Filesystem> RecordedBytes<'a, F> {
     /// Whether some revision records exactly these bytes for a file that has
     /// held this path.
     fn holds(&self, path: &str, held: &[u8]) -> bool {
+        if self.wholesale() {
+            return true;
+        }
         let Some(files) = self.ever_at.get(path) else {
             return false;
         };
