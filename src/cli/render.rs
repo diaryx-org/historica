@@ -526,7 +526,15 @@ fn resolution(
 }
 
 /// `check`: errors, then notes, then a line saying how it went.
-pub fn report(out: &mut impl Write, root: &Path, report: &Report) -> io::Result<()> {
+///
+/// `complete` says whether the caller already asked the completeness
+/// question, which decides only whether the flag is named back to them.
+pub fn report(
+    out: &mut impl Write,
+    root: &Path,
+    report: &Report,
+    complete: bool,
+) -> io::Result<()> {
     for finding in report.errors() {
         writeln!(out, "error: {finding}")?;
     }
@@ -554,6 +562,12 @@ pub fn report(out: &mut impl Write, root: &Path, report: &Report) -> io::Result<
             root.display(),
             counted(heads, "head")
         )?;
+        // The flag is named where the state it exists for is being reported,
+        // and only to a caller who did not already ask for it: a backup being
+        // trusted is exactly the reader who has to be told this can fail.
+        if !complete {
+            writeln!(out, "`check --complete` is the run that fails on that")?;
+        }
     }
     Ok(())
 }

@@ -332,7 +332,7 @@ fn check(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // Canonical for the report's last line: `check .` should name the store,
     // not repeat the punctuation that found it.
     let shown = root.canonicalize().unwrap_or(root);
-    printing(|out| render::report(out, &shown, &report))?;
+    printing(|out| render::report(out, &shown, &report, complete))?;
     // Decision 0006: notes never fail, so this can be run in anger without
     // teaching anyone to ignore it. `--complete` asks the second question —
     // whether delivery has finished — and only that question fails on a note.

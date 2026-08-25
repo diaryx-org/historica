@@ -272,3 +272,11 @@ folder is what its bytes are, wherever it sits.
 Every digest a document names should appear in that output. Every `result`
 should match the file you get by replaying. Nothing else in this folder is
 hashed, this file included.
+
+`historica check --complete` is that same walk with the tool holding the pen.
+Plain `check` hashes every file here and fails where the store contradicts
+itself; `--complete` asks the second question — whether every byte a revision
+names is present — and fails where it is not. Without the flag a shortfall is
+a note and the command still succeeds, because a copy still being delivered is
+not a broken one. A backup about to be trusted, or a sync that should have
+finished, is asking the second question.

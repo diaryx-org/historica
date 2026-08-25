@@ -263,6 +263,12 @@ The first line of this file states the format. A reader that does not know
 that format refuses the store rather than guessing at what it would be
 leaving out.
 
+Whether this copy is whole is a different question from whether it contradicts
+itself, and `historica check --complete` asks both. Plain `check` fails only on
+a store that disagrees with itself; `--complete` also fails where a revision
+names bytes this copy does not hold, which is what a backup about to be trusted
+— or a sync that should have finished — is asking.
+
 `historica help` lists what the tool can do with all of this.
 ";
 
