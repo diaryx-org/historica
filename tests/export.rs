@@ -196,14 +196,17 @@ fn an_export_is_a_repository_a_stranger_can_open() {
     // A cache is nobody's, so none of the exporter's travels. What the copy
     // has in `cache/` is what it wrote for itself on the way: the note `init`
     // leaves, the catalogue saying where in its *own* `operations/` each
-    // digest sits, and decision 0043's catalogue of its *own* folder. A cached
-    // state is a file named by a digest, and there are none — the copy has
-    // read nobody's files.
+    // digest sits, decision 0043's catalogue of its *own* folder, and 0058's
+    // copy of its *own* revision documents. A cached state is a file named by
+    // a digest, and there are none — the copy has read nobody's files.
     let cache = walk(&copy.join("history/cache"));
     assert!(
-        cache
-            .iter()
-            .all(|name| name == "README.txt" || name == "operations.txt" || name == "working.txt"),
+        cache.iter().all(|name| {
+            name == "README.txt"
+                || name == "operations.txt"
+                || name == "working.txt"
+                || name == "revisions.txt"
+        }),
         "the exporter's cache travelled: {cache:?}"
     );
 
@@ -1103,9 +1106,12 @@ fn a_bookmark_made_in_the_copy_survives_an_update() {
     // `cache/` likewise: it is nobody's, and the copy's own is its own.
     let cache = walk(&copy.join("history/cache"));
     assert!(
-        cache
-            .iter()
-            .all(|name| name == "README.txt" || name == "operations.txt" || name == "working.txt"),
+        cache.iter().all(|name| {
+            name == "README.txt"
+                || name == "operations.txt"
+                || name == "working.txt"
+                || name == "revisions.txt"
+        }),
         "the exporter's cache travelled: {cache:?}"
     );
     assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));

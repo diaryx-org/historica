@@ -263,6 +263,28 @@ and the catalogue itself take a digest in pieces, so a store of photographs
 costs a buffer rather than a photograph. `check` is excluded from both, for the
 reason it is excluded from everything in `cache/`.
 
+What was left after both is the directory every command reads before it does
+anything at all, which is decision 0058. Opening a store walks `revisions/` and
+performs one read and one parse per file — a revision document holds the whole
+of the graph, so `names` opened six hundred files to print four lines. The
+bytes were never the cost: six hundred documents are 688 KB, which is a fifth
+of a millisecond out of one file and nine milliseconds out of six hundred, or a
+hundred and eleven from a cold page cache. So `cache/revisions.txt` holds those
+documents verbatim, each behind a line stating its digest, its size, the
+modification time the directory reported, and its path. Bytes rather than
+facts, because a cache of parsed facts would be a second grammar for the
+revision document and would have to be *believed*, where bytes can be hashed —
+three tenths of a millisecond for the whole file, and the cheapest way there is
+to make a cache incapable of inventing a history. An entry is taken when its
+bytes hash to the digest it claims, when the directory still reports the size
+and time it recorded, and when that time is strictly older than the file
+holding it, which is 0043's racy rule unchanged; anything else is a document
+this store opens. Nothing derived is written down — the heads, the ancestry and
+the supersession are computed on every command exactly as before — so this is
+where the documents come from rather than an index of what they say. What is
+left is the parse, which is the work of turning this format's bytes into its
+facts and is the one cost a cache could only remove by being believed.
+
 The `historica` binary is the front end decision 0006 said was owed. `init`,
 `check`, and `arrange` are the three commands it names; `log`, `show`, `files`,
 `cat`, and `names` read a store and render it; `status` reads the folder beside

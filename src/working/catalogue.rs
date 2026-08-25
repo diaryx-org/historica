@@ -50,10 +50,9 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::time::SystemTime;
 
 use crate::core::RevisionId;
-use crate::fs::{Filesystem, Stamp};
+use crate::fs::{Filesystem, Stamp, nanoseconds};
 use crate::store::CACHE_DIR;
 
 /// What `cache/` calls this catalogue.
@@ -221,24 +220,10 @@ fn render(digests: &BTreeMap<String, RevisionId>, stamps: &BTreeMap<String, Stam
     text
 }
 
-/// A modification time as a whole number of nanoseconds either side of the
-/// Unix epoch.
-///
-/// A readable integer, because everything in this repository that a person may
-/// have to look at is readable — and one that compares as an instant does,
-/// because the racy rule is a comparison. `None` for a time so far from the
-/// epoch that it does not fit, which is not a time any file has.
-fn nanoseconds(time: SystemTime) -> Option<i128> {
-    match time.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(since) => i128::try_from(since.as_nanos()).ok(),
-        Err(before) => i128::try_from(before.duration().as_nanos())
-            .ok()
-            .map(|nanos| -nanos),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::time::SystemTime;
+
     use super::*;
     use crate::format::digest;
     use std::time::Duration;

@@ -847,13 +847,13 @@ fn check_resolutions<F: Filesystem + ?Sized>(
     {
         return;
     }
-    let Ok(store) = super::Store::open_on(files, root) else {
+    // Decisions 0036 and 0058: `check` reads `revisions/` and catalogues
+    // `operations/` itself, never by taking what `cache/` says. Everything
+    // else this store answers is the arithmetic itself, and this is the one
+    // command that exists to run it.
+    let Ok(store) = super::Store::open_reading_everything_on(files, root) else {
         return;
     };
-    // Decision 0036: `check` catalogues `operations/` by reading it, never by
-    // taking what `cache/` says. Everything else this store answers is the
-    // arithmetic itself, and this is the one command that exists to run it.
-    let store = store.reading_everything();
     // Opening no longer reads `operations/`, and this check is entirely about
     // what an `edit` line names there. A directory that will not parse has
     // already been reported file by file, on the same reasoning as above.
@@ -1623,7 +1623,7 @@ fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Re
 
     // Against every head, for `skip`'s own reason: a rule is a fact about the
     // repository, so a path any line of work holds is a path it cannot cover.
-    let Ok(store) = super::Store::open_on(files, root) else {
+    let Ok(store) = super::Store::open_reading_everything_on(files, root) else {
         return;
     };
     let mut said: BTreeSet<String> = BTreeSet::new();

@@ -77,6 +77,7 @@ mod forget;
 mod offer;
 mod prune;
 mod receive;
+mod revisions;
 
 pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Placement, Rename, Tally};
 use catalogue::Catalogue;
@@ -782,24 +783,29 @@ impl<F: Filesystem> Store<F> {
     /// it reports an unparsable document there whether or not anything ever
     /// asks for it.
     pub fn open_on(files: F, root: impl AsRef<Path>) -> Result<Self, StoreError> {
+        Self::open_with(files, root, true)
+    }
+
+    /// The same, reading every document itself rather than taking `cache/`.
+    ///
+    /// Decision 0058, on the rule 0035 set and 0036 restated: the command that
+    /// holds a store to its own rules must not be handed an answer. `check` is
+    /// the only caller, and this is the opening rather than
+    /// [`Store::reading_everything`] because the documents of `revisions/` are
+    /// read at the moment a store opens — declining `cache/` afterwards would
+    /// be declining it too late.
+    pub fn open_reading_everything_on(
+        files: F,
+        root: impl AsRef<Path>,
+    ) -> Result<Self, StoreError> {
+        Ok(Self::open_with(files, root, false)?.reading_everything())
+    }
+
+    fn open_with(files: F, root: impl AsRef<Path>, cached: bool) -> Result<Self, StoreError> {
         let root = root.as_ref().to_path_buf();
         check_header(&files, &root)?;
 
-        let mut documents = BTreeMap::new();
-        for path in files_claiming(&files, &root, REVISIONS_DIR, &REVISION_SUFFIXES)? {
-            let bytes = files
-                .read(&path)
-                .map_err(|error| StoreError::io(&path, error))?;
-            let document =
-                RevisionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
-                    file: path.clone(),
-                    error,
-                })?;
-            // Two files with identical bytes are one revision stored twice,
-            // which is harmless. Identical digests with differing bytes cannot
-            // happen, and if they ever did it would mean a broken read.
-            documents.insert(digest(&bytes), document);
-        }
+        let documents = revisions::load(&files, &root, cached)?;
 
         let mut names = BTreeMap::new();
         for (name, path) in name_files(&files, &root)? {
@@ -820,7 +826,7 @@ impl<F: Filesystem> Store<F> {
             walked: OnceCell::new(),
             read: RefCell::new(Read::default()),
             scanned: Cell::new(false),
-            cached: true,
+            cached,
             names,
             skipped,
         })

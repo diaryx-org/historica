@@ -390,6 +390,248 @@ fn filing_a_flat_store_costs_a_catalogue_and_never_an_answer() {
 // The folder's own catalogue, decision 0043
 // ---------------------------------------------------------------------------
 
+// ── decision 0058: the revision documents, so that opening costs one read ──
+
+fn revisions_file_of(directory: &Path) -> PathBuf {
+    cache_of(directory).join("revisions.txt")
+}
+
+/// Every `.rev.txt` under the store, however a person has filed them.
+fn revision_files(directory: &Path) -> Vec<PathBuf> {
+    fn walk(at: &Path, found: &mut Vec<PathBuf>) {
+        let Ok(read) = fs::read_dir(at) else {
+            return;
+        };
+        for entry in read.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.to_string_lossy().ends_with(".rev.txt") {
+                found.push(path);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(&directory.join("history/revisions"), &mut found);
+    found.sort();
+    found
+}
+
+/// The document holding this message, which is how a test edits one by hand.
+fn revision_saying(directory: &Path, message: &str) -> PathBuf {
+    revision_files(directory)
+        .into_iter()
+        .find(|path| {
+            fs::read_to_string(path)
+                .map(|text| text.contains(message))
+                .unwrap_or(false)
+        })
+        .unwrap_or_else(|| panic!("no revision document says {message:?}"))
+}
+
+#[test]
+fn the_revisions_file_is_written_and_then_taken() {
+    let directory = recorded("revisions-kept");
+    let first = stdout(&directory, &["log"]);
+
+    let held = fs::read_to_string(revisions_file_of(&directory)).expect("a revisions file");
+    assert!(held.starts_with("historica-revisions-1\n"), "{held}");
+    // Every document in the store is in it, at the path it is at.
+    for path in revision_files(&directory) {
+        let relative = path
+            .strip_prefix(directory.join("history"))
+            .expect("a path under the store");
+        assert!(
+            held.contains(&format!(" {}\n", relative.display())),
+            "the file does not account for {}",
+            relative.display()
+        );
+    }
+    // And it holds the documents themselves, verbatim: that is the whole of
+    // what makes it cheaper than opening them, and the reason it can be
+    // checked rather than believed.
+    let one = revision_files(&directory).pop().expect("a document");
+    assert!(
+        held.contains(&fs::read_to_string(&one).expect("a document")),
+        "the file does not hold {}",
+        one.display()
+    );
+
+    // Reading again with it in place is the same answer, and leaves it alone:
+    // nothing changed, so nothing is rewritten.
+    assert_eq!(stdout(&directory, &["log"]), first);
+    assert_eq!(
+        fs::read_to_string(revisions_file_of(&directory)).expect("still there"),
+        held
+    );
+}
+
+#[test]
+fn deleting_the_revisions_file_loses_neither_information_nor_meaning() {
+    let directory = recorded("revisions-disposable");
+    let head = head(&directory);
+
+    let log = stdout(&directory, &["log"]);
+    let files = stdout(&directory, &["files", &head]);
+    let content = stdout(&directory, &["cat", &head, "notes.txt"]);
+    let status = stdout(&directory, &["status"]);
+
+    fs::remove_file(revisions_file_of(&directory)).expect("deleting it");
+    assert_eq!(stdout(&directory, &["log"]), log);
+    assert_eq!(stdout(&directory, &["files", &head]), files);
+    assert_eq!(stdout(&directory, &["cat", &head, "notes.txt"]), content);
+    assert_eq!(stdout(&directory, &["status"]), status);
+    assert!(run(&directory, &["check"]).status.success());
+    // And it is back, because the pass that answered without it wrote it.
+    assert!(revisions_file_of(&directory).exists());
+}
+
+#[test]
+fn a_truncated_revisions_file_changes_no_answer() {
+    let directory = recorded("revisions-truncated");
+    let log = stdout(&directory, &["log"]);
+
+    for damage in [
+        "",
+        "historica-revisions-1\n",
+        "not a cache at all\n",
+        "historica-revisions-1\nhalf a line",
+    ] {
+        fs::write(revisions_file_of(&directory), damage).expect("damaging it");
+        assert_eq!(stdout(&directory, &["log"]), log, "after {damage:?}");
+    }
+}
+
+#[test]
+fn a_revisions_file_that_holds_the_wrong_bytes_changes_no_answer() {
+    let directory = recorded("revisions-lying");
+    let log = stdout(&directory, &["log"]);
+    let head = head(&directory);
+    let content = stdout(&directory, &["cat", &head, "notes.txt"]);
+
+    // An entry whose header line is exactly what it was and whose body is
+    // somebody else's document. The path set is untouched and the stamps are
+    // untouched, so nothing about the *shape* of it is suspicious — what
+    // refuses this is the rule that an entry's bytes must hash to the digest
+    // it is filed under.
+    let held = fs::read_to_string(revisions_file_of(&directory)).expect("a revisions file");
+    let mut lines = held.lines();
+    let header = lines.next().expect("a header");
+    let mut planted = String::from(header);
+    planted.push('\n');
+    let mut rest = &held[header.len() + 1..];
+    while !rest.is_empty() {
+        let end = rest.find('\n').expect("an entry line");
+        let line = &rest[..end];
+        let size: usize = line
+            .split(' ')
+            .nth(1)
+            .and_then(|size| size.parse().ok())
+            .expect("a size");
+        // The same length, so every count in the file still holds and the
+        // whole of it still parses. Only the bytes are wrong.
+        let lie = "x".repeat(size);
+        planted.push_str(line);
+        planted.push('\n');
+        planted.push_str(&lie);
+        planted.push('\n');
+        rest = &rest[end + 1 + size + 1..];
+    }
+    fs::write(revisions_file_of(&directory), planted).expect("planting it");
+
+    assert_eq!(stdout(&directory, &["log"]), log);
+    assert_eq!(stdout(&directory, &["cat", &head, "notes.txt"]), content);
+    assert!(run(&directory, &["check"]).status.success());
+}
+
+#[test]
+fn a_document_edited_by_hand_is_read_rather_than_believed() {
+    // The reason the stamps are here at all. The readable files are the
+    // authority, and a person is invited to open them — so a cache that went
+    // on printing what a document used to say would be the tool contradicting
+    // the file, which is the one failure this format exists to rule out.
+    let directory = recorded("revisions-edited");
+    let log = stdout(&directory, &["log"]);
+    assert!(log.contains("revision 40"), "{log}");
+    assert!(revisions_file_of(&directory).exists());
+
+    let document = revision_saying(&directory, "revision 40");
+    let text = fs::read_to_string(&document).expect("a document");
+    fs::write(
+        &document,
+        text.replace("revision 40", "a message typed in by hand"),
+    )
+    .expect("editing it");
+
+    let said = stdout(&directory, &["log"]);
+    assert!(
+        said.contains("a message typed in by hand"),
+        "the cache was believed over the file: {said}"
+    );
+    assert!(!said.contains("revision 40"), "{said}");
+}
+
+#[test]
+fn a_document_no_older_than_the_revisions_file_is_read_rather_than_believed() {
+    // The racy case, built rather than waited for, and the same rule decision
+    // 0043 takes for the folder: an entry whose recorded time is not strictly
+    // older than the file holding it could have been written twice inside one
+    // tick of the filesystem's clock.
+    let directory = recorded("revisions-racy");
+    let document = revision_saying(&directory, "revision 40");
+
+    let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(600);
+    set_modified(&document, ahead);
+    let log = stdout(&directory, &["log"]);
+    assert!(log.contains("revision 40"), "{log}");
+
+    // Now change the bytes without changing anything the directory reports:
+    // the same length, and the same modification time the entry recorded. The
+    // size cannot tell, and the time cannot tell — the rule is what tells.
+    let text = fs::read_to_string(&document).expect("a document");
+    let replaced = text.replace("revision 40", "revision FF");
+    assert_eq!(
+        replaced.len(),
+        text.len(),
+        "the rewrite must be the same length"
+    );
+    fs::write(&document, replaced).expect("rewriting it");
+    set_modified(&document, ahead);
+
+    let said = stdout(&directory, &["log"]);
+    assert!(
+        said.contains("revision FF"),
+        "an unverifiable entry was believed: {said}"
+    );
+}
+
+#[test]
+fn a_revision_recorded_after_the_file_was_written_is_still_found() {
+    let directory = recorded("revisions-appended");
+    // Reading writes the file; recording then adds a document it does not
+    // name. The next reader has to notice, which is the whole of what makes
+    // keeping it safe.
+    let _ = stdout(&directory, &["log"]);
+    assert!(revisions_file_of(&directory).exists());
+
+    fs::write(directory.join("notes.txt"), "a line nobody had written\n")
+        .expect("editing the file");
+    assert!(
+        run(&directory, &["record", "-m", "after the cache"])
+            .status
+            .success()
+    );
+
+    let log = stdout(&directory, &["log"]);
+    assert!(log.contains("after the cache"), "{log}");
+    let head = head(&directory);
+    assert_eq!(
+        stdout(&directory, &["cat", &head, "notes.txt"]),
+        "a line nobody had written\n"
+    );
+    assert!(run(&directory, &["check"]).status.success());
+}
+
 /// The catalogue of the working folder, which 0043 puts beside 0036's.
 fn folder_catalogue_of(directory: &Path) -> PathBuf {
     cache_of(directory).join("working.txt")

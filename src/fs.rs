@@ -122,6 +122,23 @@ pub struct Stamp {
     pub modified: SystemTime,
 }
 
+/// A modification time as a whole number of nanoseconds either side of the
+/// Unix epoch.
+///
+/// A readable integer, because everything in this repository that a person may
+/// have to look at is readable — and one that compares as an instant does,
+/// because the racy rule decisions 0043 and 0058 share is a comparison. `None`
+/// for a time so far from the epoch that it does not fit, which is not a time
+/// any file has.
+pub(crate) fn nanoseconds(time: SystemTime) -> Option<i128> {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(since) => i128::try_from(since.as_nanos()).ok(),
+        Err(before) => i128::try_from(before.duration().as_nanos())
+            .ok()
+            .map(|nanos| -nanos),
+    }
+}
+
 /// One thing found in a directory.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Entry {
