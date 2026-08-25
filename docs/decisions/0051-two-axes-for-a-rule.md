@@ -1,4 +1,4 @@
-# 0049 — Two axes for a rule
+# 0051 — Two axes for a rule
 
 0042 and 0045 disagree about what a `skip` rule is, and the disagreement is
 one sentence each.

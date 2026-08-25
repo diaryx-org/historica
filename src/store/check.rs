@@ -102,7 +102,7 @@ pub enum Finding {
         /// The file.
         file: PathBuf,
     },
-    /// A file still stating `skip-suffix`, which decision 0049 retired.
+    /// A file still stating `skip-suffix`, which decision 0051 retired.
     ///
     /// Worth more than "unknown key", which is all the loader can say, because
     /// there is an exact replacement and this can spell it.
@@ -114,7 +114,7 @@ pub enum Finding {
     },
     /// One path covered both privately and shared.
     ///
-    /// Decision 0049: the two are separate rules, so a union takes both, so
+    /// Decision 0051: the two are separate rules, so a union takes both, so
     /// the path is named in an export and the private rule accomplished
     /// nothing. Privacy defeated by addition is the one contradiction this
     /// format resolves by naming rather than by taking both, and the fix is
@@ -1534,14 +1534,14 @@ fn reachable(
 ///
 /// Five things the loader cannot say. A file that is not one rule stops every
 /// command, so `check` names it here rather than at the next `record`, and a
-/// file still stating decision 0049's retired `skip-suffix` is named with the
+/// file still stating decision 0051's retired `skip-suffix` is named with the
 /// `skip-name` line that replaces it. A rule stated twice is harmless and
 /// means somebody's `receive` met a label two replicas spelled differently.
 /// A rule covering a file the history holds is the one state a union can
 /// arrive at that `skip` refuses to write: rules no longer conflict, so
 /// nothing stops one reaching a store where it is not writable, and the fix is
 /// to delete the file that states it. And one path covered both privately and
-/// shared is decision 0049's one way the travel axis fails — privacy defeated
+/// shared is decision 0051's one way the travel axis fails — privacy defeated
 /// by addition, in the one container whose every other contradiction is
 /// resolved by taking both.
 fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) {
@@ -1578,7 +1578,7 @@ fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Re
             Ok(Some(rule)) => stated.push((rule, path)),
             // The note `init` writes, and any other prose somebody keeps here.
             Ok(None) => {}
-            // Decision 0049's retired key first, because "unknown key" is the
+            // Decision 0051's retired key first, because "unknown key" is the
             // true but useless half of what there is to say about it.
             Err(error) => match crate::working::Skipped::retired_in(&text) {
                 Some(replacement) => report.push(Finding::RetiredRule {
@@ -1603,7 +1603,7 @@ fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Re
         }
     }
 
-    // Decision 0049's one way this fails: the same scope stated on both sides
+    // Decision 0051's one way this fails: the same scope stated on both sides
     // of the travel axis. Scope equality is the whole of it — a shared rule
     // covering a private rule's path is not a leak, because what the copy
     // carries is the shared rule's own text, which names something else.

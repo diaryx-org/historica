@@ -153,7 +153,7 @@ it is given: the folder beside the store, everything in it tracked except what
 `history/skipped/` names — and a rule there covering a file the tree already
 holds is refused, because the walk would stop offering the path and the next
 record would spell a request for privacy as a deletion of the file it names.
-A rule is four keys on two axes (0045, 0049): `skip <path>` and `skip <path>/`
+A rule is four keys on two axes (0045, 0051): `skip <path>` and `skip <path>/`
 name a file and a directory, `skip-name <name>` and `skip-name <name>/` match
 one path component at any depth with `*` standing for any run of characters
 in it, and `private` and `private-name` say the same things while keeping
@@ -284,7 +284,7 @@ the folder as one revision has it and the ancestry that leads there, which is
 decision 0042 and the half 0029 said was missing. Nothing unrecorded and
 nothing a `skip` rule names can appear in a copy that is assembled rather than
 mirrored, and compressing the result is tar's job. The rules themselves do
-travel — decision 0049, so a copy's first `record` does not offer to record
+travel — decision 0051, so a copy's first `record` does not offer to record
 the recipient's build output — and the copy says how many private rules stayed
 behind. `record`
 writes one and `amend` rewrites one,
@@ -851,7 +851,7 @@ Choices that constrain later work are written down as they are made.
   server does not already do. `check` on the source is the rule that cannot
   survive a URL, and what replaces it is stated rather than assumed. `export`
   and an archive stay the clone; this is the pull.
-- [`docs/decisions/0049-two-axes-for-a-rule.md`](docs/decisions/0049-two-axes-for-a-rule.md)
+- [`docs/decisions/0051-two-axes-for-a-rule.md`](docs/decisions/0051-two-axes-for-a-rule.md)
   — 0042 called rules the exporter's and 0045 called them a fact about the
   repository, and both cannot hold: `receive` unions them and `export` drops
   them, so a copy reaches a collaborator without the `skip target/` that

@@ -64,7 +64,7 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                     plan.forgetting().len()
                 )?;
             }
-            // Decision 0049 puts both counts on the same footing as the
+            // Decision 0051 puts both counts on the same footing as the
             // rest: a copy that quietly dropped rules is what it fixes, so
             // the withheld count is printed even where it is the only one.
             if !plan.rules().is_empty() || plan.withheld() != 0 {

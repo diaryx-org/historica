@@ -61,7 +61,7 @@ const LABEL_BYTES: usize = 200;
 
 /// What `history/skipped/` says.
 ///
-/// Four keys on two axes, and the set closes there: decision 0049 makes what a
+/// Four keys on two axes, and the set closes there: decision 0051 makes what a
 /// rule matches orthogonal to whether it travels, so `skip` and `skip-name`
 /// each have a `private` spelling and no combination is missing. The matching
 /// side stops at a path component — decision 0011 argues that the part people
@@ -81,7 +81,7 @@ pub struct Skipped {
 /// renders itself is what keeps the writer from spelling a line the reader
 /// would refuse.
 ///
-/// Decision 0049: the travel axis is a second key rather than a bit on a rule,
+/// Decision 0051: the travel axis is a second key rather than a bit on a rule,
 /// because a bit is a second fact per rule and a second fact has to merge —
 /// one rule held private on the laptop and shared on the desktop would leave
 /// the union either leaking or holding a precedence rule, in the one container
@@ -159,7 +159,7 @@ impl Rule {
             "private" => (true, false),
             "skip-name" => (false, true),
             "private-name" => (true, true),
-            // Decision 0049 retires it: `skip-suffix .tmp` is `skip-name
+            // Decision 0051 retires it: `skip-suffix .tmp` is `skip-name
             // *.tmp` with the meaning it always had, since the old rule was
             // already a match against the last component.
             "skip-suffix" => {
@@ -215,7 +215,7 @@ impl Rule {
     /// A label the store cannot own falls back to the digest of the rule:
     /// 0018's collision suffix, arrived at from the rule alone rather than
     /// from what a directory already holds, so two replicas spelling one rule
-    /// spell one filename. Decision 0049 adds two reasons to fall back — a
+    /// spell one filename. Decision 0051 adds two reasons to fall back — a
     /// pattern holding a `*`, which is a filename no Windows volume will carry
     /// and a shell will not leave alone, and the collision between a rule and
     /// its twin on the other axis, which `add_skipped` settles by writing the
@@ -255,7 +255,7 @@ impl Rule {
     /// Five ways it is not, and each would lose a rule silently rather than
     /// loudly: a name the reader skips as the platform's (0022), a name
     /// already meaning something else here, a component no filesystem will
-    /// take, and — decision 0049 — a value holding a `*`, which is a character
+    /// take, and — decision 0051 — a value holding a `*`, which is a character
     /// `naming::scrubbed` passes through untouched and no Windows volume will
     /// carry.
     fn spellable(&self, natural: &str) -> bool {
@@ -333,7 +333,7 @@ impl fmt::Display for Scope {
 /// A value matched against one path component, in which `*` is the only
 /// metacharacter.
 ///
-/// Decision 0049: any run of characters, including an empty one and including
+/// Decision 0051: any run of characters, including an empty one and including
 /// a leading dot, so `*.tmp` covers `.tmp` and `*` needs no companion rule for
 /// dotfiles. No `?`, no character classes, no `**`, no negation, and no
 /// escaping — a name that genuinely holds a star is spelled with `skip
@@ -499,7 +499,7 @@ impl Skipped {
 
     /// The spelling that replaces a retired key this file still states.
     ///
-    /// Decision 0049 refuses `skip-suffix` by name, and the refusal is worth
+    /// Decision 0051 refuses `skip-suffix` by name, and the refusal is worth
     /// more than "unknown key" because there is an exact replacement and the
     /// reader can spell it. `check` reports it; the loader stops at it, as it
     /// stops at anything it cannot read.
@@ -528,7 +528,7 @@ impl Skipped {
     pub fn skips_directory(&self, path: &str) -> bool {
         self.rules.iter().any(|(rule, _)| match &rule.scope {
             Scope::Under(prefix) | Scope::Path(prefix) => path == prefix,
-            // Decision 0049: the directory's own name, which is what keeps
+            // Decision 0051: the directory's own name, which is what keeps
             // 0039 able to tell "no such path" from "a rule keeps that path
             // out" now that a rule can name a directory without spelling one.
             Scope::NameUnder(pattern) => pattern.matches(last_component(path)),
@@ -551,7 +551,7 @@ impl Skipped {
 
     /// Every rule an `export` carries, in the order the directory states them.
     ///
-    /// Decision 0049 supersedes the half of 0042 that named rules: a copy that
+    /// Decision 0051 supersedes the half of 0042 that named rules: a copy that
     /// silently dropped `skip target/` is a copy whose first `record` offers
     /// to record the recipient's build output, which is the failure 0011 wrote
     /// rules to prevent, arriving because the rules did not.
@@ -1193,7 +1193,7 @@ mod tests {
         assert!(rules.skips("docs/draft.tmp"));
         assert!(rules.skips("draft.tmp"));
         assert!(!rules.skips("docs.tmp/draft.md"));
-        // Decision 0049: any run, including an empty one, so `*.tmp` is the
+        // Decision 0051: any run, including an empty one, so `*.tmp` is the
         // whole of what `skip-suffix .tmp` said and reaches `.tmp` besides.
         assert!(rules.skips("docs/.tmp"));
     }
@@ -1285,7 +1285,7 @@ mod tests {
 
     #[test]
     fn a_private_rule_and_its_shared_twin_are_two_rules() {
-        // Decision 0049: the flag is part of the rule's identity, which is
+        // Decision 0051: the flag is part of the rule's identity, which is
         // what lets a union take both rather than tie-break between them.
         let rules = skipped("skip docs/\nprivate docs/\n");
         assert_eq!(rules.len(), 2);
@@ -1329,7 +1329,7 @@ mod tests {
     fn a_label_the_store_cannot_own_is_the_rules_digest() {
         // A name the reader would skip as the platform's (0022), the name
         // `init` writes, the name a directory rule takes, and — decision
-        // 0049 — a value holding a star.
+        // 0051 — a value holding a star.
         for rule in [
             Rule::shared(Scope::Path("._resources".into())),
             Rule::shared(Scope::Path("README".into())),

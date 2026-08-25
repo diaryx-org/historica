@@ -987,7 +987,7 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 /// before the file is written rather than at the next `record`, because the
 /// person is standing in front of the answer now.
 ///
-/// `--private` is decision 0049's travel axis, and it applies to the whole
+/// `--private` is decision 0051's travel axis, and it applies to the whole
 /// invocation rather than to the argument after it: a person writing one
 /// command means one thing by it, and a flag that moved rule by rule would be
 /// a precedence to read, which is what the rule file exists not to have.
@@ -1006,7 +1006,7 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                     .ok_or_else(|| Failure::usage("`--name` wants a name to match"))?;
                 scopes.push(name_scope(&name)?);
             }
-            // Decision 0049 retires the key, so the flag that wrote it goes
+            // Decision 0051 retires the key, so the flag that wrote it goes
             // with it, and says what to type instead rather than what it is
             // not.
             "--suffix" => {
@@ -1037,7 +1037,7 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         // that file the whole of what deleting a rule means. `cat` was the
         // preview 0016 asked for while there was one file to cat.
         //
-        // Decision 0049 puts the kind on the second line: `export` treats the
+        // Decision 0051 puts the kind on the second line: `export` treats the
         // two differently and the word is what makes that visible without the
         // reader having to know which of four keys travels.
         let rules: Vec<(String, &'static str, String)> = store
@@ -1080,7 +1080,8 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         return Err(Failure::error(format!(
             "history already holds {}, and a rule cannot take back what is \
              recorded; delete the {} and record that, which is what removing a \
-             file from the tree means:{}",
+             file from the tree means, and `forget` is what removes recorded \
+             content:{}",
             if covered.len() == 1 {
                 "a file this would skip".to_owned()
             } else {

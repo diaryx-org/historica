@@ -172,7 +172,7 @@ fn an_export_is_a_repository_a_stranger_can_open() {
         out(&copy, &["names"]).contains("no bookmarks"),
         "the exporter's bookmarks travelled"
     );
-    // Decision 0049: the shared rules travel and the private ones do not. A
+    // Decision 0051: the shared rules travel and the private ones do not. A
     // copy without `skip-name *.tmp` is a copy whose first `record` offers to
     // record the recipient's editor droppings, which is the failure 0011 wrote
     // rules to prevent, arriving because the rules did not.

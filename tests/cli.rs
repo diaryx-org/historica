@@ -1945,7 +1945,7 @@ fn two_replicas_that_each_wrote_a_rule_union_them() {
     assert!(listed.contains("skip-name *.tmp"), "{listed}");
 
     // The rule arrived as the file that states it, under the label the writer
-    // chose, so deleting it is what dropping the rule means. Decision 0049
+    // chose, so deleting it is what dropping the rule means. Decision 0051
     // makes that label the rule's digest, because the value holds a `*`.
     let tmp_rule = walk_names(&here.join("history/skipped"))
         .into_iter()
@@ -2623,7 +2623,7 @@ fn skip_writes_the_line_a_person_would_have_typed() {
         written.contains("history/skipped/target/all.txt"),
         "{written}"
     );
-    // Decision 0049: a value holding a `*` is a filename no Windows volume
+    // Decision 0051: a value holding a `*` is a filename no Windows volume
     // will carry and a shell will not leave alone, so the label is the
     // digest of the rule's own line.
     let tmp_rule = walk_names(&directory.join("history/skipped"))
@@ -2655,7 +2655,7 @@ fn skip_writes_the_line_a_person_would_have_typed() {
     let listed = out(recorded(&directory, &["skip"]));
     assert!(listed.contains("skip target/"), "{listed}");
     assert!(listed.contains(&tmp_rule), "{listed}");
-    // Decision 0049: the listing says which side of the travel axis each rule
+    // Decision 0051: the listing says which side of the travel axis each rule
     // is on, because `export` treats the two differently.
     assert!(listed.contains("shared"), "{listed}");
 
@@ -2731,7 +2731,7 @@ fn skip_leaves_the_files_a_person_wrote_alone() {
 
 #[test]
 fn a_private_rule_keeps_a_file_out_and_its_own_text_out_of_a_copy() {
-    // Decision 0049's travel axis, end to end. `private` keeps a file out of
+    // Decision 0051's travel axis, end to end. `private` keeps a file out of
     // history exactly as `skip` does; what parts them is one line of one copy.
     let directory = repository("skip-private");
     write(&directory, "notes.md", "kept\n");
@@ -2782,7 +2782,7 @@ fn a_private_rule_keeps_a_file_out_and_its_own_text_out_of_a_copy() {
 
 #[test]
 fn a_name_rule_matches_a_component_at_any_depth() {
-    // Decision 0049: one path component, `*` for any run inside it, and the
+    // Decision 0051: one path component, `*` for any run inside it, and the
     // trailing slash making the same parting the paths make.
     let directory = repository("skip-name");
     write(&directory, "notes.md", "kept\n");
@@ -2825,7 +2825,7 @@ fn a_pattern_that_holds_a_separator_or_only_stars_is_refused() {
 
 #[test]
 fn check_names_a_path_covered_both_privately_and_shared() {
-    // Decision 0049's one way the travel axis fails: a union takes both, so
+    // Decision 0051's one way the travel axis fails: a union takes both, so
     // the shared rule names the path in every copy and the private rule
     // accomplishes nothing. Two files a receive can legitimately produce, so
     // it is a finding rather than a refusal.

@@ -26,7 +26,7 @@
 //! fresh, because decision 0021 promises the copy explains itself to whoever
 //! opens it.
 //!
-//! Every **shared** rule travels, which is decision 0049 superseding the half
+//! Every **shared** rule travels, which is decision 0051 superseding the half
 //! of 0042 that called rules the exporter's. A copy that quietly dropped
 //! `skip target/` is one whose first `record` offers to record the recipient's
 //! build output — the failure 0011 wrote rules to prevent, arriving because
@@ -272,7 +272,7 @@ impl<F: Filesystem> Store<F> {
         // an empty `names/` — which is to say, nothing of the exporter's.
         let mut copy = Store::init_on(files, directory.join(STORE_DIR))?;
 
-        // Decision 0049: the rules that travel, written before the folder is
+        // Decision 0051: the rules that travel, written before the folder is
         // materialised, because the copy's own walk reads them and a rule the
         // copy states is a rule the copy has to be able to honour. None of
         // them can cover a path the target holds — `skip` refuses to write one

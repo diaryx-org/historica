@@ -24,7 +24,7 @@
 //! │                   #   states by digest (0035), and `operations.txt`,
 //! │                   #   which says where each digest is (0036)
 //! └── skipped/       # what recording does not take, one rule to a file:
-//!                     #   four keys on two axes (0045, 0049)
+//!                     #   four keys on two axes (0045, 0051)
 //! ```
 //!
 //! `operations/` holds two kinds of file, on the rule `revisions/` already
