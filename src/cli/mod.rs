@@ -21,6 +21,8 @@ mod arrange;
 mod blame;
 mod diff;
 mod export;
+#[cfg(feature = "http")]
+mod fetch;
 mod offer;
 mod record;
 mod render;
@@ -28,7 +30,31 @@ mod target;
 mod update;
 
 /// What `historica help` prints, and what a usage error prints after itself.
-pub const USAGE: &str = "\
+///
+/// Three pieces rather than one string, because one command is only in some
+/// builds: decision 0057 puts the transport behind a feature, and a usage text
+/// that named a command this binary does not have would be the one line in it
+/// that is not true.
+pub fn usage() -> String {
+    format!("{COMMANDS}{FETCHING}{REST}")
+}
+
+/// The `fetch` entry, in a build that has a transport.
+#[cfg(feature = "http")]
+const FETCHING: &str = "  fetch <url> [--join-unrelated]
+                           take what a published copy holds and this store
+                           lacks: the URL is the manifest `offer` wrote, and
+                           every path in it resolves against the directory
+                           that manifest sits in. adds history and stops —
+                           `update` is the folder's catch-up
+";
+
+/// Nothing, in a build without one. Such a build fetches through the library's
+/// `Source` trait, which is where a host that has its own transport brings it.
+#[cfg(not(feature = "http"))]
+const FETCHING: &str = "";
+
+const COMMANDS: &str = "\
 usage: historica [-C <dir>] <command> [<arguments>]
 
 reading a store
@@ -98,7 +124,9 @@ writing a store
                            what the entry forgets, and the path. writes
                            nothing — redirect it beside the copy, as
                            `offer.txt`, after the `export` that made it
-  forget <target> <path> --lines <first>..<last> [--dry-run]
+";
+
+const REST: &str = "  forget <target> <path> --lines <first>..<last> [--dry-run]
                            destroy those lines everywhere history quotes
                            them, leaving their shape; the file's paths,
                            authors, and times stay recorded
@@ -189,7 +217,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
 
     let command = loop {
         let Some(argument) = arguments.next() else {
-            return printing(|out| out.write_all(USAGE.as_bytes()));
+            return printing(|out| out.write_all(usage().as_bytes()));
         };
         match argument.as_str() {
             "-C" => {
@@ -199,7 +227,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
                 base = Some(PathBuf::from(directory));
             }
             "-h" | "--help" | "help" => {
-                return printing(|out| out.write_all(USAGE.as_bytes()));
+                return printing(|out| out.write_all(usage().as_bytes()));
             }
             "-V" | "--version" => {
                 return printing(|out| writeln!(out, "historica {}", env!("CARGO_PKG_VERSION")));
@@ -238,6 +266,17 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "receive" => receive(&base, rest),
         "export" => export::export(&base, locate(&base)?, rest),
         "offer" => offer::offer(&base, rest),
+        #[cfg(feature = "http")]
+        "fetch" => fetch::fetch(&base, rest),
+        // Named rather than left to fall through, because "there is no `fetch`
+        // command" would be true of this binary and false of historica.
+        #[cfg(not(feature = "http"))]
+        "fetch" => Err(Failure::usage(
+            "this build of historica has no transport in it, so it has no \
+             `fetch`. the library's `Source` trait is where a host brings its \
+             own; without one, `export`, an archive, and `receive` are the way \
+             a store travels",
+        )),
         "forget" => forget(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "update" => update::update(locate(&base)?, rest),

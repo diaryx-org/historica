@@ -82,6 +82,14 @@ const JOBS: &[Job] = &[
         run: bare,
     },
     Job {
+        id: "wasi",
+        name: "Wasi",
+        components: "",
+        builds: true,
+        about: "build the whole CLI for wasi, where no HTTP stack exists",
+        run: wasi,
+    },
+    Job {
         id: "msrv",
         name: "MSRV",
         components: "",
@@ -195,6 +203,38 @@ fn bare(sh: &Sh) -> Result<()> {
         ));
     }
     println!("the library builds without `disk` and names `std::fs` nowhere");
+    Ok(())
+}
+
+/// Every target that has no HTTP stack under it, built without the one that
+/// assumes there is.
+///
+/// Decision 0057 puts the transport behind `http`, on by default, and the
+/// promise that comes with it is that turning it off leaves a whole CLI rather
+/// than a broken one. `bare` holds the *library* to compiling where `std::fs`
+/// does not work; this holds the *binary* to compiling where a socket does not
+/// exist — a wasi guest, whose host brings its own transport through the
+/// library's `Source` trait.
+///
+/// A build rather than a test run, for `msrv`'s reason: there is no wasi
+/// runtime here to run one in, and what is being promised is that it compiles.
+/// Both preview versions, because the promise was made about both and they are
+/// separate targets with separate standard libraries.
+fn wasi(sh: &Sh) -> Result<()> {
+    for target in ["wasm32-wasip1", "wasm32-wasip2"] {
+        // Idempotent: rustup reports an already-installed target and returns 0.
+        sh.run("rustup", &["target", "add", target])
+            .map_err(|e| format!("{e}\n\nthe wasi job needs rustup on PATH to install {target}"))?;
+        sh.cargo(&[
+            "build",
+            "--target",
+            target,
+            "--no-default-features",
+            "--features",
+            "disk",
+        ])?;
+    }
+    println!("the whole CLI builds for wasi with no transport compiled into it");
     Ok(())
 }
 

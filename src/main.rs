@@ -24,7 +24,7 @@ fn main() -> ExitCode {
             }
             if failure.wants_usage() {
                 eprintln!();
-                eprint!("{}", cli::USAGE);
+                eprint!("{}", cli::usage());
             }
             ExitCode::from(failure.code())
         }
