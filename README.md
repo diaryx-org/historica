@@ -286,10 +286,11 @@ left after that was the parse, and decision 0061 is the answer that needed no
 cache at all: a document's graph facts — `change`, `parent`, `supersedes` — are
 the first three ranks of a key order the parser already enforces, so the
 revision is a *prefix* of the document and the author, the moment and the whole
-of the tree were being read by every command for almost none of them. Reading a
-document whole costs what that revision did, one line per file it touched;
-reading the revision out of it costs the same for every document there has ever
-been — 8.7 µs against 0.54 on a store of twenty files. So opening reads the
+of the tree were being read by every command for almost none of them. Reading
+the revision walks the same lines and holds them to the same rules about a
+document's shape; what it sheds is the interpreting and the allocating, which
+is two thirds of what a parse is — 9.3 µs a document against 3.1 on a store of
+twenty files. So opening reads the
 revision and holds the bytes, everything refusable without interpreting a value
 is still refused there, and what a document *did* is parsed at the moment
 something asks. Behind that sat a larger cost the measuring turned up: the
@@ -297,8 +298,12 @@ projection every command builds reached the graph through `to_revision`, whose
 `id` is the digest of the document rewritten, so asking a store for its shape
 re-serialised and re-hashed every document in it to arrive at the name each was
 already filed under. A store now holds each revision beside the digest it was
-read from, and `status` on six hundred revisions over twenty files falls from
-43 ms to 24. What is left largest is the one stamp per document that opening
+read from. Alternating the binaries call by call: on six hundred revisions over
+twenty files `status` falls from 48 ms to 27 and `names` from 14 to 11, and on
+twenty-five hundred `status` from 201 to 112 and `names` from 50 to 34. What is
+paid for it is `files` and `cat` at a head, which want the tree of every
+revision they reach and so read a document twice — 13% to 20% more. What is
+left largest is the one stamp per document that opening
 performs, which is the hand-edit rule 0058 paid for deliberately, and it is
 0061's deferral rather than its decision.
 

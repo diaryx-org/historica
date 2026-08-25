@@ -26,23 +26,23 @@ rank 0 to 2 or the verbatim tail after the separator. The author, the moment,
 the rewriting stamps and the whole of the tree are read at open by every
 command and used by almost none of them.
 
-So the parse has the wrong shape. It is linear in the *bytes of the history*,
-where every question that opening a store exists to answer is linear in the
-*number of revisions*. Two stores of nearly identical total size, one long and
-narrow and one short and wide, show the difference as plainly as it can be
-shown:
+What that is worth is two thirds of the parse, measured over three stores:
 
-|                                   | 1601 revisions × 1 file | 201 revisions × 20 files |
-|-----------------------------------|-------------------------|--------------------------|
-| document, average                 | 282 bytes               | 2 098 bytes              |
-| reading one whole                 | 1.34 µs                 | 8.70 µs                  |
-| reading the revision out of one   | 0.21 µs                 | 0.50 µs                  |
-| all of them, whole                | 2.14 ms                 | 1.75 ms                  |
-| all of them, the revision alone   | 0.33 ms                 | 0.10 ms                  |
+|                                 | 1601 × 1 file | 601 × 20 files | 2501 × 20 files |
+|---------------------------------|---------------|----------------|-----------------|
+| document, average               | 282 bytes     | 2 096 bytes    | 2 096 bytes     |
+| reading one whole               | 1.46 µs       | 9.31 µs        | 9.30 µs         |
+| reading the revision out of one | 0.57 µs       | 2.90 µs        | 3.11 µs         |
+| all of them, whole              | 2.35 ms       | 5.60 ms        | 23.27 ms        |
+| all of them, the revision alone | 0.91 ms       | 1.74 ms        | 7.78 ms         |
 
-Reading the revision costs what it costs per *document*. Reading the document
-costs what it costs per *file the revision touched*, which is the number that
-grows.
+Two thirds rather than nine tenths, and worth saying why, because nine tenths
+is what the first sketch of this reading measured and it was measuring a
+sketch. The reading still walks every header line and still holds every one of
+them to the checks below, and those checks *read* a value even where they do
+not interpret it — a control character anywhere in it, a space at either end.
+So it is still linear in the bytes of the document. What it sheds is the
+interpreting and the allocating, and that is two thirds of what a parse is.
 
 ## The decision
 
@@ -51,7 +51,10 @@ grows.
   for the same reason: these are the two questions answerable about a
   revision document's bytes without interpreting the document. What it
   returns is `core::Revision`, which is what `Store::history` was building
-  out of whole documents.
+  out of whole documents. `format::revision_named` is the same reading for a
+  caller that has already hashed the bytes — which the store has, because
+  believing a cache entry is hashing it, and hashing twice for one answer is
+  a tenth of what this reading costs.
 
 - **It walks every header line, and refuses everything refusable without
   reading a value.** The byte order mark, the carriage return, the bytes that
@@ -128,12 +131,13 @@ Which is the right outcome, because the parse was never the thing to cache.
 
 ## What this costs
 
-**A document read twice, where both halves are wanted.** A command that wants
-every document whole — `log` printing every message and author — pays the
-walk this decision added and then the parse it deferred: about 16% over
-today's cost on the narrow store above, about 6% on the wide one. That is the
-price of the other commands paying a sixth of it, and `log --limit` is what
-keeps the number of documents `log` wants whole bounded in the first place.
+**A document read twice, where both halves are wanted.** A command needing
+every document whole pays the reading this decision added and then the parse it
+deferred, and it is a real regression rather than a rounding error: `files` and
+`cat` at a head, which want the tree of every revision they reach, cost 7% more
+on the narrow store and 13% to 20% more on the wide ones. The wins below are
+larger and land on more commands, but this is the half of the trade that is
+paid rather than collected.
 
 **Bytes held rather than dropped, and copied once.** `load` kept parsed
 documents and let the bytes go; it now keeps the bytes and lets most of the
@@ -171,45 +175,54 @@ bytes, since both live at once. `log` without a limit is the second.
   is the honest accounting of how much of this store's code was reading whole
   documents to look at two lines of them.
 
-- What the commands do, measured on the two stores above, fastest of seven,
-  process start subtracted:
+- What the commands cost, over the three stores above, in a run alternating
+  the two binaries call by call so that neither is handed a cache the other
+  warmed. The floor is 4.2 ms, which is what `names` costs on an empty store
+  and is process start and nothing else:
 
-  | command         | 601 × 20 before | after   | 1601 × 1 before | after   |
-  |-----------------|-----------------|---------|-----------------|---------|
-  | `names`         | 10.1 ms         | 8.2 ms  | 13.7 ms         | 12.6 ms |
-  | `log --limit 1` | 20.7 ms         | 17.3 ms | 33.1 ms         | 33.1 ms |
-  | `log`           | 21.8 ms         | 18.6 ms | 36.9 ms         | 37.3 ms |
-  | `files @`       | 11.1 ms         | 7.6 ms  | 12.3 ms         | 12.4 ms |
-  | `cat @`         | 10.6 ms         | 7.6 ms  | 12.5 ms         | 12.3 ms |
-  | `status`        | 43.0 ms         | 23.6 ms | 39.5 ms         | 34.4 ms |
-  | `check`         | 402 ms          | 327 ms  | 117 ms          | 121 ms  |
+  | command         | 2501 × 20        | 601 × 20       | 1601 × 1       |
+  |-----------------|------------------|----------------|----------------|
+  | `names`         | 49.7 → 34.2 ms   | 14.2 → 10.9 ms | 16.4 → 14.8 ms |
+  | `skip`          | 48.9 → 33.7 ms   | 14.4 → 10.8 ms | 17.5 → 16.4 ms |
+  | `log --limit 1` | 125.0 → 101.4 ms | 25.1 → 19.6 ms | 36.7 → 34.9 ms |
+  | `log`           | 128.9 → 107.4 ms | 28.3 → 22.0 ms | 40.8 → 39.8 ms |
+  | `status`        | 200.7 → 112.2 ms | 47.9 → 26.8 ms | 44.6 → 37.3 ms |
+  | `check`         | 3708 → 3656 ms   | 335 → 322 ms   | 133 → 127 ms   |
+  | `files <head>`  | 54.2 → 65.0 ms   | 16.3 → 18.4 ms | 18.3 → 19.5 ms |
+  | `cat <head>`    | 64.8 → 74.1 ms   | 17.6 → 19.5 ms | 19.3 → 20.6 ms |
 
-  `Store::history` falls from 7.34 ms to 0.07 on the wide store and from 2.93
-  to 0.22 on the narrow one, which is the re-hashing leaving. `Store::open`
-  falls from 9.04 ms to 7.15 and from 10.43 to 9.68.
+  The last two rows are the cost above; the rest is the decision. The shape of
+  the table is the argument: what a command saves is what it declined to read,
+  so the saving grows with the store and with how much of a document is tree,
+  and the two commands that want every tree pay instead. `status` halving on
+  both wide stores is the largest single result and is mostly the re-hashing
+  leaving — `Store::history` falls from 7.34 ms to 0.07 on the 601-store.
 
-  The narrow column is the honest half. A store of one file has documents of
-  282 bytes, nearly all of which is the revision, so there is almost nothing
-  for this to decline to read and the byte copy `load` now makes costs about
-  what the deferred parse saves. The wide column is the shape a repository has,
-  and it is where a document is mostly tree.
+- Two superseded tables, recorded because the way they were wrong is worth
+  knowing. The first reported `status` on the 601-store falling from 43 ms to
+  24 and every row improving; it ran the two binaries in sequence rather than
+  alternately, so the second inherited a materialised-content cache the first
+  had filled. The second reported no difference anywhere; it had compared one
+  binary against itself, the baseline having been built from a working tree
+  whose changes were already committed. A benchmark that agrees with the
+  argument is the one to distrust first.
 
 ## Deferred
 
-**The stamp, which this decision makes the largest term by a distance.** Where
-opening the 1601-revision store above spends its time, warm:
+**The stamp, which this decision moves up the list.** Where opening the
+2501-revision store spends its time, warm:
 
-| what                                          | cost    |
-|-----------------------------------------------|---------|
-| `read_dir` over `revisions/`, names only      | 0.64 ms |
-| one `stamp` per document, on top of that walk | 4.10 ms |
-| reading and hashing `cache/revisions.txt`     | 1.3 ms  |
-| parsing every document whole                  | 2.14 ms |
-| reading the revision out of every document    | 0.33 ms |
-| stamping the month directories instead        | 0.03 ms |
+| what                                          | cost     |
+|-----------------------------------------------|----------|
+| `read_dir` over `revisions/`, names only      | 0.96 ms  |
+| one `stamp` per document, on top of that walk | 3.69 ms  |
+| hashing every document                        | 3.21 ms  |
+| parsing every document whole                  | 23.27 ms |
+| reading the revision out of every document    | 7.78 ms  |
+| stamping the month directories instead        | 0.01 ms  |
 
-The per-document stamp is now five times the walk that finds the paths and ten
-times the parse this decision leaves behind, and it buys one thing: 0058's
+The per-document stamp is now four times the walk that finds the paths and half
+the reading this decision leaves behind, and it buys one thing: 0058's
 hand-edit property, which is the reason that decision declined to believe an
 entry on immutability alone. The last line is what declining it again would
 cost, and it is not available for free — a directory's modification time moves
