@@ -30,7 +30,7 @@
 //! it.
 
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use historica::core::RevisionId;
 use historica::diff::{diff, resolve};
@@ -80,6 +80,11 @@ enum Message {
 #[derive(Debug, Clone)]
 struct Node {
     key: Option<Key>,
+    /// The name a `keep` quotes for this node. Not unique: two concurrent
+    /// revisions recording byte-identical documents mint distinct nodes
+    /// under one name, which is why a `keep` is resolved against the view
+    /// rather than through a map with one slot per name.
+    reference: Option<(RevisionId, usize)>,
     item: Option<Item>,
     deleted: bool,
     left: Vec<usize>,
@@ -91,7 +96,6 @@ struct Node {
 struct Replica {
     nodes: Vec<Node>,
     by_key: BTreeMap<Key, usize>,
-    by_reference: BTreeMap<(RevisionId, usize), usize>,
 }
 
 const ROOT: usize = 0;
@@ -101,13 +105,13 @@ impl Replica {
         Self {
             nodes: vec![Node {
                 key: None,
+                reference: None,
                 item: None,
                 deleted: false,
                 left: Vec::new(),
                 right: Vec::new(),
             }],
             by_key: BTreeMap::new(),
-            by_reference: BTreeMap::new(),
         }
     }
 
@@ -191,13 +195,13 @@ impl Replica {
                 let at = self.nodes.len();
                 self.nodes.push(Node {
                     key: Some(*key),
+                    reference: Some(*reference),
                     item: Some(item.clone()),
                     deleted: false,
                     left: Vec::new(),
                     right: Vec::new(),
                 });
                 self.by_key.insert(*key, at);
-                self.by_reference.entry(*reference).or_insert(at);
                 let parent = parent.map_or(ROOT, |key| self.by_key[&key]);
                 let siblings = match side {
                     Side::Left => &mut self.nodes[parent].left,
@@ -311,6 +315,18 @@ impl Replica {
         resolution: &ResolutionDocument,
     ) -> Vec<Message> {
         let prepare = self.visible();
+        // Every visible node under each name, in view order. Two concurrent
+        // revisions recording byte-identical documents mint distinct nodes
+        // under one name, and a resolution written against this view keeps
+        // the name once per node — so each `keep` consumes the next node
+        // still standing under it, exactly as the walk does.
+        let mut by_reference: BTreeMap<(RevisionId, usize), VecDeque<usize>> = BTreeMap::new();
+        for at in &prepare {
+            by_reference
+                .entry(self.nodes[*at].reference.expect("a non-root node"))
+                .or_default()
+                .push_back(*at);
+        }
         let mut kept: BTreeSet<usize> = BTreeSet::new();
         let mut left: Option<usize> = None;
         let mut minted = 0usize;
@@ -324,9 +340,9 @@ impl Replica {
                     count,
                 } => {
                     for offset in 0..*count {
-                        let at = *self
-                            .by_reference
-                            .get(&(*document, first + offset))
+                        let at = by_reference
+                            .get_mut(&(*document, first + offset))
+                            .and_then(VecDeque::pop_front)
                             .expect("a keep of an item this replica has seen");
                         kept.insert(at);
                         left = Some(at);
@@ -1296,4 +1312,52 @@ fn the_reference_and_the_replay_agree_at_the_end_of_a_tombstoned_file() {
     sim.agree(1, 0);
     assert_eq!(sim.replicas[0].text(), sim.replicas[1].text());
     assert!(sim.replicas[0].text().contains("appended\n"));
+}
+
+#[test]
+fn a_keep_of_a_name_two_concurrent_revisions_share_lands_once_per_element() {
+    // Found by the search (seed 0x8cca01c9b8940881, round 95), and the shape
+    // that matters survives the shrink: two replicas concurrently insert an
+    // empty line, and the two operation documents come out byte-identical, so
+    // both elements are minted under one `(document, ordinal)` name — the
+    // coarseness `Element::reference` in `src/merge.rs` describes. The merge
+    // then keeps both empty lines, which the resolution can only spell as the
+    // same `keep` twice. The walk resolved every occurrence to the first
+    // element in view order; the reference resolved them to whichever node it
+    // had applied first, which is delivery order, not causal history. Each
+    // side dropped an element the author kept — different ones — so the two
+    // architectures read one file in two orders, and neither read the file
+    // the resolution assembles to by hand. Both now consume the next element
+    // still standing under the name, in view order.
+    let plan = Plan {
+        replicas: 2,
+        blank: None,
+        terminated: true,
+        actions: vec![
+            Action::Edit {
+                replica: 1,
+                seed: 12881976313062075425,
+            },
+            Action::Edit {
+                replica: 0,
+                seed: 8276938389198168679,
+            },
+            Action::Edit {
+                replica: 1,
+                seed: 14680078789590703435,
+            },
+            Action::Edit {
+                replica: 1,
+                seed: 8611237293339252495,
+            },
+            Action::Sync { into: 0, from: 1 },
+            Action::Merge {
+                first: 1,
+                seed: 16425083507124469261,
+            },
+        ],
+    };
+    if let Err(failure) = attempt(&plan) {
+        panic!("{failure}");
+    }
 }

@@ -252,3 +252,25 @@ so. `Store::body` and `Store::bodies` are the whole question — one digest and
 the directory — and `Store::operation`, `Store::resolution`,
 `Store::operations` and `Store::resolutions` are now for the caller that has
 already established which grammar it is holding.
+
+**A `keep` of a name two concurrent revisions share.** Found by 0007's
+conformance suite (seed `0x8cca01c9b8940881`), and a consequence of a naming
+choice this decision made without seeing its edge: a `keep` quotes the
+*document* half of an item's name, and 0007 derives item identity from the
+*revision* precisely because two concurrent revisions can record one
+byte-identical document. Where that happens — two replicas concurrently
+inserting the same line, in the found case an empty one — two distinct items
+stand under one `(document, ordinal)` name, and a resolution keeping both can
+only spell that as the same `keep` twice. The by-hand reading was never
+ambiguous: assembly copies each `keep`'s text, so the recorded file was always
+right. What diverged was identity. The walk resolved every occurrence of a
+name to the same element — the first in the author's view — and the suite's
+reference replica to whichever node it happened to apply first, so each
+architecture dropped an element the author kept, dropped *different* ones, and
+read one history in two orders. The rule both now implement: each `keep`
+occurrence consumes the next element still standing under its name, in view
+order, so the walk keeps as many elements as the resolution assembles items —
+and a `keep` of a name beyond the elements standing under it is refused as the
+unknown reference it is. The counterexample is pinned in
+`tests/conformance.rs` and, by hand, beside the walk's own tests in
+`src/merge.rs`.

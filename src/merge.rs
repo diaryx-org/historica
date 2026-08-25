@@ -31,7 +31,7 @@
 //! kept in one place because 0007 owes it a conformance suite against the
 //! reference implementation before any of this is called done.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 use crate::ancestry::Ancestry;
@@ -543,9 +543,12 @@ struct Element {
     /// Decision 0032 counts references this way because a person reading a
     /// resolution has the `edit` line in front of them, not the revision's
     /// digest. It is coarser than `id` by exactly one case — two concurrent
-    /// revisions naming one byte-identical document — where the two items it
-    /// cannot tell apart hold the same text, so nothing a reference decides
-    /// depends on which is taken.
+    /// revisions naming one byte-identical document — where the elements it
+    /// cannot tell apart hold the same text but not the same place. A
+    /// resolution written against such a view keeps the shared name once per
+    /// element, so [`Tree::resolution`] resolves each `keep` to the next
+    /// element still standing under the name, in view order — the rule that
+    /// makes the walk read the same file the resolution assembles to by hand.
     reference: (RevisionId, usize),
     item: Item,
     /// The event that wrote it.
@@ -650,14 +653,18 @@ impl Tree {
         // what this author had before they started.
         let prepare = self.visible(&order, graph, event);
 
-        // Where each name the author could see sits in that view. The first
-        // wins where two elements share a name, which is the byte-identical
-        // case `Element::reference` describes.
-        let mut by_reference: BTreeMap<(RevisionId, usize), usize> = BTreeMap::new();
+        // Where each name the author could see sits in that view — every
+        // position, in view order, because two elements share a name in the
+        // byte-identical case `Element::reference` describes and a resolution
+        // written against that view keeps the name once per element. Each
+        // `keep` consumes the next position still standing under its name, so
+        // the walk keeps as many elements as the resolution assembles items.
+        let mut by_reference: BTreeMap<(RevisionId, usize), VecDeque<usize>> = BTreeMap::new();
         for (position, at) in prepare.iter().enumerate() {
             by_reference
                 .entry(self.elements[*at].reference)
-                .or_insert(position);
+                .or_default()
+                .push_back(position);
         }
 
         let mut kept: BTreeSet<usize> = BTreeSet::new();
@@ -673,7 +680,9 @@ impl Tree {
                 } => {
                     for offset in 0..*count {
                         let name = (*from, first + offset);
-                        let Some(position) = by_reference.get(&name).copied() else {
+                        let Some(position) =
+                            by_reference.get_mut(&name).and_then(VecDeque::pop_front)
+                        else {
                             return Err(MergeError::UnknownReference {
                                 revision,
                                 document: *from,
@@ -1051,7 +1060,8 @@ pub enum MergeError {
     ///
     /// Decision 0032: a `keep` names a document and a run of its items, and
     /// this is the run naming something no document in the causal past minted
-    /// — or minted and something already removed.
+    /// — or minted and something already removed, or kept more often than the
+    /// author's view held elements under the name.
     UnknownReference {
         /// The revision whose resolution it was.
         revision: RevisionId,
@@ -1402,6 +1412,71 @@ mod tests {
                 "a resolution states what survives, so it quotes nothing"
             );
         }
+    }
+
+    /// The byte-identical case `Element::reference` describes, resolved: two
+    /// concurrent revisions record one document, so two elements stand under
+    /// one name, and a resolution keeping both can only spell that as the
+    /// same `keep` twice. Each occurrence consumes the next element still
+    /// standing under the name, so the walk reads exactly the file the
+    /// resolution assembles to by hand — an insert between the two
+    /// occurrences included, which is what pins where each one landed.
+    #[test]
+    fn a_keep_of_a_name_two_concurrent_revisions_share_lands_once_per_element() {
+        let mut history = History::default();
+        history
+            .revision("root", &[], Some(&["insert 0", "+a"]))
+            .revision("left", &["root"], Some(&["insert 0", "+x"]))
+            .revision("right", &["root"], Some(&["insert 0", "+x"]));
+        let (root, shared) = (history.document("root"), history.document("left"));
+        assert_eq!(
+            shared,
+            history.document("right"),
+            "the two branches are meant to record one byte-identical document"
+        );
+        assert_eq!(history.text(), "x\nx\na\n");
+
+        history.resolving(
+            "merge",
+            &["left", "right"],
+            "x\nbetween\nx\na\n",
+            &[
+                &format!("keep {shared} 0 1"),
+                "insert",
+                "+between",
+                &format!("keep {shared} 0 1"),
+                &format!("keep {root} 0 1"),
+            ],
+        );
+        assert_eq!(history.text(), "x\nbetween\nx\na\n");
+    }
+
+    /// The same shape, kept once more than the view holds elements under the
+    /// name — which no view can satisfy, so it is refused rather than folded
+    /// onto an element some other `keep` already consumed.
+    #[test]
+    fn a_keep_of_a_shared_name_beyond_the_elements_standing_under_it_is_refused() {
+        let mut history = History::default();
+        history
+            .revision("root", &[], Some(&["insert 0", "+a"]))
+            .revision("left", &["root"], Some(&["insert 0", "+x"]))
+            .revision("right", &["root"], Some(&["insert 0", "+x"]));
+        let (root, shared) = (history.document("root"), history.document("left"));
+        history.resolving(
+            "merge",
+            &["left", "right"],
+            "x\nx\nx\na\n",
+            &[
+                &format!("keep {shared} 0 1"),
+                &format!("keep {shared} 0 1"),
+                &format!("keep {shared} 0 1"),
+                &format!("keep {root} 0 1"),
+            ],
+        );
+        assert!(matches!(
+            merge(history.events()).expect_err("a third keep of two elements"),
+            MergeError::UnknownReference { .. }
+        ));
     }
 
     /// A `keep` naming something the author could not see is the store
