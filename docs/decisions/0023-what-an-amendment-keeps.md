@@ -356,3 +356,14 @@ identically, on every machine.
 Until the re-diff exists, the note is the whole of the answer, and the manual
 repair is the one a person can already perform: amend the descendants onto the
 successor by hand, tip first.
+
+The repair now exists — `historica carry`, decision [0059](0059-carrying-a-descendant-across.md)
+— and building it corrected the sketch above in one particular. A plain
+re-diff of the intended result against the successor would record operations
+putting the old base *back* everywhere the descendant was silent: an
+amendment that fixed a typo the descendant never touched would have its fix
+quietly reverted by the carry. The construction is three-cornered — the delta
+from old base to new base replays as an operation stream concurrent with the
+descendant's own, through 0007's merge — which is 0059's to explain. The
+manual repair remains what it was for the case a carry refuses: a span both
+the rewrite and the descendant touched, which is a person's to resolve.

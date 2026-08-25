@@ -562,6 +562,23 @@ depend on each other in.
   down, so it is a cheaper way to reach the documents rather than an index of
   the graph, and `check` opens everything itself.
 
+- [0059 — Carrying a descendant across](0059-carrying-a-descendant-across.md)
+  The wall three decisions stopped at — restating a descendant's operations
+  against a parent whose content moved is 0007's merge under another name —
+  walked through by running that merge under that name. `carry` restates a
+  revision standing on a rewritten one against the rewrite: what describes
+  the work is copied, `revised` comes from the cause per 0010's
+  carried-along row, a file whose base did not move names the same operation
+  documents, and one whose base did is restated by replaying the delta
+  between the bases concurrently with the descendant's own operations —
+  refusing whole where they meet, because contested regions are a person's.
+  Nothing is stamped or minted, so two replicas repairing one history write
+  byte-identical files, and `check`'s note now names the command. The plain
+  re-diff 0023's `## Since` sketched is corrected on the way: taken
+  literally it would revert the rewrite wherever the descendant was silent.
+  The inline acts — amend and abandon above a descendant, and moving a
+  change — wait on the spelling questions the decision leaves open.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
