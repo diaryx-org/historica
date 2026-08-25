@@ -12,7 +12,8 @@
 //!
 //! So what is missing at the far end of a URL is not a set difference — a
 //! fetcher already knows its own half — but a directory listing, for a
-//! directory that has no way to say what it holds. This module writes one.
+//! directory that has no way to say what it holds. This module writes one, and
+//! [`Offer::parse`] reads one back for [`fetch`](super::fetch).
 //!
 //! # What it is pointed at
 //!
@@ -289,6 +290,101 @@ impl Offer {
     }
 }
 
+impl Offer {
+    /// Read a manifest, as the fetcher at the far end of a URL reads it.
+    ///
+    /// Two kinds of strictness, and the parting between them is decision
+    /// 0056's. **An unknown kind is a discarded line**, because the set of
+    /// kinds has grown once and may grow again, and a file nobody here could
+    /// classify is a file this fetcher does not take — which is the
+    /// recoverable way to be wrong about it. **An unknown header spelling is a
+    /// refused manifest**, because the number is what the grammar changes
+    /// under, and a reader that met one and carried on would be guessing at a
+    /// format somebody deliberately renumbered. What such a reader does
+    /// instead is what has always worked: fetch the archive.
+    ///
+    /// Everything else is refused where a document is refused. A line with
+    /// fewer than four fields, a digest that is not one, or a `head` line
+    /// below an entry is a manifest that does not say what it appears to say,
+    /// and this is the one place where being lenient would mean fetching a set
+    /// nobody described. It costs a refetch, which is what an offer is for.
+    pub fn parse(text: &str) -> Result<Self, OfferError> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, line)) if line == OFFER_HEADER => {}
+            Some((_, line)) => {
+                return Err(OfferError::UnknownFormat {
+                    found: line.to_owned(),
+                });
+            }
+            None => {
+                return Err(OfferError::UnknownFormat {
+                    found: String::new(),
+                });
+            }
+        }
+
+        let mut heads: Vec<RevisionId> = Vec::new();
+        let mut entries: Vec<Offered> = Vec::new();
+        for (at, line) in lines {
+            // Counted as a person counts, from one, since the number is only
+            // ever printed at somebody.
+            let at = at + 1;
+            let stated = |because: &str| OfferError::Malformed {
+                line: at,
+                because: because.to_owned(),
+            };
+            if let Some(head) = line.strip_prefix("head ") {
+                if !entries.is_empty() {
+                    return Err(stated(
+                        "a `head` line below an entry; the heads come first, \
+                         above every file",
+                    ));
+                }
+                heads.push(
+                    head.parse()
+                        .map_err(|_| stated("a head that is not a digest"))?,
+                );
+                continue;
+            }
+            // Decision 0043, read from the other side: split three times and
+            // no further, so the path keeps whatever spaces it has.
+            let mut fields = line.splitn(4, ' ');
+            let (Some(kind), Some(digest), Some(forgets), Some(path)) =
+                (fields.next(), fields.next(), fields.next(), fields.next())
+            else {
+                return Err(stated(
+                    "a line with fewer than four fields; an entry is \
+                     `<kind> <digest> <forgets|-> <path>`",
+                ));
+            };
+            // Discarded rather than refused, and discarded *after* the shape
+            // is checked: a line this reader cannot classify is still a line
+            // this grammar has to hold together.
+            let Some(kind) = OfferKind::parse(kind) else {
+                continue;
+            };
+            entries.push(Offered {
+                kind,
+                digest: digest
+                    .parse()
+                    .map_err(|_| stated("a digest that is not a digest"))?,
+                forgets: match forgets {
+                    "-" => None,
+                    target => Some(
+                        target
+                            .parse()
+                            .map_err(|_| stated("a forgotten digest that is not a digest"))?,
+                    ),
+                },
+                path: path.to_owned(),
+            });
+        }
+
+        Ok(Self { heads, entries })
+    }
+}
+
 impl fmt::Display for Offer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "{OFFER_HEADER}")?;
@@ -301,6 +397,44 @@ impl fmt::Display for Offer {
         Ok(())
     }
 }
+
+/// Why a manifest could not be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OfferError {
+    /// The first line is not a spelling this reader knows.
+    UnknownFormat {
+        /// The line as found, which may be anything at all — a manifest is
+        /// whatever a URL returned.
+        found: String,
+    },
+    /// A line does not hold what the grammar says a line holds.
+    Malformed {
+        /// Which line, counted from one, the header being line one.
+        line: usize,
+        /// What was wrong with it, said for whoever has to fix the publisher.
+        because: String,
+    },
+}
+
+impl fmt::Display for OfferError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OfferError::UnknownFormat { found } => write!(
+                f,
+                "this is not a manifest a reader of `{OFFER_HEADER}` can use: \
+                 its first line is `{found}`. a manifest states its spelling so \
+                 that a stranger can discard it whole rather than half-read it \
+                 — fetch the published archive instead, which never stopped \
+                 working"
+            ),
+            OfferError::Malformed { line, because } => {
+                write!(f, "line {line} of the manifest is {because}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for OfferError {}
 
 impl<F: Filesystem> Store<F> {
     /// List every transferable file this store holds, for a reader that cannot

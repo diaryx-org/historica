@@ -72,6 +72,7 @@ mod arrange;
 mod catalogue;
 mod check;
 mod export;
+mod fetch;
 mod forget;
 mod offer;
 mod prune;
@@ -81,8 +82,9 @@ pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Placemen
 use catalogue::Catalogue;
 pub use check::{Finding, Report, Severity};
 pub use export::{ExportError, ExportPlan, Exported, Writes};
+pub use fetch::{Declined, FetchError, FetchPlan, Fetched, Source, Unreachable};
 pub use forget::{ForgetError, Forgetting, Forgotten};
-pub use offer::{OFFER_HEADER, Offer, OfferKind, Offered};
+pub use offer::{OFFER_HEADER, Offer, OfferError, OfferKind, Offered};
 pub use prune::Pruned;
 pub use receive::{MutableConflict, ReceiveError, ReceivePlan, Received};
 
