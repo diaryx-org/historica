@@ -597,6 +597,31 @@ depend on each other in.
   own history to say what the last run put there; and a broken store still
   refuses, because a copy of a fault is two faults.
 
+- [0061 — What a command does not have to parse](0061-what-a-command-does-not-have-to-parse.md)
+  0058 left the parse as the largest cost of opening a store and called that
+  the honest place for it, since a cache that removed it would be a cache that
+  had to be believed. True of a cache, false of the parse: what a graph
+  question needs is `core::Revision`, and every field of it is a header of
+  rank 0 to 2 or the verbatim message, so the author, the moment and the whole
+  tree were being parsed by every command for almost none of them. The parse
+  was linear in the bytes of the history where the questions are linear in the
+  number of revisions — 8.70 µs a document on a store of twenty files against
+  0.54 µs for the revision alone. `format::revision` reads that much and
+  defers the rest to whatever asks, refusing at open everything refusable
+  without reading a value, so what moves later is the meaning of a timestamp
+  or a path and never the shape of the document. Behind it was a larger cost
+  the measuring turned up: `Store::history` reached the graph through
+  `to_revision`, whose `id` is `digest(&self.write())`, so asking a store for
+  its shape re-serialised and re-hashed every document in it to arrive at the
+  name each was already filed under — 7.3 ms a call on six hundred revisions,
+  and `log` makes three. A store now holds each revision beside the digest it
+  was read from. Nothing is written down and nothing believed: the settled
+  half of the argument is that a cache of facts cannot be checked more cheaply
+  than by parsing, because 0002's digest covers the whole file and leaves
+  nothing smaller to check a part against. `status` on a store of six hundred
+  revisions over twenty files falls from 43 ms to 24. What is left largest is
+  the per-document stamp, measured here and deferred to its own decision.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
