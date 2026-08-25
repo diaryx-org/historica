@@ -88,6 +88,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **skipped** — give a rule two axes, and close the key set ([`5d582c8`](https://github.com/diaryx-org/historica/commit/5d582c8259687374e432377e02b44a0326587fb2))
 - **store** — let a reserved directory declare how it travels ([`440f901`](https://github.com/diaryx-org/historica/commit/440f901cadbd849885882fd9b271c093c991bb87))
 - **store** — export onto the copy this store already made ([`a0570a0`](https://github.com/diaryx-org/historica/commit/a0570a091cd7711d38bfbf71c9e44a6931b03756))
+- **store** — offer, the listing a directory has no way to give ([`6b72cec`](https://github.com/diaryx-org/historica/commit/6b72cec758d00348c8b3dda6b9a8ca1fbf338a62))
 
 ### Fixed
 
