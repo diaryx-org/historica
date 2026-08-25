@@ -99,6 +99,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **fs** — barrier every Disk::create_new before anything can name it ([`659b659`](https://github.com/diaryx-org/historica/commit/659b659c7070c2320b8dca74ebe339458d7e30ce))
 - **fs** — offer update's per-file guard to the filesystem as write_if ([`0a3bdb2`](https://github.com/diaryx-org/historica/commit/0a3bdb2a98dacbe5abff98ca350f963249d28ddc))
 - **cli** — let log take a range of revisions ([`84c4767`](https://github.com/diaryx-org/historica/commit/84c476773843e2ce34f286a8b66dbd54b77a843e))
+- **cli** — give log a reading for something that is not a person ([`535656e`](https://github.com/diaryx-org/historica/commit/535656ee058a55e1f1b212e6e609f74157980caf))
 
 ### Fixed
 
