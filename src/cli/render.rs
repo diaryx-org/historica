@@ -107,6 +107,19 @@ impl Filter {
 /// A filter takes entries out of the list and changes nothing about the ones
 /// that stay: `(head)` is a fact about the graph rather than about this
 /// listing, so a head stays marked as one whether or not its children were
+/// Which revisions a `log` covers: an ancestry, or the whole store.
+///
+/// Separate from the rendering so that the command can hold every document it
+/// covers to the parser before printing any of it — decision 0061 defers that
+/// parse to here, and a revision skipped for want of it would be a history
+/// printed with a hole in it rather than an error.
+pub fn shown(store: &Store, from: Option<RevisionId>) -> BTreeSet<RevisionId> {
+    match from {
+        Some(id) => ancestry(store, id),
+        None => store.revisions().map(|(id, _)| *id).collect(),
+    }
+}
+
 /// asked for.
 pub fn log(
     out: &mut impl Write,
@@ -119,10 +132,7 @@ pub fn log(
     let superseded = history.superseded();
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
 
-    let shown = match from {
-        Some(id) => ancestry(store, id),
-        None => store.revisions().map(|(id, _)| *id).collect(),
-    };
+    let shown = shown(store, from);
     if shown.is_empty() {
         return writeln!(out, "no revisions here yet");
     }
@@ -149,9 +159,8 @@ pub fn log(
         .take(filter.limit.unwrap_or(usize::MAX))
         .enumerate()
     {
-        // A revision `log` cannot print whole is one it steps over: the
-        // author, the moment and the message are all the document's, and
-        // `check` is what reports a document that will not parse.
+        // Every one of these parsed when the command held them to the
+        // parser, before a byte was printed.
         let Some(document) = store.get(id).ok().flatten() else {
             continue;
         };

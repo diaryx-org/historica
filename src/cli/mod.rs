@@ -769,6 +769,14 @@ fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         filter.file = Some(target::file_in(&store, &at, path)?);
     }
 
+    // Decision 0061: an author, a moment and a message all live in the part of
+    // a document that opening the store no longer reads, so `log` is where
+    // they are parsed. Every document it covers is held to the parser here,
+    // before a byte is printed — a history rendered with a revision quietly
+    // missing from it would be the tool disagreeing with the files.
+    for id in &render::shown(&store, from) {
+        store.get(id)?;
+    }
     printing(|out| render::log(out, &store, from, &filter))
 }
 
