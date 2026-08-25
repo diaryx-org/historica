@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use historica::core::{ChangeState, FileId, RevisionId};
 use historica::format::{OperationDocument, RevisionDocument, digest};
-use historica::store::{Finding, Name, Placement, Severity, Store};
+use historica::store::{Bookmark, Finding, Name, Placement, Severity, Store};
 
 /// A fresh directory for one test, inside the target directory.
 fn scratch(test: &str) -> PathBuf {
@@ -574,6 +574,80 @@ fn a_malformed_bookmark_is_an_error_and_a_dangling_one_is_not() {
             .any(|finding| matches!(finding, Finding::DanglingBookmark { .. }))
     );
     assert!(Store::open(&root).is_err(), "loading is strict");
+}
+
+#[test]
+fn a_bookmark_is_one_line_and_at_most_one_more() {
+    let (root, mut store) = corpus_store("bookmark-grammar");
+    let id = corpus_revision("01-root.rev.txt");
+
+    // Decision 0062: the axis is a second line, and `private` is the whole of
+    // what a second line may say. 0006 refused a second line that could
+    // *disagree* with the first; this one makes no claim about the target.
+    store
+        .set_bookmark("secret", Bookmark::private(Name::Revision(id)))
+        .expect("a private bookmark");
+    assert_eq!(
+        fs::read_to_string(root.join("names/secret.txt")).expect("the file"),
+        format!("revision {id}\nprivate\n")
+    );
+    assert_eq!(
+        Store::open(&root).expect("reopening").bookmark("secret"),
+        Some(Bookmark::private(Name::Revision(id)))
+    );
+
+    // A file with no second line is shared, which is every bookmark file
+    // written before 0062.
+    fs::write(root.join("names/old.txt"), format!("revision {id}\n")).expect("a bookmark");
+    assert_eq!(
+        Store::open(&root).expect("reopening").bookmark("old"),
+        Some(Bookmark::shared(Name::Revision(id)))
+    );
+
+    for (label, text) in [
+        ("second", format!("revision {id}\nsomething else\n")),
+        ("third", format!("revision {id}\nprivate\nprivate\n")),
+        ("alone", "private\n".to_owned()),
+    ] {
+        let path = root.join(format!("names/{label}.txt"));
+        fs::write(&path, text).expect("a bookmark");
+        assert!(
+            Store::open(&root).is_err(),
+            "`{label}` loaded, and loading is strict"
+        );
+        fs::remove_file(&path).expect("removing it again");
+    }
+}
+
+#[test]
+fn moving_a_bookmark_keeps_the_axis_and_stating_it_replaces_it() {
+    let (root, mut store) = corpus_store("bookmark-axis");
+    let first = corpus_revision("01-root.rev.txt");
+    let second = corpus_revision("02-concurrent.rev.txt");
+
+    store
+        .set_bookmark("secret", Bookmark::private(Name::Revision(first)))
+        .expect("a private bookmark");
+    // Decision 0062: moving a bookmark is what `record` does on every commit,
+    // and one that un-privatised itself on the way would be the leak the axis
+    // exists to prevent, arriving from the command nobody reads as a
+    // disclosure.
+    store
+        .set_name("secret", Name::Revision(second))
+        .expect("moving it");
+    assert_eq!(
+        store.bookmark("secret"),
+        Some(Bookmark::private(Name::Revision(second)))
+    );
+
+    // Stating it is what changes it, in either direction.
+    store
+        .set_bookmark("secret", Bookmark::shared(Name::Revision(second)))
+        .expect("sharing it");
+    assert_eq!(
+        fs::read_to_string(root.join("names/secret.txt")).expect("the file"),
+        format!("revision {second}\n")
+    );
 }
 
 #[test]

@@ -72,6 +72,20 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         if fetched.reserved != 0 {
             writeln!(out, "fetched {} files another tool wrote", fetched.reserved)?;
         }
+        if fetched.names != 0 {
+            writeln!(out, "fetched {} bookmarks", fetched.names)?;
+        }
+        // Decision 0062: a bookmark this store already has is one it keeps,
+        // and saying so is what keeps a person from reading an unmoved `main`
+        // as a fetch that failed to notice.
+        if fetched.kept != 0 {
+            writeln!(
+                out,
+                "kept this copy's own reading of {} bookmarks the publisher \
+                 also states",
+                fetched.kept
+            )?;
+        }
         if fetched.destroyed != 0 {
             writeln!(out, "destroyed {} forgotten originals", fetched.destroyed)?;
         }

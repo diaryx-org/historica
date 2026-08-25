@@ -223,12 +223,18 @@ against a `result`, because those are not the bytes anybody hashed.
 names/*.txt — bookmarks
 -----------------------
 
-One line each, and the only files here that change. The bookmark's name is its
-filename without `.txt`.
+One line each, and at most one more, and the only files here that change. The
+bookmark's name is its filename without `.txt`.
 
   change <change ID>   follows the work forward as it is amended.
   revision <digest>    a pin, which does not move.
   file <file ID>       a file, wherever it is.
+
+A second line, if there is one, is the word `private`, and it says that the
+bookmark's own name stays out of an `export`. It makes no claim about the
+target and cannot disagree with it. What it withholds is the name and nothing
+else: the revisions a bookmark points at are in the copy already, or the
+bookmark would not have been a candidate to travel.
 
 
 Directories another tool wrote

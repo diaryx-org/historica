@@ -119,8 +119,8 @@ use crate::fs::Filesystem;
 use crate::working::{Rule, SKIPPED_DIR, Skipped};
 
 use super::{
-    Body, OPERATION_SUFFIX, Offer, OfferError, OfferKind, Offered, REVISION_SUFFIX, Report,
-    STORE_DIR, Store, StoreError, Travel, travel, walk,
+    Body, Bookmark, NAME_SUFFIX, NAMES_DIR, OPERATION_SUFFIX, Offer, OfferError, OfferKind,
+    Offered, REVISION_SUFFIX, Report, STORE_DIR, Store, StoreError, Travel, travel, walk,
 };
 
 /// How many times a fetch will read the manifest again before giving up.
@@ -234,6 +234,8 @@ pub struct FetchPlan {
     revisions: Vec<Offered>,
     rules: Vec<Offered>,
     reserved: Vec<Offered>,
+    names: Vec<Offered>,
+    kept: usize,
     declined: Vec<Declined>,
     destroys: BTreeSet<RevisionId>,
 }
@@ -266,6 +268,21 @@ impl FetchPlan {
         &self.reserved
     }
 
+    /// Bookmarks the publisher states and this store does not hold.
+    ///
+    /// Decision 0062: only those. A bookmark this store already has is one it
+    /// keeps, whatever the publisher's says — `fetch` is *taking what is
+    /// missing*, and a name it holds is not missing.
+    pub fn names(&self) -> &[Offered] {
+        &self.names
+    }
+
+    /// Bookmarks the publisher states that this store holds under its own
+    /// reading, and therefore leaves alone.
+    pub fn kept(&self) -> usize {
+        self.kept
+    }
+
     /// Reserved directories the manifest named and this store will not fill.
     pub fn declined(&self) -> &[Declined] {
         &self.declined
@@ -284,6 +301,7 @@ impl FetchPlan {
             && self.revisions.is_empty()
             && self.rules.is_empty()
             && self.reserved.is_empty()
+            && self.names.is_empty()
             && self.destroys.is_empty()
     }
 
@@ -300,6 +318,7 @@ impl FetchPlan {
         order.extend(group(OfferKind::Revision, &self.revisions));
         order.extend(group(OfferKind::Rule, &self.rules));
         order.extend(group(OfferKind::Reserved, &self.reserved));
+        order.extend(group(OfferKind::Name, &self.names));
         order
     }
 }
@@ -317,6 +336,10 @@ pub struct Fetched {
     pub rules: usize,
     /// Files another tool wrote, unioned add-only by their class.
     pub reserved: usize,
+    /// Bookmarks taken, which are those this store did not already hold.
+    pub names: usize,
+    /// Bookmarks the publisher states and this store kept its own reading of.
+    pub kept: usize,
     /// Reserved directories the manifest named and this store did not fill.
     pub declined: Vec<Declined>,
     /// Originals destroyed in compliance with arriving forgetting documents.
@@ -363,6 +386,10 @@ impl<F: Filesystem> Store<F> {
             // a description of what the manifest holds, and reading the
             // manifest twice does not mean twice as many files were declined.
             fetched.declined = plan.declined.clone();
+            // Decision 0062, and stated from the plan for the same reason:
+            // a bookmark this store kept is a fact about the two readings,
+            // not something a second pass keeps again.
+            fetched.kept = plan.kept;
             match self.take(source, &plan, &mut fetched)? {
                 None => break,
                 // Decision 0048: a path that is not there is the publisher
@@ -447,6 +474,28 @@ impl<F: Filesystem> Store<F> {
         plan.rules = wanted(offer, OfferKind::Rule, |entry| {
             !held.contains(&entry.digest)
         });
+
+        // Decision 0062: the one kind whose path is a name. A fetcher who took
+        // `main` once and then recorded onto it has a `main` of its own, and a
+        // fetch that moved it back would be the only place in this design
+        // where transport overwrites a mutable value without asking — which
+        // would also mean a publisher moving `main` forward broke every
+        // fetcher who ever took it. `receive` is where two stores reconcile.
+        let mut kept = 0;
+        plan.names = wanted(offer, OfferKind::Name, |entry| {
+            match named_by(&entry.path) {
+                Some(name) if self.names.contains_key(name) => {
+                    kept += 1;
+                    false
+                }
+                Some(_) => true,
+                // A path naming no bookmark inside a store is one this reader
+                // cannot place, and an unplaceable line is discarded on the
+                // standing rule decision 0056 gives an unknown kind.
+                None => false,
+            }
+        });
+        plan.kept = kept;
 
         // Decision 0056: the path carries the directory, and this store asks
         // its own registry about it rather than the manifest. Compared by name,
@@ -577,6 +626,24 @@ impl<F: Filesystem> Store<F> {
                         fetched.reserved += 1;
                     }
                 }
+                OfferKind::Name => {
+                    let Some(name) = named_by(&entry.path) else {
+                        continue;
+                    };
+                    // Add-only, and the plan was worked out from a listing
+                    // rather than held under a lock, so a bookmark that
+                    // appeared in between is one this store now has and keeps.
+                    if self.names.contains_key(name) {
+                        continue;
+                    }
+                    let text = String::from_utf8(bytes)
+                        .map_err(|_| unusable(&entry.path, "a bookmark file that is not text"))?;
+                    let bookmark =
+                        Bookmark::parse(&text).map_err(|because| unusable(&entry.path, because))?;
+                    let name = name.to_owned();
+                    self.set_bookmark(&name, bookmark)?;
+                    fetched.names += 1;
+                }
             }
         }
         // Where the plan named no revisions, which is the ordinary shape of a
@@ -654,6 +721,22 @@ fn filed_under(path: &str) -> Option<&str> {
     let separated = format!("/{STORE_DIR}/");
     let at = path.find(&separated)?;
     Some(&path[at + separated.len()..])
+}
+
+/// The bookmark a manifest path names, if it names one.
+///
+/// Decision 0062: every other kind's path is an address and this one's is a
+/// name, because a bookmark's filename is its identity. So the reading is a
+/// parse of the path rather than a place to put bytes, and a path that is not
+/// one bookmark file directly under `names/` names no bookmark at all.
+fn named_by(path: &str) -> Option<&str> {
+    let label = filed_under(path)?;
+    let name = label.strip_prefix(&format!("{NAMES_DIR}/"))?;
+    let name = name.strip_suffix(NAME_SUFFIX)?;
+    match name.is_empty() || name.contains('/') {
+        true => None,
+        false => Some(name),
+    }
 }
 
 /// Whether this store and the copy a manifest describes are two views of one

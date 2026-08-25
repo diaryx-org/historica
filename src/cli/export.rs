@@ -87,6 +87,27 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
             if plan.withheld() != 0 {
                 writeln!(out, "would hold back {} private rules", plan.withheld())?;
             }
+            // Decision 0062, on the same footing and for the same reason, and
+            // in three lines rather than two: a name held back because
+            // somebody asked and a name held back because the copy does not
+            // reach it are different facts, and only the first is a decision.
+            if !plan.names().is_empty() || plan.withheld_names() != 0 {
+                writeln!(out, "would export {} bookmarks", plan.names().len())?;
+            }
+            if plan.withheld_names() != 0 {
+                writeln!(
+                    out,
+                    "would hold back {} private bookmarks",
+                    plan.withheld_names()
+                )?;
+            }
+            if plan.beyond_names() != 0 {
+                writeln!(
+                    out,
+                    "would leave {} bookmarks pointing past this target",
+                    plan.beyond_names()
+                )?;
+            }
             // Decision 0053: said as what it is — files historica does not
             // read, carried because the directory they sit in says they
             // travel — since naming the tool is exactly what transport does
@@ -147,6 +168,23 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         }
         if exported.withheld != 0 {
             writeln!(out, "held back {} private rules", exported.withheld)?;
+        }
+        if exported.names != 0 || exported.withheld_names != 0 {
+            writeln!(out, "exported {} bookmarks", exported.names)?;
+        }
+        if exported.withheld_names != 0 {
+            writeln!(
+                out,
+                "held back {} private bookmarks",
+                exported.withheld_names
+            )?;
+        }
+        if exported.beyond_names != 0 {
+            writeln!(
+                out,
+                "left {} bookmarks pointing past this target",
+                exported.beyond_names
+            )?;
         }
         if exported.reserved != 0 {
             writeln!(

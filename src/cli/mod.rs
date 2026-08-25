@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use historica::format::Timestamp;
 use historica::record::{Restriction, survey};
 use historica::store::{
-    Body, Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store, StoreError,
+    Body, Bookmark, Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store,
+    StoreError,
 };
 use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope, Working};
 
@@ -148,9 +149,11 @@ const REST: &str = "  forget <target> <path> --lines <first>..<last> [--dry-run]
                            sit: a folder you put a revision in is one you
                            meant. --refile moves them under `YYYY-MM/` too,
                            which is how a store written flat catches up
-  name <bookmark> <target> [<path>] [--revision]
+  name <bookmark> <target> [<path>] [--revision] [--private|--shared]
                            point a bookmark at a change, pin a revision, or
-                           name the file that <path> holds
+                           name the file that <path> holds. --private keeps
+                           the bookmark's own name out of an `export`; with
+                           neither flag, a bookmark keeps the axis it has
   skip [--private] <path>... [--name <name>]
                            stop history taking a path, a directory, or a
                            name in which `*` is any run of characters.
@@ -474,8 +477,12 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                 plan.documents().len()
             )?;
             writeln!(out, "would receive {} payloads", plan.payloads().len())?;
-            for name in plan.names().keys() {
-                writeln!(out, "would receive name {name}")?;
+            // Decision 0062: the bookmark rather than the name, because a
+            // plan now holds one both stores state and disagree the axis of,
+            // and `would receive name main` where the receiver has `main`
+            // would read as a contradiction.
+            for (name, bookmark) in plan.names() {
+                writeln!(out, "would receive bookmark {name} -> {bookmark}")?;
             }
             if !plan.skipped().is_empty() {
                 writeln!(out, "would receive {} rules", plan.skipped().len())?;
@@ -519,7 +526,7 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         writeln!(out, "received {} content documents", received.documents)?;
         writeln!(out, "received {} payloads", received.payloads)?;
         if received.names != 0 {
-            writeln!(out, "received {} names", received.names)?;
+            writeln!(out, "received {} bookmarks", received.names)?;
         }
         if received.skipped != 0 {
             writeln!(out, "received {} rules", received.skipped)?;
@@ -1000,18 +1007,30 @@ fn names(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     printing(|out| render::names(out, &store))
 }
 
-/// `name <bookmark> <target> [<path>] [--revision]` — move a bookmark.
+/// `name <bookmark> <target> [<path>] [--revision] [--private|--shared]` —
+/// move a bookmark.
 ///
 /// Decision 0024 gives this the third argument `show` already takes, and means
 /// by it what `show` means: this revision, and one file in it. With two
 /// arguments the bookmark points at the work, with three it points at a file.
+///
+/// Decision 0062 adds the travel axis, and makes stating it deliberate in both
+/// directions: neither flag keeps whatever the bookmark already had, because
+/// the common caller of the move is `record`.
 fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut pin = false;
+    // Decision 0062's axis, and `None` is *keep whatever it has*: a bookmark
+    // that un-privatised itself because somebody moved it would be the leak
+    // the axis exists to prevent, and moving one is what `record` does on
+    // every commit.
+    let mut axis: Option<bool> = None;
     let mut rest = Vec::new();
     for argument in arguments {
         match argument.as_str() {
             "--revision" => pin = true,
             "--change" => pin = false,
+            "--private" => axis = Some(true),
+            "--shared" => axis = Some(false),
             other => rest.push(other.to_owned()),
         }
     }
@@ -1054,8 +1073,26 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         }
     };
 
-    store.set_name(&bookmark, target)?;
-    printing(|out| writeln!(out, "{bookmark} -> {target}"))
+    let private = match axis {
+        Some(stated) => stated,
+        None => store.bookmark(&bookmark).is_some_and(|had| had.private),
+    };
+    let stated = Bookmark { target, private };
+    store.set_bookmark(&bookmark, stated)?;
+    printing(|out| {
+        writeln!(out, "{bookmark} -> {stated}")?;
+        // Decision 0062's deferred item, said where a person would otherwise
+        // find out by syncing: the axis unions toward private, so a replica
+        // that has not heard puts the flag back.
+        if axis == Some(false) {
+            writeln!(
+                out,
+                "note: a replica still calling `{bookmark}` private will make \
+                 it private again on the next receive"
+            )?;
+        }
+        Ok(())
+    })
 }
 
 /// `skip [--private] <path>... [--name <name>]` — what history does not take.

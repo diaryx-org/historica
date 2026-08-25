@@ -507,19 +507,22 @@ pub fn names(out: &mut impl Write, store: &Store) -> io::Result<()> {
         .merged_tree_of(&target::current_heads(store).into_iter().collect::<Vec<_>>())
         .ok();
 
-    for (name, target) in bookmarks {
-        let resolution = match target {
-            Name::Revision(id) => match digests.get(id) {
+    for (name, bookmark) in bookmarks {
+        let resolution = match bookmark.target {
+            Name::Revision(id) => match digests.get(&id) {
                 Some(digest) => digest.clone(),
                 None => "(not here yet)".to_owned(),
             },
-            Name::Change(change) => resolution(&history, *change, &digests),
+            Name::Change(change) => resolution(&history, change, &digests),
             Name::File(file) => here
                 .as_ref()
-                .and_then(|merged| merged.tree.path(file))
+                .and_then(|merged| merged.tree.path(&file))
                 .map_or_else(|| "(no file here has it)".to_owned(), str::to_owned),
         };
-        writeln!(out, "{name:width$}  {target}  ->  {resolution}")?;
+        // Decision 0062's axis, printed: the listing is where a person checks
+        // what an export would carry, and a bookmark that did not say which it
+        // was would be one they had to `cat` to find out.
+        writeln!(out, "{name:width$}  {bookmark}  ->  {resolution}")?;
     }
     Ok(())
 }

@@ -21,10 +21,9 @@
 //! Every ancestor of the target, every operation document, resolution and
 //! payload those revisions name, and every forgetting document that touches
 //! any of it — decision 0014 always travels, or a copy would resurrect what a
-//! redaction destroyed. Not `names/` and not `cache/`, which are the exporter's
-//! bookmarks and nobody's cache. `historica.txt` and `format.txt` are written
-//! fresh, because decision 0021 promises the copy explains itself to whoever
-//! opens it.
+//! redaction destroyed. Not `cache/`, which is nobody's. `historica.txt` and
+//! `format.txt` are written fresh, because decision 0021 promises the copy
+//! explains itself to whoever opens it.
 //!
 //! Every **shared** rule travels, which is decision 0051 superseding the half
 //! of 0042 that called rules the exporter's. A copy that quietly dropped
@@ -32,6 +31,21 @@
 //! build output — the failure 0011 wrote rules to prevent, arriving because
 //! the rules did not. A `private` rule stays behind, and the copy is told how
 //! many did.
+//!
+//! Every **shared** bookmark travels too, if the copy holds what it points at,
+//! which is decision 0062 superseding the other half of 0042's sentence on
+//! 0051's argument: an export is a replica and `receive` is its pull, so a
+//! name withheld from a copy comes straight back the moment the copy meets its
+//! origin, and an exclusion that binds only where it is useless is a gap. What
+//! stays behind is what 0042 was right about — `fix-acme-layoffs` states in its
+//! own filename the fact `private clients/acme-layoffs/` exists to withhold.
+//!
+//! The second test is `check`'s own, and the rule it enforces is that **an
+//! export never manufactures a finding the origin did not have**: a bookmark
+//! pointing past the target would open the copy on a `DanglingBookmark`, and
+//! under decision 0052 it would do so forever, naming a change no fetch can
+//! satisfy. Held back for that reason is reported apart from held back because
+//! somebody asked, since only one of the two is a decision.
 //!
 //! A reserved directory travels by its class, which is decision 0053: whole,
 //! unread, and without export learning whose it is. `claims/` is carried and
@@ -92,13 +106,21 @@
 //! folder holds, and 0030 asked afterwards would call the exporter's own last
 //! output somebody's unrecorded work.
 //!
-//! Three things the copy holds are not the exporter's to touch. `names/` and
-//! `cache/` are neither written nor removed, which is 0042 unchanged. Nor is
-//! a reserved travelling directory: decision 0054 makes the update add-only
-//! there, because `travels-and-unions` is a class whose whole justification
-//! is that a name historica cannot read needs no merge rule — and deleting
-//! such a file on the strength of its absence somewhere else is a judgement
-//! about a grammar 0046 refused historica.
+//! Two things the copy holds are not the exporter's to touch. `cache/` is
+//! neither written nor removed, which is 0042 unchanged. Nor is a reserved
+//! travelling directory: decision 0054 makes the update add-only there,
+//! because `travels-and-unions` is a class whose whole justification is that a
+//! name historica cannot read needs no merge rule — and deleting such a file
+//! on the strength of its absence somewhere else is a judgement about a
+//! grammar 0046 refused historica.
+//!
+//! `names/` is neither of those any more. Decision 0062 makes the copy's
+//! bookmarks the origin's output, on the footing 0051's rules already have: one
+//! the origin deleted, made `private`, or moved off the copy's own history is
+//! withdrawn, and one that moved within it is rewritten. It is not a merge,
+//! because a published copy is not a replica holding an opinion — `receive` is
+//! where two stores reconcile, and `fetch` is where a reader of the copy takes
+//! only what it lacks.
 //!
 //! [`History::superseded`]: crate::core::History::superseded
 
@@ -117,9 +139,9 @@ use crate::update::{self, UpdateError};
 use crate::working::{SKIPPED_DIR, Skipped, Working};
 
 use super::{
-    Body, HEADER_FILE, MaterialiseError, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR,
-    REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, STORE_DIR, Store, StoreError,
-    files_claiming, label_of, payload_files, within,
+    Body, Bookmark, HEADER_FILE, MaterialiseError, NAME_SUFFIX, NAMES_DIR, OPERATION_SUFFIX,
+    OPERATION_SUFFIXES, OPERATIONS_DIR, Pointed, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR,
+    STORE_DIR, Store, StoreError, files_claiming, label_of, payload_files, within,
 };
 
 /// What one export would write, worked out before anything is written.
@@ -138,6 +160,15 @@ pub struct ExportPlan {
     rules: Vec<crate::working::Rule>,
     withheld: usize,
     reserved: Vec<String>,
+    /// Every bookmark the copy will state, by name (decision 0062).
+    names: BTreeMap<String, Bookmark>,
+    /// How many bookmarks stay behind because they are `private`.
+    withheld_names: usize,
+    /// How many stay behind because the copy does not hold what they point at.
+    beyond_names: usize,
+    /// Bookmarks the copy holds and the set no longer names, deleted with the
+    /// rules for the same reason and in the same pass.
+    retired_names: Vec<String>,
     /// Whether a copy of this store is already there to be updated.
     updating: bool,
     /// Every file that leaves the copy, relative to its store root, in the
@@ -225,6 +256,32 @@ impl ExportPlan {
         self.withheld
     }
 
+    /// Every bookmark the copy will state, by name.
+    ///
+    /// Decision 0062: every shared bookmark whose target the copy will hold.
+    pub fn names(&self) -> &BTreeMap<String, Bookmark> {
+        &self.names
+    }
+
+    /// How many bookmarks stay behind because they are `private`.
+    pub fn withheld_names(&self) -> usize {
+        self.withheld_names
+    }
+
+    /// How many stay behind because the copy will not hold what they point at.
+    ///
+    /// A different fact from [`ExportPlan::withheld_names`] and reported as
+    /// one: nobody asked for these to be withheld, and what keeps them back is
+    /// that an export never manufactures a finding the origin did not have.
+    pub fn beyond_names(&self) -> usize {
+        self.beyond_names
+    }
+
+    /// Bookmarks a copy this export updates will lose.
+    pub fn retired_names(&self) -> &[String] {
+        &self.retired_names
+    }
+
     /// Every file of another tool's that travels, relative to the store root.
     ///
     /// Decision 0053: a reserved directory of the `travels-and-unions` class,
@@ -296,6 +353,13 @@ pub struct Exported {
     pub rules: usize,
     /// Private rules the copy was not given.
     pub withheld: usize,
+    /// Bookmarks carried into the copy (decision 0062).
+    pub names: usize,
+    /// Private bookmarks the copy was not given.
+    pub withheld_names: usize,
+    /// Bookmarks left behind because the copy does not hold what they point
+    /// at, which is nobody's decision and reported separately for that reason.
+    pub beyond_names: usize,
     /// Files another tool wrote, carried by their class (decision 0053).
     pub reserved: usize,
     /// Files withdrawn from a copy this export updated, because the set no
@@ -376,6 +440,28 @@ impl<F: Filesystem> Store<F> {
             }
         }
 
+        // Decision 0062's two axes. A bookmark travels if its name is the
+        // exporter's to give away and the copy holds what it points at — the
+        // second test being `check`'s own, so that a copy never opens on a
+        // `DanglingBookmark` its origin did not have. Held back for the second
+        // reason is not held back for the first: a shared `main` pointing past
+        // the export would name the change unexported work ends at, which is a
+        // disclosure the axis was supposed to govern arriving through the
+        // spelling that was supposed to be safe.
+        let pointed = Pointed::over(reachable.iter().map(|(id, document)| (id, *document)));
+        let mut names = BTreeMap::new();
+        let mut withheld_names = 0;
+        let mut beyond_names = 0;
+        for (name, bookmark) in self.names() {
+            if !bookmark.travels() {
+                withheld_names += 1;
+            } else if !pointed.holds(bookmark.target) {
+                beyond_names += 1;
+            } else {
+                names.insert(name.clone(), *bookmark);
+            }
+        }
+
         // The folder half, said as paths. What writes them is `update`, which
         // materialises from the copy once the copy holds its own history.
         let mut paths: Vec<String> = self
@@ -396,6 +482,10 @@ impl<F: Filesystem> Store<F> {
             rules: self.skipped().travelling().cloned().collect(),
             withheld: self.skipped().withheld(),
             reserved: self.travelling_files()?,
+            names,
+            withheld_names,
+            beyond_names,
+            retired_names: Vec::new(),
             updating: false,
             withdraws: Vec::new(),
             retires_from: 0,
@@ -610,6 +700,23 @@ impl<F: Filesystem> Store<F> {
             }
         }
 
+        // Decision 0062, on 0051's footing above: the copy's `names/` is the
+        // origin's output, so a bookmark the origin deleted, made private, or
+        // moved off the copy's own history goes. One that merely moved within
+        // it is rewritten rather than withdrawn, which `set_bookmark` does
+        // where the rest are written. The paths join `withdraws` after the
+        // rules, so the count a person is given is files, and the removal
+        // happens where the rules' does — before the folder, since neither is
+        // store content the descending order protects.
+        for name in copy.names().keys() {
+            if plan.names.contains_key(name) {
+                continue;
+            }
+            plan.retired_names.push(name.clone());
+            plan.withdraws
+                .push(Path::new(NAMES_DIR).join(format!("{name}{NAME_SUFFIX}")));
+        }
+
         plan.forgotten = forgotten;
         Ok(())
     }
@@ -676,6 +783,18 @@ impl<F: Filesystem> Store<F> {
         copy.remove_skipped(&plan.retired)?;
         let travelling: Vec<crate::working::Rule> = plan.rules.clone();
         copy.add_skipped(&travelling)?;
+
+        // Decision 0062, beside the rules and for the reason they are here:
+        // a bookmark the copy states is one the copy's own commands read, and
+        // `set_bookmark` rather than `set_name` because what travels is the
+        // axis the origin states — a copy is not a replica that has been
+        // holding an opinion about it.
+        for name in &plan.retired_names {
+            copy.remove_name(name)?;
+        }
+        for (name, bookmark) in &plan.names {
+            copy.set_bookmark(name, *bookmark)?;
+        }
 
         // The names decision 0006 gives a store, computed over what travels
         // rather than over the store it leaves: a collision suffix that
@@ -814,6 +933,9 @@ impl<F: Filesystem> Store<F> {
             forgetting: wrote.forgetting,
             rules: travelling.len(),
             withheld: plan.withheld,
+            names: plan.names.len(),
+            withheld_names: plan.withheld_names,
+            beyond_names: plan.beyond_names,
             reserved,
             withdrawn: plan.withdraws.len(),
             destroyed,

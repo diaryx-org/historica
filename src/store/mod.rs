@@ -19,7 +19,8 @@
 //! ├── revisions/      # one revision document per file, under any name, at
 //! │                   #   any depth — written under `YYYY-MM/` (decision 0041)
 //! ├── operations/     # what each revision did, per file — decisions 0007, 0017
-//! ├── names/          # bookmarks, `<name>.txt` — the only mutable files
+//! ├── names/          # bookmarks, `<name>.txt` — the only mutable files,
+//! │                   #   one line and an optional `private` (0062)
 //! ├── cache/          # derived, disposable, deletable without loss:
 //! │                   #   states by digest (0035), and `operations.txt`,
 //! │                   #   which says where each digest is (0036)
@@ -173,8 +174,8 @@ pub const RESERVED_DIRS: [(&str, Travel); 2] = [
 ///
 /// The directories historica reads — [`REVISIONS_DIR`], [`OPERATIONS_DIR`],
 /// [`NAMES_DIR`] and `skipped/` — are outside this question. What becomes of
-/// each of those is its own account, argued in decisions 0042, 0045 and 0051,
-/// and reached by reading a grammar this store owns.
+/// each of those is its own account, argued in decisions 0042, 0045, 0051 and
+/// 0062, and reached by reading a grammar this store owns.
 pub fn travel(directory: &str) -> Travel {
     match RESERVED_DIRS
         .iter()
@@ -243,7 +244,9 @@ into directories of your own breaks nothing either.
                   `.ops.txt` file lists the lines that revision deleted and
                   inserted; every other file there is a file's own content,
                   stored whole.
-  names/          bookmarks, one line each. The only files here that change.
+  names/          bookmarks, one line each, and at most one more: a second
+                  line saying `private` keeps the bookmark's own name out of
+                  an `export`. The only files here that change.
   cache/          derived and disposable: files you have already read, kept
                   under the digest their history says they hash to, so that
                   reading them again does not replay it, and operations.txt,
@@ -366,23 +369,32 @@ pub enum Name {
 }
 
 impl Name {
-    /// Parse the single line a bookmark file holds.
+    /// Parse the one line that states a bookmark's target.
     ///
-    /// A trailing newline is accepted. Unlike a revision document, a bookmark
-    /// is not named by a digest of its bytes, so a second spelling here cannot
-    /// create a second identity — the strictness that protects a revision
-    /// would only be pedantry.
-    pub fn parse(text: &str) -> Result<Self, MalformedName> {
-        let line = text.strip_suffix('\n').unwrap_or(text);
+    /// The line, not the file: decision 0062 lets a bookmark file carry a
+    /// second line, and [`Bookmark::parse`] is what reads one. Unlike a
+    /// revision document, a bookmark is not named by a digest of its bytes, so
+    /// a second spelling here cannot create a second identity — the strictness
+    /// that protects a revision would only be pedantry.
+    pub fn parse(line: &str) -> Result<Self, MalformedName> {
         if line.contains('\n') {
-            return Err(MalformedName);
+            return Err(MalformedName::TARGET);
         }
-        let (key, value) = line.split_once(' ').ok_or(MalformedName)?;
+        let (key, value) = line.split_once(' ').ok_or(MalformedName::TARGET)?;
         match key {
-            "change" => value.parse().map(Name::Change).map_err(|_| MalformedName),
-            "revision" => value.parse().map(Name::Revision).map_err(|_| MalformedName),
-            "file" => value.parse().map(Name::File).map_err(|_| MalformedName),
-            _ => Err(MalformedName),
+            "change" => value
+                .parse()
+                .map(Name::Change)
+                .map_err(|_| MalformedName::TARGET),
+            "revision" => value
+                .parse()
+                .map(Name::Revision)
+                .map_err(|_| MalformedName::TARGET),
+            "file" => value
+                .parse()
+                .map(Name::File)
+                .map_err(|_| MalformedName::TARGET),
+            _ => Err(MalformedName::TARGET),
         }
     }
 
@@ -406,17 +418,201 @@ impl fmt::Display for Name {
     }
 }
 
-/// A bookmark file was not one valid line.
+/// What a bookmark is, and whether its own name travels.
+///
+/// Decision 0062 gives a bookmark the axis decision 0051 gave a rule: an
+/// export is a replica and `receive` is its pull, so a name withheld from a
+/// copy comes straight back the moment the copy meets its origin, and an
+/// exclusion that binds only where it is useless is a gap rather than a
+/// protection. So a shared bookmark travels. What stays behind is the one
+/// 0042 was right about — `fix-acme-layoffs` states in its own filename the
+/// fact `private clients/acme-layoffs/` exists to withhold.
+///
+/// The axis is a **field** rather than a fourth key, which is the opposite of
+/// what 0051 decided for a rule, and the difference is the container. A rule
+/// lives in a set 0045 made order-free, where a flag on an element makes
+/// element identity ambiguous and any answer union gives is a precedence rule.
+/// A bookmark lives in a map with a name for a key and a disagreement rule
+/// since 0006, so there is one `main`, one file stating it, and nothing for a
+/// flag to be ambiguous about. `receive` compares targets and joins axes:
+/// asked-to-withhold and did-not-ask union to asked, which is the same union
+/// every other set here performs and the direction this design never fails in.
+///
+/// And it is a **second line** rather than a sixth key, because decision 0024
+/// already proved the pointing vocabulary open by adding `file` to 0006's two.
+/// 0051's own test — a cross product is affordable only where the vocabulary
+/// on each side is small and closed — is what refuses `private-change`,
+/// `private-revision` and `private-file`. 0006 refused a second line that
+/// could *disagree* with the first, needing a precedence rule every reader
+/// would have to know; a travel axis makes no claim about the target and
+/// cannot disagree with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MalformedName;
+pub struct Bookmark {
+    /// What it points at.
+    pub target: Name,
+    /// Whether its own name stays out of an export.
+    pub private: bool,
+}
+
+impl Bookmark {
+    /// The whole of the second line a bookmark file may carry.
+    pub const AXIS: &'static str = "private";
+
+    /// A bookmark whose name an export carries.
+    pub fn shared(target: Name) -> Self {
+        Self {
+            target,
+            private: false,
+        }
+    }
+
+    /// A bookmark whose name stays behind.
+    pub fn private(target: Name) -> Self {
+        Self {
+            target,
+            private: true,
+        }
+    }
+
+    /// Whether `export` writes this bookmark into the copy.
+    ///
+    /// Whether it *does* also asks whether the copy holds what it points at,
+    /// which is [`Store::export_plan`]'s question rather than this one's.
+    pub fn travels(&self) -> bool {
+        !self.private
+    }
+
+    /// The same bookmark, with the axis two replicas' readings union to.
+    ///
+    /// Decision 0062: the flag is an assertion that somebody asked for this
+    /// name to be withheld, and the union of asked and did-not-ask is asked.
+    pub fn joined(self, other: Self) -> Self {
+        Self {
+            target: self.target,
+            private: self.private || other.private,
+        }
+    }
+
+    /// Read a bookmark file: one line, and at most one more.
+    pub fn parse(text: &str) -> Result<Self, MalformedName> {
+        let text = text.strip_suffix('\n').unwrap_or(text);
+        let mut lines = text.split('\n');
+        let target = Name::parse(lines.next().unwrap_or_default())?;
+        let private = match lines.next() {
+            None => false,
+            Some(Self::AXIS) => true,
+            // The one thing a grammar can do about a reader being old rather
+            // than a file being wrong: a first line that parses and a second
+            // that does not is diagnosably the work of a newer historica,
+            // where an unknown key on the only line is a typo.
+            Some(_) => return Err(MalformedName::AXIS),
+        };
+        if lines.next().is_some() {
+            return Err(MalformedName::AXIS);
+        }
+        Ok(Self { target, private })
+    }
+
+    /// The bytes of the file that states it.
+    pub fn write(&self) -> String {
+        match self.private {
+            true => format!("{}\n{}\n", self.target, Self::AXIS),
+            false => format!("{}\n", self.target),
+        }
+    }
+}
+
+impl fmt::Display for Bookmark {
+    /// One line, for a person: the file's own two-line form would make a
+    /// conflict message unreadable, and a conflict between a private bookmark
+    /// and a shared one over a single target would otherwise print one text
+    /// twice.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.target)?;
+        match self.private {
+            true => f.write_str(" (private)"),
+            false => Ok(()),
+        }
+    }
+}
+
+/// What a set of revision documents holds, asked by a bookmark.
+///
+/// Decision 0062 gives `export` one rule and takes it from `check`: **an
+/// export never manufactures a finding the origin did not have.** A bookmark
+/// travels only where the copy holds what it points at, and *holds* is the
+/// same question `check` asks before calling one dangling — so the two ask it
+/// through one type, over their own documents.
+pub(super) struct Pointed {
+    changes: BTreeSet<ChangeId>,
+    revisions: BTreeSet<RevisionId>,
+    /// Decision 0024: what makes an identifier known is that some revision
+    /// says anything at all about it. `added` alone would call a bookmark
+    /// dangling in a store whose transport has delivered the rename and not
+    /// yet the creation.
+    files: BTreeSet<FileId>,
+}
+
+impl Pointed {
+    /// What these revision documents, and no others, point at.
+    pub(super) fn over<'a>(
+        documents: impl IntoIterator<Item = (&'a RevisionId, &'a RevisionDocument)>,
+    ) -> Self {
+        let mut pointed = Self {
+            changes: BTreeSet::new(),
+            revisions: BTreeSet::new(),
+            files: BTreeSet::new(),
+        };
+        for (id, document) in documents {
+            pointed.revisions.insert(*id);
+            pointed.changes.insert(document.change);
+            pointed.files.extend(
+                document
+                    .added
+                    .keys()
+                    .chain(document.moved.keys())
+                    .chain(document.dropped.iter())
+                    .chain(document.edited.keys())
+                    .chain(document.text.keys())
+                    .chain(document.bytes.keys()),
+            );
+        }
+        pointed
+    }
+
+    /// Whether a bookmark pointing here would find what it names.
+    pub(super) fn holds(&self, target: Name) -> bool {
+        match target {
+            Name::Change(change) => self.changes.contains(&change),
+            Name::Revision(revision) => self.revisions.contains(&revision),
+            Name::File(file) => self.files.contains(&file),
+        }
+    }
+}
+
+/// A bookmark file was not one valid line, or one valid line and `private`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MalformedName {
+    because: &'static str,
+}
+
+impl MalformedName {
+    /// The target line is not one of the three spellings.
+    const TARGET: Self = Self {
+        because: "a bookmark is one line: `change` and a change ID, `revision` \
+                  and a digest, or `file` and a file identifier",
+    };
+    /// The target line read and what follows it did not.
+    const AXIS: Self = Self {
+        because: "a bookmark is one line, and at most one more, which is \
+                  `private`; a file stating anything else below its target may \
+                  have been written by a newer Historica than this one",
+    };
+}
 
 impl fmt::Display for MalformedName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "a bookmark is one line: `change` and a change ID, `revision` and a \
-             digest, or `file` and a file identifier"
-        )
+        f.write_str(self.because)
     }
 }
 
@@ -605,7 +801,7 @@ pub struct Store<F = Disk> {
     /// forgets what the one thing a reader believes without re-reading it, so
     /// the command that holds a store to its own rules must not take it.
     cached: bool,
-    names: BTreeMap<String, Name>,
+    names: BTreeMap<String, Bookmark>,
     skipped: Skipped,
 }
 
@@ -856,9 +1052,11 @@ impl<F: Filesystem> Store<F> {
         for (name, path) in name_files(&files, &root)? {
             let text =
                 read_to_string(&files, &path).map_err(|error| StoreError::io(&path, error))?;
-            let target =
-                Name::parse(&text).map_err(|_| StoreError::MalformedName { file: path.clone() })?;
-            names.insert(name, target);
+            let bookmark = Bookmark::parse(&text).map_err(|because| StoreError::MalformedName {
+                file: path.clone(),
+                because,
+            })?;
+            names.insert(name, bookmark);
         }
 
         let skipped = read_skipped(&files, &root)?;
@@ -2279,12 +2477,20 @@ impl<F: Filesystem> Store<F> {
     }
 
     /// Every bookmark, by name.
-    pub fn names(&self) -> &BTreeMap<String, Name> {
+    pub fn names(&self) -> &BTreeMap<String, Bookmark> {
         &self.names
     }
 
     /// What one bookmark points at, if it exists.
+    ///
+    /// The target alone, because *what does this point at* is what nearly
+    /// every caller asks. [`Store::bookmark`] answers both halves.
     pub fn name(&self, name: &str) -> Option<Name> {
+        self.names.get(name).map(|bookmark| bookmark.target)
+    }
+
+    /// One bookmark whole: what it points at, and whether its name travels.
+    pub fn bookmark(&self, name: &str) -> Option<Bookmark> {
         self.names.get(name).copied()
     }
 
@@ -2450,7 +2656,21 @@ impl<F: Filesystem> Store<F> {
     ///
     /// Bookmarks are the only mutable files in a store, and therefore its
     /// entire conflict surface.
+    ///
+    /// **The travel axis is kept, not restated.** Decision 0062: moving a
+    /// bookmark is what `record` does on every commit, and a bookmark that
+    /// un-privatised itself because somebody recorded onto it would be the
+    /// leak the axis exists to prevent, arriving from the one command nobody
+    /// thinks of as a disclosure. A bookmark that does not exist yet is
+    /// shared, which is every bookmark written before 0062.
+    /// [`Store::set_bookmark`] is what states both facts at once.
     pub fn set_name(&mut self, name: &str, target: Name) -> Result<(), StoreError> {
+        let private = self.names.get(name).is_some_and(|had| had.private);
+        self.set_bookmark(name, Bookmark { target, private })
+    }
+
+    /// Point a bookmark at something and say whether its name travels.
+    pub fn set_bookmark(&mut self, name: &str, bookmark: Bookmark) -> Result<(), StoreError> {
         if name.is_empty() || name.contains('/') || name.contains('\\') {
             return Err(StoreError::UnusableName {
                 name: name.to_owned(),
@@ -2471,10 +2691,34 @@ impl<F: Filesystem> Store<F> {
             .join(NAMES_DIR)
             .join(format!("{name}{NAME_SUFFIX}"));
         self.files
-            .write(&path, format!("{target}\n").as_bytes())
+            .write(&path, bookmark.write().as_bytes())
             .map_err(|error| StoreError::io(&path, error))?;
-        self.names.insert(name.to_owned(), target);
+        self.names.insert(name.to_owned(), bookmark);
         Ok(())
+    }
+
+    /// Delete a bookmark, and the file stating it.
+    ///
+    /// Decision 0062's other direction, and the only caller is decision 0052's
+    /// export onto a copy it already made: a published copy states the names
+    /// the origin shares, so a bookmark the origin deleted, made `private`, or
+    /// moved off the copy's own history leaves the copy on the next export.
+    ///
+    /// A file already gone is not an error, for [`Store::remove_skipped`]'s
+    /// reason: the plan naming it was worked out from a listing rather than
+    /// held under a lock.
+    pub(super) fn remove_name(&mut self, name: &str) -> Result<bool, StoreError> {
+        let path = self
+            .root
+            .join(NAMES_DIR)
+            .join(format!("{name}{NAME_SUFFIX}"));
+        let removed = match self.files.remove_file(&path) {
+            Ok(()) => true,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => return Err(StoreError::io(&path, error)),
+        };
+        self.names.remove(name);
+        Ok(removed)
     }
 
     /// Add rules to `history/skipped/`, one file to a rule.
@@ -3093,10 +3337,13 @@ pub enum StoreError {
         /// Why it was refused.
         error: ParseError,
     },
-    /// A bookmark was not one valid line.
+    /// A bookmark was not one valid line, or one and `private`.
     MalformedName {
         /// The bookmark file.
         file: PathBuf,
+        /// Which half of the grammar it failed, which is what tells a person
+        /// whether the file is wrong or this reader is old (decision 0062).
+        because: MalformedName,
     },
     /// `skipped.txt` was not rules.
     MalformedSkipped {
@@ -3168,8 +3415,8 @@ impl fmt::Display for StoreError {
             StoreError::Unparsable { file, error } => {
                 write!(f, "{}: {error}", file.display())
             }
-            StoreError::MalformedName { file } => {
-                write!(f, "{}: {}", file.display(), MalformedName)
+            StoreError::MalformedName { file, because } => {
+                write!(f, "{}: {because}", file.display())
             }
             StoreError::MalformedSkipped { file, error } => {
                 write!(f, "{}: {error}", file.display())

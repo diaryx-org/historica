@@ -161,6 +161,7 @@ fn published(test: &str) -> (PathBuf, PathBuf) {
     out(&origin, &["record", "-m", "A second thought"]);
 
     out(&origin, &["skip", "--name", "*.tmp"]);
+    out(&origin, &["name", "main", "head"]);
     // What a signing tool leaves in the directory decision 0046 reserved.
     // Nothing in this crate reads a byte of it, which is the point.
     write(
@@ -190,6 +191,7 @@ fn an_empty_store_is_seeded_from_an_export_and_the_manifest_beside_it() {
     assert_eq!(fetched.payloads, 2, "the file and the picture");
     assert!(fetched.documents >= 1);
     assert_eq!(fetched.rules, 1);
+    assert_eq!(fetched.names, 1, "the publisher's bookmark");
     assert_eq!(fetched.reserved, 1, "the file another tool wrote");
     assert!(fetched.declined.is_empty());
     assert_eq!(fetched.refetches, 0);
@@ -220,6 +222,53 @@ fn an_empty_store_is_seeded_from_an_export_and_the_manifest_beside_it() {
         !here.join("notes.md").exists(),
         "a fetch wrote into the folder; decision 0030 says `update` does that"
     );
+}
+
+#[test]
+fn a_bookmark_this_store_holds_is_kept_and_a_private_one_is_never_offered() {
+    let (origin, root) = published("bookmarks");
+    // The name that is the disclosure, made after the first publish so that
+    // the manifest is regenerated with it in the store and not in the listing.
+    out(&origin, &["name", "--private", "acme-layoffs", "head"]);
+    publish(&origin, &root);
+    let listing = fs::read_to_string(root.join(MANIFEST)).expect("the manifest");
+    assert!(listing.contains("names/main.txt"), "{listing}");
+    assert!(
+        !listing.contains("acme"),
+        "a private bookmark's name was published: {listing}"
+    );
+
+    let here = repository("bookmarks-here");
+    let fetched = store(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch");
+    assert_eq!(fetched.names, 1);
+    assert_eq!(fetched.kept, 0);
+
+    // Decision 0062: the publisher's `main` is the publisher's, and a fetcher
+    // who took it once and then recorded onto it has a `main` of its own. A
+    // fetch that moved it back would be the only place in this design where
+    // transport overwrites a mutable value without asking — and would mean a
+    // publisher advancing `main` broke every fetcher who ever took it.
+    out(&here, &["update"]);
+    write(&here, "notes.md", "one\ntwo\nmine\n");
+    out(&here, &["record", "-m", "Work of my own"]);
+    let mine = out(&here, &["names"]);
+    assert!(mine.contains("main"), "{mine}");
+
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(&origin, &["record", "-m", "A third thought"]);
+    publish(&origin, &root);
+
+    let fetched = store(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a second fetch");
+    assert_eq!(
+        fetched.names, 0,
+        "a bookmark this store held was overwritten"
+    );
+    assert_eq!(fetched.kept, 1);
+    assert_eq!(out(&here, &["names"]), mine, "`main` moved underneath");
 }
 
 #[test]
@@ -374,7 +423,15 @@ fn content_arrives_before_the_revisions_that_name_it_at_every_moment() {
             .and_then(|line| line.split(' ').next())
             .map(str::to_owned)
     };
-    let order = ["payload", "operation", "revision", "rule", "reserved"];
+    // Decision 0062 puts bookmarks last, with the kinds no revision names.
+    let order = [
+        "payload",
+        "operation",
+        "revision",
+        "rule",
+        "reserved",
+        "name",
+    ];
     let positions: Vec<usize> = source
         .asked()
         .iter()

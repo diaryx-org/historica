@@ -115,8 +115,9 @@ fn walk(root: &Path) -> Vec<String> {
     found
 }
 
-/// A repository with two revisions, a picture, a bookmark, a rule, and an
-/// unrecorded file — one of everything the copy has to decide about.
+/// A repository with two revisions, a picture, two bookmarks on decision
+/// 0062's two axes, two rules on decision 0051's, and an unrecorded file —
+/// one of everything the copy has to decide about.
 fn furnished(test: &str) -> PathBuf {
     let directory = repository(test);
     write(&directory, "notes.md", "one\n");
@@ -127,6 +128,13 @@ fn furnished(test: &str) -> PathBuf {
     out(&directory, &["record", "-m", "A second thought"]);
 
     out(&directory, &["name", "main", "head"]);
+    // The name is the leak the rule below could not reach: the revisions say
+    // nothing about the client, because the files that would have are not
+    // recorded.
+    out(
+        &directory,
+        &["name", "--private", "fix-acme-layoffs", "head"],
+    );
     out(&directory, &["skip", "--name", "*.tmp"]);
     out(&directory, &["skip", "--private", "clients/acme-layoffs/"]);
     write(&directory, "draft.tmp", "a file a rule keeps out\n");
@@ -168,11 +176,19 @@ fn an_export_is_a_repository_a_stranger_can_open() {
     );
     assert!(out(&copy, &["status"]).contains("nothing here differs"));
 
-    // What is the exporter's stays with the exporter.
+    // Decision 0062 supersedes the bookmarks half of 0042's sentence on 0051's
+    // argument: the shared bookmark travels, and the private one does not.
+    let names = out(&copy, &["names"]);
     assert!(
-        out(&copy, &["names"]).contains("no bookmarks"),
-        "the exporter's bookmarks travelled"
+        names.contains("main"),
+        "the shared bookmark stayed behind: {names}"
     );
+    assert!(
+        !names.contains("acme"),
+        "a private bookmark's name reached the copy: {names}"
+    );
+    assert!(said.contains("exported 1 bookmarks"), "{said}");
+    assert!(said.contains("held back 1 private bookmarks"), "{said}");
     // Decision 0051: the shared rules travel and the private ones do not. A
     // copy without `skip-name *.tmp` is a copy whose first `record` offers to
     // record the recipient's editor droppings, which is the failure 0011 wrote
@@ -1084,7 +1100,69 @@ fn a_file_already_in_the_copy_is_never_renamed_to_make_room() {
 }
 
 #[test]
-fn a_bookmark_made_in_the_copy_survives_an_update() {
+fn a_bookmark_the_origin_made_private_is_withdrawn_from_the_copy() {
+    let (origin, copy) = published("name-withdrawn");
+    out(&origin, &["name", "acme-layoffs", "head"]);
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(out(&copy, &["names"]).contains("acme-layoffs"));
+
+    // Decision 0062 at the boundary decision 0052 makes crossable twice. The
+    // name the copy was given is not the exporter's to leave in a
+    // world-readable directory once it has become the disclosure the axis is
+    // about — and an export that only ever added would publish a permanent
+    // record of every name the origin ever had, which is 0052's own argument
+    // for withdrawal.
+    let said = out(&origin, &["name", "--private", "acme-layoffs", "head"]);
+    assert!(said.contains("(private)"), "{said}");
+
+    let said = out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(said.contains("held back 1 private bookmarks"), "{said}");
+    assert!(said.contains("withdrew 1 files"), "{said}");
+    let names = out(&copy, &["names"]);
+    assert!(!names.contains("acme-layoffs"), "{names}");
+    assert!(
+        !copy.join("history/names/acme-layoffs.txt").exists(),
+        "the file outlived the bookmark"
+    );
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn a_bookmark_pointing_past_the_target_stays_behind() {
+    let origin = repository("name-beyond");
+    write(&origin, "notes.md", "one\n");
+    out(&origin, &["record", "-m", "First"]);
+    let first = out(&origin, &["log"]);
+    let first = first
+        .lines()
+        .find_map(|line| line.split_whitespace().next())
+        .expect("a revision")
+        .to_owned();
+    write(&origin, "notes.md", "one\ntwo\n");
+    out(&origin, &["record", "-m", "Second"]);
+    out(&origin, &["name", "main", "head"]);
+    out(&origin, &["name", "start", &first]);
+
+    // Decision 0062: an export never manufactures a finding the origin did not
+    // have. `main` names a change the copy does not hold, which would open the
+    // copy on a `DanglingBookmark` — and, under 0052, name for good the change
+    // that unexported work ends at, which is the disclosure the axis exists to
+    // govern arriving through the spelling that is supposed to be safe.
+    let copy = scratch("name-beyond-copy").join("journal");
+    let said = out(&origin, &["export", &copy.to_string_lossy(), &first]);
+    assert!(said.contains("exported 1 bookmarks"), "{said}");
+    assert!(
+        said.contains("left 1 bookmarks pointing past this target"),
+        "{said}"
+    );
+    let names = out(&copy, &["names"]);
+    assert!(names.contains("start"), "{names}");
+    assert!(!names.contains("main"), "{names}");
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+}
+
+#[test]
+fn a_bookmark_made_in_the_copy_gives_way_to_the_origins() {
     let (origin, copy) = published("bookmarks");
     out(&copy, &["name", "theirs", "head"]);
 
@@ -1093,14 +1171,18 @@ fn a_bookmark_made_in_the_copy_survives_an_update() {
     out(&origin, &["name", "mine", "head"]);
     out(&origin, &["export", &copy.to_string_lossy()]);
 
-    // Decision 0052: `names/` is neither written nor removed. An export has
-    // never carried bookmarks, and one somebody made in the published copy is
-    // not the exporter's to delete.
+    // Decision 0062 reverses what 0052 said about this directory: the copy's
+    // `names/` is the origin's output, so the origin's bookmark arrives and
+    // one the copy made that the origin does not state goes. It has to be all
+    // of them rather than only the ones a previous export wrote, because
+    // nothing records which those were — and the alternative fails in the
+    // direction this decision exists to prevent, leaving a name in a
+    // world-readable copy after the origin made it `private`.
     let names = out(&copy, &["names"]);
-    assert!(names.contains("theirs"), "{names}");
+    assert!(names.contains("mine"), "{names}");
     assert!(
-        !names.contains("mine"),
-        "the exporter's bookmark travelled: {names}"
+        !names.contains("theirs"),
+        "a bookmark the origin does not state stayed in the copy: {names}"
     );
 
     // `cache/` likewise: it is nobody's, and the copy's own is its own.

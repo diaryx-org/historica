@@ -196,7 +196,14 @@ fn an_offer_names_every_transferable_file_of_a_published_copy() {
     let kinds: BTreeSet<&str> = entries.iter().map(|line| line.kind.as_str()).collect();
     assert_eq!(
         kinds,
-        BTreeSet::from(["revision", "operation", "payload", "rule", "reserved"]),
+        BTreeSet::from([
+            "revision",
+            "operation",
+            "payload",
+            "rule",
+            "reserved",
+            "name",
+        ]),
         "{text}"
     );
     assert_eq!(
@@ -274,15 +281,11 @@ fn the_files_a_store_keeps_to_itself_are_never_named() {
     for kept in ["historica.txt", "format.txt"] {
         assert!(!text.contains(kept), "`{kept}` was offered:\n{text}");
     }
-    // Decision 0052: bookmarks and a cache are not listed because an export
-    // has neither, which the exceptions above already pin — and `cache/` is
-    // not even walked, so a listing never names a file from it.
-    for directory in ["names/", "cache/"] {
-        assert!(
-            !text.contains(directory),
-            "`{directory}` was offered:\n{text}"
-        );
-    }
+    // Decision 0042 on `cache/`, unchanged and now alone in that sentence: a
+    // cache is nobody's, and the directory is not even walked, so a listing
+    // never names a file from it. `names/` is listed since decision 0062, and
+    // `an_offer_names_every_transferable_file_of_a_published_copy` pins that.
+    assert!(!text.contains("cache/"), "`cache/` was offered:\n{text}");
     // A file of `skipped/` that states no rule states nothing a recipient
     // needs, and the note `init` leaves is that file.
     assert!(
@@ -405,7 +408,15 @@ fn the_lines_are_ordered_so_that_a_fetcher_reading_from_the_top_is_safe() {
     // and the files of another tool — 0048's fetch order, so an interruption
     // understates what is reachable rather than leaving a revision naming
     // bytes that never arrived.
-    let order = ["payload", "operation", "revision", "rule", "reserved"];
+    // Decision 0062 puts bookmarks last, with the two kinds no revision names.
+    let order = [
+        "payload",
+        "operation",
+        "revision",
+        "rule",
+        "reserved",
+        "name",
+    ];
     let positions: Vec<usize> = entries
         .iter()
         .map(|line| {

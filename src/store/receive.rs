@@ -20,7 +20,7 @@ use crate::fs::Filesystem;
 use crate::working::Rule;
 
 use super::{
-    Body, Name, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIX, Store,
+    Body, Bookmark, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIX, Store,
     StoreError, files_claiming,
 };
 
@@ -28,13 +28,20 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MutableConflict {
     /// One bookmark name points at two things.
+    ///
+    /// The **target**, and only the target. Decision 0062 keeps the travel
+    /// axis out of this comparison deliberately: `ReceiveError::Mutable`
+    /// refuses the whole receive, so privatising a bookmark on the laptop
+    /// would deadlock every sync with the desktop until the person restated
+    /// it there — the manufactured conflict 0045 removed, arrived at from the
+    /// one direction where it would look principled. The axis unions instead.
     Name {
         /// The bookmark.
         name: String,
         /// What the receiving store says.
-        here: Name,
+        here: Bookmark,
         /// What the source store says.
-        there: Name,
+        there: Bookmark,
     },
 }
 
@@ -44,7 +51,7 @@ pub struct ReceivePlan {
     revisions: Vec<RevisionId>,
     documents: Vec<RevisionId>,
     payloads: Vec<RevisionId>,
-    names: BTreeMap<String, Name>,
+    names: BTreeMap<String, Bookmark>,
     skipped: Vec<Rule>,
     reserved: Vec<String>,
     forgotten: BTreeSet<RevisionId>,
@@ -73,8 +80,12 @@ impl ReceivePlan {
         &self.payloads
     }
 
-    /// Bookmarks that exist only in the source.
-    pub fn names(&self) -> &BTreeMap<String, Name> {
+    /// Bookmarks this receive will write.
+    ///
+    /// Those the source states and the receiver lacks, and — decision 0062 —
+    /// those the two agree the target of and disagree the axis of, at the
+    /// axis they union to.
+    pub fn names(&self) -> &BTreeMap<String, Bookmark> {
         &self.names
     }
 
@@ -200,12 +211,25 @@ impl<F: Filesystem> Store<F> {
             .filter(|id| !ours.contains_key(id) && !plan.forgotten.contains(id))
             .collect();
 
+        // Decision 0062: the target conflicts and the axis joins. A name the
+        // receiver lacks arrives whole, private or not — a rule that reaches
+        // a person's other machines by the transport already running is what
+        // 0051 calls the feature rather than a concession — and a name both
+        // hold at one target, marked private on one side, is private on both.
+        // The flag is an assertion that somebody asked for this name to be
+        // withheld, so the union of asked and did-not-ask is asked, which is
+        // the union every other set here performs rather than a tie-break.
         for (name, there) in source.names() {
-            match self.name(name) {
+            match self.bookmark(name) {
                 None => {
                     plan.names.insert(name.clone(), *there);
                 }
-                Some(here) if here == *there => {}
+                Some(here) if here.target == there.target => {
+                    let joined = here.joined(*there);
+                    if joined != here {
+                        plan.names.insert(name.clone(), joined);
+                    }
+                }
                 Some(here) => plan.conflicts.push(MutableConflict::Name {
                     name: name.clone(),
                     here,
@@ -287,8 +311,8 @@ impl<F: Filesystem> Store<F> {
             self.insert_at(document, &format!("{id}{REVISION_SUFFIX}"))?;
             received.revisions += 1;
         }
-        for (name, target) in &plan.names {
-            self.set_name(name, *target)?;
+        for (name, bookmark) in &plan.names {
+            self.set_bookmark(name, *bookmark)?;
             received.names += 1;
         }
         received.skipped = self.add_skipped(&plan.skipped)?.len();

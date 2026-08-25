@@ -374,10 +374,10 @@ pub fn bookmarks(store: &Store, id: &RevisionId) -> Vec<String> {
     store
         .names()
         .iter()
-        .filter(|(_, target)| match target {
-            Name::Revision(revision) => revision == id,
+        .filter(|(_, bookmark)| match bookmark.target {
+            Name::Revision(revision) => revision == *id,
             Name::Change(change) => matches!(
-                history.change_state(change),
+                history.change_state(&change),
                 ChangeState::Resolved(revision) if revision.id == *id
             ),
             // A file bookmark names no revision, so it never marks one.

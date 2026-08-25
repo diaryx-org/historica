@@ -1641,6 +1641,64 @@ fn receive_unions_independent_work_without_touching_either_working_copy() {
     assert!(stdout(&here, &["check"]).ends_with("nothing to report\n"));
 }
 
+/// Decision 0062: the target conflicts and the axis joins. A name marked
+/// private on one machine reaches the person's other machines by the transport
+/// already running, which is what 0051 calls the feature; a name pointing two
+/// ways is the conflict it always was, and a *privacy* disagreement is not one,
+/// because `ReceiveError::Mutable` refuses the whole receive and a deadlocked
+/// sync is the manufactured conflict 0045 removed.
+#[test]
+fn receive_takes_a_private_bookmark_and_joins_the_axis() {
+    let here = repository("receive-axis-here");
+    write(&here, "notes.md", "common\n");
+    out(recorded(&here, &["record", "-m", "Common root"]));
+    out(recorded(&here, &["name", "main", "head"]));
+    let there = scratch("receive-axis-there");
+    copy_tree(&here, &there);
+
+    // One name only the source has, and private. It arrives whole.
+    out(recorded(
+        &there,
+        &["name", "--private", "acme-layoffs", "head"],
+    ));
+    // And one both hold at one target, which the source alone calls private.
+    out(recorded(&there, &["name", "--private", "main", "head"]));
+
+    let source = there.to_string_lossy();
+    let received = stdout(&here, &["receive", &source]);
+    assert!(received.contains("received 2 bookmarks"), "{received}");
+
+    let names = stdout(&here, &["names"]);
+    assert!(names.contains("acme-layoffs"), "{names}");
+    assert_eq!(
+        names
+            .lines()
+            .filter(|line| line.contains("(private)"))
+            .count(),
+        2,
+        "the axis did not join: {names}"
+    );
+
+    // Idempotent: a second receive has nothing left to join.
+    let again = stdout(&here, &["receive", &source]);
+    assert!(!again.contains("bookmarks"), "{again}");
+
+    // The target is still what conflicts, and a conflict writes nothing.
+    write(&here, "notes.md", "ours\n");
+    out(recorded(&here, &["record", "-m", "Work done here"]));
+    write(&there, "notes.md", "theirs\n");
+    out(recorded(&there, &["record", "-m", "Work done there"]));
+    let refused = run(&here, &["receive", &source]);
+    assert!(!refused.status.success());
+    let said = String::from_utf8(refused.stderr).expect("printed text");
+    assert!(said.contains("disagree about mutable files"), "{said}");
+    assert!(said.contains("name main:"), "{said}");
+    assert!(
+        said.contains("(private)"),
+        "the axis is unprintable: {said}"
+    );
+}
+
 /// Decision 0053: a reserved directory travels by its class. `claims/` is
 /// `travels-and-unions`, so a receive adds the names it lacks and leaves the
 /// names it holds exactly as they are — it never reads one, so "the same

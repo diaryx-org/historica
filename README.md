@@ -330,7 +330,16 @@ nothing a `skip` rule names can appear in a copy that is assembled rather than
 mirrored, and compressing the result is tar's job. The rules themselves do
 travel — decision 0051, so a copy's first `record` does not offer to record
 the recipient's build output — and the copy says how many private rules stayed
-behind. `export --files-only` is that command with the store left out —
+behind. So do the bookmarks, on the same argument, which is decision 0062: an
+export is a replica and `receive` is its pull, so a name withheld comes
+straight back the moment the copy meets its origin, and an exclusion binding
+only where it is useless is a gap rather than a protection. What travels is
+every bookmark not marked `private` whose target the copy holds — the second
+test being `check`'s own, so that an export never opens a copy on a finding
+its origin did not have — and a name that is a disclosure gets the axis
+`skip` already has: a second line, `private`, since `fix-acme-layoffs` states
+in its own filename the fact `private clients/acme-layoffs/` exists to
+withhold. `export --files-only` is that command with the store left out —
 decision 0060 — because a copy's ancestry is most of what it costs: exporting
 the three-hundredth revision of a six-hundred-revision store writes 14 MB, of
 which 13 is `history/`. It writes the same folder the full copy would, from
@@ -368,7 +377,8 @@ that vector printed. A line therefore keeps its author through a rename, since
 them — so a merge authors only the lines somebody typed into it, which is
 exactly what a three-way merge cannot say. `name` writes a bookmark, and takes the third argument `show`
 takes: with a path it names the file at that path rather than the work, so
-`history/names/` holds `file` lines beside `change` and `revision` ones and
+`history/names/` holds `file` lines beside `change` and `revision` ones, over
+an optional second line saying `private` (0062), and
 `cat <target> file:<bookmark>` is that file wherever it has since been moved to.
 What `log` prints is narrowed by `--limit`, `--author`, `--grep`, `--since`,
 `--until`, and `--path`; they compose, and `--limit` counts what the rest left

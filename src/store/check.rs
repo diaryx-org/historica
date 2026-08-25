@@ -22,9 +22,9 @@ use crate::fs::{Entry, Filesystem, read_to_string};
 use crate::replay::ReplayError;
 
 use super::{
-    HEADER_FILE, Held, MalformedName, MaterialiseError, NAME_SUFFIX, Name, OPERATION_SUFFIX,
-    OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, claims,
-    platform_name,
+    Bookmark, HEADER_FILE, Held, MalformedName, MaterialiseError, NAME_SUFFIX, Name,
+    OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, Pointed, REVISION_SUFFIX,
+    REVISION_SUFFIXES, REVISIONS_DIR, claims, platform_name,
 };
 
 /// Whether a finding means the store is broken or merely worth mentioning.
@@ -127,10 +127,12 @@ pub enum Finding {
         /// The file stating the shared rule.
         shared: PathBuf,
     },
-    /// A bookmark was not one valid line.
+    /// A bookmark was not one valid line, or one and `private`.
     MalformedBookmark {
         /// The bookmark file.
         file: PathBuf,
+        /// Which half of the grammar it failed (decision 0062).
+        because: MalformedName,
     },
     /// A file could not be read at all.
     Unreadable {
@@ -401,8 +403,8 @@ impl fmt::Display for Finding {
                 id.abbreviate(12),
                 display_files(files)
             ),
-            Finding::MalformedBookmark { file } => {
-                write!(f, "{}: {}", file.display(), MalformedName)
+            Finding::MalformedBookmark { file, because } => {
+                write!(f, "{}: {because}", file.display())
             }
             Finding::MalformedSkipped { file, error } => write!(
                 f,
@@ -1667,25 +1669,10 @@ fn check_names<F: Filesystem + ?Sized>(
     let mut entries: Vec<Entry> = entries;
     entries.sort();
 
-    let changes: Vec<_> = documents.values().map(|document| document.change).collect();
-    // Decision 0024: a `file` bookmark names an identifier, and what makes one
-    // known is that some revision here says anything at all about it. `added`
-    // alone would call a bookmark dangling in a store whose transport has
-    // delivered the rename and not yet the creation.
-    let identifiers: BTreeSet<FileId> = documents
-        .values()
-        .flat_map(|document| {
-            document
-                .added
-                .keys()
-                .chain(document.moved.keys())
-                .chain(document.dropped.iter())
-                .chain(document.edited.keys())
-                .chain(document.text.keys())
-                .chain(document.bytes.keys())
-                .copied()
-        })
-        .collect();
+    // Decision 0062 shares this question with `export`, which carries a
+    // bookmark only where the copy holds what it points at — the rule that an
+    // export never manufactures a finding the origin did not have.
+    let pointed = Pointed::over(documents);
 
     for Entry { path, kind } in entries {
         if !kind.is_file() {
@@ -1713,18 +1700,16 @@ fn check_names<F: Filesystem + ?Sized>(
                 continue;
             }
         };
-        match Name::parse(&text) {
-            Err(_) => report.push(Finding::MalformedBookmark { file: path.clone() }),
-            Ok(target) => {
-                let known = match target {
-                    Name::Change(change) => changes.contains(&change),
-                    Name::Revision(revision) => documents.contains_key(&revision),
-                    Name::File(file) => identifiers.contains(&file),
-                };
-                if !known {
+        match Bookmark::parse(&text) {
+            Err(because) => report.push(Finding::MalformedBookmark {
+                file: path.clone(),
+                because,
+            }),
+            Ok(bookmark) => {
+                if !pointed.holds(bookmark.target) {
                     report.push(Finding::DanglingBookmark {
                         name: name.to_owned(),
-                        target,
+                        target: bookmark.target,
                     });
                 }
             }

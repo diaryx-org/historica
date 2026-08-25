@@ -1328,8 +1328,8 @@ pub fn record<F: Filesystem>(
     let following: Vec<String> = store
         .names()
         .iter()
-        .filter(|(_, target)| match target {
-            Name::Change(change) => followed.contains(change),
+        .filter(|(_, bookmark)| match bookmark.target {
+            Name::Change(change) => followed.contains(&change),
             // A pin does not move, and decision 0024's file bookmark has
             // nothing to follow: an identifier outlives the revisions that
             // mention it.
@@ -1673,8 +1673,8 @@ pub fn abandon<F: Filesystem>(
     let following: Vec<String> = store
         .names()
         .iter()
-        .filter(|(_, target)| match target {
-            Name::Change(named) => followed.contains(named),
+        .filter(|(_, bookmark)| match bookmark.target {
+            Name::Change(named) => followed.contains(&named),
             Name::Revision(_) | Name::File(_) => false,
         })
         .map(|(name, _)| name.clone())

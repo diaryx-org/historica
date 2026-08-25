@@ -97,11 +97,14 @@
 //!
 //! `historica.txt` and `format.txt` are neither listed nor fetched: a fetcher
 //! has a store already, with its own, and a store that did not would have
-//! nothing to fetch into. `names/` and `cache/` are not listed — for an export
-//! that is an observation rather than a rule, since an export has neither, and
-//! for a live store it is decision 0042's answer unchanged: bookmarks are the
-//! publisher's and a cache is nobody's. Neither directory is walked, so a
-//! store that has them costs a listing nothing.
+//! nothing to fetch into. `cache/` is not listed, on decision 0042's answer
+//! unchanged: a cache is nobody's, and the directory is not walked, so a store
+//! that has one costs a listing nothing. `names/` is listed, which is decision
+//! 0062 superseding the other half of that sentence — otherwise a stranger who
+//! copies a published export would get bookmarks and a stranger who fetches
+//! from it would not, and the manifest is what a static host offers *of an
+//! export*. Every bookmark that travels is named; a private one is not, for
+//! the reason a private rule is not.
 //!
 //! # What it costs, and what it does not write
 //!
@@ -150,8 +153,8 @@ use crate::fs::Filesystem;
 use crate::working::SKIPPED_DIR;
 
 use super::{
-    REVISION_SUFFIXES, REVISIONS_DIR, STORE_DIR, Store, StoreError, catalogue, files_claiming,
-    label_of, within,
+    NAME_SUFFIX, NAMES_DIR, REVISION_SUFFIXES, REVISIONS_DIR, STORE_DIR, Store, StoreError,
+    catalogue, files_claiming, label_of, within,
 };
 
 /// The line a manifest starts with.
@@ -184,6 +187,16 @@ pub enum OfferKind {
     /// learns whose the directory is, and neither does this listing. The path
     /// names the directory, and a reader consults its own registry about it.
     Reserved,
+    /// One bookmark file of `names/`, whose name travels (decision 0062).
+    ///
+    /// The one kind whose path is a **name** rather than an address. That is
+    /// not an exception to decision 0048 so much as the one directory 0003's
+    /// rule never covered: everywhere else identity is content and a filename
+    /// is presentation, and a bookmark's filename is its identity. It is also
+    /// the one kind whose bytes change under a path that does not, which a
+    /// manifest survives because it is regenerated whole and a fetcher hashes
+    /// what arrives against the line that named it.
+    Name,
 }
 
 impl OfferKind {
@@ -195,6 +208,7 @@ impl OfferKind {
             OfferKind::Payload => "payload",
             OfferKind::Rule => "rule",
             OfferKind::Reserved => "reserved",
+            OfferKind::Name => "name",
         }
     }
 
@@ -207,6 +221,7 @@ impl OfferKind {
             "payload" => OfferKind::Payload,
             "rule" => OfferKind::Rule,
             "reserved" => OfferKind::Reserved,
+            "name" => OfferKind::Name,
             _ => return None,
         })
     }
@@ -525,6 +540,31 @@ impl<F: Filesystem> Store<F> {
             });
         }
 
+        // Decision 0062, on the footing 0051 gives the rules above and with
+        // the same reason for applying the axis here rather than trusting
+        // somebody else to have applied it: a bookmark's *filename* is its
+        // name, so naming a private one in a listing published to the world is
+        // exactly the disclosure the axis was written to prevent. A bookmark
+        // pointing past what this copy holds is not filtered here — this is a
+        // listing of a directory rather than a plan, and what put the file
+        // there was an `export` that already asked.
+        let mut names: Vec<Offered> = Vec::new();
+        for (name, bookmark) in &self.names {
+            if !bookmark.travels() {
+                continue;
+            }
+            let label = format!("{NAMES_DIR}/{name}{NAME_SUFFIX}");
+            let Some(digest) = digest_at(&self.files, &within(&self.root, &label))? else {
+                continue;
+            };
+            names.push(Offered {
+                kind: OfferKind::Name,
+                digest,
+                forgets: None,
+                path: addressed(prefix, &label),
+            });
+        }
+
         // Decision 0053: found by the walk everything else is found by, and
         // never opened. The class is the whole of what this knows about them,
         // and the path is the whole of what it says.
@@ -551,6 +591,7 @@ impl<F: Filesystem> Store<F> {
             &mut revisions,
             &mut rules,
             &mut reserved,
+            &mut names,
         ] {
             group.sort_by(|left, right| left.path.cmp(&right.path));
             entries.append(group);
