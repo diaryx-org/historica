@@ -121,6 +121,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **working** — catalogue what the folder hashed to, so a photograph is not read twice ([`e14a9e0`](https://github.com/diaryx-org/historica/commit/e14a9e0a722cae9fa8b32366274592e49d4d5b3f))
 - **check** — replay a chain forward rather than walking it ([`dc80af4`](https://github.com/diaryx-org/historica/commit/dc80af4864f8267d9850f834f305b861654d1980))
 - **store** — take the catalogue without walking the directory ([`2a77605`](https://github.com/diaryx-org/historica/commit/2a7760590b4c180de86b23cf2e8f2b567af1927e))
+- **store** — read the revision, and leave the rest of the document alone ([`f145783`](https://github.com/diaryx-org/historica/commit/f145783ad002cd90766e3ab3a4491a016094884f))
 
 ### Behavioural changes
 
@@ -593,6 +594,20 @@ often than the author's view holds elements under it is now refused with
   an existing caller does changes: without the flag `export` writes the
   repository it always did, and the folder half of that copy is unchanged
   in both directions.
+
+- `Store::get` returns `Result<Option<&RevisionDocument>,
+ StoreError>` and `Store::iter` yields `Result<(&RevisionId,
+ &RevisionDocument), StoreError>`, because a parse deferred is a parse that
+ can fail where it used to have failed at `Store::open`. A caller wanting a
+ graph fact should take the new infallible `Store::revision`,
+ `Store::revisions` or `Store::holds` instead; one wanting every document
+ whole should take the new `Store::documents`. A revision document that is
+ well-formed but states a value the format refuses — a `when` that is not
+ RFC 3339, a path 0008 rejects, a file ID outside its alphabet, a `mode` or
+ `link` that parses as neither spelling, or two tree facts contradicting
+ each other about one file — now opens without error and is refused at the
+ moment something asks what that revision did. `check` is unchanged: it
+ reads every document whole and reports every fault at once.
 
 <!-- git-cliff:end -->
 
