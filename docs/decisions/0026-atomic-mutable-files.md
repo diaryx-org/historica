@@ -32,9 +32,11 @@ an implementation leaking the interval in which it writes.
   digest-named document after creating it.
 - **`Disk` writes beside the destination and commits over it.** The temporary
   file is on the same filesystem, so committing cannot cross devices.
-  Platform-specific replacement is delegated to `atomic-write-file`, which
-  supplies the equivalent operation on Unix, Windows, and WASI without adding
-  platform-specific unsafe code to Historica.
+  Platform-specific replacement is delegated to `fs-transaction` (originally
+  `atomic-write-file`), which supplies the equivalent operation on Unix,
+  Windows, and WASI without adding platform-specific unsafe code to Historica —
+  and, since the change of delegate, also flushes what the replacement
+  publishes, so a committed value survives a power cut.
 
 ## Why this strengthens `write` instead of adding a method
 
@@ -81,8 +83,8 @@ partially reading a history it does not understand.
 
 - The trait documentation makes atomic replacement an implementation
   requirement, beside atomic `create_new` and no-follow directory walking.
-- The `disk` feature gains `atomic-write-file`; builds without `disk` do not
-  gain the dependency.
+- The `disk` feature gains `fs-transaction` (originally `atomic-write-file`);
+  builds without `disk` do not gain the dependency.
 - Initial creation of `historica.txt` and `skipped.txt` uses the same operation.
   There is no old value then, but failure still cannot leave a file that looks
   complete enough for discovery and is not.
