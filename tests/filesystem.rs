@@ -259,7 +259,7 @@ fn a_history_is_recorded_and_read_back_with_no_filesystem_at_all() {
     let (memory, store, first, second) = history();
 
     assert_eq!(store.len(), 2, "two revisions");
-    assert!(store.get(&first).is_some() && store.get(&second).is_some());
+    assert!(store.holds(&first) && store.holds(&second));
 
     // Every byte of it is in the map and nowhere else — including the header
     // and the note `init` writes into `skipped/`.
@@ -371,7 +371,7 @@ fn pruning_removes_files_from_the_map_and_tidies_what_it_empties() {
     // And the store still reads, with the history untouched.
     let reopened = Store::open_on(memory.clone(), store.root()).expect("reopening after pruning");
     assert_eq!(reopened.len(), 2);
-    assert!(reopened.get(&first).is_some());
+    assert!(reopened.holds(&first));
 }
 
 #[test]
@@ -505,7 +505,11 @@ fn a_filesystem_that_models_no_modes_records_none_and_erases_none() {
     );
 
     // Somebody else's machine, which could see the bit, recorded it.
-    let held = store.get(&root).expect("the root").clone();
+    let held = store
+        .get(&root)
+        .expect("readable")
+        .expect("the root")
+        .clone();
     let file = *held.added.keys().next().expect("the script");
     let runnable = RevisionDocument {
         change: "kxryzmorwlvtnsqpkzmuprys".parse().expect("a change ID"),
@@ -536,7 +540,7 @@ fn a_filesystem_that_models_no_modes_records_none_and_erases_none() {
     // the folder cannot observe, it must not state.
     put(&memory, "run.sh", "#!/bin/sh\necho there\n");
     let after = record_folder(&memory, &mut store, vec![runnable], "edit the script");
-    let document = store.get(&after).expect("the edit");
+    let document = store.get(&after).expect("readable").expect("the edit");
     assert!(
         document.modes.is_empty(),
         "a folder that cannot see the bit stated one: {:?}",
@@ -580,7 +584,11 @@ fn a_folder_that_models_no_links_refuses_rather_than_inventing_one() {
     );
 
     // Somebody else's machine, which has links, recorded one.
-    let held = store.get(&root).expect("the root").clone();
+    let held = store
+        .get(&root)
+        .expect("readable")
+        .expect("the root")
+        .clone();
     let month = *held.added.keys().next().expect("the month");
     let current: FileId = "lqxstvnmpkwyzrolvtsqnkxm".parse().expect("a file ID");
     let linked = RevisionDocument {

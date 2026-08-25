@@ -79,7 +79,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
-use crate::format::{RevisionDocument, digest};
+use crate::format::{self, digest};
 use crate::fs::{Filesystem, Stamp, nanoseconds};
 
 use super::{CACHE_DIR, REVISION_SUFFIXES, REVISIONS_DIR, StoreError, files_claiming};
@@ -128,7 +128,7 @@ pub(super) fn load<F: Filesystem + ?Sized>(
     files: &F,
     root: &Path,
     cached: bool,
-) -> Result<BTreeMap<RevisionId, RevisionDocument>, StoreError> {
+) -> Result<BTreeMap<RevisionId, super::Document>, StoreError> {
     // The directory as it stands, which is names and no contents. This is the
     // walk opening performed anyway, and it is what every belief below is
     // checked against.
@@ -145,8 +145,9 @@ pub(super) fn load<F: Filesystem + ?Sized>(
     // apart because what is written back is only built where the two of them
     // disagree with the file: rewriting the whole of it on a store nobody has
     // touched would be the cache's own bytes for no change at all, on every
-    // command. Nothing believed is copied — the bytes stay in `held`, which
-    // holds them until the store is loaded.
+    // command. The bytes stay in `held` until this file is rewritten from
+    // them; what the store keeps is a copy, because decision 0061 leaves most
+    // of every document unparsed and the bytes are where the rest of it is.
     let mut taken: Vec<&Path> = Vec::new();
     let mut opened: Vec<Entry> = Vec::new();
 
@@ -162,32 +163,38 @@ pub(super) fn load<F: Filesystem + ?Sized>(
         let stamp = files.stamp(path).ok().flatten();
         let entry = stamp
             .and_then(|stamp| believed(&held, relative, stamp, written))
-            // A held document that will not parse is not an error to raise
+            // A held document that will not read is not an error to raise
             // from here: the file is right there, and a cache must never turn
             // a store that reads into a store that does not. It costs one
             // read, and the error that follows names the file.
-            .and_then(|entry| Some((entry, RevisionDocument::parse(&entry.bytes).ok()?)));
+            .and_then(|entry| Some((entry, format::revision(&entry.bytes).ok()?)));
 
         match entry {
-            Some((entry, document)) => {
+            Some((entry, revision)) => {
                 // Two files with identical bytes are one revision stored
                 // twice, which is harmless. Identical digests with differing
                 // bytes cannot happen, and if they ever did it would mean a
                 // broken read.
-                documents.insert(entry.digest, document);
+                documents.insert(
+                    entry.digest,
+                    super::Document::new(revision, entry.bytes.clone(), path.clone()),
+                );
                 taken.push(relative);
             }
             None => {
                 let bytes = files
                     .read(path)
                     .map_err(|error| StoreError::io(path, error))?;
-                let document =
-                    RevisionDocument::parse(&bytes).map_err(|error| StoreError::Unparsable {
+                let revision =
+                    format::revision(&bytes).map_err(|error| StoreError::Unparsable {
                         file: path.clone(),
                         error,
                     })?;
                 let id = digest(&bytes);
-                documents.insert(id, document);
+                documents.insert(
+                    id,
+                    super::Document::new(revision, bytes.clone(), path.clone()),
+                );
                 // A path this cannot write down is one the next reader has to
                 // open, and leaving it out here is what keeps that from being
                 // mistaken for a directory that changed. A newline would end

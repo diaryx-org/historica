@@ -841,7 +841,7 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
     let id = target::resolve(&store, &spelling)?;
     let document = store
-        .get(&id)
+        .get(&id)?
         .ok_or_else(|| Failure::error(format!("this store does not hold the revision {id}")))?;
 
     let document_bytes = match path {
@@ -1039,10 +1039,10 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         (None, false) => {
             // Decision 0006 makes `change` the default: a bookmark that follows
             // amend and rebase is the one a person wants nearly always.
-            let document = store.get(&id).ok_or_else(|| {
+            let revision = store.revision(&id).ok_or_else(|| {
                 Failure::error(format!("this store does not hold the revision {id}"))
             })?;
-            Name::Change(document.change)
+            Name::Change(revision.change)
         }
     };
 

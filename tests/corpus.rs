@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use historica::core::{ChangeState, History, RevisionId};
-use historica::format::{ParseErrorKind, RevisionDocument, digest};
+use historica::format::{self, ParseErrorKind, RevisionDocument, digest};
 
 fn corpus() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/revisions")
@@ -88,6 +88,44 @@ fn a_documents_id_is_the_digest_of_its_file() {
         }
         let document = RevisionDocument::parse(&read(&name)).expect("a canonical file");
         assert_eq!(document.id(), expected, "{name}");
+    }
+}
+
+/// Decision 0061: the two readings of a revision document agree about every
+/// document there is a revision to read. `format::revision` walks the same
+/// header block and refuses the same shapes; what it declines to do is
+/// interpret the values of the headers a [`Revision`] does not hold.
+///
+/// [`Revision`]: historica::core::Revision
+#[test]
+fn reading_the_revision_agrees_with_reading_the_document() {
+    for name in canonical_names() {
+        let bytes = read(&name);
+        let document = RevisionDocument::parse(&bytes)
+            .unwrap_or_else(|error| panic!("{name} parses: {error}"));
+        let revision =
+            format::revision(&bytes).unwrap_or_else(|error| panic!("{name} reads: {error}"));
+        assert_eq!(
+            revision,
+            document.to_revision(),
+            "{name}: the two readings disagree"
+        );
+    }
+}
+
+/// And they refuse the same files for the same reason. Every fault this corpus
+/// states is one about a document's shape rather than about what a value
+/// means, so the cheaper reading catches all of them — a corpus of faults it
+/// deferred would be a corpus stating them one file lower, in a `when` or a
+/// path, and 0061 says where those arrive instead.
+#[test]
+fn reading_the_revision_refuses_every_invalid_file() {
+    for (name, expected) in expected_failures() {
+        let error = format::revision(&read(name)).expect_err("an invalid file");
+        assert_eq!(
+            &error.kind, &expected,
+            "{name}: refused, but not for its own reason"
+        );
     }
 }
 

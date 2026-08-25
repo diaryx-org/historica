@@ -940,6 +940,7 @@ fn from_an_editor(base: &Path) -> Result<String, Failure> {
 fn warn_about_the_clock(store: &Store, now: &historica::format::Timestamp) {
     let Some(newest) = store
         .iter()
+        .filter_map(Result::ok)
         .map(|(_, document)| document.when.clone())
         .max_by_key(|when| instant(when.as_str()))
     else {

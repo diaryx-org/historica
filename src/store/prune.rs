@@ -54,10 +54,13 @@ impl<F: Filesystem> Store<F> {
         // with byte-identical edits share one document, so what is kept is
         // whatever any kept revision names, however many name it.
         let mut referenced: BTreeSet<RevisionId> = BTreeSet::new();
-        for (id, document) in &self.documents {
+        for (id, held) in &self.documents {
             if deletable.contains(id) {
                 continue;
             }
+            // What a revision named is a tree fact, so this is one of the
+            // callers decision 0061 leaves paying for the whole document.
+            let document = held.whole()?;
             referenced.extend(document.edited.values().copied());
             referenced.extend(document.text.values().copied());
             referenced.extend(document.bytes.values().copied());
@@ -154,14 +157,16 @@ impl<F: Filesystem> Store<F> {
         loop {
             let mut shrank = false;
             for id in kept.clone() {
-                let document = &self.documents[&id];
-                let superseded = kept
-                    .iter()
-                    .any(|keeper| self.documents[keeper].supersedes.contains(&id));
-                let stood_on = kept
-                    .iter()
-                    .any(|keeper| self.documents[keeper].parents.contains(&id));
-                let evidence = document.supersedes.iter().any(|named| kept.contains(named));
+                let revision = self.revision(&id).expect("a revision this store holds");
+                let superseded = kept.iter().any(|keeper| {
+                    self.revision(keeper)
+                        .is_some_and(|keeper| keeper.supersedes.contains(&id))
+                });
+                let stood_on = kept.iter().any(|keeper| {
+                    self.revision(keeper)
+                        .is_some_and(|keeper| keeper.parents.contains(&id))
+                });
+                let evidence = revision.supersedes.iter().any(|named| kept.contains(named));
                 if superseded && !stood_on && !evidence {
                     kept.remove(&id);
                     shrank = true;

@@ -490,7 +490,7 @@ fn a_copy_keeps_a_supersedes_line_whose_other_end_it_does_not_hold() {
     out(&origin, &["export", &copy.to_string_lossy()]);
 
     let store = Store::open(copy.join("history")).expect("the copy opens");
-    let held: BTreeSet<String> = store.iter().map(|(id, _)| id.abbreviate(8)).collect();
+    let held: BTreeSet<String> = store.revisions().map(|(id, _)| id.abbreviate(8)).collect();
     assert!(held.contains(&amendment), "the amendment travelled");
     assert!(
         !held.contains(&superseded),
@@ -502,7 +502,7 @@ fn a_copy_keeps_a_supersedes_line_whose_other_end_it_does_not_hold() {
     let dangling: Vec<_> = history
         .superseded()
         .into_iter()
-        .filter(|id| store.get(id).is_none())
+        .filter(|id| !store.holds(id))
         .collect();
     assert_eq!(dangling.len(), 1, "exactly one edge should dangle");
     assert_eq!(dangling[0].abbreviate(8), superseded);
@@ -693,7 +693,7 @@ fn published(test: &str) -> (PathBuf, PathBuf) {
 /// Every revision digest the store at this repository holds.
 fn held(repository: &Path) -> BTreeSet<String> {
     let store = Store::open(repository.join("history")).expect("the store opens");
-    store.iter().map(|(id, _)| id.to_string()).collect()
+    store.revisions().map(|(id, _)| id.to_string()).collect()
 }
 
 #[test]
@@ -886,7 +886,7 @@ fn withdrawals_descend_so_that_no_revision_ever_outlives_its_bytes() {
 
     let store = Store::open(origin.join("history")).expect("the origin opens");
     let target = store
-        .iter()
+        .revisions()
         .map(|(id, _)| *id)
         .find(|id| id.to_string().starts_with(&first))
         .expect("the first revision");

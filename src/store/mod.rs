@@ -56,7 +56,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::core::{ChangeId, FileId, History, RevisionId};
+use crate::core::{ChangeId, FileId, History, Revision, RevisionId};
 use crate::format::{
     self, Item, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, digest,
 };
@@ -579,7 +579,7 @@ pub struct Store<F = Disk> {
     /// reaches whatever the caller handed it.
     files: F,
     root: PathBuf,
-    documents: BTreeMap<RevisionId, RevisionDocument>,
+    documents: BTreeMap<RevisionId, Document>,
     /// Where everything in `operations/` is, by digest. Built on first need,
     /// never at open, and taken from `cache/` where decision 0036 allows.
     catalogue: OnceCell<Catalogue>,
@@ -607,6 +607,51 @@ pub struct Store<F = Disk> {
     cached: bool,
     names: BTreeMap<String, Name>,
     skipped: Skipped,
+}
+
+/// One revision document, as a store holds it.
+///
+/// Decision 0061: what opening a store reads out of a document is the
+/// [`Revision`] it states, and the rest of it — the author, the moment, the
+/// whole of the tree — waits for something to ask. The bytes are kept because
+/// 0058 put them in memory anyway and because they are where the rest of the
+/// document still is, so the ask costs a parse and never a read.
+#[derive(Debug, Clone)]
+pub(super) struct Document {
+    revision: Revision,
+    bytes: Vec<u8>,
+    /// The file these bytes came out of, so that a parse deferred until now
+    /// can still name it.
+    file: PathBuf,
+    whole: OnceCell<RevisionDocument>,
+}
+
+impl Document {
+    pub(super) fn new(revision: Revision, bytes: Vec<u8>, file: PathBuf) -> Self {
+        Self {
+            revision,
+            bytes,
+            file,
+            whole: OnceCell::new(),
+        }
+    }
+
+    /// The whole of it, parsed the first time anything asks.
+    ///
+    /// The error a deferred parse raises is the one opening would have raised,
+    /// naming the same file: 0002's strictness, arriving at the question
+    /// rather than before it.
+    fn whole(&self) -> Result<&RevisionDocument, StoreError> {
+        if let Some(document) = self.whole.get() {
+            return Ok(document);
+        }
+        let document =
+            RevisionDocument::parse(&self.bytes).map_err(|error| StoreError::Unparsable {
+                file: self.file.clone(),
+                error,
+            })?;
+        Ok(self.whole.get_or_init(|| document))
+    }
 }
 
 /// Documents this store has already read, by digest.
@@ -877,25 +922,73 @@ impl<F: Filesystem> Store<F> {
         self.documents.is_empty()
     }
 
-    /// One document by digest.
-    pub fn get(&self, id: &RevisionId) -> Option<&RevisionDocument> {
-        self.documents.get(id)
+    /// One document by digest, parsed whole the first time it is asked for.
+    ///
+    /// Decision 0061: opening the store read the revision out of these bytes
+    /// and left the rest of the document alone, so this is where a caller
+    /// wanting the author, the moment or the tree pays for them — once per
+    /// document, and never with a read, since the bytes are already held. The
+    /// error is the one opening would have raised about that file.
+    pub fn get(&self, id: &RevisionId) -> Result<Option<&RevisionDocument>, StoreError> {
+        match self.documents.get(id) {
+            Some(document) => document.whole().map(Some),
+            None => Ok(None),
+        }
     }
 
-    /// Every document, in digest order.
-    pub fn iter(&self) -> impl Iterator<Item = (&RevisionId, &RevisionDocument)> {
-        self.documents.iter()
+    /// One revision by digest, which opening the store already read.
+    ///
+    /// What [`Store::get`] is for the document, this is for the graph, and it
+    /// is the one that costs nothing: every field of a [`Revision`] was read
+    /// at open.
+    pub fn revision(&self, id: &RevisionId) -> Option<&Revision> {
+        self.documents.get(id).map(|document| &document.revision)
+    }
+
+    /// Every document, in digest order, each parsed whole as it is reached.
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = Result<(&RevisionId, &RevisionDocument), StoreError>> {
+        self.documents
+            .iter()
+            .map(|(id, document)| Ok((id, document.whole()?)))
+    }
+
+    /// Whether this store holds a revision of this digest.
+    ///
+    /// The question every transport asks about a digest before deciding to
+    /// want it, and decision 0061 makes it free: opening the store answered it.
+    pub fn holds(&self, id: &RevisionId) -> bool {
+        self.documents.contains_key(id)
+    }
+
+    /// Every document, in digest order, all of them parsed whole.
+    ///
+    /// What [`Store::iter`] is one at a time, for the caller that wants the
+    /// set — and the caller that wants it twice, since this is a `Vec` and
+    /// that is a borrow of documents the store keeps.
+    pub fn documents(&self) -> Result<Vec<(&RevisionId, &RevisionDocument)>, StoreError> {
+        self.iter().collect()
+    }
+
+    /// Every revision, in digest order.
+    pub fn revisions(&self) -> impl Iterator<Item = (&RevisionId, &Revision)> {
+        self.documents
+            .iter()
+            .map(|(id, document)| (id, &document.revision))
     }
 
     /// The causal graph these documents describe.
     ///
     /// Derived on demand: the documents are the authority, and this is the
-    /// projection of them that answers graph questions.
+    /// projection of them that answers graph questions. Decision 0061 is why
+    /// it costs nothing beyond the copy — the revisions were read at open,
+    /// and no document has to be parsed to build this.
     pub fn history(&self) -> History {
         let mut history = History::new();
         for document in self.documents.values() {
             // Keyed by digest, so no two documents can collide here.
-            let _ = history.insert(document.to_revision());
+            let _ = history.insert(document.revision.clone());
         }
         history
     }
@@ -1546,7 +1639,9 @@ impl<F: Filesystem> Store<F> {
             let document = self
                 .documents
                 .get(&id)
-                .ok_or(MaterialiseError::Unknown { revision: id })?;
+                .ok_or(MaterialiseError::Unknown { revision: id })?
+                .whole()
+                .map_err(MaterialiseError::unreadable)?;
             seen.insert(id, document);
             for parent in &document.parents {
                 if !self.documents.contains_key(parent) {
@@ -1760,7 +1855,9 @@ impl<F: Filesystem> Store<F> {
             let document = self
                 .documents
                 .get(&id)
-                .ok_or(MaterialiseError::Unknown { revision: id })?;
+                .ok_or(MaterialiseError::Unknown { revision: id })?
+                .whole()
+                .map_err(MaterialiseError::unreadable)?;
 
             // The file as this revision left it, if a previous reader kept
             // it. Nothing above this revision is read and nothing below it is
@@ -2218,7 +2315,12 @@ impl<F: Filesystem> Store<F> {
         let path = within(&self.root.join(REVISIONS_DIR), name);
 
         write_once(&self.files, &path, &bytes)?;
-        self.documents.insert(id, document.clone());
+        // Both halves of what a store holds a document as, and neither has to
+        // be read back: the revision is this document's own projection and the
+        // bytes are the ones just written.
+        let held = Document::new(document.to_revision(), bytes, path);
+        let _ = held.whole.set(document.clone());
+        self.documents.insert(id, held);
         Ok(id)
     }
 

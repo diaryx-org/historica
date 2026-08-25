@@ -183,10 +183,10 @@ impl Named {
 
 /// The one parent of a revision, for the "what did this do" comparison.
 fn sole_parent(store: &Store, id: &RevisionId) -> Result<Option<RevisionId>, Failure> {
-    let document = store
-        .get(id)
+    let revision = store
+        .revision(id)
         .ok_or_else(|| Failure::error(format!("{} is not a revision here", id.abbreviate(12))))?;
-    match document
+    match revision
         .parents
         .iter()
         .copied()

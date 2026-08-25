@@ -258,6 +258,127 @@ impl fmt::Debug for Hasher {
     }
 }
 
+/// The revision a document states, read without interpreting the rest of it.
+///
+/// Decision 0061. [`RevisionDocument::parse`] turns a document into every fact
+/// it holds, and opening a store did that to every document in `revisions/` in
+/// order to ask questions of the graph. But the graph is [`Revision`], and
+/// every field of a `Revision` is a header of rank 0 to 2 or the verbatim
+/// message: the author, the moment, the rewriting stamps and the whole of the
+/// tree were being read for nobody. Reading a document whole costs what the
+/// revision *did* — one line per file it touched — where reading the revision
+/// costs the same for every document there has ever been.
+///
+/// So this walks the header block, holds it to every rule that compares a key
+/// or a raw value ([`check_order`], and the required headers below), reads the
+/// values of `change`, `parent` and `supersedes`, and steps over the rest. A
+/// document accepted here may still be refused by [`RevisionDocument::parse`],
+/// and only ever for what a value *means*: a `when` that is not RFC 3339, a
+/// path 0008 refuses, a file ID outside its alphabet, a `mode` that is neither
+/// word, a `link` that parses as neither spelling, or two tree facts
+/// contradicting each other about one file. Those reach a reader at the moment
+/// it asks what the revision did, which is 0058's rule for `operations/` and
+/// 0002's strictness in the place that decision put it. `check` reads every
+/// document whole and reports all of it regardless.
+pub fn revision(bytes: &[u8]) -> Result<Revision, ParseError> {
+    let mut parser = Parser::new(bytes)?;
+    parser.preamble()?;
+
+    let mut change: Option<ChangeId> = None;
+    let mut parents = BTreeSet::new();
+    let mut supersedes = BTreeSet::new();
+    let mut author: Option<&str> = None;
+    let mut when = false;
+    let mut revised = false;
+    let mut revised_by: Option<&str> = None;
+    let mut message = String::new();
+    let mut previous: Option<(u8, &str, &str)> = None;
+
+    while let Some((line, terminated)) = parser.next_line() {
+        let at = parser.lines.line;
+        if line.is_empty() {
+            // The separator, and everything after it is the message — which
+            // `Revision` holds, so this is the one part of the document past
+            // the headers that is read here.
+            let rest = parser.lines.rest();
+            if rest.is_empty() {
+                return Err(ParseError::new(at, ParseErrorKind::EmptyBodyAfterSeparator));
+            }
+            message = rest.to_owned();
+            break;
+        }
+        if !terminated {
+            return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
+        }
+        let (key, value) = split_header(line, at)?;
+        let Some(this_rank) = rank(key) else {
+            return Err(ParseError::new(
+                at,
+                ParseErrorKind::UnknownHeader {
+                    key: key.to_owned(),
+                },
+            ));
+        };
+        check_order(previous, this_rank, key, value, at)?;
+        previous = Some((this_rank, key, value));
+
+        match key {
+            "change" => change = Some(parse_change_id(value, at)?),
+            "parent" => {
+                parents.insert(parse_digest(value, at, "parent")?);
+            }
+            "supersedes" => {
+                supersedes.insert(parse_digest(value, at, "supersedes")?);
+            }
+            // Presence, which is a fact about the block rather than about the
+            // value, and so is this reading's to settle.
+            "author" => author = Some(value),
+            "when" => when = true,
+            "revised" => revised = true,
+            "revised-by" => revised_by = Some(value),
+            _ => {}
+        }
+    }
+
+    let last = parser.lines.line;
+    let change = change
+        .ok_or_else(|| ParseError::new(last, ParseErrorKind::MissingHeader { key: "change" }))?;
+    let author = author
+        .ok_or_else(|| ParseError::new(last, ParseErrorKind::MissingHeader { key: "author" }))?;
+    if !when {
+        return Err(ParseError::new(
+            last,
+            ParseErrorKind::MissingHeader { key: "when" },
+        ));
+    }
+    if supersedes.is_empty() {
+        for (present, key) in [(revised, "revised"), (revised_by.is_some(), "revised-by")] {
+            if present {
+                return Err(ParseError::new(
+                    last,
+                    ParseErrorKind::RevisionMetadataWithoutSupersedes { key },
+                ));
+            }
+        }
+    } else if !revised {
+        return Err(ParseError::new(
+            last,
+            ParseErrorKind::MissingHeader { key: "revised" },
+        ));
+    }
+    if revised_by == Some(author) {
+        return Err(ParseError::new(last, ParseErrorKind::RedundantRevisedBy));
+    }
+
+    Ok(Revision {
+        id: digest(bytes),
+        change,
+        parents,
+        supersedes,
+        message,
+    })
+}
+
 /// One revision document: every header, and the verbatim message.
 ///
 /// Repeated facts are held in sorted sets and `x-` headers in a sorted map,
@@ -439,6 +560,69 @@ fn rank(key: &str) -> Option<u8> {
 /// The rank `x-` headers share, which sort against each other by key.
 const EXTENSION_RANK: u8 = 15;
 
+/// The rules that hold between one header line and the one before it.
+///
+/// Shared by the two readings of a revision document, so that the one taking
+/// only the revision (decision 0061) refuses a document's *shape* in exactly
+/// the places the one taking all of it does. Every rule here compares a key or
+/// a raw value and interprets neither, which is why the cheaper reading can
+/// afford all of them.
+fn check_order(
+    previous: Option<(u8, &str, &str)>,
+    this_rank: u8,
+    key: &str,
+    value: &str,
+    at: usize,
+) -> Result<(), ParseError> {
+    let Some((last_rank, last_key, last_value)) = previous else {
+        return Ok(());
+    };
+    if this_rank < last_rank {
+        return Err(ParseError::new(
+            at,
+            ParseErrorKind::KeysOutOfOrder {
+                key: key.to_owned(),
+                after: last_key.to_owned(),
+            },
+        ));
+    }
+    if this_rank != last_rank {
+        return Ok(());
+    }
+    if !repeatable(this_rank) {
+        return Err(ParseError::new(
+            at,
+            ParseErrorKind::RepeatedHeader {
+                key: key.to_owned(),
+            },
+        ));
+    }
+    // Repeated facts sort by digest, and `x-` headers by key, so that a
+    // deterministic rewrite is deterministic in bytes.
+    let (this_sort, last_sort) = if this_rank == EXTENSION_RANK {
+        (key, last_key)
+    } else {
+        (value, last_value)
+    };
+    if this_sort == last_sort {
+        return Err(ParseError::new(
+            at,
+            ParseErrorKind::DuplicateFact {
+                key: key.to_owned(),
+            },
+        ));
+    }
+    if this_sort < last_sort {
+        return Err(ParseError::new(
+            at,
+            ParseErrorKind::RepeatedKeyOutOfOrder {
+                key: key.to_owned(),
+            },
+        ));
+    }
+    Ok(())
+}
+
 /// Whether a rank may appear more than once.
 fn repeatable(rank: u8) -> bool {
     matches!(
@@ -594,7 +778,11 @@ impl<'a> Parser<'a> {
                 return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
             }
             let (key, value) = split_header(line, at)?;
-            headers.push(Header { at, key, value });
+            headers.push(Header {
+                at,
+                key: key.to_owned(),
+                value: value.to_owned(),
+            });
         }
         Ok((headers, String::new()))
     }
@@ -631,44 +819,15 @@ impl<'a> Parser<'a> {
                 ));
             };
 
-            if let Some((last_rank, last_key, last_value)) = &previous {
-                if this_rank < *last_rank {
-                    return Err(ParseError::new(
-                        at,
-                        ParseErrorKind::KeysOutOfOrder {
-                            key: key.clone(),
-                            after: last_key.clone(),
-                        },
-                    ));
-                }
-                if this_rank == *last_rank {
-                    if !repeatable(this_rank) {
-                        return Err(ParseError::new(
-                            at,
-                            ParseErrorKind::RepeatedHeader { key: key.clone() },
-                        ));
-                    }
-                    // Repeated facts sort by digest, and `x-` headers by key,
-                    // so that a deterministic rewrite is deterministic in bytes.
-                    let (this_sort, last_sort) = if this_rank == EXTENSION_RANK {
-                        (&key, last_key)
-                    } else {
-                        (&value, last_value)
-                    };
-                    if this_sort == last_sort {
-                        return Err(ParseError::new(
-                            at,
-                            ParseErrorKind::DuplicateFact { key: key.clone() },
-                        ));
-                    }
-                    if this_sort < last_sort {
-                        return Err(ParseError::new(
-                            at,
-                            ParseErrorKind::RepeatedKeyOutOfOrder { key: key.clone() },
-                        ));
-                    }
-                }
-            }
+            check_order(
+                previous
+                    .as_ref()
+                    .map(|(rank, key, value)| (*rank, key.as_str(), value.as_str())),
+                this_rank,
+                &key,
+                &value,
+                at,
+            )?;
             previous = Some((this_rank, key.clone(), value.clone()));
 
             match key.as_str() {
@@ -941,7 +1100,7 @@ impl<'a> Parser<'a> {
 }
 
 /// Split `key value`, enforcing the key's shape and the value's.
-fn split_header(line: &str, at: usize) -> Result<(String, String), ParseError> {
+fn split_header(line: &str, at: usize) -> Result<(&str, &str), ParseError> {
     let Some(space) = line.find(' ') else {
         // `author` with nothing after it: an absent fact is an absent line.
         return Err(ParseError::new(at, ParseErrorKind::EmptyValue));
@@ -965,7 +1124,7 @@ fn split_header(line: &str, at: usize) -> Result<(String, String), ParseError> {
     if value.chars().any(|c| c.is_control()) {
         return Err(ParseError::new(at, ParseErrorKind::ControlCharacter));
     }
-    Ok((key.to_owned(), value.to_owned()))
+    Ok((key, value))
 }
 
 /// Split `<file> <rest>`, which every tree header but `drop` is shaped like.

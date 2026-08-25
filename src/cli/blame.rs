@@ -332,7 +332,9 @@ fn write(
         };
         said.entry(id)
             .or_insert_with(|| {
-                let Some(document) = store.get(&id) else {
+                // A document that will not parse still has a digest to show,
+                // which is what this falls back to.
+                let Some(document) = store.get(&id).ok().flatten() else {
                     return (id.abbreviate(8), String::new(), String::new());
                 };
                 let when = document.when.to_string();

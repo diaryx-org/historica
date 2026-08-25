@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fmt;
 
-use crate::core::{FileId, RevisionId};
+use crate::core::{FileId, Revision, RevisionId};
 use crate::diff::diff;
 use crate::format::{LinkTarget, OperationDocument, RevisionDocument, digest};
 use crate::fs::Filesystem;
@@ -147,15 +147,15 @@ pub fn plan<F: Filesystem>(
     // builds it: from the documents that state it, so a supersession nobody
     // delivered is not one this store knows about.
     let mut withdrawn: BTreeMap<RevisionId, BTreeSet<RevisionId>> = BTreeMap::new();
-    for (id, document) in store.iter() {
-        for predecessor in &document.supersedes {
+    for (id, revision) in store.revisions() {
+        for predecessor in &revision.supersedes {
             withdrawn.entry(*predecessor).or_default().insert(*id);
         }
     }
 
-    let stranded = |id: &RevisionId, document: &RevisionDocument| {
+    let stranded = |id: &RevisionId, revision: &Revision| {
         !withdrawn.contains_key(id)
-            && document
+            && revision
                 .parents
                 .iter()
                 .any(|parent| withdrawn.contains_key(parent))
@@ -168,27 +168,27 @@ pub fn plan<F: Filesystem>(
     // what it rewrote and nothing built on it, and what it rewrote is done.
     let mut carrying: BTreeSet<RevisionId> = match target {
         Some(named) => {
-            let document = store
-                .get(named)
+            let revision = store
+                .revision(named)
                 .ok_or(CarryError::NotHeld { revision: *named })?;
-            if !stranded(named, document) {
+            if !stranded(named, revision) {
                 return Err(CarryError::NotStranded { revision: *named });
             }
             BTreeSet::from([*named])
         }
         None => store
-            .iter()
-            .filter(|(id, document)| stranded(id, document))
+            .revisions()
+            .filter(|(id, revision)| stranded(id, revision))
             .map(|(id, _)| *id)
             .collect(),
     };
     loop {
         let more: BTreeSet<RevisionId> = store
-            .iter()
-            .filter(|(id, document)| {
+            .revisions()
+            .filter(|(id, revision)| {
                 !carrying.contains(*id)
                     && !withdrawn.contains_key(*id)
-                    && document
+                    && revision
                         .parents
                         .iter()
                         .any(|parent| carrying.contains(parent))
@@ -237,9 +237,9 @@ pub fn plan<F: Filesystem>(
     // itself stranded is carried first, and what stood on it follows onto
     // the revision that carry writes for it.
     let depends = |id: &RevisionId| -> Result<BTreeSet<RevisionId>, CarryError> {
-        let document = store.get(id).expect("a member of the plan");
+        let revision = store.revision(id).expect("a member of the plan");
         let mut on = BTreeSet::new();
-        for parent in &document.parents {
+        for parent in &revision.parents {
             if carrying.contains(parent) {
                 on.insert(*parent);
             } else if withdrawn.contains_key(parent) {
@@ -281,7 +281,8 @@ pub fn plan<F: Filesystem>(
     let mut steps: Vec<CarryStep> = Vec::new();
 
     for id in &order {
-        let previous = store.get(id).expect("a member of the plan").clone();
+        // The whole document, because a carry restates every tree fact in it.
+        let previous = store.get(id)?.expect("a member of the plan").clone();
 
         // Each parent, mapped across the rewrite, with what moved between
         // the two spellings of it.
@@ -517,10 +518,11 @@ pub fn plan<F: Filesystem>(
             .map(|(_, new)| *new)
             .max()
             .expect("a carried revision has a parent that moved");
+        let held = store.get(&cause)?.cloned();
         let cause = documents
             .get(&cause)
             .cloned()
-            .or_else(|| store.get(&cause).cloned())
+            .or(held)
             .expect("the cause is planned or held");
         let revised = cause.revised.clone().ok_or(CarryError::UnstampedCause {
             revision: *id,
@@ -668,7 +670,7 @@ pub fn carry<F: Filesystem>(
             &step.document.message,
             &step.document.change,
             &step.revision,
-            store.iter().map(|(_, held)| held),
+            store.documents()?.into_iter().map(|(_, held)| held),
         );
         let filings: Vec<naming::Filing> = step
             .writes

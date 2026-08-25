@@ -865,12 +865,18 @@ fn check_resolutions<F: Filesystem + ?Sized>(
     // Decision 0032 defers binary at a merge: 0008 makes two concurrent
     // `bytes` a divergence and 0028 makes accepting one explicit, and a
     // payload needs no resolution grammar because a payload has no items.
-    let whole: BTreeSet<FileId> = store
+    // A document that will not parse is `check`'s to report elsewhere, and it
+    // has already been read whole by the pass that does: decision 0061 defers
+    // a parse, and this is the one command that defers nothing.
+    let Ok(documents) = store.documents() else {
+        return;
+    };
+    let whole: BTreeSet<FileId> = documents
         .iter()
         .flat_map(|(_, document)| document.bytes.keys().copied())
         .collect();
 
-    for (revision, document) in store.iter() {
+    for (revision, document) in documents.iter().copied() {
         let parents: Vec<RevisionId> = document.parents.iter().copied().collect();
         if parents.len() < 2 {
             continue;

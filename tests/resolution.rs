@@ -183,7 +183,7 @@ fn every_revision_materialises_to_the_state_written_beside_it() {
 fn a_merge_whose_parents_agree_states_nothing_and_the_file_is_that_state() {
     let store = merged_store("merged-agreed");
     let merge = id("revisions/04-merge.rev.txt");
-    let document = store.get(&merge).expect("the merge");
+    let document = store.get(&merge).expect("readable").expect("the merge");
     // The whole of the shortcut, in one assertion: the merge's `edit` lines
     // name `notes.txt` and nothing else.
     assert!(!document.edited.contains_key(&file(README)));

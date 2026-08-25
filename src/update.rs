@@ -402,7 +402,8 @@ fn recorded_link<F: Filesystem>(
         return Ok(true);
     }
     for file in recorded.files_at(path) {
-        for (id, document) in store.iter() {
+        for entry in store.iter() {
+            let (id, document) = entry?;
             let Some(target) = document.links.get(&file) else {
                 continue;
             };
@@ -1122,7 +1123,11 @@ struct RecordedBytes<'a, F> {
 impl<'a, F: Filesystem> RecordedBytes<'a, F> {
     fn over(store: &'a Store<F>, overwrite: Overwrite) -> Self {
         let mut ever_at: BTreeMap<&str, BTreeSet<FileId>> = BTreeMap::new();
-        for (_, document) in store.iter() {
+        // A document that will not parse states no path anything is known to
+        // have held, which leaves every path it named looking unrecorded —
+        // the direction this whole structure errs in, since an unrecorded path
+        // is one `update` refuses to overwrite.
+        for (_, document) in store.iter().filter_map(Result::ok) {
             for (file, path) in document.added.iter().chain(document.moved.iter()) {
                 ever_at.entry(path.as_str()).or_default().insert(*file);
             }
@@ -1158,18 +1163,21 @@ impl<'a, F: Filesystem> RecordedBytes<'a, F> {
             return false;
         };
         files.iter().any(|file| {
-            self.store.iter().any(|(id, document)| {
-                let touches = document.added.contains_key(file)
-                    || document.edited.contains_key(file)
-                    || document.text.contains_key(file)
-                    || document.bytes.contains_key(file)
-                    || document.parents.len() > 1;
-                touches
-                    && self
-                        .store
-                        .content_at_heads(&[*id], file)
-                        .is_ok_and(|content| content.bytes() == held)
-            })
+            self.store
+                .iter()
+                .filter_map(Result::ok)
+                .any(|(id, document)| {
+                    let touches = document.added.contains_key(file)
+                        || document.edited.contains_key(file)
+                        || document.text.contains_key(file)
+                        || document.bytes.contains_key(file)
+                        || document.parents.len() > 1;
+                    touches
+                        && self
+                            .store
+                            .content_at_heads(&[*id], file)
+                            .is_ok_and(|content| content.bytes() == held)
+                })
         })
     }
 }

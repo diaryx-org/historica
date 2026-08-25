@@ -1312,7 +1312,7 @@ pub fn record<F: Filesystem>(
         &recording.message,
         &change,
         &document.id(),
-        store.iter().map(|(_, held)| held),
+        store.documents()?.into_iter().map(|(_, held)| held),
     );
     file_content(store, &plan, &content, &stem)?;
     let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
@@ -1323,7 +1323,7 @@ pub fn record<F: Filesystem>(
     let followed: BTreeSet<ChangeId> = recording
         .parents
         .iter()
-        .filter_map(|parent| store.get(parent).map(|document| document.change))
+        .filter_map(|parent| store.revision(parent).map(|revision| revision.change))
         .collect();
     let following: Vec<String> = store
         .names()
@@ -1391,7 +1391,7 @@ pub fn amend<F: Filesystem>(
         &document.message,
         &document.change,
         &document.id(),
-        store.iter().map(|(_, held)| held),
+        store.documents()?.into_iter().map(|(_, held)| held),
     );
     file_content(store, &plan, &content, &stem)?;
     let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
@@ -1478,15 +1478,15 @@ fn rewriting<F: Filesystem>(
     amendment: &Amendment,
 ) -> Result<(RevisionDocument, Recording, BTreeMap<String, FileId>), RecordError> {
     let previous = store
-        .get(&amendment.revision)
+        .get(&amendment.revision)?
         .cloned()
         .ok_or(RecordError::NotHeld {
             revision: amendment.revision,
         })?;
 
     let standing: Vec<RevisionId> = store
-        .iter()
-        .filter(|(_, document)| document.parents.contains(&amendment.revision))
+        .revisions()
+        .filter(|(_, revision)| revision.parents.contains(&amendment.revision))
         .map(|(id, _)| *id)
         .collect();
     if !standing.is_empty() {
@@ -1497,8 +1497,8 @@ fn rewriting<F: Filesystem>(
     }
 
     let successors: Vec<RevisionId> = store
-        .iter()
-        .filter(|(_, document)| document.supersedes.contains(&amendment.revision))
+        .revisions()
+        .filter(|(_, revision)| revision.supersedes.contains(&amendment.revision))
         .map(|(id, _)| *id)
         .collect();
     if !successors.is_empty() {
@@ -1556,13 +1556,13 @@ pub fn abandonment_plan<F: Filesystem>(
     let mut current = *revision;
     loop {
         let document = store
-            .get(&current)
+            .revision(&current)
             .ok_or(RecordError::NotHeld { revision: current })?;
 
         // A run member something already rewrote has a successor of its own,
         // and a tombstone would leave one piece of work superseded twice.
         let successors: Vec<RevisionId> = store
-            .iter()
+            .revisions()
             .filter(|(_, held)| held.supersedes.contains(&current))
             .map(|(id, _)| *id)
             .collect();
@@ -1584,7 +1584,7 @@ pub fn abandonment_plan<F: Filesystem>(
         run.push(current);
 
         let standing: Vec<RevisionId> = store
-            .iter()
+            .revisions()
             .filter(|(_, held)| held.parents.contains(&current))
             .map(|(id, _)| *id)
             .collect();
@@ -1622,8 +1622,10 @@ pub fn abandon<F: Filesystem>(
     }
 
     let run = abandonment_plan(store, &abandoning.revision)?;
+    // A tombstone stands where the abandoned revision stood, which is a fact
+    // about the graph and not about what that revision did.
     let first = store
-        .get(&abandoning.revision)
+        .revision(&abandoning.revision)
         .expect("the plan held it")
         .clone();
 
@@ -1656,7 +1658,7 @@ pub fn abandon<F: Filesystem>(
         &abandoning.message,
         &change,
         &document.id(),
-        store.iter().map(|(_, held)| held),
+        store.documents()?.into_iter().map(|(_, held)| held),
     );
     let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
 
@@ -1666,7 +1668,7 @@ pub fn abandon<F: Filesystem>(
     let mut advanced = Vec::new();
     let followed: BTreeSet<ChangeId> = run
         .iter()
-        .filter_map(|abandoned| store.get(abandoned).map(|held| held.change))
+        .filter_map(|abandoned| store.revision(abandoned).map(|held| held.change))
         .collect();
     let following: Vec<String> = store
         .names()

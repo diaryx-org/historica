@@ -133,8 +133,14 @@ fn renaming_every_file_changes_no_identity_and_breaks_no_reference() {
     let after = Store::open(&root).expect("reopening a renamed store");
     assert_eq!(before.len(), after.len());
     assert_eq!(
-        before.iter().map(|(id, _)| *id).collect::<BTreeSet<_>>(),
-        after.iter().map(|(id, _)| *id).collect::<BTreeSet<_>>()
+        before
+            .revisions()
+            .map(|(id, _)| *id)
+            .collect::<BTreeSet<_>>(),
+        after
+            .revisions()
+            .map(|(id, _)| *id)
+            .collect::<BTreeSet<_>>()
     );
     assert_eq!(before.history(), after.history());
     assert!(after.history().missing_parents().is_empty());
@@ -457,7 +463,12 @@ fn a_bookmark_follows_its_change_through_an_amendment() {
     // The question decision 0001 deferred, answered by 0006: `change` is the
     // default because the bookmark then follows amend and rebase by itself.
     let (root, mut store) = corpus_store("bookmark");
-    let documents: Vec<_> = store.iter().map(|(id, doc)| (*id, doc.clone())).collect();
+    let documents: Vec<_> = store
+        .documents()
+        .expect("readable")
+        .into_iter()
+        .map(|(id, doc)| (*id, doc.clone()))
+        .collect();
 
     let amended = documents
         .iter()
@@ -489,7 +500,9 @@ fn a_bookmark_follows_its_change_through_an_amendment() {
 fn a_pinned_bookmark_names_one_revision() {
     let (root, mut store) = corpus_store("pin");
     let (id, _) = store
-        .iter()
+        .documents()
+        .expect("readable")
+        .into_iter()
         .next()
         .map(|(id, d)| (*id, d.clone()))
         .expect("a revision");
@@ -660,11 +673,11 @@ fn tree_corpus_store(test: &str) -> (PathBuf, Store) {
 /// The head of that corpus: the revision nothing names as a parent.
 fn head_of(store: &Store) -> RevisionId {
     let parents: BTreeSet<RevisionId> = store
-        .iter()
-        .flat_map(|(_, document)| document.parents.iter().copied())
+        .revisions()
+        .flat_map(|(_, revision)| revision.parents.iter().copied())
         .collect();
     let heads: Vec<RevisionId> = store
-        .iter()
+        .revisions()
         .map(|(id, _)| *id)
         .filter(|id| !parents.contains(id))
         .collect();
@@ -815,7 +828,11 @@ fn a_document_that_disagrees_with_its_file_is_an_error() {
         .expect("a document that parses");
     let wrong = store.insert_operation(&wrong).expect("writing it");
 
-    let mut revision = store.get(&head).expect("the head").clone();
+    let mut revision = store
+        .get(&head)
+        .expect("readable")
+        .expect("the head")
+        .clone();
     revision.change = "ztkwnrvzlmyxqsotnkwlpvzr".parse().expect("a change ID");
     revision.parents = BTreeSet::from([head]);
     revision.added.clear();
@@ -882,8 +899,8 @@ fn a_concurrent_history_materialises_rather_than_being_refused() {
     // 0008's rules for the tree, 0007's replay for content.
     let (_, store) = corpus_store("concurrent");
     let merge = store
-        .iter()
-        .find(|(_, document)| document.parents.len() > 1)
+        .revisions()
+        .find(|(_, revision)| revision.parents.len() > 1)
         .map(|(id, _)| *id)
         .expect("the corpus has a merge");
 

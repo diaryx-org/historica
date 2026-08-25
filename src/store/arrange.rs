@@ -190,8 +190,9 @@ pub struct Tally {
 impl<F: Filesystem> Store<F> {
     /// What `arrange` would rename, without renaming anything.
     pub fn arrangement(&self, placement: Placement) -> Result<Arrangement, ArrangeError> {
-        let stems = naming::stems(self.iter());
-        let operations = self.operation_names(&stems, self.iter())?;
+        let documents = self.documents()?;
+        let stems = naming::stems(documents.iter().copied());
+        let operations = self.operation_names(&stems, documents.iter().copied())?;
         let mut plan = Arrangement::default();
 
         // The store's own walk, so arranging handles exactly the files the

@@ -428,7 +428,7 @@ impl<F: Filesystem> Store<F> {
             !documents.contains(&entry.digest) && !forgotten.contains(&entry.digest)
         });
         plan.revisions = wanted(offer, OfferKind::Revision, |entry| {
-            self.get(&entry.digest).is_none()
+            !self.holds(&entry.digest)
         });
 
         // Decision 0045: a rule is its text, and a rule file is that text and
@@ -669,14 +669,14 @@ fn related_to<F: Filesystem>(here: &Store<F>, offer: &Offer) -> bool {
     if here.is_empty() || theirs.is_empty() {
         return true;
     }
-    if here.iter().any(|(id, _)| theirs.contains(id)) {
+    if here.revisions().any(|(id, _)| theirs.contains(id)) {
         return true;
     }
-    here.iter().any(|(_, document)| {
-        document
+    here.revisions().any(|(_, revision)| {
+        revision
             .parents
             .iter()
-            .chain(document.supersedes.iter())
+            .chain(revision.supersedes.iter())
             .any(|id| theirs.contains(id))
     })
 }

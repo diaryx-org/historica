@@ -482,13 +482,13 @@ impl<F: Filesystem> Store<F> {
         // is 0052's other bullet arriving, and the two would contradict each
         // other if the refusal asked only what this store holds.
         let named: BTreeSet<RevisionId> = self
-            .iter()
-            .flat_map(|(_, document)| document.parents.iter().chain(&document.supersedes))
+            .revisions()
+            .flat_map(|(_, revision)| revision.parents.iter().chain(&revision.supersedes))
             .copied()
             .collect();
         if let Some((revision, _)) = copy
-            .iter()
-            .find(|(id, _)| self.get(id).is_none() && !named.contains(id))
+            .revisions()
+            .find(|(id, _)| !self.holds(id) && !named.contains(id))
         {
             return Err(ExportError::Recorded {
                 path,
@@ -684,11 +684,11 @@ impl<F: Filesystem> Store<F> {
         let held: Vec<(RevisionId, &RevisionDocument)> = plan
             .revisions
             .iter()
-            .map(|id| (*id, self.get(id).expect("a revision the plan named")))
-            .collect();
+            .map(|id| Ok((*id, self.get(id)?.expect("a revision the plan named"))))
+            .collect::<Result<_, StoreError>>()?;
         let stems = match plan.updating {
             false => naming::stems(held.iter().map(|(id, document)| (id, *document))),
-            true => stems_around(&plan, &copy, &held),
+            true => stems_around(&plan, &copy.documents()?, &held),
         };
         let filed = self.operation_names(&stems, held.iter().map(|(id, doc)| (id, *doc)))?;
         let name_of = |id: &RevisionId, document: bool| match filed.get(id) {
@@ -857,14 +857,16 @@ fn copy_remove<F: Filesystem + ?Sized>(files: &F, path: &Path) -> Result<(), Exp
 /// set the copy already holds rather than against the whole plan. The names
 /// drift from what a fresh export would produce, and nothing reads them but a
 /// fetcher, which discards them.
-fn stems_around<G: Filesystem>(
+fn stems_around(
     plan: &ExportPlan,
-    copy: &Store<G>,
+    copy: &[(&RevisionId, &RevisionDocument)],
     held: &[(RevisionId, &RevisionDocument)],
 ) -> BTreeMap<RevisionId, String> {
     let mut stems = plan.stems.clone();
-    let mut existing: Vec<RevisionDocument> =
-        copy.iter().map(|(_, document)| document.clone()).collect();
+    let mut existing: Vec<RevisionDocument> = copy
+        .iter()
+        .map(|(_, document)| (*document).clone())
+        .collect();
     // Digest order, which is `held`'s, so two replicas naming one set of
     // newcomers around one copy name them alike.
     for (id, document) in held {

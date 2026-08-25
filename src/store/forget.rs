@@ -111,15 +111,18 @@ impl<F: Filesystem> Store<F> {
 
         // Every quote of those items, across the whole history this store
         // holds — the deletes included, which is the walk's whole point.
-        let every: Vec<(RevisionId, &crate::format::RevisionDocument)> =
-            self.iter().map(|(id, document)| (*id, document)).collect();
+        let every: Vec<(RevisionId, &crate::format::RevisionDocument)> = self
+            .documents()?
+            .into_iter()
+            .map(|(id, document)| (*id, document))
+            .collect();
         let everywhere = self.quotes_over(&every, &forgetting.file)?;
 
         copies_into(&mut span, &everywhere);
 
         // The document each revision names for this file, which is what the
         // quote indices index into.
-        let named: BTreeMap<RevisionId, RevisionId> = self
+        let named: BTreeMap<RevisionId, RevisionId> = every
             .iter()
             .filter_map(|(id, document)| {
                 document
@@ -291,7 +294,9 @@ impl<F: Filesystem> Store<F> {
     /// digest is one.
     fn creation_base(&self, target: &RevisionId) -> Option<OperationDocument> {
         let named_by = self
-            .iter()
+            .documents()
+            .ok()?
+            .into_iter()
             .find(|(_, document)| document.text.values().any(|payload| payload == target))
             .map(|(id, _)| *id)?;
         self.creation_for(target, named_by).ok().flatten()

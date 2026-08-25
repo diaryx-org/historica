@@ -329,14 +329,16 @@ pub fn described(store: &Store, heads: &BTreeSet<RevisionId>) -> String {
     let mut out = String::new();
     for head in heads {
         let mut first = head.abbreviate(12);
-        if let Some(document) = store.get(head) {
-            let _ = write!(first, "  {}", document.change);
+        if let Some(revision) = store.revision(head) {
+            let _ = write!(first, "  {}", revision.change);
         }
         for name in bookmarks(store, head) {
             let _ = write!(first, "  {name}");
         }
         let _ = writeln!(out, "  {first}");
-        let Some(document) = store.get(head) else {
+        // The author and the moment are the document's, so a head whose
+        // document will not parse is described by its digest and its change.
+        let Some(document) = store.get(head).ok().flatten() else {
             continue;
         };
         let _ = writeln!(out, "      {}  {}", document.author, document.when);
@@ -401,7 +403,7 @@ fn head(store: &Store) -> Result<RevisionId, Failure> {
 
 /// A revision the store holds, or a message about the one it does not.
 fn held(store: &Store, id: RevisionId, named_by: &str) -> Result<RevisionId, Failure> {
-    if store.get(&id).is_some() {
+    if store.holds(&id) {
         Ok(id)
     } else {
         Err(Failure::error(format!(
@@ -437,7 +439,7 @@ fn current(store: &Store, change: ChangeId, named_by: &str) -> Result<RevisionId
 /// The one revision whose digest starts with `prefix`.
 fn revision_by_prefix(store: &Store, prefix: &str) -> Result<RevisionId, Failure> {
     let matches: Vec<RevisionId> = store
-        .iter()
+        .revisions()
         .map(|(id, _)| *id)
         .filter(|id| id.to_string().starts_with(prefix))
         .collect();

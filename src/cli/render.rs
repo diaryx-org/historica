@@ -121,18 +121,24 @@ pub fn log(
 
     let shown = match from {
         Some(id) => ancestry(store, id),
-        None => store.iter().map(|(id, _)| *id).collect(),
+        None => store.revisions().map(|(id, _)| *id).collect(),
     };
     if shown.is_empty() {
         return writeln!(out, "no revisions here yet");
     }
 
-    let digests = abbreviations(store.iter().map(|(id, _)| *id), DIGEST_FLOOR);
+    let digests = abbreviations(store.revisions().map(|(id, _)| *id), DIGEST_FLOOR);
     let changes = abbreviations(history.changes(), CHANGE_FLOOR);
 
     let kept: Vec<RevisionId> = presentation(store, &shown)
         .into_iter()
-        .filter(|id| store.get(id).is_some_and(|document| filter.keeps(document)))
+        .filter(|id| {
+            store
+                .get(id)
+                .ok()
+                .flatten()
+                .is_some_and(|document| filter.keeps(document))
+        })
         .collect();
     if kept.is_empty() && filter.selects() {
         return writeln!(out, "no revision here matches all of those");
@@ -143,7 +149,10 @@ pub fn log(
         .take(filter.limit.unwrap_or(usize::MAX))
         .enumerate()
     {
-        let Some(document) = store.get(id) else {
+        // A revision `log` cannot print whole is one it steps over: the
+        // author, the moment and the message are all the document's, and
+        // `check` is what reports a document that will not parse.
+        let Some(document) = store.get(id).ok().flatten() else {
             continue;
         };
         if index > 0 {
@@ -358,11 +367,11 @@ fn position(out: &mut impl Write, store: &Store, parents: &[RevisionId]) -> io::
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
     // Abbreviated against every revision the store holds, as `log` does, so
     // that the prefix printed here is one `show` and `--onto` will resolve.
-    let digests = abbreviations(store.iter().map(|(id, _)| *id), DIGEST_FLOOR);
+    let digests = abbreviations(store.revisions().map(|(id, _)| *id), DIGEST_FLOOR);
     let changes = abbreviations(history.changes(), CHANGE_FLOOR);
 
     for id in parents {
-        let Some(document) = store.get(id) else {
+        let Some(document) = store.get(id).ok().flatten() else {
             continue;
         };
         let mut marks = marks(document, id, &heads, &superseded, &divergent);
@@ -480,7 +489,7 @@ pub fn names(out: &mut impl Write, store: &Store) -> io::Result<()> {
     }
 
     let history = store.history();
-    let digests = abbreviations(store.iter().map(|(id, _)| *id), DIGEST_FLOOR);
+    let digests = abbreviations(store.revisions().map(|(id, _)| *id), DIGEST_FLOOR);
     let width = bookmarks.keys().map(String::len).max().unwrap_or(0);
     // Decision 0024: a file bookmark deliberately records no revision, so what
     // it resolves to is where that file sits now — which is the question a
@@ -592,13 +601,13 @@ fn ancestry(store: &Store, head: RevisionId) -> BTreeSet<RevisionId> {
         if !seen.insert(id) {
             continue;
         }
-        let Some(document) = store.get(&id) else {
+        let Some(revision) = store.revision(&id) else {
             // An undelivered parent is a legitimate state, per decision 0006.
             continue;
         };
-        queue.extend(document.parents.iter().copied());
+        queue.extend(revision.parents.iter().copied());
     }
-    seen.retain(|id| store.get(id).is_some());
+    seen.retain(|id| store.holds(id));
     seen
 }
 
@@ -620,9 +629,9 @@ fn presentation(store: &Store, shown: &BTreeSet<RevisionId>) -> Vec<RevisionId> 
 
     for id in shown {
         let named: Vec<RevisionId> = store
-            .get(id)
+            .revision(id)
             .into_iter()
-            .flat_map(|document| document.parents.iter().copied())
+            .flat_map(|revision| revision.parents.iter().copied())
             .filter(|parent| shown.contains(parent))
             .collect();
         for parent in &named {
@@ -663,7 +672,11 @@ fn presentation(store: &Store, shown: &BTreeSet<RevisionId>) -> Vec<RevisionId> 
 /// `None` only for a revision that left the store between two reads of it,
 /// which sorts it last rather than inventing a date for it.
 fn when(store: &Store, id: &RevisionId) -> Option<Timestamp> {
-    store.get(id).map(|document| document.when.clone())
+    store
+        .get(id)
+        .ok()
+        .flatten()
+        .map(|document| document.when.clone())
 }
 
 /// The shortest prefix of each spelling that names only itself.

@@ -178,8 +178,8 @@ impl<F: Filesystem> Store<F> {
         };
 
         plan.revisions = source
-            .iter()
-            .filter_map(|(id, _)| self.get(id).is_none().then_some(*id))
+            .revisions()
+            .filter_map(|(id, _)| (!self.holds(id)).then_some(*id))
             .collect();
         plan.documents = source
             .bodies()?
@@ -282,7 +282,7 @@ impl<F: Filesystem> Store<F> {
         received.destroyed = self.comply_with_forgetting(&plan.destroys)?;
         for id in &plan.revisions {
             let document = source
-                .get(id)
+                .get(id)?
                 .expect("a revision named by the plan remains in the open source");
             self.insert_at(document, &format!("{id}{REVISION_SUFFIX}"))?;
             received.revisions += 1;
@@ -359,22 +359,22 @@ pub(super) fn related<F: Filesystem, G: Filesystem>(here: &Store<F>, there: &Sto
     if here.is_empty() || there.is_empty() {
         return true;
     }
-    let ours: BTreeSet<RevisionId> = here.iter().map(|(id, _)| *id).collect();
-    let theirs: BTreeSet<RevisionId> = there.iter().map(|(id, _)| *id).collect();
+    let ours: BTreeSet<RevisionId> = here.revisions().map(|(id, _)| *id).collect();
+    let theirs: BTreeSet<RevisionId> = there.revisions().map(|(id, _)| *id).collect();
     if !ours.is_disjoint(&theirs) {
         return true;
     }
-    there.iter().any(|(_, document)| {
-        document
+    there.revisions().any(|(_, revision)| {
+        revision
             .parents
             .iter()
-            .chain(document.supersedes.iter())
+            .chain(revision.supersedes.iter())
             .any(|id| ours.contains(id))
-    }) || here.iter().any(|(_, document)| {
-        document
+    }) || here.revisions().any(|(_, revision)| {
+        revision
             .parents
             .iter()
-            .chain(document.supersedes.iter())
+            .chain(revision.supersedes.iter())
             .any(|id| theirs.contains(id))
     })
 }
