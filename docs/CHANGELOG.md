@@ -48,6 +48,7 @@ visible, to be triaged into its real group before the tag is cut.
 ### Breaking
 
 - **format** — one spelling for the format ([`422ff71`](https://github.com/diaryx-org/historica/commit/422ff71bdc6598b93782fc8ac8eceec48c0ed613))
+- **fs** — land Disk::write through fs-transaction, retiring atomic-write-file ([`6644b4b`](https://github.com/diaryx-org/historica/commit/6644b4b1d96c2d315ff0b33af39f0612d08564d2))
 
 ### Added
 
@@ -95,6 +96,8 @@ visible, to be triaged into its real group before the tag is cut.
 - **record** — carry, finishing the rewrite transport delivered half of ([`5c44586`](https://github.com/diaryx-org/historica/commit/5c44586361ad0403dcba85ea616cd8ab503e430e))
 - **export** — --files-only, the folder without the history under it ([`b83bc41`](https://github.com/diaryx-org/historica/commit/b83bc416a11c4734bd1b4d50a981508785bd8881))
 - **names** — a bookmark travels, and a second line keeps one back ([`f00a314`](https://github.com/diaryx-org/historica/commit/f00a3145c0460c9e1d88f61e1974cace47a8ffcf))
+- **fs** — barrier every Disk::create_new before anything can name it ([`659b659`](https://github.com/diaryx-org/historica/commit/659b659c7070c2320b8dca74ebe339458d7e30ce))
+- **fs** — offer update's per-file guard to the filesystem as write_if ([`0a3bdb2`](https://github.com/diaryx-org/historica/commit/0a3bdb2a98dacbe5abff98ca350f963249d28ddc))
 
 ### Fixed
 
@@ -110,6 +113,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **tests** — say who the cache tests are, rather than borrowing it ([`71f88b0`](https://github.com/diaryx-org/historica/commit/71f88b00064f92ce972d53551a323e543ef0ddb7))
 - **merge** — a keep of a name two concurrent revisions share lands once per element ([`8e538b3`](https://github.com/diaryx-org/historica/commit/8e538b3ad505e8524a508ea25711132f210c8b05))
 - **log** — refuse a document it cannot read, rather than printing a history without it ([`9e2918b`](https://github.com/diaryx-org/historica/commit/9e2918b593f894b72d093508cb790b0d7927a90c))
+- **fs** — close set_link's window where the path names nothing ([`79e0e7c`](https://github.com/diaryx-org/historica/commit/79e0e7c857a5facb3fa35c0b323eef10818550b6))
 
 ### Changed
 
@@ -628,6 +632,38 @@ often than the author's view holds elements under it is now refused with
   somebody asks for one. `export` now writes and withdraws the copy's
   `names/`, so a bookmark made in a published copy that the origin does not
   state is removed on the next export, where before it was left alone.
+
+- `Disk::write` now flushes the destination's parent
+directory durably (fsync; F_FULLFSYNC on Apple) after the rename, where it
+previously synced only the staged file — a mutable-file write is durable
+when the call returns, at the cost of one directory flush per write. The
+staging sibling is now named `.<name>.fstx-tmp` beside the destination
+instead of atomic-write-file's `.atomic-write-file-*` names; a crash can
+leave one behind, and it claims no store name either way.
+
+- `Disk::create_new` now issues ordering flushes (the
+file and its directory; F_BARRIERFSYNC on Apple, fsync elsewhere) where it
+previously issued none — store writes gain crash ordering at the cost of
+two barriers per document, and a crash can no longer leave a bookmark or
+revision naming bytes that did not survive with it.
+
+- replacing an entry with a symbolic link is now atomic —
+no observer, concurrent or post-crash, sees the path absent mid-replacement.
+A failed attempt can leave a `.<name>.fstx-tmp` sibling behind instead of
+having already removed the destination.
+
+- a guarded create judges absence by the entry rather
+than by a read: a directory or a dangling symbolic link that raced into
+a path the plan meant to create a file at now lands in `Applied.left`
+("it changed underneath the update") where it previously aborted the
+whole update with an I/O error (the directory) or was written over (the
+dangling link).
+
+- over `Disk`, a file named `.fstx-journal` sitting
+beside a write's destination now refuses that write with an I/O error,
+read as a stale fs-transaction journal awaiting recovery. No historica
+operation writes one — a guarded write takes the journal-free fast
+path — so only a file something else left there can trigger it.
 
 <!-- git-cliff:end -->
 
