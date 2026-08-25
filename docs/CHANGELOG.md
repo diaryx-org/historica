@@ -89,6 +89,8 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — let a reserved directory declare how it travels ([`440f901`](https://github.com/diaryx-org/historica/commit/440f901cadbd849885882fd9b271c093c991bb87))
 - **store** — export onto the copy this store already made ([`a0570a0`](https://github.com/diaryx-org/historica/commit/a0570a091cd7711d38bfbf71c9e44a6931b03756))
 - **store** — offer, the listing a directory has no way to give ([`6b72cec`](https://github.com/diaryx-org/historica/commit/6b72cec758d00348c8b3dda6b9a8ca1fbf338a62))
+- **store** — fetch, taking what is missing from a directory nothing can list ([`9026896`](https://github.com/diaryx-org/historica/commit/9026896989c84000fee4626ec960bb66db35adf5))
+- **cli** — fetch, over the stack the platform already maintains ([`12a49ea`](https://github.com/diaryx-org/historica/commit/12a49eaab5a04af1beb5c89a775923dd68f9e67c))
 
 ### Fixed
 
@@ -101,6 +103,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **show** — print the resolution a merge states ([`8cd293c`](https://github.com/diaryx-org/historica/commit/8cd293c9abcee8055a2e04cb108a53357ff50c42))
 - **receive** — carry the resolution documents a merge names ([`861d943`](https://github.com/diaryx-org/historica/commit/861d9437b180bc550d68d84581641687f3012e65))
 - **forget** — say why it cannot reach into a resolution ([`5f74c3b`](https://github.com/diaryx-org/historica/commit/5f74c3b45f124a46da3b9bb8b5a55e7fccbeca1e))
+- **tests** — say who the cache tests are, rather than borrowing it ([`71f88b0`](https://github.com/diaryx-org/historica/commit/71f88b00064f92ce972d53551a323e543ef0ddb7))
 
 ### Changed
 
@@ -558,6 +561,13 @@ severity and the exit code are unchanged.
  "destroyed N forgotten originals", and "updated the copy of X at Y" in
  place of "made a copy" where it updated one; `--dry-run` names each
  file it would withdraw, as `prune` and `forget` do.
+
+- `historica`'s default features now include `http`,
+  which links the platform's native HTTP stack — objc2 and friends on
+  Apple, libcurl on Linux, the windows crate on Windows. A packager or a
+  downstream crate that does not want them builds with
+  `--no-default-features --features disk`, which loses the `fetch`
+  command and nothing else.
 
 <!-- git-cliff:end -->
 
