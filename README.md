@@ -492,7 +492,10 @@ one 1.0 was cut for.
 The **Rust API** promises ordinary semver, which before 1.0 it did not: a
 change a caller would have to edit their own code for takes a 2.0, and the
 smaller differences are written down as `Behavioural-change:` trailers, which
-[`docs/CHANGELOG.md`](docs/CHANGELOG.md) collects under each release.
+[`docs/CHANGELOG.md`](docs/CHANGELOG.md) collects under each release. That API
+is also the whole of the plugin surface, by decision 0053: a tool built on
+historica is an ordinary crate depending on it, and a fact the API does not
+expose is a change to historica rather than a hole opened from outside.
 
 Three things are outside both. `history/cache/` is disposable by decision 0003
 and its contents are nobody's interface — deleting it changes how long a
@@ -870,6 +873,25 @@ Choices that constrain later work are written down as they are made.
   stated outright: an export carries operation documents verbatim, so no rule
   can filter recorded content without costing the copy its replica identity,
   and `private` is a rule about a rule.
+- [`docs/decisions/0053-room-for-another-tool.md`](docs/decisions/0053-room-for-another-tool.md)
+  — 0046 reserved `claims/` and `trust/` for a tool outside historica and
+  promised tolerance for the rest, which is enough while nothing moves and
+  silent the moment a store crosses a boundary. So a reservation declares how
+  the directory travels, and transport acts on the class rather than on which
+  tool wrote it: `travels-and-unions` for immutable digest-named files, which
+  `export` carries and `receive` unions add-only; `local-only` for a directory
+  that never crosses in either direction; `derived` for one that is nobody's,
+  which is what `cache/` has always been. An unreserved directory is
+  `local-only`, because leaving something behind is the recoverable way to be
+  wrong. `claims/` travels whole rather than filtered to the exported
+  ancestry, since the filter needs a grammar 0046 refused historica, and since
+  a claim covers everything its revision descends from — so the claim worth
+  having is usually the one over a later head the filter would drop. The
+  second half is the rest of the plugin surface: a side tool is an ordinary
+  crate against the published API, an extension point historica must call
+  arrives as a trait, and subprocess dispatch and in-store executable hooks
+  are refused — an embedding host cannot exec, and a store that travels must
+  not be a thing that runs.
 - [`docs/loro.md`](docs/loro.md) — the initial Loro evaluation, and the
   conditions that would reverse it.
 
