@@ -167,7 +167,12 @@ pub(super) fn load<F: Filesystem + ?Sized>(
             // from here: the file is right there, and a cache must never turn
             // a store that reads into a store that does not. It costs one
             // read, and the error that follows names the file.
-            .and_then(|entry| Some((entry, format::revision(&entry.bytes).ok()?)));
+            .and_then(|entry| {
+                // The digest `believed` just checked these bytes against,
+                // which is the one the revision is named by.
+                let revision = format::revision_named(&entry.bytes, entry.digest).ok()?;
+                Some((entry, revision))
+            });
 
         match entry {
             Some((entry, revision)) => {
@@ -185,12 +190,12 @@ pub(super) fn load<F: Filesystem + ?Sized>(
                 let bytes = files
                     .read(path)
                     .map_err(|error| StoreError::io(path, error))?;
+                let id = digest(&bytes);
                 let revision =
-                    format::revision(&bytes).map_err(|error| StoreError::Unparsable {
+                    format::revision_named(&bytes, id).map_err(|error| StoreError::Unparsable {
                         file: path.clone(),
                         error,
                     })?;
-                let id = digest(&bytes);
                 documents.insert(
                     id,
                     super::Document::new(revision, bytes.clone(), path.clone()),

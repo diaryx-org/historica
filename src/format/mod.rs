@@ -281,6 +281,19 @@ impl fmt::Debug for Hasher {
 /// 0002's strictness in the place that decision put it. `check` reads every
 /// document whole and reports all of it regardless.
 pub fn revision(bytes: &[u8]) -> Result<Revision, ParseError> {
+    revision_named(bytes, digest(bytes))
+}
+
+/// The same, for a caller that has already hashed these bytes.
+///
+/// 0043's shape, one level up: a store believes a document by hashing it, and
+/// hashing it a second time to name what it says would be paying twice for one
+/// answer. `id` must be `digest(bytes)` — nothing here checks it, exactly as
+/// nothing checks the digest a caller of [`Store::insert_at`] filed a document
+/// under.
+///
+/// [`Store::insert_at`]: crate::store::Store::insert_at
+pub fn revision_named(bytes: &[u8], id: RevisionId) -> Result<Revision, ParseError> {
     let mut parser = Parser::new(bytes)?;
     parser.preamble()?;
 
@@ -371,7 +384,7 @@ pub fn revision(bytes: &[u8]) -> Result<Revision, ParseError> {
     }
 
     Ok(Revision {
-        id: digest(bytes),
+        id,
         change,
         parents,
         supersedes,
