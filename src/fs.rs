@@ -746,16 +746,16 @@ impl Filesystem for Disk {
 
     #[cfg(unix)]
     fn set_link(&self, path: &Path, target: &str) -> io::Result<()> {
-        // Removed and remade rather than written through — decision 0040's
-        // standing rule, and the reason the atomic-replace path of 0026 is not
-        // reached here: every write this performs addresses the entry itself,
-        // never the entry's referent.
-        match std::fs::remove_file(path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-        std::os::unix::fs::symlink(target, path)
+        use fs_transaction::fs::Storage as _;
+
+        // Made at a temporary sibling and renamed over the destination, so
+        // there is no instant at which the path names nothing — remove-then-
+        // symlink had one, and a crash inside it lost the file that was there
+        // without leaving the link that was promised. Decision 0040's standing
+        // rule holds unchanged: every write here addresses the entry itself,
+        // never the entry's referent, which is why 0026's open-the-destination
+        // replace path is still not what this reaches for.
+        fs_transaction::exec::block_on(fs_transaction::StdFs.set_link(path, Path::new(target)))
     }
 
     #[cfg(not(unix))]
