@@ -139,6 +139,16 @@ pub(crate) fn nanoseconds(time: SystemTime) -> Option<i128> {
     }
 }
 
+/// What a guarded write ([`Filesystem::write_if`]) found when it looked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Guarded {
+    /// The path held exactly what the caller said it would, and the new bytes
+    /// replaced it.
+    Written,
+    /// The path held something else, and nothing was written.
+    Drifted,
+}
+
 /// One thing found in a directory.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Entry {
@@ -286,6 +296,34 @@ pub trait Filesystem {
     /// person's history one level at a time.
     fn remove_directory(&self, path: &Path) -> io::Result<()>;
 
+    /// Write a file only where the path still holds what the caller last saw,
+    /// atomically replacing it.
+    ///
+    /// Decision 0025's per-file rule, offered to the filesystem to perform:
+    /// `update` looks at each destination once more immediately before
+    /// touching it, and a file that changed in between is left alone and
+    /// reported rather than written over. `replaces` is that look, stated
+    /// instead of performed — `Some(bytes)` for a path that must still hold
+    /// exactly those bytes, `None` for a path that must still hold nothing at
+    /// all, where a directory or a link counts as something. A path answering
+    /// otherwise is [`Guarded::Drifted`], and nothing is written; only when
+    /// the guard holds is the destination's directory made and the write
+    /// performed, so a drifted path is left exactly as it stands, missing
+    /// parents included. Bytes are compared as [`read`](Filesystem::read)
+    /// reads them, absence as [`look`](Filesystem::look) sees it.
+    ///
+    /// The default is the look performed by hand — read, compare, and then
+    /// [`write`](Filesystem::write) — which leaves a window between the
+    /// comparison and the write exactly as wide as when the caller did both,
+    /// so a filesystem that takes the default answers precisely as before. A
+    /// backend that can check and write in one operation — a conditional
+    /// write, a compare-and-swap — overrides this to narrow the window, and
+    /// [`Disk`] does. On 0043's terms: a capability declined here costs a
+    /// wider race window, and never an answer.
+    fn write_if(&self, path: &Path, replaces: Option<&[u8]>, bytes: &[u8]) -> io::Result<Guarded> {
+        write_by_reading(self, path, replaces, bytes)
+    }
+
     /// Whether a regular file can be run, or `None` where that is not a thing
     /// this filesystem has.
     ///
@@ -397,6 +435,39 @@ pub trait Filesystem {
     }
 }
 
+/// The guarded write of a filesystem that cannot check and write in one
+/// operation: read, compare, and write, with exactly the window between the
+/// comparison and the write that [`Filesystem::write_if`]'s documentation
+/// names. The trait's default, and [`Disk`]'s own answer for the one path
+/// shape that cannot root a change set — a bare relative name.
+fn write_by_reading<F: Filesystem + ?Sized>(
+    files: &F,
+    path: &Path,
+    replaces: Option<&[u8]>,
+    bytes: &[u8],
+) -> io::Result<Guarded> {
+    match replaces {
+        Some(expected) => match files.read(path) {
+            Ok(held) if held == expected => {}
+            Ok(_) => return Ok(Guarded::Drifted),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(Guarded::Drifted);
+            }
+            Err(error) => return Err(error),
+        },
+        None => {
+            if files.look(path)?.is_some() {
+                return Ok(Guarded::Drifted);
+            }
+        }
+    }
+    if let Some(directory) = path.parent().filter(|held| !held.as_os_str().is_empty()) {
+        files.create_directory(directory)?;
+    }
+    files.write(path, bytes)?;
+    Ok(Guarded::Written)
+}
+
 /// A reference to a filesystem is a filesystem.
 impl<T: Filesystem + ?Sized> Filesystem for &T {
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
@@ -425,6 +496,9 @@ impl<T: Filesystem + ?Sized> Filesystem for &T {
     }
     fn remove_directory(&self, path: &Path) -> io::Result<()> {
         (**self).remove_directory(path)
+    }
+    fn write_if(&self, path: &Path, replaces: Option<&[u8]>, bytes: &[u8]) -> io::Result<Guarded> {
+        (**self).write_if(path, replaces, bytes)
     }
     fn executable(&self, path: &Path) -> io::Result<Option<bool>> {
         (**self).executable(path)
@@ -481,6 +555,14 @@ macro_rules! forwarding {
             }
             fn remove_directory(&self, path: &Path) -> io::Result<()> {
                 (**self).remove_directory(path)
+            }
+            fn write_if(
+                &self,
+                path: &Path,
+                replaces: Option<&[u8]>,
+                bytes: &[u8],
+            ) -> io::Result<Guarded> {
+                (**self).write_if(path, replaces, bytes)
             }
             // Forwarded like everything else, because a capability that
             // disappears behind an `Arc` is worse than one that was never
@@ -630,6 +712,42 @@ impl Filesystem for Disk {
 
     fn create_directory(&self, path: &Path) -> io::Result<()> {
         std::fs::create_dir_all(path)
+    }
+
+    fn write_if(&self, path: &Path, replaces: Option<&[u8]>, bytes: &[u8]) -> io::Result<Guarded> {
+        use fs_transaction::exec::block_on;
+        use fs_transaction::{ChangeSet, StdFs};
+
+        // The look and the write, staged as one fs-transaction apply: the
+        // expectation is checked inside the same call that lands the bytes,
+        // so nothing of this crate sits between the comparison and the rename
+        // any more. The window narrows rather than closes — nothing here
+        // takes a lock — but what remains is fs-transaction's own, not a seam
+        // in `update`.
+        //
+        // A set of one op takes fs-transaction's journal-free fast path: the
+        // expectation is still checked, and no journal file ever appears
+        // beside a person's own files. What does happen is a look for a
+        // *stale* one — a `.fstx-journal` left beside the destination by an
+        // interrupted apply refuses the write rather than racing whatever
+        // recovery still owes it.
+        let directory = path.parent().filter(|held| !held.as_os_str().is_empty());
+        let (Some(directory), Some(name)) = (directory, path.file_name()) else {
+            // A bare relative name has no directory to root a set in; the
+            // look is performed by hand, exactly as the default performs it.
+            return write_by_reading(self, path, replaces, bytes);
+        };
+        let mut changes = ChangeSet::new();
+        match replaces {
+            Some(held) => changes.expect(name, held),
+            None => changes.expect_absent(name),
+        };
+        changes.write(name, bytes);
+        match block_on(changes.apply(&StdFs, directory)) {
+            Ok(()) => Ok(Guarded::Written),
+            Err(fs_transaction::Error::Drifted(_)) => Ok(Guarded::Drifted),
+            Err(error) => Err(io_error(error)),
+        }
     }
 
     fn entries(&self, path: &Path) -> io::Result<Vec<Entry>> {

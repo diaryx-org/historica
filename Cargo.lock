@@ -181,9 +181,9 @@ checksum = "d45db016d36b838f563236e9193d0ee6ce38f3f68b6c94e914b4929c96bbb890"
 
 [[package]]
 name = "fs-transaction"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c052c55512e128e23a16cc537162342a950eed0fed59f7c85fc37a5667c794f7"
+checksum = "9c5f24beb16fadfb4a4f47a9b1938bed0ddaed9ecfb4b834b8eeaf39fec85916"
 dependencies = [
  "libc",
 ]

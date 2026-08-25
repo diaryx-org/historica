@@ -1038,6 +1038,45 @@ fn the_folder_updates_in_memory_too() {
     ));
 }
 
+/// Decision 0025's per-file rule, held through the trait's own guard:
+/// `Filesystem::write_if` is handed what the plan saw, and a file that moved
+/// between the plan's look and the apply is left where it stands and
+/// reported — not written over, and not an error. `Memory` takes the trait's
+/// default, so this is the read-compare-write every host that declines the
+/// capability performs.
+#[test]
+fn a_file_that_moved_between_plan_and_apply_is_left_and_reported() {
+    let (memory, store, _first, second) = history();
+
+    // The folder stands at the first revision, every byte recorded.
+    put(&memory, "notes.md", "First thought.\n");
+    let working = Working::read_on(memory.clone(), Path::new(ROOT), store.skipped())
+        .expect("the folder in memory");
+    let plan = historica::update::plan(&store, &working, Path::new(ROOT), &second).expect("a plan");
+    assert_eq!(plan.writes.len(), 1, "one file differs");
+
+    // The race: an edit lands after the plan looked and before apply does.
+    put(&memory, "notes.md", "work the plan never saw\n");
+
+    let applied =
+        historica::update::apply(&working, Path::new(ROOT), &plan).expect("applying the plan");
+    assert!(applied.wrote.is_empty(), "{applied:?}");
+    assert_eq!(
+        applied.left,
+        [(
+            "notes.md".to_owned(),
+            "it changed underneath the update".to_owned()
+        )]
+    );
+    assert_eq!(
+        memory
+            .read(&Path::new(ROOT).join("notes.md"))
+            .expect("still here"),
+        b"work the plan never saw\n",
+        "a raced edit is not update's to clobber"
+    );
+}
+
 /// A read places a digest without asking what the directory holds.
 ///
 /// Decision 0036 believed a catalogue only once a walk had proved the set of

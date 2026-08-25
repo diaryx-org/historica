@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
 use crate::format::{LinkTarget, Mode};
-use crate::fs::{Filesystem, Kind as OnDisk};
+use crate::fs::{Filesystem, Guarded, Kind as OnDisk};
 use crate::store::{MaterialiseError, STORE_DIR, Store, StoreError};
 use crate::tree::{Kind, Tree};
 use crate::working::{Working, WorkingError};
@@ -988,29 +988,25 @@ pub fn apply<F: Filesystem>(
         }
     }
 
+    // The look at the destination and the write are one question to the
+    // filesystem — `write_if`, handed exactly what the plan saw — so a
+    // backend with a conditional write of its own checks and writes in one
+    // operation, and every other performs the look this loop used to.
     for write in &update.writes {
         let on_disk = on_disk(&write.path);
-        if read(filesystem, &on_disk)? != write.replaces {
+        let guarded = filesystem
+            .write_if(&on_disk, write.replaces.as_deref(), &write.bytes)
+            .map_err(|error| UpdateError::Io {
+                path: on_disk.clone(),
+                error,
+            })?;
+        if guarded == Guarded::Drifted {
             applied.left.push((
                 write.path.clone(),
                 "it changed underneath the update".to_owned(),
             ));
             continue;
         }
-        if let Some(directory) = on_disk.parent() {
-            filesystem
-                .create_directory(directory)
-                .map_err(|error| UpdateError::Io {
-                    path: directory.to_path_buf(),
-                    error,
-                })?;
-        }
-        filesystem
-            .write(&on_disk, &write.bytes)
-            .map_err(|error| UpdateError::Io {
-                path: on_disk.clone(),
-                error,
-            })?;
         set_mode(filesystem, &on_disk, write.mode, &write.path, &mut applied)?;
         applied.wrote.push(write.path.clone());
     }

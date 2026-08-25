@@ -104,6 +104,15 @@ partially reading a history it does not understand.
    provider or concurrent writer supplies a comparison primitive and an
    observed lost update.
 
+   A comparison primitive now exists: fs-transaction 0.2.1's change-set
+   expectations check what a path holds inside the same apply that writes it.
+   `Filesystem::write_if` offers it through the trait — `update`'s per-file
+   guard, decision [0025](0025-the-folder-is-asked-for.md)'s look-again rule,
+   is its first user, with `Disk` staging the look as an expectation and every
+   other implementation free to take the read-compare-write default. What
+   stays deferred is exactly `append_skipped`'s half: no observed lost update
+   yet, so the rule file keeps its unguarded read-extend-replace.
+
 ## Open questions
 
 2. **Whether abandoned temporary siblings should receive a specific `check`

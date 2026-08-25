@@ -1104,6 +1104,106 @@ fn a_revision_is_laid_out_in_an_empty_directory_and_recorded_back_from_it() {
     assert!(rendered.contains("holding nothing"), "{rendered}");
 }
 
+/// Decision 0025's per-file rule over `Disk`, where the guard is
+/// fs-transaction's: `write_if` stages the plan's look as an expectation
+/// inside the apply that writes, so the comparison and the write are one
+/// operation — and a set of one op takes the journal-free fast path, so no
+/// journal file ever appears beside a person's own files.
+#[test]
+fn a_raced_edit_is_left_by_the_disk_update_too() {
+    use historica::update;
+    use historica::working::Working;
+
+    let root = scratch("update-drift");
+    let base = root.join("repo");
+    fs::create_dir_all(&base).expect("a repository");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+
+    fs::write(base.join("notes.md"), "First thought.\n").expect("a file");
+    let first = record_folder(&mut store, &base, Vec::new(), "Start a journal");
+    fs::write(base.join("notes.md"), "First thought.\nA second one.\n").expect("a file");
+    let second = record_folder(&mut store, &base, vec![first.revision], "A second thought");
+
+    // The folder stands at the first revision — recorded bytes, so the plan
+    // may write the head back over them.
+    fs::write(base.join("notes.md"), "First thought.\n").expect("recorded bytes");
+    let working = Working::read(&base, store.skipped()).expect("the folder");
+    let plan = update::plan(&store, &working, &base, &second.revision).expect("a plan");
+    assert_eq!(plan.writes.len(), 1, "one file differs");
+
+    // The race: an edit lands after the plan looked and before apply does.
+    fs::write(base.join("notes.md"), "work the plan never saw\n").expect("the race");
+
+    let applied = update::apply(&working, &base, &plan).expect("applying");
+    assert!(applied.wrote.is_empty(), "{applied:?}");
+    assert_eq!(
+        applied.left,
+        [(
+            "notes.md".to_owned(),
+            "it changed underneath the update".to_owned()
+        )]
+    );
+    assert_eq!(
+        fs::read_to_string(base.join("notes.md")).expect("still here"),
+        "work the plan never saw\n",
+        "a raced edit is not update's to clobber"
+    );
+    // The fast path journaled nothing next to the person's own files.
+    assert!(!base.join(".fstx-journal").exists());
+}
+
+/// The guard itself, arm by arm: `Disk::write_if` answers `Drifted` and
+/// leaves the destination alone wherever the path does not hold exactly what
+/// the caller said — present where nothing was expected, holding other
+/// bytes, or gone — and writes only where the expectation holds, making the
+/// destination's directories on the way.
+#[test]
+fn write_if_answers_drifted_rather_than_writing_over_a_race() {
+    use historica::fs::{Disk, Filesystem as _, Guarded};
+
+    let root = scratch("write-if");
+    let path = root.join("doc.md");
+
+    // A guarded create expects nothing; something standing there is a drift.
+    fs::write(&path, "raced").expect("the race");
+    assert_eq!(
+        Disk.write_if(&path, None, b"new").expect("an answer"),
+        Guarded::Drifted
+    );
+    assert_eq!(fs::read_to_string(&path).expect("untouched"), "raced");
+
+    // A replacement expects the bytes last seen, exactly.
+    assert_eq!(
+        Disk.write_if(&path, Some(b"stale"), b"new")
+            .expect("an answer"),
+        Guarded::Drifted
+    );
+    assert_eq!(fs::read_to_string(&path).expect("untouched"), "raced");
+    assert_eq!(
+        Disk.write_if(&path, Some(b"raced"), b"new")
+            .expect("an answer"),
+        Guarded::Written
+    );
+    assert_eq!(fs::read_to_string(&path).expect("replaced"), "new");
+
+    // A file that went away is a drift too, not a quiet re-creation.
+    let gone = root.join("gone.md");
+    assert_eq!(
+        Disk.write_if(&gone, Some(b"was"), b"new")
+            .expect("an answer"),
+        Guarded::Drifted
+    );
+    assert!(!gone.exists());
+
+    // A guarded create lands where nothing stands, parents included.
+    let fresh = root.join("deep/fresh.md");
+    assert_eq!(
+        Disk.write_if(&fresh, None, b"made").expect("an answer"),
+        Guarded::Written
+    );
+    assert_eq!(fs::read_to_string(&fresh).expect("created"), "made");
+}
+
 #[test]
 fn abandoning_a_head_leaves_the_change_abandoned_and_the_content_its_parents() {
     use historica::record::{Abandoning, Clock as _, Platform, abandon};
