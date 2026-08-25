@@ -93,6 +93,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **cli** — fetch, over the stack the platform already maintains ([`12a49ea`](https://github.com/diaryx-org/historica/commit/12a49eaab5a04af1beb5c89a775923dd68f9e67c))
 - **store** — keep the revision documents, so that opening costs one read ([`ab2ae9e`](https://github.com/diaryx-org/historica/commit/ab2ae9ec9c5dd8c5506ccfaa615b96b51d88c927))
 - **record** — carry, finishing the rewrite transport delivered half of ([`5c44586`](https://github.com/diaryx-org/historica/commit/5c44586361ad0403dcba85ea616cd8ab503e430e))
+- **export** — --files-only, the folder without the history under it ([`b83bc41`](https://github.com/diaryx-org/historica/commit/b83bc416a11c4734bd1b4d50a981508785bd8881))
 
 ### Fixed
 
@@ -586,6 +587,12 @@ occurrence instead of folding them all onto the first element in view
 order, so such merges gain the items earlier versions dropped and read
 them where the resolution placed them. A resolution keeping a name more
 often than the author's view holds elements under it is now refused with
+
+- `export` accepts `--files-only`, and `Store` gains
+  `export_files`, `export_files_onto` and `export_files_plan_onto`. Nothing
+  an existing caller does changes: without the flag `export` writes the
+  repository it always did, and the folder half of that copy is unchanged
+  in both directions.
 
 <!-- git-cliff:end -->
 
