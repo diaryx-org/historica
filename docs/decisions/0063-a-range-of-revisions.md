@@ -101,7 +101,7 @@ building the command.
 **A machine-readable `log`.** The script a range now permits still has to
 parse a rendering meant for eyes. That is the next thing somebody will want
 and it is a decision of its own, because it is a promise about output nothing
-currently makes.
+currently makes. It is 0064's, and `log --fields` is what it decided.
 
 ## Consequences
 

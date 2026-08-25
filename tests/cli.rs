@@ -410,6 +410,128 @@ fn log_refuses_a_range_missing_an_end() {
     assert!(symmetric.contains("three dots"), "{symmetric}");
 }
 
+/// The fields of one line of a `--fields` listing.
+fn columns(line: &str) -> Vec<&str> {
+    line.split(' ').collect()
+}
+
+/// Every line of a `--fields` listing under its header.
+fn listed(out: &str) -> Vec<&str> {
+    let mut lines = out.lines();
+    assert_eq!(lines.next(), Some("historica-log-1"));
+    lines.filter(|line| !line.is_empty()).collect()
+}
+
+/// Decision 0064: a header, then one line per revision, spelled whole.
+#[test]
+fn log_fields_prints_a_header_and_one_line_a_revision() {
+    let directory = store_from("log-fields", "tree");
+    let out = stdout(&directory, &["log", "--fields"]);
+    let lines = listed(&out);
+    assert_eq!(lines.len(), 4);
+
+    // The newest revision first, as the reading for a person orders it.
+    let newest = columns(lines[0]);
+    assert_eq!(newest.len(), 5, "{out}");
+    assert_eq!(newest[0].len(), 64, "a whole digest: {out}");
+    assert_eq!(newest[1].len(), 24, "a whole change ID: {out}");
+    assert_eq!(newest[2], "2025-08-21T22:05:00-06:00");
+    assert_eq!(newest[3], "head");
+    // One parent, spelled whole, which is the next line's own digest.
+    assert_eq!(newest[4], columns(lines[1])[0]);
+
+    // A root has no parents, so its line ends after the marks, and a mark
+    // field is never empty.
+    let root = columns(lines[3]);
+    assert_eq!(root.len(), 4, "{out}");
+    assert_eq!(root[3], "-");
+
+    // Nothing a person wrote is in it: `show` is where those live.
+    assert!(!out.contains("Start a journal"), "{out}");
+    assert!(!out.contains("@example.com"), "{out}");
+}
+
+/// The marks are the graph's own findings, and a revision may carry several.
+#[test]
+fn log_fields_states_what_only_the_graph_knows() {
+    let directory = store_from("log-fields-marks", "revisions");
+    let out = stdout(&directory, &["log", "--fields"]);
+
+    let marks: Vec<&str> = listed(&out).iter().map(|line| columns(line)[3]).collect();
+    assert!(marks.contains(&"head"), "{out}");
+    assert!(marks.contains(&"head,superseded"), "{out}");
+    assert!(marks.contains(&"superseded"), "{out}");
+    assert!(marks.contains(&"-"), "{out}");
+
+    // `merge` and `rewrites` are not marks here: the document states both
+    // outright, and this listing does not restate what the file says.
+    assert!(!out.contains("merge"), "{out}");
+    assert!(!out.contains("rewrites"), "{out}");
+
+    // A merge names both its parents, in the order the document does.
+    let merge = listed(&out)
+        .into_iter()
+        .map(columns)
+        .find(|fields| fields.len() == 6)
+        .expect("the merge, with two parents");
+    assert_ne!(merge[4], merge[5]);
+}
+
+/// Whole spellings, because an abbreviation is a fact about what else the
+/// store holds rather than about the revision it names.
+#[test]
+fn log_fields_never_abbreviates_what_the_reading_for_a_person_does() {
+    let directory = store_from("log-fields-whole", "tree");
+    let people = stdout(&directory, &["log"]);
+    let machines = stdout(&directory, &["log", "--fields"]);
+
+    assert!(people.contains("bcede0a1"), "{people}");
+    assert!(!people.contains("bcede0a19aab563f"), "{people}");
+    assert!(
+        machines.contains("bcede0a19aab563f83610feb966f4fe26facb32a49b98f6db788acd4e1b81d7b"),
+        "{machines}"
+    );
+}
+
+/// The filters and the range say which revisions, and this says how they are
+/// printed, so the two compose.
+#[test]
+fn log_fields_composes_with_the_filters_and_a_range() {
+    let directory = store_from("log-fields-filters", "tree");
+
+    let ranged = stdout(&directory, &["log", "kxryzmor..head", "--fields"]);
+    assert_eq!(listed(&ranged).len(), 2);
+
+    let limited = stdout(&directory, &["log", "--fields", "--limit", "1"]);
+    assert_eq!(listed(&limited).len(), 1);
+
+    // `--author` and `--grep` read text this listing does not print, which is
+    // the filters doing their own job rather than a disagreement.
+    let by_author = stdout(&directory, &["log", "--fields", "--author", "Adam"]);
+    assert_eq!(listed(&by_author).len(), 4);
+}
+
+/// Every sentence the reading for a person prints when it has nothing to show
+/// would arrive at a caller as a line where it expected a revision. The
+/// machine reading says the same thing by having a header and nothing under
+/// it, and still succeeds.
+#[test]
+fn log_fields_says_nothing_where_there_is_nothing_to_say() {
+    let directory = store_from("log-fields-empty", "tree");
+
+    for arguments in [
+        ["log", "--fields", "--grep", "nothing-says-this"].as_slice(),
+        ["log", "head..kxryzmor", "--fields"].as_slice(),
+    ] {
+        let out = stdout(&directory, arguments);
+        assert_eq!(out, "historica-log-1\n", "{arguments:?}");
+    }
+
+    let empty = scratch("log-fields-nothing");
+    assert!(run(&empty, &["init"]).status.success());
+    assert_eq!(stdout(&empty, &["log", "--fields"]), "historica-log-1\n");
+}
+
 /// A bookmark is looked up whole before the spelling is cut, for the reason
 /// one may be called `head`: a name somebody chose beats a spelling the tool
 /// reserved.

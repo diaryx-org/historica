@@ -665,6 +665,18 @@ depend on each other in.
   prompted it is that `bisect` was declined as a command and the shell script
   standing in for it could not compute the set it had to bisect.
 
+- [0064 — A listing for something that is not a person](0064-a-listing-for-something-that-is-not-a-person.md)
+  `log --fields`, paying 0063's deferral. Most of a history is machine-readable
+  already, because 0003 makes the files the authority and `show` prints one
+  byte for byte — so what this adds is only what no single document holds:
+  which revisions, in what order, and what the graph found about them. A
+  numbered header on 0048's reason, then `<digest> <change> <when> <marks|->
+  <parent>...` — spelled whole, because an abbreviation is a fact about the
+  store rather than about the revision; single-spaced and unescaped, because
+  choosing these fields and no others leaves nothing that can hold a space.
+  Author and message are not restated, on 0037's refusal of a second answer.
+  Nothing to show is a header with no lines under it.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

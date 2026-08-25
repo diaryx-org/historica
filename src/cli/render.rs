@@ -145,16 +145,7 @@ pub fn log(
     let digests = abbreviations(store.revisions().map(|(id, _)| *id), DIGEST_FLOOR);
     let changes = abbreviations(history.changes(), CHANGE_FLOOR);
 
-    let kept: Vec<RevisionId> = presentation(store, shown)
-        .into_iter()
-        .filter(|id| {
-            store
-                .get(id)
-                .ok()
-                .flatten()
-                .is_some_and(|document| filter.keeps(document))
-        })
-        .collect();
+    let kept = kept(store, shown, filter);
     if kept.is_empty() && filter.selects() {
         return writeln!(out, "no revision here matches all of those");
     }
@@ -181,6 +172,115 @@ pub fn log(
         )?;
     }
     Ok(())
+}
+
+/// The revisions a listing shows, in order, with the filters applied.
+///
+/// The limit is not applied here: it counts what the filters left, and both
+/// renderings take it from the front of this.
+fn kept(store: &Store, shown: &BTreeSet<RevisionId>, filter: &Filter) -> Vec<RevisionId> {
+    presentation(store, shown)
+        .into_iter()
+        .filter(|id| {
+            store
+                .get(id)
+                .ok()
+                .flatten()
+                .is_some_and(|document| filter.keeps(document))
+        })
+        .collect()
+}
+
+/// The header a machine-read listing begins with.
+///
+/// Numbered, for the reason decision 0048 numbers an offer's: a document is
+/// permanent and a store's grammar is a promise, and this is neither. A reader
+/// that meets a spelling it does not know discards the listing whole rather
+/// than guessing at the fields — which is the whole reason the line is there,
+/// since the listing is otherwise indistinguishable from a shell's idea of
+/// five words.
+pub const FIELDS_HEADER: &str = "historica-log-1";
+
+/// `log --fields`: the same listing, for something that is not a person.
+///
+/// Decision 0064. One line per revision, single spaces between fields, and
+/// nothing escaped because no field here can hold a space. What is *not* here
+/// is anything a person wrote: `show` prints the document those live in, byte
+/// for byte, and a second rendering of a message is a second answer that could
+/// disagree with the first.
+///
+/// ```text
+/// historica-log-1
+/// <digest> <change> <when> <marks|-> <parent>...
+/// ```
+pub fn fields(
+    out: &mut impl Write,
+    store: &Store,
+    shown: &BTreeSet<RevisionId>,
+    filter: &Filter,
+) -> io::Result<()> {
+    let history = store.history();
+    let heads = history.heads();
+    let superseded = history.superseded();
+    let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
+
+    writeln!(out, "{FIELDS_HEADER}")?;
+    for id in kept(store, shown, filter)
+        .iter()
+        .take(filter.limit.unwrap_or(usize::MAX))
+    {
+        let Some(document) = store.get(id).ok().flatten() else {
+            continue;
+        };
+        // Spelled whole, where the reading for a person abbreviates. An
+        // abbreviation is a fact about what else the store holds today
+        // (decision 0001), so a caller that wrote one down would find it
+        // ambiguous after a fetch — through no change to the revision it
+        // named.
+        write!(out, "{id} {} {}", document.change, document.when)?;
+        write!(
+            out,
+            " {}",
+            found(id, document, &heads, &superseded, &divergent)
+        )?;
+        for parent in &document.parents {
+            write!(out, " {parent}")?;
+        }
+        writeln!(out)?;
+    }
+    Ok(())
+}
+
+/// The marks, as the machine reading spells them.
+///
+/// Only what the graph found: whether nothing stands on this revision,
+/// whether something rewrote it, and whether its change has more than one
+/// revision anybody could mean. `merge` and `rewrites` are not here, because
+/// the document says both outright — `parent` twice and `supersedes` at all —
+/// and this listing does not restate what the file it points at already says.
+fn found(
+    id: &RevisionId,
+    document: &RevisionDocument,
+    heads: &BTreeSet<RevisionId>,
+    superseded: &BTreeSet<RevisionId>,
+    divergent: &BTreeSet<ChangeId>,
+) -> String {
+    let mut found = Vec::new();
+    if heads.contains(id) {
+        found.push("head");
+    }
+    if superseded.contains(id) {
+        found.push("superseded");
+    }
+    if divergent.contains(&document.change) {
+        found.push("divergent");
+    }
+    if found.is_empty() {
+        // A field is never empty, because an empty one would be two spaces
+        // where a reader splitting on one expects a word.
+        return "-".to_owned();
+    }
+    found.join(",")
 }
 
 /// One revision, as three or four lines.

@@ -391,7 +391,13 @@ is that whole day there. `log <from>..<to>` narrows which revisions are on
 offer in the first place, to everything behind `to` that is not behind `from`
 (0063) — a subtraction of two ancestries, so it says the other side of a fork
 as readily as the stretch along a chain, and the filters compose with it as
-they compose with each other. Nothing there decides anything
+they compose with each other. `--fields` prints that same listing for something
+that is not a person (0064): a `historica-log-1` header, then
+`<digest> <change> <when> <marks|-> <parent>...` a line, spelled whole,
+single-spaced and unescaped because no field there can hold a space. What it
+leaves out is what a person wrote — `show` prints the document those live in,
+byte for byte, so a listing that restated them would be a second answer that
+could disagree with the first. Nothing there decides anything
 the library has not — `files` and `cat` refuse a merge in the library's own
 words rather than choosing an order, and `show` prints the stored file byte for
 byte, because the readable file is the authority and a rendering of it is not.

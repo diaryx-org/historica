@@ -63,6 +63,7 @@ reading a store
                            how the folder differs from what is recorded
   log [<target>|<from>..<to>] [--limit <count>] [--author <text>]
       [--grep <text>] [--since <when>] [--until <when>] [--path <path>]
+      [--fields]
                            the history, newest first; the filters compose and
                            --limit counts what they left. a range covers what
                            <to> has behind it and <from> does not, which is
@@ -71,7 +72,15 @@ reading a store
                            the file rather than the name, so a rename is not a
                            break in it, and a range reads it at <to>. --since
                            and --until are read in each revision's own offset,
-                           and a bare `YYYY-MM-DD` is that whole day there
+                           and a bare `YYYY-MM-DD` is that whole day there.
+                           --fields prints the same listing for something that
+                           is not a person: a `historica-log-1` header, then
+                           one line per revision of
+                             <digest> <change> <when> <marks|-> <parent>...
+                           spelled whole, single-spaced, nothing escaped
+                           because no field can hold a space. what a person
+                           wrote is not there — `show` prints the document it
+                           lives in, byte for byte
   show <target> [<path>]   one document as stored: a revision, or what it
                            did to one file
   files <target>           the file set at a revision
@@ -735,6 +744,7 @@ fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let store = open(base)?;
     let mut spelling: Option<String> = None;
     let mut path: Option<String> = None;
+    let mut fields = false;
     let mut filter = render::Filter::default();
 
     let mut arguments = arguments.into_iter();
@@ -759,6 +769,7 @@ fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             "--since" => filter.since = Some(bound("--since", &value("--since")?, "00:00:00")?),
             "--until" => filter.until = Some(bound("--until", &value("--until")?, "23:59:59")?),
             "--path" => path = Some(value("--path")?),
+            "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `log` takes"
@@ -788,7 +799,11 @@ fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     }
 
     let shown = render::shown(&store, reach.as_ref());
-    if shown.is_empty() {
+    // Decision 0064: every sentence below is written for a person, and a
+    // caller splitting lines into fields would meet one where it expected a
+    // revision. The machine reading says the same thing by having a header
+    // and no lines under it.
+    if shown.is_empty() && !fields {
         // An empty range is an answer rather than a fault, and a different
         // answer from an empty store: it says the work asked about is already
         // behind the revision it was held up against.
@@ -810,6 +825,9 @@ fn log(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // missing from it would be the tool disagreeing with the files.
     for id in &shown {
         store.get(id)?;
+    }
+    if fields {
+        return printing(|out| render::fields(out, &store, &shown, &filter));
     }
     printing(|out| render::log(out, &store, &shown, &filter))
 }
