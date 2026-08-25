@@ -25,6 +25,7 @@ fn run(directory: &Path, arguments: &[&str]) -> Output {
         .arg("-C")
         .arg(directory)
         .args(arguments)
+        .env("HISTORICA_AUTHOR", "Adam Harris <adam@example.com>")
         .output()
         .expect("the binary this test crate builds")
 }
