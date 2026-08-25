@@ -87,6 +87,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **format** — a resolution can forget what it minted ([`cfc6763`](https://github.com/diaryx-org/historica/commit/cfc676320905b5e928672bb6694145c5df072505))
 - **skipped** — give a rule two axes, and close the key set ([`5d582c8`](https://github.com/diaryx-org/historica/commit/5d582c8259687374e432377e02b44a0326587fb2))
 - **store** — let a reserved directory declare how it travels ([`440f901`](https://github.com/diaryx-org/historica/commit/440f901cadbd849885882fd9b271c093c991bb87))
+- **store** — export onto the copy this store already made ([`a0570a0`](https://github.com/diaryx-org/historica/commit/a0570a091cd7711d38bfbf71c9e44a6931b03756))
 
 ### Fixed
 
@@ -522,6 +523,40 @@ severity and the exit code are unchanged.
 - `store::Travel`, `store::RESERVED_DIRS` and
  `store::travel` are new, and are how a tool asks what historica
  promises about a directory it reserved.
+
+- `export` no longer refuses a destination holding a
+ copy of this store. Where `<dir>` holds a related store that passes
+ `check`, it is updated in place — files written, left, or withdrawn —
+ rather than refused with `Occupied`. A destination that is empty,
+ absent, or holds something else behaves exactly as before.
+
+- an update export destroys bytes in the destination.
+ A `forget`, a `prune`, a target moved off a branch, and a rule the
+ origin stopped sharing all remove files from the copy's `history/`,
+ and the copy's folder is rewritten to the target. Callers who pointed
+ `export` at a copy expecting a refusal now get a rewrite.
+
+- `Exported`'s `revisions`, `documents`, `payloads`,
+ `forgetting` and `reserved` count what this run *wrote* rather than
+ what the plan named. For a fresh copy the numbers are unchanged; for
+ one being updated they are the difference. `Exported` gains
+ `withdrawn`, `destroyed` and `updated`.
+
+- `ExportError` gains `BrokenCopy`, `Unrelated` and
+ `Recorded`, and `Occupied`'s message now says the destination holds
+ something that is not a copy of this store. It is `#[non_exhaustive]`,
+ so a caller matching on it already had a wildcard arm.
+
+- `ExportPlan` gains `updating()`, `withdraws()`,
+ `destroys()` and `writes()`, and `Store::export_plan_onto` is the
+ planning entry point that knows about the destination — including
+ every refusal, so a dry run refuses where the real thing would.
+ `export_plan` is unchanged and still describes a fresh copy.
+
+- `historica export` prints "withdrew N files",
+ "destroyed N forgotten originals", and "updated the copy of X at Y" in
+ place of "made a copy" where it updated one; `--dry-run` names each
+ file it would withdraw, as `prune` and `forget` do.
 
 <!-- git-cliff:end -->
 
