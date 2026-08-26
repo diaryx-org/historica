@@ -251,6 +251,7 @@ impl std::error::Error for Unreachable {}
 ///
 /// Decision 0053's default, applied and then said out loud (decision 0057).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Declined {
     /// The reserved directory, as the manifest's path named it.
     pub directory: String,
@@ -364,6 +365,7 @@ impl FetchPlan {
 
 /// What one fetch changed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Fetched {
     /// Whole-content payloads taken.
     pub payloads: usize,

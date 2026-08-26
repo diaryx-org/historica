@@ -588,6 +588,7 @@ impl Skipped {
 
 /// A file of `history/skipped/` that was not one rule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MalformedSkip {
     /// The line, counted from one.
     pub at: usize,

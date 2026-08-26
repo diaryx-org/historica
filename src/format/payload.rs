@@ -34,6 +34,7 @@ use super::{
 
 /// One forgetting document for a payload: what stood here, and how much of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ForgottenPayload {
     /// The payload whose bytes were destroyed.
     pub forgets: RevisionId,

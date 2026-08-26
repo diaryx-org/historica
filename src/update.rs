@@ -31,6 +31,7 @@ use crate::working::{Working, WorkingError};
 /// One file the update writes: what the target records for a path, and what
 /// the plan saw on disk there, so that applying can look again.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Write {
     /// Where the file sits, relative to the repository root.
     pub path: String,
@@ -146,6 +147,7 @@ impl Wanted {
 /// mode of a recorded file is recorded, so a folder holding the right bytes
 /// with the wrong bit does not yet hold the head.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Chmod {
     /// Where the file sits, relative to the repository root.
     pub path: String,
@@ -161,6 +163,7 @@ pub struct Chmod {
 /// the link follows its target through every rename, which is the point — and
 /// a verbatim target becomes exactly its bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Linking {
     /// Where the link sits, relative to the repository root.
     pub path: String,
@@ -193,6 +196,7 @@ pub enum Stood {
 /// One file the update removes: a path the target does not hold, whose bytes
 /// some revision records.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Remove {
     /// Where the file sits, relative to the repository root.
     pub path: String,
@@ -208,6 +212,7 @@ pub struct Remove {
 
 /// What one update would do, computed before anything is done.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Update {
     /// The files to write, in path order.
     pub writes: Vec<Write>,
@@ -240,6 +245,7 @@ impl Update {
 /// file that changed in between is left alone and reported rather than
 /// overwritten.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Applied {
     /// The paths written.
     pub wrote: Vec<String>,

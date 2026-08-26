@@ -57,6 +57,7 @@ pub enum Stated<'a> {
 /// A revision that changed nothing about the file still appears, because its
 /// causal edges are part of the graph the merge walks.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Event<'a> {
     /// The revision this is.
     pub revision: RevisionId,
@@ -126,6 +127,7 @@ impl<'a> Event<'a> {
 
 /// A merged file, and where concurrent work met inside it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Merged {
     /// The merged content.
     pub state: State,
@@ -155,6 +157,7 @@ pub struct Merged {
 /// record an automatic merge and show a person both versions instead, which is
 /// the legitimate divergence 0001 already has vocabulary for.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Contested {
     /// Where the region begins, as an item index into the merged file.
     pub at: usize,
@@ -317,6 +320,7 @@ fn linear(graph: &Graph<'_>) -> Result<Merged, MergeError> {
 /// walks the file's history for every one of those quotes, and this is that
 /// walk's result.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Quoted {
     /// The revision that wrote the item.
     pub written_by: RevisionId,

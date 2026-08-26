@@ -603,6 +603,7 @@ impl Pointed {
 
 /// A bookmark file was not one valid line, or one valid line and `private`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MalformedName {
     because: &'static str,
 }

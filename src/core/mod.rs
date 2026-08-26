@@ -333,6 +333,7 @@ impl std::error::Error for InvalidChangeId {}
 /// model. The core first establishes the convergence and causality rules they
 /// will live inside.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Revision {
     /// The digest of this revision's canonical bytes.
     pub id: RevisionId,
@@ -573,6 +574,7 @@ impl History {
 /// or a broken digest rather than a situation to resolve. It remains
 /// load-bearing until the core can recompute a digest and verify it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RevisionIdCollision {
     /// The contested digest.
     pub id: RevisionId,

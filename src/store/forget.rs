@@ -72,6 +72,7 @@ pub enum Extent {
 /// [`Store::forget`] acts on exactly this, so `--dry-run` and the real thing
 /// can never describe different bytes.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Forgotten {
     /// The digests whose bytes are destroyed.
     pub targets: Vec<RevisionId>,

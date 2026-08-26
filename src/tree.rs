@@ -61,6 +61,7 @@ impl fmt::Display for Kind {
 
 /// One file's entry: where it sits, and what its content is.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Entry {
     /// Where the file sits.
     pub path: String,
@@ -400,6 +401,7 @@ pub fn touches(revision: &RevisionDocument, file: &FileId) -> bool {
 /// revision that said nothing about the tree still appears, because its causal
 /// edges are what decide whether anything else is concurrent.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct Event<'a> {
     /// The revision this is.
     pub revision: RevisionId,
@@ -409,6 +411,7 @@ pub struct Event<'a> {
 
 /// The file set at a set of heads, and where concurrent work met deciding it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MergedTree {
     /// The file set.
     pub tree: Tree,

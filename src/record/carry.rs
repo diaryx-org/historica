@@ -28,6 +28,7 @@ use crate::store::{MaterialiseError, REVISION_SUFFIX, Store, StoreError};
 
 /// One revision the plan would restate, worked out to the last byte.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CarryStep {
     /// The revision being carried, which the new one supersedes.
     pub predecessor: RevisionId,
@@ -84,6 +85,7 @@ pub enum Carrying {
 /// one the store will take whole — parents first, each step's documents
 /// before its revision, exactly as `record` writes.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct CarryPlan {
     /// The steps, parents before children.
     pub steps: Vec<CarryStep>,

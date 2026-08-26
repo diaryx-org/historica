@@ -109,6 +109,7 @@ impl Timestamp {
 /// a caller outside a document gets — a writer checking its own clock, or a
 /// test stating a time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MalformedTimestamp {
     because: &'static str,
 }

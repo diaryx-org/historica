@@ -313,6 +313,7 @@ impl std::error::Error for IdentityError {}
 
 /// A line of the identity file that was not what was wanted there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MalformedIdentity {
     /// The line, counted from one.
     pub at: usize,

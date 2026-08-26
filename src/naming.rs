@@ -157,6 +157,7 @@ pub fn stem_for<'a>(
 
 /// One thing filed inside a revision's directory.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub struct Filing {
     /// The digest of the file being filed, which is its identity.
     pub held: RevisionId,

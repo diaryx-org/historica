@@ -24,6 +24,7 @@ use super::{
 
 /// What pruning removed, or would remove.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Pruned {
     /// Revision documents gone, by digest.
     pub revisions: Vec<RevisionId>,

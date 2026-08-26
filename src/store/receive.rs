@@ -133,6 +133,7 @@ impl ReceivePlan {
 
 /// What one receive changed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Received {
     /// Revision documents copied.
     pub revisions: usize,
@@ -414,6 +415,7 @@ pub(super) fn related<F: Filesystem, G: Filesystem>(here: &Store<F>, there: &Sto
 
 /// Why one store could not receive another.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ReceiveError {
     /// One side fails `check`.
     BrokenStore {

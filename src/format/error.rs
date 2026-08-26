@@ -8,6 +8,7 @@ use std::fmt;
 
 /// Why a document was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ParseError {
     /// The 1-based line, or 0 when the fault is the whole file.
     pub line: usize,

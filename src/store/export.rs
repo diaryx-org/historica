@@ -203,6 +203,7 @@ pub struct ExportPlan {
 /// destination this is the plan's own lengths, and for a copy being updated
 /// it is the difference.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Writes {
     /// Revision documents.
     pub revisions: usize,
@@ -336,6 +337,7 @@ impl ExportPlan {
 
 /// What one export wrote.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Exported {
     /// The repository directory that now holds a copy.
     pub root: PathBuf,

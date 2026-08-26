@@ -131,6 +131,7 @@ impl Targeted {
 /// each file, the diff — which is what keeps `status` and `record --dry-run`
 /// from ever describing different work.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Survey {
     /// Paths the tree does not hold yet.
     pub added: BTreeSet<String>,
@@ -244,6 +245,7 @@ impl Survey {
 /// `--dry-run` prints this. Recording produces it and then acts on it, so the
 /// two can never describe different work.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Plan {
     /// Files entering the tree, with the path they enter at.
     pub added: BTreeMap<FileId, String>,
@@ -429,6 +431,7 @@ pub struct Amendment {
 
 /// What was amended.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Amended {
     /// The revision written.
     pub revision: RevisionId,
@@ -472,6 +475,7 @@ pub struct Abandoning {
 
 /// What was abandoned.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Abandoned {
     /// The tombstone written.
     pub revision: RevisionId,
@@ -489,6 +493,7 @@ pub struct Abandoned {
 
 /// What was recorded.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Recorded {
     /// The revision written.
     pub revision: RevisionId,

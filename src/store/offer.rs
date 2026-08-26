@@ -235,6 +235,7 @@ impl fmt::Display for OfferKind {
 
 /// One transferable file, as a manifest names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Offered {
     /// What sort of file it is.
     pub kind: OfferKind,
@@ -415,6 +416,7 @@ impl fmt::Display for Offer {
 
 /// Why a manifest could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum OfferError {
     /// The first line is not a spelling this reader knows.
     UnknownFormat {

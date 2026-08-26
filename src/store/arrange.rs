@@ -96,6 +96,7 @@ impl Filed {
 
 /// One file, and the name it should have.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Rename {
     /// Where it is, relative to the store root.
     pub from: PathBuf,
@@ -107,6 +108,7 @@ pub struct Rename {
 
 /// A file already at the name arranging would give it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Arranged {
     /// Where it is, relative to the store root.
     pub path: PathBuf,
@@ -120,6 +122,7 @@ pub struct Arranged {
 /// is `check`'s `Duplicate` note rather than a fault. Arranging cannot merge
 /// them, so it says so and moves on.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Occupied {
     /// The file that stayed, relative to the store root.
     pub path: PathBuf,
@@ -135,6 +138,7 @@ pub struct Occupied {
 /// so a dry run and the real thing can never name different files — the same
 /// promise `prunable`/`prune` and `forget_plan`/`forget` make.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Arrangement {
     /// Every file that moved, or would, in the order it was done.
     pub renames: Vec<Rename>,
@@ -175,6 +179,7 @@ impl Arrangement {
 
 /// What arranging one directory came to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Tally {
     /// Files that moved, or would.
     pub renamed: usize,
