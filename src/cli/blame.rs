@@ -26,7 +26,7 @@ use historica::core::{FileId, RevisionId};
 use historica::replay::State;
 use historica::store::Store;
 use historica::tree::{Kind, Tree};
-use historica::working::{self, Working};
+use historica::working::Working;
 
 use super::diff::laid;
 use super::{Failure, locate, printing, render, span, target};
@@ -165,20 +165,24 @@ fn folder(store: &Store, root: &Path, spelling: &str) -> Result<Vec<Row>, Failur
     if working.is_link(&path) {
         lines_only(Some(Kind::Link), &path)?;
     }
-    let bytes = working.bytes(&path).map_err(Failure::error)?;
     // A file the tree holds keeps the kind it was added with (0017); one the
-    // tree does not is whatever the recorder would call it.
-    match file.and_then(|file| tree.kind(&file)) {
-        Some(kind) => lines_only(Some(kind), &path)?,
-        None => lines_only(
-            Some(if working::is_text(&bytes) {
-                Kind::Lines
-            } else {
-                Kind::Whole
-            }),
-            &path,
-        )?,
-    }
+    // tree does not is whatever the recorder would call it. Decision 0067:
+    // asked before the read where the tree can answer, and settled by the same
+    // streaming sniff `record` uses where it cannot — so a photograph is
+    // refused rather than read into memory and then refused.
+    let bytes = match file.and_then(|file| tree.kind(&file)) {
+        Some(kind) => {
+            lines_only(Some(kind), &path)?;
+            working.bytes(&path).map_err(Failure::error)?
+        }
+        None => match working.sniff(&path).map_err(Failure::error)? {
+            (_, Some(bytes)) => bytes,
+            (_, None) => {
+                lines_only(Some(Kind::Whole), &path)?;
+                unreachable!("a file of bytes has already been refused")
+            }
+        },
+    };
 
     let (before, origins) = match (file, head) {
         (Some(file), Some(id)) => {

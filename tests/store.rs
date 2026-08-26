@@ -1052,7 +1052,7 @@ fn a_revision_is_laid_out_in_an_empty_directory_and_recorded_back_from_it() {
     let into = Working::read(&elsewhere, store.skipped()).expect("walking nothing");
     let plan =
         update::plan_into(&store, &into, &elsewhere, &first.revision).expect("laying it out");
-    let applied = update::apply(&into, &elsewhere, &plan).expect("applying");
+    let applied = update::apply(&store, &into, &elsewhere, &plan).expect("applying");
     assert_eq!(applied.wrote.len(), 3, "{applied:?}");
 
     assert_eq!(
@@ -1134,7 +1134,7 @@ fn a_raced_edit_is_left_by_the_disk_update_too() {
     // The race: an edit lands after the plan looked and before apply does.
     fs::write(base.join("notes.md"), "work the plan never saw\n").expect("the race");
 
-    let applied = update::apply(&working, &base, &plan).expect("applying");
+    let applied = update::apply(&store, &working, &base, &plan).expect("applying");
     assert!(applied.wrote.is_empty(), "{applied:?}");
     assert_eq!(
         applied.left,

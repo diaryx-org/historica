@@ -112,7 +112,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         });
     }
 
-    let applied = apply(&working, &repository, &update).map_err(Failure::error)?;
+    let applied = apply(&store, &working, &repository, &update).map_err(Failure::error)?;
 
     let code = printing(|out| {
         for path in &applied.wrote {

@@ -725,6 +725,19 @@ impl<F: Filesystem> Working<F> {
         self.files.get(path)
     }
 
+    /// Where a path is on disk, whether or not the walk found it.
+    ///
+    /// Decision 0033: a folder may spell a name decomposed where the tree
+    /// spells it in normal form C, so a path the walk *did* find is opened
+    /// under the spelling the folder actually uses, and only a path it did not
+    /// is joined onto the root as given.
+    pub fn on_disk(&self, path: &str) -> PathBuf {
+        self.files
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| self.root.join(path))
+    }
+
     /// Whether the folder holds this path.
     pub fn holds(&self, path: &str) -> bool {
         self.files.contains_key(path)
@@ -808,6 +821,57 @@ impl<F: Filesystem> Working<F> {
         let found = crate::format::digest(&bytes);
         self.correct(path, found);
         Ok((bytes, found))
+    }
+
+    /// One file's digest, taken by reading it whatever the catalogue thinks.
+    ///
+    /// [`Working::digest`] answers from `cache/working.txt` where the
+    /// directory allows it; this is the same number worked out afresh, in
+    /// pieces, and written back over whatever was believed. Decision 0036's
+    /// rule for a caller that is about to act on the answer: a catalogue that
+    /// was wrong about a file is corrected by the read it caused.
+    pub fn reread_digest(&self, path: &str) -> Result<RevisionId, WorkingError> {
+        let on_disk = self.regular(path)?;
+        let found = crate::fs::digest_of(&self.filesystem, on_disk)
+            .map_err(|error| WorkingError::io(on_disk, error))?;
+        self.correct(path, found);
+        Ok(found)
+    }
+
+    /// What kind of file this is and what it hashes to, in one pass.
+    ///
+    /// Decision 0017 sniffs a file's kind from its own bytes exactly once, when
+    /// it is added, and decision 0043 wants its digest at the same moment. This
+    /// is both, taken over the pieces the filesystem hands over — and decision
+    /// 0067 is the third thing it is: the bytes are accumulated only while the
+    /// file still looks like text, and dropped the instant it does not, so a
+    /// photograph being added costs the buffer its first few hundred bytes
+    /// filled and never the photograph.
+    ///
+    /// `Some(bytes)` is a file of lines, with its content; `None` is a file of
+    /// bytes, whose content is on disk and stays there.
+    pub fn sniff(&self, path: &str) -> Result<(RevisionId, Option<Vec<u8>>), WorkingError> {
+        let on_disk = self.regular(path)?;
+        let mut hasher = crate::format::Hasher::new();
+        let mut sniff = TextSniff::default();
+        let streamed = self
+            .filesystem
+            .read_in_pieces(on_disk, &mut |piece| {
+                hasher.update(piece);
+                sniff.take(piece);
+            })
+            .map_err(|error| WorkingError::io(on_disk, error))?;
+        if streamed.is_none() {
+            let held = self
+                .filesystem
+                .read(on_disk)
+                .map_err(|error| WorkingError::io(on_disk, error))?;
+            hasher.update(&held);
+            sniff.take(&held);
+        }
+        let found = hasher.finish();
+        self.correct(path, found);
+        Ok((found, sniff.finish()))
     }
 
     /// One file's text, and the digest this read found its bytes to have.
@@ -920,6 +984,75 @@ impl<F: Filesystem> Working<F> {
 /// belongs to the file's identity and changing it is `drop` and `add`.
 pub fn is_text(bytes: &[u8]) -> bool {
     !bytes.contains(&0) && std::str::from_utf8(bytes).is_ok()
+}
+
+/// [`is_text`] asked of a file arriving in pieces, holding on to the bytes
+/// only while the answer might still be yes.
+///
+/// Decision 0067. The whole of what this saves is that a file which is *not*
+/// text stops being accumulated at the piece that settles it, and every format
+/// worth streaming settles it early — a PNG's signature carries a NUL in its
+/// first dozen bytes, a JPEG's first three are not UTF-8 at all. A file that
+/// turns out to be text was going to be held in memory anyway, because decision
+/// 0007's items are lines and the recorder is about to name every one of them.
+///
+/// UTF-8 is validated across the seam: a piece may end mid-character, and the
+/// three bytes at most that can be pending are carried into the next one.
+#[derive(Default)]
+struct TextSniff {
+    /// The bytes so far, while this may still be text.
+    held: Option<Vec<u8>>,
+    /// An incomplete character at the end of the last piece.
+    carry: Vec<u8>,
+    /// Whether something has already settled it as not text.
+    settled: bool,
+}
+
+impl TextSniff {
+    /// Take the next run of bytes.
+    fn take(&mut self, piece: &[u8]) {
+        if self.settled {
+            return;
+        }
+        if piece.contains(&0) {
+            return self.refuse();
+        }
+        let held = self.held.get_or_insert_with(Vec::new);
+        held.extend_from_slice(piece);
+        // Validate from wherever the last piece left off, which is the start
+        // of the character it ended in the middle of.
+        let from = held.len() - piece.len() - self.carry.len();
+        match std::str::from_utf8(&held[from..]) {
+            Ok(_) => self.carry.clear(),
+            // No length means the bytes at the end are the start of a
+            // character whose remainder has not arrived; anything else is a
+            // sequence that is wrong however the file continues.
+            Err(error) if error.error_len().is_none() => {
+                self.carry = held[from + error.valid_up_to()..].to_vec();
+            }
+            Err(_) => self.refuse(),
+        }
+    }
+
+    /// Settle it as not text, and let go of everything held for the other
+    /// answer.
+    fn refuse(&mut self) {
+        self.settled = true;
+        self.held = None;
+        self.carry = Vec::new();
+    }
+
+    /// The bytes, where this was text all the way to the end.
+    ///
+    /// A file ending mid-character is not text: the carry never completed. A
+    /// file with nothing in it is text with nothing in it, which is what
+    /// decision 0017 says by never naming an empty payload.
+    fn finish(self) -> Option<Vec<u8>> {
+        if self.settled || !self.carry.is_empty() {
+            return None;
+        }
+        Some(self.held.unwrap_or_default())
+    }
 }
 
 /// What one walk of the folder turned up.
@@ -1175,6 +1308,55 @@ mod tests {
                 .expect("a rule the reader accepts")
                 .expect("a line that states one")
         }))
+    }
+
+    /// Feed a sniffer one byte sequence in runs of `piece`, as a filesystem
+    /// handing a file over would.
+    fn sniffed(bytes: &[u8], piece: usize) -> Option<Vec<u8>> {
+        let mut sniff = TextSniff::default();
+        for run in bytes.chunks(piece) {
+            sniff.take(run);
+        }
+        sniff.finish()
+    }
+
+    #[test]
+    fn a_character_split_across_two_pieces_is_still_text() {
+        // Decision 0067: the seam is the whole risk in reading a file in
+        // pieces, and `é` is two bytes, so every offset in this string puts
+        // one of them across a boundary at some piece size.
+        let text = "café au lait — and a dash".as_bytes();
+        for piece in 1..=text.len() {
+            assert_eq!(
+                sniffed(text, piece).as_deref(),
+                Some(text),
+                "in pieces of {piece}"
+            );
+        }
+        // Whole, which is what a filesystem taking the default hands over.
+        assert_eq!(sniffed(text, text.len() * 2).as_deref(), Some(text));
+    }
+
+    #[test]
+    fn what_is_not_text_is_refused_however_it_arrives() {
+        // Decision 0017's two signals, and what makes a photograph settle in
+        // its first piece: a NUL, and a byte sequence UTF-8 has no reading of.
+        for bytes in [
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR".as_slice(),
+            b"\xff\xd8\xff\xe0 JFIF".as_slice(),
+            // A file that ends in the middle of a character is not text
+            // either: the character never completed.
+            "caf\u{e9}".as_bytes().split_last().expect("bytes").1,
+        ] {
+            for piece in 1..=bytes.len().max(1) {
+                assert_eq!(sniffed(bytes, piece), None, "in pieces of {piece}");
+            }
+        }
+    }
+
+    #[test]
+    fn nothing_at_all_is_text_with_nothing_in_it() {
+        assert_eq!(sniffed(b"", 8).as_deref(), Some(b"".as_slice()));
     }
 
     #[test]

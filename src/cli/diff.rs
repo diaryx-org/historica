@@ -28,7 +28,7 @@ use historica::format::{Mode, digest};
 use historica::replay::State;
 use historica::store::{Content, Store};
 use historica::tree::{Kind, Tree};
-use historica::working::{self, Working};
+use historica::working::Working;
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 
 use super::{Failure, locate, printing, target};
@@ -228,6 +228,30 @@ struct Pair {
     /// Either half is `None` where that side holds no link at all, which is
     /// how a link arriving or leaving says where it pointed.
     targets: Option<(Option<Shown>, Option<Shown>)>,
+    /// How many bytes each side of a file of bytes holds.
+    ///
+    /// Decision 0067: a [`Content::Whole`] names its payload and does not
+    /// carry it, so the length is a fact about the file the bytes sit in
+    /// rather than about the answer — asked of the directory, which reports it
+    /// without anything being read. `None` where the side is not there, or
+    /// where the file it sits in has gone, or on a filesystem that reports no
+    /// metadata at all. A file of lines needs none of this: it was replayed to
+    /// get here and counts its own text.
+    sizes: (Option<u64>, Option<u64>),
+}
+
+/// How many bytes a stored file of bytes holds, without reading it.
+///
+/// The payload is *found* by hashing it, which is the only way a store may
+/// believe a file is the one a digest names (0036) — so the number printed
+/// beside a digest is a number about the file that made the digest true, and
+/// not about whatever the catalogue happened to point at.
+fn stored_size(store: &Store, content: Option<&Content>) -> Option<u64> {
+    use historica::fs::{Disk, Filesystem as _};
+
+    let payload = content?.payload()?;
+    let path = store.payload_file(&payload).ok().flatten()?;
+    Disk.stamp(&path).ok().flatten().map(|stamp| stamp.size)
 }
 
 /// The two sides' targets, where they are worth saying out loud.
@@ -270,7 +294,10 @@ impl Pair {
             || self.modes.is_some()
             || self.targets.is_some()
             || match (&self.before, &self.after) {
-                (Some(before), Some(after)) => before.bytes() != after.bytes(),
+                // Decision 0067: a comparison of digests, which is what this
+                // was doing with two files in its hands. A photograph on each
+                // side is now two numbers.
+                (Some(before), Some(after)) => before.digest() != after.digest(),
                 (None, None) => false,
                 _ => true,
             }
@@ -324,14 +351,20 @@ fn recorded(
             }
             .transpose()
         };
+        let held = match left {
+            Some(id) => content(was, id)?,
+            None => None,
+        };
+        let holds = content(now, right)?;
         let pair = Pair {
             from: was.map(|entry| entry.path.clone()),
             to: now.map(|entry| entry.path.clone()),
-            before: match left {
-                Some(id) => content(was, id)?,
-                None => None,
-            },
-            after: content(now, right)?,
+            sizes: (
+                stored_size(store, held.as_ref()),
+                stored_size(store, holds.as_ref()),
+            ),
+            before: held,
+            after: holds,
             modes: match (was, now) {
                 (Some(was), Some(now)) if was.mode != now.mode => Some((was.mode, now.mode)),
                 _ => None,
@@ -417,18 +450,31 @@ fn folder(
             }),
         );
         let after = if there && !working.is_link(&path) {
-            let bytes = working.bytes(&path).map_err(Failure::error)?;
             // A file the tree holds keeps the kind it was added with (0017);
             // one the tree does not is whatever the recorder would call it.
-            let lines = match file.and_then(|file| tree.kind(&file)) {
-                Some(kind) => kind == Kind::Lines,
-                None => working::is_text(&bytes),
-            };
-            Some(if lines {
-                Content::Lines(State::from_text(&String::from_utf8_lossy(&bytes)))
-            } else {
-                Content::Whole(bytes)
-            })
+            // Decision 0067: the second of those is settled by the same
+            // streaming sniff `record` uses, so a working photograph nobody
+            // has recorded is not read into a diff that will not print it, and
+            // the first is settled without reading the file at all where the
+            // tree says it holds bytes.
+            match file.and_then(|file| tree.kind(&file)) {
+                Some(Kind::Lines) => {
+                    let text = working.text(&path).map_err(Failure::error)?;
+                    Some(Content::Lines(State::from_text(&text)))
+                }
+                Some(_) => Some(Content::Whole(
+                    working.reread_digest(&path).map_err(Failure::error)?,
+                )),
+                None => {
+                    let (found, text) = working.sniff(&path).map_err(Failure::error)?;
+                    Some(match text {
+                        Some(bytes) => {
+                            Content::Lines(State::from_text(&String::from_utf8_lossy(&bytes)))
+                        }
+                        None => Content::Whole(found),
+                    })
+                }
+            }
         } else {
             None
         };
@@ -447,9 +493,21 @@ fn folder(
             },
             _ => None,
         };
+        // The folder's own side is stamped rather than stored: the file is
+        // right there, and the directory says how long it is.
+        let held = match &after {
+            Some(Content::Whole(_)) => {
+                historica::fs::Filesystem::stamp(working.filesystem(), &working.on_disk(&path))
+                    .ok()
+                    .flatten()
+                    .map(|stamp| stamp.size)
+            }
+            _ => None,
+        };
         let pair = Pair {
             from: file.map(|_| path.clone()),
             to: there.then(|| path.clone()),
+            sizes: (stored_size(store, before.as_ref()), held),
             before,
             after,
             modes,
@@ -620,26 +678,34 @@ fn render(out: &mut impl Write, pair: &Pair, paint: Paint) -> std::io::Result<()
         // version. The count is exact bytes rather than a rounded size,
         // because `wc -c` and `shasum -a 256` are what check it, and 0003's
         // promise is that they are enough.
-        let side = |content: Option<&Content>| match content {
-            Some(Content::Whole(bytes)) => Some((digest(bytes), bytes.len())),
+        //
+        // Decision 0067: the digest is what the side *is* rather than
+        // something computed from it, and the length was asked of the
+        // directory when the pair was built — so this line, which used to
+        // cost both files read whole and thrown away, now costs neither.
+        let side = |content: Option<&Content>, size: Option<u64>| match content {
+            Some(Content::Whole(payload)) => Some((*payload, size)),
             Some(Content::Lines(state)) => {
                 let text = state.text();
-                Some((digest(text.as_bytes()), text.len()))
+                Some((digest(text.as_bytes()), Some(text.len() as u64)))
             }
             None => None,
         };
         // A side that is not there prints as nothing, exactly as a link's
         // does above: the `/dev/null` line has already said which side it is.
-        let spelled = |side: Option<(RevisionId, usize)>| {
-            side.map_or_else(String::new, |(id, size)| {
-                format!(" {} {size} bytes", id.abbreviate(12))
+        // A length that could not be learned prints as nothing too, on the
+        // same rule 0034 states for a mode: what is not known is not said.
+        let spelled = |side: Option<(RevisionId, Option<u64>)>| {
+            side.map_or_else(String::new, |(id, size)| match size {
+                Some(size) => format!(" {} {size} bytes", id.abbreviate(12)),
+                None => format!(" {}", id.abbreviate(12)),
             })
         };
         return writeln!(
             out,
             "{meta}binary files differ:{} ->{}{off}",
-            spelled(side(pair.before.as_ref())),
-            spelled(side(pair.after.as_ref()))
+            spelled(side(pair.before.as_ref(), pair.sizes.0)),
+            spelled(side(pair.after.as_ref(), pair.sizes.1))
         );
     };
 

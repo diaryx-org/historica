@@ -112,6 +112,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::io;
 
 use crate::core::RevisionId;
 use crate::format::{self, OperationDocument, ResolutionDocument, RevisionDocument, digest};
@@ -156,6 +157,37 @@ pub trait Source {
     /// no name, a refusal, a body that would not finish. Nothing here reads it
     /// — it is carried to whoever typed the command.
     fn get(&self, path: &str) -> Result<Option<Vec<u8>>, Unreachable>;
+
+    /// The same bytes, handed over in pieces.
+    ///
+    /// Decision 0067, and the reason it is defaulted: a transport that has only
+    /// whole bodies keeps compiling and keeps answering, because the default
+    /// *is* [`get`](Source::get) with the one piece it produced fed straight
+    /// through. There is no third answer meaning "I do not stream" — a source
+    /// that declines to override this still streams, in runs of one.
+    ///
+    /// `false` is [`get`](Source::get)'s `None`: the source says nothing is
+    /// there, `each` was not called, and a fetch answers it by reading the
+    /// manifest again. `true` means the pieces were fed, and concatenating them
+    /// gives exactly what [`get`](Source::get) would have returned.
+    ///
+    /// **Resumption is not this.** A piece feed that stops halfway is a failure
+    /// of the whole request, and what the fetcher does about it is ask again
+    /// from the beginning — nothing here carries an offset, and a partial file
+    /// is never written, because the digest is checked before anything lands.
+    fn get_in_pieces(
+        &self,
+        path: &str,
+        each: &mut dyn FnMut(&[u8]) -> Result<(), Unreachable>,
+    ) -> Result<bool, Unreachable> {
+        match self.get(path)? {
+            Some(bytes) => {
+                each(&bytes)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
 }
 
 /// Forward to whatever is inside the pointer, so `Arc<dyn Source>` is a source.
@@ -164,6 +196,13 @@ macro_rules! forwarding {
         impl<T: Source + ?Sized> Source for $holder {
             fn get(&self, path: &str) -> Result<Option<Vec<u8>>, Unreachable> {
                 (**self).get(path)
+            }
+            fn get_in_pieces(
+                &self,
+                path: &str,
+                each: &mut dyn FnMut(&[u8]) -> Result<(), Unreachable>,
+            ) -> Result<bool, Unreachable> {
+                (**self).get_in_pieces(path, each)
             }
         }
     };
@@ -564,6 +603,21 @@ impl<F: Filesystem> Store<F> {
                 complied = true;
                 fetched.destroyed += self.comply_with_forgetting(&plan.destroys)?;
             }
+            // Decision 0067: a payload goes from the transport into the store's
+            // own file without ever being one buffer, so fetching a repository
+            // of photographs costs a piece at a time. The check that made the
+            // whole-body path safe is unchanged and is what makes the streamed
+            // one safe: the digest is taken as the pieces pass, and a total
+            // that is not what the manifest offered refuses at the last piece,
+            // which leaves nothing written.
+            if kind == OfferKind::Payload {
+                if self.fetch_payload(source, entry, fetched)? {
+                    fetched.payloads += 1;
+                } else {
+                    return Ok(Some(entry.path.clone()));
+                }
+                continue;
+            }
             let Some(bytes) = ask(source, &entry.path, fetched)? else {
                 return Ok(Some(entry.path.clone()));
             };
@@ -656,6 +710,69 @@ impl<F: Filesystem> Store<F> {
         // new is written under the label this store derives.
         fetched.rules += self.add_skipped(&rules)?.len();
         Ok(None)
+    }
+
+    /// Fetch one payload straight into `operations/`, without holding it.
+    ///
+    /// Decision 0067. `false` is [`Source::get`]'s absence — a publisher who
+    /// withdrew the file between the manifest and this request — which the
+    /// caller answers by reading the manifest again.
+    ///
+    /// The digest is taken over the pieces as they pass and checked before
+    /// anything lands, so the two things the whole-body path promised are both
+    /// kept: a source that offered one digest and served another is
+    /// [`FetchError::Tampered`], and nothing it served is on disk. What is
+    /// given up is nothing, because the whole body was never trusted either —
+    /// it was hashed after being buffered, and this hashes it instead of
+    /// buffering it.
+    fn fetch_payload<S: Source + ?Sized>(
+        &mut self,
+        source: &S,
+        entry: &Offered,
+        fetched: &mut Fetched,
+    ) -> Result<bool, FetchError> {
+        fetched.requests += 1;
+        let mut missing = false;
+        let mut unreachable = None;
+        let landed =
+            self.insert_payload_in_pieces(&entry.digest, &entry.digest.to_string(), &mut |into| {
+                match source.get_in_pieces(&entry.path, &mut |piece| {
+                    into.write_all(piece).map_err(Unreachable::saying)
+                }) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => {
+                        missing = true;
+                        Err(io::Error::new(
+                            io::ErrorKind::NotFound,
+                            "the source says nothing is there",
+                        ))
+                    }
+                    Err(error) => {
+                        unreachable = Some(error);
+                        Err(io::Error::other("the source could not answer"))
+                    }
+                }
+            });
+        if let Some(error) = unreachable {
+            return Err(FetchError::Unreachable {
+                path: entry.path.clone(),
+                because: error.because().to_owned(),
+            });
+        }
+        if missing {
+            return Ok(false);
+        }
+        match landed {
+            Ok(_) => Ok(true),
+            // Decision 0036 one level out: the catalogue says where to look, it
+            // never says what is there, and neither does a manifest.
+            Err(StoreError::PayloadMismatch { found, .. }) => Err(FetchError::Tampered {
+                path: entry.path.clone(),
+                offered: entry.digest,
+                found,
+            }),
+            Err(error) => Err(error.into()),
+        }
     }
 }
 

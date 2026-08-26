@@ -654,18 +654,24 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                     }
                     continue;
                 };
-                let bytes = store
-                    .payload(&payload)
+                if store
+                    .payload_file(&payload)
                     .map_err(Failure::error)?
-                    .ok_or_else(|| {
-                        Failure::error(format!("this store does not hold the content {payload}"))
-                    })?;
-                if let Ok(held) = fs::read(&on_disk)
-                    && held != bytes
+                    .is_none()
+                {
+                    return Err(Failure::error(format!(
+                        "this store does not hold the content {payload}"
+                    )));
+                }
+                // Decision 0067: what stands in the folder is compared by
+                // digest, so a photograph already in place is settled without
+                // either copy of it being read into memory.
+                if let Ok(held) = historica::fs::digest_of(&Disk, &on_disk)
+                    && held != payload
                     && !heads.iter().any(|head| {
                         store
                             .content_at(head, file)
-                            .is_ok_and(|content| content.bytes() == held)
+                            .is_ok_and(|content| content.digest() == held)
                     })
                 {
                     said.push(format!(
@@ -673,7 +679,7 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                     ));
                     continue;
                 }
-                bytes
+                Laid::Payload(payload)
             }
             Kind::Link => unreachable!("a link was laid down above"),
             Kind::Lines => {
@@ -697,7 +703,7 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                     ));
                     continue;
                 }
-                rendered.into_bytes()
+                Laid::Bytes(rendered.into_bytes())
             }
         };
 
@@ -705,7 +711,16 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             fs::create_dir_all(directory)
                 .map_err(|error| Failure::error(format!("{}: {error}", directory.display())))?;
         }
-        fs::write(&on_disk, &rendered).map_err(|error| Failure::error(format!("{at}: {error}")))?;
+        match rendered {
+            Laid::Bytes(bytes) => fs::write(&on_disk, &bytes)
+                .map_err(|error| Failure::error(format!("{at}: {error}")))?,
+            // Straight from the store's file into the folder, in pieces.
+            Laid::Payload(payload) => {
+                store
+                    .copy_payload_to(&payload, &Disk, &on_disk)
+                    .map_err(|error| Failure::error(format!("{at}: {error}")))?;
+            }
+        }
         // Decision 0034: the folder is what `record --merge` surveys, so a
         // merged file laid down with the wrong bit would be recorded as a mode
         // change nobody made — undoing the chmod one side of the merge
@@ -818,6 +833,18 @@ fn contested_payloads(contested: &[TreeContest], file: &FileId) -> Vec<(Revision
             _ => None,
         })
         .unwrap_or_default()
+}
+
+/// What a merge is about to put at one path.
+///
+/// Decision 0067: a rendering of contested lines is made here and has to be
+/// carried; a payload is a file the store already holds, so it is named and
+/// copied across in pieces rather than assembled to be written back out.
+enum Laid {
+    /// Bytes this command produced.
+    Bytes(Vec<u8>),
+    /// A payload the store holds.
+    Payload(RevisionId),
 }
 
 /// Whether some head already holds exactly this text for this file.

@@ -424,7 +424,10 @@ impl<F: Filesystem> Store<F> {
             // does not hold — forgotten, or not yet delivered. Both are left
             // to the stand-ins below and to `check` in the copy, which says
             // the same thing about it that `check` says here.
-            if self.payload(&id)?.is_some() {
+            // Decision 0067: whether the bytes are here is a question about
+            // the file, and it is answered by hashing it — which is what
+            // finding it means. Nothing is read into memory to be dropped.
+            if self.payload_file(&id)?.is_some() {
                 payloads.insert(id);
             }
         }
@@ -829,10 +832,13 @@ impl<F: Filesystem> Store<F> {
             if plan.holds.contains(id) || plan.forgotten.contains(id) {
                 continue;
             }
-            let bytes = self
-                .payload(id)?
+            // Decision 0067: one file copied to another, in pieces, hashed on
+            // the way past. A published copy of a folder of photographs never
+            // holds one of them in memory.
+            let from = self
+                .payload_file(id)?
                 .expect("a payload the plan named is still held");
-            copy.insert_payload_at(&bytes, &name_of(id, false))?;
+            copy.insert_payload_from(&self.files, &from, id, &name_of(id, false))?;
             wrote.payloads += 1;
         }
         // Written back in the grammar it was read in, both here and for the
@@ -902,7 +908,7 @@ impl<F: Filesystem> Store<F> {
         let working = Working::read_on(copy.filesystem(), directory, copy.skipped())
             .map_err(|error| ExportError::Update(Box::new(UpdateError::Working(error))))?;
         let update = update::plan_at(&copy, &working, directory, target, overwrite)?;
-        let applied = update::apply(&working, directory, &update)?;
+        let applied = update::apply(self, &working, directory, &update)?;
 
         // Withdrawals descend: the revisions, then the documents nothing kept
         // names, then the payloads. Every one of them is something no revision
@@ -1098,7 +1104,7 @@ impl<F: Filesystem> Store<F> {
         }
         let working = self.folder_at(&files, directory)?;
         let update = update::plan_into(self, &working, directory, target)?;
-        let applied = update::apply(&working, directory, &update)?;
+        let applied = update::apply(self, &working, directory, &update)?;
 
         // The plan's own and the apply's, together: into a directory that held
         // nothing, both mean the same thing — somebody else is writing here —

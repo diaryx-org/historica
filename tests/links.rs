@@ -218,8 +218,10 @@ fn a_link_has_no_content_to_materialise() {
         store
             .content_at(&head, &file(AUGUST))
             .expect("the month")
-            .bytes()
-            .starts_with(b"# August")
+            .lines()
+            .expect("a file of lines")
+            .text()
+            .starts_with("# August")
     );
 }
 

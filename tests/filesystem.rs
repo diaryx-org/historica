@@ -1009,8 +1009,8 @@ fn the_folder_updates_in_memory_too() {
         .expect("the folder in memory");
     let plan = historica::update::plan(&store, &working, Path::new(ROOT), &second).expect("a plan");
     assert_eq!(plan.writes.len(), 1, "one file differs");
-    let applied =
-        historica::update::apply(&working, Path::new(ROOT), &plan).expect("applying the plan");
+    let applied = historica::update::apply(&store, &working, Path::new(ROOT), &plan)
+        .expect("applying the plan");
     assert_eq!(applied.wrote, ["notes.md"]);
     assert!(applied.left.is_empty() && applied.folded.is_empty());
     assert_eq!(
@@ -1058,8 +1058,8 @@ fn a_file_that_moved_between_plan_and_apply_is_left_and_reported() {
     // The race: an edit lands after the plan looked and before apply does.
     put(&memory, "notes.md", "work the plan never saw\n");
 
-    let applied =
-        historica::update::apply(&working, Path::new(ROOT), &plan).expect("applying the plan");
+    let applied = historica::update::apply(&store, &working, Path::new(ROOT), &plan)
+        .expect("applying the plan");
     assert!(applied.wrote.is_empty(), "{applied:?}");
     assert_eq!(
         applied.left,

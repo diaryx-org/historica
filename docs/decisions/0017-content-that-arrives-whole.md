@@ -424,7 +424,12 @@ that has one.
 whole to write it. Streaming, chunking, and not holding a video in memory are
 real work that a journal with photographs in it will not notice and a
 repository of build artefacts will. `cache/` is where the digest index goes
-when hashing on demand stops being affordable.
+when hashing on demand stops being affordable. — Half paid by
+[0043](0043-what-a-command-does-not-have-to-read.md), which made *what does
+this file hash to* a pass rather than a buffer, and the rest by
+[0067](0067-content-that-arrives-whole-is-named-not-carried.md), which found
+that the remaining copies were held by this document's own type:
+`Content::Whole` said the bytes where the revision document says the digest.
 
 **Forgetting, still.** 0014 has a shape and no implementation, and this
 document adds the payload case to what that implementation will owe.

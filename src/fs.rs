@@ -433,6 +433,44 @@ pub trait Filesystem {
         let (_, _) = (path, each);
         Ok(None)
     }
+
+    /// Take one file's bytes in pieces, or `None` to be handed them whole.
+    ///
+    /// [`read_in_pieces`](Filesystem::read_in_pieces) turned around, and
+    /// decision 0067's half of it. `feed` is called once and writes the file's
+    /// bytes, in whatever runs it finds convenient, into the sink it is
+    /// handed; the file that results is exactly the file
+    /// [`write`](Filesystem::write) would have made from those runs
+    /// concatenated. What this saves is the concatenation: a payload copied
+    /// from a folder into a store passes through a buffer of a size the
+    /// implementation chose rather than one the file chose.
+    ///
+    /// **Landing is all or nothing**, exactly as [`write`](Filesystem::write)
+    /// promises it: until the write commits a reader sees the complete old
+    /// file or nothing, and afterwards the complete new one — never a
+    /// destination with half a photograph in it. That is also what makes this
+    /// the write a verified copy is built on, since the only way to refuse
+    /// bytes that turned out to hash wrongly is to refuse them *after* the
+    /// last of them arrived: **an error out of `feed` leaves the destination
+    /// exactly as it stood**, and is returned to the caller unchanged.
+    ///
+    /// `path`'s parent is made first by the caller, as it is for
+    /// [`rename`](Filesystem::rename).
+    ///
+    /// `Ok(None)` is reserved for *this filesystem takes a file whole*, and an
+    /// implementation answering it **must not have called `feed`**: the caller
+    /// falls back to buffering the pieces and calling
+    /// [`write`](Filesystem::write), and a partial write followed by a whole
+    /// one would leave a file with a prefix of itself in front. A filesystem
+    /// that does take a file in pieces answers `Ok(Some(()))`, or an error.
+    fn write_in_pieces(
+        &self,
+        path: &Path,
+        feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
+    ) -> io::Result<Option<()>> {
+        let (_, _) = (path, feed);
+        Ok(None)
+    }
 }
 
 /// The guarded write of a filesystem that cannot check and write in one
@@ -518,6 +556,13 @@ impl<T: Filesystem + ?Sized> Filesystem for &T {
     fn read_in_pieces(&self, path: &Path, each: &mut dyn FnMut(&[u8])) -> io::Result<Option<()>> {
         (**self).read_in_pieces(path, each)
     }
+    fn write_in_pieces(
+        &self,
+        path: &Path,
+        feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
+    ) -> io::Result<Option<()>> {
+        (**self).write_in_pieces(path, feed)
+    }
 }
 
 /// Forward every method to whatever is inside the pointer.
@@ -591,6 +636,13 @@ macro_rules! forwarding {
             ) -> io::Result<Option<()>> {
                 (**self).read_in_pieces(path, each)
             }
+            fn write_in_pieces(
+                &self,
+                path: &Path,
+                feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
+            ) -> io::Result<Option<()>> {
+                (**self).write_in_pieces(path, feed)
+            }
         }
     };
 }
@@ -629,6 +681,91 @@ pub fn digest_of<F: Filesystem + ?Sized>(
     let streamed = files.read_in_pieces(path, &mut |piece| hasher.update(piece))?;
     if streamed.is_none() {
         hasher.update(&files.read(path)?);
+    }
+    Ok(hasher.finish())
+}
+
+/// Write a file from pieces, buffering only where a filesystem takes files
+/// whole.
+///
+/// Decision 0067's counterpart to [`digest_of`], and the one place the
+/// fallback is spelled: `feed` writes the file's bytes into the sink it is
+/// handed, and which of [`Filesystem::write_in_pieces`] and
+/// [`Filesystem::write`] lands them changes how much memory this cost and
+/// nothing else. A filesystem that takes the default gets exactly the write it
+/// would have got before either existed.
+///
+/// An error out of `feed` leaves the destination as it stood, on both paths —
+/// which is what lets a caller hash while it writes and refuse the whole file
+/// at the last piece.
+pub fn write_from_pieces<F: Filesystem + ?Sized>(
+    files: &F,
+    path: &Path,
+    feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
+) -> io::Result<()> {
+    if files.write_in_pieces(path, feed)?.is_some() {
+        return Ok(());
+    }
+    // The concatenation the trait method exists to avoid, performed here for
+    // the filesystems that need it — and performed *before* the write, so a
+    // `feed` that refuses at its last piece refuses this write too.
+    let mut held = Vec::new();
+    feed(&mut held)?;
+    files.write(path, &held)
+}
+
+/// Copy one file to another path without holding it, and say what it hashed
+/// to.
+///
+/// The digest is taken over the bytes as they pass, so a caller that knows
+/// what the file should hash to learns whether it did without a third read —
+/// and, because [`write_from_pieces`] leaves a destination untouched when the
+/// feed refuses, a caller that wants the copy to happen only if the digest
+/// matches has somewhere to refuse from.
+pub fn copy_in_pieces<F: Filesystem + ?Sized, G: Filesystem + ?Sized>(
+    from_files: &F,
+    from: &Path,
+    to_files: &G,
+    to: &Path,
+) -> io::Result<crate::core::RevisionId> {
+    let mut found = None;
+    write_from_pieces(to_files, to, &mut |into| {
+        found = Some(hand_over(from_files, from, into)?);
+        Ok(())
+    })?;
+    Ok(found.expect("a write that returned wrote every piece"))
+}
+
+/// Feed one file's bytes into a sink, hashing them on the way through.
+///
+/// [`Filesystem::read_in_pieces`] hands pieces to a closure that cannot fail,
+/// so a sink that refuses one is remembered here and reported when the read
+/// finishes — the read is not cut short, because the trait offers no way to
+/// cut it short, and an error on a write is rare enough that reading the rest
+/// of a file costs nothing anybody will observe.
+pub fn hand_over<F: Filesystem + ?Sized>(
+    files: &F,
+    from: &Path,
+    into: &mut dyn io::Write,
+) -> io::Result<crate::core::RevisionId> {
+    let mut hasher = crate::format::Hasher::new();
+    let mut refused: Option<io::Error> = None;
+    let streamed = files.read_in_pieces(from, &mut |piece| {
+        if refused.is_some() {
+            return;
+        }
+        hasher.update(piece);
+        if let Err(error) = into.write_all(piece) {
+            refused = Some(error);
+        }
+    })?;
+    if let Some(error) = refused {
+        return Err(error);
+    }
+    if streamed.is_none() {
+        let held = files.read(from)?;
+        hasher.update(&held);
+        into.write_all(&held)?;
     }
     Ok(hasher.finish())
 }
@@ -916,6 +1053,77 @@ impl Filesystem for Disk {
             each(&buffer[..read]);
         }
     }
+
+    fn write_in_pieces(
+        &self,
+        path: &Path,
+        feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
+    ) -> io::Result<Option<()>> {
+        use io::Write as _;
+
+        // Decision 0026's atomic replacement, done by hand because the bytes
+        // are not all here at once: staged in a temporary sibling, flushed,
+        // renamed over the destination, and the directory entry flushed after
+        // it. What `fs_transaction` does for a slice, in the one shape a
+        // stream can take it — the rename is still the only thing a reader can
+        // see, so the destination holds the whole of the old file or the whole
+        // of the new one and never a prefix of a photograph.
+        let Some(directory) = path.parent().filter(|held| !held.as_os_str().is_empty()) else {
+            // A bare relative name has no sibling directory to stage in, and
+            // inventing one would put the temporary somewhere the caller did
+            // not name. Whole bytes it is.
+            return Ok(None);
+        };
+        let staged = directory.join(staging_name(path));
+        let landed = (|| -> io::Result<()> {
+            let mut file = std::fs::File::create(&staged)?;
+            // A refusal here is the caller's — a digest that did not match
+            // what was promised — and it must leave the destination alone,
+            // which it does, because nothing has been renamed yet.
+            feed(&mut file)?;
+            file.flush()?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&staged, path)?;
+            // The directory entry, so the name cannot outlive the bytes it
+            // stands for. `create_new`'s comment says why this crate cares.
+            if let Ok(opened) = std::fs::File::open(directory) {
+                let _ = opened.sync_all();
+            }
+            Ok(())
+        })();
+        if landed.is_err() {
+            // Nothing here may leave scratch behind for a store's own walk to
+            // find: `operations/` reads every file that is not a document as a
+            // payload, and a half-written one would be a payload nothing
+            // names. A crash mid-write can still leave one, which is the same
+            // note an interrupted `record` already earns.
+            let _ = std::fs::remove_file(&staged);
+        }
+        landed.map(Some)
+    }
+}
+
+/// A name for the temporary a streamed write stages in.
+///
+/// Beside the destination, because the rename that publishes it has to stay
+/// within one filesystem, and distinctive enough that two writers racing to
+/// produce the same payload do not stage into one file. Dot-prefixed so that a
+/// person who meets one after a crash can see it is not theirs.
+#[cfg(feature = "disk")]
+fn staging_name(path: &Path) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    format!(
+        ".{name}.{}.{}.partial",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// What a one-op batch failed with, said in this trait's currency.

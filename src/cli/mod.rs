@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use historica::format::Timestamp;
 use historica::record::{Restriction, survey};
 use historica::store::{
-    Body, Bookmark, Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store,
-    StoreError,
+    Body, Bookmark, Content, Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR,
+    Store, StoreError,
 };
 use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope, Working};
 
@@ -948,16 +948,21 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                 .get(&file)
                 .or_else(|| document.bytes.get(&file))
             {
-                match store.payload(payload).map_err(Failure::error)? {
-                    Some(bytes) => bytes,
-                    None => stands_in(&store, payload)?.ok_or_else(|| {
-                        Failure::error(format!(
-                            "{} names the content {payload}, \
-                             which this store does not hold yet",
-                            id.abbreviate(12)
-                        ))
-                    })?,
+                // Decision 0067: printed straight out of the store's own file,
+                // in pieces, because a payload is the one thing `show` prints
+                // that has no bound on its size. Nothing is buffered, and
+                // nothing is printed until the file has hashed to the digest
+                // this revision names.
+                if print_payload(&store, payload)? {
+                    return Ok(0);
                 }
+                stands_in(&store, payload)?.ok_or_else(|| {
+                    Failure::error(format!(
+                        "{} names the content {payload}, \
+                         which this store does not hold yet",
+                        id.abbreviate(12)
+                    ))
+                })?
             } else {
                 return Err(Failure::error(format!(
                     "{} said nothing about {path}; `show {spelling}` lists what it did",
@@ -968,6 +973,36 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     };
 
     printing(|out| out.write_all(&document_bytes))
+}
+
+/// Print one payload byte for byte, without holding it.
+///
+/// Decision 0067. `false` means this store has not been delivered those bytes,
+/// and nothing was printed; the caller says so in the words its own command
+/// wants. Verified before a byte leaves, because [`Store::payload_in_pieces`]
+/// finds the file by hashing it.
+fn print_payload(store: &Store, payload: &historica::core::RevisionId) -> Result<bool, Failure> {
+    let mut held = false;
+    let mut refused = None;
+    printing(|out| {
+        match store.payload_in_pieces(payload, &mut |piece| out.write_all(piece)) {
+            Ok(found) => {
+                held = found;
+                Ok(())
+            }
+            // A pipe that closed is `printing`'s own answer, so it is handed
+            // back as the failure it started as.
+            Err(StoreError::Io { error, .. }) => Err(error),
+            Err(error) => {
+                refused = Some(error);
+                Ok(())
+            }
+        }
+    })?;
+    if let Some(error) = refused {
+        return Err(Failure::error(error));
+    }
+    Ok(held)
 }
 
 /// The stored bytes of whatever stands in for a destroyed document.
@@ -1050,7 +1085,21 @@ fn cat(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // written to a terminal is a mess and a picture written to a pipe is a
     // picture, and choosing between those is the shell's business.
     let content = store.content_at(&id, &file).map_err(Failure::error)?;
-    printing(|out| out.write_all(&content.bytes()))
+    match content {
+        Content::Lines(state) => printing(|out| out.write_all(state.text().as_bytes())),
+        // Decision 0067: straight from the store's file to the stream, in
+        // pieces, so `cat` of a video is a pipe rather than an allocation.
+        // Verified before the first byte leaves, because the file it comes
+        // from is found by hashing it.
+        Content::Whole(payload) => {
+            if !print_payload(&store, &payload)? {
+                return Err(Failure::error(format!(
+                    "`{path}` holds the content {payload}, which this store does not hold yet"
+                )));
+            }
+            Ok(0)
+        }
+    }
 }
 
 /// `names` — the only mutable files in a store, and what they resolve to.

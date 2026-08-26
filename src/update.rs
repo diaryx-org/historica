@@ -28,22 +28,116 @@ use crate::store::{MaterialiseError, STORE_DIR, Store, StoreError};
 use crate::tree::{Kind, Tree};
 use crate::working::{Working, WorkingError};
 
-/// One file the update writes: the bytes the target records for a path, and
-/// what the plan saw on disk there, so that applying can look again.
+/// One file the update writes: what the target records for a path, and what
+/// the plan saw on disk there, so that applying can look again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Write {
     /// Where the file sits, relative to the repository root.
     pub path: String,
-    /// The bytes the target records — exactly what `cat` prints.
-    pub bytes: Vec<u8>,
-    /// What the plan found at the path: recorded bytes to replace, or nothing.
-    pub replaces: Option<Vec<u8>>,
+    /// What the target records — exactly what `cat` prints.
+    pub content: Written,
     /// The mode the target records.
     ///
     /// Stated by the plan and applied by [`apply`], which is where a
     /// filesystem with no such bit turns setting it into nothing. Asking here
     /// would mean asking about a path that does not exist yet.
     pub mode: Mode,
+}
+
+/// What the target records for a path, and what stood there when the plan
+/// looked.
+///
+/// Decision 0067 splits this the way decision 0017 splits a file. A file of
+/// lines was replayed to produce it and is in memory already, so it is carried
+/// and the guard is the bytes it replaces. A file of bytes is a payload the
+/// store holds, and carrying it would mean a plan for a folder of photographs
+/// holding every photograph before it wrote the first — so it is named, the
+/// guard is a digest, and [`apply`] streams it out of the store into the
+/// folder without either copy passing through memory.
+///
+/// The two guards are not the same promise, and the difference is decision
+/// 0025's window rather than its rule. A file of lines is checked and written
+/// in one operation where the filesystem offers one
+/// ([`Filesystem::write_if`](crate::fs::Filesystem::write_if)). A payload is
+/// looked at, hashed, and then streamed, which is the wider window the trait's
+/// own default has always had — a conditional write is not something a
+/// filesystem can offer for bytes nobody is holding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Written {
+    /// The lines the target records, and the recorded bytes they replace.
+    Lines {
+        /// What the file will hold.
+        bytes: Vec<u8>,
+        /// What the plan found at the path, or nothing where it found nothing.
+        replaces: Option<Vec<u8>>,
+    },
+    /// The payload the target records, and the digest of what it replaces.
+    Whole {
+        /// The payload, which the store streams out.
+        payload: RevisionId,
+        /// What the plan found the path to hash to, or nothing where it found
+        /// nothing there at all.
+        replaces: Option<RevisionId>,
+    },
+}
+
+impl Written {
+    /// What the file will hash to once this is written.
+    pub fn digest(&self) -> RevisionId {
+        match self {
+            Written::Lines { bytes, .. } => crate::format::digest(bytes),
+            Written::Whole { payload, .. } => *payload,
+        }
+    }
+}
+
+/// What the target records for a path, before it is known whether the folder
+/// holds it already.
+///
+/// [`Written`] without its guard, which is the order the plan works in: what
+/// the target records is settled first, compared against the folder by digest,
+/// and only a path that turns out to need writing pays for the guard.
+enum Wanted {
+    Lines(Vec<u8>),
+    Whole(RevisionId),
+}
+
+impl Wanted {
+    /// What the target says the file hashes to.
+    fn digest(&self) -> RevisionId {
+        match self {
+            Wanted::Lines(bytes) => crate::format::digest(bytes),
+            Wanted::Whole(payload) => *payload,
+        }
+    }
+
+    /// The same, with the guard for a path that is about to be written over.
+    ///
+    /// `held` is what the folder was found to hash to, or `None` where nothing
+    /// stands there. A file of lines is guarded by bytes, because
+    /// [`Filesystem::write_if`](crate::fs::Filesystem::write_if) can check and
+    /// write in one operation and that is worth the read; a file of bytes is
+    /// guarded by the digest already in hand.
+    fn replacing<F: Filesystem>(
+        self,
+        working: &Working<F>,
+        path: &str,
+        held: Option<RevisionId>,
+    ) -> Result<Written, UpdateError> {
+        Ok(match self {
+            Wanted::Lines(bytes) => Written::Lines {
+                bytes,
+                replaces: match held {
+                    Some(_) => Some(working.bytes(path)?),
+                    None => None,
+                },
+            },
+            Wanted::Whole(payload) => Written::Whole {
+                payload,
+                replaces: held,
+            },
+        })
+    }
 }
 
 /// One file whose bytes are already what the target records and whose mode is
@@ -88,9 +182,13 @@ pub enum Stood {
     Nothing,
     /// A link, pointing exactly here.
     Link(String),
-    /// A regular file, holding these bytes — which some revision records, or
-    /// the plan would have refused rather than planned to replace it.
-    File(Vec<u8>),
+    /// A regular file hashing to this — which some revision records, or the
+    /// plan would have refused rather than planned to replace it.
+    ///
+    /// Decision 0067: the digest rather than the bytes, because what a plan
+    /// needs to carry from the look to the write is the answer to *is this
+    /// still the file I saw*, and that is a number.
+    File(RevisionId),
 }
 
 /// One file the update removes: a path the target does not hold, whose bytes
@@ -99,8 +197,9 @@ pub enum Stood {
 pub struct Remove {
     /// Where the file sits, relative to the repository root.
     pub path: String,
-    /// The recorded bytes the plan saw there, so that applying can look again.
-    pub held: Vec<u8>,
+    /// What the plan found the path to hash to, so that applying can look
+    /// again, or nothing where what it found was a link.
+    pub held: Option<RevisionId>,
     /// The link the plan saw there instead, where the path holds one.
     ///
     /// Decision 0040: what a link holds is a target, so this is what applying
@@ -378,12 +477,12 @@ fn recorded_at<F: Filesystem, G: Filesystem>(
     working: &Working<G>,
     recorded: &RecordedBytes<'_, F>,
     path: &str,
-) -> Result<Option<Vec<u8>>, UpdateError> {
+) -> Result<Option<RevisionId>, UpdateError> {
     if !working.holds(path) || working.is_link(path) {
         return Ok(None);
     }
-    let held = working.bytes(path)?;
-    Ok(recorded.holds(path, &held).then_some(held))
+    let held = working.reread_digest(path)?;
+    Ok(recorded.holds(path, held).then_some(held))
 }
 
 /// Whether some revision recorded a link at this path pointing exactly here.
@@ -734,7 +833,11 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             continue;
         }
 
-        let bytes = match entry.kind {
+        // Decision 0067: a file of lines is replayed here and carried; a file
+        // of bytes is *named* here, and the naming is checked — a payload the
+        // store cannot produce is the refusal below, worked out by hashing the
+        // file rather than by reading it into the plan.
+        let wanted = match entry.kind {
             Kind::Whole => match &entry.payload {
                 None => {
                     refuse(
@@ -744,30 +847,30 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                     );
                     continue;
                 }
-                Some(digest) => match store.payload(digest)? {
-                    Some(bytes) => bytes,
-                    None if !store.forgetting(digest)?.is_empty() => {
-                        refuse(
-                            path,
-                            format!(
-                                "its content {digest} was forgotten; record the `drop` that makes that true"
-                            ),
-                        );
+                Some(digest) => {
+                    if store.payload_file(digest)?.is_none() {
+                        if store.forgetting(digest)?.is_empty() {
+                            refuse(
+                                path,
+                                format!(
+                                    "this store does not hold the content {digest}; receive the rest first"
+                                ),
+                            );
+                        } else {
+                            refuse(
+                                path,
+                                format!(
+                                    "its content {digest} was forgotten; record the `drop` that makes that true"
+                                ),
+                            );
+                        }
                         continue;
                     }
-                    None => {
-                        refuse(
-                            path,
-                            format!(
-                                "this store does not hold the content {digest}; receive the rest first"
-                            ),
-                        );
-                        continue;
-                    }
-                },
+                    Wanted::Whole(*digest)
+                }
             },
             Kind::Lines => match store.content(target, file) {
-                Ok(state) => state.text().into_bytes(),
+                Ok(state) => Wanted::Lines(state.text().into_bytes()),
                 Err(error) => {
                     refuse(path, error.to_string());
                     continue;
@@ -777,9 +880,12 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
         };
 
         if working.holds(path) {
-            let held = working.bytes(path)?;
+            // The folder's copy is compared by digest, whichever kind it is:
+            // decision 0043's question, and the one thing both sides of it
+            // already have.
+            let held = working.reread_digest(path)?;
             let held_mode = working.executable(path)?.map(Mode::of);
-            if held == bytes {
+            if held == wanted.digest() {
                 match held_mode {
                     Some(mode) if mode != entry.mode => update.modes.push(Chmod {
                         path: (*path).to_owned(),
@@ -787,11 +893,13 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                     }),
                     _ => update.kept.push((*path).to_owned()),
                 }
-            } else if recorded.holds(path, &held) {
+            } else if recorded.holds(path, held) {
                 update.writes.push(Write {
                     path: (*path).to_owned(),
-                    bytes,
-                    replaces: Some(held),
+                    // A file of lines is guarded by the bytes it replaces, and
+                    // those bytes are read once, here, for the one path that
+                    // is about to be written over.
+                    content: wanted.replacing(working, path, Some(held))?,
                     mode: entry.mode,
                 });
             } else {
@@ -802,8 +910,7 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             match look(working.filesystem(), &on_disk)? {
                 None => update.writes.push(Write {
                     path: (*path).to_owned(),
-                    bytes,
-                    replaces: None,
+                    content: wanted.replacing(working, path, None)?,
                     mode: entry.mode,
                 }),
                 Some(OnDisk::Directory) => {
@@ -845,7 +952,7 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             if recorded_link(store, &recorded, path, held)? {
                 update.removes.push(Remove {
                     path: path.clone(),
-                    held: Vec::new(),
+                    held: None,
                     link: Some(held.to_owned()),
                 });
             } else if tracked.contains(path) {
@@ -859,11 +966,11 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             update.leaves.push((path.clone(), UNRECORDED.to_owned()));
             continue;
         }
-        let held = working.bytes(path)?;
-        if recorded.holds(path, &held) {
+        let held = working.reread_digest(path)?;
+        if recorded.holds(path, held) {
             update.removes.push(Remove {
                 path: path.clone(),
-                held,
+                held: Some(held),
                 link: None,
             });
         } else if tracked.contains(path) {
@@ -920,7 +1027,8 @@ fn set_mode<F: Filesystem + ?Sized>(
 /// planning and acting is left alone and reported, per decision 0025, and a
 /// written path is read back so that a folder folding two paths onto one file
 /// — decision 0027's case — is discovered and named rather than silent.
-pub fn apply<F: Filesystem>(
+pub fn apply<F: Filesystem, G: Filesystem>(
+    store: &Store<G>,
     working: &Working<F>,
     repository: &Path,
     update: &Update,
@@ -968,8 +1076,11 @@ pub fn apply<F: Filesystem>(
             }
             continue;
         }
-        match read(filesystem, &on_disk)? {
-            Some(held) if held == remove.held => {
+        // Decision 0067: what is compared is the digest, so a photograph being
+        // removed is looked at again in pieces rather than read into memory to
+        // be thrown away.
+        match hashed(filesystem, &on_disk)? {
+            Some(held) if Some(held) == remove.held => {
                 filesystem
                     .remove_file(&on_disk)
                     .map_err(|error| UpdateError::Io {
@@ -994,12 +1105,42 @@ pub fn apply<F: Filesystem>(
     // operation, and every other performs the look this loop used to.
     for write in &update.writes {
         let on_disk = on_disk(&write.path);
-        let guarded = filesystem
-            .write_if(&on_disk, write.replaces.as_deref(), &write.bytes)
-            .map_err(|error| UpdateError::Io {
-                path: on_disk.clone(),
-                error,
-            })?;
+        let guarded = match &write.content {
+            Written::Lines { bytes, replaces } => filesystem
+                .write_if(&on_disk, replaces.as_deref(), bytes)
+                .map_err(|error| UpdateError::Io {
+                    path: on_disk.clone(),
+                    error,
+                })?,
+            // Decision 0067: the look and the write are two steps again for a
+            // file nobody is holding — the destination is hashed, and then the
+            // payload is streamed out of the store into it. The window between
+            // them is exactly the trait default's, which decision 0025 already
+            // treats as the answer a filesystem gives when it has no
+            // conditional write; what a conditional write cannot be given here
+            // is bytes to compare, since the whole point is that nobody has
+            // them.
+            Written::Whole { payload, replaces } => {
+                if hashed(filesystem, &on_disk)? != *replaces {
+                    Guarded::Drifted
+                } else {
+                    if let Some(directory) =
+                        on_disk.parent().filter(|held| !held.as_os_str().is_empty())
+                    {
+                        filesystem.create_directory(directory).map_err(|error| {
+                            UpdateError::Io {
+                                path: directory.to_path_buf(),
+                                error,
+                            }
+                        })?;
+                    }
+                    store
+                        .copy_payload_to(payload, filesystem, &on_disk)
+                        .map_err(UpdateError::Store)?;
+                    Guarded::Written
+                }
+            }
+        };
         if guarded == Guarded::Drifted {
             applied.left.push((
                 write.path.clone(),
@@ -1021,8 +1162,8 @@ pub fn apply<F: Filesystem>(
         let now = match filesystem.link_target(&on_disk) {
             Ok(Some(held)) => Stood::Link(held),
             // Nothing, or something that is not a link: read it as what it is.
-            _ => match read(filesystem, &on_disk)? {
-                Some(bytes) => Stood::File(bytes),
+            _ => match hashed(filesystem, &on_disk)? {
+                Some(found) => Stood::File(found),
                 None => Stood::Nothing,
             },
         };
@@ -1058,7 +1199,7 @@ pub fn apply<F: Filesystem>(
         let on_disk = on_disk(&chmod.path);
         // A file that changed underneath the update is left alone here for the
         // reason it is left alone above: what comes back is what happened.
-        if read(filesystem, &on_disk)?.is_none() {
+        if hashed(filesystem, &on_disk)?.is_none() {
             applied.left.push((
                 chmod.path.clone(),
                 "it went away underneath the update".to_owned(),
@@ -1068,8 +1209,8 @@ pub fn apply<F: Filesystem>(
         set_mode(filesystem, &on_disk, chmod.mode, &chmod.path, &mut applied)?;
     }
 
-    // Read each written file back. Bytes that are not what was just written
-    // mean the folder folded two of the tree's paths together — case, or
+    // Hash each written file back. A digest that is not what was just written
+    // means the folder folded two of the tree's paths together — case, or
     // normalisation — and cannot represent this tree. Nothing unrecorded was
     // at risk in the discovery: every byte the fold clobbered is one this
     // update had just written from the store.
@@ -1078,7 +1219,7 @@ pub fn apply<F: Filesystem>(
             continue;
         }
         let on_disk = on_disk(&write.path);
-        if read(filesystem, &on_disk)?.as_deref() != Some(write.bytes.as_slice()) {
+        if hashed(filesystem, &on_disk)? != Some(write.content.digest()) {
             applied.folded.push(write.path.clone());
         }
     }
@@ -1149,9 +1290,13 @@ impl<'a, F: Filesystem> RecordedBytes<'a, F> {
             .unwrap_or_default()
     }
 
-    /// Whether some revision records exactly these bytes for a file that has
-    /// held this path.
-    fn holds(&self, path: &str, held: &[u8]) -> bool {
+    /// Whether some revision records content hashing to this for a file that
+    /// has held this path.
+    ///
+    /// Decision 0067: the comparison was two byte sequences and is now two
+    /// digests, which is the same question — decision 0002's, that identity
+    /// comes from content — asked without materialising either side.
+    fn holds(&self, path: &str, held: RevisionId) -> bool {
         if self.wholesale() {
             return true;
         }
@@ -1172,7 +1317,7 @@ impl<'a, F: Filesystem> RecordedBytes<'a, F> {
                         && self
                             .store
                             .content_at_heads(&[*id], file)
-                            .is_ok_and(|content| content.bytes() == held)
+                            .is_ok_and(|content| content.digest() == held)
                 })
         })
     }
@@ -1186,10 +1331,18 @@ fn look<F: Filesystem>(filesystem: &F, path: &Path) -> Result<Option<OnDisk>, Up
     })
 }
 
-/// Every byte of a file, or `None` where there is none.
-fn read<F: Filesystem>(filesystem: &F, path: &Path) -> Result<Option<Vec<u8>>, UpdateError> {
-    match filesystem.read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
+/// What a file hashes to, or `None` where there is no file.
+///
+/// Decision 0067: every look this module takes at a destination is asking
+/// whether it still holds what the plan saw, and decision 0002 makes that a
+/// question about a digest. Taken in pieces, so looking at a video costs a read
+/// and never the video.
+fn hashed<F: Filesystem + ?Sized>(
+    filesystem: &F,
+    path: &Path,
+) -> Result<Option<RevisionId>, UpdateError> {
+    match crate::fs::digest_of(filesystem, path) {
+        Ok(found) => Ok(Some(found)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(UpdateError::Io {
             path: path.to_path_buf(),

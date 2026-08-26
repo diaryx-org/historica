@@ -154,15 +154,29 @@ fn one_history_holds_a_payload_and_the_operations_counted_against_it() {
         (crop, "operations/02-photo.png"),
     ] {
         let stored = fs::read(corpus().join(payload)).expect("the payload");
+        // Decision 0067: what the tree answers is the payload's name, and the
+        // bytes are asked of the store — in pieces, so that this is what
+        // `historica cat` does rather than a shortcut around it.
         let Content::Whole(held) = store
             .content_at(&revision, &file(PHOTO))
             .expect("the photograph")
         else {
             panic!("a file of bytes");
         };
-        assert_eq!(held, stored, "{payload}");
+        assert_eq!(held, historica::format::digest(&stored), "{payload}");
+        let mut streamed = Vec::new();
         assert!(
-            String::from_utf8(held).is_err(),
+            store
+                .payload_in_pieces(&held, &mut |piece| {
+                    streamed.extend_from_slice(piece);
+                    Ok(())
+                })
+                .expect("reading the payload"),
+            "{payload}: the store holds it"
+        );
+        assert_eq!(streamed, stored, "{payload}");
+        assert!(
+            String::from_utf8(streamed).is_err(),
             "and it is content no list of lines could hold"
         );
     }
@@ -237,4 +251,152 @@ fn every_invalid_file_is_refused_for_its_own_reason() {
         let said = error.to_string();
         assert!(said.len() > 40, "invalid/{name} says too little: {said}");
     }
+}
+
+/// A payload larger than the run a filesystem hands over goes in, comes back,
+/// and lands in a folder byte for byte.
+///
+/// Decision 0067: `record`, `cat` and `update` each read and write a payload in
+/// pieces now, and the seam between two pieces is the whole of what that
+/// introduces. `Disk` hands over 64 KiB at a time, so this file crosses several
+/// of them and ends part-way through one.
+#[test]
+fn a_payload_that_crosses_every_piece_boundary_round_trips() {
+    use historica::record::{Clock as _, Platform, Recording, Restriction, record};
+    use historica::update;
+    use historica::working::Working;
+    use std::collections::BTreeSet;
+
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("whole-streamed");
+    let _ = fs::remove_dir_all(&root);
+    let base = root.join("repo");
+    fs::create_dir_all(&base).expect("a folder");
+    let mut store = Store::init(base.join("history")).expect("a store");
+
+    // Not text by decision 0017's rule from its first dozen bytes, and long
+    // enough that no single read hands the whole of it over.
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    while bytes.len() < 300_003 {
+        bytes.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    }
+    fs::write(base.join("photo.png"), &bytes).expect("the file");
+
+    let mut platform = Platform;
+    let recording = |parents: Vec<RevisionId>, message: &str| Recording {
+        parents,
+        author: "Adam Harris <adam@example.com>".to_owned(),
+        when: Platform.now().expect("a clock"),
+        message: message.to_owned(),
+        moves: Vec::new(),
+        at: Vec::new(),
+        accepted: BTreeSet::new(),
+        only: Restriction::Everything,
+    };
+    let working = Working::read(&base, store.skipped()).expect("the folder");
+    let recorded = record(
+        &mut store,
+        &working,
+        &recording(Vec::new(), "A photograph"),
+        &mut platform,
+    )
+    .expect("recording");
+
+    // The revision names the digest, and the store hands the bytes back
+    // through the streaming read every command now uses.
+    let tree = store.tree(&recorded.revision).expect("the tree");
+    let (file, _) = tree.files().next().expect("the photograph");
+    let Content::Whole(payload) = store
+        .content_at(&recorded.revision, file)
+        .expect("the photograph")
+    else {
+        panic!("a file of bytes");
+    };
+    assert_eq!(payload, digest(&bytes));
+    let mut streamed = Vec::new();
+    assert!(
+        store
+            .payload_in_pieces(&payload, &mut |piece| {
+                streamed.extend_from_slice(piece);
+                Ok(())
+            })
+            .expect("reading it"),
+        "the store holds it"
+    );
+    assert_eq!(streamed, bytes, "byte for byte, out of the store");
+
+    // And an update lays it back down in an empty folder, straight from the
+    // store's own file.
+    let elsewhere = root.join("elsewhere");
+    fs::create_dir_all(&elsewhere).expect("an empty directory");
+    let into = Working::read(&elsewhere, store.skipped()).expect("walking nothing");
+    let plan = update::plan_into(&store, &into, &elsewhere, &recorded.revision).expect("a plan");
+    let applied = update::apply(&store, &into, &elsewhere, &plan).expect("applying");
+    assert_eq!(applied.wrote, ["photo.png"], "{applied:?}");
+    assert_eq!(
+        fs::read(elsewhere.join("photo.png")).expect("the file"),
+        bytes,
+        "byte for byte, into the folder"
+    );
+
+    // Recording the same folder again says nothing about it, which is the
+    // comparison of digests decision 0043 asked for and 0067 keeps.
+    let again = Working::read(&base, store.skipped()).expect("the folder");
+    assert!(
+        record(
+            &mut store,
+            &again,
+            &recording(vec![recorded.revision], "Nothing"),
+            &mut platform,
+        )
+        .is_err(),
+        "an unchanged photograph is not a revision"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// A streamed payload that does not hash to what it was promised to writes
+/// nothing at all.
+///
+/// Decision 0067's one new failure: a copy learns the digest at its last piece,
+/// and the refusal has to leave the destination as it stood — otherwise the
+/// store would hold a file named for bytes it does not have, which is exactly
+/// what `write_once` refuses for a document.
+#[test]
+fn a_payload_that_hashes_wrongly_leaves_nothing_behind() {
+    use historica::store::StoreError;
+
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("whole-mismatch");
+    let _ = fs::remove_dir_all(&root);
+    let mut store = Store::init(root.join("history")).expect("a store");
+
+    let promised = digest(b"the bytes that were promised");
+    let error = store
+        .insert_payload_in_pieces(&promised, &promised.to_string(), &mut |into| {
+            std::io::Write::write_all(into, b"the bytes that arrived")
+        })
+        .expect_err("bytes that are not what was promised");
+    let StoreError::PayloadMismatch { found, wanted, .. } = error else {
+        panic!("{error}");
+    };
+    assert_eq!(wanted, promised);
+    assert_eq!(found, digest(b"the bytes that arrived"));
+
+    assert!(
+        !root
+            .join("history/operations")
+            .join(promised.to_string())
+            .exists(),
+        "the name it would have gone under is free"
+    );
+    // And no scratch survives beside it, so the store's own walk finds nothing
+    // it would report as a payload nobody named.
+    let left: Vec<_> = fs::read_dir(root.join("history/operations"))
+        .expect("the directory")
+        .map(|entry| entry.expect("an entry").file_name())
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+
+    let report = Store::check(store.root());
+    assert!(report.is_ok(), "{:?}", report.findings());
 }

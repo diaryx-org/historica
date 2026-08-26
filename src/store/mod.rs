@@ -739,21 +739,57 @@ impl Held {
 
 /// What a file holds, which depends on what kind of file it is.
 ///
-/// Decision 0017: lines that merge, or one payload whole.
+/// Decision 0017: lines that merge, or one payload whole. Decision 0067 is why
+/// the second of those is a name rather than a run of bytes — a revision
+/// document says `bytes <file> <digest>` and never more than that, so this
+/// says exactly what the document says, and the bytes are asked of the store
+/// by whoever actually wants them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Content {
     /// A file of lines, as the operation chain leaves it.
     Lines(State),
-    /// A file of bytes, exactly as its payload holds them.
-    Whole(Vec<u8>),
+    /// A file of bytes, named by the payload that holds them.
+    Whole(RevisionId),
 }
 
 impl Content {
-    /// The file's bytes, whichever kind it is.
-    pub fn bytes(&self) -> Vec<u8> {
+    /// What the file's bytes hash to, whichever kind of file it is.
+    ///
+    /// This is what [`Content::bytes`] was for. Every caller of it was
+    /// comparing one file's content against another's — *has this changed*,
+    /// *is this the file that moved*, *does the folder still hold what was
+    /// recorded* — and every one of those is a comparison of digests that was
+    /// materialising two files to make it. A payload names its digest already,
+    /// and [`State::digest`] takes a line file's without building the string,
+    /// so both sides of the comparison are now arithmetic.
+    ///
+    /// A method handing back bytes could not survive decision 0067 honestly:
+    /// for a file of bytes it would have to reach into the store, read a file,
+    /// and hash it before believing it — which is a store's work, done at a
+    /// store's cost, behind a signature that promises neither. So it is spelled
+    /// as what it is, on the store: [`Store::payload_in_pieces`] for a caller
+    /// that wants the bytes, [`Store::copy_payload_to`] for one that wants
+    /// them somewhere.
+    pub fn digest(&self) -> RevisionId {
         match self {
-            Content::Lines(state) => state.text().into_bytes(),
-            Content::Whole(bytes) => bytes.clone(),
+            Content::Lines(state) => state.digest(),
+            Content::Whole(payload) => *payload,
+        }
+    }
+
+    /// The lines, where the file has any.
+    pub fn lines(&self) -> Option<&State> {
+        match self {
+            Content::Lines(state) => Some(state),
+            Content::Whole(_) => None,
+        }
+    }
+
+    /// The payload this file's bytes are held under, where it has one.
+    pub fn payload(&self) -> Option<RevisionId> {
+        match self {
+            Content::Lines(_) => None,
+            Content::Whole(payload) => Some(*payload),
         }
     }
 }
@@ -1395,19 +1431,18 @@ impl<F: Filesystem> Store<F> {
 
     /// Where a payload is, having read the directory because the catalogue
     /// could not say. [`Store::scan`]'s rule, for the files with no grammar.
-    fn scan_for_payload(&self, id: &RevisionId) -> Result<Option<Vec<u8>>, StoreError> {
+    fn scan_for_payload(&self, id: &RevisionId) -> Result<Option<PathBuf>, StoreError> {
         for path in payload_files(&self.files, &self.root)? {
             // Decision 0043: this is a search, and every file but one of them
-            // is being asked a question and then put down again. Only the file
-            // that answers is read.
+            // is being asked a question and then put down again. Nothing is
+            // read into memory at all — decision 0067 — because the answer
+            // wanted here is a path, and the hash that finds it is the same
+            // hash that verifies it.
             let Ok(found) = crate::fs::digest_of(&self.files, &path) else {
                 continue;
             };
-            if found == *id
-                && let Ok(bytes) = self.files.read(&path)
-                && digest(&bytes) == *id
-            {
-                return Ok(Some(bytes));
+            if found == *id {
+                return Ok(Some(path));
             }
         }
         Ok(None)
@@ -1732,22 +1767,26 @@ impl<F: Filesystem> Store<F> {
         Ok(found)
     }
 
-    /// One payload's bytes, or `None` if nothing has delivered it.
+    /// Which file holds one payload, verified, or `None` if nothing has
+    /// delivered it.
     ///
     /// Decision 0017: a payload carries no format of its own, so there is
     /// nothing to parse and nothing that can be malformed. The only claim it
-    /// makes is its digest, and that claim is what finds it here.
-    pub fn payload(&self, id: &RevisionId) -> Result<Option<Vec<u8>>, StoreError> {
+    /// makes is its digest, and that claim is what finds it here — hashed
+    /// before it is believed, exactly as every other lookup through the
+    /// catalogue is, and by decision 0067 hashed *in pieces*, so that finding
+    /// a video costs a buffer rather than the video.
+    ///
+    /// This is the primitive every other payload read is built on, and it is
+    /// what lets a streamed read still verify before it hands anything over:
+    /// the file is hashed here, and only then are its bytes given to anybody.
+    pub fn payload_file(&self, id: &RevisionId) -> Result<Option<PathBuf>, StoreError> {
         if let Some(filed) = self.catalogue()?.at(id)
             && !filed.document
         {
             let path = self.root.join(&filed.path);
-            match self.files.read(&path) {
-                // Hashed before it is believed, as every other lookup through
-                // the catalogue is: a payload's whole claim is its digest,
-                // and content that does not make the claim is not what was
-                // asked for.
-                Ok(bytes) if digest(&bytes) == *id => return Ok(Some(bytes)),
+            match crate::fs::digest_of(&self.files, &path) {
+                Ok(found) if found == *id => return Ok(Some(path)),
                 Ok(_) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(StoreError::io(&path, error)),
@@ -1756,6 +1795,106 @@ impl<F: Filesystem> Store<F> {
         // The catalogue could not produce it, so the directory is asked —
         // decision 0003's promise, kept for the files that carry no grammar.
         self.scan_for_payload(id)
+    }
+
+    /// One payload's bytes, or `None` if nothing has delivered it.
+    ///
+    /// Every byte of it in memory at once, which is what a caller that means
+    /// to parse or compare the whole thing needs and what a caller writing it
+    /// somewhere should not pay: [`Store::payload_in_pieces`] and
+    /// [`Store::copy_payload_to`] are the same content without the buffer.
+    pub fn payload(&self, id: &RevisionId) -> Result<Option<Vec<u8>>, StoreError> {
+        let Some(path) = self.payload_file(id)? else {
+            return Ok(None);
+        };
+        let bytes = self
+            .files
+            .read(&path)
+            .map_err(|error| StoreError::io(&path, error))?;
+        // Hashed again, because the read above is a second look at a file the
+        // first one only measured, and a payload's whole claim is its digest.
+        Ok((digest(&bytes) == *id).then_some(bytes))
+    }
+
+    /// One payload's bytes, handed over in pieces, without holding them.
+    ///
+    /// Decision 0067. `each` is called with the payload's bytes in order, and
+    /// concatenating them gives exactly [`Store::payload`]'s answer. `false`
+    /// means nothing has delivered this payload, and nothing was fed.
+    ///
+    /// **Verified before a byte is handed over.** The file is found by hashing
+    /// it ([`Store::payload_file`]) and only then read, so a caller streaming a
+    /// photograph to a pipe is not shown content that failed the one claim a
+    /// payload makes. What is paid for that is a second pass over the file,
+    /// which is a read and never a buffer.
+    pub fn payload_in_pieces(
+        &self,
+        id: &RevisionId,
+        each: &mut dyn FnMut(&[u8]) -> io::Result<()>,
+    ) -> Result<bool, StoreError> {
+        let Some(path) = self.payload_file(id)? else {
+            return Ok(false);
+        };
+        let mut refused = None;
+        let streamed = self
+            .files
+            .read_in_pieces(&path, &mut |piece| {
+                if refused.is_none()
+                    && let Err(error) = each(piece)
+                {
+                    refused = Some(error);
+                }
+            })
+            .map_err(|error| StoreError::io(&path, error))?;
+        if let Some(error) = refused {
+            return Err(StoreError::io(&path, error));
+        }
+        if streamed.is_none() {
+            let bytes = self
+                .files
+                .read(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
+            each(&bytes).map_err(|error| StoreError::io(&path, error))?;
+        }
+        Ok(true)
+    }
+
+    /// Copy one payload straight to a destination path, without holding it.
+    ///
+    /// Decision 0067's read half, for the caller that wants the bytes in a
+    /// file rather than in its hands — `update` writing a photograph into a
+    /// folder, an export laying one out. `false` means nothing has delivered
+    /// this payload, and nothing was written.
+    ///
+    /// Verified before it lands, twice over: the source is found by hashing it,
+    /// and the copy hashes again as it passes, so a destination that appears
+    /// holds the digest that was asked for.
+    pub fn copy_payload_to<G: Filesystem + ?Sized>(
+        &self,
+        id: &RevisionId,
+        files: &G,
+        to: &Path,
+    ) -> Result<bool, StoreError> {
+        let Some(from) = self.payload_file(id)? else {
+            return Ok(false);
+        };
+        let mut found = None;
+        crate::fs::write_from_pieces(files, to, &mut |into| {
+            let copied = crate::fs::hand_over(&self.files, &from, into)?;
+            found = Some(copied);
+            if copied != *id {
+                // Refused at the last piece, which decision 0067 makes
+                // [`crate::fs::write_from_pieces`] answer by leaving the
+                // destination exactly as it stood.
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{} holds {copied} rather than {id}", from.display()),
+                ));
+            }
+            Ok(())
+        })
+        .map_err(|error| StoreError::io(to, error))?;
+        Ok(true)
     }
 
     /// Where every payload sits, by digest.
@@ -2440,19 +2579,16 @@ impl<F: Filesystem> Store<F> {
                 [head] => self.content(head, file)?,
                 heads => self.merged_content_of(heads, file)?.state,
             })),
+            // Decision 0067: what the tree holds for a file of bytes is the
+            // digest the revision states, and that is the answer — the store
+            // is not asked for the file, and a store that has not received the
+            // bytes yet still says what the file is. Whether they have arrived
+            // is a different question with its own answer
+            // ([`Store::payload_file`]), asked by whoever wants them.
             Kind::Whole => {
-                let payload = entry
-                    .payload
-                    .ok_or(MaterialiseError::ContestedContent { file: *file })?;
-                let named_by = heads.first().copied().unwrap_or(payload);
-                let bytes = self
-                    .payload(&payload)
-                    .map_err(|error| MaterialiseError::Unreadable {
-                        payload,
-                        because: error.to_string(),
-                    })?
-                    .ok_or(MaterialiseError::MissingPayload { payload, named_by })?;
-                Ok(Content::Whole(bytes))
+                Ok(Content::Whole(entry.payload.ok_or(
+                    MaterialiseError::ContestedContent { file: *file },
+                )?))
             }
             // Decision 0040: there are no bytes, and inventing some would be a
             // rendering. What a link holds is where it points, which is a
@@ -2635,21 +2771,75 @@ impl<F: Filesystem> Store<F> {
         name: &str,
     ) -> Result<RevisionId, StoreError> {
         let id = digest(bytes);
+        self.insert_payload_in_pieces(&id, name, &mut |into| into.write_all(bytes))
+    }
+
+    /// Write a payload under `name`, fed in pieces, without holding it.
+    ///
+    /// Decision 0067's write half. `id` is what the pieces are promised to
+    /// hash to, and it has to be known first because it is what decides
+    /// whether this store already holds them — the dedup
+    /// [`Store::insert_payload_at`] performs, which matters more for a payload
+    /// than for a document since the same photograph added twice is the same
+    /// megabytes twice.
+    ///
+    /// **Nothing lands unverified.** The pieces are hashed as they are
+    /// written, and a total that is not `id` refuses at the last one, which
+    /// leaves the destination exactly as it stood and reports
+    /// [`StoreError::PayloadMismatch`]. A caller feeding a file therefore
+    /// learns that the file changed underneath it rather than filing bytes
+    /// under a name that lies about them.
+    pub fn insert_payload_in_pieces(
+        &mut self,
+        id: &RevisionId,
+        name: &str,
+        feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
+    ) -> Result<RevisionId, StoreError> {
         // The walked catalogue, because what is asked here is whether the
         // store already holds these bytes, and `no` is what a cheap one
         // cannot say.
         self.upgrade()?;
-        if self.catalogue()?.at(&id).is_some() {
-            return Ok(id);
+        if self.catalogue()?.at(id).is_some() {
+            return Ok(*id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
-        write_once(&self.files, &path, bytes)?;
+        let mut found = None;
+        write_once_from_pieces(&self.files, &path, id, &mut found, feed)?;
+        if let Some(found) = found.filter(|found| found != id) {
+            return Err(StoreError::PayloadMismatch {
+                file: path,
+                wanted: *id,
+                found,
+            });
+        }
         // Catalogued from what was written: a payload carries no grammar, so
         // there is nothing here for a reader to have learned by parsing it.
         let mut filed = self.located(&path, None);
         filed.document = false;
-        self.catalogue_mut()?.insert(id, filed);
-        Ok(id)
+        self.catalogue_mut()?.insert(*id, filed);
+        Ok(*id)
+    }
+
+    /// Take a payload from a file, copying it into `operations/` in one pass.
+    ///
+    /// Decision 0067's answer to `record`: the folder's own copy of a
+    /// photograph is the only one that has to exist, so it is read once,
+    /// hashed on the way past, and written where the revision will name it.
+    /// `id` is what the file was already found to hash to — by
+    /// `cache/working.txt` or by a read of its own — and a file that no longer
+    /// hashes to it is reported rather than filed.
+    ///
+    /// `files` is where `from` is, which need not be where this store is.
+    pub fn insert_payload_from<G: Filesystem + ?Sized>(
+        &mut self,
+        files: &G,
+        from: &Path,
+        id: &RevisionId,
+        name: &str,
+    ) -> Result<RevisionId, StoreError> {
+        self.insert_payload_in_pieces(id, name, &mut |into| {
+            crate::fs::hand_over(files, from, into).map(|_| ())
+        })
     }
 
     /// Point a bookmark at something, creating or moving it.
@@ -2931,6 +3121,96 @@ fn write_once<F: Filesystem + ?Sized>(
         Err(error) => return Err(StoreError::io(path, error)),
     }
     Ok(())
+}
+
+/// [`write_once`] for a file nobody is holding: hashed as it is written, and
+/// landed only if it hashed to the name it is going under.
+///
+/// Decision 0067. The exclusive create [`write_once`] uses cannot be had here
+/// — the bytes arrive over time, and a create that must not already exist
+/// would have to hold the destination open across the whole of them — so the
+/// look and the write are two steps again, and what makes that safe is what
+/// makes it safe everywhere else in this store: **the name is the digest**.
+/// Two writers racing to file one payload write the same bytes, and a writer
+/// that finds the name taken checks it by hashing rather than by trusting, so
+/// a file that is *not* those bytes is reported exactly as
+/// [`write_once`] reports it.
+///
+/// `found` is what the pieces actually hashed to, which the caller compares
+/// against what it promised; a mismatch has already refused the landing by the
+/// time this returns.
+fn write_once_from_pieces<F: Filesystem + ?Sized>(
+    files: &F,
+    path: &Path,
+    id: &RevisionId,
+    found: &mut Option<RevisionId>,
+    feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
+) -> Result<(), StoreError> {
+    if files
+        .look(path)
+        .map_err(|error| StoreError::io(path, error))?
+        .is_some()
+    {
+        let holds =
+            crate::fs::digest_of(files, path).map_err(|error| StoreError::io(path, error))?;
+        if holds != *id {
+            return Err(StoreError::ContentMismatch {
+                file: path.to_path_buf(),
+            });
+        }
+        *found = Some(*id);
+        return Ok(());
+    }
+    // Decision 0018 files a path as a path, so a writer makes the directories
+    // the name asks for.
+    if let Some(parent) = path.parent() {
+        files
+            .create_directory(parent)
+            .map_err(|error| StoreError::io(parent, error))?;
+    }
+    let mut hashed = None;
+    let landing = crate::fs::write_from_pieces(files, path, &mut |into| {
+        let mut hashing = Hashing {
+            into,
+            hasher: crate::format::Hasher::new(),
+        };
+        feed(&mut hashing)?;
+        let taken = hashing.hasher.finish();
+        hashed = Some(taken);
+        if taken != *id {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("what was fed hashes to {taken} rather than {id}"),
+            ));
+        }
+        Ok(())
+    });
+    *found = hashed;
+    match landing {
+        Ok(()) => Ok(()),
+        // A mismatch is the caller's to report, in its own words, and the
+        // destination has already been left alone.
+        Err(_) if hashed.is_some_and(|taken| taken != *id) => Ok(()),
+        Err(error) => Err(StoreError::io(path, error)),
+    }
+}
+
+/// A sink that hashes everything on its way through to another one.
+struct Hashing<'a> {
+    into: &'a mut dyn io::Write,
+    hasher: crate::format::Hasher,
+}
+
+impl io::Write for Hashing<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let written = self.into.write(bytes)?;
+        self.hasher.update(&bytes[..written]);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.into.flush()
+    }
 }
 
 /// Read `history/skipped/`, which a store need not have.
@@ -3357,6 +3637,19 @@ pub enum StoreError {
         /// The offending file.
         file: PathBuf,
     },
+    /// A payload fed in pieces did not hash to what it was promised to.
+    ///
+    /// Decision 0067: a streamed write learns this only at the last piece, so
+    /// nothing was written — the file named here is the one that would have
+    /// been. Ordinarily it means the source changed while it was being copied.
+    PayloadMismatch {
+        /// Where it would have gone.
+        file: PathBuf,
+        /// What it was promised to hash to.
+        wanted: RevisionId,
+        /// What the pieces actually hashed to.
+        found: RevisionId,
+    },
     /// A bookmark name that cannot be a filename.
     UnusableName {
         /// The name as given.
@@ -3424,6 +3717,16 @@ impl fmt::Display for StoreError {
             StoreError::ContentMismatch { file } => write!(
                 f,
                 "{} is named for a digest its bytes do not have",
+                file.display()
+            ),
+            StoreError::PayloadMismatch {
+                file,
+                wanted,
+                found,
+            } => write!(
+                f,
+                "the content for {} hashes to {found} rather than {wanted}, \
+                 so nothing was written; it changed while it was being copied",
                 file.display()
             ),
             StoreError::UnusableName { name } => {

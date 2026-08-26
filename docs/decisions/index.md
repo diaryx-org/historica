@@ -687,6 +687,22 @@ depend on each other in.
   reader the rule exists for: the old one, whose list cannot hold a key added
   after it shipped.
 
+- [0067 — Content that arrives whole is named, not carried](0067-content-that-arrives-whole-is-named-not-carried.md)
+  0017's last deferral, and it turned out not to be about size. What a revision
+  says about a file of bytes is `bytes <file> <digest>`, and the type that
+  carried the answer said the bytes instead — so materialising cloned a
+  photograph, a survey held every changed one at once, and an `update` plan
+  carried the whole folder before writing any of it. `Content::Whole` and
+  `Change::Whole` name the payload now, `Content::bytes` becomes
+  `Content::digest` because every caller was comparing rather than reading, and
+  the bytes are asked of the store in pieces — verified before a byte is handed
+  over, because the file is found by hashing it. `write_in_pieces` mirrors
+  0043's `read_in_pieces` on the same declined-capability terms, and its one
+  extra promise — a refusal at the last piece leaves the destination as it
+  stood — is what lets a copy hash as it goes and land only if it matched. What
+  is paid is 0025's narrowed window, for a file of bytes and no other, since a
+  conditional write cannot be handed bytes nobody is holding.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

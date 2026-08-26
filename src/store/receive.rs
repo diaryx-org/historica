@@ -280,10 +280,13 @@ impl<F: Filesystem> Store<F> {
         // is reachable rather than leaving a new revision naming bytes not yet
         // delivered.
         for id in &plan.payloads {
-            let bytes = source
-                .payload(id)?
+            // Decision 0067: copied file to file, in pieces, and hashed as it
+            // passes — so receiving a store of photographs costs a buffer
+            // rather than the largest of them.
+            let from = source
+                .payload_file(id)?
                 .expect("a payload named by the plan remains in the open source");
-            self.insert_payload_at(&bytes, &id.to_string())?;
+            self.insert_payload_from(source.filesystem(), &from, id, &id.to_string())?;
             received.payloads += 1;
         }
         for id in &plan.documents {

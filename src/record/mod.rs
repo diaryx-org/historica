@@ -28,7 +28,7 @@ use crate::naming;
 use crate::replay::State;
 use crate::store::{MaterialiseError, Name, REVISION_SUFFIX, Store, StoreError};
 use crate::tree::{Kind, Tree, TreeContest};
-use crate::working::{self, Working, WorkingError};
+use crate::working::{Working, WorkingError};
 
 pub mod carry;
 pub mod identity;
@@ -54,8 +54,16 @@ pub enum Change {
     Resolution(ResolutionDocument),
     /// The lines a file is created with, which `text` names.
     Created(Vec<u8>),
-    /// A file's whole content, which `bytes` names.
-    Whole(Vec<u8>),
+    /// A file's whole content, which `bytes` names — by digest.
+    ///
+    /// Decision 0067: the payload is named rather than carried, because a
+    /// survey of a folder of photographs would otherwise hold every one of
+    /// them at once, and because the bytes are already in a file that is not
+    /// going anywhere. The recorder streams them out of the working copy at
+    /// the moment it files them. A `text` payload beside it keeps its bytes,
+    /// since decision 0007's items are its lines and every one of them is
+    /// about to be named.
+    Whole(RevisionId),
 }
 
 /// What one file's state on disk means for the file set.
@@ -601,7 +609,7 @@ pub fn survey<F: Filesystem>(
 
     // Kept only for the paths that turn out to be added, since that is the
     // only place the bytes are wanted twice.
-    let mut arrived: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let mut arrived: BTreeMap<String, RevisionId> = BTreeMap::new();
     // The target each link on disk spells, before resolution — which cannot
     // happen until the whole folder has been walked, because decision 0040
     // resolves against the tree *this revision states* and a target added by
@@ -679,28 +687,26 @@ pub fn survey<F: Filesystem>(
             }
         }
 
-        // A file nobody has recorded yet is read whole, and has to be: its own
-        // bytes decide which kind of file it is (0017), and the revision about
-        // to be written states them. Nothing is being compared, so there is no
-        // digest that would answer instead.
+        // A file nobody has recorded yet is read, and has to be: its own bytes
+        // decide which kind of file it is (0017), and nothing is being
+        // compared, so there is no digest that would answer instead. Decision
+        // 0067 makes the read a pass rather than a buffer — the sniff and the
+        // digest are taken together, and only a file that turns out to be
+        // lines is still in memory when it finishes.
         let Some(file) = file else {
-            let bytes = working.bytes(path)?;
-            arrived.insert(path.clone(), bytes.clone());
+            let (found, text) = working.sniff(path)?;
+            arrived.insert(path.clone(), found);
             // Decision 0017: valid UTF-8 with no NUL is lines and everything
             // else is bytes, sniffed once, here, and never again.
-            if !working::is_text(&bytes) {
-                survey.edited.insert(path.clone(), Change::Whole(bytes));
+            let Some(bytes) = text else {
+                survey.edited.insert(path.clone(), Change::Whole(found));
                 continue;
-            }
+            };
             // A file being created states its lines outright rather than as an
             // insert of every one of them, which is decision 0017's whole
             // point. Nothing before it exists to compare against.
-            if let Ok(text) = String::from_utf8(bytes)
-                && !text.is_empty()
-            {
-                survey
-                    .edited
-                    .insert(path.clone(), Change::Created(text.into_bytes()));
+            if !bytes.is_empty() {
+                survey.edited.insert(path.clone(), Change::Created(bytes));
             }
             continue;
         };
@@ -739,12 +745,14 @@ pub fn survey<F: Filesystem>(
             // Read, and then asked again: what the folder holds is what the
             // read found, whatever `cache/working.txt` said about it. So a
             // catalogue that was wrong about this file costs this one read and
-            // states nothing.
-            let (bytes, found) = working.bytes_and_digest(path)?;
+            // states nothing. Decision 0067: the read is a hash of the pieces,
+            // so a changed photograph is settled without a copy of it existing
+            // anywhere but on disk.
+            let found = working.reread_digest(path)?;
             if recorded == Some(found) {
                 continue;
             }
-            survey.edited.insert(path.clone(), Change::Whole(bytes));
+            survey.edited.insert(path.clone(), Change::Whole(found));
             continue;
         }
 
@@ -1056,29 +1064,35 @@ fn joined_content<F: Filesystem>(
 /// Only a one-to-one match is offered: two added paths holding one dropped
 /// file's bytes is a choice nobody here is entitled to make. Empty content
 /// matches nothing, since every empty file has the bytes of every other.
+///
+/// Byte equality is asked as digest equality, decision 0067: a file's digest is
+/// the one thing about it this whole format takes for its identity, both sides
+/// of the comparison already have one, and a match that put two photographs in
+/// memory to confirm what two numbers said would be the arithmetic done twice.
 fn renames<F: Filesystem>(
     store: &Store<F>,
     parents: &[RevisionId],
     dropped: &BTreeMap<FileId, String>,
-    arrived: &BTreeMap<String, Vec<u8>>,
+    arrived: &BTreeMap<String, RevisionId>,
 ) -> Result<Vec<(String, String)>, RecordError> {
     if dropped.is_empty() || arrived.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut by_content: BTreeMap<&[u8], Vec<&str>> = BTreeMap::new();
-    for (path, bytes) in arrived {
-        if !bytes.is_empty() {
-            by_content.entry(bytes.as_slice()).or_default().push(path);
+    let empty = digest(b"");
+    let mut by_content: BTreeMap<RevisionId, Vec<&str>> = BTreeMap::new();
+    for (path, found) in arrived {
+        if *found != empty {
+            by_content.entry(*found).or_default().push(path);
         }
     }
 
-    let mut gone: BTreeMap<Vec<u8>, Vec<&str>> = BTreeMap::new();
+    let mut gone: BTreeMap<RevisionId, Vec<&str>> = BTreeMap::new();
     for (file, path) in dropped {
         // Whichever kind the file is: an image moved with `mv` is the same
         // question a paragraph moved with `mv` is.
-        let bytes = match store.content_at_heads(parents, file) {
-            Ok(content) => content.bytes(),
+        let found = match store.content_at_heads(parents, file) {
+            Ok(content) => content.digest(),
             // A file whose content two branches disagree about is not a file
             // this can offer a rename for, and neither is a link: decision
             // 0040 gives it a target where the bytes would be, and two links
@@ -1088,14 +1102,14 @@ fn renames<F: Filesystem>(
             }
             Err(error) => return Err(error.into()),
         };
-        if !bytes.is_empty() {
-            gone.entry(bytes).or_default().push(path);
+        if found != empty {
+            gone.entry(found).or_default().push(path);
         }
     }
 
     let mut renames = Vec::new();
-    for (bytes, from) in &gone {
-        let Some(to) = by_content.get(bytes.as_slice()) else {
+    for (found, from) in &gone {
+        let Some(to) = by_content.get(found) else {
             continue;
         };
         if let ([from], [to]) = (from.as_slice(), to.as_slice()) {
@@ -1314,7 +1328,7 @@ pub fn record<F: Filesystem>(
         &document.id(),
         store.documents()?.into_iter().map(|(_, held)| held),
     );
-    file_content(store, &plan, &content, &stem)?;
+    file_content(store, working, &plan, &content, &stem)?;
     let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
 
     // Decision 0011: a bookmark that named the parent's change follows the
@@ -1393,7 +1407,7 @@ pub fn amend<F: Filesystem>(
         &document.id(),
         store.documents()?.into_iter().map(|(_, held)| held),
     );
-    file_content(store, &plan, &content, &stem)?;
+    file_content(store, working, &plan, &content, &stem)?;
     let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
 
     // Nothing follows the work forward here. A `change` bookmark already
@@ -1738,7 +1752,8 @@ fn content_of(plan: &Plan) -> Content {
         let held_id = match held {
             Change::Operations(document) => digest(&document.write()),
             Change::Resolution(document) => digest(&document.write()),
-            Change::Created(payload) | Change::Whole(payload) => digest(payload),
+            Change::Created(payload) => digest(payload),
+            Change::Whole(payload) => *payload,
         };
         match held {
             // Decision 0032: an `edit` line names either grammar, because
@@ -1765,8 +1780,14 @@ fn content_of(plan: &Plan) -> Content {
 /// revision naming content that is not there, which it reports as an error.
 /// Decision 0019 is where each one goes — under the revision's own stem, at
 /// the path it had.
+/// A `bytes` payload is the one thing here that is not already in memory, and
+/// decision 0067 keeps it that way: the folder's own copy is streamed into the
+/// store at this moment, hashed on the way past, and never assembled. That is
+/// why this takes the working copy — the survey said which digest each file
+/// holds, and the file holding it is still where the survey found it.
 fn file_content<F: Filesystem>(
     store: &mut Store<F>,
+    working: &Working<F>,
     plan: &Plan,
     content: &Content,
     stem: &str,
@@ -1778,7 +1799,7 @@ fn file_content<F: Filesystem>(
         Some(name) => format!("{stem}/{name}"),
         None => held.to_string(),
     };
-    for held in plan.edited.values() {
+    for (file, held) in &plan.edited {
         match held {
             Change::Operations(document) => {
                 store.insert_operation_at(document, &name(&digest(&document.write())))?;
@@ -1786,8 +1807,23 @@ fn file_content<F: Filesystem>(
             Change::Resolution(document) => {
                 store.insert_resolution_at(document, &name(&digest(&document.write())))?;
             }
-            Change::Created(payload) | Change::Whole(payload) => {
+            Change::Created(payload) => {
                 store.insert_payload_at(payload, &name(&digest(payload)))?;
+            }
+            Change::Whole(payload) => {
+                // Where the folder holds it, in the folder's own spelling —
+                // decision 0033's reason, and the walk already found it.
+                let at = plan
+                    .paths
+                    .get(file)
+                    .ok_or(RecordError::NoPathForContent { file: *file })?;
+                let on_disk = working.on_disk(at);
+                store.insert_payload_from(
+                    working.filesystem(),
+                    &on_disk,
+                    payload,
+                    &name(payload),
+                )?;
             }
         }
     }
@@ -1825,6 +1861,18 @@ fn one_file_at(placed: &BTreeMap<FileId, String>, path: &str) -> Result<FileId, 
 pub enum RecordError {
     /// Nothing about the folder differs from the parent.
     NothingToRecord,
+    /// A file whose content is in the folder, and which the plan puts nowhere.
+    ///
+    /// Decision 0067: a `bytes` payload is streamed out of the working copy as
+    /// it is filed, so a plan that states one without saying where the file
+    /// sits states content nothing can fetch. Nothing produces this — every
+    /// path in `edited` is a path the survey walked — and it is an error
+    /// rather than a `debug_assert` because the alternative is writing a
+    /// revision that names bytes no one has.
+    NoPathForContent {
+        /// The file in question.
+        file: FileId,
+    },
     /// A merge that would leave a contested file with nothing in it.
     ///
     /// Decision 0032: a resolution states what the file *is*, and the grammar
@@ -2015,6 +2063,11 @@ impl fmt::Display for RecordError {
                 f,
                 "nothing here differs from what is already recorded, and a \
                  revision that states nothing would mean nothing"
+            ),
+            RecordError::NoPathForContent { file } => write!(
+                f,
+                "{file} states whole content and no path, so there is nowhere \
+                 to read its bytes from"
             ),
             RecordError::WouldDangle { link, target } => write!(
                 f,
