@@ -2792,6 +2792,50 @@ impl<F: Filesystem> Store<F> {
         Ok(id)
     }
 
+    /// Hold a revision as though it were written, without writing it.
+    ///
+    /// Decision 0059's all-or-nothing. The inline rewrites — an amendment or
+    /// an abandonment that forces carries — owe one plan covering every
+    /// revision they touch, and a carry is planned against a store that
+    /// already holds the rewrite it is carrying onto. So the rewrite is held
+    /// here first, the carry is worked out over it, and only a plan with no
+    /// refusal in it reaches the disk.
+    ///
+    /// `None` where the store already holds these bytes, which is the one
+    /// case [`Store::withdraw`] must not undo. Crate-private, because a
+    /// document that is held and not written is a lie to every other reader
+    /// and its lifetime is exactly one planner's.
+    pub(crate) fn provisionally(&mut self, document: &RevisionDocument) -> Option<RevisionId> {
+        let bytes = document.write();
+        let id = digest(&bytes);
+        if self.documents.contains_key(&id) {
+            return None;
+        }
+        // The path a reader would be sent to if it ever read this back, which
+        // it cannot: the whole document is set below, so nothing parses the
+        // bytes and nothing opens the file.
+        let held = Document::new(
+            document.to_revision(),
+            bytes,
+            self.root
+                .join(REVISIONS_DIR)
+                .join(format!("{id}{REVISION_SUFFIX}")),
+        );
+        let _ = held.whole.set(document.clone());
+        self.documents.insert(id, held);
+        Some(id)
+    }
+
+    /// Take back a provisionally held revision.
+    ///
+    /// Paired with every [`Store::provisionally`] that answered `Some`, on
+    /// the refusing path and the writing one alike — what is written is
+    /// written by the ordinary insert, so that the file and the memory of it
+    /// are made by the one call that makes them everywhere else.
+    pub(crate) fn withdraw(&mut self, id: &RevisionId) {
+        self.documents.remove(id);
+    }
+
     /// Write an operation document into the store, named by its digest.
     ///
     /// Append-only on the same terms as [`Store::insert`], and for the extra

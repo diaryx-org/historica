@@ -4636,11 +4636,29 @@ fn only_a_revision_nothing_follows_and_nothing_replaced_can_be_amended() {
     write(&directory, "notes.md", "two\n");
     out(recorded(&directory, &["record", "-m", "Second"]));
 
-    // Decision 0023: rewriting the first would have to restate what the second
-    // did against content that moved, which is 0007's merge under another name.
+    // Decision 0059: rewriting the first would have to say what its content
+    // is, and the folder states the head's content and can state nothing
+    // else — so the act available is a reword, and the refusal names it.
     let standing = refused(&directory, &["amend", &first]);
-    assert!(standing.contains("not built yet"), "{standing}");
-    assert!(standing.contains("nothing follows"), "{standing}");
+    assert!(
+        standing.contains("the act available is a reword"),
+        "{standing}"
+    );
+    assert!(standing.contains("give -m"), "{standing}");
+
+    // A rename is a fact about the folder, and a reword has no folder in it.
+    let renaming = refused(
+        &directory,
+        &[
+            "amend",
+            &first,
+            "-m",
+            "First",
+            "--move",
+            "notes.md=other.md",
+        ],
+    );
+    assert!(renaming.contains("is a reword"), "{renaming}");
 
     // Amending the head is allowed, and amending what it replaced is not:
     // superseding one revision twice is a divergence nobody asked for.
@@ -4650,6 +4668,261 @@ fn only_a_revision_nothing_follows_and_nothing_replaced_can_be_amended() {
     let twice = refused(&directory, &["amend", &second]);
     assert!(twice.contains("already been rewritten"), "{twice}");
     assert!(twice.contains(&head_of(&directory)), "{twice}");
+}
+
+/// Decision 0059: a revision work stands on can have its message fixed, and
+/// nothing else. No base moves, so the stack re-digests and not one operation
+/// document is written — which is the whole of what "verbatim" means here.
+#[test]
+fn a_middle_revision_can_be_reworded_and_the_stack_carries_verbatim() {
+    let directory = repository("amend-reword");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Frist"]));
+    let first = head_of(&directory);
+    write(&directory, "notes.md", "one\ntwo\n");
+    out(recorded(&directory, &["record", "-m", "Second"]));
+    write(&directory, "notes.md", "one\ntwo\nthree\n");
+    out(recorded(&directory, &["record", "-m", "Third"]));
+
+    let before = operation_documents(&directory);
+    let said = out(recorded(&directory, &["amend", &first, "-m", "First"]));
+    assert!(said.contains("carried"), "{said}");
+    assert_eq!(
+        said.lines()
+            .filter(|line| line.starts_with("carried "))
+            .count(),
+        2,
+        "both descendants are part of the same event: {said}"
+    );
+
+    // The promise: a reword names the same operation documents, so the store
+    // gains none.
+    assert_eq!(
+        before,
+        operation_documents(&directory),
+        "a reword writes no operations"
+    );
+
+    // From the head, which is the carried stack: the typo is not in it, and
+    // the revision it superseded is still in the store as the undo.
+    let log = out(recorded(&directory, &["log", "head"]));
+    assert!(log.contains("First"), "{log}");
+    assert!(
+        !log.contains("Frist"),
+        "the typo is behind a rewrite: {log}"
+    );
+    assert!(
+        out(recorded(&directory, &["log"])).contains("Frist"),
+        "and the revision that held it is still here"
+    );
+    assert_eq!(
+        out(recorded(&directory, &["cat", "head", "notes.md"])),
+        "one\ntwo\nthree\n",
+        "carrying restates the work, it does not change it"
+    );
+    let checked = out(recorded(&directory, &["check"]));
+    assert!(checked.contains("nothing to report"), "{checked}");
+}
+
+/// Decision 0059: `--only` abandons the one revision and carries what stood
+/// on it onto the tombstone. The abandoned work leaves the ancestry; the work
+/// above it stays, restated against a base the abandonment moved.
+#[test]
+fn abandoning_only_one_revision_carries_what_stood_on_it() {
+    let directory = repository("abandon-only");
+    write(&directory, "a.txt", "a\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+    write(&directory, "b.txt", "b\n");
+    out(recorded(&directory, &["record", "-m", "Second"]));
+    let second = head_of(&directory);
+    write(&directory, "c.txt", "c\n");
+    out(recorded(&directory, &["record", "-m", "Third"]));
+
+    // The unflagged sentence is untouched: it still takes the run.
+    let sweeping = out(recorded(
+        &directory,
+        &["abandon", &second, "-m", "x", "--dry-run"],
+    ));
+    assert_eq!(
+        sweeping
+            .lines()
+            .filter(|line| line.starts_with("would abandon"))
+            .count(),
+        2,
+        "without --only, this revision and everything standing on it: {sweeping}"
+    );
+
+    let said = out(recorded(
+        &directory,
+        &["abandon", &second, "--only", "-m", "Not needed"],
+    ));
+    assert_eq!(
+        said.lines()
+            .filter(|line| line.starts_with("abandoned "))
+            .count(),
+        1,
+        "--only abandons the one: {said}"
+    );
+    assert!(
+        said.contains("carried"),
+        "and carries what stood on it: {said}"
+    );
+
+    let files = out(recorded(&directory, &["files", "head"]));
+    assert!(
+        !files.contains("b.txt"),
+        "the abandoned work is gone: {files}"
+    );
+    assert!(files.contains("a.txt"), "{files}");
+    assert!(
+        files.contains("c.txt"),
+        "the work above it survives: {files}"
+    );
+    let checked = out(recorded(&directory, &["check"]));
+    assert!(checked.contains("nothing to report"), "{checked}");
+}
+
+/// Decision 0059: a descendant that edited what the abandoned revision did is
+/// a contested span, and the refusal leaves the recorded history exactly as
+/// it found it — the plan is computed whole before anything is written.
+#[test]
+fn a_contested_abandonment_refuses_with_the_history_untouched() {
+    let directory = repository("abandon-contested");
+    write(&directory, "f.txt", "one\ntwo\nthree\n");
+    out(recorded(&directory, &["record", "-m", "First"]));
+    write(&directory, "f.txt", "one\nTWO\nthree\n");
+    out(recorded(&directory, &["record", "-m", "Second"]));
+    let second = head_of(&directory);
+    write(&directory, "f.txt", "one\nTWO!\nthree\n");
+    out(recorded(&directory, &["record", "-m", "Third"]));
+
+    let before = recorded_history(&directory);
+    let refusal = refused(&directory, &["abandon", &second, "--only", "-m", "Gone"]);
+    assert!(refusal.contains("regions"), "a contested span: {refusal}");
+    assert!(refusal.contains("nothing was written"), "{refusal}");
+    assert_eq!(
+        before,
+        recorded_history(&directory),
+        "a refused plan writes no revision and no operation"
+    );
+}
+
+/// Decision 0059's authored move: the same restating, with a person deciding
+/// where. The revision named is stamped from the clock; the stack above it
+/// derives from that, so an amendment and the carries it forces read as one
+/// event.
+#[test]
+fn work_can_be_restated_against_a_parent_a_person_names() {
+    let directory = repository("carry-onto");
+    write(&directory, "base.txt", "base\n");
+    out(recorded(&directory, &["record", "-m", "Base"]));
+    let base = head_of(&directory);
+    write(&directory, "a.txt", "a\n");
+    out(recorded(&directory, &["record", "-m", "A"]));
+    write(&directory, "b.txt", "b\n");
+    out(recorded(&directory, &["record", "-m", "B"]));
+    let b = head_of(&directory);
+    write(&directory, "c.txt", "c\n");
+    out(recorded(&directory, &["record", "-m", "C"]));
+
+    // Onto something standing on what would move: the result would stand on
+    // a revision the act supersedes, which is the state `carry` repairs.
+    let inward = refused(&directory, &["carry", &b, "--onto", &head_of(&directory)]);
+    assert!(inward.contains("supersedes"), "{inward}");
+
+    let said = out(recorded(&directory, &["carry", &b, "--onto", &base]));
+    assert_eq!(
+        said.lines()
+            .filter(|line| line.starts_with("carried "))
+            .count(),
+        2,
+        "B moves and C follows it: {said}"
+    );
+
+    let files = out(recorded(&directory, &["files", "head"]));
+    assert!(
+        !files.contains("a.txt"),
+        "A is no longer beneath this: {files}"
+    );
+    assert!(
+        files.contains("b.txt") && files.contains("c.txt"),
+        "{files}"
+    );
+    assert!(files.contains("base.txt"), "{files}");
+    let checked = out(recorded(&directory, &["check"]));
+    assert!(checked.contains("nothing to report"), "{checked}");
+}
+
+/// Decision 0059: `--onto` is a decision about one piece of work, a merge's
+/// parents' agreement is not something to guess at, and a revision already
+/// standing where it was asked to stand has nothing to restate.
+#[test]
+fn the_moves_that_are_not_a_persons_to_make_are_refused() {
+    let directory = repository("carry-onto-refusals");
+    write(&directory, "base.txt", "base\n");
+    out(recorded(&directory, &["record", "-m", "Base"]));
+    let base = head_of(&directory);
+    write(&directory, "a.txt", "a\n");
+    out(recorded(&directory, &["record", "-m", "A"]));
+    let a = head_of(&directory);
+
+    let there = refused(&directory, &["carry", &a, "--onto", &base]);
+    assert!(there.contains("already stands on"), "{there}");
+
+    let sweeping = refused(&directory, &["carry", "--onto", &base]);
+    assert!(sweeping.contains("wants the work to move"), "{sweeping}");
+
+    let root = refused(&directory, &["carry", &base, "--onto", &a]);
+    assert!(root.contains("where this history starts"), "{root}");
+}
+
+/// Every recorded file, with its bytes: `revisions/` and `operations/`, which
+/// is the history. `cache/` is left out because it is nobody's (decision
+/// 0035) and every command that reads the store may rewrite it.
+fn recorded_history(directory: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut found: Vec<(String, Vec<u8>)> = Vec::new();
+    let history = directory.join("history");
+    let mut looking = vec![history.join("revisions"), history.join("operations")];
+    while let Some(at) = looking.pop() {
+        let Ok(entries) = fs::read_dir(&at) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                looking.push(path);
+            } else {
+                let name = path.strip_prefix(&history).unwrap_or(&path);
+                found.push((
+                    name.to_string_lossy().into_owned(),
+                    fs::read(&path).expect("a file just listed"),
+                ));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Every file under `history/operations/`, by name.
+fn operation_documents(directory: &Path) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let mut looking = vec![directory.join("history").join("operations")];
+    while let Some(at) = looking.pop() {
+        let Ok(entries) = fs::read_dir(&at) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                looking.push(path);
+            } else {
+                found.push(entry.file_name().to_string_lossy().into_owned());
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 #[test]

@@ -10,10 +10,11 @@ use historica::conflict;
 use historica::core::{FileId, RevisionId};
 use historica::format::{self, Mode};
 use historica::fs::{Disk, Filesystem as _};
+use historica::record::carry::Carrying;
 use historica::record::{
     Abandoning, Amendment, Clock, Kinds, Platform, Recording, Restriction,
     abandon as abandon_revision, abandonment_plan, amend as amend_revision, amendment_plan,
-    check_restriction, identity, plan as plan_for, record as record_revision,
+    check_restriction, identity, plan as plan_for, record as record_revision, standing_on,
 };
 use historica::store::Store;
 use historica::tree::{Kind, TreeContest};
@@ -288,11 +289,29 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         })?,
     };
 
+    // Decision 0059: which act this is has to be settled before the folder
+    // is touched. A reword consults no folder, and one that renamed a file
+    // on disk and then refused would have rearranged a repository to say no.
+    let standing = standing_on(&store, &revision);
+    let rewording = !standing.is_empty();
+    if rewording && !moves.is_empty() {
+        return Err(Failure::error(format!(
+            "work stands on {}, so rewriting it is a reword and `--move` is \
+             not something a message can say",
+            revision.abbreviate(12)
+        )));
+    }
+
     for (from, to) in &moves {
         perform(&repository, from, to)?;
     }
 
-    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+    // A reword states what its predecessor stated, so there is nothing here
+    // for a walk of the folder to find.
+    let working = match rewording {
+        true => Working::unread(&repository),
+        false => Working::read(&repository, store.skipped()).map_err(Failure::error)?,
+    };
     let mut platform = Platform;
 
     if dry_run {
@@ -305,6 +324,7 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         };
         let plan =
             amendment_plan(&store, &working, &asked, &mut platform).map_err(Failure::error)?;
+        let carrying = would_carry(&store, &revision, &standing);
         return printing(|out| {
             for (fact, path) in plan.facts() {
                 writeln!(out, "{fact:<7} {path}")?;
@@ -314,7 +334,11 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             // predecessor said, so an unchanged folder is a full plan rather
             // than an empty one — and an amendment that would change nothing
             // at all is a refusal by then, not a line of a report.
-            writeln!(out, "this would supersede {}", revision.abbreviate(12))
+            writeln!(out, "this would supersede {}", revision.abbreviate(12))?;
+            for id in &carrying {
+                writeln!(out, "would carry {}", id.abbreviate(12))?;
+            }
+            Ok(())
         });
     }
 
@@ -349,8 +373,46 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             out,
             "it supersedes {}, which is still here",
             amended.superseded.abbreviate(12)
-        )
+        )?;
+        // Decision 0059: the carries an amendment forces are part of the
+        // same event, so they are reported by the command that caused them
+        // rather than left for a person to discover.
+        for step in &amended.carried.steps {
+            writeln!(
+                out,
+                "carried {} to {}",
+                step.predecessor.abbreviate(12),
+                step.revision.abbreviate(12)
+            )?;
+        }
+        Ok(())
     })
+}
+
+/// Everything a rewrite of `revision` would carry, for a dry run to name.
+///
+/// The graph alone: `--dry-run` writes nothing, so it cannot hold the
+/// rewrite provisionally and plan against it. What it can say honestly is
+/// which revisions would be restated, which is the stack above the target.
+fn would_carry<F: historica::fs::Filesystem>(
+    store: &Store<F>,
+    revision: &RevisionId,
+    standing: &[RevisionId],
+) -> Vec<RevisionId> {
+    let mut carrying: Vec<RevisionId> = standing.to_vec();
+    let mut seen: BTreeSet<RevisionId> = carrying.iter().copied().collect();
+    seen.insert(*revision);
+    let mut index = 0;
+    while index < carrying.len() {
+        let on = carrying[index];
+        index += 1;
+        for (id, held) in store.revisions() {
+            if held.parents.contains(&on) && seen.insert(*id) {
+                carrying.push(*id);
+            }
+        }
+    }
+    carrying
 }
 
 /// `abandon <target> [-m <message>] [--dry-run]`.
@@ -363,6 +425,7 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
     let mut message: Option<String> = None;
     let mut named: Option<String> = None;
     let mut dry_run = false;
+    let mut only = false;
 
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
@@ -373,6 +436,7 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
         };
         match argument.as_str() {
             "-m" | "--message" => message = Some(value("-m")?),
+            "--only" => only = true,
             "-n" | "--dry-run" => dry_run = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
@@ -402,7 +466,11 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
     let revision = target::resolve(&store, &spelling)?;
 
     if dry_run {
-        let run = abandonment_plan(&store, &revision).map_err(Failure::error)?;
+        let run = abandonment_plan(&store, &revision, only).map_err(Failure::error)?;
+        let carrying = match only {
+            true => would_carry(&store, &revision, &standing_on(&store, &revision)),
+            false => Vec::new(),
+        };
         return printing(|out| {
             for id in &run {
                 writeln!(out, "would abandon {}", target::spelled(&store, id))?;
@@ -415,7 +483,11 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
                 } else {
                     format!("these {} revisions", run.len())
                 }
-            )
+            )?;
+            for id in &carrying {
+                writeln!(out, "would carry {}", id.abbreviate(12))?;
+            }
+            Ok(())
         });
     }
 
@@ -431,6 +503,7 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
 
     let abandoning = Abandoning {
         revision,
+        only,
         author,
         when,
         message,
@@ -451,6 +524,16 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
         for name in &abandoned.advanced {
             writeln!(out, "{name} -> {}", abandoned.change.abbreviate(8))?;
         }
+        // Decision 0059: what stood on the abandoned revision was carried
+        // onto the tombstone in the same act, so this command says so.
+        for step in &abandoned.carried.steps {
+            writeln!(
+                out,
+                "carried {} to {}",
+                step.predecessor.abbreviate(12),
+                step.revision.abbreviate(12)
+            )?;
+        }
         // Decision 0013: abandoning is the graph and pruning is disk, and a
         // person should hear the difference from the command that sits on it.
         writeln!(
@@ -460,19 +543,33 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
     })
 }
 
-/// `carry [<target>] [--dry-run]`.
+/// `carry [<target>] [--onto <destination>] [--dry-run]`.
 ///
-/// Decision 0059: restate work standing on a rewritten revision against the
-/// rewrite. Everything derives from what the store holds — no clock, no
-/// random source, no author — which is what lets two replicas repairing one
-/// history write byte-identical files. With no target it finds every
-/// revision `check`'s note would name, and finding none is the ordinary
-/// answer rather than a refusal.
+/// Decision 0059: restate work against a different parent. Which parent, and
+/// who decided, is the whole of the difference between this command's two
+/// halves. Without `--onto` a rewrite the store already holds decided, so
+/// everything derives — no clock, no random source, no author — and two
+/// replicas repairing one history write byte-identical files; with no target
+/// it finds every revision `check`'s note would name, and finding none is
+/// the ordinary answer rather than a refusal.
+///
+/// With `--onto` a person decided, so the revision named takes a reading of
+/// the clock and the stack above it derives from that, exactly as a repair's
+/// does. That is decision 0010's two rows, one command.
 pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut named: Option<String> = None;
+    let mut onto: Option<String> = None;
     let mut dry_run = false;
-    for argument in arguments {
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
         match argument.as_str() {
+            "--onto" => {
+                onto = Some(
+                    arguments
+                        .next()
+                        .ok_or_else(|| Failure::usage("`--onto` wants a value"))?,
+                );
+            }
             "-n" | "--dry-run" => dry_run = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
@@ -494,10 +591,39 @@ pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         None => None,
     };
 
+    let repository = root
+        .parent()
+        .ok_or_else(|| Failure::error("this store has no repository around it"))?
+        .to_path_buf();
+    let platform = Platform;
+    let carrying = match (target, &onto) {
+        (Some(revision), Some(spelling)) => {
+            let destination = target::resolve(&store, spelling)?;
+            let reviser = identity::author_for(&repository).map_err(Failure::error)?;
+            let revised = platform.now().map_err(Failure::error)?;
+            warn_about_the_clock(&store, &revised);
+            Carrying::Onto {
+                target: revision,
+                onto: destination,
+                revised,
+                reviser,
+            }
+        }
+        // The destination is a person's decision about a particular piece of
+        // work, so there is no sweep it could apply to.
+        (None, Some(_)) => {
+            return Err(Failure::usage(
+                "`--onto` wants the work to move: `historica carry <target> \
+                 --onto <destination>`",
+            ));
+        }
+        (Some(revision), None) => Carrying::One(revision),
+        (None, None) => Carrying::Everything,
+    };
     let planned = if dry_run {
-        historica::record::carry::plan(&store, target.as_ref()).map_err(Failure::error)?
+        historica::record::carry::plan(&store, &carrying).map_err(Failure::error)?
     } else {
-        historica::record::carry::carry(&mut store, target.as_ref()).map_err(Failure::error)?
+        historica::record::carry::carry(&mut store, &carrying).map_err(Failure::error)?
     };
 
     printing(|out| {

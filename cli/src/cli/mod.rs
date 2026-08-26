@@ -117,21 +117,32 @@ writing a store
                            is a drop and an add
   amend [<target>]         rewrite the head as the folder now stands
         [-m <message>] [--move <old>=<new>] [--dry-run]
+                           a revision work stands on takes -m and nothing
+                           else: the folder states the head's content and
+                           can state no other, so that is a reword, and what
+                           stood on it is carried onto the new message
   merge [<target>...]      write what two lines of work say together:
                            what is named, and every head that is not
   update [<target>] [--dry-run]
                            make the folder hold a head: write what it
                            records, remove what it does not, touch nothing
                            unrecorded
-  abandon <target> [-m <why>] [--dry-run]
+  abandon <target> [--only] [-m <why>] [--dry-run]
                            supersede this revision, and everything standing
-                           on it, with a tombstone that says why
-  carry [<target>] [--dry-run]
-                           restate work standing on a rewritten revision
-                           against the rewrite; with no target, every such
-                           revision. nothing is stamped or minted, so two
-                           replicas repairing one history write the same
-                           bytes
+                           on it, with a tombstone that says why. --only
+                           abandons the one revision and carries what stood
+                           on it onto the tombstone, so the work above
+                           survives the work beneath it
+  carry [<target>] [--onto <destination>] [--dry-run]
+                           restate work against a different parent. with no
+                           --onto that parent is the rewrite the store
+                           already holds, and with no target it repairs
+                           every revision `check`'s note names: nothing is
+                           stamped or minted, so two replicas repairing one
+                           history write the same bytes. --onto is the same
+                           restating with a person deciding, so the revision
+                           named is stamped and the stack above it derives
+                           from that
   prune [--dry-run]        delete superseded revisions nothing stands on, and
                            content only they name, printing every file
   receive <dir> [--dry-run] [--join-unrelated]

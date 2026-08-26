@@ -660,9 +660,32 @@ impl Working<Disk> {
     pub fn read(root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
         Self::read_on(Disk, root, skipped)
     }
+
+    /// A folder nothing walked, for the acts that do not consult one.
+    ///
+    /// Decision 0059's reword restates every fact its predecessor stated and
+    /// asks the folder nothing, so a caller performing one has no walk to
+    /// hand in — and reading one to ignore it would let a file the walk
+    /// refuses turn a message into a failure.
+    pub fn unread(root: &Path) -> Self {
+        Self::unread_on(Disk, root)
+    }
 }
 
 impl<F: Filesystem> Working<F> {
+    /// The same, for a caller with its own filesystem.
+    pub fn unread_on(filesystem: F, root: &Path) -> Self {
+        Self {
+            filesystem,
+            root: root.to_path_buf(),
+            files: BTreeMap::new(),
+            links: BTreeMap::new(),
+            stamps: BTreeMap::new(),
+            known: RefCell::new(Known::default()),
+            refused: Vec::new(),
+        }
+    }
+
     /// Walk `root` on `filesystem`, taking every file the rules leave.
     ///
     /// `history/` is never tracked and needs no rule. A name that is not UTF-8,

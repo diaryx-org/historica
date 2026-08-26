@@ -64,6 +64,7 @@ The Historica CLI is WASI-compatible (except for `fetch`).
 | `git commit -a -m …` | `historica record -m …` | — |
 | `git commit -m … <paths>` | `historica record <paths> -m …` | the files left out are not compared with the tree at all, so this records an observed state as much as the unrestricted command does (0039) |
 | `git commit --amend` | `historica amend` | the rewrite is *recorded* as supersession rather than hidden, and the original stands until `prune` (0001, 0013) |
+| `git rebase -i` + `reword` | `historica amend <target> -m <message>` | a revision work stands on takes a message and nothing else, and what stood on it is carried onto the new one verbatim — same operation documents, so the store gains none (0059) |
 | `git mv <old> <new>` | `historica record --move <old>=<new>` | a rename is the one fact a person has to state, because the folder cannot show it (0011) |
 | `git rm <path>` | delete the file, then `historica record` | — |
 | `git merge <branch>` | `historica merge [<target>…]` | with no argument it takes every head. Nothing conflicted is ever recorded — two heads already *are* the conflict (0012) |
@@ -71,7 +72,7 @@ The Historica CLI is WASI-compatible (except for `fetch`).
 | `git restore <path>`, `git checkout -- <path>` | `historica update` | all or nothing: a folder half-holding a head is worse than a folder that plainly is not there yet (0030) |
 | `git reset --hard` | `historica update` | bytes no revision records are never overwritten and never deleted |
 | `git branch <name>`, `git tag <name>` | `historica name <bookmark> <target>` | one command, because a bookmark that moves and a bookmark that is pinned differ by `--revision`, not by kind (0062) |
-| `git rebase --onto` | `historica carry` | restates work standing on a rewritten revision against the rewrite. Nothing is stamped or minted, so two replicas repairing one history write the same bytes (0010) |
+| `git rebase --onto` | `historica carry [<target>] [--onto <destination>]` | restates work against a different parent. Without `--onto` that parent is a rewrite the store already holds, and nothing is stamped or minted, so two replicas repairing one history write the same bytes; with it a person decided, so the revision named is stamped and the stack above it derives from that (0010, 0059) |
 | `git gc --prune=now` | `historica prune` | local, manual, and deliberately the undo history: it deletes superseded revisions nothing stands on, and prints every file (0013) |
 | `echo … >> .gitignore` | `historica skip [--private] <path>…` | a rule has an axis saying whether it travels (0051) |
 
@@ -95,6 +96,7 @@ The Historica CLI is WASI-compatible (except for `fetch`).
 | `git filter-repo`, BFG | `historica forget <target> <path> --lines <a>..<b>` | destroys those lines everywhere history quotes them and preserves their arithmetic, so everything downstream still materialises and merges. Every other hash in the history is untouched (0014) |
 | `git reflog` | superseded revisions, until `historica prune` | the undo history is in the readable files rather than in a local log the format does not know about |
 | — | `historica abandon <target> -m <why>` | supersedes a revision, and everything standing on it, with a tombstone that says why (0013) |
+| `git rebase --onto <parent> <target>` (to drop one commit) | `historica abandon <target> --only -m <why>` | supersedes the one revision and carries what stood on it onto the tombstone, so the work above survives the work beneath it (0059) |
 
 ### Git commands with no counterpart, and why
 

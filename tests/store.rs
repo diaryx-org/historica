@@ -1304,6 +1304,7 @@ fn abandoning_a_head_leaves_the_change_abandoned_and_the_content_its_parents() {
     let abandoned = abandon(
         &mut store,
         &Abandoning {
+            only: false,
             revision: second.revision,
             author: "Adam Harris <adam@example.com>".to_owned(),
             when: platform.now().expect("a clock"),
@@ -1360,6 +1361,7 @@ fn abandoning_wants_a_reason_and_a_run_that_is_a_line() {
     let platform = Platform;
     let abandoning = |revision, message: &str| Abandoning {
         revision,
+        only: false,
         author: "Adam Harris <adam@example.com>".to_owned(),
         when: platform.now().expect("a clock"),
         message: message.to_owned(),

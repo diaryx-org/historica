@@ -19,7 +19,7 @@ use std::fmt;
 
 use crate::core::{FileId, Revision, RevisionId};
 use crate::diff::diff;
-use crate::format::{LinkTarget, OperationDocument, RevisionDocument, digest};
+use crate::format::{LinkTarget, OperationDocument, RevisionDocument, Timestamp, digest};
 use crate::fs::Filesystem;
 use crate::merge::{self, Event, MergeError};
 use crate::naming;
@@ -41,6 +41,41 @@ pub struct CarryStep {
     document: RevisionDocument,
     /// The restated operation documents to write, with where each file sat.
     writes: Vec<(naming::Filing, OperationDocument)>,
+}
+
+/// Which revisions a carry reaches.
+///
+/// The repair sweeps whatever it finds; an inline act carries what it itself
+/// stranded and nothing else, because a rewrite is not entitled to finish a
+/// half-delivered one somebody else's transport left behind.
+#[derive(Debug, Clone)]
+pub enum Carrying {
+    /// Every revision standing on a rewritten one — `check`'s note, swept.
+    Everything,
+    /// One revision standing on a rewritten one, and everything on it.
+    One(RevisionId),
+    /// Everything stranded by these rewrites, and everything standing on
+    /// that. Decision 0059's inline acts: one plan, covering exactly what
+    /// the act caused.
+    By(BTreeSet<RevisionId>),
+    /// Decision 0059's authored move: restate `target` against `onto`, and
+    /// carry what stands on it after.
+    ///
+    /// The same restating as every other variant, with one thing different
+    /// and it is the important one — nothing in the store paired these two
+    /// revisions. A person did, which is why `revised` is a reading of the
+    /// clock here and derived everywhere else. That is 0010's other row, and
+    /// the reason a moved revision converges with nothing: it was authored.
+    Onto {
+        /// The revision to restate.
+        target: RevisionId,
+        /// The parent to restate it against.
+        onto: RevisionId,
+        /// When, from the clock, because a person asked for this.
+        revised: Timestamp,
+        /// Who, which decision 0005 spells `revised-by`.
+        reviser: String,
+    },
 }
 
 /// What carrying would do, before anything is written.
@@ -139,10 +174,7 @@ impl Moving {
 /// With none, it is every revision `check`'s note would name — one nothing
 /// supersedes, standing on one something does — and an empty plan is the
 /// ordinary answer in a store with no rewrite half-delivered.
-pub fn plan<F: Filesystem>(
-    store: &Store<F>,
-    target: Option<&RevisionId>,
-) -> Result<CarryPlan, CarryError> {
+pub fn plan<F: Filesystem>(store: &Store<F>, carrying: &Carrying) -> Result<CarryPlan, CarryError> {
     // What each withdrawn revision was withdrawn by, exactly as `check`
     // builds it: from the documents that state it, so a supersession nobody
     // delivered is not one this store knows about.
@@ -166,8 +198,56 @@ pub fn plan<F: Filesystem>(
     // it stranded, and a repair that manufactured the state it repairs would
     // not be one. A withdrawn revision is never carried: a rewrite reaches
     // what it rewrote and nothing built on it, and what it rewrote is done.
-    let mut carrying: BTreeSet<RevisionId> = match target {
-        Some(named) => {
+    // The authored move's own mapping, and every refusal that belongs to
+    // deciding rather than to restating.
+    let moved: Option<(RevisionId, RevisionId, RevisionId)> = match carrying {
+        Carrying::Onto { target, onto, .. } => {
+            let revision = store
+                .revision(target)
+                .ok_or(CarryError::NotHeld { revision: *target })?
+                .clone();
+            if store.revision(onto).is_none() {
+                return Err(CarryError::NotHeld { revision: *onto });
+            }
+            // A revision something has already rewritten is a change with
+            // two spellings, and moving one of them would be choosing which
+            // won. Every act on a divergent change waits for a person.
+            if let Some(successors) = withdrawn.get(target) {
+                return Err(CarryError::DivergentRewrite {
+                    superseded: *target,
+                    successors: successors.clone(),
+                });
+            }
+            // A merge's parents' agreement would have to be recomputed
+            // against a parent it never met, which is the work `plan`
+            // refuses one revision higher up and refuses here for the same
+            // reason.
+            if revision.parents.len() > 1 {
+                return Err(CarryError::MovingAMerge { revision: *target });
+            }
+            // A revision with no parent is where a history starts, and a
+            // history that started somewhere else is a different history.
+            let parent = revision
+                .parents
+                .iter()
+                .next()
+                .copied()
+                .ok_or(CarryError::MovingARoot { revision: *target })?;
+            if parent == *onto {
+                return Err(CarryError::AlreadyThere {
+                    revision: *target,
+                    onto: *onto,
+                });
+            }
+            Some((*target, parent, *onto))
+        }
+        _ => None,
+    };
+
+    // The enum under its own name, because the set below takes the other.
+    let asked = carrying;
+    let mut carrying: BTreeSet<RevisionId> = match carrying {
+        Carrying::One(named) => {
             let revision = store
                 .revision(named)
                 .ok_or(CarryError::NotHeld { revision: *named })?;
@@ -176,12 +256,32 @@ pub fn plan<F: Filesystem>(
             }
             BTreeSet::from([*named])
         }
-        None => store
+        Carrying::Everything => store
             .revisions()
             .filter(|(id, revision)| stranded(id, revision))
             .map(|(id, _)| *id)
             .collect(),
+        // Stranded *by these*: a parent one of the causes superseded. The
+        // closure below reaches the rest, so what an inline act writes is
+        // the stack above its own rewrite and nothing further.
+        Carrying::By(causes) => store
+            .revisions()
+            .filter(|(id, revision)| {
+                !withdrawn.contains_key(*id)
+                    && revision.parents.iter().any(|parent| {
+                        withdrawn
+                            .get(parent)
+                            .is_some_and(|by| by.iter().any(|one| causes.contains(one)))
+                    })
+            })
+            .map(|(id, _)| *id)
+            .collect(),
+        // The move starts at the revision named, and the closure below takes
+        // the stack above it. Nothing is stranded here — the pairing this
+        // carries onto is the person's, not a rewrite's.
+        Carrying::Onto { target, .. } => BTreeSet::from([*target]),
     };
+
     loop {
         let more: BTreeSet<RevisionId> = store
             .revisions()
@@ -199,6 +299,18 @@ pub fn plan<F: Filesystem>(
             break;
         }
         carrying.extend(more);
+    }
+
+    // A destination inside what is moving would stand on a revision this act
+    // is about to supersede, by construction — the half-finished shape
+    // `carry` exists to repair, manufactured deliberately.
+    if let Some((target, _, destination)) = &moved
+        && carrying.contains(destination)
+    {
+        return Err(CarryError::MovingOntoItself {
+            revision: *target,
+            onto: *destination,
+        });
     }
 
     // The successor a superseded parent resolves to: the head of its own
@@ -289,6 +401,23 @@ pub fn plan<F: Filesystem>(
         let mut onto: Vec<(RevisionId, RevisionId)> = Vec::new();
         let mut inherited: Vec<Moving> = Vec::new();
         for parent in &previous.parents {
+            // The move's own pairing. Nothing superseded anything, so none
+            // of the derived branches below can find it; what it shares with
+            // them is everything after — the delta between the two parents
+            // replays exactly as a rewrite's would.
+            if let Some((moving, from, to)) = &moved
+                && id == moving
+                && parent == from
+            {
+                if let std::collections::btree_map::Entry::Vacant(vacant) =
+                    compared.entry((*from, *to))
+                {
+                    vacant.insert(between(store, from, to)?);
+                }
+                onto.push((*parent, *to));
+                inherited.push(compared[&(*from, *to)].clone());
+                continue;
+            }
             if let Some(new) = planned.get(parent) {
                 onto.push((*parent, *new));
                 inherited.push(handed_down.get(parent).cloned().unwrap_or_default());
@@ -508,31 +637,56 @@ pub fn plan<F: Filesystem>(
             return Err(CarryError::CarriedToNothing { revision: *id });
         }
 
-        // Decision 0010's carried-along row: `revised` and `revised-by` come
-        // from the rewrite that caused this, and where more than one parent
-        // was rewritten, from the one with the greater digest — the tie
-        // every other rule here is broken by, with no clock consulted.
-        let cause = onto
-            .iter()
-            .filter(|(old, new)| old != new)
-            .map(|(_, new)| *new)
-            .max()
-            .expect("a carried revision has a parent that moved");
-        let held = store.get(&cause)?.cloned();
-        let cause = documents
-            .get(&cause)
-            .cloned()
-            .or(held)
-            .expect("the cause is planned or held");
-        let revised = cause.revised.clone().ok_or(CarryError::UnstampedCause {
-            revision: *id,
-            cause: cause.id(),
-        })?;
-        let revised_by = cause
-            .revised_by
-            .clone()
-            .unwrap_or_else(|| cause.author.clone());
-        let revised_by = (revised_by != previous.author).then_some(revised_by);
+        // Decision 0010's two rows, and which one this is depends on who
+        // caused it. The moved revision is the person's act, so it takes a
+        // reading of the clock; everything carried after it is derived from
+        // the rewrite that caused it, so two replicas repairing one history
+        // write byte-identical files. Only the first of a move is authored —
+        // the stack above it converges exactly as a repair's does.
+        let authored = match (&moved, asked) {
+            (
+                Some((moving, _, _)),
+                Carrying::Onto {
+                    revised, reviser, ..
+                },
+            ) if id == moving => Some((revised.clone(), reviser.clone())),
+            _ => None,
+        };
+        let (revised, revised_by) = match authored {
+            Some((revised, reviser)) => {
+                let by = (reviser != previous.author).then_some(reviser);
+                (revised, by)
+            }
+            None => {
+                // Where more than one parent was rewritten, from the one with
+                // the greater digest — the tie every other rule here is
+                // broken by, with no clock consulted.
+                let cause = onto
+                    .iter()
+                    .filter(|(old, new)| old != new)
+                    .map(|(_, new)| *new)
+                    .max()
+                    .expect("a carried revision has a parent that moved");
+                let held = store.get(&cause)?.cloned();
+                let cause = documents
+                    .get(&cause)
+                    .cloned()
+                    .or(held)
+                    .expect("the cause is planned or held");
+                let revised = cause.revised.clone().ok_or(CarryError::UnstampedCause {
+                    revision: *id,
+                    cause: cause.id(),
+                })?;
+                let revised_by = cause
+                    .revised_by
+                    .clone()
+                    .unwrap_or_else(|| cause.author.clone());
+                (
+                    revised,
+                    (revised_by != previous.author).then_some(revised_by),
+                )
+            }
+        };
 
         let document = RevisionDocument {
             change: previous.change,
@@ -661,9 +815,22 @@ fn between<F: Filesystem>(
 /// rest is exactly the state `carry` repairs, so running it again resumes.
 pub fn carry<F: Filesystem>(
     store: &mut Store<F>,
-    target: Option<&RevisionId>,
+    carrying: &Carrying,
 ) -> Result<CarryPlan, CarryError> {
-    let planned = plan(store, target)?;
+    let planned = plan(store, carrying)?;
+    write(store, planned)
+}
+
+/// Write a plan already worked out, documents before revisions.
+///
+/// Split from [`carry`] because decision 0059's inline acts plan their
+/// carries against a rewrite the store is only provisionally holding, and
+/// then write the rewrite and the carries together — so the plan and the
+/// writing of it are two moments there, where the repair has one.
+pub(crate) fn write<F: Filesystem>(
+    store: &mut Store<F>,
+    planned: CarryPlan,
+) -> Result<CarryPlan, CarryError> {
     for step in &planned.steps {
         let stem = naming::stem_for(
             &step.document.when,
@@ -707,6 +874,40 @@ pub enum CarryError {
     NotStranded {
         /// The revision as it was named.
         revision: RevisionId,
+    },
+    /// A merge named as the thing to move.
+    ///
+    /// Decision 0059 refuses a merge above moved content because its
+    /// parents' agreement would have to be recomputed. A merge asked to
+    /// stand somewhere new is the same work, asked directly.
+    MovingAMerge {
+        /// The revision as it was named.
+        revision: RevisionId,
+    },
+    /// A revision with no parent named as the thing to move.
+    ///
+    /// Where a history starts is not a thing that stands somewhere; a
+    /// history that started somewhere else is a different history.
+    MovingARoot {
+        /// The revision as it was named.
+        revision: RevisionId,
+    },
+    /// A move onto the parent the revision already has.
+    AlreadyThere {
+        /// The revision as it was named.
+        revision: RevisionId,
+        /// The destination, which is where it already stands.
+        onto: RevisionId,
+    },
+    /// A move onto a revision that is itself moving.
+    ///
+    /// The result would stand on a superseded revision by construction: the
+    /// half-finished rewrite `carry` repairs, manufactured deliberately.
+    MovingOntoItself {
+        /// The revision as it was named.
+        revision: RevisionId,
+        /// The destination, which is among what would move.
+        onto: RevisionId,
     },
     /// A superseded parent whose rewrite has two current revisions.
     DivergentRewrite {
@@ -821,6 +1022,35 @@ impl fmt::Display for CarryError {
                 f,
                 "this store does not hold the revision {revision}, so there is \
                  nothing here to carry"
+            ),
+            CarryError::MovingAMerge { revision } => write!(
+                f,
+                "{} is a merge, and standing it somewhere new would mean \
+                 working out afresh what its parents agree on — which is \
+                 real work rather than something to guess at on anyone's \
+                 behalf",
+                revision.abbreviate(12)
+            ),
+            CarryError::MovingARoot { revision } => write!(
+                f,
+                "{} is where this history starts, and a history that started \
+                 somewhere else is a different history",
+                revision.abbreviate(12)
+            ),
+            CarryError::AlreadyThere { revision, onto } => write!(
+                f,
+                "{} already stands on {}, so there is nothing to restate",
+                revision.abbreviate(12),
+                onto.abbreviate(12)
+            ),
+            CarryError::MovingOntoItself { revision, onto } => write!(
+                f,
+                "{} stands on {}, which is part of what moving {} would \
+                 restate — the result would stand on a revision this act \
+                 supersedes",
+                onto.abbreviate(12),
+                revision.abbreviate(12),
+                revision.abbreviate(12)
             ),
             CarryError::NotStranded { revision } => write!(
                 f,

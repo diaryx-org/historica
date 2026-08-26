@@ -253,12 +253,25 @@ path, so the same file in the same place does not become a different file every
 time the work is rewritten. The rename it recorded is inherited, because a
 recomputation cannot observe one.
 
-A revision something stands on is refused, and so is one something has already
-replaced, and the superseded revision stays exactly where it was, because with
-no operation log here it is the whole of the undo. The position a command works
-from becomes the head *nothing has rewritten*, which is decision
+A revision something has already replaced is refused, and the superseded
+revision stays exactly where it was, because with no operation log here it is
+the whole of the undo. The position a command works from becomes the head
+*nothing has rewritten*, which is decision
 [0001](decisions/0001-identity.md)'s rendering question answered at the moment
 it first has an answer that matters.
+
+A revision something *stands on* takes a message and nothing else, which is
+decision [0059](decisions/0059-carrying-a-descendant-across.md)'s reword. The
+folder states the head's content and can state no other, so surveying it
+against a middle revision's parents would squash the whole stack into that
+revision — a different act wearing this one's flag. So `amend <target> -m` is
+what a middle revision takes, `--move` is refused there by name, and a bare
+`amend <target>` refuses with the flag that works: the store explains itself
+down to the spelling. Everything the reworded revision stated it states
+again, so what stood on it is carried onto the new message verbatim — the
+same operation documents, named again, and the store gains none. Content-
+editing the middle waits on 0030's working forward from the past, where it
+has always lived.
 
 ### `abandon`
 
@@ -267,6 +280,18 @@ command: a tombstone of a newly minted change supersedes a head, or a run
 ending at one, records nothing, and carries the one message this format
 requires — the reason is the only thing it has. The content falls out of the
 ancestry, so nothing is undone.
+
+`--only` abandons the one revision and carries what stood on it onto the
+tombstone, which is decision
+[0059](decisions/0059-carrying-a-descendant-across.md). The unflagged sentence
+is untouched — *this revision and everything standing on it* — because a
+person who learned it would otherwise destroy or preserve the wrong work on
+the strength of a silent change. What `--only` costs is that the descendants'
+base genuinely moved: the abandoned work left the ancestry, so files it
+touched are restated, and a descendant that edited what it introduced is a
+contested span. The refusal names the work still standing on what is being
+abandoned, which is the fact a person wants before they mean it, and the
+store is left as it was found.
 
 ### `carry`
 
@@ -286,10 +311,21 @@ touch is restated through 0007's merge, the delta between the two bases
 replaying concurrently with the descendant's own operations — and where the two
 meet, the carry refuses whole, because resolving concurrent work is a person's.
 
-What is still owed on top of the primitive is the inline acts: amending or
-abandoning a revision that has a descendant, and moving a change somewhere new,
-each a spelling question 0059 leaves open now that the machinery beneath all
-three is built.
+`--onto <destination>` is the same restating with a person deciding where.
+It is one command rather than two because there is no second primitive in it:
+same machinery, same refusals, and only the provenance differs — which is the
+pair of rows 0010 already wrote. Without `--onto` a rewrite the store holds
+decided and everything derives; with it a person did, so the revision named
+takes a reading of the clock and the stack above it derives from *that*, so it
+converges exactly as a repair's does. A destination among what would move is
+refused, since the result would stand on a revision the act supersedes; so are
+a merge, whose parents' agreement would have to be worked out afresh, and a
+revision already standing where it was asked to stand.
+
+There is no `move` command, because `--move <old>=<new>` already means
+renaming a file and one word cannot mean both. There is no `rebase` either:
+it is another tool's word for a guarantee this does not make, that one leaves
+markers in a folder for a person to fix where this refuses whole.
 
 ### `prune`
 

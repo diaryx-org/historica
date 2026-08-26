@@ -436,8 +436,12 @@ pub struct Amended {
     pub change: ChangeId,
     /// The revision it supersedes, which is still in the store.
     pub superseded: RevisionId,
-    /// What it says the folder holds.
+    /// What it says the folder holds. Empty for a reword, which looked at
+    /// no folder and states what its predecessor stated.
     pub plan: Plan,
+    /// The descendants carried onto it, decision 0059. Empty where nothing
+    /// stood on the amended revision, which is every amendment 0023 allowed.
+    pub carried: carry::CarryPlan,
 }
 
 /// What a person supplies to abandon work.
@@ -447,8 +451,17 @@ pub struct Amended {
 /// else.
 #[derive(Debug, Clone)]
 pub struct Abandoning {
-    /// The earliest revision to go: it and everything standing on it.
+    /// The earliest revision to go: it and everything standing on it,
+    /// unless `only` narrows that to the one.
     pub revision: RevisionId,
+    /// Abandon this revision alone, carrying what stands on it onto the
+    /// tombstone. Decision 0059.
+    ///
+    /// The unflagged sentence — *this revision and everything standing on
+    /// it* — is what `abandon` has always meant, and changing it silently
+    /// would destroy or preserve the wrong work for a person who learned it.
+    /// So the carrying abandonment is the flagged one.
+    pub only: bool,
     /// Who is abandoning, per decision 0010.
     pub author: String,
     /// When, per decision 0010.
@@ -462,6 +475,9 @@ pub struct Abandoning {
 pub struct Abandoned {
     /// The tombstone written.
     pub revision: RevisionId,
+    /// The descendants carried onto it, decision 0059. Empty unless the
+    /// abandonment was `--only` and something stood on what it abandoned.
+    pub carried: carry::CarryPlan,
     /// Its change, newly minted — minting is what leaves the old change
     /// `Abandoned` rather than merely empty.
     pub change: ChangeId,
@@ -1484,6 +1500,14 @@ pub fn amend<F: Filesystem>(
         previous,
     } = rewritten;
 
+    // Decision 0059: the carries this forces are part of this act, not a
+    // repair somebody runs afterwards, so they are worked out before
+    // anything is written. The rewrite is held in memory alone while that
+    // happens — a carry is planned against a store that holds what it is
+    // carrying onto — and only a plan with no refusal in it reaches the
+    // disk, which is what makes the whole act all-or-nothing.
+    let planned = carrying_for(store, &document)?;
+
     // Decision 0019's third tier is this command's: an amendment that reworded
     // nothing wants the name its predecessor already has, and only the digest
     // tells two revisions of one change apart.
@@ -1496,6 +1520,7 @@ pub fn amend<F: Filesystem>(
     );
     file_content(store, working, &plan, &content, &stem)?;
     let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
+    let carried = carry::write(store, planned)?;
 
     // Nothing follows the work forward here. A `change` bookmark already
     // resolves through supersession, and a `revision` bookmark is decision
@@ -1506,7 +1531,31 @@ pub fn amend<F: Filesystem>(
         change: previous.change,
         superseded: amendment.revision,
         plan,
+        carried,
     })
+}
+
+/// The carries one rewrite forces, planned with nothing written.
+///
+/// Decision 0059's all-or-nothing. A carry is planned against a store that
+/// holds the revision being carried onto, so the rewrite is held in memory
+/// alone while the plan is worked out, and taken back whichever way the plan
+/// goes: what is written is written by the ordinary insert afterwards, so
+/// the file and the memory of it are made together as everywhere else.
+///
+/// The plan reaches exactly what this rewrite stranded. A half-delivered
+/// rewrite somebody else's transport left in the store is `carry`'s to
+/// repair, and sweeping it into this act would make one command mean two.
+fn carrying_for<F: Filesystem>(
+    store: &mut Store<F>,
+    document: &RevisionDocument,
+) -> Result<carry::CarryPlan, RecordError> {
+    let provisional = store.provisionally(document);
+    let planned = carry::plan(store, &carry::Carrying::By(BTreeSet::from([document.id()])));
+    if let Some(id) = provisional {
+        store.withdraw(&id);
+    }
+    Ok(planned?)
 }
 
 /// One amendment worked out to the last byte, with nothing written.
@@ -1527,6 +1576,15 @@ fn rewrite<F: Filesystem>(
     amendment: &Amendment,
     entropy: &mut impl Entropy,
 ) -> Result<Rewrite, RecordError> {
+    // Decision 0059: which act this is depends on whether the folder can
+    // speak for the revision named. It states the head's content and can
+    // state nothing else (0030), so a revision work stands on takes a new
+    // message and keeps every other fact it holds.
+    let standing = standing_on(store, &amendment.revision);
+    if !standing.is_empty() {
+        return reword(store, amendment, standing);
+    }
+
     let (previous, recording, kept) = rewriting(store, amendment)?;
     let plan = plan_with(store, working, &recording, entropy, &kept)?;
 
@@ -1569,11 +1627,110 @@ fn rewrite<F: Filesystem>(
     })
 }
 
+/// The revisions naming `revision` as a parent.
+///
+/// Public because a front end has to know which act it is performing before
+/// it touches the folder: decision 0059 makes `amend` a reword where this is
+/// not empty, and a reword that renamed a file on disk before refusing would
+/// have rearranged a repository to say no.
+pub fn standing_on<F: Filesystem>(store: &Store<F>, revision: &RevisionId) -> Vec<RevisionId> {
+    store
+        .revisions()
+        .filter(|(_, held)| held.parents.contains(revision))
+        .map(|(id, _)| *id)
+        .collect()
+}
+
+/// Decision 0023's refusal of a second rewrite, which both acts owe.
+///
+/// Superseding a revision something already superseded would leave one piece
+/// of work rewritten twice, which is the divergence `carry` refuses to choose
+/// between — manufactured here rather than received.
+fn already_rewritten<F: Filesystem>(
+    store: &Store<F>,
+    revision: &RevisionId,
+) -> Result<(), RecordError> {
+    let successors: Vec<RevisionId> = store
+        .revisions()
+        .filter(|(_, held)| held.supersedes.contains(revision))
+        .map(|(id, _)| *id)
+        .collect();
+    if successors.is_empty() {
+        return Ok(());
+    }
+    Err(RecordError::AlreadyRewritten {
+        revision: *revision,
+        successors,
+    })
+}
+
+/// Rewrite a revision's message alone, keeping every other fact it states.
+///
+/// Decision 0059's reword. The folder states the head's content and cannot
+/// state a middle revision's, and surveying the head's folder against a
+/// middle revision's parents would squash the whole stack into it — so this
+/// consults no folder at all. Every tree fact and every operation document is
+/// named again exactly as the predecessor named them, which is what makes the
+/// carries a reword forces verbatim: no base moves, so the stack re-digests
+/// and not one operation document is written.
+fn reword<F: Filesystem>(
+    store: &Store<F>,
+    amendment: &Amendment,
+    standing: Vec<RevisionId>,
+) -> Result<Rewrite, RecordError> {
+    let previous = store
+        .get(&amendment.revision)?
+        .cloned()
+        .ok_or(RecordError::NotHeld {
+            revision: amendment.revision,
+        })?;
+    already_rewritten(store, &amendment.revision)?;
+
+    let Some(message) = amendment.message.clone() else {
+        return Err(RecordError::RewordWantsMessage {
+            revision: amendment.revision,
+            standing,
+        });
+    };
+    // A rename is a fact about the folder, and this act has no folder in it.
+    if !amendment.moves.is_empty() {
+        return Err(RecordError::RewordOnly {
+            revision: amendment.revision,
+            flag: "--move",
+        });
+    }
+
+    let document = RevisionDocument {
+        supersedes: BTreeSet::from([amendment.revision]),
+        // Decision 0005: written only where it differs from the author.
+        revised_by: (amendment.reviser != previous.author).then(|| amendment.reviser.clone()),
+        revised: Some(amendment.revised.clone()),
+        message,
+        ..previous.clone()
+    };
+    if says_the_same(&document, &previous) {
+        return Err(RecordError::NothingToAmend {
+            revision: amendment.revision,
+        });
+    }
+
+    Ok(Rewrite {
+        // Nothing was surveyed, because nothing was looked at. A reword
+        // states what its predecessor stated, and the empty plan is the
+        // honest account of what it did to the folder.
+        plan: Plan::default(),
+        content: Content::default(),
+        document,
+        previous,
+    })
+}
+
 /// The revision being rewritten, and what recording it again would be given.
 ///
-/// Every refusal decision 0023 names is here, before anything reads the
-/// folder: a revision this store does not hold, a revision something stands
-/// on, and a revision something has already rewritten.
+/// The refusals decision 0023 named that survive 0059 are here, before
+/// anything reads the folder: a revision this store does not hold, and one
+/// something has already rewritten. A revision work stands on is no longer
+/// among them — it is a reword, decided one level up in [`rewrite`].
 fn rewriting<F: Filesystem>(
     store: &Store<F>,
     amendment: &Amendment,
@@ -1585,29 +1742,7 @@ fn rewriting<F: Filesystem>(
             revision: amendment.revision,
         })?;
 
-    let standing: Vec<RevisionId> = store
-        .revisions()
-        .filter(|(_, revision)| revision.parents.contains(&amendment.revision))
-        .map(|(id, _)| *id)
-        .collect();
-    if !standing.is_empty() {
-        return Err(RecordError::Followed {
-            revision: amendment.revision,
-            standing,
-        });
-    }
-
-    let successors: Vec<RevisionId> = store
-        .revisions()
-        .filter(|(_, revision)| revision.supersedes.contains(&amendment.revision))
-        .map(|(id, _)| *id)
-        .collect();
-    if !successors.is_empty() {
-        return Err(RecordError::AlreadyRewritten {
-            revision: amendment.revision,
-            successors,
-        });
-    }
+    already_rewritten(store, &amendment.revision)?;
 
     // Decision 0023: a rename is the fact 0011 says only a person can state,
     // so a recomputation cannot observe the one the amended revision already
@@ -1671,10 +1806,37 @@ fn rewriting<F: Filesystem>(
 /// standing on it, and it must be a line — a fork means two branches where a
 /// person named one, and a merge in it holds work that arrived from elsewhere,
 /// which abandoning this run would silently take with it.
+///
+/// Decision 0059 adds `only`, which is the whole of the difference between
+/// the two acts: the run is the named revision alone, what stood on it is
+/// carried onto the tombstone rather than superseded with it, and the line
+/// the run had to be is nobody's requirement any more — a fork above the
+/// named revision is two stacks to carry, not two branches to choose
+/// between. What stays refused is a merge, for 0013's reason read one layer
+/// down: a tombstone standing where a merge stood would keep both parents
+/// and drop the resolution that joined them, leaving every descendant owing
+/// an agreement nothing recomputed.
 pub fn abandonment_plan<F: Filesystem>(
     store: &Store<F>,
     revision: &RevisionId,
+    only: bool,
 ) -> Result<Vec<RevisionId>, RecordError> {
+    if only {
+        let document = store
+            .revision(revision)
+            .ok_or(RecordError::NotHeld {
+                revision: *revision,
+            })?
+            .clone();
+        already_rewritten(store, revision)?;
+        if document.parents.len() > 1 {
+            return Err(RecordError::JoinsOthers {
+                revision: *revision,
+            });
+        }
+        return Ok(vec![*revision]);
+    }
+
     let mut run: Vec<RevisionId> = Vec::new();
     let mut current = *revision;
     loop {
@@ -1744,7 +1906,7 @@ pub fn abandon<F: Filesystem>(
         return Err(RecordError::NoReasonGiven);
     }
 
-    let run = abandonment_plan(store, &abandoning.revision)?;
+    let run = abandonment_plan(store, &abandoning.revision, abandoning.only)?;
     // A tombstone stands where the abandoned revision stood, which is a fact
     // about the graph and not about what that revision did.
     let first = store
@@ -1776,6 +1938,15 @@ pub fn abandon<F: Filesystem>(
         message: abandoning.message.clone(),
     };
 
+    // Decision 0059: what stands on an abandoned revision is carried onto
+    // the tombstone, and the whole of it is planned before anything is
+    // written. Their base moved — the abandoned work fell out of the
+    // ancestry — so a descendant that edited what this revision introduced
+    // is a contested span, and the refusal names the work still standing on
+    // what is being abandoned. Nothing stands on a run that was swept whole,
+    // so this is empty for 0013's act and costs it a graph walk.
+    let planned = carrying_for(store, &document)?;
+
     let stem = naming::stem_for(
         &abandoning.when,
         &abandoning.message,
@@ -1784,6 +1955,7 @@ pub fn abandon<F: Filesystem>(
         store.documents()?.into_iter().map(|(_, held)| held),
     );
     let revision = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
+    let carried = carry::write(store, planned)?;
 
     // The tombstone stands where the abandoned revision stood, so a bookmark
     // that named the abandoned work follows it there — the rule `record`
@@ -1809,6 +1981,7 @@ pub fn abandon<F: Filesystem>(
 
     Ok(Abandoned {
         revision,
+        carried,
         change,
         superseded: run,
         advanced,
@@ -1839,6 +2012,7 @@ fn says_the_same(left: &RevisionDocument, right: &RevisionDocument) -> bool {
 /// what any of it is *called* is — which is what lets a writer compare the
 /// revision it would produce against one the store already holds, and what
 /// lets 0019's third tier ask for a digest that does not exist yet.
+#[derive(Default)]
 struct Content {
     /// The operation document each edited file names.
     edited: BTreeMap<FileId, RevisionId>,
@@ -2015,15 +2189,39 @@ pub enum RecordError {
     },
     /// A revision to be rewritten that work already stands on.
     ///
-    /// Decision 0023: restating a descendant's operations against a parent
-    /// whose content moved is 0007's merge under another name, which is the
-    /// wall 0011 and 0013 stopped at too.
+    /// Decision 0023 refused this outright; 0059 leaves it for the one thing
+    /// still out of reach, which is content. What remains here is a caller
+    /// that asked to rewrite a middle revision's content, and the folder
+    /// cannot say what that content is.
     Followed {
         /// The revision that was asked for.
         revision: RevisionId,
         /// The revisions naming it as a parent.
         standing: Vec<RevisionId>,
     },
+    /// A middle revision named with no message to give it.
+    ///
+    /// Decision 0059: work stands on this, so the act available is a reword,
+    /// and a reword with no new message is a request with nothing in it.
+    RewordWantsMessage {
+        /// The revision that was asked for.
+        revision: RevisionId,
+        /// The revisions standing on it, which is why this is a reword.
+        standing: Vec<RevisionId>,
+    },
+    /// A reword asked for something a message is not.
+    RewordOnly {
+        /// The revision that was asked for.
+        revision: RevisionId,
+        /// What was asked for beside the message.
+        flag: &'static str,
+    },
+    /// A carry this rewrite forces, refused with nothing written.
+    ///
+    /// Decision 0059: an inline act owns the carries it causes, so a
+    /// contested span reaches the person as this act's refusal, and the
+    /// store is byte-identical to how the command found it.
+    Carry(Box<carry::CarryError>),
     /// A revision something has already superseded.
     AlreadyRewritten {
         /// The revision that was asked for.
@@ -2168,6 +2366,12 @@ pub enum RecordError {
     Source(SourceError),
 }
 
+impl From<carry::CarryError> for RecordError {
+    fn from(error: carry::CarryError) -> Self {
+        RecordError::Carry(Box::new(error))
+    }
+}
+
 impl From<MaterialiseError> for RecordError {
     fn from(error: MaterialiseError) -> Self {
         Self::Materialise(Box::new(error))
@@ -2238,6 +2442,35 @@ impl fmt::Display for RecordError {
                     .iter()
                     .map(|id| format!("\n  {}", id.abbreviate(12)))
                     .collect::<String>()
+            ),
+            RecordError::RewordWantsMessage { revision, standing } => write!(
+                f,
+                "{} work stands on {}, so the folder cannot say what it \
+                 holds and the act available is a reword: give -m to fix \
+                 its message alone, which keeps every other fact it \
+                 states:{}",
+                if standing.len() == 1 {
+                    "some".to_owned()
+                } else {
+                    format!("{} lines of", standing.len())
+                },
+                revision.abbreviate(12),
+                standing
+                    .iter()
+                    .map(|id| format!("\n  {}", id.abbreviate(12)))
+                    .collect::<String>()
+            ),
+            RecordError::Carry(error) => write!(
+                f,
+                "work stands on this, and restating it against the rewrite \
+                 refused, so nothing was written: {error}"
+            ),
+            RecordError::RewordOnly { revision, flag } => write!(
+                f,
+                "work stands on {}, so rewriting it is a reword and `{flag}` \
+                 is not something a message can say. what a reword keeps, it \
+                 keeps whole",
+                revision.abbreviate(12)
             ),
             RecordError::AlreadyRewritten {
                 revision,
@@ -2473,4 +2706,11 @@ impl fmt::Display for RecordError {
     }
 }
 
-impl std::error::Error for RecordError {}
+impl std::error::Error for RecordError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            RecordError::Carry(error) => Some(error),
+            _ => None,
+        }
+    }
+}

@@ -248,20 +248,10 @@ needed by nothing here.
 **Squashing the stack into a non-head amend.** The folder-against-middle
 survey, refused above by construction rather than by lint.
 
-## Open questions
-
-1. Is `amend <non-head>` as reword-only right, or should the flag spell it
-   differently (`reword`?) so that `amend` keeps one meaning? With it: what
-   `abandon <mid>` means once descendants can survive — the command's
-   current sentence is "this revision and everything standing on it", and a
-   carrying abandonment is a different act that wants its own spelling
-   rather than a silent change to that one.
-2. The name of the human move. `carry` for the derivable repair reads well
-   against 0010's row; `move --onto` collides in a reader's ear with
-   `--move`, and `rebase` is another tool's word for a different guarantee.
-
 ## Resolved questions
 
+1. **`amend` keeps one meaning, and there is no `reword` command.** Below.
+2. **The human move is `carry --onto`**, and there is no `move`. Below.
 3. **Resolutions beneath a restated carry are refused**, and more than
    drafted: any merge above moved content is, resolution or not, because
    the parents' agreement itself has to be recomputed before anyone knows
@@ -272,6 +262,71 @@ survey, refused above by construction rather than by lint.
 5. **`check`'s note names the command**: "it was authored before the
    rewrite. Run `historica carry` to repair automatically." 0021's rule —
    the store explains itself, here down to the repair.
+
+## Since
+
+Questions 1 and 2 are answered, and the three acts they gated are built.
+
+**The axis under question 1 is not head versus non-head.** It is where the
+new content comes from. `amend` means *rewrite this revision*: the folder
+supplies content, `-m` supplies the message. On a middle revision the folder
+cannot speak (0030), so the content axis is simply unavailable, and
+`amend <mid> -m` is not a second act — it is `amend` with one axis empty.
+That reading keeps `amend` at one meaning and puts the teaching in the
+refusal, which is 0021's job anyway: a bare `amend <mid>` names the reword
+and the flag that performs it. A `reword` command would have been a name
+minted for a temporary restriction, and would collapse into `amend -m` with
+nothing of its own left the day 0030's working-from-the-past lands.
+
+**Abandonment is the opposite case, and the asymmetry is the argument.** For
+`amend`, the flagless case *refuses*; for `abandon`, the flagless case
+*acts*, and would act differently before and after this document. The
+existing sentence is "this revision and everything standing on it", and a
+carrying abandonment preserves exactly what that destroys. So the existing
+sentence keeps the bare spelling and the new act is `abandon <target>
+--only` — which names the person's intent, the carry being its consequence.
+`--only` also composes with the run form the unflagged command still takes.
+
+**Question 2 dissolves once the two acts are read as one.** There is no
+second primitive in the human move: same restating, same refusals, and the
+only difference is provenance — which is a difference this document already
+states as a pair of 0010's rows. So it is `historica carry <target> --onto
+<destination>`, and `carry`'s sentence widens by one word: *restate work
+against a different parent*. Without `--onto`, a rewrite the store holds
+decided, everything derives, and two replicas converge. With it, a person
+decided, so that one revision takes a reading of the clock — and everything
+carried above it derives from that, so the stack converges exactly as a
+repair's does. No top-level `move`, so `--move` keeps its meaning; `rebase`
+stays another tool's word for another tool's guarantee, which is the one
+that leaves markers in a folder where this refuses whole.
+
+**"Amending a head" above presumed something that cannot happen.** A
+revision anything stands on is not a tip, and `amend` had always refused
+one, so the sentence "the descendants are carried, parents first" described
+a case with no descendants in it. What the lifted refusal actually reaches
+is the reword, and its carries are always verbatim. So: the content-amend
+path never carries anything, and the reword path always carries, and always
+without writing an operation document. That is a simplification of the
+design rather than a change to it, and it is what the tests assert.
+
+**All-or-nothing needed one thing the store did not have.** A carry is
+planned against a store that already holds the revision being carried onto,
+and the inline acts have to plan theirs before writing anything. So a
+revision can now be held in memory alone — `Store::provisionally`, taken
+back by `Store::withdraw` — for exactly as long as one planner runs. A
+refusal therefore leaves `revisions/` and `operations/` byte-identical.
+(`cache/` is not: it is nobody's, per 0035, and every command that reads a
+store may rewrite it.)
+
+**An inline act carries only what it stranded.** `Carrying::By` is that
+restriction. A half-delivered rewrite somebody else's transport left in the
+store stays `carry`'s to repair, because sweeping it into an amendment
+would make one command mean two.
+
+The library signatures moved with this: `carry::plan` and `carry::carry`
+take a `Carrying` rather than an `Option<&RevisionId>`, `abandonment_plan`
+takes the `only` flag, `Abandoning` gains `only`, and `Amended` and
+`Abandoned` gain the plan they carried.
 
 ## Deferred
 
