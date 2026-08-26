@@ -117,6 +117,25 @@ Both of the above were built, on terms the section above is what set.
   `diff-highlight`'s reasoning: emphasis covering the whole of both says only
   what the `-` and the `+` already said.
 
+- **`binary files differ` names both payloads and both lengths.** The rule
+  above is unchanged and the reason for it is unchanged: 0017 gives a file of
+  bytes no lines, and there is nothing here to render. But *nothing to render*
+  was read as *nothing to say*, and those are not the same. What the store
+  holds about a payload is its digest and its length, and a person looking at
+  `binary files differ` wants exactly those two facts — the digest because it
+  is what `shasum -a 256` prints over the payload where 0017 files it, and so
+  the one fact that settles whether two versions are the same bytes, and the
+  length because a photograph that went from two megabytes to nine is the
+  whole of what a person can learn about a change they cannot be shown.
+
+  So the line carries them, on either side of the `->` every other fact here
+  is spelled with, and a side that is not there prints as nothing, exactly as
+  a link's does — the `/dev/null` line above has already said which side it
+  is. The count is exact bytes rather than a rounded size, because `wc -c` is
+  what checks it and 0003's promise is that `wc -c` is enough. This is not a
+  second decomposition and could not become one: it is two digests over bytes
+  that are already settled, and there is no comparison in it.
+
 ## Consequences
 
 - `cli::diff` is the new module, and `target::could_be_target` is the alphabet

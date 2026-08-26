@@ -205,10 +205,31 @@ fn a_file_of_bytes_says_it_differs_rather_than_being_printed() {
     assert!(run(&directory, &["record", "-m", "base"]).status.success());
     fs::write(directory.join("pic.png"), [0x89, b'P', b'N', b'G', 3, 4, 5]).expect("editing it");
 
+    // 0017 gives it no lines to render, so what is rendered instead is what
+    // the store knows: each side's digest, and each side's exact length.
     let rendered = out(&directory, &["diff"]);
     assert_eq!(
         rendered,
-        "--- a/pic.png\n+++ b/pic.png\nbinary files differ\n"
+        "--- a/pic.png\n+++ b/pic.png\n\
+         binary files differ: a9c74dcaf10f 7 bytes -> 09010731480c 7 bytes\n"
+    );
+}
+
+#[test]
+fn a_new_file_of_bytes_names_only_the_side_that_is_there() {
+    let directory = repository("arriving");
+    write(&directory, "notes.md", "alpha\n");
+    assert!(run(&directory, &["record", "-m", "base"]).status.success());
+    fs::write(directory.join("pic.png"), [0x89, b'P', b'N', b'G', 3, 4, 5])
+        .expect("a file of bytes");
+
+    // The side that is not there prints as nothing, exactly as a link's does:
+    // `--- /dev/null` has already said which side it is.
+    let rendered = out(&directory, &["diff"]);
+    assert_eq!(
+        rendered,
+        "new file pic.png\n--- /dev/null\n+++ b/pic.png\n\
+         binary files differ: -> 09010731480c 7 bytes\n"
     );
 }
 

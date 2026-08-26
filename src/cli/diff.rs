@@ -24,7 +24,7 @@ use std::path::Path;
 
 use historica::core::{FileId, RevisionId};
 use historica::diff;
-use historica::format::Mode;
+use historica::format::{Mode, digest};
 use historica::replay::State;
 use historica::store::{Content, Store};
 use historica::tree::{Kind, Tree};
@@ -614,7 +614,33 @@ fn render(out: &mut impl Write, pair: &Pair, paint: Paint) -> std::io::Result<()
     else {
         writeln!(out, "{meta}--- {left}{off}")?;
         writeln!(out, "{meta}+++ {right}{off}")?;
-        return writeln!(out, "{meta}binary files differ{off}");
+        // 0017 leaves nothing to render, but it does not leave nothing to
+        // say: what the store knows about a payload is its digest and its
+        // length, and both are what a person needs to go and look at either
+        // version. The count is exact bytes rather than a rounded size,
+        // because `wc -c` and `shasum -a 256` are what check it, and 0003's
+        // promise is that they are enough.
+        let side = |content: Option<&Content>| match content {
+            Some(Content::Whole(bytes)) => Some((digest(bytes), bytes.len())),
+            Some(Content::Lines(state)) => {
+                let text = state.text();
+                Some((digest(text.as_bytes()), text.len()))
+            }
+            None => None,
+        };
+        // A side that is not there prints as nothing, exactly as a link's
+        // does above: the `/dev/null` line has already said which side it is.
+        let spelled = |side: Option<(RevisionId, usize)>| {
+            side.map_or_else(String::new, |(id, size)| {
+                format!(" {} {size} bytes", id.abbreviate(12))
+            })
+        };
+        return writeln!(
+            out,
+            "{meta}binary files differ:{} ->{}{off}",
+            spelled(side(pair.before.as_ref())),
+            spelled(side(pair.after.as_ref()))
+        );
     };
 
     // The same decomposition `record` would write down, rendered — so what a
