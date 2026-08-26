@@ -29,14 +29,18 @@ Behavioural-change: A revision file is written as `.rev.txt`. Stores written
   migrated.
 ```
 
-historica has not been released. The first `## vX.Y.Z` heading below covers
-every commit since the beginning, including the thirty-five written before the
-repository adopted conventional commits. Those have been triaged, in
-`.config/cliff.toml` rather than here: each subject is mapped to the type and
-scope it would have carried, so seventeen of them group with everything written
-after them and the eighteen that only revised a decision document or a
-`.gitignore` drop out the way `docs:` and `chore:` always do. Nothing was
-rewritten to achieve it.
+historica is published to [crates.io](https://crates.io/crates/historica). Its
+first release, v0.1.0, went up without a tag behind it, and the tag list is what
+`cargo xtask changelog` reads to decide which sections this file owes — so
+v0.2.0 is the oldest heading below, and it covers every commit since the
+beginning rather than only the day between the two.
+
+Those commits include the thirty-five written before the repository adopted
+conventional commits. They have been triaged, in `.config/cliff.toml` rather
+than here: each subject is mapped to the type and scope it would have carried,
+so seventeen of them group with everything written after them and the eighteen
+that only revised a decision document or a `.gitignore` drop out the way
+`docs:` and `chore:` always do. Nothing was rewritten to achieve it.
 
 Anything still off-convention lands under **Uncategorised**, deliberately
 visible, to be triaged into its real group before the tag is cut.
