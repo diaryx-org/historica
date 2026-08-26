@@ -66,6 +66,14 @@ const JOBS: &[Job] = &[
         run: clippy,
     },
     Job {
+        id: "doc",
+        name: "Doc",
+        components: "",
+        builds: true,
+        about: "rustdoc over every feature, warnings denied",
+        run: doc,
+    },
+    Job {
         id: "test",
         name: "Test",
         components: "",
@@ -118,6 +126,29 @@ fn clippy(sh: &Sh) -> Result<()> {
         "-D",
         "warnings",
     ])
+}
+
+/// rustdoc, held to the same standard as the compiler.
+///
+/// `documentation` in `Cargo.toml` points at docs.rs, so the pages rustdoc
+/// generates here are the ones a person deciding whether to use historica
+/// reads. Nothing else in CI looks at them: a `[`Thing`]` naming an item that
+/// was renamed last week still compiles, still passes clippy, and renders as
+/// plain text on the page — which is how five of them accumulated before 1.0.
+///
+/// `-D warnings` is what turns that into a failure, and it catches the three
+/// kinds worth catching: a link to an item that no longer exists, a link from
+/// public documentation into a private item nobody following it can reach, and
+/// a `[label](target)` whose two halves say the same thing.
+///
+/// `--all-features` because a feature-gated item is documented only in a build
+/// that has it, and `--no-deps` because a dependency's documentation is its
+/// author's problem.
+fn doc(sh: &Sh) -> Result<()> {
+    sh.cargo_with(
+        &[("RUSTDOCFLAGS", "-D warnings")],
+        &["doc", "--workspace", "--all-features", "--no-deps"],
+    )
 }
 
 /// The workspace test suite, with the conformance suite pointed somewhere new.
