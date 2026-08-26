@@ -57,6 +57,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — name a payload rather than carry it, and stream both ways ([`d105349`](https://github.com/diaryx-org/historica/commit/d105349f493944a45a94d945595809f110d78651))
 - **forget** — destroy a payload whole, and say how much went ([`4614660`](https://github.com/diaryx-org/historica/commit/4614660a238787cc3c1564eab57d5d857d0b360f))
 - **record** — say which kind a file being added is, where the sniff would guess ([`e405664`](https://github.com/diaryx-org/historica/commit/e405664bc2ab8698065da853deeb6ba1522c1b84))
+- **cli** — the command line is its own package ([`8d99c0d`](https://github.com/diaryx-org/historica/commit/8d99c0d6b887ac40a812ffd5961aaff478100066))
 
 ### Added
 
@@ -804,6 +805,19 @@ refused as unparsable.
   UTF-8-and-no-NUL boundary, the amendment keeps the recorded kind
   instead of silently swapping it, and refuses if the file was recorded
   as lines and is no longer UTF-8.
+
+- `cargo install historica` no longer installs anything.
+  The command line is `cargo install historica-cli`, and the program it
+  puts on the PATH is still called `historica`.
+
+- The `http` feature no longer exists on the `historica`
+  package. A caller who named it — `features = ["http"]` — gets an error
+  from cargo rather than a silent no-op, and should drop it: no line of
+  the library ever read it.
+
+- `historica`'s default features are now `["disk"]` alone,
+  so depending on the library no longer builds or links a platform HTTP
+  stack. A caller who wanted the transport wanted the command line.
 
 <!-- git-cliff:end -->
 
