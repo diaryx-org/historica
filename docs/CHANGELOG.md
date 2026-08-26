@@ -52,6 +52,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **format** — say whose header it is with a dot, not an `x-` ([`e10a5c3`](https://github.com/diaryx-org/historica/commit/e10a5c374c29e74aa40a4dddefccfab16bb1fef3))
 - **store** — name a payload rather than carry it, and stream both ways ([`d105349`](https://github.com/diaryx-org/historica/commit/d105349f493944a45a94d945595809f110d78651))
 - **forget** — destroy a payload whole, and say how much went ([`4614660`](https://github.com/diaryx-org/historica/commit/4614660a238787cc3c1564eab57d5d857d0b360f))
+- **record** — say which kind a file being added is, where the sniff would guess ([`e405664`](https://github.com/diaryx-org/historica/commit/e405664bc2ab8698065da853deeb6ba1522c1b84))
 
 ### Added
 
@@ -789,6 +790,16 @@ what most such matches wanted.
 `length` line is now read as decision 0066's grammar and held to its
 strictness, where it was previously read as an operation document and
 refused as unparsable.
+
+- `record::survey` takes a seventh argument, a `&Kinds`,
+  and `record::Recording` gains a `kinds` field. `Kinds::default()` is
+  what every existing caller wants: it is the sniff, unchanged.
+
+- `amend` no longer re-sniffs the kind of a file its
+  predecessor added. Where the folder's bytes have since crossed the
+  UTF-8-and-no-NUL boundary, the amendment keeps the recorded kind
+  instead of silently swapping it, and refuses if the file was recorded
+  as lines and is no longer UTF-8.
 
 <!-- git-cliff:end -->
 
