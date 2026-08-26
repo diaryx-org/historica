@@ -49,6 +49,7 @@ visible, to be triaged into its real group before the tag is cut.
 
 - **format** — one spelling for the format ([`422ff71`](https://github.com/diaryx-org/historica/commit/422ff71bdc6598b93782fc8ac8eceec48c0ed613))
 - **fs** — land Disk::write through fs-transaction, retiring atomic-write-file ([`6644b4b`](https://github.com/diaryx-org/historica/commit/6644b4b1d96c2d315ff0b33af39f0612d08564d2))
+- **format** — say whose header it is with a dot, not an `x-` ([`e10a5c3`](https://github.com/diaryx-org/historica/commit/e10a5c374c29e74aa40a4dddefccfab16bb1fef3))
 
 ### Added
 
@@ -666,6 +667,18 @@ beside a write's destination now refuses that write with an I/O error,
 read as a stale fs-transaction journal awaiting recovery. No historica
 operation writes one — a guarded write takes the journal-free fast
 path — so only a file something else left there can trigger it.
+
+- a revision document holding an `x-` header no longer
+parses — `x-review-url` is now an unknown header with no dot in it, and
+is refused by name at its line, with `<tool>.x-review-url` named in the
+message as the spelling that would be ignorable. A document holding
+`diaryx.review-url` parses where it was previously refused, and such a
+key reaches `RevisionDocument::extensions` whole, as `x-` keys did.
+
+- `ParseErrorKind::MalformedKey` now also covers a dot
+with nothing on one side of it (`.a`, `a.`, `a..b`), where the key
+alphabet previously admitted no dot at all and any dotted key was
+malformed for the alphabet.
 
 <!-- git-cliff:end -->
 
