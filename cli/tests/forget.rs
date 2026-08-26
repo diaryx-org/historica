@@ -189,6 +189,7 @@ fn record_folder(
             accepted: BTreeSet::new(),
             only: Restriction::Everything,
             kinds: Default::default(),
+            extensions: Default::default(),
         },
         &mut platform,
     )

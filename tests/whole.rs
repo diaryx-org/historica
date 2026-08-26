@@ -469,6 +469,7 @@ fn a_payload_that_crosses_every_piece_boundary_round_trips() {
         accepted: BTreeSet::new(),
         only: Restriction::Everything,
         kinds: Default::default(),
+        extensions: Default::default(),
     };
     let working = Working::read(&base, store.skipped()).expect("the folder");
     let recorded = record(

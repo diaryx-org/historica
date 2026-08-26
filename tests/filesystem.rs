@@ -230,6 +230,7 @@ fn record_folder(
             accepted: BTreeSet::new(),
             only: Restriction::Everything,
             kinds: Default::default(),
+            extensions: Default::default(),
         },
         &mut platform,
     )
@@ -915,6 +916,7 @@ fn record_at<F: Filesystem + Clone>(
             accepted: BTreeSet::new(),
             only: Restriction::Everything,
             kinds: Default::default(),
+            extensions: Default::default(),
         },
         &mut platform,
     )

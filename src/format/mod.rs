@@ -208,6 +208,67 @@ impl fmt::Display for MalformedTarget {
 
 impl std::error::Error for MalformedTarget {}
 
+/// Whether a key and a value can stand as a header some other tool wrote.
+///
+/// Decision 0065 made the tool boundary the parser's business: a key with a dot
+/// in it is another tool's, and a key without one is this format's to define.
+/// This is that rule read by a writer, so that [`record`](crate::record::record)
+/// can name the key and the fix rather than filing a document its own parser
+/// would refuse — which is the one way a store could come to hold bytes nothing
+/// can read back.
+///
+/// The value's three rules are decision 0002's for any header value, met here
+/// by a string that came from a caller rather than from a document.
+pub fn check_extension(key: &str, value: &str) -> Result<(), MalformedExtension> {
+    let refuse = |because: &'static str| Err(MalformedExtension(because));
+    if key.is_empty() {
+        return refuse("it is empty, and a header with no key is not a header");
+    }
+    if !key
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b == b'-' || b == b'.')
+    {
+        return refuse(
+            "a key is lowercase letters, hyphens and dots, and this holds something else",
+        );
+    }
+    if key.split('.').any(str::is_empty) {
+        return refuse(
+            "a dot separates a tool's name from what it named, so it has something on \
+             both sides of it",
+        );
+    }
+    if !key.contains('.') {
+        return refuse(
+            "a key with no dot in it is this format's own, and this format does not \
+             define this one; qualify it with the name of the tool it belongs to, as \
+             `tool.fact`",
+        );
+    }
+    if value.is_empty() {
+        return refuse("it has no value, and an absent fact is an absent line");
+    }
+    if value.starts_with(' ') || value.ends_with(' ') {
+        return refuse("it has leading or trailing space, which a header value cannot keep");
+    }
+    if value.chars().any(char::is_control) {
+        return refuse("it holds a control character, and a header is one line");
+    }
+    Ok(())
+}
+
+/// Why a key and value cannot be a header another tool wrote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MalformedExtension(&'static str);
+
+impl fmt::Display for MalformedExtension {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for MalformedExtension {}
+
 /// Characters in a change ID's readable spelling.
 pub const CHANGE_ID_CHARS: usize = CHANGE_ID_LEN * 2;
 
@@ -1119,6 +1180,20 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Whether a key is spelled the way this format spells one.
+///
+/// Lowercase letters, hyphens and dots, and — decision 0065 — a dot separates a
+/// tool's name from what it named, so it has something on both sides. `.a`,
+/// `a.`, and `a..b` name no tool. The parser and [`check_extension`] share it,
+/// so the one rule about characters has one spelling.
+fn shaped_key(key: &str) -> bool {
+    !key.is_empty()
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b'-' || b == b'.')
+        && !key.split('.').any(str::is_empty)
+}
+
 /// Split `key value`, enforcing the key's shape and the value's.
 fn split_header(line: &str, at: usize) -> Result<(&str, &str), ParseError> {
     let Some(space) = line.find(' ') else {
@@ -1127,14 +1202,7 @@ fn split_header(line: &str, at: usize) -> Result<(&str, &str), ParseError> {
     };
     let (key, value) = (&line[..space], &line[space + 1..]);
 
-    let shaped = !key.is_empty()
-        && key
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b == b'-' || b == b'.')
-        // Decision 0065: the dot separates a tool's name from what it named, so
-        // it has something on both sides. `.a`, `a.`, and `a..b` name no tool.
-        && !key.split('.').any(str::is_empty);
-    if !shaped {
+    if !shaped_key(key) {
         return Err(ParseError::new(
             at,
             ParseErrorKind::MalformedKey {

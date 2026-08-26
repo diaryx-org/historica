@@ -149,6 +149,10 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         accepted: accepted.clone(),
         only: only.clone(),
         kinds: kinds.clone(),
+        // Decision 0065: the CLI records on historica's own behalf, and a
+        // header this format has no word for is another tool's to state
+        // through the library.
+        extensions: BTreeMap::new(),
     };
 
     // What a restriction refuses outright, asked before the rename below

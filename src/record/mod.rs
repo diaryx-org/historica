@@ -20,7 +20,7 @@ use crate::core::{ChangeId, FileId, RevisionId};
 use crate::diff::{diff, resolve};
 use crate::format::{
     LinkTarget, Mode, OperationDocument, ResolutionDocument, RevisionDocument, Timestamp,
-    check_link_target, digest, nfc,
+    check_extension, check_link_target, digest, nfc,
 };
 use crate::fs::Filesystem;
 use crate::merge::Merged;
@@ -408,6 +408,21 @@ pub struct Recording {
     /// Which kind a file being added is, where a person said rather than let
     /// the recorder sniff. Decision 0017.
     pub kinds: Kinds,
+    /// Advisory headers another tool states on this revision, keyed by their
+    /// whole spelling, dot and all. Empty for a recording historica makes on
+    /// its own behalf, which is every recording the CLI makes.
+    ///
+    /// Decision 0065: a key with a dot in it belongs to the tool the dot names,
+    /// and historica parses it, hashes it, sorts it last, carries it across an
+    /// amendment (0023) and never interprets it. That is what makes it somewhere
+    /// a tool built on this one can put a fact this format has no word for —
+    /// the committer git records apart from the author, say — and still have it
+    /// survive as part of the revision's identity.
+    ///
+    /// A key this format could define is refused rather than written:
+    /// [`check_extension`] states the rule, and [`RecordError::UnusableHeader`]
+    /// names the key and the fix.
+    pub extensions: BTreeMap<String, String>,
 }
 
 /// What a person supplies to rewrite a revision.
@@ -512,6 +527,22 @@ pub struct Recorded {
 /// waited for the survey would arrive after the folder had been rearranged.
 pub fn check_restriction(recording: &Recording) -> Result<(), RecordError> {
     restricted(&recording.parents, &recording.moves, &recording.only)
+}
+
+/// What a stated header refuses, before the folder is read.
+///
+/// Here for the reason [`check_restriction`] is: a front end performs a stated
+/// rename before it walks the folder, and a refusal that waited would arrive
+/// after the folder had been rearranged. [`record`] asks again, because the
+/// refusal is the library's rather than the front end's.
+pub fn check_extensions(recording: &Recording) -> Result<(), RecordError> {
+    for (key, value) in &recording.extensions {
+        check_extension(key, value).map_err(|because| RecordError::UnusableHeader {
+            key: key.clone(),
+            because: because.to_string(),
+        })?;
+    }
+    Ok(())
 }
 
 fn restricted(
@@ -1396,6 +1427,11 @@ pub fn record<F: Filesystem>(
     recording: &Recording,
     entropy: &mut impl Entropy,
 ) -> Result<Recorded, RecordError> {
+    // Asked before anything is planned, because a header this format cannot
+    // hold is a fact about the request rather than about the folder, and a
+    // refusal that had already filed an operation document is a refusal that
+    // did something.
+    check_extensions(recording)?;
     let plan = plan(store, working, recording, entropy)?;
     // A merge that states nothing still says something: these two lines of
     // work are one now, which is what `04-merge.rev` is and why it names no
@@ -1423,7 +1459,9 @@ pub fn record<F: Filesystem>(
         edited: content.edited.clone(),
         text: content.text.clone(),
         bytes: content.bytes.clone(),
-        extensions: BTreeMap::new(),
+        // Decision 0065: what the caller states on another tool's behalf, which
+        // this writer no more understands than a reader does.
+        extensions: recording.extensions.clone(),
         message: recording.message.clone(),
     };
 
@@ -1614,8 +1652,8 @@ fn rewrite<F: Filesystem>(
         bytes: content.bytes.clone(),
         // 0023 carries the advisory headers forward: this writer cannot read
         // them, and dropping what it cannot read is the failure 0020 calls the
-        // worst available.
-        extensions: previous.extensions.clone(),
+        // worst available. `rewriting` put the predecessor's here.
+        extensions: recording.extensions.clone(),
         message: recording.message.clone(),
     };
     if says_the_same(&document, &previous) {
@@ -1800,6 +1838,11 @@ fn rewriting<F: Filesystem>(
         // asked about.
         only: Restriction::Everything,
         kinds,
+        // 0023 again, and 0065: a writer that cannot read a header must not
+        // drop it, so the predecessor's are what this restates. An amendment
+        // states none of its own — an [`Amendment`] has nowhere to put one —
+        // which is why these arrive from the revision rather than the caller.
+        extensions: previous.extensions.clone(),
     };
     Ok((previous, recording, kept))
 }
@@ -2351,6 +2394,17 @@ pub enum RecordError {
         /// The files claiming it.
         files: Vec<FileId>,
     },
+    /// A header another tool stated that this format cannot hold.
+    ///
+    /// Decision 0065: a key with no dot in it is this format's own, so a caller
+    /// that states one is asking for a document historica's own parser would
+    /// refuse by name.
+    UnusableHeader {
+        /// The key, as it was stated.
+        key: String,
+        /// Why not.
+        because: String,
+    },
     /// A path the format cannot hold.
     UnusablePath {
         /// The path.
@@ -2700,6 +2754,9 @@ impl fmt::Display for RecordError {
                     .map(|file| format!("\n  --at {file}=<path>"))
                     .collect::<String>()
             ),
+            RecordError::UnusableHeader { key, because } => {
+                write!(f, "`{key}` cannot be a header here: {because}")
+            }
             RecordError::UnusablePath { path, because } => {
                 write!(f, "`{path}` cannot be a path here: {because}")
             }

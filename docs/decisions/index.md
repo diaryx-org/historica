@@ -746,6 +746,19 @@ depend on each other in.
   because the file is not hashed; it could never be in a document, since a
   line added to one renames it.
 
+- [0070 — Writing the header another tool wrote](0070-writing-the-header-another-tool-wrote.md)
+  0065 said what a reader does with a dotted key and left nobody able to write
+  one: `record` filled `extensions` with an empty map, so the room 0065 made
+  was room no tool could reach. `Recording.extensions` is the way in, wanted by
+  historica-git, whose round trip back to git is exact except for the three
+  facts this format has no word for — a committer distinct from the author, an
+  `encoding`, a stripped signature — and they belong in a header rather than
+  beside the store because 0065 already puts them in the canonical bytes and
+  0023 already carries them across an amendment. The writer checks the key
+  rather than trusting the caller, since a dotless one would file a document
+  historica's own parser refuses. `Amendment` gets no field: carrying forward
+  stays the whole of it until something has to restate.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
