@@ -58,6 +58,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **forget** — destroy a payload whole, and say how much went ([`4614660`](https://github.com/diaryx-org/historica/commit/4614660a238787cc3c1564eab57d5d857d0b360f))
 - **record** — say which kind a file being added is, where the sniff would guess ([`e405664`](https://github.com/diaryx-org/historica/commit/e405664bc2ab8698065da853deeb6ba1522c1b84))
 - **cli** — the command line is its own package ([`8d99c0d`](https://github.com/diaryx-org/historica/commit/8d99c0d6b887ac40a812ffd5961aaff478100066))
+- **store** — a place for a store to say it was written by a newer Historica ([`94f5fee`](https://github.com/diaryx-org/historica/commit/94f5fee3a08e62e8f5cbe661c6351baacc08f71d))
 
 ### Added
 
@@ -818,6 +819,23 @@ refused as unparsable.
 - `historica`'s default features are now `["disk"]` alone,
   so depending on the library no longer builds or links a platform HTTP
   stack. A caller who wanted the transport wanted the command line.
+
+- A store header whose second line is neither blank nor absent
+  is now refused, where it was previously ignored. Every store `init` writes is
+  unaffected: it states nothing between the format line and the blank line under
+  it, and this release writes no header there. What is reached is a hand-made
+  store whose note begins on the second line, which `HEADER_NOTE` had invited by
+  saying a person may write what they like below the first line. The error
+  carries the fix, per 0004: put a blank line above the note. Published 0.1.0
+  and 0.2.0 stores are unaffected, since 0047 already refuses them at the
+  preamble.
+
+- `StoreError::UnknownLayout` and `Finding::UnknownLayout` are
+  new variants, the second at `Severity::Error`. Both enums are
+  `#[non_exhaustive]`, so a match on either already had a wildcard arm; what a
+  caller gains is being able to tell "this reader lacks the format" from "this
+  reader lacks the layout", which are different sentences to the person holding
+  the store.
 
 <!-- git-cliff:end -->
 
