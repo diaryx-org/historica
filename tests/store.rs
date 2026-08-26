@@ -628,6 +628,13 @@ fn a_name_that_is_not_a_path_this_store_could_hold_is_refused() {
         ".",
         "back\\slash",
         " padded",
+        // Decision 0033's rule, arriving through 0018: one spelling per name.
+        // `café` with a combining acute is the same name and different bytes,
+        // and a store that held both would hold two bookmarks a person cannot
+        // tell apart. Written as an escape rather than as source text, so that
+        // what this test states does not depend on how an editor saved it.
+        "cafe\u{301}",
+        "feature/cafe\u{301}",
     ] {
         assert!(
             store.set_name(name, Name::Revision(id)).is_err(),
