@@ -750,11 +750,13 @@ depend on each other in.
   0065 said what a reader does with a dotted key and left nobody able to write
   one: `record` filled `extensions` with an empty map, so the room 0065 made
   was room no tool could reach. `Recording.extensions` is the way in, wanted by
-  historica-git, whose round trip back to git is exact except for the three
-  facts this format has no word for — a committer distinct from the author, an
-  `encoding`, a stripped signature — and they belong in a header rather than
-  beside the store because 0065 already puts them in the canonical bytes and
-  0023 already carries them across an amendment. The writer checks the key
+  historica-git, whose round trip back to git is exact except for the facts
+  this format has no word for — a committer distinct from the author, a
+  stripped signature — and they belong in a header rather than beside the store
+  because 0065 already puts them in the canonical bytes and 0023 already
+  carries them across an amendment. The encoding git also states did not cross,
+  and says what the field is not for: a claim *about* a message historica has
+  already re-encoded would file a commit that contradicts itself. The writer checks the key
   rather than trusting the caller, since a dotless one would file a document
   historica's own parser refuses. `Amendment` gets no field: carrying forward
   stays the whole of it until something has to restate.

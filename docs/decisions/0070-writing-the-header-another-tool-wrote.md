@@ -25,12 +25,24 @@ round-trips. A repository whose commits are signed cannot be written back
 without rewriting everyone's history, which makes the missing field the gate on
 driving git with historica at all.
 
-Three headers — `git.committer`, `git.encoding`, `git.signature` — close that,
-and they close it *because* of the property 0065 already granted them: they are
-in the canonical bytes, so the revision's identity covers them, and 0023 carries
-them across an amendment, so a rewrite does not silently drop the fact that made
-the commit what it was. A field beside the store, or a note in a sidecar, would
-have neither.
+`git.committer` and `git.signature` close that, and they close it *because* of
+the property 0065 already granted them: they are in the canonical bytes, so the
+revision's identity covers them, and 0023 carries them across an amendment, so
+a rewrite does not silently drop the fact that made the commit what it was. A
+field beside the store, or a note in a sidecar, would have neither. Both are now
+carried, and every one of historica-git's own signed commits verifies against
+the repository written back from the history.
+
+The third did not cross, and the reason is the useful half of the example.
+historica-git's 0005 declined `git.encoding`, because an encoding is a claim
+*about* the message rather than a fact beside it, and import has already
+re-encoded the message to UTF-8 by the time it records — a document is UTF-8.
+Carrying the declaration without the bytes it describes would file a commit
+that says it is Latin-1 and is not. So a header holds what travels *with* the
+revision without contradicting it, and a fact that describes bytes historica
+has already changed is not one of those. That is a limit on what this field is
+for, and it is worth knowing before somebody reaches for it as a place to put
+anything git said.
 
 ## The decision
 
