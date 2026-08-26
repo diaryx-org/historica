@@ -121,7 +121,8 @@ use crate::working::{Rule, SKIPPED_DIR, Skipped};
 
 use super::{
     Body, Bookmark, NAME_SUFFIX, NAMES_DIR, OPERATION_SUFFIX, Offer, OfferError, OfferKind,
-    Offered, REVISION_SUFFIX, Report, STORE_DIR, Store, StoreError, Travel, travel, walk,
+    Offered, REVISION_SUFFIX, Report, STORE_DIR, Store, StoreError, Travel, check_name, travel,
+    walk,
 };
 
 /// How many times a fetch will read the manifest again before giving up.
@@ -859,10 +860,15 @@ fn named_by(path: &str) -> Option<&str> {
     let label = filed_under(path)?;
     let name = label.strip_prefix(&format!("{NAMES_DIR}/"))?;
     let name = name.strip_suffix(NAME_SUFFIX)?;
-    match name.is_empty() || name.contains('/') {
-        true => None,
-        false => Some(name),
-    }
+    // Decision 0071: a name may have structure in it, so the refusal that
+    // used to be "no `/`" is now the grammar itself. It is doing the same work
+    // it was doing before and more of it: a manifest is a file written
+    // elsewhere, and `..` or a leading `/` in a name is that file choosing
+    // where in this store to put bytes. `set_bookmark` asks again when the
+    // bookmark is written, which is the guard rather than this; this is what
+    // keeps an unplaceable line out of the plan.
+    check_name(name).ok()?;
+    Some(name)
 }
 
 /// Whether this store and the copy a manifest describes are two views of one

@@ -546,6 +546,104 @@ fn a_file_bookmark_is_one_line_and_a_name_that_is_an_identifier_is_refused() {
     );
 }
 
+/// Decision 0071: a bookmark's name may have structure in it, and the name is
+/// the path rather than the filename. The pair that has to work is `feature`
+/// and `feature/x` at once — a file beside a directory of the same name, which
+/// is two bookmarks and not a collision.
+#[test]
+fn a_bookmark_name_may_have_directories_in_it() {
+    let (root, mut store) = corpus_store("nested-names");
+    let (id, _) = store
+        .documents()
+        .expect("readable")
+        .into_iter()
+        .next()
+        .map(|(id, d)| (*id, d.clone()))
+        .expect("a revision");
+    let change = store.revision(&id).expect("the revision").change;
+
+    store
+        .set_name("feature", Name::Change(change))
+        .expect("a flat name");
+    store
+        .set_name("feature/x", Name::Change(change))
+        .expect("a nested name");
+    store
+        .set_name("claude/loving-wiles-12e833", Name::Revision(id))
+        .expect("a name a tool wrote");
+
+    // The path below `names/` is the name, so the file is where the name says.
+    assert_eq!(
+        fs::read_to_string(root.join("names/feature/x.txt")).expect("the file"),
+        format!("change {change}\n")
+    );
+    assert!(
+        root.join("names/feature.txt").is_file(),
+        "a bookmark and a directory of the same name are two names, not a clash"
+    );
+
+    // And the walk reads it back as the name it is, rather than as the
+    // filename at the bottom of it.
+    let store = Store::open(&root).expect("reopening");
+    assert_eq!(store.name("feature/x"), Some(Name::Change(change)));
+    assert_eq!(store.name("feature"), Some(Name::Change(change)));
+    assert_eq!(
+        store.name("claude/loving-wiles-12e833"),
+        Some(Name::Revision(id))
+    );
+    assert_eq!(store.name("x"), None, "the leaf is not a name of its own");
+
+    // A store this reader calls healthy: the directory is the layout rather
+    // than a foreign file in it.
+    let report = Store::check(&root);
+    assert!(
+        !report
+            .findings()
+            .iter()
+            .any(|finding| matches!(finding, Finding::ForeignFile { .. })),
+        "a nested bookmark is not a file nothing reads"
+    );
+}
+
+/// The grammar is 0018's, and the refusals that matter are the two that would
+/// let a name choose where in the store its own file goes.
+#[test]
+fn a_name_that_is_not_a_path_this_store_could_hold_is_refused() {
+    let (root, mut store) = corpus_store("refused-names");
+    let (id, _) = store
+        .documents()
+        .expect("readable")
+        .into_iter()
+        .next()
+        .map(|(id, d)| (*id, d.clone()))
+        .expect("a revision");
+
+    for name in [
+        "",
+        "/absolute",
+        "trailing/",
+        "two//empty",
+        "../escape",
+        "up/../../out",
+        ".",
+        "back\\slash",
+        " padded",
+    ] {
+        assert!(
+            store.set_name(name, Name::Revision(id)).is_err(),
+            "`{name}` is not a name this store can hold"
+        );
+    }
+
+    // Nothing was written on the way to any of those refusals.
+    let names: Vec<PathBuf> = fs::read_dir(root.join("names"))
+        .expect("the directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    assert!(names.is_empty(), "a refusal wrote nothing: {names:?}");
+}
+
 #[test]
 fn a_malformed_bookmark_is_an_error_and_a_dangling_one_is_not() {
     let (root, _) = corpus_store("bookmarks-checked");

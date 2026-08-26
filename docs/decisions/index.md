@@ -761,6 +761,19 @@ depend on each other in.
   historica's own parser refuses. `Amendment` gets no field: carrying forward
   stays the whole of it until something has to restate.
 
+- [0071 — A name with structure in it](0071-a-name-with-structure-in-it.md)
+  `set_bookmark` refused a `/` and no decision had ever argued the flatness —
+  0021 gave the `.txt`, 0024 the identifier clash, 0062 the travel axis, none
+  of them the slash. A bookmark's name is now its whole path below `names/`,
+  so `names/feature/x.txt` is `feature/x`, and the grammar is 0018's read
+  rather than restated. The urgency is 0016's: `check` skipped a directory and
+  the loader listed one level, so a nested store read as a store with fewer
+  bookmarks and `check` called it healthy — a 1.0 shipping that would foreclose
+  the fix, 0069's argument in the one directory where a filename is data. Two
+  of 0018's refusals turn out to be load-bearing: flatness was doing the
+  traversal guard at transport ingress as a side effect, and `..` and a leading
+  `/` now do it on purpose.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

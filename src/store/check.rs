@@ -19,7 +19,7 @@ use crate::format::{
     self, ForgottenPayload, OperationDocument, ParseError, ResolutionDocument, RevisionDocument,
     digest,
 };
-use crate::fs::{Entry, Filesystem, read_to_string};
+use crate::fs::{Filesystem, read_to_string};
 use crate::replay::ReplayError;
 
 use super::{
@@ -1718,32 +1718,35 @@ fn check_names<F: Filesystem + ?Sized>(
     report: &mut Report,
 ) {
     let directory = root.join(super::NAMES_DIR);
-    let Ok(entries) = files.entries(&directory) else {
-        return;
-    };
-    // The trait promises no order, and a report two runs disagree about the
-    // order of is a report nobody can diff.
-    let mut entries: Vec<Entry> = entries;
-    entries.sort();
+    // Decision 0071: a bookmark's name may have structure in it, so this is a
+    // walk. It is the loader's walk, for 0016's reason — a `check` that
+    // recursed differently from the loader is how a store passes a check it
+    // should not — and the walk is already sorted, which a report two runs
+    // disagree about the order of would not be.
+    let found = super::walk(files, root, super::NAMES_DIR).unwrap_or_default();
+    for link in &found.links {
+        report.push(Finding::Unfollowed { file: link.clone() });
+    }
 
     // Decision 0062 shares this question with `export`, which carries a
     // bookmark only where the copy holds what it points at — the rule that an
     // export never manufactures a finding the origin did not have.
     let pointed = Pointed::over(documents);
 
-    for Entry { path, kind } in entries {
-        if !kind.is_file() {
+    for path in found.files {
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(platform_name)
+        {
             continue;
         }
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        if platform_name(name) {
-            continue;
-        }
-        // Decision 0021: a bookmark is `<name>.txt`. Anything else in here is
-        // a file nothing reads, which is the note `ForeignFile` is for.
-        let Some(name) = name.strip_suffix(NAME_SUFFIX) else {
+        // Decision 0021: a bookmark is `<name>.txt`, and 0071 makes the name
+        // the whole path below `names/`. Anything else in here is a file
+        // nothing reads, which is the note `ForeignFile` is for — including a
+        // `.txt` whose path is not a name this format could write, since a
+        // reader that skipped one silently is the reader 0016 warned about.
+        let Some(name) = super::name_of(&directory, &path) else {
             report.push(Finding::ForeignFile { file: path.clone() });
             continue;
         };

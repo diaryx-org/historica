@@ -1319,6 +1319,17 @@ pub fn check_path(value: &str) -> Result<(), MalformedPath> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MalformedPath(&'static str);
 
+impl MalformedPath {
+    /// The sentence this refusal carries, for a caller stating its own error.
+    ///
+    /// Decision 0071: a bookmark's name is a path, so `store::check_name`
+    /// refuses one with this rule and this wording rather than a second
+    /// spelling of both.
+    pub const fn because(self) -> &'static str {
+        self.0
+    }
+}
+
 impl fmt::Display for MalformedPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)

@@ -271,6 +271,62 @@ fn a_bookmark_this_store_holds_is_kept_and_a_private_one_is_never_offered() {
     assert_eq!(out(&here, &["names"]), mine, "`main` moved underneath");
 }
 
+/// Decision 0071: a name may have structure in it, so a manifest line is a
+/// name rather than a filename — and a manifest is a file some other store
+/// wrote. The refusal that used to be "no `/` in a name" is now the grammar
+/// itself, which is what keeps a line naming `../..` from choosing where in
+/// this store to put bytes.
+#[test]
+fn a_nested_bookmark_crosses_and_a_name_that_escapes_names_does_not() {
+    let (origin, root) = published("nested-bookmarks");
+    out(&origin, &["name", "claude/loving-wiles-12e833", "head"]);
+    publish(&origin, &root);
+    let listing = fs::read_to_string(root.join(MANIFEST)).expect("the manifest");
+    assert!(
+        listing.contains("names/claude/loving-wiles-12e833.txt"),
+        "{listing}"
+    );
+
+    let here = repository("nested-bookmarks-here");
+    let fetched = store(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch");
+    assert_eq!(fetched.names, 1, "the nested one");
+    let names = out(&here, &["names"]);
+    assert!(names.contains("claude/loving-wiles-12e833"), "{names}");
+    let names = out(&here, &["names"]);
+    assert!(names.contains("claude/loving-wiles-12e833"), "{names}");
+
+    // A manifest line whose name climbs out of `names/`. The bytes are the
+    // ones already published for the bookmark above, so the digest is real and
+    // the only thing wrong with the line is where it asks to be put.
+    let manifest = fs::read_to_string(root.join(MANIFEST)).expect("the manifest");
+    let escaping = manifest
+        .lines()
+        .find(|line| line.contains("names/claude/loving-wiles-12e833.txt"))
+        .expect("the published bookmark")
+        .replace(
+            "names/claude/loving-wiles-12e833.txt",
+            "names/../../escaped.txt",
+        );
+    fs::write(
+        root.join(MANIFEST),
+        format!("{}\n{escaping}\n", manifest.trim_end()),
+    )
+    .expect("rewriting the manifest");
+
+    let there = repository("nested-bookmarks-hostile");
+    store(&there)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch that reads the line and places nothing");
+    assert!(
+        !root.join("escaped.txt").exists() && !there.join("escaped.txt").exists(),
+        "a name that is not a name inside `names/` named a file outside it"
+    );
+    let names = out(&there, &["names"]);
+    assert!(!names.contains("escaped"), "{names}");
+}
+
 #[test]
 fn a_fetch_after_the_origin_advances_takes_exactly_the_difference() {
     let (origin, root) = published("incremental");

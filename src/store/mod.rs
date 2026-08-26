@@ -19,8 +19,8 @@
 //! ├── revisions/      # one revision document per file, under any name, at
 //! │                   #   any depth — written under `YYYY-MM/` (decision 0041)
 //! ├── operations/     # what each revision did, per file — decisions 0007, 0017
-//! ├── names/          # bookmarks, `<name>.txt` — the only mutable files,
-//! │                   #   one line and an optional `private` (0062)
+//! ├── names/          # bookmarks, `<name>.txt` at any depth (0071) — the only
+//! │                   #   mutable files: one line and an optional `private` (0062)
 //! ├── cache/          # derived, disposable, deletable without loss:
 //! │                   #   states by digest (0035), and `operations.txt`,
 //! │                   #   which says where each digest is (0036)
@@ -55,7 +55,7 @@ use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::core::{ChangeId, FileId, History, Revision, RevisionId};
 use crate::format::{
@@ -198,8 +198,9 @@ pub const REVISION_SUFFIX: &str = ".rev.txt";
 pub const OPERATION_SUFFIX: &str = ".ops.txt";
 /// The suffix a bookmark file carries, per decision 0021.
 ///
-/// A bookmark's name is its filename, now minus this: `names/main.txt` is the
-/// bookmark `main`.
+/// A bookmark's name is its path below `names/`, now minus this: `names/main.txt`
+/// is the bookmark `main`, and decision 0071 makes `names/feature/x.txt` the
+/// bookmark `feature/x`.
 pub const NAME_SUFFIX: &str = ".txt";
 /// Every suffix that is a file's claim to be a revision document.
 ///
@@ -249,7 +250,10 @@ into directories of your own breaks nothing either.
                   stored whole.
   names/          bookmarks, one line each, and at most one more: a second
                   line saying `private` keeps the bookmark's own name out of
-                  an `export`. The only files here that change.
+                  an `export`. A bookmark's name is its path below here
+                  without `.txt`, so a name may have directories in it —
+                  `names/feature/x.txt` is the bookmark `feature/x`. The only
+                  files here that change.
   cache/          derived and disposable: files you have already read, kept
                   under the digest their history says they hash to, so that
                   reading them again does not replay it, and operations.txt,
@@ -629,6 +633,56 @@ impl fmt::Display for MalformedName {
 }
 
 impl std::error::Error for MalformedName {}
+
+/// Whether a string can be a bookmark's name.
+///
+/// Decision 0071: a name may have structure in it — `feature/x` is a bookmark
+/// and its file is `names/feature/x.txt` — so a name is a path-shaped string
+/// and its grammar is 0018's, read here rather than restated. What is added is
+/// what a *name* has that a tracked path does not: it is typed at a terminal,
+/// looked up before anything is parsed, and arrives over transport from a
+/// store this one did not write.
+///
+/// The refusals that matter to that last one are `..` and a leading `/`, both
+/// 0018's already: a bookmark file's path *is* its name, so a name that
+/// escaped `names/` would be a manifest choosing where in the store to write.
+/// [`Store::set_bookmark`] is the one door, and every ingress goes through it.
+///
+/// 0024's rule is deliberately not here. A name spelled as a full identifier
+/// is a name this format can hold and a writer declines to write: refusing it
+/// here would make a reader drop a file somebody put in `names/` by hand,
+/// which is a store quietly holding one fewer bookmark than its own directory
+/// shows. [`Store::set_bookmark`] states that one, where the refusal reaches
+/// the person doing it.
+pub fn check_name(name: &str) -> Result<(), UnusableName> {
+    let refuse = |because: &'static str| Err(UnusableName(because));
+    if name.is_empty() {
+        return refuse("it is empty, and a bookmark with no name is not a bookmark");
+    }
+    // Not gated by the platform this runs on, for [`PLATFORM_NAMES`]' reason:
+    // a name that is one directory on one machine and two on another is a
+    // bookmark that changes shape when a store is copied.
+    if name.contains('\\') {
+        return refuse(
+            "it holds a backslash, which is a separator on some machines and a \
+             character on others; a bookmark that changed shape when its store \
+             was copied would be worse than one refused everywhere",
+        );
+    }
+    crate::format::check_path(name).map_err(|because| UnusableName(because.because()))
+}
+
+/// Why a string cannot be a bookmark's name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnusableName(&'static str);
+
+impl fmt::Display for UnusableName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for UnusableName {}
 
 /// What one revision's history says one file holds, under decision 0032's
 /// recursive rule.
@@ -3061,30 +3115,46 @@ impl<F: Filesystem> Store<F> {
 
     /// Point a bookmark at something and say whether its name travels.
     pub fn set_bookmark(&mut self, name: &str, bookmark: Bookmark) -> Result<(), StoreError> {
-        if name.is_empty() || name.contains('/') || name.contains('\\') {
-            return Err(StoreError::UnusableName {
-                name: name.to_owned(),
-            });
-        }
-        // Decision 0024: every place a bookmark may be typed looks it up before
-        // parsing anything, so a name spelled as a full identifier would stop
-        // the identifier it spells from naming its own file, and nothing would
-        // say so. An abbreviation is untouched: a bookmark called `ba5e` is
-        // 0001's own answer, and this is only the full twenty-four characters.
+        // Decision 0071: the one door into `names/`, so the grammar is asked
+        // here and every ingress — a person, an export onto a copy, a bookmark
+        // arriving in a fetch — is asking it. `check_name` refuses `..` and a
+        // leading `/` among the rest, which is what keeps a name from choosing
+        // where in the store its own file goes.
         if name.parse::<FileId>().is_ok() {
             return Err(StoreError::NameIsAnIdentifier {
                 name: name.to_owned(),
             });
         }
-        let path = self
-            .root
-            .join(NAMES_DIR)
-            .join(format!("{name}{NAME_SUFFIX}"));
+        check_name(name).map_err(|because| StoreError::UnusableName {
+            name: name.to_owned(),
+            because: because.to_string(),
+        })?;
+        let path = self.name_path(name);
+        // A name with structure in it is a file in a directory that may not be
+        // there yet. Made before the write for the reason `rename`'s contract
+        // gives: the caller makes the parent, since a filesystem is not asked
+        // to guess at one.
+        if let Some(parent) = path.parent() {
+            self.files
+                .create_directory(parent)
+                .map_err(|error| StoreError::io(parent, error))?;
+        }
         self.files
             .write(&path, bookmark.write().as_bytes())
             .map_err(|error| StoreError::io(&path, error))?;
         self.names.insert(name.to_owned(), bookmark);
         Ok(())
+    }
+
+    /// The file one bookmark's name puts it at.
+    ///
+    /// Decision 0071: the name is the path under `names/`, with `.txt` on the
+    /// end. `Path::join` reads the `/` in a name as the separator it is, which
+    /// is the whole of what nesting costs here.
+    fn name_path(&self, name: &str) -> PathBuf {
+        self.root
+            .join(NAMES_DIR)
+            .join(format!("{name}{NAME_SUFFIX}"))
     }
 
     /// Delete a bookmark, and the file stating it.
@@ -3098,16 +3168,29 @@ impl<F: Filesystem> Store<F> {
     /// reason: the plan naming it was worked out from a listing rather than
     /// held under a lock.
     pub(super) fn remove_name(&mut self, name: &str) -> Result<bool, StoreError> {
-        let path = self
-            .root
-            .join(NAMES_DIR)
-            .join(format!("{name}{NAME_SUFFIX}"));
+        let path = self.name_path(name);
         let removed = match self.files.remove_file(&path) {
             Ok(()) => true,
             Err(error) if error.kind() == io::ErrorKind::NotFound => false,
             Err(error) => return Err(StoreError::io(&path, error)),
         };
         self.names.remove(name);
+        // Decision 0071: a name with structure in it leaves a directory
+        // behind, and a `names/feature/` holding nothing says a `feature/`
+        // bookmark is here when none is. Tidied the way `arrange` tidies —
+        // upwards until `remove_directory` refuses, which it does for any
+        // directory still holding something — and `names/` itself is the
+        // boundary, however empty a removal leaves it.
+        if removed && let Some(parent) = path.parent() {
+            let boundary = self.root.join(NAMES_DIR);
+            let mut empty = parent;
+            while empty != boundary && self.files.remove_directory(empty).is_ok() {
+                match empty.parent() {
+                    Some(above) => empty = above,
+                    None => break,
+                }
+            }
+        }
         Ok(removed)
     }
 
@@ -3612,32 +3695,57 @@ fn files_claiming<F: Filesystem + ?Sized>(
     Ok(paths)
 }
 
-/// Every bookmark file under `names/`, by bookmark name.
+/// Every bookmark file under `names/`, at any depth, by bookmark name.
+///
+/// Decision 0071 makes this a walk rather than a listing, which is 0016's
+/// change to `revisions/` and `operations/` arriving at the last flat
+/// directory in the store. It arrives differently, though, and the difference
+/// is the whole of what 0071 decided: there a filename is presentation and a
+/// nested one holds the same document, here **the path is the name**, so
+/// `names/feature/x.txt` is not `x` filed tidily — it is the bookmark
+/// `feature/x`.
 fn name_files<F: Filesystem + ?Sized>(
     files: &F,
     root: &Path,
 ) -> Result<Vec<(String, PathBuf)>, StoreError> {
     let directory = root.join(NAMES_DIR);
     let mut found = Vec::new();
-    let entries = match files.entries(&directory) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(found),
-        Err(error) => return Err(StoreError::io(&directory, error)),
-    };
-    for Entry { path, kind } in entries {
+    for path in walk(files, root, NAMES_DIR)?.files {
         // Decision 0021: a bookmark is `<name>.txt`, and anything else here is
         // a file nothing reads, which `check` says out loud.
-        if kind.is_file()
-            && let Some(name) = path.file_name().and_then(|name| name.to_str())
-            && let Some(name) = name.strip_suffix(NAME_SUFFIX)
-        {
-            found.push((name.to_owned(), path));
+        if let Some(name) = name_of(&directory, &path) {
+            found.push((name, path));
         }
     }
     // The trait promises no order, and two replicas loading one store must
     // agree about this one.
     found.sort();
     Ok(found)
+}
+
+/// The bookmark a file under `names/` is, if it is one.
+///
+/// Decision 0071: the name is the path below `names/` with `.txt` taken off,
+/// spelled with `/` whatever the machine spells a path with — a store carries
+/// one spelling of a name, and a copy made on another platform is the same
+/// store. A file the grammar refuses names no bookmark: `check_name` is what
+/// `set_bookmark` asked before writing, so anything here that fails it was put
+/// here by something other than this format's writer.
+fn name_of(directory: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(directory).ok()?;
+    let mut name = String::new();
+    for component in relative.components() {
+        let Component::Normal(part) = component else {
+            return None;
+        };
+        if !name.is_empty() {
+            name.push('/');
+        }
+        name.push_str(part.to_str()?);
+    }
+    let name = name.strip_suffix(NAME_SUFFIX)?;
+    check_name(name).ok()?;
+    Some(name.to_owned())
 }
 
 /// Why a store could not produce the tree or the file that was asked for.
@@ -3924,6 +4032,8 @@ pub enum StoreError {
     UnusableName {
         /// The name as given.
         name: String,
+        /// Why it cannot be one, as a sentence a person can act on.
+        because: String,
     },
     /// A bookmark name spelled as a full change ID or file identifier.
     NameIsAnIdentifier {
@@ -4005,11 +4115,8 @@ impl fmt::Display for StoreError {
                  so nothing was written; it changed while it was being copied",
                 file.display()
             ),
-            StoreError::UnusableName { name } => {
-                write!(
-                    f,
-                    "`{name}` cannot be a bookmark: a bookmark is one filename"
-                )
+            StoreError::UnusableName { name, because } => {
+                write!(f, "`{name}` cannot be a bookmark: {because}")
             }
             StoreError::NameIsAnIdentifier { name } => write!(
                 f,

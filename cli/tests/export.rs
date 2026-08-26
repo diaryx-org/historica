@@ -1127,6 +1127,49 @@ fn a_bookmark_the_origin_made_private_is_withdrawn_from_the_copy() {
     assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
 }
 
+/// Decision 0071: a bookmark's name may have directories in it, and the copy
+/// gets the name rather than the leaf. The withdrawal is the half worth
+/// testing end to end — an empty `names/feature/` in a published copy says a
+/// `feature/` bookmark is there when none is.
+#[test]
+fn a_nested_bookmark_travels_and_takes_its_directory_when_it_goes() {
+    let (origin, copy) = published("name-nested");
+    out(&origin, &["name", "feature/acme-layoffs", "head"]);
+    out(&origin, &["name", "feature/other", "head"]);
+    out(&origin, &["export", &copy.to_string_lossy()]);
+
+    let names = out(&copy, &["names"]);
+    assert!(names.contains("feature/acme-layoffs"), "{names}");
+    assert!(
+        copy.join("history/names/feature/acme-layoffs.txt")
+            .is_file(),
+        "the name is the path below `names/`"
+    );
+
+    // One goes private, and the copy loses that file and keeps the directory
+    // its sibling still needs.
+    out(
+        &origin,
+        &["name", "--private", "feature/acme-layoffs", "head"],
+    );
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(!copy.join("history/names/feature/acme-layoffs.txt").exists());
+    assert!(
+        copy.join("history/names/feature").is_dir(),
+        "the sibling holds the directory up"
+    );
+
+    // The last one goes, and the directory goes with it.
+    out(&origin, &["name", "--private", "feature/other", "head"]);
+    out(&origin, &["export", &copy.to_string_lossy()]);
+    assert!(
+        !copy.join("history/names/feature").exists(),
+        "an empty `names/feature/` says a bookmark is there when none is"
+    );
+    assert!(copy.join("history/names").is_dir());
+    assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
+}
+
 #[test]
 fn a_bookmark_pointing_past_the_target_stays_behind() {
     let origin = repository("name-beyond");

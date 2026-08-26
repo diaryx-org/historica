@@ -276,7 +276,16 @@ names/*.txt — bookmarks
 -----------------------
 
 One line each, and at most one more, and the only files here that change. The
-bookmark's name is its filename without `.txt`.
+bookmark's name is its path below `names/` without `.txt`, so `names/main.txt`
+is the bookmark `main` and `names/feature/x.txt` is the bookmark `feature/x`.
+A name may have directories in it, and `feature` may be a bookmark while
+`feature/x` is another.
+
+A name is spelled the way a tracked path is: relative, with no empty component
+and no `.` or `..`, no leading or trailing space, no control character, and in
+Unicode normal form C. A backslash is not a separator here and not a character
+either — it is refused, because a name that is one directory on one machine
+and two on another is a bookmark that changes shape when its store is copied.
 
   change <change ID>   follows the work forward as it is amended.
   revision <digest>    a pin, which does not move.
