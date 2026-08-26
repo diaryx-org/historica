@@ -50,12 +50,14 @@ turns out nothing about writing or checking such files needs Historica at all.
   `minisign -Vm` the claim, then `shasum -a 256` the revision it names. That
   is "Checking a store by hand" from `format.txt`, extended by one line.
 
-- **Claims live in `history/claims/`, immutable and digest-named.** A claim's
-  filename is the digest of its bytes, its signature is named for the claim it
-  signs, and neither is ever rewritten. Immutable digest-named files are the
-  concurrency story 0003 counts on: any file sync unions them without
-  conflict, and `cp -r` — the transport 0029 declines to replace — carries
-  them correctly. The store root is also the one directory `record` never
+- **Claims live in `history/claims/`, immutable and deterministically named.**
+  A claim's filename is a function of the claim's own content, its signature
+  is named for the claim it signs, and neither is ever rewritten. Immutable
+  files under deterministic names are the concurrency story 0003 counts on:
+  any file sync unions them without conflict, and `cp -r` — the transport 0029
+  declines to replace — carries them correctly. *Which* function is the tool's
+  own specification to fix; this decision first fixed it as the digest of the
+  claim's bytes, and the amendment below relaxes that to 0003's naming rule. The store root is also the one directory `record` never
   walks, so the tool's files can never be swept into the history they vouch
   for.
 
@@ -158,9 +160,38 @@ core and an enforcement policy nobody has yet needed, purchased before the
 document formats have carried a single real signature.
 
 If the documents earn enforcement, the integration is small precisely because
-of this boundary: the claims are already in the store, already digest-named,
-already union-safe. Nothing about the format would change; Historica would
+of this boundary: the claims are already in the store, already named
+deterministically, already union-safe. Nothing about the format would change; Historica would
 start reading files that were there all along.
+
+## Amending the claim filename, because the format has to be hand-usable
+
+This decision fixed the claim filename as the digest of the claim's bytes, and
+argued it from concurrency: immutable digest-named files union under any file
+sync. That argument is kept in full. What it does not require is the digest —
+it requires determinism, and 0003's naming rule is deterministic. Historica's
+own revisions are readable, deterministic and union-safe under the same `cp -r`
+that carries claims, which is the existence proof this decision did not think
+to consult about its own sidecar.
+
+The cost of the digest name is one this decision could not see from here,
+because it is a cost to a person rather than to a store. A claim is five lines
+of text, and this decision's own argument for minisign is that checking one by
+hand must be two commands a person already knows. Writing one by hand was
+supposed to be the same kind of thing — and under a digest name it is not, since
+the file cannot be named until after it has been written and hashed. A folder of
+hashes is a ledger rather than a story, which 0003 says in as many words about
+this exact shape of directory, and a person who writes the obvious file under
+the obvious name gets a claim the tool silently declines to count.
+
+So the filename is the tool's to choose, under the constraint this decision
+actually needs: **a claim's path is a deterministic function of the claim, and
+neither claim nor signature is ever rewritten.** historica-sign's decision 0003
+chooses 0003's own scheme — the revision's stem, the role, and a content-derived
+suffix only where two claims would otherwise meet — and keeps union safety by
+the same rule that keeps it for revisions. Nothing in Historica changes: the
+directory was already reserved, `receive` already does not carry it, and
+`record` already does not walk it.
 
 ## Rejected alternatives
 
