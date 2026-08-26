@@ -13,7 +13,7 @@ use std::process::{Command, Output};
 use historica::core::RevisionId;
 use historica::format::{OperationDocument, stand_in};
 use historica::record::{Clock as _, Platform, Recording, Restriction, record};
-use historica::store::{Finding, Forgetting, Store};
+use historica::store::{Extent, Finding, Forgetting, Store};
 use historica::working::Working;
 
 fn scratch(test: &str) -> PathBuf {
@@ -227,8 +227,7 @@ fn a_redaction_changes_no_merge_result_except_at_the_forgotten_items() {
         .forget(&Forgetting {
             revision: left.revision,
             file,
-            first: 3,
-            last: 3,
+            extent: Extent::Lines { first: 3, last: 3 },
         })
         .expect("forgetting");
     assert!(!plan.is_empty());
@@ -340,4 +339,139 @@ fn the_header_states_the_format_and_forgetting_never_moves_it() {
         &["forget", &digest_in(&first), "notes.md", "--lines", "2"],
     );
     assert_eq!(header(), "historica", "one spelling, before and after");
+}
+
+/// The binary file `write` cannot make: decision 0017 sniffs a file's kind
+/// once, at `add`, and NUL is the byte that decides it.
+fn write_bytes(directory: &Path, path: &str, bytes: &[u8]) {
+    fs::write(directory.join(path), bytes).expect("writing a file");
+}
+
+/// Where one file in `operations/` sits, found by walking for its name.
+fn filed(directory: &Path, name: &str) -> PathBuf {
+    let operations = directory.join("history/operations");
+    let mut pending = vec![operations.clone()];
+    while let Some(next) = pending.pop() {
+        for entry in fs::read_dir(&next)
+            .expect("a directory")
+            .filter_map(Result::ok)
+        {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.file_name().and_then(|found| found.to_str()) == Some(name) {
+                return path;
+            }
+        }
+    }
+    panic!("no file called {name} under `operations/`");
+}
+
+#[test]
+fn forgetting_a_payload_destroys_it_whole_and_says_how_much_there_was() {
+    let directory = scratch("payload");
+    assert!(run(&directory, &["init"]).status.success());
+    write_bytes(
+        &directory,
+        "photo.png",
+        b"\x89PNG\x00the secret picture\x00",
+    );
+    write(&directory, "notes.md", "the entry it belongs to\n");
+    let first = out(&directory, &["record", "-m", "Start a journal"]);
+
+    let said = out(&directory, &["forget", &digest_in(&first), "photo.png"]);
+    assert!(said.contains("wrote a forgetting document"), "{said}");
+    assert!(said.contains("destroyed history/"), "{said}");
+    assert!(said.contains("only the content is destroyed"), "{said}");
+
+    // The bytes are gone from the store, and the entry beside them is not.
+    assert!(!contains(&store_bytes(&directory), "the secret picture"));
+    assert!(contains(
+        &store_bytes(&directory),
+        "the entry it belongs to"
+    ));
+
+    // What stands where the payload was: a document at the payload's own
+    // name, so a person opening the revision's folder finds an answer rather
+    // than an absence.
+    let stood = fs::read_to_string(filed(&directory, "photo.png.ops.txt"))
+        .expect("the stand-in, filed where the payload was");
+    assert!(stood.starts_with("historica\nforgets "), "{stood}");
+    assert!(stood.ends_with("\nlength 24\n"), "{stood}");
+
+    // A person asking for the file is told what became of it, and how much of
+    // it there was — never that it has not arrived yet.
+    let refused = run(&directory, &["cat", &digest_in(&first), "photo.png"]);
+    assert!(!refused.status.success());
+    let why = String::from_utf8(refused.stderr).expect("printed text");
+    assert!(why.contains("was forgotten"), "{why}");
+    assert!(why.contains("24 bytes destroyed"), "{why}");
+
+    // A forgotten store passes `check`, and the note says destroyed rather
+    // than not yet delivered — decision 0044's `bytes` branch, which said in
+    // as many words that it was waiting for this.
+    let checked = run(&directory, &["check"]);
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stdout)
+    );
+    let report = String::from_utf8(checked.stdout).expect("printed text");
+    assert!(report.contains("whose bytes were destroyed"), "{report}");
+    assert!(!report.contains("may not have arrived"), "{report}");
+
+    // Forgetting twice is a no-op, here as for lines: every quote of a
+    // payload is its digest, so one destruction covered all of them.
+    let again = out(&directory, &["forget", &digest_in(&first), "photo.png"]);
+    assert!(again.contains("already forgotten"), "{again}");
+}
+
+#[test]
+fn the_two_extents_are_refused_of_the_wrong_kind_of_file() {
+    let directory = scratch("extents");
+    assert!(run(&directory, &["init"]).status.success());
+    write_bytes(&directory, "photo.png", b"\x89PNG\x00picture\x00");
+    write(&directory, "notes.md", "one\ntwo\nthree\n");
+    let first = out(&directory, &["record", "-m", "Start"]);
+    let at = digest_in(&first);
+
+    // Decision 0017 fixed each file's kind when it was added, so neither
+    // refusal is a guess about content — and each names the spelling that
+    // would have worked.
+    let span_of_bytes = run(&directory, &["forget", &at, "photo.png", "--lines", "1"]);
+    assert!(!span_of_bytes.status.success());
+    let why = String::from_utf8(span_of_bytes.stderr).expect("printed text");
+    assert!(why.contains("bytes rather than lines"), "{why}");
+
+    let whole_of_lines = run(&directory, &["forget", &at, "notes.md"]);
+    assert!(!whole_of_lines.status.success());
+    let why = String::from_utf8(whole_of_lines.stderr).expect("printed text");
+    assert!(why.contains("lines rather than bytes"), "{why}");
+    assert!(why.contains("--lines 1..3"), "{why}");
+}
+
+#[test]
+fn each_version_of_a_file_of_bytes_is_forgotten_on_its_own() {
+    let directory = scratch("versions");
+    assert!(run(&directory, &["init"]).status.success());
+    write_bytes(&directory, "photo.png", b"\x89PNG\x00first picture\x00");
+    let first = out(&directory, &["record", "-m", "Start"]);
+    write_bytes(&directory, "photo.png", b"\x89PNG\x00second picture\x00");
+    out(&directory, &["record", "-m", "Crop"]);
+
+    // A file of bytes is replaced whole, so each version is its own payload
+    // under its own digest. Forgetting one is not forgetting the file, and
+    // the command that leaves the rest legible says so.
+    let said = out(&directory, &["forget", &digest_in(&first), "photo.png"]);
+    assert!(
+        said.contains("1 other version elsewhere in its history"),
+        "{said}"
+    );
+    assert!(!contains(&store_bytes(&directory), "first picture"));
+    assert!(contains(&store_bytes(&directory), "second picture"));
+
+    let said = out(&directory, &["forget", "head", "photo.png"]);
+    assert!(!said.contains("other version"), "{said}");
+    assert!(!contains(&store_bytes(&directory), "second picture"));
+    assert!(run(&directory, &["check"]).status.success());
 }

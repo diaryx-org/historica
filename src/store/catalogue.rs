@@ -387,10 +387,14 @@ pub(super) fn read<F: Filesystem + ?Sized>(
                     .map_err(|error| StoreError::io(&path, error))?;
                 let id = digest(&bytes);
                 // Only a document can forget, and only a parse can say what
-                // it forgets. A resolution has no items to destroy — 0032
-                // defers binary at a merge and 0014 destroys an operation
-                // document's payload.
-                let forgets = if format::is_resolution(&bytes) {
+                // it forgets. Decision 0066's grammar is asked first: it is
+                // two headers, it forgets by definition, and it is what a
+                // reader looking for destroyed bytes will come here for.
+                let forgets = if format::is_forgotten_payload(&bytes) {
+                    format::ForgottenPayload::parse(&bytes)
+                        .ok()
+                        .map(|document| document.forgets)
+                } else if format::is_resolution(&bytes) {
                     None
                 } else {
                     match OperationDocument::parse(&bytes) {
