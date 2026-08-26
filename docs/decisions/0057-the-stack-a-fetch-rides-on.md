@@ -147,3 +147,17 @@ character in a path that is structure rather than content.
    directory is six lines, every test here writes one, and putting it in the
    library would make it `disk`-gated for the benefit of callers who have
    `std::fs` and can write it themselves.
+
+## Since
+
+**`http` is a feature of `historica-cli`, not of `historica`** (0068). The
+reasoning above is unchanged — the transport is the binary's half, and a host
+without one brings its own through `Source` — but the manifest was not keeping
+it. A default feature is chosen by whoever depends on you, so every library
+caller was compiling nyquest and linking a platform HTTP stack for a file only
+the binary could reach. The feature moved to the package that has the commands.
+
+One sentence above is now false and is left standing as what was decided at the
+time: `cargo install historica` no longer fetches out of the box, because it no
+longer installs anything. It is `cargo install historica-cli`, where `http` is
+still default and still on for the same reason.

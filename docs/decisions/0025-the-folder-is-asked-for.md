@@ -296,3 +296,15 @@ the same seam arrived at earlier for the same reason. Nothing more is owed.
    [0026](0026-atomic-mutable-files.md): atomic replacement is part of the
    `Filesystem` contract, and `Disk` implements it by writing a sibling
    temporary file and committing it over the destination.
+
+## Since
+
+**The CLI is its own package** (0068). `src/cli/` and `src/main.rs` are
+`historica-cli` now, and the sentence above — the CLI is `std::fs` throughout,
+deliberately — is a fact about a different crate rather than an exception
+carved out of this one. Two things follow. The `bare` job's walk over `src/`
+no longer filters the front end back out, because `src/` is the library; and
+the binary's `required-features = ["disk"]` is gone, replaced by the front
+end's own dependency on the library with `features = ["disk"]` spelled out, so
+a change to what the library defaults to cannot quietly change what the program
+runs on.

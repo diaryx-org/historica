@@ -57,19 +57,31 @@ one a caller can ask for directly.
 
 ## Installing
 
-historica is published to [crates.io](https://crates.io/crates/historica), so
-the command line below is a `cargo install` away:
+historica is published to crates.io as two packages, because the two have
+different appetites. The command line is
+[`historica-cli`](https://crates.io/crates/historica-cli):
 
 ```console
-cargo install historica
+cargo install historica-cli
 ```
 
-The library is the same crate — `historica = "1.0"` in a `Cargo.toml` —
-because the binary decides nothing the library has not, and every answer the
-commands give is one a caller can ask for directly. It builds on stable Rust
-1.88 or newer, which is the floor the `msrv` job holds it to, and it is MIT or
-Apache-2.0 at the reader's choice: [`LICENSE-MIT`](LICENSE-MIT) and
-[`LICENSE-APACHE`](LICENSE-APACHE).
+The program it installs is called `historica`. The library is
+[`historica`](https://crates.io/crates/historica) — `historica = "1.0"` in a
+`Cargo.toml` — and it holds everything: the binary decides nothing the library
+has not, so every answer the commands give is one a caller can ask for
+directly.
+
+They are separate packages for one reason, which is what a library caller would
+otherwise pay. `historica fetch` rides on the platform's own HTTP stack by
+decision 0057, and while that lived behind a default feature of one package,
+anyone writing `historica = "1.0"` compiled and linked WinRT, NSURLSession or
+libcurl in order to build code they had no way to call. A seam a caller has to
+know about is not a seam. So the transport sits in the package that has the
+command, and depending on the library costs a library.
+
+Both build on stable Rust 1.88 or newer, which is the floor the `msrv` job
+holds them to, and both are MIT or Apache-2.0 at the reader's choice:
+[`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE`](LICENSE-APACHE).
 
 ### What 1.0 promises
 

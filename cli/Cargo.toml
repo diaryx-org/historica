@@ -1,0 +1,81 @@
+[package]
+name = "historica-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The historica command line: a readable, convergent version-control experiment"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/historica"
+keywords = ["version-control", "vcs", "crdt", "merge", "readable"]
+categories = ["command-line-utilities", "development-tools", "filesystem"]
+# The tests reach `../tests/corpus`, which belongs to the library package and is
+# not in this tarball. They pass in the repository and cannot pass out of it, so
+# shipping them would be shipping a `cargo test` that fails for a reason that is
+# nobody's fault. The library publishes its own tests and its corpus with them.
+exclude = ["tests/"]
+
+# The package is `historica-cli` and the program is `historica`, because the
+# name a person types has nothing to do with which package on crates.io holds
+# it. `cargo install historica-cli` puts `historica` on the PATH.
+#
+# The split exists because of what a *library* consumer would otherwise pay.
+# Decision 0025 puts the filesystem seam at the library's edge and decision 0057
+# puts the transport one seam further out, and while both were features of one
+# package, "one seam further out" was a claim the manifest could not keep: every
+# caller of the library compiled a platform HTTP stack unless they knew to turn
+# it off. Here the seam is the package boundary, so it holds without anyone
+# having to know anything.
+[[bin]]
+name = "historica"
+path = "src/main.rs"
+
+# `http` is decision 0057's transport: the platform's own HTTP stack, behind one
+# interface. On by default so that `cargo install historica-cli` fetches out of
+# the box, and off in one flag so the program still builds for a target with no
+# such stack under it — wasm32-wasip1 and wasip2, where a host brings its own
+# transport through the library's `Source` trait instead. The `wasi` CI job is
+# what holds that build open.
+[features]
+default = ["http"]
+http = ["dep:nyquest", "dep:nyquest-preset"]
+
+[dependencies]
+# The library, which is where every answer this program prints comes from:
+# decision 0053 says the front end decides nothing the API has not. `disk`
+# rather than the default set, spelled out, because a command-line tool is the
+# one caller that always knows it is talking to a real filesystem — and because
+# a default that changed under this package should be a compile error here
+# rather than a silent swap of the `Filesystem` it runs on.
+#
+# The version is what publishing needs and the path is what builds. Both move
+# together on a release: `cargo xtask bump` rewrites `[workspace.package]
+# version` and the `historica_requirement_tracks_the_workspace` test in
+# `xtask/src/main.rs` is what fails if this line is left behind.
+historica = { version = "1.0", path = "..", default-features = false, features = [
+  "disk",
+] }
+# The same two the library takes, for the two jobs that are the front end's
+# alone. `jiff` parses the moment a person types at `--since` and `--until`;
+# `similar` is the word-level decomposition inside a changed line, which
+# decision 0037 calls rendering and keeps out of `crate::diff` so that a colour
+# choice can never disagree with what `record` would write down. Kept at the
+# library's own requirements so cargo unifies them rather than building two.
+jiff = "0.2"
+similar = "3.2"
+# The platform's own HTTP stack, behind one interface: WinRT on Windows,
+# NSURLSession on Apple, libcurl elsewhere. Decision 0057 argues the choice —
+# what a fetch rides on is the TLS root store, the proxy configuration and the
+# security update cadence the machine already has, rather than a second copy of
+# all three vendored into this binary. `blocking` because the CLI is synchronous
+# from `main` down and an executor would be the largest dependency in the tree
+# by far.
+#
+# Pinned exactly, which is unusual here and deliberate: nyquest is early and
+# says its API is subject to change, so a patch release is a thing to read
+# before taking rather than to receive. `cargo update` will not move it and
+# `cargo xtask bump` does not touch it; moving it is somebody typing the
+# version.
+nyquest = { version = "=0.4.0", optional = true, features = ["blocking"] }
+nyquest-preset = { version = "=0.4.0", optional = true, features = ["blocking"] }

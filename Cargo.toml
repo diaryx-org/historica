@@ -13,13 +13,29 @@ documentation = "https://docs.rs/historica"
 # one different from the rest of that shelf, since decision 0007 is why it
 # converges; `readable` is the claim the whole format exists to make.
 keywords = ["version-control", "vcs", "crdt", "merge", "readable"]
-categories = ["development-tools", "command-line-utilities", "filesystem"]
+# `command-line-utilities` belonged here while this package carried the binary;
+# it moved to `historica-cli` with it. What is left is what a caller linking the
+# library is looking for.
+categories = ["development-tools", "filesystem"]
 
-# `xtask` is historica's CI, as a program: `cargo xtask <job>` runs one CI job
-# and the workflow runs nothing else. It is a member so `cargo test --workspace`
-# checks it, and `publish = false` keeps it off crates.io.
+# docs.rs is where `documentation` above points, so what it builds is the
+# documentation. `all-features` because a feature-gated item is documented only
+# in a build that has it.
+#
+# Deliberately no `rustdoc-args = ["--cfg", "docsrs"]`. The `doc_auto_cfg`
+# feature that pairs with it was removed in Rust 1.92 and merged into `doc_cfg`,
+# so the usual incantation now fails the build rather than labelling anything —
+# and a docs.rs build that fails is worse than one whose gated items carry no
+# badge. Revisit when `doc_cfg` is stable and can be named without a nightly.
+[package.metadata.docs.rs]
+all-features = true
+
+# `cli` is the command-line front end, and `xtask` is historica's CI as a
+# program: `cargo xtask <job>` runs one CI job and the workflow runs nothing
+# else. Both are members so `cargo test --workspace` checks them; `xtask` also
+# carries `publish = false`, which keeps it off crates.io.
 [workspace]
-members = ["xtask"]
+members = ["cli", "xtask"]
 
 # The version lives here rather than in `[package]` above so that one line is
 # the whole answer to "what does this repository call itself" — `cargo xtask
@@ -35,30 +51,21 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/diaryx-org/historica"
 
 # The library reaches the folder through `historica::fs::Filesystem`, never
-# through `std::fs`. `disk` adds the implementation that is `std::fs`, which is
-# what the `historica` binary is built on and what every short constructor —
-# `Store::open`, `Working::read` — resolves to. Turning it off leaves a library
-# that compiles where `std::fs` does not work, and asks the host for the folder.
+# through `std::fs`. `disk` adds the implementation that is `std::fs`, and it is
+# what every short constructor — `Store::open`, `Working::read` — resolves to.
+# Turning it off leaves a library that compiles where `std::fs` does not work,
+# and asks the host for the folder.
 #
-# `http` is the same shape one seam further out (decision 0057). The library's
-# fetch takes a `Source` that answers `get(path)`; this feature is the binary's
-# implementation of it, and nothing in `src/` outside `src/cli/fetch.rs` knows
-# it exists. On by default so that `cargo install historica` fetches out of the
-# box, and off in one flag so the CLI still builds for a target with no such
-# stack under it — wasm32-wasip1 and wasip2, where a host brings its own
-# transport through the trait instead.
+# It is the only feature here, and that is the whole of what this package asks a
+# caller to choose between. Decision 0057's transport was the second one until
+# 1.0, spelled `http` and on by default, even though no line of the library ever
+# read it: it gated the command-line front end alone. A library consumer who did
+# not think to write `default-features = false` linked a platform HTTP stack in
+# order to compile code they had no way to call. The transport now lives in the
+# `historica-cli` package beside the commands it was always for.
 [features]
-default = ["disk", "http"]
+default = ["disk"]
 disk = ["dep:fs-transaction"]
-http = ["dep:nyquest", "dep:nyquest-preset"]
-
-# The command-line front end is `std::fs` throughout, deliberately: decision
-# 0025 puts the seam at the library's edge, and a CLI is the one caller that
-# always knows it is talking to a real filesystem.
-[[bin]]
-name = "historica"
-path = "src/main.rs"
-required-features = ["disk"]
 
 [dependencies]
 # The write-safety layer under `Disk`, and nothing above it: decision 0026's
@@ -69,21 +76,6 @@ required-features = ["disk"]
 # inert everywhere else.
 fs-transaction = { version = "0.2", optional = true, features = ["barrier-fsync"] }
 getrandom = "0.4"
-# The platform's own HTTP stack, behind one interface: WinRT on Windows,
-# NSURLSession on Apple, libcurl elsewhere. Decision 0057 argues the choice —
-# what a fetch rides on is the TLS root store, the proxy configuration and the
-# security update cadence the machine already has, rather than a second copy of
-# all three vendored into this binary. `blocking` because the CLI is
-# synchronous from `main` down and an executor would be the largest dependency
-# in the tree by far.
-#
-# Pinned exactly, which is unusual here and deliberate: nyquest is early and
-# says its API is subject to change, so a patch release is a thing to read
-# before taking rather than to receive. `cargo update` will not move it and
-# `cargo xtask bump` does not touch it; moving it is somebody typing the
-# version.
-nyquest = { version = "=0.4.0", optional = true, features = ["blocking"] }
-nyquest-preset = { version = "=0.4.0", optional = true, features = ["blocking"] }
 jiff = "0.2"
 sha2 = "0.11.0"
 similar = "3.2"

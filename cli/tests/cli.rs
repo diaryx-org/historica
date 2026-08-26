@@ -52,7 +52,7 @@ fn stderr(directory: &Path, arguments: &[&str]) -> String {
 
 fn corpus(kind: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/corpus")
+        .join("../tests/corpus")
         .join(kind)
 }
 
@@ -3558,7 +3558,7 @@ fn a_merge_is_rendered_resolved_and_then_recorded() {
 #[test]
 fn a_store_written_by_hand_is_one_this_tool_reads_and_carries_on_from() {
     let directory = scratch("by-hand");
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/by-hand.sh");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/by-hand.sh");
     let built = Command::new("sh")
         .arg(&script)
         .arg(directory.join("history"))

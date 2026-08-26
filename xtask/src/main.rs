@@ -240,12 +240,13 @@ fn bare(sh: &Sh) -> Result<()> {
 /// Every target that has no HTTP stack under it, built without the one that
 /// assumes there is.
 ///
-/// Decision 0057 puts the transport behind `http`, on by default, and the
-/// promise that comes with it is that turning it off leaves a whole CLI rather
-/// than a broken one. `bare` holds the *library* to compiling where `std::fs`
-/// does not work; this holds the *binary* to compiling where a socket does not
-/// exist — a wasi guest, whose host brings its own transport through the
-/// library's `Source` trait.
+/// Decision 0057 puts the transport behind `http`, a feature of the
+/// `historica-cli` package and on by default there, and the promise that comes
+/// with it is that turning it off leaves a whole CLI rather than a broken one.
+/// `bare` holds the *library* to compiling where `std::fs` does not work; this
+/// holds the *binary* to compiling where a socket does not exist — a wasi
+/// guest, whose host brings its own transport through the library's `Source`
+/// trait.
 ///
 /// A build rather than a test run, for `msrv`'s reason: there is no wasi
 /// runtime here to run one in, and what is being promised is that it compiles.
@@ -258,11 +259,11 @@ fn wasi(sh: &Sh) -> Result<()> {
             .map_err(|e| format!("{e}\n\nthe wasi job needs rustup on PATH to install {target}"))?;
         sh.cargo(&[
             "build",
+            "--package",
+            "historica-cli",
             "--target",
             target,
             "--no-default-features",
-            "--features",
-            "disk",
         ])?;
     }
     println!("the whole CLI builds for wasi with no transport compiled into it");
@@ -544,10 +545,12 @@ impl Sh {
             .map_err(|e| format!("could not write {}: {e}", path.display()))
     }
 
-    /// Every `.rs` file of the library, `src/` and not `src/cli/`.
+    /// Every `.rs` file of the library, which is every `.rs` file under `src/`.
     ///
-    /// The CLI is `std::fs` on purpose and `src/main.rs` is its entry point,
-    /// so both are outside what the `bare` job holds to the rule.
+    /// It was not always: the command-line front end lived at `src/cli/` and
+    /// `src/main.rs` and had to be filtered back out, because a CLI is
+    /// `std::fs` on purpose. It is the `historica-cli` package now, so the
+    /// directory this walks holds nothing the `bare` job should excuse.
     fn library_sources(&self) -> Result<Vec<String>> {
         fn walk(directory: &Path, into: &mut Vec<String>) -> Result<()> {
             let entries = std::fs::read_dir(directory)
@@ -566,7 +569,6 @@ impl Sh {
         }
         let mut found = Vec::new();
         walk(&self.root.join("src"), &mut found)?;
-        found.retain(|path| !path.contains("/src/cli/") && !path.ends_with("/src/main.rs"));
         found.sort();
         Ok(found)
     }
@@ -625,6 +627,47 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), count, "duplicate job id");
         assert!(!ids.contains(&"ci") && !ids.contains(&"ci-matrix"));
+    }
+
+    /// `cargo xtask bump` rewrites one line — `[workspace.package] version` —
+    /// and every member inherits it. One requirement does not inherit: the
+    /// front end depends on the library by version as well as by path, because
+    /// that is what publishing needs, and a literal `"1.0"` in `cli/Cargo.toml`
+    /// is a number nothing rewrites.
+    ///
+    /// Inside 1.x it cannot go wrong: `"1.0"` is a caret requirement and every
+    /// 1.x release satisfies it. The release it breaks on is the next major,
+    /// where the front end would quietly keep asking crates.io for a library a
+    /// major behind the one beside it — and `cargo publish` would happily
+    /// oblige, because such a version exists. So the majors are compared here,
+    /// which costs nothing and fails on the one commit that can introduce it.
+    #[test]
+    fn historica_requirement_tracks_the_workspace() {
+        let sh = Sh::new();
+        let workspace = sh.read("Cargo.toml").unwrap();
+        let major = |version: &str| version.split('.').next().unwrap_or_default().to_owned();
+
+        let theirs = workspace
+            .lines()
+            .find_map(|line| line.strip_prefix("version = \"")?.split('"').next())
+            .map(major)
+            .expect("`version` in [workspace.package]");
+
+        let manifest = sh.read("cli/Cargo.toml").unwrap();
+        let ours = manifest
+            .lines()
+            .find_map(|line| {
+                let rest = line.trim().strip_prefix("historica = {")?;
+                rest.split("version = \"").nth(1)?.split('"').next()
+            })
+            .map(major)
+            .expect("a `historica = { version = \"…\" }` requirement in cli/Cargo.toml");
+
+        assert_eq!(
+            ours, theirs,
+            "cli/Cargo.toml asks for historica {ours}.x while the workspace is \
+             {theirs}.x — the front end would publish against the older library",
+        );
     }
 
     /// The MSRV job reads this; if the parse breaks, the job silently pins the

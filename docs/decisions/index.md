@@ -719,6 +719,18 @@ depend on each other in.
   is paid is 0025's narrowed window, for a file of bytes and no other, since a
   conditional write cannot be handed bytes nobody is holding.
 
+- [0068 — The package a caller pays for](0068-the-package-a-caller-pays-for.md)
+  0025 and 0057 both said the front end was the front end, and the manifest
+  disagreed: `disk` and `http` were default features of one crate, so
+  `historica = "1.0"` compiled a platform HTTP stack in order to build
+  `src/cli/fetch.rs`, which the caller had no way to call. One line
+  (`default-features = false`) was the escape and historica-git had not found
+  it. Two packages instead — `historica` the library with `disk` alone, and
+  `historica-cli` with the commands, nyquest and `http` — settled at 1.0
+  because default features are semver and the correction would otherwise be a
+  2.0. The program is still called `historica`; what changes is that installing
+  it is `cargo install historica-cli`, which is the cost, taken knowingly.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

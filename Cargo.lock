@@ -206,11 +206,20 @@ dependencies = [
  "fs-transaction",
  "getrandom",
  "jiff",
- "nyquest",
- "nyquest-preset",
  "sha2",
  "similar",
  "unicode-normalization",
+]
+
+[[package]]
+name = "historica-cli"
+version = "1.0.0"
+dependencies = [
+ "historica",
+ "jiff",
+ "nyquest",
+ "nyquest-preset",
+ "similar",
 ]
 
 [[package]]

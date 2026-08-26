@@ -555,7 +555,7 @@ fn the_copy_carries_the_header_that_makes_it_a_store() {
     // header comes from `init` — the format's one spelling, and the note
     // under it — rather than from the store it left.
     let origin = repository("version");
-    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/tree");
+    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/corpus/tree");
     for (from, into) in [("revisions", "revisions"), ("operations", "operations")] {
         for entry in fs::read_dir(corpus.join(from))
             .expect("the corpus")
