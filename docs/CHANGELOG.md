@@ -62,6 +62,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **record** — a rewrite carries the work standing on it ([`1184af6`](https://github.com/diaryx-org/historica/commit/1184af6fc97c5cc9c1880cf53fe44de6d2e75bff))
 - **api** — room to add a field to what a command hands back ([`d459573`](https://github.com/diaryx-org/historica/commit/d4595736d2015b2e8048ccaf36a953858dbc665f))
 - **record** — a recording can state another tool's header ([`107d729`](https://github.com/diaryx-org/historica/commit/107d7297f40ca1274bff80f78d6ad1bf6c21d053))
+- **store** — a bookmark's name is its path below names/ ([`af6846c`](https://github.com/diaryx-org/historica/commit/af6846ce45e545a22781835480d381f74a449327))
 
 ### Added
 
@@ -881,6 +882,30 @@ refused as unparsable.
   format could define — one with no dot in it — with
   `RecordError::UnusableHeader`, naming the key and the fix. Nothing could
   state one before, so no existing caller can meet this.
+
+- A bookmark's name may now have `/` in it, and the
+  name is the whole path below `names/` rather than the filename. A
+  store written by this release can hold `names/feature/x.txt`; a
+  reader older than it lists that store's bookmarks without that one
+  and reports nothing wrong, so a store holding nested names wants
+  readers at this version or later.
+
+- `StoreError::UnusableName` gains a `because` field
+  carrying the sentence that says which rule the name broke, so a
+  `match` naming its fields needs updating. The refusals themselves are
+  wider than before in one direction — `/` is allowed — and narrower in
+  several others: an empty component, `.`, `..`, a leading or trailing
+  space, a control character and a name not in Unicode normal form C
+  were all accepted before and are refused now.
+
+- `check` walks `names/` recursively and reports what
+  it finds there that is not a bookmark: a `.txt` file whose path is
+  not a name this format could write is `ForeignFile`, and a symbolic
+  link is `Unfollowed`. Both were skipped silently before.
+
+- Removing a bookmark now removes the directories its
+  name emptied, up to `names/` and no further, so an export that
+  withdraws the last name under a directory leaves no empty one behind.
 
 <!-- git-cliff:end -->
 
