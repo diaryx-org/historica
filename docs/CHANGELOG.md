@@ -50,6 +50,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **format** — one spelling for the format ([`422ff71`](https://github.com/diaryx-org/historica/commit/422ff71bdc6598b93782fc8ac8eceec48c0ed613))
 - **fs** — land Disk::write through fs-transaction, retiring atomic-write-file ([`6644b4b`](https://github.com/diaryx-org/historica/commit/6644b4b1d96c2d315ff0b33af39f0612d08564d2))
 - **format** — say whose header it is with a dot, not an `x-` ([`e10a5c3`](https://github.com/diaryx-org/historica/commit/e10a5c374c29e74aa40a4dddefccfab16bb1fef3))
+- **store** — name a payload rather than carry it, and stream both ways ([`d105349`](https://github.com/diaryx-org/historica/commit/d105349f493944a45a94d945595809f110d78651))
 - **forget** — destroy a payload whole, and say how much went ([`4614660`](https://github.com/diaryx-org/historica/commit/4614660a238787cc3c1564eab57d5d857d0b360f))
 
 ### Added
@@ -102,6 +103,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **fs** — offer update's per-file guard to the filesystem as write_if ([`0a3bdb2`](https://github.com/diaryx-org/historica/commit/0a3bdb2a98dacbe5abff98ca350f963249d28ddc))
 - **cli** — let log take a range of revisions ([`84c4767`](https://github.com/diaryx-org/historica/commit/84c476773843e2ce34f286a8b66dbd54b77a843e))
 - **cli** — give log a reading for something that is not a person ([`535656e`](https://github.com/diaryx-org/historica/commit/535656ee058a55e1f1b212e6e609f74157980caf))
+- **diff** — a file of bytes names both payloads and both lengths ([`3bd0673`](https://github.com/diaryx-org/historica/commit/3bd067358916652a1fbc305fa85efe2569164cad))
 
 ### Fixed
 
@@ -118,6 +120,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **merge** — a keep of a name two concurrent revisions share lands once per element ([`8e538b3`](https://github.com/diaryx-org/historica/commit/8e538b3ad505e8524a508ea25711132f210c8b05))
 - **log** — refuse a document it cannot read, rather than printing a history without it ([`9e2918b`](https://github.com/diaryx-org/historica/commit/9e2918b593f894b72d093508cb790b0d7927a90c))
 - **fs** — close set_link's window where the path names nothing ([`79e0e7c`](https://github.com/diaryx-org/historica/commit/79e0e7c857a5facb3fa35c0b323eef10818550b6))
+- **naming** — a stem gives up everything a filesystem reserves ([`c4b0748`](https://github.com/diaryx-org/historica/commit/c4b074872373f545b30e1ae3f367ecac0a299426))
 
 ### Changed
 
@@ -133,6 +136,11 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — take the catalogue without walking the directory ([`2a77605`](https://github.com/diaryx-org/historica/commit/2a7760590b4c180de86b23cf2e8f2b567af1927e))
 - **store** — read the revision, and leave the rest of the document alone ([`f145783`](https://github.com/diaryx-org/historica/commit/f145783ad002cd90766e3ab3a4491a016094884f))
 - **format** — name a revision by the digest its reader already has ([`c196552`](https://github.com/diaryx-org/historica/commit/c1965525537e04a93cac53676f575bd9de704a9b))
+
+### Uncategorised — triage before release
+
+- forgetting a payload (0066) ([`3b6d9c5`](https://github.com/diaryx-org/historica/commit/3b6d9c5ac6b53f59c49c2fb9bc5296a97d149293))
+- streaming payloads (0067) onto forgetting them (0066) ([`d29e446`](https://github.com/diaryx-org/historica/commit/d29e446020d63307eb5f938623b7605240c5b8fe))
 
 ### Behavioural changes
 
@@ -680,6 +688,77 @@ key reaches `RevisionDocument::extensions` whole, as `x-` keys did.
 with nothing on one side of it (`.a`, `a.`, `a..b`), where the key
 alphabet previously admitted no dot at all and any dotted key was
 malformed for the alphabet.
+
+- A revision whose message holds `\ : * ? " < > |`, or
+ whose summary ends in a full stop, is now written under a stem spelling
+ those as a space or dropping them. A store arranged by an earlier
+ version has stems this scheme spells differently; `arrange` applies the
+ new one, which is 0019's first case. Nothing reads these names, so no
+ digest, target, or bookmark moves.
+
+- `diff` on a file of bytes prints `binary files
+  differ: `<digest>` <n> bytes -> <digest> <n> bytes` where it printed
+  `binary files differ`. Each digest is abbreviated to twelve characters,
+  and a side that is not there — a new or deleted file — prints as
+  nothing, leaving the `->` with one side. Anything reading that line as
+  a fixed string sees a longer one; nothing in historica parses it.
+
+- `Content::Whole` holds a `RevisionId` naming the
+payload rather than the payload's bytes, and `Content::bytes` is gone.
+
+- `Store::content_at` and `content_at_heads` no longer
+read a payload, so a file of bytes materialises in a store that has not
+been delivered the bytes, and `MaterialiseError::MissingPayload` and
+`Unreadable` no longer arise from that arm. Whether the bytes are here is
+now `Store::payload_file`, asked by whatever wants them; the same refusals
+are unchanged for the `text` payload a creation replays from.
+
+- `record::Change::Whole` holds a `RevisionId`, and the
+recorder reads the working file again when it files the payload rather than
+holding it from the survey. A file rewritten between the survey and the
+write is `StoreError::PayloadMismatch` and nothing is filed, where before
+the bytes read at survey time were written whatever the folder then held.
+
+- `update::apply` takes the store as its first argument,
+
+- writing a file of bytes into the folder no longer goes
+through `Filesystem::write_if`. The destination is hashed and then written,
+so a backend with a conditional write of its own no longer narrows the race
+window for that file — the window is the trait default's, and the outcome
+for a path that drifted is unchanged: nothing written, and `left` reports
+it. A file of lines is untouched.
+
+- `Filesystem` gains `write_in_pieces`, defaulted to
+`Ok(None)`, meaning this filesystem takes a file whole. An implementation
+answering `Ok(None)` must not have called `feed`, on `read_in_pieces`'
+
+- `store::fetch::Source` gains `get_in_pieces`, defaulted
+to `get`, so an existing implementor is unaffected. `Ok(false)` is `get`'s
+`None`. A payload the store already holds is no longer requested from the
+source at all, where it was previously fetched and then discarded by the
+insert's own dedup.
+
+- `StoreError::PayloadMismatch` is new — a payload fed in
+pieces that did not hash to what it was promised, with nothing written.
+
+- `historica cat` of a file whose payload this store has
+not been delivered now says so in `cat`'s own words, naming the path and
+the content digest, where it previously reported the store's materialise
+refusal.
+
+- `historica diff` prints the byte count of a file of
+bytes only where the filesystem reports one; on `Disk` it always does, so
+the line is unchanged there. A side whose length could not be learned
+prints its digest alone.
+
+- `working::Working` gains `sniff` (kind and digest in
+one streaming pass), `reread_digest` (the digest worked out afresh rather
+than answered from `cache/working.txt`), and `on_disk` (a path in the
+folder's own spelling, whether or not the walk found it).
+
+- `record::RecordError` gains `NoPathForContent`, for a
+plan stating whole content and no path to read it from. Nothing this crate
+produces states one.
 
 - `historica forget <target> <path>` with no `--lines`
 now forgets a file of bytes whole, where the whole command previously
