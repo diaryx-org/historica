@@ -59,6 +59,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **record** — say which kind a file being added is, where the sniff would guess ([`e405664`](https://github.com/diaryx-org/historica/commit/e405664bc2ab8698065da853deeb6ba1522c1b84))
 - **cli** — the command line is its own package ([`8d99c0d`](https://github.com/diaryx-org/historica/commit/8d99c0d6b887ac40a812ffd5961aaff478100066))
 - **store** — a place for a store to say it was written by a newer Historica ([`94f5fee`](https://github.com/diaryx-org/historica/commit/94f5fee3a08e62e8f5cbe661c6351baacc08f71d))
+- **record** — a rewrite carries the work standing on it ([`1184af6`](https://github.com/diaryx-org/historica/commit/1184af6fc97c5cc9c1880cf53fe44de6d2e75bff))
 
 ### Added
 
@@ -836,6 +837,30 @@ refused as unparsable.
   caller gains is being able to tell "this reader lacks the format" from "this
   reader lacks the layout", which are different sentences to the person holding
   the store.
+
+- `historica amend <target>` no longer refuses a revision
+  work stands on. With `-m` it rewords that revision and carries everything
+  above it onto the new message; without `-m` it still refuses, but now naming
+  the reword and the flag that performs it rather than saying the act is not
+  built. A caller parsing the old "not built yet" text will not find it.
+  `--move` against such a revision is refused by name.
+
+- `historica abandon <target>` is unchanged — it still
+  supersedes the named revision and everything standing on it. The new
+  `--only` abandons the one revision and carries the rest onto the tombstone.
+
+- `historica carry` gains `--onto <destination>`, which
+  restates the named work against a parent a person chose. Unlike every other
+  carry it stamps `revised` from the clock, so it does not converge across
+  replicas; the stack carried above it does.
+
+- The library signatures moved. `carry::plan` and
+  `carry::carry` take a `carry::Carrying` rather than `Option<&RevisionId>`;
+  `record::abandonment_plan` takes an `only: bool`; `record::Abandoning` gains
+  `only`; and `record::Amended` and `record::Abandoned` gain the `carried`
+  plan. `record::RecordError` gains `RewordWantsMessage`, `RewordOnly` and
+  `Carry`, and `carry::CarryError` gains `MovingAMerge`, `MovingARoot`,
+  `AlreadyThere` and `MovingOntoItself` — both are `#[non_exhaustive]`.
 
 <!-- git-cliff:end -->
 
