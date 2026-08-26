@@ -328,7 +328,7 @@ fn main() -> ExitCode {
         ["release", spec, ref rest @ ..] => release::release(&sh, spec, rest),
         // Both take a version, and neither should guess one.
         [command @ ("bump" | "release")] => Err(format!(
-            "`{command}` needs a version: patch, minor, major, or x.y.z\n\n{}",
+            "`{command}` needs a version: patch, minor, major, x.y.z, or x.y.z-pre\n\n{}",
             usage()
         )),
         [id] => match JOBS.iter().find(|job| job.id == id) {
@@ -412,7 +412,7 @@ fn usage() -> String {
 /// [`release`] for what each one does and why the push is opt-in.
 const RELEASE_COMMANDS: &[(&str, &str)] = &[
     ("version", "what the repository calls itself"),
-    ("bump <spec>", "move to patch | minor | major | x.y.z"),
+    ("bump <spec>", "move to patch | minor | major | x.y.z[-pre]"),
     (
         "changelog",
         "regenerate the unreleased region (--write, --check)",
@@ -632,41 +632,46 @@ mod tests {
     /// `cargo xtask bump` rewrites one line — `[workspace.package] version` —
     /// and every member inherits it. One requirement does not inherit: the
     /// front end depends on the library by version as well as by path, because
-    /// that is what publishing needs, and a literal `"1.0"` in `cli/Cargo.toml`
-    /// is a number nothing rewrites.
+    /// that is what publishing needs, and a literal in `cli/Cargo.toml` is a
+    /// number only `set_requirement` rewrites.
     ///
-    /// Inside 1.x it cannot go wrong: `"1.0"` is a caret requirement and every
-    /// 1.x release satisfies it. The release it breaks on is the next major,
-    /// where the front end would quietly keep asking crates.io for a library a
-    /// major behind the one beside it — and `cargo publish` would happily
-    /// oblige, because such a version exists. So the majors are compared here,
-    /// which costs nothing and fails on the one commit that can introduce it.
+    /// The two are compared in full rather than by major, which is what this
+    /// once did. By major it cannot catch the case that actually bites: a
+    /// pre-release. `"1.0"` is a caret requirement, a caret requirement does not
+    /// match `1.0.0-rc.1`, and the majors agree the whole time — so `cargo
+    /// publish -p historica-cli` would go asking crates.io for a `1.0.x` that
+    /// the pre-release deliberately is not. Comparing the whole string costs
+    /// nothing and fails on the commit that introduces the drift rather than at
+    /// the publish.
     #[test]
     fn historica_requirement_tracks_the_workspace() {
         let sh = Sh::new();
-        let workspace = sh.read("Cargo.toml").unwrap();
-        let major = |version: &str| version.split('.').next().unwrap_or_default().to_owned();
 
-        let theirs = workspace
-            .lines()
-            .find_map(|line| line.strip_prefix("version = \"")?.split('"').next())
-            .map(major)
-            .expect("`version` in [workspace.package]");
-
-        let manifest = sh.read("cli/Cargo.toml").unwrap();
-        let ours = manifest
+        let theirs = sh
+            .read("Cargo.toml")
+            .unwrap()
             .lines()
             .find_map(|line| {
-                let rest = line.trim().strip_prefix("historica = {")?;
-                rest.split("version = \"").nth(1)?.split('"').next()
+                Some(
+                    line.strip_prefix("version = \"")?
+                        .split('"')
+                        .next()?
+                        .to_owned(),
+                )
             })
-            .map(major)
+            .expect("`version` in [workspace.package]");
+
+        let ours = sh
+            .read("cli/Cargo.toml")
+            .unwrap()
+            .lines()
+            .find_map(|line| Some(release::requirement(line)?.to_owned()))
             .expect("a `historica = { version = \"…\" }` requirement in cli/Cargo.toml");
 
         assert_eq!(
             ours, theirs,
-            "cli/Cargo.toml asks for historica {ours}.x while the workspace is \
-             {theirs}.x — the front end would publish against the older library",
+            "cli/Cargo.toml asks for historica {ours} while the workspace is {theirs} — \
+             the front end would publish against a library that is not the one beside it",
         );
     }
 

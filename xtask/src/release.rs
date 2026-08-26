@@ -8,10 +8,15 @@
 //! instead:
 //!
 //!     cargo xtask version                 what the repository calls itself
-//!     cargo xtask bump <patch|minor|major|X.Y.Z>
+//!     cargo xtask bump <patch|minor|major|X.Y.Z[-pre]>
 //!     cargo xtask changelog [--write|--check]
-//!     cargo xtask release <patch|minor|major|X.Y.Z> [--push] [--no-verify]
+//!     cargo xtask release <patch|minor|major|X.Y.Z[-pre]> [--push] [--no-verify]
 //!     cargo xtask release-notes [tag]
+//!
+//! A version may carry a pre-release: `1.0.0-rc.1` is how a major goes out to
+//! be tried before it is promised. Only a literal spec can name one — see
+//! [`Version::bump`] — and `release.yml` cuts such a tag as a GitHub
+//! pre-release rather than as the repository's latest.
 //!
 //! `release` stops at the tag unless it is given `--push`. That asymmetry is the
 //! whole safety model: every step before the push is a local commit that can be
@@ -23,6 +28,7 @@
 //! no more knowledge about this repository than the CI workflow does: it asks
 //! the program.
 
+use std::cmp::Ordering;
 use std::fmt;
 
 use crate::{Result, Sh};
@@ -30,6 +36,10 @@ use crate::{Result, Sh};
 /// The changelog, and the config that generates half of it.
 const CHANGELOG: &str = "docs/CHANGELOG.md";
 const CLIFF_CONFIG: &str = ".config/cliff.toml";
+
+/// The front end's manifest, which carries the one version requirement that
+/// does not inherit from `[workspace.package]` — see [`set_requirement`].
+const CLI_MANIFEST: &str = "cli/Cargo.toml";
 
 /// The generated region inside `## Unreleased`. Only the bytes between these
 /// two lines are ever rewritten; a handwritten release intro lives below the
@@ -47,79 +57,203 @@ const REPO: &str = "https://github.com/diaryx-org/historica";
 // Versions
 // ---------------------------------------------------------------------------
 
-/// A semver triple, which is all historica has ever used. Pre-release and build
-/// metadata are deliberately unparsed rather than silently dropped: a version
-/// this cannot read is a version it must not rewrite.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// A semver version: the triple, and the pre-release identifiers after it.
+///
+/// Build metadata (`+…`) stays deliberately unparsed rather than silently
+/// dropped — a version this cannot read is a version it must not rewrite — and
+/// historica has never had a use for it. Pre-releases it does have a use for:
+/// `1.0.0-rc.1` is how a major goes out to be tried before it is promised.
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Version {
     major: u64,
     minor: u64,
     patch: u64,
+    /// What lies between the `-` and the end, stored as written: `Some("rc.1")`
+    /// for `1.0.0-rc.1`, and `None` for a version that promises something.
+    pre: Option<String>,
 }
 
 impl Version {
     fn parse(text: &str) -> Result<Self> {
-        let mut parts = text.trim().split('.');
+        let text = text.trim();
+        let unreadable = || format!("`{text}` is not an x.y.z or x.y.z-pre version");
+
+        if text.contains('+') {
+            return Err(format!(
+                "{}\nhint: build metadata is not used here, and a version this cannot read \
+                 is one it must not rewrite",
+                unreadable()
+            ));
+        }
+
+        let (triple, pre) = match text.split_once('-') {
+            Some((triple, pre)) => (triple, Some(pre)),
+            None => (text, None),
+        };
+
+        let mut parts = triple.split('.');
         let mut next = || -> Result<u64> {
             parts
                 .next()
                 .and_then(|p| p.parse().ok())
-                .ok_or_else(|| format!("`{text}` is not an x.y.z version"))
+                .ok_or_else(&unreadable)
         };
         let version = Version {
             major: next()?,
             minor: next()?,
             patch: next()?,
+            pre: pre.map(str::to_owned),
         };
-        match parts.next() {
-            None => Ok(version),
-            Some(_) => Err(format!("`{text}` is not an x.y.z version")),
+        if parts.next().is_some() {
+            return Err(unreadable());
+        }
+        match &version.pre {
+            Some(pre) if !is_prerelease(pre) => Err(format!(
+                "`{pre}` is not a pre-release: dot-separated identifiers of `[0-9A-Za-z-]`, \
+                 numeric ones without leading zeros\n\
+                 hint: `rc.1`, not `rc.01`"
+            )),
+            _ => Ok(version),
         }
     }
 
-    /// `patch`, `minor`, `major`, or a literal version to move to. A literal is
-    /// checked against the current version rather than trusted: a release that
-    /// goes backwards is a typo every time, and the tag it would cut is the one
-    /// thing that cannot be taken back.
-    fn bump(self, spec: &str) -> Result<Self> {
-        match spec {
-            "patch" => Ok(Version {
+    /// `patch`, `minor`, `major`, or a literal version to move to.
+    ///
+    /// `floor` is what the result has to be ahead of — see [`floor`]. A release
+    /// that goes backwards is a typo every time, and the tag it would cut is the
+    /// one thing that cannot be taken back.
+    ///
+    /// The three keywords refuse to run from a pre-release, because there is no
+    /// answer they could give that is not a guess: from `1.0.0-rc.1`, `patch`
+    /// reads as `1.0.1` and means `1.0.0` to the person finishing the release.
+    /// The way out of a pre-release is to say where it goes.
+    fn bump(&self, spec: &str, floor: &Version) -> Result<Self> {
+        let next = match spec {
+            "patch" | "minor" | "major" if self.pre.is_some() => {
+                return Err(format!(
+                    "`{spec}` has no meaning from the pre-release {self}\n\
+                     hint: name the version — {}.{}.{} finishes this pre-release, and \
+                     another pre-release carries it on",
+                    self.major, self.minor, self.patch
+                ));
+            }
+            "patch" => Version {
+                major: self.major,
+                minor: self.minor,
                 patch: self.patch + 1,
-                ..self
-            }),
-            "minor" => Ok(Version {
+                pre: None,
+            },
+            "minor" => Version {
+                major: self.major,
                 minor: self.minor + 1,
                 patch: 0,
-                ..self
-            }),
-            "major" => Ok(Version {
+                pre: None,
+            },
+            "major" => Version {
                 major: self.major + 1,
                 minor: 0,
                 patch: 0,
-            }),
-            literal => {
-                let next = Version::parse(literal)?;
-                if next.ordered() <= self.ordered() {
-                    return Err(format!(
-                        "{next} is not ahead of the current {self}\n\
-                         hint: releases only move forward — a tag that has been pushed is one \
-                         other people have already fetched",
-                    ));
-                }
-                Ok(next)
-            }
+                pre: None,
+            },
+            literal => Version::parse(literal)?,
+        };
+
+        if &next <= floor {
+            return Err(format!(
+                "{next} is not ahead of {floor}\n\
+                 hint: releases only move forward — a tag that has been pushed is one \
+                 other people have already fetched",
+            ));
+        }
+        Ok(next)
+    }
+}
+
+/// SemVer's rule for what may follow the `-`: one or more dot-separated
+/// identifiers, each non-empty and drawn from `[0-9A-Za-z-]`, and a numeric one
+/// written without leading zeros — `rc.1`, never `rc.01`, since those two would
+/// compare as different pre-releases while reading as the same intent.
+fn is_prerelease(text: &str) -> bool {
+    let numeric = |id: &str| id.bytes().all(|b| b.is_ascii_digit());
+    !text.is_empty()
+        && text.split('.').all(|id| {
+            !id.is_empty()
+                && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                && !(numeric(id) && id.len() > 1 && id.starts_with('0'))
+        })
+}
+
+/// SemVer precedence, which is not the derived order.
+///
+/// The triple decides first. Where two triples are equal, the version *with* a
+/// pre-release ranks **below** the one without, because `1.0.0-rc.1` comes
+/// before `1.0.0` — the opposite of what `#[derive(Ord)]` would make of an
+/// `Option`, which is why this is written out rather than derived.
+impl Ord for Version {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.major, self.minor, self.patch)
+            .cmp(&(other.major, other.minor, other.patch))
+            .then_with(|| match (&self.pre, &other.pre) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (Some(ours), Some(theirs)) => precedence(ours, theirs),
+            })
+    }
+}
+
+impl PartialOrd for Version {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Two pre-releases, compared identifier by identifier: numeric ones as numbers,
+/// anything else as ASCII text, and a numeric identifier ranking below an
+/// alphanumeric one. Where one side runs out with everything equal so far, the
+/// shorter ranks lower — `rc` before `rc.1`.
+///
+/// This is what the dot in `rc.1` buys. Undotted, `rc1` is a single alphanumeric
+/// identifier compared as text, and `rc10` would sort *before* `rc9`.
+fn precedence(ours: &str, theirs: &str) -> Ordering {
+    for (ours, theirs) in ours.split('.').zip(theirs.split('.')) {
+        let ordering = match (ours.parse::<u64>(), theirs.parse::<u64>()) {
+            (Ok(ours), Ok(theirs)) => ours.cmp(&theirs),
+            (Ok(_), Err(_)) => Ordering::Less,
+            (Err(_), Ok(_)) => Ordering::Greater,
+            (Err(_), Err(_)) => ours.cmp(theirs),
+        };
+        if ordering != Ordering::Equal {
+            return ordering;
         }
     }
-
-    fn ordered(self) -> (u64, u64, u64) {
-        (self.major, self.minor, self.patch)
-    }
+    ours.split('.').count().cmp(&theirs.split('.').count())
 }
 
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
+        match &self.pre {
+            Some(pre) => write!(f, "-{pre}"),
+            None => Ok(()),
+        }
     }
+}
+
+/// What a new version has to be ahead of: the newest tag, or the manifest where
+/// there is no tag at all.
+///
+/// Not the manifest itself, which is the obvious choice and the wrong one. The
+/// manifest can sit ahead of every tag — bumped in the tree, not yet cut — and
+/// such a version has never been a release. What cannot be taken back is the
+/// tag, so the tag is what the floor is made of; re-aiming an untagged `1.0.0`
+/// at `1.0.0-rc.1` is not a release going backwards, it is a plan changing.
+fn floor(sh: &Sh, current: &Version) -> Result<Version> {
+    Ok(tags(sh)?
+        .iter()
+        .filter_map(|tag| Version::parse(tag.strip_prefix('v')?).ok())
+        .max()
+        .unwrap_or_else(|| current.clone()))
 }
 
 /// `workspace.package.version` — the version the package inherits, and the one
@@ -140,16 +274,16 @@ pub fn print_version(sh: &Sh) -> Result<()> {
 
 /// Move the repository to `next`.
 ///
-/// One rewrite — `[workspace.package] version` — and then the lockfile, which
-/// records the members' own versions and so moves with them. `--workspace`
-/// touches nothing else: a release is not the moment to pick up a new upstream
-/// dependency.
+/// Two rewrites — `[workspace.package] version` and the front end's requirement
+/// on the library — and then the lockfile, which records the members' own
+/// versions and so moves with them. `--workspace` touches nothing else: a
+/// release is not the moment to pick up a new upstream dependency.
 ///
 /// The count is checked rather than assumed. `[package]` inherits the value with
 /// `version.workspace = true`, so exactly one line in the manifest holds it; a
 /// second one would mean the two could disagree, and rewriting only the first
 /// would ship the disagreement.
-fn set_version(sh: &Sh, next: Version) -> Result<()> {
+fn set_version(sh: &Sh, next: &Version) -> Result<()> {
     let manifest = sh.read("Cargo.toml")?;
     let mut out = String::with_capacity(manifest.len());
     let mut found = 0;
@@ -172,14 +306,70 @@ fn set_version(sh: &Sh, next: Version) -> Result<()> {
     sh.write("Cargo.toml", &out)?;
     println!("Cargo.toml -> {next}");
 
+    set_requirement(sh, next)?;
     sh.cargo(&["update", "--workspace", "--quiet"])
+}
+
+/// Point `cli/Cargo.toml`'s `historica` requirement at `next`, in full.
+///
+/// The front end depends on the library by version as well as by path, because
+/// the version is what publishing needs and the path is what builds. That one
+/// requirement inherits nothing, so it has to be moved here — and it is written
+/// out in full rather than left at a `"1.0"` that covers the majority of
+/// releases, because the exception is exactly the case this whole file just
+/// learned: a caret requirement does not match a pre-release, so `cargo publish
+/// -p historica-cli` beside a `1.0.0-rc.1` library would go asking crates.io
+/// for a `1.0.x` nobody ever released. In full it is right either way —
+/// `"1.0.0"` is the same caret requirement `"1.0"` was, and `"1.0.0-rc.1"` is
+/// the one that matches the pre-release.
+fn set_requirement(sh: &Sh, next: &Version) -> Result<()> {
+    let manifest = sh.read(CLI_MANIFEST)?;
+    let mut out = String::with_capacity(manifest.len());
+    let mut found = 0;
+
+    for line in manifest.lines() {
+        match requirement(line) {
+            Some(old) => {
+                out.push_str(&line.replacen(
+                    &format!("version = \"{old}\""),
+                    &format!("version = \"{next}\""),
+                    1,
+                ));
+                found += 1;
+            }
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+
+    if found != 1 {
+        return Err(format!(
+            "expected exactly one `historica = {{ version = \"…\"` line in {CLI_MANIFEST}, \
+             found {found}"
+        ));
+    }
+    sh.write(CLI_MANIFEST, &out)?;
+    println!("{CLI_MANIFEST} -> historica {next}");
+    Ok(())
+}
+
+/// The version `historica = { version = "…", … }` asks for, from the line that
+/// asks for it — and `None` from every other line. Shared with the test in
+/// `main.rs` that checks the committed manifests agree.
+pub fn requirement(line: &str) -> Option<&str> {
+    line.trim_start()
+        .strip_prefix("historica = {")?
+        .split("version = \"")
+        .nth(1)?
+        .split('"')
+        .next()
 }
 
 pub fn bump(sh: &Sh, spec: &str) -> Result<()> {
     let current = workspace_version(sh)?;
-    let next = current.bump(spec)?;
+    let next = current.bump(spec, &floor(sh, &current)?)?;
     println!("{current} -> {next}");
-    set_version(sh, next)
+    set_version(sh, &next)
 }
 
 // ---------------------------------------------------------------------------
@@ -246,14 +436,26 @@ fn tagged(sh: &Sh, previous: Option<&str>, tag: &str) -> Result<String> {
 
 /// Every `v*` tag, oldest first — the same pattern `.config/cliff.toml` sections
 /// history by.
+///
+/// Ordered here rather than by `git --sort=v:refname`, which places `v1.0.0-rc.1`
+/// *after* `v1.0.0` unless the repository configures `versionsort.suffix` for
+/// every suffix it might ever use. This order decides which commits each
+/// changelog section covers, so a pre-release sorted into the wrong place would
+/// hand a section a range belonging to its own successor.
+///
+/// A tag the parse cannot read sorts below every tag it can and keeps git's own
+/// relative order: the list still has to be total, and a name outside the scheme
+/// has no better answer than the one git gives.
 fn tags(sh: &Sh) -> Result<Vec<String>> {
-    Ok(sh
-        .capture("git", &["tag", "--sort=v:refname", "--list", "v[0-9]*"])?
+    let mut tags: Vec<String> = sh
+        .capture("git", &["tag", "--list", "v[0-9]*"])?
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .map(str::to_owned)
-        .collect())
+        .collect();
+    tags.sort_by_cached_key(|tag| Version::parse(tag.trim_start_matches('v')).ok());
+    Ok(tags)
 }
 
 /// Tags with no section of their own, rendered and dated, newest first.
@@ -308,7 +510,7 @@ fn insert_sections(text: &str, sections: Vec<String>) -> String {
             let (newer, rest): (Vec<String>, Vec<String>) = pending.into_iter().partition(|s| {
                 section_tag(s.lines().next().unwrap_or_default())
                     .and_then(order)
-                    .is_some_and(|candidate| candidate.ordered() > here.ordered())
+                    .is_some_and(|candidate| candidate > here)
             });
             for section in newer {
                 out.push_str(&section);
@@ -458,7 +660,7 @@ fn section(changelog: &str, tag: &str) -> Option<String> {
 /// Turn the unreleased region into a released section headed `## vX.Y.Z — date`,
 /// and reset the region. Called by `release`, between the version bump and the
 /// commit, so the release commit carries both.
-fn cut_changelog(sh: &Sh, version: Version) -> Result<()> {
+fn cut_changelog(sh: &Sh, version: &Version) -> Result<()> {
     let body = generated(sh)?;
     let date = sh.capture("date", &["+%Y-%m-%d"])?.trim().to_string();
     let released = format!("## v{version} — {date}\n\n{body}\n");
@@ -489,14 +691,15 @@ pub fn release(sh: &Sh, spec: &str, args: &[&str]) -> Result<()> {
             other => {
                 return Err(format!(
                     "unknown option `{other}`\n\
-                     usage: cargo xtask release <patch|minor|major|X.Y.Z> [--push] [--no-verify]"
+                     usage: cargo xtask release <patch|minor|major|X.Y.Z[-pre]> [--push] \
+                     [--no-verify]"
                 ));
             }
         }
     }
 
     let current = workspace_version(sh)?;
-    let next = current.bump(spec)?;
+    let next = current.bump(spec, &floor(sh, &current)?)?;
     let tag = format!("v{next}");
 
     // Everything that can say "no" says it before anything is written. A
@@ -512,12 +715,15 @@ pub fn release(sh: &Sh, spec: &str, args: &[&str]) -> Result<()> {
     }
 
     println!("\n\x1b[1m━━ {current} -> {next} ━━\x1b[0m");
-    set_version(sh, next)?;
-    cut_changelog(sh, next)?;
+    set_version(sh, &next)?;
+    cut_changelog(sh, &next)?;
 
-    // Only the three files a release moves, named explicitly: whatever else is
+    // Only the four files a release moves, named explicitly: whatever else is
     // in the tree stays out of the release commit.
-    sh.run("git", &["add", "Cargo.toml", "Cargo.lock", CHANGELOG])?;
+    sh.run(
+        "git",
+        &["add", "Cargo.toml", CLI_MANIFEST, "Cargo.lock", CHANGELOG],
+    )?;
     sh.run("git", &["commit", "-m", &format!("chore: bump to {next}")])?;
     // Annotated: the release workflow reads `github.ref_name`, and
     // `git describe` wants an object to read.
@@ -526,6 +732,18 @@ pub fn release(sh: &Sh, spec: &str, args: &[&str]) -> Result<()> {
     let branch = sh.capture("git", &["rev-parse", "--abbrev-ref", "HEAD"])?;
     let branch = branch.trim().to_string();
 
+    // What a pre-release does differently, said once, where it is about to
+    // matter: GitHub will not call it Latest, and a caller has to ask for it by
+    // name because a caret requirement does not reach a pre-release.
+    let kind = match next.pre {
+        Some(_) => format!(
+            "\n{tag} is a pre-release. GitHub marks it as one rather than Latest, and a\n\
+             caller has to name it exactly — `historica = \"{next}\"` — because `\"1.0\"`\n\
+             and every other caret requirement passes a pre-release by.\n"
+        ),
+        None => String::new(),
+    };
+
     if !push {
         println!(
             "\n\x1b[32m{tag} is committed and tagged locally.\x1b[0m\n\n\
@@ -533,7 +751,8 @@ pub fn release(sh: &Sh, spec: &str, args: &[&str]) -> Result<()> {
              git push origin {branch}\n    \
              git push origin {tag}\n\n\
              The tag is what publishes: `release.yml` cuts the GitHub release at {tag}\n\
-             and writes its body from the changelog section above.\n\n\
+             and writes its body from the changelog section above.\n\
+             {kind}\n\
              To undo locally instead: git tag -d {tag} && git reset --hard HEAD~1\n"
         );
         return Ok(());
@@ -613,20 +832,134 @@ fn preflight(sh: &Sh, tag: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn v(version: &str) -> Version {
+        Version::parse(version).unwrap()
+    }
+
     #[test]
     fn versions_move_forward_only() {
-        let current = Version::parse("0.1.0").unwrap();
-        assert_eq!(current.bump("patch").unwrap().to_string(), "0.1.1");
-        assert_eq!(current.bump("minor").unwrap().to_string(), "0.2.0");
-        assert_eq!(current.bump("major").unwrap().to_string(), "1.0.0");
-        assert_eq!(current.bump("0.9.3").unwrap().to_string(), "0.9.3");
-        assert!(current.bump("0.0.9").is_err(), "a release cannot go back");
-        assert!(current.bump("0.1.0").is_err(), "nor stand still");
-        assert!(current.bump("0.1").is_err());
+        let current = v("0.1.0");
+        // The ordinary case: the manifest and the newest tag are the same
+        // version, so the floor is the version being bumped from.
+        let bump = |spec| current.bump(spec, &current);
+        assert_eq!(bump("patch").unwrap().to_string(), "0.1.1");
+        assert_eq!(bump("minor").unwrap().to_string(), "0.2.0");
+        assert_eq!(bump("major").unwrap().to_string(), "1.0.0");
+        assert_eq!(bump("0.9.3").unwrap().to_string(), "0.9.3");
+        assert_eq!(bump("0.1.1-rc.1").unwrap().to_string(), "0.1.1-rc.1");
+        assert!(bump("0.0.9").is_err(), "a release cannot go back");
+        assert!(bump("0.1.0").is_err(), "nor stand still");
+        assert!(bump("0.1").is_err());
         assert!(
-            current.bump("0.1.0-rc.1").is_err(),
-            "unparsed, not truncated"
+            bump("0.1.0-rc.1").is_err(),
+            "a pre-release of the current version is behind it, not ahead"
         );
+    }
+
+    /// A version is read whole or refused whole — the pre-release is never
+    /// quietly truncated away, since a truncated version is one `set_version`
+    /// would write back as a different release than the one asked for.
+    #[test]
+    fn a_version_is_read_whole_or_not_at_all() {
+        for text in ["1.0.0", "1.0.0-rc.1", "1.0.0-alpha.1.2", "1.0.0-x-y-z.0"] {
+            assert_eq!(v(text).to_string(), text, "round trip");
+        }
+        for text in [
+            "1.0",     // not a triple
+            "1.0.0.0", // nor four of them
+            "1.0.0-",  // an empty pre-release
+            "1.0.0-rc..1",
+            "1.0.0-rc.01", // a leading zero makes two spellings of one number
+            "1.0.0-rc!",   // outside the identifier alphabet
+            "1.0.0+build", // build metadata, deliberately unread
+            "v1.0.0",      // the tag, not the version
+        ] {
+            assert!(Version::parse(text).is_err(), "`{text}` should not parse");
+        }
+    }
+
+    /// The precedence chain from the SemVer specification itself, plus the step
+    /// that matters most here: a pre-release ranks below the release it leads to.
+    #[test]
+    fn a_prerelease_ranks_below_the_release_it_leads_to() {
+        let chain = [
+            "1.0.0-alpha",
+            "1.0.0-alpha.1",
+            "1.0.0-alpha.beta",
+            "1.0.0-beta",
+            "1.0.0-beta.2",
+            "1.0.0-beta.11",
+            "1.0.0-rc.1",
+            "1.0.0",
+            "1.0.1-rc.1",
+            "1.0.1",
+        ];
+        for pair in chain.windows(2) {
+            assert!(v(pair[0]) < v(pair[1]), "{} < {}", pair[0], pair[1]);
+        }
+        assert_eq!(v("1.0.0-rc.1"), v("1.0.0-rc.1"));
+    }
+
+    /// Why the dot is not decoration: dotted, `1` and `9` and `10` are numbers
+    /// and compare as numbers. Undotted they are part of one text identifier,
+    /// and `rc10` sorts before `rc9` — a tenth release candidate that ranks
+    /// below the ninth, and a `--verify-tag` failure long after the mistake.
+    #[test]
+    fn the_dot_in_rc_1_is_what_orders_the_tenth_after_the_ninth() {
+        assert!(v("1.0.0-rc.9") < v("1.0.0-rc.10"));
+        assert!(v("1.0.0-rc10") < v("1.0.0-rc9"), "the trap being avoided");
+    }
+
+    /// From a pre-release the three keywords have no non-guessed answer, so they
+    /// decline and say what to type instead.
+    #[test]
+    fn keyword_bumps_decline_to_guess_from_a_prerelease() {
+        let current = v("1.0.0-rc.1");
+        let floor = v("0.2.0");
+        for spec in ["patch", "minor", "major"] {
+            let error = current.bump(spec, &floor).unwrap_err();
+            assert!(error.contains("1.0.0"), "names the way out: {error}");
+        }
+        // The two literals it points at both work.
+        assert_eq!(current.bump("1.0.0", &floor).unwrap().to_string(), "1.0.0");
+        assert_eq!(
+            current.bump("1.0.0-rc.2", &floor).unwrap().to_string(),
+            "1.0.0-rc.2"
+        );
+    }
+
+    /// The floor is the newest tag rather than the manifest, so a version that
+    /// was bumped in the tree and never cut can still be re-aimed at a
+    /// pre-release — while anything at or below a tag someone could have fetched
+    /// is still refused.
+    #[test]
+    fn an_untagged_manifest_version_can_be_re_aimed() {
+        let current = v("1.0.0");
+        let tagged = v("0.2.0");
+        assert_eq!(
+            current.bump("1.0.0-rc.1", &tagged).unwrap().to_string(),
+            "1.0.0-rc.1",
+            "1.0.0 was never tagged, so aiming below it is a plan changing",
+        );
+        assert!(current.bump("0.2.0", &tagged).is_err(), "the tag itself");
+        assert!(current.bump("0.1.9", &tagged).is_err(), "and below it");
+    }
+
+    /// The one requirement that does not inherit the workspace version, found by
+    /// the same reader that rewrites it — and found on that line only.
+    #[test]
+    fn the_cli_requirement_is_read_from_its_own_line() {
+        assert_eq!(
+            requirement(r#"historica = { version = "1.0.0-rc.1", path = ".." }"#),
+            Some("1.0.0-rc.1"),
+        );
+        assert_eq!(
+            requirement(r#"  historica = { version = "1.0" }"#),
+            Some("1.0")
+        );
+        assert_eq!(requirement(r#"jiff = { version = "0.2" }"#), None);
+        assert_eq!(requirement("historica = { path = \"..\" }"), None);
+        assert_eq!(requirement("# historica = { version = \"1.0\" }"), None);
     }
 
     /// The bump rewrites one line, and the manifest has to be the shape that

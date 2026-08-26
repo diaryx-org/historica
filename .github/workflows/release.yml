@@ -13,6 +13,8 @@ name: Release
 # re-cut. The tag is the part that has already left, which is why `release` asks
 # for `--push` explicitly.
 on:
+  # `v*.*.*` admits `v1.0.0-rc.1` as well: the last `*` is what the pre-release
+  # rides on. The tag is checked against the manifest below either way.
   push: { tags: [v*.*.*] }
   workflow_dispatch:
     inputs:
@@ -56,7 +58,19 @@ jobs:
     # repository does not also carry.
     - run: cargo xtask release-notes "$TAG" > notes.md
 
-    - run: gh release create "$TAG" --title "$TAG" --notes-file notes.md --verify-tag
+    # A pre-release tag cuts a pre-release. `v1.0.0-rc.1` is a version to try,
+    # not one GitHub should show as Latest on the repository's front page — and
+    # the test for one is semver's own: a `-` after the triple. That much is the
+    # version scheme rather than anything about this repository, so knowing it
+    # here breaks no rule the header sets.
+    - name: A pre-release tag is cut as a pre-release
+      run: |
+        case "$TAG" in
+          *-*) echo "PRERELEASE=--prerelease" >> "$GITHUB_ENV" ;;
+          *)   echo "PRERELEASE=" >> "$GITHUB_ENV" ;;
+        esac
+
+    - run: gh release create "$TAG" --title "$TAG" --notes-file notes.md --verify-tag $PRERELEASE
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GH_REPO: ${{ github.repository }}

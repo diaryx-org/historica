@@ -51,9 +51,15 @@ http = ["dep:nyquest", "dep:nyquest-preset"]
 #
 # The version is what publishing needs and the path is what builds. Both move
 # together on a release: `cargo xtask bump` rewrites `[workspace.package]
-# version` and the `historica_requirement_tracks_the_workspace` test in
-# `xtask/src/main.rs` is what fails if this line is left behind.
-historica = { version = "1.0", path = "..", default-features = false, features = [
+# version` and then this line, and the `historica_requirement_tracks_the_workspace`
+# test in `xtask/src/main.rs` is what fails if the two ever come apart.
+#
+# Written out in full — `"1.0.0"`, not the `"1.0"` that means the same thing —
+# because the case it has to survive is a pre-release. A caret requirement does
+# not match `1.0.0-rc.1`, so a `"1.0"` here beside a `1.0.0-rc.1` library would
+# send `cargo publish` to crates.io looking for a `1.0.x` that the pre-release
+# is deliberately not.
+historica = { version = "1.0.0", path = "..", default-features = false, features = [
   "disk",
 ] }
 # The same two the library takes, for the two jobs that are the front end's
