@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use historica::format::Timestamp;
 use historica::record::{Restriction, survey};
 use historica::store::{
-    Body, Bookmark, Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store,
+    Bookmark, Extent, Forgetting, HEADER_FILE, MutableConflict, Name, Placement, STORE_DIR, Store,
     StoreError,
 };
 use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope, Working};
@@ -148,10 +148,12 @@ writing a store
                            `offer.txt`, after the `export` that made it
 ";
 
-const REST: &str = "  forget <target> <path> --lines <first>..<last> [--dry-run]
+const REST: &str = "  forget <target> <path> [--lines <first>..<last>] [--dry-run]
                            destroy those lines everywhere history quotes
                            them, leaving their shape; the file's paths,
-                           authors, and times stay recorded
+                           authors, and times stay recorded. A file of bytes
+                           has no lines to name: forget it without a span,
+                           and its whole content goes
   identity <author>        say who you are, once, for every repository
   init [<dir>]             make a store in <dir>/history
   check [<dir>] [--complete]
@@ -559,12 +561,18 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     })
 }
 
-/// `forget <target> <path> --lines <first>..<last> [--dry-run]`.
+/// `forget <target> <path> [--lines <first>..<last>] [--dry-run]`.
 ///
 /// Decision 0014: destroy the payload, preserve the shape. The span is
 /// resolved at the named revision and every document quoting those items is
 /// rewritten as a forgetting document — which is why there is no `-m` here:
 /// the reason for a redaction is usually the redacted thing.
+///
+/// Decision 0066 makes `--lines` the spelling for a file that has lines,
+/// rather than the spelling for forgetting. A file of bytes has one extent
+/// and no way to name part of it, so the command that destroys it names no
+/// span — and which of the two a path is was decided when it was added, so
+/// nothing has to be told twice.
 fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut lines: Option<String> = None;
     let mut dry_run = false;
@@ -598,13 +606,16 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             "`forget` takes a target and one path, and `{extra}` is a third argument"
         )));
     }
-    let Some(lines) = lines else {
-        return Err(Failure::usage(
-            "`forget` wants `--lines <first>..<last>`: a redaction is exact, \
-             and the span is the whole request",
-        ));
+    // No span is the whole of a file of bytes, and the wrong request for a
+    // file of lines — which the store refuses by name, since it is the store
+    // that knows which kind the path is.
+    let extent = match lines {
+        Some(lines) => {
+            let (first, last) = span(&lines)?;
+            Extent::Lines { first, last }
+        }
+        None => Extent::Whole,
     };
-    let (first, last) = span(&lines)?;
 
     let mut store = open(base)?;
     let revision = target::resolve(&store, &spelling)?;
@@ -612,8 +623,7 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let forgetting = Forgetting {
         revision,
         file,
-        first,
-        last,
+        extent,
     };
 
     let plan = if dry_run {
@@ -625,10 +635,15 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
     printing(|out| {
         if plan.is_empty() {
-            return writeln!(
-                out,
-                "those lines are already forgotten everywhere they are quoted"
-            );
+            return match extent {
+                Extent::Lines { .. } => writeln!(
+                    out,
+                    "those lines are already forgotten everywhere they are quoted"
+                ),
+                // Every quote of a payload is its digest, so destroying the
+                // one file it is covered all of them at once.
+                Extent::Whole => writeln!(out, "those bytes are already forgotten"),
+            };
         }
         let (wrote, destroyed) = if dry_run {
             ("would write", "would destroy")
@@ -648,15 +663,35 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         for file in &plan.destroys {
             writeln!(out, "{destroyed} {STORE_DIR}/{}", file.display())?;
         }
+        // Decision 0066: a file of bytes is replaced whole, so each version
+        // of it is its own payload — and a person who thinks they have
+        // forgotten the photograph has forgotten one of them.
+        if !plan.elsewhere.is_empty() {
+            writeln!(
+                out,
+                "this file holds {} other version{} elsewhere in its history, \
+                 each forgotten on its own",
+                plan.elsewhere.len(),
+                if plan.elsewhere.len() == 1 { "" } else { "s" }
+            )?;
+        }
         // Decision 0014's "what forgetting cannot hide", said where the
         // person is: a tool that implied otherwise would be worse than one
         // that says nothing.
-        writeln!(
-            out,
-            "the shape and place of those lines, and the revisions around \
-             them, are still recorded; only the text is destroyed — and only \
-             on this replica until the forgetting documents sync"
-        )
+        match extent {
+            Extent::Lines { .. } => writeln!(
+                out,
+                "the shape and place of those lines, and the revisions around \
+                 them, are still recorded; only the text is destroyed — and \
+                 only on this replica until the forgetting documents sync"
+            ),
+            Extent::Whole => writeln!(
+                out,
+                "the file's name, its length, and the revisions around it are \
+                 still recorded; only the content is destroyed — and only on \
+                 this replica until the forgetting document syncs"
+            ),
+        }
     })
 }
 
@@ -930,8 +965,7 @@ fn show(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                 // rather than assuming the older one. A merge is exactly
                 // where a person most wants the stored bytes.
                 match store.body(named).map_err(Failure::error)? {
-                    Some(Body::Operation(document)) => document.write(),
-                    Some(Body::Resolution(document)) => document.write(),
+                    Some(body) => body.write(),
                     // Decision 0014: the bytes were destroyed, and what is
                     // stored — and printed, byte for byte — is what stands
                     // in for them.
@@ -989,6 +1023,11 @@ fn stands_in(
         .forgetting_resolution(target)
         .map_err(Failure::error)?
     {
+        bytes.extend(document.write());
+    }
+    // And decision 0066's third: a payload's bytes are destroyed whole, and
+    // what stands where they were is two headers.
+    if let Some(document) = store.forgotten_payload(target).map_err(Failure::error)? {
         bytes.extend(document.write());
     }
     if bytes.is_empty() {

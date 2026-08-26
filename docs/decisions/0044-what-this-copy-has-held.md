@@ -216,6 +216,10 @@ behaviour without being touched — because the rule is stated over the findings
 the interaction is a thing somebody already thought about rather than a thing
 somebody discovers.
 
+It landed as decision [0066](0066-forgetting-a-payload.md), and it went that
+way: the branch gained the standing check, `Forgotten` is reported where
+`MissingPayload` was, and nothing here was edited to make it so.
+
 **A witness for the folder.** The working copy has the same exposure and a
 better answer available, since an unrecorded file that vanishes was never in
 the store to begin with. 0043 has already named `check --folder` as where a

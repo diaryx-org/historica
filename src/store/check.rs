@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
 use crate::format::{
-    self, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, digest,
+    self, ForgottenPayload, OperationDocument, ParseError, ResolutionDocument, RevisionDocument,
+    digest,
 };
 use crate::fs::{Entry, Filesystem, read_to_string};
 use crate::replay::ReplayError;
@@ -809,12 +810,13 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
         }
     }
 
-    let (operations, resolutions, payloads) = check_operations(files, root, &mut report);
+    let (operations, resolutions, forgotten, payloads) = check_operations(files, root, &mut report);
     check_replay(
         files,
         &documents,
         &operations,
         &resolutions,
+        &forgotten,
         &payloads,
         &mut report,
     );
@@ -964,6 +966,7 @@ fn check_resolutions<F: Filesystem + ?Sized>(
 type Stored = (
     BTreeMap<RevisionId, OperationDocument>,
     BTreeMap<RevisionId, ResolutionDocument>,
+    BTreeMap<RevisionId, ForgottenPayload>,
     BTreeMap<RevisionId, PathBuf>,
 );
 
@@ -975,6 +978,7 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
 
     let mut documents = BTreeMap::new();
     let mut resolutions = BTreeMap::new();
+    let mut forgotten = BTreeMap::new();
     let mut payloads: BTreeMap<RevisionId, PathBuf> = BTreeMap::new();
     let mut files_by_digest: BTreeMap<RevisionId, Vec<PathBuf>> = BTreeMap::new();
 
@@ -1024,6 +1028,19 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
             continue;
         }
 
+        // Decision 0066: what stands in for a destroyed payload is a
+        // document of two headers, told apart by the `length` no other
+        // document carries.
+        if format::is_forgotten_payload(&bytes) {
+            match ForgottenPayload::parse(&bytes) {
+                Ok(document) => {
+                    forgotten.insert(id, document);
+                }
+                Err(error) => report.push(Finding::Unparsable { file: path, error }),
+            }
+            continue;
+        }
+
         // Decision 0032: two content-document grammars share the suffix, and
         // the body says which strict parser the bytes are held to.
         if format::is_resolution(&bytes) {
@@ -1052,7 +1069,7 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
             });
         }
     }
-    (documents, resolutions, payloads)
+    (documents, resolutions, forgotten, payloads)
 }
 
 /// Hold every revision to the tree and the files it claims to have edited.
@@ -1067,6 +1084,7 @@ fn check_replay<F: Filesystem + ?Sized>(
     documents: &BTreeMap<RevisionId, RevisionDocument>,
     operations: &BTreeMap<RevisionId, OperationDocument>,
     resolutions: &BTreeMap<RevisionId, ResolutionDocument>,
+    forgotten: &BTreeMap<RevisionId, ForgottenPayload>,
     payloads: &BTreeMap<RevisionId, PathBuf>,
     report: &mut Report,
 ) {
@@ -1099,7 +1117,17 @@ fn check_replay<F: Filesystem + ?Sized>(
                 .push(document);
         }
     }
-    for target in forgetting.keys().chain(forgetting_resolutions.keys()) {
+    // The third grammar, which is all of decision 0066's: a document whose
+    // whole content is the digest it forgets and how long those bytes were.
+    let mut forgetting_payloads: BTreeMap<RevisionId, RevisionId> = BTreeMap::new();
+    for (id, document) in forgotten {
+        forgetting_payloads.insert(document.forgets, *id);
+    }
+    for target in forgetting
+        .keys()
+        .chain(forgetting_resolutions.keys())
+        .chain(forgetting_payloads.keys())
+    {
         if operations.contains_key(target)
             || resolutions.contains_key(target)
             || payloads.contains_key(target)
@@ -1162,12 +1190,24 @@ fn check_replay<F: Filesystem + ?Sized>(
             }
         }
         for named in document.bytes.values() {
-            if !payloads.contains_key(named) {
-                report.push(Finding::MissingPayload {
-                    payload: *named,
+            if payloads.contains_key(named) {
+                continue;
+            }
+            // Decision 0066, which decision 0044 wrote this branch's future
+            // down and waited for: an absence the store accounts for is
+            // *forgotten* rather than *missing*, and the difference is the
+            // whole of what a person reading the report can act on.
+            if forgetting_payloads.contains_key(named) {
+                report.push(Finding::Forgotten {
+                    document: *named,
                     named_by: *id,
                 });
+                continue;
             }
+            report.push(Finding::MissingPayload {
+                payload: *named,
+                named_by: *id,
+            });
         }
         for (file, named) in &document.text {
             let standing = forgetting.get(named).cloned().unwrap_or_default();
@@ -1341,6 +1381,7 @@ fn check_replay<F: Filesystem + ?Sized>(
     let standing: BTreeSet<RevisionId> = forgetting
         .keys()
         .chain(forgetting_resolutions.keys())
+        .chain(forgetting_payloads.keys())
         .copied()
         .collect();
     check_completeness(

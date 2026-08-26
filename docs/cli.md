@@ -308,6 +308,17 @@ forgotten something can prove its structure and not its content — the `shasum`
 claim the README makes becomes conditional at that moment, and only then — and
 a store that has forgotten nothing is unaffected, which is nearly all of them.
 
+A file of bytes is forgotten **without `--lines`**, because it has none to
+name: decision [0066](decisions/0066-forgetting-a-payload.md) destroys the
+payload whole and leaves a document of two headers where it sat, saying which
+digest went and how many bytes it held. Which spelling a path takes is not a
+choice — a file's kind was fixed when it was added — so asking for the other
+one is refused, by name, with the one that would have worked. Two things a
+person should hear before running it: a file of bytes is replaced whole, so
+each version of it is its own payload and is forgotten on its own; and a
+forgotten payload cannot materialise at all, so `update` refuses the file
+until a revision records the `drop` that says it is gone.
+
 ### `identity`
 
 Says who is writing. An author comes from a person's own configuration and is

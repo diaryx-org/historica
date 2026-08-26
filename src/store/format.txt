@@ -180,6 +180,9 @@ Every other file in `operations/` is a payload: a file's content, stored
 whole, with no format of its own. Its only claim is its digest. A `text` line
 names one that is read as lines; a `bytes` line names one that is not.
 
+A payload that was forgotten is not there, and a document stands where it
+was — see "Forgetting" below.
+
 
 What a file holds at a revision
 --------------------------------
@@ -221,6 +224,24 @@ An item forgotten anywhere is forgotten everywhere: if any document that
 quotes it says `\ forgotten`, it is gone, and a file materialising through it
 shows the marker where the lines were. A state showing a marker is not checked
 against a `result`, because those are not the bytes anybody hashed.
+
+A payload of bytes has no lines and no shape to keep, so forgetting one
+destroys the file and leaves this in its place — a document, filed at the name
+the payload had, with the document suffix that says it is one:
+
+  historica
+  forgets 11db37f8c5cb4384341f3e5240d5c7f4d6fb3bdf90d95337f7c57b456a5eb162
+  length 38
+
+Two headers, no blank line, and nothing under it: `forgets` is the payload
+whose bytes were destroyed, still named by the revision's `bytes` line, and
+`length` is how many bytes there were. A `length` header is how you tell this
+apart from the other two grammars in this folder, since neither of them has
+one. That count is the only shape such a
+file has, and keeping it is what lets a reader say how much is gone rather
+than only that something is. There is nothing left to materialise, so the
+file cannot be written out at any revision that held it — what a person does
+about that is record the `drop` that says the file is gone.
 
 
 names/*.txt — bookmarks

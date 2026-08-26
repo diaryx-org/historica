@@ -50,6 +50,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **format** — one spelling for the format ([`422ff71`](https://github.com/diaryx-org/historica/commit/422ff71bdc6598b93782fc8ac8eceec48c0ed613))
 - **fs** — land Disk::write through fs-transaction, retiring atomic-write-file ([`6644b4b`](https://github.com/diaryx-org/historica/commit/6644b4b1d96c2d315ff0b33af39f0612d08564d2))
 - **format** — say whose header it is with a dot, not an `x-` ([`e10a5c3`](https://github.com/diaryx-org/historica/commit/e10a5c374c29e74aa40a4dddefccfab16bb1fef3))
+- **forget** — destroy a payload whole, and say how much went ([`4614660`](https://github.com/diaryx-org/historica/commit/4614660a238787cc3c1564eab57d5d857d0b360f))
 
 ### Added
 
@@ -679,6 +680,36 @@ key reaches `RevisionDocument::extensions` whole, as `x-` keys did.
 with nothing on one side of it (`.a`, `a.`, `a..b`), where the key
 alphabet previously admitted no dot at all and any dotted key was
 malformed for the alphabet.
+
+- `historica forget <target> <path>` with no `--lines`
+now forgets a file of bytes whole, where the whole command previously
+refused any file that was not lines and treated a missing `--lines` as a
+usage error. `--lines` on a file of bytes, and no span on a file of
+lines, are each refused by name with the spelling that would have worked.
+
+- `store::Forgetting` states an `Extent` — `Lines
+{ first, last }` or `Whole` — in place of its `first` and `last` fields,
+so a caller constructing one states which of the two acts it means.
+
+- `Store::content_at` and `content_at_heads` answer a
+forgotten payload with the new `MaterialiseError::ForgottenPayload`,
+naming the stand-in and the destroyed length, where they answered
+`MissingPayload` before. `MissingPayload` now means only that transport
+has more to deliver, which is what its message always said.
+
+- `check` reports a `bytes` payload with a stand-in as
+`Forgotten` rather than `MissingPayload`, and a store holding both the
+payload and a document forgetting it as `Resurrected`. Both are notes, as
+they are for the other grammars, so no store's report gains an error.
+
+- `store::Body` gains a `Forgotten` variant, so an
+exhaustive match over it needs a third arm; `Body::write` is new, and is
+what most such matches wanted.
+
+- a file in `operations/` whose header block carries a
+`length` line is now read as decision 0066's grammar and held to its
+strictness, where it was previously read as an operation document and
+refused as unparsable.
 
 <!-- git-cliff:end -->
 

@@ -300,6 +300,12 @@ impl<F: Filesystem> Store<F> {
                 Body::Resolution(document) => {
                     self.insert_resolution_at(&document, &format!("{id}{OPERATION_SUFFIX}"))?;
                 }
+                Body::Forgotten(document) => {
+                    self.insert_forgotten_payload_at(
+                        &document,
+                        &format!("{id}{OPERATION_SUFFIX}"),
+                    )?;
+                }
             }
             received.documents += 1;
         }

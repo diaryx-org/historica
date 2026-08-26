@@ -746,7 +746,12 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                 }
                 Some(digest) => match store.payload(digest)? {
                     Some(bytes) => bytes,
-                    None if !store.forgetting(digest)?.is_empty() => {
+                    // Decision 0066: bytes somebody destroyed, told apart
+                    // from bytes still in transit, because what a person does
+                    // next differs — there is nothing to wait for here.
+                    None if store.forgotten_payload(digest)?.is_some()
+                        || !store.forgetting(digest)?.is_empty() =>
+                    {
                         refuse(
                             path,
                             format!(

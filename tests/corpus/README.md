@@ -63,6 +63,14 @@ positions into what that payload produced. Five invalid files pin the grammar.
 Decision [0017](../../docs/decisions/0017-content-that-arrives-whole.md) is the
 argument.
 
+`forgotten/` is that photograph destroyed: the document of two headers that
+stands where the payload sat, and five invalid ones — a `length` with nothing
+to forget, the two headers out of order, a `result`, a padded count, and a
+body under a document that can have none. Dropping the stand-in in and
+deleting the payload is what a replica receives, so the test assembles the
+store by hand rather than running the command. Decision
+[0066](../../docs/decisions/0066-forgetting-a-payload.md) is the argument.
+
 ## `links/`
 
 Four revisions covering both spellings a link has — a reference to a file this
