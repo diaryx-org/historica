@@ -61,6 +61,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — a place for a store to say it was written by a newer Historica ([`94f5fee`](https://github.com/diaryx-org/historica/commit/94f5fee3a08e62e8f5cbe661c6351baacc08f71d))
 - **record** — a rewrite carries the work standing on it ([`1184af6`](https://github.com/diaryx-org/historica/commit/1184af6fc97c5cc9c1880cf53fe44de6d2e75bff))
 - **api** — room to add a field to what a command hands back ([`d459573`](https://github.com/diaryx-org/historica/commit/d4595736d2015b2e8048ccaf36a953858dbc665f))
+- **record** — a recording can state another tool's header ([`107d729`](https://github.com/diaryx-org/historica/commit/107d7297f40ca1274bff80f78d6ad1bf6c21d053))
 
 ### Added
 
@@ -869,6 +870,17 @@ refused as unparsable.
 - `OfferError` and `ReceiveError` are `#[non_exhaustive]`,
   as every other error enum in the crate already was. A `match` over
   either now needs a `_` arm.
+
+- `record::Recording` gains an `extensions` field, so a
+  caller that constructs one by literal must add it — `BTreeMap::new()`
+  is what every recording made on historica's own behalf passes, and what
+  the CLI passes. A recording that states headers records them into the
+  revision document, which means the revision's ID covers them.
+
+- `record` now refuses a stated header whose key this
+  format could define — one with no dot in it — with
+  `RecordError::UnusableHeader`, naming the key and the fix. Nothing could
+  state one before, so no existing caller can meet this.
 
 <!-- git-cliff:end -->
 
