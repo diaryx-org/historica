@@ -222,6 +222,21 @@ commit_parsers = [
   { message = '^(refactor|perf|polish)', group = "<3>Changed" },
   { message = '^docs', skip = true },
   { message = '^(chore|test|ci|build|style)', skip = true },
+  # A merge this repository wrote on purpose, spelled as a type. Skipped, and
+  # nothing is lost by it: a `merge:` commit has a second parent, and every
+  # change it brings arrived on that parent under its own `feat`/`fix` subject,
+  # which is already a bullet above. Listing the merge as well would name the
+  # same work twice, once without a type to file it under — which is exactly how
+  # both of them reached the triage bucket. Where a merge settled a real
+  # disagreement rather than only joining two lines — `d29e446`, which chose
+  # between two answers to what `content_at` does with a payload — the argument
+  # is in the decision documents it names, which is where a reader goes looking
+  # for it and where it does not expire with the release.
+  #
+  # Lowercase and colon-anchored, deliberately, for the reason the rule below
+  # gives: `merge:` is the type, and a subject that opens with a capital `Merge`
+  # is a sentence about work somebody did. That one keeps its bucket.
+  { message = '^merge(\(.+\))?!?:', skip = true },
   # A merge git wrote itself, and nothing else. The looser `^[Mm]erge` prov uses
   # would swallow `Merge two lines of work, and record the resolution`, which is
   # a commit that did the work rather than a commit that recorded a branch.
