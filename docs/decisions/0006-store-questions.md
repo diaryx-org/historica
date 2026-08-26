@@ -184,3 +184,43 @@ UTF-8 rather than introducing an escape.
    no spelling specially, by [0027](0027-closing-the-small-questions.md).
    Duplicate content is already a note; guessing which program chose its
    filename adds a claim the store cannot verify.
+
+## Since
+
+The summary rule above named three things a stem gives up — `/`, control
+characters, and a leading `.` — and stopped there. That list was drawn from
+what a *name* cannot hold, on the systems this was written on. What it missed
+is that a store's whole argument is that it travels: 0029 receives one, 0042
+carries one away, and the media both of those actually ride on are formatted
+FAT, exFAT or NTFS, which refuse `\ : * ? " < > |` in a name outright.
+
+So a message reading `Fix: the parser?` composed a stem no copy onto a memory
+card could write. The store was not damaged by it — identity is content, and
+a renamed file is still the file — but the copy itself failed, and a copy tool
+that mangles rather than fails leaves two replicas naming one history two ways
+until somebody runs `arrange`. Either way the folder that was supposed to be
+readable anywhere was readable in fewer places than a `.zip` of it.
+
+**The summary gives up everything a filesystem reserves.** `\ : * ? " < > |`
+join `/` and the control characters, each replaced by a space, and a trailing
+`.` joins the leading one. The trailing dot is not decoration: a stem is a
+*directory* name in `operations/`, and Windows drops a trailing dot from one
+silently, so two stems differing only there would arrive as one folder — the
+determinism this decision insists on, broken by the copy rather than by the
+scheme.
+
+**A path is not touched, and the asymmetry is the point.** `scrubbed` still
+takes only control characters out of a path, because a path named a real file
+in somebody's real folder: the characters in it are theirs, they already
+survived one filesystem, and a store that could not be copied because of one
+is a store whose *working copy* could not be copied either. A summary is the
+opposite case in every respect — historica composes it, from prose nobody ever
+typed as a filename — so a character it cannot carry is one historica invented
+the problem with.
+
+Nothing here is a format change, for the reason stated above: none of it
+carries correctness weight and nothing reads these names. What it costs is
+that a store arranged by an older version has stems this scheme would spell
+differently, which is [0019](0019-the-name-a-store-is-written-with.md)'s first
+case exactly — the scheme changed, and `arrange` is the command that applies
+it.

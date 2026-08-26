@@ -323,15 +323,32 @@ fn compose(when: &Timestamp, message: &str, change: &ChangeId) -> String {
     format!("{month}/{date} {}", summary(message, change))
 }
 
+/// Characters a stem gives up at either end, because a filesystem takes them.
+///
+/// Whitespace was always trimmed and a leading `.` always was, so that a
+/// summary does not hide the file. A trailing `.` joins them for 0006's
+/// `## Since` reason: this stem is a *directory* name in `operations/`, and
+/// Windows drops a trailing dot from one silently, so two stems that differed
+/// only there would arrive as one folder and the determinism the scheme is
+/// held to would be broken by the copy rather than by the scheme.
+fn spare(character: char) -> bool {
+    character == '.' || character.is_whitespace()
+}
+
 fn summary(message: &str, change: &ChangeId) -> String {
     let first = message.lines().next().unwrap_or_default();
     let replaced: String = first
         .chars()
         .map(|character| match character {
-            // Decision 0006 names `/` and control characters. A backslash is
-            // here for the same reason on the systems that separate with it,
-            // and adding it costs nothing: no reader looks at these names.
-            '/' | '\\' => ' ',
+            // Decision 0006 names `/` and control characters, and its
+            // `## Since` adds the rest of what a filesystem reserves: a
+            // backslash separates on the systems that use one, and `:*?"<>|`
+            // are refused outright by FAT, exFAT and NTFS — which is to say
+            // by the media a store travels on. A message reading `Fix: the
+            // parser?` would otherwise compose a stem no copy onto a memory
+            // card could write. Spending a character costs nothing, because
+            // no reader looks at these names.
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => ' ',
             character if character.is_control() => ' ',
             character => character,
         })
@@ -340,14 +357,18 @@ fn summary(message: &str, change: &ChangeId) -> String {
     // Non-ASCII is preserved: this is a filename shown to a person, not an
     // identifier, and a journal is written in its author's own language.
     let collapsed = replaced.split_whitespace().collect::<Vec<_>>().join(" ");
-    let trimmed = clip(collapsed.trim_start_matches('.').trim(), SUMMARY_CHARS);
+    // Trimmed on both sides of the clip: before, so a leading dot does not
+    // spend the budget, and after, because a cut at a word boundary can land
+    // on the full stop that ended a sentence.
+    let clipped = clip(collapsed.trim_matches(spare), SUMMARY_CHARS);
+    let trimmed = clipped.trim_end_matches(spare);
 
     if trimmed.is_empty() {
         // Decision 0001 calls a change ID prefix the name a person can learn,
         // which makes it the right fallback for a message that says nothing.
         change.abbreviate(CHANGE_CHARS)
     } else {
-        trimmed
+        trimmed.to_owned()
     }
 }
 
@@ -460,6 +481,50 @@ mod tests {
             ".hidden would be a hidden file\n",
         );
         assert!(base(&document).ends_with("hidden would be a hidden file"));
+    }
+
+    #[test]
+    fn a_summary_gives_up_what_a_filesystem_reserves() {
+        // 0006's `## Since`. Every one of these is a character FAT, exFAT or
+        // NTFS refuses in a name, and a colon and a question mark are what an
+        // ordinary message actually holds.
+        let document = document(
+            "qpvuntsmwlrkzxonmvtplsyq",
+            "2025-08-19T00:47:11-06:00",
+            "Fix: the parser? <yes> \"quoted\" | piped *star*\n",
+        );
+        assert_eq!(
+            base(&document),
+            "2025-08/2025-08-19 Fix the parser yes quoted piped star"
+        );
+    }
+
+    #[test]
+    fn a_trailing_dot_goes_the_way_the_leading_one_does() {
+        // The stem is a directory name in `operations/`, and Windows drops a
+        // trailing dot from one without saying so — which would land two
+        // stems in one folder and break the determinism the scheme is held to.
+        let document = document(
+            "qpvuntsmwlrkzxonmvtplsyq",
+            "2025-08-19T00:47:11-06:00",
+            "Say what the parser refuses...\n",
+        );
+        assert_eq!(
+            base(&document),
+            "2025-08/2025-08-19 Say what the parser refuses"
+        );
+    }
+
+    #[test]
+    fn a_summary_of_nothing_a_filesystem_takes_falls_back_to_the_change() {
+        // Every character replaced leaves an empty summary, which is the
+        // state 0001's abbreviation already answers.
+        let document = document(
+            "qpvuntsmwlrkzxonmvtplsyq",
+            "2025-08-19T00:47:11-06:00",
+            "?*|\n",
+        );
+        assert_eq!(base(&document), "2025-08/2025-08-19 qpvuntsm");
     }
 
     #[test]
