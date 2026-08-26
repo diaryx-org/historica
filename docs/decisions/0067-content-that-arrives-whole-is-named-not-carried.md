@@ -159,6 +159,12 @@ suffixed `.partial` so that a person who meets one can see it is not theirs.
   `content_at` performed for a file of bytes — the `MissingPayload` refusal for
   a `bytes` file moves to whatever asks for the bytes, and stays exactly where
   it was for the `text` payload a creation replays from.
+- `Store::absent_payload` is where that refusal moved to, and it is the seam
+  with 0066, which landed alongside this. An absence still arriving and an
+  absence somebody made are different answers, and losing the one place that
+  told them apart would have scattered the distinction across every caller
+  that wants bytes. So there is still one place; it is just no longer the
+  method that answers what a revision said.
 - `Change::Whole(RevisionId)`, and `file_content` takes the working copy.
   `RecordError::NoPathForContent` is the refusal for a plan that states whole
   content and no path to read it from, which nothing produces and which is an

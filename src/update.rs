@@ -849,18 +849,25 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                 }
                 Some(digest) => {
                     if store.payload_file(digest)?.is_none() {
-                        if store.forgetting(digest)?.is_empty() {
+                        // Decision 0066: bytes somebody destroyed, told apart
+                        // from bytes still in transit, because what a person
+                        // does next differs — there is nothing to wait for
+                        // here. Neither branch reads a payload: 0067 asks the
+                        // directory where the bytes are, not what they say.
+                        if store.forgotten_payload(digest)?.is_some()
+                            || !store.forgetting(digest)?.is_empty()
+                        {
                             refuse(
                                 path,
                                 format!(
-                                    "this store does not hold the content {digest}; receive the rest first"
+                                    "its content {digest} was forgotten; record the `drop` that makes that true"
                                 ),
                             );
                         } else {
                             refuse(
                                 path,
                                 format!(
-                                    "its content {digest} was forgotten; record the `drop` that makes that true"
+                                    "this store does not hold the content {digest}; receive the rest first"
                                 ),
                             );
                         }

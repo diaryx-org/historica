@@ -644,7 +644,14 @@ impl<F: Filesystem> Store<F> {
                     // rewritten as anything else would be a different digest,
                     // and the `edit` line naming it would stop finding it.
                     let name = format!("{found}{OPERATION_SUFFIX}");
-                    if format::is_resolution(&bytes) {
+                    if format::is_forgotten_payload(&bytes) {
+                        // Decision 0066's grammar, which is a document like
+                        // any other and travels as one: two headers saying
+                        // which payload went and how long it was.
+                        let document = format::ForgottenPayload::parse(&bytes)
+                            .map_err(|error| unusable(&entry.path, error))?;
+                        self.insert_forgotten_payload_at(&document, &name)?;
+                    } else if format::is_resolution(&bytes) {
                         let document = ResolutionDocument::parse(&bytes)
                             .map_err(|error| unusable(&entry.path, error))?;
                         self.insert_resolution_at(&document, &name)?;

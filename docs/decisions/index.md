@@ -687,6 +687,22 @@ depend on each other in.
   reader the rule exists for: the old one, whose list cannot hold a key added
   after it shipped.
 
+- [0066 — Forgetting a payload](0066-forgetting-a-payload.md)
+  The case 0014 deferred and 0017 designed without building: a file of bytes
+  destroyed whole, with a document of two headers — `forgets` and `length` —
+  standing where the payload sat. The deferred case turns out to be the easy
+  one, because a payload has no items, no grammar and no chain, so there is no
+  shape to preserve and the stand-in is a statement rather than a
+  reconstruction. `length` is the only shape there is and is kept, which also
+  makes two replicas' redactions one file. A third grammar in `operations/`,
+  dispatched on a header rather than on an empty body, and no format version,
+  since 0004 charges only for retiring a spelling. Content addressing does
+  0014's walk in advance — one destruction reaches every quote — while each
+  version of the file stays its own payload, which the command says out loud.
+  A forgotten payload cannot materialise at all, and no placeholder is
+  invented for it; `check` calls the absence forgotten rather than missing,
+  which is the branch 0044 wrote down and waited for.
+
 - [0067 — Content that arrives whole is named, not carried](0067-content-that-arrives-whole-is-named-not-carried.md)
   0017's last deferral, and it turned out not to be about size. What a revision
   says about a file of bytes is `bytes <file> <digest>`, and the type that

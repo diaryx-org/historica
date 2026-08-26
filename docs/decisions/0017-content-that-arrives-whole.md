@@ -432,7 +432,11 @@ that the remaining copies were held by this document's own type:
 `Content::Whole` said the bytes where the revision document says the digest.
 
 **Forgetting, still.** 0014 has a shape and no implementation, and this
-document adds the payload case to what that implementation will owe.
+document adds the payload case to what that implementation will owe. Both are
+paid: decision [0066](0066-forgetting-a-payload.md) builds forgetting for a
+payload of bytes, keeping the two headers written above word for word, and the
+text case is already what it says it is — a payload equivalent to an
+`insert 0`, forgotten as the document it is equivalent to.
 
 **Re-rooting**, 0007's second open question, which now has a visible shape and
 deliberately no spelling.

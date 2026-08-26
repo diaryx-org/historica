@@ -17,7 +17,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use historica::core::{FileId, RevisionId};
-use historica::format::{ParseErrorKind, RevisionDocument, digest};
+use historica::format::{
+    ForgottenPayload, ParseErrorKind, RevisionDocument, digest, is_forgotten_payload,
+};
 use historica::store::{Content, Store};
 use historica::tree::Kind;
 
@@ -192,6 +194,181 @@ fn one_history_holds_a_payload_and_the_operations_counted_against_it() {
             .map(ToString::to_string)
             .collect::<Vec<_>>()
     );
+}
+
+/// The corpus's photograph, forgotten: the payload destroyed and the
+/// hand-written stand-in dropped in where it sat.
+///
+/// Decision 0066. The store is assembled by hand rather than by running
+/// `forget`, because what is under test is what a *reader* makes of the two
+/// headers — a replica receives exactly this and never sees the command that
+/// wrote it.
+#[test]
+fn a_forgotten_payload_is_two_headers_and_a_store_that_still_checks() {
+    let store = store("whole-forgotten");
+    let root = store.root().to_path_buf();
+    drop(store);
+    fs::remove_file(root.join("operations/01-photo.png")).expect("destroying the payload");
+    fs::copy(
+        corpus().join("forgotten/photo.ops.txt"),
+        root.join("operations/01-photo.forgotten.ops.txt"),
+    )
+    .expect("the stand-in");
+
+    let store = Store::open(&root).expect("the redacted corpus is a store");
+    let manifest = manifest();
+    let start = *manifest
+        .get("revisions/01-start.rev.txt")
+        .expect("the first revision");
+    let payload = *manifest
+        .get("operations/01-photo.png")
+        .expect("the destroyed payload");
+
+    // Decision 0067: what a revision *said* about a file of bytes is still
+    // there to be read, because it is a name rather than the bytes — the
+    // redaction did not reach the revision document.
+    let Content::Whole(named) = store
+        .content_at(&start, &file(PHOTO))
+        .expect("the photograph, named")
+    else {
+        panic!("a file of bytes");
+    };
+    assert_eq!(named, payload);
+
+    // What a person asking for the bytes themselves is told: not "not here
+    // yet", which is what an undelivered payload says, but who destroyed them
+    // and how many there were.
+    let said = store
+        .absent_payload(&named, &start)
+        .expect("an answer")
+        .to_string();
+    assert!(said.contains("was forgotten"), "{said}");
+    assert!(said.contains("69 bytes destroyed"), "{said}");
+
+    // The revision after it is untouched: a payload is quoted by digest, so
+    // forgetting one version of a file reaches exactly that version.
+    let Content::Whole(held) = store
+        .content_at(
+            manifest
+                .get("revisions/02-crop.rev.txt")
+                .expect("the second revision"),
+            &file(PHOTO),
+        )
+        .expect("the cropped photograph")
+    else {
+        panic!("a file of bytes");
+    };
+    // Decision 0067: what `content_at` answers for a file of bytes is the
+    // payload's name, so the comparison is between two digests — which is
+    // what a comparison of two payloads always was.
+    assert_eq!(
+        held,
+        digest(&fs::read(corpus().join("operations/02-photo.png")).expect("the payload"))
+    );
+
+    // A forgotten store passes `check`, and the absence is accounted for
+    // rather than merely observed — decision 0044's `bytes` branch, which
+    // waited for this.
+    let report = Store::check(&root);
+    assert!(report.is_ok(), "{report:?}");
+    let notes: Vec<String> = report
+        .findings()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("bytes were destroyed")),
+        "{notes:?}"
+    );
+    assert!(
+        !notes
+            .iter()
+            .any(|note| note.contains("may not have arrived")),
+        "a destroyed payload is not a missing one: {notes:?}"
+    );
+
+    // And the store holding both at once is the resurrection `check` reports,
+    // which is what a sync that carried the original back looks like.
+    fs::copy(
+        corpus().join("operations/01-photo.png"),
+        root.join("operations/01-photo.png"),
+    )
+    .expect("the payload, back again");
+    let report = Store::check(&root);
+    let notes: Vec<String> = report
+        .findings()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("bytes are here again")),
+        "{notes:?}"
+    );
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains(&payload.abbreviate(12).to_string())),
+        "and it says which digest came back: {notes:?}"
+    );
+}
+
+#[test]
+fn every_invalid_forgotten_payload_is_refused_for_its_own_reason() {
+    let cases: Vec<(&str, ParseErrorKind)> = vec![
+        (
+            "length-without-forgets.ops.txt",
+            ParseErrorKind::MissingHeader { key: "forgets" },
+        ),
+        (
+            "forgets-after-length.ops.txt",
+            ParseErrorKind::KeysOutOfOrder {
+                key: "forgets".to_owned(),
+                after: "length".to_owned(),
+            },
+        ),
+        (
+            "result-of-forgetting.ops.txt",
+            ParseErrorKind::ResultOfForgetting,
+        ),
+        (
+            "with-a-body.ops.txt",
+            ParseErrorKind::ForgottenPayloadWithBody,
+        ),
+        (
+            "padded-length.ops.txt",
+            ParseErrorKind::MalformedNumber {
+                found: "0069".to_owned(),
+            },
+        ),
+    ];
+
+    for (name, expected) in cases {
+        let bytes =
+            fs::read(corpus().join("forgotten/invalid").join(name)).expect("an invalid stand-in");
+        // Each one still claims the grammar, which is what makes refusing it
+        // the reader's job rather than the dispatch's.
+        assert!(
+            is_forgotten_payload(&bytes),
+            "forgotten/invalid/{name} should be read as a forgotten payload"
+        );
+        let error = ForgottenPayload::parse(&bytes)
+            .map(|document| format!("{document:?}"))
+            .expect_err(&format!("forgotten/invalid/{name} should not parse"));
+        assert_eq!(
+            error.kind, expected,
+            "forgotten/invalid/{name} failed for the wrong reason"
+        );
+        // Decision 0004's condition on strictness: a refusal says what to do.
+        let said = error.to_string();
+        assert!(
+            said.len() > 40,
+            "forgotten/invalid/{name} says too little: {said}"
+        );
+    }
 }
 
 #[test]

@@ -59,7 +59,8 @@ use std::path::{Path, PathBuf};
 
 use crate::core::{ChangeId, FileId, History, Revision, RevisionId};
 use crate::format::{
-    self, Item, OperationDocument, ParseError, ResolutionDocument, RevisionDocument, digest,
+    self, ForgottenPayload, Item, OperationDocument, ParseError, ResolutionDocument,
+    RevisionDocument, digest,
 };
 // `fs` here is `crate::fs`, never `std::fs` — this module reaches the folder
 // only through the trait, and the qualified form is what keeps that visible.
@@ -85,7 +86,7 @@ use catalogue::Catalogue;
 pub use check::{Finding, Report, Severity};
 pub use export::{ExportError, ExportPlan, Exported, Writes};
 pub use fetch::{Declined, FetchError, FetchPlan, Fetched, Source, Unreachable};
-pub use forget::{ForgetError, Forgetting, Forgotten};
+pub use forget::{Extent, ForgetError, Forgetting, Forgotten};
 pub use offer::{OFFER_HEADER, Offer, OfferError, OfferKind, Offered};
 pub use prune::Pruned;
 pub use receive::{MutableConflict, ReceiveError, ReceivePlan, Received};
@@ -659,6 +660,34 @@ fn agreed<'a>(parents: impl IntoIterator<Item = &'a Stated>) -> Stated {
     }
 }
 
+/// One file in `operations/` held to the grammar its own bytes claim.
+///
+/// Three grammars share the suffix now: what a revision did to a file
+/// (decision 0007), a merge's file stated whole (0032), and what stands in
+/// for a payload somebody destroyed (0066). Each says which it is in its own
+/// bytes — the body for the first two, the `length` header for the third —
+/// so the dispatch is a look rather than a guess, and every reader in the
+/// store makes it here rather than three times over.
+fn parsed(bytes: &[u8], path: &Path) -> Result<Body, StoreError> {
+    let unparsable = |error: ParseError| StoreError::Unparsable {
+        file: path.to_path_buf(),
+        error,
+    };
+    if format::is_forgotten_payload(bytes) {
+        return Ok(Body::Forgotten(
+            ForgottenPayload::parse(bytes).map_err(unparsable)?,
+        ));
+    }
+    if format::is_resolution(bytes) {
+        return Ok(Body::Resolution(
+            ResolutionDocument::parse(bytes).map_err(unparsable)?,
+        ));
+    }
+    Ok(Body::Operation(
+        OperationDocument::parse(bytes).map_err(unparsable)?,
+    ))
+}
+
 /// The items one operation document mints, in document order.
 fn minted_by(document: &OperationDocument) -> Vec<Item> {
     document
@@ -896,6 +925,8 @@ impl Document {
 struct Read {
     operations: BTreeMap<RevisionId, OperationDocument>,
     resolutions: BTreeMap<RevisionId, ResolutionDocument>,
+    /// The stand-ins for payloads whose bytes were destroyed (decision 0066).
+    forgotten: BTreeMap<RevisionId, ForgottenPayload>,
     /// Digests looked for and not found, so a miss is not re-read either.
     absent: BTreeSet<RevisionId>,
     /// Which held documents forget which digest, as a full pass found them.
@@ -913,6 +944,7 @@ impl Read {
     fn clear(&mut self) {
         self.operations.clear();
         self.resolutions.clear();
+        self.forgotten.clear();
         self.absent.clear();
     }
 }
@@ -931,6 +963,11 @@ pub enum Body {
     /// `edit` lines exactly as operation documents are, and told apart by
     /// their bodies.
     Resolution(ResolutionDocument),
+    /// Decision 0066: what stands in for a payload of bytes that a person
+    /// destroyed. Named by nothing, like every forgetting document, and told
+    /// apart from the other two by the `length` header no other document
+    /// carries.
+    Forgotten(ForgottenPayload),
 }
 
 impl Body {
@@ -946,6 +983,16 @@ impl Body {
         match self {
             Body::Operation(document) => document.forgets,
             Body::Resolution(document) => document.forgets,
+            Body::Forgotten(document) => Some(document.forgets),
+        }
+    }
+
+    /// The exact bytes of this document, in whichever grammar it is written.
+    pub fn write(&self) -> Vec<u8> {
+        match self {
+            Body::Operation(document) => document.write(),
+            Body::Resolution(document) => document.write(),
+            Body::Forgotten(document) => document.write(),
         }
     }
 }
@@ -1319,21 +1366,7 @@ impl<F: Filesystem> Store<F> {
         if digest(&bytes) != *id {
             return Ok(None);
         }
-        Ok(Some(if format::is_resolution(&bytes) {
-            Body::Resolution(ResolutionDocument::parse(&bytes).map_err(|error| {
-                StoreError::Unparsable {
-                    file: path.clone(),
-                    error,
-                }
-            })?)
-        } else {
-            Body::Operation(OperationDocument::parse(&bytes).map_err(|error| {
-                StoreError::Unparsable {
-                    file: path.clone(),
-                    error,
-                }
-            })?)
-        }))
+        Ok(Some(parsed(&bytes, &path)?))
     }
 
     /// Read one digest, holding what came back for the rest of this command.
@@ -1342,6 +1375,7 @@ impl<F: Filesystem> Store<F> {
             let read = self.read.borrow();
             if read.operations.contains_key(id)
                 || read.resolutions.contains_key(id)
+                || read.forgotten.contains_key(id)
                 || read.absent.contains(id)
             {
                 return Ok(());
@@ -1365,7 +1399,10 @@ impl<F: Filesystem> Store<F> {
         if body.is_none() {
             self.scan()?;
             let read = self.read.borrow();
-            if read.operations.contains_key(id) || read.resolutions.contains_key(id) {
+            if read.operations.contains_key(id)
+                || read.resolutions.contains_key(id)
+                || read.forgotten.contains_key(id)
+            {
                 return Ok(());
             }
             drop(read);
@@ -1378,6 +1415,9 @@ impl<F: Filesystem> Store<F> {
             }
             Some(Body::Resolution(document)) => {
                 read.resolutions.insert(*id, document);
+            }
+            Some(Body::Forgotten(document)) => {
+                read.forgotten.insert(*id, document);
             }
             None => {
                 read.absent.insert(*id);
@@ -1404,7 +1444,16 @@ impl<F: Filesystem> Store<F> {
             };
             let id = digest(&bytes);
             let mut read = self.read.borrow_mut();
-            if format::is_resolution(&bytes) {
+            if format::is_forgotten_payload(&bytes) {
+                if let Ok(document) = ForgottenPayload::parse(&bytes) {
+                    let standing = read.forgetting.entry(document.forgets).or_default();
+                    if !standing.contains(&id) {
+                        standing.push(id);
+                    }
+                    read.forgotten.insert(id, document);
+                    read.absent.remove(&id);
+                }
+            } else if format::is_resolution(&bytes) {
                 if let Ok(document) = ResolutionDocument::parse(&bytes) {
                     if let Some(target) = document.forgets {
                         let standing = read.forgetting.entry(target).or_default();
@@ -1570,7 +1619,79 @@ impl<F: Filesystem> Store<F> {
         if let Some(document) = read.resolutions.get(named) {
             return Ok(Some(Body::Resolution(document.clone())));
         }
+        if let Some(document) = read.forgotten.get(named) {
+            return Ok(Some(Body::Forgotten(*document)));
+        }
         Ok(read.operations.get(named).cloned().map(Body::Operation))
+    }
+
+    /// What stands in for a payload whose bytes were destroyed, if anything
+    /// here does.
+    ///
+    /// Why a payload this store cannot produce is not here.
+    ///
+    /// Decisions 0066 and 0067 meet at this method. 0067 took the question out
+    /// of [`Store::content_at`], which names a payload rather than reading
+    /// one: what a revision *said* about a file of bytes is `bytes <file>
+    /// <digest>`, and whether this replica happens to hold those bytes is a
+    /// different question with a different answer. 0066 is that answer's two
+    /// halves — an absence still arriving, and an absence somebody made — and
+    /// a person told "not here yet" about bytes that will never be here again
+    /// has been told the wrong thing.
+    ///
+    /// So whoever wanted the bytes asks this, once, rather than each caller
+    /// assembling the distinction out of [`Store::forgotten_payload`] and
+    /// getting it subtly different. Call it only where the payload is known to
+    /// be absent: it reports why, and does not check that it is.
+    pub fn absent_payload(
+        &self,
+        payload: &RevisionId,
+        named_by: &RevisionId,
+    ) -> Result<MaterialiseError, StoreError> {
+        Ok(match self.forgotten_payload(payload)? {
+            Some(document) => MaterialiseError::ForgottenPayload {
+                payload: *payload,
+                by: document.id(),
+                length: document.length,
+            },
+            None => MaterialiseError::MissingPayload {
+                payload: *payload,
+                named_by: *named_by,
+            },
+        })
+    }
+
+    /// Decision 0066, and [`Store::forgetting`]'s question asked of the third
+    /// grammar: a revision's `bytes` line still names the payload's digest,
+    /// and a reader that cannot find those bytes looks for a document that
+    /// says it `forgets` them. Where several stand for one payload — two
+    /// replicas that redacted the same photograph — they say the same thing
+    /// and are the same file, so the first is the answer.
+    pub fn forgotten_payload(
+        &self,
+        target: &RevisionId,
+    ) -> Result<Option<ForgottenPayload>, StoreError> {
+        let mut standing = self.standing(target)?;
+        // *Nothing stands in for this* is the one answer a catalogue taken
+        // from `cache/` alone must not give, for the reason
+        // [`Store::forgetting`] states at length.
+        if standing.is_empty() && !self.scanned.get() {
+            self.upgrade()?;
+            standing = self.standing(target)?;
+        }
+        for id in standing {
+            self.read_body(&id)?;
+            let found = self.read.borrow().forgotten.get(&id).copied();
+            // The catalogue said which document forgets this; the document
+            // itself is what confirms it, so a catalogue naming the wrong
+            // file cannot make a reader treat anything as a redaction.
+            if let Some(document) = found
+                && document.forgets == *target
+            {
+                return Ok(Some(document));
+            }
+        }
+        Ok(None)
     }
 
     /// Every held forgetting resolution standing in for `target`.
@@ -1630,6 +1751,10 @@ impl<F: Filesystem> Store<F> {
                 )
                 .map(Body::Resolution));
             }
+            // Decision 0066's document is the redaction rather than something
+            // a redaction stands in for, and there is nothing in it to
+            // destroy: it holds a digest and a count.
+            Some(Body::Forgotten(held)) => return Ok(Some(Body::Forgotten(held))),
             None => {}
         }
         // Nothing held, which is the absence that costs the pass. `forgetting`
@@ -1745,24 +1870,9 @@ impl<F: Filesystem> Store<F> {
                 .files
                 .read(&path)
                 .map_err(|error| StoreError::io(&path, error))?;
-            // Decision 0032: two content-document grammars share the suffix,
-            // and the body says which one the bytes are held to.
-            let body = if format::is_resolution(&bytes) {
-                Body::Resolution(ResolutionDocument::parse(&bytes).map_err(|error| {
-                    StoreError::Unparsable {
-                        file: path.clone(),
-                        error,
-                    }
-                })?)
-            } else {
-                Body::Operation(OperationDocument::parse(&bytes).map_err(|error| {
-                    StoreError::Unparsable {
-                        file: path.clone(),
-                        error,
-                    }
-                })?)
-            };
-            found.push((digest(&bytes), body));
+            // Decisions 0032 and 0066: three grammars share the suffix, and
+            // the bytes say which one they are held to.
+            found.push((digest(&bytes), parsed(&bytes, &path)?));
         }
         Ok(found)
     }
@@ -2476,7 +2586,13 @@ impl<F: Filesystem> Store<F> {
                     Some(Body::Operation(effective)) => {
                         held.insert(revision, Held::Operations(*named, effective));
                     }
-                    None => {
+                    // An `edit` naming decision 0066's document, which
+                    // nothing this tool writes can produce: a stand-in for a
+                    // payload is named by nothing, and a file of bytes has no
+                    // `edit` line to name it with. A hand-written store may
+                    // still say it, and what it has said is that this digest
+                    // is not an operation document.
+                    Some(Body::Forgotten(_)) | None => {
                         return Err(MaterialiseError::MissingOperations {
                             document: *named,
                             named_by: revision,
@@ -2744,6 +2860,35 @@ impl<F: Filesystem> Store<F> {
             .borrow_mut()
             .resolutions
             .insert(id, document.clone());
+        Ok(id)
+    }
+
+    /// Write the stand-in for a forgotten payload under `name`, within
+    /// `operations/`.
+    ///
+    /// Decision 0066 files it exactly where a payload sat and under the
+    /// document suffix, because that is what it now is: a person opening the
+    /// revision's folder finds a document where the photograph was, saying
+    /// what became of it.
+    pub fn insert_forgotten_payload_at(
+        &mut self,
+        document: &ForgottenPayload,
+        name: &str,
+    ) -> Result<RevisionId, StoreError> {
+        let bytes = document.write();
+        let id = digest(&bytes);
+        // The walked catalogue, because what is asked here is whether the
+        // store already holds these bytes, and `no` is what a cheap one
+        // cannot say.
+        self.upgrade()?;
+        if self.catalogue()?.at(&id).is_some() {
+            return Ok(id);
+        }
+        let path = within(&self.root.join(OPERATIONS_DIR), name);
+        write_once(&self.files, &path, &bytes)?;
+        let filed = self.located(&path, Some(document.forgets));
+        self.catalogue_mut()?.insert(id, filed);
+        self.read.borrow_mut().forgotten.insert(id, *document);
         Ok(id)
     }
 
@@ -3421,6 +3566,21 @@ pub enum MaterialiseError {
         /// The revision that names it.
         named_by: RevisionId,
     },
+    /// A payload somebody destroyed, with the document that says so.
+    ///
+    /// Decision 0066, and the difference [`MaterialiseError::MissingPayload`]
+    /// could not state: an absence that is still arriving and an absence
+    /// somebody made are not the same answer, and a person told "not here
+    /// yet" about bytes that will never be here again has been told the
+    /// wrong thing.
+    ForgottenPayload {
+        /// The payload whose bytes were destroyed.
+        payload: RevisionId,
+        /// The document that stands in for it.
+        by: RevisionId,
+        /// How many bytes it held.
+        length: usize,
+    },
     /// `operations/` could not be read, so what the revisions did is not
     /// there to answer with.
     ///
@@ -3552,6 +3712,17 @@ impl fmt::Display for MaterialiseError {
                 f,
                 "{named_by} names the content {payload}, \
                  which this store does not hold yet"
+            ),
+            MaterialiseError::ForgottenPayload {
+                payload,
+                by,
+                length,
+            } => write!(
+                f,
+                "the content {} was forgotten: {length} bytes destroyed, and \
+                 {} is the document standing where they were",
+                payload.abbreviate(12),
+                by.abbreviate(12)
             ),
             MaterialiseError::Unreadable { payload, because } => {
                 write!(f, "the content {payload} could not be read: {because}")

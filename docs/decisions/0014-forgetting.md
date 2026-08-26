@@ -331,7 +331,10 @@ interface rather than discovered.
 
 **Binary content**, which 0008 gives a shape and no implementation. A binary
 file has no items to preserve, so forgetting one is nearer to prov's case:
-the whole payload goes and only its digest and length remain.
+the whole payload goes and only its digest and length remain. Answered by
+decision [0066](0066-forgetting-a-payload.md), which spells that as a document
+of two headers and finds the deferred case was the easy one — there being no
+shape to preserve, the stand-in is a statement rather than a reconstruction.
 
 **Text minted in a resolution** — answered by decision
 [0050](0050-forgetting-a-merges-own-text.md), which gave the resolution

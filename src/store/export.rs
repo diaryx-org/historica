@@ -863,6 +863,9 @@ impl<F: Filesystem> Store<F> {
                 Body::Operation(document) => {
                     copy.insert_operation_at(&document, &name_of(id, true))?;
                 }
+                Body::Forgotten(document) => {
+                    copy.insert_forgotten_payload_at(&document, &name_of(id, true))?;
+                }
             }
             match forgetting {
                 true => wrote.forgetting += 1,

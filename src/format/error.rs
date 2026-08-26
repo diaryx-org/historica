@@ -92,6 +92,12 @@ pub enum ParseErrorKind {
     /// restates is the destroyed state, and a digest of destroyed content
     /// would let anyone who can guess the sentence confirm it.
     ResultOfForgetting,
+    /// Anything below the headers of a forgetting document for a payload.
+    ///
+    /// Decision 0066: a payload has no items, so what stands in for one is
+    /// its two headers and nothing else — no separator, and nothing for a
+    /// separator to introduce.
+    ForgottenPayloadWithBody,
     /// A header line carried no value.
     EmptyValue,
     /// A value had leading or trailing space.
@@ -335,6 +341,12 @@ impl fmt::Display for ParseErrorKind {
                 "a forgetting document states no result: a digest of the \
                  destroyed state would confirm a guess at what was destroyed; \
                  delete the line"
+            ),
+            ForgottenPayloadWithBody => write!(
+                f,
+                "a payload has no items, so the document standing in for a \
+                 forgotten one is `forgets` and `length` and nothing else; \
+                 delete the blank line and everything under it"
             ),
             MalformedKey { key } => write!(
                 f,

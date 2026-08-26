@@ -42,6 +42,7 @@ use crate::core::{CHANGE_ID_LEN, ChangeId, FileId, Revision, RevisionId};
 
 mod error;
 mod operations;
+mod payload;
 mod resolution;
 mod timestamp;
 
@@ -49,6 +50,7 @@ pub use error::{ParseError, ParseErrorKind};
 pub use operations::{
     FORGOTTEN, Item, NO_NEWLINE, Operation, OperationDocument, OperationKind, stand_in,
 };
+pub use payload::{ForgottenPayload, is_forgotten_payload};
 pub use resolution::{Piece, ResolutionDocument, is_resolution, stand_in as stand_in_resolution};
 pub use timestamp::{MalformedTimestamp, Timestamp};
 
