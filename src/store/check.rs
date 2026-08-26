@@ -53,6 +53,14 @@ pub enum Finding {
         /// What the header said, if it said anything.
         found: Option<String>,
     },
+    /// The header's block states something this reader does not know.
+    ///
+    /// Decision 0069 reserves the block below the format line and leaves it
+    /// empty, so a line there was written by a newer Historica than this one.
+    UnknownLayout {
+        /// The line as found.
+        found: String,
+    },
     /// A filename that claims a digest states the wrong one.
     FilenameLies {
         /// The offending file.
@@ -342,6 +350,7 @@ impl Finding {
         match self {
             Finding::Unparsable { .. }
             | Finding::UnreadableStore { .. }
+            | Finding::UnknownLayout { .. }
             | Finding::FilenameLies { .. }
             | Finding::ImpossibleCollision { .. }
             | Finding::MalformedBookmark { .. }
@@ -387,6 +396,12 @@ impl fmt::Display for Finding {
             Finding::UnreadableStore { found: None } => {
                 write!(f, "no `{HEADER_FILE}` file, so this is not a store")
             }
+            Finding::UnknownLayout { found } => write!(
+                f,
+                "`{HEADER_FILE}` states `{found}` under its format line, where \
+                 only a newer Historica writes; if that line is a note, put a \
+                 blank line above it"
+            ),
             Finding::FilenameLies {
                 file,
                 claimed,
@@ -679,14 +694,15 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
     let mut report = Report::default();
 
     match read_to_string(files, &root.join(HEADER_FILE)) {
-        Ok(text) => {
-            // Decision 0021: the first line is the format, and the rest is
-            // the note a person reads.
-            let line = text.lines().next().unwrap_or_default().to_owned();
-            if line != format::PREAMBLE {
-                report.push(Finding::UnreadableStore { found: Some(line) });
+        Ok(text) => match super::read_header(&text) {
+            Ok(()) => {}
+            Err(super::HeaderFault::Format(found)) => {
+                report.push(Finding::UnreadableStore { found: Some(found) });
             }
-        }
+            Err(super::HeaderFault::Layout(found)) => {
+                report.push(Finding::UnknownLayout { found });
+            }
+        },
         Err(_) => report.push(Finding::UnreadableStore { found: None }),
     }
 

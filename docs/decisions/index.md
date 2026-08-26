@@ -731,6 +731,21 @@ depend on each other in.
   2.0. The program is still called `historica`; what changes is that installing
   it is `cargo install historica-cli`, which is the cost, taken knowingly.
 
+- [0069 — A place to say a store is newer](0069-a-place-to-say-a-store-is-newer.md)
+  0045, 0051 and 0062 each wanted a store-layout gate and each deferred it;
+  0051 said a third should build it and 0062, the third, called its own
+  declining indefensible. This is the fourth and still does not build it —
+  what it notices is that 1.0 would not merely lack the gate but *foreclose*
+  it, since `check_header` takes the first line and discards the rest, 0046
+  hands every unclaimed root name to another tool, and `check` never
+  enumerates the root, leaving nowhere a shipped 1.0 reader would ever see a
+  warning. So the space is reserved and nothing else: `historica.txt` is read
+  as a document's shape — preamble, headers to the first blank line, then the
+  note — and that header block is closed and empty, so a line in it refuses
+  the store and names a newer Historica as its writer. The block can be there
+  because the file is not hashed; it could never be in a document, since a
+  line added to one renames it.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

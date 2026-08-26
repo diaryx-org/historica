@@ -246,3 +246,12 @@ spent a `check` finding instead, which works because the layout it warns about
 is the one this decision replaced and not a general answer. The next layout
 change that can be misread rather than merely unread is where the gate has to
 be designed, and designing it then beats guessing at it now.
+
+## Since
+
+0069 reserves the space, four decisions later, and still does not design the
+gate. What it adds to the reasoning here is that "designing it then" had a
+deadline this decision could not see: at 1.0 the readers people install are
+what decide whether a later gate can be read at all, and this decision's own
+`StaleSkipped` finding — hard-coded for the literal name `skipped.txt` — is
+the evidence that the ad-hoc answer only ever looks backwards.

@@ -21,6 +21,34 @@ spelled in an alphabet no hexadecimal digest can be:
                  file, never its identity.
 
 
+historica.txt — what this folder is, and what it uses
+------------------------------------------------------
+
+  historica
+
+  This folder is a Historica store: the recorded history of the files
+  beside it.
+  ...
+
+The first line is the preamble, the same one every document here begins with,
+and it is what a reader checks before it reads anything else. Then a blank
+line, then a note for whoever opens the folder, which no reader parses.
+
+Between the preamble and the blank line is a block of headers, and it is
+empty. Nothing this format defines is written there. It is reserved, so that a
+later Historica has somewhere to say what a store uses that this one had no
+name for: a reader meeting a line it does not know there refuses the store and
+says a newer Historica likely wrote it, rather than reading the parts it
+recognises and calling the result a history. So the blank line matters if you
+write a note of your own — a note beginning on the second line is read as one
+of those headers, and refused as one.
+
+The block can be here because this file is not hashed and nothing references
+it. It could not be in a document: a document is named by the digest of its
+own bytes, so a line added to one renames it, and a store could not gain a
+gate without every revision in it changing identity.
+
+
 revisions/*.rev.txt — who recorded what, when, and why
 ------------------------------------------------------
 
@@ -287,6 +315,10 @@ carrying one that should have stayed cannot.
 
 `cache/` is a third kind, and Historica's own: derived, nobody's, and
 deletable without loss.
+
+All of that is about directories somebody else wrote. Where Historica speaks
+about its own layout is the header block in `historica.txt`, described above,
+and a store that says nothing there uses nothing this file does not describe.
 
 
 Checking a store by hand

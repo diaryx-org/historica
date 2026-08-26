@@ -349,3 +349,10 @@ is nothing today for a reader to consult to learn why it cannot read a rule
 file it can plainly see. This is the second decision to want the store-layout
 gate 0045 deferred, and the second to decline to design it. A third should
 build it.
+
+## Since
+
+0062 was the third and declined. 0069 is the fourth, and it splits the
+question this decision asked: the *space* for a gate is reserved at 1.0,
+because a reader shipped without one can never be given one, while what the
+gate says and who writes it stay deferred for the change that needs them.

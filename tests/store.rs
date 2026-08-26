@@ -706,6 +706,89 @@ fn a_store_of_an_unknown_version_refuses_rather_than_guesses() {
     );
 }
 
+/// Decision 0069: the block between the format line and the blank line under
+/// it is reserved and empty, and a reader that meets a line there says the
+/// store was written by a newer Historica rather than reading past it.
+#[test]
+fn a_store_stating_a_layout_this_reader_lacks_refuses_rather_than_reads_on() {
+    let root = scratch("layout").join("history");
+    Store::init(&root).expect("a new store");
+    fs::write(
+        root.join("historica.txt"),
+        "historica\nlayout something-later\n\nthe note\n",
+    )
+    .expect("a store a newer Historica wrote");
+
+    let error = Store::open(&root).expect_err("a layout this reader lacks");
+    let said = error.to_string();
+    assert!(said.contains("layout something-later"), "{said}");
+    assert!(said.contains("newer Historica"), "{said}");
+
+    let report = Store::check(&root);
+    assert!(!report.is_ok());
+    assert!(
+        report
+            .errors()
+            .any(|finding| matches!(finding, Finding::UnknownLayout { .. }))
+    );
+}
+
+/// The gate is only useful if it is open by default, and `init` is what has to
+/// leave it that way: the store this release writes states nothing under its
+/// format line, so a later reader that grows the vocabulary still reads it.
+#[test]
+fn the_store_init_writes_states_nothing_under_its_format_line() {
+    let root = scratch("layout-empty").join("history");
+    Store::init(&root).expect("a new store");
+
+    let header = fs::read_to_string(root.join("historica.txt")).expect("the header");
+    let mut lines = header.lines();
+    assert_eq!(lines.next(), Some("historica"));
+    assert_eq!(lines.next(), Some(""), "the block is empty");
+    assert!(Store::open(&root).is_ok());
+    assert!(Store::check(&root).is_ok());
+}
+
+/// A note is decision 0021's courtesy and not a requirement, so a header that
+/// is the format line and nothing else is a store. The block is empty there
+/// too — the file simply ends before it could hold anything.
+#[test]
+fn a_header_of_nothing_but_the_format_line_is_a_store() {
+    let root = scratch("layout-bare").join("history");
+    Store::init(&root).expect("a new store");
+    fs::write(root.join("historica.txt"), "historica\n").expect("a header with no note");
+
+    assert!(Store::open(&root).is_ok());
+    assert!(Store::check(&root).is_ok());
+}
+
+/// Decision 0004's rule that an error carries its correction, applied to the
+/// one person the gate can inconvenience: someone who hand-wrote a note where
+/// the block is and whose store this release stops opening.
+#[test]
+fn a_note_written_without_its_blank_line_is_told_what_to_do() {
+    let root = scratch("layout-note").join("history");
+    Store::init(&root).expect("a new store");
+    fs::write(
+        root.join("historica.txt"),
+        "historica\nMy own notes about this folder.\n",
+    )
+    .expect("a hand-written header");
+
+    let said = Store::open(&root)
+        .expect_err("a note in the block")
+        .to_string();
+    assert!(said.contains("blank line"), "{said}");
+
+    let report = Store::check(&root);
+    let told = report
+        .errors()
+        .find(|finding| matches!(finding, Finding::UnknownLayout { .. }))
+        .expect("a finding")
+        .to_string();
+    assert!(told.contains("blank line"), "{told}");
+}
+
 #[test]
 fn every_finding_says_where_and_sorts_errors_first() {
     let (root, _) = corpus_store("report-shape");

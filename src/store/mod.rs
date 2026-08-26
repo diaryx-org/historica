@@ -222,12 +222,14 @@ pub const FORMAT_FILE: &str = "format.txt";
 /// how to materialise a file from them by hand.
 pub const FORMAT_NOTE: &str = include_str!("format.txt");
 
-/// What `init` writes into [`HEADER_FILE`], below the format line.
+/// What `init` writes into [`HEADER_FILE`], below the format line and the
+/// blank line under it.
 ///
 /// Decision 0021: a person who opens `history/` should not have to be told
 /// what they are looking at by somebody who already knows. Nothing hashes this
-/// file and no document references it, so a reader takes the first line and
-/// leaves the rest to whoever is reading.
+/// file and no document references it, so a reader takes the header block —
+/// which decision 0069 reserves and leaves empty — and leaves the note under
+/// it to whoever is reading.
 pub const HEADER_NOTE: &str = "\
 This folder is a Historica store: the recorded history of the files beside it.
 
@@ -267,6 +269,14 @@ into directories of your own breaks nothing either.
 The first line of this file states the format. A reader that does not know
 that format refuses the store rather than guessing at what it would be
 leaving out.
+
+Under that line is a blank one, and under that this note, which is for you and
+which nothing reads. The gap between them is reserved: it is where a later
+Historica will state what a store uses that this one had no name for, so that
+an older reader is told it is old rather than left to read the store wrong. It
+is empty in every store this release writes, and a reader meeting anything
+there refuses the store and says so. Keep the blank line if you write a note
+of your own here.
 
 Whether this copy is whole is a different question from whether it contradicts
 itself, and `historica check --complete` asks both. Plain `check` fails only on
@@ -3398,12 +3408,52 @@ fn label_of(directory: &Path, path: &Path) -> Option<String> {
     Some(label)
 }
 
+/// What a store's header file said that this reader could not accept.
+pub(super) enum HeaderFault {
+    /// The first line names a format this reader does not have.
+    Format(String),
+    /// A line in the block below it states something this reader does not know.
+    Layout(String),
+}
+
+/// Read a store's header text: the format line, the block under it, the note.
+///
+/// The file has a document's shape and none of its weight — preamble, headers
+/// to the first blank line, then a body, exactly decision 0002's layout — and
+/// nothing hashes it and no document references it. That is the whole reason
+/// decision 0069 could reserve a gate here where 0047 could not put one in a
+/// document: changing a document's preamble changes its digest, and changing
+/// this changes nothing's.
+///
+/// **The block is closed and empty.** No header this release writes or reads
+/// belongs there, so a line found in it was written by a newer Historica, and
+/// saying so is the whole of what this release can do for the person holding
+/// it. What it must not do is what it did before 0069 — take the first line
+/// and call the rest prose, which is a reader promising it can never be
+/// warned about a layout it does not know.
+pub(super) fn read_header(text: &str) -> Result<(), HeaderFault> {
+    let mut lines = text.lines();
+    let preamble = lines.next().unwrap_or_default();
+    if preamble != format::PREAMBLE {
+        return Err(HeaderFault::Format(preamble.to_owned()));
+    }
+    // The block being empty means the blank line arrives immediately, so one
+    // line is the whole of the reading. A file that ends here has an empty
+    // block too, and decision 0021's note is optional.
+    match lines.next() {
+        None | Some("") => Ok(()),
+        Some(line) => Err(HeaderFault::Layout(line.to_owned())),
+    }
+}
+
 /// Read and validate the store's header.
 ///
 /// Decision 0017 made the header the reader's gate, and it still is: a reader
 /// that does not know the format the first line names refuses the store at
 /// the file that says so, rather than reading four fifths of it and calling
-/// the result a history.
+/// the result a history. Decision 0069 widens the gate from that line to the
+/// block under it, which is empty and stays that way until something needs
+/// it.
 fn check_header<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<(), StoreError> {
     let header = root.join(HEADER_FILE);
     let text = match read_to_string(files, &header) {
@@ -3415,16 +3465,11 @@ fn check_header<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<(), St
         }
         Err(error) => return Err(StoreError::io(&header, error)),
     };
-    // Decision 0021: the first line is the format and everything under it is
-    // prose for whoever opens the folder. Nothing hashes this file, so a person
-    // may write what they like there.
-    let line = text.lines().next().unwrap_or_default();
-    if line == format::PREAMBLE {
-        return Ok(());
+    match read_header(&text) {
+        Ok(()) => Ok(()),
+        Err(HeaderFault::Format(found)) => Err(StoreError::UnknownVersion { found }),
+        Err(HeaderFault::Layout(found)) => Err(StoreError::UnknownLayout { found }),
     }
-    Err(StoreError::UnknownVersion {
-        found: line.to_owned(),
-    })
 }
 
 /// What one of the store's directories holds, at any depth.
@@ -3781,6 +3826,15 @@ pub enum StoreError {
         /// The header line as found.
         found: String,
     },
+    /// The store's header block states something this reader does not know.
+    ///
+    /// Decision 0069 reserves that block and leaves it empty, so a line in it
+    /// is a newer Historica saying what this store uses — which is exactly
+    /// the thing this reader cannot be told any other way.
+    UnknownLayout {
+        /// The line as found, below the format line.
+        found: String,
+    },
     /// A revision document did not parse.
     Unparsable {
         /// The file it was read from.
@@ -3876,6 +3930,12 @@ impl fmt::Display for StoreError {
                     format::PREAMBLE
                 ),
             },
+            StoreError::UnknownLayout { found } => write!(
+                f,
+                "this store states `{found}` under its format line, where only \
+                 a newer Historica writes; upgrade Historica — or, if that \
+                 line is a note you wrote, put a blank line above it"
+            ),
             StoreError::Unparsable { file, error } => {
                 write!(f, "{}: {error}", file.display())
             }

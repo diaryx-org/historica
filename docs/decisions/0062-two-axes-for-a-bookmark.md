@@ -398,3 +398,11 @@ and a fetcher hashes what arrives against the line that named it. But it is
 the first entry whose digest is a fact about a moment rather than about a
 thing, and a later decision that wants incremental publishing on a timer
 should know that this is where the assumption first bent.
+
+## Since
+
+0069 answers the first of the three arguments named above — the gate's place —
+and leaves the other two. It also takes this decision's own device: a bookmark
+whose first line parses and whose second does not is diagnosably the work of a
+newer historica, and the store header now says that about itself. The shape
+was right here; the file was the wrong one.
