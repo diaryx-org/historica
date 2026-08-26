@@ -60,6 +60,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **cli** — the command line is its own package ([`8d99c0d`](https://github.com/diaryx-org/historica/commit/8d99c0d6b887ac40a812ffd5961aaff478100066))
 - **store** — a place for a store to say it was written by a newer Historica ([`94f5fee`](https://github.com/diaryx-org/historica/commit/94f5fee3a08e62e8f5cbe661c6351baacc08f71d))
 - **record** — a rewrite carries the work standing on it ([`1184af6`](https://github.com/diaryx-org/historica/commit/1184af6fc97c5cc9c1880cf53fe44de6d2e75bff))
+- **api** — room to add a field to what a command hands back ([`d459573`](https://github.com/diaryx-org/historica/commit/d4595736d2015b2e8048ccaf36a953858dbc665f))
 
 ### Added
 
@@ -144,11 +145,6 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — take the catalogue without walking the directory ([`2a77605`](https://github.com/diaryx-org/historica/commit/2a7760590b4c180de86b23cf2e8f2b567af1927e))
 - **store** — read the revision, and leave the rest of the document alone ([`f145783`](https://github.com/diaryx-org/historica/commit/f145783ad002cd90766e3ab3a4491a016094884f))
 - **format** — name a revision by the digest its reader already has ([`c196552`](https://github.com/diaryx-org/historica/commit/c1965525537e04a93cac53676f575bd9de704a9b))
-
-### Uncategorised — triage before release
-
-- forgetting a payload (0066) ([`3b6d9c5`](https://github.com/diaryx-org/historica/commit/3b6d9c5ac6b53f59c49c2fb9bc5296a97d149293))
-- streaming payloads (0067) onto forgetting them (0066) ([`d29e446`](https://github.com/diaryx-org/historica/commit/d29e446020d63307eb5f938623b7605240c5b8fe))
 
 ### Behavioural changes
 
@@ -861,6 +857,18 @@ refused as unparsable.
   plan. `record::RecordError` gains `RewordWantsMessage`, `RewordOnly` and
   `Carry`, and `carry::CarryError` gains `MovingAMerge`, `MovingARoot`,
   `AlreadyThere` and `MovingOntoItself` — both are `#[non_exhaustive]`.
+
+- The types the library returns are `#[non_exhaustive]`.
+  A caller that built one with a struct literal, or matched one without a
+  `..`, has to stop; reading their fields is unchanged. The types a caller
+  supplies are deliberately not among them — `Recording`, `Amendment`,
+  `Abandoning`, `Forgetting`, `RevisionDocument`, `OperationDocument`,
+  `ResolutionDocument`, `fs::Entry` and `fs::Stamp` are still built by
+  literal, and a field added to one of those is still a major version.
+
+- `OfferError` and `ReceiveError` are `#[non_exhaustive]`,
+  as every other error enum in the crate already was. A `match` over
+  either now needs a `_` arm.
 
 <!-- git-cliff:end -->
 
