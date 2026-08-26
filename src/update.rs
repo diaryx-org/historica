@@ -57,11 +57,10 @@ pub struct Write {
 ///
 /// The two guards are not the same promise, and the difference is decision
 /// 0025's window rather than its rule. A file of lines is checked and written
-/// in one operation where the filesystem offers one
-/// ([`Filesystem::write_if`](crate::fs::Filesystem::write_if)). A payload is
-/// looked at, hashed, and then streamed, which is the wider window the trait's
-/// own default has always had — a conditional write is not something a
-/// filesystem can offer for bytes nobody is holding.
+/// in one operation where the filesystem offers one ([`Filesystem::write_if`]).
+/// A payload is looked at, hashed, and then streamed, which is the wider window
+/// the trait's own default has always had — a conditional write is not
+/// something a filesystem can offer for bytes nobody is holding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Written {
     /// The lines the target records, and the recorded bytes they replace.

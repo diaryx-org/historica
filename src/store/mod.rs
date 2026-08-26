@@ -784,7 +784,7 @@ pub enum Content {
 impl Content {
     /// What the file's bytes hash to, whichever kind of file it is.
     ///
-    /// This is what [`Content::bytes`] was for. Every caller of it was
+    /// This is what `Content::bytes` was for. Every caller of it was
     /// comparing one file's content against another's — *has this changed*,
     /// *is this the file that moved*, *does the folder still hold what was
     /// recorded* — and every one of those is a comparison of digests that was

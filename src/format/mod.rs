@@ -272,7 +272,7 @@ impl fmt::Debug for Hasher {
 /// costs the same for every document there has ever been.
 ///
 /// So this walks the header block, holds it to every rule that compares a key
-/// or a raw value ([`check_order`], and the required headers below), reads the
+/// or a raw value (`check_order`, and the required headers below), reads the
 /// values of `change`, `parent` and `supersedes`, and steps over the rest. A
 /// document accepted here may still be refused by [`RevisionDocument::parse`],
 /// and only ever for what a value *means*: a `when` that is not RFC 3339, a

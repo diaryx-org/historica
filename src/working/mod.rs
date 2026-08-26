@@ -757,8 +757,8 @@ impl<F: Filesystem> Working<F> {
     ///
     /// 0007's items are lines of text, so this is the boundary a file already
     /// recorded as lines is held to. A file nobody has recorded yet is offered
-    /// to [`kind_of`] instead, which decides what kind it is rather than
-    /// refusing it.
+    /// to [`sniff`](Self::sniff) instead, which decides what kind it is rather
+    /// than refusing it.
     pub fn text(&self, path: &str) -> Result<String, WorkingError> {
         let on_disk = self.regular(path)?;
         match read_to_string(&self.filesystem, on_disk) {

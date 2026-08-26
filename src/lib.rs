@@ -1,7 +1,10 @@
 //! Readable, convergent version control.
 //!
-//! Historica starts with a deliberately small core. Persistence and rendering
-//! will be added only after their readable artifacts are specified.
+//! Every fact a history holds is written as a document a person can read, and
+//! two copies that merge the same concurrent work arrive at the same bytes.
+//! The library is the whole of it: the `historica` binary decides nothing the
+//! library has not, so every answer a command gives is one a caller can ask
+//! for directly, which decision 0053 is why.
 //!
 //! Persistence is asked for rather than assumed: everything that touches a
 //! folder goes through [`fs::Filesystem`], and [`fs::Disk`] — the `disk`

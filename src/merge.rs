@@ -27,7 +27,7 @@
 //! The ordering rule is Fugue's (Weidner and Kleppmann), for the reason 0007
 //! gives: it carries the strongest published guarantee against interleaving,
 //! and interleaved text is the least readable thing a merge can produce. It is
-//! implemented as the tree formulation, in [`anchor`] and [`Tree::order`], and
+//! implemented as the tree formulation, in `anchor` and `Tree::order`, and
 //! kept in one place because 0007 owes it a conformance suite against the
 //! reference implementation before any of this is called done.
 
