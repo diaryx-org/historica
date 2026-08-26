@@ -394,7 +394,8 @@ pub fn revision_named(bytes: &[u8], id: RevisionId) -> Result<Revision, ParseErr
 
 /// One revision document: every header, and the verbatim message.
 ///
-/// Repeated facts are held in sorted sets and `x-` headers in a sorted map,
+/// Repeated facts are held in sorted sets and a tool's own headers in a sorted
+/// map,
 /// which is lossless precisely because the parser rejects any other order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevisionDocument {
@@ -444,7 +445,8 @@ pub struct RevisionDocument {
     /// changes the target — exactly as `move` restates a path that changed.
     /// A file this names is a link and nothing else, for its whole life.
     pub links: BTreeMap<FileId, LinkTarget>,
-    /// Advisory `x-` headers, keyed by their full spelling including the prefix.
+    /// Advisory headers some other tool wrote, keyed by their whole spelling,
+    /// dot and all.
     pub extensions: BTreeMap<String, String>,
     /// The message, verbatim. Empty means the file had no separator at all.
     pub message: String,
@@ -537,7 +539,8 @@ impl RevisionDocument {
 
 /// Where a key may appear in the fixed order.
 ///
-/// `x-` headers share the last rank and are ordered against each other by key.
+/// A tool's own headers share the last rank and are ordered against each other
+/// by key.
 fn rank(key: &str) -> Option<u8> {
     match key {
         "change" => Some(0),
@@ -565,12 +568,14 @@ fn rank(key: &str) -> Option<u8> {
         // Decision 0040: a link's target stands where its content would have,
         // because for a link that is what it is instead of content.
         "link" => Some(14),
-        key if key.starts_with("x-") => Some(15),
+        // Decision 0065: a key with a dot in it is some tool's own, and the dot
+        // is what says so. No key this format defines holds one.
+        key if key.contains('.') => Some(15),
         _ => None,
     }
 }
 
-/// The rank `x-` headers share, which sort against each other by key.
+/// The rank a tool's own headers share, which sort against each other by key.
 const EXTENSION_RANK: u8 = 15;
 
 /// The rules that hold between one header line and the one before it.
@@ -610,7 +615,7 @@ fn check_order(
             },
         ));
     }
-    // Repeated facts sort by digest, and `x-` headers by key, so that a
+    // Repeated facts sort by digest, and a tool's own headers by key, so that a
     // deterministic rewrite is deterministic in bytes.
     let (this_sort, last_sort) = if this_rank == EXTENSION_RANK {
         (key, last_key)
@@ -1120,7 +1125,14 @@ fn split_header(line: &str, at: usize) -> Result<(&str, &str), ParseError> {
     };
     let (key, value) = (&line[..space], &line[space + 1..]);
 
-    if key.is_empty() || !key.bytes().all(|b| b.is_ascii_lowercase() || b == b'-') {
+    let shaped = !key.is_empty()
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b'-' || b == b'.')
+        // Decision 0065: the dot separates a tool's name from what it named, so
+        // it has something on both sides. `.a`, `a.`, and `a..b` name no tool.
+        && !key.split('.').any(str::is_empty);
+    if !shaped {
         return Err(ParseError::new(
             at,
             ParseErrorKind::MalformedKey {
@@ -1349,7 +1361,7 @@ mod tests {
     }
 
     #[test]
-    fn a_key_is_lowercase_letters_and_hyphens() {
+    fn a_key_is_lowercase_letters_hyphens_and_dots() {
         assert!(matches!(
             refuse(&[CHANGE, "author-2 Adam", WHEN], Some("m")),
             ParseErrorKind::MalformedKey { .. }
@@ -1358,6 +1370,17 @@ mod tests {
             refuse(&[CHANGE, "Author Adam", WHEN], Some("m")),
             ParseErrorKind::MalformedKey { .. }
         ));
+        // A dot names a tool, so it has a tool on one side and what the tool
+        // named on the other. None of these name one.
+        for key in [".a one", "a. one", "a..b one", ". one"] {
+            assert!(
+                matches!(
+                    refuse(&[CHANGE, AUTHOR, WHEN, key], Some("m")),
+                    ParseErrorKind::MalformedKey { .. }
+                ),
+                "`{key}` is not a key"
+            );
+        }
         // The preamble is not a header: it carries no value, and it is not a
         // key the grammar defines.
         assert_eq!(rank(PREAMBLE), None);
@@ -1382,22 +1405,29 @@ mod tests {
 
     #[test]
     fn advisory_headers_come_last_and_sort_by_key() {
-        let document = accept(&[CHANGE, AUTHOR, WHEN, "x-a one", "x-b two"], Some("m"));
+        let headers = [CHANGE, AUTHOR, WHEN, "diaryx.a one", "sign.b two"];
+        let document = accept(&headers, Some("m"));
         assert_eq!(document.extensions.len(), 2);
-        assert_eq!(
-            document.write(),
-            file(&[CHANGE, AUTHOR, WHEN, "x-a one", "x-b two"], Some("m"))
-        );
+        assert_eq!(document.write(), file(&headers, Some("m")));
 
         assert_eq!(
-            refuse(&[CHANGE, AUTHOR, WHEN, "x-b two", "x-a one"], Some("m")),
+            refuse(
+                &[CHANGE, AUTHOR, WHEN, "sign.b two", "diaryx.a one"],
+                Some("m")
+            ),
             ParseErrorKind::RepeatedKeyOutOfOrder {
-                key: "x-a".to_owned()
+                key: "diaryx.a".to_owned()
             }
         );
         assert!(matches!(
-            refuse(&[CHANGE, "x-a one", AUTHOR, WHEN], Some("m")),
+            refuse(&[CHANGE, "diaryx.a one", AUTHOR, WHEN], Some("m")),
             ParseErrorKind::KeysOutOfOrder { .. }
+        ));
+        // A key with no dot in it is this format's to define, so one it does
+        // not define is refused rather than carried.
+        assert!(matches!(
+            refuse(&[CHANGE, AUTHOR, WHEN, "review-url one"], Some("m")),
+            ParseErrorKind::UnknownHeader { .. }
         ));
     }
 

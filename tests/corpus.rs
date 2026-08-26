@@ -302,9 +302,12 @@ fn authorship_is_carried_forward_and_the_reviewer_is_named_separately() {
     assert!(amended.revised.is_some());
     assert!(original.revised.is_none());
 
-    // The advisory header survives, prefix included.
+    // The header the other tool wrote survives, spelling and all.
     assert_eq!(
-        amended.extensions.get("x-review-url").map(String::as_str),
+        amended
+            .extensions
+            .get("diaryx.review-url")
+            .map(String::as_str),
         Some("https://example.org/reviews/17")
     );
 }

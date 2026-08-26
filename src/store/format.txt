@@ -78,8 +78,11 @@ in this order, and repeated ones are sorted by the value that follows them:
                                   is, for a target this history knows nothing
                                   about. No revision may drop a file while a
                                   `file:` link still names it.
-  x-<anything> <value>            an advisory header some other tool wrote.
-                                  Ignore it; it hashes like everything else.
+  <tool>.<fact> <value>           a header some other tool wrote, and the dot
+                                  is what says so: no header this format
+                                  defines holds one, as in
+                                  `diaryx.review-url`. Ignore it; it hashes
+                                  like everything else.
 
 Paths are slash-separated and relative to the folder beside this one, and
 spelled in Unicode normal form C — so `café.md` holds one U+00E9 rather than

@@ -73,7 +73,7 @@ prerequisite for identity. See "Two replicas must write the same bytes" below.
 | `when` | once | When the work was done. Copied forward across rewrites. |
 | `revised-by` | optional | Who produced *this revision*, when not the author. |
 | `revised` | with `supersedes` | When this revision was produced. |
-| `x-…` | zero or more | Advisory. A reader may ignore these. |
+| `<tool>.<fact>` | zero or more | Advisory. A reader may ignore these. Spelled `x-…` until decision 0065. |
 
 The two identities keep their alphabets from decision 0001: `change` is 24
 characters of `k` to `z`, and every digest is 64 lowercase hex characters. A
@@ -153,7 +153,10 @@ a parser that guesses.
 
 An unknown header whose key begins with `x-` is advisory and may be ignored. An
 unknown header without that prefix is a hard error: this revision needs a newer
-Historica.
+Historica. Decision 0065 re-spelled the mark and kept the rule: a header
+another tool wrote says so with a dot, as in `diaryx.review-url`, and a key
+with no dot in it is this format's to define. The reasoning below stands; only
+the mark changed.
 
 The alternative — ignoring what you do not understand — means an old reader
 renders `signed-by` as unsigned, or a future `tree` header as an empty change,

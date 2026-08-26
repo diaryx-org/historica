@@ -677,6 +677,16 @@ depend on each other in.
   Author and message are not restated, on 0037's refusal of a second answer.
   Nothing to show is a header with no lines under it.
 
+- [0065 — The header another tool wrote](0065-the-header-another-tool-wrote.md)
+  The mark on an ignorable header is re-spelled: a key with a dot in it is some
+  other tool's, `diaryx.review-url`, and a key without one is this format's to
+  define. 0004's answer to RFC 6648 is untouched — it was about permanence, and
+  the complaint was about reading, since `x-` was the one abbreviation in a
+  grammar that spells out `supersedes`. A word in that place attaches to the
+  fact instead of the header, and a registry of recognised keys cannot help the
+  reader the rule exists for: the old one, whose list cannot hold a key added
+  after it shipped.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

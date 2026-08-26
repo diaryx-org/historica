@@ -152,6 +152,11 @@ parser that only grows is one that refuses to guess.
 
 ## Advisory headers stay `x-`
 
+> Decision 0065 re-spelled the mark as `<tool>.<fact>`, on a complaint this
+> section does not answer: `x-` cannot be read, only looked up. What follows is
+> the argument for having a mark at all, and for the tier it divides, both of
+> which 0065 keeps.
+
 0002's fourth open question asked whether `x-` is the right escape hatch or an
 invitation to a second format nothing validates.
 

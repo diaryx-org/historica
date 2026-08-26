@@ -58,12 +58,14 @@ pub enum ParseErrorKind {
         /// What followed `historica-`, as spelled in the file.
         found: String,
     },
-    /// A key was not lowercase letters and hyphens.
+    /// A key was not lowercase letters, hyphens and dots, or held a dot with
+    /// nothing on one side of it.
     MalformedKey {
         /// The key as spelled in the file.
         key: String,
     },
-    /// A known-looking key this format does not define, without the `x-` prefix.
+    /// A known-looking key this format does not define, with no dot to say whose
+    /// it is.
     UnknownHeader {
         /// The key as spelled in the file.
         key: String,
@@ -336,13 +338,15 @@ impl fmt::Display for ParseErrorKind {
             ),
             MalformedKey { key } => write!(
                 f,
-                "`{key}` is not a key: keys are lowercase letters and hyphens; \
-                 check the spelling"
+                "`{key}` is not a key: keys are lowercase letters and hyphens, and \
+                 a dot separates a tool's name from what it named, as in \
+                 `diaryx.review-url`"
             ),
             UnknownHeader { key } => write!(
                 f,
                 "`{key}` is not a header this format knows; \
-                 spell it `x-{key}` if a reader may ignore it, or upgrade Historica if not"
+                 spell it `<tool>.{key}` if a reader may ignore it, or upgrade \
+                 Historica if not"
             ),
             UnknownMode { found } => write!(
                 f,
