@@ -326,6 +326,52 @@ impl Restriction {
     }
 }
 
+/// Which kind a file being added is, where a person has said so.
+///
+/// Decision 0017 fixes a file's kind when it is added and leaves the *choice*
+/// to the recorder, which reads the bytes: valid UTF-8 with no NUL is lines
+/// and everything else is bytes. `docs/cli.md` has always called that rule the
+/// tool's rather than the format's, and this is what being the tool's means —
+/// a person who knows better than the sniff can say so, for a path, at the one
+/// moment the question is open.
+///
+/// It is a decision about the file, not about the bytes: a lockfile, a
+/// minified bundle or a generated blob is text a person may want stored whole
+/// and never line-merged, and a file of UTF-8 holding a NUL is lines that the
+/// sniff cannot tell from a photograph. What this cannot do is make lines out
+/// of bytes that are not UTF-8, because an item is text and no flag makes it
+/// otherwise; [`RecordError::StatedNotLines`] is that refusal, and it names
+/// what to do instead.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Kinds(BTreeMap<String, Kind>);
+
+impl Kinds {
+    /// Say which kind the file at `path` is.
+    ///
+    /// The later statement wins, which is what a person retyping a command
+    /// means by it. [`Kind::Link`] is not a thing to state — a link is what
+    /// the filesystem says it is, per 0040 — and stating it is refused when
+    /// the survey runs rather than swallowed here.
+    pub fn state(&mut self, path: &str, kind: Kind) {
+        self.0.insert(path.to_owned(), kind);
+    }
+
+    /// What a person said this path is, if they said anything.
+    pub fn stated(&self, path: &str) -> Option<Kind> {
+        self.0.get(path).copied()
+    }
+
+    /// Whether nobody has said anything, which is every ordinary recording.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Every path stated, in order.
+    pub fn paths(&self) -> impl Iterator<Item = (&String, &Kind)> {
+        self.0.iter()
+    }
+}
+
 /// Whether `path` is `named` or sits under it.
 fn beneath(named: &str, path: &str) -> bool {
     path == named
@@ -357,6 +403,9 @@ pub struct Recording {
     pub accepted: BTreeSet<String>,
     /// Which paths to look at, where a person named some.
     pub only: Restriction,
+    /// Which kind a file being added is, where a person said rather than let
+    /// the recorder sniff. Decision 0017.
+    pub kinds: Kinds,
 }
 
 /// What a person supplies to rewrite a revision.
@@ -487,6 +536,7 @@ pub fn survey<F: Filesystem>(
     moves: &[(String, String)],
     at: &[(FileId, String)],
     only: &Restriction,
+    kinds: &Kinds,
 ) -> Result<Survey, RecordError> {
     restricted(parents, moves, only)?;
     let joining = parents.len() > 1;
@@ -563,6 +613,26 @@ pub fn survey<F: Filesystem>(
     }
     if !absent.is_empty() {
         return Err(RecordError::NothingAtPath { paths: absent });
+    }
+
+    // Decision 0017: a file's kind is fixed when it is added, so a statement
+    // about one the history already holds is a statement arriving too late,
+    // and the escape it has always had is `drop` and `add`. Refused here
+    // rather than ignored, because a person who typed `--bytes` and got a
+    // line-by-line diff would have been told nothing.
+    for (path, kind) in kinds.paths() {
+        if *kind == Kind::Link {
+            return Err(RecordError::StatedALink { path: path.clone() });
+        }
+        if !only.covers(path) {
+            return Err(RecordError::StatedButNotLookedAt { path: path.clone() });
+        }
+        if let Some(held) = placed.iter().find(|(_, at)| *at == path) {
+            return Err(RecordError::KindAlreadyFixed {
+                path: path.clone(),
+                kind: tree.kind(held.0).unwrap_or(Kind::Lines),
+            });
+        }
     }
 
     // A path two files claim is not a name for either of them. 0008 lets a
@@ -694,7 +764,23 @@ pub fn survey<F: Filesystem>(
         // digest are taken together, and only a file that turns out to be
         // lines is still in memory when it finishes.
         let Some(file) = file else {
-            let (found, text) = working.sniff(path)?;
+            // Decision 0017, and the half of it `docs/cli.md` calls the
+            // tool's: the sniff decides, unless a person has said. Each of the
+            // three does the least reading that answers it — a stated `bytes`
+            // never accumulates the file, and a stated `lines` reads it as
+            // text, which is also where a file that is not UTF-8 is refused.
+            let (found, text) = match kinds.stated(path) {
+                None => working.sniff(path)?,
+                Some(Kind::Whole) => (working.digest(path)?, None),
+                Some(Kind::Lines) => match working.text_and_digest(path) {
+                    Ok((text, found)) => (found, Some(text.into_bytes())),
+                    Err(WorkingError::NotText { .. }) => {
+                        return Err(RecordError::StatedNotLines { path: path.clone() });
+                    }
+                    Err(error) => return Err(error.into()),
+                },
+                Some(Kind::Link) => unreachable!("a stated link was refused above"),
+            };
             arrived.insert(path.clone(), found);
             // Decision 0017: valid UTF-8 with no NUL is lines and everything
             // else is bytes, sniffed once, here, and never again.
@@ -1154,6 +1240,7 @@ fn plan_with<F: Filesystem>(
         &recording.moves,
         &recording.at,
         &recording.only,
+        &recording.kinds,
     )?;
 
     // Three things the survey reports and recording refuses. Decision 0015
@@ -1536,6 +1623,27 @@ fn rewriting<F: Filesystem>(
         kept.entry(path.clone()).or_insert(*file);
     }
 
+    // Decision 0023 restates what the predecessor said, and which kind each
+    // file it added *is* is one of those things. Without this the amendment
+    // would sniff the folder afresh and could answer differently — silently,
+    // and for a file whose identity it is deliberately keeping. So the
+    // predecessor's own answer is carried, read from the document that states
+    // it: a file it listed under `bytes` is bytes and every other file it
+    // added is lines. A path the folder no longer holds is stated too and
+    // costs nothing: a kind is consulted where a file is added, and a file
+    // that is not there is a deletion, which never reaches that question.
+    let mut kinds = Kinds::default();
+    for (file, path) in &previous.added {
+        kinds.state(
+            path,
+            if previous.bytes.contains_key(file) {
+                Kind::Whole
+            } else {
+                Kind::Lines
+            },
+        );
+    }
+
     let recording = Recording {
         parents: previous.parents.iter().copied().collect(),
         author: previous.author.clone(),
@@ -1551,6 +1659,7 @@ fn rewriting<F: Filesystem>(
         // predecessor said, so there is no half of the folder it could be
         // asked about.
         only: Restriction::Everything,
+        kinds,
     };
     Ok((previous, recording, kept))
 }
@@ -2000,6 +2109,33 @@ pub enum RecordError {
         /// Where it is now.
         to: String,
     },
+    /// A kind stated for a file the history already holds.
+    ///
+    /// Decision 0017 fixes a kind at `add`, so this arrives too late.
+    KindAlreadyFixed {
+        /// The path that was stated.
+        path: String,
+        /// What it already is.
+        kind: Kind,
+    },
+    /// `lines` stated for bytes that are not UTF-8.
+    ///
+    /// The one thing stating a kind cannot do: an item is text.
+    StatedNotLines {
+        /// The path that was stated.
+        path: String,
+    },
+    /// A kind stated for a path this recording is not looking at.
+    StatedButNotLookedAt {
+        /// The path that was stated.
+        path: String,
+    },
+    /// [`Kind::Link`] stated, which is the filesystem's answer and not a
+    /// person's — decision 0040.
+    StatedALink {
+        /// The path that was stated.
+        path: String,
+    },
     /// A `--move` naming a path the tree does not hold.
     NotInTheTree {
         /// The path as given.
@@ -2286,6 +2422,30 @@ impl fmt::Display for RecordError {
                  among the paths this would record, which would spell the \
                  other end as a file appearing or disappearing; name both \
                  `{from}` and `{to}`, or record with no paths named"
+            ),
+            RecordError::KindAlreadyFixed { path, kind } => write!(
+                f,
+                "`{path}` is already recorded as {kind}, and decision 0017 \
+                 fixes that when a file is added; a file that has to change \
+                 kind is a `drop` and an `add`, which is a new file with a \
+                 new identity"
+            ),
+            RecordError::StatedNotLines { path } => write!(
+                f,
+                "`{path}` cannot be recorded as lines: its bytes are not \
+                 UTF-8, and a line is text whoever says otherwise. Record it \
+                 as bytes, or convert the file first"
+            ),
+            RecordError::StatedButNotLookedAt { path } => write!(
+                f,
+                "`{path}` is not one of the paths this is recording, so \
+                 saying which kind it is would state nothing; name it as a \
+                 path too, or drop the restriction"
+            ),
+            RecordError::StatedALink { path } => write!(
+                f,
+                "`{path}` would be a link, which is what the filesystem says \
+                 it is rather than what a person states"
             ),
             RecordError::NotInTheTree { path } => write!(
                 f,

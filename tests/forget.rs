@@ -188,6 +188,7 @@ fn record_folder(
             at: Vec::new(),
             accepted: BTreeSet::new(),
             only: Restriction::Everything,
+            kinds: Default::default(),
         },
         &mut platform,
     )

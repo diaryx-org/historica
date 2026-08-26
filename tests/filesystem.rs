@@ -229,6 +229,7 @@ fn record_folder(
             at: Vec::new(),
             accepted: BTreeSet::new(),
             only: Restriction::Everything,
+            kinds: Default::default(),
         },
         &mut platform,
     )
@@ -769,9 +770,16 @@ fn describe<F: Filesystem>(
     working: &Working<F>,
     parents: Vec<RevisionId>,
 ) -> String {
-    let surveyed =
-        historica::record::survey(store, working, &parents, &[], &[], &Restriction::Everything)
-            .expect("surveying the folder");
+    let surveyed = historica::record::survey(
+        store,
+        working,
+        &parents,
+        &[],
+        &[],
+        &Restriction::Everything,
+        &Default::default(),
+    )
+    .expect("surveying the folder");
     format!(
         "added {:?} dropped {:?} edited {:?} modes {:?}",
         surveyed.added,
@@ -906,6 +914,7 @@ fn record_at<F: Filesystem + Clone>(
             at: Vec::new(),
             accepted: BTreeSet::new(),
             only: Restriction::Everything,
+            kinds: Default::default(),
         },
         &mut platform,
     )

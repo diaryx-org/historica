@@ -11,7 +11,7 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use historica::format::Timestamp;
-use historica::record::{Restriction, survey};
+use historica::record::{Kinds, Restriction, survey};
 use historica::store::{
     Bookmark, Content, Extent, Forgetting, HEADER_FILE, MutableConflict, Name, Placement,
     STORE_DIR, Store, StoreError,
@@ -107,7 +107,14 @@ writing a store
                            record what the folder now says; with paths, only
                            what those say, the rest being left unlooked at
          [--onto <target>] [--merge <target>] [--move <old>=<new>]
-         [--at <file>=<path>] [--accept <path>] [--dry-run]
+         [--at <file>=<path>] [--accept <path>] [--bytes <path>]
+         [--lines <path>] [--dry-run]
+                           --bytes and --lines say which kind a file being
+                           added is, where the sniff — valid UTF-8 with no
+                           NUL is lines — would answer otherwise. Only for a
+                           file this records for the first time: a kind is
+                           fixed when a file is added, and changing it later
+                           is a drop and an add
   amend [<target>]         rewrite the head as the folder now stands
         [-m <message>] [--move <old>=<new>] [--dry-run]
   merge [<target>...]      write what two lines of work say together:
@@ -758,6 +765,10 @@ fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         &[],
         &[],
         &Restriction::Everything,
+        // Decision 0017: `status` describes a folder rather than recording
+        // it, and what a file *would* be recorded as is the sniff's answer
+        // until somebody says otherwise on the command that records.
+        &Kinds::default(),
     )
     .map_err(Failure::error)?;
 

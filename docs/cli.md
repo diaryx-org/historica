@@ -158,8 +158,16 @@ folder with the tree at the parent — including a deletion, which is a fact
 rather than a heuristic, and including which kind of file a new one is: valid
 UTF-8 with no NUL is lines, and everything else is bytes. That last rule is the
 tool's rather than the format's, because a recorder is allowed signals a format
-may not use. Only a rename has to be stated, with `--move`, which performs it
-if the person has not.
+may not use — and being the tool's is what makes it overrulable: `--bytes
+<path>` and `--lines <path>` say which kind a file being added is, for the
+paths where a person knows better than the sniff. A lockfile or a minified
+bundle is text nobody wants line-merged; a file of UTF-8 holding a NUL is lines
+the sniff cannot tell from a photograph. The format's own rule is not
+overrulable, so `--lines` on bytes that are not UTF-8 is refused: an item is
+text. And since a kind is fixed when a file is added, stating one for a file
+the history already holds is refused too, naming the `drop` and `add` that
+would change it. Only a rename has to be stated, with `--move`, which performs
+it if the person has not.
 
 `record <path>...` looks at some of the folder rather than all of it —
 decision [0039](decisions/0039-recording-some-of-the-folder.md), where a

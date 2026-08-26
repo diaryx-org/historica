@@ -11,9 +11,9 @@ use historica::core::{FileId, RevisionId};
 use historica::format::{self, Mode};
 use historica::fs::{Disk, Filesystem as _};
 use historica::record::{
-    Abandoning, Amendment, Clock, Platform, Recording, Restriction, abandon as abandon_revision,
-    abandonment_plan, amend as amend_revision, amendment_plan, check_restriction, identity,
-    plan as plan_for, record as record_revision,
+    Abandoning, Amendment, Clock, Kinds, Platform, Recording, Restriction,
+    abandon as abandon_revision, abandonment_plan, amend as amend_revision, amendment_plan,
+    check_restriction, identity, plan as plan_for, record as record_revision,
 };
 use historica::store::Store;
 use historica::tree::{Kind, TreeContest};
@@ -38,6 +38,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     // spelling that can be parsed on its own.
     let mut at: Vec<(String, String)> = Vec::new();
     let mut accepted: BTreeSet<String> = BTreeSet::new();
+    let mut stated: Vec<(String, Kind)> = Vec::new();
     let mut named: BTreeSet<String> = BTreeSet::new();
     let mut dry_run = false;
 
@@ -69,6 +70,19 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                     .ok_or_else(|| Failure::usage("`--move` is spelled `--move <old>=<new>`"))?;
                 moves.push((format::nfc(from).into_owned(), format::nfc(to).into_owned()));
             }
+            // Decision 0017 fixes a file's kind when it is added and lets the
+            // recorder sniff it; `docs/cli.md` has always called that sniff
+            // the tool's rule rather than the format's, and these are how a
+            // person overrules it — for a path, at the one moment the
+            // question is open.
+            "--bytes" => {
+                let path = format::nfc(&value("--bytes")?).into_owned();
+                stated.push((path, Kind::Whole));
+            }
+            "--lines" => {
+                let path = format::nfc(&value("--lines")?).into_owned();
+                stated.push((path, Kind::Lines));
+            }
             "-n" | "--dry-run" => dry_run = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
@@ -96,6 +110,18 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         Restriction::Paths(named)
     };
 
+    // One path, two answers, is a person who typed something they did not
+    // mean — and picking either of them would be picking for them.
+    let mut kinds = Kinds::default();
+    for (path, kind) in &stated {
+        if kinds.stated(path).is_some_and(|already| already != *kind) {
+            return Err(Failure::usage(format!(
+                "`{path}` is stated as both bytes and lines, and it is one or the other"
+            )));
+        }
+        kinds.state(path, *kind);
+    }
+
     let mut store = Store::open(&root)?;
     let repository = root
         .parent()
@@ -121,6 +147,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         at: at.clone(),
         accepted: accepted.clone(),
         only: only.clone(),
+        kinds: kinds.clone(),
     };
 
     // What a restriction refuses outright, asked before the rename below
@@ -134,6 +161,17 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     }
 
     let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+
+    // A kind is a fact about a file, so a path with no file under it has
+    // nothing to be a fact about. Said here rather than passed over, because
+    // the whole of what `--bytes` does is invisible when it works.
+    for (path, _) in kinds.paths() {
+        if !working.holds(path) {
+            return Err(Failure::usage(format!(
+                "`{path}` is not a file in this folder, so there is no kind for it to be"
+            )));
+        }
+    }
     let mut platform = Platform;
 
     if dry_run {

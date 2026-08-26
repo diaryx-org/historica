@@ -467,3 +467,37 @@ deliberately no spelling.
    [0027](0027-closing-the-small-questions.md) keeps the refusal by default and
    permits an explicit replacement option to perform the `drop` and fresh
    `add`; identity never changes silently.
+
+## Since
+
+- **`record --bytes <path>` and `record --lines <path>`**, which say which
+  kind a file being added is where the sniff would have answered. Resolved
+  question 3 above is what makes this cheap: the NUL rule is the tool's and
+  the UTF-8 rule is the format's, so there was always a gap between what a
+  recorder *guesses* and what the format *permits*, and nothing had been built
+  to let a person stand in it.
+
+  Two kinds of file live in that gap. A lockfile, a minified bundle, a
+  generated blob: text by every rule here, and text a person may never want
+  line-merged, because the merge of two machine-written files is not a thing
+  anybody asked for. And a file of UTF-8 holding a NUL, which the format
+  accepts as lines and the sniff cannot tell from a photograph.
+
+  What it cannot do is the third case, and the refusal names it: bytes that
+  are not UTF-8 are not lines, whoever says otherwise, because an item is
+  text. A UTF-16 or Latin-1 file is bytes and stays bytes — the flag does not
+  reach it, and a person who wants it as lines converts the file.
+
+  The decision above is untouched. A kind is still fixed when a file is added,
+  which is why the statement is refused for a file the history already holds,
+  naming `drop` and `add` as it always did; and the recorder still decides
+  every path nobody spoke about. What changed is only who answers at `add`,
+  for the paths where a person bothered to say.
+
+- **An amendment carries the kind its predecessor stated.** Found while
+  building the above, and a defect older than it: 0023 has an amendment
+  restate what its predecessor said, but the kind of each file it *added* was
+  being sniffed afresh from the folder, so a file whose bytes had crossed the
+  sniff's boundary between the two commands changed kind silently, keeping its
+  identity. Now `amend` reads the kinds out of the document it is replacing.
+

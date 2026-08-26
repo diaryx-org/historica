@@ -2538,6 +2538,140 @@ fn a_command_line_that_is_wrong_prints_the_usage_and_exits_two() {
     assert!(String::from_utf8_lossy(&help.stdout).contains("usage: historica"));
 }
 
+/// Decision 0017 fixes a kind when a file is added and lets the recorder sniff
+/// it — valid UTF-8 with no NUL is lines. `docs/cli.md` has always called that
+/// the tool's rule rather than the format's, and these are what being the
+/// tool's means.
+#[test]
+fn a_person_says_which_kind_a_file_being_added_is() {
+    let directory = repository("stated-kinds");
+    // Text by the sniff's reckoning, and a thing nobody wants line-merged.
+    write(&directory, "bundle.min.js", "{\"a\":1}\n");
+    // UTF-8 that holds a NUL, which the sniff cannot tell from a photograph.
+    fs::write(directory.join("odd.txt"), b"text with\x00a nul\n").expect("a file");
+    write(&directory, "notes.md", "alpha\n");
+
+    assert!(
+        recorded(
+            &directory,
+            &[
+                "record",
+                "--bytes",
+                "bundle.min.js",
+                "--lines",
+                "odd.txt",
+                "-m",
+                "base"
+            ],
+        )
+        .status
+        .success()
+    );
+
+    // The document is where the answer is: `bytes` for the one stated as
+    // bytes, `text` for the one stated as lines, and the sniff for the rest.
+    let listed = out(recorded(&directory, &["log", "--fields"]));
+    let revision = listed
+        .lines()
+        .nth(1)
+        .expect("a revision")
+        .split(' ')
+        .next()
+        .expect("a digest");
+    let document = out(recorded(&directory, &["show", revision]));
+    let kind = |path: &str| {
+        let file = document
+            .lines()
+            .find(|line| line.starts_with("add ") && line.ends_with(&format!(" {path}")))
+            .and_then(|line| line.split(' ').nth(1))
+            .expect("an added file");
+        document
+            .lines()
+            .find(|line| {
+                (line.starts_with("text ") || line.starts_with("bytes "))
+                    && line.split(' ').nth(1) == Some(file)
+            })
+            .and_then(|line| line.split(' ').next())
+            .expect("a kind")
+            .to_owned()
+    };
+    assert_eq!(kind("bundle.min.js"), "bytes");
+    assert_eq!(kind("odd.txt"), "text");
+    assert_eq!(kind("notes.md"), "text");
+}
+
+/// The one thing stating a kind cannot do: an item is text, and no flag makes
+/// bytes that are not UTF-8 into lines.
+#[test]
+fn lines_cannot_be_stated_for_bytes_that_are_not_utf8() {
+    let directory = repository("stated-not-lines");
+    fs::write(directory.join("utf16.txt"), b"\xff\xfeU\x00T\x00F\x00").expect("a file");
+
+    let refused = recorded(&directory, &["record", "--lines", "utf16.txt", "-m", "no"]);
+    assert!(!refused.status.success());
+    let why = String::from_utf8(refused.stderr).expect("printed text");
+    assert!(why.contains("its bytes are not UTF-8"), "{why}");
+    assert!(why.contains("Record it as bytes"), "{why}");
+}
+
+/// Decision 0017 fixes a kind at `add`, so a statement about a file the
+/// history already holds is one arriving too late.
+#[test]
+fn a_kind_cannot_be_stated_for_a_file_already_recorded() {
+    let directory = repository("kind-already-fixed");
+    write(&directory, "notes.md", "alpha\n");
+    assert!(
+        recorded(&directory, &["record", "-m", "base"])
+            .status
+            .success()
+    );
+
+    write(&directory, "notes.md", "beta\n");
+    let refused = recorded(&directory, &["record", "--bytes", "notes.md", "-m", "no"]);
+    assert!(!refused.status.success());
+    let why = String::from_utf8(refused.stderr).expect("printed text");
+    assert!(why.contains("already recorded as lines"), "{why}");
+    assert!(why.contains("`drop` and an `add`"), "{why}");
+}
+
+/// Decision 0023: an amendment restates what its predecessor said, and which
+/// kind each file it added is is one of those things — so a stated kind is not
+/// quietly re-sniffed into the other answer.
+#[test]
+fn an_amendment_keeps_the_kind_its_predecessor_stated() {
+    let directory = repository("amend-keeps-kind");
+    write(&directory, "bundle.min.js", "{\"a\":1}\n");
+    assert!(
+        recorded(
+            &directory,
+            &["record", "--bytes", "bundle.min.js", "-m", "base"],
+        )
+        .status
+        .success()
+    );
+
+    write(&directory, "bundle.min.js", "{\"a\":2}\n");
+    assert!(
+        recorded(&directory, &["amend", "-m", "amended"])
+            .status
+            .success()
+    );
+
+    let listed = out(recorded(&directory, &["log", "--fields"]));
+    let revision = listed
+        .lines()
+        .nth(1)
+        .expect("a revision")
+        .split(' ')
+        .next()
+        .expect("a digest");
+    let document = out(recorded(&directory, &["show", revision]));
+    assert!(
+        document.lines().any(|line| line.starts_with("bytes ")),
+        "the amendment sniffed it back into lines:\n{document}"
+    );
+}
+
 /// A repository with an author set, ready to record into.
 fn repository(test: &str) -> PathBuf {
     let directory = scratch(test);
