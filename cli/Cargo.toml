@@ -59,7 +59,7 @@ http = ["dep:nyquest", "dep:nyquest-preset"]
 # not match `1.0.0-rc.1`, so a `"1.0"` here beside a `1.0.0-rc.1` library would
 # send `cargo publish` to crates.io looking for a `1.0.x` that the pre-release
 # is deliberately not.
-historica = { version = "1.0.0", path = "..", default-features = false, features = [
+historica = { version = "1.0.0-rc.1", path = "..", default-features = false, features = [
   "disk",
 ] }
 # The same two the library takes, for the two jobs that are the front end's

@@ -41,7 +41,7 @@ members = ["cli", "xtask"]
 # the whole answer to "what does this repository call itself" — `cargo xtask
 # bump` rewrites exactly that line, and the package inherits it.
 [workspace.package]
-version = "1.0.0"
+version = "1.0.0-rc.1"
 edition = "2024"
 # Minimum supported Rust version. Edition 2024 needs 1.85; the crate also uses
 # `if let … && let …` let-chains in stable positions, stabilized in 1.88 — so

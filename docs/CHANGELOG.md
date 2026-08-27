@@ -49,6 +49,12 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
+_No commits since the last tag._
+
+<!-- git-cliff:end -->
+
+## v1.0.0-rc.1 — 2026-08-27
+
 ### Breaking
 
 - **format** — one spelling for the format ([`422ff71`](https://github.com/diaryx-org/historica/commit/422ff71bdc6598b93782fc8ac8eceec48c0ed613))
@@ -147,6 +153,7 @@ visible, to be triaged into its real group before the tag is cut.
 - **store** — take the catalogue without walking the directory ([`2a77605`](https://github.com/diaryx-org/historica/commit/2a7760590b4c180de86b23cf2e8f2b567af1927e))
 - **store** — read the revision, and leave the rest of the document alone ([`f145783`](https://github.com/diaryx-org/historica/commit/f145783ad002cd90766e3ab3a4491a016094884f))
 - **format** — name a revision by the digest its reader already has ([`c196552`](https://github.com/diaryx-org/historica/commit/c1965525537e04a93cac53676f575bd9de704a9b))
+- **xtask** — cut releases with the shared tooling, not a sixth copy ([`ffd7911`](https://github.com/diaryx-org/historica/commit/ffd7911c0b49917d1cb8da5ea75f7304b9e1b65b))
 
 ### Behavioural changes
 
@@ -907,7 +914,11 @@ refused as unparsable.
   name emptied, up to `names/` and no further, so an export that
   withdraws the last name under a directory leaves no empty one behind.
 
-<!-- git-cliff:end -->
+- `cargo xtask version`, `bump`, `changelog`, `release`, and
+  `release-notes` no longer exist. Each now exits non-zero naming its
+  replacement — `release <command>`, from diaryx-org/devtools, which must be on
+  PATH. `cargo xtask ci`, `bench`, and the individual CI jobs are unchanged.
+
 
 ## v0.2.0 — 2026-08-21
 
