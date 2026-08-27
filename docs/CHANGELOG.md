@@ -54,7 +54,15 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
-_No commits since the last tag._
+### Changed
+
+- **release** — read the shared cliff config, not a local copy ([`621a87e`](https://github.com/diaryx-org/historica/commit/621a87ef6191edb6ac2dba29895c9f97afa1abc4))
+
+### Behavioural changes
+
+- releasing this repository needs diaryx-org/devtools on PATH
+  for its git-cliff config as well as for `release` itself. Nothing in the tree
+  configures git-cliff any more.
 
 <!-- git-cliff:end -->
 
