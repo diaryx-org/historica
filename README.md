@@ -220,19 +220,28 @@ for d in tests/corpus/*/; do (cd "$d" && shasum -a 256 -c MANIFEST); done
 ### Releasing
 
 A release is a tag, the GitHub release cut from it, and a `cargo publish` run by
-hand. `cargo xtask release` does the mechanical half — bump the version,
-regenerate the changelog's unreleased region into a section under the new
-version, commit both, tag — and stops there:
+hand. `release release` does the mechanical half — bump the version, regenerate
+the changelog's unreleased region into a section under the new version, commit
+both, tag — and stops there:
 
 ```console
-cargo xtask changelog --write   # refresh the unreleased region
-cargo xtask release minor       # bump, cut, commit, tag — locally
-cargo xtask release minor --push
+release changelog --write   # refresh the unreleased region
+release release minor       # bump, cut, commit, tag — locally
+release release minor --push
 ```
+
+`release` is the shared tooling in [diaryx-org/devtools][devtools], which
+historica, prov, twig, leaf, flower, and the other historica repos all cut
+releases with; what makes historica historica is
+[`.config/release.toml`](.config/release.toml) and nothing else. `as-is`
+releases the version the tree already holds, for a bump committed earlier and
+never tagged.
+
+[devtools]: https://github.com/diaryx-org/devtools
 
 Without `--push` nothing leaves the machine, and the command prints the two
 pushes it did not run. `.github/workflows/release.yml` is what the tag starts,
-and it asks `cargo xtask release-notes` for the body rather than keeping its own
+and it asks `release release-notes` for the body rather than keeping its own
 copy of the notes.
 
 What the tag does not do is publish. crates.io is a separate `cargo publish` a

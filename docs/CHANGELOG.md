@@ -7,7 +7,7 @@ Two halves, written two different ways.
 
 The bulleted groups below — **Added**, **Fixed**, **Changed**, and a
 **Behavioural changes** section under them — are **generated** from the commit
-log by `cargo xtask changelog --write`, which reads `.config/cliff.toml`.
+log by `release changelog --write`, which reads `.config/cliff.toml`.
 Anything inside a `git-cliff:begin` / `git-cliff:end` pair is rewritten on every
 run, so an edit made there is an edit thrown away.
 
@@ -31,7 +31,7 @@ Behavioural-change: A revision file is written as `.rev.txt`. Stores written
 
 historica is published to [crates.io](https://crates.io/crates/historica). Its
 first release, v0.1.0, went up without a tag behind it, and the tag list is what
-`cargo xtask changelog` reads to decide which sections this file owes — so
+`release changelog` reads to decide which sections this file owes — so
 v0.2.0 is the oldest heading below, and it covers every commit since the
 beginning rather than only the day between the two.
 

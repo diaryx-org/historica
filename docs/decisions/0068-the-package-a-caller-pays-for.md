@@ -84,7 +84,7 @@ the README are where the sentence goes.
   `src/`, because `src/` is the library now. The `bare` job's grep gets
   stricter for free.
 - The front end depends on the library by version as well as by path, and that
-  literal `"1.0"` is a number `cargo xtask bump` does not rewrite. Inside 1.x it
+  literal `"1.0"` is a number `release bump` does not rewrite. Inside 1.x it
   cannot go wrong, since `"1.0"` is a caret requirement. At the next major it
   can, and quietly — the front end would publish against a library a major
   behind the one beside it, and crates.io would serve exactly that. The
