@@ -186,9 +186,10 @@ the obvious name gets a claim the tool silently declines to count.
 
 So the filename is the tool's to choose, under the constraint this decision
 actually needs: **a claim's path is a deterministic function of the claim, and
-neither claim nor signature is ever rewritten.** historica-sign's decision 0003
-chooses 0003's own scheme — the revision's stem, the role, and a content-derived
-suffix only where two claims would otherwise meet — and keeps union safety by
+neither claim nor signature is ever rewritten.** historica-minisign's decision
+0003 chooses 0003's own scheme — the revision's stem, the role, and a
+content-derived suffix only where two claims would otherwise meet — and keeps
+union safety by
 the same rule that keeps it for revisions. Nothing in Historica changes: the
 directory was already reserved, `receive` already does not carry it, and
 `record` already does not walk it.

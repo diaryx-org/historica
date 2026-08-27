@@ -20,7 +20,7 @@ store and its proxy configuration — in order to build `src/cli/fetch.rs`, a
 file they had no way to call, in a binary they were not installing.
 
 The escape was one line, `default-features = false`, and it was there the whole
-time. historica-sign found it. historica-git did not. That is the argument:
+time. historica-minisign found it. historica-git did not. That is the argument:
 a seam a caller has to know about is not a seam, it is a footgun with a
 comment above it.
 

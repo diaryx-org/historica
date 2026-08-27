@@ -595,7 +595,7 @@ fn a_reserved_directory_travels_by_the_class_it_declares() {
     out(&origin, &["record", "-m", "Second"]);
     let second = head_of(&origin);
 
-    // What historica-sign leaves in the two directories 0046 reserved. None
+    // What historica-minisign leaves in the two directories 0046 reserved. None
     // of it is read here or anywhere else in this crate, which is the point:
     // the bytes below are opaque, and the class is the whole of what export
     // consults.

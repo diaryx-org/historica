@@ -22,7 +22,7 @@ one transport this design builds itself. So `export` carries neither, and
 0046 filed the gap under Deferred, waiting on "the tool existing, and on
 deciding whose claims an exporter is entitled to ship".
 
-The tool exists. historica-sign writes claims and reads `trust/`, and a
+The tool exists. historica-minisign writes claims and reads `trust/`, and a
 second tool — historica-git — is already written against the boundary from
 the other side. Paying the deferral now means answering the general question
 rather than the particular one, because a third tool will not ask permission
@@ -91,7 +91,7 @@ everything anybody has actually built.
   of the plugin surface is the Rust API.** A side tool is an ordinary crate
   depending on `historica` at a semver range from crates.io. There is no
   plugin registry, no ABI, no manifest, no discovery, and nothing to install.
-  historica-git already works this way and historica-sign needs nothing from
+  historica-git already works this way and historica-minisign needs nothing from
   the API at all.
 
 - **A fact the API does not expose is a change to historica, not a hole
@@ -207,7 +207,7 @@ number on it.
 
 The cost is real and small. A side tool has to be written in Rust or reach
 the API through a binding, and a person who wants one has to install a second
-program. Set against that: historica-sign's whole implementation is minisign
+program. Set against that: historica-minisign's whole implementation is minisign
 and text files, and any of it can be done by hand with two commands that are
 neither tool. That is the test 0046 set, and a plugin surface that made the
 tool harder to write than the by-hand version would have failed it.
@@ -229,7 +229,7 @@ badly, every time.
 it is claims. It is the same code and one worse idea: the registry would grow
 a policy per entry rather than a classification, nothing could be reasoned
 about without reading every entry, and the second tool to want what
-historica-sign has would arrive as a patch to a match arm instead of a line
+historica-minisign has would arrive as a patch to a match arm instead of a line
 in a table.
 
 **A manifest inside the store declaring the tool's directories.** The store

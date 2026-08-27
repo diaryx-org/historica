@@ -149,7 +149,7 @@ add-only now, because a directory reserved under a new class is a new name.
 ## Deferred
 
 **A recorded revocation.** The thing that would let a claim be *destroyed*
-rather than merely not carried is a fact somebody states — historica-sign's
+rather than merely not carried is a fact somebody states — historica-minisign's
 own forgetting document, in its own grammar, complied with by the tool that
 can read it. That is the tool's decision to write and not this one's, and the
 class established here is what it will be written against: a revocation file
