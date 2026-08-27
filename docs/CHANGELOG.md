@@ -7,7 +7,9 @@ Two halves, written two different ways.
 
 The bulleted groups below — **Added**, **Fixed**, **Changed**, and a
 **Behavioural changes** section under them — are **generated** from the commit
-log by `release changelog --write`, which reads `.config/cliff.toml`.
+log by `release changelog --write`, which reads the shared `cliff.toml` in
+diaryx-org/devtools — the same file, and the same style, in every repository
+here.
 Anything inside a `git-cliff:begin` / `git-cliff:end` pair is rewritten on every
 run, so an edit made there is an edit thrown away.
 
@@ -36,11 +38,14 @@ v0.2.0 is the oldest heading below, and it covers every commit since the
 beginning rather than only the day between the two.
 
 Those commits include the thirty-five written before the repository adopted
-conventional commits. They have been triaged, in `.config/cliff.toml` rather
-than here: each subject is mapped to the type and scope it would have carried,
-so seventeen of them group with everything written after them and the eighteen
-that only revised a decision document or a `.gitignore` drop out the way
-`docs:` and `chore:` always do. Nothing was rewritten to achieve it.
+conventional commits. They were triaged once, when v0.2.0's section was written:
+each subject was read for the type and scope it would have carried, so seventeen
+of them group with everything written after them and the eighteen that only
+revised a decision document or a `.gitignore` drop out the way `docs:` and
+`chore:` always do. Nothing was rewritten to achieve it, and the result is the
+section below rather than a table of subjects in the cliff config — regeneration
+never reaches a released section, so a per-commit mapping there would have been
+carried for the life of the repository to reproduce bytes that already exist.
 
 Anything still off-convention lands under **Uncategorised**, deliberately
 visible, to be triaged into its real group before the tag is cut.
