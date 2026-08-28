@@ -53,6 +53,10 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
+### Added
+
+- **cli** — a command this tool does not have is looked for on PATH ([`bbb582c`](https://github.com/diaryx-org/historica/commit/bbb582c7584d305d640a598b7ce19f07d8cc5854))
+
 ### Changed
 
 - **release** — read the shared cliff config, not a local copy ([`621a87e`](https://github.com/diaryx-org/historica/commit/621a87ef6191edb6ac2dba29895c9f97afa1abc4))
@@ -62,6 +66,15 @@ visible, to be triaged into its real group before the tag is cut.
 - releasing this repository needs diaryx-org/devtools on PATH
   for its git-cliff config as well as for `release` itself. Nothing in the tree
   configures git-cliff any more.
+
+- `historica <word>`, for a word this binary has no
+  command for, no longer always fails. It is now looked up on PATH as
+  `historica-<word>` and run if found, with the remaining arguments
+  passed through and its exit code returned as this process's. A script
+  relying on an unknown subcommand exiting 2 will still see 2 when
+  nothing on PATH answers to that name, and will see the other
+  program's code when something does. Builds without default features
+  are unaffected.
 
 <!-- git-cliff:end -->
 
