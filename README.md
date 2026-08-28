@@ -220,29 +220,30 @@ for d in tests/corpus/*/; do (cd "$d" && shasum -a 256 -c MANIFEST); done
 ### Releasing
 
 A release is a tag, the GitHub release cut from it, and a `cargo publish` run by
-hand. `release release` does the mechanical half — bump the version, regenerate
-the changelog's unreleased region into a section under the new version, commit
-both, tag — and stops there:
+hand. `dx release` does the mechanical half — bump the version, regenerate the
+changelog's unreleased region into a section under the new version, commit both,
+tag — and stops there:
 
 ```console
-release changelog --write   # refresh the unreleased region
-release release minor       # bump, cut, commit, tag — locally
-release release minor --push
+dx changelog --write   # refresh the unreleased region
+dx release minor       # bump, cut, commit, tag — locally
+dx release minor --push
 ```
 
-`release` is the shared tooling in [diaryx-org/devtools][devtools], which
-historica, prov, twig, leaf, flower, and the other historica repos all cut
-releases with; what makes historica historica is
+`dx` is the shared tooling historica, prov, twig, leaf, flower, and the other
+historica repositories all cut releases with. It lives outside these
+repositories and is not published, so it is a maintainer's tool rather than a
+contributor's: nothing in this section is needed to build, test, or send a
+change. What makes historica historica is
 [`.config/release.toml`](.config/release.toml) and nothing else. `as-is`
 releases the version the tree already holds, for a bump committed earlier and
 never tagged.
 
-[devtools]: https://github.com/diaryx-org/devtools
-
 Without `--push` nothing leaves the machine, and the command prints the two
-pushes it did not run. `.github/workflows/release.yml` is what the tag starts,
-and it asks `release release-notes` for the body rather than keeping its own
-copy of the notes.
+pushes it did not run. Nothing runs on the tag: the GitHub release is cut by
+`dx` from the machine that pushed it — `dx github-release <tag>` is the same
+step on its own, and it asks `dx release-notes` for the body rather than keeping
+a second copy of the notes.
 
 What the tag does not do is publish. crates.io is a separate `cargo publish` a
 person runs, deliberately, because it is the only step here that cannot be taken
