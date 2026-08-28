@@ -482,6 +482,34 @@ None of it is a lint: a name that differs is usually a person filing their own
 history, which `check` has no business calling a fault, and every fault `check`
 does report it finds in content.
 
+## A command this one does not have
+
+A word the table above does not hold is looked for on `PATH` as
+`historica-<word>` and run with the remaining arguments exactly as typed, so
+`historica git import a b` is `historica-git import a b`. `-C` becomes that
+program's working directory, its exit code becomes this one's, and nothing on
+`PATH` is the ordinary `there is no <word> command`.
+
+That is a spelling and not a plugin interface
+([0072](decisions/0072-a-command-this-tool-does-not-have.md)). Nothing is
+registered, authorised, or remembered; a side tool is an ordinary program that
+works under its own name, and removing the fall-through would leave every one
+of them working. What a side tool can *do* is
+[0053](decisions/0053-room-for-another-tool.md)'s question and is unchanged: it
+gets its capability from the published library API, and what it may write in a
+store from that decision's reservation and travel class.
+
+Two consequences worth knowing. A built-in wins, so the day historica gains a
+command of its own by that name, an installed `historica-<word>` stops being
+reachable this way — the tool's own name is the escape. And the word must be
+ASCII letters, digits, and interior hyphens: a word holding a separator would
+name a position on disk rather than a program on `PATH`, so it is refused
+without looking.
+
+Builds without the default features — a wasi guest, where there is no `PATH`
+and no process to spawn — do not have it, and reach those tools by their own
+names.
+
 ## What a refusal says
 
 A refusal that turns on a person having to choose a head says which heads those

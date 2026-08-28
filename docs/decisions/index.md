@@ -774,6 +774,23 @@ depend on each other in.
   traversal guard at transport ingress as a side effect, and `..` and a leading
   `/` now do it on purpose.
 
+- [0072 — A command this tool does not have](0072-a-command-this-tool-does-not-have.md)
+  A word the command table does not hold is looked for on `PATH` as
+  `historica-<word>` and run with the arguments as given, so `historica git
+  import` is `historica-git import`. 0053 refused subprocess dispatch as a
+  *plugin mechanism*, and that argument is about capability — a host with no
+  `PATH` cannot extend through one — where this is about spelling, which a host
+  with no command line was never using. Nothing is registered, authorised, or
+  remembered: the mechanism is `PATH` and a naming convention. The word must be
+  ASCII letters, digits and interior hyphens, because `Command::new` resolves a
+  separator as a position rather than through `PATH`; `-C` becomes the child's
+  directory; the child's code is this one's; a built-in wins and shadows
+  silently. Behind a feature, off where `http` is, since a wasi guest has
+  neither a `PATH` nor a process. Rejects a nushell-style registry — nu caches
+  signatures it needs at parse time and this has none to cache — and rejects
+  folding the side tools into the CLI, which either adds a release lockstep or
+  spends the compiler-enforced boundary 0053's promise is made of.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

@@ -21,6 +21,8 @@ use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope, Working};
 mod arrange;
 mod blame;
 mod diff;
+#[cfg(feature = "dispatch")]
+mod dispatch;
 mod export;
 #[cfg(feature = "http")]
 mod fetch;
@@ -37,7 +39,7 @@ mod update;
 /// that named a command this binary does not have would be the one line in it
 /// that is not true.
 pub fn usage() -> String {
-    format!("{COMMANDS}{FETCHING}{REST}")
+    format!("{COMMANDS}{FETCHING}{REST}{DISPATCH}")
 }
 
 /// The `fetch` entry, in a build that has a transport.
@@ -204,6 +206,27 @@ identifier abbreviates to any prefix unique among the files at that revision.
 `path:` says the rest is a path, for a file whose own name begins `file:`.
 ";
 
+/// The last paragraph, in a build that can reach a program beside this one.
+///
+/// Decision 0072. It says the rule rather than listing what this machine
+/// happens to have installed: a listing would be a second answer that goes
+/// stale between the printing and the typing, and `PATH` is already the thing
+/// a person can read.
+#[cfg(feature = "dispatch")]
+const DISPATCH: &str = "
+a word that is none of the above is looked for on $PATH as `historica-<word>`,
+and run with the arguments as given, in the directory `-C` names. so
+`historica git import` is `historica-git import`, and the tool answers for
+itself. that is a spelling and not a plugin interface: such a tool is an
+ordinary program that works by its own name, and this one neither registers
+nor authorises it.
+";
+
+/// Nothing, in a build without a process to spawn — a wasi guest, where the
+/// tools beside this one are reached by their own names or not at all.
+#[cfg(not(feature = "dispatch"))]
+const DISPATCH: &str = "";
+
 /// Why a command stopped, and what the process should exit with.
 ///
 /// A command that has already said its piece on stdout — `check`, which
@@ -328,6 +351,12 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "merge" => record::merge(locate(&base)?, rest),
         "update" => update::update(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
+        // Decision 0072: a word this tool has no command for may still name a
+        // program beside it. Dispatch reports the same "no such command" when
+        // `PATH` has nothing to offer either, so a typo reads as a typo.
+        #[cfg(feature = "dispatch")]
+        other => dispatch::dispatch(other, &base, rest),
+        #[cfg(not(feature = "dispatch"))]
         other => Err(Failure::usage(format!("there is no `{other}` command"))),
     }
 }

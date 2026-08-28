@@ -38,8 +38,16 @@ path = "src/main.rs"
 # transport through the library's `Source` trait instead. The `wasi` CI job is
 # what holds that build open.
 [features]
-default = ["http"]
+default = ["http", "dispatch"]
 http = ["dep:nyquest", "dep:nyquest-preset"]
+# Decision 0072's fall-through: a command this binary does not have is looked
+# for on `PATH` as `historica-<word>` and run. On by default, because the whole
+# point is that a person who installed a tool beside this one can type it
+# without knowing there is a boundary there — and off in the same flag `http`
+# is off in, because a wasi guest has no `PATH` and no process to spawn. What
+# turning it off costs is a spelling: the tools are still there under their own
+# names, which is how they were reached before this existed.
+dispatch = []
 
 [dependencies]
 # The library, which is where every answer this program prints comes from:
@@ -50,7 +58,7 @@ http = ["dep:nyquest", "dep:nyquest-preset"]
 # rather than a silent swap of the `Filesystem` it runs on.
 #
 # The version is what publishing needs and the path is what builds. Both move
-# together on a release: `cargo xtask bump` rewrites `[workspace.package]
+# together on a release: `dx bump` rewrites `[workspace.package]
 # version` and then this line, and the `historica_requirement_tracks_the_workspace`
 # test in `xtask/src/main.rs` is what fails if the two ever come apart.
 #
@@ -81,7 +89,7 @@ similar = "3.2"
 # Pinned exactly, which is unusual here and deliberate: nyquest is early and
 # says its API is subject to change, so a patch release is a thing to read
 # before taking rather than to receive. `cargo update` will not move it and
-# `cargo xtask bump` does not touch it; moving it is somebody typing the
+# `dx bump` does not touch it; moving it is somebody typing the
 # version.
 nyquest = { version = "=0.4.0", optional = true, features = ["blocking"] }
 nyquest-preset = { version = "=0.4.0", optional = true, features = ["blocking"] }
