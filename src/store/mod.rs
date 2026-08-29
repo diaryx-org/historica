@@ -3159,15 +3159,27 @@ impl<F: Filesystem> Store<F> {
 
     /// Delete a bookmark, and the file stating it.
     ///
-    /// Decision 0062's other direction, and the only caller is decision 0052's
-    /// export onto a copy it already made: a published copy states the names
-    /// the origin shares, so a bookmark the origin deleted, made `private`, or
-    /// moved off the copy's own history leaves the copy on the next export.
+    /// The other direction of [`Store::set_bookmark`], and decision 0073 makes
+    /// it a door a caller may use rather than only 0052's export onto a copy it
+    /// already made: a published copy states the names the origin shares, so a
+    /// bookmark the origin deleted, made `private`, or moved off the copy's own
+    /// history leaves the copy on the next export.
     ///
-    /// A file already gone is not an error, for [`Store::remove_skipped`]'s
-    /// reason: the plan naming it was worked out from a listing rather than
-    /// held under a lock.
-    pub(super) fn remove_name(&mut self, name: &str) -> Result<bool, StoreError> {
+    /// One removal for both of 0062's axes, because a bookmark that is going
+    /// takes its axis with it — there is no half of it left to state.
+    ///
+    /// **A deletion is local, and not a withdrawal.** `receive` fills in every
+    /// name the receiver lacks, so a name deleted here comes straight back from
+    /// a replica that still holds it. Nothing recorded goes with it either: the
+    /// revisions the bookmark pointed at are where they were, and `prune` takes
+    /// only superseded work, so a name is a label rather than the thing that
+    /// keeps history alive.
+    ///
+    /// Returns whether a file was there to remove. A file already gone is not
+    /// an error, for the reason `remove_skipped` beside it answers the same
+    /// way: the plan naming it was worked out from a listing rather than held
+    /// under a lock.
+    pub fn remove_name(&mut self, name: &str) -> Result<bool, StoreError> {
         let path = self.name_path(name);
         let removed = match self.files.remove_file(&path) {
             Ok(()) => true,

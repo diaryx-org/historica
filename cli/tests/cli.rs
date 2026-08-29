@@ -1027,6 +1027,55 @@ fn names_lists_the_three_kinds_apart() {
     assert!(listed.contains("pinned  revision "), "{listed}");
 }
 
+/// Decision 0073: the other direction of `name`, and what goes is the label.
+#[test]
+fn a_bookmark_is_deleted_by_name_and_the_history_stays() {
+    let directory = repository("bookmark-deletion");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Start a journal"]));
+    out(recorded(&directory, &["name", "main", "head"]));
+    out(recorded(
+        &directory,
+        &["name", "--private", "feature/x", "head"],
+    ));
+
+    let said = out(recorded(&directory, &["name", "--delete", "feature/x"]));
+    // What it pointed at, because a deletion nobody meant is undone by typing
+    // it back, and this is the line that says how.
+    assert!(said.contains("deleted feature/x, which was"), "{said}");
+    assert!(said.contains("(private)"), "{said}");
+    assert!(said.contains("on the next receive"), "{said}");
+    assert!(
+        !directory.join("history/names/feature").exists(),
+        "decision 0071's directory goes with the last name in it"
+    );
+
+    let listed = out(recorded(&directory, &["names"]));
+    assert_eq!(listed.lines().count(), 1, "{listed}");
+    assert!(listed.contains("main"), "{listed}");
+
+    // The label went and the work did not, which is the whole of what this
+    // command does.
+    let history = out(recorded(&directory, &["log"]));
+    assert!(history.contains("Start a journal"), "{history}");
+    let report = out(recorded(&directory, &["check"]));
+    assert!(report.ends_with("nothing to report\n"), "{report}");
+
+    // A name that is not here is somebody's typo rather than a deletion that
+    // succeeded.
+    let absent = refused(&directory, &["name", "--delete", "feature/x"]);
+    assert!(
+        absent.contains("there is no bookmark `feature/x` here"),
+        "{absent}"
+    );
+
+    // A bookmark that is going has no target and no axis.
+    let shaped = refused(&directory, &["name", "--delete", "main", "--private"]);
+    assert!(shaped.contains("nothing left for it to say"), "{shaped}");
+    let extra = refused(&directory, &["name", "--delete", "main", "head"]);
+    assert!(extra.contains("takes one bookmark"), "{extra}");
+}
+
 #[test]
 fn a_file_bookmark_is_not_a_revision_and_says_so() {
     let directory = repository("file-bookmark-position");

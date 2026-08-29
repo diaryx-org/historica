@@ -188,6 +188,13 @@ const REST: &str = "  forget <target> <path> [--lines <first>..<last>] [--dry-ru
                            name the file that <path> holds. --private keeps
                            the bookmark's own name out of an `export`; with
                            neither flag, a bookmark keeps the axis it has
+  name --delete <bookmark>
+                           remove a bookmark. the label goes and nothing
+                           recorded does — the work is still reached by
+                           change ID or digest, and `prune` takes only
+                           superseded revisions. local, like every deletion
+                           here: a replica that still holds the name brings
+                           it back on the next receive
   skip [--private] <path>... [--name <name>]
                            stop history taking a path, a directory, or a
                            name in which `*` is any run of characters.
@@ -1209,7 +1216,7 @@ fn names(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 }
 
 /// `name <bookmark> <target> [<path>] [--revision] [--private|--shared]` —
-/// move a bookmark.
+/// move a bookmark. `name --delete <bookmark>` removes one.
 ///
 /// Decision 0024 gives this the third argument `show` already takes, and means
 /// by it what `show` means: this revision, and one file in it. With two
@@ -1218,6 +1225,10 @@ fn names(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 /// Decision 0062 adds the travel axis, and makes stating it deliberate in both
 /// directions: neither flag keeps whatever the bookmark already had, because
 /// the common caller of the move is `record`.
+///
+/// Decision 0073 adds the other direction, in this command rather than a word
+/// of its own: deleting a bookmark is something done to a bookmark, and `name`
+/// is where a person says what one is.
 fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut pin = false;
     // Decision 0062's axis, and `None` is *keep whatever it has*: a bookmark
@@ -1225,15 +1236,35 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // the axis exists to prevent, and moving one is what `record` does on
     // every commit.
     let mut axis: Option<bool> = None;
+    let mut delete = false;
+    // What a deletion refuses, kept as it was typed: the flags shape a target
+    // and an axis, and a bookmark that is going has neither.
+    let mut shaping: Vec<String> = Vec::new();
     let mut rest = Vec::new();
     for argument in arguments {
         match argument.as_str() {
-            "--revision" => pin = true,
-            "--change" => pin = false,
-            "--private" => axis = Some(true),
-            "--shared" => axis = Some(false),
-            other => rest.push(other.to_owned()),
+            "--revision" => {
+                pin = true;
+                shaping.push(argument);
+            }
+            "--change" => {
+                pin = false;
+                shaping.push(argument);
+            }
+            "--private" => {
+                axis = Some(true);
+                shaping.push(argument);
+            }
+            "--shared" => {
+                axis = Some(false);
+                shaping.push(argument);
+            }
+            "--delete" => delete = true,
+            _ => rest.push(argument),
         }
+    }
+    if delete {
+        return delete_name(base, rest, &shaping);
     }
     let mut rest = rest.into_iter();
     let bookmark = rest
@@ -1292,6 +1323,56 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                  it private again on the next receive"
             )?;
         }
+        Ok(())
+    })
+}
+
+/// `name --delete <bookmark>` — the other direction of decision 0073.
+///
+/// One bookmark, because deleting is a thing a person does deliberately to a
+/// name they typed, and a command that took a list would take a typo with it.
+/// A bookmark that is not here is an error rather than a silent success, which
+/// is where this parts company with the library: `Store::remove_name` is asked
+/// by an export working from a plan, and this is asked by somebody who believes
+/// the name exists.
+fn delete_name(base: &Path, rest: Vec<String>, shaping: &[String]) -> Result<u8, Failure> {
+    if let Some(flag) = shaping.first() {
+        return Err(Failure::usage(format!(
+            "`{flag}` shapes what a bookmark points at, and `--delete` is the \
+             bookmark going: there is nothing left for it to say"
+        )));
+    }
+    let mut rest = rest.into_iter();
+    let bookmark = rest
+        .next()
+        .ok_or_else(|| Failure::usage("`name --delete` wants a bookmark"))?;
+    if let Some(extra) = rest.next() {
+        return Err(Failure::usage(format!(
+            "`name --delete` takes one bookmark, and `{extra}` is a second: a \
+             deletion names what it is deleting"
+        )));
+    }
+
+    let mut store = open(base)?;
+    let Some(stated) = store.bookmark(&bookmark) else {
+        return Err(Failure::error(format!(
+            "there is no bookmark `{bookmark}` here; `names` lists the ones \
+             there are"
+        )));
+    };
+    store.remove_name(&bookmark)?;
+    printing(|out| {
+        // What it pointed at, because a deletion a person did not mean is
+        // undone by typing it back, and this is the line that says how.
+        writeln!(out, "deleted {bookmark}, which was {stated}")?;
+        // Decision 0054's rule, said where a person would otherwise find out
+        // by syncing: `receive` fills in every name the receiver lacks, so a
+        // deletion is this store's and travels nowhere.
+        writeln!(
+            out,
+            "note: a replica that still holds `{bookmark}` will bring it back \
+             on the next receive"
+        )?;
         Ok(())
     })
 }

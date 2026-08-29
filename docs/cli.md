@@ -128,6 +128,14 @@ A bookmark carries a second line saying `private`
 `fix-acme-layoffs` states in its own filename the fact
 `private clients/acme-layoffs/` exists to withhold.
 
+`name --delete <bookmark>` removes one
+([0073](decisions/0073-taking-a-name-back.md)), and removes only that: the
+revisions the bookmark pointed at are where they were, reachable by change ID
+or digest, and `prune` takes only superseded work — so a deleted name collects
+nothing. It is local, like every deletion here. `receive` fills in every name
+the receiver lacks, so a replica that still holds the name brings it back on
+the next sync, which the command says rather than leaving to be discovered.
+
 ### `skip`
 
 Writes the rule saying what recording does not take. A rule is four keys on two

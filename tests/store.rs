@@ -755,6 +755,48 @@ fn moving_a_bookmark_keeps_the_axis_and_stating_it_replaces_it() {
     );
 }
 
+/// Decision 0073: the other direction of `set_bookmark`, and what it takes is
+/// the label alone. One removal for both axes, the directories 0071's names
+/// made are tidied behind it, and a name already gone says so rather than
+/// failing.
+#[test]
+fn deleting_a_bookmark_takes_the_label_and_nothing_recorded() {
+    let (root, mut store) = corpus_store("bookmark-deletion");
+    let id = corpus_revision("01-root.rev.txt");
+    let held = store.documents().expect("readable").len();
+
+    store
+        .set_bookmark("feature/x", Bookmark::private(Name::Revision(id)))
+        .expect("a nested private bookmark");
+    store
+        .set_name("main", Name::Revision(id))
+        .expect("a flat name");
+
+    assert!(store.remove_name("feature/x").expect("removing it"));
+    assert!(!root.join("names/feature/x.txt").exists());
+    assert_eq!(store.bookmark("feature/x"), None);
+    // Decision 0071: a `names/feature/` holding nothing says a `feature/`
+    // bookmark is here when none is, and `names/` itself is the boundary.
+    assert!(!root.join("names/feature").exists());
+    assert!(root.join("names").is_dir());
+
+    // The work is where it was. A bookmark is a label, and `prune` takes only
+    // superseded revisions, so deleting one collects nothing.
+    assert!(store.revision(&id).is_some());
+    assert_eq!(store.documents().expect("readable").len(), held);
+
+    // A name already gone is not an error, and the answer says which happened.
+    assert!(!store.remove_name("feature/x").expect("removing it again"));
+
+    let reopened = Store::open(&root).expect("reopening");
+    assert_eq!(reopened.bookmark("feature/x"), None);
+    assert_eq!(
+        reopened.bookmark("main"),
+        Some(Bookmark::shared(Name::Revision(id))),
+        "a deletion takes the name it was given and no other"
+    );
+}
+
 #[test]
 fn an_undelivered_parent_is_a_note_and_an_absent_predecessor_is_silent() {
     let (root, _) = corpus_store("incomplete");

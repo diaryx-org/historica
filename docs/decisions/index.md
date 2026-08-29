@@ -791,6 +791,25 @@ depend on each other in.
   folding the side tools into the CLI, which either adds a release lockstep or
   spends the compiler-enforced boundary 0053's promise is made of.
 
+- [0073 — Taking a name back](0073-taking-a-name-back.md)
+  Bookmarks had an ingress and no egress: `set_bookmark` is 0071's one door in,
+  `remove_name` was `pub(super)` for 0062's withdrawal alone, and the only way
+  a person could delete one was `rm history/names/main.txt` — which works,
+  silently, leaving 0071's empty directory and saying nothing about what the
+  name pointed at. `Store::remove_name` is public and `name --delete
+  <bookmark>` is the command, in `name` rather than a word of its own, one
+  bookmark at a time, refusing the flags that shape a target because a bookmark
+  that is going has nowhere to point. One removal for both of 0062's axes; a
+  name already gone answers `false` to the library and fails at the command
+  line, since the export works from a plan and the person believes the name
+  exists. The deletion is local and says so — `receive` fills in every name the
+  receiver lacks, and the tombstone that would change that is 0054's merge rule
+  in the one directory 0006 calls the entire conflict surface. Nothing recorded
+  goes: 0013 prunes only superseded work, which is what lets this skip git's
+  merged-ness check and its reflog. Defers a prefix deletion, which 0071 made
+  spellable and which is the first operation here whose blast radius depends on
+  what the store holds.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
