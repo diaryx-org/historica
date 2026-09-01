@@ -810,6 +810,25 @@ depend on each other in.
   spellable and which is the first operation here whose blast radius depends on
   what the store holds.
 
+- [0074 — Saying where to look](0074-saying-where-to-look.md)
+  0064 gave the reading half a machine-read listing; the writing half had
+  sentences written for eyes and nothing else, so a caller either parsed a
+  wording nothing promises or re-read the whole store to find out what moved.
+  `--fields` on the writing commands prints a `historica-wrote-1` header and
+  lines that are *pointers* rather than a report — `revision <digest>`, `name
+  <bookmark>`, `unname <bookmark>`, `gone <digest>` — restating nothing a
+  document says, because the caller has the digest and the document is the
+  authority. That is 0064's rule obeyed rather than bent: the one copy is a
+  minted identifier, which is the exception 0064 argued for parents. Wrote
+  nothing is a header and no lines, exiting zero, and is the one fact here not
+  recoverable from the store. The redundancy is the point — every line is a
+  claim the store can be held to, which makes this the first end-to-end check
+  of 0003's rule from the writing side, and leaves the output as discardable as
+  `cache/`. Costs a host that cannot spawn nothing: `Recorded` and `Amended`
+  are public and carry more. Rejects a field set per command, restating the
+  document, and a file rather than a descriptor. Defers the folder, where a
+  path may hold a space.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
