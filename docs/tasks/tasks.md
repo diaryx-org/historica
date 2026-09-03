@@ -5,6 +5,8 @@ created: 2026-09-02
 updated: 2026-09-02
 contents:
   - "[The first capture is barrier-bound](first-capture-is-barrier-bound.md)"
+  - "[Saying what a command wrote](saying-what-a-command-wrote.md)"
+  - "[A claim arriving needs no line](a-claim-arriving-needs-no-line.md)"
 ---
 
 # Tasks
