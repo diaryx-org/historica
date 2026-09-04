@@ -20,7 +20,9 @@ use historica::store::Store;
 use historica::tree::{Kind, TreeContest};
 use historica::working::Working;
 
-use super::{Failure, printing, render, target};
+use historica::wrote::Statement;
+
+use super::{Failure, no_statement_of_a_plan, printing, render, target};
 
 /// `record [<path>...] [-m <message>] [--onto <target>] [--move <old>=<new>]
 /// [--dry-run]`.
@@ -42,6 +44,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     let mut stated: Vec<(String, Kind)> = Vec::new();
     let mut named: BTreeSet<String> = BTreeSet::new();
     let mut dry_run = false;
+    let mut fields = false;
 
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
@@ -85,6 +88,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
                 stated.push((path, Kind::Lines));
             }
             "-n" | "--dry-run" => dry_run = true,
+            "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `record` takes"
@@ -105,6 +109,8 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
             }
         }
     }
+    no_statement_of_a_plan("record", dry_run, fields)?;
+
     let only = if named.is_empty() {
         Restriction::Everything
     } else {
@@ -210,6 +216,15 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     )
     .map_err(Failure::error)?;
 
+    if fields {
+        let mut statement = Statement::new();
+        statement.revision(recorded.revision);
+        for name in &recorded.advanced {
+            statement.name(name);
+        }
+        return printing(|out| render::wrote(out, &statement));
+    }
+
     printing(|out| {
         for (fact, path) in recorded.plan.facts() {
             writeln!(out, "{fact:<7} {path}")?;
@@ -248,6 +263,7 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut moves: Vec<(String, String)> = Vec::new();
     let mut named: Option<String> = None;
     let mut dry_run = false;
+    let mut fields = false;
 
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
@@ -266,6 +282,7 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 moves.push((format::nfc(from).into_owned(), format::nfc(to).into_owned()));
             }
             "-n" | "--dry-run" => dry_run = true,
+            "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `amend` takes"
@@ -279,6 +296,8 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             }
         }
     }
+
+    no_statement_of_a_plan("amend", dry_run, fields)?;
 
     let mut store = Store::open(&root)?;
     let repository = root
@@ -360,6 +379,15 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let amended =
         amend_revision(&mut store, &working, &amendment, &mut platform).map_err(Failure::error)?;
 
+    if fields {
+        let mut statement = Statement::new();
+        statement.revision(amended.revision);
+        for step in &amended.carried.steps {
+            statement.revision(step.revision);
+        }
+        return printing(|out| render::wrote(out, &statement));
+    }
+
     printing(|out| {
         for (fact, path) in amended.plan.facts() {
             writeln!(out, "{fact:<7} {path}")?;
@@ -429,6 +457,7 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
     let mut message: Option<String> = None;
     let mut named: Option<String> = None;
     let mut dry_run = false;
+    let mut fields = false;
     let mut only = false;
 
     let mut arguments = arguments.into_iter();
@@ -442,6 +471,7 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
             "-m" | "--message" => message = Some(value("-m")?),
             "--only" => only = true,
             "-n" | "--dry-run" => dry_run = true,
+            "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `abandon` takes"
@@ -461,6 +491,8 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
              standing on it go",
         ));
     };
+
+    no_statement_of_a_plan("abandon", dry_run, fields)?;
 
     let mut store = Store::open(&root)?;
     let repository = root
@@ -515,6 +547,18 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
     let abandoned =
         abandon_revision(&mut store, &abandoning, &mut platform).map_err(Failure::error)?;
 
+    if fields {
+        let mut statement = Statement::new();
+        statement.revision(abandoned.revision);
+        for step in &abandoned.carried.steps {
+            statement.revision(step.revision);
+        }
+        for name in &abandoned.advanced {
+            statement.name(name);
+        }
+        return printing(|out| render::wrote(out, &statement));
+    }
+
     printing(|out| {
         for id in &abandoned.superseded {
             writeln!(out, "abandoned {}", id.abbreviate(12))?;
@@ -564,6 +608,7 @@ pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut named: Option<String> = None;
     let mut onto: Option<String> = None;
     let mut dry_run = false;
+    let mut fields = false;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
@@ -575,6 +620,7 @@ pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 );
             }
             "-n" | "--dry-run" => dry_run = true,
+            "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `carry` takes"
@@ -588,6 +634,8 @@ pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             }
         }
     }
+
+    no_statement_of_a_plan("carry", dry_run, fields)?;
 
     let mut store = Store::open(&root)?;
     let target = match &named {
@@ -629,6 +677,15 @@ pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     } else {
         historica::record::carry::carry(&mut store, &carrying).map_err(Failure::error)?
     };
+
+    if fields {
+        let statement: Statement = planned
+            .steps
+            .iter()
+            .map(|step| historica::wrote::Line::Revision(step.revision))
+            .collect();
+        return printing(|out| render::wrote(out, &statement));
+    }
 
     printing(|out| {
         if planned.is_empty() {

@@ -16,7 +16,7 @@ use historica::format::{RevisionDocument, Timestamp};
 use historica::record::Survey;
 use historica::store::{Name, Report, Store};
 use historica::tree::{Tree, TreeContest};
-use historica::wrote::{self, Statement};
+use historica::wrote::Statement;
 
 use super::target;
 
@@ -202,19 +202,15 @@ fn kept(store: &Store, shown: &BTreeSet<RevisionId>, filter: &Filter) -> Vec<Rev
 /// five words.
 pub const FIELDS_HEADER: &str = "historica-log-1";
 
-/// The header the writing half's statements begin with, decision 0074.
-///
-/// The sibling of [`FIELDS_HEADER`], and the whole of what this module holds
-/// of that grammar. The writer and the parser are `historica::wrote`, in the
-/// library: `historica-minisign` and `historica-git` read this format from the
-/// far side of a pipe, and a parser in here is one neither of them can link.
-pub const WROTE_HEADER: &str = wrote::HEADER;
-
 /// Print what a command wrote, for something that is not a person.
 ///
-/// The statement is assembled by the command, from the values the library
-/// returned it, and printed here so that the two `--fields` outputs are
-/// reached the same way.
+/// Decision 0074, and the whole of what this module holds of that grammar.
+/// [`FIELDS_HEADER`]'s sibling is `historica::wrote::HEADER`, in the library
+/// along with the writer and the parser: `historica-minisign` and
+/// `historica-git` read this format from the far side of a pipe, and a parser
+/// in here is one neither of them can link. What stays here is the choosing —
+/// each command assembles its statement from the values the library returned
+/// it, and both `--fields` outputs are printed the same way.
 pub fn wrote(out: &mut impl Write, statement: &Statement) -> io::Result<()> {
     statement.write(out)
 }

@@ -17,6 +17,7 @@ use historica::store::{
     STORE_DIR, Store, StoreError,
 };
 use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope, Working};
+use historica::wrote::{self, Line, Statement};
 
 mod arrange;
 mod blame;
@@ -44,7 +45,7 @@ pub fn usage() -> String {
 
 /// The `fetch` entry, in a build that has a transport.
 #[cfg(feature = "http")]
-const FETCHING: &str = "  fetch <url> [--join-unrelated]
+const FETCHING: &str = "  fetch <url> [--join-unrelated] [--fields]
                            take what a published copy holds and this store
                            lacks: the URL is the manifest `offer` wrote, and
                            every path in it resolves against the directory
@@ -110,7 +111,7 @@ writing a store
                            what those say, the rest being left unlooked at
          [--onto <target>] [--merge <target>] [--move <old>=<new>]
          [--at <file>=<path>] [--accept <path>] [--bytes <path>]
-         [--lines <path>] [--dry-run]
+         [--lines <path>] [--dry-run] [--fields]
                            --bytes and --lines say which kind a file being
                            added is, where the sniff — valid UTF-8 with no
                            NUL is lines — would answer otherwise. Only for a
@@ -118,7 +119,7 @@ writing a store
                            fixed when a file is added, and changing it later
                            is a drop and an add
   amend [<target>]         rewrite the head as the folder now stands
-        [-m <message>] [--move <old>=<new>] [--dry-run]
+        [-m <message>] [--move <old>=<new>] [--dry-run] [--fields]
                            a revision work stands on takes -m and nothing
                            else: the folder states the head's content and
                            can state no other, so that is a reword, and what
@@ -129,13 +130,13 @@ writing a store
                            make the folder hold a head: write what it
                            records, remove what it does not, touch nothing
                            unrecorded
-  abandon <target> [--only] [-m <why>] [--dry-run]
+  abandon <target> [--only] [-m <why>] [--dry-run] [--fields]
                            supersede this revision, and everything standing
                            on it, with a tombstone that says why. --only
                            abandons the one revision and carries what stood
                            on it onto the tombstone, so the work above
                            survives the work beneath it
-  carry [<target>] [--onto <destination>] [--dry-run]
+  carry [<target>] [--onto <destination>] [--dry-run] [--fields]
                            restate work against a different parent. with no
                            --onto that parent is the rewrite the store
                            already holds, and with no target it repairs
@@ -145,9 +146,10 @@ writing a store
                            restating with a person deciding, so the revision
                            named is stamped and the stack above it derives
                            from that
-  prune [--dry-run]        delete superseded revisions nothing stands on, and
+  prune [--dry-run] [--fields]
+                           delete superseded revisions nothing stands on, and
                            content only they name, printing every file
-  receive <dir> [--dry-run] [--join-unrelated]
+  receive <dir> [--dry-run] [--join-unrelated] [--fields]
                            import immutable history from another local store
   export <dir> [<target>] [--files-only] [--dry-run]
                            write a fresh repository at <dir>: the folder as
@@ -168,7 +170,7 @@ writing a store
                            `offer.txt`, after the `export` that made it
 ";
 
-const REST: &str = "  forget <target> <path> [--lines <first>..<last>] [--dry-run]
+const REST: &str = "  forget <target> <path> [--lines <first>..<last>] [--dry-run] [--fields]
                            destroy those lines everywhere history quotes
                            them, leaving their shape; the file's paths,
                            authors, and times stay recorded. A file of bytes
@@ -184,11 +186,12 @@ const REST: &str = "  forget <target> <path> [--lines <first>..<last>] [--dry-ru
                            meant. --refile moves them under `YYYY-MM/` too,
                            which is how a store written flat catches up
   name <bookmark> <target> [<path>] [--revision] [--private|--shared]
+       [--fields]
                            point a bookmark at a change, pin a revision, or
                            name the file that <path> holds. --private keeps
                            the bookmark's own name out of an `export`; with
                            neither flag, a bookmark keeps the axis it has
-  name --delete <bookmark>
+  name --delete <bookmark> [--fields]
                            remove a bookmark. the label goes and nothing
                            recorded does — the work is still reached by
                            change ID or digest, and `prune` takes only
@@ -211,6 +214,18 @@ so it still names itself.
 a <path> is a path, or `file:` and a file identifier or a file bookmark — an
 identifier abbreviates to any prefix unique among the files at that revision.
 `path:` says the rest is a path, for a file whose own name begins `file:`.
+
+--fields on a writing command says where it wrote, for something that is not a
+person: a `historica-wrote-1` header, then a line of
+  revision <digest> | name <bookmark> | unname <bookmark> | gone <digest>
+`revision` and `name` are now in `revisions/` and `names/`, `unname` is a
+bookmark removed, and `gone` is a digest nothing is there under. digests are
+spelled whole, and a name takes the rest of the line, so a reader splits once.
+nothing a document says is restated — the digest is the pointer and the
+document is one read away. having written nothing is the header and no lines,
+which is what lets a wrapper do nothing at all, and it is what a command that
+failed leaves behind too, with the exit code saying so. `--dry-run --fields` is
+refused: a plan is not on disk.
 ";
 
 /// The last paragraph, in a build that can reach a program beside this one.
@@ -332,12 +347,18 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
     };
 
     let rest: Vec<String> = arguments.collect();
+    // Decision 0074: a command asked for a statement leaves one behind even
+    // when it stops. Asked here rather than in each command because the point
+    // is to cover the paths a command has no answer for — an I/O failure part
+    // way through applying a plan — and those are exactly the ones that never
+    // reach the printing at the end of it.
+    let stating = STATING.contains(&command.as_str()) && rest.iter().any(|word| word == "--fields");
     let base = match base {
         Some(directory) => directory,
         None => env::current_dir().map_err(|error| Failure::error(format!("$PWD: {error}")))?,
     };
 
-    match command.as_str() {
+    let done = match command.as_str() {
         "init" => init(&base, rest),
         "check" => check(&base, rest),
         "arrange" => arrange(&base, rest),
@@ -381,8 +402,28 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         other => dispatch::dispatch(other, &base, rest),
         #[cfg(not(feature = "dispatch"))]
         other => Err(Failure::usage(format!("there is no `{other}` command"))),
+    };
+
+    match done {
+        // A usage error is a command line that was wrong, so nothing ran and
+        // the pipeline is misconfigured rather than unlucky. Handing it a
+        // well-formed statement of nothing would hide the typo behind a
+        // wrapper that did its nothing and reported success.
+        Err(failure) if stating && !failure.wants_usage() => {
+            let _ = printing(|out| writeln!(out, "{}", wrote::HEADER));
+            Err(failure)
+        }
+        done => done,
     }
 }
+
+/// The commands `--fields` states a written store for, decision 0074's roster.
+///
+/// `merge` is not among them: it reads the store and writes the folder, so
+/// every statement it could make would be the empty one.
+const STATING: [&str; 9] = [
+    "record", "amend", "abandon", "carry", "prune", "forget", "name", "receive", "fetch",
+];
 
 /// `init [<dir>]` — write the layout decision 0006 settled on.
 fn init(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
@@ -474,9 +515,11 @@ fn arrange(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 /// still one `cp` away from being reversed.
 fn prune(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut dry_run = false;
+    let mut fields = false;
     for argument in arguments {
         match argument.as_str() {
             "-n" | "--dry-run" => dry_run = true,
+            "--fields" => fields = true,
             other => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `prune` takes"
@@ -484,6 +527,7 @@ fn prune(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             }
         }
     }
+    no_statement_of_a_plan("prune", dry_run, fields)?;
 
     let root = locate(base)?;
     // Decision 0013: prune refuses to run on a store `check` calls broken.
@@ -503,6 +547,20 @@ fn prune(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     } else {
         store.prune()?
     };
+
+    if fields {
+        // The three kinds of thing pruning destroys are three directories and
+        // one line kind: `gone` is a digest nothing is there under, and a
+        // caller checking is asking the same question of each.
+        let statement: Statement = pruned
+            .revisions
+            .iter()
+            .chain(&pruned.operations)
+            .chain(&pruned.payloads)
+            .map(|id| Line::Gone(*id))
+            .collect();
+        return printing(|out| render::wrote(out, &statement));
+    }
 
     printing(|out| {
         if pruned.is_empty() {
@@ -526,11 +584,13 @@ fn prune(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 /// mutable disagreements stop the operation, and neither working copy moves.
 fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut dry_run = false;
+    let mut fields = false;
     let mut join_unrelated = false;
     let mut source = None;
     for argument in arguments {
         match argument.as_str() {
             "-n" | "--dry-run" => dry_run = true,
+            "--fields" => fields = true,
             "--join-unrelated" => join_unrelated = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
@@ -545,6 +605,7 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             }
         }
     }
+    no_statement_of_a_plan("receive", dry_run, fields)?;
     let source = source.ok_or_else(|| Failure::usage("`receive` wants a source directory"))?;
     let root = locate(base)?;
     let mut here = Store::open(root)?;
@@ -607,6 +668,13 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let received = here
         .receive(&there, join_unrelated)
         .map_err(Failure::error)?;
+    if fields {
+        let mut statement = Statement::new();
+        statement.extend(received.revisions.iter().map(|id| Line::Revision(*id)));
+        statement.extend(received.names.iter().map(|name| Line::Name(name.clone())));
+        return printing(|out| render::wrote(out, &statement));
+    }
+
     printing(|out| {
         writeln!(out, "received {} revisions", received.revisions.len())?;
         writeln!(out, "received {} content documents", received.documents)?;
@@ -646,6 +714,7 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut lines: Option<String> = None;
     let mut dry_run = false;
+    let mut fields = false;
     let mut rest: Vec<String> = Vec::new();
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
@@ -656,6 +725,7 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                 })?);
             }
             "-n" | "--dry-run" => dry_run = true,
+            "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `forget` takes"
@@ -664,6 +734,7 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             other => rest.push(other.to_owned()),
         }
     }
+    no_statement_of_a_plan("forget", dry_run, fields)?;
     let mut rest = rest.into_iter();
     let spelling = rest
         .next()
@@ -702,6 +773,14 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         store.forget(&forgetting)
     }
     .map_err(Failure::error)?;
+
+    if fields {
+        // The stand-ins are documents in `operations/`, which this vocabulary
+        // has no kind for and 0074 does not owe one: what a caller reacting to
+        // a redaction needs is which digests stopped being readable.
+        let statement: Statement = plan.targets.iter().map(|id| Line::Gone(*id)).collect();
+        return printing(|out| render::wrote(out, &statement));
+    }
 
     printing(|out| {
         if plan.is_empty() {
@@ -1253,6 +1332,7 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // every commit.
     let mut axis: Option<bool> = None;
     let mut delete = false;
+    let mut fields = false;
     // What a deletion refuses, kept as it was typed: the flags shape a target
     // and an axis, and a bookmark that is going has neither.
     let mut shaping: Vec<String> = Vec::new();
@@ -1276,11 +1356,12 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                 shaping.push(argument);
             }
             "--delete" => delete = true,
+            "--fields" => fields = true,
             _ => rest.push(argument),
         }
     }
     if delete {
-        return delete_name(base, rest, &shaping);
+        return delete_name(base, rest, &shaping, fields);
     }
     let mut rest = rest.into_iter();
     let bookmark = rest
@@ -1327,6 +1408,12 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     };
     let stated = Bookmark { target, private };
     store.set_bookmark(&bookmark, stated)?;
+    if fields {
+        // What the bookmark now points at is in `names/`, which is where a
+        // caller reads it: this says the file is there and no more.
+        let statement: Statement = [Line::Name(bookmark.clone())].into_iter().collect();
+        return printing(|out| render::wrote(out, &statement));
+    }
     printing(|out| {
         writeln!(out, "{bookmark} -> {stated}")?;
         // Decision 0062's deferred item, said where a person would otherwise
@@ -1351,7 +1438,12 @@ fn name(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 /// is where this parts company with the library: `Store::remove_name` is asked
 /// by an export working from a plan, and this is asked by somebody who believes
 /// the name exists.
-fn delete_name(base: &Path, rest: Vec<String>, shaping: &[String]) -> Result<u8, Failure> {
+fn delete_name(
+    base: &Path,
+    rest: Vec<String>,
+    shaping: &[String],
+    fields: bool,
+) -> Result<u8, Failure> {
     if let Some(flag) = shaping.first() {
         return Err(Failure::usage(format!(
             "`{flag}` shapes what a bookmark points at, and `--delete` is the \
@@ -1377,6 +1469,12 @@ fn delete_name(base: &Path, rest: Vec<String>, shaping: &[String]) -> Result<u8,
         )));
     };
     store.remove_name(&bookmark)?;
+    if fields {
+        // `unname`, decision 0073's kind: the label went and nothing recorded
+        // did, so there is no `gone` here.
+        let statement: Statement = [Line::Unname(bookmark.clone())].into_iter().collect();
+        return printing(|out| render::wrote(out, &statement));
+    }
     printing(|out| {
         // What it pointed at, because a deletion a person did not mean is
         // undone by typing it back, and this is the line that says how.

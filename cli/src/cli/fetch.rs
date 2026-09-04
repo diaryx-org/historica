@@ -22,17 +22,20 @@ use std::path::Path;
 use std::time::Duration;
 
 use historica::store::{Source, Store, Unreachable};
+use historica::wrote::{Line, Statement};
 
-use super::{Failure, locate, printing};
+use super::{Failure, locate, printing, render};
 
 /// `fetch <url> [--join-unrelated]` — take what a published copy has and this
 /// store lacks.
 pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut join_unrelated = false;
+    let mut fields = false;
     let mut url: Option<String> = None;
     for argument in arguments {
         match argument.as_str() {
             "--join-unrelated" => join_unrelated = true,
+            "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not an argument `fetch` takes"
@@ -59,6 +62,13 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let fetched = store
         .fetch(&source, &manifest, join_unrelated)
         .map_err(Failure::error)?;
+
+    if fields {
+        let mut statement = Statement::new();
+        statement.extend(fetched.revisions.iter().map(|id| Line::Revision(*id)));
+        statement.extend(fetched.names.iter().map(|name| Line::Name(name.clone())));
+        return printing(|out| render::wrote(out, &statement));
+    }
 
     printing(|out| {
         writeln!(out, "fetched {} revisions", fetched.revisions.len())?;
