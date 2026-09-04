@@ -187,11 +187,11 @@ fn an_empty_store_is_seeded_from_an_export_and_the_manifest_beside_it() {
         .fetch(&source, MANIFEST, false)
         .expect("a fetch from a published copy");
 
-    assert_eq!(fetched.revisions, 2);
+    assert_eq!(fetched.revisions.len(), 2);
     assert_eq!(fetched.payloads, 2, "the file and the picture");
     assert!(fetched.documents >= 1);
     assert_eq!(fetched.rules, 1);
-    assert_eq!(fetched.names, 1, "the publisher's bookmark");
+    assert_eq!(fetched.names.len(), 1, "the publisher's bookmark");
     assert_eq!(fetched.reserved, 1, "the file another tool wrote");
     assert!(fetched.declined.is_empty());
     assert_eq!(fetched.refetches, 0);
@@ -242,7 +242,7 @@ fn a_bookmark_this_store_holds_is_kept_and_a_private_one_is_never_offered() {
     let fetched = store(&here)
         .fetch(&Directory::at(&root), MANIFEST, false)
         .expect("a fetch");
-    assert_eq!(fetched.names, 1);
+    assert_eq!(fetched.names.len(), 1);
     assert_eq!(fetched.kept, 0);
 
     // Decision 0062: the publisher's `main` is the publisher's, and a fetcher
@@ -264,7 +264,8 @@ fn a_bookmark_this_store_holds_is_kept_and_a_private_one_is_never_offered() {
         .fetch(&Directory::at(&root), MANIFEST, false)
         .expect("a second fetch");
     assert_eq!(
-        fetched.names, 0,
+        fetched.names.len(),
+        0,
         "a bookmark this store held was overwritten"
     );
     assert_eq!(fetched.kept, 1);
@@ -291,7 +292,7 @@ fn a_nested_bookmark_crosses_and_a_name_that_escapes_names_does_not() {
     let fetched = store(&here)
         .fetch(&Directory::at(&root), MANIFEST, false)
         .expect("a fetch");
-    assert_eq!(fetched.names, 1, "the nested one");
+    assert_eq!(fetched.names.len(), 1, "the nested one");
     let names = out(&here, &["names"]);
     assert!(names.contains("claude/loving-wiles-12e833"), "{names}");
     let names = out(&here, &["names"]);
@@ -343,7 +344,11 @@ fn a_fetch_after_the_origin_advances_takes_exactly_the_difference() {
     let fetched = store(&here)
         .fetch(&source, MANIFEST, false)
         .expect("the second fetch");
-    assert_eq!(fetched.revisions, 1, "more than the difference arrived");
+    assert_eq!(
+        fetched.revisions.len(),
+        1,
+        "more than the difference arrived"
+    );
     assert_eq!(fetched.payloads, 0, "a payload already held was fetched");
     assert_eq!(fetched.documents, 1);
     assert_eq!(fetched.rules, 0);
@@ -362,7 +367,7 @@ fn a_fetch_after_the_origin_advances_takes_exactly_the_difference() {
     let fetched = store(&here)
         .fetch(&source, MANIFEST, false)
         .expect("a fetch with nothing to take");
-    assert_eq!(fetched.revisions, 0);
+    assert_eq!(fetched.revisions.len(), 0);
     assert_eq!(source.asked(), vec![MANIFEST.to_owned()]);
 }
 
@@ -540,7 +545,7 @@ fn two_unrelated_histories_are_not_joined_without_being_asked() {
     let fetched = store(&here)
         .fetch(&Directory::at(&root), MANIFEST, true)
         .expect("`--join-unrelated` is the escape");
-    assert_eq!(fetched.revisions, 2);
+    assert_eq!(fetched.revisions.len(), 2);
     assert_eq!(store(&here).len(), 3);
 }
 
@@ -736,7 +741,7 @@ fn a_remote_that_has_diverged_is_fetched_from_rather_than_refused() {
     let fetched = store(&here)
         .fetch(&Directory::at(&root), MANIFEST, false)
         .expect("a divergent remote is still a remote");
-    assert_eq!(fetched.revisions, 1);
+    assert_eq!(fetched.revisions.len(), 1);
     assert_eq!(
         store(&here).history().heads().len(),
         2,
@@ -779,7 +784,7 @@ fn a_manifest_spelled_in_a_grammar_this_reader_does_not_know_is_discarded_whole(
     let fetched = store(&here)
         .fetch(&Directory::at(&root), MANIFEST, false)
         .expect("a kind this reader does not know is a line, not a manifest");
-    assert_eq!(fetched.revisions, 2);
+    assert_eq!(fetched.revisions.len(), 2);
 }
 
 // ---------------------------------------------------------------------------

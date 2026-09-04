@@ -372,8 +372,12 @@ pub struct Fetched {
     pub payloads: usize,
     /// Content documents taken, in either grammar.
     pub documents: usize,
-    /// Revision documents taken.
-    pub revisions: usize,
+    /// Revision documents taken, by digest, in the order they were written.
+    ///
+    /// The digests rather than a count of them, for the reason [`Received`]
+    /// carries its own: `fetch --fields` says where to look under decision
+    /// 0074, and how many is `revisions.len()`.
+    pub revisions: Vec<RevisionId>,
     /// Rules taken, counting only those this store did not already state.
     pub rules: usize,
     /// Files another tool wrote, unioned add-only by their class.
@@ -384,8 +388,9 @@ pub struct Fetched {
     /// a wrapper verifying after a receive asks the store as it stands rather
     /// than asking what came.
     pub reserved: usize,
-    /// Bookmarks taken, which are those this store did not already hold.
-    pub names: usize,
+    /// Bookmarks taken, by name, which are those this store did not already
+    /// hold.
+    pub names: Vec<String>,
     /// Bookmarks the publisher states and this store kept its own reading of.
     pub kept: usize,
     /// Reserved directories the manifest named and this store did not fill.
@@ -675,7 +680,7 @@ impl<F: Filesystem> Store<F> {
                     let document = RevisionDocument::parse(&bytes)
                         .map_err(|error| unusable(&entry.path, error))?;
                     self.insert_at(&document, &format!("{found}{REVISION_SUFFIX}"))?;
-                    fetched.revisions += 1;
+                    fetched.revisions.push(found);
                 }
                 OfferKind::Rule => {
                     let text = String::from_utf8(bytes)
@@ -712,7 +717,7 @@ impl<F: Filesystem> Store<F> {
                         Bookmark::parse(&text).map_err(|because| unusable(&entry.path, because))?;
                     let name = name.to_owned();
                     self.set_bookmark(&name, bookmark)?;
-                    fetched.names += 1;
+                    fetched.names.push(name.clone());
                 }
             }
         }

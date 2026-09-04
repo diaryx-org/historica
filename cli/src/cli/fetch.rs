@@ -61,7 +61,7 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         .map_err(Failure::error)?;
 
     printing(|out| {
-        writeln!(out, "fetched {} revisions", fetched.revisions)?;
+        writeln!(out, "fetched {} revisions", fetched.revisions.len())?;
         writeln!(out, "fetched {} content documents", fetched.documents)?;
         writeln!(out, "fetched {} payloads", fetched.payloads)?;
         if fetched.rules != 0 {
@@ -72,8 +72,8 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         if fetched.reserved != 0 {
             writeln!(out, "fetched {} files another tool wrote", fetched.reserved)?;
         }
-        if fetched.names != 0 {
-            writeln!(out, "fetched {} bookmarks", fetched.names)?;
+        if !fetched.names.is_empty() {
+            writeln!(out, "fetched {} bookmarks", fetched.names.len())?;
         }
         // Decision 0062: a bookmark this store already has is one it keeps,
         // and saying so is what keeps a person from reading an unmoved `main`
@@ -110,7 +110,7 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         }
         // Decision 0030, said where the person is: a fetch adds history and
         // stops, and the folder catching up is a separate thing to type.
-        if fetched.revisions != 0 {
+        if !fetched.revisions.is_empty() {
             writeln!(
                 out,
                 "the folder is untouched; `historica update` is its catch-up"

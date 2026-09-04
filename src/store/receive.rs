@@ -132,17 +132,22 @@ impl ReceivePlan {
 }
 
 /// What one receive changed.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Received {
-    /// Revision documents copied.
-    pub revisions: usize,
+    /// Revision documents copied, by digest, in the order they were written.
+    ///
+    /// The digests rather than a count of them, because `receive --fields`
+    /// says where to look under decision 0074 and a count cannot. Keeping both
+    /// would be two answers to one question, which is the shape 0037 refused:
+    /// how many were copied is `revisions.len()`.
+    pub revisions: Vec<RevisionId>,
     /// Content documents copied, in either grammar.
     pub documents: usize,
     /// Whole-content payloads copied.
     pub payloads: usize,
-    /// Bookmarks copied.
-    pub names: usize,
+    /// Bookmarks copied, by name, in the order they were written.
+    pub names: Vec<String>,
     /// Rules copied.
     pub skipped: usize,
     /// Files another tool wrote, unioned by their class (decision 0053).
@@ -325,11 +330,11 @@ impl<F: Filesystem> Store<F> {
                 .get(id)?
                 .expect("a revision named by the plan remains in the open source");
             self.insert_at(document, &format!("{id}{REVISION_SUFFIX}"))?;
-            received.revisions += 1;
+            received.revisions.push(*id);
         }
         for (name, bookmark) in &plan.names {
             self.set_bookmark(name, *bookmark)?;
-            received.names += 1;
+            received.names.push(name.clone());
         }
         received.skipped = self.add_skipped(&plan.skipped)?.len();
         // Add-only, and the plan is worked out from a listing rather than

@@ -592,11 +592,11 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         .receive(&there, join_unrelated)
         .map_err(Failure::error)?;
     printing(|out| {
-        writeln!(out, "received {} revisions", received.revisions)?;
+        writeln!(out, "received {} revisions", received.revisions.len())?;
         writeln!(out, "received {} content documents", received.documents)?;
         writeln!(out, "received {} payloads", received.payloads)?;
-        if received.names != 0 {
-            writeln!(out, "received {} bookmarks", received.names)?;
+        if !received.names.is_empty() {
+            writeln!(out, "received {} bookmarks", received.names.len())?;
         }
         if received.skipped != 0 {
             writeln!(out, "received {} rules", received.skipped)?;
