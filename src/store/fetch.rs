@@ -189,6 +189,25 @@ pub trait Source {
             None => Ok(false),
         }
     }
+
+    /// The paths a fetch is about to ask for, all at once, before it asks for
+    /// any of them.
+    ///
+    /// A hint, and nothing else: [`get`](Source::get) is still called for
+    /// every path, in the plan's order, and is still the answer. What the
+    /// hint is for is a source whose every answer is a round trip — a store
+    /// on the far side of a network — which can start all of them here and
+    /// hand each back from memory when it is asked. Without it a plan of a
+    /// dozen small files is a dozen round trips in a row, and that is the
+    /// whole of what a fetch costs.
+    ///
+    /// Defaulted to doing nothing, so a source that has no use for it keeps
+    /// compiling and keeps answering. Payloads are not among the paths:
+    /// decision 0067 has them go from transport to file a piece at a time,
+    /// and a hint that had a source hold them whole would undo that.
+    fn prefetch(&self, paths: &[&str]) {
+        let _ = paths;
+    }
 }
 
 /// Forward to whatever is inside the pointer, so `Arc<dyn Source>` is a source.
@@ -204,6 +223,9 @@ macro_rules! forwarding {
                 each: &mut dyn FnMut(&[u8]) -> Result<(), Unreachable>,
             ) -> Result<bool, Unreachable> {
                 (**self).get_in_pieces(path, each)
+            }
+            fn prefetch(&self, paths: &[&str]) {
+                (**self).prefetch(paths)
             }
         }
     };
@@ -443,6 +465,18 @@ impl<F: Filesystem> Store<F> {
             // a bookmark this store kept is a fact about the two readings,
             // not something a second pass keeps again.
             fetched.kept = plan.kept;
+            // Everything small the plan names, offered to the source together
+            // before any of it is asked for, so a source that can answer them
+            // all at once does. Payloads are left out: they stream.
+            let small: Vec<&str> = plan
+                .wanted()
+                .into_iter()
+                .filter(|(kind, _)| *kind != OfferKind::Payload)
+                .map(|(_, entry)| entry.path.as_str())
+                .collect();
+            if !small.is_empty() {
+                source.prefetch(&small);
+            }
             match self.take(source, &plan, &mut fetched)? {
                 None => break,
                 // Decision 0048: a path that is not there is the publisher

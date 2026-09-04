@@ -99,6 +99,8 @@ struct Directory {
     /// A manifest to serve once, in place of the one on disk: a fetcher holding
     /// a listing the publisher has since rewritten.
     stale: RefCell<Option<String>>,
+    /// Every hint, as (asks made so far, the paths hinted).
+    hinted: RefCell<Vec<(usize, Vec<String>)>>,
 }
 
 impl Directory {
@@ -108,6 +110,7 @@ impl Directory {
             asked: RefCell::new(Vec::new()),
             answers: Cell::new(usize::MAX),
             stale: RefCell::new(None),
+            hinted: RefCell::new(Vec::new()),
         }
     }
 
@@ -130,6 +133,15 @@ impl Directory {
 }
 
 impl Source for Directory {
+    /// Noted with how many asks had been made when it came, so a test can
+    /// see where the hint fell among them.
+    fn prefetch(&self, paths: &[&str]) {
+        let so_far = self.asked.borrow().len();
+        self.hinted
+            .borrow_mut()
+            .push((so_far, paths.iter().map(|p| (*p).to_owned()).collect()));
+    }
+
     fn get(&self, path: &str) -> Result<Option<Vec<u8>>, Unreachable> {
         self.asked.borrow_mut().push(path.to_owned());
         if self.answers.get() == 0 {
@@ -229,6 +241,49 @@ fn an_empty_store_is_seeded_from_an_export_and_the_manifest_beside_it() {
     assert!(
         !here.join("notes.md").exists(),
         "a fetch wrote into the folder; decision 0030 says `update` does that"
+    );
+}
+
+#[test]
+fn the_plan_is_offered_to_the_source_together_before_any_of_it_is_asked_for() {
+    // The hint is for a source on the far side of a network, which can start
+    // every request at once. What a test on this side can hold it to is the
+    // shape: given once, after the manifest and before anything else, naming
+    // exactly what is then asked for except the payloads, which stream.
+    let (_origin, root) = published("hinting");
+    let here = repository("hinting-here");
+    let source = Directory::at(&root);
+
+    let fetched = store(&here)
+        .fetch(&source, MANIFEST, false)
+        .expect("a fetch from a published copy");
+    assert_eq!(fetched.payloads, 2, "the file and the picture");
+
+    let asked = source.asked();
+    assert_eq!(asked[0], MANIFEST, "the listing is read first");
+    let hints = source.hinted.borrow();
+    assert_eq!(hints.len(), 1, "one hint per plan: {hints:?}");
+    let (after, hinted) = &hints[0];
+    assert_eq!(
+        *after, 1,
+        "the hint comes after the listing and before anything else"
+    );
+    let hinted: BTreeSet<&str> = hinted.iter().map(String::as_str).collect();
+    let asked_after: Vec<&str> = asked[1..].iter().map(String::as_str).collect();
+    for path in &hinted {
+        assert!(
+            asked_after.contains(path),
+            "hinted and never asked for: {path}"
+        );
+    }
+    let not_hinted: Vec<&&str> = asked_after
+        .iter()
+        .filter(|p| !hinted.contains(*p))
+        .collect();
+    assert_eq!(
+        not_hinted.len(),
+        2,
+        "everything asked for was hinted except the two payloads: {not_hinted:?}"
     );
 }
 
