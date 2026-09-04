@@ -29,3 +29,4 @@ pub mod store;
 pub mod tree;
 pub mod update;
 pub mod working;
+pub mod wrote;
