@@ -188,6 +188,14 @@ fn an_empty_store_is_seeded_from_an_export_and_the_manifest_beside_it() {
         .expect("a fetch from a published copy");
 
     assert_eq!(fetched.revisions.len(), 2);
+    // The digests rather than a count of them, which is what decision 0074
+    // needs to say where a fetch wrote: every one names a document now here.
+    for id in &fetched.revisions {
+        assert!(
+            store(&here).get(id).is_ok_and(|held| held.is_some()),
+            "`fetch` names {id} and this store does not hold it"
+        );
+    }
     assert_eq!(fetched.payloads, 2, "the file and the picture");
     assert!(fetched.documents >= 1);
     assert_eq!(fetched.rules, 1);
