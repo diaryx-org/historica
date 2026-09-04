@@ -152,6 +152,60 @@ privacy as a deletion of the file it names.
 
 ## Writing a store
 
+### `--fields`, and saying where a command wrote
+
+Every command in this section but `merge` and `update` takes `--fields`, which
+replaces the sentences with a statement for something that is not a person
+([0074](decisions/0074-saying-where-to-look.md)): a `historica-wrote-1` header,
+then a line for each thing the store now holds or no longer holds.
+
+```text
+historica-wrote-1
+revision <digest>
+name <bookmark>
+unname <bookmark>
+gone <digest>
+```
+
+`revision` is a document now in `revisions/`, `name` a bookmark now in
+`names/`, `unname` one that was removed, and `gone` a digest nothing is there
+under. Every line is a **pointer**, never a report: nothing a document says is
+restated — no change ID, no message, no author, no timestamp — because the
+caller has the digest and the document is the authority, one read away. `show`
+prints it byte for byte.
+
+Digests are spelled whole, since an abbreviation is a fact about what else this
+store holds today. A bookmark takes everything after the first space, so a
+reader splits the line once and `feature/two words`
+([0071](decisions/0071-a-name-with-structure-in-it.md)) arrives whole; a name
+can hold no control character, so it can never hold the newline that ends its
+own line. The lines come in a stated order — kind first, in the order above,
+then digests ascending and names in byte order — so two replicas doing the same
+work print the same bytes.
+
+**Having written nothing is the header and no lines, and exits zero.** That is
+the most useful line in the format, because it is what lets a wrapper do
+nothing at all, and it is the one fact here that reading the store cannot
+recover: a store that did not change looks exactly like a store nobody wrote
+to. A command that *failed* leaves the same well-formed statement, with the
+exit code carrying the failure, so the far side of a pipe is never handed a
+truncated stream.
+
+`--dry-run --fields` is refused. A plan describes a store that does not exist
+yet, so every line of it would be false at the moment it was printed, and being
+a claim the store can be held to is the whole of what this header promises.
+
+`merge` and `update` are not on the list: both write the **folder** rather than
+the store, and what changed there is what `status` and `diff` answer.
+
+The parser is `historica::wrote`, in the library beside the writer, so a tool on
+the far side of a pipe reads this with the same implementation that wrote it:
+
+```sh
+historica record --fields -m 'note' | historica-minisign sign --wrote -
+historica receive --fields ../other | historica-minisign verify --complete
+```
+
 ### `record`
 
 The writer [0010](decisions/0010-writer.md) and

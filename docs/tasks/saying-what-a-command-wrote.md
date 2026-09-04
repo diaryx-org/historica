@@ -1,7 +1,7 @@
 ---
 title: Saying what a command wrote
 description: Implement 0074's `historica-wrote-1` — the `--fields` flag on the writing commands, the parser beside the writer, and the four things the decision has to settle first
-status: in-progress
+status: done
 created: 2026-09-02
 updated: 2026-09-03
 part_of: "[Tasks](tasks.md)"
@@ -9,8 +9,34 @@ part_of: "[Tasks](tasks.md)"
 
 # Saying what a command wrote
 
-[0074](../decisions/0074-saying-where-to-look.md) is argued and nothing
-implements it. `grep -rn historica-wrote src cli tests docs` finds nothing, so
+**Status: done.** 0074 carries seven amendments rather than the four argued
+below; `historica::wrote` is the grammar, writer and parser together;
+`--fields` is on the nine commands the amended roster names; and
+`cli/tests/wrote.rs` holds every statement to the store that made it.
+
+Three things came out differently from the plan below, each argued in 0074:
+
+- **`merge` is not on the roster.** It reads the store and writes the folder,
+  so every statement it could make would be the empty one — which under this
+  format's own rule is a lie told by a true sentence. It is deferred with
+  `update` and `status`.
+- **`Received` and `Fetched` had to change**, from counts to the digests
+  themselves. They were the two commands 0074 names that could not say where
+  they wrote. That is a break, and it carries the `Behavioural-change:` trailer
+  the flag itself does not owe.
+- **A failed command still prints a statement**, handled once in `run` rather
+  than threaded through every error in the library. The paths worth covering
+  are the ones a command has no answer for, and those never reach the printing
+  at the end of it.
+
+What is left for somebody else: `fetch --fields` is not driven end to end,
+because the command-line path wants an HTTP server that the tests do not stand
+up; what it prints from is asserted where the library's fetch is. And the two
+sidecar tasks below are unblocked only once the parser is published, since they
+depend on `historica` by version.
+
+[0074](../decisions/0074-saying-where-to-look.md) was argued and nothing
+implemented it. `grep -rn historica-wrote src cli tests docs` finds nothing, so
 this is the whole of the writing half: the grammar, the flag on each writing
 command, the parser, the corpus comparison, and the guide.
 

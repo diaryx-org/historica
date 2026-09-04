@@ -53,9 +53,16 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
+### Breaking
+
+- **store** — `Received` and `Fetched` carry the digests, not a count of them ([`3dda77e`](https://github.com/diaryx-org/historica/commit/3dda77ec5d8ae58ac10a20a420536bed85f524d4))
+
 ### Added
 
 - **cli** — a command this tool does not have is looked for on PATH ([`bbb582c`](https://github.com/diaryx-org/historica/commit/bbb582c7584d305d640a598b7ce19f07d8cc5854))
+- **store** — a bookmark can be deleted as well as written ([`d0ed602`](https://github.com/diaryx-org/historica/commit/d0ed602ea7bdb862033bf3ce1b6ba201c0838d27))
+- **wrote** — the grammar of what a command wrote, writer and parser together ([`be6dde6`](https://github.com/diaryx-org/historica/commit/be6dde6d45a5893bd4f9975e8c6957a93e01614f))
+- **cli** — `--fields` on the writing commands, saying where they wrote ([`a4dd0ad`](https://github.com/diaryx-org/historica/commit/a4dd0ad4c1e8c8a6644eaf4669651a873b6cfc3a))
 
 ### Changed
 
@@ -75,6 +82,17 @@ visible, to be triaged into its real group before the tag is cut.
   nothing on PATH answers to that name, and will see the other
   program's code when something does. Builds without default features
   are unaffected.
+
+- `Store::remove_name` is public. It deletes the
+bookmark file, drops the entry, tidies the directories a nested name
+made, and returns whether a file was there to remove; a name already
+gone is `Ok(false)` rather than an error. Nothing that already compiled
+behaves differently.
+
+- `Received::revisions` and `Fetched::revisions` are now
+  `Vec<RevisionId>` rather than `usize`, and `Received::names` and
+  `Fetched::names` are `Vec<String>`; the counts are `.len()`. `Received` is no
+  longer `Copy`. Nothing a command prints changes.
 
 <!-- git-cliff:end -->
 

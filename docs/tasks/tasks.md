@@ -5,7 +5,6 @@ created: 2026-09-02
 updated: 2026-09-03
 contents:
   - "[The first capture is barrier-bound](first-capture-is-barrier-bound.md)"
-  - "[Saying what a command wrote](saying-what-a-command-wrote.md)"
 ---
 
 # Tasks

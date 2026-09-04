@@ -374,7 +374,7 @@ pub struct Fetched {
     pub documents: usize,
     /// Revision documents taken, by digest, in the order they were written.
     ///
-    /// The digests rather than a count of them, for the reason [`Received`]
+    /// The digests rather than a count of them, for the reason [`Received`](crate::store::Received)
     /// carries its own: `fetch --fields` says where to look under decision
     /// 0074, and how many is `revisions.len()`.
     pub revisions: Vec<RevisionId>,
