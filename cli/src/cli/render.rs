@@ -16,6 +16,7 @@ use historica::format::{RevisionDocument, Timestamp};
 use historica::record::Survey;
 use historica::store::{Name, Report, Store};
 use historica::tree::{Tree, TreeContest};
+use historica::wrote::{self, Statement};
 
 use super::target;
 
@@ -200,6 +201,23 @@ fn kept(store: &Store, shown: &BTreeSet<RevisionId>, filter: &Filter) -> Vec<Rev
 /// since the listing is otherwise indistinguishable from a shell's idea of
 /// five words.
 pub const FIELDS_HEADER: &str = "historica-log-1";
+
+/// The header the writing half's statements begin with, decision 0074.
+///
+/// The sibling of [`FIELDS_HEADER`], and the whole of what this module holds
+/// of that grammar. The writer and the parser are `historica::wrote`, in the
+/// library: `historica-minisign` and `historica-git` read this format from the
+/// far side of a pipe, and a parser in here is one neither of them can link.
+pub const WROTE_HEADER: &str = wrote::HEADER;
+
+/// Print what a command wrote, for something that is not a person.
+///
+/// The statement is assembled by the command, from the values the library
+/// returned it, and printed here so that the two `--fields` outputs are
+/// reached the same way.
+pub fn wrote(out: &mut impl Write, statement: &Statement) -> io::Result<()> {
+    statement.write(out)
+}
 
 /// `log --fields`: the same listing, for something that is not a person.
 ///

@@ -286,6 +286,22 @@ impl From<StoreError> for Failure {
     }
 }
 
+/// Decision 0074: `--dry-run` and `--fields` together are refused.
+///
+/// A plan is not a claim the store can be held to — it describes a store that
+/// does not exist yet, so every line of it is false at the moment it is
+/// printed, and that is the one property the header promises. A machine
+/// readable plan is a reasonable thing to want and is its own header.
+fn no_statement_of_a_plan(command: &str, dry_run: bool, fields: bool) -> Result<(), Failure> {
+    if dry_run && fields {
+        return Err(Failure::usage(format!(
+            "`{command} --dry-run --fields` is refused: `--fields` states what \
+             is on disk, and a plan is not on disk. ask for one or the other"
+        )));
+    }
+    Ok(())
+}
+
 /// Run one command line, returning the code to exit with.
 pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
     let mut arguments = arguments.into_iter();

@@ -119,13 +119,22 @@ whole of this decision is the difference.
   eventually they differ.
 
   Which commands, said outright rather than left to *the writing ones*:
-  `record`, `amend`, `abandon`, `carry`, `merge`, `prune`, `forget`, `name` —
-  including `name --delete`, which is what `unname` is for — `receive`, and
-  `fetch`. A command outside that list refuses the flag rather than printing an
-  empty statement, because a wrapper that asked `update --fields` and was given
-  a header and no lines would read it as *nothing was written*, which is the one
-  sentence in this format that most needs to be true. `update` and `skip` are
-  absent because both are deferred below, not because they write nothing.
+  `record`, `amend`, `abandon`, `carry`, `prune`, `forget`, `name` — including
+  `name --delete`, which is what `unname` is for — `receive`, and `fetch`. A
+  command outside that list refuses the flag rather than printing an empty
+  statement, because a wrapper that asked `update --fields` and was given a
+  header and no lines would read it as *nothing was written*, which is the one
+  sentence in this format that most needs to be true.
+
+  `merge` is not on it, and the first paragraph of this document was wrong to
+  imply otherwise. `merge` reads the store and writes the *folder*: it renders
+  the joined content beside the paths it contests and prints the `record
+  --merge` line that would commit it, and the store is untouched when it
+  returns. Every statement it could make would be the empty one, which under
+  the rule above is a lie told by a true sentence. It goes with `update` and
+  `status`, in the folder's deferral below. `update` and `skip` are absent for
+  the same kind of reason — the folder, and rules — not because they write
+  nothing.
 
 - **`--dry-run` and `--fields` together are refused.** A plan is not a claim the
   store can be held to. It is a statement about a store that does not exist yet,
@@ -272,7 +281,10 @@ who deletes it.
 ## Deferred
 
 - **The folder.** Above. `update`'s writes, and the quoting rule a path needs,
-  are their own decision.
+  are their own decision. `merge` is here rather than among the writing
+  commands: what it produces is contested content laid out in the folder and a
+  `record` line to type, and the revision that joins the work is written by the
+  `record` that follows it.
 - **A reserved directory, which needs no line and is not an omission.**
   `receive` unions `claims/` under 0053 and counts what arrived in its result's
   `reserved` field, and no line kind reports it. It needs none, and the reason
