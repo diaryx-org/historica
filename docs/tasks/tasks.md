@@ -2,11 +2,10 @@
 title: Tasks
 description: Deferred work in historica — one file each, every one with a done state
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 contents:
   - "[The first capture is barrier-bound](first-capture-is-barrier-bound.md)"
   - "[Saying what a command wrote](saying-what-a-command-wrote.md)"
-  - "[A claim arriving needs no line](a-claim-arriving-needs-no-line.md)"
 ---
 
 # Tasks

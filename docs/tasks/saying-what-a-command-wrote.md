@@ -1,9 +1,9 @@
 ---
 title: Saying what a command wrote
 description: Implement 0074's `historica-wrote-1` — the `--fields` flag on the writing commands, the parser beside the writer, and the four things the decision has to settle first
-status: open
+status: in-progress
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 part_of: "[Tasks](tasks.md)"
 ---
 
@@ -17,10 +17,17 @@ command, the parser, the corpus comparison, and the guide.
 The reading half exists — 0064's `historica-log-1` — and it is the model for
 all of this, including what a caller is owed when there is nothing to say.
 
-## Settle the decision first
+## Settle the decision first — done
 
-Four things 0074 does not say, or says wrongly. They are edits to the decision
-document, and they come before the code because two of them change the grammar.
+**These are in 0074 as of the amendment ahead of this work**, along with three
+more the reading of the code turned up: the roster of commands that take the
+flag, the grammar living in the library rather than in `render.rs`, and the
+digests `Received` and `Fetched` have to start carrying. They are kept below as
+the argument for what the decision now says.
+
+Four things 0074 did not say, or said wrongly. They were edits to the decision
+document, and they came before the code because two of them change the
+grammar.
 
 **A bookmark name can hold a space, so `name` and `unname` take the rest of the
 line.** 0074 says the vocabulary has no path in it and leans on 0064's "no field

@@ -377,6 +377,12 @@ pub struct Fetched {
     /// Rules taken, counting only those this store did not already state.
     pub rules: usize,
     /// Files another tool wrote, unioned add-only by their class.
+    ///
+    /// Nothing in `historica-wrote-1` reports these, and decision 0074 defers
+    /// a line kind for them rather than owing one: a claim arriving can only
+    /// ever move a revision from unvouched to vouched, never the other way, so
+    /// a wrapper verifying after a receive asks the store as it stands rather
+    /// than asking what came.
     pub reserved: usize,
     /// Bookmarks taken, which are those this store did not already hold.
     pub names: usize,

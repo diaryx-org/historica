@@ -1,13 +1,18 @@
 ---
 title: A claim arriving needs no line
 description: 0074 has no line kind for a reserved directory, and should say in Deferred that it needs none — a claim arriving only ever moves a revision from unvouched to vouched
-status: open
+status: done
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-03
 part_of: "[Tasks](tasks.md)"
 ---
 
 # A claim arriving needs no line
+
+**Status: done.** 0074's Deferred carries the argument, as *A reserved
+directory, which needs no line and is not an omission*, and `Received` and
+`Fetched` say the same thing on the `reserved` field a reader of the code meets
+it at. Resolved by the commit that amended 0074 ahead of `historica-wrote-1`.
 
 [0074](../decisions/0074-saying-where-to-look.md)'s vocabulary is four line
 kinds — `revision`, `name`, `unname`, `gone` — shaped to what a store holds.

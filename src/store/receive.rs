@@ -146,6 +146,12 @@ pub struct Received {
     /// Rules copied.
     pub skipped: usize,
     /// Files another tool wrote, unioned by their class (decision 0053).
+    ///
+    /// Nothing in `historica-wrote-1` reports these, and decision 0074 defers
+    /// a line kind for them rather than owing one: a claim arriving can only
+    /// ever move a revision from unvouched to vouched, never the other way, so
+    /// a wrapper verifying after a receive asks the store as it stands rather
+    /// than asking what came.
     pub reserved: usize,
     /// Original operation documents or payloads destroyed in compliance with
     /// received forgetting documents.
