@@ -53,6 +53,12 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
+_No commits since the last tag._
+
+<!-- git-cliff:end -->
+
+## v1.0.0-rc.2 — 2026-09-03
+
 ### Breaking
 
 - **store** — `Received` and `Fetched` carry the digests, not a count of them ([`3dda77e`](https://github.com/diaryx-org/historica/commit/3dda77ec5d8ae58ac10a20a420536bed85f524d4))
@@ -94,7 +100,6 @@ behaves differently.
   `Fetched::names` are `Vec<String>`; the counts are `.len()`. `Received` is no
   longer `Copy`. Nothing a command prints changes.
 
-<!-- git-cliff:end -->
 
 ## v1.0.0-rc.1 — 2026-08-27
 
