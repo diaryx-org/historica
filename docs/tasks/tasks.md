@@ -5,6 +5,8 @@ created: 2026-09-02
 updated: 2026-09-03
 contents:
   - "[The first capture is barrier-bound](first-capture-is-barrier-bound.md)"
+  - "[A claim arriving needs no line](a-claim-arriving-needs-no-line.md)"
+  - "[Saying what a command wrote](saying-what-a-command-wrote.md)"
 ---
 
 # Tasks
@@ -13,10 +15,11 @@ Work this project has committed to and has not done yet, one document each. A
 bug is a task with a repro; anything else is a task with a done state written
 down, so that finishing it is a fact rather than an opinion.
 
-`contents` above lists what is **open**. Closing a task is an edit, not a
-delete: its `status` becomes `done` or `dropped`, it names the commit or release
-that resolved it, and it leaves the list above while the file stays where it is,
-findable by grep.
+`contents` above lists every task, open and closed: the index is the spine,
+and what is open is a view of it (`dx tasks`). Closing a task is an edit, not
+a delete: its `status` becomes `done` or `dropped`, it names the commit or
+release that resolved it, and it keeps its place above while the file stays
+where it is, findable by grep.
 
 What does not belong here:
 
