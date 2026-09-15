@@ -57,6 +57,25 @@ _No commits since the last tag._
 
 <!-- git-cliff:end -->
 
+## v1.0.0-rc.4 — 2026-09-15
+
+### Added
+
+- **store** — a fetch offers its plan to the source before asking for any of it ([`020ae2f`](https://github.com/diaryx-org/historica/commit/020ae2f9fa01bfee6da0773de81d3a556de29006))
+
+### Fixed
+
+- **fs** — a staged write's name asks for a process id only where the platform has one ([`7b74601`](https://github.com/diaryx-org/historica/commit/7b74601d2cb4dcf681a7e3436824cd1b0825d3f3))
+
+### Behavioural changes
+
+- none for a caller; a `Source` implementation may now override `prefetch` and will see it called once per plan with every non-payload path the plan names.
+
+- on `target_os = "wasi"` a streamed write's staging
+file is named `.<name>.0.<n>.partial` rather than panicking; no other
+platform changes.
+
+
 ## v1.0.0-rc.2 — 2026-09-03
 
 ### Breaking
