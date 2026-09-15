@@ -1121,9 +1121,28 @@ fn staging_name(path: &Path) -> String {
         .unwrap_or("");
     format!(
         ".{name}.{}.{}.partial",
-        std::process::id(),
+        process_tag(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     )
+}
+
+/// What tells this process's staged files from another's, where the platform
+/// has such a thing.
+///
+/// WASI has no process ids — `std::process::id` panics there rather than
+/// answering — and a module under a WASI host is the only writer its folder
+/// will ever see, so the tag is a constant. The counter beside it still keeps
+/// two writers within one process apart.
+#[cfg(feature = "disk")]
+fn process_tag() -> u32 {
+    #[cfg(target_os = "wasi")]
+    {
+        0
+    }
+    #[cfg(not(target_os = "wasi"))]
+    {
+        std::process::id()
+    }
 }
 
 /// What a one-op batch failed with, said in this trait's currency.
