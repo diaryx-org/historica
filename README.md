@@ -1,3 +1,15 @@
+---
+part_of: id:org/kv2bv2m
+title: historica
+contents:
+- '[historica on diaryx.org](/www/index.md)'
+- '[Audiences](/vocab/audiences.md)'
+- '[Tasks](/docs/tasks/tasks.md)'
+- '[Decisions](/docs/decisions/index.md)'
+config: .config/prov.yaml
+registry: registry.yaml
+id: 1skvgz1
+---
 # Historica
 
 Historica is an experiment in readable, convergent version control.

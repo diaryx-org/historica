@@ -7,6 +7,7 @@ contents:
   - "[The first capture is barrier-bound](first-capture-is-barrier-bound.md)"
   - "[A claim arriving needs no line](a-claim-arriving-needs-no-line.md)"
   - "[Saying what a command wrote](saying-what-a-command-wrote.md)"
+part_of: '[historica](/README.md)'
 ---
 
 # Tasks
