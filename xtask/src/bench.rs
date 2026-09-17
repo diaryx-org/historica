@@ -20,6 +20,13 @@
 //! Every command is run several times and the fastest run is reported, which
 //! is the usual way to read a timing that has a machine's other work mixed
 //! into it: the noise only ever adds.
+//!
+//! Recording is timed too, on its way to building the store: the first
+//! capture — every file a payload, into a store that holds nothing — and a
+//! capture of one edit to every file. Those are the two shapes a record
+//! takes, and the first is the one a person waits through on the day they
+//! start; decision 0075 is what made it worth a number. `files=2000
+//! revisions=1 lines=3` is the shape that task was measured against.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -110,7 +117,7 @@ pub fn bench(sh: &Sh, args: &[&str]) -> Result<()> {
         shape.recorded(),
         shape.lines
     );
-    store.build()?;
+    let recording = store.build()?;
 
     let head = store.head()?;
     let path = "f1.txt";
@@ -142,6 +149,18 @@ pub fn bench(sh: &Sh, args: &[&str]) -> Result<()> {
     println!("  {:<24}{}", "store on disk", store.size()?);
     println!("  {:<24}{held}", "cache after one pass");
     println!("  {:<24}{}\n", "fastest of", shape.runs);
+    println!(
+        "  {:<28}{:>9.1} ms  ({:.2} ms per file)",
+        format!("first capture, {} files", shape.files),
+        recording.first.as_secs_f64() * 1000.0,
+        recording.first.as_secs_f64() * 1000.0 / shape.files as f64
+    );
+    println!(
+        "  {:<28}{:>9.1} ms  (fastest of {})\n",
+        format!("a capture of {} edits", shape.files),
+        recording.edits.as_secs_f64() * 1000.0,
+        shape.revisions
+    );
     println!("  {:<24}{:>12}{:>12}", "", "no cache", "cached");
     for ((label, without), (_, with)) in cold.iter().zip(&warm) {
         println!(
@@ -161,6 +180,14 @@ enum Cache {
     Cleared,
     /// Left alone: what every reader after the first pays.
     Kept,
+}
+
+/// What recording cost while the store was built.
+struct Recording {
+    /// The fastest first capture: every file a payload, into an empty store.
+    first: Duration,
+    /// The fastest round of edits: every file an operation document.
+    edits: Duration,
 }
 
 /// A generated store, and the binary that reads it.
@@ -189,18 +216,33 @@ impl<'a> Bench<'a> {
         })
     }
 
-    /// Write the files, then record them once per round of edits.
+    /// Write the files, then record them once per round of edits — timing
+    /// the captures on the way.
     ///
-    /// Recording is the slow half by a wide margin and is not what is being
-    /// measured, so it prints its progress: a job that looks hung for a minute
-    /// is a job people stop running.
-    fn build(&self) -> Result<()> {
-        self.run(&["init"])?;
+    /// The first capture is made `runs` times over, into a store emptied each
+    /// time, because there is no other way to run it twice; the rounds of
+    /// edits are each timed and the fastest kept, since a round is the same
+    /// work whichever revision it records. Recording is the slow half by a
+    /// wide margin, so it prints its progress: a job that looks hung for a
+    /// minute is a job people stop running.
+    fn build(&self) -> Result<Recording> {
         for file in 1..=self.shape.files {
             self.write(file, |line| format!("file {file} line {line}\n"))?;
         }
-        self.run(&["record", "-m", "the import"])?;
+        let mut first = Duration::MAX;
+        for _ in 0..self.shape.runs {
+            let history = self.root.join("history");
+            if history.exists() {
+                std::fs::remove_dir_all(&history)
+                    .map_err(|e| format!("could not clear {}: {e}", history.display()))?;
+            }
+            self.run(&["init"])?;
+            let start = Instant::now();
+            self.run(&["record", "-m", "the import"])?;
+            first = first.min(start.elapsed());
+        }
 
+        let mut edits = Duration::MAX;
         let mut done = 0;
         for revision in 1..=self.shape.revisions {
             for file in 1..=self.shape.files {
@@ -216,7 +258,9 @@ impl<'a> Bench<'a> {
                     }
                 })?;
             }
+            let start = Instant::now();
             self.run(&["record", "-m", &format!("revision {revision}")])?;
+            edits = edits.min(start.elapsed());
             done += 1;
             if done % 20 == 0 && done != self.shape.revisions {
                 print!("\r  recorded {done}/{} revisions", self.shape.revisions);
@@ -228,7 +272,7 @@ impl<'a> Bench<'a> {
             "\r  recorded {done}/{} revisions        ",
             self.shape.revisions
         );
-        Ok(())
+        Ok(Recording { first, edits })
     }
 
     fn write(&self, file: usize, line: impl Fn(usize) -> String) -> Result<()> {

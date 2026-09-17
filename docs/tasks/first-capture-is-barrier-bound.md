@@ -1,13 +1,37 @@
 ---
 title: The first capture is barrier-bound
 description: Recording a folder into a fresh store costs ~8 ms per file, spent blocked on the device rather than computing — the per-file durability barrier, not the survey
-status: open
+status: done
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-16
 part_of: "[Tasks](tasks.md)"
 ---
 
 # The first capture is barrier-bound
+
+**Status: done.** [0075](../decisions/0075-what-a-capture-owes-the-drive.md)
+carries the argument. `Disk::write_in_pieces` now asks for the barrier pair
+`create_new` always asked for — `Ordered` on the staged file and on the
+directory — where it had drained the drive twice per payload; the first
+capture of 2,000 files is 1.0–1.6 s against 13 s, with 0.45 s of that the
+process working. `cargo xtask bench` times the first capture and a capture of
+edits on its way to building the store, and `tests/store.rs` stages the store
+a crash mid-capture leaves and holds `check` to it. Resolved by the commit
+that added 0075.
+
+Two things came out differently from what is argued below, each in 0075:
+
+- **The residual was not there to find.** Removing the two drains took 13.0 s
+  to 0.35 s on the same machine, not 16.1 s to 13.6 s — the whole cost was
+  the pair, and the microbenchmark predicted it. Whatever the earlier residual
+  was, rc.4 does not have it.
+- **"No flush per file, one barrier for the set" is unsound as written.** A
+  barrier pushes only the file it is issued on; every file has to be handed
+  over before a barrier can speak for it. The sound version — `fsync(2)` per
+  file and one barrier before the revision — wants a strength `fs-transaction`
+  does not offer and a set boundary the trait does not have, and is deferred
+  there with the numbers: 0.14 ms per file against the 0.44 ms the barrier
+  pair costs.
 
 `record` into a fresh store costs about **8 ms per file**, and almost all of it
 is spent waiting on the storage device. A folder of 2,000 small files takes

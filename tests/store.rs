@@ -1526,3 +1526,108 @@ fn abandoning_wants_a_reason_and_a_run_that_is_a_line() {
         Err(RecordError::Forked { .. })
     ));
 }
+
+/// What a power cut in the middle of a capture leaves is a store `check`
+/// accepts, and the next capture finishes the work.
+///
+/// Decision 0075's argument, run against the disk. A record files every
+/// payload and operation document, then the revision naming them, then moves
+/// a bookmark, and `Disk` orders those writes rather than draining the drive
+/// after each one — so what survives a crash is some *prefix* of the
+/// sequence. The two prefixes this stages are the ones a person meets: the
+/// content landed and the revision did not, and a streamed payload was
+/// caught between its staging file and its rename. Neither is an error, both
+/// are notes naming exactly the files that nothing names, and recording the
+/// folder again reuses the content already there rather than refusing it.
+#[test]
+fn a_capture_a_crash_interrupted_is_a_store_check_accepts() {
+    let base = scratch("interrupted-capture");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+    for number in 0..3 {
+        fs::write(
+            base.join(format!("note-{number}.md")),
+            format!("# Note {number}\n\nbody {number}\n"),
+        )
+        .expect("a file");
+    }
+    let recorded = record_folder(&mut store, &base, Vec::new(), "First capture");
+
+    // The crash: the revision document — the last thing a record writes
+    // before the bookmark — did not survive. The content before it did.
+    let mut named = files_under(&base.join("history/revisions"));
+    assert_eq!(named.len(), 1, "one revision: {named:?}");
+    fs::remove_file(named.pop().expect("the revision")).expect("losing it");
+    // And a streamed payload was caught between its staging file and the
+    // rename that would have published it — 0067's scratch, dot-prefixed and
+    // suffixed `.partial`, which sits in `operations/` where everything that
+    // is not a document is a payload.
+    let operations = base.join("history/operations");
+    fs::write(
+        operations.join(".half-a-photograph.12345.0.partial"),
+        b"\x89PNG\r\n\x1a\nnot all of it",
+    )
+    .expect("the scratch");
+
+    let report = Store::check(store.root());
+    assert!(
+        report.is_ok(),
+        "content nothing names is not an error: {:?}",
+        report.errors().collect::<Vec<_>>()
+    );
+    let mut unnamed = 0;
+    for finding in report.notes() {
+        match finding {
+            Finding::UnnamedPayload { .. } => unnamed += 1,
+            other => panic!("an interrupted capture earns no other note: {other}"),
+        }
+    }
+    assert_eq!(
+        unnamed,
+        4,
+        "three payloads and the scratch: {:?}",
+        report.findings()
+    );
+
+    // Reopened, the store holds no revision — and recording the same folder
+    // again finishes the capture, naming the payloads already on disk rather
+    // than writing them twice.
+    let mut reopened = Store::open(store.root()).expect("reopening");
+    assert!(reopened.is_empty(), "the revision did not survive");
+    let again = record_folder(&mut reopened, &base, Vec::new(), "First capture, again");
+    assert_ne!(
+        again.revision, recorded.revision,
+        "a new change, a new revision"
+    );
+    let payloads: Vec<_> = files_under(&operations)
+        .into_iter()
+        .filter(|path| !path.to_string_lossy().ends_with(".partial"))
+        .collect();
+    assert_eq!(
+        payloads.len(),
+        3,
+        "the same three payloads, once each: {payloads:?}"
+    );
+    let report = Store::check(reopened.root());
+    assert!(report.is_ok(), "{:?}", report.errors().collect::<Vec<_>>());
+    let mut unnamed = report.notes().map(ToString::to_string);
+    assert!(
+        unnamed.all(|note| note.contains(".partial")),
+        "every payload is named now, and only the scratch is not: {:?}",
+        report.findings()
+    );
+}
+
+/// Every file under a directory, at any depth — a store files its documents
+/// under stem directories (0041), so one level is never the whole of it.
+fn files_under(directory: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(directory).expect("a directory") {
+        let path = entry.expect("an entry").path();
+        if path.is_dir() {
+            found.extend(files_under(&path));
+        } else {
+            found.push(path);
+        }
+    }
+    found
+}

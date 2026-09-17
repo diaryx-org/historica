@@ -829,6 +829,25 @@ depend on each other in.
   document, and a file rather than a descriptor. Defers the folder, where a
   path may hold a space.
 
+- [0075 — What a capture owes the drive](0075-what-a-capture-owes-the-drive.md)
+  A first capture of 2,000 files took 13 s, and 0.07 s of it was work: the
+  streamed write every payload lands through drained the drive twice per
+  file, where `create_new` had barriered since it flushed at all. States the
+  three strengths a write can ask for — handed over, ordered, durable — and
+  what each write in a capture owes: content and the revision owe *order*,
+  their bytes ahead of the entry that publishes them and the entry ahead of
+  what is written next; the bookmark owes *durability*, and its drain carries
+  everything barriered before it. A crash leaves a prefix of the sequence in
+  the order it was written, each a state the store reads, plus at most one
+  torn document — `fs-transaction`'s degrade for an exclusive create,
+  unchanged. 13 s becomes 1.0–1.6 s, and `cargo xtask bench` times both
+  capture shapes. Refuses the drain per payload and the no-flush-plus-one-
+  barrier the task proposed, which is unsound because a barrier pushes only
+  the file it is issued on. Defers *handed over* per file with one barrier
+  per set, which wants a strength `fs-transaction` does not have and a set
+  boundary the trait does not have. Leaves open a drain of `record`'s own,
+  and staging documents so none is ever torn.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

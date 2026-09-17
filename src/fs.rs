@@ -810,9 +810,10 @@ impl Filesystem for Disk {
         // destination, and the directory entry is flushed durable. `write` is
         // what lands the store's mutable files — a bookmark, the marker — and
         // those are the writes that *name* documents, so this durable landing
-        // is also the drain that caps every barrier `create_new` left behind:
-        // once a record's own write returns, nothing it names can be lost to a
-        // power cut it survived.
+        // is also the drain that caps every barrier `create_new` and
+        // `write_in_pieces` left behind: once a record's own write returns,
+        // nothing it names can be lost to a power cut it survived. Decision
+        // 0075 is the whole of that bargain, write by write.
         fs_transaction::exec::block_on(fs_transaction::StdFs.write_atomic(path, bytes))
     }
 
@@ -1059,15 +1060,27 @@ impl Filesystem for Disk {
         path: &Path,
         feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
     ) -> io::Result<Option<()>> {
+        use fs_transaction::fs::{Durability, Storage as _};
+        use fs_transaction::{StdFs, exec::block_on};
         use io::Write as _;
 
         // Decision 0026's atomic replacement, done by hand because the bytes
-        // are not all here at once: staged in a temporary sibling, flushed,
-        // renamed over the destination, and the directory entry flushed after
-        // it. What `fs_transaction` does for a slice, in the one shape a
-        // stream can take it — the rename is still the only thing a reader can
-        // see, so the destination holds the whole of the old file or the whole
-        // of the new one and never a prefix of a photograph.
+        // are not all here at once: staged in a temporary sibling, barriered,
+        // renamed over the destination, and the directory entry barriered
+        // after it. What `fs_transaction` does for a slice, in the one shape
+        // a stream can take it — the rename is still the only thing a reader
+        // can see, so the destination holds the whole of the old file or the
+        // whole of the new one and never a prefix of a photograph.
+        //
+        // Barriered and not drained, on exactly `create_new`'s terms: this
+        // lands a payload, which is content-addressed and append-only, and
+        // what it owes the drive is order — the name must not survive a crash
+        // the bytes did not — rather than durability, which is the naming
+        // write's to pay once for everything ordered before it. This used to
+        // ask for two drains per payload (`sync_all` is `F_FULLFSYNC` on
+        // Apple platforms) and was, for every file a first capture records,
+        // where all the time went; decision 0075 has the argument and the
+        // numbers.
         let Some(directory) = path.parent().filter(|held| !held.as_os_str().is_empty()) else {
             // A bare relative name has no sibling directory to stage in, and
             // inventing one would put the temporary somewhere the caller did
@@ -1082,14 +1095,13 @@ impl Filesystem for Disk {
             // which it does, because nothing has been renamed yet.
             feed(&mut file)?;
             file.flush()?;
-            file.sync_all()?;
             drop(file);
+            // The bytes, ordered ahead of the rename that publishes them.
+            block_on(StdFs.sync(&staged, Durability::Ordered))?;
             std::fs::rename(&staged, path)?;
             // The directory entry, so the name cannot outlive the bytes it
             // stands for. `create_new`'s comment says why this crate cares.
-            if let Ok(opened) = std::fs::File::open(directory) {
-                let _ = opened.sync_all();
-            }
+            block_on(StdFs.sync(directory, Durability::Ordered))?;
             Ok(())
         })();
         if landed.is_err() {
