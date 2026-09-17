@@ -141,7 +141,9 @@ name them, rather than a stronger one nothing could cash.
 ## Deferred
 
 **Handed over per file, one barrier per set.** The right shape, and the one
-the refused proposal was reaching for: `fsync(2)` on each file and each
+the refused proposal was reaching for — filed as
+[`docs/tasks/a-capture-pushes-per-file-and-barriers-once.md`](../tasks/a-capture-pushes-per-file-and-barriers-once.md),
+with fs-transaction's half as a task there: `fsync(2)` on each file and each
 directory as it lands (0.14 ms per file, measured, against 0.44 ms for the
 barrier pair), then one barrier before the revision document, then the
 naming write's drain. Two things stand in the way, and neither is this

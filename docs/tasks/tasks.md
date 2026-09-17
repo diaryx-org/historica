@@ -8,6 +8,7 @@ contents:
   - "[A claim arriving needs no line](a-claim-arriving-needs-no-line.md)"
   - "[Saying what a command wrote](saying-what-a-command-wrote.md)"
   - "[The state at a revision without the walk](the-state-at-a-revision-without-the-walk.md)"
+  - "[A capture pushes per file and barriers once](a-capture-pushes-per-file-and-barriers-once.md)"
 part_of: '[historica](/README.md)'
 ---
 
