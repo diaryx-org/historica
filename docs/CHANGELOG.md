@@ -53,7 +53,23 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
-_No commits since the last tag._
+### Changed
+
+- **fs** — a streamed payload is barriered, not drained, twice per file ([`15a9ecf`](https://github.com/diaryx-org/historica/commit/15a9ecf7a04448ea2c8e0814ac42164257142ec6))
+
+### Behavioural changes
+
+- A payload landed through `Disk::write_in_pieces`
+  — every `Store::insert_payload_*` on the disk — is ordered rather
+  than durable when the call returns, as a document through
+  `create_new` already was. It survives a power cut once the next
+  mutable write (a bookmark moving) returns, and never outlives its
+  own bytes; what it no longer promises is surviving a cut in the
+  moments after the call. A record that moves a bookmark is durable
+  when it returns exactly as before.
+
+- `Disk::write_in_pieces` reports a failed barrier on
+  the destination's directory as an error, where it ignored one before.
 
 <!-- git-cliff:end -->
 
