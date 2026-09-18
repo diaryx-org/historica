@@ -53,9 +53,14 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
+### Fixed
+
+- **xtask** — the bench builds the binary it times ([`4386a8f`](https://github.com/diaryx-org/historica/commit/4386a8f60f10c7c826977a922b9f079e75e7138f))
+
 ### Changed
 
 - **fs** — a streamed payload is barriered, not drained, twice per file ([`15a9ecf`](https://github.com/diaryx-org/historica/commit/15a9ecf7a04448ea2c8e0814ac42164257142ec6))
+- **fs** — a capture pushes per file and barriers once before the revision ([`ee42524`](https://github.com/diaryx-org/historica/commit/ee425243388ce33c61ab2812c475b03e25da7516))
 
 ### Behavioural changes
 
@@ -70,6 +75,18 @@ visible, to be triaged into its real group before the tag is cut.
 
 - `Disk::write_in_pieces` reports a failed barrier on
   the destination's directory as an error, where it ignored one before.
+
+- what a crash can leave of an interrupted capture. With
+  a barrier per file at most one file in the interrupted tail was torn —
+  the one in flight — and every earlier one was whole. With a push per
+  file and one barrier before the revision, any number of the files
+  written since the last revision may be torn, independently: a document
+  under its digest name without all of its bytes, or a streamed payload
+  whose rename landed and whose bytes did not. `check` reports each as an
+  error naming the file and the remedy is unchanged, deleting it; there
+  may now be more than one. A revision still never survives a crash its
+  content did not, and nothing a revision names can be lost to a power cut
+  the bookmark that names the revision survived.
 
 <!-- git-cliff:end -->
 
