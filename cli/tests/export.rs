@@ -1360,7 +1360,16 @@ fn two_revisions(test: &str) -> (PathBuf, String, String) {
 #[test]
 fn files_only_writes_the_folder_and_no_store() {
     let (origin, _, _) = two_revisions("files-only");
-    let into = scratch("files-only-into").join("folder");
+    // Outside the repository rather than under `CARGO_TARGET_TMPDIR`, for
+    // the reason `cli.rs`'s no-store test gives: `log` walks up to the
+    // filesystem root, and a checkout may itself sit under a `history/` —
+    // as this one does — so a scratch folder inside it would find that
+    // store and the last assertion would fail for a reason that is not
+    // `--files-only`'s.
+    let into = std::env::temp_dir().join("historica-export-files-only-into");
+    let _ = fs::remove_dir_all(&into);
+    fs::create_dir_all(&into).expect("a scratch directory outside the repository");
+    let into = into.join("folder");
 
     let said = out(
         &origin,
