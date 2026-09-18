@@ -845,8 +845,10 @@ depend on each other in.
   barrier the task proposed, which is unsound because a barrier pushes only
   the file it is issued on. Defers *handed over* per file with one barrier
   per set, which wants a strength `fs-transaction` does not have and a set
-  boundary the trait does not have. Leaves open a drain of `record`'s own,
-  and staging documents so none is ever torn.
+  boundary the trait does not have — and, amended, has both: `Pushed` per
+  file, `Filesystem::barrier` once before each revision, 0.4 s, and any
+  number of the interrupted set's files torn rather than one. Leaves open a
+  drain of `record`'s own, and staging documents so none is ever torn.
 
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions

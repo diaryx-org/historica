@@ -1,13 +1,20 @@
 ---
 title: A capture pushes per file and barriers once
 description: Land each payload and document handed over rather than barriered, and issue one barrier before the revision document — 0075's deferred shape, once fs-transaction offers the strength
-status: open
+status: done
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 part_of: "[Tasks](tasks.md)"
 ---
 
 # A capture pushes per file and barriers once
+
+**Status.** Done, by `perf(fs): a capture pushes per file and barriers
+once before the revision`, against `fs-transaction` 0.3.0. `Filesystem`
+gained `barrier`, `Store::insert_at` calls it, `Disk::create_new` and
+`Disk::write_in_pieces` push, and the first capture of 2,000 files is
+0.39 s on the reference machine where 0075 left it at 1.0–1.6 s. 0075 is
+amended in place.
 
 [0075](../decisions/0075-what-a-capture-owes-the-drive.md) took the first
 capture from 13 s to 1.0–1.6 s for 2,000 files by asking `Disk::write_in_pieces`

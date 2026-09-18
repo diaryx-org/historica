@@ -227,6 +227,15 @@ pub struct Entry {
 /// anything by a clock, it only declines to re-read a file the directory says
 /// nobody has written to.
 ///
+/// **One capability declined costs a crash state.**
+/// [`barrier`](Filesystem::barrier) is the exception to the rule above, and
+/// the only one: it is how the store says that everything it has written so
+/// far must reach the device before the revision it is about to write, and
+/// a filesystem whose writes can reach the device out of order must answer
+/// it with a barrier of its own. The default does nothing, and is right
+/// for every filesystem that has no such reordering — decision 0075 says
+/// which those are.
+///
 /// **Order is not promised.** [`entries`](Filesystem::entries) may return a
 /// directory in any order; this crate sorts what it needs sorted, because two
 /// replicas loading one store must agree and a `readdir` order is not
@@ -471,6 +480,39 @@ pub trait Filesystem {
         let (_, _) = (path, feed);
         Ok(None)
     }
+
+    /// Say where a set of writes ends: everything written before this call
+    /// lands before anything written after it.
+    ///
+    /// Decision 0075's deferred half, and the one thing the store knows that
+    /// a filesystem cannot: which write is the last of a set. Every writer
+    /// here lands content first and the revision that names it last, and a
+    /// revision must never survive a crash its content did not — so the
+    /// store calls this once, before the revision, and every payload and
+    /// document written since the last call is ordered ahead of it. That is
+    /// what lets [`create_new`](Filesystem::create_new) and
+    /// [`write_in_pieces`](Filesystem::write_in_pieces) hand each file over
+    /// to the device and order it against nothing, which on the platforms
+    /// where the two differ is most of the cost of landing a large capture.
+    ///
+    /// `path` is the store's root, because a barrier on some platforms is
+    /// issued on an open handle and needs a path to open; the promise is
+    /// about every write to this filesystem, not about the path named.
+    ///
+    /// The default does nothing, on 0043's terms: a capability declined
+    /// costs a weaker crash state and never an answer. It is the right
+    /// answer for a filesystem whose every write is on the device when it
+    /// returns — an in-memory map, a document provider that hands bytes on
+    /// synchronously — and for one that promises nothing about a crash
+    /// anyway. It is the wrong answer for exactly one shape: a filesystem
+    /// whose writes may reach the device out of order and which answers
+    /// this with nothing, because that is a filesystem in which a revision
+    /// can outlive its content. An implementation over such a filesystem
+    /// overrides this, and [`Disk`] does.
+    fn barrier(&self, path: &Path) -> io::Result<()> {
+        let _ = path;
+        Ok(())
+    }
 }
 
 /// The guarded write of a filesystem that cannot check and write in one
@@ -563,6 +605,9 @@ impl<T: Filesystem + ?Sized> Filesystem for &T {
     ) -> io::Result<Option<()>> {
         (**self).write_in_pieces(path, feed)
     }
+    fn barrier(&self, path: &Path) -> io::Result<()> {
+        (**self).barrier(path)
+    }
 }
 
 /// Forward every method to whatever is inside the pointer.
@@ -642,6 +687,13 @@ macro_rules! forwarding {
                 feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
             ) -> io::Result<Option<()>> {
                 (**self).write_in_pieces(path, feed)
+            }
+            // And this above all: a wrapper that took the default here would
+            // turn a `Disk` that orders its writes into one that promises it
+            // does not, and a revision could outlive its content behind an
+            // `Arc` where it never could in front of one.
+            fn barrier(&self, path: &Path) -> io::Result<()> {
+                (**self).barrier(path)
             }
         }
     };
@@ -824,28 +876,32 @@ impl Filesystem for Disk {
         // The store is append-only and content-addressed, so a half-written
         // batch is a legal state — what it cannot tolerate is a *name* that
         // survives a crash the bytes it stands for did not. So every document
-        // lands as one tier of an ordered batch with `Ordered` finality: the
-        // exclusive create (the whole concurrency story, unchanged), then a
-        // barrier on the file and on every directory that gained an entry,
-        // freshly minted parents included. Nothing here drains the drive; the
-        // batch's own landing may still go with a crash, wholly or in part,
-        // and the tree it leaves is one the store already reads. What turns
-        // the barriers durable is the next mutable write — the bookmark or
-        // marker that *names* this document lands through
-        // [`write`](Filesystem::write)'s durable flush, which carries
-        // everything barriered before it.
+        // lands as one tier of an ordered batch with `Pushed` finality: the
+        // exclusive create (the whole concurrency story, unchanged), then the
+        // file and every directory that gained an entry, freshly minted
+        // parents included, handed over to the device and ordered against
+        // nothing. Nothing here barriers, and nothing drains: the order a
+        // document owes — its bytes ahead of the revision that names them —
+        // is bought once for every document since the last, by the barrier
+        // the store issues through [`barrier`](Filesystem::barrier) before
+        // it writes a revision, and a barrier speaks only for what has been
+        // handed over, which is why every file has to be. What turns that
+        // durable is the next mutable write — the bookmark or marker that
+        // *names* the revision lands through [`write`](Filesystem::write)'s
+        // durable flush, which carries everything ordered before it. Decision
+        // 0075 is the whole of that bargain, write by write.
         let directory = path.parent().filter(|held| !held.as_os_str().is_empty());
         let (Some(directory), Some(name)) = (directory, path.file_name()) else {
             // A bare relative name has no directory to root a batch in; the
-            // port's own create and barrier are the same first tier.
+            // port's own create and push are the same first tier.
             return block_on(async {
                 StdFs.create_new(path, bytes).await?;
-                StdFs.sync(path, Durability::Ordered).await
+                StdFs.sync(path, Durability::Pushed).await
             });
         };
         let mut batch = OrderedBatch::new();
         batch.create_new(name, bytes);
-        block_on(batch.apply(&StdFs, directory, Durability::Ordered)).map_err(io_error)
+        block_on(batch.apply(&StdFs, directory, Durability::Pushed)).map_err(io_error)
     }
 
     fn create_directory(&self, path: &Path) -> io::Result<()> {
@@ -1065,22 +1121,26 @@ impl Filesystem for Disk {
         use io::Write as _;
 
         // Decision 0026's atomic replacement, done by hand because the bytes
-        // are not all here at once: staged in a temporary sibling, barriered,
-        // renamed over the destination, and the directory entry barriered
-        // after it. What `fs_transaction` does for a slice, in the one shape
-        // a stream can take it — the rename is still the only thing a reader
-        // can see, so the destination holds the whole of the old file or the
-        // whole of the new one and never a prefix of a photograph.
+        // are not all here at once: staged in a temporary sibling, handed
+        // over, renamed over the destination, and the directory entry handed
+        // over after it. What `fs_transaction` does for a slice, in the one
+        // shape a stream can take it — the rename is still the only thing a
+        // *reader* can see, so a destination a process meets holds the whole
+        // of the old file or the whole of the new one and never a prefix of a
+        // photograph.
         //
-        // Barriered and not drained, on exactly `create_new`'s terms: this
+        // Pushed and not barriered, on exactly `create_new`'s terms: this
         // lands a payload, which is content-addressed and append-only, and
         // what it owes the drive is order — the name must not survive a crash
-        // the bytes did not — rather than durability, which is the naming
-        // write's to pay once for everything ordered before it. This used to
-        // ask for two drains per payload (`sync_all` is `F_FULLFSYNC` on
-        // Apple platforms) and was, for every file a first capture records,
-        // where all the time went; decision 0075 has the argument and the
-        // numbers.
+        // the bytes did not — and order is what the store buys once, through
+        // [`barrier`](Filesystem::barrier), for every payload since the last
+        // revision. The pushes are what that barrier needs: it speaks only
+        // for what has reached the device. What a crash between the two can
+        // leave is a payload under its final name without all of its bytes,
+        // which `check` reports as a file whose name claims a digest its
+        // bytes do not have. This used to ask for two drains per payload
+        // (`sync_all` is `F_FULLFSYNC` on Apple platforms) and then for two
+        // barriers; decision 0075 has the argument and the numbers.
         let Some(directory) = path.parent().filter(|held| !held.as_os_str().is_empty()) else {
             // A bare relative name has no sibling directory to stage in, and
             // inventing one would put the temporary somewhere the caller did
@@ -1096,12 +1156,14 @@ impl Filesystem for Disk {
             feed(&mut file)?;
             file.flush()?;
             drop(file);
-            // The bytes, ordered ahead of the rename that publishes them.
-            block_on(StdFs.sync(&staged, Durability::Ordered))?;
+            // The bytes, handed to the device before the rename publishes
+            // them.
+            block_on(StdFs.sync(&staged, Durability::Pushed))?;
             std::fs::rename(&staged, path)?;
-            // The directory entry, so the name cannot outlive the bytes it
-            // stands for. `create_new`'s comment says why this crate cares.
-            block_on(StdFs.sync(directory, Durability::Ordered))?;
+            // The directory entry, handed over too, so the barrier that
+            // follows can speak for the name as well as the bytes.
+            // `create_new`'s comment says why this crate cares.
+            block_on(StdFs.sync(directory, Durability::Pushed))?;
             Ok(())
         })();
         if landed.is_err() {
@@ -1113,6 +1175,19 @@ impl Filesystem for Disk {
             let _ = std::fs::remove_file(&staged);
         }
         landed.map(Some)
+    }
+
+    fn barrier(&self, path: &Path) -> io::Result<()> {
+        use fs_transaction::fs::{Durability, Storage as _};
+
+        // One barrier for everything `create_new` and `write_in_pieces`
+        // handed over since the last: `F_BARRIERFSYNC` on Apple platforms,
+        // which is device-wide and orders every pushed write ahead of
+        // whatever comes next; `fsync` elsewhere, where a push was already
+        // the whole flush and this is stronger than asked. Issued on the
+        // store's root because a barrier needs a handle to be issued on, and
+        // the root is the one path every store has.
+        fs_transaction::exec::block_on(fs_transaction::StdFs.sync(path, Durability::Ordered))
     }
 }
 

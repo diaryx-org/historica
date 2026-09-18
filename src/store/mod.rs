@@ -2837,6 +2837,15 @@ impl<F: Filesystem> Store<F> {
         let id = digest(&bytes);
         let path = within(&self.root.join(REVISIONS_DIR), name);
 
+        // Where the set ends. Every writer — `record`, `carry`, `receive`,
+        // `fetch`, `export` — lands content first and the revision that
+        // names it last, and this is the one door a revision goes through;
+        // so the barrier that keeps 0011 and 0017's rule, that a revision
+        // never survives a crash its content did not, is issued here, once,
+        // for everything handed over since the last. Decision 0075.
+        self.files
+            .barrier(&self.root)
+            .map_err(|error| StoreError::io(&self.root, error))?;
         write_once(&self.files, &path, &bytes)?;
         // Both halves of what a store holds a document as, and neither has to
         // be read back: the revision is this document's own projection and the

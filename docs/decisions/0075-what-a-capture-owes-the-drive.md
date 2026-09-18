@@ -1,5 +1,16 @@
 # 0075 — What a capture owes the drive
 
+> **Amended 2026-09-17.** The shape the *Deferred* section below asked for
+> is what stands: `fs-transaction` 0.3.0 offers *handed over* as
+> `Durability::Pushed`, `Filesystem` gained
+> [`barrier`](../../src/fs.rs) to say where a set ends, and
+> `Store::insert_at` issues it once before every revision. Content is pushed
+> per file and barriered once per set, and the first capture of 2,000 files
+> is 0.4 s where this decision left it at 1.0–1.6 s. *What a crash can leave*
+> is amended in place, because "at most one torn document" was a property
+> of the barrier per file and goes with it. The task was
+> [`docs/tasks/a-capture-pushes-per-file-and-barriers-once.md`](../tasks/a-capture-pushes-per-file-and-barriers-once.md).
+
 A first capture of 2,000 small files took 13 s on the reference machine, and
 0.07 s of that was the process working. The rest was the process waiting for
 the drive: `Disk::write_in_pieces`, the write every recorded payload lands
@@ -41,8 +52,9 @@ A write can be asked for three things, and the crate's filesystem layer
 
 The third is below both: **handed over**, the bytes pushed from the page
 cache to the device and ordered against nothing. `fsync(2)` on Apple. It
-costs about what the write itself costs. `fs-transaction` does not offer it,
-and the deferred section below is about that.
+costs about what the write itself costs. `fs-transaction` did not offer it
+when this was written, and the deferred section below is about that; it
+does now, as `Durability::Pushed`, and the amendment above is what changed.
 
 ## What a capture writes, and what each write owes
 
@@ -57,13 +69,19 @@ bytes did not: a revision naming a payload that is not there.
 
 So:
 
-- **Content owes order.** A payload or an operation document is barriered —
-  its bytes ahead of the entry that publishes it, the entry ahead of
-  whatever is written next. `create_new` already did this; `write_in_pieces`
-  now does too, `Ordered` on the staged file before the rename and on the
-  directory after it, exactly `create_new`'s pair.
-- **The revision owes order.** It goes through `create_new` and gets the
-  same barriers, which is what puts it after every payload it names.
+- **Content owes order.** A payload or an operation document must land
+  ahead of the revision that names it. As first written, each was
+  barriered on its own — its bytes ahead of the entry that publishes it,
+  the entry ahead of whatever is written next, `Ordered` on the file and on
+  the directory, from `create_new` and `write_in_pieces` alike. As amended,
+  each is *handed over* — `Pushed` on the file and on the directory — and
+  the order is bought once for all of them, by the barrier below.
+- **The revision owes order, and the set owes one barrier.** `Store::insert_at`
+  is the one door a revision goes through, and every writer lands content
+  first; so it calls `Filesystem::barrier` on the store's root, once, and
+  everything handed over since the last barrier lands before the revision
+  does. A barrier speaks only for what has reached the device, which is why
+  every file is pushed first and why no push can be skipped.
 - **The bookmark owes durability.** `write` drains, and the drain carries
   everything barriered before it: when a bookmark moves, the capture it
   points at is on the platter. This was already the whole of the crate's
@@ -74,12 +92,15 @@ machine that takes the first capture of 2,000 files from 13 s to 1.0–1.6 s,
 of which 0.45 s is the process working; a capture of 2,000 edits, which
 never paid the drain, is 1.0 s either way. `cargo xtask bench` now times
 both shapes on its way to building the store, so the number stays honest.
+With the pushes and one barrier, the first capture is 0.4 s and the edits
+are the same.
 
 ## What a crash can leave
 
-Because every write is ordered, a power cut leaves **some prefix of the
-sequence, in the order it was written**, and each prefix is a state the
-store reads:
+Because every set is ordered ahead of the revision that names it, a power
+cut leaves **some prefix of the sequence of sets, in the order it was
+written** — with the interrupted set possibly partial — and each prefix is
+a state the store reads:
 
 - **Content, and no revision.** Payloads and operation documents nothing
   names. `check` reports each payload as a note (`UnnamedPayload`) and
@@ -92,24 +113,32 @@ store reads:
   — it moves no bookmark — and which `log` shows and `check` accepts.
 - **All of it.** The ordinary case.
 
-Two files can be in a worse state than absent, and both are the file that
-was in flight when the power went:
+A file can be in a worse state than absent, and as amended **any number of
+the interrupted set's files can be**, independently, because nothing orders
+the files of one set against each other — that is exactly what the pushes
+do not buy, and the barrier per file used to:
 
 - A **streamed payload** is staged beside its destination and renamed over
-  it, so the destination is never torn. What the crash leaves is the staging
-  file — dot-prefixed, suffixed `.partial`, in `operations/` where
-  everything that is not a document is a payload — and `check` reports it
-  as a payload nothing names. 0067 says this already.
+  it, so no *reader* ever meets a torn destination. What a crash usually
+  leaves is the staging file — dot-prefixed, suffixed `.partial`, in
+  `operations/` where everything that is not a document is a payload — and
+  `check` reports it as a payload nothing names; 0067 says this already.
+  What a crash can now also leave is the rename landed and the bytes not,
+  since the push before the rename orders nothing: a payload under its
+  final name whose bytes are not all there.
 - A **document** through `create_new` is written under its final name,
   because the exclusive create *is* the concurrency story
-  ([0003](0003-store.md)), and a crash mid-write can leave it torn. Its name
-  promises a digest its bytes do not have, and `check` reports that as an
-  error naming the file; the remedy is deleting it. With barriers per file
-  at most one document is in that state — the writes before it landed
-  whole, the writes after it did not start. This is `fs-transaction`'s
-  documented degrade for an ordered batch and it is unchanged here; the
-  drain never protected against it either, since a torn file is torn before
-  any flush.
+  ([0003](0003-store.md)), and a crash mid-write can leave it torn.
+
+Either way its name promises a digest its bytes do not have, `check`
+reports that as an error naming the file, and the remedy is deleting it —
+the next capture of the same folder writes it again. As first written, with
+a barrier per file, at most one document was in that state: the writes
+before it landed whole, the writes after it did not start. That property
+went with the barriers, and the trade is the one the task made: the
+`check` finding and the remedy are the same, and there may be more than one
+of each. The drain never protected against a torn file either, since a torn
+file is torn before any flush.
 
 ## What `record` returning promises
 
@@ -140,8 +169,9 @@ name them, rather than a stronger one nothing could cash.
 
 ## Deferred
 
-**Handed over per file, one barrier per set.** The right shape, and the one
-the refused proposal was reaching for — filed as
+**Handed over per file, one barrier per set.** *Done, as the amendment at
+the top says; the argument is left as it was made.* The right shape, and
+the one the refused proposal was reaching for — filed as
 [`docs/tasks/a-capture-pushes-per-file-and-barriers-once.md`](../tasks/a-capture-pushes-per-file-and-barriers-once.md),
 with fs-transaction's half as a task there: `fsync(2)` on each file and each
 directory as it lands (0.14 ms per file, measured, against 0.44 ms for the

@@ -74,7 +74,7 @@ disk = ["dep:fs-transaction"]
 # not. `barrier-fsync` answers ordering barriers with `F_BARRIERFSYNC` on
 # Apple platforms instead of a drain of the drive's whole write cache, and is
 # inert everywhere else.
-fs-transaction = { version = "0.2", optional = true, features = ["barrier-fsync"] }
+fs-transaction = { version = "0.3", optional = true, features = ["barrier-fsync"] }
 getrandom = "0.4"
 jiff = "0.2"
 sha2 = "0.11.0"
