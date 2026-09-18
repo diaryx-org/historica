@@ -103,8 +103,11 @@ pub fn bench(sh: &Sh, args: &[&str]) -> Result<()> {
     let shape = Shape::parse(args)?;
 
     // Release, because a debug build measures the borrow checker's opinion of
-    // the code rather than the code.
-    sh.cargo(&["build", "--release"])?;
+    // the code rather than the code. The package is named because the
+    // workspace root is the library: a bare `cargo build` here builds that
+    // and leaves whatever binary is already at the path below standing, and
+    // a bench that times a stale binary reports the change before last.
+    sh.cargo(&["build", "--release", "--package", "historica-cli"])?;
     let binary = sh.root.join("target/release/historica");
     if !binary.exists() {
         return Err(format!("no binary at {}", binary.display()));
