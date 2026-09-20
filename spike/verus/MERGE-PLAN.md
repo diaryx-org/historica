@@ -110,7 +110,7 @@ so by Lemma 0 the files are; and the refusals agree by Lemma C's second half.
 | Attach-unfolding lemmas (`lemma_children_attach`, `_hang`, `_none/_one/_two`) | verified |
 | Example: two concurrent inserts tie by digest, both orders | verified |
 | `theorem_convergence` | stated, `admit()` |
-| Lemma W | not started |
+| Lemma W (`lemma_walk_wf` and the `replay_ops`/`insert_run`/`delete_run` chain under it) | verified |
 | Lemma 0 | not started |
 | Lemma R | not started |
 | Lemma A | not started |
