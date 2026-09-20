@@ -1010,7 +1010,7 @@ pub proof fn lemma_children_sorted(t: TreeS, g: GraphS, parent: Option<int>, rig
 // ---------------------------------------------------------------------------
 
 /// Closed under causal past.
-pub open spec fn closed(g: GraphS, s: Set<int>) -> bool {
+pub open spec fn closed(g: GraphS, s: ISet<int>) -> bool {
     forall|e: int, o: int| s.contains(e) && g.event(e) && g.event(o) && #[trigger] g.knows(e, o) ==> s.contains(o)
 }
 
@@ -1023,12 +1023,12 @@ impl TreeS {
     }
 
     /// The indices among `s` whose author is in `set`.
-    pub open spec fn in_set(self, set: Set<int>, s: Seq<int>) -> Seq<int> {
+    pub open spec fn in_set(self, set: ISet<int>, s: Seq<int>) -> Seq<int> {
         sel(s, |i: int| set.contains(self.nodes[i].author))
     }
 
     /// `read`, emitting only elements authored in `set`.
-    pub open spec fn sub_read(self, set: Set<int>, i: int) -> Seq<int>
+    pub open spec fn sub_read(self, set: ISet<int>, i: int) -> Seq<int>
         decreases self.len() - i, 1int, 0int
     {
         if !self.node(i) {
@@ -1040,7 +1040,7 @@ impl TreeS {
         }
     }
 
-    pub open spec fn sub_read_all(self, set: Set<int>, siblings: Seq<int>, above: int) -> Seq<int>
+    pub open spec fn sub_read_all(self, set: ISet<int>, siblings: Seq<int>, above: int) -> Seq<int>
         decreases self.len() - above, 0int, siblings.len()
     {
         if siblings.len() == 0 {
@@ -1052,13 +1052,13 @@ impl TreeS {
         }
     }
 
-    pub open spec fn sub_order(self, set: Set<int>) -> Seq<int> {
+    pub open spec fn sub_order(self, set: ISet<int>) -> Seq<int> {
         self.sub_read_all(set, self.children(None, true), -1)
     }
 }
 
 /// `j` in `u` is `i` in `t`, as far as events in `set` can tell.
-pub open spec fn same_node(t: TreeS, u: TreeS, set: Set<int>, i: int, j: int) -> bool {
+pub open spec fn same_node(t: TreeS, u: TreeS, set: ISet<int>, i: int, j: int) -> bool {
     &&& u.id(j) == t.id(i)
     &&& u.nodes[j].item == t.nodes[i].item
     &&& u.nodes[j].right == t.nodes[i].right
@@ -1068,7 +1068,7 @@ pub open spec fn same_node(t: TreeS, u: TreeS, set: Set<int>, i: int, j: int) ->
 
 /// `t` and `u` hold the same elements authored in `set`, at the same
 /// places, removed by the same events of `set`.
-pub open spec fn agree(t: TreeS, u: TreeS, set: Set<int>) -> bool {
+pub open spec fn agree(t: TreeS, u: TreeS, set: ISet<int>) -> bool {
     &&& forall|i: int| t.node(i) && set.contains((#[trigger] t.nodes[i]).author)
             ==> exists|j: int| u.node(j) && same_node(t, u, set, i, j)
     &&& forall|j: int| u.node(j) && set.contains((#[trigger] u.nodes[j]).author)
@@ -1126,12 +1126,13 @@ pub proof fn lemma_sel_sorted(t: TreeS, s: Seq<int>, p: spec_fn(int) -> bool)
 }
 
 /// Filtering twice is filtering once by both.
-pub proof fn lemma_sel_sel(s: Seq<int>, p: spec_fn(int) -> bool, q: spec_fn(int) -> bool)
-    ensures sel(sel(s, p), q) == sel(s, |i: int| p(i) && q(i))
+pub proof fn lemma_sel_sel(s: Seq<int>, p: spec_fn(int) -> bool, q: spec_fn(int) -> bool, r: spec_fn(int) -> bool)
+    requires forall|i: int| #[trigger] r(i) <==> p(i) && q(i)
+    ensures sel(sel(s, p), q) == sel(s, r)
     decreases s.len()
 {
     if s.len() > 0 {
-        lemma_sel_sel(s.drop_last(), p, q);
+        lemma_sel_sel(s.drop_last(), p, q, r);
         let r = sel(s.drop_last(), p);
         if p(s.last()) {
             assert(sel(s, p) == r.push(s.last()));
@@ -1142,7 +1143,7 @@ pub proof fn lemma_sel_sel(s: Seq<int>, p: spec_fn(int) -> bool, q: spec_fn(int)
 }
 
 /// Lemma R1: the restricted reading is the reading, restricted.
-pub proof fn lemma_sub_read_is_sel(t: TreeS, set: Set<int>, i: int)
+pub proof fn lemma_sub_read_is_sel(t: TreeS, set: ISet<int>, i: int)
     ensures t.in_set(set, t.read(i)) == t.sub_read(set, i)
     decreases t.len() - i, 1int, 0int
 {
@@ -1157,7 +1158,7 @@ pub proof fn lemma_sub_read_is_sel(t: TreeS, set: Set<int>, i: int)
     }
 }
 
-pub proof fn lemma_sub_read_all_is_sel(t: TreeS, set: Set<int>, siblings: Seq<int>, above: int)
+pub proof fn lemma_sub_read_all_is_sel(t: TreeS, set: ISet<int>, siblings: Seq<int>, above: int)
     ensures t.in_set(set, t.read_all(siblings, above)) == t.sub_read_all(set, siblings, above)
     decreases t.len() - above, 0int, siblings.len()
 {
@@ -1177,7 +1178,7 @@ pub proof fn lemma_sub_read_all_is_sel(t: TreeS, set: Set<int>, siblings: Seq<in
 /// Lemma R2: outside the set, a subtree reads as nothing — its elements'
 /// authors all know the root's, so none of them is in a closed set that
 /// leaves the root out.
-pub proof fn lemma_sub_read_outside(t: TreeS, g: GraphS, set: Set<int>, i: int)
+pub proof fn lemma_sub_read_outside(t: TreeS, g: GraphS, set: ISet<int>, i: int)
     requires t.wf(g), g.wf(), closed(g, set), t.node(i), !set.contains(t.nodes[i].author)
     ensures t.sub_read(set, i) == Seq::<int>::empty()
     decreases t.len() - i, 1int, 0int
@@ -1189,7 +1190,7 @@ pub proof fn lemma_sub_read_outside(t: TreeS, g: GraphS, set: Set<int>, i: int)
     assert(t.sub_read(set, i) =~= Seq::<int>::empty());
 }
 
-pub proof fn lemma_sub_read_all_outside(t: TreeS, g: GraphS, set: Set<int>, siblings: Seq<int>, above: int)
+pub proof fn lemma_sub_read_all_outside(t: TreeS, g: GraphS, set: ISet<int>, siblings: Seq<int>, above: int)
     requires
         t.wf(g), g.wf(), closed(g, set), t.node(above), !set.contains(t.nodes[above].author),
         forall|q: int| 0 <= q < siblings.len() ==> t.node(#[trigger] siblings[q]) && t.nodes[siblings[q]].parent == Some(above),
@@ -1206,6 +1207,332 @@ pub proof fn lemma_sub_read_all_outside(t: TreeS, g: GraphS, set: Set<int>, sibl
             lemma_sub_read_outside(t, g, set, first);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// R3–R5: trees that agree on a closed set read the same names from it.
+// ---------------------------------------------------------------------------
+
+pub proof fn lemma_names_add(t: TreeS, a: Seq<int>, b: Seq<int>)
+    ensures t.names(a + b) == t.names(a) + t.names(b)
+{
+    assert(t.names(a + b) =~= t.names(a) + t.names(b));
+}
+
+pub proof fn lemma_names_contains(t: TreeS, s: Seq<int>, n: Name)
+    ensures t.names(s).contains(n) <==> exists|q: int| 0 <= q < s.len() && t.id(#[trigger] s[q]) == n
+{
+    if t.names(s).contains(n) {
+        let q = choose|q: int| 0 <= q < t.names(s).len() && t.names(s)[q] == n;
+        assert(t.id(s[q]) == n);
+    }
+    if exists|q: int| 0 <= q < s.len() && t.id(#[trigger] s[q]) == n {
+        let q = choose|q: int| 0 <= q < s.len() && t.id(#[trigger] s[q]) == n;
+        assert(t.names(s)[q] == n);
+    }
+}
+
+pub proof fn lemma_sorted_names(t: TreeS, s: Seq<int>)
+    requires t.sorted(s)
+    ensures ids_sorted(t.names(s))
+{
+    assert forall|a: int, b: int| 0 <= a < b < t.names(s).len() implies TreeS::id_lt(t.names(s)[a], t.names(s)[b]) by {
+        assert(t.names(s)[a] == t.id(s[a]));
+        assert(t.names(s)[b] == t.id(s[b]));
+    }
+}
+
+/// The parents a pair of twins may hang from: both the root, or twins.
+pub open spec fn twin_parents(t: TreeS, u: TreeS, g: GraphS, pt: Option<int>, pu: Option<int>) -> bool {
+    match (pt, pu) {
+        (None, None) => true,
+        (Some(i), Some(j)) => t.node(i) && u.node(j) && t.id(i) == u.id(j),
+        _ => false,
+    }
+}
+
+/// Lemma R3: under twin parents, the children authored in the set have the
+/// same names in the same order.
+pub proof fn lemma_children_names_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, pt: Option<int>, pu: Option<int>, r: bool)
+    requires t.wf(g), u.wf(g), g.wf(), closed(g, set), agree(t, u, set), twin_parents(t, u, g, pt, pu)
+    ensures t.names(t.in_set(set, t.children(pt, r))) == u.names(u.in_set(set, u.children(pu, r)))
+{
+    let (ct, cu) = (t.children(pt, r), u.children(pu, r));
+    let (xt, xu) = (t.in_set(set, ct), u.in_set(set, cu));
+    let (pt_, pu_) = (|i: int| set.contains(t.nodes[i].author), |i: int| set.contains(u.nodes[i].author));
+    lemma_children_sorted(t, g, pt, r);
+    lemma_children_sorted(u, g, pu, r);
+    lemma_sel_sorted(t, ct, pt_);
+    lemma_sel_sorted(u, cu, pu_);
+    lemma_sorted_names(t, xt);
+    lemma_sorted_names(u, xu);
+    lemma_children_nodes(t, pt, r);
+    lemma_children_nodes(u, pu, r);
+    lemma_sel_sub(ct, pt_);
+    lemma_sel_sub(cu, pu_);
+    assert forall|n: Name| t.names(xt).contains(n) <==> u.names(xu).contains(n) by {
+        lemma_names_contains(t, xt, n);
+        lemma_names_contains(u, xu, n);
+        if t.names(xt).contains(n) {
+            let q = choose|q: int| 0 <= q < xt.len() && t.id(#[trigger] xt[q]) == n;
+            let c = xt[q];
+            let k = src(ct, pt_, q);
+            assert(ct[k] == c && pt_(c));
+            assert(t.hangs(c, pt, r));
+            let c2 = choose|j: int| u.node(j) && same_node(t, u, set, c, j);
+            assert(u.hangs(c2, pu, r)) by {
+                match (pt, pu) {
+                    (None, None) => {}
+                    (Some(i), Some(j)) => {
+                        let p2 = u.nodes[c2].parent->Some_0;
+                        lemma_named_unique(u, g, p2, j);
+                    }
+                    _ => {}
+                }
+            }
+            lemma_children_complete(u, pu, r, c2);
+            assert(pu_(c2));
+            assert(xu.contains(c2));
+            let q2 = choose|q2: int| 0 <= q2 < xu.len() && xu[q2] == c2;
+            assert(u.id(xu[q2]) == n);
+        }
+        if u.names(xu).contains(n) {
+            let q = choose|q: int| 0 <= q < xu.len() && u.id(#[trigger] xu[q]) == n;
+            let c = xu[q];
+            let k = src(cu, pu_, q);
+            assert(cu[k] == c && pu_(c));
+            assert(u.hangs(c, pu, r));
+            let c2 = choose|i: int| t.node(i) && same_node(t, u, set, i, c);
+            assert(t.hangs(c2, pt, r)) by {
+                match (pt, pu) {
+                    (None, None) => {}
+                    (Some(i), Some(j)) => {
+                        let p2 = t.nodes[c2].parent->Some_0;
+                        lemma_named_unique(t, g, p2, i);
+                    }
+                    _ => {}
+                }
+            }
+            lemma_children_complete(t, pt, r, c2);
+            assert(pt_(c2));
+            assert(xt.contains(c2));
+            let q2 = choose|q2: int| 0 <= q2 < xt.len() && xt[q2] == c2;
+            assert(t.id(xt[q2]) == n);
+        }
+    }
+    lemma_sorted_same_members(t.names(xt), u.names(xu));
+}
+
+/// Siblings outside the set read as nothing, so a list reads as its
+/// in-set part does.
+pub proof fn lemma_sub_read_all_restrict(t: TreeS, g: GraphS, set: ISet<int>, siblings: Seq<int>, above: int)
+    requires
+        t.wf(g), g.wf(), closed(g, set),
+        forall|q: int| 0 <= q < siblings.len() ==> t.node(#[trigger] siblings[q]) && above < siblings[q],
+    ensures t.sub_read_all(set, siblings, above) == t.sub_read_all(set, t.in_set(set, siblings), above)
+    decreases siblings.len()
+{
+    let p = |i: int| set.contains(t.nodes[i].author);
+    if siblings.len() == 0 {
+        assert(t.in_set(set, siblings) == siblings);
+    } else {
+        let first = siblings[0];
+        let rest = siblings.drop_first();
+        lemma_sub_read_all_restrict(t, g, set, rest, above);
+        assert(siblings =~= seq![first] + rest);
+        lemma_sel_add(seq![first], rest, p);
+        lemma_sel_single(first, p);
+        if p(first) {
+            assert(t.in_set(set, siblings) == seq![first] + t.in_set(set, rest));
+            assert((seq![first] + t.in_set(set, rest))[0] == first);
+            assert((seq![first] + t.in_set(set, rest)).drop_first() =~= t.in_set(set, rest));
+        } else {
+            assert(t.in_set(set, siblings) =~= t.in_set(set, rest));
+            lemma_sub_read_outside(t, g, set, first);
+            assert(t.sub_read_all(set, siblings, above) =~= t.sub_read_all(set, rest, above));
+        }
+    }
+}
+
+/// The in-set children of a node are nodes attached after it.
+pub proof fn lemma_in_set_children(t: TreeS, g: GraphS, set: ISet<int>, parent: Option<int>, r: bool, above: int)
+    requires t.wf(g), match parent { Some(i) => i == above, None => above == -1 }
+    ensures forall|q: int| 0 <= q < t.in_set(set, t.children(parent, r)).len()
+        ==> t.node(#[trigger] t.in_set(set, t.children(parent, r))[q]) && above < t.in_set(set, t.children(parent, r))[q]
+{
+    let c = t.children(parent, r);
+    let p = |i: int| set.contains(t.nodes[i].author);
+    lemma_children_nodes(t, parent, r);
+    lemma_sel_sub(c, p);
+    assert forall|q: int| 0 <= q < sel(c, p).len() implies t.node(#[trigger] sel(c, p)[q]) && above < sel(c, p)[q] by {
+        let k = src(c, p, q);
+        assert(t.hangs(c[k], parent, r));
+    }
+}
+
+/// Lemma R4: twins read the same names from the set.
+pub proof fn lemma_sub_read_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, i: int, j: int)
+    requires t.wf(g), u.wf(g), g.wf(), closed(g, set), agree(t, u, set), t.node(i), u.node(j), t.id(i) == u.id(j)
+    ensures t.names(t.sub_read(set, i)) == u.names(u.sub_read(set, j))
+    decreases t.len() - i, 1int, 0int
+{
+    let (lt, rt) = (t.children(Some(i), false), t.children(Some(i), true));
+    let (lu, ru) = (u.children(Some(j), false), u.children(Some(j), true));
+    lemma_children_nodes(t, Some(i), false);
+    lemma_children_nodes(t, Some(i), true);
+    lemma_children_nodes(u, Some(j), false);
+    lemma_children_nodes(u, Some(j), true);
+    lemma_sub_read_all_restrict(t, g, set, lt, i);
+    lemma_sub_read_all_restrict(t, g, set, rt, i);
+    lemma_sub_read_all_restrict(u, g, set, lu, j);
+    lemma_sub_read_all_restrict(u, g, set, ru, j);
+    lemma_children_names_agree(t, u, g, set, Some(i), Some(j), false);
+    lemma_children_names_agree(t, u, g, set, Some(i), Some(j), true);
+    lemma_in_set_children(t, g, set, Some(i), false, i);
+    lemma_in_set_children(t, g, set, Some(i), true, i);
+    lemma_in_set_children(u, g, set, Some(j), false, j);
+    lemma_in_set_children(u, g, set, Some(j), true, j);
+    lemma_sub_read_all_agree(t, u, g, set, t.in_set(set, lt), u.in_set(set, lu), i, j);
+    lemma_sub_read_all_agree(t, u, g, set, t.in_set(set, rt), u.in_set(set, ru), i, j);
+    let mid_t: Seq<int> = if set.contains(t.nodes[i].author) { seq![i] } else { Seq::<int>::empty() };
+    let mid_u: Seq<int> = if set.contains(u.nodes[j].author) { seq![j] } else { Seq::<int>::empty() };
+    assert(t.names(mid_t) =~= u.names(mid_u));
+    lemma_names_add(t, t.sub_read_all(set, lt, i), mid_t);
+    lemma_names_add(t, t.sub_read_all(set, lt, i) + mid_t, t.sub_read_all(set, rt, i));
+    lemma_names_add(u, u.sub_read_all(set, lu, j), mid_u);
+    lemma_names_add(u, u.sub_read_all(set, lu, j) + mid_u, u.sub_read_all(set, ru, j));
+}
+
+/// Two same-named lists of in-set children read the same names.
+pub proof fn lemma_sub_read_all_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, ct: Seq<int>, cu: Seq<int>, above_t: int, above_u: int)
+    requires
+        t.wf(g), u.wf(g), g.wf(), closed(g, set), agree(t, u, set),
+        t.names(ct) == u.names(cu),
+        forall|q: int| 0 <= q < ct.len() ==> t.node(#[trigger] ct[q]) && above_t < ct[q],
+        forall|q: int| 0 <= q < cu.len() ==> u.node(#[trigger] cu[q]) && above_u < cu[q],
+    ensures t.names(t.sub_read_all(set, ct, above_t)) == u.names(u.sub_read_all(set, cu, above_u))
+    decreases t.len() - above_t, 0int, ct.len()
+{
+    assert(t.names(ct).len() == ct.len());
+    assert(u.names(cu).len() == cu.len());
+    if ct.len() > 0 {
+        assert(t.names(ct)[0] == t.id(ct[0]));
+        assert(u.names(cu)[0] == u.id(cu[0]));
+        assert forall|k: int| 0 <= k < ct.len() implies t.id(#[trigger] ct[k]) == u.id(cu[k]) by {
+            assert(t.names(ct)[k] == t.id(ct[k]));
+            assert(u.names(cu)[k] == u.id(cu[k]));
+        }
+        assert(t.names(ct.drop_first()) =~= u.names(cu.drop_first()));
+        lemma_sub_read_agree(t, u, g, set, ct[0], cu[0]);
+        lemma_sub_read_all_agree(t, u, g, set, ct.drop_first(), cu.drop_first(), above_t, above_u);
+        lemma_names_add(t, t.sub_read(set, ct[0]), t.sub_read_all(set, ct.drop_first(), above_t));
+        lemma_names_add(u, u.sub_read(set, cu[0]), u.sub_read_all(set, cu.drop_first(), above_u));
+    }
+}
+
+/// Lemma R5: the whole restricted reading agrees.
+pub proof fn lemma_sub_order_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>)
+    requires t.wf(g), u.wf(g), g.wf(), closed(g, set), agree(t, u, set)
+    ensures t.names(t.sub_order(set)) == u.names(u.sub_order(set))
+{
+    let (ct, cu) = (t.children(None, true), u.children(None, true));
+    lemma_children_nodes(t, None, true);
+    lemma_children_nodes(u, None, true);
+    lemma_sub_read_all_restrict(t, g, set, ct, -1);
+    lemma_sub_read_all_restrict(u, g, set, cu, -1);
+    lemma_children_names_agree(t, u, g, set, None, None, true);
+    lemma_in_set_children(t, g, set, None, true, -1);
+    lemma_in_set_children(u, g, set, None, true, -1);
+    lemma_sub_read_all_agree(t, u, g, set, t.in_set(set, ct), u.in_set(set, cu), -1, -1);
+}
+
+/// The events strictly in `e`'s past: what `visible` counts into.
+pub open spec fn past(g: GraphS, e: int) -> ISet<int> {
+    ISet::new(|o: int| g.saw(e, o))
+}
+
+pub proof fn lemma_past_closed(g: GraphS, e: int)
+    requires g.wf(), g.event(e)
+    ensures closed(g, past(g, e))
+{
+    assert forall|a: int, o: int| past(g, e).contains(a) && g.event(a) && g.event(o) && #[trigger] g.knows(a, o)
+        implies past(g, e).contains(o) by {
+        assert(g.knows(e, o));
+        if o == e { assert(g.knows(a, e) && g.knows(e, a)); }
+    }
+}
+
+/// The twin of `i` is the one index of `u` carrying its name.
+pub proof fn lemma_twin(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, i: int, j: int)
+    requires u.wf(g), agree(t, u, set), t.node(i), set.contains(t.nodes[i].author), u.node(j), u.id(j) == t.id(i)
+    ensures same_node(t, u, set, i, j)
+{
+    let j2 = choose|j2: int| u.node(j2) && same_node(t, u, set, i, j2);
+    lemma_named_unique(u, g, j, j2);
+}
+
+/// Lemma R: trees that agree on an event's past show it the same view.
+pub proof fn lemma_visible_agree(t: TreeS, u: TreeS, g: GraphS, e: int)
+    requires t.wf(g), u.wf(g), g.wf(), g.event(e), agree(t, u, past(g, e))
+    ensures t.names(t.visible(g, e)) == u.names(u.visible(g, e))
+{
+    reveal(TreeS::visible);
+    reveal(TreeS::order);
+    let set = past(g, e);
+    lemma_past_closed(g, e);
+    let (seen_t, seen_u) = (|i: int| t.seen(g, e, i), |i: int| u.seen(g, e, i));
+    let (in_t, in_u) = (|i: int| set.contains(t.nodes[i].author), |i: int| set.contains(u.nodes[i].author));
+    let kept_t = |i: int| forall|d: int| set.contains(d) ==> !t.nodes[i].deleted.contains(d);
+    let kept_u = |i: int| forall|d: int| set.contains(d) ==> !u.nodes[i].deleted.contains(d);
+    // `seen` is "in the past, and nothing in the past removed it".
+    assert forall|i: int| #[trigger] seen_t(i) <==> in_t(i) && kept_t(i) by {
+        if in_t(i) && kept_t(i) {
+            assert forall|d: int| t.nodes[i].deleted.contains(d) implies !g.saw(e, d) by {
+                if g.saw(e, d) { assert(set.contains(d)); }
+            }
+        }
+        if seen_t(i) {
+            assert forall|d: int| set.contains(d) implies !t.nodes[i].deleted.contains(d) by {
+                assert(g.saw(e, d));
+            }
+        }
+    }
+    assert forall|i: int| #[trigger] seen_u(i) <==> in_u(i) && kept_u(i) by {
+        if in_u(i) && kept_u(i) {
+            assert forall|d: int| u.nodes[i].deleted.contains(d) implies !g.saw(e, d) by {
+                if g.saw(e, d) { assert(set.contains(d)); }
+            }
+        }
+        if seen_u(i) {
+            assert forall|d: int| set.contains(d) implies !u.nodes[i].deleted.contains(d) by {
+                assert(g.saw(e, d));
+            }
+        }
+    }
+    lemma_sel_sel(t.order(), in_t, kept_t, seen_t);
+    lemma_sel_sel(u.order(), in_u, kept_u, seen_u);
+    lemma_sub_read_all_is_sel(t, set, t.children(None, true), -1);
+    lemma_sub_read_all_is_sel(u, set, u.children(None, true), -1);
+    assert(sel(t.order(), in_t) == t.sub_order(set));
+    assert(sel(u.order(), in_u) == u.sub_order(set));
+    lemma_sub_order_agree(t, u, g, set);
+    let (x, y) = (t.sub_order(set), u.sub_order(set));
+    assert(t.names(x).len() == x.len());
+    assert(u.names(y).len() == y.len());
+    assert(x.len() == y.len());
+    lemma_read_all_nodes(t, t.children(None, true), -1);
+    lemma_read_all_nodes(u, u.children(None, true), -1);
+    lemma_sel_sub(t.order(), in_t);
+    lemma_sel_sub(u.order(), in_u);
+    assert forall|k: int| 0 <= k < x.len() implies (kept_t(#[trigger] x[k]) <==> kept_u(y[k])) by {
+        assert(t.names(x)[k] == t.id(x[k]));
+        assert(u.names(y)[k] == u.id(y[k]));
+        let (a, b) = (src(t.order(), in_t, k), src(u.order(), in_u, k));
+        assert(t.node(x[k]) && in_t(x[k]));
+        assert(u.node(y[k]));
+        lemma_twin(t, u, g, set, x[k], y[k]);
+    }
+    lemma_sel_names(t, u, x, y, kept_t, kept_u);
 }
 
 // ---------------------------------------------------------------------------

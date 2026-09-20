@@ -21,11 +21,10 @@ the same elements, so the thing that is equal is the tree up to renaming, and
 
 - **Name.** `(author, minted)`. Unique across a walk, because each event
   mints its own count and an event is replayed once.
-- **Abstract tree** `Abs = Map<Name, (parent: Option<Name>, right: bool,
-  item: ItemS, deleted: Set<int>)>`, and `abs(T)` for an index tree `T`,
-  mapping each node's parent index to that node's name.
-- **Restriction** `restrict(A, S)` for a set of events `S`: the elements
-  whose author is in `S`, with `deleted` cut down to events in `S`.
+- **Agreement** `agree(t, u, S)` — in place of an abstract tree: every
+  element of `t` authored in `S` has a same-named twin in `u` with the same
+  item, side, parent *name* and `deleted ∩ S`, and vice versa. Two walks
+  assign different indices; names are what they share.
 - **Closed** `closed(g, S)`: `e ∈ S ∧ knows(e, o) ⇒ o ∈ S`. Every prefix
   of a valid order is closed, and so is `knows(e)` and `knows(e) \ {e}`.
 - **Walk well-formedness** `wf_tree(T, g)`: a parent's index is below its
@@ -111,8 +110,8 @@ so by Lemma 0 the files are; and the refusals agree by Lemma C's second half.
 | Example: two concurrent inserts tie by digest, both orders | verified |
 | `theorem_convergence` | stated, `admit()` |
 | Lemma W (`lemma_walk_wf` and the `replay_ops`/`insert_run`/`delete_run` chain under it) | verified |
-| Lemma 0 | not started |
-| Lemma R | not started |
+| Lemma 0 | subsumed: `agree` on all events + R with `standing` is `items` equal (to write) |
+| Lemma R (`lemma_visible_agree`, via R1–R5 on `sub_read`) | verified |
 | Lemma A | not started |
 | Lemma E | not started |
 | Lemma M | not started |
