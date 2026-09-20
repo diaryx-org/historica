@@ -90,6 +90,7 @@ pub open spec fn valid_order(g: GraphS, order: Seq<int>) -> bool {
             ==> order[i] != order[j]
     &&& forall|i: int, j: int| 0 <= i < order.len() && 0 <= j < order.len()
             && g.saw(order[i], order[j]) ==> j < i
+    &&& forall|e: int| g.event(e) ==> exists|q: int| 0 <= q < order.len() && order[q] == e
 }
 
 // ---------------------------------------------------------------------------
@@ -533,12 +534,13 @@ impl TreeS {
                 ==> g.knows(self.nodes[i].author, self.nodes[self.nodes[i].parent->Some_0].author)
         &&& forall|i: int, j: int| self.node(i) && self.node(j) && i != j ==> self.id(i) != self.id(j)
         &&& forall|i: int, d: int| self.node(i) && #[trigger] self.nodes[i].deleted.contains(d)
-                ==> g.saw(d, self.nodes[i].author)
+                ==> g.event(d) && g.saw(d, self.nodes[i].author)
     }
 
-    /// `u` is `self` with more elements attached and more removals marked:
-    /// nothing already there changes name, place or content.
-    pub open spec fn extends(self, u: TreeS) -> bool {
+    /// `u` is `self` with more elements attached and removals marked by
+    /// `by`: nothing already there changes name, place or content, and the
+    /// only new mark anywhere is `by`'s.
+    pub open spec fn extends(self, u: TreeS, by: int) -> bool {
         &&& self.len() <= u.len()
         &&& forall|i: int| self.node(i) ==> {
             &&& (#[trigger] u.nodes[i]).author == self.nodes[i].author
@@ -547,6 +549,9 @@ impl TreeS {
             &&& u.nodes[i].parent == self.nodes[i].parent
             &&& u.nodes[i].right == self.nodes[i].right
         }
+        &&& forall|i: int, d: int| self.node(i) && #[trigger] self.nodes[i].deleted.contains(d) ==> u.nodes[i].deleted.contains(d)
+        &&& forall|i: int, d: int| u.node(i) && #[trigger] u.nodes[i].deleted.contains(d)
+                ==> (self.node(i) && self.nodes[i].deleted.contains(d)) || d == by
     }
 
     /// A left neighbour an insertion may anchor after: an element the
@@ -567,9 +572,9 @@ impl TreeS {
     }
 }
 
-pub proof fn lemma_extends_trans(t: TreeS, u: TreeS, v: TreeS)
-    requires t.extends(u), u.extends(v)
-    ensures t.extends(v)
+pub proof fn lemma_extends_trans(t: TreeS, u: TreeS, v: TreeS, by: int)
+    requires t.extends(u, by), u.extends(v, by)
+    ensures t.extends(v, by)
 {
 }
 
@@ -625,7 +630,7 @@ pub proof fn lemma_attach_wf(t: TreeS, g: GraphS, e: int, minted: int, item: Ite
     ensures ({
         let u = t.attach(e, minted, item, place);
         &&& u.wf(g)
-        &&& t.extends(u)
+        &&& t.extends(u, e)
         &&& u.len() == t.len() + 1
         &&& u.nodes[t.len()].author == e
         &&& u.minted_below(e, minted + 1)
@@ -644,7 +649,7 @@ pub proof fn lemma_insert_run_wf(t: TreeS, g: GraphS, e: int, items: Seq<ItemS>,
     ensures ({
         let (u, m) = insert_run(t, g, e, items, left, minted);
         &&& u.wf(g)
-        &&& t.extends(u)
+        &&& t.extends(u, e)
         &&& m == minted + items.len()
         &&& u.len() == t.len() + items.len()
         &&& u.minted_below(e, m)
@@ -660,13 +665,13 @@ pub proof fn lemma_insert_run_wf(t: TreeS, g: GraphS, e: int, items: Seq<ItemS>,
         assert(next.known_or_none(g, e, Some(t.len())));
         lemma_insert_run_wf(next, g, e, items.drop_first(), Some(t.len()), minted + 1);
         let (u, m) = insert_run(next, g, e, items.drop_first(), Some(t.len()), minted + 1);
-        lemma_extends_trans(t, next, u);
+        lemma_extends_trans(t, next, u, e);
     }
 }
 
 pub proof fn lemma_delete_wf(t: TreeS, g: GraphS, e: int, i: int)
-    requires t.wf(g), t.node(i), g.saw(e, t.nodes[i].author)
-    ensures t.delete(i, e).wf(g), t.extends(t.delete(i, e)), t.delete(i, e).len() == t.len()
+    requires t.wf(g), t.node(i), g.event(e), g.saw(e, t.nodes[i].author)
+    ensures t.delete(i, e).wf(g), t.extends(t.delete(i, e), e), t.delete(i, e).len() == t.len()
 {
     let u = t.delete(i, e);
     assert forall|a: int, b: int| u.node(a) && u.node(b) && a != b implies u.id(a) != u.id(b) by {
@@ -675,8 +680,8 @@ pub proof fn lemma_delete_wf(t: TreeS, g: GraphS, e: int, i: int)
 }
 
 pub proof fn lemma_delete_run_wf(t: TreeS, g: GraphS, e: int, prepare: Seq<int>, at: int, items: Seq<ItemS>, k: int)
-    requires t.wf(g), t.view_ok(g, e, prepare), 0 <= at, at + items.len() <= prepare.len()
-    ensures delete_run(t, g, e, prepare, at, items, k) matches Some(u) ==> u.wf(g) && t.extends(u) && u.len() == t.len()
+    requires t.wf(g), g.event(e), t.view_ok(g, e, prepare), 0 <= at, at + items.len() <= prepare.len()
+    ensures delete_run(t, g, e, prepare, at, items, k) matches Some(u) ==> u.wf(g) && t.extends(u, e) && u.len() == t.len()
     decreases items.len() - k
 {
     if 0 <= k < items.len() {
@@ -687,7 +692,7 @@ pub proof fn lemma_delete_run_wf(t: TreeS, g: GraphS, e: int, prepare: Seq<int>,
             assert(next.view_ok(g, e, prepare));
             lemma_delete_run_wf(next, g, e, prepare, at, items, k + 1);
             if let Some(u) = delete_run(next, g, e, prepare, at, items, k + 1) {
-                lemma_extends_trans(t, next, u);
+                lemma_extends_trans(t, next, u, e);
             }
         }
     }
@@ -695,7 +700,7 @@ pub proof fn lemma_delete_run_wf(t: TreeS, g: GraphS, e: int, prepare: Seq<int>,
 
 pub proof fn lemma_replay_ops_wf(t: TreeS, g: GraphS, e: int, prepare: Seq<int>, ops: Seq<OperationS>, k: int, minted: int)
     requires t.wf(g), g.wf(), g.event(e), t.view_ok(g, e, prepare), t.minted_below(e, minted)
-    ensures replay_ops(t, g, e, prepare, ops, k, minted) matches Some(u) ==> u.wf(g) && t.extends(u)
+    ensures replay_ops(t, g, e, prepare, ops, k, minted) matches Some(u) ==> u.wf(g) && t.extends(u, e)
         && forall|i: int| t.len() <= i < u.len() ==> (#[trigger] u.nodes[i]).author == e
     decreases ops.len() - k
 {
@@ -709,7 +714,7 @@ pub proof fn lemma_replay_ops_wf(t: TreeS, g: GraphS, e: int, prepare: Seq<int>,
                     assert(next.minted_below(e, minted));
                     lemma_replay_ops_wf(next, g, e, prepare, ops, k + 1, minted);
                     if let Some(u) = replay_ops(next, g, e, prepare, ops, k + 1, minted) {
-                        lemma_extends_trans(t, next, u);
+                        lemma_extends_trans(t, next, u, e);
                     }
                 }
             }
@@ -722,7 +727,7 @@ pub proof fn lemma_replay_ops_wf(t: TreeS, g: GraphS, e: int, prepare: Seq<int>,
                 assert(next.view_ok(g, e, prepare));
                 lemma_replay_ops_wf(next, g, e, prepare, ops, k + 1, m);
                 if let Some(u) = replay_ops(next, g, e, prepare, ops, k + 1, m) {
-                    lemma_extends_trans(t, next, u);
+                    lemma_extends_trans(t, next, u, e);
                 }
             }
         }
@@ -792,7 +797,7 @@ pub proof fn lemma_visible_ok(t: TreeS, g: GraphS, e: int)
 
 pub proof fn lemma_replay_event_wf(t: TreeS, g: GraphS, e: int)
     requires t.wf(g), g.wf(), g.event(e), t.minted_below(e, 0)
-    ensures replay_event(t, g, e) matches Some(u) ==> u.wf(g) && t.extends(u)
+    ensures replay_event(t, g, e) matches Some(u) ==> u.wf(g) && t.extends(u, e)
         && forall|i: int| t.len() <= i < u.len() ==> (#[trigger] u.nodes[i]).author == e
 {
     if let Some(ops) = g.events[e].ops {
@@ -801,12 +806,18 @@ pub proof fn lemma_replay_event_wf(t: TreeS, g: GraphS, e: int)
     }
 }
 
+/// Which events a prefix of the order holds.
+pub open spec fn walked(order: Seq<int>, k: int, e: int) -> bool {
+    exists|q: int| 0 <= q < k && order[q] == e
+}
+
 /// Lemma W. Every tree the walk builds is well-formed, and every element
-/// in it was written by an event already walked.
+/// in it was written, and every mark made, by an event already walked.
 pub proof fn lemma_walk_wf(g: GraphS, order: Seq<int>, k: int)
     requires g.wf(), valid_order(g, order), 0 <= k <= order.len()
     ensures walk(g, order, k) matches Some(t) ==> t.wf(g)
-        && forall|i: int| t.node(i) ==> exists|j: int| 0 <= j < k && order[j] == (#[trigger] t.nodes[i]).author
+        && (forall|i: int| t.node(i) ==> walked(order, k, (#[trigger] t.nodes[i]).author))
+        && (forall|i: int, d: int| t.node(i) && #[trigger] t.nodes[i].deleted.contains(d) ==> walked(order, k, d))
     decreases k
 {
     if k > 0 {
@@ -822,12 +833,21 @@ pub proof fn lemma_walk_wf(g: GraphS, order: Seq<int>, k: int)
             }
             lemma_replay_event_wf(t, g, e);
             if let Some(u) = replay_event(t, g, e) {
-                assert forall|i: int| u.node(i) implies exists|j: int| 0 <= j < k && order[j] == (#[trigger] u.nodes[i]).author by {
+                assert forall|i: int| u.node(i) implies walked(order, k, (#[trigger] u.nodes[i]).author) by {
                     if i < t.len() {
                         let j = choose|j: int| 0 <= j < k - 1 && order[j] == t.nodes[i].author;
                         assert(order[j] == u.nodes[i].author);
                     } else {
                         assert(order[k - 1] == u.nodes[i].author);
+                    }
+                }
+                assert forall|i: int, d: int| u.node(i) && #[trigger] u.nodes[i].deleted.contains(d) implies walked(order, k, d) by {
+                    if t.node(i) && t.nodes[i].deleted.contains(d) {
+                        let j = choose|j: int| 0 <= j < k - 1 && order[j] == d;
+                        assert(order[j] == d);
+                    } else {
+                        assert(d == e);
+                        assert(order[k - 1] == d);
                     }
                 }
             }
@@ -1953,6 +1973,136 @@ pub proof fn lemma_replay_event_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<i
         lemma_visible_ok(t, g, e);
         lemma_visible_ok(u, g, e);
         lemma_replay_ops_agree(t, u, g, set, e, t.visible(g, e), u.visible(g, e), ops, 0, 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The algebra of agreement, and Lemma M.
+// ---------------------------------------------------------------------------
+
+pub proof fn lemma_agree_refl(t: TreeS, set: ISet<int>)
+    ensures agree(t, t, set)
+{
+    assert forall|i: int| t.node(i) && #[trigger] set.contains(t.nodes[i].author)
+        implies exists|j: int| t.node(j) && same_node(t, t, set, i, j) by {
+        assert(same_deleted(t, t, set, i, i)) by { reveal(same_deleted); }
+        assert(t.node(i) && same_node(t, t, set, i, i));
+    }
+}
+
+pub proof fn lemma_agree_sym(t: TreeS, u: TreeS, set: ISet<int>)
+    requires agree(t, u, set)
+    ensures agree(u, t, set)
+{
+}
+
+pub proof fn lemma_same_deleted_trans(a: TreeS, b: TreeS, c: TreeS, set: ISet<int>, i: int, j: int, k: int)
+    requires same_deleted(a, b, set, i, j), same_deleted(b, c, set, j, k)
+    ensures same_deleted(a, c, set, i, k)
+{
+    reveal(same_deleted);
+}
+
+proof fn lemma_half_trans(a: TreeS, b: TreeS, c: TreeS, set: ISet<int>)
+    requires half(a, b, set), half(b, c, set)
+    ensures half(a, c, set)
+{
+    assert forall|i: int| a.node(i) && #[trigger] set.contains(a.nodes[i].author)
+        implies exists|k: int| c.node(k) && same_node(a, c, set, i, k) by {
+        let j = choose|j: int| b.node(j) && same_node(a, b, set, i, j);
+        assert(b.nodes[j].author == a.nodes[i].author);
+        assert(set.contains(b.nodes[j].author));
+        let k = choose|k: int| c.node(k) && same_node(b, c, set, j, k);
+        lemma_same_deleted_trans(a, b, c, set, i, j, k);
+        assert(c.node(k) && same_node(a, c, set, i, k));
+    }
+}
+
+pub proof fn lemma_agree_trans(a: TreeS, b: TreeS, c: TreeS, set: ISet<int>)
+    requires agree(a, b, set), agree(b, c, set)
+    ensures agree(a, c, set)
+{
+    lemma_half_trans(a, b, c, set);
+    lemma_half_trans(c, b, a, set);
+}
+
+/// Lemma M, one step: an event outside the set leaves the tree agreeing
+/// with itself on the set.
+pub proof fn lemma_step_outside(t: TreeS, g: GraphS, set: ISet<int>, f: int)
+    requires t.wf(g), g.wf(), g.event(f), !set.contains(f), t.minted_below(f, 0)
+    ensures replay_event(t, g, f) matches Some(t2) ==> agree(t, t2, set)
+{
+    lemma_replay_event_wf(t, g, f);
+    if let Some(t2) = replay_event(t, g, f) {
+        assert forall|i: int| t.node(i) && #[trigger] set.contains(t.nodes[i].author)
+            implies exists|j: int| t2.node(j) && same_node(t, t2, set, i, j) by {
+            if let Some(p) = t.nodes[i].parent { assert(t2.nodes[p].author == t.nodes[p].author); }
+            assert(same_deleted(t, t2, set, i, i)) by {
+                reveal(same_deleted);
+                assert forall|d: int| #[trigger] set.contains(d) implies (t2.nodes[i].deleted.contains(d) <==> t.nodes[i].deleted.contains(d)) by {
+                    if t2.nodes[i].deleted.contains(d) { assert(d != f); }
+                }
+            }
+            assert(t2.node(i) && same_node(t, t2, set, i, i));
+        }
+        assert forall|j: int| t2.node(j) && #[trigger] set.contains(t2.nodes[j].author)
+            implies exists|i: int| t.node(i) && same_node(t2, t, set, j, i) by {
+            assert(j < t.len());
+            if let Some(p) = t.nodes[j].parent { assert(t2.nodes[p].author == t.nodes[p].author); }
+            assert(same_deleted(t2, t, set, j, j)) by {
+                reveal(same_deleted);
+                assert forall|d: int| #[trigger] set.contains(d) implies (t.nodes[j].deleted.contains(d) <==> t2.nodes[j].deleted.contains(d)) by {
+                    if t2.nodes[j].deleted.contains(d) { assert(d != f); }
+                }
+            }
+            assert(t.node(j) && same_node(t2, t, set, j, j));
+        }
+    }
+}
+
+/// A walk that is `Some` at `k2` was `Some` at every earlier `k`.
+pub proof fn lemma_walk_some_prefix(g: GraphS, order: Seq<int>, k: int, k2: int)
+    requires 0 <= k <= k2, walk(g, order, k2) is Some
+    ensures walk(g, order, k) is Some
+    decreases k2 - k
+{
+    if k < k2 { lemma_walk_some_prefix(g, order, k, k2 - 1); }
+}
+
+/// An event not yet walked has minted nothing.
+pub proof fn lemma_unwalked_minted_nothing(g: GraphS, order: Seq<int>, k: int, t: TreeS)
+    requires g.wf(), valid_order(g, order), 0 <= k < order.len(), walk(g, order, k) == Some(t)
+    ensures t.minted_below(order[k], 0)
+{
+    lemma_walk_wf(g, order, k);
+    assert forall|i: int| t.node(i) && (#[trigger] t.nodes[i]).author == order[k] implies false by {
+        let j = choose|j: int| 0 <= j < k && order[j] == t.nodes[i].author;
+        assert(order[j] == order[k]);
+    }
+}
+
+/// Lemma M. Walking on through events outside the set keeps the tree
+/// agreeing, on the set, with where it was.
+pub proof fn lemma_walk_outside(g: GraphS, order: Seq<int>, k: int, k2: int, set: ISet<int>)
+    requires
+        g.wf(), valid_order(g, order), 0 <= k <= k2 <= order.len(),
+        forall|q: int| k <= q < k2 ==> !set.contains(#[trigger] order[q]),
+    ensures walk(g, order, k2) matches Some(t2) ==> (walk(g, order, k) matches Some(t) && agree(t, t2, set))
+    decreases k2 - k
+{
+    if k == k2 {
+        if let Some(t2) = walk(g, order, k2) { lemma_agree_refl(t2, set); }
+    } else {
+        if let Some(t2) = walk(g, order, k2) {
+            lemma_walk_some_prefix(g, order, k2 - 1, k2);
+            let t1 = walk(g, order, k2 - 1)->Some_0;
+            lemma_walk_outside(g, order, k, k2 - 1, set);
+            let t = walk(g, order, k)->Some_0;
+            lemma_walk_wf(g, order, k2 - 1);
+            lemma_unwalked_minted_nothing(g, order, k2 - 1, t1);
+            lemma_step_outside(t1, g, set, order[k2 - 1]);
+            lemma_agree_trans(t, t1, t2, set);
+        }
     }
 }
 

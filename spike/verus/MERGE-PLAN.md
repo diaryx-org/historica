@@ -114,7 +114,7 @@ so by Lemma 0 the files are; and the refusals agree by Lemma C's second half.
 | Lemma R (`lemma_visible_agree`, via R1–R5 on `sub_read`) | verified |
 | Lemma A (`lemma_anchor_agree`) | verified |
 | Lemma E (`lemma_replay_event_agree`) | verified |
-| Lemma M | not started |
+| Lemma M (`lemma_walk_outside`) | verified |
 | Lemma C | not started |
 
 ## Lessons from the model so far
