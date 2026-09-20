@@ -83,13 +83,10 @@ order are applied to the same result", with its hypothesis made explicit.
 - `Item::clone` is hand-written with `ensures r@ == self@` because a derived
   `Clone` carries no such contract.
 
-## What this says about `merge.rs`
+## And `merge.rs`
 
-`replay.rs` is the easy half: one parent, positions that never move. `merge.rs`
-(Eg-walker over Fugue) is ~2100 lines with a transient tree, a causal filter,
-and the theorem that matters — convergence for any causal order — needs
-induction over the event graph rather than over one document. The data types
-are the same shape as here (`Vec`, `BTreeMap`, `BTreeSet`, digests), so the
-port cost is comparable per line; the proof is a different order of work,
-because the specification itself is the Fugue ordering, and writing it down is
-the conformance suite decision 0007 says the module owes.
+`merge_model.rs` is the second spike: a specification-level model of
+`Tree::replay` (Eg-walker over Fugue) and a proof that replaying one graph in
+any two causal orders produces the same file or the same refusal — decision
+0007's second acceptance claim. 122 obligations, no admits, ~2.5 s.
+`MERGE-PLAN.md` is the proof on paper, what it rests on, and what it found.

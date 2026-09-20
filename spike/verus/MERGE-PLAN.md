@@ -103,25 +103,79 @@ so by Lemma 0 the files are; and the refusals agree by Lemma C's second half.
 
 ## Status
 
+**Proven.** `theorem_convergence` verifies with no `admit`, no `assume`,
+at Verus's default resource limit: 122 proof obligations, about 2.5 s, in
+`merge_model.rs` (~2950 lines, roughly 450 of model and 2500 of proof).
+
 | Piece | State |
 |---|---|
-| Model: graph, tree, `children`, `read`, `visible`, `anchor`, `replay_*`, `walk` | verified (terminating, well-typed) |
-| Attach-unfolding lemmas (`lemma_children_attach`, `_hang`, `_none/_one/_two`) | verified |
-| Example: two concurrent inserts tie by digest, both orders | verified |
-| `theorem_convergence` | stated, `admit()` |
-| Lemma W (`lemma_walk_wf` and the `replay_ops`/`insert_run`/`delete_run` chain under it) | verified |
-| Lemma 0 | subsumed: `agree` on all events + R with `standing` is `items` equal (to write) |
+| Model: graph, tree, `children`, `read`, `visible`, `anchor`, `replay_*`, `walk` | verified (terminating) |
+| Example: two concurrent inserts tie by digest, both orders | verified; a flipped tie-break fails it |
+| Lemma W (`lemma_walk_wf`) | verified |
 | Lemma R (`lemma_visible_agree`, via R1–R5 on `sub_read`) | verified |
-| Lemma A (`lemma_anchor_agree`) | verified |
+| Lemma A (`lemma_anchor_agree`) | verified; `anchor` without its `knows` filter fails it |
 | Lemma E (`lemma_replay_event_agree`) | verified |
 | Lemma M (`lemma_walk_outside`) | verified |
 | Lemma C (`lemma_walks_agree`) | verified |
+| `items` from agreement on every event (`lemma_items_agree`) | verified |
+| Refusal transfers (`lemma_refusal_transfers`) | verified |
+| **`theorem_convergence`** | **verified** |
 
-## Lessons from the model so far
+## What the theorem rests on
 
-- Z3 will not evaluate the model on a concrete input by itself; every step
-  is a `reveal_with_fuel` and an `=~=`, and a proof function that does more
-  than one step runs for minutes. Keep example lemmas to one unfolding each.
-- `Set::is_empty` costs cardinality axioms; `forall d. !contains(d)` is free.
-- Facts that mention `Seq::filter` should be established inside `assert ...
-  by` blocks so the filter lemmas do not stay in the outer context.
+The proof is about `merge_model.rs`, which is a transcription of
+`merge.rs` by hand. Nothing here connects the two mechanically; the model
+is read against the code, not derived from it. What is assumed:
+
+- `knows` has the properties `GraphS::wf` lists — reflexive, transitive,
+  acyclic, relating events only. That `ancestry.rs` computes such a
+  relation from the parent edges is a separate, executable proof, and a
+  natural next one.
+- Events are indexed in digest order, so a comparison of indices is a
+  comparison of digests; and an element is named `(author, minted)`
+  rather than `(revision, op + offset)`. Sibling ties are broken by the
+  author half, and two elements of one author are never same-side
+  siblings, so the second half never decides an order — but that last
+  fact is *not* proven here; the model simply never compares them.
+- Resolutions (decision 0032) are not modelled, nor is `contested`.
+
+## What the proof found in the code's argument
+
+- **`visible` and `anchor` filter by different relations, and both are
+  needed.** `visible` uses `saw` (strictly the past); `anchor` uses
+  `knows` (the past and the event itself). The proof needs exactly this:
+  an event's own fresh elements must be anchors for the rest of its run
+  (`insert_run` passes `Some(t.len())` as the next left neighbour), and
+  must *not* count into the positions of the document being replayed.
+- **A mark's direction.** A removal recorded on an element is by an event
+  that *saw the author*; an element of `f`'s can only be marked by events
+  after `f`. Lemma C's union step depends on nothing in the shared set
+  having seen `f`, which is exactly what "walked before `f`" gives. Getting
+  the direction wrong the first time is what surfaced it.
+- **`(revision, op + offset)` can collide within one revision.** The
+  model sidesteps it; the code relies on same-author elements never
+  meeting as siblings. Worth a comment in `Tree::attach`, or a proof.
+
+## Lessons from mechanising it
+
+- **Opaque by default for anything with a quantifier inside.** `order`,
+  `visible`, `items` and `same_deleted` are opaque and revealed where used.
+  Left open, `visible = order().filter(..)` met vstd's broadcast
+  `filter_distributes_over_add` over a sum of `read`s and Z3 ran for
+  minutes; `same_deleted`'s `forall d` was instantiated 1.6 million times.
+- **Two-directional definitions feed themselves.** `agree` as one
+  definition with both directions hung Z3 through fresh witnesses: clause
+  one's twin `j` mentions `u.nodes[j]`, which fires clause two, whose
+  witness fires clause one. As `half(t, u) && half(u, t)` with a symmetry
+  lemma, every proof about it is a call to a lemma about `half`.
+- **Name witnesses.** `exists` in a postcondition went brittle as the
+  context grew; `src(s, p, q)` — the index `sel(s, p)[q]` came from — is
+  stable.
+- **A local filter.** `sel` is `Seq::filter` re-spelled so its four lemmas
+  are the whole interface, with no broadcast triggers.
+- **Triggers on set membership, not on nodes.** `agree`'s quantifier
+  triggers on `set.contains(t.nodes[i].author)`; `same_node` never
+  produces that term, so nothing cycles.
+- The resource limit does not cap matching loops. Run each function alone
+  with a wall-clock timeout to find the one that hangs, then bisect with
+  `assume(false)`.

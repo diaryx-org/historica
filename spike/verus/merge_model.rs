@@ -1171,12 +1171,16 @@ pub proof fn lemma_sel_sorted(t: TreeS, s: Seq<int>, p: spec_fn(int) -> bool)
 
 /// Filtering twice is filtering once by both.
 pub proof fn lemma_sel_sel(s: Seq<int>, p: spec_fn(int) -> bool, q: spec_fn(int) -> bool, r: spec_fn(int) -> bool)
-    requires forall|i: int| #[trigger] r(i) <==> p(i) && q(i)
+    requires forall|k: int| 0 <= k < s.len() ==> (r(#[trigger] s[k]) <==> p(s[k]) && q(s[k]))
     ensures sel(sel(s, p), q) == sel(s, r)
     decreases s.len()
 {
     if s.len() > 0 {
+        assert forall|k: int| 0 <= k < s.drop_last().len() implies (r(#[trigger] s.drop_last()[k]) <==> p(s.drop_last()[k]) && q(s.drop_last()[k])) by {
+            assert(s.drop_last()[k] == s[k]);
+        }
         lemma_sel_sel(s.drop_last(), p, q, r);
+        assert(r(s.last()) <==> p(s.last()) && q(s.last())) by { assert(s.last() == s[s.len() - 1]); }
         let r = sel(s.drop_last(), p);
         if p(s.last()) {
             assert(sel(s, p) == r.push(s.last()));
@@ -2360,19 +2364,177 @@ pub proof fn lemma_walks_agree(g: GraphS, o1: Seq<int>, o2: Seq<int>, k1: int, k
 // The theorem. Decision 0007's second acceptance claim.
 // ---------------------------------------------------------------------------
 
+/// Every event.
+pub open spec fn everyone(g: GraphS) -> ISet<int> {
+    ISet::new(|o: int| g.event(o))
+}
+
+/// Trees agreeing on every event hold the same file.
+pub proof fn lemma_items_agree(t: TreeS, u: TreeS, g: GraphS)
+    requires t.wf(g), u.wf(g), g.wf(), agree(t, u, everyone(g))
+    ensures t.items() == u.items()
+{
+    reveal(TreeS::items);
+    reveal(TreeS::order);
+    let set = everyone(g);
+    assert(closed(g, set));
+    let (in_t, in_u) = (|i: int| set.contains(t.nodes[i].author), |i: int| set.contains(u.nodes[i].author));
+    let (st_t, st_u) = (|i: int| t.standing(i), |i: int| u.standing(i));
+    lemma_read_all_nodes(t, t.children(None, true), -1);
+    lemma_read_all_nodes(u, u.children(None, true), -1);
+    // Every element's author is an event, so restricting to everyone drops nothing.
+    assert forall|k: int| 0 <= k < t.order().len() implies (st_t(#[trigger] t.order()[k]) <==> in_t(t.order()[k]) && st_t(t.order()[k])) by {
+        assert(t.node(t.order()[k]));
+    }
+    assert forall|k: int| 0 <= k < u.order().len() implies (st_u(#[trigger] u.order()[k]) <==> in_u(u.order()[k]) && st_u(u.order()[k])) by {
+        assert(u.node(u.order()[k]));
+    }
+    lemma_sel_sel(t.order(), in_t, st_t, st_t);
+    lemma_sel_sel(u.order(), in_u, st_u, st_u);
+    lemma_sub_read_all_is_sel(t, set, t.children(None, true), -1);
+    lemma_sub_read_all_is_sel(u, set, u.children(None, true), -1);
+    assert(sel(t.order(), in_t) == t.sub_order(set));
+    assert(sel(u.order(), in_u) == u.sub_order(set));
+    lemma_sub_order_agree(t, u, g, set);
+    let (x, y) = (t.sub_order(set), u.sub_order(set));
+    assert(t.names(x).len() == x.len());
+    assert(u.names(y).len() == y.len());
+    lemma_sel_sub(t.order(), in_t);
+    lemma_sel_sub(u.order(), in_u);
+    // Twins stand or fall together: their marks are the same events.
+    assert forall|k: int| 0 <= k < x.len() implies (st_t(#[trigger] x[k]) <==> st_u(y[k])) by {
+        assert(t.names(x)[k] == t.id(x[k]));
+        assert(u.names(y)[k] == u.id(y[k]));
+        let (a, b) = (src(t.order(), in_t, k), src(u.order(), in_u, k));
+        assert(t.node(x[k]) && in_t(x[k]));
+        assert(u.node(y[k]));
+        lemma_twin(t, u, g, set, x[k], y[k]);
+        reveal(same_deleted);
+        if !t.standing(x[k]) {
+            let d = choose|d: int| t.nodes[x[k]].deleted.contains(d);
+            assert(set.contains(d));
+            assert(u.nodes[y[k]].deleted.contains(d));
+        }
+        if !u.standing(y[k]) {
+            let d = choose|d: int| u.nodes[y[k]].deleted.contains(d);
+            assert(set.contains(d));
+            assert(t.nodes[x[k]].deleted.contains(d));
+        }
+    }
+    lemma_sel_names(t, u, x, y, st_t, st_u);
+    let (sx, sy) = (sel(x, st_t), sel(y, st_u));
+    assert(t.names(sx).len() == sx.len());
+    assert(u.names(sy).len() == sy.len());
+    lemma_sel_sub(x, st_t);
+    lemma_sel_sub(y, st_u);
+    assert forall|k: int| 0 <= k < sx.len() implies t.nodes[#[trigger] sx[k]].item == u.nodes[sy[k]].item by {
+        assert(t.names(sx)[k] == t.id(sx[k]));
+        assert(u.names(sy)[k] == u.id(sy[k]));
+        let (a, b) = (src(x, st_t, k), src(y, st_u, k));
+        assert(x[a] == sx[k] && y[b] == sy[k]);
+        let (a2, b2) = (src(t.order(), in_t, a), src(u.order(), in_u, b));
+        assert(t.order()[a2] == x[a] && in_t(x[a]));
+        assert(u.order()[b2] == y[b]);
+        assert(t.node(sx[k]) && in_t(sx[k]));
+        assert(u.node(sy[k]));
+        lemma_twin(t, u, g, set, sx[k], sy[k]);
+    }
+    assert(t.items() =~= u.items());
+}
+
+/// A walk that refuses has a first event it refused.
+pub proof fn lemma_walk_none_witness(g: GraphS, order: Seq<int>, k: int)
+    requires 0 <= k, walk(g, order, k) is None
+    ensures exists|q: int| 0 <= q < k && walk(g, order, q) is Some && replay_event(walk(g, order, q)->Some_0, g, #[trigger] order[q]) is None
+    decreases k
+{
+    if k > 0 {
+        if walk(g, order, k - 1) is None {
+            lemma_walk_none_witness(g, order, k - 1);
+        } else {
+            assert(replay_event(walk(g, order, k - 1)->Some_0, g, order[k - 1]) is None);
+        }
+    }
+}
+
+/// An event one walk refuses, every walk refuses.
+pub proof fn lemma_refusal_transfers(g: GraphS, o1: Seq<int>, o2: Seq<int>, q: int)
+    requires
+        g.wf(), valid_order(g, o1), valid_order(g, o2), 0 <= q < o1.len(),
+        walk(g, o1, q) is Some, replay_event(walk(g, o1, q)->Some_0, g, o1[q]) is None,
+    ensures walk(g, o2, o2.len() as int) is None
+{
+    let f = o1[q];
+    let t1 = walk(g, o1, q)->Some_0;
+    let q2 = choose|q2: int| 0 <= q2 < o2.len() && o2[q2] == f;
+    if walk(g, o2, q2) is None {
+        if walk(g, o2, o2.len() as int) is Some { lemma_walk_some_prefix(g, o2, q2, o2.len() as int); }
+    } else {
+        let t2 = walk(g, o2, q2)->Some_0;
+        lemma_walk_wf(g, o1, q);
+        lemma_walk_wf(g, o2, q2);
+        lemma_past_closed(g, f);
+        assert(prefix_holds(o1, q, past(g, f))) by {
+            assert forall|o: int| #[trigger] past(g, f).contains(o) implies walked(o1, q, o) by {
+                let i = choose|i: int| 0 <= i < o1.len() && o1[i] == o;
+                assert(g.saw(o1[q], o1[i]));
+            }
+        }
+        assert(prefix_holds(o2, q2, past(g, f))) by {
+            assert forall|o: int| #[trigger] past(g, f).contains(o) implies walked(o2, q2, o) by {
+                let i = choose|i: int| 0 <= i < o2.len() && o2[i] == o;
+                assert(g.saw(o2[q2], o2[i]));
+            }
+        }
+        lemma_walks_agree(g, o1, o2, q, q2, past(g, f));
+        lemma_unwalked_minted_nothing(g, o1, q, t1);
+        lemma_unwalked_minted_nothing(g, o2, q2, t2);
+        assert forall|i: int| t1.node(i) implies !(#[trigger] t1.nodes[i]).deleted.contains(f) by {
+            if t1.nodes[i].deleted.contains(f) { let i2 = choose|i2: int| 0 <= i2 < q && o1[i2] == f; }
+        }
+        assert forall|j: int| t2.node(j) implies !(#[trigger] t2.nodes[j]).deleted.contains(f) by {
+            if t2.nodes[j].deleted.contains(f) { let i2 = choose|i2: int| 0 <= i2 < q2 && o2[i2] == f; }
+        }
+        assert forall|o: int| #[trigger] known(g, f).contains(o) implies past(g, f).contains(o) || o == f by {}
+        assert forall|o: int| #[trigger] past(g, f).contains(o) implies known(g, f).contains(o) by {}
+        lemma_agree_add_absent(t1, t2, g, past(g, f), known(g, f), f);
+        lemma_known_closed(g, f);
+        lemma_replay_event_agree(t1, t2, g, known(g, f), f);
+        assert(walk(g, o2, q2 + 1) is None);
+        if walk(g, o2, o2.len() as int) is Some { lemma_walk_some_prefix(g, o2, q2 + 1, o2.len() as int); }
+    }
+}
+
 /// Replaying one graph in any two causal orders produces the same file, or
-/// the same refusal.
-///
-/// **Not yet proven.** The route: an element's place is a function of its
-/// author's causal past alone, because `anchor` reads only siblings whose
-/// authors the event knows and `visible` only elements it saw; so the tree
-/// after any causally closed prefix is the same abstract tree, and `items`
-/// is a function of the abstract tree. See README.
+/// the same refusal. Decision 0007's second acceptance claim.
 pub proof fn theorem_convergence(g: GraphS, a: Seq<int>, b: Seq<int>)
     requires g.wf(), valid_order(g, a), valid_order(g, b)
     ensures merged(g, a) == merged(g, b)
 {
-    admit();
+    let n = g.n();
+    match (walk(g, a, n), walk(g, b, n)) {
+        (Some(t1), Some(t2)) => {
+            let set = everyone(g);
+            assert(closed(g, set));
+            assert(prefix_holds(a, n, set));
+            assert(prefix_holds(b, n, set));
+            lemma_walks_agree(g, a, b, n, n, set);
+            lemma_walk_wf(g, a, n);
+            lemma_walk_wf(g, b, n);
+            lemma_items_agree(t1, t2, g);
+        }
+        (None, Some(_)) => {
+            lemma_walk_none_witness(g, a, n);
+            let q = choose|q: int| 0 <= q < n && walk(g, a, q) is Some && replay_event(walk(g, a, q)->Some_0, g, #[trigger] a[q]) is None;
+            lemma_refusal_transfers(g, a, b, q);
+        }
+        (Some(_), None) => {
+            lemma_walk_none_witness(g, b, n);
+            let q = choose|q: int| 0 <= q < n && walk(g, b, q) is Some && replay_event(walk(g, b, q)->Some_0, g, #[trigger] b[q]) is None;
+            lemma_refusal_transfers(g, b, a, q);
+        }
+        (None, None) => {}
+    }
 }
 
 // ---------------------------------------------------------------------------
