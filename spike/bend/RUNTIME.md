@@ -7,7 +7,7 @@ providing the filesystem and process services it needs.
 
 ## Current support
 
-Checked against `bend version` **2.0.20**, `bend guide`, and
+Checked against `bend version` **2.0.22**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate` and `Store.list`, `ffi/store_*.c` marshal them, and
 `ffi/src/lib.rs` is the Rust static library. `check.py` builds the archive,
@@ -32,8 +32,10 @@ is what lets `main.bend` take `historica`'s own arguments instead of paths.
 
 `bend x.bend -o x` compiles the C itself, with `-O3 -lm -lpthread` and
 nothing else, so an archive cannot be linked that way: emit C with `-o x.c`
-and link by hand. The generated program is large (some 60 MB of C for
-`main.bend`) and `-O3` takes minutes; `check.py` allows for that.
+and link by hand. Bend 2.0.22 emits some 3 MB of C for `main.bend`, which
+`cc -O3` compiles in seconds; emission itself takes a few minutes, and
+`check.py` allows for that. (2.0.20 emitted 60 MB and clang took the
+minutes instead.)
 
 1. A Bend definition returns `IO(Result<..., R>)`; the pure caller decides
    what to do with success or failure. No foreign effect belongs in a law or

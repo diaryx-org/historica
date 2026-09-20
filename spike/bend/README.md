@@ -364,8 +364,9 @@ or runs out of range, and forgotten quotes under a wrong digest.
 `check.py` runs the proofs and all three suites on both the default JS and
 native C backends, then verifies that deliberate replay mutations fail the
 proof gate. Corpus failures now exit nonzero. The runner prints and fixes
-the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
-minutes on the development machine.
+the compiler path for each run. The full gate passes on Bend 2.0.22; emitting
+the C for `main.bend` takes a few minutes on the development machine, and
+compiling it seconds.
 
 Every theorem the Verus spike states now has a Bend counterpart. What the
 merge law is about is the model in `merge.bend`, held to `merge.rs`'s
