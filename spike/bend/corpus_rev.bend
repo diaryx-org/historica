@@ -3,7 +3,7 @@
 # every invalid one is refused, and the seven-revision history resolves as
 # the core says it must.
 #
-#   cd historica/bend && bend corpus_rev.bend
+#   cd historica/spike/bend && bend corpus_rev.bend
 
 import Base
 import ./utf8.bend as Utf8
@@ -14,7 +14,11 @@ def corpus() -> String:
   "../../tests/corpus/"
 
 def verdict(ok: Bool, what: String) -> IO(Unit):
-  IO.print(Bool.pick(String, ok, "ok    ", "FAIL  ") ++ what)
+  match ok:
+    case True{}:
+      IO.print("ok    " ++ what)
+    case False{}:
+      IO.die(Unit, 1, "FAIL  " ++ what)
 
 def round_trip.of(name: String, s: String, parsed: Result<&2, &2, String, Rev.Rev>) -> IO(Unit):
   match parsed:

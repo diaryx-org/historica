@@ -2,7 +2,7 @@
 # parser byte for byte, every invalid one is refused, the history replays to
 # the hand-written states, and the diff writes the pinned fixtures.
 #
-#   cd historica/bend && bend corpus_ops.bend
+#   cd historica/spike/bend && bend corpus_ops.bend
 
 import Base
 import ./utf8.bend as Utf8
@@ -18,7 +18,11 @@ def read_text(path: String) -> IO(String):
     return Utf8.decode(bs)
 
 def verdict(ok: Bool, what: String) -> IO(Unit):
-  IO.print(Bool.pick(String, ok, "ok    ", "FAIL  ") ++ what)
+  match ok:
+    case True{}:
+      IO.print("ok    " ++ what)
+    case False{}:
+      IO.die(Unit, 1, "FAIL  " ++ what)
 
 # A valid document parses, and writes back to the bytes it came from.
 def round_trip.of(name: String, s: String, parsed: Result<&2, &2, String, Ops.Doc>) -> IO(Unit):

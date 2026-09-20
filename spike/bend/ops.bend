@@ -57,11 +57,11 @@ def prefix(k: Verb) -> Char:
       '+'
 
 # Whether a recorded item matches one found at replay. A forgotten item on
-# either side matches anything: the text is gone, and the shape is the claim.
+# either side ignores text, but the terminators must still agree.
 def agrees(a: Item, b: Item) -> Bool:
   match a b:
     case Item{t1, n1, f1} Item{t2, n2, f2}:
-      Bool.or(Bool.or(f1, f2), Bool.and(String.eq(t1, t2), Bool.not(Bool.xor(n1, n2))))
+      Bool.and(Bool.not(Bool.xor(n1, n2)), Bool.or(Bool.or(f1, f2), String.eq(t1, t2)))
 
 # Whether two items are the same line, for the diff. A forgotten item is
 # nobody's line.
@@ -596,6 +596,8 @@ def apply.checked(result: Maybe<&2, String>, +items: List<&2, Item>) -> Result<&
     return items
 
 # The parent state with the document's operations applied, or why not.
+# The cursor walk requires parser-ordered operations. A hand-built Doc must
+# obey the same ordering/non-overlap rules; Spec.result has no such cursor.
 def apply(+state: List<&2, Item>, doc: Doc) -> Result<&2, &2, String, List<&2, Item>>:
   match doc:
     case Doc{forgets, result, +ops}:

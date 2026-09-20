@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Check proofs, run JS/native corpora, and ensure replay mutations are rejected."""
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parent
+# A Nix profile (or another package manager) can update while a gate runs.
+# Resolve once so the printed version identifies every check in this run.
+BEND = shutil.which("bend")
+if BEND is None:
+    raise SystemExit("bend is required on PATH")
+BEND = str(Path(BEND).resolve())
+
+
+def run(*args, cwd=ROOT, timeout=120):
+    print("+", " ".join(map(str, args)), flush=True)
+    subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
+
+
+def main():
+    run(BEND, "version")
+    run(BEND, "PROOF.bend")
+    with tempfile.TemporaryDirectory(prefix="historica-bend-") as directory:
+        temporary = Path(directory)
+        for suite in ("corpus_ops", "corpus_rev", "replay_tests"):
+            run(BEND, f"{suite}.bend")
+            executable = temporary / suite
+            run(BEND, f"{suite}.bend", "-o", str(executable), timeout=600)
+            run(str(executable))
+
+        check_mutations(temporary)
+
+
+def check_mutations(temporary):
+    # Separate copies: the checkout is never temporarily broken. Require
+    # a type-check failure in the expected proof, not a parse/tool error.
+    mutations = (
+        (
+            "forgetting ignores newline",
+            "Bool.and(Bool.not(Bool.xor(n1, n2)), Bool.or(Bool.or(f1, f2), String.eq(t1, t2)))",
+            "Bool.or(Bool.or(f1, f2), Bool.and(String.eq(t1, t2), Bool.not(Bool.xor(n1, n2))))",
+            "LAWS.forgotten_agrees",
+        ),
+        (
+            "advance reverses the moved prefix incorrectly",
+            "advance(p, rest, it <> acc)",
+            "advance(p, rest, List.append(&2, Item, acc, [it]))",
+            "LAWS.advance_exact",
+        ),
+        (
+            "delete ignores item disagreement",
+            "drop_checked(rs, ss, Bool.and(ok, agrees(r, s)))",
+            "drop_checked(rs, ss, ok)",
+            "LAWS.drop_checked_exact",
+        ),
+    )
+    for index, (name, before, after, proof) in enumerate(mutations):
+        mutant = temporary / f"mutation-{index}"
+        shutil.copytree(ROOT, mutant)
+        source = mutant / "ops.bend"
+        original = source.read_text()
+        assert original.count(before) == 1, name
+        source.write_text(original.replace(before, after))
+        checked = subprocess.run(
+            [BEND, "PROOF.bend"], cwd=mutant,
+            capture_output=True, text=True, timeout=120,
+        )
+        diagnostic = checked.stdout + checked.stderr
+        if checked.returncode == 0 or proof not in diagnostic or "expected" not in diagnostic:
+            raise RuntimeError(f"Mutation did not fail in {proof}: {name}\n{diagnostic}")
+        print(f"ok    proof rejects: {name}", flush=True)
+        if index == 0:
+            regression = subprocess.run(
+                [BEND, "replay_tests.bend"], cwd=mutant,
+                capture_output=True, text=True, timeout=120,
+            )
+            diagnostic = regression.stdout + regression.stderr
+            if regression.returncode == 0 or "forgotten quote preserves newline" not in diagnostic:
+                raise RuntimeError(f"Original newline bug escaped the regression test:\n{diagnostic}")
+            print("ok    replay regression rejects the original newline bug", flush=True)
+
+
+if __name__ == "__main__":
+    main()

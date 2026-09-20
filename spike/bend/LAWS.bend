@@ -6,6 +6,7 @@ import Base
 import ./sha256.bend as Sha
 import ./ops.bend as Ops
 import ./revision.bend as Rev
+import ./replay_spec.bend as Spec
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -26,11 +27,13 @@ law delete_end:
   for items: List<&2, Ops.Item>
   {Ops.end(Ops.Op{Ops.Delete{}, at, items}) == Nat.add(at, List.length(&2, Ops.Item, items)) : Nat}
 
-# LAW: a forgotten item agrees with anything at replay — the text is gone
-# and the shape is the whole claim, per decision 0014.
+# LAW: forgetting discards text, not the newline. The old unconditional
+# claim disagreed with Rust/Verus replay for an unterminated parent item.
 law forgotten_agrees:
-  for b: Ops.Item
-  {Ops.agrees(Ops.forgotten(), b) == True{} : Bool}
+  for text: String
+  for terminated: Bool
+  for forgotten: Bool
+  {Ops.agrees(Ops.forgotten(), Ops.Item{text, terminated, forgotten}) == terminated : Bool}
 
 # LAW: and a forgotten item is nobody's line: the diff never keeps one.
 law forgotten_is_nobodys:
@@ -88,3 +91,30 @@ law root_is_head:
 law no_revisions_unknown:
   for any: Bool
   {Rev.change_state.of(False{}, Nil{}) == Rev.UnknownChange{} : Rev.ChangeState}
+
+# The Verus replay contract, starting with its executable primitives.
+law agreement_matches_spec:
+  for a: Ops.Item
+  for b: Ops.Item
+  {Ops.agrees(a, b) == Spec.matches(a, b) : Bool}
+
+# Exact contents, not only width: advance transfers the prefix in reverse
+# onto the accumulator and leaves precisely the suffix.
+law advance_exact:
+  for n: Nat
+  for +state: List<&2, Ops.Item>
+  for acc: List<&2, Ops.Item>
+  {Ops.advance(n, state, acc) == Ops.Advanced{List.reverse.go(&2, Ops.Item, List.take(&2, Ops.Item, state, n), acc), List.drop(&2, Ops.Item, state, n)} : Ops.Advanced}
+
+# A delete drops exactly its quoted width (clamped at the end), and its
+# success flag means every quote matched, preserving an earlier failure.
+law drop_checked_exact:
+  for +recorded: List<&2, Ops.Item>
+  for +state: List<&2, Ops.Item>
+  for +ok: Bool
+  {Ops.drop_checked(recorded, state, ok) == Ops.Dropped{List.drop(&2, Ops.Item, state, List.length(&2, Ops.Item, recorded)), Bool.and(ok, Spec.prefix_matches(recorded, state))} : Ops.Dropped}
+
+law result_no_operations:
+  for +parent: List<&2, Ops.Item>
+  for p: Nat
+  {Spec.result_from(parent, Nil{}, p) == parent : List<&2, Ops.Item>}
