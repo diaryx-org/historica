@@ -506,6 +506,9 @@ impl Parser<'_> {
 
     fn operations(&mut self) -> Result<Vec<Operation>, ParseError> {
         let mut operations: Vec<Operation> = Vec::new();
+        // An insert can follow a delete at the same position. It must not
+        // hide that deleted region from the next operation's range check.
+        let mut last_delete: Option<usize> = None;
         while let Some((line, terminated)) = self.lines.next() {
             let at = self.lines.line;
             if !terminated {
@@ -513,6 +516,10 @@ impl Parser<'_> {
             }
             let operation = self.operation(line, at, operations.len())?;
             ordered(operations.last(), &operation, at)?;
+            ordered(last_delete.map(|index| &operations[index]), &operation, at)?;
+            if operation.kind == OperationKind::Delete {
+                last_delete = Some(operations.len());
+            }
             operations.push(operation);
         }
         Ok(operations)
@@ -914,6 +921,50 @@ mod tests {
             refuse(&["delete 0 2", "-a", "-b", "delete 2 1", "-c"]),
             ParseErrorKind::AdjacentDeletes { at: 0, total: 3 }
         );
+    }
+
+    #[test]
+    fn replacement_does_not_hide_the_deleted_region() {
+        assert_eq!(
+            refuse(&[
+                "delete 0 2",
+                "-a",
+                "-b",
+                "insert 0",
+                "+x",
+                "delete 1 1",
+                "-b"
+            ]),
+            ParseErrorKind::OverlappingOperations { position: 1 }
+        );
+        assert_eq!(
+            refuse(&["delete 0 2", "-a", "-b", "insert 0", "+x", "insert 1", "+y"]),
+            ParseErrorKind::OverlappingOperations { position: 1 }
+        );
+        assert_eq!(
+            refuse(&[
+                "delete 0 2",
+                "-a",
+                "-b",
+                "insert 0",
+                "+x",
+                "delete 2 1",
+                "-c"
+            ]),
+            ParseErrorKind::AdjacentDeletes { at: 0, total: 3 }
+        );
+        // The gap after the deleted run remains available, and another
+        // deletion is allowed after a surviving parent item.
+        accept(&["delete 0 2", "-a", "-b", "insert 0", "+x", "insert 2", "+y"]);
+        accept(&[
+            "delete 0 2",
+            "-a",
+            "-b",
+            "insert 0",
+            "+x",
+            "delete 3 1",
+            "-d",
+        ]);
     }
 
     #[test]

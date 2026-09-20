@@ -40,8 +40,8 @@ bend main.bend -- diff   old.txt new.txt
 
 ### What the corpus says
 
-`corpus_ops.bend`: eight valid documents parse and write back byte for byte,
-nineteen invalid ones are refused, the three edits in the numbered history
+`corpus_ops.bend`: nine valid documents parse and write back byte for byte,
+twenty-two invalid ones are refused, the three edits in the numbered history
 replay to the hand-written states in `states/` (held to `result` where one is
 stated), and the four `diffs/` fixtures — a replacement anchored at the
 removed run, a surviving line between two rewrites, a final newline gained
@@ -147,8 +147,17 @@ executable checks where those general proofs are still missing. See
 
 ## What the port found
 
-Nothing about the crate's code — the port is held to the corpus and matched
-the Rust tool everywhere it was tried. One thing about the crate's *prose*:
+Checking the ordering assumptions for the cursor proof found a bug shared
+by the Rust and Bend parsers: `delete 0 2`, `insert 0`, `delete 1 1` passed
+adjacent-operation checks because the insert hid the first deletion's end.
+Bend's cursor could then refuse an edit whose positional result is defined.
+Both parsers now retain the last deletion across inserts, refusing hidden
+overlaps and adjacent deletions. Three shared invalid fixtures and a valid
+replacement followed by another edit cover the boundary. Proving that all
+parser-accepted documents satisfy the required global ordering predicate
+remains separate work.
+
+The original port also found a gap in the crate's *prose*:
 `format.txt` was not enough to reimplement the parsers from, and the
 `operations.rs` and `format/mod.rs` sources had to be read for rules the
 corpus pins and the document does not say:

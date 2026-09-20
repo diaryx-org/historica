@@ -336,8 +336,26 @@ def next_op(ls: List<&2, T.Line>, +at: Nat, +prev: Maybe<&2, Op>) -> Next:
     case T.Line{+t, True{}} <> rest:
       Bool.pick(Next, T.has_char(t, '\r'), Bad{at, "a carriage return in an operation line"}, next_op.split(rest, at, prev, t, T.split_once(t)))
 
+# Keep the last deleted region across inserts. Checking only the immediate
+# predecessor lets a replacement hide an overlapping or adjacent delete.
+def remember_delete(op: Op, previous: Maybe<&2, Op>) -> Maybe<&2, Op>:
+  match op:
+    case Op{Delete{}, at, items}:
+      Some{Op{Delete{}, at, items}}
+    case Op{Insert{}, at, items}:
+      previous
+
+def next_op.bounded(previous_delete: Maybe<&2, Op>, n: Next) -> Next:
+  match n:
+    case End{}:
+      End{}
+    case Bad{at, msg}:
+      Bad{at, msg}
+    case More{+op, rest, at}:
+      next_op.fin(op, rest, at, ordered(previous_delete, op))
+
 # Every operation. The fuel is the line count, which a step always eats into.
-def parse.ops(fuel: Nat, n: Next, acc: List<&2, Op>) -> Result<&2, &2, String, List<&2, Op>>:
+def parse.ops(fuel: Nat, n: Next, acc: List<&2, Op>, previous_delete: Maybe<&2, Op>) -> Result<&2, &2, String, List<&2, Op>>:
   match fuel n:
     case _ End{}:
       Done{List.reverse(&2, Op, acc)}
@@ -346,7 +364,8 @@ def parse.ops(fuel: Nat, n: Next, acc: List<&2, Op>) -> Result<&2, &2, String, L
     case 0n _:
       Fail{"the walk ran out of lines"}
     case 1n+p More{+op, rest, at}:
-      parse.ops(p, next_op(rest, at, Some{op}), op <> acc)
+      +deletion = remember_delete(op, previous_delete)
+      parse.ops(p, next_op.bounded(deletion, next_op(rest, at, Some{op})), op <> acc, deletion)
 
 # A `\ no newline` may mark only the last item of the last operation of its
 # kind: past it, nothing of that kind is left to count into.
@@ -386,7 +405,7 @@ def parse.body(forgets: Maybe<&2, String>, result: Maybe<&2, String>, ops: Resul
 def parse.separator(forgets: Maybe<&2, String>, result: Maybe<&2, String>, ls: List<&2, T.Line>, at: Nat) -> Result<&2, &2, String, Doc>:
   match ls:
     case T.Line{SNil{}, True{}} <> +rest:
-      parse.body(forgets, result, parse.ops(1n+List.length(&2, T.Line, rest), next_op(rest, 1n+at, None{}), Nil{}))
+      parse.body(forgets, result, parse.ops(1n+List.length(&2, T.Line, rest), next_op(rest, 1n+at, None{}), Nil{}, None{}))
     case _:
       fail(Doc, at, "missing the blank line after the headers")
 
