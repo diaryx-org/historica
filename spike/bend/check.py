@@ -199,6 +199,13 @@ def check_mutations(temporary):
             "<> runs(rest, 0n, Nil{}, Nil{})",
             "diff_lemmas.runs_apply.keep",
         ),
+        (
+            "the digest cause ignores forgetting",
+            "Bool.and(Bool.not(Ops.any_forgotten(items)), Bool.not(T.same(d, Ops.state_digest(items))))",
+            "Bool.not(T.same(d, Ops.state_digest(items)))",
+            "refusal_lemmas.mismatch_is",
+            "semantic_replay.bend",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"

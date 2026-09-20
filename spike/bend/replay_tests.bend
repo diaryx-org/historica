@@ -155,6 +155,18 @@ def diff_case.of(+name: String, +parent: List<&2, Ops.Item>, +child: List<&2, Op
 def diff_case(+name: String, +parent: List<&2, Ops.Item>, +child: List<&2, Ops.Item>) -> IO(Unit):
   diff_case.of(name, parent, child, Ops.diff(parent, child))
 
+# `refusal_has_cause` and `no_cause_replays`, run: a refusal has a cause
+# and no cause means the positional result.
+def cause_case.of(+name: String, +parent: List<&2, Ops.Item>, +stated: Maybe<&2, String>, +ops: List<&2, Ops.Op>, applied: Result<&2, &2, String, List<&2, Ops.Item>>) -> IO(Unit):
+  match applied:
+    case Fail{e}:
+      check(Block.cause(parent, stated, ops), name ++ ": refused without a cause: " ++ e)
+    case Done{items}:
+      check(Bool.and(Bool.not(Block.cause(parent, stated, ops)), items_equal(items, Spec.result(parent, ops))), name ++ ": accepted with a cause, or not positionally")
+
+def cause_case(+name: String, +parent: List<&2, Ops.Item>, +stated: Maybe<&2, String>, +ops: List<&2, Ops.Op>) -> IO(Unit):
+  cause_case.of(name, parent, stated, ops, Ops.apply(parent, Ops.Doc{None{}, stated, ops}))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     parent_cases([Nil{}, [Ops.line("a")], [Ops.line("a"), Ops.line("b")], [Ops.line("a"), Ops.line("b"), Ops.line("c")], [Ops.line("same"), Ops.line("same"), Ops.forgotten(), Ops.line("end")]])
@@ -226,4 +238,12 @@ def main() -> IO(Unit):
     diff_case("diff: empty parent", Nil{}, Ops.from_text("a\n"))
     diff_case("diff: empty child", Ops.from_text("a\nb\n"), Nil{})
     diff_case("diff: repeated lines", Ops.from_text("a\na\na\n"), Ops.from_text("a\nb\na\na\n"))
-    IO.print("ok    positional/cursor/block/script/diff oracles, spelling and refusal regressions")
+    cause_case("cause: none", Ops.from_text("a\nb\n"), None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a")]}])
+    cause_case("cause: past the end", Ops.from_text("a\n"), None{}, [Ops.Op{Ops.Insert{}, 2n, [Ops.line("x")]}])
+    cause_case("cause: disagreeing quote", Ops.from_text("a\nb\n"), None{}, [Ops.Op{Ops.Delete{}, 1n, [Ops.line("x")]}])
+    cause_case("cause: forgotten quote agrees", Ops.from_text("a\nb\n"), None{}, [Ops.Op{Ops.Delete{}, 1n, [Ops.forgotten()]}])
+    cause_case("cause: unterminated item not last", Ops.from_text("a\nb\n"), None{}, [Ops.Op{Ops.Insert{}, 0n, [Ops.unterminated("x")]}])
+    cause_case("cause: right digest", Ops.from_text("a\nb\n"), Some{Ops.state_digest(Ops.from_text("b\n"))}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a")]}])
+    cause_case("cause: wrong digest", Ops.from_text("a\nb\n"), Some{Ops.state_digest(Ops.from_text("a\n"))}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a")]}])
+    cause_case("cause: wrong digest excused by forgetting", [Ops.forgotten(), Ops.line("b")], Some{Ops.state_digest(Ops.from_text("a\n"))}, [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}])
+    IO.print("ok    positional/cursor/block/script/diff/cause oracles, spelling and refusal regressions")

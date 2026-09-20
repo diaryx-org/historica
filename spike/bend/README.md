@@ -32,11 +32,12 @@ bend main.bend -- diff   old.txt new.txt
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `main.bend` | `log`, `check`, `replay`, `diff` over the documents you name | `cli` |
-| `LAWS.bend` / `PROOF.bend` | thirty claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | thirty-two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
 | `parser_lemmas.bend` | the parser only accepts ordered documents: its per-operation check implies `Block.ordered`, and the parse loop applies it to every operation | the parser theorem |
+| `refusal_lemmas.bend` | refusals are justified: every refusal of an ordered document has one of four positional causes, and no cause means the positional result | error soundness |
 | `diff_lemmas.bend` | `apply(diff(parent, child)) == child`: the LCS backtrack yields a script that takes the parent to the child, and the runs of that script are blocks the cursor walks to it | `tests/diff.rs` |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
@@ -247,6 +248,17 @@ every block is in range. The diff's grouping was rewritten to emit that
 script shape directly, through the same `Ops.script` the theorems are
 stated over; the recorded diff fixtures confirm its output is unchanged.
 
+Refusals are justified. `Block.cause` names the four reasons a replay can
+be refused, each read off the parent and the operations alone: an
+operation past the end, a delete quoting what the parent does not hold at
+its own coordinate, an item without a newline that is not last, and a
+stated digest the result does not have unless forgetting put unhashed
+bytes in it. `refusal_has_cause` says every refusal of an ordered document
+has one; `no_cause_replays` says a document with none replays to
+`Spec.result`. Both are corollaries of `ordered_document_semantics` read
+through the four checks (`refusal_lemmas.bend`); what they add is that no
+refusal depends on anything the cursor knows.
+
 Trying to prove the round trip found two ways the port accepted what it
 could not write back: a `\ no newline` or `\ forgotten` line, and a header line, with no
 newline after it. Both are refused now, as the Rust parser already did, and
@@ -255,7 +267,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Twenty-six mutations cover the primitive helpers, lost inserts, a lost trailing
+Twenty-seven mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -270,7 +282,8 @@ parser that accepts an unterminated marker or header line, a reader that
 admits a leading zero, and a count that drops the carry; and three diff
 breaks: a backtrack that drops kept lines, a replacement block that swaps
 what it deletes and inserts, and a kept line that does not start the next
-gap. The proof gate rejects each at its expected proof location. The script tests run both sides on multi-block
+gap; and a digest cause that ignores forgetting. The proof gate rejects
+each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees
 or runs out of range, and forgotten quotes under a wrong digest.
@@ -281,8 +294,7 @@ proof gate. Corpus failures now exit nonzero. The runner prints and fixes
 the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
 minutes on the development machine.
 
-Still unproved are independent error soundness and merge convergence.
-The corpus and oracle comparisons provide
+Still unproved is merge convergence. The corpus and oracle comparisons provide
 executable checks where those general proofs are still missing. See
 [RUNTIME.md](RUNTIME.md) for the C/Rust interop direction and proof boundary.
 

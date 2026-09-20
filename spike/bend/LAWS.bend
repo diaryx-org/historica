@@ -234,3 +234,26 @@ law diff_applies:
   for +doc: Ops.Doc
   for e: {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>}
   {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# Refusals are justified: whenever an ordered document is refused, one of
+# four causes holds, each read off the parent and the operations alone —
+# an operation past the end, a delete quoting what the parent does not
+# hold at its own coordinate, an item without a newline that is not last,
+# or a stated digest the result does not have (`Block.cause`).
+law refusal_has_cause:
+  for +parent: List<&2, Ops.Item>
+  for +stated: Maybe<&2, String>
+  for +ops: List<&2, Ops.Op>
+  for +e: {Block.ordered(ops, 0n) == True{} : Bool}
+  for -msg: String
+  for r: {Ops.apply(parent, Ops.Doc{None{}, stated, ops}) == Fail{msg} : Result<&2, &2, String, List<&2, Ops.Item>>}
+  {Block.cause(parent, stated, ops) == True{} : Bool}
+
+# And with no cause, the replay is the positional result.
+law no_cause_replays:
+  for +parent: List<&2, Ops.Item>
+  for +stated: Maybe<&2, String>
+  for +ops: List<&2, Ops.Op>
+  for +e: {Block.ordered(ops, 0n) == True{} : Bool}
+  for c: {Block.cause(parent, stated, ops) == False{} : Bool}
+  {Ops.apply(parent, Ops.Doc{None{}, stated, ops}) == Done{Spec.result(parent, ops)} : Result<&2, &2, String, List<&2, Ops.Item>>}

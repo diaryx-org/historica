@@ -3,6 +3,7 @@
 # remain checked, and the output comes only from the positional model.
 import Base
 import ./ops.bend as Ops
+import ./text.bend as T
 import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
 
@@ -35,6 +36,23 @@ def quote_error(+parent: List<&2, Ops.Item>, ops: List<&2, Ops.Op>) -> Maybe<&2,
       quote_error(parent, rest)
     case Ops.Op{Ops.Delete{}, +at, items} <> rest:
       Maybe.or(&2, String, Cursor.disagreement(at, Spec.prefix_matches(items, List.drop(&2, Ops.Item, parent, at))), quote_error(parent, rest))
+
+# Why a replay is refused, each reason read positionally: an operation
+# past the end, a delete quoting what the parent does not hold at its own
+# coordinate, an item without a newline that is not last, or a stated
+# digest the result does not have (unless forgetting put unhashed bytes in).
+def digest_mismatch(stated: Maybe<&2, String>, +items: List<&2, Ops.Item>) -> Bool:
+  match stated:
+    case None{}:
+      False{}
+    case Some{d}:
+      Bool.and(Bool.not(Ops.any_forgotten(items)), Bool.not(T.same(d, Ops.state_digest(items))))
+
+def cause.of(in_range: Bool, error: Maybe<&2, String>, +result: List<&2, Ops.Item>, stated: Maybe<&2, String>) -> Bool:
+  Bool.or(Bool.not(in_range), Bool.or(Maybe.is_some(&2, String, error), Bool.or(Bool.not(Ops.terminated_but_last(result)), digest_mismatch(stated, result))))
+
+def cause(+parent: List<&2, Ops.Item>, stated: Maybe<&2, String>, +ops: List<&2, Ops.Op>) -> Bool:
+  cause.of(Ops.in_range(ops, List.length(&2, Ops.Item, parent)), quote_error(parent, ops), Spec.result(parent, ops), stated)
 
 # A whole ordered document, by its operations rather than its script.
 def replay_ops(+parent: List<&2, Ops.Item>, stated: Maybe<&2, String>, +ops: List<&2, Ops.Op>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
