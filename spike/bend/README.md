@@ -32,8 +32,9 @@ bend main.bend -- diff   old.txt new.txt
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `main.bend` | `log`, `check`, `replay`, `diff` over the documents you name | `cli` |
-| `LAWS.bend` / `PROOF.bend` | twenty claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | twenty-two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
+| `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
 | `corpus_ops.bend`, `corpus_rev.bend` | the corpus, executed | `tests/*.rs` |
@@ -126,12 +127,39 @@ this proof verifies their wiring, not their independent correctness.
 `replay_lemmas.bend` provides the list reversal/append algebra and
 first-error composition that connect the two representations.
 
+The first connection to the independent positional result is now proved:
+
+- `positional_translation` shows that shifting every operation and the
+  starting position by the same offset preserves `Spec.result_from`, for
+  arbitrary documents, parents and offsets. It needs no ordering assumption.
+- `edit_block_semantics` shows that executable `Ops.apply` equals a
+  specification whose success payload is **`Spec.result` itself**, for an
+  insertion, deletion, or same-position delete/insert replacement. A split
+  into arbitrary `before` and `after` lists witnesses any valid parent gap,
+  including empty parents and the trailing gap. The quoted/inserted items
+  and stated digest are also arbitrary. Disagreements, oversized deletions,
+  invalid newlines, and digest errors retain their checks.
+
+`semantic_replay.bend` constructs these three block shapes and uses the
+positional model to assemble their output. `position_lemmas.bend` proves the
+coordinate, prefix/suffix, deletion-window and replacement lemmas that
+connect them to the cursor. Range, newline and digest validators remain
+shared; their independent correctness is not claimed. No ordering theorem
+for an arbitrary multi-block document or for the parser follows yet.
+
+The next induction must compose these blocks: later operations must start
+past the consumed parent interval, while a replacement's insert retains the
+original anchor. After that, parser acceptance must establish those global
+conditions. The split used here witnesses only one block's starting gap.
+
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Seven mutations cover the primitive helpers, lost inserts, a lost trailing
-suffix, an overwritten earlier error, and a public replay that skips the
-digest check. The proof gate rejects each in its intended theorem.
+Nine mutations cover the primitive helpers, lost inserts, a lost trailing
+suffix, an overwritten earlier error, a public replay that skips the
+digest check, a positional model that drops the trailing gap, and an
+inclusive deletion endpoint. The proof gate rejects each at its expected
+proof location.
 
 `check.py` runs the proofs and all three suites on both the default JS and
 native C backends, then verifies that deliberate replay mutations fail the
@@ -139,7 +167,8 @@ proof gate. Corpus failures now exit nonzero. The runner prints and fixes
 the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
 minutes on the development machine.
 
-Still unproved are the positional `Ops.apply == Spec.result` contract,
+Still unproved are the positional `Ops.apply == Spec.result` contract for
+arbitrary multi-block documents and the parser ordering guarantee,
 independent error soundness, merge convergence,
 `apply(diff(parent, child)) == child`, and `write(parse(s)) == s`. The corpus and oracle comparisons provide
 executable checks where those general proofs are still missing. See

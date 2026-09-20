@@ -70,3 +70,12 @@ def result_from(parent: List<&2, Ops.Item>, +ops: List<&2, Ops.Op>, +p: Nat) -> 
 # digest validity are separate conditions, not silently checked here.
 def result(parent: List<&2, Ops.Item>, ops: List<&2, Ops.Op>) -> List<&2, Ops.Item>:
   result_from(parent, ops, 0n)
+
+# Translate document coordinates without changing the items or their order.
+# This is a proof tool: the executable replay still receives absolute offsets.
+def shift(ops: List<&2, Ops.Op>, +offset: Nat) -> List<&2, Ops.Op>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case Ops.Op{verb, at, items} <> rest:
+      Ops.Op{verb, Nat.add(offset, at), items} <> shift(rest, offset)

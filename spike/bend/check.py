@@ -79,11 +79,25 @@ def check_mutations(temporary):
             "apply.checked(None{}, items)\n\n# Diff",
             "LAWS.cursor_apply_equivalent",
         ),
+        (
+            "positional model loses the trailing-gap insertion",
+            "case Nil{}:\n      inserts_at(ops, p)\n    case it <> rest:",
+            "case Nil{}:\n      Nil{}\n    case it <> rest:",
+            "position_lemmas.result_shift",
+            "replay_spec.bend",
+        ),
+        (
+            "positional model deletes its exclusive endpoint",
+            "Nat.is_lt(p, Nat.add(at, List.length(&2, Ops.Item, items)))",
+            "Nat.is_le(p, Nat.add(at, List.length(&2, Ops.Item, items)))",
+            "position_lemmas.deleted_shift",
+            "replay_spec.bend",
+        ),
     )
-    for index, (name, before, after, proof) in enumerate(mutations):
+    for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"
         shutil.copytree(ROOT, mutant)
-        source = mutant / "ops.bend"
+        source = mutant / (source_files[0] if source_files else "ops.bend")
         original = source.read_text()
         assert original.count(before) == 1, name
         source.write_text(original.replace(before, after))

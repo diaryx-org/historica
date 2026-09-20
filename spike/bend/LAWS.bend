@@ -8,6 +8,7 @@ import ./ops.bend as Ops
 import ./revision.bend as Rev
 import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
+import ./semantic_replay.bend as Block
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -135,3 +136,23 @@ law cursor_apply_equivalent:
   for +state: List<&2, Ops.Item>
   for +doc: Ops.Doc
   {Ops.apply(state, doc) == Cursor.apply(state, doc) : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+
+# Absolute coordinate changes do not alter positional replay. No ordering,
+# range or quote-agreement assumptions are needed for this model theorem.
+law positional_translation:
+  for +parent: List<&2, Ops.Item>
+  for +ops: List<&2, Ops.Op>
+  for +offset: Nat
+  for +position: Nat
+  {Spec.result_from(parent, Spec.shift(ops, offset), Nat.add(offset, position)) == Spec.result_from(parent, ops, position) : List<&2, Ops.Item>}
+
+# A parent split witnesses ANY valid gap. Insertions, deletions and same-gap
+# replacements use the independent positional output, with checks retained.
+# This quantifies over arbitrary item lists, not a bounded fixture set.
+law edit_block_semantics:
+  for +before: List<&2, Ops.Item>
+  for +after: List<&2, Ops.Item>
+  for +stated: Maybe<&2, String>
+  for +edit: Block.Edit
+  {Ops.apply(List.append(&2, Ops.Item, before, after), Ops.Doc{None{}, stated, Block.operations(List.length(&2, Ops.Item, before), edit)}) == Block.apply(before, after, stated, edit) : Result<&2, &2, String, List<&2, Ops.Item>>}

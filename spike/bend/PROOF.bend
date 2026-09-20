@@ -9,6 +9,8 @@ import ./LAWS.bend as Laws
 import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
 import ./replay_lemmas.bend as L
+import ./position_lemmas.bend as Pos
+import ./semantic_replay.bend as Block
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -219,3 +221,17 @@ def Laws.cursor_apply_equivalent(state, doc):
         actual, specified,
         Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, actual, Cursor.combine(None{}, Nil{}, specified), specified,
           Laws.cursor_walk_equivalent(ops, 0n, state, Nil{}, None{}), L.combine_nil(specified)))
+
+
+def Laws.positional_translation(parent, ops, offset, position):
+  Pos.result_shift(parent, ops, offset, position)
+
+def Laws.edit_block_semantics(before, after, stated, edit):
+  +parent = List.append(&2, Ops.Item, before, after)
+  +ops = Block.operations(List.length(&2, Ops.Item, before), edit)
+  +doc = {Ops.Doc{None{}, stated, ops} : Ops.Doc}
+  Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Block.apply(before, after, stated, edit),
+    Laws.cursor_apply_equivalent(parent, doc),
+    Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Result<&2, &2, String, List<&2, Ops.Item>>,
+      r => Cursor.checked(Ops.in_range(ops, List.length(&2, Ops.Item, parent)), stated, r),
+      Cursor.walk(ops, 0n, parent), Block.raw(before, after, edit), Pos.cursor_block(before, after, edit)))

@@ -4,6 +4,7 @@ import Base
 import ./ops.bend as Ops
 import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
+import ./semantic_replay.bend as Block
 
 def check(ok: Bool, name: String) -> IO(Unit):
   match ok:
@@ -54,6 +55,11 @@ def outcomes_equal(a: Result<&2, &2, String, List<&2, Ops.Item>>, b: Result<&2, 
 def cursor_case(name: String, +parent: List<&2, Ops.Item>, +doc: Ops.Doc) -> IO(Unit):
   check(outcomes_equal(Ops.apply(parent, doc), Cursor.apply(parent, doc)), name)
 
+# Exercise both compiled sides of the semantic theorem on successes and
+# refusals, comparing complete results rather than only the rendered text.
+def block_case(name: String, +before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +stated: Maybe<&2, String>, +edit: Block.Edit) -> IO(Unit):
+  check(outcomes_equal(Ops.apply(List.append(&2, Ops.Item, before, after), Ops.Doc{None{}, stated, Block.operations(List.length(&2, Ops.Item, before), edit)}), Block.apply(before, after, stated, edit)), name)
+
 # Every deletion interval and replacement anchor for this parent and gap.
 def intervals(+n: Nat, +at: Nat, +parent: List<&2, Ops.Item>) -> IO(Unit):
   match n:
@@ -67,11 +73,16 @@ def intervals(+n: Nat, +at: Nat, +parent: List<&2, Ops.Item>) -> IO(Unit):
         oracle("replacement anchor", parent, [Ops.Op{Ops.Delete{}, at, quoted}, Ops.Op{Ops.Insert{}, at, [Ops.line("new"), Ops.line("run")]}])
         quoted : List<&2, Ops.Item> = List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, at), 1n+p)
         oracle("insert after deleted interval", parent, [Ops.Op{Ops.Delete{}, at, quoted}, Ops.Op{Ops.Insert{}, Nat.add(at, 1n+p), [Ops.line("new")]}])
+        quoted : List<&2, Ops.Item> = List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, at), 1n+p)
+        block_case("semantic deletion", List.take(&2, Ops.Item, parent, at), List.drop(&2, Ops.Item, parent, at), None{}, Block.Deletion{quoted})
+        quoted : List<&2, Ops.Item> = List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, at), 1n+p)
+        block_case("semantic replacement", List.take(&2, Ops.Item, parent, at), List.drop(&2, Ops.Item, parent, at), None{}, Block.Replacement{quoted, [Ops.line("new"), Ops.line("run")]})
         intervals(p, at, parent)
 
 def gap(+at: Nat, +parent: List<&2, Ops.Item>) -> IO(Unit):
   do IO<Unit>:
     oracle("insert at gap", parent, [Ops.Op{Ops.Insert{}, at, [Ops.line("new"), Ops.forgotten()]}])
+    block_case("semantic insertion", List.take(&2, Ops.Item, parent, at), List.drop(&2, Ops.Item, parent, at), None{}, Block.Insertion{[Ops.line("new"), Ops.forgotten()]})
     intervals(Nat.sub(List.length(&2, Ops.Item, parent), at), at, parent)
 
 def gaps(+n: Nat, +parent: List<&2, Ops.Item>) -> IO(Unit):
@@ -120,4 +131,12 @@ def main() -> IO(Unit):
     refused("first disagreement is retained", "a delete at 0 quotes lines the parent does not hold", Ops.apply(Ops.from_text("a\nb\nc\n"), Ops.Doc{None{}, None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("wrong")]}, Ops.Op{Ops.Delete{}, 2n, [Ops.line("also wrong")]}]}))
     cursor_case("newline failure precedes digest failure", [Ops.unterminated("a")], Ops.Doc{None{}, Some{"wrong"}, [Ops.Op{Ops.Insert{}, 1n, [Ops.line("b")]}]})
     cursor_case("digest failure", Nil{}, Ops.Doc{None{}, Some{"wrong"}, [Ops.Op{Ops.Insert{}, 0n, [Ops.line("a")]}]})
-    IO.print("ok    positional/cursor oracles and refusal regressions")
+    block_case("semantic quote disagreement", [Ops.line("before")], [Ops.line("a")], None{}, Block.Deletion{[Ops.line("wrong")]})
+    block_case("semantic delete out of range", Nil{}, [Ops.line("a")], None{}, Block.Replacement{[Ops.line("a"), Ops.line("b")], [Ops.line("new")]})
+    block_case("semantic unterminated suffix", [Ops.line("before")], [Ops.unterminated("last")], None{}, Block.Replacement{[Ops.unterminated("last")], [Ops.unterminated("new")]})
+    block_case("semantic forgotten terminator mismatch", Nil{}, [Ops.unterminated("last")], None{}, Block.Deletion{[Ops.forgotten()]})
+    block_case("semantic matching digest", Nil{}, Nil{}, Some{Ops.state_digest([Ops.line("new")])}, Block.Insertion{[Ops.line("new")]})
+    block_case("semantic wrong digest", Nil{}, Nil{}, Some{"wrong"}, Block.Insertion{[Ops.line("new")]})
+    block_case("semantic forgotten digest exception", Nil{}, Nil{}, Some{"wrong"}, Block.Insertion{[Ops.forgotten()]})
+    block_case("semantic invalid resulting terminator", [Ops.unterminated("before")], Nil{}, None{}, Block.Insertion{[Ops.line("after")]})
+    IO.print("ok    positional/cursor/block oracles and refusal regressions")
