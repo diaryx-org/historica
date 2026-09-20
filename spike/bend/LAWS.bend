@@ -178,11 +178,31 @@ law ordered_operations_are_scripts:
   {Block.script(Block.steps_of(ops, pos), pos) == ops : List<&2, Ops.Op>}
 
 # So any ordered document replays to its positional result, stated over the
-# operations themselves. What is left for the parser is that it only
-# accepts ordered documents.
+# operations themselves.
 law ordered_document_semantics:
   for +parent: List<&2, Ops.Item>
   for +stated: Maybe<&2, String>
   for +ops: List<&2, Ops.Op>
   for +e: {Block.ordered(ops, 0n) == True{} : Bool}
+  {Ops.apply(parent, Ops.Doc{None{}, stated, ops}) == Block.replay_ops(parent, stated, ops) : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# The parser only accepts ordered documents: whatever `Ops.parse` returns
+# as a document has operations `Block.ordered` admits from position zero.
+law parser_accepts_ordered:
+  for +s: String
+  for -forgets: Maybe<&2, String>
+  for -result: Maybe<&2, String>
+  for +ops: List<&2, Ops.Op>
+  for e: {Ops.parse(s) == Done{Ops.Doc{forgets, result, ops}} : Result<&2, &2, String, Ops.Doc>}
+  {Block.ordered(ops, 0n) == True{} : Bool}
+
+# So every document the parser accepts replays to its positional result:
+# applying it is `Block.replay_ops`, with no cursor in the statement.
+law parsed_document_semantics:
+  for +parent: List<&2, Ops.Item>
+  for +stated: Maybe<&2, String>
+  for +s: String
+  for -forgets: Maybe<&2, String>
+  for +ops: List<&2, Ops.Op>
+  for e: {Ops.parse(s) == Done{Ops.Doc{forgets, stated, ops}} : Result<&2, &2, String, Ops.Doc>}
   {Ops.apply(parent, Ops.Doc{None{}, stated, ops}) == Block.replay_ops(parent, stated, ops) : Result<&2, &2, String, List<&2, Ops.Item>>}

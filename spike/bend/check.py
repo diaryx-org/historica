@@ -121,6 +121,30 @@ def check_mutations(temporary):
             "composition_lemmas.is_script",
             "semantic_replay.bend",
         ),
+        (
+            "the parser admits a delete after an insert at one position",
+            '      Some{"a delete after an insert at one position"}',
+            "      None{}",
+            "parser_lemmas.after_insert.c",
+        ),
+        (
+            "the parser admits an operation inside a deleted run",
+            'Bool.pick(Maybe<&2, String>, Nat.is_lt(next_at, stop), Some{"two operations overlap"},',
+            'Bool.pick(Maybe<&2, String>, Nat.is_lt(next_at, stop), None{},',
+            "parser_lemmas.after_delete.c",
+        ),
+        (
+            "the parser forgets the last delete across an insert",
+            "    case Op{Insert{}, at, items}:\n      previous",
+            "    case Op{Insert{}, at, items}:\n      None{}",
+            "parser_lemmas.parser_ordered.replacement",
+        ),
+        (
+            "the parser checks the previous operation but not the last delete",
+            "Maybe.or(&2, String, ordered(prev, op), ordered(previous_delete, op))",
+            "ordered(prev, op)",
+            "parser_lemmas.bounded_ok",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"

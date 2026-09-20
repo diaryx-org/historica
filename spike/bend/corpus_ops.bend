@@ -69,12 +69,30 @@ def replay.applied(name: String, +expected: String, applied: Result<&2, &2, Stri
     case Done{items}:
       verdict(String.eq(Ops.text(items), expected), name ++ " replays to its state")
 
-def replay.of(name: String, +expected: String, parent: List<&2, Ops.Item>, parsed: Result<&2, &2, String, Ops.Doc>) -> IO(Unit):
+def outcomes_equal(a: Result<&2, &2, String, List<&2, Ops.Item>>, b: Result<&2, &2, String, List<&2, Ops.Item>>) -> Bool:
+  match a b:
+    case Fail{x} Fail{y}:
+      String.eq(x, y)
+    case Done{x} Done{y}:
+      String.eq(Ops.text(x), Ops.text(y))
+    case _ _:
+      False{}
+
+# `parsed_document_semantics`, run: what the parser accepted replays as
+# the positional model says, cursor and all.
+def replay.positional(name: String, +parent: List<&2, Ops.Item>, +doc: Ops.Doc) -> IO(Unit):
+  match doc:
+    case Ops.Doc{forgets, +result, +ops}:
+      verdict(outcomes_equal(Ops.apply(parent, Ops.Doc{forgets, result, ops}), Block.replay_ops(parent, result, ops)), name ++ " replays positionally")
+
+def replay.of(+name: String, +expected: String, +parent: List<&2, Ops.Item>, parsed: Result<&2, &2, String, Ops.Doc>) -> IO(Unit):
   match parsed:
     case Fail{e}:
       verdict(False{}, name ++ " refused: " ++ e)
-    case Done{doc}:
-      replay.applied(name, expected, Ops.apply(parent, doc))
+    case Done{+doc}:
+      do IO<Unit>:
+        replay.applied(name, expected, Ops.apply(parent, doc))
+        replay.positional(name, parent, doc)
 
 def replay(+name: String, parent: String, child: String) -> IO(Unit):
   do IO<Unit>:

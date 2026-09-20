@@ -265,53 +265,53 @@ def next_op.fin(op: Op, rest: List<&2, T.Line>, at: Nat, complaint: Maybe<&2, St
 
 # The items are in. A delete's count must agree with them, and neither
 # operation may be empty.
-def next_op.count(+prev: Maybe<&2, Op>, +op: Op, +n: Nat, rest: List<&2, T.Line>, at: Nat, at2: Nat, expected: Maybe<&2, Nat>) -> Next:
+def next_op.count(+op: Op, +n: Nat, rest: List<&2, T.Line>, at: Nat, at2: Nat, expected: Maybe<&2, Nat>) -> Next:
   match expected:
     case None{}:
-      Bool.pick(Next, Nat.is_eq(n, 0n), Bad{at, "an insert with no items"}, next_op.fin(op, rest, at2, ordered(prev, op)))
+      Bool.pick(Next, Nat.is_eq(n, 0n), Bad{at, "an insert with no items"}, More{op, rest, at2})
     case Some{expected_n}:
-      Bool.pick(Next, Nat.is_eq(n, expected_n), next_op.fin(op, rest, at2, ordered(prev, op)), Bad{at, "a delete whose count disagrees with its items"})
+      Bool.pick(Next, Nat.is_eq(n, expected_n), More{op, rest, at2}, Bad{at, "a delete whose count disagrees with its items"})
 
-def next_op.items(+prev: Maybe<&2, Op>, verb: Verb, pos: Nat, expected: Maybe<&2, Nat>, at: Nat, taken: Result<&2, &2, String, Taken>) -> Next:
+def next_op.items(verb: Verb, pos: Nat, expected: Maybe<&2, Nat>, at: Nat, taken: Result<&2, &2, String, Taken>) -> Next:
   match taken:
     case Fail{e}:
       Bad{at, e}
     case Done{Taken{rev, rest, at2}}:
       +items = List.reverse(&2, Item, rev)
-      next_op.count(prev, Op{verb, pos, items}, List.length(&2, Item, items), rest, at, at2, expected)
+      next_op.count(Op{verb, pos, items}, List.length(&2, Item, items), rest, at, at2, expected)
 
-def next_op.delete(+rest: List<&2, T.Line>, +at: Nat, +prev: Maybe<&2, Op>, pos: Maybe<&2, Nat>, count: Maybe<&2, Nat>, spaced: Bool) -> Next:
+def next_op.delete(+rest: List<&2, T.Line>, +at: Nat, pos: Maybe<&2, Nat>, count: Maybe<&2, Nat>, spaced: Bool) -> Next:
   match pos count spaced:
     case Some{p} Some{0n} False{}:
       Bad{at, "a delete of nothing"}
     case Some{p} Some{c} False{}:
-      next_op.items(prev, Delete{}, p, Some{c}, at, take_items(rest, classify_head(rest, '-'), 1n+at, '-', Nil{}))
+      next_op.items(Delete{}, p, Some{c}, at, take_items(rest, classify_head(rest, '-'), 1n+at, '-', Nil{}))
     case _ _ _:
       Bad{at, "a malformed delete"}
 
-def next_op.delete_args(+rest: List<&2, T.Line>, +at: Nat, +prev: Maybe<&2, Op>, args: Maybe<&2, T.Split>) -> Next:
+def next_op.delete_args(+rest: List<&2, T.Line>, +at: Nat, args: Maybe<&2, T.Split>) -> Next:
   match args:
     case None{}:
       Bad{at, "a malformed delete"}
     case Some{T.Split{pos, +cnt}}:
-      next_op.delete(rest, at, prev, T.number(pos), T.number(cnt), T.has_char(cnt, ' '))
+      next_op.delete(rest, at, T.number(pos), T.number(cnt), T.has_char(cnt, ' '))
 
-def next_op.insert(+rest: List<&2, T.Line>, +at: Nat, +prev: Maybe<&2, Op>, pos: Maybe<&2, Nat>) -> Next:
+def next_op.insert(+rest: List<&2, T.Line>, +at: Nat, pos: Maybe<&2, Nat>) -> Next:
   match pos:
     case None{}:
       Bad{at, "a malformed insert"}
     case Some{p}:
-      next_op.items(prev, Insert{}, p, None{}, at, take_items(rest, classify_head(rest, '+'), 1n+at, '+', Nil{}))
+      next_op.items(Insert{}, p, None{}, at, take_items(rest, classify_head(rest, '+'), 1n+at, '+', Nil{}))
 
 # The operation line, once its keyword is known.
-def next_op.keyword(+rest: List<&2, T.Line>, +at: Nat, +prev: Maybe<&2, Op>, +t: String, +args: String, is_delete: Bool, is_insert: Bool, is_content: Bool, is_marker: Bool) -> Next:
+def next_op.keyword(+rest: List<&2, T.Line>, +at: Nat, +t: String, +args: String, is_delete: Bool, is_insert: Bool, is_content: Bool, is_marker: Bool) -> Next:
   match is_delete:
     case True{}:
-      next_op.delete_args(rest, at, prev, T.split_once(args))
+      next_op.delete_args(rest, at, T.split_once(args))
     case False{}:
       match is_insert:
         case True{}:
-          Bool.pick(Next, Bool.or(String.is_empty(args), T.has_char(args, ' ')), Bad{at, "a malformed insert"}, next_op.insert(rest, at, prev, T.number(args)))
+          Bool.pick(Next, Bool.or(String.is_empty(args), T.has_char(args, ' ')), Bad{at, "a malformed insert"}, next_op.insert(rest, at, T.number(args)))
         case False{}:
           match is_content:
             case True{}:
@@ -319,25 +319,26 @@ def next_op.keyword(+rest: List<&2, T.Line>, +at: Nat, +prev: Maybe<&2, Op>, +t:
             case False{}:
               Bool.pick(Next, is_marker, Bad{at, "`\\ no newline` without an item above it"}, Bad{at, "an unknown operation: " ++ t})
 
-def next_op.split(+rest: List<&2, T.Line>, +at: Nat, +prev: Maybe<&2, Op>, +t: String, cut: Maybe<&2, T.Split>) -> Next:
+def next_op.split(+rest: List<&2, T.Line>, +at: Nat, +t: String, cut: Maybe<&2, T.Split>) -> Next:
   match cut:
     case None{}:
-      next_op.keyword(rest, at, prev, t, SNil{}, String.eq(t, "delete"), String.eq(t, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), String.eq(t, "\\ no newline"))
+      next_op.keyword(rest, at, t, SNil{}, String.eq(t, "delete"), String.eq(t, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), String.eq(t, "\\ no newline"))
     case Some{T.Split{+kw, args}}:
-      next_op.keyword(rest, at, prev, t, args, String.eq(kw, "delete"), String.eq(kw, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), False{})
+      next_op.keyword(rest, at, t, args, String.eq(kw, "delete"), String.eq(kw, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), False{})
 
-# The next operation under the walk, or the end, or a complaint.
-def next_op(ls: List<&2, T.Line>, +at: Nat, +prev: Maybe<&2, Op>) -> Next:
+# The next operation under the walk, or the end, or a complaint. Whether it
+# may follow what came before is `next_op.bounded`'s question.
+def next_op(ls: List<&2, T.Line>, +at: Nat) -> Next:
   match ls:
     case Nil{}:
       End{}
     case T.Line{+t, False{}} <> rest:
       Bad{at, "unterminated line"}
     case T.Line{+t, True{}} <> rest:
-      Bool.pick(Next, T.has_char(t, '\r'), Bad{at, "a carriage return in an operation line"}, next_op.split(rest, at, prev, t, T.split_once(t)))
+      Bool.pick(Next, T.has_char(t, '\r'), Bad{at, "a carriage return in an operation line"}, next_op.split(rest, at, t, T.split_once(t)))
 
 # Keep the last deleted region across inserts. Checking only the immediate
-# predecessor lets a replacement hide an overlapping or adjacent delete.
+# predecessor would let a replacement hide an overlapping or adjacent delete.
 def remember_delete(op: Op, previous: Maybe<&2, Op>) -> Maybe<&2, Op>:
   match op:
     case Op{Delete{}, at, items}:
@@ -345,14 +346,16 @@ def remember_delete(op: Op, previous: Maybe<&2, Op>) -> Maybe<&2, Op>:
     case Op{Insert{}, at, items}:
       previous
 
-def next_op.bounded(previous_delete: Maybe<&2, Op>, n: Next) -> Next:
+# An operation may follow both the previous operation and the last delete.
+# This is the only place the parser orders operations.
+def next_op.bounded(prev: Maybe<&2, Op>, previous_delete: Maybe<&2, Op>, n: Next) -> Next:
   match n:
     case End{}:
       End{}
     case Bad{at, msg}:
       Bad{at, msg}
     case More{+op, rest, at}:
-      next_op.fin(op, rest, at, ordered(previous_delete, op))
+      next_op.fin(op, rest, at, Maybe.or(&2, String, ordered(prev, op), ordered(previous_delete, op)))
 
 # Every operation. The fuel is the line count, which a step always eats into.
 def parse.ops(fuel: Nat, n: Next, acc: List<&2, Op>, previous_delete: Maybe<&2, Op>) -> Result<&2, &2, String, List<&2, Op>>:
@@ -365,7 +368,7 @@ def parse.ops(fuel: Nat, n: Next, acc: List<&2, Op>, previous_delete: Maybe<&2, 
       Fail{"the walk ran out of lines"}
     case 1n+p More{+op, rest, at}:
       +deletion = remember_delete(op, previous_delete)
-      parse.ops(p, next_op.bounded(deletion, next_op(rest, at, Some{op})), op <> acc, deletion)
+      parse.ops(p, next_op.bounded(Some{op}, deletion, next_op(rest, at)), op <> acc, deletion)
 
 # A `\ no newline` may mark only the last item of the last operation of its
 # kind: past it, nothing of that kind is left to count into.
@@ -405,7 +408,7 @@ def parse.body(forgets: Maybe<&2, String>, result: Maybe<&2, String>, ops: Resul
 def parse.separator(forgets: Maybe<&2, String>, result: Maybe<&2, String>, ls: List<&2, T.Line>, at: Nat) -> Result<&2, &2, String, Doc>:
   match ls:
     case T.Line{SNil{}, True{}} <> +rest:
-      parse.body(forgets, result, parse.ops(1n+List.length(&2, T.Line, rest), next_op(rest, 1n+at, None{}), Nil{}, None{}))
+      parse.body(forgets, result, parse.ops(1n+List.length(&2, T.Line, rest), next_op.bounded(None{}, None{}, next_op(rest, 1n+at)), Nil{}, None{}))
     case _:
       fail(Doc, at, "missing the blank line after the headers")
 

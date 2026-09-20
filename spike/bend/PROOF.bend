@@ -12,6 +12,7 @@ import ./replay_lemmas.bend as L
 import ./position_lemmas.bend as Pos
 import ./semantic_replay.bend as Block
 import ./composition_lemmas.bend as Comp
+import ./parser_lemmas.bend as Parse
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -276,3 +277,9 @@ def Laws.ordered_operations_are_scripts(ops, pos, e):
 def Laws.ordered_document_semantics(parent, stated, ops, e):
   %Comp.is_script(ops, 0n, e) : {Ops.apply(parent, Ops.Doc{None{}, stated, _}) == Block.replay_ops(parent, stated, _) : Result<&2, &2, String, List<&2, Ops.Item>>}
   Laws.script_semantics(parent, stated, Block.steps_of(ops, 0n))
+
+def Laws.parser_accepts_ordered(s, forgets, result, ops, e):
+  Parse.parse_ordered(s, forgets, result, ops, e)
+
+def Laws.parsed_document_semantics(parent, stated, s, forgets, ops, e):
+  Laws.ordered_document_semantics(parent, stated, ops, Parse.parse_ordered(s, forgets, stated, ops, e))

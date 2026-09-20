@@ -32,10 +32,11 @@ bend main.bend -- diff   old.txt new.txt
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `main.bend` | `log`, `check`, `replay`, `diff` over the documents you name | `cli` |
-| `LAWS.bend` / `PROOF.bend` | twenty-two claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | twenty-seven claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
+| `parser_lemmas.bend` | the parser only accepts ordered documents: its per-operation check implies `Block.ordered`, and the parse loop applies it to every operation | the parser theorem |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
 | `corpus_ops.bend`, `corpus_rev.bend` | the corpus, executed | `tests/*.rs` |
@@ -188,19 +189,40 @@ gap, and an insert at a deleted run's end, which the parser refuses; it
 refuses what the parser refuses for the cursor's sake — an overlap, an
 insert inside a deleted run, a delete hidden behind a replacement. Every
 valid document in the operations corpus is ordered (`corpus_ops.bend`
-checks it). What remains for the parser is the theorem that it only accepts
-ordered documents.
+checks it).
+
+The parser is proven to accept nothing else. `Ops.next_op.bounded` is now
+the one place operations are ordered: each must follow both the previous
+operation and the last delete (`Ops.ordered`), which `parser_lemmas.bend`
+names `ordered_all`. Two theorems close the gap:
+
+- `parser_accepts_ordered`: whenever `Ops.parse(s)` is
+  `Done{Doc{_, _, ops}}`, `Block.ordered(ops, 0n)` holds. `parser_ordered`
+  shows `ordered_all` implies `Block.ordered` by reading each refusal off
+  `Ops.ordered` — an insert forbids its own position, a delete its run and
+  its end for a delete — and `collect_ordered` shows the loop establishes
+  `ordered_all`, through a forward-building twin of the reversed
+  accumulator; the header chain is a case per validator.
+- `parsed_document_semantics`: so any document the parser accepts replays
+  under `Ops.apply` exactly as `Block.replay_ops` says. This is the
+  end-to-end statement: text in, positional result or first disagreeing
+  quote out, nothing about the cursor in between.
+
+`corpus_ops.bend` runs the last one on every replayed history document.
 
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Thirteen mutations cover the primitive helpers, lost inserts, a lost trailing
+Seventeen mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
-block consumed, a positional refusal that ignores a disagreeing quote, and
-a replacement that consumes nothing, and an ordering that admits an insert
-inside a deleted run. The proof gate rejects each at its expected proof
+block consumed, a positional refusal that ignores a disagreeing quote,
+a replacement that consumes nothing, an ordering that admits an insert
+inside a deleted run, and four parser relaxations: a delete after an insert
+at one position, an operation inside a deleted run, a last delete forgotten
+across an insert, and a loop that checks the previous operation but not the
+last delete. The proof gate rejects each at its expected proof
 location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees
@@ -212,8 +234,7 @@ proof gate. Corpus failures now exit nonzero. The runner prints and fixes
 the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
 minutes on the development machine.
 
-Still unproved are that the parser only accepts ordered documents,
-independent error soundness, merge convergence,
+Still unproved are independent error soundness, merge convergence,
 `apply(diff(parent, child)) == child`, and `write(parse(s)) == s`. The corpus and oracle comparisons provide
 executable checks where those general proofs are still missing. See
 [RUNTIME.md](RUNTIME.md) for the C/Rust interop direction and proof boundary.
@@ -226,9 +247,11 @@ adjacent-operation checks because the insert hid the first deletion's end.
 Bend's cursor could then refuse an edit whose positional result is defined.
 Both parsers now retain the last deletion across inserts, refusing hidden
 overlaps and adjacent deletions. Three shared invalid fixtures and a valid
-replacement followed by another edit cover the boundary. Proving that all
-parser-accepted documents satisfy the required global ordering predicate
-remains separate work.
+replacement followed by another edit cover the boundary. That every
+parser-accepted document satisfies the ordering predicate is now
+`parser_accepts_ordered`; the parser refactor it needed — one ordering
+check in `next_op.bounded` instead of one in `next_op.count` and one after
+it — changes no result and no message, which the corpus run confirms.
 
 The original port also found a gap in the crate's *prose*:
 `format.txt` was not enough to reimplement the parsers from, and the

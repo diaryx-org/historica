@@ -77,5 +77,6 @@ deletion or same-position replacement at any valid parent gap, and
 `script_semantics` composes any list of such blocks, each a stated gap past
 the last: `Ops.apply` on a whole script is the positional result, or the
 first disagreeing quote read at its own coordinate — stated over raw
-operations too, for any list `Block.ordered` accepts. Proving the parser
-only accepts ordered documents remains to be done.
+operations too, for any list `Block.ordered` accepts — and
+`parser_accepts_ordered` shows the parser accepts nothing else, so
+`parsed_document_semantics` runs from the document's text.
