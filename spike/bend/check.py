@@ -206,6 +206,48 @@ def check_mutations(temporary):
             "refusal_lemmas.mismatch_is",
             "semantic_replay.bend",
         ),
+        (
+            "the view keeps elements of unseen authors",
+            "List.filter.put(Node, Node.restrict(x, seen), restrict(xs, seen), has(seen, Node.author(x)))",
+            "List.filter.put(Node, Node.restrict(x, seen), restrict(xs, seen), True{})",
+            "merge_lemmas.restrict_attach.at",
+            "merge.bend",
+        ),
+        (
+            "the view keeps removals by unseen events",
+            "List.filter.put(Nat, y, keep(ys, seen), has(seen, y))",
+            "List.filter.put(Nat, y, keep(ys, seen), True{})",
+            "merge_lemmas.keep_ins.at",
+            "merge.bend",
+        ),
+        (
+            "an element is appended rather than placed by name",
+            "      n <> x <> xs",
+            "      x <> rest",
+            "merge_lemmas.attach_comm.at",
+            "merge.bend",
+        ),
+        (
+            "a removal is appended rather than joined in order",
+            "      by <> y <> ys",
+            "      y <> rest",
+            "merge_lemmas.ins_comm.at",
+            "merge.bend",
+        ),
+        (
+            "a causal order may put an event before its past",
+            "Bool.and(none_known(past(g, e), rest), causal(rest, g))",
+            "causal(rest, g)",
+            "merge_lemmas.causal_remove.at",
+            "merge.bend",
+        ),
+        (
+            "an action is applied as another author's",
+            "apply(rest, one(t, by, a), by)",
+            "apply(rest, one(t, 0n, a), by)",
+            "merge_lemmas.restrict_apply",
+            "merge.bend",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"

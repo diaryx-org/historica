@@ -32,13 +32,14 @@ bend main.bend -- diff   old.txt new.txt
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `main.bend` | `log`, `check`, `replay`, `diff` over the documents you name | `cli` |
-| `LAWS.bend` / `PROOF.bend` | thirty-two claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | thirty-three claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
 | `parser_lemmas.bend` | the parser only accepts ordered documents: its per-operation check implies `Block.ordered`, and the parse loop applies it to every operation | the parser theorem |
 | `refusal_lemmas.bend` | refusals are justified: every refusal of an ordered document has one of four positional causes, and no cause means the positional result | error soundness |
 | `diff_lemmas.bend` | `apply(diff(parent, child)) == child`: the LCS backtrack yields a script that takes the parent to the child, and the runs of that script are blocks the cursor walks to it | `tests/diff.rs` |
+| `merge.bend`, `merge_lemmas.bend` | the merge as a model — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
@@ -259,6 +260,50 @@ has one; `no_cause_replays` says a document with none replays to
 through the four checks (`refusal_lemmas.bend`); what they add is that no
 refusal depends on anything the cursor knows.
 
+The merge converges. `merge.bend` is a model of `merge.rs`, not a port of
+it: a graph is a list of events in digest order, each with the events its
+author had seen and the operations it stated; a walk replays them into one
+flat list of elements, each named `(author, minted)` and kept in name
+order, with a parent name, a side, and the events that removed it. What an
+event does is decided on its *view* — the tree restricted to what its
+author had seen, `restrict` — read in order, counted into, and anchored by
+Fugue's rule; the actions that come out, attach here or mark that, are
+then applied to the whole tree as that event's own. `merge_converges` says
+two orders of one graph that are causal — each event once, the same
+events, none before an event it had seen — produce one `Merge.merged`,
+file or refusal. The proof (`merge_lemmas.bend`) is the argument the
+model is shaped for. An event's actions are a function of its view, and
+another event it had not seen cannot change that view: its attaches are
+by an unseen author and its marks are by an unseen event, and `restrict`
+drops both (`restrict_apply`). The actions of two such events commute on
+the tree: two attaches are one sorted insertion twice, two marks on one
+element are one sorted insertion twice, and a mark never lands on an
+element the other event wrote, because a delete's target comes from a
+view whose authors the deleting event had all seen (`actions_avoid`). So
+the two events commute as steps (`comm`), and any causal order is any
+other with concurrent neighbours swapped: the first event of one order is
+concurrent with everything before it in the other, so it bubbles to the
+front (`bubble`), and induction does the rest (`converge`). Nothing about
+the graph is assumed beyond the two orders being causal — not that
+`knows` is transitive, not that the tree is well-formed, not even that an
+index names an event; a bad index refuses in both orders alike.
+
+What the model is faithful to, and not. Verus's `merge_model.rs` states
+the same theorem over `merge.rs`'s own shape — an index tree, anchors
+found on the whole tree by filtering for known authors — and proves the
+filtered anchor equals the anchor on the restriction (its Lemma A); the
+Bend model *defines* the anchor on the restriction and so needs no such
+lemma, at the price of being one step further from the code. The tests
+hold it to `merge.rs`'s unit tests: concurrent runs at one position do
+not interleave, whether written forwards or backwards; ties break by
+digest; concurrent deletions agree; a deletion beside a concurrent
+insertion keeps the insertion; a merge that records nothing changes
+nothing; every topological order of a four-event graph reads the same
+file; and a document that contradicts its author's view is refused.
+Resolutions (decision 0032) and `contested` are not modelled, as in the
+Verus file. The reading carries fuel — one more than the element count,
+enough for any tree `attach` built — and positions are unary.
+
 Trying to prove the round trip found two ways the port accepted what it
 could not write back: a `\ no newline` or `\ forgotten` line, and a header line, with no
 newline after it. Both are refused now, as the Rust parser already did, and
@@ -267,7 +312,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Twenty-seven mutations cover the primitive helpers, lost inserts, a lost trailing
+Thirty-three mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -282,7 +327,11 @@ parser that accepts an unterminated marker or header line, a reader that
 admits a leading zero, and a count that drops the carry; and three diff
 breaks: a backtrack that drops kept lines, a replacement block that swaps
 what it deletes and inserts, and a kept line that does not start the next
-gap; and a digest cause that ignores forgetting. The proof gate rejects
+gap; a digest cause that ignores forgetting; and six merge breaks: a view
+that keeps elements of unseen authors or removals by unseen events, an
+element appended rather than placed by name, a removal appended rather than
+joined in order, a causal order that lets an event precede its past, and an
+action applied as another author's. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees
@@ -294,8 +343,9 @@ proof gate. Corpus failures now exit nonzero. The runner prints and fixes
 the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
 minutes on the development machine.
 
-Still unproved is merge convergence. The corpus and oracle comparisons provide
-executable checks where those general proofs are still missing. See
+Every theorem the Verus spike states now has a Bend counterpart. What the
+merge law is about is the model in `merge.bend`, held to `merge.rs`'s
+tests; the store's merge itself is not ported. See
 [RUNTIME.md](RUNTIME.md) for the C/Rust interop direction and proof boundary.
 
 ## What the port found
@@ -340,8 +390,10 @@ is under 3k. Not ported:
   has at a revision — `tree.rs` — so the three invalid fixtures that need it
   (`drop-a-referenced-file`, `edit-a-link`, `link-a-plain-file`) are not in
   `corpus_rev.bend`.
-- **Merging** concurrent branches by replaying the event graph (`merge.rs`),
-  and **resolutions** — the `keep`/`insert` document a merge states.
+- **Merging** concurrent branches as a command over the store (`merge.rs`
+  is modelled in `merge.bend`, not ported: no revision graph is read, no
+  `contested` report is made), and **resolutions** — the `keep`/`insert`
+  document a merge states.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
 - **The store** as a folder: `init`, `record`, `arrange`, `fetch`, `export`,

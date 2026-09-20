@@ -64,11 +64,17 @@ the laws and exercise both current backends against the same corpora. Any
 future adapter needs its own boundary tests for malformed values, errors,
 allocation release, and repeated calls before becoming part of the CLI.
 
-The Verus merge convergence theorem is still a theorem of
-`../verus/merge_model.rs`. Porting its graph definitions without its
-well-formedness hypotheses and proof would not give Bend that guarantee.
-The current transfer includes the linear replay specification, proofs of the
-executable agreement/advance/delete helpers, and a refinement of the entire
+The Verus merge convergence theorem has a Bend counterpart,
+`merge_converges`, over the model in `merge.bend`: two causal orders of one
+graph merge to one file or one refusal. The model differs from
+`../verus/merge_model.rs` in shape — a flat name-ordered list rather than an
+index tree, and an event's anchor decided on its restricted view rather
+than found on the whole tree — so it needs none of the well-formedness
+hypotheses the Verus proof carries; it is held to `merge.rs`'s tests rather
+than derived from its code.
+
+The current transfer also includes the linear replay specification, proofs
+of the executable agreement/advance/delete helpers, and a refinement of the entire
 `Ops.apply` cursor implementation to `Cursor.apply`, a forward-order walk.
 That refinement preserves exact results and errors for arbitrary inputs,
 but shares the public validators. `edit_block_semantics` connects the
@@ -82,8 +88,8 @@ operations too, for any list `Block.ordered` accepts — and
 `parsed_document_semantics` runs from the document's text. `write_parse`
 closes the other direction: what the parser accepts, the writer spells
 back byte for byte, decimal numbers included; `diff_applies` says the
-document `Ops.diff` writes replays to the child it was written from. The decimal layer is unary
-underneath — as every `Nat` here is — so it counts rather than divides;
+document `Ops.diff` writes replays to the child it was written from. The
+decimal layer is unary underneath — as every `Nat` here is — so it counts rather than divides;
 positions are line numbers, and a million of them spell in well under a
 second, but a divmod writer proven equal to `T.digits` would be the fix if
 that ever mattered.

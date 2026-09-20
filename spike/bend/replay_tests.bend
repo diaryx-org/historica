@@ -6,6 +6,7 @@ import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
 import ./semantic_replay.bend as Block
 import ./text.bend as T
+import ./merge.bend as Merge
 
 def check(ok: Bool, name: String) -> IO(Unit):
   match ok:
@@ -167,6 +168,41 @@ def cause_case.of(+name: String, +parent: List<&2, Ops.Item>, +stated: Maybe<&2,
 def cause_case(+name: String, +parent: List<&2, Ops.Item>, +stated: Maybe<&2, String>, +ops: List<&2, Ops.Op>) -> IO(Unit):
   cause_case.of(name, parent, stated, ops, Ops.apply(parent, Ops.Doc{None{}, stated, ops}))
 
+
+# The merge model, held to what `merge.rs`'s tests expect: each order of
+# one graph merges to the stated file, or refuses.
+def merged_equal(a: Maybe<&2, List<&2, Ops.Item>>, b: Maybe<&2, List<&2, Ops.Item>>) -> Bool:
+  match a b:
+    case None{} None{}:
+      True{}
+    case Some{x} Some{y}:
+      items_equal(x, y)
+    case _ _:
+      False{}
+
+def merge_each(+name: String, +g: List<&2, Merge.Rev>, +expected: Maybe<&2, List<&2, Ops.Item>>, +first: List<&2, Nat>, os: List<&2, List<&2, Nat>>) -> IO(Unit):
+  match os:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case +o <> rest:
+      do IO<Unit>:
+        check(Merge.orders(g, first, o), name ++ ": two causal orders of one graph")
+        check(merged_equal(Merge.merged(g, o), expected), name)
+        merge_each(name, g, expected, first, rest)
+
+def merge_case(+name: String, +g: List<&2, Merge.Rev>, +expected: Maybe<&2, List<&2, Ops.Item>>, os: List<&2, List<&2, Nat>>) -> IO(Unit):
+  match os:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case +first <> rest:
+      merge_each(name, g, expected, first, first <> rest)
+
+def stated(past: List<&2, Nat>, ops: List<&2, Ops.Op>) -> Merge.Rev:
+  Merge.Rev{past, Some{ops}}
+
+def abc() -> Merge.Rev:
+  stated(Nil{}, [Ops.Op{Ops.Insert{}, 0n, Ops.from_text("a\nb\nc\n")}])
+
 def main() -> IO(Unit):
   do IO<Unit>:
     parent_cases([Nil{}, [Ops.line("a")], [Ops.line("a"), Ops.line("b")], [Ops.line("a"), Ops.line("b"), Ops.line("c")], [Ops.line("same"), Ops.line("same"), Ops.forgotten(), Ops.line("end")]])
@@ -246,4 +282,16 @@ def main() -> IO(Unit):
     cause_case("cause: right digest", Ops.from_text("a\nb\n"), Some{Ops.state_digest(Ops.from_text("b\n"))}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a")]}])
     cause_case("cause: wrong digest", Ops.from_text("a\nb\n"), Some{Ops.state_digest(Ops.from_text("a\n"))}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a")]}])
     cause_case("cause: wrong digest excused by forgetting", [Ops.forgotten(), Ops.line("b")], Some{Ops.state_digest(Ops.from_text("a\n"))}, [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}])
-    IO.print("ok    positional/cursor/block/script/diff/cause oracles, spelling and refusal regressions")
+    merge_case("merge: a chain", [abc(), stated([0n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}, Ops.Op{Ops.Insert{}, 1n, [Ops.line("B")]}]), stated([0n, 1n], [Ops.Op{Ops.Insert{}, 3n, [Ops.line("d")]}])], Some{Ops.from_text("a\nB\nc\nd\n")}, [[0n, 1n, 2n]])
+    merge_case("merge: concurrent edits in different places", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("top")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 3n, [Ops.line("bottom")]}])], Some{Ops.from_text("top\na\nb\nc\nbottom\n")}, [[0n, 1n, 2n], [0n, 2n, 1n]])
+    merge_case("merge: concurrent runs do not interleave", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 1n, Ops.from_text("x1\nx2\nx3\n")}]), stated([0n], [Ops.Op{Ops.Insert{}, 1n, Ops.from_text("y1\ny2\ny3\n")}])], Some{Ops.from_text("a\nx1\nx2\nx3\ny1\ny2\ny3\nb\nc\n")}, [[0n, 1n, 2n], [0n, 2n, 1n]])
+    merge_case("merge: runs written backwards do not interleave", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("x1")]}]), stated([0n, 1n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("x2")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("y1")]}]), stated([0n, 3n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("y2")]}])], Some{Ops.from_text("a\nx2\nx1\ny2\ny1\nb\nc\n")}, [[0n, 1n, 2n, 3n, 4n], [0n, 3n, 4n, 1n, 2n], [0n, 1n, 3n, 2n, 4n], [0n, 3n, 1n, 4n, 2n]])
+    merge_case("merge: concurrent deletions agree", [abc(), stated([0n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}]), stated([0n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}])], Some{Ops.from_text("a\nc\n")}, [[0n, 1n, 2n], [0n, 2n, 1n]])
+    merge_case("merge: a deletion beside a concurrent insertion", [abc(), stated([0n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 2n, [Ops.line("new")]}])], Some{Ops.from_text("a\nnew\nc\n")}, [[0n, 1n, 2n], [0n, 2n, 1n]])
+    merge_case("merge: a merge that records nothing changes nothing", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("top")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 3n, [Ops.line("bottom")]}]), Merge.Rev{[0n, 1n, 2n], None{}}], Some{Ops.from_text("top\na\nb\nc\nbottom\n")}, [[0n, 1n, 2n, 3n], [0n, 2n, 1n, 3n]])
+    merge_case("merge: the result does not depend on the order", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 1n, Ops.from_text("x1\nx2\n")}]), stated([0n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("y")]}, Ops.Op{Ops.Delete{}, 2n, [Ops.line("c")]}]), stated([0n, 1n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("first")]}])], Some{Ops.from_text("first\na\nx1\nx2\ny\nb\n")}, [[0n, 1n, 2n, 3n], [0n, 2n, 1n, 3n], [0n, 1n, 3n, 2n]])
+    merge_case("merge: a document that disagrees with its view is refused", [abc(), stated([0n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("not-b")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("top")]}])], None{}, [[0n, 1n, 2n], [0n, 2n, 1n]])
+    merge_case("merge: a document past its view is refused", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 4n, [Ops.line("far")]}])], None{}, [[0n, 1n]])
+    check(Bool.not(Merge.orders([abc(), stated([0n], Nil{})], [0n, 1n], [1n, 0n])), "merge: an order before its past is not causal")
+    check(Bool.not(Merge.orders([abc(), stated([0n], Nil{})], [0n, 1n], [0n, 1n, 1n])), "merge: an order with an event twice is not distinct")
+    IO.print("ok    positional/cursor/block/script/diff/cause/merge oracles, spelling and refusal regressions")

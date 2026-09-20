@@ -10,6 +10,7 @@ import ./revision.bend as Rev
 import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
 import ./semantic_replay.bend as Block
+import ./merge.bend as Merge
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -257,3 +258,15 @@ law no_cause_replays:
   for +e: {Block.ordered(ops, 0n) == True{} : Bool}
   for c: {Block.cause(parent, stated, ops) == False{} : Bool}
   {Ops.apply(parent, Ops.Doc{None{}, stated, ops}) == Done{Spec.result(parent, ops)} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# The merge converges: one graph replayed in any two causal orders — each
+# event once, the same events in both, none before an event it had seen —
+# merges to one file, or is refused in both. `Merge.merged` is the model
+# of `merge.rs`: Eg-walker over Fugue, each event decided on the view its
+# author had, its elements placed by name among their siblings.
+law merge_converges:
+  for +g: List<&2, Merge.Rev>
+  for +a: List<&2, Nat>
+  for +b: List<&2, Nat>
+  for +e: {Merge.orders(g, a, b) == True{} : Bool}
+  {Merge.merged(g, a) == Merge.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}

@@ -17,6 +17,7 @@ import ./decimal_lemmas.bend as Dec
 import ./spelling_lemmas.bend as Spell
 import ./diff_lemmas.bend as Diff
 import ./refusal_lemmas.bend as Refuse
+import ./merge_lemmas.bend as Conv
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -309,3 +310,6 @@ def Laws.no_cause_replays(parent, stated, ops, e, c):
   Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, Ops.Doc{None{}, stated, ops}), Block.replay_ops(parent, stated, ops), Done{Spec.result(parent, ops)},
     Laws.ordered_document_semantics(parent, stated, ops, e),
     Refuse.accepted.of(Ops.in_range(ops, List.length(&2, Ops.Item, parent)), Block.quote_error(parent, ops), Spec.result(parent, ops), stated, c))
+
+def Laws.merge_converges(g, a, b, e):
+  Conv.merge_converges(g, a, b, e)
