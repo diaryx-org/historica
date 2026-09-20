@@ -112,7 +112,7 @@ so by Lemma 0 the files are; and the refusals agree by Lemma C's second half.
 | Lemma W (`lemma_walk_wf` and the `replay_ops`/`insert_run`/`delete_run` chain under it) | verified |
 | Lemma 0 | subsumed: `agree` on all events + R with `standing` is `items` equal (to write) |
 | Lemma R (`lemma_visible_agree`, via R1–R5 on `sub_read`) | verified |
-| Lemma A | not started |
+| Lemma A (`lemma_anchor_agree`) | verified |
 | Lemma E | not started |
 | Lemma M | not started |
 | Lemma C | not started |

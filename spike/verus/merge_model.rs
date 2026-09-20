@@ -1057,22 +1057,40 @@ impl TreeS {
     }
 }
 
+/// Removed by the same events of `set`. Opaque: this quantifier is the
+/// one Z3 will instantiate a million times if it is allowed to.
+#[verifier::opaque]
+pub open spec fn same_deleted(t: TreeS, u: TreeS, set: ISet<int>, i: int, j: int) -> bool {
+    forall|d: int| #[trigger] set.contains(d) ==> (u.nodes[j].deleted.contains(d) <==> t.nodes[i].deleted.contains(d))
+}
+
 /// `j` in `u` is `i` in `t`, as far as events in `set` can tell.
 pub open spec fn same_node(t: TreeS, u: TreeS, set: ISet<int>, i: int, j: int) -> bool {
     &&& u.id(j) == t.id(i)
     &&& u.nodes[j].item == t.nodes[i].item
     &&& u.nodes[j].right == t.nodes[i].right
     &&& u.parent_name(j) == t.parent_name(i)
-    &&& forall|d: int| set.contains(d) ==> (u.nodes[j].deleted.contains(d) <==> t.nodes[i].deleted.contains(d))
+    &&& same_deleted(t, u, set, i, j)
+}
+
+/// Every element of `t` authored in `set` has a twin in `u`.
+pub open spec fn half(t: TreeS, u: TreeS, set: ISet<int>) -> bool {
+    forall|i: int| t.node(i) && #[trigger] set.contains(t.nodes[i].author)
+        ==> exists|j: int| u.node(j) && same_node(t, u, set, i, j)
 }
 
 /// `t` and `u` hold the same elements authored in `set`, at the same
 /// places, removed by the same events of `set`.
 pub open spec fn agree(t: TreeS, u: TreeS, set: ISet<int>) -> bool {
-    &&& forall|i: int| t.node(i) && set.contains((#[trigger] t.nodes[i]).author)
-            ==> exists|j: int| u.node(j) && same_node(t, u, set, i, j)
-    &&& forall|j: int| u.node(j) && set.contains((#[trigger] u.nodes[j]).author)
-            ==> exists|i: int| t.node(i) && same_node(t, u, set, i, j)
+    half(t, u, set) && half(u, t, set)
+}
+
+/// Being twins is symmetric.
+pub proof fn lemma_same_node_sym(t: TreeS, u: TreeS, set: ISet<int>, i: int, j: int)
+    requires same_node(u, t, set, j, i)
+    ensures same_node(t, u, set, i, j)
+{
+    reveal(same_deleted);
 }
 
 /// Under unique names, a name picks out one index.
@@ -1302,7 +1320,8 @@ pub proof fn lemma_children_names_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet
             let k = src(cu, pu_, q);
             assert(cu[k] == c && pu_(c));
             assert(u.hangs(c, pu, r));
-            let c2 = choose|i: int| t.node(i) && same_node(t, u, set, i, c);
+            let c2 = choose|i: int| t.node(i) && same_node(u, t, set, c, i);
+            lemma_same_node_sym(t, u, set, c2, c);
             assert(t.hangs(c2, pt, r)) by {
                 match (pt, pu) {
                     (None, None) => {}
@@ -1531,8 +1550,155 @@ pub proof fn lemma_visible_agree(t: TreeS, u: TreeS, g: GraphS, e: int)
         assert(t.node(x[k]) && in_t(x[k]));
         assert(u.node(y[k]));
         lemma_twin(t, u, g, set, x[k], y[k]);
+        reveal(same_deleted);
+        assert forall|d: int| #[trigger] set.contains(d) implies (u.nodes[y[k]].deleted.contains(d) <==> t.nodes[x[k]].deleted.contains(d)) by {}
     }
     lemma_sel_names(t, u, x, y, kept_t, kept_u);
+}
+
+// ---------------------------------------------------------------------------
+// Lemma A: `anchor` reads only what the event knows.
+// ---------------------------------------------------------------------------
+
+/// What `e` knows: its past and itself. The set an insertion is placed
+/// against.
+pub open spec fn known(g: GraphS, e: int) -> ISet<int> {
+    ISet::new(|o: int| g.knows(e, o))
+}
+
+pub proof fn lemma_known_closed(g: GraphS, e: int)
+    requires g.wf(), g.event(e)
+    ensures closed(g, known(g, e))
+{
+    assert forall|a: int, o: int| known(g, e).contains(a) && g.event(a) && g.event(o) && #[trigger] g.knows(a, o)
+        implies known(g, e).contains(o) by {
+        assert(g.knows(e, o));
+    }
+}
+
+/// `same_deleted` is monotone in the set.
+pub proof fn lemma_same_deleted_mono(t: TreeS, u: TreeS, big: ISet<int>, small: ISet<int>, i: int, j: int)
+    requires same_deleted(t, u, big, i, j), forall|o: int| #[trigger] small.contains(o) ==> big.contains(o)
+    ensures same_deleted(t, u, small, i, j)
+{
+    reveal(same_deleted);
+    assert forall|d: int| #[trigger] small.contains(d) implies (u.nodes[j].deleted.contains(d) <==> t.nodes[i].deleted.contains(d)) by {
+        assert(big.contains(d));
+    }
+}
+
+/// Each half of agreement is monotone in the set.
+pub proof fn lemma_half_mono(t: TreeS, u: TreeS, big: ISet<int>, small: ISet<int>)
+    requires half(t, u, big), forall|o: int| #[trigger] small.contains(o) ==> big.contains(o)
+    ensures half(t, u, small)
+{
+    assert forall|i: int| t.node(i) && #[trigger] small.contains(t.nodes[i].author)
+        implies exists|j: int| u.node(j) && same_node(t, u, small, i, j) by {
+        assert(big.contains(t.nodes[i].author));
+        let j = choose|j: int| u.node(j) && same_node(t, u, big, i, j);
+        lemma_same_deleted_mono(t, u, big, small, i, j);
+        assert(same_node(t, u, small, i, j));
+    }
+}
+
+/// Agreement is monotone in the set.
+pub proof fn lemma_agree_mono(t: TreeS, u: TreeS, big: ISet<int>, small: ISet<int>)
+    requires agree(t, u, big), forall|o: int| #[trigger] small.contains(o) ==> big.contains(o)
+    ensures agree(t, u, small)
+{
+    lemma_half_mono(t, u, big, small);
+    lemma_half_mono(u, t, big, small);
+}
+
+/// `first_known` is the head of the known part of the list.
+pub proof fn lemma_first_known_head(t: TreeS, g: GraphS, e: int, siblings: Seq<int>)
+    ensures ({
+        let kept = t.in_set(known(g, e), siblings);
+        t.first_known(g, e, siblings) == if kept.len() == 0 { None } else { Some(kept[0]) }
+    })
+    decreases siblings.len()
+{
+    let p = |i: int| known(g, e).contains(t.nodes[i].author);
+    if siblings.len() == 0 {
+        assert(sel(siblings, p) == siblings);
+    } else {
+        let first = siblings[0];
+        let rest = siblings.drop_first();
+        lemma_first_known_head(t, g, e, rest);
+        assert(siblings =~= seq![first] + rest);
+        lemma_sel_add(seq![first], rest, p);
+        lemma_sel_single(first, p);
+        if p(first) {
+            assert((seq![first] + sel(rest, p))[0] == first);
+        } else {
+            assert(sel(siblings, p) =~= sel(rest, p));
+        }
+    }
+}
+
+/// Twin lists have twin heads.
+pub proof fn lemma_heads_twin(t: TreeS, u: TreeS, x: Seq<int>, y: Seq<int>)
+    requires t.names(x) == u.names(y)
+    ensures x.len() == y.len(), x.len() > 0 ==> t.id(x[0]) == u.id(y[0])
+{
+    assert(t.names(x).len() == x.len());
+    assert(u.names(y).len() == y.len());
+    if x.len() > 0 {
+        assert(t.names(x)[0] == t.id(x[0]));
+        assert(u.names(y)[0] == u.id(y[0]));
+    }
+}
+
+pub proof fn lemma_leftmost_known_agree(t: TreeS, u: TreeS, g: GraphS, e: int, at: int, au: int)
+    requires t.wf(g), u.wf(g), g.wf(), g.event(e), agree(t, u, known(g, e)), t.node(at), u.node(au), t.id(at) == u.id(au)
+    ensures ({
+        let (rt, ru) = (t.leftmost_known(g, e, at), u.leftmost_known(g, e, au));
+        t.node(rt) && u.node(ru) && t.id(rt) == u.id(ru)
+    })
+    decreases t.len() - at
+{
+    lemma_known_closed(g, e);
+    let set = known(g, e);
+    let (ct, cu) = (t.children(Some(at), false), u.children(Some(au), false));
+    lemma_first_known_head(t, g, e, ct);
+    lemma_first_known_head(u, g, e, cu);
+    lemma_children_names_agree(t, u, g, set, Some(at), Some(au), false);
+    let (kt, ku) = (t.in_set(set, ct), u.in_set(set, cu));
+    lemma_heads_twin(t, u, kt, ku);
+    lemma_in_set_children(t, g, set, Some(at), false, at);
+    lemma_in_set_children(u, g, set, Some(au), false, au);
+    if kt.len() > 0 {
+        let (nt, nu) = (kt[0], ku[0]);
+        assert(at < nt < t.len());
+        assert(au < nu < u.len());
+        lemma_leftmost_known_agree(t, u, g, e, nt, nu);
+    }
+}
+
+/// Lemma A. Trees that agree on what `e` knows anchor a new element of
+/// `e`'s at twin places.
+pub proof fn lemma_anchor_agree(t: TreeS, u: TreeS, g: GraphS, e: int, lt: Option<int>, lu: Option<int>)
+    requires t.wf(g), u.wf(g), g.wf(), g.event(e), agree(t, u, known(g, e)), twin_parents(t, u, g, lt, lu)
+    ensures ({
+        let (at, au) = (t.anchor(g, e, lt), u.anchor(g, e, lu));
+        twin_parents(t, u, g, at.0, au.0) && at.1 == au.1
+    })
+{
+    lemma_known_closed(g, e);
+    let set = known(g, e);
+    let (ct, cu) = (t.children(lt, true), u.children(lu, true));
+    lemma_first_known_head(t, g, e, ct);
+    lemma_first_known_head(u, g, e, cu);
+    lemma_children_names_agree(t, u, g, set, lt, lu, true);
+    let (kt, ku) = (t.in_set(set, ct), u.in_set(set, cu));
+    lemma_heads_twin(t, u, kt, ku);
+    let above_t: int = match lt { Some(i) => i, None => -1 };
+    let above_u: int = match lu { Some(j) => j, None => -1 };
+    lemma_in_set_children(t, g, set, lt, true, above_t);
+    lemma_in_set_children(u, g, set, lu, true, above_u);
+    if kt.len() > 0 {
+        lemma_leftmost_known_agree(t, u, g, e, kt[0], ku[0]);
+    }
 }
 
 // ---------------------------------------------------------------------------
