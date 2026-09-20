@@ -135,38 +135,52 @@ pub proof fn lemma_sel_single(x: int, p: spec_fn(int) -> bool)
     if p(x) { assert(sel(seq![x], p) =~= seq![x]); }
 }
 
-/// `sel` is an order-preserving subsequence: any two of its elements come
-/// from two positions of `s` in the same order.
+/// Where `sel(s, p)[q]` came from in `s`.
+pub open spec fn src(s: Seq<int>, p: spec_fn(int) -> bool, q: int) -> int
+    decreases s.len()
+{
+    if s.len() == 0 {
+        -1
+    } else {
+        let r = sel(s.drop_last(), p);
+        if p(s.last()) && q == r.len() { s.len() - 1 } else { src(s.drop_last(), p, q) }
+    }
+}
+
+/// `sel` is an order-preserving subsequence: `src` names the position each
+/// element came from, and positions ascend.
 pub proof fn lemma_sel_sub(s: Seq<int>, p: spec_fn(int) -> bool)
     ensures
         sel(s, p).len() <= s.len(),
-        forall|q: int| #![trigger sel(s, p)[q]] 0 <= q < sel(s, p).len() ==> exists|i: int| #![trigger s[i]] 0 <= i < s.len() && s[i] == sel(s, p)[q] && p(s[i]),
-        forall|a: int, b: int| #![trigger sel(s, p)[a], sel(s, p)[b]] 0 <= a < b < sel(s, p).len() ==> exists|ia: int, ib: int|
-            #![trigger s[ia], s[ib]] 0 <= ia < ib < s.len() && s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b],
+        forall|q: int| 0 <= q < sel(s, p).len() ==> 0 <= #[trigger] src(s, p, q) < s.len() && s[src(s, p, q)] == sel(s, p)[q] && p(s[src(s, p, q)]),
+        forall|a: int, b: int| 0 <= a < b < sel(s, p).len() ==> #[trigger] src(s, p, a) < #[trigger] src(s, p, b),
         forall|i: int| 0 <= i < s.len() && p(#[trigger] s[i]) ==> sel(s, p).contains(s[i]),
     decreases s.len()
 {
-    if s.len() > 0 {
+    if s.len() == 0 {
+        assert(sel(s, p) == s);
+    } else {
         let d = s.drop_last();
         lemma_sel_sub(d, p);
         let r = sel(d, p);
-        assert forall|q: int| #![trigger sel(s, p)[q]] 0 <= q < sel(s, p).len() implies exists|i: int| #![trigger s[i]] 0 <= i < s.len() && s[i] == sel(s, p)[q] && p(s[i]) by {
-            if q < r.len() {
-                let i = choose|i: int| 0 <= i < d.len() && d[i] == r[q] && p(d[i]);
-                assert(s[i] == sel(s, p)[q] && p(s[i]));
+        assert(sel(s, p) == if p(s.last()) { r.push(s.last()) } else { r });
+        assert forall|q: int| 0 <= q < sel(s, p).len()
+            implies 0 <= #[trigger] src(s, p, q) < s.len() && s[src(s, p, q)] == sel(s, p)[q] && p(s[src(s, p, q)]) by {
+            if p(s.last()) && q == r.len() {
+                assert(src(s, p, q) == s.len() - 1);
             } else {
-                assert(s[s.len() - 1] == sel(s, p)[q]);
+                assert(src(s, p, q) == src(d, p, q));
+                assert(sel(s, p)[q] == r[q]);
+                assert(s[src(d, p, q)] == d[src(d, p, q)]);
             }
         }
-        assert forall|a: int, b: int| #![trigger sel(s, p)[a], sel(s, p)[b]] 0 <= a < b < sel(s, p).len() implies exists|ia: int, ib: int|
-            #![trigger s[ia], s[ib]] 0 <= ia < ib < s.len() && s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b] by {
-            if b < r.len() {
-                let (ia, ib) = choose|ia: int, ib: int| 0 <= ia < ib < d.len() && d[ia] == r[a] && d[ib] == r[b];
-                assert(s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b]);
+        assert forall|a: int, b: int| 0 <= a < b < sel(s, p).len() implies #[trigger] src(s, p, a) < #[trigger] src(s, p, b) by {
+            if p(s.last()) && b == r.len() {
+                assert(src(s, p, a) == src(d, p, a));
+                assert(src(d, p, a) < d.len());
             } else {
-                let ia = choose|i: int| 0 <= i < d.len() && d[i] == r[a] && p(d[i]);
-                let ib = s.len() - 1;
-                assert(s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b]);
+                assert(src(s, p, a) == src(d, p, a));
+                assert(src(s, p, b) == src(d, p, b));
             }
         }
         assert forall|i: int| 0 <= i < s.len() && p(#[trigger] s[i]) implies sel(s, p).contains(s[i]) by {
@@ -771,8 +785,8 @@ pub proof fn lemma_visible_ok(t: TreeS, g: GraphS, e: int)
     lemma_sel_sub(order, pred);
     assert forall|q: int| 0 <= q < sel(order, pred).len()
         implies t.node(#[trigger] sel(order, pred)[q]) && g.saw(e, t.nodes[sel(order, pred)[q]].author) by {
-        let j = choose|j: int| 0 <= j < order.len() && order[j] == sel(order, pred)[q] && pred(order[j]);
-        assert(t.node(order[j]));
+        let j = src(order, pred, q);
+        assert(t.node(order[j]) && pred(order[j]));
     }
 }
 
@@ -989,6 +1003,209 @@ pub proof fn lemma_children_sorted(t: TreeS, g: GraphS, parent: Option<int>, rig
     ensures t.sorted(t.children(parent, right)), ids_sorted(t.names(t.children(parent, right)))
 {
     lemma_children_upto_sorted(t, parent, right, t.len());
+}
+
+// ---------------------------------------------------------------------------
+// Agreement on a set of events, and the restricted reading.
+// ---------------------------------------------------------------------------
+
+/// Closed under causal past.
+pub open spec fn closed(g: GraphS, s: Set<int>) -> bool {
+    forall|e: int, o: int| s.contains(e) && g.event(e) && g.event(o) && #[trigger] g.knows(e, o) ==> s.contains(o)
+}
+
+impl TreeS {
+    pub open spec fn parent_name(self, i: int) -> Option<Name> {
+        match self.nodes[i].parent {
+            None => None,
+            Some(p) => Some(self.id(p)),
+        }
+    }
+
+    /// The indices among `s` whose author is in `set`.
+    pub open spec fn in_set(self, set: Set<int>, s: Seq<int>) -> Seq<int> {
+        sel(s, |i: int| set.contains(self.nodes[i].author))
+    }
+
+    /// `read`, emitting only elements authored in `set`.
+    pub open spec fn sub_read(self, set: Set<int>, i: int) -> Seq<int>
+        decreases self.len() - i, 1int, 0int
+    {
+        if !self.node(i) {
+            Seq::empty()
+        } else {
+            self.sub_read_all(set, self.children(Some(i), false), i)
+                + (if set.contains(self.nodes[i].author) { seq![i] } else { Seq::<int>::empty() })
+                + self.sub_read_all(set, self.children(Some(i), true), i)
+        }
+    }
+
+    pub open spec fn sub_read_all(self, set: Set<int>, siblings: Seq<int>, above: int) -> Seq<int>
+        decreases self.len() - above, 0int, siblings.len()
+    {
+        if siblings.len() == 0 {
+            Seq::empty()
+        } else {
+            let first = siblings[0];
+            let rest = self.sub_read_all(set, siblings.drop_first(), above);
+            if above < first < self.len() { self.sub_read(set, first) + rest } else { rest }
+        }
+    }
+
+    pub open spec fn sub_order(self, set: Set<int>) -> Seq<int> {
+        self.sub_read_all(set, self.children(None, true), -1)
+    }
+}
+
+/// `j` in `u` is `i` in `t`, as far as events in `set` can tell.
+pub open spec fn same_node(t: TreeS, u: TreeS, set: Set<int>, i: int, j: int) -> bool {
+    &&& u.id(j) == t.id(i)
+    &&& u.nodes[j].item == t.nodes[i].item
+    &&& u.nodes[j].right == t.nodes[i].right
+    &&& u.parent_name(j) == t.parent_name(i)
+    &&& forall|d: int| set.contains(d) ==> (u.nodes[j].deleted.contains(d) <==> t.nodes[i].deleted.contains(d))
+}
+
+/// `t` and `u` hold the same elements authored in `set`, at the same
+/// places, removed by the same events of `set`.
+pub open spec fn agree(t: TreeS, u: TreeS, set: Set<int>) -> bool {
+    &&& forall|i: int| t.node(i) && set.contains((#[trigger] t.nodes[i]).author)
+            ==> exists|j: int| u.node(j) && same_node(t, u, set, i, j)
+    &&& forall|j: int| u.node(j) && set.contains((#[trigger] u.nodes[j]).author)
+            ==> exists|i: int| t.node(i) && same_node(t, u, set, i, j)
+}
+
+/// Under unique names, a name picks out one index.
+pub proof fn lemma_named_unique(t: TreeS, g: GraphS, a: int, b: int)
+    requires t.wf(g), t.node(a), t.node(b), t.id(a) == t.id(b)
+    ensures a == b
+{
+}
+
+/// Everything that hangs somewhere is in that sibling list.
+pub proof fn lemma_children_upto_complete(t: TreeS, parent: Option<int>, right: bool, k: int, c: int)
+    requires 0 <= c < k <= t.len(), t.hangs(c, parent, right)
+    ensures t.children_upto(parent, right, k).contains(c)
+    decreases k
+{
+    if c == k - 1 {
+        let before = t.children_upto(parent, right, k - 1);
+        lemma_first_greater_bounds(t, before, c, 0);
+        let pos = t.first_greater(before, c, 0);
+        assert(before.insert(pos, c)[pos] == c);
+    } else {
+        lemma_children_upto_complete(t, parent, right, k - 1, c);
+        let before = t.children_upto(parent, right, k - 1);
+        if t.hangs(k - 1, parent, right) {
+            lemma_first_greater_bounds(t, before, k - 1, 0);
+            let pos = t.first_greater(before, k - 1, 0);
+            let q = choose|q: int| 0 <= q < before.len() && before[q] == c;
+            let after = before.insert(pos, k - 1);
+            if q < pos { assert(after[q] == c); } else { assert(after[q + 1] == c); }
+        }
+    }
+}
+
+pub proof fn lemma_children_complete(t: TreeS, parent: Option<int>, right: bool, c: int)
+    requires t.hangs(c, parent, right)
+    ensures t.children(parent, right).contains(c)
+{
+    lemma_children_upto_complete(t, parent, right, t.len(), c);
+}
+
+/// A filter of a sorted list is sorted.
+pub proof fn lemma_sel_sorted(t: TreeS, s: Seq<int>, p: spec_fn(int) -> bool)
+    requires t.sorted(s)
+    ensures t.sorted(sel(s, p))
+{
+    lemma_sel_sub(s, p);
+    assert forall|a: int, b: int| 0 <= a < b < sel(s, p).len() implies TreeS::id_lt(t.id(sel(s, p)[a]), t.id(sel(s, p)[b])) by {
+        let (ia, ib) = (src(s, p, a), src(s, p, b));
+        assert(s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b] && ia < ib);
+    }
+}
+
+/// Filtering twice is filtering once by both.
+pub proof fn lemma_sel_sel(s: Seq<int>, p: spec_fn(int) -> bool, q: spec_fn(int) -> bool)
+    ensures sel(sel(s, p), q) == sel(s, |i: int| p(i) && q(i))
+    decreases s.len()
+{
+    if s.len() > 0 {
+        lemma_sel_sel(s.drop_last(), p, q);
+        let r = sel(s.drop_last(), p);
+        if p(s.last()) {
+            assert(sel(s, p) == r.push(s.last()));
+            assert(r.push(s.last()).drop_last() =~= r);
+            assert(r.push(s.last()).last() == s.last());
+        }
+    }
+}
+
+/// Lemma R1: the restricted reading is the reading, restricted.
+pub proof fn lemma_sub_read_is_sel(t: TreeS, set: Set<int>, i: int)
+    ensures t.in_set(set, t.read(i)) == t.sub_read(set, i)
+    decreases t.len() - i, 1int, 0int
+{
+    if t.node(i) {
+        let p = |i: int| set.contains(t.nodes[i].author);
+        let (lc, rc) = (t.children(Some(i), false), t.children(Some(i), true));
+        lemma_sub_read_all_is_sel(t, set, lc, i);
+        lemma_sub_read_all_is_sel(t, set, rc, i);
+        lemma_sel_add(t.read_all(lc, i) + seq![i], t.read_all(rc, i), p);
+        lemma_sel_add(t.read_all(lc, i), seq![i], p);
+        lemma_sel_single(i, p);
+    }
+}
+
+pub proof fn lemma_sub_read_all_is_sel(t: TreeS, set: Set<int>, siblings: Seq<int>, above: int)
+    ensures t.in_set(set, t.read_all(siblings, above)) == t.sub_read_all(set, siblings, above)
+    decreases t.len() - above, 0int, siblings.len()
+{
+    let p = |i: int| set.contains(t.nodes[i].author);
+    if siblings.len() == 0 {
+        assert(t.read_all(siblings, above) =~= Seq::<int>::empty());
+    } else {
+        let first = siblings[0];
+        lemma_sub_read_all_is_sel(t, set, siblings.drop_first(), above);
+        if above < first < t.len() {
+            lemma_sub_read_is_sel(t, set, first);
+            lemma_sel_add(t.read(first), t.read_all(siblings.drop_first(), above), p);
+        }
+    }
+}
+
+/// Lemma R2: outside the set, a subtree reads as nothing — its elements'
+/// authors all know the root's, so none of them is in a closed set that
+/// leaves the root out.
+pub proof fn lemma_sub_read_outside(t: TreeS, g: GraphS, set: Set<int>, i: int)
+    requires t.wf(g), g.wf(), closed(g, set), t.node(i), !set.contains(t.nodes[i].author)
+    ensures t.sub_read(set, i) == Seq::<int>::empty()
+    decreases t.len() - i, 1int, 0int
+{
+    lemma_children_nodes(t, Some(i), false);
+    lemma_children_nodes(t, Some(i), true);
+    lemma_sub_read_all_outside(t, g, set, t.children(Some(i), false), i);
+    lemma_sub_read_all_outside(t, g, set, t.children(Some(i), true), i);
+    assert(t.sub_read(set, i) =~= Seq::<int>::empty());
+}
+
+pub proof fn lemma_sub_read_all_outside(t: TreeS, g: GraphS, set: Set<int>, siblings: Seq<int>, above: int)
+    requires
+        t.wf(g), g.wf(), closed(g, set), t.node(above), !set.contains(t.nodes[above].author),
+        forall|q: int| 0 <= q < siblings.len() ==> t.node(#[trigger] siblings[q]) && t.nodes[siblings[q]].parent == Some(above),
+    ensures t.sub_read_all(set, siblings, above) == Seq::<int>::empty()
+    decreases t.len() - above, 0int, siblings.len()
+{
+    if siblings.len() > 0 {
+        let first = siblings[0];
+        lemma_sub_read_all_outside(t, g, set, siblings.drop_first(), above);
+        if above < first < t.len() {
+            // `first`'s author knows `above`'s; closed would pull `above`'s in.
+            assert(g.knows(t.nodes[first].author, t.nodes[above].author));
+            assert(!set.contains(t.nodes[first].author));
+            lemma_sub_read_outside(t, g, set, first);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
