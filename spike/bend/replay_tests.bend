@@ -60,6 +60,10 @@ def cursor_case(name: String, +parent: List<&2, Ops.Item>, +doc: Ops.Doc) -> IO(
 def block_case(name: String, +before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +stated: Maybe<&2, String>, +edit: Block.Edit) -> IO(Unit):
   check(outcomes_equal(Ops.apply(List.append(&2, Ops.Item, before, after), Ops.Doc{None{}, stated, Block.operations(List.length(&2, Ops.Item, before), edit)}), Block.apply(before, after, stated, edit)), name)
 
+# Both compiled sides of the script theorem, on successes and refusals.
+def script_case(name: String, +parent: List<&2, Ops.Item>, +stated: Maybe<&2, String>, +steps: List<&2, Block.Step>) -> IO(Unit):
+  check(outcomes_equal(Ops.apply(parent, Ops.Doc{None{}, stated, Block.script(steps, 0n)}), Block.replay(parent, stated, steps)), name)
+
 # Every deletion interval and replacement anchor for this parent and gap.
 def intervals(+n: Nat, +at: Nat, +parent: List<&2, Ops.Item>) -> IO(Unit):
   match n:
@@ -139,4 +143,19 @@ def main() -> IO(Unit):
     block_case("semantic wrong digest", Nil{}, Nil{}, Some{"wrong"}, Block.Insertion{[Ops.line("new")]})
     block_case("semantic forgotten digest exception", Nil{}, Nil{}, Some{"wrong"}, Block.Insertion{[Ops.forgotten()]})
     block_case("semantic invalid resulting terminator", [Ops.unterminated("before")], Nil{}, None{}, Block.Insertion{[Ops.line("after")]})
-    IO.print("ok    positional/cursor/block oracles and refusal regressions")
+    script_case("script: no blocks", Ops.from_text("a\nb\n"), None{}, Nil{})
+    script_case("script: replacement then insert then delete", Ops.from_text("a\nb\nc\nd\ne\n"), None{}, [Block.Step{0n, Block.Replacement{[Ops.line("a")], [Ops.line("x")]}}, Block.Step{1n, Block.Insertion{[Ops.line("y")]}}, Block.Step{1n, Block.Deletion{[Ops.line("d")]}}])
+    script_case("script: insert at a deleted run's end", Ops.from_text("a\nb\nc\n"), None{}, [Block.Step{1n, Block.Deletion{[Ops.line("b")]}}, Block.Step{0n, Block.Insertion{[Ops.line("x")]}}])
+    script_case("script: two inserts at one gap", Ops.from_text("a\n"), None{}, [Block.Step{1n, Block.Insertion{[Ops.line("x")]}}, Block.Step{0n, Block.Insertion{[Ops.line("y")]}}])
+    script_case("script: adjacent deletions", Ops.from_text("a\nb\nc\n"), None{}, [Block.Step{0n, Block.Deletion{[Ops.line("a")]}}, Block.Step{0n, Block.Deletion{[Ops.line("b")]}}])
+    script_case("script: trailing insertion after replacement", [Ops.line("a"), Ops.unterminated("b")], None{}, [Block.Step{1n, Block.Replacement{[Ops.unterminated("b")], [Ops.line("b")]}}, Block.Step{0n, Block.Insertion{[Ops.unterminated("c")]}}])
+    script_case("script: everything replaced on an empty parent", Nil{}, Some{Ops.state_digest([Ops.line("only")])}, [Block.Step{0n, Block.Insertion{[Ops.line("only")]}}])
+    script_case("script: second block disagrees", Ops.from_text("a\nb\nc\n"), None{}, [Block.Step{0n, Block.Insertion{[Ops.line("x")]}}, Block.Step{1n, Block.Deletion{[Ops.line("wrong")]}}])
+    script_case("script: first disagreement wins", Ops.from_text("a\nb\nc\n"), None{}, [Block.Step{0n, Block.Deletion{[Ops.line("wrong")]}}, Block.Step{1n, Block.Deletion{[Ops.line("also wrong")]}}])
+    script_case("script: later block out of range", Ops.from_text("a\nb\n"), None{}, [Block.Step{0n, Block.Deletion{[Ops.line("a")]}}, Block.Step{3n, Block.Insertion{[Ops.line("x")]}}])
+    script_case("script: deletion past the end", Ops.from_text("a\nb\n"), None{}, [Block.Step{1n, Block.Deletion{[Ops.line("b"), Ops.line("c")]}}])
+    script_case("script: forgotten quote and wrong digest", [Ops.forgotten(), Ops.line("b")], Some{"wrong"}, [Block.Step{0n, Block.Replacement{[Ops.line("secret")], [Ops.line("x")]}}, Block.Step{1n, Block.Insertion{[Ops.line("y")]}}])
+    script_case("script: unterminated item left in the middle", [Ops.unterminated("a")], None{}, [Block.Step{1n, Block.Insertion{[Ops.line("b")]}}])
+    refused("script: second block disagreement is reported", "a delete at 1 quotes lines the parent does not hold", Block.replay(Ops.from_text("a\nb\nc\n"), None{}, [Block.Step{0n, Block.Insertion{[Ops.line("x")]}}, Block.Step{1n, Block.Deletion{[Ops.line("wrong")]}}]))
+    accepted("script: positional result of three blocks", Ops.from_text("x\nb\ny\nc\ne\n"), Block.replay(Ops.from_text("a\nb\nc\nd\ne\n"), None{}, [Block.Step{0n, Block.Replacement{[Ops.line("a")], [Ops.line("x")]}}, Block.Step{1n, Block.Insertion{[Ops.line("y")]}}, Block.Step{1n, Block.Deletion{[Ops.line("d")]}}]))
+    IO.print("ok    positional/cursor/block/script oracles and refusal regressions")

@@ -35,6 +35,7 @@ bend main.bend -- diff   old.txt new.txt
 | `LAWS.bend` / `PROOF.bend` | twenty-two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
+| `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
 | `corpus_ops.bend`, `corpus_rev.bend` | the corpus, executed | `tests/*.rs` |
@@ -144,22 +145,50 @@ The first connection to the independent positional result is now proved:
 positional model to assemble their output. `position_lemmas.bend` proves the
 coordinate, prefix/suffix, deletion-window and replacement lemmas that
 connect them to the cursor. Range, newline and digest validators remain
-shared; their independent correctness is not claimed. No ordering theorem
-for an arbitrary multi-block document or for the parser follows yet.
+shared; their independent correctness is not claimed.
 
-The next induction must compose these blocks: later operations must start
-past the consumed parent interval, while a replacement's insert retains the
-original anchor. After that, parser acceptance must establish those global
-conditions. The split used here witnesses only one block's starting gap.
+The blocks compose. A *script* (`Block.Step`) is a list of blocks, each
+sitting `gap` parent items past where the previous one finished — an
+insertion consumes nothing, a deletion or replacement consumes what it
+quotes — and `Block.script` writes it out as absolute operations. That is
+every shape the parser's ordering rules admit, and some they refuse (two
+inserts at one gap, an insert directly at a deleted run's end), which the
+theorem covers all the same:
+
+- `script_semantics`: for **any** parent, script and stated digest,
+  `Ops.apply` equals `Block.replay` — the range check, then the first delete
+  whose quote the parent does not hold *at that delete's absolute
+  coordinate* (`Block.quote_error`, which reads `List.drop(parent, at)` and
+  nothing of the cursor), else `Spec.result` of the whole operation list,
+  then the newline and digest checks. Nothing about the cursor, its
+  reversed accumulator or its running position appears on the right.
+
+`composition_lemmas.bend` is the induction over the script. Its invariant
+is that the cursor's state at position `p` is `List.drop(parent, p)`; each
+step peels one block with `walk_block`, `error_block` and `result_block`,
+and `skip` moves the positional model across the gap, which needs every
+later operation to sit at or past the gap's end (`below`) and the gap to
+fit the parent — the range check, which is why `Cursor.checked` runs it
+first and why out of range both sides are the same refusal. A quote that
+disagrees settles both sides as that refusal before any payload is compared
+(`settle`), so a delete running past the end needs no separate case.
+
+What remains for the parser is to show that an accepted document *is* a
+script: that its operations are `Block.script(steps, 0n)` for some `steps`.
 
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Nine mutations cover the primitive helpers, lost inserts, a lost trailing
+Twelve mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
-digest check, a positional model that drops the trailing gap, and an
-inclusive deletion endpoint. The proof gate rejects each at its expected
-proof location.
+digest check, a positional model that drops the trailing gap, an
+inclusive deletion endpoint, a script that never advances past what a
+block consumed, a positional refusal that ignores a disagreeing quote, and
+a replacement that consumes nothing. The proof gate rejects each at its
+expected proof location. The script tests run both sides on multi-block
+documents: a replacement, an insert and a delete in one document, adjacent
+deletions, an insert at a deleted run's end, a second block that disagrees
+or runs out of range, and forgotten quotes under a wrong digest.
 
 `check.py` runs the proofs and all three suites on both the default JS and
 native C backends, then verifies that deliberate replay mutations fail the
@@ -167,8 +196,7 @@ proof gate. Corpus failures now exit nonzero. The runner prints and fixes
 the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
 minutes on the development machine.
 
-Still unproved are the positional `Ops.apply == Spec.result` contract for
-arbitrary multi-block documents and the parser ordering guarantee,
+Still unproved are that the parser only accepts scripts,
 independent error soundness, merge convergence,
 `apply(diff(parent, child)) == child`, and `write(parse(s)) == s`. The corpus and oracle comparisons provide
 executable checks where those general proofs are still missing. See

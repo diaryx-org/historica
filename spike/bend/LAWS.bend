@@ -156,3 +156,14 @@ law edit_block_semantics:
   for +stated: Maybe<&2, String>
   for +edit: Block.Edit
   {Ops.apply(List.append(&2, Ops.Item, before, after), Ops.Doc{None{}, stated, Block.operations(List.length(&2, Ops.Item, before), edit)}) == Block.apply(before, after, stated, edit) : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# A whole script of blocks — each starting a stated gap past where the last
+# finished, which is every shape the parser's ordering rules admit — replays
+# to the positional result of its operations, or to the first delete whose
+# quote the parent does not hold at that delete's own coordinate. Nothing
+# about the cursor appears on the right-hand side.
+law script_semantics:
+  for +parent: List<&2, Ops.Item>
+  for +stated: Maybe<&2, String>
+  for +steps: List<&2, Block.Step>
+  {Ops.apply(parent, Ops.Doc{None{}, stated, Block.script(steps, 0n)}) == Block.replay(parent, stated, steps) : Result<&2, &2, String, List<&2, Ops.Item>>}

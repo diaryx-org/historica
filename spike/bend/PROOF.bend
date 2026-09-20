@@ -11,6 +11,7 @@ import ./cursor_spec.bend as Cursor
 import ./replay_lemmas.bend as L
 import ./position_lemmas.bend as Pos
 import ./semantic_replay.bend as Block
+import ./composition_lemmas.bend as Comp
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -235,3 +236,36 @@ def Laws.edit_block_semantics(before, after, stated, edit):
     Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Result<&2, &2, String, List<&2, Ops.Item>>,
       r => Cursor.checked(Ops.in_range(ops, List.length(&2, Ops.Item, parent)), stated, r),
       Cursor.walk(ops, 0n, parent), Block.raw(before, after, edit), Pos.cursor_block(before, after, edit)))
+
+def script_semantics.walk(+steps: List<&2, Block.Step>, +parent: List<&2, Ops.Item>, e: {Ops.in_range(Block.script(steps, 0n), List.length(&2, Ops.Item, parent)) == True{} : Bool}) -> {Cursor.walk(Block.script(steps, 0n), 0n, parent) == Cursor.combine(Block.quote_error(parent, Block.script(steps, 0n)), Nil{}, Done{Spec.result(parent, Block.script(steps, 0n))}) : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  +ops = Block.script(steps, 0n)
+  %Pos.drop_zero(parent) : {Cursor.walk(ops, 0n, _) == Cursor.combine(Block.quote_error(parent, ops), Nil{}, Done{Spec.result_from(_, ops, 0n)}) : Result<&2, &2, String, List<&2, Ops.Item>>}
+  Comp.walk_script(steps, 0n, parent, e)
+
+# The range check is shared, so split on it: out of range both sides are
+# that refusal; in range the cursor walk is the positional result by the
+# induction over the script's blocks.
+def script_semantics.checked(+steps: List<&2, Block.Step>, +parent: List<&2, Ops.Item>, +stated: Maybe<&2, String>, fits: Bool, +e: {Ops.in_range(Block.script(steps, 0n), List.length(&2, Ops.Item, parent)) == fits : Bool}) -> {Cursor.checked(Ops.in_range(Block.script(steps, 0n), List.length(&2, Ops.Item, parent)), stated, Cursor.walk(Block.script(steps, 0n), 0n, parent)) == Cursor.checked(Ops.in_range(Block.script(steps, 0n), List.length(&2, Ops.Item, parent)), stated, Cursor.combine(Block.quote_error(parent, Block.script(steps, 0n)), Nil{}, Done{Spec.result(parent, Block.script(steps, 0n))})) : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  match fits:
+    case False{}:
+      +ops = Block.script(steps, 0n)
+      +len = List.length(&2, Ops.Item, parent)
+      +specified = Cursor.combine(Block.quote_error(parent, ops), Nil{}, Done{Spec.result(parent, ops)})
+      %Equal.sym(Bool, Ops.in_range(ops, len), False{}, e) : {Cursor.checked(_, stated, Cursor.walk(ops, 0n, parent)) == Cursor.checked(_, stated, specified) : Result<&2, &2, String, List<&2, Ops.Item>>}
+      {==}
+    case True{}:
+      +ops = Block.script(steps, 0n)
+      +len = List.length(&2, Ops.Item, parent)
+      +specified = Cursor.combine(Block.quote_error(parent, ops), Nil{}, Done{Spec.result(parent, ops)})
+      %Equal.sym(Bool, Ops.in_range(ops, len), True{}, e) : {Cursor.checked(_, stated, Cursor.walk(ops, 0n, parent)) == Cursor.checked(_, stated, specified) : Result<&2, &2, String, List<&2, Ops.Item>>}
+      Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Result<&2, &2, String, List<&2, Ops.Item>>,
+        r => Cursor.checked(True{}, stated, r),
+        Cursor.walk(ops, 0n, parent), specified,
+        script_semantics.walk(steps, parent, e))
+
+def Laws.script_semantics(parent, stated, steps):
+  +ops = Block.script(steps, 0n)
+  +doc = {Ops.Doc{None{}, stated, ops} : Ops.Doc}
+  Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Block.replay(parent, stated, steps),
+    Laws.cursor_apply_equivalent(parent, doc),
+    script_semantics.checked(steps, parent, stated, Ops.in_range(ops, List.length(&2, Ops.Item, parent)), {==}))

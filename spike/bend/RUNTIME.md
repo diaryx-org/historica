@@ -71,9 +71,10 @@ The current transfer includes the linear replay specification, proofs of the
 executable agreement/advance/delete helpers, and a refinement of the entire
 `Ops.apply` cursor implementation to `Cursor.apply`, a forward-order walk.
 That refinement preserves exact results and errors for arbitrary inputs,
-but shares the public validators. `edit_block_semantics` now connects the
+but shares the public validators. `edit_block_semantics` connects the
 implementation to position-based `Spec.result` for an arbitrary insertion,
-deletion or same-position replacement at any valid parent gap. The coordinate
-translation theorem supports shifting such local arguments to absolute
-positions. Composing multiple blocks under explicit ordering hypotheses,
-and proving the parser establishes those hypotheses, remain to be done.
+deletion or same-position replacement at any valid parent gap, and
+`script_semantics` composes any list of such blocks, each a stated gap past
+the last: `Ops.apply` on a whole script is the positional result, or the
+first disagreeing quote read at its own coordinate. Proving the parser only
+accepts scripts remains to be done.

@@ -93,6 +93,27 @@ def check_mutations(temporary):
             "position_lemmas.deleted_shift",
             "replay_spec.bend",
         ),
+        (
+            "script never advances past what a block consumed",
+            "script(rest, Nat.add(here, consumed(edit)))",
+            "script(rest, here)",
+            "composition_lemmas.script_below",
+            "semantic_replay.bend",
+        ),
+        (
+            "positional refusal ignores a disagreeing quote",
+            "Maybe.or(&2, String, Cursor.disagreement(at, Spec.prefix_matches(items, List.drop(&2, Ops.Item, parent, at))), quote_error(parent, rest))",
+            "quote_error(parent, rest)",
+            "composition_lemmas.error_block",
+            "semantic_replay.bend",
+        ),
+        (
+            "a replacement consumes nothing",
+            "    case Replacement{recorded, inserted}:\n      List.length(&2, Ops.Item, recorded)",
+            "    case Replacement{recorded, inserted}:\n      0n",
+            "composition_lemmas.result_block",
+            "semantic_replay.bend",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"
