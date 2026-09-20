@@ -114,6 +114,13 @@ def check_mutations(temporary):
             "composition_lemmas.result_block",
             "semantic_replay.bend",
         ),
+        (
+            "ordering admits an insert inside a deleted run",
+            "Bool.and(Nat.is_le(stop, at2), ordered(more, at2))",
+            "ordered(more, at2)",
+            "composition_lemmas.is_script",
+            "semantic_replay.bend",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"

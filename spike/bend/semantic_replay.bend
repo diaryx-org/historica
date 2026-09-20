@@ -84,9 +84,51 @@ def quote_error(+parent: List<&2, Ops.Item>, ops: List<&2, Ops.Op>) -> Maybe<&2,
     case Ops.Op{Ops.Delete{}, +at, items} <> rest:
       Maybe.or(&2, String, Cursor.disagreement(at, Spec.prefix_matches(items, List.drop(&2, Ops.Item, parent, at))), quote_error(parent, rest))
 
+# A whole ordered document, by its operations rather than its script.
+def replay_ops(+parent: List<&2, Ops.Item>, stated: Maybe<&2, String>, +ops: List<&2, Ops.Op>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  Cursor.checked(Ops.in_range(ops, List.length(&2, Ops.Item, parent)), stated,
+    Cursor.combine(quote_error(parent, ops), Nil{}, Done{Spec.result(parent, ops)}))
+
 # A whole script: the positional result, refused where a quote disagrees,
 # behind the same range, newline and digest validators as Ops.apply.
 def replay(+parent: List<&2, Ops.Item>, stated: Maybe<&2, String>, steps: List<&2, Step>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
-  +ops = script(steps, 0n)
-  Cursor.checked(Ops.in_range(ops, List.length(&2, Ops.Item, parent)), stated,
-    Cursor.combine(quote_error(parent, ops), Nil{}, Done{Spec.result(parent, ops)}))
+  replay_ops(parent, stated, script(steps, 0n))
+
+# Whether raw operations are a script: each sits at or past where the last
+# finished, except an insert at a delete's own position, which is that
+# delete's replacement. The parser refuses more than this; the theorem
+# needs no more than this.
+def ordered(ops: List<&2, Ops.Op>, +pos: Nat) -> Bool:
+  match ops:
+    case Nil{}:
+      True{}
+    case Ops.Op{Ops.Insert{}, +at, items} <> rest:
+      Bool.and(Nat.is_le(pos, at), ordered(rest, at))
+    case Ops.Op{Ops.Delete{}, +at, +items} <> rest:
+      match rest:
+        case Nil{}:
+          Nat.is_le(pos, at)
+        case Ops.Op{Ops.Insert{}, +at2, items2} <> +more:
+          +stop = Nat.add(at, List.length(&2, Ops.Item, items))
+          Bool.and(Nat.is_le(pos, at), Bool.pick(Bool, Nat.is_eq(at2, at), ordered(more, stop), Bool.and(Nat.is_le(stop, at2), ordered(more, at2))))
+        case Ops.Op{Ops.Delete{}, +at2, +items2} <> +more:
+          Bool.and(Nat.is_le(pos, at), ordered(Ops.Op{Ops.Delete{}, at2, items2} <> more, Nat.add(at, List.length(&2, Ops.Item, items))))
+
+# The script an ordered operation list is, read from `pos`.
+def steps_of(ops: List<&2, Ops.Op>, +pos: Nat) -> List<&2, Step>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case Ops.Op{Ops.Insert{}, +at, items} <> rest:
+      Step{Nat.sub(at, pos), Insertion{items}} <> steps_of(rest, at)
+    case Ops.Op{Ops.Delete{}, +at, +items} <> rest:
+      match rest:
+        case Nil{}:
+          [Step{Nat.sub(at, pos), Deletion{items}}]
+        case Ops.Op{Ops.Insert{}, +at2, +items2} <> +more:
+          +stop = Nat.add(at, List.length(&2, Ops.Item, items))
+          Bool.pick(List<&2, Step>, Nat.is_eq(at2, at),
+            Step{Nat.sub(at, pos), Replacement{items, items2}} <> steps_of(more, stop),
+            Step{Nat.sub(at, pos), Deletion{items}} <> Step{Nat.sub(at2, stop), Insertion{items2}} <> steps_of(more, at2))
+        case Ops.Op{Ops.Delete{}, +at2, +items2} <> +more:
+          Step{Nat.sub(at, pos), Deletion{items}} <> steps_of(Ops.Op{Ops.Delete{}, at2, items2} <> more, Nat.add(at, List.length(&2, Ops.Item, items)))

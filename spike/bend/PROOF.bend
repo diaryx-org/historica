@@ -269,3 +269,10 @@ def Laws.script_semantics(parent, stated, steps):
   Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Block.replay(parent, stated, steps),
     Laws.cursor_apply_equivalent(parent, doc),
     script_semantics.checked(steps, parent, stated, Ops.in_range(ops, List.length(&2, Ops.Item, parent)), {==}))
+
+def Laws.ordered_operations_are_scripts(ops, pos, e):
+  Comp.is_script(ops, pos, e)
+
+def Laws.ordered_document_semantics(parent, stated, ops, e):
+  %Comp.is_script(ops, 0n, e) : {Ops.apply(parent, Ops.Doc{None{}, stated, _}) == Block.replay_ops(parent, stated, _) : Result<&2, &2, String, List<&2, Ops.Item>>}
+  Laws.script_semantics(parent, stated, Block.steps_of(ops, 0n))

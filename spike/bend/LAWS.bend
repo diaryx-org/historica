@@ -167,3 +167,22 @@ law script_semantics:
   for +stated: Maybe<&2, String>
   for +steps: List<&2, Block.Step>
   {Ops.apply(parent, Ops.Doc{None{}, stated, Block.script(steps, 0n)}) == Block.replay(parent, stated, steps) : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# Raw operations are a script when each sits at or past where the last
+# finished, an insert at a delete's own position being that delete's
+# replacement (`Block.ordered`); `Block.steps_of` reads the script off them.
+law ordered_operations_are_scripts:
+  for +ops: List<&2, Ops.Op>
+  for +pos: Nat
+  for +e: {Block.ordered(ops, pos) == True{} : Bool}
+  {Block.script(Block.steps_of(ops, pos), pos) == ops : List<&2, Ops.Op>}
+
+# So any ordered document replays to its positional result, stated over the
+# operations themselves. What is left for the parser is that it only
+# accepts ordered documents.
+law ordered_document_semantics:
+  for +parent: List<&2, Ops.Item>
+  for +stated: Maybe<&2, String>
+  for +ops: List<&2, Ops.Op>
+  for +e: {Block.ordered(ops, 0n) == True{} : Bool}
+  {Ops.apply(parent, Ops.Doc{None{}, stated, ops}) == Block.replay_ops(parent, stated, ops) : Result<&2, &2, String, List<&2, Ops.Item>>}

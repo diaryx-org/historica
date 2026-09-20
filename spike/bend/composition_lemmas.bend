@@ -609,5 +609,85 @@ def walk_script(steps: List<&2, Block.Step>, +pos: Nat, +parent: List<&2, Ops.It
         walk_script.cursor(edit, pos, gap, parent, rest, walk_script(rest, next, parent, range_more)),
         walk_script.positional(edit, pos, gap, parent, rest, bound, fits))
 
+# Ordered operations are a script
+# -------------------------------
+
+def add_sub(pos: Nat, at: Nat, e: {Nat.is_le(pos, at) == True{} : Bool}) -> {Nat.add(pos, Nat.sub(at, pos)) == at : Nat}:
+  match pos at:
+    case 0n _:
+      Pos.sub_zero(at)
+    case 1n+p 0n:
+      Empty.absurd({1n+Nat.add(p, Nat.sub(0n, 1n+p)) == 0n : Nat}, false_true(e))
+    case 1n+p 1n+a:
+      %add_sub(p, a, e) : {1n+Nat.add(p, Nat.sub(a, p)) == 1n+_ : Nat}
+      {==}
+
+def eq_of_is_eq(a: Nat, b: Nat, e: {Nat.is_eq(a, b) == True{} : Bool}) -> {a == b : Nat}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+bp:
+      Empty.absurd({0n == 1n+bp : Nat}, false_true(e))
+    case 1n+ap 0n:
+      Empty.absurd({1n+ap == 0n : Nat}, false_true(e))
+    case 1n+ap 1n+bp:
+      Equal.cong(Nat, Nat, n => 1n+n, ap, bp, eq_of_is_eq(ap, bp, e))
+
+# A delete followed by an insert: the insert is its replacement when it sits
+# at the delete's own position, and a block of its own otherwise.
+def is_script.replacement(+pos: Nat, +at: Nat, +items: List<&2, Ops.Item>, +at2: Nat, +items2: List<&2, Ops.Item>, +more: List<&2, Ops.Op>, same: Bool, +eq: {Nat.is_eq(at2, at) == same : Bool}, +e: {Bool.and(Nat.is_le(pos, at), Bool.pick(Bool, same, Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))), Bool.and(Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), at2), Block.ordered(more, at2)))) == True{} : Bool}, ih_stop: {Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))) == True{} : Bool} -> {Block.script(Block.steps_of(more, Nat.add(at, List.length(&2, Ops.Item, items))), Nat.add(at, List.length(&2, Ops.Item, items))) == more : List<&2, Ops.Op>}, ih_at2: {Block.ordered(more, at2) == True{} : Bool} -> {Block.script(Block.steps_of(more, at2), at2) == more : List<&2, Ops.Op>}) -> {Block.script(Block.steps_of(Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more, pos), pos) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more : List<&2, Ops.Op>}:
+  match same:
+    case True{}:
+      +n = List.length(&2, Ops.Item, items)
+      +stop = Nat.add(at, n)
+      +here = Nat.add(pos, Nat.sub(at, pos))
+      +rhs = {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more : List<&2, Ops.Op>}
+      %Equal.sym(Bool, Nat.is_eq(at2, at), True{}, eq) : {Block.script(Bool.pick(List<&2, Block.Step>, _, Block.Step{Nat.sub(at, pos), Block.Replacement{items, items2}} <> Block.steps_of(more, stop), Block.Step{Nat.sub(at, pos), Block.Deletion{items}} <> Block.Step{Nat.sub(at2, stop), Block.Insertion{items2}} <> Block.steps_of(more, at2)), pos) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Nat, at2, at, eq_of_is_eq(at2, at, eq)) : {Ops.Op{Ops.Delete{}, here, items} <> Ops.Op{Ops.Insert{}, here, items2} <> Block.script(Block.steps_of(more, stop), Nat.add(here, n)) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, _, items2} <> more : List<&2, Ops.Op>}
+      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(more, stop), e))) : {Ops.Op{Ops.Delete{}, _, items} <> Ops.Op{Ops.Insert{}, _, items2} <> Block.script(Block.steps_of(more, stop), Nat.add(_, n)) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> more : List<&2, Ops.Op>}
+      %Equal.sym(List<&2, Ops.Op>, Block.script(Block.steps_of(more, stop), stop), more, ih_stop(and_right(Nat.is_le(pos, at), Block.ordered(more, stop), e))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> _ == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> more : List<&2, Ops.Op>}
+      {==}
+    case False{}:
+      +n = List.length(&2, Ops.Item, items)
+      +stop = Nat.add(at, n)
+      +here = Nat.add(pos, Nat.sub(at, pos))
+      +there = Nat.add(stop, Nat.sub(at2, stop))
+      +rhs = {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more : List<&2, Ops.Op>}
+      +past = Bool.and(Nat.is_le(stop, at2), Block.ordered(more, at2))
+      %Equal.sym(Bool, Nat.is_eq(at2, at), False{}, eq) : {Block.script(Bool.pick(List<&2, Block.Step>, _, Block.Step{Nat.sub(at, pos), Block.Replacement{items, items2}} <> Block.steps_of(more, stop), Block.Step{Nat.sub(at, pos), Block.Deletion{items}} <> Block.Step{Nat.sub(at2, stop), Block.Insertion{items2}} <> Block.steps_of(more, at2)), pos) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), past, e))) : {Ops.Op{Ops.Delete{}, _, items} <> Ops.Op{Ops.Insert{}, Nat.add(Nat.add(_, n), Nat.sub(at2, stop)), items2} <> Block.script(Block.steps_of(more, at2), Nat.add(Nat.add(Nat.add(_, n), Nat.sub(at2, stop)), 0n)) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Nat, there, at2, add_sub(stop, at2, and_left(Nat.is_le(stop, at2), Block.ordered(more, at2), and_right(Nat.is_le(pos, at), past, e)))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, _, items2} <> Block.script(Block.steps_of(more, at2), Nat.add(_, 0n)) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Nat, Nat.add(at2, 0n), at2, add_zero(at2)) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> Block.script(Block.steps_of(more, at2), _) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(List<&2, Ops.Op>, Block.script(Block.steps_of(more, at2), at2), more, ih_at2(and_right(Nat.is_le(stop, at2), Block.ordered(more, at2), and_right(Nat.is_le(pos, at), past, e)))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> _ == rhs : List<&2, Ops.Op>}
+      {==}
+
+# Every ordered operation list is the script `steps_of` reads from it.
+def is_script(ops: List<&2, Ops.Op>, +pos: Nat, +e: {Block.ordered(ops, pos) == True{} : Bool}) -> {Block.script(Block.steps_of(ops, pos), pos) == ops : List<&2, Ops.Op>}:
+  match ops:
+    case Nil{}:
+      {==}
+    case Ops.Op{Ops.Insert{}, +at, +items} <> +rest:
+      +here = Nat.add(pos, Nat.sub(at, pos))
+      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(rest, at), e))) : {Ops.Op{Ops.Insert{}, _, items} <> Block.script(Block.steps_of(rest, at), Nat.add(_, 0n)) == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
+      %Equal.sym(Nat, Nat.add(at, 0n), at, add_zero(at)) : {Ops.Op{Ops.Insert{}, at, items} <> Block.script(Block.steps_of(rest, at), _) == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
+      %Equal.sym(List<&2, Ops.Op>, Block.script(Block.steps_of(rest, at), at), rest, is_script(rest, at, and_right(Nat.is_le(pos, at), Block.ordered(rest, at), e))) : {Ops.Op{Ops.Insert{}, at, items} <> _ == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
+      {==}
+    case Ops.Op{Ops.Delete{}, +at, +items} <> rest:
+      match rest:
+        case Nil{}:
+          +here = Nat.add(pos, Nat.sub(at, pos))
+          %Equal.sym(Nat, here, at, add_sub(pos, at, e)) : {[Ops.Op{Ops.Delete{}, _, items}] == [Ops.Op{Ops.Delete{}, at, items}] : List<&2, Ops.Op>}
+          {==}
+        case Ops.Op{Ops.Insert{}, +at2, +items2} <> +more:
+          +stop = Nat.add(at, List.length(&2, Ops.Item, items))
+          is_script.replacement(pos, at, items, at2, items2, more, Nat.is_eq(at2, at), {==}, e, x => is_script(more, stop, x), x => is_script(more, at2, x))
+        case Ops.Op{Ops.Delete{}, +at2, +items2} <> +more:
+          +n = List.length(&2, Ops.Item, items)
+          +here = Nat.add(pos, Nat.sub(at, pos))
+          +tail = {Ops.Op{Ops.Delete{}, at2, items2} <> more : List<&2, Ops.Op>}
+          %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(tail, Nat.add(at, n)), e))) : {Ops.Op{Ops.Delete{}, _, items} <> Block.script(Block.steps_of(tail, Nat.add(at, n)), Nat.add(_, n)) == Ops.Op{Ops.Delete{}, at, items} <> tail : List<&2, Ops.Op>}
+          %Equal.sym(List<&2, Ops.Op>, Block.script(Block.steps_of(tail, Nat.add(at, n)), Nat.add(at, n)), tail, is_script(tail, Nat.add(at, n), and_right(Nat.is_le(pos, at), Block.ordered(tail, Nat.add(at, n)), e))) : {Ops.Op{Ops.Delete{}, at, items} <> _ == Ops.Op{Ops.Delete{}, at, items} <> tail : List<&2, Ops.Op>}
+          {==}
+
 def main() -> Unit:
   Unit{}

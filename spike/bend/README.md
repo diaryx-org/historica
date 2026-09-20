@@ -173,19 +173,35 @@ first and why out of range both sides are the same refusal. A quote that
 disagrees settles both sides as that refusal before any payload is compared
 (`settle`), so a delete running past the end needs no separate case.
 
-What remains for the parser is to show that an accepted document *is* a
-script: that its operations are `Block.script(steps, 0n)` for some `steps`.
+The same is stated over raw operations. `Block.ordered` says what a script
+looks like written out — each operation at or past where the last finished,
+an insert at a delete's own position being that delete's replacement — and
+`Block.steps_of` reads the script off such a list:
+
+- `ordered_operations_are_scripts`: whenever `Block.ordered(ops, pos)`,
+  `Block.script(Block.steps_of(ops, pos), pos)` is `ops` again;
+- `ordered_document_semantics`: so for any ordered `ops`, `Ops.apply` equals
+  `Block.replay_ops(parent, stated, ops)`, with no script in sight.
+
+`Block.ordered` is weaker than the parser: it admits two inserts at one
+gap, and an insert at a deleted run's end, which the parser refuses; it
+refuses what the parser refuses for the cursor's sake — an overlap, an
+insert inside a deleted run, a delete hidden behind a replacement. Every
+valid document in the operations corpus is ordered (`corpus_ops.bend`
+checks it). What remains for the parser is the theorem that it only accepts
+ordered documents.
 
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Twelve mutations cover the primitive helpers, lost inserts, a lost trailing
+Thirteen mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
 block consumed, a positional refusal that ignores a disagreeing quote, and
-a replacement that consumes nothing. The proof gate rejects each at its
-expected proof location. The script tests run both sides on multi-block
+a replacement that consumes nothing, and an ordering that admits an insert
+inside a deleted run. The proof gate rejects each at its expected proof
+location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees
 or runs out of range, and forgotten quotes under a wrong digest.
@@ -196,7 +212,7 @@ proof gate. Corpus failures now exit nonzero. The runner prints and fixes
 the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
 minutes on the development machine.
 
-Still unproved are that the parser only accepts scripts,
+Still unproved are that the parser only accepts ordered documents,
 independent error soundness, merge convergence,
 `apply(diff(parent, child)) == child`, and `write(parse(s)) == s`. The corpus and oracle comparisons provide
 executable checks where those general proofs are still missing. See

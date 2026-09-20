@@ -76,5 +76,6 @@ implementation to position-based `Spec.result` for an arbitrary insertion,
 deletion or same-position replacement at any valid parent gap, and
 `script_semantics` composes any list of such blocks, each a stated gap past
 the last: `Ops.apply` on a whole script is the positional result, or the
-first disagreeing quote read at its own coordinate. Proving the parser only
-accepts scripts remains to be done.
+first disagreeing quote read at its own coordinate — stated over raw
+operations too, for any list `Block.ordered` accepts. Proving the parser
+only accepts ordered documents remains to be done.

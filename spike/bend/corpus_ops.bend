@@ -8,6 +8,7 @@ import Base
 import ./utf8.bend as Utf8
 import ./sha256.bend as Sha
 import ./ops.bend as Ops
+import ./semantic_replay.bend as Block
 
 def corpus() -> String:
   "../../tests/corpus/operations/"
@@ -24,13 +25,21 @@ def verdict(ok: Bool, what: String) -> IO(Unit):
     case False{}:
       IO.die(Unit, 1, "FAIL  " ++ what)
 
-# A valid document parses, and writes back to the bytes it came from.
-def round_trip.of(name: String, s: String, parsed: Result<&2, &2, String, Ops.Doc>) -> IO(Unit):
+def round_trip.ordered(doc: Ops.Doc) -> Bool:
+  match doc:
+    case Ops.Doc{forgets, result, ops}:
+      Block.ordered(ops, 0n)
+
+# A valid document parses, writes back to the bytes it came from, and its
+# operations are ordered: the shape the script theorem is stated over.
+def round_trip.of(+name: String, s: String, parsed: Result<&2, &2, String, Ops.Doc>) -> IO(Unit):
   match parsed:
     case Fail{e}:
       verdict(False{}, name ++ " refused: " ++ e)
-    case Done{doc}:
-      verdict(String.eq(Ops.write(doc), s), name ++ " round-trips")
+    case Done{+doc}:
+      do IO<Unit>:
+        verdict(String.eq(Ops.write(doc), s), name ++ " round-trips")
+        verdict(round_trip.ordered(doc), name ++ " is ordered")
 
 def round_trip.read(name: String, +s: String) -> IO(Unit):
   round_trip.of(name, s, Ops.parse(s))

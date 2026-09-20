@@ -64,6 +64,12 @@ def block_case(name: String, +before: List<&2, Ops.Item>, +after: List<&2, Ops.I
 def script_case(name: String, +parent: List<&2, Ops.Item>, +stated: Maybe<&2, String>, +steps: List<&2, Block.Step>) -> IO(Unit):
   check(outcomes_equal(Ops.apply(parent, Ops.Doc{None{}, stated, Block.script(steps, 0n)}), Block.replay(parent, stated, steps)), name)
 
+# The same theorem over raw operations, once they are ordered.
+def ordered_case(+name: String, +parent: List<&2, Ops.Item>, +stated: Maybe<&2, String>, +ops: List<&2, Ops.Op>) -> IO(Unit):
+  do IO<Unit>:
+    check(Block.ordered(ops, 0n), name ++ ": ordered")
+    check(outcomes_equal(Ops.apply(parent, Ops.Doc{None{}, stated, ops}), Block.replay_ops(parent, stated, ops)), name)
+
 # Every deletion interval and replacement anchor for this parent and gap.
 def intervals(+n: Nat, +at: Nat, +parent: List<&2, Ops.Item>) -> IO(Unit):
   match n:
@@ -156,6 +162,15 @@ def main() -> IO(Unit):
     script_case("script: deletion past the end", Ops.from_text("a\nb\n"), None{}, [Block.Step{1n, Block.Deletion{[Ops.line("b"), Ops.line("c")]}}])
     script_case("script: forgotten quote and wrong digest", [Ops.forgotten(), Ops.line("b")], Some{"wrong"}, [Block.Step{0n, Block.Replacement{[Ops.line("secret")], [Ops.line("x")]}}, Block.Step{1n, Block.Insertion{[Ops.line("y")]}}])
     script_case("script: unterminated item left in the middle", [Ops.unterminated("a")], None{}, [Block.Step{1n, Block.Insertion{[Ops.line("b")]}}])
+    ordered_case("ordered: replacement then insert then delete", Ops.from_text("a\nb\nc\nd\ne\n"), None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a")]}, Ops.Op{Ops.Insert{}, 0n, [Ops.line("x")]}, Ops.Op{Ops.Insert{}, 2n, [Ops.line("y")]}, Ops.Op{Ops.Delete{}, 3n, [Ops.line("d")]}])
+    ordered_case("ordered: insert at a deleted run's end", Ops.from_text("a\nb\nc\n"), None{}, [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}, Ops.Op{Ops.Insert{}, 2n, [Ops.line("x")]}])
+    ordered_case("ordered: adjacent deletions", Ops.from_text("a\nb\nc\n"), None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a")]}, Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}])
+    ordered_case("ordered: replacement of nothing", Ops.from_text("a\n"), None{}, [Ops.Op{Ops.Delete{}, 1n, Nil{}}, Ops.Op{Ops.Insert{}, 1n, [Ops.line("b")]}])
+    ordered_case("ordered: second replacement disagrees", Ops.from_text("a\nb\nc\n"), None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a")]}, Ops.Op{Ops.Insert{}, 0n, [Ops.line("x")]}, Ops.Op{Ops.Delete{}, 2n, [Ops.line("wrong")]}, Ops.Op{Ops.Insert{}, 2n, [Ops.line("y")]}])
+    check(Bool.not(Block.ordered([Ops.Op{Ops.Insert{}, 2n, [Ops.line("x")]}, Ops.Op{Ops.Insert{}, 0n, [Ops.line("y")]}], 0n)), "reversed inserts are not ordered")
+    check(Bool.not(Block.ordered([Ops.Op{Ops.Delete{}, 0n, [Ops.line("a"), Ops.line("b")]}, Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}], 0n)), "overlapping deletes are not ordered")
+    check(Bool.not(Block.ordered([Ops.Op{Ops.Delete{}, 0n, [Ops.line("a"), Ops.line("b")]}, Ops.Op{Ops.Insert{}, 0n, [Ops.line("x")]}, Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}], 0n)), "a delete hidden behind a replacement is not ordered")
+    check(Bool.not(Block.ordered([Ops.Op{Ops.Delete{}, 1n, [Ops.line("b"), Ops.line("c")]}, Ops.Op{Ops.Insert{}, 2n, [Ops.line("x")]}], 0n)), "an insert inside a deleted run is not ordered")
     refused("script: second block disagreement is reported", "a delete at 1 quotes lines the parent does not hold", Block.replay(Ops.from_text("a\nb\nc\n"), None{}, [Block.Step{0n, Block.Insertion{[Ops.line("x")]}}, Block.Step{1n, Block.Deletion{[Ops.line("wrong")]}}]))
     accepted("script: positional result of three blocks", Ops.from_text("x\nb\ny\nc\ne\n"), Block.replay(Ops.from_text("a\nb\nc\nd\ne\n"), None{}, [Block.Step{0n, Block.Replacement{[Ops.line("a")], [Ops.line("x")]}}, Block.Step{1n, Block.Insertion{[Ops.line("y")]}}, Block.Step{1n, Block.Deletion{[Ops.line("d")]}}]))
     IO.print("ok    positional/cursor/block/script oracles and refusal regressions")
