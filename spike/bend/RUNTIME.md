@@ -67,7 +67,10 @@ allocation release, and repeated calls before becoming part of the CLI.
 The Verus merge convergence theorem is still a theorem of
 `../verus/merge_model.rs`. Porting its graph definitions without its
 well-formedness hypotheses and proof would not give Bend that guarantee.
-The current transfer is the linear replay specification and proofs of the
-executable agreement, advance, and delete helpers. A proof connecting the
-complete `Ops.apply` cursor walk to `Spec.result` remains to be done; the
-oracle comparisons are tests, not that theorem.
+The current transfer includes the linear replay specification, proofs of the
+executable agreement/advance/delete helpers, and a refinement of the entire
+`Ops.apply` cursor implementation to `Cursor.apply`, a forward-order walk.
+That refinement preserves exact results and errors for arbitrary inputs,
+but shares the public validators. A proof connecting the forward cursor
+specification to position-based `Spec.result` under explicit canonical-input
+hypotheses remains to be done; oracle comparisons are tests, not that theorem.

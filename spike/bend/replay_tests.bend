@@ -3,6 +3,7 @@
 import Base
 import ./ops.bend as Ops
 import ./replay_spec.bend as Spec
+import ./cursor_spec.bend as Cursor
 
 def check(ok: Bool, name: String) -> IO(Unit):
   match ok:
@@ -34,8 +35,24 @@ def refused(name: String, expected: String, actual: Result<&2, &2, String, List<
     case Done{items}:
       IO.die(Unit, 1, name ++ ": unexpectedly accepted")
 
-def oracle(name: String, +parent: List<&2, Ops.Item>, +ops: List<&2, Ops.Op>) -> IO(Unit):
-  accepted(name, Spec.result(parent, ops), Ops.apply(parent, Ops.Doc{None{}, None{}, ops}))
+def oracle(+name: String, +parent: List<&2, Ops.Item>, +ops: List<&2, Ops.Op>) -> IO(Unit):
+  do IO<Unit>:
+    accepted("cursor spec: " ++ name, Spec.result(parent, ops), Cursor.apply(parent, Ops.Doc{None{}, None{}, ops}))
+    accepted(name, Spec.result(parent, ops), Ops.apply(parent, Ops.Doc{None{}, None{}, ops}))
+
+# Compare failures as well as full successful states, including hand-built
+# Docs outside the positional specification's canonical-input contract.
+def outcomes_equal(a: Result<&2, &2, String, List<&2, Ops.Item>>, b: Result<&2, &2, String, List<&2, Ops.Item>>) -> Bool:
+  match a b:
+    case Fail{a} Fail{b}:
+      String.eq(a, b)
+    case Done{a} Done{b}:
+      items_equal(a, b)
+    case _ _:
+      False{}
+
+def cursor_case(name: String, +parent: List<&2, Ops.Item>, +doc: Ops.Doc) -> IO(Unit):
+  check(outcomes_equal(Ops.apply(parent, doc), Cursor.apply(parent, doc)), name)
 
 # Every deletion interval and replacement anchor for this parent and gap.
 def intervals(+n: Nat, +at: Nat, +parent: List<&2, Ops.Item>) -> IO(Unit):
@@ -95,4 +112,12 @@ def main() -> IO(Unit):
     # Repeated inserts at one gap are deliberately outside the parser's
     # contract: swapping them changes the specification's result.
     check(Bool.not(items_equal(Spec.result(Nil{}, [Ops.Op{Ops.Insert{}, 0n, [Ops.line("a")]}, Ops.Op{Ops.Insert{}, 0n, [Ops.line("b")]}]), Spec.result(Nil{}, [Ops.Op{Ops.Insert{}, 0n, [Ops.line("b")]}, Ops.Op{Ops.Insert{}, 0n, [Ops.line("a")]}]))), "order independence needs distinct insert positions")
-    IO.print("ok    replay oracle and refusal regressions")
+    cursor_case("raw reversed insert positions", Ops.from_text("a\nb\nc\n"), Ops.Doc{None{}, None{}, [Ops.Op{Ops.Insert{}, 2n, [Ops.line("x")]}, Ops.Op{Ops.Insert{}, 0n, [Ops.line("y")]}]})
+    cursor_case("raw repeated insert position", [Ops.line("a")], Ops.Doc{None{}, None{}, [Ops.Op{Ops.Insert{}, 0n, [Ops.line("x")]}, Ops.Op{Ops.Insert{}, 0n, [Ops.line("y")]}]})
+    cursor_case("raw overlapping deletes", Ops.from_text("a\nb\nc\n"), Ops.Doc{None{}, None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("a"), Ops.line("b")]}, Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}]})
+    cursor_case("range error precedes disagreement", [Ops.line("a")], Ops.Doc{None{}, None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("wrong")]}, Ops.Op{Ops.Insert{}, 9n, [Ops.line("new")]}]})
+    cursor_case("first disagreement survives later failure", Ops.from_text("a\nb\nc\n"), Ops.Doc{None{}, None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("wrong")]}, Ops.Op{Ops.Delete{}, 2n, [Ops.line("also wrong")]}]})
+    refused("first disagreement is retained", "a delete at 0 quotes lines the parent does not hold", Ops.apply(Ops.from_text("a\nb\nc\n"), Ops.Doc{None{}, None{}, [Ops.Op{Ops.Delete{}, 0n, [Ops.line("wrong")]}, Ops.Op{Ops.Delete{}, 2n, [Ops.line("also wrong")]}]}))
+    cursor_case("newline failure precedes digest failure", [Ops.unterminated("a")], Ops.Doc{None{}, Some{"wrong"}, [Ops.Op{Ops.Insert{}, 1n, [Ops.line("b")]}]})
+    cursor_case("digest failure", Nil{}, Ops.Doc{None{}, Some{"wrong"}, [Ops.Op{Ops.Insert{}, 0n, [Ops.line("a")]}]})
+    IO.print("ok    positional/cursor oracles and refusal regressions")

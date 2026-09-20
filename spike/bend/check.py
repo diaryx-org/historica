@@ -55,6 +55,30 @@ def check_mutations(temporary):
             "drop_checked(rs, ss, ok)",
             "LAWS.drop_checked_exact",
         ),
+        (
+            "cursor drops inserted items",
+            "List.append(&2, Item, List.reverse(&2, Item, items), acc)",
+            "acc",
+            "LAWS.cursor_walk_equivalent",
+        ),
+        (
+            "cursor loses the trailing parent suffix",
+            "Done{List.append(&2, Item, List.reverse(&2, Item, acc), state)}",
+            "Done{List.reverse(&2, Item, acc)}",
+            "LAWS.cursor_walk_equivalent",
+        ),
+        (
+            "cursor overwrites an earlier deletion error",
+            'Maybe.or(&2, String, err, Bool.pick(Maybe<&2, String>, agreed, None{}, Some{"a delete at " ++ Nat.show(at) ++ " quotes lines the parent does not hold"}))',
+            'Bool.pick(Maybe<&2, String>, agreed, None{}, Some{"a delete at " ++ Nat.show(at) ++ " quotes lines the parent does not hold"})',
+            "LAWS.cursor_walk_equivalent",
+        ),
+        (
+            "public replay ignores the result digest",
+            "apply.checked(result, items)\n\n# Diff",
+            "apply.checked(None{}, items)\n\n# Diff",
+            "LAWS.cursor_apply_equivalent",
+        ),
     )
     for index, (name, before, after, proof) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"

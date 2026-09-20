@@ -7,6 +7,7 @@ import ./sha256.bend as Sha
 import ./ops.bend as Ops
 import ./revision.bend as Rev
 import ./replay_spec.bend as Spec
+import ./cursor_spec.bend as Cursor
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -118,3 +119,19 @@ law result_no_operations:
   for +parent: List<&2, Ops.Item>
   for p: Nat
   {Spec.result_from(parent, Nil{}, p) == parent : List<&2, Ops.Item>}
+
+# Full cursor invariant: the implementation's reversed accumulator is the
+# forward prefix of the specification, and an earlier error stays first.
+law cursor_walk_equivalent:
+  for +ops: List<&2, Ops.Op>
+  for +pos: Nat
+  for +state: List<&2, Ops.Item>
+  for +acc: List<&2, Ops.Item>
+  for +error: Maybe<&2, String>
+  {Ops.apply.go(ops, Ops.land(ops, pos, state, acc), pos, error) == Cursor.combine(error, List.reverse(&2, Ops.Item, acc), Cursor.walk(ops, pos, state)) : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# Lift the invariant through the public range/newline/digest checks.
+law cursor_apply_equivalent:
+  for +state: List<&2, Ops.Item>
+  for +doc: Ops.Doc
+  {Ops.apply(state, doc) == Cursor.apply(state, doc) : Result<&2, &2, String, List<&2, Ops.Item>>}

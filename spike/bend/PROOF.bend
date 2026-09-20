@@ -7,6 +7,8 @@ import ./ops.bend as Ops
 import ./revision.bend as Rev
 import ./LAWS.bend as Laws
 import ./replay_spec.bend as Spec
+import ./cursor_spec.bend as Cursor
+import ./replay_lemmas.bend as L
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -161,3 +163,59 @@ def Laws.result_no_operations(parent, p):
     case it <> rest:
       %Laws.result_no_operations(rest, 1n+p) : {it <> Spec.result_from(rest, Nil{}, 1n+p) == it <> _ : List<&2, Ops.Item>}
       {==}
+
+def land_insert(+at: Nat, +pos: Nat, +state: List<&2, Ops.Item>, +acc: List<&2, Ops.Item>, -items: List<&2, Ops.Item>, -rest: List<&2, Ops.Op>) -> {Ops.land(Ops.Op{Ops.Insert{}, at, items} <> rest, pos, state, acc) == Ops.Landed{List.reverse.go(&2, Ops.Item, Cursor.prefix(state, at, pos), acc), Cursor.suffix(state, at, pos), True{}} : Ops.Landed}:
+  %Laws.advance_exact(Nat.sub(at, pos), state, acc) : {Ops.land.insert(Ops.advance(Nat.sub(at, pos), state, acc)) == Ops.land.insert(_) : Ops.Landed}
+  {==}
+
+def land_delete(+at: Nat, +pos: Nat, +state: List<&2, Ops.Item>, +acc: List<&2, Ops.Item>, +items: List<&2, Ops.Item>, -rest: List<&2, Ops.Op>) -> {Ops.land(Ops.Op{Ops.Delete{}, at, items} <> rest, pos, state, acc) == Ops.Landed{List.reverse.go(&2, Ops.Item, Cursor.prefix(state, at, pos), acc), List.drop(&2, Ops.Item, Cursor.suffix(state, at, pos), List.length(&2, Ops.Item, items)), Spec.prefix_matches(items, Cursor.suffix(state, at, pos))} : Ops.Landed}:
+  %Laws.drop_checked_exact(items, Cursor.suffix(state, at, pos), True{}) : {Ops.land.delete(items, Ops.advance(Nat.sub(at, pos), state, acc)) == Ops.land.dropped(List.reverse.go(&2, Ops.Item, Cursor.prefix(state, at, pos), acc), _) : Ops.Landed}
+  %Laws.advance_exact(Nat.sub(at, pos), state, acc) : {Ops.land.delete(items, Ops.advance(Nat.sub(at, pos), state, acc)) == Ops.land.delete(items, _) : Ops.Landed}
+  {==}
+
+# Induction on every operation, with arbitrary position, suffix, reversed
+# prefix and prior error. The insert case needs associativity; the delete
+# case uses exact quote agreement and preserves the earliest error.
+def Laws.cursor_walk_equivalent(ops, pos, state, acc, error):
+  match ops:
+    case Nil{}:
+      match error:
+        case None{}:
+          {==}
+        case Some{e}:
+          {==}
+    case Ops.Op{Ops.Insert{}, at, items} <> rest:
+      +front = Cursor.prefix(state, at, pos)
+      +left = Cursor.suffix(state, at, pos)
+      +moved = List.reverse.go(&2, Ops.Item, front, acc)
+      +next_acc = List.append(&2, Ops.Item, List.reverse(&2, Ops.Item, items), moved)
+      +next_pos = Nat.max(pos, at)
+      %Equal.sym(Ops.Landed, Ops.land(Ops.Op{Ops.Insert{}, at, items} <> rest, pos, state, acc), Ops.Landed{moved, left, True{}}, land_insert(at, pos, state, acc, items, rest)) : {Ops.apply.go(Ops.Op{Ops.Insert{}, at, items} <> rest, _, pos, error) == Cursor.combine(error, List.reverse(&2, Ops.Item, acc), Cursor.walk(Ops.Op{Ops.Insert{}, at, items} <> rest, pos, state)) : Result<&2, &2, String, List<&2, Ops.Item>>}
+      %L.combine_split(error, None{}, List.reverse(&2, Ops.Item, acc), List.append(&2, Ops.Item, front, items), Cursor.walk(rest, next_pos, left)) : {Ops.apply.go(rest, Ops.land(rest, next_pos, left, next_acc), next_pos, error) == _ : Result<&2, &2, String, List<&2, Ops.Item>>}
+      %Equal.sym(Maybe<&2, String>, Maybe.or(&2, String, error, None{}), error, L.or_none(error)) : {Ops.apply.go(rest, Ops.land(rest, next_pos, left, next_acc), next_pos, error) == Cursor.combine(_, List.append(&2, Ops.Item, List.reverse(&2, Ops.Item, acc), List.append(&2, Ops.Item, front, items)), Cursor.walk(rest, next_pos, left)) : Result<&2, &2, String, List<&2, Ops.Item>>}
+      %L.insert_acc(items, front, acc) : {Ops.apply.go(rest, Ops.land(rest, next_pos, left, next_acc), next_pos, error) == Cursor.combine(error, _, Cursor.walk(rest, next_pos, left)) : Result<&2, &2, String, List<&2, Ops.Item>>}
+      Laws.cursor_walk_equivalent(rest, next_pos, left, next_acc, error)
+    case Ops.Op{Ops.Delete{}, at, items} <> rest:
+      +front = Cursor.prefix(state, at, pos)
+      +left = Cursor.suffix(state, at, pos)
+      +moved = List.reverse.go(&2, Ops.Item, front, acc)
+      +remaining = List.drop(&2, Ops.Item, left, List.length(&2, Ops.Item, items))
+      +agreed = Spec.prefix_matches(items, left)
+      +next_pos = Nat.add(at, List.length(&2, Ops.Item, items))
+      +failure = Cursor.disagreement(at, agreed)
+      +next_error = Maybe.or(&2, String, error, failure)
+      %Equal.sym(Ops.Landed, Ops.land(Ops.Op{Ops.Delete{}, at, items} <> rest, pos, state, acc), Ops.Landed{moved, remaining, agreed}, land_delete(at, pos, state, acc, items, rest)) : {Ops.apply.go(Ops.Op{Ops.Delete{}, at, items} <> rest, _, pos, error) == Cursor.combine(error, List.reverse(&2, Ops.Item, acc), Cursor.walk(Ops.Op{Ops.Delete{}, at, items} <> rest, pos, state)) : Result<&2, &2, String, List<&2, Ops.Item>>}
+      %L.combine_split(error, failure, List.reverse(&2, Ops.Item, acc), front, Cursor.walk(rest, next_pos, remaining)) : {Ops.apply.go(rest, Ops.land(rest, next_pos, remaining, moved), next_pos, next_error) == _ : Result<&2, &2, String, List<&2, Ops.Item>>}
+      %L.reverse_move(front, acc) : {Ops.apply.go(rest, Ops.land(rest, next_pos, remaining, moved), next_pos, next_error) == Cursor.combine(next_error, _, Cursor.walk(rest, next_pos, remaining)) : Result<&2, &2, String, List<&2, Ops.Item>>}
+      Laws.cursor_walk_equivalent(rest, next_pos, remaining, moved, next_error)
+
+def Laws.cursor_apply_equivalent(state, doc):
+  match doc:
+    case Ops.Doc{forgets, result, ops}:
+      +actual = Ops.apply.go(ops, Ops.land(ops, 0n, state, Nil{}), 0n, None{})
+      +specified = Cursor.walk(ops, 0n, state)
+      Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Result<&2, &2, String, List<&2, Ops.Item>>,
+        r => Cursor.checked(Ops.in_range(ops, List.length(&2, Ops.Item, state)), result, r),
+        actual, specified,
+        Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, actual, Cursor.combine(None{}, Nil{}, specified), specified,
+          Laws.cursor_walk_equivalent(ops, 0n, state, Nil{}, None{}), L.combine_nil(specified)))

@@ -32,8 +32,9 @@ bend main.bend -- diff   old.txt new.txt
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `main.bend` | `log`, `check`, `replay`, `diff` over the documents you name | `cli` |
-| `LAWS.bend` / `PROOF.bend` | eighteen claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | twenty claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
+| `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
 | `corpus_ops.bend`, `corpus_rev.bend` | the corpus, executed | `tests/*.rs` |
 
@@ -79,7 +80,7 @@ same history, `check` names every document by the digest `shasum` prints, and
   and a change nobody recorded is unknown (`empty_history_heads`,
   `root_is_head`, `no_revisions_unknown`).
 
-The Verus transfer adds four laws:
+The Verus transfer first added four laws:
 
 - `agreement_matches_spec`: runtime agreement equals the independent
   case-based specification, including forgotten payloads and terminators;
@@ -107,15 +108,40 @@ hypothesis. The parser already enforces that restriction. Bend's current
 `Ops.apply` also requires parser-ordered, non-overlapping operations; unlike
 the Verus two-pass implementation it does not support shuffling a raw `Doc`.
 
+Two further laws cover the complete cursor implementation:
+
+- `cursor_walk_equivalent` proves, by induction over **every** operation
+  list, that `apply.go` equals a forward-order walk with the reversed
+  accumulator prepended and the earliest error preserved. The invariant
+  permits arbitrary cursor positions, parent suffixes, accumulators, and
+  prior errors; it does not assume parser acceptance.
+- `cursor_apply_equivalent` lifts that equality through the public
+  `Ops.apply` boundary, including exact success items and error strings.
+
+`cursor_spec.bend` describes each operation by `take`, `drop`, forward
+append, and the independently specified quote agreement. It uses none of
+`advance`, `drop_checked`, `land`, or `apply.go`. The public specification
+shares the range, newline and digest validators with the implementation;
+this proof verifies their wiring, not their independent correctness.
+`replay_lemmas.bend` provides the list reversal/append algebra and
+first-error composition that connect the two representations.
+
+The tests compare both specifications for the ordered examples, and
+compare the cursor specification with the implementation for raw reversed
+positions, repeated inserts, overlapping deletes and competing errors.
+Seven mutations cover the primitive helpers, lost inserts, a lost trailing
+suffix, an overwritten earlier error, and a public replay that skips the
+digest check. The proof gate rejects each in its intended theorem.
+
 `check.py` runs the proofs and all three suites on both the default JS and
 native C backends, then verifies that deliberate replay mutations fail the
-proof gate. Corpus failures now exit nonzero. The runner prints and fixes the compiler path for each run. The full gate
-passes on Bend 2.0.20; native compilation of the revision corpus takes a few
+proof gate. Corpus failures now exit nonzero. The runner prints and fixes
+the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
 minutes on the development machine.
 
-This is not yet a proof of the whole `Ops.apply == Spec.result` contract,
-its error soundness, merge convergence, `apply(diff(parent, child)) ==
-child`, or `write(parse(s)) == s`. The corpus and oracle comparisons provide
+Still unproved are the positional `Ops.apply == Spec.result` contract,
+independent error soundness, merge convergence,
+`apply(diff(parent, child)) == child`, and `write(parse(s)) == s`. The corpus and oracle comparisons provide
 executable checks where those general proofs are still missing. See
 [RUNTIME.md](RUNTIME.md) for the C/Rust interop direction and proof boundary.
 
