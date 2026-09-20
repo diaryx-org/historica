@@ -276,28 +276,28 @@ def project_block(error: Maybe<&2, String>, -before: List<&2, Ops.Item>, -body: 
     case Some{msg}:
       {==}
 
-def cursor_block(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +edit: Block.Edit) -> {Cursor.walk(Block.operations(List.length(&2, Ops.Item, before), edit), 0n, List.append(&2, Ops.Item, before, after)) == Block.raw(before, after, edit) : Result<&2, &2, String, List<&2, Ops.Item>>}:
+def cursor_block(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +edit: Ops.Edit) -> {Cursor.walk(Ops.operations(List.length(&2, Ops.Item, before), edit), 0n, List.append(&2, Ops.Item, before, after)) == Block.raw(before, after, edit) : Result<&2, &2, String, List<&2, Ops.Item>>}:
   match edit:
-    case Block.Insertion{items}:
+    case Ops.Insertion{items}:
       +parent = List.append(&2, Ops.Item, before, after)
       +at = List.length(&2, Ops.Item, before)
-      +ops = Block.operations(at, Block.Insertion{items})
+      +ops = Ops.operations(at, Ops.Insertion{items})
       +body = List.append(&2, Ops.Item, items, after)
-      Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.walk(ops, 0n, parent), Cursor.combine(None{}, before, Done{body}), Block.raw(before, after, Block.Insertion{items}),
+      Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.walk(ops, 0n, parent), Cursor.combine(None{}, before, Done{body}), Block.raw(before, after, Ops.Insertion{items}),
         cursor_insert(before, after, items), project_block(None{}, before, body, Spec.result(parent, ops), result_insert(before, after, items)))
-    case Block.Deletion{recorded}:
+    case Ops.Deletion{recorded}:
       +parent = List.append(&2, Ops.Item, before, after)
       +at = List.length(&2, Ops.Item, before)
-      +ops = Block.operations(at, Block.Deletion{recorded})
+      +ops = Ops.operations(at, Ops.Deletion{recorded})
       +body = List.drop(&2, Ops.Item, after, List.length(&2, Ops.Item, recorded))
       +error = Cursor.disagreement(at, Spec.prefix_matches(recorded, after))
-      Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.walk(ops, 0n, parent), Cursor.combine(error, before, Done{body}), Block.raw(before, after, Block.Deletion{recorded}),
+      Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.walk(ops, 0n, parent), Cursor.combine(error, before, Done{body}), Block.raw(before, after, Ops.Deletion{recorded}),
         cursor_delete(before, after, recorded), project_block(error, before, body, Spec.result(parent, ops), result_delete(before, after, recorded)))
-    case Block.Replacement{recorded, inserted}:
+    case Ops.Replacement{recorded, inserted}:
       +parent = List.append(&2, Ops.Item, before, after)
       +at = List.length(&2, Ops.Item, before)
-      +ops = Block.operations(at, Block.Replacement{recorded, inserted})
+      +ops = Ops.operations(at, Ops.Replacement{recorded, inserted})
       +body = List.append(&2, Ops.Item, inserted, List.drop(&2, Ops.Item, after, List.length(&2, Ops.Item, recorded)))
       +error = Cursor.disagreement(at, Spec.prefix_matches(recorded, after))
-      Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.walk(ops, 0n, parent), Cursor.combine(error, before, Done{body}), Block.raw(before, after, Block.Replacement{recorded, inserted}),
+      Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.walk(ops, 0n, parent), Cursor.combine(error, before, Done{body}), Block.raw(before, after, Ops.Replacement{recorded, inserted}),
         cursor_replace(before, after, recorded, inserted), project_block(error, before, body, Spec.result(parent, ops), result_replace(before, after, recorded, inserted)))

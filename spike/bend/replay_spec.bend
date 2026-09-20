@@ -3,6 +3,7 @@
 # cursor and reversed accumulator. This is an oracle, not the fast path.
 import Base
 import ./ops.bend as Ops
+import ./text.bend as T
 
 # A forgotten payload cannot erase a disagreement about its terminator.
 def matches_text(a: String, f: Bool, b: String, g: Bool) -> Bool:
@@ -12,7 +13,7 @@ def matches_text(a: String, f: Bool, b: String, g: Bool) -> Bool:
     case False{} True{}:
       True{}
     case False{} False{}:
-      String.eq(a, b)
+      T.same(a, b)
 
 def matches_shape(n: Bool, m: Bool, a: String, f: Bool, b: String, g: Bool) -> Bool:
   match n m:

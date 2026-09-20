@@ -6,72 +6,24 @@ import ./ops.bend as Ops
 import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
 
-type Edit is Data:
-  Insertion{items: List<&2, Ops.Item>}
-  Deletion{recorded: List<&2, Ops.Item>}
-  Replacement{recorded: List<&2, Ops.Item>, inserted: List<&2, Ops.Item>}
-
-def operations(+at: Nat, edit: Edit) -> List<&2, Ops.Op>:
+def agrees(edit: Ops.Edit, after: List<&2, Ops.Item>) -> Bool:
   match edit:
-    case Insertion{items}:
-      [Ops.Op{Ops.Insert{}, at, items}]
-    case Deletion{recorded}:
-      [Ops.Op{Ops.Delete{}, at, recorded}]
-    case Replacement{recorded, inserted}:
-      [Ops.Op{Ops.Delete{}, at, recorded}, Ops.Op{Ops.Insert{}, at, inserted}]
-
-def agrees(edit: Edit, after: List<&2, Ops.Item>) -> Bool:
-  match edit:
-    case Insertion{items}:
+    case Ops.Insertion{items}:
       True{}
-    case Deletion{recorded}:
+    case Ops.Deletion{recorded}:
       Spec.prefix_matches(recorded, after)
-    case Replacement{recorded, inserted}:
+    case Ops.Replacement{recorded, inserted}:
       Spec.prefix_matches(recorded, after)
 
-def raw(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +edit: Edit) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+def raw(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +edit: Ops.Edit) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   +at = List.length(&2, Ops.Item, before)
   Cursor.combine(Cursor.disagreement(at, agrees(edit, after)), Nil{},
-    Done{Spec.result(List.append(&2, Ops.Item, before, after), operations(at, edit))})
+    Done{Spec.result(List.append(&2, Ops.Item, before, after), Ops.operations(at, edit))})
 
 # Range, newline and digest validators are shared with Ops.apply. This
 # specification independently assembles the output, not those validators.
-def apply(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, stated: Maybe<&2, String>, +edit: Edit) -> Result<&2, &2, String, List<&2, Ops.Item>>:
-  Cursor.checked(Ops.in_range(operations(List.length(&2, Ops.Item, before), edit), List.length(&2, Ops.Item, List.append(&2, Ops.Item, before, after))), stated, raw(before, after, edit))
-
-# A document as a script of blocks. Each block sits `gap` parent items past
-# where the previous block finished, so the blocks never overlap and never
-# run backwards: the shape the parser's ordering rules admit.
-type Step is Data:
-  Step{gap: Nat, edit: Edit}
-
-# How many parent items a block removes; the next block counts from there.
-def consumed(edit: Edit) -> Nat:
-  match edit:
-    case Insertion{items}:
-      0n
-    case Deletion{recorded}:
-      List.length(&2, Ops.Item, recorded)
-    case Replacement{recorded, inserted}:
-      List.length(&2, Ops.Item, recorded)
-
-# What a block puts where the consumed items were.
-def inserted(edit: Edit) -> List<&2, Ops.Item>:
-  match edit:
-    case Insertion{items}:
-      items
-    case Deletion{recorded}:
-      Nil{}
-    case Replacement{recorded, items}:
-      items
-
-def script(steps: List<&2, Step>, +at: Nat) -> List<&2, Ops.Op>:
-  match steps:
-    case Nil{}:
-      Nil{}
-    case Step{gap, +edit} <> rest:
-      +here = Nat.add(at, gap)
-      List.append(&2, Ops.Op, operations(here, edit), script(rest, Nat.add(here, consumed(edit))))
+def apply(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, stated: Maybe<&2, String>, +edit: Ops.Edit) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  Cursor.checked(Ops.in_range(Ops.operations(List.length(&2, Ops.Item, before), edit), List.length(&2, Ops.Item, List.append(&2, Ops.Item, before, after))), stated, raw(before, after, edit))
 
 # Every delete read at its own absolute coordinate in the parent; the first
 # that quotes what the parent does not hold there is the refusal.
@@ -91,8 +43,8 @@ def replay_ops(+parent: List<&2, Ops.Item>, stated: Maybe<&2, String>, +ops: Lis
 
 # A whole script: the positional result, refused where a quote disagrees,
 # behind the same range, newline and digest validators as Ops.apply.
-def replay(+parent: List<&2, Ops.Item>, stated: Maybe<&2, String>, steps: List<&2, Step>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
-  replay_ops(parent, stated, script(steps, 0n))
+def replay(+parent: List<&2, Ops.Item>, stated: Maybe<&2, String>, steps: List<&2, Ops.Step>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  replay_ops(parent, stated, Ops.script(steps, 0n))
 
 # Whether raw operations are a script: each sits at or past where the last
 # finished, except an insert at a delete's own position, which is that
@@ -115,20 +67,20 @@ def ordered(ops: List<&2, Ops.Op>, +pos: Nat) -> Bool:
           Bool.and(Nat.is_le(pos, at), ordered(Ops.Op{Ops.Delete{}, at2, items2} <> more, Nat.add(at, List.length(&2, Ops.Item, items))))
 
 # The script an ordered operation list is, read from `pos`.
-def steps_of(ops: List<&2, Ops.Op>, +pos: Nat) -> List<&2, Step>:
+def steps_of(ops: List<&2, Ops.Op>, +pos: Nat) -> List<&2, Ops.Step>:
   match ops:
     case Nil{}:
       Nil{}
     case Ops.Op{Ops.Insert{}, +at, items} <> rest:
-      Step{Nat.sub(at, pos), Insertion{items}} <> steps_of(rest, at)
+      Ops.Step{Nat.sub(at, pos), Ops.Insertion{items}} <> steps_of(rest, at)
     case Ops.Op{Ops.Delete{}, +at, +items} <> rest:
       match rest:
         case Nil{}:
-          [Step{Nat.sub(at, pos), Deletion{items}}]
+          [Ops.Step{Nat.sub(at, pos), Ops.Deletion{items}}]
         case Ops.Op{Ops.Insert{}, +at2, +items2} <> +more:
           +stop = Nat.add(at, List.length(&2, Ops.Item, items))
-          Bool.pick(List<&2, Step>, Nat.is_eq(at2, at),
-            Step{Nat.sub(at, pos), Replacement{items, items2}} <> steps_of(more, stop),
-            Step{Nat.sub(at, pos), Deletion{items}} <> Step{Nat.sub(at2, stop), Insertion{items2}} <> steps_of(more, at2))
+          Bool.pick(List<&2, Ops.Step>, Nat.is_eq(at2, at),
+            Ops.Step{Nat.sub(at, pos), Ops.Replacement{items, items2}} <> steps_of(more, stop),
+            Ops.Step{Nat.sub(at, pos), Ops.Deletion{items}} <> Ops.Step{Nat.sub(at2, stop), Ops.Insertion{items2}} <> steps_of(more, at2))
         case Ops.Op{Ops.Delete{}, +at2, +items2} <> +more:
-          Step{Nat.sub(at, pos), Deletion{items}} <> steps_of(Ops.Op{Ops.Delete{}, at2, items2} <> more, Nat.add(at, List.length(&2, Ops.Item, items)))
+          Ops.Step{Nat.sub(at, pos), Ops.Deletion{items}} <> steps_of(Ops.Op{Ops.Delete{}, at2, items2} <> more, Nat.add(at, List.length(&2, Ops.Item, items)))

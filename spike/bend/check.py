@@ -39,9 +39,9 @@ def check_mutations(temporary):
     mutations = (
         (
             "forgetting ignores newline",
-            "Bool.and(Bool.not(Bool.xor(n1, n2)), Bool.or(Bool.or(f1, f2), String.eq(t1, t2)))",
-            "Bool.or(Bool.or(f1, f2), Bool.and(String.eq(t1, t2), Bool.not(Bool.xor(n1, n2))))",
-            "LAWS.forgotten_agrees",
+            "Bool.and(Bool.not(Bool.xor(n1, n2)), Bool.or(Bool.or(f1, f2), T.same(t1, t2)))",
+            "Bool.or(Bool.or(f1, f2), Bool.and(T.same(t1, t2), Bool.not(Bool.xor(n1, n2))))",
+            "diff_lemmas.agrees_refl",
         ),
         (
             "advance reverses the moved prefix incorrectly",
@@ -75,8 +75,8 @@ def check_mutations(temporary):
         ),
         (
             "public replay ignores the result digest",
-            "apply.checked(result, items)\n\n# Diff",
-            "apply.checked(None{}, items)\n\n# Diff",
+            "apply.checked(result, items)\n\n# Blocks",
+            "apply.checked(None{}, items)\n\n# Blocks",
             "LAWS.cursor_apply_equivalent",
         ),
         (
@@ -98,7 +98,6 @@ def check_mutations(temporary):
             "script(rest, Nat.add(here, consumed(edit)))",
             "script(rest, here)",
             "composition_lemmas.script_below",
-            "semantic_replay.bend",
         ),
         (
             "positional refusal ignores a disagreeing quote",
@@ -109,10 +108,9 @@ def check_mutations(temporary):
         ),
         (
             "a replacement consumes nothing",
-            "    case Replacement{recorded, inserted}:\n      List.length(&2, Ops.Item, recorded)",
+            "    case Replacement{recorded, inserted}:\n      List.length(&2, Item, recorded)",
             "    case Replacement{recorded, inserted}:\n      0n",
             "composition_lemmas.result_block",
-            "semantic_replay.bend",
         ),
         (
             "ordering admits an insert inside a deleted run",
@@ -182,6 +180,24 @@ def check_mutations(temporary):
             "0n <> rest",
             "decimal_lemmas.digits_mul10",
             "text.bend",
+        ),
+        (
+            "the backtrack drops kept lines",
+            "backtrack(f, step(old, new, tbl, i2, j2), i2, j2, old, new, tbl, Keep{} <> script)",
+            "backtrack(f, step(old, new, tbl, i2, j2), i2, j2, old, new, tbl, script)",
+            "diff_lemmas.back.of",
+        ),
+        (
+            "a replacement block swaps what it deletes and inserts",
+            "      Replacement{d <> ds, i <> it}",
+            "      Replacement{i <> it, d <> ds}",
+            "diff_lemmas.consumed_block",
+        ),
+        (
+            "a kept line after a run does not start the next gap",
+            "<> runs(rest, 1n, Nil{}, Nil{})",
+            "<> runs(rest, 0n, Nil{}, Nil{})",
+            "diff_lemmas.runs_apply.keep",
         ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):

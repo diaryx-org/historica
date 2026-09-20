@@ -102,19 +102,32 @@ def replay(+name: String, parent: String, child: String) -> IO(Unit):
     replay.of(name, c, Ops.from_text(p), Ops.parse(s))
 
 # A diff: the parent, the child, and the document the writer must produce.
-def diffed.of(name: String, +recorded: String, d: Maybe<&2, Ops.Doc>) -> IO(Unit):
+# `diff_applies`, run: the document the diff writes replays to the child.
+def diffed.applies.of(+name: String, +child: String, applied: Result<&2, &2, String, List<&2, Ops.Item>>) -> IO(Unit):
+  match applied:
+    case Fail{e}:
+      verdict(False{}, name ++ " diff does not replay: " ++ e)
+    case Done{items}:
+      verdict(String.eq(Ops.text(items), child), name ++ " diff replays to the child")
+
+def diffed.applies(+name: String, +parent: List<&2, Ops.Item>, +child: String, doc: Ops.Doc) -> IO(Unit):
+  diffed.applies.of(name, child, Ops.apply(parent, doc))
+
+def diffed.of(+name: String, +recorded: String, +parent: List<&2, Ops.Item>, +child: String, d: Maybe<&2, Ops.Doc>) -> IO(Unit):
   match d:
     case None{}:
       verdict(False{}, name ++ " diffed to nothing")
-    case Some{doc}:
-      verdict(String.eq(Ops.write(doc), recorded), name ++ " diffs to the recorded document")
+    case Some{+doc}:
+      do IO<Unit>:
+        verdict(String.eq(Ops.write(doc), recorded), name ++ " diffs to the recorded document")
+        diffed.applies(name, parent, child, doc)
 
 def diffed(+name: String) -> IO(Unit):
   do IO<Unit>:
-    p : String <- read_text("../../tests/corpus/diffs/" ++ name ++ "/parent.txt")
-    c : String <- read_text("../../tests/corpus/diffs/" ++ name ++ "/child.txt")
+    +p : String <- read_text("../../tests/corpus/diffs/" ++ name ++ "/parent.txt")
+    +c : String <- read_text("../../tests/corpus/diffs/" ++ name ++ "/child.txt")
     r : String <- read_text("../../tests/corpus/diffs/" ++ name ++ "/recorded.ops.txt")
-    diffed.of(name, r, Ops.diff(Ops.from_text(p), Ops.from_text(c)))
+    diffed.of(name, r, Ops.from_text(p), c, Ops.diff(Ops.from_text(p), Ops.from_text(c)))
 
 def main() -> IO(Unit):
   do IO<Unit>:

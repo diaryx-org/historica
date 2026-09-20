@@ -387,15 +387,15 @@ def swap_delete_insert(state: List<&2, Ops.Item>, +at: Nat, +recorded: List<&2, 
 
 # Any block at the head, read at its own position: its inserted items, then
 # the rest read past what it consumed.
-def result_block(edit: Block.Edit, +after: List<&2, Ops.Item>, +here: Nat, +more: List<&2, Ops.Op>, +lb: {below(more, Nat.add(here, Block.consumed(edit))) == True{} : Bool}, +ok: {Block.agrees(edit, after) == True{} : Bool}) -> {Spec.result_from(after, List.append(&2, Ops.Op, Block.operations(here, edit), more), here) == List.append(&2, Ops.Item, Block.inserted(edit), Spec.result_from(List.drop(&2, Ops.Item, after, Block.consumed(edit)), more, Nat.add(here, Block.consumed(edit)))) : List<&2, Ops.Item>}:
+def result_block(edit: Ops.Edit, +after: List<&2, Ops.Item>, +here: Nat, +more: List<&2, Ops.Op>, +lb: {below(more, Nat.add(here, Ops.consumed(edit))) == True{} : Bool}, +ok: {Block.agrees(edit, after) == True{} : Bool}) -> {Spec.result_from(after, List.append(&2, Ops.Op, Ops.operations(here, edit), more), here) == List.append(&2, Ops.Item, Ops.inserted(edit), Spec.result_from(List.drop(&2, Ops.Item, after, Ops.consumed(edit)), more, Nat.add(here, Ops.consumed(edit)))) : List<&2, Ops.Item>}:
   match edit:
-    case Block.Insertion{+items}:
+    case Ops.Insertion{+items}:
       %Equal.sym(List<&2, Ops.Item>, List.drop(&2, Ops.Item, after, 0n), after, Pos.drop_zero(after)) : {Spec.result_from(after, Ops.Op{Ops.Insert{}, here, items} <> more, here) == List.append(&2, Ops.Item, items, Spec.result_from(_, more, Nat.add(here, 0n))) : List<&2, Ops.Item>}
       %Equal.sym(Nat, Nat.add(here, 0n), here, add_zero(here)) : {Spec.result_from(after, Ops.Op{Ops.Insert{}, here, items} <> more, here) == List.append(&2, Ops.Item, items, Spec.result_from(after, more, _)) : List<&2, Ops.Item>}
       insert_head(after, here, items, more)
-    case Block.Deletion{+recorded}:
+    case Ops.Deletion{+recorded}:
       delete_head(recorded, after, here, more, lb, ok)
-    case Block.Replacement{+recorded, +items}:
+    case Ops.Replacement{+recorded, +items}:
       +n = List.length(&2, Ops.Item, recorded)
       +right = List.append(&2, Ops.Item, items, Spec.result_from(List.drop(&2, Ops.Item, after, n), more, Nat.add(here, n)))
       %Equal.sym(List<&2, Ops.Item>, Spec.result_from(after, Ops.Op{Ops.Delete{}, here, recorded} <> Ops.Op{Ops.Insert{}, here, items} <> more, here), Spec.result_from(after, Ops.Op{Ops.Insert{}, here, items} <> Ops.Op{Ops.Delete{}, here, recorded} <> more, here), swap_delete_insert(after, here, recorded, here, items, more, here)) : {_ == right : List<&2, Ops.Item>}
@@ -406,13 +406,13 @@ def result_block(edit: Block.Edit, +after: List<&2, Ops.Item>, +here: Nat, +more
 # The refusal, read block by block
 # --------------------------------
 
-def error_block(edit: Block.Edit, +parent: List<&2, Ops.Item>, +here: Nat, +more: List<&2, Ops.Op>) -> {Block.quote_error(parent, List.append(&2, Ops.Op, Block.operations(here, edit), more)) == Maybe.or(&2, String, Cursor.disagreement(here, Block.agrees(edit, List.drop(&2, Ops.Item, parent, here))), Block.quote_error(parent, more)) : Maybe<&2, String>}:
+def error_block(edit: Ops.Edit, +parent: List<&2, Ops.Item>, +here: Nat, +more: List<&2, Ops.Op>) -> {Block.quote_error(parent, List.append(&2, Ops.Op, Ops.operations(here, edit), more)) == Maybe.or(&2, String, Cursor.disagreement(here, Block.agrees(edit, List.drop(&2, Ops.Item, parent, here))), Block.quote_error(parent, more)) : Maybe<&2, String>}:
   match edit:
-    case Block.Insertion{items}:
+    case Ops.Insertion{items}:
       {==}
-    case Block.Deletion{recorded}:
+    case Ops.Deletion{recorded}:
       {==}
-    case Block.Replacement{recorded, items}:
+    case Ops.Replacement{recorded, items}:
       {==}
 
 # Range and lower bounds of a script
@@ -435,42 +435,42 @@ def in_range_right(+a: List<&2, Ops.Op>, +b: List<&2, Ops.Op>, +len: Nat, +e: {O
       in_range_right(rest, b, len, and_right(Nat.is_le(Ops.end(op), len), Ops.in_range(List.append(&2, Ops.Op, rest, b), len), e))
 
 # A block in range starts within the parent.
-def block_start(edit: Block.Edit, +here: Nat, +len: Nat, +e: {Ops.in_range(Block.operations(here, edit), len) == True{} : Bool}) -> {Nat.is_le(here, len) == True{} : Bool}:
+def block_start(edit: Ops.Edit, +here: Nat, +len: Nat, +e: {Ops.in_range(Ops.operations(here, edit), len) == True{} : Bool}) -> {Nat.is_le(here, len) == True{} : Bool}:
   match edit:
-    case Block.Insertion{items}:
+    case Ops.Insertion{items}:
       and_left(Nat.is_le(here, len), True{}, e)
-    case Block.Deletion{+recorded}:
+    case Ops.Deletion{+recorded}:
       le_add_left(here, List.length(&2, Ops.Item, recorded), len, and_left(Nat.is_le(Nat.add(here, List.length(&2, Ops.Item, recorded)), len), True{}, e))
-    case Block.Replacement{+recorded, items}:
+    case Ops.Replacement{+recorded, items}:
       and_left(Nat.is_le(here, len), True{}, and_right(Nat.is_le(Nat.add(here, List.length(&2, Ops.Item, recorded)), len), Bool.and(Nat.is_le(here, len), True{}), e))
 
-def block_below(edit: Block.Edit, +here: Nat, +q: Nat, +le: {Nat.is_le(q, here) == True{} : Bool}) -> {below(Block.operations(here, edit), q) == True{} : Bool}:
+def block_below(edit: Ops.Edit, +here: Nat, +q: Nat, +le: {Nat.is_le(q, here) == True{} : Bool}) -> {below(Ops.operations(here, edit), q) == True{} : Bool}:
   match edit:
-    case Block.Insertion{items}:
+    case Ops.Insertion{items}:
       %Equal.sym(Bool, Nat.is_le(q, here), True{}, le) : {Bool.and(_, True{}) == True{} : Bool}
       {==}
-    case Block.Deletion{recorded}:
+    case Ops.Deletion{recorded}:
       %Equal.sym(Bool, Nat.is_le(q, here), True{}, le) : {Bool.and(_, True{}) == True{} : Bool}
       {==}
-    case Block.Replacement{recorded, items}:
+    case Ops.Replacement{recorded, items}:
       %Equal.sym(Bool, Nat.is_le(q, here), True{}, le) : {Bool.and(_, Bool.and(_, True{})) == True{} : Bool}
       {==}
 
-def script_below(steps: List<&2, Block.Step>, +at: Nat, +q: Nat, +le: {Nat.is_le(q, at) == True{} : Bool}) -> {below(Block.script(steps, at), q) == True{} : Bool}:
+def script_below(steps: List<&2, Ops.Step>, +at: Nat, +q: Nat, +le: {Nat.is_le(q, at) == True{} : Bool}) -> {below(Ops.script(steps, at), q) == True{} : Bool}:
   match steps:
     case Nil{}:
       {==}
-    case Block.Step{+gap, +edit} <> +rest:
+    case Ops.Step{+gap, +edit} <> +rest:
       +here = Nat.add(at, gap)
-      +next = Nat.add(here, Block.consumed(edit))
-      below_join(Block.operations(here, edit), Block.script(rest, next), q, block_below(edit, here, q, le_add(q, at, gap, le)), script_below(rest, next, q, le_add(q, here, Block.consumed(edit), le_add(q, at, gap, le))))
+      +next = Nat.add(here, Ops.consumed(edit))
+      below_join(Ops.operations(here, edit), Ops.script(rest, next), q, block_below(edit, here, q, le_add(q, at, gap, le)), script_below(rest, next, q, le_add(q, here, Ops.consumed(edit), le_add(q, at, gap, le))))
 
 # The cursor over one block at the head
 # -------------------------------------
 
-def walk_block(edit: Block.Edit, +pos: Nat, +gap: Nat, +state: List<&2, Ops.Item>, +more: List<&2, Ops.Op>) -> {Cursor.walk(List.append(&2, Ops.Op, Block.operations(Nat.add(pos, gap), edit), more), pos, state) == Cursor.combine(Cursor.disagreement(Nat.add(pos, gap), Block.agrees(edit, List.drop(&2, Ops.Item, state, gap))), List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), Block.inserted(edit)), Cursor.walk(more, Nat.add(Nat.add(pos, gap), Block.consumed(edit)), List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, state, gap), Block.consumed(edit)))) : Result<&2, &2, String, List<&2, Ops.Item>>}:
+def walk_block(edit: Ops.Edit, +pos: Nat, +gap: Nat, +state: List<&2, Ops.Item>, +more: List<&2, Ops.Op>) -> {Cursor.walk(List.append(&2, Ops.Op, Ops.operations(Nat.add(pos, gap), edit), more), pos, state) == Cursor.combine(Cursor.disagreement(Nat.add(pos, gap), Block.agrees(edit, List.drop(&2, Ops.Item, state, gap))), List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), Ops.inserted(edit)), Cursor.walk(more, Nat.add(Nat.add(pos, gap), Ops.consumed(edit)), List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, state, gap), Ops.consumed(edit)))) : Result<&2, &2, String, List<&2, Ops.Item>>}:
   match edit:
-    case Block.Insertion{+items}:
+    case Ops.Insertion{+items}:
       +here = Nat.add(pos, gap)
       +after = List.drop(&2, Ops.Item, state, gap)
       %Equal.sym(Nat, Nat.sub(here, pos), gap, sub_add(pos, gap)) : {Cursor.combine(None{}, List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, _), items), Cursor.walk(more, Nat.max(pos, here), List.drop(&2, Ops.Item, state, _))) == Cursor.combine(None{}, List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), items), Cursor.walk(more, Nat.add(here, 0n), List.drop(&2, Ops.Item, after, 0n))) : Result<&2, &2, String, List<&2, Ops.Item>>}
@@ -478,14 +478,14 @@ def walk_block(edit: Block.Edit, +pos: Nat, +gap: Nat, +state: List<&2, Ops.Item
       %Equal.sym(Nat, Nat.add(here, 0n), here, add_zero(here)) : {Cursor.combine(None{}, List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), items), Cursor.walk(more, here, after)) == Cursor.combine(None{}, List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), items), Cursor.walk(more, _, List.drop(&2, Ops.Item, after, 0n))) : Result<&2, &2, String, List<&2, Ops.Item>>}
       %Equal.sym(List<&2, Ops.Item>, List.drop(&2, Ops.Item, after, 0n), after, Pos.drop_zero(after)) : {Cursor.combine(None{}, List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), items), Cursor.walk(more, here, after)) == Cursor.combine(None{}, List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), items), Cursor.walk(more, here, _)) : Result<&2, &2, String, List<&2, Ops.Item>>}
       {==}
-    case Block.Deletion{+recorded}:
+    case Ops.Deletion{+recorded}:
       +here = Nat.add(pos, gap)
       +after = List.drop(&2, Ops.Item, state, gap)
       +n = List.length(&2, Ops.Item, recorded)
       %Equal.sym(Nat, Nat.sub(here, pos), gap, sub_add(pos, gap)) : {Cursor.combine(Cursor.disagreement(here, Spec.prefix_matches(recorded, List.drop(&2, Ops.Item, state, _))), List.take(&2, Ops.Item, state, _), Cursor.walk(more, Nat.add(here, n), List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, state, _), n))) == Cursor.combine(Cursor.disagreement(here, Spec.prefix_matches(recorded, after)), List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), Nil{}), Cursor.walk(more, Nat.add(here, n), List.drop(&2, Ops.Item, after, n))) : Result<&2, &2, String, List<&2, Ops.Item>>}
       %L.append_nil(List.take(&2, Ops.Item, state, gap)) : {Cursor.combine(Cursor.disagreement(here, Spec.prefix_matches(recorded, after)), _, Cursor.walk(more, Nat.add(here, n), List.drop(&2, Ops.Item, after, n))) == Cursor.combine(Cursor.disagreement(here, Spec.prefix_matches(recorded, after)), List.append(&2, Ops.Item, List.take(&2, Ops.Item, state, gap), Nil{}), Cursor.walk(more, Nat.add(here, n), List.drop(&2, Ops.Item, after, n))) : Result<&2, &2, String, List<&2, Ops.Item>>}
       {==}
-    case Block.Replacement{+recorded, +items}:
+    case Ops.Replacement{+recorded, +items}:
       +here = Nat.add(pos, gap)
       +after = List.drop(&2, Ops.Item, state, gap)
       +n = List.length(&2, Ops.Item, recorded)
@@ -516,36 +516,36 @@ def settle(+here: Nat, ok: Bool, +error: Maybe<&2, String>, -x: List<&2, Ops.Ite
 
 # When the block's quote agrees, the cursor's front and the positional
 # remainder are the positional result of the whole.
-def block_payload(+edit: Block.Edit, +pos: Nat, +gap: Nat, +parent: List<&2, Ops.Item>, +rest: List<&2, Block.Step>, okp: {Block.agrees(edit, List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap)) == True{} : Bool}) -> {List.append(&2, Ops.Item, List.append(&2, Ops.Item, List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), Block.inserted(edit)), Spec.result_from(List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Nat.add(Nat.add(pos, gap), Block.consumed(edit)))) == List.append(&2, Ops.Item, List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), Spec.result_from(List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), List.append(&2, Ops.Op, Block.operations(Nat.add(pos, gap), edit), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit)))), Nat.add(pos, gap))) : List<&2, Ops.Item>}:
+def block_payload(+edit: Ops.Edit, +pos: Nat, +gap: Nat, +parent: List<&2, Ops.Item>, +rest: List<&2, Ops.Step>, okp: {Block.agrees(edit, List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap)) == True{} : Bool}) -> {List.append(&2, Ops.Item, List.append(&2, Ops.Item, List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), Ops.inserted(edit)), Spec.result_from(List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Nat.add(Nat.add(pos, gap), Ops.consumed(edit)))) == List.append(&2, Ops.Item, List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), Spec.result_from(List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), List.append(&2, Ops.Op, Ops.operations(Nat.add(pos, gap), edit), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit)))), Nat.add(pos, gap))) : List<&2, Ops.Item>}:
   +here = Nat.add(pos, gap)
-  +n = Block.consumed(edit)
+  +n = Ops.consumed(edit)
   +next = Nat.add(here, n)
   +state = List.drop(&2, Ops.Item, parent, pos)
   +after = List.drop(&2, Ops.Item, state, gap)
   +front = List.take(&2, Ops.Item, state, gap)
-  +more = Block.script(rest, next)
+  +more = Ops.script(rest, next)
   +remainder = Spec.result_from(List.drop(&2, Ops.Item, parent, next), more, next)
-  +left = List.append(&2, Ops.Item, List.append(&2, Ops.Item, front, Block.inserted(edit)), remainder)
-  %Equal.sym(List<&2, Ops.Item>, Spec.result_from(after, List.append(&2, Ops.Op, Block.operations(here, edit), more), here), List.append(&2, Ops.Item, Block.inserted(edit), Spec.result_from(List.drop(&2, Ops.Item, after, n), more, next)), result_block(edit, after, here, more, script_below(rest, next, next, le_refl(next)), okp)) : {left == List.append(&2, Ops.Item, front, _) : List<&2, Ops.Item>}
-  %Equal.sym(List<&2, Ops.Item>, after, List.drop(&2, Ops.Item, parent, here), drop_drop(pos, parent, gap)) : {left == List.append(&2, Ops.Item, front, List.append(&2, Ops.Item, Block.inserted(edit), Spec.result_from(List.drop(&2, Ops.Item, _, n), more, next))) : List<&2, Ops.Item>}
-  %Equal.sym(List<&2, Ops.Item>, List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, here), n), List.drop(&2, Ops.Item, parent, next), drop_drop(here, parent, n)) : {left == List.append(&2, Ops.Item, front, List.append(&2, Ops.Item, Block.inserted(edit), Spec.result_from(_, more, next))) : List<&2, Ops.Item>}
-  L.append_assoc(front, Block.inserted(edit), remainder)
+  +left = List.append(&2, Ops.Item, List.append(&2, Ops.Item, front, Ops.inserted(edit)), remainder)
+  %Equal.sym(List<&2, Ops.Item>, Spec.result_from(after, List.append(&2, Ops.Op, Ops.operations(here, edit), more), here), List.append(&2, Ops.Item, Ops.inserted(edit), Spec.result_from(List.drop(&2, Ops.Item, after, n), more, next)), result_block(edit, after, here, more, script_below(rest, next, next, le_refl(next)), okp)) : {left == List.append(&2, Ops.Item, front, _) : List<&2, Ops.Item>}
+  %Equal.sym(List<&2, Ops.Item>, after, List.drop(&2, Ops.Item, parent, here), drop_drop(pos, parent, gap)) : {left == List.append(&2, Ops.Item, front, List.append(&2, Ops.Item, Ops.inserted(edit), Spec.result_from(List.drop(&2, Ops.Item, _, n), more, next))) : List<&2, Ops.Item>}
+  %Equal.sym(List<&2, Ops.Item>, List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, here), n), List.drop(&2, Ops.Item, parent, next), drop_drop(here, parent, n)) : {left == List.append(&2, Ops.Item, front, List.append(&2, Ops.Item, Ops.inserted(edit), Spec.result_from(_, more, next))) : List<&2, Ops.Item>}
+  L.append_assoc(front, Ops.inserted(edit), remainder)
 
 def walk_script.front(error: Maybe<&2, String>, +moved: List<&2, Ops.Item>, +remainder: List<&2, Ops.Item>) -> {Cursor.combine(error, List.append(&2, Ops.Item, moved, Nil{}), Done{remainder}) == Cursor.combine(error, Nil{}, Done{List.append(&2, Ops.Item, moved, remainder)}) : Result<&2, &2, String, List<&2, Ops.Item>>}:
   %Equal.sym(List<&2, Ops.Item>, List.append(&2, Ops.Item, moved, Nil{}), moved, L.append_nil(moved)) : {Cursor.combine(error, _, Done{remainder}) == Cursor.combine(error, Nil{}, Done{List.append(&2, Ops.Item, moved, remainder)}) : Result<&2, &2, String, List<&2, Ops.Item>>}
   Pos.project_block(error, moved, remainder, List.append(&2, Ops.Item, moved, remainder), {==})
 
-def walk_script.positional(+edit: Block.Edit, +pos: Nat, +gap: Nat, +parent: List<&2, Ops.Item>, +rest: List<&2, Block.Step>, +bound: {below(List.append(&2, Ops.Op, Block.operations(Nat.add(pos, gap), edit), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit)))), Nat.add(pos, gap)) == True{} : Bool}, fits: {Nat.is_le(gap, List.length(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos))) == True{} : Bool}) -> {Cursor.combine(Maybe.or(&2, String, Cursor.disagreement(Nat.add(pos, gap), Block.agrees(edit, List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap))), Block.quote_error(parent, Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit))))), Nil{}, Done{List.append(&2, Ops.Item, List.append(&2, Ops.Item, List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), Block.inserted(edit)), Spec.result_from(List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Nat.add(Nat.add(pos, gap), Block.consumed(edit))))}) == Cursor.combine(Block.quote_error(parent, List.append(&2, Ops.Op, Block.operations(Nat.add(pos, gap), edit), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit))))), Nil{}, Done{Spec.result_from(List.drop(&2, Ops.Item, parent, pos), List.append(&2, Ops.Op, Block.operations(Nat.add(pos, gap), edit), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit)))), pos)}) : Result<&2, &2, String, List<&2, Ops.Item>>}:
+def walk_script.positional(+edit: Ops.Edit, +pos: Nat, +gap: Nat, +parent: List<&2, Ops.Item>, +rest: List<&2, Ops.Step>, +bound: {below(List.append(&2, Ops.Op, Ops.operations(Nat.add(pos, gap), edit), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit)))), Nat.add(pos, gap)) == True{} : Bool}, fits: {Nat.is_le(gap, List.length(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos))) == True{} : Bool}) -> {Cursor.combine(Maybe.or(&2, String, Cursor.disagreement(Nat.add(pos, gap), Block.agrees(edit, List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap))), Block.quote_error(parent, Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))))), Nil{}, Done{List.append(&2, Ops.Item, List.append(&2, Ops.Item, List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), Ops.inserted(edit)), Spec.result_from(List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Nat.add(Nat.add(pos, gap), Ops.consumed(edit))))}) == Cursor.combine(Block.quote_error(parent, List.append(&2, Ops.Op, Ops.operations(Nat.add(pos, gap), edit), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))))), Nil{}, Done{Spec.result_from(List.drop(&2, Ops.Item, parent, pos), List.append(&2, Ops.Op, Ops.operations(Nat.add(pos, gap), edit), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit)))), pos)}) : Result<&2, &2, String, List<&2, Ops.Item>>}:
   +here = Nat.add(pos, gap)
-  +n = Block.consumed(edit)
+  +n = Ops.consumed(edit)
   +next = Nat.add(here, n)
   +state = List.drop(&2, Ops.Item, parent, pos)
   +after = List.drop(&2, Ops.Item, state, gap)
   +front = List.take(&2, Ops.Item, state, gap)
-  +block = Block.operations(here, edit)
-  +more = Block.script(rest, next)
+  +block = Ops.operations(here, edit)
+  +more = Ops.script(rest, next)
   +ops = List.append(&2, Ops.Op, block, more)
-  +moved = List.append(&2, Ops.Item, front, Block.inserted(edit))
+  +moved = List.append(&2, Ops.Item, front, Ops.inserted(edit))
   +later = Block.quote_error(parent, more)
   +remainder = Spec.result_from(List.drop(&2, Ops.Item, parent, next), more, next)
   +settled = Cursor.combine(Maybe.or(&2, String, Cursor.disagreement(here, Block.agrees(edit, after)), later), Nil{}, Done{List.append(&2, Ops.Item, moved, remainder)})
@@ -554,18 +554,18 @@ def walk_script.positional(+edit: Block.Edit, +pos: Nat, +gap: Nat, +parent: Lis
   %Equal.sym(List<&2, Ops.Item>, Spec.result_from(state, ops, pos), List.append(&2, Ops.Item, front, Spec.result_from(after, ops, here)), skip(gap, state, ops, pos, bound, fits)) : {settled == Cursor.combine(Maybe.or(&2, String, Cursor.disagreement(here, Block.agrees(edit, after)), later), Nil{}, Done{_}) : Result<&2, &2, String, List<&2, Ops.Item>>}
   settle(here, Block.agrees(edit, after), later, List.append(&2, Ops.Item, moved, remainder), List.append(&2, Ops.Item, front, Spec.result_from(after, ops, here)), okp => block_payload(edit, pos, gap, parent, rest, okp))
 
-def walk_script.cursor(+edit: Block.Edit, +pos: Nat, +gap: Nat, +parent: List<&2, Ops.Item>, +rest: List<&2, Block.Step>, ih: {Cursor.walk(Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Nat.add(Nat.add(pos, gap), Block.consumed(edit)), List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Block.consumed(edit)))) == Cursor.combine(Block.quote_error(parent, Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit)))), Nil{}, Done{Spec.result_from(List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Nat.add(Nat.add(pos, gap), Block.consumed(edit)))}) : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {Cursor.walk(List.append(&2, Ops.Op, Block.operations(Nat.add(pos, gap), edit), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit)))), pos, List.drop(&2, Ops.Item, parent, pos)) == Cursor.combine(Maybe.or(&2, String, Cursor.disagreement(Nat.add(pos, gap), Block.agrees(edit, List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap))), Block.quote_error(parent, Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit))))), Nil{}, Done{List.append(&2, Ops.Item, List.append(&2, Ops.Item, List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), Block.inserted(edit)), Spec.result_from(List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Block.script(rest, Nat.add(Nat.add(pos, gap), Block.consumed(edit))), Nat.add(Nat.add(pos, gap), Block.consumed(edit))))}) : Result<&2, &2, String, List<&2, Ops.Item>>}:
+def walk_script.cursor(+edit: Ops.Edit, +pos: Nat, +gap: Nat, +parent: List<&2, Ops.Item>, +rest: List<&2, Ops.Step>, ih: {Cursor.walk(Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Nat.add(Nat.add(pos, gap), Ops.consumed(edit)), List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Ops.consumed(edit)))) == Cursor.combine(Block.quote_error(parent, Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit)))), Nil{}, Done{Spec.result_from(List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Nat.add(Nat.add(pos, gap), Ops.consumed(edit)))}) : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {Cursor.walk(List.append(&2, Ops.Op, Ops.operations(Nat.add(pos, gap), edit), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit)))), pos, List.drop(&2, Ops.Item, parent, pos)) == Cursor.combine(Maybe.or(&2, String, Cursor.disagreement(Nat.add(pos, gap), Block.agrees(edit, List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap))), Block.quote_error(parent, Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))))), Nil{}, Done{List.append(&2, Ops.Item, List.append(&2, Ops.Item, List.take(&2, Ops.Item, List.drop(&2, Ops.Item, parent, pos), gap), Ops.inserted(edit)), Spec.result_from(List.drop(&2, Ops.Item, parent, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Ops.script(rest, Nat.add(Nat.add(pos, gap), Ops.consumed(edit))), Nat.add(Nat.add(pos, gap), Ops.consumed(edit))))}) : Result<&2, &2, String, List<&2, Ops.Item>>}:
   +here = Nat.add(pos, gap)
-  +n = Block.consumed(edit)
+  +n = Ops.consumed(edit)
   +next = Nat.add(here, n)
   +state = List.drop(&2, Ops.Item, parent, pos)
   +after = List.drop(&2, Ops.Item, state, gap)
   +front = List.take(&2, Ops.Item, state, gap)
-  +block = Block.operations(here, edit)
-  +more = Block.script(rest, next)
+  +block = Ops.operations(here, edit)
+  +more = Ops.script(rest, next)
   +ops = List.append(&2, Ops.Op, block, more)
   +failure = Cursor.disagreement(here, Block.agrees(edit, after))
-  +moved = List.append(&2, Ops.Item, front, Block.inserted(edit))
+  +moved = List.append(&2, Ops.Item, front, Ops.inserted(edit))
   +later = Block.quote_error(parent, more)
   +remainder = Spec.result_from(List.drop(&2, Ops.Item, parent, next), more, next)
   +settled = Cursor.combine(Maybe.or(&2, String, failure, later), Nil{}, Done{List.append(&2, Ops.Item, moved, remainder)})
@@ -580,25 +580,25 @@ def walk_script.cursor(+edit: Block.Edit, +pos: Nat, +gap: Nat, +parent: List<&2
 
 # The cursor over a script that fits the parent is the positional result of
 # that script, or the first quote disagreement, whichever the script reaches.
-def walk_script(steps: List<&2, Block.Step>, +pos: Nat, +parent: List<&2, Ops.Item>, +range: {Ops.in_range(Block.script(steps, pos), List.length(&2, Ops.Item, parent)) == True{} : Bool}) -> {Cursor.walk(Block.script(steps, pos), pos, List.drop(&2, Ops.Item, parent, pos)) == Cursor.combine(Block.quote_error(parent, Block.script(steps, pos)), Nil{}, Done{Spec.result_from(List.drop(&2, Ops.Item, parent, pos), Block.script(steps, pos), pos)}) : Result<&2, &2, String, List<&2, Ops.Item>>}:
+def walk_script(steps: List<&2, Ops.Step>, +pos: Nat, +parent: List<&2, Ops.Item>, +range: {Ops.in_range(Ops.script(steps, pos), List.length(&2, Ops.Item, parent)) == True{} : Bool}) -> {Cursor.walk(Ops.script(steps, pos), pos, List.drop(&2, Ops.Item, parent, pos)) == Cursor.combine(Block.quote_error(parent, Ops.script(steps, pos)), Nil{}, Done{Spec.result_from(List.drop(&2, Ops.Item, parent, pos), Ops.script(steps, pos), pos)}) : Result<&2, &2, String, List<&2, Ops.Item>>}:
   match steps:
     case Nil{}:
       +state = List.drop(&2, Ops.Item, parent, pos)
       %Equal.sym(List<&2, Ops.Item>, Spec.result_from(state, Nil{}, pos), state, result_nil(state, pos)) : {Done{state} == Done{_} : Result<&2, &2, String, List<&2, Ops.Item>>}
       {==}
-    case Block.Step{+gap, +edit} <> +rest:
+    case Ops.Step{+gap, +edit} <> +rest:
       +here = Nat.add(pos, gap)
-      +n = Block.consumed(edit)
+      +n = Ops.consumed(edit)
       +next = Nat.add(here, n)
       +len = List.length(&2, Ops.Item, parent)
       +state = List.drop(&2, Ops.Item, parent, pos)
       +after = List.drop(&2, Ops.Item, state, gap)
       +front = List.take(&2, Ops.Item, state, gap)
-      +block = Block.operations(here, edit)
-      +more = Block.script(rest, next)
+      +block = Ops.operations(here, edit)
+      +more = Ops.script(rest, next)
       +ops = List.append(&2, Ops.Op, block, more)
       +failure = Cursor.disagreement(here, Block.agrees(edit, after))
-      +moved = List.append(&2, Ops.Item, front, Block.inserted(edit))
+      +moved = List.append(&2, Ops.Item, front, Ops.inserted(edit))
       +later = Block.quote_error(parent, more)
       +remainder = Spec.result_from(List.drop(&2, Ops.Item, parent, next), more, next)
       +settled = Cursor.combine(Maybe.or(&2, String, failure, later), Nil{}, Done{List.append(&2, Ops.Item, moved, remainder)})
@@ -635,17 +635,17 @@ def eq_of_is_eq(a: Nat, b: Nat, e: {Nat.is_eq(a, b) == True{} : Bool}) -> {a == 
 
 # A delete followed by an insert: the insert is its replacement when it sits
 # at the delete's own position, and a block of its own otherwise.
-def is_script.replacement(+pos: Nat, +at: Nat, +items: List<&2, Ops.Item>, +at2: Nat, +items2: List<&2, Ops.Item>, +more: List<&2, Ops.Op>, same: Bool, +eq: {Nat.is_eq(at2, at) == same : Bool}, +e: {Bool.and(Nat.is_le(pos, at), Bool.pick(Bool, same, Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))), Bool.and(Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), at2), Block.ordered(more, at2)))) == True{} : Bool}, ih_stop: {Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))) == True{} : Bool} -> {Block.script(Block.steps_of(more, Nat.add(at, List.length(&2, Ops.Item, items))), Nat.add(at, List.length(&2, Ops.Item, items))) == more : List<&2, Ops.Op>}, ih_at2: {Block.ordered(more, at2) == True{} : Bool} -> {Block.script(Block.steps_of(more, at2), at2) == more : List<&2, Ops.Op>}) -> {Block.script(Block.steps_of(Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more, pos), pos) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more : List<&2, Ops.Op>}:
+def is_script.replacement(+pos: Nat, +at: Nat, +items: List<&2, Ops.Item>, +at2: Nat, +items2: List<&2, Ops.Item>, +more: List<&2, Ops.Op>, same: Bool, +eq: {Nat.is_eq(at2, at) == same : Bool}, +e: {Bool.and(Nat.is_le(pos, at), Bool.pick(Bool, same, Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))), Bool.and(Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), at2), Block.ordered(more, at2)))) == True{} : Bool}, ih_stop: {Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))) == True{} : Bool} -> {Ops.script(Block.steps_of(more, Nat.add(at, List.length(&2, Ops.Item, items))), Nat.add(at, List.length(&2, Ops.Item, items))) == more : List<&2, Ops.Op>}, ih_at2: {Block.ordered(more, at2) == True{} : Bool} -> {Ops.script(Block.steps_of(more, at2), at2) == more : List<&2, Ops.Op>}) -> {Ops.script(Block.steps_of(Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more, pos), pos) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more : List<&2, Ops.Op>}:
   match same:
     case True{}:
       +n = List.length(&2, Ops.Item, items)
       +stop = Nat.add(at, n)
       +here = Nat.add(pos, Nat.sub(at, pos))
       +rhs = {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more : List<&2, Ops.Op>}
-      %Equal.sym(Bool, Nat.is_eq(at2, at), True{}, eq) : {Block.script(Bool.pick(List<&2, Block.Step>, _, Block.Step{Nat.sub(at, pos), Block.Replacement{items, items2}} <> Block.steps_of(more, stop), Block.Step{Nat.sub(at, pos), Block.Deletion{items}} <> Block.Step{Nat.sub(at2, stop), Block.Insertion{items2}} <> Block.steps_of(more, at2)), pos) == rhs : List<&2, Ops.Op>}
-      %Equal.sym(Nat, at2, at, eq_of_is_eq(at2, at, eq)) : {Ops.Op{Ops.Delete{}, here, items} <> Ops.Op{Ops.Insert{}, here, items2} <> Block.script(Block.steps_of(more, stop), Nat.add(here, n)) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, _, items2} <> more : List<&2, Ops.Op>}
-      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(more, stop), e))) : {Ops.Op{Ops.Delete{}, _, items} <> Ops.Op{Ops.Insert{}, _, items2} <> Block.script(Block.steps_of(more, stop), Nat.add(_, n)) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> more : List<&2, Ops.Op>}
-      %Equal.sym(List<&2, Ops.Op>, Block.script(Block.steps_of(more, stop), stop), more, ih_stop(and_right(Nat.is_le(pos, at), Block.ordered(more, stop), e))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> _ == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> more : List<&2, Ops.Op>}
+      %Equal.sym(Bool, Nat.is_eq(at2, at), True{}, eq) : {Ops.script(Bool.pick(List<&2, Ops.Step>, _, Ops.Step{Nat.sub(at, pos), Ops.Replacement{items, items2}} <> Block.steps_of(more, stop), Ops.Step{Nat.sub(at, pos), Ops.Deletion{items}} <> Ops.Step{Nat.sub(at2, stop), Ops.Insertion{items2}} <> Block.steps_of(more, at2)), pos) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Nat, at2, at, eq_of_is_eq(at2, at, eq)) : {Ops.Op{Ops.Delete{}, here, items} <> Ops.Op{Ops.Insert{}, here, items2} <> Ops.script(Block.steps_of(more, stop), Nat.add(here, n)) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, _, items2} <> more : List<&2, Ops.Op>}
+      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(more, stop), e))) : {Ops.Op{Ops.Delete{}, _, items} <> Ops.Op{Ops.Insert{}, _, items2} <> Ops.script(Block.steps_of(more, stop), Nat.add(_, n)) == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> more : List<&2, Ops.Op>}
+      %Equal.sym(List<&2, Ops.Op>, Ops.script(Block.steps_of(more, stop), stop), more, ih_stop(and_right(Nat.is_le(pos, at), Block.ordered(more, stop), e))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> _ == Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at, items2} <> more : List<&2, Ops.Op>}
       {==}
     case False{}:
       +n = List.length(&2, Ops.Item, items)
@@ -654,23 +654,23 @@ def is_script.replacement(+pos: Nat, +at: Nat, +items: List<&2, Ops.Item>, +at2:
       +there = Nat.add(stop, Nat.sub(at2, stop))
       +rhs = {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more : List<&2, Ops.Op>}
       +past = Bool.and(Nat.is_le(stop, at2), Block.ordered(more, at2))
-      %Equal.sym(Bool, Nat.is_eq(at2, at), False{}, eq) : {Block.script(Bool.pick(List<&2, Block.Step>, _, Block.Step{Nat.sub(at, pos), Block.Replacement{items, items2}} <> Block.steps_of(more, stop), Block.Step{Nat.sub(at, pos), Block.Deletion{items}} <> Block.Step{Nat.sub(at2, stop), Block.Insertion{items2}} <> Block.steps_of(more, at2)), pos) == rhs : List<&2, Ops.Op>}
-      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), past, e))) : {Ops.Op{Ops.Delete{}, _, items} <> Ops.Op{Ops.Insert{}, Nat.add(Nat.add(_, n), Nat.sub(at2, stop)), items2} <> Block.script(Block.steps_of(more, at2), Nat.add(Nat.add(Nat.add(_, n), Nat.sub(at2, stop)), 0n)) == rhs : List<&2, Ops.Op>}
-      %Equal.sym(Nat, there, at2, add_sub(stop, at2, and_left(Nat.is_le(stop, at2), Block.ordered(more, at2), and_right(Nat.is_le(pos, at), past, e)))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, _, items2} <> Block.script(Block.steps_of(more, at2), Nat.add(_, 0n)) == rhs : List<&2, Ops.Op>}
-      %Equal.sym(Nat, Nat.add(at2, 0n), at2, add_zero(at2)) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> Block.script(Block.steps_of(more, at2), _) == rhs : List<&2, Ops.Op>}
-      %Equal.sym(List<&2, Ops.Op>, Block.script(Block.steps_of(more, at2), at2), more, ih_at2(and_right(Nat.is_le(stop, at2), Block.ordered(more, at2), and_right(Nat.is_le(pos, at), past, e)))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> _ == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Bool, Nat.is_eq(at2, at), False{}, eq) : {Ops.script(Bool.pick(List<&2, Ops.Step>, _, Ops.Step{Nat.sub(at, pos), Ops.Replacement{items, items2}} <> Block.steps_of(more, stop), Ops.Step{Nat.sub(at, pos), Ops.Deletion{items}} <> Ops.Step{Nat.sub(at2, stop), Ops.Insertion{items2}} <> Block.steps_of(more, at2)), pos) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), past, e))) : {Ops.Op{Ops.Delete{}, _, items} <> Ops.Op{Ops.Insert{}, Nat.add(Nat.add(_, n), Nat.sub(at2, stop)), items2} <> Ops.script(Block.steps_of(more, at2), Nat.add(Nat.add(Nat.add(_, n), Nat.sub(at2, stop)), 0n)) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Nat, there, at2, add_sub(stop, at2, and_left(Nat.is_le(stop, at2), Block.ordered(more, at2), and_right(Nat.is_le(pos, at), past, e)))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, _, items2} <> Ops.script(Block.steps_of(more, at2), Nat.add(_, 0n)) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(Nat, Nat.add(at2, 0n), at2, add_zero(at2)) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> Ops.script(Block.steps_of(more, at2), _) == rhs : List<&2, Ops.Op>}
+      %Equal.sym(List<&2, Ops.Op>, Ops.script(Block.steps_of(more, at2), at2), more, ih_at2(and_right(Nat.is_le(stop, at2), Block.ordered(more, at2), and_right(Nat.is_le(pos, at), past, e)))) : {Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> _ == rhs : List<&2, Ops.Op>}
       {==}
 
 # Every ordered operation list is the script `steps_of` reads from it.
-def is_script(ops: List<&2, Ops.Op>, +pos: Nat, +e: {Block.ordered(ops, pos) == True{} : Bool}) -> {Block.script(Block.steps_of(ops, pos), pos) == ops : List<&2, Ops.Op>}:
+def is_script(ops: List<&2, Ops.Op>, +pos: Nat, +e: {Block.ordered(ops, pos) == True{} : Bool}) -> {Ops.script(Block.steps_of(ops, pos), pos) == ops : List<&2, Ops.Op>}:
   match ops:
     case Nil{}:
       {==}
     case Ops.Op{Ops.Insert{}, +at, +items} <> +rest:
       +here = Nat.add(pos, Nat.sub(at, pos))
-      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(rest, at), e))) : {Ops.Op{Ops.Insert{}, _, items} <> Block.script(Block.steps_of(rest, at), Nat.add(_, 0n)) == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
-      %Equal.sym(Nat, Nat.add(at, 0n), at, add_zero(at)) : {Ops.Op{Ops.Insert{}, at, items} <> Block.script(Block.steps_of(rest, at), _) == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
-      %Equal.sym(List<&2, Ops.Op>, Block.script(Block.steps_of(rest, at), at), rest, is_script(rest, at, and_right(Nat.is_le(pos, at), Block.ordered(rest, at), e))) : {Ops.Op{Ops.Insert{}, at, items} <> _ == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
+      %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(rest, at), e))) : {Ops.Op{Ops.Insert{}, _, items} <> Ops.script(Block.steps_of(rest, at), Nat.add(_, 0n)) == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
+      %Equal.sym(Nat, Nat.add(at, 0n), at, add_zero(at)) : {Ops.Op{Ops.Insert{}, at, items} <> Ops.script(Block.steps_of(rest, at), _) == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
+      %Equal.sym(List<&2, Ops.Op>, Ops.script(Block.steps_of(rest, at), at), rest, is_script(rest, at, and_right(Nat.is_le(pos, at), Block.ordered(rest, at), e))) : {Ops.Op{Ops.Insert{}, at, items} <> _ == Ops.Op{Ops.Insert{}, at, items} <> rest : List<&2, Ops.Op>}
       {==}
     case Ops.Op{Ops.Delete{}, +at, +items} <> rest:
       match rest:
@@ -685,8 +685,8 @@ def is_script(ops: List<&2, Ops.Op>, +pos: Nat, +e: {Block.ordered(ops, pos) == 
           +n = List.length(&2, Ops.Item, items)
           +here = Nat.add(pos, Nat.sub(at, pos))
           +tail = {Ops.Op{Ops.Delete{}, at2, items2} <> more : List<&2, Ops.Op>}
-          %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(tail, Nat.add(at, n)), e))) : {Ops.Op{Ops.Delete{}, _, items} <> Block.script(Block.steps_of(tail, Nat.add(at, n)), Nat.add(_, n)) == Ops.Op{Ops.Delete{}, at, items} <> tail : List<&2, Ops.Op>}
-          %Equal.sym(List<&2, Ops.Op>, Block.script(Block.steps_of(tail, Nat.add(at, n)), Nat.add(at, n)), tail, is_script(tail, Nat.add(at, n), and_right(Nat.is_le(pos, at), Block.ordered(tail, Nat.add(at, n)), e))) : {Ops.Op{Ops.Delete{}, at, items} <> _ == Ops.Op{Ops.Delete{}, at, items} <> tail : List<&2, Ops.Op>}
+          %Equal.sym(Nat, here, at, add_sub(pos, at, and_left(Nat.is_le(pos, at), Block.ordered(tail, Nat.add(at, n)), e))) : {Ops.Op{Ops.Delete{}, _, items} <> Ops.script(Block.steps_of(tail, Nat.add(at, n)), Nat.add(_, n)) == Ops.Op{Ops.Delete{}, at, items} <> tail : List<&2, Ops.Op>}
+          %Equal.sym(List<&2, Ops.Op>, Ops.script(Block.steps_of(tail, Nat.add(at, n)), Nat.add(at, n)), tail, is_script(tail, Nat.add(at, n), and_right(Nat.is_le(pos, at), Block.ordered(tail, Nat.add(at, n)), e))) : {Ops.Op{Ops.Delete{}, at, items} <> _ == Ops.Op{Ops.Delete{}, at, items} <> tail : List<&2, Ops.Op>}
           {==}
 
 def main() -> Unit:

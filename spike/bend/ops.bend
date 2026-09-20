@@ -61,14 +61,14 @@ def prefix(k: Verb) -> Char:
 def agrees(a: Item, b: Item) -> Bool:
   match a b:
     case Item{t1, n1, f1} Item{t2, n2, f2}:
-      Bool.and(Bool.not(Bool.xor(n1, n2)), Bool.or(Bool.or(f1, f2), String.eq(t1, t2)))
+      Bool.and(Bool.not(Bool.xor(n1, n2)), Bool.or(Bool.or(f1, f2), T.same(t1, t2)))
 
 # Whether two items are the same line, for the diff. A forgotten item is
 # nobody's line.
 def same(a: Item, b: Item) -> Bool:
   match a b:
     case Item{t1, n1, f1} Item{t2, n2, f2}:
-      Bool.and(Bool.not(Bool.or(f1, f2)), Bool.and(String.eq(t1, t2), Bool.not(Bool.xor(n1, n2))))
+      Bool.and(Bool.not(Bool.or(f1, f2)), Bool.and(T.same(t1, t2), Bool.not(Bool.xor(n1, n2))))
 
 def count(op: Op) -> Nat:
   match op:
@@ -604,7 +604,7 @@ def check_result.of(+stated: String, forgot: Bool, +found: String) -> Result<&2,
     case True{}:
       Done{Unit{}}
     case False{}:
-      Bool.pick(Result<&2, &2, String, Unit>, String.eq(stated, found), Done{Unit{}}, Fail{"the result stated is " ++ stated ++ " but the replay produced " ++ found})
+      Bool.pick(Result<&2, &2, String, Unit>, T.same(stated, found), Done{Unit{}}, Fail{"the result stated is " ++ stated ++ " but the replay produced " ++ found})
 
 # Decision 0031: a replay is held to the digest the document states, except
 # where forgetting has put bytes in the file that nobody hashed.
@@ -631,6 +631,59 @@ def apply(+state: List<&2, Item>, doc: Doc) -> Result<&2, &2, String, List<&2, I
         Bool.pick(Result<&2, &2, String, Unit>, in_range(ops, List.length(&2, Item, state)), Done{Unit{}}, Fail{"an operation counts past the end of the parent"})
         items : List<&2, Item> <- apply.go(ops, land(ops, 0n, state, Nil{}), 0n, None{})
         apply.checked(result, items)
+
+# Blocks
+# ------
+
+# An edit block: what one delete, one insert, or a delete and the insert
+# that replaces it does at one position.
+type Edit is Data:
+  Insertion{items: List<&2, Item>}
+  Deletion{recorded: List<&2, Item>}
+  Replacement{recorded: List<&2, Item>, inserted: List<&2, Item>}
+
+def operations(+at: Nat, edit: Edit) -> List<&2, Op>:
+  match edit:
+    case Insertion{items}:
+      [Op{Insert{}, at, items}]
+    case Deletion{recorded}:
+      [Op{Delete{}, at, recorded}]
+    case Replacement{recorded, inserted}:
+      [Op{Delete{}, at, recorded}, Op{Insert{}, at, inserted}]
+
+# A document as a script of blocks. Each block sits `gap` parent items past
+# where the previous block finished, so the blocks never overlap and never
+# run backwards: the shape the parser's ordering rules admit.
+type Step is Data:
+  Step{gap: Nat, edit: Edit}
+
+# How many parent items a block removes; the next block counts from there.
+def consumed(edit: Edit) -> Nat:
+  match edit:
+    case Insertion{items}:
+      0n
+    case Deletion{recorded}:
+      List.length(&2, Item, recorded)
+    case Replacement{recorded, inserted}:
+      List.length(&2, Item, recorded)
+
+# What a block puts where the consumed items were.
+def inserted(edit: Edit) -> List<&2, Item>:
+  match edit:
+    case Insertion{items}:
+      items
+    case Deletion{recorded}:
+      Nil{}
+    case Replacement{recorded, items}:
+      items
+
+def script(steps: List<&2, Step>, +at: Nat) -> List<&2, Op>:
+  match steps:
+    case Nil{}:
+      Nil{}
+    case Step{gap, +edit} <> rest:
+      +here = Nat.add(at, gap)
+      List.append(&2, Op, operations(here, edit), script(rest, Nat.add(here, consumed(edit))))
 
 # Diff
 # ----
@@ -717,13 +770,13 @@ def step(+old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, Nat
       +q = q
       step.of(same(item_at(old, p), item_at(new, q)), Nat.is_ge(cell(tbl, p, 1n+q), cell(tbl, 1n+p, q)))
 
-type Edit is Data:
+type Move is Data:
   Keep{}
   Del{x: Item}
   Ins{y: Item}
 
 # From the last cell back to the first, collecting the edit script forwards.
-def backtrack(fuel: Nat, v: Verdict, i: Nat, j: Nat, +old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, Nat>>, script: List<&2, Edit>) -> List<&2, Edit>:
+def backtrack(fuel: Nat, v: Verdict, i: Nat, j: Nat, +old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, Nat>>, script: List<&2, Move>) -> List<&2, Move>:
   match fuel v:
     case _ Stop{}:
       script
@@ -742,35 +795,48 @@ def backtrack(fuel: Nat, v: Verdict, i: Nat, j: Nat, +old: List<&2, Item>, +new:
       +i = i
       backtrack(f, step(old, new, tbl, i, j2), i, j2, old, new, tbl, Ins{item_at(new, j2)} <> script)
 
-def script(+old: List<&2, Item>, +new: List<&2, Item>) -> List<&2, Edit>:
+def edits(+old: List<&2, Item>, +new: List<&2, Item>) -> List<&2, Move>:
   +n = List.length(&2, Item, old)
   +m = List.length(&2, Item, new)
   +tbl = table(old, new)
   backtrack(Nat.add(n, m), step(old, new, tbl, n, m), n, m, old, new, tbl, Nil{})
 
-# A run of edits between two kept lines is one delete and one insert, both
-# anchored where the run began: a replacement is minus lines above plus lines.
-def flush(+start: Nat, dels: List<&2, Item>, ins: List<&2, Item>, acc: List<&2, Op>) -> List<&2, Op>:
+# The block a run of edits makes: minus lines above plus lines, both
+# anchored where the run began, so a replacement is one block.
+def block(dels: List<&2, Item>, ins: List<&2, Item>) -> Edit:
+  match dels ins:
+    case Nil{} ins:
+      Insertion{ins}
+    case d <> ds Nil{}:
+      Deletion{d <> ds}
+    case d <> ds i <> it:
+      Replacement{d <> ds, i <> it}
+
+# Between one block and the next, how many lines were kept. A run ends at a
+# kept line, which lengthens the gap when no run is open and otherwise
+# starts the next gap, or at the end; deleted and inserted lines arrive
+# reversed.
+def runs.close(+gap: Nat, dels: List<&2, Item>, ins: List<&2, Item>, rest: List<&2, Step>) -> List<&2, Step>:
   match dels ins:
     case Nil{} Nil{}:
-      acc
-    case Nil{} i <> it:
-      Op{Insert{}, start, List.reverse(&2, Item, i <> it)} <> acc
-    case d <> ds Nil{}:
-      Op{Delete{}, start, List.reverse(&2, Item, d <> ds)} <> acc
-    case d <> ds i <> it:
-      Op{Insert{}, start, List.reverse(&2, Item, i <> it)} <> Op{Delete{}, start, List.reverse(&2, Item, d <> ds)} <> acc
+      rest
+    case _ _:
+      Step{gap, block(List.reverse(&2, Item, dels), List.reverse(&2, Item, ins))} <> rest
 
-def group(edits: List<&2, Edit>, +p: Nat, start: Nat, dels: List<&2, Item>, ins: List<&2, Item>, acc: List<&2, Op>) -> List<&2, Op>:
+def runs(edits: List<&2, Move>, +gap: Nat, dels: List<&2, Item>, ins: List<&2, Item>) -> List<&2, Step>:
   match edits:
     case Nil{}:
-      List.reverse(&2, Op, flush(start, dels, ins, acc))
+      runs.close(gap, dels, ins, Nil{})
     case Keep{} <> rest:
-      group(rest, 1n+p, 1n+p, Nil{}, Nil{}, flush(start, dels, ins, acc))
+      match dels ins:
+        case Nil{} Nil{}:
+          runs(rest, 1n+gap, Nil{}, Nil{})
+        case _ _:
+          Step{gap, block(List.reverse(&2, Item, dels), List.reverse(&2, Item, ins))} <> runs(rest, 1n, Nil{}, Nil{})
     case Del{x} <> rest:
-      group(rest, 1n+p, start, x <> dels, ins, acc)
+      runs(rest, gap, x <> dels, ins)
     case Ins{y} <> rest:
-      group(rest, p, start, dels, y <> ins, acc)
+      runs(rest, gap, dels, y <> ins)
 
 def diff.of(ops: List<&2, Op>, result: String) -> Maybe<&2, Doc>:
   match ops:
@@ -781,4 +847,4 @@ def diff.of(ops: List<&2, Op>, result: String) -> Maybe<&2, Doc>:
 
 # The document that takes `parent` to `child`, or None where they agree.
 def diff(parent: List<&2, Item>, +child: List<&2, Item>) -> Maybe<&2, Doc>:
-  diff.of(group(script(parent, child), 0n, 0n, Nil{}, Nil{}, Nil{}), state_digest(child))
+  diff.of(script(runs(edits(parent, child), 0n, Nil{}, Nil{}), 0n), state_digest(child))

@@ -155,8 +155,8 @@ law edit_block_semantics:
   for +before: List<&2, Ops.Item>
   for +after: List<&2, Ops.Item>
   for +stated: Maybe<&2, String>
-  for +edit: Block.Edit
-  {Ops.apply(List.append(&2, Ops.Item, before, after), Ops.Doc{None{}, stated, Block.operations(List.length(&2, Ops.Item, before), edit)}) == Block.apply(before, after, stated, edit) : Result<&2, &2, String, List<&2, Ops.Item>>}
+  for +edit: Ops.Edit
+  {Ops.apply(List.append(&2, Ops.Item, before, after), Ops.Doc{None{}, stated, Ops.operations(List.length(&2, Ops.Item, before), edit)}) == Block.apply(before, after, stated, edit) : Result<&2, &2, String, List<&2, Ops.Item>>}
 
 # A whole script of blocks — each starting a stated gap past where the last
 # finished, which is every shape the parser's ordering rules admit — replays
@@ -166,8 +166,8 @@ law edit_block_semantics:
 law script_semantics:
   for +parent: List<&2, Ops.Item>
   for +stated: Maybe<&2, String>
-  for +steps: List<&2, Block.Step>
-  {Ops.apply(parent, Ops.Doc{None{}, stated, Block.script(steps, 0n)}) == Block.replay(parent, stated, steps) : Result<&2, &2, String, List<&2, Ops.Item>>}
+  for +steps: List<&2, Ops.Step>
+  {Ops.apply(parent, Ops.Doc{None{}, stated, Ops.script(steps, 0n)}) == Block.replay(parent, stated, steps) : Result<&2, &2, String, List<&2, Ops.Item>>}
 
 # Raw operations are a script when each sits at or past where the last
 # finished, an insert at a delete's own position being that delete's
@@ -176,7 +176,7 @@ law ordered_operations_are_scripts:
   for +ops: List<&2, Ops.Op>
   for +pos: Nat
   for +e: {Block.ordered(ops, pos) == True{} : Bool}
-  {Block.script(Block.steps_of(ops, pos), pos) == ops : List<&2, Ops.Op>}
+  {Ops.script(Block.steps_of(ops, pos), pos) == ops : List<&2, Ops.Op>}
 
 # So any ordered document replays to its positional result, stated over the
 # operations themselves.
@@ -223,3 +223,14 @@ law write_parse:
   for doc: Ops.Doc
   for e: {Ops.parse(s) == Done{doc} : Result<&2, &2, String, Ops.Doc>}
   {Ops.write(doc) == s : String}
+
+# The diff replays: whatever document `Ops.diff` writes for a parent and a
+# child, applying it to the parent produces the child. A child that is a
+# file has a newline on every item but the last.
+law diff_applies:
+  for +parent: List<&2, Ops.Item>
+  for +child: List<&2, Ops.Item>
+  for tbl: {Ops.terminated_but_last(child) == True{} : Bool}
+  for +doc: Ops.Doc
+  for e: {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>}
+  {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}
