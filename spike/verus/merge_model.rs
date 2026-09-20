@@ -1702,6 +1702,261 @@ pub proof fn lemma_anchor_agree(t: TreeS, u: TreeS, g: GraphS, e: int, lt: Optio
 }
 
 // ---------------------------------------------------------------------------
+// Lemma E: one event reads only its restriction.
+// ---------------------------------------------------------------------------
+
+/// `same_deleted` depends only on the two `deleted` sets.
+pub proof fn lemma_same_deleted_stable(t: TreeS, u: TreeS, t2: TreeS, u2: TreeS, set: ISet<int>, i: int, j: int)
+    requires same_deleted(t, u, set, i, j), t2.nodes[i].deleted == t.nodes[i].deleted, u2.nodes[j].deleted == u.nodes[j].deleted
+    ensures same_deleted(t2, u2, set, i, j)
+{
+    reveal(same_deleted);
+}
+
+pub proof fn lemma_same_deleted_empty(t: TreeS, u: TreeS, set: ISet<int>, i: int, j: int)
+    requires t.nodes[i].deleted == Set::<int>::empty(), u.nodes[j].deleted == Set::<int>::empty()
+    ensures same_deleted(t, u, set, i, j)
+{
+    reveal(same_deleted);
+}
+
+pub proof fn lemma_same_deleted_insert(t: TreeS, u: TreeS, set: ISet<int>, i: int, j: int, e: int)
+    requires same_deleted(t, u, set, i, j), t.node(i), u.node(j)
+    ensures same_deleted(t.delete(i, e), u.delete(j, e), set, i, j)
+{
+    reveal(same_deleted);
+    let (t2, u2) = (t.delete(i, e), u.delete(j, e));
+    assert(t2.nodes[i].deleted == t.nodes[i].deleted.insert(e));
+    assert(u2.nodes[j].deleted == u.nodes[j].deleted.insert(e));
+}
+
+/// A twin of an old element is still its twin after both trees attach.
+proof fn lemma_half_attach(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, minted: int, item: ItemS, pt: (Option<int>, bool), pu: (Option<int>, bool))
+    requires t.wf(g), u.wf(g), half(t, u, set), twin_parents(t, u, g, pt.0, pu.0), pt.1 == pu.1
+    ensures half(t.attach(e, minted, item, pt), u.attach(e, minted, item, pu), set)
+{
+    let (t2, u2) = (t.attach(e, minted, item, pt), u.attach(e, minted, item, pu));
+    assert forall|i: int| t2.node(i) && #[trigger] set.contains(t2.nodes[i].author)
+        implies exists|j: int| u2.node(j) && same_node(t2, u2, set, i, j) by {
+        if i < t.len() {
+            assert(t2.nodes[i] == t.nodes[i]);
+            assert(set.contains(t.nodes[i].author));
+            let j = choose|j: int| u.node(j) && same_node(t, u, set, i, j);
+            assert(u2.nodes[j] == u.nodes[j]);
+            lemma_same_deleted_stable(t, u, t2, u2, set, i, j);
+            if let Some(p) = t.nodes[i].parent { assert(t2.nodes[p] == t.nodes[p]); }
+            if let Some(q) = u.nodes[j].parent { assert(u2.nodes[q] == u.nodes[q]); }
+            assert(t2.parent_name(i) == t.parent_name(i));
+            assert(u2.parent_name(j) == u.parent_name(j));
+            assert(u2.node(j) && same_node(t2, u2, set, i, j));
+        } else {
+            let j = u.len();
+            lemma_same_deleted_empty(t2, u2, set, i, j);
+            assert(u2.node(j) && same_node(t2, u2, set, i, j));
+        }
+    }
+}
+
+pub proof fn lemma_attach_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, minted: int, item: ItemS, pt: (Option<int>, bool), pu: (Option<int>, bool))
+    requires t.wf(g), u.wf(g), agree(t, u, set), twin_parents(t, u, g, pt.0, pu.0), pt.1 == pu.1
+    ensures agree(t.attach(e, minted, item, pt), u.attach(e, minted, item, pu), set)
+{
+    lemma_half_attach(t, u, g, set, e, minted, item, pt, pu);
+    assert(twin_parents(u, t, g, pu.0, pt.0));
+    lemma_half_attach(u, t, g, set, e, minted, item, pu, pt);
+}
+
+/// Marking twins removed by one event keeps them twins.
+proof fn lemma_half_delete(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, i: int, j: int)
+    requires t.wf(g), u.wf(g), half(t, u, set), t.node(i), u.node(j), t.id(i) == u.id(j)
+    ensures half(t.delete(i, e), u.delete(j, e), set)
+{
+    let (t2, u2) = (t.delete(i, e), u.delete(j, e));
+    assert forall|a: int| t2.node(a) && #[trigger] set.contains(t2.nodes[a].author)
+        implies exists|b: int| u2.node(b) && same_node(t2, u2, set, a, b) by {
+        assert(t2.nodes[a].author == t.nodes[a].author);
+        assert(set.contains(t.nodes[a].author));
+        let b = choose|b: int| u.node(b) && same_node(t, u, set, a, b);
+        if let Some(p) = t.nodes[a].parent { assert(t2.nodes[p].author == t.nodes[p].author && t2.nodes[p].minted == t.nodes[p].minted); }
+        if let Some(q) = u.nodes[b].parent { assert(u2.nodes[q].author == u.nodes[q].author && u2.nodes[q].minted == u.nodes[q].minted); }
+        assert(t2.parent_name(a) == t.parent_name(a));
+        assert(u2.parent_name(b) == u.parent_name(b));
+        if a == i {
+            // Its twin is `j`: the one index of `u` with that name.
+            lemma_named_unique(u, g, b, j);
+            lemma_same_deleted_insert(t, u, set, i, j, e);
+            assert(u2.node(b) && same_node(t2, u2, set, a, b));
+        } else {
+            assert(t2.nodes[a] == t.nodes[a]);
+            assert(b != j) by {
+                if b == j { lemma_named_unique(t, g, a, i); }
+            }
+            assert(u2.nodes[b] == u.nodes[b]);
+            lemma_same_deleted_stable(t, u, t2, u2, set, a, b);
+            assert(u2.node(b) && same_node(t2, u2, set, a, b));
+        }
+    }
+}
+
+pub proof fn lemma_delete_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, i: int, j: int)
+    requires t.wf(g), u.wf(g), agree(t, u, set), t.node(i), u.node(j), t.id(i) == u.id(j)
+    ensures agree(t.delete(i, e), u.delete(j, e), set)
+{
+    lemma_half_delete(t, u, g, set, e, i, j);
+    lemma_half_delete(u, t, g, set, e, j, i);
+}
+
+/// What Lemma E asks of the set: closed, and holding everything `e` knows.
+pub open spec fn covers(g: GraphS, set: ISet<int>, e: int) -> bool {
+    closed(g, set) && forall|o: int| #[trigger] known(g, e).contains(o) ==> set.contains(o)
+}
+
+pub proof fn lemma_insert_run_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, items: Seq<ItemS>, lt: Option<int>, lu: Option<int>, minted: int)
+    requires
+        t.wf(g), u.wf(g), g.wf(), g.event(e), covers(g, set, e), agree(t, u, set),
+        twin_parents(t, u, g, lt, lu), t.known_or_none(g, e, lt), u.known_or_none(g, e, lu),
+        t.minted_below(e, minted), u.minted_below(e, minted),
+    ensures ({
+        let (t2, m1) = insert_run(t, g, e, items, lt, minted);
+        let (u2, m2) = insert_run(u, g, e, items, lu, minted);
+        agree(t2, u2, set) && m1 == m2
+    })
+    decreases items.len()
+{
+    if items.len() > 0 {
+        lemma_agree_mono(t, u, set, known(g, e));
+        lemma_anchor_agree(t, u, g, e, lt, lu);
+        lemma_anchor_known(t, g, e, lt);
+        lemma_anchor_known(u, g, e, lu);
+        let (pt, pu) = (t.anchor(g, e, lt), u.anchor(g, e, lu));
+        lemma_attach_agree(t, u, g, set, e, minted, items[0], pt, pu);
+        lemma_attach_wf(t, g, e, minted, items[0], pt);
+        lemma_attach_wf(u, g, e, minted, items[0], pu);
+        let (t2, u2) = (t.attach(e, minted, items[0], pt), u.attach(e, minted, items[0], pu));
+        assert(twin_parents(t2, u2, g, Some(t.len()), Some(u.len())));
+        lemma_insert_run_agree(t2, u2, g, set, e, items.drop_first(), Some(t.len()), Some(u.len()), minted + 1);
+    }
+}
+
+pub proof fn lemma_delete_run_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, prep_t: Seq<int>, prep_u: Seq<int>, at: int, items: Seq<ItemS>, k: int)
+    requires
+        t.wf(g), u.wf(g), g.wf(), g.event(e), covers(g, set, e), agree(t, u, set),
+        t.view_ok(g, e, prep_t), u.view_ok(g, e, prep_u), t.names(prep_t) == u.names(prep_u),
+        0 <= at, at + items.len() <= prep_t.len(),
+    ensures match (delete_run(t, g, e, prep_t, at, items, k), delete_run(u, g, e, prep_u, at, items, k)) {
+        (None, None) => true,
+        (Some(t2), Some(u2)) => agree(t2, u2, set),
+        _ => false,
+    }
+    decreases items.len() - k
+{
+    assert(t.names(prep_t).len() == prep_t.len());
+    assert(u.names(prep_u).len() == prep_u.len());
+    if 0 <= k < items.len() {
+        let (i, j) = (prep_t[at + k], prep_u[at + k]);
+        assert(t.names(prep_t)[at + k] == t.id(i));
+        assert(u.names(prep_u)[at + k] == u.id(j));
+        // The targets are twins, so they hold the same item.
+        assert(set.contains(t.nodes[i].author)) by {
+            assert(known(g, e).contains(t.nodes[i].author));
+        }
+        lemma_twin(t, u, g, set, i, j);
+        if matches_s(items[k], t.nodes[i].item) {
+            lemma_delete_agree(t, u, g, set, e, i, j);
+            lemma_delete_wf(t, g, e, i);
+            lemma_delete_wf(u, g, e, j);
+            let (t2, u2) = (t.delete(i, e), u.delete(j, e));
+            assert(t2.view_ok(g, e, prep_t));
+            assert(u2.view_ok(g, e, prep_u));
+            assert(t2.names(prep_t) =~= t.names(prep_t));
+            assert(u2.names(prep_u) =~= u.names(prep_u));
+            lemma_delete_run_agree(t2, u2, g, set, e, prep_t, prep_u, at, items, k + 1);
+        }
+    }
+}
+
+pub proof fn lemma_replay_ops_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, prep_t: Seq<int>, prep_u: Seq<int>, ops: Seq<OperationS>, k: int, minted: int)
+    requires
+        t.wf(g), u.wf(g), g.wf(), g.event(e), covers(g, set, e), agree(t, u, set),
+        t.view_ok(g, e, prep_t), u.view_ok(g, e, prep_u), t.names(prep_t) == u.names(prep_u),
+        t.minted_below(e, minted), u.minted_below(e, minted),
+    ensures match (replay_ops(t, g, e, prep_t, ops, k, minted), replay_ops(u, g, e, prep_u, ops, k, minted)) {
+        (None, None) => true,
+        (Some(t2), Some(u2)) => agree(t2, u2, set),
+        _ => false,
+    }
+    decreases ops.len() - k
+{
+    assert(t.names(prep_t).len() == prep_t.len());
+    assert(u.names(prep_u).len() == prep_u.len());
+    if 0 <= k < ops.len() {
+        let op = ops[k];
+        if op.delete {
+            if !(op.at < 0 || op.at + op.items.len() > prep_t.len()) {
+                lemma_delete_run_agree(t, u, g, set, e, prep_t, prep_u, op.at, op.items, 0);
+                lemma_delete_run_wf(t, g, e, prep_t, op.at, op.items, 0);
+                lemma_delete_run_wf(u, g, e, prep_u, op.at, op.items, 0);
+                if let (Some(t2), Some(u2)) = (delete_run(t, g, e, prep_t, op.at, op.items, 0), delete_run(u, g, e, prep_u, op.at, op.items, 0)) {
+                    assert(t2.view_ok(g, e, prep_t));
+                    assert(u2.view_ok(g, e, prep_u));
+                    assert(t2.names(prep_t) =~= t.names(prep_t));
+                    assert(u2.names(prep_u) =~= u.names(prep_u));
+                    assert(t2.minted_below(e, minted));
+                    assert(u2.minted_below(e, minted));
+                    lemma_replay_ops_agree(t2, u2, g, set, e, prep_t, prep_u, ops, k + 1, minted);
+                }
+            }
+        } else {
+            if !(op.at < 0 || op.at > prep_t.len()) {
+                let lt = if op.at == 0 { None } else { Some(prep_t[op.at - 1]) };
+                let lu = if op.at == 0 { None } else { Some(prep_u[op.at - 1]) };
+                if op.at > 0 {
+                    assert(t.names(prep_t)[op.at - 1] == t.id(prep_t[op.at - 1]));
+                    assert(u.names(prep_u)[op.at - 1] == u.id(prep_u[op.at - 1]));
+                }
+                assert(twin_parents(t, u, g, lt, lu));
+                assert(t.known_or_none(g, e, lt));
+                assert(u.known_or_none(g, e, lu));
+                lemma_insert_run_agree(t, u, g, set, e, op.items, lt, lu, minted);
+                lemma_insert_run_wf(t, g, e, op.items, lt, minted);
+                lemma_insert_run_wf(u, g, e, op.items, lu, minted);
+                let (t2, m) = insert_run(t, g, e, op.items, lt, minted);
+                let (u2, m2) = insert_run(u, g, e, op.items, lu, minted);
+                assert(t2.view_ok(g, e, prep_t));
+                assert(u2.view_ok(g, e, prep_u));
+                assert(t2.names(prep_t) =~= t.names(prep_t));
+                assert(u2.names(prep_u) =~= u.names(prep_u));
+                lemma_replay_ops_agree(t2, u2, g, set, e, prep_t, prep_u, ops, k + 1, m);
+            }
+        }
+    }
+}
+
+/// Lemma E. Two trees that agree on a closed set covering what `e` knows
+/// replay `e` to trees that still agree, or both refuse it.
+pub proof fn lemma_replay_event_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int)
+    requires
+        t.wf(g), u.wf(g), g.wf(), g.event(e), covers(g, set, e), agree(t, u, set),
+        t.minted_below(e, 0), u.minted_below(e, 0),
+    ensures match (replay_event(t, g, e), replay_event(u, g, e)) {
+        (None, None) => true,
+        (Some(t2), Some(u2)) => agree(t2, u2, set),
+        _ => false,
+    }
+{
+    if let Some(ops) = g.events[e].ops {
+        assert forall|o: int| #[trigger] past(g, e).contains(o) implies set.contains(o) by {
+            assert(known(g, e).contains(o));
+        }
+        lemma_agree_mono(t, u, set, past(g, e));
+        lemma_visible_agree(t, u, g, e);
+        lemma_visible_ok(t, g, e);
+        lemma_visible_ok(u, g, e);
+        lemma_replay_ops_agree(t, u, g, set, e, t.visible(g, e), u.visible(g, e), ops, 0, 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The theorem. Decision 0007's second acceptance claim.
 // ---------------------------------------------------------------------------
 
