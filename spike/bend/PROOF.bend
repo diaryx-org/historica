@@ -13,6 +13,8 @@ import ./position_lemmas.bend as Pos
 import ./semantic_replay.bend as Block
 import ./composition_lemmas.bend as Comp
 import ./parser_lemmas.bend as Parse
+import ./decimal_lemmas.bend as Dec
+import ./spelling_lemmas.bend as Spell
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -283,3 +285,9 @@ def Laws.parser_accepts_ordered(s, forgets, result, ops, e):
 
 def Laws.parsed_document_semantics(parent, stated, s, forgets, ops, e):
   Laws.ordered_document_semantics(parent, stated, ops, Parse.parse_ordered(s, forgets, stated, ops, e))
+
+def Laws.spell_number(s, n, e):
+  Dec.spell_number(s, n, e)
+
+def Laws.write_parse(s, doc, e):
+  Spell.write_parse(s, doc, e)

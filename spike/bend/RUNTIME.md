@@ -79,4 +79,10 @@ the last: `Ops.apply` on a whole script is the positional result, or the
 first disagreeing quote read at its own coordinate — stated over raw
 operations too, for any list `Block.ordered` accepts — and
 `parser_accepts_ordered` shows the parser accepts nothing else, so
-`parsed_document_semantics` runs from the document's text.
+`parsed_document_semantics` runs from the document's text. `write_parse`
+closes the other direction: what the parser accepts, the writer spells
+back byte for byte, decimal numbers included. The decimal layer is unary
+underneath — as every `Nat` here is — so it counts rather than divides;
+positions are line numbers, and a million of them spell in well under a
+second, but a divmod writer proven equal to `T.digits` would be the fix if
+that ever mattered.

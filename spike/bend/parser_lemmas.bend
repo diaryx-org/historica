@@ -446,6 +446,14 @@ def pick_done(c: Bool, a: Result<&2, &2, String, Ops.Doc>, b: Result<&2, &2, Str
     case False{}:
       Empty.absurd({a == Done{d} : Result<&2, &2, String, Ops.Doc>}, refuse(b, d, bad, e))
 
+# The validator that passed the document on was satisfied.
+def pick_true(c: Bool, -a: Result<&2, &2, String, Ops.Doc>, b: Result<&2, &2, String, Ops.Doc>, -d: Ops.Doc, bad: {failing(b) == True{} : Bool}, e: {Bool.pick(Result<&2, &2, String, Ops.Doc>, c, a, b) == Done{d} : Result<&2, &2, String, Ops.Doc>}) -> {c == True{} : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, refuse(b, d, bad, e))
+
 def ops_of_doc(r: Result<&2, &2, String, Ops.Doc>) -> List<&2, Ops.Op>:
   match r:
     case Fail{msg}:
@@ -507,7 +515,7 @@ def preamble_ordered(ls: List<&2, T.Line>, -f2: Maybe<&2, String>, -r2: Maybe<&2
         case False{}:
           Empty.absurd({ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, 1n, "not a historica document"), Ops.Doc{f2, r2, ops}, {==}, e))
         case True{}:
-          forgets_ordered(Ops.header(rest, 2n, "forgets "), f2, r2, ops, pick_done(String.eq(t, "historica"), Ops.parse.forgets(Ops.header(rest, 2n, "forgets ")), Ops.fail(Ops.Doc, 1n, "not a historica document: " ++ t), Ops.Doc{f2, r2, ops}, {==}, e))
+          forgets_ordered(Ops.header(rest, 2n, "forgets "), f2, r2, ops, pick_done(T.same(t, "historica"), Ops.parse.forgets(Ops.header(rest, 2n, "forgets ")), Ops.fail(Ops.Doc, 1n, "not a historica document: " ++ t), Ops.Doc{f2, r2, ops}, {==}, e))
 
 def le_zero(n: Nat) -> {Nat.is_le(0n, n) == True{} : Bool}:
   match n:

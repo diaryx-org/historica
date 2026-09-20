@@ -5,6 +5,7 @@
 import Base
 import ./sha256.bend as Sha
 import ./ops.bend as Ops
+import ./text.bend as T
 import ./revision.bend as Rev
 import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
@@ -206,3 +207,19 @@ law parsed_document_semantics:
   for +ops: List<&2, Ops.Op>
   for e: {Ops.parse(s) == Done{Ops.Doc{forgets, stated, ops}} : Result<&2, &2, String, Ops.Doc>}
   {Ops.apply(parent, Ops.Doc{None{}, stated, ops}) == Block.replay_ops(parent, stated, ops) : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# A decimal number is spelled as it was read: `T.number` admits one
+# spelling per value, and `T.spell` produces it.
+law spell_number:
+  for +s: String
+  for +n: Nat
+  for e: {T.number(s) == Some{n} : Maybe<&2, Nat>}
+  {T.spell(n) == s : String}
+
+# The writer reproduces every document the parser accepts, byte for byte.
+# There is one spelling of each set of facts, and the parser admits only it.
+law write_parse:
+  for +s: String
+  for doc: Ops.Doc
+  for e: {Ops.parse(s) == Done{doc} : Result<&2, &2, String, Ops.Doc>}
+  {Ops.write(doc) == s : String}

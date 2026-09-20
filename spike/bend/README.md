@@ -32,11 +32,12 @@ bend main.bend -- diff   old.txt new.txt
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `main.bend` | `log`, `check`, `replay`, `diff` over the documents you name | `cli` |
-| `LAWS.bend` / `PROOF.bend` | twenty-seven claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | twenty-nine claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
 | `parser_lemmas.bend` | the parser only accepts ordered documents: its per-operation check implies `Block.ordered`, and the parse loop applies it to every operation | the parser theorem |
+| `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
 | `corpus_ops.bend`, `corpus_rev.bend` | the corpus, executed | `tests/*.rs` |
@@ -210,10 +211,35 @@ names `ordered_all`. Two theorems close the gap:
 
 `corpus_ops.bend` runs the last one on every replayed history document.
 
+The writer is proven to reproduce what the parser accepted, byte for byte:
+`write_parse` says `Ops.write(doc) == s` whenever `Ops.parse(s)` is
+`Done{doc}`. Three files carry it. `equality_lemmas.bend` decides equality
+of characters and strings down to the bits of a word (`Word.cmp` returning
+`EQ` is `a == b`), so that a comparison the parser made becomes an
+equation; the parser now compares with a structural `T.same` rather than
+`String.eq`, whose three-way comparison returns tuples a proof cannot open.
+`decimal_lemmas.bend` proves `spell_number`: `T.spell(n) == s` whenever
+`T.number(s) == Some{n}`. The decimal layer was rewritten for it: one digit
+table serves reader and writer, a number is a little-endian digit list
+(`T.value`, `T.digits`), and counting up (`T.dsucc`) is what links the two
+— ten times a positive number puts a zero in front of its digits, and a
+digit below ten added to that puts the digit in front — with no arithmetic
+of machine words anywhere. `spelling_lemmas.bend` walks the parser:
+`unlines(lines(s)) == s`, then `taken` for the items under an operation
+(each line is its prefix and body, a `\ no newline` line unterminates the
+item above, a `\ forgotten` line is a forgotten item), `next_op_sp` for the
+operation line (cut at its first space, its keyword and numbers spelled
+back), `collect_sp` for the loop, and one lemma per header validator.
+
+Trying to prove it found two ways the port accepted what it could not write
+back: a `\ no newline` or `\ forgotten` line, and a header line, with no
+newline after it. Both are refused now, as the Rust parser already did, and
+`invalid/unterminated-marker.ops.txt` pins the first in both corpora.
+
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Seventeen mutations cover the primitive helpers, lost inserts, a lost trailing
+Twenty-three mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -222,8 +248,11 @@ a replacement that consumes nothing, an ordering that admits an insert
 inside a deleted run, and four parser relaxations: a delete after an insert
 at one position, an operation inside a deleted run, a last delete forgotten
 across an insert, and a loop that checks the previous operation but not the
-last delete. The proof gate rejects each at its expected proof
-location. The script tests run both sides on multi-block
+last delete; and six round-trip breaks: a writer that omits the marker
+after an unterminated item or swaps a delete's position and count, a
+parser that accepts an unterminated marker or header line, a reader that
+admits a leading zero, and a count that drops the carry. The proof gate
+rejects each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees
 or runs out of range, and forgotten quotes under a wrong digest.
@@ -234,8 +263,8 @@ proof gate. Corpus failures now exit nonzero. The runner prints and fixes
 the compiler path for each run. The full gate passes on Bend 2.0.20; native compilation of the revision corpus takes a few
 minutes on the development machine.
 
-Still unproved are independent error soundness, merge convergence,
-`apply(diff(parent, child)) == child`, and `write(parse(s)) == s`. The corpus and oracle comparisons provide
+Still unproved are independent error soundness, merge convergence, and
+`apply(diff(parent, child)) == child`. The corpus and oracle comparisons provide
 executable checks where those general proofs are still missing. See
 [RUNTIME.md](RUNTIME.md) for the C/Rust interop direction and proof boundary.
 

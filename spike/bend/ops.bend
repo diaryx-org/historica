@@ -178,7 +178,7 @@ def classify.of(stripped: Maybe<&2, String>, no_newline: Bool, forgot: Bool) -> 
               Other{}
 
 def classify(+t: String, p: Char) -> Read:
-  classify.of(T.strip_prefix(t, String.from_list([p])), String.eq(t, "\\ no newline"), String.eq(t, "\\ forgotten"))
+  classify.of(T.strip_prefix(t, String.from_list([p])), T.same(t, "\\ no newline"), T.same(t, "\\ forgotten"))
 
 def classify_head(ls: List<&2, T.Line>, p: Char) -> Read:
   match ls:
@@ -196,14 +196,18 @@ def take_items(ls: List<&2, T.Line>, r: Read, at: Nat, +p: Char, acc: List<&2, I
       take_items(rest, classify_head(rest, p), 1n+at, p, line(body) <> acc)
     case T.Line{t, False{}} <> rest Body{body}:
       fail(Taken, at, "unterminated line")
-    case T.Line{t, term} <> +rest NoNewline{}:
+    case T.Line{t, True{}} <> +rest NoNewline{}:
       match acc:
         case Item{t2, True{}, f2} <> acc_rest:
           take_items(rest, classify_head(rest, p), 1n+at, p, Item{t2, False{}, f2} <> acc_rest)
         case _:
           fail(Taken, at, "`\\ no newline` without an item above it")
-    case T.Line{t, term} <> +rest Forgotten{}:
+    case T.Line{t, False{}} <> rest NoNewline{}:
+      fail(Taken, at, "unterminated line")
+    case T.Line{t, True{}} <> +rest Forgotten{}:
       take_items(rest, classify_head(rest, p), 1n+at, p, forgotten() <> acc)
+    case T.Line{t, False{}} <> rest Forgotten{}:
+      fail(Taken, at, "unterminated line")
     case T.Line{t, term} <> rest Other{}:
       Done{Taken{acc, T.Line{t, term} <> rest, at}}
 
@@ -322,9 +326,9 @@ def next_op.keyword(+rest: List<&2, T.Line>, +at: Nat, +t: String, +args: String
 def next_op.split(+rest: List<&2, T.Line>, +at: Nat, +t: String, cut: Maybe<&2, T.Split>) -> Next:
   match cut:
     case None{}:
-      next_op.keyword(rest, at, t, SNil{}, String.eq(t, "delete"), String.eq(t, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), String.eq(t, "\\ no newline"))
+      next_op.keyword(rest, at, t, SNil{}, T.same(t, "delete"), T.same(t, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), T.same(t, "\\ no newline"))
     case Some{T.Split{+kw, args}}:
-      next_op.keyword(rest, at, t, args, String.eq(kw, "delete"), String.eq(kw, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), False{})
+      next_op.keyword(rest, at, t, args, T.same(kw, "delete"), T.same(kw, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), False{})
 
 # The next operation under the walk, or the end, or a complaint. Whether it
 # may follow what came before is `next_op.bounded`'s question.
@@ -427,8 +431,8 @@ def header(ls: List<&2, T.Line>, at: Nat, key: String) -> Headed:
   match ls:
     case Nil{}:
       Headed{None{}, Nil{}, at}
-    case T.Line{+t, term} <> rest:
-      header.of(t, term, rest, at, T.strip_prefix(t, key))
+    case T.Line{+t, +term} <> rest:
+      header.of(t, term, rest, at, Bool.pick(Maybe<&2, String>, term, T.strip_prefix(t, key), None{}))
 
 def valid_digest(v: Maybe<&2, String>) -> Bool:
   match v:
@@ -452,7 +456,7 @@ def parse.forgets(h: Headed) -> Result<&2, &2, String, Doc>:
 def parse.preamble(ls: List<&2, T.Line>) -> Result<&2, &2, String, Doc>:
   match ls:
     case T.Line{+t, True{}} <> rest:
-      Bool.pick(Result<&2, &2, String, Doc>, String.eq(t, "historica"), parse.forgets(header(rest, 2n, "forgets ")), fail(Doc, 1n, "not a historica document: " ++ t))
+      Bool.pick(Result<&2, &2, String, Doc>, T.same(t, "historica"), parse.forgets(header(rest, 2n, "forgets ")), fail(Doc, 1n, "not a historica document: " ++ t))
     case _:
       fail(Doc, 1n, "not a historica document")
 
@@ -478,9 +482,9 @@ def write_items(+p: Char, items: List<&2, Item>) -> String:
 def write_op(op: Op) -> String:
   match op:
     case Op{Delete{}, at, +items}:
-      "delete " ++ Nat.show(at) ++ " " ++ Nat.show(List.length(&2, Item, items)) ++ "\n" ++ write_items('-', items)
+      "delete " ++ T.spell(at) ++ " " ++ T.spell(List.length(&2, Item, items)) ++ "\n" ++ write_items('-', items)
     case Op{Insert{}, at, items}:
-      "insert " ++ Nat.show(at) ++ "\n" ++ write_items('+', items)
+      "insert " ++ T.spell(at) ++ "\n" ++ write_items('+', items)
 
 def write_ops(ops: List<&2, Op>) -> String:
   match ops:

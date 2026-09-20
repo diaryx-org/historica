@@ -5,6 +5,7 @@ import ./ops.bend as Ops
 import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
 import ./semantic_replay.bend as Block
+import ./text.bend as T
 
 def check(ok: Bool, name: String) -> IO(Unit):
   match ok:
@@ -114,6 +115,34 @@ def parent_cases(parents: List<&2, List<&2, Ops.Item>>) -> IO(Unit):
         gaps(List.length(&2, Ops.Item, parent), parent)
         parent_cases(rest)
 
+def reads_back(m: Maybe<&2, Nat>, n: Nat) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{k}:
+      Nat.is_eq(k, n)
+
+# The decimal layer: every value has one spelling, which reads back, and
+# `T.spell` agrees with Base's `Nat.show` where both are defined.
+def spelled(+n: Nat) -> IO(Unit):
+  do IO<Unit>:
+    check(String.eq(T.spell(n), Nat.show(n)), "spell agrees with Nat.show at " ++ Nat.show(n))
+    check(reads_back(T.number(T.spell(n)), n), "number reads back spell at " ++ Nat.show(n))
+
+def unspelled(+s: String) -> IO(Unit):
+  check(Maybe.is_none(&2, Nat, T.number(s)), "number refuses " ++ s)
+
+# The round trip, run: what parses writes back byte for byte.
+def round_trip.of(+s: String, parsed: Result<&2, &2, String, Ops.Doc>) -> IO(Unit):
+  match parsed:
+    case Fail{e}:
+      IO.die(Unit, 1, "FAIL round trip: refused: " ++ e)
+    case Done{doc}:
+      check(String.eq(Ops.write(doc), s), "round trip of " ++ s)
+
+def round_trip(+s: String) -> IO(Unit):
+  round_trip.of(s, Ops.parse(s))
+
 def main() -> IO(Unit):
   do IO<Unit>:
     parent_cases([Nil{}, [Ops.line("a")], [Ops.line("a"), Ops.line("b")], [Ops.line("a"), Ops.line("b"), Ops.line("c")], [Ops.line("same"), Ops.line("same"), Ops.forgotten(), Ops.line("end")]])
@@ -173,4 +202,7 @@ def main() -> IO(Unit):
     check(Bool.not(Block.ordered([Ops.Op{Ops.Delete{}, 1n, [Ops.line("b"), Ops.line("c")]}, Ops.Op{Ops.Insert{}, 2n, [Ops.line("x")]}], 0n)), "an insert inside a deleted run is not ordered")
     refused("script: second block disagreement is reported", "a delete at 1 quotes lines the parent does not hold", Block.replay(Ops.from_text("a\nb\nc\n"), None{}, [Block.Step{0n, Block.Insertion{[Ops.line("x")]}}, Block.Step{1n, Block.Deletion{[Ops.line("wrong")]}}]))
     accepted("script: positional result of three blocks", Ops.from_text("x\nb\ny\nc\ne\n"), Block.replay(Ops.from_text("a\nb\nc\nd\ne\n"), None{}, [Block.Step{0n, Block.Replacement{[Ops.line("a")], [Ops.line("x")]}}, Block.Step{1n, Block.Insertion{[Ops.line("y")]}}, Block.Step{1n, Block.Deletion{[Ops.line("d")]}}]))
-    IO.print("ok    positional/cursor/block/script oracles and refusal regressions")
+    List.for_each(~&2, ~Nat, ~(n => spelled(n)), [0n, 1n, 9n, 10n, 11n, 99n, 100n, 101n, 4090n, 65535n, 1000000n])
+    List.for_each(~&2, ~String, ~(s => unspelled(s)), ["", "042", "00", "1 2", "-1", "1a", " 1"])
+    List.for_each(~&2, ~String, ~(s => round_trip(s)), ["historica\n\ninsert 0\n+a\n", "historica\nforgets 0000000000000000000000000000000000000000000000000000000000000000\n\ndelete 10 2\n-x\n-y\n", "historica\nresult 0000000000000000000000000000000000000000000000000000000000000000\n\ndelete 3 1\n-old\ninsert 3\n+new\n\\ no newline\n", "historica\n\ndelete 0 2\n-a\n\\ forgotten\ninsert 5\n+b\r\n+\\ no newline, read here as prose\n"])
+    IO.print("ok    positional/cursor/block/script oracles, spelling and refusal regressions")

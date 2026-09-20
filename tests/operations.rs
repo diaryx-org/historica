@@ -202,6 +202,10 @@ fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
                 found: "replace 3 1".to_owned(),
             },
         ),
+        (
+            "invalid/unterminated-marker.ops.txt",
+            ParseErrorKind::UnterminatedLine,
+        ),
     ]
 }
 

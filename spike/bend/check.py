@@ -145,6 +145,44 @@ def check_mutations(temporary):
             "ordered(prev, op)",
             "parser_lemmas.bounded_ok",
         ),
+        (
+            "the writer omits the marker after an unterminated item",
+            'Bool.pick(String, n, SNil{}, "\\\\ no newline\\n")',
+            "Bool.pick(String, n, SNil{}, SNil{})",
+            "spelling_lemmas.item_marker",
+        ),
+        (
+            "the writer spells a delete's count before its position",
+            '"delete " ++ T.spell(at) ++ " " ++ T.spell(List.length(&2, Item, items))',
+            '"delete " ++ T.spell(List.length(&2, Item, items)) ++ " " ++ T.spell(at)',
+            "spelling_lemmas.delete_sp.count",
+        ),
+        (
+            "the parser accepts an unterminated marker line",
+            "    case T.Line{t, True{}} <> +rest NoNewline{}:",
+            "    case T.Line{t, term} <> +rest NoNewline{}:",
+            "spelling_lemmas.taken",
+        ),
+        (
+            "the parser accepts an unterminated header line",
+            "Bool.pick(Maybe<&2, String>, term, T.strip_prefix(t, key), None{})",
+            "T.strip_prefix(t, key)",
+            "spelling_lemmas.header_sp",
+        ),
+        (
+            "the reader admits a leading zero",
+            "Bool.and(Nat.is_lt(d, 10n), Nat.is_lt(0n, d))",
+            "Nat.is_lt(d, 10n)",
+            "decimal_lemmas.pos_value",
+            "text.bend",
+        ),
+        (
+            "counting up drops the carry",
+            "0n <> dsucc(rest)",
+            "0n <> rest",
+            "decimal_lemmas.digits_mul10",
+            "text.bend",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"

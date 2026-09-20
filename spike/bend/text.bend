@@ -75,18 +75,140 @@ def all_chars(~f: Char -> Bool, s: String) -> Bool:
     case SCon{h, t}:
       Bool.and(f(h), all_chars(~f, t))
 
-# A canonical decimal: digits only, and no leading zero unless it is `0`.
-def canonical_number(s: String) -> Bool:
-  match s:
-    case SNil{}:
-      False{}
-    case SCon{Chr{d}, SNil{}}:
-      Char.is_digit(Chr{d})
-    case SCon{+h, t}:
-      Bool.and(Bool.and(Char.is_digit(h), Bool.not(Char.is_eq(h, '0'))), all_chars(~Char.is_digit, t))
+# Decimal numbers, read and spelled by the same digit table, so that the
+# proofs can follow the digits rather than the arithmetic of a machine word.
+# Digits are little-endian lists of naturals below ten.
+def digits_table() -> List<&2, Char>:
+  ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 
-def number(+s: String) -> Maybe<&2, Nat>:
-  Bool.pick(Maybe<&2, Nat>, canonical_number(s), Nat.read(s), None{})
+def digit_of.go(table: List<&2, Char>, +c: Char, +k: Nat) -> Maybe<&2, Nat>:
+  match table:
+    case Nil{}:
+      None{}
+    case ch <> rest:
+      Bool.pick(Maybe<&2, Nat>, Char.is_eq(c, ch), Some{k}, digit_of.go(rest, c, 1n+k))
+
+def digit_of(c: Char) -> Maybe<&2, Nat>:
+  digit_of.go(digits_table(), c, 0n)
+
+def char_of.go(table: List<&2, Char>, +k: Nat, +d: Nat) -> Char:
+  match table:
+    case Nil{}:
+      '?'
+    case ch <> rest:
+      Bool.pick(Char, Nat.is_eq(k, d), ch, char_of.go(rest, 1n+k, d))
+
+def char_of(d: Nat) -> Char:
+  char_of.go(digits_table(), 0n, d)
+
+# The digits of a string read backwards, least significant first.
+def to_digits.push(d: Maybe<&2, Nat>, ds: Maybe<&2, List<&2, Nat>>) -> Maybe<&2, List<&2, Nat>>:
+  match d ds:
+    case Some{x} Some{xs}:
+      Some{x <> xs}
+    case _ _:
+      None{}
+
+def to_digits(rs: String) -> Maybe<&2, List<&2, Nat>>:
+  match rs:
+    case SNil{}:
+      Some{Nil{}}
+    case SCon{c, t}:
+      to_digits.push(digit_of(c), to_digits(t))
+
+# Ten times a number. `mul10.spec` is what the proofs follow; `mul10`
+# accumulates, so the stack does not grow with the number.
+def mul10.spec(n: Nat) -> Nat:
+  match n:
+    case 0n:
+      0n
+    case 1n+p:
+      1n+1n+1n+1n+1n+1n+1n+1n+1n+1n+mul10.spec(p)
+
+def mul10.go(n: Nat, acc: Nat) -> Nat:
+  match n:
+    case 0n:
+      acc
+    case 1n+p:
+      mul10.go(p, 1n+1n+1n+1n+1n+1n+1n+1n+1n+1n+acc)
+
+def mul10(n: Nat) -> Nat:
+  mul10.go(n, 0n)
+
+def value(ds: List<&2, Nat>) -> Nat:
+  match ds:
+    case Nil{}:
+      0n
+    case d <> rest:
+      Nat.add(d, mul10(value(rest)))
+
+# A canonical spelling has a nonzero leading digit unless it is `0` alone;
+# read backwards, the last digit is nonzero unless it is the only one.
+def normalized.tail(ds: List<&2, Nat>) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case +d <> Nil{}:
+      Bool.and(Nat.is_lt(d, 10n), Nat.is_lt(0n, d))
+    case d <> rest:
+      Bool.and(Nat.is_lt(d, 10n), normalized.tail(rest))
+
+def normalized(ds: List<&2, Nat>) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case d <> Nil{}:
+      Nat.is_lt(d, 10n)
+    case d <> rest:
+      Bool.and(Nat.is_lt(d, 10n), normalized.tail(rest))
+
+def number.of(ds: Maybe<&2, List<&2, Nat>>) -> Maybe<&2, Nat>:
+  match ds:
+    case None{}:
+      None{}
+    case Some{+xs}:
+      Bool.pick(Maybe<&2, Nat>, normalized(xs), Some{value(xs)}, None{})
+
+def number(s: String) -> Maybe<&2, Nat>:
+  number.of(to_digits(String.reverse(s)))
+
+# Counting up in digits: the successor of a little-endian digit list.
+def dsucc(ds: List<&2, Nat>) -> List<&2, Nat>:
+  match ds:
+    case Nil{}:
+      [1n]
+    case +d <> +rest:
+      Bool.pick(List<&2, Nat>, Nat.is_eq(d, 9n), 0n <> dsucc(rest), (1n+d) <> rest)
+
+# `digits.spec` is the definition the proofs follow; `digits` counts the
+# same way with an accumulator, so the stack does not grow with the number.
+def digits.spec(n: Nat) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      [0n]
+    case 1n+p:
+      dsucc(digits.spec(p))
+
+def digits.go(n: Nat, acc: List<&2, Nat>) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      acc
+    case 1n+p:
+      digits.go(p, dsucc(acc))
+
+def digits(n: Nat) -> List<&2, Nat>:
+  digits.go(n, [0n])
+
+def chars(ds: List<&2, Nat>) -> String:
+  match ds:
+    case Nil{}:
+      SNil{}
+    case d <> rest:
+      SCon{char_of(d), chars(rest)}
+
+# The canonical spelling of a number.
+def spell(n: Nat) -> String:
+  String.reverse(chars(digits(n)))
 
 def is_hex(c: Char) -> Bool:
   match c:
@@ -96,6 +218,17 @@ def is_hex(c: Char) -> Bool:
 # Sixty-four lowercase hex characters: the spelling of a SHA-256.
 def is_digest(+s: String) -> Bool:
   Bool.and(Nat.is_eq(String.length(s), 64n), all_chars(~is_hex, s))
+
+# Structural equality, which a proof can open where `String.eq`'s three-way
+# comparison cannot.
+def same(a: String, b: String) -> Bool:
+  match a b:
+    case SNil{} SNil{}:
+      True{}
+    case SCon{x, xt} SCon{y, yt}:
+      Bool.and(Char.is_eq(x, y), same(xt, yt))
+    case _ _:
+      False{}
 
 def strip_prefix(+s: String, p: String) -> Maybe<&2, String>:
   match s p:
@@ -112,4 +245,5 @@ def main() -> IO(Unit):
     IO.print(Nat.show(List.length(&2, Line, lines("a\nb"))))
     IO.print(Maybe.show(~&2, ~Nat, ~Nat.show, number("042")))
     IO.print(Maybe.show(~&2, ~Nat, ~Nat.show, number("42")))
+    IO.print(spell(0n) ++ " " ++ spell(10n) ++ " " ++ spell(4090n))
     IO.print(word("insert 3 4"))
