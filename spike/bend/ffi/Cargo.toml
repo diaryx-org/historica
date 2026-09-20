@@ -1,0 +1,22 @@
+# The host services `main.bend` cannot get from Base: where the store is, and
+# what documents it holds. A static library the generated C program links;
+# `RUNTIME.md` says why this is the shape, and `check.py` builds it.
+#
+# Deliberately not a member of the workspace above: it is the spike's, it
+# publishes nothing, and its only consumer is a Bend program.
+[package]
+name = "historica-bend-ffi"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["staticlib"]
+
+[profile.release]
+panic = "unwind"
+
+[dev-dependencies]
+tempfile = "3"

@@ -7,9 +7,12 @@ providing the filesystem and process services it needs.
 
 ## Current support
 
-Checked against `bend version` **2.0.19**, `bend guide`, and
-`bend guide effects`. The current commands use Base IO; there is no Rust
-adapter in this spike yet. The JS/native test gate also passes on 2.0.20.
+Checked against `bend version` **2.0.20**, `bend guide`, and
+`bend guide effects`. The adapter below is built: `store.bend` declares
+`Store.locate` and `Store.list`, `ffi/store_*.c` marshal them, and
+`ffi/src/lib.rs` is the Rust static library. `check.py` builds the archive,
+emits `main.bend` to C, links the two, and holds the result — and the `.js`
+build, which runs the twins in `ffi/store_*.js` — to the Rust tool.
 
 [Issue #813](https://github.com/bendlang/bend/issues/813) requests a native
 library target for pure definitions, with selected exports, a generated
@@ -21,11 +24,16 @@ loader today.
 
 The workaround reported in that discussion reverses the host relationship:
 Bend runs the application, C translates effect values and parks asynchronous
-work, and a Rust static library owns external resources. This is suitable for
-Historica too; its first useful slice would be listing store documents, which
-currently have to be passed as explicit paths to `main.bend`.
+work, and a Rust static library owns external resources. That is the shape
+here: the first slice is locating the store and listing its documents, which
+is what lets `main.bend` take `historica`'s own arguments instead of paths.
 
 ## Shape of an adapter
+
+`bend x.bend -o x` compiles the C itself, with `-O3 -lm -lpthread` and
+nothing else, so an archive cannot be linked that way: emit C with `-o x.c`
+and link by hand. The generated program is large (some 60 MB of C for
+`main.bend`) and `-O3` takes minutes; `check.py` allows for that.
 
 1. A Bend definition returns `IO(Result<..., R>)`; the pure caller decides
    what to do with success or failure. No foreign effect belongs in a law or
@@ -44,8 +52,8 @@ currently have to be passed as explicit paths to `main.bend`.
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-A first directory-listing effect can be one-shot, avoiding persistent
-handles. Longer-lived resources need a separate ownership design: the guide
+The two effects here are one-shot — a string in, a string out, nothing
+held between calls — which avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
 Do not represent ownership merely by a freely copyable numeric pointer.
 Shutdown, cancellation, and partial initialization must release Rust-owned

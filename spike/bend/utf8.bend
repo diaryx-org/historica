@@ -16,6 +16,20 @@ type Step is Data:
 def cont(+acc: U32, b: U32) -> U32:
   ((acc << 6n) .|. (b .&. 63) : U32)
 
+# A code point as a Char. What a lead byte's bits say may not be a scalar
+# value — a byte of 0xF8 or above, or a surrogate spelled in three bytes —
+# and a Char must be one on every backend, so such a sequence decodes to
+# U+FFFD, as a text editor shows it.
+def chr.of(x: U32, bad: Bool) -> Char:
+  match bad:
+    case True{}:
+      Chr{65533}
+    case False{}:
+      Chr{x}
+
+def chr(+x: U32) -> Char:
+  chr.of(x, Bool.or(U32.is_gt(x, 1114111), Bool.and(U32.is_ge(x, 55296), U32.is_le(x, 57343))))
+
 # The rest after a lead byte of two, three or four, and the code point.
 # A truncated sequence decodes to what its bits say rather than being
 # refused: the parsers refuse the document later on its own terms, and the
@@ -23,21 +37,21 @@ def cont(+acc: U32, b: U32) -> U32:
 def decode.two(acc: U32, bs: List<&2, U32>) -> Step:
   match bs:
     case b1 <> rest:
-      Step{Chr{cont(acc, b1)}, rest}
+      Step{chr(cont(acc, b1)), rest}
     case _:
       Step{Chr{acc}, Nil{}}
 
 def decode.three(acc: U32, bs: List<&2, U32>) -> Step:
   match bs:
     case b1 <> b2 <> rest:
-      Step{Chr{cont(cont(acc, b1), b2)}, rest}
+      Step{chr(cont(cont(acc, b1), b2)), rest}
     case _:
       Step{Chr{acc}, Nil{}}
 
 def decode.four(acc: U32, bs: List<&2, U32>) -> Step:
   match bs:
     case b1 <> b2 <> b3 <> rest:
-      Step{Chr{cont(cont(cont(acc, b1), b2), b3)}, rest}
+      Step{chr(cont(cont(cont(acc, b1), b2), b3)), rest}
     case _:
       Step{Chr{acc}, Nil{}}
 

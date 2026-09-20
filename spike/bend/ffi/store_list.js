@@ -1,0 +1,32 @@
+// The JS twin of `store_list.c`: every file under `revisions/` and
+// `operations/`, relative to the root, sorted, one per line.
+function store_list(root) {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const paths = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      if (e.code === "ENOENT") return;
+      throw e;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else {
+        const rel = path.relative(root, full);
+        if (!rel.includes("\n")) paths.push(rel);
+      }
+    }
+  };
+  try {
+    for (const dir of ["revisions", "operations"]) walk(path.join(root, dir));
+  } catch (e) {
+    return io_fail(e.errno ? -e.errno : 5, `${root}: ${e.message}`);
+  }
+  // Byte order, as Rust's `sort` on `String`s is.
+  paths.sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  return io_done(paths.join("\n"));
+}

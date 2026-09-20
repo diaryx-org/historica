@@ -15,10 +15,26 @@ python3 check.py                 # proofs, JS/native corpora, mutation checks
 bend PROOF.bend                  # the laws: prints "All terms check."
 bend corpus_ops.bend             # the operations corpus, every line `ok`
 bend corpus_rev.bend             # the revision corpora, every line `ok`
-bend main.bend -- log    history/revisions/*/*.rev.txt
-bend main.bend -- check  history/revisions/*/*.rev.txt history/operations/*/*/*
+bend main.bend -- log                    # in a folder with a history/, like historica
+bend main.bend -- files head
+bend main.bend -- cat head notes.txt
+bend main.bend -- show kxry
+bend main.bend -- check
 bend main.bend -- replay history/operations/*/Start/notes.txt history/operations/*/*/notes.txt.ops.txt
 bend main.bend -- diff   old.txt new.txt
+```
+
+The store commands find the store the way `historica` does — the `history/`
+here or above — through two host effects (`store.bend`): `bend main.bend` runs
+them as JavaScript, and the native binary calls a Rust static library, linked
+by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
+`check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
+tool byte for byte.
+
+```console
+cargo build --release --manifest-path ffi/Cargo.toml
+bend main.bend -o main.c
+cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -lm -lpthread
 ```
 
 ## What is here
@@ -31,7 +47,8 @@ bend main.bend -- diff   old.txt new.txt
 | `ident.bend` | change and file IDs in the `k`–`z` alphabet, spelled and deciphered | `core::{ChangeId, FileId}` |
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
-| `main.bend` | `log`, `check`, `replay`, `diff` over the documents you name | `cli` |
+| `store.bend`, `ffi/` | where the store is and what it holds: two effects, a C adapter, a Rust static library | `Store::discover`, `std::fs` |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check` over the store it finds; `replay` and `diff` over named files | `cli` |
 | `LAWS.bend` / `PROOF.bend` | thirty-three claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -61,9 +78,16 @@ history resolves as the core says — `04` is superseded and still a head of
 the graph, the amended change resolves to `05`, the rebased merge to `06`, two
 amendments that saw neither diverge.
 
-On a store `historica init` and `historica record` made, `log` prints the
-same history, `check` names every document by the digest `shasum` prints, and
-`diff` writes the operation document the Rust tool wrote, `result` included.
+On a store assembled from each corpus, and on one `historica init` and
+`historica record` made, `log` prints what `historica log` prints — order,
+abbreviations, marks, counted facts, the message verbatim — `files` the same
+file set, `cat` the same content, `show` the same bytes, and a target the
+Rust tool refuses is refused in the same words; `check.py` compares the native
+binary and the JavaScript build against the Rust tool on six such stores.
+`check` names every document by the digest `shasum` prints, and `diff` writes
+the operation document the Rust tool wrote, `result` included. Not read:
+bookmarks (`names/`), links, and a merge's `keep` resolution, which `cat`
+refuses rather than guesses at.
 
 ### What the laws say
 

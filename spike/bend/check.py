@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Check proofs, run JS/native corpora, and ensure replay mutations are rejected."""
+"""Check proofs, run JS/native corpora, ensure replay mutations are rejected,
+and hold the store commands to the Rust tool's output."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parent
+REPO = ROOT.parent.parent
+CORPUS = REPO / "tests" / "corpus"
 # A Nix profile (or another package manager) can update while a gate runs.
 # Resolve once so the printed version identifies every check in this run.
 BEND = shutil.which("bend")
@@ -17,6 +22,12 @@ BEND = str(Path(BEND).resolve())
 def run(*args, cwd=ROOT, timeout=120):
     print("+", " ".join(map(str, args)), flush=True)
     subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
+
+
+def capture(*args, cwd):
+    """A command's stdout, stderr and exit code, for comparing two tools."""
+    done = subprocess.run(args, cwd=cwd, capture_output=True, timeout=120)
+    return done.stdout, done.stderr, done.returncode
 
 
 def main():
@@ -31,6 +42,104 @@ def main():
             run(str(executable))
 
         check_mutations(temporary)
+        check_store(temporary)
+
+
+# The store commands
+# ------------------
+
+# `main.bend`'s `log`, `files`, `cat` and `show` are held to the Rust tool,
+# byte for byte, on stores assembled from the corpora: each corpus's
+# `revisions/` and `operations/` under a `history/` with the header file the
+# tool looks for. What is compared is the native binary, linked against the
+# Rust archive in `ffi/`, and the `.js` build, which runs the adapter's JS
+# twins — so a twin that drifts from its C side fails here.
+#
+# One command per corpus is a target the Rust tool resolves; the rest are
+# refusals, whose text is compared too.
+STORES = {
+    "tree": [
+        ["log"],
+        ["log", "kxry"],
+        ["files", "head"],
+        ["files", "qpvu"],
+        ["cat", "head", "docs/README.md"],
+        ["cat", "kxry", "README.md"],
+        ["cat", "head", "entry.md"],
+        ["show", "head"],
+        ["show", "mzvw", "docs/README.md"],
+        ["show", "zzzz"],
+        ["show", "nope"],
+    ],
+    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"]],
+    "merged": [["log"], ["files", "head"]],
+    "links": [["log"], ["files", "head"]],
+    "modes": [["log"], ["files", "head"]],
+    "whole": [["log"], ["files", "head"]],
+}
+
+
+def assemble(temporary, corpus):
+    store = temporary / f"store-{corpus}"
+    history = store / "history"
+    history.mkdir(parents=True)
+    (history / "historica.txt").write_text(
+        "historica\n\nAssembled from tests/corpus by spike/bend/check.py.\n"
+    )
+    if corpus == "revisions":
+        # The seven-revision history and the operations it names are two
+        # flat directories rather than one corpus.
+        for kind in ("revisions", "operations"):
+            (history / kind).mkdir()
+            for path in (CORPUS / kind).glob("*.txt"):
+                shutil.copy(path, history / kind / path.name)
+    else:
+        for kind in ("revisions", "operations"):
+            source = CORPUS / corpus / kind
+            if source.is_dir():
+                shutil.copytree(source, history / kind, ignore=shutil.ignore_patterns("invalid"))
+    return store
+
+
+def check_store(temporary):
+    rust = shutil.which("historica")
+    if rust is None:
+        run("cargo", "build", "-q", "-p", "historica-cli", cwd=REPO, timeout=600)
+        rust = str(REPO / "target" / "debug" / "historica")
+
+    archive = ROOT / "ffi" / "target" / "release" / "libhistorica_bend_ffi.a"
+    # The boundary's own tests — malformed input, error paths, freeing,
+    # repeated calls — then the archive the program links.
+    run("cargo", "test", "-q", "--release", cwd=ROOT / "ffi", timeout=600)
+    run("cargo", "build", "-q", "--release", cwd=ROOT / "ffi", timeout=600)
+    source = temporary / "main.c"
+    native = temporary / "main"
+    run(BEND, "main.bend", "-o", str(source), timeout=600)
+    # `bend -o` links nothing of ours, so the C is compiled here; `-w` because
+    # the generated program is not ours to lint.
+    run(
+        os.environ.get("CC", "cc"), "-O3", "-w", "-o", str(native), str(source),
+        str(archive), "-lm", "-lpthread", timeout=900,
+    )
+    script = temporary / "main.js"
+    run(BEND, "main.bend", "-o", str(script), timeout=600)
+
+    failures = 0
+    for corpus, commands in STORES.items():
+        store = assemble(temporary, corpus)
+        for command in commands:
+            expected = capture(rust, *command, cwd=store)
+            for name, tool in (("native", [str(native)]), ("js", ["bun", str(script)])):
+                got = capture(*tool, *command, cwd=store)
+                if got != expected:
+                    failures += 1
+                    print(f"DIFF {corpus} {name}: {' '.join(command)}")
+                    print("  rust:", expected)
+                    print("  bend:", got)
+                else:
+                    print(f"same {corpus} {name}: {' '.join(command)}")
+    if failures:
+        sys.exit(f"{failures} store commands differ from the Rust tool")
 
 
 def check_mutations(temporary):
