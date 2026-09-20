@@ -74,6 +74,7 @@ impl GraphS {
 
     /// What `Ancestry` guarantees of the relation it answers.
     pub open spec fn wf(self) -> bool {
+        &&& forall|e: int, o: int| #[trigger] self.knows(e, o) ==> self.event(e) && self.event(o)
         &&& forall|e: int| self.event(e) ==> self.knows(e, e)
         &&& forall|a: int, b: int, c: int| self.event(a) && self.event(b) && self.event(c)
                 && self.knows(a, b) && self.knows(b, c) ==> self.knows(a, c)
@@ -564,6 +565,11 @@ impl TreeS {
     /// `visible` produces, which `replay_ops` counts positions into.
     pub open spec fn view_ok(self, g: GraphS, e: int, prepare: Seq<int>) -> bool {
         forall|q: int| 0 <= q < prepare.len() ==> self.node(#[trigger] prepare[q]) && g.saw(e, self.nodes[prepare[q]].author)
+    }
+
+    /// Nothing of `e`'s in the tree at all.
+    pub open spec fn absent(self, e: int) -> bool {
+        forall|i: int| self.node(i) ==> (#[trigger] self.nodes[i]).author != e
     }
 
     /// No element yet minted by `e` at or above `minted`.
@@ -2072,7 +2078,7 @@ pub proof fn lemma_walk_some_prefix(g: GraphS, order: Seq<int>, k: int, k2: int)
 /// An event not yet walked has minted nothing.
 pub proof fn lemma_unwalked_minted_nothing(g: GraphS, order: Seq<int>, k: int, t: TreeS)
     requires g.wf(), valid_order(g, order), 0 <= k < order.len(), walk(g, order, k) == Some(t)
-    ensures t.minted_below(order[k], 0)
+    ensures t.minted_below(order[k], 0), t.absent(order[k])
 {
     lemma_walk_wf(g, order, k);
     assert forall|i: int| t.node(i) && (#[trigger] t.nodes[i]).author == order[k] implies false by {
@@ -2102,6 +2108,250 @@ pub proof fn lemma_walk_outside(g: GraphS, order: Seq<int>, k: int, k2: int, set
             lemma_unwalked_minted_nothing(g, order, k2 - 1, t1);
             lemma_step_outside(t1, g, set, order[k2 - 1]);
             lemma_agree_trans(t, t1, t2, set);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Lemma C: two walks agree on every closed set they share.
+// ---------------------------------------------------------------------------
+
+/// Every event of the set is among the first `k` of the order.
+pub open spec fn prefix_holds(order: Seq<int>, k: int, set: ISet<int>) -> bool {
+    forall|o: int| #[trigger] set.contains(o) ==> walked(order, k, o)
+}
+
+/// Adding an event nobody has replayed yet to the set changes nothing.
+proof fn lemma_half_add_absent(t: TreeS, u: TreeS, set: ISet<int>, big: ISet<int>, f: int)
+    requires
+        half(t, u, set), t.absent(f),
+        forall|i: int| t.node(i) ==> !(#[trigger] t.nodes[i]).deleted.contains(f),
+        forall|j: int| u.node(j) ==> !(#[trigger] u.nodes[j]).deleted.contains(f),
+        forall|o: int| #[trigger] big.contains(o) ==> set.contains(o) || o == f,
+        forall|o: int| #[trigger] set.contains(o) ==> big.contains(o),
+    ensures half(t, u, big)
+{
+    assert forall|i: int| t.node(i) && #[trigger] big.contains(t.nodes[i].author)
+        implies exists|j: int| u.node(j) && same_node(t, u, big, i, j) by {
+        assert(t.nodes[i].author != f);
+        assert(set.contains(t.nodes[i].author));
+        let j = choose|j: int| u.node(j) && same_node(t, u, set, i, j);
+        assert(same_deleted(t, u, big, i, j)) by {
+            reveal(same_deleted);
+            assert forall|d: int| #[trigger] big.contains(d) implies (u.nodes[j].deleted.contains(d) <==> t.nodes[i].deleted.contains(d)) by {
+                if set.contains(d) {} else { assert(d == f); }
+            }
+        }
+        assert(u.node(j) && same_node(t, u, big, i, j));
+    }
+}
+
+pub proof fn lemma_agree_add_absent(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, big: ISet<int>, f: int)
+    requires
+        agree(t, u, set), t.absent(f), u.absent(f),
+        forall|i: int| t.node(i) ==> !(#[trigger] t.nodes[i]).deleted.contains(f),
+        forall|j: int| u.node(j) ==> !(#[trigger] u.nodes[j]).deleted.contains(f),
+        forall|o: int| #[trigger] big.contains(o) ==> set.contains(o) || o == f,
+        forall|o: int| #[trigger] set.contains(o) ==> big.contains(o),
+    ensures agree(t, u, big)
+{
+    lemma_half_add_absent(t, u, set, big, f);
+    lemma_half_add_absent(u, t, set, big, f);
+}
+
+/// Agreement on `rest` and on what `f` knows is agreement on their union,
+/// when `f`'s past is already in `rest`: an element outside `f`'s past
+/// was never marked by `f`, and an element of `f`'s own is marked only by
+/// events of its past.
+proof fn lemma_half_union_known(t: TreeS, u: TreeS, g: GraphS, rest: ISet<int>, f: int, both: ISet<int>)
+    requires
+        t.wf(g), u.wf(g), g.wf(), g.event(f), half(t, u, rest), half(t, u, known(g, f)),
+        forall|o: int| #[trigger] past(g, f).contains(o) ==> rest.contains(o),
+        forall|d: int| #[trigger] rest.contains(d) ==> !g.saw(d, f),
+        forall|o: int| #[trigger] both.contains(o) <==> rest.contains(o) || known(g, f).contains(o),
+    ensures half(t, u, both)
+{
+    assert forall|i: int| t.node(i) && #[trigger] both.contains(t.nodes[i].author)
+        implies exists|j: int| u.node(j) && same_node(t, u, both, i, j) by {
+        let a = t.nodes[i].author;
+        if known(g, f).contains(a) {
+            let j = choose|j: int| u.node(j) && same_node(t, u, known(g, f), i, j);
+            assert(same_deleted(t, u, both, i, j)) by {
+                reveal(same_deleted);
+                assert forall|d: int| #[trigger] both.contains(d) implies (u.nodes[j].deleted.contains(d) <==> t.nodes[i].deleted.contains(d)) by {
+                    if known(g, f).contains(d) {
+                    } else {
+                        assert(rest.contains(d));
+                        if rest.contains(a) {
+                            // Its `rest` twin is `j` too, by name.
+                            let j2 = choose|j2: int| u.node(j2) && same_node(t, u, rest, i, j2);
+                            lemma_named_unique(u, g, j, j2);
+                        } else {
+                            // `a` is `f` itself: whatever marked it saw `f`,
+                            // and nothing in `rest` did.
+                            if a != f { assert(g.saw(f, a)); assert(past(g, f).contains(a)); }
+                            assert(a == f);
+                            assert(u.nodes[j].author == f);
+                            if t.nodes[i].deleted.contains(d) { assert(g.saw(d, f)); }
+                            if u.nodes[j].deleted.contains(d) { assert(g.saw(d, f)); }
+                        }
+                    }
+                }
+            }
+            assert(u.node(j) && same_node(t, u, both, i, j));
+        } else {
+            assert(rest.contains(a));
+            let j = choose|j: int| u.node(j) && same_node(t, u, rest, i, j);
+            assert(same_deleted(t, u, both, i, j)) by {
+                reveal(same_deleted);
+                assert forall|d: int| #[trigger] both.contains(d) implies (u.nodes[j].deleted.contains(d) <==> t.nodes[i].deleted.contains(d)) by {
+                    if rest.contains(d) {
+                    } else {
+                        // `d` is `f`, which never marked an element it did not see.
+                        assert(known(g, f).contains(d));
+                        assert(!past(g, f).contains(d));
+                        assert(d == f);
+                        if t.nodes[i].deleted.contains(f) { assert(g.saw(f, a)); assert(known(g, f).contains(a)); }
+                        if u.nodes[j].deleted.contains(f) { assert(g.saw(f, u.nodes[j].author)); assert(known(g, f).contains(a)); }
+                    }
+                }
+            }
+            assert(u.node(j) && same_node(t, u, both, i, j));
+        }
+    }
+}
+
+pub proof fn lemma_agree_union_known(t: TreeS, u: TreeS, g: GraphS, rest: ISet<int>, f: int, both: ISet<int>)
+    requires
+        t.wf(g), u.wf(g), g.wf(), g.event(f), agree(t, u, rest), agree(t, u, known(g, f)),
+        forall|o: int| #[trigger] past(g, f).contains(o) ==> rest.contains(o),
+        forall|d: int| #[trigger] rest.contains(d) ==> !g.saw(d, f),
+        forall|o: int| #[trigger] both.contains(o) <==> rest.contains(o) || known(g, f).contains(o),
+    ensures agree(t, u, both)
+{
+    lemma_half_union_known(t, u, g, rest, f, both);
+    lemma_half_union_known(u, t, g, rest, f, both);
+}
+
+/// Lemma C.
+pub proof fn lemma_walks_agree(g: GraphS, o1: Seq<int>, o2: Seq<int>, k1: int, k2: int, set: ISet<int>)
+    requires
+        g.wf(), valid_order(g, o1), valid_order(g, o2), 0 <= k1 <= o1.len(), 0 <= k2 <= o2.len(),
+        closed(g, set), prefix_holds(o1, k1, set), prefix_holds(o2, k2, set),
+    ensures match (walk(g, o1, k1), walk(g, o2, k2)) {
+        (Some(t1), Some(t2)) => agree(t1, t2, set),
+        _ => true,
+    }
+    decreases k1 + k2
+{
+    if let (Some(t1), Some(t2)) = (walk(g, o1, k1), walk(g, o2, k2)) {
+        if k1 == 0 || k2 == 0 {
+            // Nothing is in the set.
+            assert forall|o: int| #[trigger] set.contains(o) implies false by {
+                assert(walked(o1, k1, o) && walked(o2, k2, o));
+            }
+            lemma_agree_refl(t1, set);
+            lemma_agree_mono(t1, t1, set, set);
+            assert(agree(t1, t2, set)) by {
+                assert forall|i: int| t1.node(i) && #[trigger] set.contains(t1.nodes[i].author) implies false by {}
+                assert forall|j: int| t2.node(j) && #[trigger] set.contains(t2.nodes[j].author) implies false by {}
+            }
+        } else {
+            let f = o1[k1 - 1];
+            lemma_walk_some_prefix(g, o1, k1 - 1, k1);
+            let t1p = walk(g, o1, k1 - 1)->Some_0;
+            lemma_walk_wf(g, o1, k1 - 1);
+            lemma_walk_wf(g, o1, k1);
+            lemma_walk_wf(g, o2, k2);
+            // Whatever the set holds that is not `f` was walked before `f`.
+            let rest = ISet::new(|o: int| set.contains(o) && o != f);
+            assert(prefix_holds(o1, k1 - 1, rest)) by {
+                assert forall|o: int| #[trigger] rest.contains(o) implies walked(o1, k1 - 1, o) by {
+                    let q = choose|q: int| 0 <= q < k1 && o1[q] == o;
+                    assert(q != k1 - 1);
+                }
+            }
+            assert(prefix_holds(o2, k2, rest));
+            assert(closed(g, rest)) by {
+                assert forall|a: int, o: int| rest.contains(a) && g.event(a) && g.event(o) && #[trigger] g.knows(a, o)
+                    implies rest.contains(o) by {
+                    assert(set.contains(o));
+                    if o == f {
+                        // `a` knows `f`, so `a` was walked after `f`; but `a` was walked before.
+                        let q = choose|q: int| 0 <= q < k1 && o1[q] == a;
+                        assert(g.saw(o1[q], o1[k1 - 1]));
+                    }
+                }
+            }
+            lemma_walks_agree(g, o1, o2, k1 - 1, k2, rest);
+            lemma_walk_outside(g, o1, k1 - 1, k1, rest);
+            lemma_agree_sym(t1p, t1, rest);
+            lemma_agree_trans(t1, t1p, t2, rest);
+            if !set.contains(f) {
+                lemma_agree_mono(t1, t2, rest, set);
+            } else {
+                // `f` sits at `q2` in the other walk. Both walks replay it
+                // against trees that agree on its past.
+                let q2 = choose|q: int| 0 <= q < k2 && o2[q] == f;
+                lemma_walk_some_prefix(g, o2, q2, k2);
+                lemma_walk_some_prefix(g, o2, q2 + 1, k2);
+                let t2q = walk(g, o2, q2)->Some_0;
+                let t2q1 = walk(g, o2, q2 + 1)->Some_0;
+                assert(replay_event(t2q, g, f) == Some(t2q1));
+                assert(replay_event(t1p, g, f) == Some(t1));
+                lemma_walk_wf(g, o2, q2);
+                lemma_past_closed(g, f);
+                assert(prefix_holds(o1, k1 - 1, past(g, f))) by {
+                    assert forall|o: int| #[trigger] past(g, f).contains(o) implies walked(o1, k1 - 1, o) by {
+                        let q = choose|q: int| 0 <= q < o1.len() && o1[q] == o;
+                        assert(g.saw(o1[k1 - 1], o1[q]));
+                    }
+                }
+                assert(prefix_holds(o2, q2, past(g, f))) by {
+                    assert forall|o: int| #[trigger] past(g, f).contains(o) implies walked(o2, q2, o) by {
+                        let q = choose|q: int| 0 <= q < o2.len() && o2[q] == o;
+                        assert(g.saw(o2[q2], o2[q]));
+                    }
+                }
+                lemma_walks_agree(g, o1, o2, k1 - 1, q2, past(g, f));
+                // Neither has anything of `f`'s yet.
+                lemma_unwalked_minted_nothing(g, o1, k1 - 1, t1p);
+                lemma_unwalked_minted_nothing(g, o2, q2, t2q);
+                assert forall|i: int| t1p.node(i) implies !(#[trigger] t1p.nodes[i]).deleted.contains(f) by {
+                    if t1p.nodes[i].deleted.contains(f) {
+                        let q = choose|q: int| 0 <= q < k1 - 1 && o1[q] == f;
+                    }
+                }
+                assert forall|j: int| t2q.node(j) implies !(#[trigger] t2q.nodes[j]).deleted.contains(f) by {
+                    if t2q.nodes[j].deleted.contains(f) {
+                        let q = choose|q: int| 0 <= q < q2 && o2[q] == f;
+                    }
+                }
+                assert forall|o: int| #[trigger] known(g, f).contains(o) implies past(g, f).contains(o) || o == f by {}
+                assert forall|o: int| #[trigger] past(g, f).contains(o) implies known(g, f).contains(o) by {}
+                lemma_agree_add_absent(t1p, t2q, g, past(g, f), known(g, f), f);
+                lemma_known_closed(g, f);
+                lemma_replay_event_agree(t1p, t2q, g, known(g, f), f);
+                // From `q2 + 1` to `k2` nothing of `f`'s past or `f` is walked.
+                assert forall|q: int| q2 + 1 <= q < k2 implies !known(g, f).contains(#[trigger] o2[q]) by {
+                    if known(g, f).contains(o2[q]) {
+                        assert(g.saw(o2[q2], o2[q]));
+                    }
+                }
+                lemma_walk_outside(g, o2, q2 + 1, k2, known(g, f));
+                lemma_agree_trans(t1, t2q1, t2, known(g, f));
+                // Together: on `rest` and on what `f` knows, hence on the set.
+                let both = ISet::new(|o: int| rest.contains(o) || known(g, f).contains(o));
+                assert forall|o: int| #[trigger] past(g, f).contains(o) implies rest.contains(o) by {
+                    assert(g.knows(f, o));
+                }
+                assert forall|d: int| #[trigger] rest.contains(d) implies !g.saw(d, f) by {
+                    let q = choose|q: int| 0 <= q < k1 - 1 && o1[q] == d;
+                    if g.saw(d, f) { assert(g.saw(o1[q], o1[k1 - 1])); }
+                }
+                lemma_agree_union_known(t1, t2, g, rest, f, both);
+                lemma_agree_mono(t1, t2, both, set);
+            }
         }
     }
 }
@@ -2289,7 +2539,7 @@ proof fn lemma_read_leaf(t: TreeS, i: int)
 // 1 and the other `y` at 1. The tie is broken by digest, so `x` (event 1)
 // precedes `y` (event 2) whichever branch is walked first.
 
-spec fn fork_knows(e: int, o: int) -> bool { e == o || (o == 0 && (e == 1 || e == 2)) }
+spec fn fork_knows(e: int, o: int) -> bool { (e == o && 0 <= e < 3) || (o == 0 && (e == 1 || e == 2)) }
 
 spec fn a() -> ItemS { line(b'a') }
 spec fn x() -> ItemS { line(b'x') }
