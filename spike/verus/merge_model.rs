@@ -93,6 +93,140 @@ pub open spec fn valid_order(g: GraphS, order: Seq<int>) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// A filter of our own, so its lemmas are ours.
+// ---------------------------------------------------------------------------
+
+/// `Seq::filter`, spelled here so that no broadcast lemma of vstd's fires
+/// on it: the lemmas below are the whole interface.
+pub open spec fn sel(s: Seq<int>, p: spec_fn(int) -> bool) -> Seq<int>
+    decreases s.len()
+{
+    if s.len() == 0 {
+        s
+    } else {
+        let rest = sel(s.drop_last(), p);
+        if p(s.last()) { rest.push(s.last()) } else { rest }
+    }
+}
+
+pub proof fn lemma_sel_add(a: Seq<int>, b: Seq<int>, p: spec_fn(int) -> bool)
+    ensures sel(a + b, p) == sel(a, p) + sel(b, p)
+    decreases b.len()
+{
+    if b.len() == 0 {
+        assert(a + b =~= a);
+        assert(sel(a, p) + sel(b, p) =~= sel(a, p));
+    } else {
+        assert((a + b).drop_last() =~= a + b.drop_last());
+        assert((a + b).last() == b.last());
+        lemma_sel_add(a, b.drop_last(), p);
+        if p(b.last()) {
+            assert(sel(a + b, p) =~= sel(a, p) + sel(b, p));
+        }
+    }
+}
+
+pub proof fn lemma_sel_single(x: int, p: spec_fn(int) -> bool)
+    ensures sel(seq![x], p) == if p(x) { seq![x] } else { Seq::<int>::empty() }
+{
+    reveal_with_fuel(sel, 3);
+    assert(seq![x].drop_last() =~= Seq::<int>::empty());
+    assert(sel(Seq::<int>::empty(), p) == Seq::<int>::empty());
+    if p(x) { assert(sel(seq![x], p) =~= seq![x]); }
+}
+
+/// `sel` is an order-preserving subsequence: any two of its elements come
+/// from two positions of `s` in the same order.
+pub proof fn lemma_sel_sub(s: Seq<int>, p: spec_fn(int) -> bool)
+    ensures
+        sel(s, p).len() <= s.len(),
+        forall|q: int| #![trigger sel(s, p)[q]] 0 <= q < sel(s, p).len() ==> exists|i: int| #![trigger s[i]] 0 <= i < s.len() && s[i] == sel(s, p)[q] && p(s[i]),
+        forall|a: int, b: int| #![trigger sel(s, p)[a], sel(s, p)[b]] 0 <= a < b < sel(s, p).len() ==> exists|ia: int, ib: int|
+            #![trigger s[ia], s[ib]] 0 <= ia < ib < s.len() && s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b],
+        forall|i: int| 0 <= i < s.len() && p(#[trigger] s[i]) ==> sel(s, p).contains(s[i]),
+    decreases s.len()
+{
+    if s.len() > 0 {
+        let d = s.drop_last();
+        lemma_sel_sub(d, p);
+        let r = sel(d, p);
+        assert forall|q: int| #![trigger sel(s, p)[q]] 0 <= q < sel(s, p).len() implies exists|i: int| #![trigger s[i]] 0 <= i < s.len() && s[i] == sel(s, p)[q] && p(s[i]) by {
+            if q < r.len() {
+                let i = choose|i: int| 0 <= i < d.len() && d[i] == r[q] && p(d[i]);
+                assert(s[i] == sel(s, p)[q] && p(s[i]));
+            } else {
+                assert(s[s.len() - 1] == sel(s, p)[q]);
+            }
+        }
+        assert forall|a: int, b: int| #![trigger sel(s, p)[a], sel(s, p)[b]] 0 <= a < b < sel(s, p).len() implies exists|ia: int, ib: int|
+            #![trigger s[ia], s[ib]] 0 <= ia < ib < s.len() && s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b] by {
+            if b < r.len() {
+                let (ia, ib) = choose|ia: int, ib: int| 0 <= ia < ib < d.len() && d[ia] == r[a] && d[ib] == r[b];
+                assert(s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b]);
+            } else {
+                let ia = choose|i: int| 0 <= i < d.len() && d[i] == r[a] && p(d[i]);
+                let ib = s.len() - 1;
+                assert(s[ia] == sel(s, p)[a] && s[ib] == sel(s, p)[b]);
+            }
+        }
+        assert forall|i: int| 0 <= i < s.len() && p(#[trigger] s[i]) implies sel(s, p).contains(s[i]) by {
+            if i < d.len() {
+                assert(r.contains(d[i]));
+                let q = choose|q: int| 0 <= q < r.len() && r[q] == d[i];
+                assert(sel(s, p)[q] == s[i]);
+            } else {
+                assert(sel(s, p)[r.len() as int] == s[i]);
+            }
+        }
+    }
+}
+
+/// Two lists with the same names, filtered by predicates that agree
+/// position by position, have the same names.
+pub proof fn lemma_sel_names(t: TreeS, u: TreeS, x: Seq<int>, y: Seq<int>, pt: spec_fn(int) -> bool, pu: spec_fn(int) -> bool)
+    requires
+        t.names(x) == u.names(y),
+        forall|k: int| 0 <= k < x.len() ==> (pt(#[trigger] x[k]) <==> pu(y[k])),
+    ensures t.names(sel(x, pt)) == u.names(sel(y, pu))
+    decreases x.len()
+{
+    assert(t.names(x).len() == x.len());
+    assert(u.names(y).len() == y.len());
+    assert(x.len() == y.len());
+    assert forall|k: int| 0 <= k < x.len() implies t.id(#[trigger] x[k]) == u.id(y[k]) by {
+        assert(t.names(x)[k] == t.id(x[k]));
+        assert(u.names(y)[k] == u.id(y[k]));
+    }
+    if x.len() > 0 {
+        assert(t.names(x.drop_last()) =~= u.names(y.drop_last()));
+        lemma_sel_names(t, u, x.drop_last(), y.drop_last(), pt, pu);
+        let n = x.len() - 1;
+        assert(t.id(x[n]) == u.id(y[n]));
+        assert(pt(x[n]) <==> pu(y[n]));
+        let (rx, ry) = (sel(x.drop_last(), pt), sel(y.drop_last(), pu));
+        assert(t.names(rx).len() == u.names(ry).len());
+        if pt(x[n]) {
+            assert(sel(x, pt) == rx.push(x[n]));
+            assert(sel(y, pu) == ry.push(y[n]));
+            let (nx, ny) = (t.names(sel(x, pt)), u.names(sel(y, pu)));
+            assert(nx.len() == ny.len());
+            assert forall|k: int| 0 <= k < nx.len() implies nx[k] == ny[k] by {
+                assert(nx[k] == t.id(rx.push(x[n])[k]));
+                assert(ny[k] == u.id(ry.push(y[n])[k]));
+                if k < rx.len() {
+                    assert(t.names(rx)[k] == t.id(rx[k]));
+                    assert(u.names(ry)[k] == u.id(ry[k]));
+                }
+            }
+            assert(nx =~= ny);
+        } else {
+            assert(sel(x, pt) == rx);
+            assert(sel(y, pu) == ry);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The transient tree.
 // ---------------------------------------------------------------------------
 
@@ -205,7 +339,7 @@ impl TreeS {
     /// and not removed by anything in their past.
     #[verifier::opaque]
     pub open spec fn visible(self, g: GraphS, e: int) -> Seq<int> {
-        self.order().filter(|i: int| self.seen(g, e, i))
+        sel(self.order(), |i: int| self.seen(g, e, i))
     }
 
     pub open spec fn seen(self, g: GraphS, e: int, i: int) -> bool {
@@ -268,9 +402,7 @@ impl TreeS {
     /// The merged file: every element still standing, in order.
     #[verifier::opaque]
     pub open spec fn items(self) -> Seq<ItemS> {
-        self.order()
-            .filter(|i: int| self.standing(i))
-            .map(|_k: int, i: int| self.nodes[i].item)
+        sel(self.order(), |i: int| self.standing(i)).map(|_k: int, i: int| self.nodes[i].item)
     }
 }
 
@@ -636,13 +768,10 @@ pub proof fn lemma_visible_ok(t: TreeS, g: GraphS, e: int)
     lemma_read_all_nodes(t, t.children(None, true), -1);
     let order = t.order();
     let pred = |i: int| t.seen(g, e, i);
-    assert forall|q: int| 0 <= q < order.filter(pred).len()
-        implies t.node(#[trigger] order.filter(pred)[q]) && g.saw(e, t.nodes[order.filter(pred)[q]].author) by {
-        let x = order.filter(pred)[q];
-        order.lemma_filter_pred(pred, q);
-        assert(order.filter(pred).contains(x));
-        order.lemma_filter_contains_rev(pred, x);
-        let j = choose|j: int| 0 <= j < order.len() && order[j] == x;
+    lemma_sel_sub(order, pred);
+    assert forall|q: int| 0 <= q < sel(order, pred).len()
+        implies t.node(#[trigger] sel(order, pred)[q]) && g.saw(e, t.nodes[sel(order, pred)[q]].author) by {
+        let j = choose|j: int| 0 <= j < order.len() && order[j] == sel(order, pred)[q] && pred(order[j]);
         assert(t.node(order[j]));
     }
 }
@@ -690,6 +819,176 @@ pub proof fn lemma_walk_wf(g: GraphS, order: Seq<int>, k: int)
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Names, and lists sorted by them.
+// ---------------------------------------------------------------------------
+
+pub type Name = (int, int);
+
+/// Strictly ascending by name.
+pub open spec fn ids_sorted(ns: Seq<Name>) -> bool {
+    forall|a: int, b: int| 0 <= a < b < ns.len() ==> TreeS::id_lt(ns[a], ns[b])
+}
+
+impl TreeS {
+    /// The names along a list of indices.
+    pub open spec fn names(self, s: Seq<int>) -> Seq<Name> {
+        Seq::new(s.len(), |k: int| self.id(s[k]))
+    }
+
+    pub open spec fn sorted(self, s: Seq<int>) -> bool {
+        forall|a: int, b: int| 0 <= a < b < s.len() ==> Self::id_lt(self.id(s[a]), self.id(s[b]))
+    }
+}
+
+pub proof fn lemma_id_lt_total(a: Name, b: Name)
+    ensures TreeS::id_lt(a, b) || TreeS::id_lt(b, a) || a == b
+{
+}
+
+pub proof fn lemma_id_lt_trans(a: Name, b: Name, c: Name)
+    requires TreeS::id_lt(a, b), TreeS::id_lt(b, c)
+    ensures TreeS::id_lt(a, c)
+{
+}
+
+/// A sorted list has no name twice.
+pub proof fn lemma_sorted_no_dup(ns: Seq<Name>, a: int, b: int)
+    requires ids_sorted(ns), 0 <= a < ns.len(), 0 <= b < ns.len(), ns[a] == ns[b]
+    ensures a == b
+{
+    if a < b { assert(TreeS::id_lt(ns[a], ns[b])); }
+    if b < a { assert(TreeS::id_lt(ns[b], ns[a])); }
+}
+
+/// Two sorted lists with the same members are the same list.
+pub proof fn lemma_sorted_same_members(ns1: Seq<Name>, ns2: Seq<Name>)
+    requires ids_sorted(ns1), ids_sorted(ns2), forall|n: Name| ns1.contains(n) <==> ns2.contains(n)
+    ensures ns1 == ns2
+    decreases ns1.len()
+{
+    if ns1.len() == 0 {
+        if ns2.len() > 0 {
+            assert(ns2.contains(ns2[0]));
+            assert(ns1.contains(ns2[0]));
+        }
+        assert(ns1 =~= ns2);
+    } else {
+        assert(ns1.contains(ns1[0]));
+        assert(ns2.contains(ns1[0]));
+        let q = choose|q: int| 0 <= q < ns2.len() && ns2[q] == ns1[0];
+        assert(ns2.contains(ns2[0]));
+        assert(ns1.contains(ns2[0]));
+        let r = choose|r: int| 0 <= r < ns1.len() && ns1[r] == ns2[0];
+        // The heads are each other's minimum.
+        if q > 0 { assert(TreeS::id_lt(ns2[0], ns2[q])); }
+        if r > 0 { assert(TreeS::id_lt(ns1[0], ns1[r])); }
+        assert(ns1[0] == ns2[0]) by {
+            if q > 0 && r > 0 {
+                lemma_id_lt_trans(ns1[0], ns2[0], ns1[0]);
+            }
+        }
+        let t1 = ns1.drop_first();
+        let t2 = ns2.drop_first();
+        assert(ids_sorted(t1));
+        assert(ids_sorted(t2));
+        assert forall|n: Name| t1.contains(n) <==> t2.contains(n) by {
+            if t1.contains(n) {
+                let a = choose|a: int| 0 <= a < t1.len() && t1[a] == n;
+                assert(ns1[a + 1] == n);
+                assert(ns1.contains(n));
+                assert(ns2.contains(n));
+                let b = choose|b: int| 0 <= b < ns2.len() && ns2[b] == n;
+                if b == 0 { lemma_sorted_no_dup(ns1, 0, a + 1); }
+                assert(t2[b - 1] == n);
+            }
+            if t2.contains(n) {
+                let a = choose|a: int| 0 <= a < t2.len() && t2[a] == n;
+                assert(ns2[a + 1] == n);
+                assert(ns2.contains(n));
+                assert(ns1.contains(n));
+                let b = choose|b: int| 0 <= b < ns1.len() && ns1[b] == n;
+                if b == 0 { lemma_sorted_no_dup(ns2, 0, a + 1); }
+                assert(t1[b - 1] == n);
+            }
+        }
+        lemma_sorted_same_members(t1, t2);
+        assert(ns1.len() == ns2.len());
+        assert forall|k: int| 0 <= k < ns1.len() implies ns1[k] == ns2[k] by {
+            if k > 0 {
+                assert(ns1[k] == t1[k - 1]);
+                assert(ns2[k] == t2[k - 1]);
+            }
+        }
+        assert(ns1 =~= ns2);
+    }
+}
+
+/// Where `first_greater` stops: everything before it is below `j`'s name,
+/// and what it stops at is above.
+proof fn lemma_first_greater_split(t: TreeS, s: Seq<int>, j: int, k: int)
+    requires 0 <= k <= s.len(), t.sorted(s), forall|q: int| 0 <= q < s.len() ==> t.id(#[trigger] s[q]) != t.id(j)
+    ensures ({
+        let pos = t.first_greater(s, j, k);
+        &&& k <= pos <= s.len()
+        &&& forall|q: int| k <= q < pos ==> TreeS::id_lt(t.id(#[trigger] s[q]), t.id(j))
+        &&& pos < s.len() ==> TreeS::id_lt(t.id(j), t.id(s[pos]))
+    })
+    decreases s.len() - k
+{
+    if k < s.len() && !TreeS::id_lt(t.id(j), t.id(s[k])) {
+        lemma_id_lt_total(t.id(j), t.id(s[k]));
+        lemma_first_greater_split(t, s, j, k + 1);
+    }
+}
+
+pub proof fn lemma_insert_sorted_sorted(t: TreeS, s: Seq<int>, j: int)
+    requires t.sorted(s), forall|q: int| 0 <= q < s.len() ==> t.id(#[trigger] s[q]) != t.id(j)
+    ensures t.sorted(t.insert_sorted(s, j))
+{
+    lemma_first_greater_split(t, s, j, 0);
+    let pos = t.first_greater(s, j, 0);
+    let out = s.insert(pos, j);
+    assert forall|a: int, b: int| 0 <= a < b < out.len() implies TreeS::id_lt(t.id(out[a]), t.id(out[b])) by {
+        if b < pos {
+            assert(out[a] == s[a] && out[b] == s[b]);
+        } else if b == pos {
+            assert(out[a] == s[a] && out[b] == j);
+        } else if a < pos {
+            assert(out[a] == s[a] && out[b] == s[b - 1]);
+            if pos < s.len() { lemma_id_lt_trans(t.id(s[a]), t.id(j), t.id(s[pos])); }
+            assert(TreeS::id_lt(t.id(s[a]), t.id(s[b - 1])));
+        } else if a == pos {
+            assert(out[a] == j && out[b] == s[b - 1]);
+            if b - 1 > pos { lemma_id_lt_trans(t.id(j), t.id(s[pos]), t.id(s[b - 1])); }
+        } else {
+            assert(out[a] == s[a - 1] && out[b] == s[b - 1]);
+        }
+    }
+}
+
+/// Under unique names, every sibling list `attach` builds is sorted.
+pub proof fn lemma_children_upto_sorted(t: TreeS, parent: Option<int>, right: bool, k: int)
+    requires 0 <= k <= t.len(), forall|i: int, j: int| t.node(i) && t.node(j) && i != j ==> t.id(i) != t.id(j)
+    ensures t.sorted(t.children_upto(parent, right, k))
+    decreases k
+{
+    if k > 0 {
+        lemma_children_upto_sorted(t, parent, right, k - 1);
+        if t.hangs(k - 1, parent, right) {
+            lemma_children_upto_hang(t, parent, right, k - 1);
+            lemma_insert_sorted_sorted(t, t.children_upto(parent, right, k - 1), k - 1);
+        }
+    }
+}
+
+pub proof fn lemma_children_sorted(t: TreeS, g: GraphS, parent: Option<int>, right: bool)
+    requires t.wf(g)
+    ensures t.sorted(t.children(parent, right)), ids_sorted(t.names(t.children(parent, right)))
+{
+    lemma_children_upto_sorted(t, parent, right, t.len());
 }
 
 // ---------------------------------------------------------------------------
@@ -915,7 +1214,7 @@ proof fn ex_step0()
     reveal(TreeS::order);
     assert(t.order() == Seq::<int>::empty());
     reveal(TreeS::visible);
-    reveal_with_fuel(Seq::filter, 2);
+    reveal_with_fuel(sel, 2);
     assert(t.visible(g, 0) == Seq::<int>::empty());
     reveal_with_fuel(TreeS::first_known, 2);
     assert(t.anchor(g, 0, None) == (None::<int>, true));
@@ -952,7 +1251,7 @@ proof fn ex_step_from_t1(t: TreeS, e: int, item: ItemS)
     ex_t1_shape();
     assert(t.visible(g, e) == seq![0int]) by {
         reveal(TreeS::visible);
-        reveal_with_fuel(Seq::filter, 3);
+        reveal_with_fuel(sel, 3);
         assert(t.seen(g, e, 0));
         assert(t.visible(g, e) =~= seq![0int]);
     }
@@ -1013,7 +1312,7 @@ proof fn ex_second_branch(t: TreeS, first: int, second: int, item: ItemS)
     ex_two_shape(t, first);
     assert(t.visible(g, second) == seq![0int]) by {
         reveal(TreeS::visible);
-        reveal_with_fuel(Seq::filter, 3);
+        reveal_with_fuel(sel, 3);
         assert(t.seen(g, second, 0));
         assert(!t.seen(g, second, 1));
         assert(t.visible(g, second) =~= seq![0int]);
@@ -1096,10 +1395,10 @@ proof fn ex_read(t: TreeS, xi: int, yi: int)
     ensures t.items() == seq![a(), x(), y()]
 {
     ex_order(t, xi, yi);
-    assert(t.order().filter(|i: int| t.standing(i)) == seq![0int, xi, yi]) by {
-        reveal_with_fuel(Seq::filter, 4);
+    assert(sel(t.order(), |i: int| t.standing(i)) == seq![0int, xi, yi]) by {
+        reveal_with_fuel(sel, 4);
         assert(t.standing(0) && t.standing(1) && t.standing(2));
-        assert(t.order().filter(|i: int| t.standing(i)) =~= seq![0int, xi, yi]);
+        assert(sel(t.order(), |i: int| t.standing(i)) =~= seq![0int, xi, yi]);
     }
     assert(t.items() == seq![a(), x(), y()]) by {
         reveal(TreeS::items);
