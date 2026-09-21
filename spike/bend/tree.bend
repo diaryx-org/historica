@@ -198,6 +198,15 @@ def union_ids(xs: List<&2, String>, +ys: List<&2, String>) -> List<&2, String>:
 def sorted_ids(xs: List<&2, String>) -> List<&2, String>:
   List.sort(~String, ~(a => b => String.is_le(a, b)), xs)
 
+# The kind a file had, if it is still here: what a revision may leave a
+# file's kind as.
+def kind_kept(k: FileKind, m: Maybe<&2, FileKind>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{k2}:
+      kind_eq(k, k2)
+
 # The tree: the files that exist at one revision, in file order — the order
 # a revision document writes them, and the one the crate's map iterates.
 def Tree() -> Data:
@@ -234,6 +243,16 @@ def at(t: Tree(), +p: String) -> List<&2, String>:
     case Entry{f, +q, k, y, g, m} <> rest:
       Rev.keep(String.eq(q, p), f, at(rest, p))
 
+# At most one: what one line of history leaves at any path.
+def at_most_one(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> Nil{}:
+      True{}
+    case _:
+      False{}
+
 def files(t: Tree()) -> List<&2, String>:
   match t:
     case Nil{}:
@@ -244,14 +263,23 @@ def files(t: Tree()) -> List<&2, String>:
 def size(t: Tree()) -> Nat:
   List.length(&2, Entry, t)
 
-# Insert in file order, replacing an entry the file already has.
+# Insert in file order, replacing an entry the file already has. The
+# comparison is a parameter of the step so that a proof can split on it.
+def insert.at(c: Cmp, e: Entry, first: Entry, rest: Tree(), deeper: Tree()) -> Tree():
+  match c:
+    case LT{}:
+      e <> first <> rest
+    case EQ{}:
+      e <> rest
+    case GT{}:
+      first <> deeper
+
 def insert(t: Tree(), +e: Entry) -> Tree():
   match t:
     case Nil{}:
       [e]
     case +first <> +rest:
-      +c = String.order(entry_file(e), entry_file(first))
-      Bool.pick(Tree(), Cmp.is_lt(c), e <> first <> rest, Bool.pick(Tree(), Cmp.is_eq(c), e <> rest, first <> insert(rest, e)))
+      insert.at(String.order(entry_file(e), entry_file(first)), e, first, rest, insert(rest, e))
 
 def remove(t: Tree(), +file: String) -> Tree():
   match t:
@@ -605,22 +633,76 @@ def path_taken(es: Tree(), +held: List<&2, Fact>) -> Result<&2, &2, Fault, Unit>
 # The file set after one revision, given the set at its parent. The moves
 # are applied together, so a revision swapping two files' paths is ordinary
 # rather than a collision with itself; a dangling reference and a taken
-# path are held to the result for the same reason.
+# path are held to the result for the same reason. One def per stage, each
+# taking the last stage's result, so that a proof can open them one at a
+# time.
+def apply.taken(r: Result<&2, &2, Fault, Unit>, t6: Tree()) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      Done{t6}
+
+def apply.payloads(r: Result<&2, &2, Fault, Tree()>) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+t6}:
+      apply.taken(path_taken(t6, Nil{}), t6)
+
+def apply.edits(r: Result<&2, &2, Fault, Unit>, +fs: List<&2, Rev.Header>, +added: List<&2, String>, +t5: Tree()) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      apply.payloads(payloads(facts_of(fs, "bytes"), added, t5))
+
+def apply.dangling(r: Result<&2, &2, Fault, Unit>, +fs: List<&2, Rev.Header>, +added: List<&2, String>, +t5: Tree()) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      apply.edits(edits(fact_files(facts_of(fs, "edit")), t5), fs, added, t5)
+
+def apply.drops(r: Result<&2, &2, Fault, Tree()>, +fs: List<&2, Rev.Header>, +added: List<&2, String>) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+t5}:
+      apply.dangling(dangling(t5, t5), fs, added, t5)
+
+def apply.links(r: Result<&2, &2, Fault, Tree()>, +fs: List<&2, Rev.Header>, +added: List<&2, String>) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t4}:
+      apply.drops(drops(fact_files(facts_of(fs, "drop")), t4), fs, added)
+
+def apply.modes(r: Result<&2, &2, Fault, Tree()>, +fs: List<&2, Rev.Header>, +added: List<&2, String>) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t3}:
+      apply.links(links(facts_of(fs, "link"), added, t3), fs, added)
+
+def apply.moves(r: Result<&2, &2, Fault, Tree()>, +fs: List<&2, Rev.Header>, +added: List<&2, String>) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t2}:
+      apply.modes(modes(facts_of(fs, "mode"), added, t2), fs, added)
+
+def apply.adds(r: Result<&2, &2, Fault, Tree()>, +fs: List<&2, Rev.Header>, +added: List<&2, String>) -> Result<&2, &2, Fault, Tree()>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t1}:
+      apply.moves(moves(facts_of(fs, "move"), t1), fs, added)
+
 def apply(t: Tree(), r: Rev.Rev) -> Result<&2, &2, Fault, Tree()>:
   match r:
     case Rev.Rev{change, parents, supersedes, author, when, revised_by, revised, +fs, message}:
-      +added = fact_files(facts_of(fs, "add"))
-      do Result<&2, &2, Fault, Tree()>:
-        t1 : Tree() <- adds(facts_of(fs, "add"), facts_of(fs, "bytes"), facts_of(fs, "link"), facts_of(fs, "mode"), t)
-        t2 : Tree() <- moves(facts_of(fs, "move"), t1)
-        t3 : Tree() <- modes(facts_of(fs, "mode"), added, t2)
-        t4 : Tree() <- links(facts_of(fs, "link"), added, t3)
-        +t5 : Tree() <- drops(fact_files(facts_of(fs, "drop")), t4)
-        dangling(t5, t5)
-        edits(fact_files(facts_of(fs, "edit")), t5)
-        +t6 : Tree() <- payloads(facts_of(fs, "bytes"), added, t5)
-        path_taken(t6, Nil{})
-        return t6
+      apply.adds(adds(facts_of(fs, "add"), facts_of(fs, "bytes"), facts_of(fs, "link"), facts_of(fs, "mode"), t), fs, fact_files(facts_of(fs, "add")))
 
 # Replay a linear chain, oldest first, into the file set it leaves behind.
 def replay.go(rs: List<&2, Rev.Rev>, t: Tree()) -> Result<&2, &2, Fault, Tree()>:

@@ -18,6 +18,8 @@ import ./spelling_lemmas.bend as Spell
 import ./diff_lemmas.bend as Diff
 import ./refusal_lemmas.bend as Refuse
 import ./merge_lemmas.bend as Conv
+import ./tree.bend as Tree
+import ./tree_lemmas.bend as TL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -313,3 +315,23 @@ def Laws.no_cause_replays(parent, stated, ops, e, c):
 
 def Laws.merge_converges(g, a, b, e):
   Conv.merge_converges(g, a, b, e)
+
+def Laws.one_file_per_path(t, r, t2, q, e):
+  TL.fits_alone(Tree.at(t2, q), TL.path_fits(t2, q, Nil{}, TL.wf_paths(t2, TL.apply_wf(t, r, t2, e))))
+
+def Laws.no_link_dangles(t, r, t2, e):
+  TL.wf_dangling(t2, TL.apply_wf(t, r, t2, e))
+
+def Laws.kind_fixed(t, r, t2, x, k, e, h):
+  TL.apply_kinds(t, r, t2, x, k, e, h)
+
+def Laws.replay_one_file_per_path(rs, t, q, e):
+  TL.fits_alone(Tree.at(t, q), TL.path_fits(t, q, Nil{}, TL.wf_paths(t, TL.replay_wf(rs, t, e))))
+
+def Laws.replay_no_link_dangles(rs, t, e):
+  TL.wf_dangling(t, TL.replay_wf(rs, t, e))
+
+def Laws.move_then_drop(t, e, p):
+  match e:
+    case Tree.Entry{+f, old, k, y, g, m}:
+      TL.remove_insert(t, Tree.Entry{f, p, k, y, g, m})

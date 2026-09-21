@@ -11,6 +11,7 @@ import ./replay_spec.bend as Spec
 import ./cursor_spec.bend as Cursor
 import ./semantic_replay.bend as Block
 import ./merge.bend as Merge
+import ./tree.bend as Tree
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -270,3 +271,63 @@ law merge_converges:
   for +b: List<&2, Nat>
   for +e: {Merge.orders(g, a, b) == True{} : Bool}
   {Merge.merged(g, a) == Merge.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}
+
+# The tree: what a revision leaves behind, whatever file set it is
+# applied to. `Tree.apply` is `tree.rs`'s linear case; a `Done` from it
+# is a tree the store will show.
+
+# One line of history never puts two files at one path: every path in
+# the tree a revision leaves names at most one file.
+law one_file_per_path:
+  for +t: Tree.Tree()
+  for r: Rev.Rev
+  for +t2: Tree.Tree()
+  for +q: String
+  for e: {Tree.apply(t, r) == Done{t2} : Result<&2, &2, Tree.Fault, Tree.Tree()>}
+  {Tree.at_most_one(Tree.at(t2, q)) == True{} : Bool}
+
+# No link is left dangling: every `file:` reference in the tree a
+# revision leaves names a file that tree holds (decision 0040). The
+# check runs before the payloads are restated; the law says restating
+# them keeps it.
+law no_link_dangles:
+  for +t: Tree.Tree()
+  for r: Rev.Rev
+  for +t2: Tree.Tree()
+  for e: {Tree.apply(t, r) == Done{t2} : Result<&2, &2, Tree.Fault, Tree.Tree()>}
+  {Tree.dangling(t2, t2) == Done{Unit{}} : Result<&2, &2, Tree.Fault, Unit>}
+
+# A file's kind is fixed when it is added (decision 0017): at every
+# revision it survives, it holds the kind it was added with. No `move`,
+# `mode`, `link`, `bytes` or second `add` changes it.
+law kind_fixed:
+  for +t: Tree.Tree()
+  for r: Rev.Rev
+  for +t2: Tree.Tree()
+  for +x: String
+  for +k: Tree.FileKind
+  for e: {Tree.apply(t, r) == Done{t2} : Result<&2, &2, Tree.Fault, Tree.Tree()>}
+  for h: {Tree.kind(t, x) == Some{k} : Maybe<&2, Tree.FileKind>}
+  {Tree.kind_kept(k, Tree.kind(t2, x)) == True{} : Bool}
+
+# And so for a whole chain replayed from nothing.
+law replay_one_file_per_path:
+  for +rs: List<&2, Rev.Rev>
+  for +t: Tree.Tree()
+  for +q: String
+  for e: {Tree.replay(rs) == Done{t} : Result<&2, &2, Tree.Fault, Tree.Tree()>}
+  {Tree.at_most_one(Tree.at(t, q)) == True{} : Bool}
+
+law replay_no_link_dangles:
+  for +rs: List<&2, Rev.Rev>
+  for +t: Tree.Tree()
+  for e: {Tree.replay(rs) == Done{t} : Result<&2, &2, Tree.Fault, Tree.Tree()>}
+  {Tree.dangling(t, t) == Done{Unit{}} : Result<&2, &2, Tree.Fault, Unit>}
+
+# A move a drop follows is a drop: restating where an entry sits and
+# then removing its file leaves what removing its file leaves.
+law move_then_drop:
+  for t: Tree.Tree()
+  for e: Tree.Entry
+  for p: String
+  {Tree.remove(Tree.insert(t, Tree.with_path(e, p)), Tree.entry_file(e)) == Tree.remove(t, Tree.entry_file(e)) : Tree.Tree()}

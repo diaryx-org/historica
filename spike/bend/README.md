@@ -50,7 +50,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
 | `store.bend`, `ffi/` | where the store is and what it holds: two effects, a C adapter, a Rust static library | `Store::discover`, `std::fs` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check` over the store it finds; `replay` and `diff` over named files | `cli` |
-| `LAWS.bend` / `PROOF.bend` | thirty-three claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | thirty-nine claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -58,6 +58,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `refusal_lemmas.bend` | refusals are justified: every refusal of an ordered document has one of four positional causes, and no cause means the positional result | error soundness |
 | `diff_lemmas.bend` | `apply(diff(parent, child)) == child`: the LCS backtrack yields a script that takes the parent to the child, and the runs of that script are blocks the cursor walks to it | `tests/diff.rs` |
 | `merge.bend`, `merge_lemmas.bend` | the merge as a model — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
+| `string_lemmas.bend`, `tree_lemmas.bend` | strings compare as they are, down to the bit; and what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows | `tree.rs`'s rules, decisions 0017 and 0040 |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
@@ -325,6 +326,39 @@ the graph is assumed beyond the two orders being causal — not that
 `knows` is transitive, not that the tree is well-formed, not even that an
 index names an event; a bad index refuses in both orders alike.
 
+The tree keeps its rules. `tree.bend` is a port, so its laws are about
+the code the store runs: whatever file set `Tree.apply` is given, a
+revision it accepts leaves one where every path names at most one file
+(`one_file_per_path`), every `file:` link names a file the tree holds
+(`no_link_dangles`), and every file that survives holds the kind it was
+added with (`kind_fixed`) — no `move`, `mode`, `link`, `bytes` or second
+`add` changes it, which is decision 0017 as a theorem rather than a
+sentence. The first two are the checks `apply` runs on its result, so
+what the proof adds is that the tree returned is the tree checked: the
+path check is last, and the payload stage between the dangling check and
+the return restates entries without touching their targets and lands
+them in a tree that holds every file the old one held
+(`tree_lemmas.bend`: `payloads_keep`). The third follows each stage:
+`adds` refuses a file the tree holds, so it never re-kinds one; `moves`,
+`modes`, `links` and `payloads` each insert a copy of the entry the
+lookup found with its kind unchanged (`kind_insert`), and `drops` only
+removes (`kind_remove`). Under all of it is the tree's one data
+structure: `lookup` after `insert` finds the entry inserted under its
+file and what it found before under any other (`lookup_insert`,
+`lookup_other`), which needs strings to compare as they are — `String.eq`
+is `Cmp.is_eq` of `String.order`, a string equals itself, and two
+strings the comparison calls equal are one string — proven in
+`string_lemmas.bend` by induction down to the bits of a `Char`, since
+Base defines the comparison and states nothing about it. The same
+lemmas give `move_then_drop`: restating an entry and then removing its
+file leaves what removing its file leaves. `replay_one_file_per_path`
+and `replay_no_link_dangles` carry the first two along a chain from
+nothing. Two shapes in `tree.bend` exist for the proofs: `insert` takes
+its comparison through `insert.at`, so a proof can split on it, and
+`apply` is one def per stage, each taking the last stage's result, so a
+proof can open the pipeline one `match` at a time instead of stating
+the whole `do`-block's continuation.
+
 What the model is faithful to, and not. Verus's `merge_model.rs` states
 the same theorem over `merge.rs`'s own shape — an index tree, anchors
 found on the whole tree by filtering for known authors — and proves the
@@ -349,7 +383,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Thirty-three mutations cover the primitive helpers, lost inserts, a lost trailing
+Thirty-seven mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -368,7 +402,9 @@ gap; a digest cause that ignores forgetting; and six merge breaks: a view
 that keeps elements of unseen authors or removals by unseen events, an
 element appended rather than placed by name, a removal appended rather than
 joined in order, a causal order that lets an event precede its past, and an
-action applied as another author's. The proof gate rejects
+action applied as another author's; and four tree breaks: a second `add` of
+a file the tree holds accepted, two files at one path not refused, a
+dangling reference not checked, and a `mode` that resets the kind. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees

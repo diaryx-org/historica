@@ -365,6 +365,34 @@ def check_mutations(temporary):
             "merge_lemmas.restrict_apply",
             "merge.bend",
         ),
+        (
+            "a second add of a file the tree holds is accepted",
+            "Fail{AddedTwice{file}}",
+            "Done{insert(t, Entry{file, p, kind_of(target, payload), payload, target, m})}",
+            "tree_lemmas.adds_step",
+            "tree.bend",
+        ),
+        (
+            "two files at one path are not refused",
+            "Fail{PathTaken{p, f, o}}",
+            "Done{Unit{}}",
+            "tree_lemmas.fits_taken",
+            "tree.bend",
+        ),
+        (
+            "a dangling reference is not checked",
+            "ensure(holds(t, target), Dangling{f, target})",
+            "Done{Unit{}}",
+            "tree_lemmas.one_insert",
+            "tree.bend",
+        ),
+        (
+            "a mode change resets the kind",
+            "      Entry{f, p, k, y, g, m}\n\ndef with_target",
+            "      Entry{f, p, Lines{}, y, g, m}\n\ndef with_target",
+            "tree_lemmas.modes_kind",
+            "tree.bend",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"
