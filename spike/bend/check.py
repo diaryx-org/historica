@@ -35,7 +35,7 @@ def main():
     run(BEND, "PROOF.bend")
     with tempfile.TemporaryDirectory(prefix="historica-bend-") as directory:
         temporary = Path(directory)
-        for suite in ("corpus_ops", "corpus_rev", "replay_tests"):
+        for suite in ("corpus_ops", "corpus_rev", "corpus_tree", "replay_tests"):
             run(BEND, f"{suite}.bend")
             executable = temporary / suite
             run(BEND, f"{suite}.bend", "-o", str(executable), timeout=600)
@@ -73,9 +73,17 @@ STORES = {
     ],
     "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"]],
     "merged": [["log"], ["files", "head"]],
-    "links": [["log"], ["files", "head"]],
+    "links": [
+        ["log"],
+        ["files", "head"],
+        ["files", "kxry"],
+        ["cat", "head", "current"],
+        ["cat", "kxry", "current"],
+        ["cat", "mzvw", "2026/08.md"],
+        ["cat", "head", "2026/08.md"],
+    ],
     "modes": [["log"], ["files", "head"]],
-    "whole": [["log"], ["files", "head"]],
+    "whole": [["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"]],
 }
 
 

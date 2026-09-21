@@ -47,6 +47,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `ident.bend` | change and file IDs in the `k`–`z` alphabet, spelled and deciphered | `core::{ChangeId, FileId}` |
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
+| `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
 | `store.bend`, `ffi/` | where the store is and what it holds: two effects, a C adapter, a Rust static library | `Store::discover`, `std::fs` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check` over the store it finds; `replay` and `diff` over named files | `cli` |
 | `LAWS.bend` / `PROOF.bend` | thirty-three claims about the code, each proven | the test suite and Verus replay helpers |
@@ -60,7 +61,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
-| `corpus_ops.bend`, `corpus_rev.bend` | the corpus, executed | `tests/*.rs` |
+| `corpus_ops.bend`, `corpus_rev.bend`, `corpus_tree.bend` | the corpus, executed | `tests/*.rs` |
 
 ### What the corpus says
 
@@ -78,6 +79,17 @@ history resolves as the core says — `04` is superseded and still a head of
 the graph, the amended change resolves to `05`, the rebased merge to `06`, two
 amendments that saw neither diverge.
 
+`corpus_tree.bend`: the `tree`, `links`, `modes` and `whole` chains replay
+into the file sets `tests/tree.rs` and `tests/links.rs` assert — paths after
+a rename, a link's target through its target's rename, a mode set and unset,
+a payload replaced — the three invalid documents the parser accepts are
+refused by the tree with `tree.rs`'s own words, the graph merge agrees with
+the linear replay on every chain and contests nothing on `merged`, and the
+hand-built graphs of `tree.rs`'s unit tests resolve as decision 0008 says:
+a drop concurrent with an edit loses and is reported, two concurrent moves
+take the lower digest, a later move replaces an earlier one silently, two
+files may hold one path, and an undelivered parent is refused.
+
 On a store assembled from each corpus, and on one `historica init` and
 `historica record` made, `log` prints what `historica log` prints — order,
 abbreviations, marks, counted facts, the message verbatim — `files` the same
@@ -85,9 +97,10 @@ file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
 binary and the JavaScript build against the Rust tool on six such stores.
 `check` names every document by the digest `shasum` prints, and `diff` writes
-the operation document the Rust tool wrote, `result` included. Not read:
-bookmarks (`names/`), links, and a merge's `keep` resolution, which `cat`
-refuses rather than guesses at.
+the operation document the Rust tool wrote, `result` included. `cat` of a
+link refuses in the Rust tool's words, naming where it points relative to
+where it sits. Not read: bookmarks (`names/`), and a merge's `keep`
+resolution, which `cat` refuses rather than guesses at.
 
 ### What the laws say
 
@@ -409,16 +422,13 @@ rules beside them.
 ## What is not here
 
 The port is the *format* and the *core*; the Rust crate is 33k lines and this
-is under 3k. Not ported:
+is under 5k. Not ported:
 
-- **The tree.** Which file is a link, which was added when, what path a file
-  has at a revision — `tree.rs` — so the three invalid fixtures that need it
-  (`drop-a-referenced-file`, `edit-a-link`, `link-a-plain-file`) are not in
-  `corpus_rev.bend`.
 - **Merging** concurrent branches as a command over the store (`merge.rs`
-  is modelled in `merge.bend`, not ported: no revision graph is read, no
-  `contested` report is made), and **resolutions** — the `keep`/`insert`
-  document a merge states.
+  is modelled in `merge.bend`, not ported: no revision graph is read for
+  content, no `contested` report is made — the tree's contests are computed
+  and not yet printed), and **resolutions** — the `keep`/`insert` document a
+  merge states.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
 - **The store** as a folder: `init`, `record`, `arrange`, `fetch`, `export`,

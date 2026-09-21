@@ -25,6 +25,7 @@ import ./ident.bend as Id
 import ./ops.bend as Ops
 import ./revision.bend as Rev
 import ./store.bend as Store
+import ./tree.bend as Tree
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -603,146 +604,59 @@ def check() -> IO(Unit):
 # The file set at a revision
 # --------------------------
 
-# A file and where it is. What `add` and `move` say, less what `drop` says,
-# on top of what the parents held — the union of them, since a file two
-# parents both hold is one file.
-type Entry is Data:
-  Entry{file: String, path: String}
+# `tree.bend` over everything the revision reaches, which is what the
+# store does: decision 0008's rules decide what concurrent branches left,
+# and a chain walks the same path with nothing contested.
+def rev_of(f: Full) -> Rev.Rev:
+  match f:
+    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
+      Rev.Rev{change, parents, supersedes, author, when, revised_by, revised, facts, message}
 
-def entry_path(es: List<&2, Entry>, +file: String) -> Maybe<&2, String>:
-  match es:
-    case Nil{}:
-      None{}
-    case Entry{+f, p} <> rest:
-      Bool.pick(Maybe<&2, String>, String.eq(f, file), Some{p}, entry_path(rest, file))
-
-def entry_file(es: List<&2, Entry>, +path: String) -> Maybe<&2, String>:
-  match es:
-    case Nil{}:
-      None{}
-    case Entry{f, +p} <> rest:
-      Bool.pick(Maybe<&2, String>, String.eq(p, path), Some{f}, entry_file(rest, path))
-
-def keep_entry(b: Bool, e: Entry, rest: List<&2, Entry>) -> List<&2, Entry>:
-  match b:
-    case True{}:
-      e <> rest
-    case False{}:
-      rest
-
-def without_file(es: List<&2, Entry>, +file: String) -> List<&2, Entry>:
-  match es:
+def events_of(fs: List<&2, Full>) -> List<&2, Tree.Ev>:
+  match fs:
     case Nil{}:
       Nil{}
-    case Entry{+f, p} <> rest:
-      keep_entry(Bool.not(String.eq(f, file)), Entry{f, p}, without_file(rest, file))
+    case +f <> rest:
+      Tree.Ev{id_of(f), rev_of(f)} <> events_of(rest)
 
-def place(es: List<&2, Entry>, +file: String, path: String) -> List<&2, Entry>:
-  Entry{file, path} <> without_file(es, file)
+def tree.of(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> IO(Tree.Tree()):
+  match merged:
+    case Fail{e}:
+      die(Tree.Tree(), 1, id ++ ": " ++ Tree.fault_show(e))
+    case Done{m}:
+      IO.pure(Tree.Tree(), Tree.merged_tree(m))
 
-def union(es: List<&2, Entry>, +into: List<&2, Entry>) -> List<&2, Entry>:
-  match es:
-    case Nil{}:
-      into
-    case Entry{+f, p} <> rest:
-      union(rest, keep_entry(Maybe.is_none(&2, String, entry_path(into, f)), Entry{f, p}, into))
-
-# `add` and `move` place a file; `drop` removes one; every other fact
-# leaves the set as it is.
-def apply_fact.placed(es: List<&2, Entry>, file: String, path: String, places: Bool) -> List<&2, Entry>:
-  match places:
-    case True{}:
-      place(es, file, path)
-    case False{}:
-      es
-
-def apply_fact.dropped(es: List<&2, Entry>, file: String, drops: Bool) -> List<&2, Entry>:
-  match drops:
-    case True{}:
-      without_file(es, file)
-    case False{}:
-      es
-
-def apply_fact.of(es: List<&2, Entry>, +key: String, value: String, cut: Maybe<&2, T.Split>) -> List<&2, Entry>:
-  match cut:
-    case Some{T.Split{file, path}}:
-      apply_fact.placed(es, file, path, Bool.or(String.eq(key, "add"), String.eq(key, "move")))
-    case None{}:
-      apply_fact.dropped(es, value, String.eq(key, "drop"))
-
-def apply_fact(es: List<&2, Entry>, +key: String, +value: String) -> List<&2, Entry>:
-  apply_fact.of(es, key, value, T.split_once(value))
-
-def apply_facts(facts: List<&2, Rev.Header>, es: List<&2, Entry>) -> List<&2, Entry>:
-  match facts:
-    case Nil{}:
-      es
-    case Rev.Header{k, v} <> rest:
-      apply_facts(rest, apply_fact(es, k, v))
-
-# The file set at every revision, built oldest first so that a parent's is
-# there when its child's is wanted. `presentation` is newest first, and a
-# parent is never above its child in it, so its reverse is the order.
-type Trees is Data:
-  Trees{entries: List<&2, Entry>, id: String}
-
-def tree_of(ts: List<&2, Trees>, +id: String) -> List<&2, Entry>:
-  match ts:
-    case Nil{}:
-      Nil{}
-    case Trees{es, +i} <> rest:
-      Bool.pick(List<&2, Entry>, String.eq(i, id), es, tree_of(rest, id))
-
-def trees.parents(+ts: List<&2, Trees>, ps: List<&2, String>) -> List<&2, Entry>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case p <> rest:
-      union(tree_of(ts, p), trees.parents(ts, rest))
-
-def trees.go(oldest_first: List<&2, Full>, +ts: List<&2, Trees>) -> List<&2, Trees>:
-  match oldest_first:
-    case Nil{}:
-      ts
-    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest:
-      trees.go(rest, Trees{apply_facts(facts, trees.parents(ts, parents)), id} <> ts)
-
-def trees(+fs: List<&2, Full>) -> List<&2, Trees>:
-  trees.go(List.reverse(&2, Full, presentation(fs)), Nil{})
-
-def tree(+fs: List<&2, Full>, +id: String) -> List<&2, Entry>:
-  tree_of(trees(fs), id)
+def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
+  tree.of(id, Tree.merge(events_of(ancestry(fs, id))))
 
 def pad(+s: String, width: Nat) -> String:
   s ++ String.repeat(" ", Nat.sub(width, String.length(s)))
 
-def widest(es: List<&2, Entry>) -> Nat:
+def widest(es: Tree.Tree()) -> Nat:
   match es:
     case Nil{}:
       0n
-    case Entry{f, p} <> rest:
-      Nat.max(String.length(p), widest(rest))
+    case +e <> rest:
+      Nat.max(String.length(Tree.entry_path(e)), widest(rest))
 
-def by_path(+a: Entry, +b: Entry) -> Bool:
-  match a b:
-    case Entry{fa, pa} Entry{fb, pb}:
-      String.is_le(pa, pb)
+def by_path(+a: Tree.Entry, +b: Tree.Entry) -> Bool:
+  String.is_le(Tree.entry_path(a) ++ "  " ++ Tree.entry_file(a), Tree.entry_path(b) ++ "  " ++ Tree.entry_file(b))
 
-def print_files(es: List<&2, Entry>, +width: Nat) -> IO(Unit):
+def print_files(es: Tree.Tree(), +width: Nat) -> IO(Unit):
   match es:
     case Nil{}:
       IO.pure(Unit, Unit{})
-    case Entry{f, p} <> rest:
+    case +e <> rest:
       do IO<Unit>:
-        IO.print(pad(p, width) ++ "  " ++ f)
+        IO.print(pad(Tree.entry_path(e), width) ++ "  " ++ Tree.entry_file(e))
         print_files(rest, width)
 
-def files.of(+es: List<&2, Entry>) -> IO(Unit):
+def files.of(+es: Tree.Tree()) -> IO(Unit):
   match es:
     case Nil{}:
       IO.print("no files here")
     case +some:
-      print_files(List.sort(~Entry, ~(a => b => by_path(a, b)), some), widest(some))
+      print_files(List.sort(~Tree.Entry, ~(a => b => by_path(a, b)), some), widest(some))
 
 def files(+target: String) -> IO(Unit):
   do IO<Unit>:
@@ -751,7 +665,8 @@ def files(+target: String) -> IO(Unit):
     ds : List<&2, Store.Doc> <- Store.documents(r)
     +fs : List<&2, Full> = fulls(r, ds)
     f : Full <- resolved(fs, target)
-    files.of(tree(fs, id_of(f)))
+    t : Tree.Tree() <- tree(fs, id_of(f))
+    files.of(t)
 
 # One file's content
 # ------------------
@@ -868,15 +783,85 @@ def content.found(+file: String, found: Maybe<&2, Result<&2, &2, String, List<&2
 def content(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   content.found(file, content_of(contents.go(List.reverse(&2, Full, presentation(fs)), ds, file, Nil{}), id))
 
-def file_in.of(+id: String, +path: String, found: Maybe<&2, String>) -> IO(String):
+def file_in.of(+id: String, +path: String, found: List<&2, String>) -> IO(String):
+  match found:
+    case Nil{}:
+      die(String, 1, String.take(id, 12n) ++ " holds no file at " ++ path ++ "; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds")
+    case only <> Nil{}:
+      IO.pure(String, only)
+    case +several:
+      die(String, 1, String.take(id, 12n) ++ " has " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ path ++ ", so the path does not name one of them:" ++ String.concat(T.map(~String, ~String, ~(f => "\n  file:" ++ f), several)))
+
+def file_in(+id: String, +path: String, t: Tree.Tree()) -> IO(String):
+  file_in.of(id, path, Tree.at(t, path))
+
+# Decision 0040: a link has no bytes, and printing the target where the
+# content goes would be a rendering standing in for a file; the reader is
+def directory_of.join(first: String, rest: String) -> String:
+  match rest:
+    case SNil{}:
+      first
+    case SCon{c, t}:
+      first ++ "/" ++ SCon{c, t}
+
+# Every part but the last, joined; nothing for a path at the root.
+def directory_of.rest(rest: List<&2, String>, first: String) -> String:
+  match rest:
+    case Nil{}:
+      ""
+    case second <> more:
+      directory_of.join(first, directory_of.rest(more, second))
+
+# told where it points, relative to where the link sits.
+def directory_of.of(parts: List<&2, String>) -> String:
+  match parts:
+    case Nil{}:
+      ""
+    case first <> rest:
+      directory_of.rest(rest, first)
+
+def directory_of(+path: String) -> String:
+  directory_of.of(String.split(path, '/'))
+
+def relative.go(from: List<&2, String>, to: List<&2, String>) -> List<&2, String>:
+  match from to:
+    case +f <> +fs +t <> +ts:
+      Bool.pick(List<&2, String>, String.eq(f, t), relative.go(fs, ts), List.append(&2, String, List.replicate(String, 1n+List.length(&2, String, fs), ".."), t <> ts))
+    case Nil{} _:
+      to
+    case _ Nil{}:
+      List.replicate(String, List.length(&2, String, from), "..")
+
+def relative.of(parts: List<&2, String>) -> String:
+  match parts:
+    case Nil{}:
+      "."
+    case +some:
+      String.join(some, "/")
+
+def relative_path(+from: String, to: String) -> String:
+  relative.of(relative.go(Bool.pick(List<&2, String>, String.is_empty(from), Nil{}, String.split(from, '/')), String.split(to, '/')))
+
+def materialise.of(+at: String, found: Maybe<&2, String>, otherwise: String) -> String:
   match found:
     case None{}:
-      die(String, 1, String.take(id, 12n) ++ " holds no file at " ++ path ++ "; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds")
-    case Some{f}:
-      IO.pure(String, f)
+      otherwise
+    case Some{to}:
+      relative_path(directory_of(at), to)
 
-def file_in(+id: String, +path: String, es: List<&2, Entry>) -> IO(String):
-  file_in.of(id, path, entry_file(es, path))
+def materialise(+t: Tree.Tree(), +at: String, target: Tree.Target) -> String:
+  match target:
+    case Tree.Verbatim{spelling}:
+      spelling
+    case Tree.Reference{+named}:
+      materialise.of(at, Tree.path(t, named), "file:" ++ named)
+
+def not_a_link(+t: Tree.Tree(), +path: String, +file: String, target: Maybe<&2, Tree.Target>) -> IO(Unit):
+  match target:
+    case None{}:
+      IO.pure(Unit, Unit{})
+    case Some{g}:
+      die(Unit, 1, "`" ++ path ++ "` is a link to `" ++ materialise(t, Maybe.default(&2, String, Tree.path(t, file), path), g) ++ "`, so there is nothing to print; what it holds is where it points")
 
 def cat.print(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> IO(Unit):
   match r:
@@ -894,8 +879,12 @@ def cat(+target: String, +path: String) -> IO(Unit):
     +fs : List<&2, Full> = fulls(r, ds2)
     f : Full <- resolved(fs, target)
     +id : String = id_of(f)
-    file : String <- file_in(id, path, tree(fs, id))
+    t : Tree.Tree() <- tree(fs, id)
+    +t2 : Tree.Tree() = t
+    +path2 : String = path
+    file : String <- file_in(id, path2, t2)
     +file2 : String = file
+    not_a_link(t2, path2, file2, Tree.entry_target_of(Tree.lookup(t2, file2)))
     cat.print(content(fs, ds2, id, file2))
 
 # show
@@ -923,7 +912,8 @@ def show.of(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +f: Full, path: Maybe
       show.doc(id_of(f), id_of(f), doc_by_id(ds, id_of(f)))
     case Some{+p}:
       do IO<Unit>:
-        file : String <- file_in(id_of(f), p, tree(fs, id_of(f)))
+        t : Tree.Tree() <- tree(fs, id_of(f))
+        file : String <- file_in(id_of(f), p, t)
         +file2 : String = file
         show.said(id_of(f), file2, ds, said(facts_of(f), file2))
 
