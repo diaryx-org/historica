@@ -21,6 +21,8 @@ import ./merge_lemmas.bend as Conv
 import ./tree.bend as Tree
 import ./tree_lemmas.bend as TL
 import ./graph_lemmas.bend as GL
+import ./anchor_lemmas.bend as AL
+import ./merge.bend as Merge
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -319,6 +321,18 @@ def Laws.merge_converges(g, a, b, e):
 
 def Laws.merge_records_nothing(g, o, past, b):
   Conv.merge_records_nothing(g, o, past, b)
+
+def Laws.insert_at_gap(t, at, nm, it, left, inv, fr, lo):
+  AL.insert_at(t, at, nm, it, left, inv, fr, lo)
+
+def Laws.invariant_empty():
+  AL.invariant_nil()
+
+def Laws.insert_keeps_invariant(t, nm, it, left, inv, fr, lo):
+  AL.invariant_attach(t, Merge.Node{nm, it, Merge.anchor(t, left), Nil{}}, left, inv, fr, {==}, lo)
+
+def Laws.mark_keeps_invariant(t, target, by, inv):
+  AL.invariant_mark(t, target, by, inv)
 
 def Laws.one_file_per_path(t, r, t2, q, e):
   TL.fits_alone(Tree.at(t2, q), TL.path_fits(t2, q, Nil{}, TL.wf_paths(t2, TL.apply_wf(t, r, t2, e))))

@@ -50,7 +50,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
 | `store.bend`, `ffi/` | where the store is and what it holds: two effects, a C adapter, a Rust static library | `Store::discover`, `std::fs` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check` over the store it finds; `replay` and `diff` over named files | `cli` |
-| `LAWS.bend` / `PROOF.bend` | forty-one claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | forty-five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -59,6 +59,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `diff_lemmas.bend` | `apply(diff(parent, child)) == child`: the LCS backtrack yields a script that takes the parent to the child, and the runs of that script are blocks the cursor walks to it | `tests/diff.rs` |
 | `merge.bend`, `merge_lemmas.bend` | the merge as a model — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
 | `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
+| `anchor_lemmas.bend` | the reachable-state invariant of a view and one insertion landing at the visible gap it asked for, tombstones or not | `merge.rs`'s anchor, Fugue's rule |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
@@ -393,9 +394,49 @@ mutation is added for it: the breaks that would fail it — a step that
 empties the tree on an empty event, a walk that reads the wrong index —
 fail `merge_converges` first. Not proven, and the larger claim: that the walk agrees with plain
 application on a chain, which is decision 0007's promise and what
-`merge.rs`'s `linear` fast path relies on; that needs the in-order
-reading of an `attach`-built tree characterised, and is a model reshaped
-for it rather than a lemma file.
+`merge.rs`'s `linear` fast path relies on. `insert_at_gap` below is the
+one-step case of it; the chain needs it composed with the run's own
+growing view and with deletes, which is not done.
+
+One insertion lands at the gap its author asked for. `insert_at_gap`
+says: on a view with the reachable-state invariant, an element of a
+fresh name anchored by Fugue's rule after the visible element at `at`
+(`left_of`, counting with the tombstones left out) is read, once the
+tombstones are left out again, at exactly that gap —
+`take(visible, at) ++ [it] ++ drop(visible, at)`. The invariant
+(`Merge.invariant`) is two facts about the view: the reading of every
+sibling list finishes within the fuel `order` gives it (`Merge.fits`),
+and no element is read twice (`Merge.nodup` of the reading). It holds of
+the empty view and is kept by an anchored attach of a fresh element and
+by a mark (`invariant_empty`, `insert_keeps_invariant`,
+`mark_keeps_invariant`), which is everything `inserts` and `deletes` do
+to a view. The argument (`anchor_lemmas.bend`): the anchor's place has
+no child yet — the element followed had no right child, or the descent
+through its first right child's left children (`leftmost`, tombstones
+included) landed on an element with none — so `attach`, which places by
+name among siblings, gives the element no sibling and changes no other
+list (`children_attach_other`, `children_attach_here`); the reading of
+the new tree is the old reading with the element spliced beside its
+parent (`read_attach`, one fuel up); and the parent is the element
+followed, or the next element read after it (`next_is_read`,
+`head_read`), so with the reading duplicate-free the splice is the
+insertion after the element followed (`splice_swap`), which commutes
+with leaving tombstones out because the element followed is visible
+(`standing_splice`). The freshness `inserts` relies on — a name the view
+neither holds nor hangs anything under — is a hypothesis
+(`Merge.fresh`), as is the view being one this author's run built: the
+invariant is not shown of `restrict(t, seen)` for a walked tree `t`,
+which would need the whole tree's invariant under concurrent attaches
+(an element among same-side siblings), and the name-sorted commutation
+that takes. What is fuel-bound stays explicit: `fits` is carried in the
+invariant, not derived from a depth, and `leftmost`'s fuel (the element
+count) is shown enough from it (`lchain_of_fits`, `leftmost_lands`,
+`leftmost_stable`), so neither bound is assumed past what the invariant
+states. Two mutations: an anchor that finds the right children among the
+standing elements only, and a descent that follows standing left
+children only — both the classic tombstone-skipping bug, both rejected
+(`anchor_of_nil`, `leftmost_stay`), and both caught at runtime by the
+two `replay_tests` cases built for them.
 
 What the model is faithful to, and not. Verus's `merge_model.rs` states
 the same theorem over `merge.rs`'s own shape — an index tree, anchors
@@ -407,7 +448,8 @@ hold it to `merge.rs`'s unit tests: concurrent runs at one position do
 not interleave, whether written forwards or backwards; ties break by
 digest; concurrent deletions agree; a deletion beside a concurrent
 insertion keeps the insertion; a merge that records nothing changes
-nothing; every topological order of a four-event graph reads the same
+nothing; an insert after an element whose right child is a tombstone,
+and one whose descent passes a tombstone, land where asked; every topological order of a four-event graph reads the same
 file; and a document that contradicts its author's view is refused.
 Resolutions (decision 0032) and `contested` are not modelled, as in the
 Verus file. The reading carries fuel — one more than the element count,
@@ -421,7 +463,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Thirty-nine mutations cover the primitive helpers, lost inserts, a lost trailing
+Forty-one mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -444,7 +486,9 @@ action applied as another author's; and four tree breaks: a second `add` of
 a file the tree holds accepted, two files at one path not refused, a
 dangling reference not checked, and a `mode` that resets the kind; and two
 graph breaks: an ancestry closure that keeps only the first parent, and a
-readiness that checks only the first. The proof gate rejects
+readiness that checks only the first; and two anchor breaks: right
+children found among standing elements only, and a descent that follows
+standing left children only. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees

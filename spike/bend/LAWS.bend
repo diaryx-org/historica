@@ -284,6 +284,54 @@ law merge_records_nothing:
   for b: {Merge.below(o, List.length(&2, Merge.Rev, g)) == True{} : Bool}
   {Merge.merged(List.append(&2, Merge.Rev, g, [Merge.Rev{past, None{}}]), List.append(&2, Nat, o, [List.length(&2, Merge.Rev, g)])) == Merge.merged(g, o) : Maybe<&2, List<&2, Ops.Item>>}
 
+# One insertion lands at the gap its author asked for. `Merge.invariant`
+# is what holds of an author's view as their run grows it — the reading
+# of every sibling list finishes within the fuel `order` gives it, and no
+# element is read twice — and `Merge.fresh` is a name the view neither
+# holds nor hangs anything under, which is what an event mints. An
+# element anchored by Fugue's rule after the visible element at `at`
+# (`left_of`, over the view with its tombstones left out) is read, once
+# the tombstones are left out again, exactly at that gap: `attach`
+# places it by name among siblings, but the anchor gives it none — the
+# element it follows had no right child, or the descent through the
+# first right child's left children, tombstones included, landed on an
+# element with no left child. The anchor that skips tombstones, or a
+# descent that does, is what `check.py` breaks.
+law insert_at_gap:
+  for +t: List<&2, Merge.Node>
+  for at: Nat
+  for +nm: Merge.Name
+  for +it: Ops.Item
+  for +left: Maybe<&2, Merge.Name>
+  for +inv: {Merge.invariant(t) == True{} : Bool}
+  for +fr: {Merge.fresh(t, nm) == True{} : Bool}
+  for lo: {Merge.left_of(Merge.visible(t), at) == Some{left} : Maybe<&2, Maybe<&2, Merge.Name>>}
+  {Merge.visible(Merge.attach(t, Merge.Node{nm, it, Merge.anchor(t, left), Nil{}})) == List.append(&2, Merge.Node, List.take(&2, Merge.Node, Merge.visible(t), at), Merge.Node{nm, it, Merge.anchor(t, left), Nil{}} <> List.drop(&2, Merge.Node, Merge.visible(t), at)) : List<&2, Merge.Node>}
+
+# The invariant is a fact about reachable views: the empty view has it,
+# an anchored attach of a fresh element after a visible one (or at the
+# front) keeps it, and a mark keeps it. `inserts` and `deletes` do
+# nothing else to the view.
+law invariant_empty:
+  {Merge.invariant(Nil{}) == True{} : Bool}
+
+law insert_keeps_invariant:
+  for +t: List<&2, Merge.Node>
+  for +nm: Merge.Name
+  for +it: Ops.Item
+  for +left: Maybe<&2, Merge.Name>
+  for +inv: {Merge.invariant(t) == True{} : Bool}
+  for +fr: {Merge.fresh(t, nm) == True{} : Bool}
+  for lo: {Merge.in_view(t, left) == True{} : Bool}
+  {Merge.invariant(Merge.attach(t, Merge.Node{nm, it, Merge.anchor(t, left), Nil{}})) == True{} : Bool}
+
+law mark_keeps_invariant:
+  for +t: List<&2, Merge.Node>
+  for +target: Merge.Name
+  for +by: Nat
+  for inv: {Merge.invariant(t) == True{} : Bool}
+  {Merge.invariant(Merge.mark(t, target, by)) == True{} : Bool}
+
 # The tree: what a revision leaves behind, whatever file set it is
 # applied to. `Tree.apply` is `tree.rs`'s linear case; a `Done` from it
 # is a tree the store will show.

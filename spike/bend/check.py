@@ -407,6 +407,20 @@ def check_mutations(temporary):
             "graph_lemmas.known_mem",
             "tree.bend",
         ),
+        (
+            "the anchor skips tombstones among the right children",
+            "anchor.of(t, left, children(t, left, True{}))",
+            "anchor.of(t, left, children(standing(t), left, True{}))",
+            "anchor_lemmas.anchor_of_nil",
+            "merge.bend",
+        ),
+        (
+            "the descent skips tombstones among the left children",
+            "leftmost(p, t, head_name(children(t, Some{at}, False{}), at))",
+            "leftmost(p, t, head_name(children(standing(t), Some{at}, False{}), at))",
+            "anchor_lemmas.leftmost_stay",
+            "merge.bend",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"

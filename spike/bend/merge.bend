@@ -101,6 +101,11 @@ def Node.author(n: Node) -> Nat:
     case Node{Name{a, m}, it, pl, d}:
       a
 
+def Node.place(n: Node) -> Place:
+  match n:
+    case Node{nm, it, pl, d}:
+      pl
+
 def Node.item(n: Node) -> Ops.Item:
   match n:
     case Node{nm, it, pl, d}:
@@ -502,3 +507,72 @@ def below(o: List<&2, Nat>, +n: Nat) -> Bool:
 
 def orders(+g: List<&2, Rev>, +a: List<&2, Nat>, +b: List<&2, Nat>) -> Bool:
   Bool.and(distinct(a), Bool.and(distinct(b), Bool.and(subset(a, b), Bool.and(subset(b, a), Bool.and(causal(a, g), causal(b, g))))))
+
+# Reachable states
+# ----------------
+#
+# What holds of a view as its author's run grows it, stated so a proof can
+# carry it: the reading of every sibling list finishes within the fuel
+# `order` gives it, and no element is read twice. `fits` is the fuel bound
+# as a fact about the tree rather than a count of its depth; the invariant
+# holds of the empty view and is kept by an anchored attach and by a mark
+# (`LAWS.insert_keeps_invariant`, `LAWS.mark_keeps_invariant`).
+def is_nil(ns: List<&2, Node>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case n <> rest:
+      False{}
+
+# The reading of `siblings` completes within `fuel`: no branch runs out.
+def fits(fuel: Nat, +t: List<&2, Node>, siblings: List<&2, Node>) -> Bool:
+  match fuel:
+    case 0n:
+      is_nil(siblings)
+    case 1n++p:
+      match siblings:
+        case Nil{}:
+          True{}
+        case +s <> rest:
+          Bool.and(fits(p, t, children(t, Some{Node.name(s)}, False{})), Bool.and(fits(p, t, children(t, Some{Node.name(s)}, True{})), fits(p, t, rest)))
+
+def named(ns: List<&2, Node>, +nm: Name) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case n <> rest:
+      Bool.or(Name.eq(Node.name(n), nm), named(rest, nm))
+
+def nodup(ns: List<&2, Node>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case +n <> +rest:
+      Bool.and(Bool.not(named(rest, Node.name(n))), nodup(rest))
+
+def Node.under(n: Node, nm: Name) -> Bool:
+  match n:
+    case Node{x, it, Place{p, r}, d}:
+      Name.same(p, Some{nm})
+
+def hangs_under(ns: List<&2, Node>, +nm: Name) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case n <> rest:
+      Bool.or(Node.under(n, nm), hangs_under(rest, nm))
+
+# A name no element has and none hangs under: what an event mints.
+def fresh(+t: List<&2, Node>, +nm: Name) -> Bool:
+  Bool.and(Bool.not(named(t, nm)), Bool.not(hangs_under(t, nm)))
+
+def invariant(+t: List<&2, Node>) -> Bool:
+  Bool.and(fits(1n+List.length(&2, Node, t), t, children(t, None{}, True{})), nodup(order(t)))
+
+# The element an insert follows is visible, or there is none.
+def in_view(+t: List<&2, Node>, left: Maybe<&2, Name>) -> Bool:
+  match left:
+    case None{}:
+      True{}
+    case Some{nm}:
+      named(visible(t), nm)
