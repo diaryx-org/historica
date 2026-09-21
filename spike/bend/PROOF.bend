@@ -20,6 +20,7 @@ import ./refusal_lemmas.bend as Refuse
 import ./merge_lemmas.bend as Conv
 import ./tree.bend as Tree
 import ./tree_lemmas.bend as TL
+import ./graph_lemmas.bend as GL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -335,3 +336,6 @@ def Laws.move_then_drop(t, e, p):
   match e:
     case Tree.Entry{+f, old, k, y, g, m}:
       TL.remove_insert(t, Tree.Entry{f, p, k, y, g, m})
+
+def Laws.merge_parents_unordered(es, es2, m, a, e):
+  GL.merge_alike(es, es2, m, a, e)

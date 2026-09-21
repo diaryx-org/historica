@@ -50,7 +50,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
 | `store.bend`, `ffi/` | where the store is and what it holds: two effects, a C adapter, a Rust static library | `Store::discover`, `std::fs` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check` over the store it finds; `replay` and `diff` over named files | `cli` |
-| `LAWS.bend` / `PROOF.bend` | thirty-nine claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | forty claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -58,7 +58,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `refusal_lemmas.bend` | refusals are justified: every refusal of an ordered document has one of four positional causes, and no cause means the positional result | error soundness |
 | `diff_lemmas.bend` | `apply(diff(parent, child)) == child`: the LCS backtrack yields a script that takes the parent to the child, and the runs of that script are blocks the cursor walks to it | `tests/diff.rs` |
 | `merge.bend`, `merge_lemmas.bend` | the merge as a model — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
-| `string_lemmas.bend`, `tree_lemmas.bend` | strings compare as they are, down to the bit; and what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows | `tree.rs`'s rules, decisions 0017 and 0040 |
+| `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
@@ -359,6 +359,27 @@ its comparison through `insert.at`, so a proof can split on it, and
 proof can open the pipeline one `match` at a time instead of stating
 the whole `do`-block's continuation.
 
+The merge reads parents as a set. `merge_parents_unordered` says that
+two graphs alike but for the order each revision lists its parents —
+the same revisions in the same order, the same digests and facts, the
+same parents as a set — merge to one `Merged`, tree and contests both,
+whenever either merges at all. The parents reach the merge in two
+places, and both are proven to see only the set: whether every parent
+was delivered (`graph_lemmas.bend`: `delivered_alike`, through
+`Rev.without` being empty exactly when each parent is a member of the
+ids), and the ancestor tables, where `closure` unions each parent with
+its ancestors and the tables built from alike graphs are alike
+(`seen_alike_fuel`) — the same revisions with ancestor lists that are
+one set, which is all `is_ancestor` reads, so `replaced`, `concurrent`
+and every `decide` come out equal (`decide_all_alike`) and the rest of
+the merge never sees a parent. The membership algebra under it —
+`append`, `without`, `union_ids`, `closure` — is stated as implications
+between `Rev.member` results, since Bend consumes a lambda-bound
+hypothesis once and a universally quantified one cannot be passed down
+an induction. One shape in `tree.bend` exists for it: `merge` is one
+def per stage, as `apply` is. What the law leaves open is the fault: a
+refusal names the first undelivered parent, which is the order's.
+
 What the model is faithful to, and not. Verus's `merge_model.rs` states
 the same theorem over `merge.rs`'s own shape — an index tree, anchors
 found on the whole tree by filtering for known authors — and proves the
@@ -383,7 +404,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Thirty-seven mutations cover the primitive helpers, lost inserts, a lost trailing
+Thirty-nine mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -404,7 +425,9 @@ element appended rather than placed by name, a removal appended rather than
 joined in order, a causal order that lets an event precede its past, and an
 action applied as another author's; and four tree breaks: a second `add` of
 a file the tree holds accepted, two files at one path not refused, a
-dangling reference not checked, and a `mode` that resets the kind. The proof gate rejects
+dangling reference not checked, and a `mode` that resets the kind; and two
+graph breaks: an ancestry closure that keeps only the first parent, and a
+readiness that checks only the first. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees

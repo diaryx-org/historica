@@ -393,6 +393,20 @@ def check_mutations(temporary):
             "tree_lemmas.modes_kind",
             "tree.bend",
         ),
+        (
+            "an ancestry closure keeps only the first parent",
+            "      union_ids(p <> ancestors_of(ss, p), closure(rest, ss))",
+            "      union_ids(p <> ancestors_of(ss, p), Nil{})",
+            "graph_lemmas.closure_has",
+            "tree.bend",
+        ),
+        (
+            "a revision is ready when its first parent is known",
+            "      Bool.and(is_seen(ss, p), known(ss, rest))",
+            "      is_seen(ss, p)",
+            "graph_lemmas.known_mem",
+            "tree.bend",
+        ),
     )
     for index, (name, before, after, proof, *source_files) in enumerate(mutations):
         mutant = temporary / f"mutation-{index}"

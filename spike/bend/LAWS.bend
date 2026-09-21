@@ -331,3 +331,18 @@ law move_then_drop:
   for e: Tree.Entry
   for p: String
   {Tree.remove(Tree.insert(t, Tree.with_path(e, p)), Tree.entry_file(e)) == Tree.remove(t, Tree.entry_file(e)) : Tree.Tree()}
+
+# The merge is a function of what each revision's parents are, not the
+# order it lists them: two graphs alike but for that order — the same
+# revisions in the same order, each with the same digest and facts, each
+# naming the same parents as a set — merge to one file set, with one
+# report of what was contested. `Tree.merge` is `tree.rs`'s graph case.
+# A refusal is not a merge, and the fault may name another parent, so the
+# law is stated of the merge that succeeded.
+law merge_parents_unordered:
+  for +es: List<&2, Tree.Ev>
+  for +es2: List<&2, Tree.Ev>
+  for m: Tree.Merged
+  for +a: {Tree.alike(es, es2) == True{} : Bool}
+  for e: {Tree.merge(es) == Done{m} : Result<&2, &2, Tree.Fault, Tree.Merged>}
+  {Tree.merge(es2) == Done{m} : Result<&2, &2, Tree.Fault, Tree.Merged>}

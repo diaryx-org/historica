@@ -1274,13 +1274,75 @@ def merge.finish(p: Placed) -> Merged:
     case Placed{+t, b, c}:
       Merged{t, List.sort(~Contest, ~(a => b => contest_le(a, b)), List.append(&2, Contest, c, path_contests(t, t, Nil{})))}
 
-# The file set the whole graph leaves behind.
+# The file set the whole graph leaves behind. One def per stage, as
+# `apply` is, so that a proof can open them one at a time.
+def merge.decided(r: Result<&2, &2, Fault, Placed>, n: Nat) -> Result<&2, &2, Fault, Merged>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{placed}:
+      Done{merge.finish(raise(n, placed))}
+
+def merge.seen(r: Result<&2, &2, Fault, List<&2, Seen>>, +es: List<&2, Ev>) -> Result<&2, &2, Fault, Merged>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{ss}:
+      merge.decided(decide_all(gather(es, Nil{}), ss, Placed{empty(), Nil{}, Nil{}}), List.length(&2, Ev, es))
+
+def merge.delivered(r: Result<&2, &2, Fault, Unit>, +es: List<&2, Ev>) -> Result<&2, &2, Fault, Merged>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      merge.seen(seen(List.length(&2, Ev, es), es, Nil{}), es)
+
 def merge(+es: List<&2, Ev>) -> Result<&2, &2, Fault, Merged>:
-  do Result<&2, &2, Fault, Merged>:
-    delivered(es, ev_ids(es))
-    ss : List<&2, Seen> <- seen(List.length(&2, Ev, es), es, Nil{})
-    placed : Placed <- decide_all(gather(es, Nil{}), ss, Placed{empty(), Nil{}, Nil{}})
-    return merge.finish(raise(List.length(&2, Ev, es), placed))
+  merge.delivered(delivered(es, ev_ids(es)), es)
+
+# Two event lists alike but for the order each revision lists its
+# parents: the same revisions in the same order, each with the same digest
+# and the same facts, naming the same parents as a set. What
+# `LAWS.merge_parents_unordered` ranges over.
+def subset_ids(xs: List<&2, String>, +ys: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(Rev.member(ys, x), subset_ids(rest, ys))
+
+def same_ids(+xs: List<&2, String>, +ys: List<&2, String>) -> Bool:
+  Bool.and(subset_ids(xs, ys), subset_ids(ys, xs))
+
+def header_eq(a: Rev.Header, b: Rev.Header) -> Bool:
+  match a b:
+    case Rev.Header{k, v} Rev.Header{k2, v2}:
+      Bool.and(String.eq(k, k2), String.eq(v, v2))
+
+def headers_eq(a: List<&2, Rev.Header>, b: List<&2, Rev.Header>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case x <> rest Nil{}:
+      False{}
+    case Nil{} y <> rest2:
+      False{}
+    case x <> rest y <> rest2:
+      Bool.and(header_eq(x, y), headers_eq(rest, rest2))
+
+def rev_alike(+a: Rev.Rev, +b: Rev.Rev) -> Bool:
+  Bool.and(same_ids(parents_of(a), parents_of(b)), headers_eq(facts_about(a), facts_about(b)))
+
+def alike(es: List<&2, Ev>, es2: List<&2, Ev>) -> Bool:
+  match es es2:
+    case Nil{} Nil{}:
+      True{}
+    case e <> rest Nil{}:
+      False{}
+    case Nil{} e2 <> rest2:
+      False{}
+    case Ev{id, doc} <> rest Ev{id2, doc2} <> rest2:
+      Bool.and(String.eq(id, id2), Bool.and(rev_alike(doc, doc2), alike(rest, rest2)))
 
 def main() -> IO(Unit):
   IO.print("tree")
