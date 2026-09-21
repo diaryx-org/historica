@@ -317,6 +317,9 @@ def Laws.no_cause_replays(parent, stated, ops, e, c):
 def Laws.merge_converges(g, a, b, e):
   Conv.merge_converges(g, a, b, e)
 
+def Laws.merge_records_nothing(g, o, past, b):
+  Conv.merge_records_nothing(g, o, past, b)
+
 def Laws.one_file_per_path(t, r, t2, q, e):
   TL.fits_alone(Tree.at(t2, q), TL.path_fits(t2, q, Nil{}, TL.wf_paths(t2, TL.apply_wf(t, r, t2, e))))
 

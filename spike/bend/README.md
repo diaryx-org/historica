@@ -50,7 +50,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
 | `store.bend`, `ffi/` | where the store is and what it holds: two effects, a C adapter, a Rust static library | `Store::discover`, `std::fs` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check` over the store it finds; `replay` and `diff` over named files | `cli` |
-| `LAWS.bend` / `PROOF.bend` | forty claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | forty-one claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -379,6 +379,23 @@ hypothesis once and a universally quantified one cannot be passed down
 an induction. One shape in `tree.bend` exists for it: `merge` is one
 def per stage, as `apply` is. What the law leaves open is the fault: a
 refusal names the first undelivered parent, which is the order's.
+
+A merge revision that records nothing changes nothing.
+`merge_records_nothing` says an event with no document, walked last,
+leaves the file the events before it made — `historica merge` on one
+head, or a merge recorded with nothing said about this file — which with
+`merge_converges` is what a merge revision may add of its own: nothing.
+The walk's step on such an event is the identity by computation; the
+proof is the index bookkeeping (`merge_lemmas.bend`: `walk_append`,
+`get_last`, `walk_below`), stated of an order whose indices the graph
+holds (`Merge.below`), since an index past the end is refused. No
+mutation is added for it: the breaks that would fail it — a step that
+empties the tree on an empty event, a walk that reads the wrong index —
+fail `merge_converges` first. Not proven, and the larger claim: that the walk agrees with plain
+application on a chain, which is decision 0007's promise and what
+`merge.rs`'s `linear` fast path relies on; that needs the in-order
+reading of an `attach`-built tree characterised, and is a model reshaped
+for it rather than a lemma file.
 
 What the model is faithful to, and not. Verus's `merge_model.rs` states
 the same theorem over `merge.rs`'s own shape — an index tree, anchors

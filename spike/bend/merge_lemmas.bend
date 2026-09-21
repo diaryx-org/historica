@@ -1118,5 +1118,66 @@ def merge_converges(+g: List<&2, M.Rev>, +a: List<&2, Nat>, +b: List<&2, Nat>, +
       Comp.and_left(M.causal(a, g), M.causal(b, g), Comp.and_right(M.subset(b, a), Bool.and(M.causal(a, g), M.causal(b, g)), Comp.and_right(M.subset(a, b), Bool.and(M.subset(b, a), Bool.and(M.causal(a, g), M.causal(b, g))), Comp.and_right(M.distinct(b), Bool.and(M.subset(a, b), Bool.and(M.subset(b, a), Bool.and(M.causal(a, g), M.causal(b, g)))), Comp.and_right(M.distinct(a), Bool.and(M.distinct(b), Bool.and(M.subset(a, b), Bool.and(M.subset(b, a), Bool.and(M.causal(a, g), M.causal(b, g))))), e))))),
       Comp.and_right(M.causal(a, g), M.causal(b, g), Comp.and_right(M.subset(b, a), Bool.and(M.causal(a, g), M.causal(b, g)), Comp.and_right(M.subset(a, b), Bool.and(M.subset(b, a), Bool.and(M.causal(a, g), M.causal(b, g))), Comp.and_right(M.distinct(b), Bool.and(M.subset(a, b), Bool.and(M.subset(b, a), Bool.and(M.causal(a, g), M.causal(b, g)))), Comp.and_right(M.distinct(a), Bool.and(M.distinct(b), Bool.and(M.subset(a, b), Bool.and(M.subset(b, a), Bool.and(M.causal(a, g), M.causal(b, g))))), e)))))))
 
+# A merge revision that records nothing changes nothing
+# -----------------------------------------------------
+#
+# An event with no document, walked last, leaves the file the events
+# before it made: `historica merge` on one head, or a merge recorded with
+# nothing said about this file.
+
+def lt_zero(e: Nat, l: {Nat.is_lt(e, 0n) == True{} : Bool}) -> Empty:
+  match e:
+    case 0n:
+      Comp.false_true(l)
+    case 1n+p:
+      Comp.false_true(l)
+
+def get_append(g: List<&2, M.Rev>, x: M.Rev, e: Nat, l: {Nat.is_lt(e, List.length(&2, M.Rev, g)) == True{} : Bool}) -> {List.get(&2, M.Rev, List.append(&2, M.Rev, g, [x]), e) == List.get(&2, M.Rev, g, e) : Maybe<&2, M.Rev>}:
+  match g:
+    case Nil{}:
+      Empty.absurd({List.get(&2, M.Rev, [x], e) == List.get(&2, M.Rev, Nil{}, e) : Maybe<&2, M.Rev>}, lt_zero(e, l))
+    case h <> t:
+      match e:
+        case 0n:
+          {==}
+        case 1n+p:
+          get_append(t, x, p, l)
+
+def get_last(g: List<&2, M.Rev>, x: M.Rev) -> {List.get(&2, M.Rev, List.append(&2, M.Rev, g, [x]), List.length(&2, M.Rev, g)) == Some{x} : Maybe<&2, M.Rev>}:
+  match g:
+    case Nil{}:
+      {==}
+    case h <> t:
+      get_last(t, x)
+
+def walk_append(o: List<&2, Nat>, +e: Nat, +g: List<&2, M.Rev>, mt: Maybe<&2, List<&2, M.Node>>) -> {M.walk(List.append(&2, Nat, o, [e]), g, mt) == M.step.m(M.walk(o, g, mt), List.get(&2, M.Rev, g, e), e) : Maybe<&2, List<&2, M.Node>>}:
+  match o:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      walk_append(rest, e, g, M.step.m(mt, List.get(&2, M.Rev, g, x), x))
+
+def walk_below(o: List<&2, Nat>, +g: List<&2, M.Rev>, +x: M.Rev, mt: Maybe<&2, List<&2, M.Node>>, +b: {M.below(o, List.length(&2, M.Rev, g)) == True{} : Bool}) -> {M.walk(o, List.append(&2, M.Rev, g, [x]), mt) == M.walk(o, g, mt) : Maybe<&2, List<&2, M.Node>>}:
+  match o:
+    case Nil{}:
+      {==}
+    case +i <> +rest:
+      %Equal.sym(Maybe<&2, M.Rev>, List.get(&2, M.Rev, List.append(&2, M.Rev, g, [x]), i), List.get(&2, M.Rev, g, i), get_append(g, x, i, Comp.and_left(Nat.is_lt(i, List.length(&2, M.Rev, g)), M.below(rest, List.length(&2, M.Rev, g)), b))) : {M.walk(rest, List.append(&2, M.Rev, g, [x]), M.step.m(mt, _, i)) == M.walk(rest, g, M.step.m(mt, List.get(&2, M.Rev, g, i), i)) : Maybe<&2, List<&2, M.Node>>}
+      walk_below(rest, g, x, M.step.m(mt, List.get(&2, M.Rev, g, i), i), Comp.and_right(Nat.is_lt(i, List.length(&2, M.Rev, g)), M.below(rest, List.length(&2, M.Rev, g)), b))
+
+def step_none(mt: Maybe<&2, List<&2, M.Node>>, past: List<&2, Nat>, e: Nat) -> {M.step.m(mt, Some{M.Rev{past, None{}}}, e) == mt : Maybe<&2, List<&2, M.Node>>}:
+  match mt:
+    case None{}:
+      {==}
+    case Some{t}:
+      {==}
+
+def merge_records_nothing(+g: List<&2, M.Rev>, +o: List<&2, Nat>, +past: List<&2, Nat>, b: {M.below(o, List.length(&2, M.Rev, g)) == True{} : Bool}) -> {M.merged(List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), List.append(&2, Nat, o, [List.length(&2, M.Rev, g)])) == M.merged(g, o) : Maybe<&2, List<&2, Ops.Item>>}:
+  %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.walk(List.append(&2, Nat, o, [List.length(&2, M.Rev, g)]), List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), Some{Nil{}}), M.step.m(M.walk(o, List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), Some{Nil{}}), List.get(&2, M.Rev, List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), List.length(&2, M.Rev, g)), List.length(&2, M.Rev, g)), walk_append(o, List.length(&2, M.Rev, g), List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), Some{Nil{}})) : {M.merged.of(_) == M.merged.of(M.walk(o, g, Some{Nil{}})) : Maybe<&2, List<&2, Ops.Item>>}
+  %Equal.sym(Maybe<&2, M.Rev>, List.get(&2, M.Rev, List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), List.length(&2, M.Rev, g)), Some{M.Rev{past, None{}}}, get_last(g, M.Rev{past, None{}})) : {M.merged.of(M.step.m(M.walk(o, List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), Some{Nil{}}), _, List.length(&2, M.Rev, g))) == M.merged.of(M.walk(o, g, Some{Nil{}})) : Maybe<&2, List<&2, Ops.Item>>}
+  %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.step.m(M.walk(o, List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), Some{Nil{}}), Some{M.Rev{past, None{}}}, List.length(&2, M.Rev, g)), M.walk(o, List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), Some{Nil{}}), step_none(M.walk(o, List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), Some{Nil{}}), past, List.length(&2, M.Rev, g))) : {M.merged.of(_) == M.merged.of(M.walk(o, g, Some{Nil{}})) : Maybe<&2, List<&2, Ops.Item>>}
+  %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.walk(o, List.append(&2, M.Rev, g, [M.Rev{past, None{}}]), Some{Nil{}}), M.walk(o, g, Some{Nil{}}), walk_below(o, g, M.Rev{past, None{}}, Some{Nil{}}, b)) : {M.merged.of(_) == M.merged.of(M.walk(o, g, Some{Nil{}})) : Maybe<&2, List<&2, Ops.Item>>}
+  {==}
+
 def main() -> Unit:
   Unit{}

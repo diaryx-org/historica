@@ -272,6 +272,18 @@ law merge_converges:
   for +e: {Merge.orders(g, a, b) == True{} : Bool}
   {Merge.merged(g, a) == Merge.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}
 
+# A merge revision that records nothing changes nothing: an event with no
+# document, walked last, leaves the file the events before it made. This
+# is `historica merge` on one head, and a merge recorded with nothing said
+# about this file; `merge_converges` says the events before it read the
+# same in any causal order, so the merge revision adds nothing of its own.
+law merge_records_nothing:
+  for +g: List<&2, Merge.Rev>
+  for +o: List<&2, Nat>
+  for +past: List<&2, Nat>
+  for b: {Merge.below(o, List.length(&2, Merge.Rev, g)) == True{} : Bool}
+  {Merge.merged(List.append(&2, Merge.Rev, g, [Merge.Rev{past, None{}}]), List.append(&2, Nat, o, [List.length(&2, Merge.Rev, g)])) == Merge.merged(g, o) : Maybe<&2, List<&2, Ops.Item>>}
+
 # The tree: what a revision leaves behind, whatever file set it is
 # applied to. `Tree.apply` is `tree.rs`'s linear case; a `Done` from it
 # is a tree the store will show.

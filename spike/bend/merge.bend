@@ -492,5 +492,13 @@ def causal(o: List<&2, Nat>, +g: List<&2, Rev>) -> Bool:
     case e <> +rest:
       Bool.and(none_known(past(g, e), rest), causal(rest, g))
 
+# Every index in an order names an event the graph holds.
+def below(o: List<&2, Nat>, +n: Nat) -> Bool:
+  match o:
+    case Nil{}:
+      True{}
+    case +e <> rest:
+      Bool.and(Nat.is_lt(e, n), below(rest, n))
+
 def orders(+g: List<&2, Rev>, +a: List<&2, Nat>, +b: List<&2, Nat>) -> Bool:
   Bool.and(distinct(a), Bool.and(distinct(b), Bool.and(subset(a, b), Bool.and(subset(b, a), Bool.and(causal(a, g), causal(b, g))))))
