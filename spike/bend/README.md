@@ -25,11 +25,42 @@ bend main.bend -- diff   old.txt new.txt
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through two host effects (`store.bend`): `bend main.bend` runs
+here or above — through four host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
 tool byte for byte.
+
+They read what the command needs and nothing else, which is the Rust tool's
+own arrangement. A store's `revisions/` is the graph and is small, so every
+command reads the whole of it and hashes it here, in `sha256.bend`.
+`operations/` is where the bytes are — a store of three hundred and seventy
+megabytes is three hundred and fifty of payloads — and a file there is opened
+only once a revision has named the digest it holds: `Store.at` answers where
+the bytes with a digest are, the way decision 0036's catalogue does, and what
+comes back is a path whose contents are read and hashed here before anything
+is believed about them. Nothing walks the payloads to find a name. `check` is
+the exception it is in the Rust tool too: it reports every file, and asks the
+host for the digest and the size of each payload rather than carrying fifty
+megabytes of PDF through a hash that runs at three megabytes a second.
+
+On a real archive — two hundred and sixty revisions, four thousand
+documents, three hundred and fifty megabytes of them payloads — that is the
+difference between a tool and a demonstration. The native build, against the
+Rust tool on the same store:
+
+| | before | after | `historica` |
+|---|---|---|---|
+| `log` | 138 s | 15 s | 0.01 s |
+| `files head` | 140 s | 20 s | 0.02 s |
+| `cat head Resume.md` | 205 s | 29 s | 0.02 s |
+| `show <revision>` | 143 s | 2.8 s | 0.00 s |
+| `check` | 146 s | 11 s | 0.87 s |
+
+Wall clock, and near enough all of it user CPU: the store was never the
+syscalls. What is left is Bend's own reading, decoding and hashing of the
+revision documents, and it scales with the graph rather than with the
+archive.
 
 ```console
 cargo build --release --manifest-path ffi/Cargo.toml
@@ -48,7 +79,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is and what it holds: two effects, a C adapter, a Rust static library | `Store::discover`, `std::fs` |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, and what a payload weighs: four effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check` over the store it finds; `replay` and `diff` over named files | `cli` |
 | `LAWS.bend` / `PROOF.bend` | forty-five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
@@ -497,9 +528,9 @@ or runs out of range, and forgotten quotes under a wrong digest.
 `check.py` runs the proofs and all three suites on both the default JS and
 native C backends, then verifies that deliberate replay mutations fail the
 proof gate. Corpus failures now exit nonzero. The runner prints and fixes
-the compiler path for each run. The full gate passes on Bend 2.0.22; emitting
-the C for `main.bend` takes a few minutes on the development machine, and
-compiling it seconds.
+the compiler path for each run. The full gate passes on Bend 2.0.25; emitting
+the C for `main.bend` takes about half a minute on the development machine,
+and compiling it ten seconds or so.
 
 Every theorem the Verus spike states now has a Bend counterpart. What the
 merge law is about is the model in `merge.bend`, held to `merge.rs`'s

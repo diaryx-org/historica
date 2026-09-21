@@ -1,6 +1,7 @@
-# The host services `main.bend` cannot get from Base: where the store is, and
-# what documents it holds. A static library the generated C program links;
-# `RUNTIME.md` says why this is the shape, and `check.py` builds it.
+# The host services `main.bend` cannot get from Base: where the store is,
+# what documents it holds, where the bytes with a digest are, and what a
+# payload's digest and size are. A static library the generated C program
+# links; `RUNTIME.md` says why this is the shape, and `check.py` builds it.
 #
 # Deliberately not a member of the workspace above: it is the spike's, it
 # publishes nothing, and its only consumer is a Bend program.
@@ -14,6 +15,13 @@ publish = false
 
 [lib]
 crate-type = ["staticlib"]
+
+# The digest a store names its documents by. Bend has its own SHA-256, which
+# is what the laws and the corpora check and what every document with a
+# grammar is read through; this one is for the files whose bytes Bend never
+# reads.
+[dependencies]
+sha2 = "0.11.0"
 
 [profile.release]
 panic = "unwind"

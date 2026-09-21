@@ -543,8 +543,8 @@ def log(target: Maybe<&2, String>) -> IO(Unit):
   do IO<Unit>:
     root : String <- Store.root()
     +r : String = root
-    ds : List<&2, Store.Doc> <- Store.documents(r)
-    log.of(fulls(r, ds), target)
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    log.of(fulls(r, rs), target)
 
 # check
 # -----
@@ -573,33 +573,101 @@ def check_ops.of(+id: String, parsed: Result<&2, &2, String, Ops.Doc>) -> String
     case Done{Ops.Doc{forgets, result, ops}}:
       "edit     " ++ String.take(id, 12n) ++ "  " ++ Nat.show(List.length(&2, Ops.Op, ops)) ++ " operations" ++ result_note(result)
 
-def check_doc.of(+d: Store.Doc, is_rev: Bool, is_ops: Bool) -> String:
+def check_doc.of(+d: Store.Doc, is_rev: Bool) -> String:
   match is_rev:
     case True{}:
       check_rev(Store.id_of(d), Rev.parse(Store.text_of(d)))
     case False{}:
-      Bool.pick(String, is_ops, check_ops.of(Store.id_of(d), Ops.parse(Store.text_of(d))), "payload  " ++ String.take(Store.id_of(d), 12n) ++ "  " ++ Nat.show(Store.size_of(d)) ++ " bytes")
+      check_ops.of(Store.id_of(d), Ops.parse(Store.text_of(d)))
 
-def check_doc(+root: String, +d: Store.Doc) -> IO(Unit):
-  IO.print(check_doc.of(d, Store.in_revisions(root, Store.path_of(d)), String.ends_with(Store.path_of(d), ".ops.txt")) ++ "  " ++ Store.relative(root, Store.path_of(d)))
+# A payload has no grammar: what `check` says about one is the digest of its
+# bytes and how many there are, which is what `Store.digests` answers. Its
+# bytes are the only thing in a store no reader here parses, and the only
+# thing a store holds fifty megabytes of.
+def check_payload.of(+stat: String, cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case Some{T.Split{d, n}}:
+      "payload  " ++ String.take(d, 12n) ++ "  " ++ n ++ " bytes"
+    case None{}:
+      "refused  " ++ String.take(stat, 12n) ++ "  the host would not read it"
 
-def check_docs(+root: String, ds: List<&2, Store.Doc>) -> IO(Unit):
-  match ds:
+def check_payload(+stat: String) -> String:
+  check_payload.of(stat, T.split_once(stat))
+
+# What a file in a store is, told by where it is and what it is called,
+# before anything is opened: a revision, an operation document, or a payload.
+# The first two are read and hashed here; the third is not read at all.
+type Filed is Data:
+  Filed{path: String, doc: Bool, rev: Bool, stat: String}
+
+# What each listed path is, before anything is opened.
+def filed.of(+path: String, +rev: Bool) -> Filed:
+  Filed{path, Bool.or(rev, String.ends_with(path, ".ops.txt")), rev, SNil{}}
+
+def filed(ls: List<&2, String>) -> List<&2, Filed>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      filed.of(l, String.starts_with(l, "revisions/")) <> filed(rest)
+
+# The payload digests, attached where they belong: they were asked for in the
+# listing's own order, so one is taken at each payload and none elsewhere.
+def attach(fs: List<&2, Filed>, stats: List<&2, String>) -> List<&2, Filed>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case Filed{+path, doc, rev, stat} <> rest:
+      match doc:
+        case True{}:
+          Filed{path, True{}, rev, stat} <> attach(rest, stats)
+        case False{}:
+          match stats:
+            case Nil{}:
+              Filed{path, False{}, rev, stat} <> attach(rest, Nil{})
+            case s <> more:
+              Filed{path, False{}, rev, s} <> attach(rest, more)
+
+def is_payload(+l: String) -> Bool:
+  Bool.not(Bool.or(String.starts_with(l, "revisions/"), String.ends_with(l, ".ops.txt")))
+
+def payloads(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      Rev.keep(is_payload(l), l, payloads(rest))
+
+def check_filed(+root: String, f: Filed) -> IO(Unit):
+  match f:
+    case Filed{+path, doc, rev, +stat}:
+      match doc:
+        case True{}:
+          do IO<Unit>:
+            d : Store.Doc <- Store.read_doc(root ++ "/" ++ path)
+            IO.print(check_doc.of(d, rev) ++ "  " ++ path)
+        case False{}:
+          IO.print(check_payload(stat) ++ "  " ++ path)
+
+def check_files(+root: String, fs: List<&2, Filed>) -> IO(Unit):
+  match fs:
     case Nil{}:
       IO.pure(Unit, Unit{})
-    case d <> rest:
+    case f <> rest:
       do IO<Unit>:
-        check_doc(root, d)
-        check_docs(root, rest)
+        check_filed(root, f)
+        check_files(root, rest)
 
 def check() -> IO(Unit):
   do IO<Unit>:
     root : String <- Store.root()
     +r : String = root
-    ds : List<&2, Store.Doc> <- Store.documents(r)
-    +ds2 : List<&2, Store.Doc> = ds
-    check_docs(r, ds2)
-    print_missing(Rev.missing_parents(history(fulls(r, ds2))))
+    ls : List<&2, String> <- Store.listing(r)
+    +ls2 : List<&2, String> = ls
+    stats : List<&2, String> <- Store.stats(r, payloads(ls2))
+    check_files(r, attach(filed(ls2), stats))
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    print_missing(Rev.missing_parents(history(fulls(r, rs))))
 
 # The file set at a revision
 # --------------------------
@@ -662,8 +730,8 @@ def files(+target: String) -> IO(Unit):
   do IO<Unit>:
     root : String <- Store.root()
     +r : String = root
-    ds : List<&2, Store.Doc> <- Store.documents(r)
-    +fs : List<&2, Full> = fulls(r, ds)
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    +fs : List<&2, Full> = fulls(r, rs)
     f : Full <- resolved(fs, target)
     t : Tree.Tree() <- tree(fs, id_of(f))
     files.of(t)
@@ -710,6 +778,26 @@ def said(facts: List<&2, Rev.Header>, +file: String) -> Said:
       Nothing{}
     case Rev.Header{+k, +v} <> rest:
       said.or(said.cut(k, file, T.split_once(v)), said(rest, file))
+
+# The documents a revision names for one file, which is all of `operations/`
+# a reading command has any business opening. Collected before the content is
+# built, so that the pure walk below has what it needs and the store is asked
+# once for the whole chain rather than once a revision.
+def said_digests(s: Said) -> List<&2, String>:
+  match s:
+    case Whole{d}:
+      [d]
+    case Edited{d}:
+      [d]
+    case Nothing{}:
+      Nil{}
+
+def wanted(fs: List<&2, Full>, +file: String) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case f <> rest:
+      List.append(&2, String, said_digests(said(facts_of(f), file)), wanted(rest, file))
 
 def held(+id: String, +digest: String, doc: Maybe<&2, String>) -> Result<&2, &2, String, String>:
   match doc:
@@ -874,9 +962,8 @@ def cat(+target: String, +path: String) -> IO(Unit):
   do IO<Unit>:
     root : String <- Store.root()
     +r : String = root
-    ds : List<&2, Store.Doc> <- Store.documents(r)
-    +ds2 : List<&2, Store.Doc> = ds
-    +fs : List<&2, Full> = fulls(r, ds2)
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    +fs : List<&2, Full> = fulls(r, rs)
     f : Full <- resolved(fs, target)
     +id : String = id_of(f)
     t : Tree.Tree() <- tree(fs, id)
@@ -885,7 +972,8 @@ def cat(+target: String, +path: String) -> IO(Unit):
     file : String <- file_in(id, path2, t2)
     +file2 : String = file
     not_a_link(t2, path2, file2, Tree.entry_target_of(Tree.lookup(t2, file2)))
-    cat.print(content(fs, ds2, id, file2))
+    ds : List<&2, Store.Doc> <- Store.fetch(r, wanted(fs, file2))
+    cat.print(content(fs, ds, id, file2))
 
 # show
 # ----
@@ -906,26 +994,29 @@ def show.said(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Said) -> 
     case Edited{+d}:
       show.doc(id, d, doc_by_id(ds, d))
 
-def show.of(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +f: Full, path: Maybe<&2, String>) -> IO(Unit):
+def show.of(+fs: List<&2, Full>, +root: String, +f: Full, path: Maybe<&2, String>) -> IO(Unit):
   match path:
     case None{}:
-      show.doc(id_of(f), id_of(f), doc_by_id(ds, id_of(f)))
+      do IO<Unit>:
+        ds : List<&2, Store.Doc> <- Store.fetch(root, [id_of(f)])
+        show.doc(id_of(f), id_of(f), doc_by_id(ds, id_of(f)))
     case Some{+p}:
       do IO<Unit>:
         t : Tree.Tree() <- tree(fs, id_of(f))
         file : String <- file_in(id_of(f), p, t)
         +file2 : String = file
-        show.said(id_of(f), file2, ds, said(facts_of(f), file2))
+        +s : Said = said(facts_of(f), file2)
+        ds : List<&2, Store.Doc> <- Store.fetch(root, said_digests(s))
+        show.said(id_of(f), file2, ds, s)
 
 def show(+target: String, path: Maybe<&2, String>) -> IO(Unit):
   do IO<Unit>:
     root : String <- Store.root()
     +r : String = root
-    ds : List<&2, Store.Doc> <- Store.documents(r)
-    +ds2 : List<&2, Store.Doc> = ds
-    +fs : List<&2, Full> = fulls(r, ds2)
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    +fs : List<&2, Full> = fulls(r, rs)
     f : Full <- resolved(fs, target)
-    show.of(fs, ds2, f, path)
+    show.of(fs, r, f, path)
 
 # replay
 # ------

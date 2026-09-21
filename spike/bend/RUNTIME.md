@@ -7,12 +7,13 @@ providing the filesystem and process services it needs.
 
 ## Current support
 
-Checked against `bend version` **2.0.22**, `bend guide`, and
+Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
-`Store.locate` and `Store.list`, `ffi/store_*.c` marshal them, and
-`ffi/src/lib.rs` is the Rust static library. `check.py` builds the archive,
-emits `main.bend` to C, links the two, and holds the result — and the `.js`
-build, which runs the twins in `ffi/store_*.js` — to the Rust tool.
+`Store.locate`, `Store.list`, `Store.at` and `Store.digests`,
+`ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+library. `check.py` builds the archive, emits `main.bend` to C, links the
+two, and holds the result — and the `.js` build, which runs the twins in
+`ffi/store_*.js` — to the Rust tool.
 
 [Issue #813](https://github.com/bendlang/bend/issues/813) requests a native
 library target for pure definitions, with selected exports, a generated
@@ -32,10 +33,18 @@ is what lets `main.bend` take `historica`'s own arguments instead of paths.
 
 `bend x.bend -o x` compiles the C itself, with `-O3 -lm -lpthread` and
 nothing else, so an archive cannot be linked that way: emit C with `-o x.c`
-and link by hand. Bend 2.0.22 emits some 3 MB of C for `main.bend`, which
-`cc -O3` compiles in seconds; emission itself takes a few minutes, and
-`check.py` allows for that. (2.0.20 emitted 60 MB and clang took the
-minutes instead.)
+and link by hand. Bend 2.0.25 emits some 3.5 MB of C for `main.bend` in
+about half a minute, which `cc -O3` compiles in ten seconds or so;
+`check.py` allows minutes for both. (2.0.20 emitted 60 MB and clang took
+the minutes instead.)
+
+An effect answers a question and decides nothing. `Store.locate` says where
+the store is, `Store.list` what paths it holds, `Store.at` where the bytes
+with a digest are, and `Store.digests` what a file's digest and byte count
+are. Which files a command opens is the Bend side's, and so is every
+conclusion: a path `Store.at` offers is opened and hashed in `sha256.bend`
+before the document at it is believed to be the one asked for, which is
+`store::catalogue`'s own rule — *the digest of a file is never believed*.
 
 1. A Bend definition returns `IO(Result<..., R>)`; the pure caller decides
    what to do with success or failure. No foreign effect belongs in a law or
@@ -54,12 +63,32 @@ minutes instead.)
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The two effects here are one-shot — a string in, a string out, nothing
+The four effects here are one-shot — a string in, a string out, nothing
 held between calls — which avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
 Do not represent ownership merely by a freely copyable numeric pointer.
 Shutdown, cancellation, and partial initialization must release Rust-owned
 resources even when the happy-path Bend continuation is not reached.
+
+## What each command reads
+
+The boundary is where the cost is, so it is worth stating what crosses it.
+`log` and `files` read the whole of `revisions/` and nothing else: the graph
+is every revision document and a store's revisions are a megabyte or two.
+`cat` and `show` read that, then ask `Store.at` for the digests the revisions
+along the chain name for the one file asked about, and read those — a handful
+of operation documents, and a payload only where the file was written whole.
+`check` reports every file a store holds, so it lists them, reads and parses
+the ones with a grammar, and asks `Store.digests` for the digest and the size
+of each payload.
+
+That last delegation is the one place a digest is computed outside Bend. It
+is here because Bend's SHA-256 runs at about three megabytes a second and the
+payloads in a real store are hundreds of megabytes, while nothing in a payload
+is parsed and nothing about it is concluded — `check` prints the digest and
+the count and that is all. Every document with a grammar is still read and
+hashed in `sha256.bend`, which is what the laws and `corpus_*.bend` check,
+and `Store.at`'s answer is still verified against it.
 
 The `.js` twin of an effect also needs an implementation, or a clear
 unsupported-backend error. A native-only adapter must not silently change the

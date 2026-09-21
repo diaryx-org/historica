@@ -1,9 +1,17 @@
-# Where the store is and what it holds: the two questions Base cannot answer,
+# Where the store is and what it holds: the questions Base cannot answer,
 # asked of the host through the adapter in `ffi/`. `RUNTIME.md` says why the
 # boundary sits here and nowhere lower.
 #
-# Both effects answer a `Result` and decide nothing: the Bend side reads the
-# documents, parses them, and says what they mean.
+# None of these effects decides anything: the Bend side reads the documents,
+# hashes them, parses them, and says what they mean.
+#
+# What is read is what a command needs. A store's `revisions/` is small and
+# every command wants the whole of it; its `operations/` holds the payloads,
+# which are most of the bytes a store has and are not a command's business
+# unless it was asked for one. So a revision is read by its path, and an
+# operation document is read only once some revision has named it — found by
+# the digest it is named by, which is `Store.at`'s question and decision
+# 0036's answer.
 
 import Base
 import ./utf8.bend as Utf8
@@ -20,6 +28,23 @@ def Store.locate(from: String) -> IO(Result<&1, &1, U32 & String, String>):
 def Store.list(root: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_list.c"
   import "./ffi/store_list.js"
+
+# Where the bytes with each digest are: the root, then a digest a line, and
+# back a path a line — relative to the root, or `-` for a digest this store
+# holds nothing for. A path, never a document: what is at it is read and
+# hashed here, and refused where its bytes are not the bytes asked for.
+def Store.at(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_at.c"
+  import "./ffi/store_at.js"
+
+# The digest and the byte count of each file: the root, then a path a line,
+# and back `<digest> <size>` a line, or `- 0` for a file that will not read.
+# For the one thing with no grammar — a payload, whose bytes say nothing a
+# reader here would parse — so that `check` can name it without Bend reading
+# fifty megabytes to say how many there are.
+def Store.digests(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_digests.c"
+  import "./ffi/store_digests.js"
 
 # One document read from disk: where it was, the digest of its bytes — the
 # only name it has — how many bytes, and its text. A payload of bytes that
@@ -78,11 +103,83 @@ def under(+root: String, ls: List<&2, String>) -> List<&2, String>:
 def root() -> IO(String):
   IO.try(String, Store.locate(SNil{}))
 
-# Every document the store at `root` holds, read.
-def documents(+root: String) -> IO(List<&2, Doc>):
+# A listing without the empty line an empty listing is.
+def kept(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case SNil{} <> rest:
+      kept(rest)
+    case l <> rest:
+      l <> kept(rest)
+
+# Every path the store holds, relative to the root, sorted.
+def listing(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root))
+    return kept(String.lines(text))
+
+def only_revisions.keep(b: Bool, +l: String, rest: List<&2, String>) -> List<&2, String>:
+  match b:
+    case True{}:
+      l <> rest
+    case False{}:
+      rest
+
+def only_revisions(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      only_revisions.keep(String.starts_with(l, "revisions/"), l, only_revisions(rest))
+
+# Every revision document the store holds, read and named by its own bytes.
+# The whole of `revisions/` and none of `operations/`: this is the graph, and
+# there is no command that does not want the whole of it.
+def revisions(+root: String) -> IO(List<&2, Doc>):
   do IO<List<&2, Doc>>:
-    listing : String <- IO.try(String, Store.list(root))
-    read_docs(under(root, String.lines(listing)))
+    ls : List<&2, String> <- listing(root)
+    read_docs(under(root, only_revisions(ls)))
+
+# The documents these digests name, read — and hashed here, so that a path
+# the host offered for a digest is believed only where its bytes are that
+# digest. A digest the store holds nothing for yields no document, which is
+# what the caller reports.
+def at.paths(+root: String, ps: List<&2, String>) -> List<&2, String>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case "-" <> rest:
+      at.paths(root, rest)
+    case SNil{} <> rest:
+      at.paths(root, rest)
+    case p <> rest:
+      (root ++ "/" ++ p) <> at.paths(root, rest)
+
+def fetch.of(+root: String, digests: List<&2, String>) -> IO(List<&2, Doc>):
+  do IO<List<&2, Doc>>:
+    answer : String <- IO.try(String, Store.at(root ++ "\n" ++ String.join(digests, "\n")))
+    read_docs(at.paths(root, String.split(answer, '\n')))
+
+def fetch(+root: String, digests: List<&2, String>) -> IO(List<&2, Doc>):
+  match digests:
+    case Nil{}:
+      IO.pure(List<&2, Doc>, Nil{})
+    case +some:
+      fetch.of(root, some)
+
+# `<digest> <size>` for each of these paths, in the order they were given.
+def stats.of(+root: String, paths: List<&2, String>) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    answer : String <- IO.try(String, Store.digests(root ++ "\n" ++ String.join(paths, "\n")))
+    return String.split(answer, '\n')
+
+def stats(+root: String, paths: List<&2, String>) -> IO(List<&2, String>):
+  match paths:
+    case Nil{}:
+      IO.pure(List<&2, String>, Nil{})
+    case +some:
+      stats.of(root, some)
 
 # The relative path of a document under the root, and which directory it is
 # in: what `revisions/` holds is a revision, whatever its name.
@@ -103,5 +200,5 @@ def main() -> IO(Unit):
   do IO<Unit>:
     r : String <- root()
     +here : String = r
-    ds : List<&2, Doc> <- documents(here)
-    IO.print(here ++ ": " ++ Nat.show(List.length(&2, Doc, ds)) ++ " documents")
+    ls : List<&2, String> <- listing(here)
+    IO.print(here ++ ": " ++ Nat.show(List.length(&2, String, ls)) ++ " documents")
