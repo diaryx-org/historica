@@ -509,6 +509,27 @@ def split_go(s: String, +acc: String, +h: String, +r: String, e: {T.split_once.g
     case SCon{+c, +t}:
       split_go.fin(t, acc, h, r, c, Char.is_eq(c, ' '), {==}, e, x => split_go(t, SCon{c, acc}, h, r, x))
 
+
+# The runtime `split_once.fast` is the `split_once.go` the lemmas above
+# unfold: the same answer with the head's test carried in.
+def split_fast.fin(+t: String, +acc: String, +c: Char, cut: Bool, eq: {Char.is_eq(c, ' ') == cut : Bool}, ih: {T.split_once.fast(t, SCon{c, acc}, T.space_first(t)) == T.split_once.go(t, SCon{c, acc}) : Maybe<&2, T.Split>}) -> {T.split_once.fast(SCon{c, t}, acc, cut) == Bool.pick(Maybe<&2, T.Split>, cut, Some{T.Split{String.reverse(acc), t}}, T.split_once.go(t, SCon{c, acc})) : Maybe<&2, T.Split>}:
+  match cut:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+def split_fast(s: String, +acc: String) -> {T.split_once.fast(s, acc, T.space_first(s)) == T.split_once.go(s, acc) : Maybe<&2, T.Split>}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      split_fast.fin(t, acc, c, Char.is_eq(c, ' '), {==}, split_fast(t, SCon{c, acc}))
+
+# `split_go` from what `split_once` itself returned.
+def split_top(+s: String, +h: String, +r: String, e: {T.split_once(s) == Some{T.Split{h, r}} : Maybe<&2, T.Split>}) -> {String.reverse.go(SNil{}, s) == h ++ (" " ++ r) : String}:
+  split_go(s, SNil{}, h, r, Equal.trans(Maybe<&2, T.Split>, T.split_once.go(s, SNil{}), T.split_once.fast(s, SNil{}, T.space_first(s)), Some{T.Split{h, r}}, Equal.sym(Maybe<&2, T.Split>, T.split_once.fast(s, SNil{}, T.space_first(s)), T.split_once.go(s, SNil{}), split_fast(s, SNil{})), e))
+
 def shape_delete(+ps: String, +cs: String, +w: String, +u: String) -> {("delete" ++ (" " ++ (ps ++ (" " ++ cs)))) ++ ("\n" ++ (w ++ u)) == ("delete " ++ (ps ++ (" " ++ (cs ++ ("\n" ++ w))))) ++ u : String}:
   %Equal.sym(String, ("delete " ++ (ps ++ (" " ++ (cs ++ ("\n" ++ w))))) ++ u, "delete " ++ ((ps ++ (" " ++ (cs ++ ("\n" ++ w)))) ++ u), app_assoc("delete ", ps ++ (" " ++ (cs ++ ("\n" ++ w))), u)) : {("delete" ++ (" " ++ (ps ++ (" " ++ cs)))) ++ ("\n" ++ (w ++ u)) == _ : String}
   %Equal.sym(String, ("delete " ++ (ps ++ (" " ++ cs))) ++ ("\n" ++ (w ++ u)), "delete " ++ ((ps ++ (" " ++ cs)) ++ ("\n" ++ (w ++ u))), app_assoc("delete ", ps ++ (" " ++ cs), "\n" ++ (w ++ u))) : {_ == "delete " ++ ((ps ++ (" " ++ (cs ++ ("\n" ++ w)))) ++ u) : String}
@@ -594,7 +615,7 @@ def delete_cut_sp(+more: List<&2, T.Line>, +at: Nat, +args: String, cut: Maybe<&
     case None{}:
       Unit{}
     case Some{T.Split{+ps, +cs}}:
-      %Equal.sym(String, args, ps ++ (" " ++ cs), split_go(args, SNil{}, ps, cs, eq)) : {spelled(T.Line{"delete" ++ (" " ++ _), True{}} <> more, Ops.next_op.delete(more, at, T.number(ps), T.number(cs), T.has_char(cs, ' '))) : Type}
+      %Equal.sym(String, args, ps ++ (" " ++ cs), split_top(args, ps, cs, eq)) : {spelled(T.Line{"delete" ++ (" " ++ _), True{}} <> more, Ops.next_op.delete(more, at, T.number(ps), T.number(cs), T.has_char(cs, ' '))) : Type}
       delete_args_sp(more, at, ps, cs, T.number(ps), T.number(cs), T.has_char(cs, ' '), {==}, {==})
 
 def insert_pos_sp(+more: List<&2, T.Line>, +at: Nat, +args: String, np: Maybe<&2, Nat>, ep: {T.number(args) == np : Maybe<&2, Nat>}) -> spelled(T.Line{"insert" ++ (" " ++ args), True{}} <> more, Ops.next_op.insert(more, at, np)):
@@ -658,7 +679,7 @@ def split_sp(+more: List<&2, T.Line>, +at: Nat, +t: String, cut: Maybe<&2, T.Spl
     case None{}:
       keyword_bare(more, at, t, T.same(t, "delete"), T.same(t, "insert"), Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), T.same(t, "\\ no newline"))
     case Some{T.Split{+kw, +args}}:
-      %Equal.sym(String, t, kw ++ (" " ++ args), split_go(t, SNil{}, kw, args, eq)) : {spelled(T.Line{_, True{}} <> more, Ops.next_op.keyword(more, at, _, args, T.same(kw, "delete"), T.same(kw, "insert"), Bool.or(String.starts_with(_, "-"), String.starts_with(_, "+")), False{})) : Type}
+      %Equal.sym(String, t, kw ++ (" " ++ args), split_top(t, kw, args, eq)) : {spelled(T.Line{_, True{}} <> more, Ops.next_op.keyword(more, at, _, args, T.same(kw, "delete"), T.same(kw, "insert"), Bool.or(String.starts_with(_, "-"), String.starts_with(_, "+")), False{})) : Type}
       keyword_sp(more, at, kw, args, T.same(kw, "delete"), T.same(kw, "insert"), Bool.or(String.starts_with(kw ++ (" " ++ args), "-"), String.starts_with(kw ++ (" " ++ args), "+")), False{}, {==}, {==})
 
 def next_op_sp.cr(+more: List<&2, T.Line>, +at: Nat, +t: String, cr: Bool) -> spelled(T.Line{t, True{}} <> more, Bool.pick(Ops.Next, cr, Ops.Bad{at, "a carriage return in an operation line"}, Ops.next_op.split(more, at, t, T.split_once(t)))):

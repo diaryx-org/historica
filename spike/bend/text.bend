@@ -32,8 +32,32 @@ def split_once.go(s: String, +acc: String) -> Maybe<&2, Split>:
     case SCon{+c, +t}:
       Bool.pick(Maybe<&2, Split>, Char.is_eq(c, ' '), Some{Split{String.reverse(acc), t}}, split_once.go(t, SCon{c, acc}))
 
-def split_once(s: String) -> Maybe<&2, Split>:
-  split_once.go(s, SNil{})
+# Whether a string opens with a space: the question `split_once.go` asks of
+# each character, asked here of the tail before the walk reaches it.
+def space_first(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      Char.is_eq(c, ' ')
+
+# `split_once.go` with the answer for the head carried in, so the tail is
+# never reused: `go` marks the tail `+t` and hands one copy to the untaken
+# branch, which a strict `Bool.pick` walks to the end of the string, so the
+# other copy is made whole at every character — a line's length squared, at
+# every header of a document. This walks to the space and stops.
+# `spelling_lemmas.split_fast` says it is `go`.
+def split_once.fast(s: String, +acc: String, hit: Bool) -> Maybe<&2, Split>:
+  match s hit:
+    case SNil{} _:
+      None{}
+    case SCon{c, t} True{}:
+      Some{Split{String.reverse(acc), t}}
+    case SCon{c, +t} False{}:
+      split_once.fast(t, SCon{c, acc}, space_first(t))
+
+def split_once(+s: String) -> Maybe<&2, Split>:
+  split_once.fast(s, SNil{}, space_first(s))
 
 # The word before the first space, or the whole string.
 def word.of(s: String, cut: Maybe<&2, Split>) -> String:
