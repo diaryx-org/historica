@@ -784,33 +784,12 @@ def delivered(es: List<&2, Ev>, +ids: List<&2, String>) -> Result<&2, &2, Fault,
         delivered_one(Rev.without(parents_of(doc), ids), id)
         delivered(rest, ids)
 
-def ready(es: List<&2, Ev>, +ss: List<&2, Seen>) -> List<&2, Ev>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case Ev{id, +doc} <> rest:
-      keep(~Ev, known(ss, parents_of(doc)), Ev{id, doc}, ready(rest, ss))
-
-def stuck(es: List<&2, Ev>, +ss: List<&2, Seen>) -> List<&2, Ev>:
-  match es:
-    case Nil{}:
-      Nil{}
-    case Ev{id, +doc} <> rest:
-      keep(~Ev, Bool.not(known(ss, parents_of(doc))), Ev{id, doc}, stuck(rest, ss))
-
 def closure(ps: List<&2, String>, +ss: List<&2, Seen>) -> List<&2, String>:
   match ps:
     case Nil{}:
       Nil{}
     case +p <> rest:
       union_ids(p <> ancestors_of(ss, p), closure(rest, ss))
-
-def seen.add(rd: List<&2, Ev>, +ss: List<&2, Seen>) -> List<&2, Seen>:
-  match rd:
-    case Nil{}:
-      ss
-    case Ev{id, doc} <> more:
-      Seen{id, closure(parents_of(doc), ss)} <> seen.add(more, ss)
 
 def seen.done(finished: Bool, ss: List<&2, Seen>) -> Result<&2, &2, Fault, List<&2, Seen>>:
   match finished:
@@ -819,17 +798,47 @@ def seen.done(finished: Bool, ss: List<&2, Seen>) -> Result<&2, &2, Fault, List<
     case False{}:
       Fail{Cyclic{}}
 
-# The ancestor sets, built oldest first: an event whose parents are all
-# known takes theirs and them. No progress with events left is a cycle,
-# which digests make impossible and the check refuses anyway.
-def seen(fuel: Nat, +es: List<&2, Ev>, +ss: List<&2, Seen>) -> Result<&2, &2, Fault, List<&2, Seen>>:
-  match fuel:
-    case 0n:
-      seen.done(List.is_empty(&2, Ev, es), ss)
-    case 1n+f:
-      +rd = ready(es, ss)
-      +rest = stuck(es, ss)
-      Bool.pick(Result<&2, &2, Fault, List<&2, Seen>>, List.is_empty(&2, Ev, rd), seen.done(List.is_empty(&2, Ev, rest), ss), seen(f, rest, seen.add(rd, ss)))
+# The ancestor sets, built a pass at a time: an event whose parents are
+# all known takes theirs and them, at once, so a later event in the same
+# pass can build on it; the rest wait, reversed, for the next pass. Events
+# in the order they descend take one pass, and in the reverse order two,
+# where asking the whole list which are ready took a round per generation.
+# A pass with events left and none taken is a cycle, which digests make
+# impossible and the check refuses anyway.
+type Pass is Data:
+  Pass{seen: List<&2, Seen>, waiting: List<&2, Ev>, moved: Bool}
+
+def pass.seen(p: Pass) -> List<&2, Seen>:
+  match p:
+    case Pass{ss, w, m}:
+      ss
+
+def pass.step(ok: Bool, id: String, +doc: Rev.Rev, p: Pass) -> Pass:
+  match ok p:
+    case True{} Pass{+ss, w, m}:
+      Pass{Seen{id, closure(parents_of(doc), ss)} <> ss, w, True{}}
+    case False{} Pass{ss, w, m}:
+      Pass{ss, Ev{id, doc} <> w, m}
+
+def pass(es: List<&2, Ev>, +p: Pass) -> Pass:
+  match es:
+    case Nil{}:
+      p
+    case Ev{id, +doc} <> rest:
+      pass(rest, pass.step(known(pass.seen(p), parents_of(doc)), id, doc, p))
+
+# One pass per event is fuel enough: every pass but the last takes one.
+def seen.go(fuel: Nat, p: Pass) -> Result<&2, &2, Fault, List<&2, Seen>>:
+  match fuel p:
+    case 0n Pass{ss, w, m}:
+      seen.done(List.is_empty(&2, Ev, w), ss)
+    case 1n+f Pass{ss, w, False{}}:
+      seen.done(List.is_empty(&2, Ev, w), ss)
+    case 1n+f Pass{ss, w, True{}}:
+      seen.go(f, pass(w, Pass{ss, Nil{}, False{}}))
+
+def seen(fuel: Nat, es: List<&2, Ev>, ss: List<&2, Seen>) -> Result<&2, &2, Fault, List<&2, Seen>>:
+  seen.go(fuel, pass(es, Pass{ss, Nil{}, False{}}))
 
 # A claim one revision made about a file: a path, a payload, a mode, a
 # target.

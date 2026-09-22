@@ -49,13 +49,13 @@ documents, three hundred and fifty megabytes of them payloads — that is the
 difference between a tool and a demonstration. The native build, against the
 Rust tool on the same store:
 
-| | before | lazy | packed hash | sets | parse | split | walk | merge | `historica` |
-|---|---|---|---|---|---|---|---|---|---|
-| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.89 s | 0.28 s | 0.28 s | 0.01 s |
-| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.84 s | 0.02 s |
-| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.77 s | 0.02 s |
-| `show <revision>` | 143 s | 2.8 s | — | — | 1.9 s | 0.24 s | 0.25 s | 0.23 s | 0.00 s |
-| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 1.1 s | 0.69 s | 0.69 s | 0.87 s |
+| | before | lazy | packed hash | sets | parse | split | walk | merge | seen | `historica` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.89 s | 0.28 s | 0.28 s | 0.30 s | 0.01 s |
+| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.84 s | 0.50 s | 0.02 s |
+| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.77 s | 0.47 s | 0.02 s |
+| `show <revision>` | 143 s | 2.8 s | — | — | 1.9 s | 0.24 s | 0.25 s | 0.23 s | 0.23 s | 0.00 s |
+| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 1.1 s | 0.69 s | 0.69 s | 0.73 s | 0.87 s |
 
 Wall clock, and near enough all of it user CPU: the store was never the
 syscalls. A dash is a column `show` was not measured in. The second column is reading only what a command asks for; the
@@ -134,12 +134,32 @@ is the four, measured beside the previous build: `files` and `cat` go from
 thirteen and a half seconds to under nine tenths, `log`, `show` and `check`
 are unchanged, and all five print the same bytes as before.
 
-What is left in `files` beyond what `log` pays is `seen`, the ancestor
-table, at a third of a second: every round of its split into ready and stuck
-asks each waiting revision's parents against every revision seen so far, and
-a chain readies one revision a round. It is also the part of the merge
-`graph_lemmas` reasons about most, so a faster one is a restatement of those
-proofs rather than a change beside them.
+The ninth column is `seen`, the ancestor table, which was a third of a
+second of what was left. It was built in rounds: each asked every waiting
+revision whether all its parents were in the table yet, walked the table to
+answer, and added the ones that were at the end of the round — so a chain
+took a round per revision whatever order it came in, and the rounds were
+the revision count cubed. It is built in passes now: a revision whose
+parents are known goes into the table at once, so the next one in the same
+pass can build on it, and the rest wait, turned round, for the next pass. A
+chain in descending order takes one pass, and in the reverse order two. The
+order is the caller's: `tree` hands the revisions over in the order its
+walk from the target reached them, turned round, where it handed over the
+store's order — which is by file name, and on the archive, named by
+message, took 175 passes. `seen` went from 327 ms to 6; `log`, `show` and
+`check` do not reach it, and measure the same within noise.
+
+`graph_lemmas` restates what it proved about the rounds for the passes:
+two alike passes — alike tables, alike events waiting, and both having
+taken an event or neither — stay alike through one event
+(`step_alike`), through a list of them (`pass_all_alike`) and through
+`seen.go` (`go_alike`), and `seen_alike_fuel` keeps its statement, so
+nothing above it changed. The five lemmas about `ready`, `stuck` and
+`seen.add` went with them.
+
+What is left in `files` is what `log` pays for the reading, two hundred
+and fifty milliseconds; `gather` and `decide_all` at eighty each, which
+are now linear in the facts; and the printing, a tenth of a second.
 
 What is left in `log` is the first revision's five thousand
 headers through the validators — five linear passes over its four hundred and

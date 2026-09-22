@@ -371,48 +371,6 @@ def gather_alike(es: List<&2, T.Ev>, es2: List<&2, T.Ev>, xs: Map<&2, T.Facts>, 
 # The ancestor tables built from alike events are alike
 # -----------------------------------------------------
 
-def keep_alike(b: Bool, +id: String, +id2: String, +doc: Rev.Rev, +doc2: Rev.Rev, +r: List<&2, T.Ev>, +r2: List<&2, T.Ev>, ei: {String.eq(id, id2) == True{} : Bool}, ed: {T.rev_alike(doc, doc2) == True{} : Bool}, ih: {T.alike(r, r2) == True{} : Bool}) -> {T.alike(T.keep(~T.Ev, b, T.Ev{id, doc}, r), T.keep(~T.Ev, b, T.Ev{id2, doc2}, r2)) == True{} : Bool}:
-  match b:
-    case True{}:
-      and_intro(String.eq(id, id2), Bool.and(T.rev_alike(doc, doc2), T.alike(r, r2)), ei, and_intro(T.rev_alike(doc, doc2), T.alike(r, r2), ed, ih))
-    case False{}:
-      ih
-
-def ready_alike(es: List<&2, T.Ev>, es2: List<&2, T.Ev>, +ss: List<&2, T.Seen>, +ss2: List<&2, T.Seen>, +al: {T.alike(es, es2) == True{} : Bool}, +sal: {seen_alike(ss, ss2) == True{} : Bool}) -> {T.alike(T.ready(es, ss), T.ready(es2, ss2)) == True{} : Bool}:
-  match es es2:
-    case Nil{} Nil{}:
-      {==}
-    case T.Ev{id, doc} <> rest Nil{}:
-      Empty.absurd({T.alike(T.ready(T.Ev{id, doc} <> rest, ss), T.ready(Nil{}, ss2)) == True{} : Bool}, S.false_true(al))
-    case Nil{} T.Ev{id2, doc2} <> rest2:
-      Empty.absurd({T.alike(T.ready(Nil{}, ss), T.ready(T.Ev{id2, doc2} <> rest2, ss2)) == True{} : Bool}, S.false_true(al))
-    case T.Ev{+id, +doc} <> +rest T.Ev{+id2, +doc2} <> +rest2:
-      %known_alike(ss, ss2, T.parents_of(doc), T.parents_of(doc2), sal, parents_alike(doc, doc2, alike_doc(id, id2, doc, doc2, rest, rest2, al))) : {T.alike(T.keep(~T.Ev, T.known(ss, T.parents_of(doc)), T.Ev{id, doc}, T.ready(rest, ss)), T.keep(~T.Ev, _, T.Ev{id2, doc2}, T.ready(rest2, ss2))) == True{} : Bool}
-      keep_alike(T.known(ss, T.parents_of(doc)), id, id2, doc, doc2, T.ready(rest, ss), T.ready(rest2, ss2), TL.and_left(String.eq(id, id2), Bool.and(T.rev_alike(doc, doc2), T.alike(rest, rest2)), al), alike_doc(id, id2, doc, doc2, rest, rest2, al), ready_alike(rest, rest2, ss, ss2, alike_rest(id, id2, doc, doc2, rest, rest2, al), sal))
-
-def stuck_alike(es: List<&2, T.Ev>, es2: List<&2, T.Ev>, +ss: List<&2, T.Seen>, +ss2: List<&2, T.Seen>, +al: {T.alike(es, es2) == True{} : Bool}, +sal: {seen_alike(ss, ss2) == True{} : Bool}) -> {T.alike(T.stuck(es, ss), T.stuck(es2, ss2)) == True{} : Bool}:
-  match es es2:
-    case Nil{} Nil{}:
-      {==}
-    case T.Ev{id, doc} <> rest Nil{}:
-      Empty.absurd({T.alike(T.stuck(T.Ev{id, doc} <> rest, ss), T.stuck(Nil{}, ss2)) == True{} : Bool}, S.false_true(al))
-    case Nil{} T.Ev{id2, doc2} <> rest2:
-      Empty.absurd({T.alike(T.stuck(Nil{}, ss), T.stuck(T.Ev{id2, doc2} <> rest2, ss2)) == True{} : Bool}, S.false_true(al))
-    case T.Ev{+id, +doc} <> +rest T.Ev{+id2, +doc2} <> +rest2:
-      %known_alike(ss, ss2, T.parents_of(doc), T.parents_of(doc2), sal, parents_alike(doc, doc2, alike_doc(id, id2, doc, doc2, rest, rest2, al))) : {T.alike(T.keep(~T.Ev, Bool.not(T.known(ss, T.parents_of(doc))), T.Ev{id, doc}, T.stuck(rest, ss)), T.keep(~T.Ev, Bool.not(_), T.Ev{id2, doc2}, T.stuck(rest2, ss2))) == True{} : Bool}
-      keep_alike(Bool.not(T.known(ss, T.parents_of(doc))), id, id2, doc, doc2, T.stuck(rest, ss), T.stuck(rest2, ss2), TL.and_left(String.eq(id, id2), Bool.and(T.rev_alike(doc, doc2), T.alike(rest, rest2)), al), alike_doc(id, id2, doc, doc2, rest, rest2, al), stuck_alike(rest, rest2, ss, ss2, alike_rest(id, id2, doc, doc2, rest, rest2, al), sal))
-
-def seen_add_alike(rd: List<&2, T.Ev>, rd2: List<&2, T.Ev>, +ss: List<&2, T.Seen>, +ss2: List<&2, T.Seen>, +al: {T.alike(rd, rd2) == True{} : Bool}, +sal: {seen_alike(ss, ss2) == True{} : Bool}) -> {seen_alike(T.seen.add(rd, ss), T.seen.add(rd2, ss2)) == True{} : Bool}:
-  match rd rd2:
-    case Nil{} Nil{}:
-      sal
-    case T.Ev{id, doc} <> rest Nil{}:
-      Empty.absurd({seen_alike(T.seen.add(T.Ev{id, doc} <> rest, ss), T.seen.add(Nil{}, ss2)) == True{} : Bool}, S.false_true(al))
-    case Nil{} T.Ev{id2, doc2} <> rest2:
-      Empty.absurd({seen_alike(T.seen.add(Nil{}, ss), T.seen.add(T.Ev{id2, doc2} <> rest2, ss2)) == True{} : Bool}, S.false_true(al))
-    case T.Ev{+id, +doc} <> +rest T.Ev{+id2, +doc2} <> +rest2:
-      and_intro(String.eq(id, id2), Bool.and(T.same_ids(T.closure(T.parents_of(doc), ss), T.closure(T.parents_of(doc2), ss2)), seen_alike(T.seen.add(rest, ss), T.seen.add(rest2, ss2))), TL.and_left(String.eq(id, id2), Bool.and(T.rev_alike(doc, doc2), T.alike(rest, rest2)), al), and_intro(T.same_ids(T.closure(T.parents_of(doc), ss), T.closure(T.parents_of(doc2), ss2)), seen_alike(T.seen.add(rest, ss), T.seen.add(rest2, ss2)), closure_same(T.parents_of(doc), T.parents_of(doc2), ss, ss2, parents_alike(doc, doc2, alike_doc(id, id2, doc, doc2, rest, rest2, al)), sal), seen_add_alike(rest, rest2, ss, ss2, alike_rest(id, id2, doc, doc2, rest, rest2, al), sal)))
-
 # The outcome of building the tables: refused in both, or alike.
 def seen_r_alike(r: Result<&2, &2, T.Fault, List<&2, T.Seen>>, r2: Result<&2, &2, T.Fault, List<&2, T.Seen>>) -> Bool:
   match r r2:
@@ -432,22 +390,74 @@ def seen_done_alike(b: Bool, ss: List<&2, T.Seen>, ss2: List<&2, T.Seen>, sal: {
     case False{}:
       {==}
 
-def seen_pick(b: Bool, f: Nat, +es: List<&2, T.Ev>, +es2: List<&2, T.Ev>, +ss: List<&2, T.Seen>, +ss2: List<&2, T.Seen>, +al: {T.alike(es, es2) == True{} : Bool}, +sal: {seen_alike(ss, ss2) == True{} : Bool}, ih: {seen_r_alike(T.seen(f, T.stuck(es, ss), T.seen.add(T.ready(es, ss), ss)), T.seen(f, T.stuck(es2, ss2), T.seen.add(T.ready(es2, ss2), ss2))) == True{} : Bool}) -> {seen_r_alike(Bool.pick(Result<&2, &2, T.Fault, List<&2, T.Seen>>, b, T.seen.done(List.is_empty(&2, T.Ev, T.stuck(es, ss)), ss), T.seen(f, T.stuck(es, ss), T.seen.add(T.ready(es, ss), ss))), Bool.pick(Result<&2, &2, T.Fault, List<&2, T.Seen>>, b, T.seen.done(List.is_empty(&2, T.Ev, T.stuck(es2, ss2)), ss2), T.seen(f, T.stuck(es2, ss2), T.seen.add(T.ready(es2, ss2), ss2)))) == True{} : Bool}:
-  match b:
-    case True{}:
-      %is_empty_alike(T.stuck(es, ss), T.stuck(es2, ss2), stuck_alike(es, es2, ss, ss2, al, sal)) : {seen_r_alike(T.seen.done(List.is_empty(&2, T.Ev, T.stuck(es, ss)), ss), T.seen.done(_, ss2)) == True{} : Bool}
-      seen_done_alike(List.is_empty(&2, T.Ev, T.stuck(es, ss)), ss, ss2, sal)
-    case False{}:
-      ih
+# Two passes alike: the tables alike, the same events waiting, and both
+# having taken an event or neither.
+def moved_same(a: Bool, b: Bool) -> Bool:
+  match a b:
+    case True{} True{}:
+      True{}
+    case False{} False{}:
+      True{}
+    case True{} False{}:
+      False{}
+    case False{} True{}:
+      False{}
+
+def pass_alike(p: T.Pass, p2: T.Pass) -> Bool:
+  match p p2:
+    case T.Pass{ss, w, m} T.Pass{ss2, w2, m2}:
+      Bool.and(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), moved_same(m, m2)))
+
+def pass_seen_alike(p: T.Pass, p2: T.Pass, pal: {pass_alike(p, p2) == True{} : Bool}) -> {seen_alike(T.pass.seen(p), T.pass.seen(p2)) == True{} : Bool}:
+  match p p2:
+    case T.Pass{ss, w, m} T.Pass{ss2, w2, m2}:
+      TL.and_left(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), moved_same(m, m2)), pal)
+
+# One event through alike passes, taken by both or left waiting by both.
+def step_alike(ok: Bool, p: T.Pass, p2: T.Pass, +id: String, +id2: String, +doc: Rev.Rev, +doc2: Rev.Rev, ei: {String.eq(id, id2) == True{} : Bool}, +ed: {T.rev_alike(doc, doc2) == True{} : Bool}, +pal: {pass_alike(p, p2) == True{} : Bool}) -> {pass_alike(T.pass.step(ok, id, doc, p), T.pass.step(ok, id2, doc2, p2)) == True{} : Bool}:
+  match ok p p2:
+    case True{} T.Pass{+ss, +w, +m} T.Pass{+ss2, +w2, +m2}:
+      +sal = TL.and_left(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), moved_same(m, m2)), pal)
+      and_intro(seen_alike(T.Seen{id, T.closure(T.parents_of(doc), ss)} <> ss, T.Seen{id2, T.closure(T.parents_of(doc2), ss2)} <> ss2), Bool.and(T.alike(w, w2), True{}), and_intro(String.eq(id, id2), Bool.and(T.same_ids(T.closure(T.parents_of(doc), ss), T.closure(T.parents_of(doc2), ss2)), seen_alike(ss, ss2)), ei, and_intro(T.same_ids(T.closure(T.parents_of(doc), ss), T.closure(T.parents_of(doc2), ss2)), seen_alike(ss, ss2), closure_same(T.parents_of(doc), T.parents_of(doc2), ss, ss2, parents_alike(doc, doc2, ed), sal), sal)), and_intro(T.alike(w, w2), True{}, TL.and_left(T.alike(w, w2), moved_same(m, m2), TL.and_right(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), moved_same(m, m2)), pal)), {==}))
+    case False{} T.Pass{+ss, +w, +m} T.Pass{+ss2, +w2, +m2}:
+      +rest = TL.and_right(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), moved_same(m, m2)), pal)
+      and_intro(seen_alike(ss, ss2), Bool.and(T.alike(T.Ev{id, doc} <> w, T.Ev{id2, doc2} <> w2), moved_same(m, m2)), TL.and_left(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), moved_same(m, m2)), pal), and_intro(T.alike(T.Ev{id, doc} <> w, T.Ev{id2, doc2} <> w2), moved_same(m, m2), and_intro(String.eq(id, id2), Bool.and(T.rev_alike(doc, doc2), T.alike(w, w2)), ei, and_intro(T.rev_alike(doc, doc2), T.alike(w, w2), ed, TL.and_left(T.alike(w, w2), moved_same(m, m2), rest))), TL.and_right(T.alike(w, w2), moved_same(m, m2), rest)))
+
+# A pass over alike events from alike passes ends alike.
+def pass_all_alike(es: List<&2, T.Ev>, es2: List<&2, T.Ev>, +p: T.Pass, +p2: T.Pass, +al: {T.alike(es, es2) == True{} : Bool}, +pal: {pass_alike(p, p2) == True{} : Bool}) -> {pass_alike(T.pass(es, p), T.pass(es2, p2)) == True{} : Bool}:
+  match es es2:
+    case Nil{} Nil{}:
+      pal
+    case T.Ev{id, doc} <> rest Nil{}:
+      Empty.absurd({pass_alike(T.pass(T.Ev{id, doc} <> rest, p), T.pass(Nil{}, p2)) == True{} : Bool}, S.false_true(al))
+    case Nil{} T.Ev{id2, doc2} <> rest2:
+      Empty.absurd({pass_alike(T.pass(Nil{}, p), T.pass(T.Ev{id2, doc2} <> rest2, p2)) == True{} : Bool}, S.false_true(al))
+    case T.Ev{+id, +doc} <> +rest T.Ev{+id2, +doc2} <> +rest2:
+      %known_alike(T.pass.seen(p), T.pass.seen(p2), T.parents_of(doc), T.parents_of(doc2), pass_seen_alike(p, p2, pal), parents_alike(doc, doc2, alike_doc(id, id2, doc, doc2, rest, rest2, al))) : {pass_alike(T.pass(rest, T.pass.step(T.known(T.pass.seen(p), T.parents_of(doc)), id, doc, p)), T.pass(rest2, T.pass.step(_, id2, doc2, p2))) == True{} : Bool}
+      pass_all_alike(rest, rest2, T.pass.step(T.known(T.pass.seen(p), T.parents_of(doc)), id, doc, p), T.pass.step(T.known(T.pass.seen(p), T.parents_of(doc)), id2, doc2, p2), alike_rest(id, id2, doc, doc2, rest, rest2, al), step_alike(T.known(T.pass.seen(p), T.parents_of(doc)), p, p2, id, id2, doc, doc2, TL.and_left(String.eq(id, id2), Bool.and(T.rev_alike(doc, doc2), T.alike(rest, rest2)), al), alike_doc(id, id2, doc, doc2, rest, rest2, al), pal))
+
+def pass_start(+ss: List<&2, T.Seen>, +ss2: List<&2, T.Seen>, sal: {seen_alike(ss, ss2) == True{} : Bool}) -> {pass_alike(T.Pass{ss, Nil{}, False{}}, T.Pass{ss2, Nil{}, False{}}) == True{} : Bool}:
+  and_intro(seen_alike(ss, ss2), True{}, sal, {==})
+
+def go_done(ss: List<&2, T.Seen>, ss2: List<&2, T.Seen>, +w: List<&2, T.Ev>, +w2: List<&2, T.Ev>, sal: {seen_alike(ss, ss2) == True{} : Bool}, al: {T.alike(w, w2) == True{} : Bool}) -> {seen_r_alike(T.seen.done(List.is_empty(&2, T.Ev, w), ss), T.seen.done(List.is_empty(&2, T.Ev, w2), ss2)) == True{} : Bool}:
+  %is_empty_alike(w, w2, al) : {seen_r_alike(T.seen.done(List.is_empty(&2, T.Ev, w), ss), T.seen.done(_, ss2)) == True{} : Bool}
+  seen_done_alike(List.is_empty(&2, T.Ev, w), ss, ss2, sal)
+
+def go_alike(fuel: Nat, p: T.Pass, p2: T.Pass, +pal: {pass_alike(p, p2) == True{} : Bool}) -> {seen_r_alike(T.seen.go(fuel, p), T.seen.go(fuel, p2)) == True{} : Bool}:
+  match fuel p p2:
+    case 0n T.Pass{+ss, +w, +m} T.Pass{+ss2, +w2, +m2}:
+      go_done(ss, ss2, w, w2, TL.and_left(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), moved_same(m, m2)), pal), TL.and_left(T.alike(w, w2), moved_same(m, m2), TL.and_right(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), moved_same(m, m2)), pal)))
+    case 1n+f T.Pass{+ss, +w, True{}} T.Pass{+ss2, +w2, True{}}:
+      go_alike(f, T.pass(w, T.Pass{ss, Nil{}, False{}}), T.pass(w2, T.Pass{ss2, Nil{}, False{}}), pass_all_alike(w, w2, T.Pass{ss, Nil{}, False{}}, T.Pass{ss2, Nil{}, False{}}, TL.and_left(T.alike(w, w2), True{}, TL.and_right(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), True{}), pal)), pass_start(ss, ss2, TL.and_left(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), True{}), pal))))
+    case 1n+f T.Pass{+ss, +w, False{}} T.Pass{+ss2, +w2, False{}}:
+      go_done(ss, ss2, w, w2, TL.and_left(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), True{}), pal), TL.and_left(T.alike(w, w2), True{}, TL.and_right(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), True{}), pal)))
+    case 1n+f T.Pass{ss, w, True{}} T.Pass{ss2, w2, False{}}:
+      Empty.absurd({seen_r_alike(T.seen.go(1n+f, T.Pass{ss, w, True{}}), T.seen.go(1n+f, T.Pass{ss2, w2, False{}})) == True{} : Bool}, S.false_true(TL.and_right(T.alike(w, w2), False{}, TL.and_right(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), False{}), pal))))
+    case 1n+f T.Pass{ss, w, False{}} T.Pass{ss2, w2, True{}}:
+      Empty.absurd({seen_r_alike(T.seen.go(1n+f, T.Pass{ss, w, False{}}), T.seen.go(1n+f, T.Pass{ss2, w2, True{}})) == True{} : Bool}, S.false_true(TL.and_right(T.alike(w, w2), False{}, TL.and_right(seen_alike(ss, ss2), Bool.and(T.alike(w, w2), False{}), pal))))
 
 def seen_alike_fuel(fuel: Nat, +es: List<&2, T.Ev>, +es2: List<&2, T.Ev>, +ss: List<&2, T.Seen>, +ss2: List<&2, T.Seen>, +al: {T.alike(es, es2) == True{} : Bool}, +sal: {seen_alike(ss, ss2) == True{} : Bool}) -> {seen_r_alike(T.seen(fuel, es, ss), T.seen(fuel, es2, ss2)) == True{} : Bool}:
-  match fuel:
-    case 0n:
-      %is_empty_alike(es, es2, al) : {seen_r_alike(T.seen.done(List.is_empty(&2, T.Ev, es), ss), T.seen.done(_, ss2)) == True{} : Bool}
-      seen_done_alike(List.is_empty(&2, T.Ev, es), ss, ss2, sal)
-    case 1n++f:
-      %is_empty_alike(T.ready(es, ss), T.ready(es2, ss2), ready_alike(es, es2, ss, ss2, al, sal)) : {seen_r_alike(Bool.pick(Result<&2, &2, T.Fault, List<&2, T.Seen>>, List.is_empty(&2, T.Ev, T.ready(es, ss)), T.seen.done(List.is_empty(&2, T.Ev, T.stuck(es, ss)), ss), T.seen(f, T.stuck(es, ss), T.seen.add(T.ready(es, ss), ss))), Bool.pick(Result<&2, &2, T.Fault, List<&2, T.Seen>>, _, T.seen.done(List.is_empty(&2, T.Ev, T.stuck(es2, ss2)), ss2), T.seen(f, T.stuck(es2, ss2), T.seen.add(T.ready(es2, ss2), ss2)))) == True{} : Bool}
-      seen_pick(List.is_empty(&2, T.Ev, T.ready(es, ss)), f, es, es2, ss, ss2, al, sal, seen_alike_fuel(f, T.stuck(es, ss), T.stuck(es2, ss2), T.seen.add(T.ready(es, ss), ss), T.seen.add(T.ready(es2, ss2), ss2), stuck_alike(es, es2, ss, ss2, al, sal), seen_add_alike(T.ready(es, ss), T.ready(es2, ss2), ss, ss2, ready_alike(es, es2, ss, ss2, al, sal), sal)))
+  go_alike(fuel, T.pass(es, T.Pass{ss, Nil{}, False{}}), T.pass(es2, T.Pass{ss2, Nil{}, False{}}), pass_all_alike(es, es2, T.Pass{ss, Nil{}, False{}}, T.Pass{ss2, Nil{}, False{}}, al, pass_start(ss, ss2, sal)))
 
 # Deciding the files reads the tables only as ancestry
 # ---------------------------------------------------

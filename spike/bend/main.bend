@@ -527,8 +527,44 @@ def among(fs: List<&2, Full>, +reached: List<&2, String>) -> List<&2, Full>:
     case +f <> rest:
       keep_full(Rev.member(reached, id_of(f)), f, among(rest, reached))
 
+def reached(+fs: List<&2, Full>, +id: String) -> List<&2, String>:
+  ancestry.seen(ancestry.go(Nat.mul(2n, 1n+List.length(&2, Full, fs)), fs, Reach{[id], Nil{}}))
+
 def ancestry(+fs: List<&2, Full>, +id: String) -> List<&2, Full>:
-  among(fs, ancestry.seen(ancestry.go(Nat.mul(2n, 1n+List.length(&2, Full, fs)), fs, Reach{[id], Nil{}})))
+  among(fs, reached(fs, id))
+
+# The same revisions in the order the walk reached them, turned round: the
+# walk goes out from the target, so what it reached last comes first and a
+# chain comes out oldest first, which is the order `Tree.seen` takes in one
+# pass. The store's own order is by file name, and a line of work named by
+# its messages took `Tree.seen` a pass for nearly every revision in it.
+type Pick is Data:
+  Pick{left: Map<&2, Full>, picked: List<&2, Full>}
+
+def pick.got(r: Map<&2, Full> & Maybe<&2, Full>, picked: List<&2, Full>) -> Pick:
+  (m, f) = r
+  match f:
+    case None{}:
+      Pick{m, picked}
+    case Some{x}:
+      Pick{m, x <> picked}
+
+def pick.step(+id: String, p: Pick) -> Pick:
+  match p:
+    case Pick{m, picked}:
+      pick.got(Map.pop(&2, Full, m, id), picked)
+
+def picked(ids: List<&2, String>, p: Pick) -> List<&2, Full>:
+  match ids:
+    case Nil{}:
+      match p:
+        case Pick{m, fs}:
+          List.reverse(&2, Full, fs)
+    case +id <> rest:
+      picked(rest, pick.step(id, p))
+
+def ancestry.oldest(+fs: List<&2, Full>, +id: String) -> List<&2, Full>:
+  picked(reached(fs, id), Pick{waiting(fs), Nil{}})
 
 # An abbreviation is as long as it must be to be unique among these, and at
 # least eight characters: what the store holds today decides it.
@@ -863,7 +899,7 @@ def tree.of(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> IO(
       IO.pure(Tree.Tree(), Tree.merged_tree(m))
 
 def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
-  tree.of(id, Tree.merge(events_of(ancestry(fs, id))))
+  tree.of(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
 
 def pad(+s: String, width: Nat) -> String:
   s ++ String.repeat(" ", Nat.sub(width, String.length(s)))
