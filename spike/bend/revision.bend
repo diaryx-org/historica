@@ -408,26 +408,64 @@ def without(xs: List<&2, String>, +ys: List<&2, String>) -> List<&2, String>:
     case +x <> rest:
       keep(Bool.not(member(ys, x)), x, without(rest, ys))
 
-def disjoint(xs: List<&2, String>, +ys: List<&2, String>) -> Bool:
-  match xs:
-    case Nil{}:
+# `disjoint`, `subset` and `unique` are asked of a revision's file lists,
+# and a revision that adds a folder names thousands of files, so each walks
+# one list against a `Set` of the other — a trie over the name — rather than
+# against the list itself, which was the two lengths multiplied. `r` is the
+# answer for the item before, with the set handed back.
+def disjoint.go(xs: List<&2, String>, r: Set() & Bool) -> Bool:
+  match xs r:
+    case _ Tuple{s, True{}}:
+      False{}
+    case Nil{} Tuple{s, False{}}:
       True{}
-    case x <> rest:
-      Bool.and(Bool.not(member(ys, x)), disjoint(rest, ys))
+    case x <> rest Tuple{s, False{}}:
+      disjoint.go(rest, Set.has(s, x))
+
+def disjoint.of(xs: List<&2, String>, ys: List<&2, String>) -> Bool:
+  disjoint.go(xs, (Set.from_list(ys), False{}))
+
+# The set is built from the shorter list, since disjointness is symmetric
+# and most of a revision's file lists are empty.
+def disjoint.by(xs: List<&2, String>, ys: List<&2, String>, ys_shorter: Bool) -> Bool:
+  match ys_shorter:
+    case True{}:
+      disjoint.of(xs, ys)
+    case False{}:
+      disjoint.of(ys, xs)
+
+def disjoint(+xs: List<&2, String>, +ys: List<&2, String>) -> Bool:
+  disjoint.by(xs, ys, Nat.is_le(List.length(&2, String, ys), List.length(&2, String, xs)))
+
+def subset.go(xs: List<&2, String>, r: Set() & Bool) -> Bool:
+  match xs r:
+    case _ Tuple{s, False{}}:
+      False{}
+    case Nil{} Tuple{s, True{}}:
+      True{}
+    case x <> rest Tuple{s, True{}}:
+      subset.go(rest, Set.has(s, x))
 
 def subset(xs: List<&2, String>, +ys: List<&2, String>) -> Bool:
-  match xs:
-    case Nil{}:
+  subset.go(xs, (Set.from_list(ys), True{}))
+
+# `x` is the item just looked for and not yet added; it joins the set once
+# the answer says it was not there.
+def unique.go(xs: List<&2, String>, +x: String, r: Set() & Bool) -> Bool:
+  match xs r:
+    case _ Tuple{s, True{}}:
+      False{}
+    case Nil{} Tuple{s, False{}}:
       True{}
-    case x <> rest:
-      Bool.and(member(ys, x), subset(rest, ys))
+    case +y <> rest Tuple{s, False{}}:
+      unique.go(rest, y, Set.has(Set.add(s, x), y))
 
 def unique(xs: List<&2, String>) -> Bool:
   match xs:
     case Nil{}:
       True{}
-    case x <> +rest:
-      Bool.and(Bool.not(member(rest, x)), unique(rest))
+    case +x <> rest:
+      unique.go(rest, x, Set.has(Set.new(), x))
 
 # Assembly
 # --------

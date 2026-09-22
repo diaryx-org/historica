@@ -49,13 +49,13 @@ documents, three hundred and fifty megabytes of them payloads — that is the
 difference between a tool and a demonstration. The native build, against the
 Rust tool on the same store:
 
-| | before | lazy | packed hash | sets | `historica` |
-|---|---|---|---|---|---|
-| `log` | 138 s | 15 s | 15 s | 5.5 s | 0.01 s |
-| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.02 s |
-| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.02 s |
-| `show <revision>` | 143 s | 2.8 s | 0.03 s | 0.03 s | 0.00 s |
-| `check` | 146 s | 11 s | 6 s | 5.3 s | 0.87 s |
+| | before | lazy | packed hash | sets | parse | `historica` |
+|---|---|---|---|---|---|---|
+| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.01 s |
+| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s |
+| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s |
+| `show <revision>` | 143 s | 2.8 s | 0.03 s | 0.03 s | 0.03 s | 0.00 s |
+| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 0.87 s |
 
 Wall clock, and near enough all of it user CPU: the store was never the
 syscalls. The second column is reading only what a command asks for; the
@@ -66,9 +66,17 @@ what a revision did to the file set through a `Set` of the files it added
 rather than walking that list once per fact — a revision that adds a folder
 names every file in it twice, and the walk was the listing squared — and
 `check` closing over the revisions it has already read and hashed rather than
-reading `revisions/` a second time. What is left is Bend's own decoding and
-parsing of the revision documents, and it scales with the graph rather than
-with the archive.
+reading `revisions/` a second time. The fifth is the revision parser's
+`unique`, `disjoint` and `subset` asking a `Set` rather than walking one file
+list against another — the archive's first revision adds two and a half
+thousand files — and `log`'s ordering asking a `Set` of the parents still to
+print rather than every revision in turn, which was the count cubed. What is
+left, measured on that first revision, is the parser walking a document of
+four hundred and fifty thousand characters as a list of them: about four
+hundred milliseconds each to cut the headers, to validate them, and to
+assemble the revision, with no loop among them that is not linear. That is
+the constant of a string that is a list of characters, and the answer to it
+is a packed representation of text, which is a rewrite of every parser here.
 
 `diff` has its own floor. Its table asked `same` — two lines walked
 character by character — of every one of its (n+1)(m+1) cells, so each item

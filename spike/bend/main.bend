@@ -282,19 +282,34 @@ def resolved(+fs: List<&2, Full>, +spelling: String) -> IO(Full):
 
 # Newest first, and a parent never above its child: of the revisions nothing
 # unprinted stands on, the latest by `when`, then by digest.
-def is_parent_of_any(fs: List<&2, Full>, +id: String) -> Bool:
+# Every parent any of these revisions names.
+def parents_named(fs: List<&2, Full>) -> List<&2, String>:
   match fs:
     case Nil{}:
-      False{}
+      Nil{}
     case f <> rest:
-      Bool.or(Rev.member(parents_of(f), id), is_parent_of_any(rest, id))
+      List.append(&2, String, parents_of(f), parents_named(rest))
 
-def ready(fs: List<&2, Full>, +all: List<&2, Full>) -> List<&2, Full>:
+def ready.keep(f: Full, rest: List<&2, Full>, r: Set() & Bool) -> List<&2, Full>:
+  match r:
+    case Tuple{s, True{}}:
+      rest
+    case Tuple{s, False{}}:
+      f <> rest
+
+def ready.go(fs: List<&2, Full>, +named: Set()) -> List<&2, Full>:
   match fs:
     case Nil{}:
       Nil{}
     case Full{+id, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest:
-      keep_full(Bool.not(is_parent_of_any(all, id)), Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}, ready(rest, all))
+      ready.keep(Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}, ready.go(rest, named), Set.has(named, id))
+
+# The revisions of `fs` that no revision in `all` names as a parent. The
+# parents `all` names are a `Set` — a trie over the digest — asked once per
+# revision, where asking every revision in turn was the count cubed over the
+# whole presentation.
+def ready(fs: List<&2, Full>, +all: List<&2, Full>) -> List<&2, Full>:
+  ready.go(fs, Set.from_list(parents_named(all)))
 
 def later(+a: Full, +b: Full) -> Bool:
   Bool.or(String.is_gt(when_of(a), when_of(b)), Bool.and(String.eq(when_of(a), when_of(b)), String.is_gt(id_of(a), id_of(b))))
