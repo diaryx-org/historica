@@ -49,13 +49,13 @@ documents, three hundred and fifty megabytes of them payloads — that is the
 difference between a tool and a demonstration. The native build, against the
 Rust tool on the same store:
 
-| | before | lazy | packed hash | sets | parse | split | walk | `historica` |
-|---|---|---|---|---|---|---|---|---|
-| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.89 s | 0.28 s | 0.01 s |
-| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.02 s |
-| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.02 s |
-| `show <revision>` | 143 s | 2.8 s | — | — | 1.9 s | 0.24 s | 0.25 s | 0.00 s |
-| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 1.1 s | 0.69 s | 0.87 s |
+| | before | lazy | packed hash | sets | parse | split | walk | merge | `historica` |
+|---|---|---|---|---|---|---|---|---|---|
+| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.89 s | 0.28 s | 0.28 s | 0.01 s |
+| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.84 s | 0.02 s |
+| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.77 s | 0.02 s |
+| `show <revision>` | 143 s | 2.8 s | — | — | 1.9 s | 0.24 s | 0.25 s | 0.23 s | 0.00 s |
+| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 1.1 s | 0.69 s | 0.69 s | 0.87 s |
 
 Wall clock, and near enough all of it user CPU: the store was never the
 syscalls. A dash is a column `show` was not measured in. The second column is reading only what a command asks for; the
@@ -104,12 +104,42 @@ previous build re-measured beside it: `log` 0.40 s before and 0.28 s after,
 `files` and `cat`, which the earlier columns had at a fraction of a second
 and which now take thirteen and a half. Timing their phases says it is not
 the reading or the parsing — those are the same two hundred milliseconds
-`log` pays — but `Tree.merge`, and inside it `gather`, which keeps one
-`Facts` record per file in a list and walks that list for each fact it files.
-The archive's first revision states five thousand facts about two and a half
-thousand files, and the walk is one multiplied by the other. That is the next
-floor, and it is a `Map` where the list is, with `graph_lemmas`' `gather_alike`
-restated over the new shape.
+`log` pays — but `Tree.merge`, and not one piece of it but four, each a walk
+of one list for every element of another:
+
+- `gather` kept one `Facts` record per file in a list and walked it for
+  every fact it filed: five thousand facts in the archive's first revision
+  against two and a half thousand files, three seconds. The table is a
+  `Map` now, listed in file order once at the end, and the `bytes` and
+  `link` files an `add` asks after are `Set`s: 80 ms. `graph_lemmas`'
+  `gather_alike` is restated over the `Map`, and nothing else changes,
+  because it never looked inside the table.
+- `decide_all` put each surviving file into the tree with `insert`, which
+  walks it — and the files arrive in file order, so every one went to the
+  end. Each now goes on the front and the tree is turned round once: 0.73 s
+  to 75 ms.
+- `raise`, decision 0040's fixed point, took one step for every revision,
+  and every step asked every buried file whether a surviving link names it,
+  walking the tree for each. The first step that raises nothing is the
+  fixed point, and it stops there: 5.7 s to 20 ms.
+- `path_contests` asked, for every entry, which entries share its path and
+  whether that path had been reported yet, walking the tree and the report
+  each time: 3.1 s. One pass over the tree sorted by path, stably so that a
+  path's files stay in tree order, finds the same runs in 30 ms.
+
+An earlier reading of the profile named only the first; timing each stage
+of the merge on its own found the other three, which were two thirds of it. None of
+`raise`, `place` or `path_contests` is opened by a proof. The eighth column
+is the four, measured beside the previous build: `files` and `cat` go from
+thirteen and a half seconds to under nine tenths, `log`, `show` and `check`
+are unchanged, and all five print the same bytes as before.
+
+What is left in `files` beyond what `log` pays is `seen`, the ancestor
+table, at a third of a second: every round of its split into ready and stuck
+asks each waiting revision's parents against every revision seen so far, and
+a chain readies one revision a round. It is also the part of the merge
+`graph_lemmas` reasons about most, so a faster one is a restatement of those
+proofs rather than a change beside them.
 
 What is left in `log` is the first revision's five thousand
 headers through the validators — five linear passes over its four hundred and

@@ -1218,10 +1218,13 @@ def decide(x: Facts, +ss: List<&2, Seen>) -> Result<&2, &2, Fault, Decided>:
 type Placed is Data:
   Placed{tree: Tree(), buried: List<&2, Decided>, contested: List<&2, Contest>}
 
+# The facts table is in file order, so the survivors arrive in it: each
+# goes on the front of the tree and the tree is turned round once at the
+# end, where `insert` would walk all of it for every one.
 def place_decided(survives: Bool, file: String, entry: Entry, gone: List<&2, String>, mine: List<&2, Contest>, acc: Placed) -> Placed:
   match survives acc:
     case True{} Placed{t, b, c}:
-      Placed{insert(t, entry), b, List.append(&2, Contest, c, mine)}
+      Placed{entry <> t, b, List.append(&2, Contest, c, mine)}
     case False{} Placed{t, b, c}:
       Placed{t, List.append(&2, Decided, b, [Decided{file, entry, gone, mine}]), c}
 
@@ -1230,10 +1233,15 @@ def place(d: Decided, acc: Placed) -> Placed:
     case Decided{file, entry, +gone, mine}:
       place_decided(List.is_empty(&2, String, gone), file, entry, gone, mine, acc)
 
+def placed.done(p: Placed) -> Placed:
+  match p:
+    case Placed{t, b, c}:
+      Placed{List.reverse(&2, Entry, t), b, c}
+
 def decide_all(xs: List<&2, Facts>, +ss: List<&2, Seen>, acc: Placed) -> Result<&2, &2, Fault, Placed>:
   match xs:
     case Nil{}:
-      Done{acc}
+      Done{placed.done(acc)}
     case x <> rest:
       do Result<&2, &2, Fault, Placed>:
         d : Decided <- decide(x, ss)
