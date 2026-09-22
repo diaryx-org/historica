@@ -335,22 +335,112 @@ def remove(fs: List<&2, Full>, +id: String) -> List<&2, Full>:
     case Full{+i, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest:
       keep_full(Bool.not(String.eq(i, id)), Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}, remove(rest, id))
 
-# The walk: what is still to print, and what has been, newest first.
-type Walk is Data:
-  Walk{remaining: List<&2, Full>, printed: List<&2, Full>}
+# The walk, newest first, as Kahn's algorithm rather than a rescan: what was
+# `ready(remaining, remaining)` at every step built a `Set` of every parent
+# the unprinted revisions name and asked it once per revision, which is the
+# revision count squared with a digest's length inside it — a hundred and
+# twenty-four of `log`'s four hundred milliseconds on this archive. The same
+# order comes out of one table: how many unprinted revisions name each digest
+# as a parent, decremented as each revision is printed, so a revision joins
+# the frontier the moment its last child has been. Only the frontier is
+# searched for the latest, and only the revision just printed touches the
+# table.
 
-def presentation.pick(+remaining: List<&2, Full>, printed: List<&2, Full>, pick: Maybe<&2, Full>) -> Walk:
+# The frontier, what has been printed, the count each digest is named by, and
+# the revisions not yet reached, by digest.
+type Walk is Data:
+  Walk{ready: List<&2, Full>, printed: List<&2, Full>,
+       counts: Map<&2, Nat>, waiting: Map<&2, Full>}
+
+# One parent's count and the frontier, after the revision naming it went out.
+type Drop is Data:
+  Drop{counts: Map<&2, Nat>, waiting: Map<&2, Full>, ready: List<&2, Full>}
+
+def counts.inc.of(+key: String, r: Map<&2, Nat> & Nat) -> Map<&2, Nat>:
+  (m, n) = r
+  Map.set(&2, Nat, m, key, 1n+n)
+
+def counts.inc(m: Map<&2, Nat>, +key: String) -> Map<&2, Nat>:
+  counts.inc.of(key, Map.get(Nat, 0n, m, key))
+
+# How many revisions name each digest as a parent. A digest named twice by
+# one revision counts twice, and is decremented twice when it goes out.
+def counts.go(ps: List<&2, String>, m: Map<&2, Nat>) -> Map<&2, Nat>:
+  match ps:
+    case Nil{}:
+      m
+    case +p <> rest:
+      counts.go(rest, counts.inc(m, p))
+
+def counts(+fs: List<&2, Full>) -> Map<&2, Nat>:
+  counts.go(parents_named(fs), Map.new(&2, Nat))
+
+# The revisions that are not ready yet, by digest; a revision leaves this
+# table exactly once, when the last revision naming it has been printed.
+def waiting.go(fs: List<&2, Full>, m: Map<&2, Full>) -> Map<&2, Full>:
+  match fs:
+    case Nil{}:
+      m
+    case +f <> rest:
+      waiting.go(rest, Map.set(&2, Full, m, id_of(f), f))
+
+def waiting(fs: List<&2, Full>) -> Map<&2, Full>:
+  waiting.go(fs, Map.new(&2, Full))
+
+# A parent whose last child has gone out joins the frontier, unless this
+# store holds no such revision — a missing parent is named and never printed.
+def walk.arrive(counts: Map<&2, Nat>, rd: List<&2, Full>, r: Map<&2, Full> & Maybe<&2, Full>) -> Drop:
+  (m, f) = r
+  match f:
+    case None{}:
+      Drop{counts, m, rd}
+    case Some{x}:
+      Drop{counts, m, x <> rd}
+
+def walk.zero(+key: String, counts: Map<&2, Nat>, waiting: Map<&2, Full>, rd: List<&2, Full>, n: Nat) -> Drop:
+  match n:
+    case 0n:
+      walk.arrive(counts, rd, Map.pop(&2, Full, waiting, key))
+    case 1n+k:
+      Drop{counts, waiting, rd}
+
+def walk.dec(+key: String, waiting: Map<&2, Full>, rd: List<&2, Full>, r: Map<&2, Nat> & Nat) -> Drop:
+  (m, n) = r
+  match n:
+    case 0n:
+      Drop{m, waiting, rd}
+    case 1n++k:
+      walk.zero(key, Map.set(&2, Nat, m, key, k), waiting, rd, k)
+
+# Every parent of the revision just printed, counted down.
+def walk.parents(ps: List<&2, String>, d: Drop) -> Drop:
+  match ps:
+    case Nil{}:
+      d
+    case +p <> rest:
+      match d:
+        case Drop{counts, waiting, rd}:
+          walk.parents(rest, walk.dec(p, waiting, rd, Map.get(Nat, 0n, counts, p)))
+
+def walk.went(printed: List<&2, Full>, d: Drop) -> Walk:
+  match d:
+    case Drop{counts, waiting, rd}:
+      Walk{rd, printed, counts, waiting}
+
+def walk.take(+f: Full, ready: List<&2, Full>, printed: List<&2, Full>, counts: Map<&2, Nat>, waiting: Map<&2, Full>) -> Walk:
+  walk.went(f <> printed, walk.parents(parents_of(f), Drop{counts, waiting, remove(ready, id_of(f))}))
+
+def walk.pick(+ready: List<&2, Full>, printed: List<&2, Full>, counts: Map<&2, Nat>, waiting: Map<&2, Full>, pick: Maybe<&2, Full>) -> Walk:
   match pick:
     case None{}:
-      # A cycle cannot happen; if one did, showing the rest beats dropping it.
-      Walk{Nil{}, List.append(&2, Full, List.reverse(&2, Full, remaining), printed)}
-    case Some{+f}:
-      Walk{remove(remaining, id_of(f)), f <> printed}
+      Walk{Nil{}, printed, counts, waiting}
+    case Some{f}:
+      walk.take(f, ready, printed, counts, waiting)
 
 def presentation.step(w: Walk) -> Walk:
   match w:
-    case Walk{+remaining, printed}:
-      presentation.pick(remaining, printed, latest(ready(remaining, remaining)))
+    case Walk{+ready, printed, counts, waiting}:
+      walk.pick(ready, printed, counts, waiting, latest(ready))
 
 def presentation.go(fuel: Nat, w: Walk) -> Walk:
   match fuel:
@@ -359,13 +449,36 @@ def presentation.go(fuel: Nat, w: Walk) -> Walk:
     case 1n+n:
       presentation.go(n, presentation.step(w))
 
-def presentation.done(w: Walk) -> List<&2, Full>:
+def presentation.printed(w: Walk) -> List<&2, Full>:
   match w:
-    case Walk{remaining, printed}:
-      List.append(&2, Full, List.reverse(&2, Full, printed), remaining)
+    case Walk{ready, printed, counts, waiting}:
+      printed
+
+# What no frontier reached: a cycle cannot happen, and if one did, showing
+# the rest in the order they were read beats dropping it.
+def presentation.left.keep(f: Full, rest: List<&2, Full>, r: Set() & Bool) -> List<&2, Full>:
+  match r:
+    case Tuple{s, True{}}:
+      rest
+    case Tuple{s, False{}}:
+      f <> rest
+
+def presentation.left(fs: List<&2, Full>, +done: Set()) -> List<&2, Full>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case Full{+id, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest:
+      presentation.left.keep(Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}, presentation.left(rest, done), Set.has(done, id))
+
+def presentation.done(+fs: List<&2, Full>, +printed: List<&2, Full>) -> List<&2, Full>:
+  List.append(&2, Full, List.reverse(&2, Full, printed),
+    presentation.left(fs, Set.from_list(ids(printed))))
+
+def presentation.of(+fs: List<&2, Full>, ready: List<&2, Full>) -> List<&2, Full>:
+  presentation.done(fs, presentation.printed(presentation.go(1n+List.length(&2, Full, fs), Walk{ready, Nil{}, counts(fs), waiting(fs)})))
 
 def presentation(+fs: List<&2, Full>) -> List<&2, Full>:
-  presentation.done(presentation.go(1n+List.length(&2, Full, fs), Walk{fs, Nil{}}))
+  presentation.of(fs, ready(fs, fs))
 
 # Only the ancestry of one revision, when a target was named.
 type Reach is Data:

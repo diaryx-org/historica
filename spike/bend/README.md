@@ -49,13 +49,13 @@ documents, three hundred and fifty megabytes of them payloads — that is the
 difference between a tool and a demonstration. The native build, against the
 Rust tool on the same store:
 
-| | before | lazy | packed hash | sets | parse | split | `historica` |
-|---|---|---|---|---|---|---|---|
-| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.89 s | 0.01 s |
-| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 0.02 s |
-| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 0.02 s |
-| `show <revision>` | 143 s | 2.8 s | — | — | 1.9 s | 0.24 s | 0.00 s |
-| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 1.1 s | 0.87 s |
+| | before | lazy | packed hash | sets | parse | split | walk | `historica` |
+|---|---|---|---|---|---|---|---|---|
+| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.89 s | 0.28 s | 0.01 s |
+| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.02 s |
+| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.02 s |
+| `show <revision>` | 143 s | 2.8 s | — | — | 1.9 s | 0.24 s | 0.25 s | 0.00 s |
+| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 1.1 s | 0.69 s | 0.87 s |
 
 Wall clock, and near enough all of it user CPU: the store was never the
 syscalls. A dash is a column `show` was not measured in. The second column is reading only what a command asks for; the
@@ -80,9 +80,43 @@ strict `Bool.pick` walked one copy to the end of the line at every
 character, so the other copy was made whole each time: a line's length
 squared, per line. `split_once.fast` carries the head's test in and stops at
 the space; `spelling_lemmas.split_fast` proves it is the `split_once.go` the
-laws unfold. What is left in `log` is the first revision's five thousand
-headers through the validators, and the revisions read as lists of
-characters, which is now the shape of the whole cost.
+laws unfold.
+
+The seventh column is the order `log` prints in. `presentation` asked, at
+every step, which of the revisions still unprinted no unprinted revision
+names as a parent — and answered it by building a `Set` of every parent they
+name and querying it once per revision, from scratch, at each of the two
+hundred and sixty-four steps. That is the revision count squared with a
+digest's length inside it, and it was a hundred and twenty-four of `log`'s
+four hundred milliseconds, more than the parsing. The same order comes out of
+one table built once: how many unprinted revisions name each digest as a
+parent, decremented as each revision goes out, so a revision joins the
+frontier the moment its last child has left it, and only the frontier is
+searched for the latest. Kahn's algorithm, in other words, with the walk's
+own tie-break. Nothing in `LAWS.bend` reaches `presentation`; the gate it
+passes is `check.py` and the same bytes out of `log`, `show`, `files`, `cat`
+and `check` as the build before it.
+
+The seventh column was measured on the archive as it stands now — a fifth
+again as many revisions as when the earlier columns were taken — with the
+previous build re-measured beside it: `log` 0.40 s before and 0.28 s after,
+`check` 0.70 s and 0.69 s, `show` unchanged. What the growth shows up is
+`files` and `cat`, which the earlier columns had at a fraction of a second
+and which now take thirteen and a half. Timing their phases says it is not
+the reading or the parsing — those are the same two hundred milliseconds
+`log` pays — but `Tree.merge`, and inside it `gather`, which keeps one
+`Facts` record per file in a list and walks that list for each fact it files.
+The archive's first revision states five thousand facts about two and a half
+thousand files, and the walk is one multiplied by the other. That is the next
+floor, and it is a `Map` where the list is, with `graph_lemmas`' `gather_alike`
+restated over the new shape.
+
+What is left in `log` is the first revision's five thousand
+headers through the validators — five linear passes over its four hundred and
+fifty thousand characters, none of them dominant — the four hundred thousand
+characters of the store listing that `Store.list` hands back whole when `log`
+wants only `revisions/`, and the revisions read as lists of characters at
+about a hundred nanoseconds a cell, which is what a cons cell costs here.
 
 `diff` has its own floor. Its table asked `same` — two lines walked
 character by character — of every one of its (n+1)(m+1) cells, so each item
