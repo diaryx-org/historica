@@ -355,17 +355,17 @@ def is_empty_alike(es: List<&2, T.Ev>, es2: List<&2, T.Ev>, +al: {T.alike(es, es
     case T.Ev{id, doc} <> rest T.Ev{id2, doc2} <> rest2:
       {==}
 
-def gather_alike(es: List<&2, T.Ev>, es2: List<&2, T.Ev>, xs: List<&2, T.Facts>, +al: {T.alike(es, es2) == True{} : Bool}) -> {T.gather(es, xs) == T.gather(es2, xs) : List<&2, T.Facts>}:
+def gather_alike(es: List<&2, T.Ev>, es2: List<&2, T.Ev>, xs: Map<&2, T.Facts>, +al: {T.alike(es, es2) == True{} : Bool}) -> {T.gather(es, xs) == T.gather(es2, xs) : Map<&2, T.Facts>}:
   match es es2:
     case Nil{} Nil{}:
       {==}
     case T.Ev{id, doc} <> rest Nil{}:
-      Empty.absurd({T.gather(T.Ev{id, doc} <> rest, xs) == T.gather(Nil{}, xs) : List<&2, T.Facts>}, S.false_true(al))
+      Empty.absurd({T.gather(T.Ev{id, doc} <> rest, xs) == T.gather(Nil{}, xs) : Map<&2, T.Facts>}, S.false_true(al))
     case Nil{} T.Ev{id2, doc2} <> rest2:
-      Empty.absurd({T.gather(Nil{}, xs) == T.gather(T.Ev{id2, doc2} <> rest2, xs) : List<&2, T.Facts>}, S.false_true(al))
+      Empty.absurd({T.gather(Nil{}, xs) == T.gather(T.Ev{id2, doc2} <> rest2, xs) : Map<&2, T.Facts>}, S.false_true(al))
     case T.Ev{+id, +doc} <> +rest T.Ev{+id2, +doc2} <> +rest2:
-      %alike_id(id, id2, doc, doc2, rest, rest2, al) : {T.gather(rest, T.gather.one(T.facts_about(doc), id, xs)) == T.gather(rest2, T.gather.one(T.facts_about(doc2), _, xs)) : List<&2, T.Facts>}
-      %facts_alike(doc, doc2, alike_doc(id, id2, doc, doc2, rest, rest2, al)) : {T.gather(rest, T.gather.one(T.facts_about(doc), id, xs)) == T.gather(rest2, T.gather.one(_, id, xs)) : List<&2, T.Facts>}
+      %alike_id(id, id2, doc, doc2, rest, rest2, al) : {T.gather(rest, T.gather.one(T.facts_about(doc), id, xs)) == T.gather(rest2, T.gather.one(T.facts_about(doc2), _, xs)) : Map<&2, T.Facts>}
+      %facts_alike(doc, doc2, alike_doc(id, id2, doc, doc2, rest, rest2, al)) : {T.gather(rest, T.gather.one(T.facts_about(doc), id, xs)) == T.gather(rest2, T.gather.one(_, id, xs)) : Map<&2, T.Facts>}
       gather_alike(rest, rest2, T.gather.one(T.facts_about(doc), id, xs), alike_rest(id, id2, doc, doc2, rest, rest2, al))
 
 # The ancestor tables built from alike events are alike
@@ -609,9 +609,9 @@ def merge_seen(r: Result<&2, &2, T.Fault, List<&2, T.Seen>>, r2: Result<&2, &2, 
     case Done{ss} Fail{x2}:
       Empty.absurd({Fail{x2} == Done{m} : Result<&2, &2, T.Fault, T.Merged>}, S.false_true(sal))
     case Done{+ss} Done{+ss2}:
-      %gather_alike(es, es2, Nil{}, al) : {T.merge.decided(T.decide_all(_, ss2, T.Placed{T.empty(), Nil{}, Nil{}}), List.length(&2, T.Ev, es2)) == Done{m} : Result<&2, &2, T.Fault, T.Merged>}
-      %len_alike(es, es2, al) : {T.merge.decided(T.decide_all(T.gather(es, Nil{}), ss2, T.Placed{T.empty(), Nil{}, Nil{}}), _) == Done{m} : Result<&2, &2, T.Fault, T.Merged>}
-      %decide_all_alike(T.gather(es, Nil{}), ss, ss2, T.Placed{T.empty(), Nil{}, Nil{}}, sal) : {T.merge.decided(_, List.length(&2, T.Ev, es)) == Done{m} : Result<&2, &2, T.Fault, T.Merged>}
+      %gather_alike(es, es2, Map.new(&2, T.Facts), al) : {T.merge.decided(T.decide_all(T.table_list(_), ss2, T.Placed{T.empty(), Nil{}, Nil{}}), List.length(&2, T.Ev, es2)) == Done{m} : Result<&2, &2, T.Fault, T.Merged>}
+      %len_alike(es, es2, al) : {T.merge.decided(T.decide_all(T.table_list(T.gather(es, Map.new(&2, T.Facts))), ss2, T.Placed{T.empty(), Nil{}, Nil{}}), _) == Done{m} : Result<&2, &2, T.Fault, T.Merged>}
+      %decide_all_alike(T.table_list(T.gather(es, Map.new(&2, T.Facts))), ss, ss2, T.Placed{T.empty(), Nil{}, Nil{}}, sal) : {T.merge.decided(_, List.length(&2, T.Ev, es)) == Done{m} : Result<&2, &2, T.Fault, T.Merged>}
       e
 
 def merge_delivered(r: Result<&2, &2, T.Fault, Unit>, +es: List<&2, T.Ev>, +es2: List<&2, T.Ev>, m: T.Merged, +al: {T.alike(es, es2) == True{} : Bool}, er: {T.delivered(es, T.ev_ids(es)) == r : Result<&2, &2, T.Fault, Unit>}, e: {T.merge.delivered(r, es) == Done{m} : Result<&2, &2, T.Fault, T.Merged>}) -> {T.merge.delivered(T.delivered(es2, T.ev_ids(es)), es2) == Done{m} : Result<&2, &2, T.Fault, T.Merged>}:

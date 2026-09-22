@@ -860,21 +860,20 @@ def facts_file(x: Facts) -> String:
 def fresh_facts(file: String) -> Facts:
   Facts{file, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}}
 
-# The facts table, in file order: the entry for a file, made if absent.
-def table_get(xs: List<&2, Facts>, +file: String) -> Facts:
-  match xs:
-    case Nil{}:
-      fresh_facts(file)
-    case +x <> rest:
-      Bool.pick(Facts, String.eq(facts_file(x), file), x, table_get(rest, file))
+# The facts table, keyed by file: the entry for a file, made if absent.
+# A trie over the name, so filing a fact costs the name's length rather
+# than a walk of every file filed before it.
+def table_get(m: Map<&2, Facts>, +file: String) -> Map<&2, Facts> & Facts:
+  Map.get(Facts, fresh_facts(file), m, file)
 
-def table_put(xs: List<&2, Facts>, +x: Facts) -> List<&2, Facts>:
-  match xs:
-    case Nil{}:
-      [x]
-    case +y <> +rest:
-      +c = String.order(facts_file(x), facts_file(y))
-      Bool.pick(List<&2, Facts>, Cmp.is_lt(c), x <> y <> rest, Bool.pick(List<&2, Facts>, Cmp.is_eq(c), x <> rest, y <> table_put(rest, x)))
+# The table in file order, which is the order everything downstream of the
+# gathering decides files in.
+def table_list(m: Map<&2, Facts>) -> List<&2, Facts>:
+  List.sort(~Facts, ~(a => b => String.is_le(facts_file(a), facts_file(b))), Map.values(&2, Facts, m))
+
+def member(r: Set() & Bool) -> Bool:
+  (s, b) = r
+  b
 
 # Gathering, one key at a time.
 def note_add(x: Facts, +by: String, p: String, whole: Bool, link: Bool) -> Facts:
@@ -882,89 +881,117 @@ def note_add(x: Facts, +by: String, p: String, whole: Bool, link: Bool) -> Facts
     case Facts{file, ps, ts, ds, as, ws, ms, gs, w, l}:
       Facts{file, List.append(&2, Claim, ps, [Claim{by, p}]), List.append(&2, String, ts, [by]), ds, List.append(&2, String, as, [by]), ws, ms, gs, whole, link}
 
-def note_adds(fs: List<&2, Fact>, +by: String, +bytes: List<&2, String>, +links: List<&2, String>, +xs: List<&2, Facts>) -> List<&2, Facts>:
+def note_adds.at(+file: String, +by: String, p: String, whole: Bool, link: Bool, r: Map<&2, Facts> & Facts) -> Map<&2, Facts>:
+  (tbl, x) = r
+  Map.set(&2, Facts, tbl, file, note_add(x, by, p, whole, link))
+
+def note_adds(fs: List<&2, Fact>, +by: String, +bytes: Set(), +links: Set(), xs: Map<&2, Facts>) -> Map<&2, Facts>:
   match fs:
     case Nil{}:
       xs
     case Fact{+file, p} <> rest:
-      note_adds(rest, by, bytes, links, table_put(xs, note_add(table_get(xs, file), by, p, Rev.member(bytes, file), Rev.member(links, file))))
+      note_adds(rest, by, bytes, links, note_adds.at(file, by, p, member(Set.has(bytes, file)), member(Set.has(links, file)), table_get(xs, file)))
 
 def note_move(x: Facts, +by: String, p: String) -> Facts:
   match x:
     case Facts{file, ps, ts, ds, as, ws, ms, gs, w, l}:
       Facts{file, List.append(&2, Claim, ps, [Claim{by, p}]), List.append(&2, String, ts, [by]), ds, as, ws, ms, gs, w, l}
 
-def note_moves(fs: List<&2, Fact>, +by: String, +xs: List<&2, Facts>) -> List<&2, Facts>:
+def note_moves.at(+file: String, +by: String, p: String, r: Map<&2, Facts> & Facts) -> Map<&2, Facts>:
+  (tbl, x) = r
+  Map.set(&2, Facts, tbl, file, note_move(x, by, p))
+
+def note_moves(fs: List<&2, Fact>, +by: String, xs: Map<&2, Facts>) -> Map<&2, Facts>:
   match fs:
     case Nil{}:
       xs
     case Fact{+file, p} <> rest:
-      note_moves(rest, by, table_put(xs, note_move(table_get(xs, file), by, p)))
+      note_moves(rest, by, note_moves.at(file, by, p, table_get(xs, file)))
 
 def note_drop(x: Facts, +by: String) -> Facts:
   match x:
     case Facts{file, ps, ts, ds, as, ws, ms, gs, w, l}:
       Facts{file, ps, ts, List.append(&2, String, ds, [by]), as, ws, ms, gs, w, l}
 
-def note_drops(fs: List<&2, String>, +by: String, +xs: List<&2, Facts>) -> List<&2, Facts>:
+def note_drops.at(+file: String, +by: String, r: Map<&2, Facts> & Facts) -> Map<&2, Facts>:
+  (tbl, x) = r
+  Map.set(&2, Facts, tbl, file, note_drop(x, by))
+
+def note_drops(fs: List<&2, String>, +by: String, xs: Map<&2, Facts>) -> Map<&2, Facts>:
   match fs:
     case Nil{}:
       xs
     case +file <> rest:
-      note_drops(rest, by, table_put(xs, note_drop(table_get(xs, file), by)))
+      note_drops(rest, by, note_drops.at(file, by, table_get(xs, file)))
 
 def note_mode(x: Facts, +by: String, m: String) -> Facts:
   match x:
     case Facts{file, ps, ts, ds, as, ws, ms, gs, w, l}:
       Facts{file, ps, List.append(&2, String, ts, [by]), ds, as, ws, List.append(&2, Claim, ms, [Claim{by, m}]), gs, w, l}
 
-def note_modes(fs: List<&2, Fact>, +by: String, +xs: List<&2, Facts>) -> List<&2, Facts>:
+def note_modes.at(+file: String, +by: String, m: String, r: Map<&2, Facts> & Facts) -> Map<&2, Facts>:
+  (tbl, x) = r
+  Map.set(&2, Facts, tbl, file, note_mode(x, by, m))
+
+def note_modes(fs: List<&2, Fact>, +by: String, xs: Map<&2, Facts>) -> Map<&2, Facts>:
   match fs:
     case Nil{}:
       xs
     case Fact{+file, m} <> rest:
-      note_modes(rest, by, table_put(xs, note_mode(table_get(xs, file), by, m)))
+      note_modes(rest, by, note_modes.at(file, by, m, table_get(xs, file)))
 
 def note_touch(x: Facts, +by: String) -> Facts:
   match x:
     case Facts{file, ps, ts, ds, as, ws, ms, gs, w, l}:
       Facts{file, ps, List.append(&2, String, ts, [by]), ds, as, ws, ms, gs, w, l}
 
-def note_edits(fs: List<&2, String>, +by: String, +xs: List<&2, Facts>) -> List<&2, Facts>:
+def note_edits.at(+file: String, +by: String, r: Map<&2, Facts> & Facts) -> Map<&2, Facts>:
+  (tbl, x) = r
+  Map.set(&2, Facts, tbl, file, note_touch(x, by))
+
+def note_edits(fs: List<&2, String>, +by: String, xs: Map<&2, Facts>) -> Map<&2, Facts>:
   match fs:
     case Nil{}:
       xs
     case +file <> rest:
-      note_edits(rest, by, table_put(xs, note_touch(table_get(xs, file), by)))
+      note_edits(rest, by, note_edits.at(file, by, table_get(xs, file)))
 
 def note_whole(x: Facts, +by: String, y: String) -> Facts:
   match x:
     case Facts{file, ps, ts, ds, as, ws, ms, gs, w, l}:
       Facts{file, ps, List.append(&2, String, ts, [by]), ds, as, List.append(&2, Claim, ws, [Claim{by, y}]), ms, gs, w, l}
 
-def note_bytes(fs: List<&2, Fact>, +by: String, +xs: List<&2, Facts>) -> List<&2, Facts>:
+def note_bytes.at(+file: String, +by: String, y: String, r: Map<&2, Facts> & Facts) -> Map<&2, Facts>:
+  (tbl, x) = r
+  Map.set(&2, Facts, tbl, file, note_whole(x, by, y))
+
+def note_bytes(fs: List<&2, Fact>, +by: String, xs: Map<&2, Facts>) -> Map<&2, Facts>:
   match fs:
     case Nil{}:
       xs
     case Fact{+file, y} <> rest:
-      note_bytes(rest, by, table_put(xs, note_whole(table_get(xs, file), by, y)))
+      note_bytes(rest, by, note_bytes.at(file, by, y, table_get(xs, file)))
 
 def note_target(x: Facts, +by: String, g: String) -> Facts:
   match x:
     case Facts{file, ps, ts, ds, as, ws, ms, gs, w, l}:
       Facts{file, ps, List.append(&2, String, ts, [by]), ds, as, ws, ms, List.append(&2, Claim, gs, [Claim{by, g}]), w, l}
 
-def note_links(fs: List<&2, Fact>, +by: String, +xs: List<&2, Facts>) -> List<&2, Facts>:
+def note_links.at(+file: String, +by: String, g: String, r: Map<&2, Facts> & Facts) -> Map<&2, Facts>:
+  (tbl, x) = r
+  Map.set(&2, Facts, tbl, file, note_target(x, by, g))
+
+def note_links(fs: List<&2, Fact>, +by: String, xs: Map<&2, Facts>) -> Map<&2, Facts>:
   match fs:
     case Nil{}:
       xs
     case Fact{+file, g} <> rest:
-      note_links(rest, by, table_put(xs, note_target(table_get(xs, file), by, g)))
+      note_links(rest, by, note_links.at(file, by, g, table_get(xs, file)))
 
-def gather.one(+fs: List<&2, Rev.Header>, +by: String, xs: List<&2, Facts>) -> List<&2, Facts>:
-  note_links(facts_of(fs, "link"), by, note_bytes(facts_of(fs, "bytes"), by, note_edits(fact_files(facts_of(fs, "edit")), by, note_modes(facts_of(fs, "mode"), by, note_drops(fact_files(facts_of(fs, "drop")), by, note_moves(facts_of(fs, "move"), by, note_adds(facts_of(fs, "add"), by, fact_files(facts_of(fs, "bytes")), fact_files(facts_of(fs, "link")), xs)))))))
+def gather.one(+fs: List<&2, Rev.Header>, +by: String, xs: Map<&2, Facts>) -> Map<&2, Facts>:
+  note_links(facts_of(fs, "link"), by, note_bytes(facts_of(fs, "bytes"), by, note_edits(fact_files(facts_of(fs, "edit")), by, note_modes(facts_of(fs, "mode"), by, note_drops(fact_files(facts_of(fs, "drop")), by, note_moves(facts_of(fs, "move"), by, note_adds(facts_of(fs, "add"), by, Set.from_list(fact_files(facts_of(fs, "bytes"))), Set.from_list(fact_files(facts_of(fs, "link"))), xs)))))))
 
-def gather(es: List<&2, Ev>, xs: List<&2, Facts>) -> List<&2, Facts>:
+def gather(es: List<&2, Ev>, xs: Map<&2, Facts>) -> Map<&2, Facts>:
   match es:
     case Nil{}:
       xs
@@ -1238,41 +1265,67 @@ def unbury(b: List<&2, Decided>, +file: String) -> List<&2, Decided>:
     case Decided{+f, entry, gone, mine} <> rest:
       keep(~Decided, Bool.not(String.eq(f, file)), Decided{f, entry, gone, mine}, unbury(rest, file))
 
-def raise.found(found: Maybe<&2, Decided>, +t: Tree(), b: List<&2, Decided>, c: List<&2, Contest>) -> Placed:
-  match found:
-    case None{}:
+# One step per event is fuel enough: each raises a file, and the first
+# step that raises none is the fixed point, so the walk stops there rather
+# than asking every buried file again for the fuel left over.
+def raise.go(fuel: Nat, found: Maybe<&2, Decided>, +t: Tree(), +b: List<&2, Decided>, c: List<&2, Contest>) -> Placed:
+  match fuel found:
+    case 0n _:
       Placed{t, b, c}
-    case Some{Decided{+file, entry, gone, mine}}:
-      Placed{insert(t, entry), unbury(b, file), List.append(&2, Contest, c, List.append(&2, Contest, mine, [Referenced{file, gone, naming(t, file)}]))}
+    case 1n+f None{}:
+      Placed{t, b, c}
+    case 1n+f Some{Decided{+file, entry, gone, mine}}:
+      +t2 = insert(t, entry)
+      +b2 = unbury(b, file)
+      raise.go(f, raised(b2, t2), t2, b2, List.append(&2, Contest, c, List.append(&2, Contest, mine, [Referenced{file, gone, naming(t, file)}])))
 
-def raise.step(acc: Placed) -> Placed:
+def raise(fuel: Nat, acc: Placed) -> Placed:
   match acc:
     case Placed{+t, +b, c}:
-      raise.found(raised(b, t), t, b, c)
-
-# One step per event is fuel enough: each raises a file or changes nothing.
-def raise(fuel: Nat, acc: Placed) -> Placed:
-  match fuel:
-    case 0n:
-      acc
-    case 1n+f:
-      raise(f, raise.step(acc))
+      raise.go(fuel, raised(b, t), t, b, c)
 
 # Two files at one path is a legitimate state a person resolves, so it is
-# reported rather than refused, and neither file is renamed to fit.
-def path_contests(t: Tree(), +all: Tree(), +seen_paths: List<&2, String>) -> List<&2, Contest>:
-  match t:
+# reported rather than refused, and neither file is renamed to fit. One
+# pass over the tree sorted by path finds them: the sort is stable, so each
+# path's files stay in tree order, and a path is reported once, as the run
+# of entries holding it ends.
+type Run is Data:
+  Run{path: String, held: List<&2, String>, out: List<&2, Contest>}
+
+def run_path(r: Run) -> String:
+  match r:
+    case Run{p, h, o}:
+      p
+
+def run.close(+p: String, +held: List<&2, String>) -> List<&2, Contest>:
+  several.of(Nat.is_gt(List.length(&2, String, held), 1n), Path{p, List.reverse(&2, String, held)})
+
+def run.step(same: Bool, q: String, f: String, r: Run) -> Run:
+  match same r:
+    case True{} Run{p, h, o}:
+      Run{p, f <> h, o}
+    case False{} Run{p, h, o}:
+      Run{q, [f], List.append(&2, Contest, run.close(p, h), o)}
+
+def path_runs(es: Tree(), +r: Run) -> Run:
+  match es:
     case Nil{}:
-      Nil{}
-    case Entry{f, +p, k, y, g, m} <> rest:
-      +done = Rev.member(seen_paths, p)
-      +holders = at(all, p)
-      List.append(&2, Contest, several.of(Bool.and(Bool.not(done), Nat.is_gt(List.length(&2, String, holders), 1n)), Path{p, holders}), path_contests(rest, all, Bool.pick(List<&2, String>, done, seen_paths, p <> seen_paths)))
+      r
+    case Entry{f, +q, k, y, g, m} <> rest:
+      path_runs(rest, run.step(String.eq(q, run_path(r)), q, f, r))
+
+def run.out(r: Run) -> List<&2, Contest>:
+  match r:
+    case Run{p, h, o}:
+      List.append(&2, Contest, run.close(p, h), o)
+
+def path_contests(t: Tree()) -> List<&2, Contest>:
+  run.out(path_runs(List.sort(~Entry, ~(a => b => String.is_le(entry_path(a), entry_path(b))), t), Run{"", Nil{}, Nil{}}))
 
 def merge.finish(p: Placed) -> Merged:
   match p:
     case Placed{+t, b, c}:
-      Merged{t, List.sort(~Contest, ~(a => b => contest_le(a, b)), List.append(&2, Contest, c, path_contests(t, t, Nil{})))}
+      Merged{t, List.sort(~Contest, ~(a => b => contest_le(a, b)), List.append(&2, Contest, c, path_contests(t)))}
 
 # The file set the whole graph leaves behind. One def per stage, as
 # `apply` is, so that a proof can open them one at a time.
@@ -1288,7 +1341,7 @@ def merge.seen(r: Result<&2, &2, Fault, List<&2, Seen>>, +es: List<&2, Ev>) -> R
     case Fail{e}:
       Fail{e}
     case Done{ss}:
-      merge.decided(decide_all(gather(es, Nil{}), ss, Placed{empty(), Nil{}, Nil{}}), List.length(&2, Ev, es))
+      merge.decided(decide_all(table_list(gather(es, Map.new(&2, Facts))), ss, Placed{empty(), Nil{}, Nil{}}), List.length(&2, Ev, es))
 
 def merge.delivered(r: Result<&2, &2, Fault, Unit>, +es: List<&2, Ev>) -> Result<&2, &2, Fault, Merged>:
   match r:
