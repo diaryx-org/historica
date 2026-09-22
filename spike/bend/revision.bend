@@ -198,11 +198,38 @@ def within(+s: String, from: Nat, len: Nat, lo: Nat, hi: Nat) -> Bool:
   +n = field(s, from, len)
   Bool.and(Nat.is_ge(n, lo), Nat.is_le(n, hi))
 
+# The days in a month of the Gregorian calendar, leap years included.
+def is_leap(+year: Nat) -> Bool:
+  Bool.and(Nat.is_eq(Nat.mod(year, 4n), 0n), Bool.or(Bool.not(Nat.is_eq(Nat.mod(year, 100n), 0n)), Nat.is_eq(Nat.mod(year, 400n), 0n)))
+
+def days_in(+year: Nat, month: Nat) -> Nat:
+  match month:
+    case 2n:
+      Bool.pick(Nat, is_leap(year), 29n, 28n)
+    case 4n:
+      30n
+    case 6n:
+      30n
+    case 9n:
+      30n
+    case 11n:
+      30n
+    case _:
+      31n
+
+# `-00:00` is refused: RFC 3339 spells an unknown offset that way, and this
+# format writes `+00:00` for UTC.
+def unknown_offset(+s: String) -> Bool:
+  String.ends_with(s, "-00:00")
+
+def is_timestamp.dated(+s: String, +month: Nat) -> Bool:
+  Bool.and(Bool.and(Nat.is_ge(month, 1n), Nat.is_le(month, 12n)), within(s, 8n, 2n, 1n, days_in(field(s, 0n, 4n), month)))
+
 def is_timestamp(+s: String) -> Bool:
   Bool.and(timestamp.shape(s, "dddd-dd-ddTdd:dd:ddsdd:dd"),
-    Bool.and(Bool.and(within(s, 5n, 2n, 1n, 12n), within(s, 8n, 2n, 1n, 31n)),
+    Bool.and(is_timestamp.dated(s, field(s, 5n, 2n)),
       Bool.and(Bool.and(within(s, 11n, 2n, 0n, 23n), within(s, 14n, 2n, 0n, 59n)),
-        Bool.and(within(s, 17n, 2n, 0n, 60n), Bool.and(within(s, 20n, 2n, 0n, 23n), within(s, 23n, 2n, 0n, 59n))))))
+        Bool.and(within(s, 17n, 2n, 0n, 59n), Bool.and(Bool.and(within(s, 20n, 2n, 0n, 23n), within(s, 23n, 2n, 0n, 59n)), Bool.not(unknown_offset(s)))))))
 
 # A path is relative, with no empty component and no `.` or `..`, and no
 # leading or trailing space, and no backslash. (Unicode normal form C is not

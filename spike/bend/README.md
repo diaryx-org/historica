@@ -297,7 +297,7 @@ On a store assembled from each corpus, and on one `historica init` and
 abbreviations, marks, counted facts, the message verbatim — `files` the same
 file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
-binary and the JavaScript build against the Rust tool on nine such stores.
+binary and the JavaScript build against the Rust tool on ten such stores.
 `check` names every document by the digest `shasum` prints, and `diff` writes
 the operation document the Rust tool wrote, `result` included. `cat` of a
 link refuses in the Rust tool's words, naming where it points relative to
@@ -315,6 +315,19 @@ each bookmark and where it resolves — a file bookmark to where the file sits
 in what the current heads say together — and a list of heads names the
 bookmarks on each. `check.py`'s `names` store is pointed by the Rust tool's
 own `name`, with a `head` bookmark and two that point at nothing here.
+
+`log` takes what the Rust tool's takes: `--limit`, which counts what the
+filters left; `--author` and `--grep`, which ask whether the author line or
+the message holds the text; `--since` and `--until`, which bound the wall
+clock each author read, in their own offset, a bare date being that whole
+day; `--path`, which reads the path once, at the revision named or the one
+head, and then follows the file through its renames; `<from>..<to>`, what
+`<to>` has behind it and `<from>` does not; and `--fields`, the
+`historica-log-1` listing. A timestamp is held to the calendar now — a leap
+day only in a leap year, no sixtieth second, and `-00:00` refused as the
+unknown offset — which is what the Rust parser always did, for a revision's
+`when` as for a bound. A usage error says what the Rust tool says, with the
+same exit code, and not the Rust tool's usage text after it.
 
 Not read: a merge's `keep` resolution, which `cat` refuses rather than
 guesses at.
@@ -768,8 +781,7 @@ is under 5k. Not ported:
   that replaces a destroyed payload.
 - **Writing the store**: `init`, `record`, `name`, `arrange`, `fetch`,
   `export`. Everything here reads. `check` does not report on `names/`.
-- Unicode normal form C on paths, and the timestamp's calendar (leap days).
-  The timestamp's shape and ranges are checked.
+- Unicode normal form C on paths and bookmark names.
 
 ## What Bend asked for
 

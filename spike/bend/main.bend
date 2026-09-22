@@ -4,7 +4,10 @@
 # the `history` directory here or above, and a target is `head`, a change ID
 # or a revision digest, either abbreviated to any unambiguous prefix.
 #
-#   bend main.bend -- log [<target>]         the history, newest first
+#   bend main.bend -- log [<target>|<from>..<to>] [--limit <n>] [--author <text>]
+#                         [--grep <text>] [--since <when>] [--until <when>]
+#                         [--path <path>] [--fields]
+#                                            the history, newest first
 #   bend main.bend -- show <target> [<path>] one document as stored
 #   bend main.bend -- files <target>         the file set at a revision
 #   bend main.bend -- cat <target> <path>    one file's content at a revision
@@ -86,6 +89,16 @@ def parents_of(f: Full) -> List<&2, String>:
   match f:
     case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
       parents
+
+def author_of(f: Full) -> String:
+  match f:
+    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
+      author
+
+def message_of(f: Full) -> String:
+  match f:
+    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
+      message
 
 def when_of(f: Full) -> String:
   match f:
@@ -830,26 +843,545 @@ def print_missing(ids: List<&2, String>) -> IO(Unit):
         IO.print_err("missing parent " ++ String.take(id, 12n) ++ ": named, and not among these documents")
         print_missing(rest)
 
-def log.shown(+fs: List<&2, Full>, +shown: List<&2, Full>) -> IO(Unit):
-  +h = history(fs)
-  print_entries(presentation(shown), ids(fs), changes(fs), Rev.heads(h), Rev.superseded(h), h, True{})
+# A revision's file set, and one file in it
+# ------------------------------------------
 
-def log.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, target: Maybe<&2, String>) -> IO(Unit):
+def rev_of(f: Full) -> Rev.Rev:
+  match f:
+    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
+      Rev.Rev{change, parents, supersedes, author, when, revised_by, revised, facts, message}
+
+def events_of(fs: List<&2, Full>) -> List<&2, Tree.Ev>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case +f <> rest:
+      Tree.Ev{id_of(f), rev_of(f)} <> events_of(rest)
+
+def tree.of(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> IO(Tree.Tree()):
+  match merged:
+    case Fail{e}:
+      die(Tree.Tree(), 1, id ++ ": " ++ Tree.fault_show(e))
+    case Done{m}:
+      IO.pure(Tree.Tree(), Tree.merged_tree(m))
+
+def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
+  tree.of(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
+
+def file_in.of(+id: String, +path: String, found: List<&2, String>) -> IO(String):
+  match found:
+    case Nil{}:
+      die(String, 1, String.take(id, 12n) ++ " holds no file at " ++ path ++ "; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds")
+    case only <> Nil{}:
+      IO.pure(String, only)
+    case +several:
+      die(String, 1, String.take(id, 12n) ++ " has " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ path ++ ", so the path does not name one of them:" ++ String.concat(T.map(~String, ~String, ~(f => "\n  file:" ++ f), several)))
+
+def file_named.listed(+t: Tree.Tree(), fs: List<&2, String>) -> String:
+  match fs:
+    case Nil{}:
+      SNil{}
+    case +f <> rest:
+      "\n  file:" ++ f ++ "  " ++ Maybe.default(&2, String, Tree.path(t, f), SNil{}) ++ file_named.listed(t, rest)
+
+# A `file:` spelling: a bookmark first, then an identifier's prefix among
+# the files this revision holds, which are the ones `files` prints.
+def file_named.matched(+id: String, +spelling: String, +t: Tree.Tree(), found: List<&2, String>) -> IO(String):
+  match found:
+    case Nil{}:
+      die(String, 1, "no file at " ++ String.take(id, 12n) ++ " has an identifier starting `" ++ spelling ++ "`; `historica files " ++ String.take(id, 12n) ++ "` lists them")
+    case only <> Nil{}:
+      IO.pure(String, only)
+    case +several:
+      die(String, 1, "`" ++ spelling ++ "` could be " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ String.take(id, 12n) ++ ":" ++ file_named.listed(t, several))
+
+def file_named.prefix(+id: String, +spelling: String, +t: Tree.Tree(), letters: Bool) -> IO(String):
+  match letters:
+    case False{}:
+      die(String, 1, "`" ++ spelling ++ "` is not a file bookmark here, and a file identifier is spelled in `k`–`z`")
+    case True{}:
+      file_named.matched(id, spelling, t, List.sort(~String, ~(a => b => String.is_le(a, b)), with_prefix(Tree.files(t), spelling)))
+
+def file_named.held(+id: String, +spelling: String, +file: String, at: Maybe<&2, String>) -> IO(String):
+  match at:
+    case None{}:
+      die(String, 1, "the bookmark `" ++ spelling ++ "` names the file " ++ file ++ ", which " ++ String.take(id, 12n) ++ " does not hold; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds")
+    case Some{p}:
+      IO.pure(String, file)
+
+def file_named.bookmark(+id: String, +spelling: String, +t: Tree.Tree(), target: Bm.Target) -> IO(String):
+  match target:
+    case Bm.Target.File{+f}:
+      file_named.held(id, spelling, f, Tree.path(t, f))
+    case +other:
+      die(String, 1, "the bookmark `" ++ spelling ++ "` names a " ++ Bm.kind(other) ++ ", and this position names a file")
+
+def file_named.found(+id: String, +spelling: String, +t: Tree.Tree(), found: Maybe<&2, Bm.Target>) -> IO(String):
+  match found:
+    case Some{target}:
+      file_named.bookmark(id, spelling, t, target)
+    case None{}:
+      file_named.prefix(id, spelling, t, all_chars(~(c => Id.is_letter(c)), spelling))
+
+def file_named(+id: String, +bs: List<&2, Bm.Bookmark>, spelling: String, +t: Tree.Tree()) -> IO(String):
+  match spelling:
+    case SNil{}:
+      die(String, 2, "`file:` wants an identifier or a bookmark after it")
+    case +s:
+      file_named.found(id, s, t, Bm.find(bs, s))
+
+def file_in.spelled(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree(), named: Maybe<&2, String>) -> IO(String):
+  match named:
+    case Some{n}:
+      file_named(id, bs, n, t)
+    case None{}:
+      +p = Maybe.default(&2, String, T.strip_prefix(path, "path:"), path)
+      file_in.of(id, p, Tree.at(t, p))
+
+# The file one argument names at one revision: a path, `path:` and a path
+# for a file whose own name begins `file:`, or `file:` and an identifier or
+# a file bookmark — the one name a file keeps through a rename.
+def file_in(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree()) -> IO(String):
+  file_in.spelled(id, bs, path, t, T.strip_prefix(path, "file:"))
+
+# What `log` was asked. Every flag is read before any target is resolved,
+# and a word that is not a flag is the one target or range.
+type Asked is Data:
+  Asked{target: Maybe<&2, String>, path: Maybe<&2, String>, fields: Bool, limit: Maybe<&2, Nat>,
+        author: Maybe<&2, String>, grep: Maybe<&2, String>, since: Maybe<&2, String>, until: Maybe<&2, String>}
+
+# What a revision must satisfy to be listed: a filter takes entries out and
+# changes nothing about the ones that stay. The limit counts what they left.
+type Filter is Data:
+  Filter{author: Maybe<&2, String>, grep: Maybe<&2, String>, since: Maybe<&2, String>, until: Maybe<&2, String>, file: Maybe<&2, String>}
+
+# The arguments still to read, and what has been read of them.
+type Parse is Data:
+  Parse{rest: List<&2, String>, asked: Result<&2, &2, String, Asked>}
+
+def asked.limit(a: Asked, n: Maybe<&2, Nat>) -> Asked:
+  match a:
+    case Asked{t, p, f, l, au, g, si, u}:
+      Asked{t, p, f, n, au, g, si, u}
+
+def asked.author(a: Asked, x: String) -> Asked:
+  match a:
+    case Asked{t, p, f, l, au, g, si, u}:
+      Asked{t, p, f, l, Some{x}, g, si, u}
+
+def asked.grep(a: Asked, x: String) -> Asked:
+  match a:
+    case Asked{t, p, f, l, au, g, si, u}:
+      Asked{t, p, f, l, au, Some{x}, si, u}
+
+def asked.since(a: Asked, x: String) -> Asked:
+  match a:
+    case Asked{t, p, f, l, au, g, si, u}:
+      Asked{t, p, f, l, au, g, Some{x}, u}
+
+def asked.until(a: Asked, x: String) -> Asked:
+  match a:
+    case Asked{t, p, f, l, au, g, si, u}:
+      Asked{t, p, f, l, au, g, si, Some{x}}
+
+def asked.path(a: Asked, x: String) -> Asked:
+  match a:
+    case Asked{t, p, f, l, au, g, si, u}:
+      Asked{t, Some{x}, f, l, au, g, si, u}
+
+def asked.fields(a: Asked) -> Asked:
+  match a:
+    case Asked{t, p, f, l, au, g, si, u}:
+      Asked{t, p, True{}, l, au, g, si, u}
+
+def asked.target(t: Maybe<&2, String>, p: Maybe<&2, String>, f: Bool, l: Maybe<&2, Nat>, au: Maybe<&2, String>, g: Maybe<&2, String>, si: Maybe<&2, String>, u: Maybe<&2, String>, +word: String) -> Result<&2, &2, String, Asked>:
+  match t:
+    case None{}:
+      Done{Asked{Some{word}, p, f, l, au, g, si, u}}
+    case Some{had}:
+      Fail{"`log` takes one target or one range, and `" ++ word ++ "` is a second"}
+
+def asked.named(a: Asked, +word: String) -> Result<&2, &2, String, Asked>:
+  match a:
+    case Asked{t, p, f, l, au, g, si, u}:
+      asked.target(t, p, f, l, au, g, si, u, word)
+
+def asked.word(a: Asked, +word: String, flag: Bool) -> Result<&2, &2, String, Asked>:
+  match flag:
+    case True{}:
+      Fail{"`" ++ word ++ "` is not an argument `log` takes"}
+    case False{}:
+      asked.named(a, word)
+
+# A count, as Rust reads a `usize`: an optional `+` and at least one digit.
+# Past nine digits it is more entries than any store holds, and past a
+# `usize` it is refused, as there.
+def count.digits(+ds: String) -> Result<&2, &2, Unit, Maybe<&2, Nat>>:
+  +n = String.length(ds)
+  Bool.pick(Result<&2, &2, Unit, Maybe<&2, Nat>>, Bool.or(Nat.is_gt(n, 20n), Bool.and(Nat.is_eq(n, 20n), String.is_lt("18446744073709551615", ds))), Fail{Unit{}},
+    Bool.pick(Result<&2, &2, Unit, Maybe<&2, Nat>>, Nat.is_gt(n, 9n), Done{None{}}, Done{Some{Maybe.default(&2, Nat, Nat.read(ds), 0n)}}))
+
+def count.zeros(s: String) -> String:
+  match s:
+    case SCon{'0', SCon{c, t}}:
+      count.zeros(SCon{c, t})
+    case _:
+      s
+
+def count.of(+ds: String) -> Result<&2, &2, Unit, Maybe<&2, Nat>>:
+  Bool.pick(Result<&2, &2, Unit, Maybe<&2, Nat>>, Bool.and(Bool.not(String.is_empty(ds)), all_chars(~(c => Char.is_digit(c)), ds)), count.digits(count.zeros(ds)), Fail{Unit{}})
+
+def count(+v: String) -> Result<&2, &2, Unit, Maybe<&2, Nat>>:
+  count.of(Maybe.default(&2, String, T.strip_prefix(v, "+"), v))
+
+def asked.counted(a: Asked, +v: String, r: Result<&2, &2, Unit, Maybe<&2, Nat>>) -> Result<&2, &2, String, Asked>:
+  match r:
+    case Fail{u}:
+      Fail{"`--limit` wants how many entries to stop after, and `" ++ v ++ "` is not a count"}
+    case Done{n}:
+      Done{asked.limit(a, n)}
+
+# The wall clock a `--since` or `--until` bounds: a whole timestamp's date
+# and time, in the author's own offset, or a date, which is that whole day.
+def bound(+flag: String, +v: String, +time: String) -> Result<&2, &2, String, String>:
+  Bool.pick(Result<&2, &2, String, String>, Rev.is_timestamp(v), Done{String.take(v, 19n)},
+    Bool.pick(Result<&2, &2, String, String>, Rev.is_timestamp(v ++ "T00:00:00+00:00"), Done{v ++ "T" ++ time},
+      Fail{"`" ++ flag ++ "` wants a date, as `YYYY-MM-DD`, or a whole time, as `YYYY-MM-DDThh:mm:ss±hh:mm`; `" ++ v ++ "` is neither"}))
+
+def asked.bound(a: Asked, since: Bool, b: String) -> Asked:
+  match since:
+    case True{}:
+      asked.since(a, b)
+    case False{}:
+      asked.until(a, b)
+
+def asked.bounded(a: Asked, since: Bool, r: Result<&2, &2, String, String>) -> Result<&2, &2, String, Asked>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{b}:
+      Done{asked.bound(a, since, b)}
+
+def wants_value(flag: String) -> Parse:
+  Parse{Nil{}, Fail{"`" ++ flag ++ "` wants a value"}}
+
+# One argument, or a flag and its value.
+def asked.step(args: List<&2, String>, a: Asked) -> Parse:
+  match args:
+    case "--limit" <> +v <> rest:
+      Parse{rest, asked.counted(a, v, count(v))}
+    case "--author" <> v <> rest:
+      Parse{rest, Done{asked.author(a, v)}}
+    case "--grep" <> v <> rest:
+      Parse{rest, Done{asked.grep(a, v)}}
+    case "--since" <> v <> rest:
+      Parse{rest, asked.bounded(a, True{}, bound("--since", v, "00:00:00"))}
+    case "--until" <> v <> rest:
+      Parse{rest, asked.bounded(a, False{}, bound("--until", v, "23:59:59"))}
+    case "--path" <> v <> rest:
+      Parse{rest, Done{asked.path(a, v)}}
+    case "--fields" <> rest:
+      Parse{rest, Done{asked.fields(a)}}
+    case "--limit" <> Nil{}:
+      wants_value("--limit")
+    case "--author" <> Nil{}:
+      wants_value("--author")
+    case "--grep" <> Nil{}:
+      wants_value("--grep")
+    case "--since" <> Nil{}:
+      wants_value("--since")
+    case "--until" <> Nil{}:
+      wants_value("--until")
+    case "--path" <> Nil{}:
+      wants_value("--path")
+    case +w <> rest:
+      Parse{rest, asked.word(a, w, String.starts_with(w, "-"))}
+    case Nil{}:
+      Parse{Nil{}, Done{a}}
+
+def asked.go(fuel: Nat, p: Parse) -> Result<&2, &2, String, Asked>:
+  match fuel p:
+    case _ Parse{rest, Fail{e}}:
+      Fail{e}
+    case _ Parse{Nil{}, r}:
+      r
+    case 0n Parse{rest, r}:
+      r
+    case 1n+f Parse{args, Done{a}}:
+      asked.go(f, asked.step(args, a))
+
+def asked(+args: List<&2, String>) -> Result<&2, &2, String, Asked>:
+  asked.go(1n+List.length(&2, String, args), Parse{args, Done{Asked{None{}, None{}, False{}, None{}, None{}, None{}, None{}, None{}}}})
+
+def asked.io(r: Result<&2, &2, String, Asked>) -> IO(Asked):
+  match r:
+    case Fail{e}:
+      die(Asked, 2, e)
+    case Done{a}:
+      IO.pure(Asked, a)
+
+# What a target argument covers: everything, one revision's ancestry, or
+# what `to` has behind it and `from` does not.
+type Span is Data:
+  Span.All{}
+  Span.From{id: String}
+  Span.Between{from: String, to: String}
+
+# The first `..` cuts a spelling no minted identifier could have, so the
+# only thing it can collide with is a bookmark, which is looked up whole
+# first.
+def range.cut(s: String, before: String) -> Maybe<&2, T.Split>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{'.', SCon{'.', rest}}:
+      Some{T.Split{String.reverse(before), rest}}
+    case SCon{c, rest}:
+      range.cut(rest, SCon{c, before})
+
+def span.between(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +from: String, +to: String) -> IO(Span):
+  do IO<Span>:
+    f : Full <- resolved(fs, bs, from)
+    t : Full <- resolved(fs, bs, to)
+    return Span.Between{id_of(f), id_of(t)}
+
+def span.range(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +s: String, +from: String, +to: String) -> IO(Span):
+  Bool.pick(IO(Span), String.starts_with(to, "."),
+    die(Span, 2, "`" ++ s ++ "` is spelled with three dots, which git reads as the work either side of a fork; `<from>..<to>` is what `<to>` has and `<from>` does not, and there is no spelling for the other one"),
+    Bool.pick(IO(Span), Bool.or(String.is_empty(from), String.is_empty(to)),
+      die(Span, 2, "`" ++ s ++ "` " ++ Bool.pick(String, Bool.and(String.is_empty(from), String.is_empty(to)), "names neither end of a range", "names one end of a range and leaves the other blank") ++ "; both ends are said outright, as `<from>..<to>`, and the head is spelled `head`"),
+      span.between(fs, bs, from, to)))
+
+def span.one(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +s: String) -> IO(Span):
+  do IO<Span>:
+    f : Full <- resolved(fs, bs, s)
+    return Span.From{id_of(f)}
+
+def span.cut(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +s: String, bookmarked: Bool, cut: Maybe<&2, T.Split>) -> IO(Span):
+  match bookmarked cut:
+    case False{} Some{T.Split{from, to}}:
+      span.range(fs, bs, s, from, to)
+    case _ _:
+      span.one(fs, bs, s)
+
+def span(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, target: Maybe<&2, String>) -> IO(Span):
   match target:
     case None{}:
-      log.shown(fs, fs)
-    case Some{t}:
-      do IO<Unit>:
-        f : Full <- resolved(fs, bs, t)
-        log.shown(fs, ancestry(fs, id_of(f)))
+      IO.pure(Span, Span.All{})
+    case Some{+s}:
+      span.cut(fs, bs, s, Maybe.is_some(&2, Bm.Target, Bm.find(bs, s)), range.cut(s, SNil{}))
 
-def log(target: Maybe<&2, String>) -> IO(Unit):
+def span.shown(+fs: List<&2, Full>, sp: Span) -> List<&2, Full>:
+  match sp:
+    case Span.All{}:
+      fs
+    case Span.From{+id}:
+      ancestry(fs, id)
+    case Span.Between{+from, +to}:
+      among(fs, Rev.without(reached(fs, to), reached(fs, from)))
+
+# The revision a `--path` is read at: the far end of what was named, or the
+# head where nothing was — and where there are several heads, none.
+def read_at.heads(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, heads: List<&2, String>) -> IO(String):
+  match heads:
+    case Nil{}:
+      die(String, 1, "this store holds no revisions yet")
+    case only <> Nil{}:
+      IO.pure(String, only)
+    case +several:
+      die(String, 1, "this store has " ++ Nat.show(List.length(&2, String, several)) ++ " heads, so there is no one place to read `" ++ path ++ "` at; say which revision to read it at, as `historica log <target> --path " ++ path ++ "`:" ++ described(fs, bs, List.sort(~String, ~(a => b => String.is_le(a, b)), several)))
+
+def read_at(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, sp: Span) -> IO(String):
+  match sp:
+    case Span.All{}:
+      read_at.heads(fs, bs, path, current_heads(history(fs)))
+    case Span.From{id}:
+      IO.pure(String, id)
+    case Span.Between{from, to}:
+      IO.pure(String, to)
+
+# The file a `--path` names, read once, at one revision: what the log then
+# follows is the file, through the `move` that renamed it as readily as
+# through the edits either side.
+def followed(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, path: Maybe<&2, String>) -> IO(Maybe<&2, String>):
+  match path:
+    case None{}:
+      IO.pure(Maybe<&2, String>, None{})
+    case Some{+p}:
+      do IO<Maybe<&2, String>>:
+        at : String <- read_at(fs, bs, p, sp)
+        +at2 : String = at
+        t : Tree.Tree() <- tree(fs, at2)
+        file : String <- file_in(at2, bs, p, t)
+        return Some{file}
+
+# Filtering
+# ---------
+
+def holds.opt(m: Maybe<&2, String>, +text: String) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{p}:
+      String.contains(text, p)
+
+def not_before(m: Maybe<&2, String>, +wall: String) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{b}:
+      String.is_le(b, wall)
+
+def not_after(m: Maybe<&2, String>, +wall: String) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{b}:
+      String.is_le(wall, b)
+
+def touch_keys(+k: String) -> Bool:
+  match k:
+    case "add":
+      True{}
+    case "move":
+      True{}
+    case "mode":
+      True{}
+    case "drop":
+      True{}
+    case "edit":
+      True{}
+    case "text":
+      True{}
+    case "bytes":
+      True{}
+    case "link":
+      True{}
+    case _:
+      False{}
+
+# Whether a revision states any fact about the file.
+def touches(facts: List<&2, Rev.Header>, +file: String) -> Bool:
+  match facts:
+    case Nil{}:
+      False{}
+    case Rev.Header{+k, v} <> rest:
+      Bool.or(Bool.and(touch_keys(k), String.eq(T.word(v), file)), touches(rest, file))
+
+def touches.opt(m: Maybe<&2, String>, facts: List<&2, Rev.Header>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{+f}:
+      touches(facts, f)
+
+def keeps(+fl: Filter, +f: Full) -> Bool:
+  match fl:
+    case Filter{author, grep, since, until, file}:
+      +wall = String.take(when_of(f), 19n)
+      Bool.and(Bool.and(holds.opt(author, author_of(f)), holds.opt(grep, message_of(f))),
+        Bool.and(Bool.and(not_before(since, wall), not_after(until, wall)), touches.opt(file, facts_of(f))))
+
+def some(m: Maybe<&2, String>) -> Bool:
+  Maybe.is_some(&2, String, m)
+
+def selects(fl: Filter) -> Bool:
+  match fl:
+    case Filter{author, grep, since, until, file}:
+      Bool.or(Bool.or(some(author), some(grep)), Bool.or(Bool.or(some(since), some(until)), some(file)))
+
+def kept(+fl: Filter, fs: List<&2, Full>) -> List<&2, Full>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case +f <> rest:
+      keep_full(keeps(fl, f), f, kept(fl, rest))
+
+def limited(fs: List<&2, Full>, limit: Maybe<&2, Nat>) -> List<&2, Full>:
+  match limit:
+    case None{}:
+      fs
+    case Some{n}:
+      List.take(&2, Full, fs, n)
+
+# `--fields`
+# ----------
+
+# One line per revision, the digest and change spelled whole, and of the
+# marks only what the graph found — the document says `merge` and
+# `rewrites` outright. Never an empty field: `-` where there is nothing.
+def found(+id: String, +change: String, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> String:
+  +ms = mark(Rev.member(heads, id), "head",
+    mark(Rev.member(gone, id), "superseded",
+    mark(is_divergent(Rev.change_state(h, change)), "divergent", Nil{})))
+  Bool.pick(String, List.is_empty(&2, String, ms), "-", String.join(ms, ","))
+
+def fields_line(f: Full, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> String:
+  match f:
+    case Full{+id, +change, parents, supersedes, author, when, revised_by, revised, facts, message}:
+      id ++ " " ++ change ++ " " ++ when ++ " " ++ found(id, change, heads, gone, h) ++ String.concat(T.map(~String, ~String, ~(p => " " ++ p), parents))
+
+def print_fields(fs: List<&2, Full>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> IO(Unit):
+  match fs:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case f <> rest:
+      do IO<Unit>:
+        IO.print(fields_line(f, heads, gone, h))
+        print_fields(rest, heads, gone, h)
+
+# Printing
+# --------
+
+def log.fields(+h: Rev.History(), listed: List<&2, Full>) -> IO(Unit):
+  do IO<Unit>:
+    IO.print("historica-log-1")
+    print_fields(listed, Rev.heads(h), Rev.superseded(h), h)
+
+def log.entries(+fs: List<&2, Full>, +h: Rev.History(), +listed: List<&2, Full>, +selects: Bool) -> IO(Unit):
+  Bool.pick(IO(Unit), Bool.and(List.is_empty(&2, Full, listed), selects), IO.print("no revision here matches all of those"),
+    print_entries(listed, ids(fs), changes(fs), Rev.heads(h), Rev.superseded(h), h, True{}))
+
+def log.listed(+fs: List<&2, Full>, +listed: List<&2, Full>, fields: Bool, +selects: Bool) -> IO(Unit):
+  match fields:
+    case True{}:
+      log.fields(history(fs), listed)
+    case False{}:
+      log.entries(fs, history(fs), listed, selects)
+
+def spelled(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String) -> String:
+  String.take(id, 12n) ++ names_at(bs, history(fs), id)
+
+# An empty span is an answer rather than a fault: a range that is empty says
+# the work asked about is already behind the revision it was held up against.
+def log.empty(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, sp: Span) -> IO(Unit):
+  match sp:
+    case Span.Between{+from, +to}:
+      IO.print(spelled(fs, bs, to) ++ " holds nothing " ++ spelled(fs, bs, from) ++ " does not")
+    case _:
+      IO.print("no revisions here yet")
+
+def log.shown(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, +shown: List<&2, Full>, +fl: Filter, +fields: Bool, limit: Maybe<&2, Nat>) -> IO(Unit):
+  Bool.pick(IO(Unit), Bool.and(List.is_empty(&2, Full, shown), Bool.not(fields)), log.empty(fs, bs, sp),
+    log.listed(fs, limited(kept(fl, presentation(shown)), limit), fields, selects(fl)))
+
+def log.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: Asked) -> IO(Unit):
+  match a:
+    case Asked{target, path, fields, limit, author, grep, since, until}:
+      do IO<Unit>:
+        sp : Span <- span(fs, bs, target)
+        +sp2 : Span = sp
+        file : Maybe<&2, String> <- followed(fs, bs, sp2, path)
+        log.shown(fs, bs, sp2, span.shown(fs, sp2), Filter{author, grep, since, until, file}, fields, limit)
+
+def log(+args: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
     root : String <- Store.root()
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
-    log.of(fulls(r, rs), bs, target)
+    a : Asked <- asked.io(asked(args))
+    log.of(fulls(r, rs), bs, a)
 
 # check
 # -----
@@ -991,28 +1523,6 @@ def check() -> IO(Unit):
 # `tree.bend` over everything the revision reaches, which is what the
 # store does: decision 0008's rules decide what concurrent branches left,
 # and a chain walks the same path with nothing contested.
-def rev_of(f: Full) -> Rev.Rev:
-  match f:
-    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
-      Rev.Rev{change, parents, supersedes, author, when, revised_by, revised, facts, message}
-
-def events_of(fs: List<&2, Full>) -> List<&2, Tree.Ev>:
-  match fs:
-    case Nil{}:
-      Nil{}
-    case +f <> rest:
-      Tree.Ev{id_of(f), rev_of(f)} <> events_of(rest)
-
-def tree.of(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> IO(Tree.Tree()):
-  match merged:
-    case Fail{e}:
-      die(Tree.Tree(), 1, id ++ ": " ++ Tree.fault_show(e))
-    case Done{m}:
-      IO.pure(Tree.Tree(), Tree.merged_tree(m))
-
-def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
-  tree.of(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
-
 def pad(+s: String, width: Nat) -> String:
   s ++ String.repeat(" ", Nat.sub(width, String.length(s)))
 
@@ -1264,82 +1774,6 @@ def content.found(+file: String, found: Maybe<&2, Result<&2, &2, String, List<&2
 def content(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   content.found(file, content_of(contents.go(List.reverse(&2, Full, presentation(fs)), ds, file, Nil{}), id))
 
-def file_in.of(+id: String, +path: String, found: List<&2, String>) -> IO(String):
-  match found:
-    case Nil{}:
-      die(String, 1, String.take(id, 12n) ++ " holds no file at " ++ path ++ "; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds")
-    case only <> Nil{}:
-      IO.pure(String, only)
-    case +several:
-      die(String, 1, String.take(id, 12n) ++ " has " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ path ++ ", so the path does not name one of them:" ++ String.concat(T.map(~String, ~String, ~(f => "\n  file:" ++ f), several)))
-
-def file_named.listed(+t: Tree.Tree(), fs: List<&2, String>) -> String:
-  match fs:
-    case Nil{}:
-      SNil{}
-    case +f <> rest:
-      "\n  file:" ++ f ++ "  " ++ Maybe.default(&2, String, Tree.path(t, f), SNil{}) ++ file_named.listed(t, rest)
-
-# A `file:` spelling: a bookmark first, then an identifier's prefix among
-# the files this revision holds, which are the ones `files` prints.
-def file_named.matched(+id: String, +spelling: String, +t: Tree.Tree(), found: List<&2, String>) -> IO(String):
-  match found:
-    case Nil{}:
-      die(String, 1, "no file at " ++ String.take(id, 12n) ++ " has an identifier starting `" ++ spelling ++ "`; `historica files " ++ String.take(id, 12n) ++ "` lists them")
-    case only <> Nil{}:
-      IO.pure(String, only)
-    case +several:
-      die(String, 1, "`" ++ spelling ++ "` could be " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ String.take(id, 12n) ++ ":" ++ file_named.listed(t, several))
-
-def file_named.prefix(+id: String, +spelling: String, +t: Tree.Tree(), letters: Bool) -> IO(String):
-  match letters:
-    case False{}:
-      die(String, 1, "`" ++ spelling ++ "` is not a file bookmark here, and a file identifier is spelled in `k`–`z`")
-    case True{}:
-      file_named.matched(id, spelling, t, List.sort(~String, ~(a => b => String.is_le(a, b)), with_prefix(Tree.files(t), spelling)))
-
-def file_named.held(+id: String, +spelling: String, +file: String, at: Maybe<&2, String>) -> IO(String):
-  match at:
-    case None{}:
-      die(String, 1, "the bookmark `" ++ spelling ++ "` names the file " ++ file ++ ", which " ++ String.take(id, 12n) ++ " does not hold; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds")
-    case Some{p}:
-      IO.pure(String, file)
-
-def file_named.bookmark(+id: String, +spelling: String, +t: Tree.Tree(), target: Bm.Target) -> IO(String):
-  match target:
-    case Bm.Target.File{+f}:
-      file_named.held(id, spelling, f, Tree.path(t, f))
-    case +other:
-      die(String, 1, "the bookmark `" ++ spelling ++ "` names a " ++ Bm.kind(other) ++ ", and this position names a file")
-
-def file_named.found(+id: String, +spelling: String, +t: Tree.Tree(), found: Maybe<&2, Bm.Target>) -> IO(String):
-  match found:
-    case Some{target}:
-      file_named.bookmark(id, spelling, t, target)
-    case None{}:
-      file_named.prefix(id, spelling, t, all_chars(~(c => Id.is_letter(c)), spelling))
-
-def file_named(+id: String, +bs: List<&2, Bm.Bookmark>, spelling: String, +t: Tree.Tree()) -> IO(String):
-  match spelling:
-    case SNil{}:
-      die(String, 2, "`file:` wants an identifier or a bookmark after it")
-    case +s:
-      file_named.found(id, s, t, Bm.find(bs, s))
-
-def file_in.spelled(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree(), named: Maybe<&2, String>) -> IO(String):
-  match named:
-    case Some{n}:
-      file_named(id, bs, n, t)
-    case None{}:
-      +p = Maybe.default(&2, String, T.strip_prefix(path, "path:"), path)
-      file_in.of(id, p, Tree.at(t, p))
-
-# The file one argument names at one revision: a path, `path:` and a path
-# for a file whose own name begins `file:`, or `file:` and an identifier or
-# a file bookmark — the one name a file keeps through a rename.
-def file_in(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree()) -> IO(String):
-  file_in.spelled(id, bs, path, t, T.strip_prefix(path, "file:"))
-
 # Decision 0040: a link has no bytes, and printing the target where the
 # content goes would be a rendering standing in for a file; the reader is
 def directory_of.join(first: String, rest: String) -> String:
@@ -1529,14 +1963,12 @@ def diff(parent: String, child: String) -> IO(Unit):
 # ----
 
 def usage() -> IO(Unit):
-  die(Unit, 2, "usage: log [<target>] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | replay <ops docs..> | diff <parent> <child>")
+  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | replay <ops docs..> | diff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
-    case "log" <> Nil{}:
-      log(None{})
-    case "log" <> t <> Nil{}:
-      log(Some{t})
+    case "log" <> args:
+      log(args)
     case "show" <> t <> Nil{}:
       show(t, None{})
     case "show" <> t <> p <> Nil{}:

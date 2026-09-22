@@ -109,6 +109,28 @@ STORES = {
     ],
     # The same, with a bookmark file that is not one: every command refuses.
     "badname": [["names"], ["log"], ["files", "main"]],
+    # Two authors, a rename, and a line of work beside the main one, for
+    # `log`'s filters, ranges and `--fields`. Usage errors are not compared:
+    # the Rust tool prints its own usage after the message.
+    "log": [
+        ["log"],
+        ["log", "--limit", "2", "tip"],
+        ["log", "tip", "--limit", "0"],
+        ["log", "--author", "Bob"],
+        ["log", "--grep", "other", "--author", "Ada", "--limit", "1"],
+        ["log", "--since", "2000-01-01", "--until", "2000-12-31"],
+        ["log", "--since", "2024-02-29T00:00:00+00:00"],
+        ["log", "base..tip"],
+        ["log", "tip..base"],
+        ["log", "tip..tip"],
+        ["log", "--fields"],
+        ["log", "--fields", "tip", "--limit", "2"],
+        ["log", "tip", "--path", "renamed.md"],
+        ["log", "base", "--path", "notes.md"],
+        ["log", "--path", "renamed.md"],
+        ["log", "tip", "--path", "nope.md"],
+        ["log", "base..zzzz"],
+    ],
 }
 
 
@@ -128,6 +150,24 @@ def record(temporary, rust, corpus):
         (store / "café" / "naïve résumé.md").write_text("an accent\n")
         (store / "notes.md").write_text("plain\n")
         historica("record", "-m", "one")
+    elif corpus == "log":
+        (store / "notes.md").write_text("one\n")
+        historica("record", "-m", "first: notes")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "other.md").write_text("x\n")
+        historica("record", "-m", "second, with other")
+        env["HISTORICA_AUTHOR"] = "Bob <bob@example.com>"
+        (store / "notes.md").rename(store / "renamed.md")
+        historica("record", "--move", "notes.md=renamed.md", "-m", "rename notes")
+        historica("name", "base", "head", "--revision")
+        (store / "renamed.md").write_text("one\ntwo\nthree\n")
+        historica("record", "-m", "third by bob")
+        del env["HISTORICA_AUTHOR"]
+        (store / "other.md").write_text("x\ny\n")
+        historica("record", "-m", "other again")
+        historica("name", "tip", "head", "--revision")
+        (store / "side.md").write_text("side\n")
+        historica("record", "--onto", "base", "-m", "a side line")
     else:
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "one")
@@ -199,7 +239,7 @@ def check_store(temporary):
 
     failures = 0
     for corpus, commands in STORES.items():
-        recorded = corpus in ("unicode", "names", "badname")
+        recorded = corpus in ("unicode", "names", "badname", "log")
         store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
         for command in commands:
             expected = capture(rust, *command, cwd=store)
