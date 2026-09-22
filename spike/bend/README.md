@@ -248,7 +248,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
 | `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, and what a payload weighs: four effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check` over the store it finds; `replay` and `diff` over named files | `cli` |
+| `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names` over the store it finds; `replay` and `diff` over named files | `cli` |
 | `LAWS.bend` / `PROOF.bend` | forty-five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -296,12 +297,27 @@ On a store assembled from each corpus, and on one `historica init` and
 abbreviations, marks, counted facts, the message verbatim — `files` the same
 file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
-binary and the JavaScript build against the Rust tool on six such stores.
+binary and the JavaScript build against the Rust tool on nine such stores.
 `check` names every document by the digest `shasum` prints, and `diff` writes
 the operation document the Rust tool wrote, `result` included. `cat` of a
 link refuses in the Rust tool's words, naming where it points relative to
-where it sits. Not read: bookmarks (`names/`), and a merge's `keep`
-resolution, which `cat` refuses rather than guesses at.
+where it sits.
+
+Bookmarks are read as the Rust tool reads them (`bookmark.bend`): every file
+under `names/` whose path is a name, in name order, and a file that is not one
+line and at most `private` after it refuses every command, naming the file.
+A bookmark wins as a target over any other spelling, `head` included; a pin
+must be here, a change must have one current revision, and a file bookmark is
+refused as a target in the Rust tool's words. The path position takes `file:`
+and a file bookmark or an identifier's prefix among the files at that
+revision, and `path:` for a file whose own name begins `file:`. `names` prints
+each bookmark and where it resolves — a file bookmark to where the file sits
+in what the current heads say together — and a list of heads names the
+bookmarks on each. `check.py`'s `names` store is pointed by the Rust tool's
+own `name`, with a `head` bookmark and two that point at nothing here.
+
+Not read: a merge's `keep` resolution, which `cat` refuses rather than
+guesses at.
 
 ### What the laws say
 
@@ -750,9 +766,8 @@ is under 5k. Not ported:
   merge states.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
-- **The store** as a folder: `init`, `record`, `arrange`, `fetch`, `export`,
-  bookmarks. Base cannot list a directory, which is why every command takes
-  paths.
+- **Writing the store**: `init`, `record`, `name`, `arrange`, `fetch`,
+  `export`. Everything here reads. `check` does not report on `names/`.
 - Unicode normal form C on paths, and the timestamp's calendar (leap days).
   The timestamp's shape and ranges are checked.
 

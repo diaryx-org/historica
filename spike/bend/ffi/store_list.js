@@ -1,15 +1,17 @@
 // The JS twin of `store_list.c`: every file under `revisions/` and
 // `operations/` — or under only the directories named after the root, one
-// a line — relative to the root, sorted, one per line.
+// a line, which may be `names` too — relative to the root, sorted, one per
+// line.
 function store_list(query) {
   const fs = require("node:fs");
   const path = require("node:path");
   const [root, ...asked] = query.split("\n");
-  const known = ["revisions", "operations"];
+  const documents = ["revisions", "operations"];
+  const listed = [...documents, "names"];
   for (const dir of asked) {
-    if (!known.includes(dir)) return io_fail(22, `\`${dir}\` is not a document directory`);
+    if (!listed.includes(dir)) return io_fail(22, `\`${dir}\` is not a directory this lists`);
   }
-  const dirs = asked.length > 0 ? known.filter((dir) => asked.includes(dir)) : known;
+  const dirs = asked.length > 0 ? listed.filter((dir) => asked.includes(dir)) : documents;
   const paths = [];
   const walk = (dir) => {
     let entries;

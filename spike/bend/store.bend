@@ -135,6 +135,19 @@ def revisions(+root: String) -> IO(List<&2, Doc>):
     text : String <- IO.try(String, Store.list(root ++ "\nrevisions"))
     read_docs(under(root, String.lines(text)))
 
+# Every file under `names/`, relative to the root, sorted: what may be a
+# bookmark. A bookmark is not named by its digest, so what is read here is
+# text and nothing more; `bookmark.bend` says which files are bookmarks.
+def name_paths(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root ++ "\nnames"))
+    return kept(String.lines(text))
+
+def read_text(path: String) -> IO(String):
+  do IO<String>:
+    bs : List<&2, U32> <- Utf8.read_file(path)
+    return Utf8.decode(bs)
+
 # The documents these digests name, read — and hashed here, so that a path
 # the host offered for a digest is believed only where its bytes are that
 # digest. A digest the store holds nothing for yields no document, which is

@@ -26,6 +26,10 @@ const HEADER_FILE: &str = "historica.txt";
 /// The directories whose files are documents: everything under them is
 /// named by its own digest, and nothing else in a store is.
 const DOCUMENT_DIRS: [&str; 2] = ["revisions", "operations"];
+/// Every directory `Store.list` walks when asked: the documents, and the
+/// bookmarks, which are not documents — nothing names one by its digest —
+/// and so are listed only by a caller that asks for them.
+const LISTED_DIRS: [&str; 3] = ["revisions", "operations", "names"];
 
 /// Where a store keeps what it can rebuild, and what decision 0036's
 /// catalogue of `operations/` is called inside it.
@@ -65,10 +69,11 @@ pub unsafe extern "C" fn hist_store_locate(
 /// Every document a store holds: the files under `revisions/` and
 /// `operations/`, as paths relative to `root`, sorted, one per line.
 ///
-/// The argument is the root, then — if the caller wants less than every
-/// document — one document directory per line, and only those are walked.
-/// A command that reads the graph asks for `revisions`, and is not handed
-/// the thousands of payload paths it would only throw away.
+/// The argument is the root, then — if the caller wants other than every
+/// document — one directory per line, and only those are walked: a document
+/// directory, or `names`. A command that reads the graph asks for
+/// `revisions`, and is not handed the thousands of payload paths it would
+/// only throw away.
 ///
 /// # Safety
 ///
@@ -85,10 +90,10 @@ pub unsafe extern "C" fn hist_store_list(
         let root = Path::new(root);
         let mut dirs = Vec::new();
         for dir in asked {
-            match DOCUMENT_DIRS.iter().find(|known| **known == dir) {
+            match LISTED_DIRS.iter().find(|known| **known == dir) {
                 Some(known) if !dirs.contains(known) => dirs.push(*known),
                 Some(_) => {}
-                None => return Err((EINVAL, format!("`{dir}` is not a document directory"))),
+                None => return Err((EINVAL, format!("`{dir}` is not a directory this lists"))),
             }
         }
         if dirs.is_empty() {
@@ -427,7 +432,16 @@ mod tests {
         assert_eq!(listing, "revisions/2026-09/a.rev.txt\nrevisions/2026-09/b.rev.txt");
         let (code, text) = call(hist_store_list, format!("{root}\ncache").as_bytes());
         assert_eq!(code, EINVAL);
-        assert_eq!(text, "`cache` is not a document directory");
+        assert_eq!(text, "`cache` is not a directory this lists");
+
+        // `names` is walked when asked for, at any depth, and never by default.
+        fs::create_dir_all(dir.path().join("history/names/feature")).unwrap();
+        fs::write(dir.path().join("history/names/feature/x.txt"), "change k\n").unwrap();
+        let (code, listing) = call(hist_store_list, format!("{root}\nnames").as_bytes());
+        assert_eq!(code, 0);
+        assert_eq!(listing, "names/feature/x.txt");
+        let (_, listing) = call(hist_store_list, root.as_bytes());
+        assert!(!listing.contains("names/"), "{listing}");
     }
 
     #[test]

@@ -88,18 +88,67 @@ STORES = {
     # widest path holds characters outside ASCII, which the Rust tool
     # measures in bytes and pads in characters.
     "unicode": [["files", "head"], ["cat", "head", "café/naïve résumé.md"]],
+    # Bookmarks, pointed by the Rust tool's own `name`: a change, a pin, a
+    # file, a private one, one called `head` — which wins over the word —
+    # and two written by hand that point at nothing here.
+    "names": [
+        ["names"],
+        ["files", "main"],
+        ["cat", "head", "notes.md"],
+        ["cat", "main", "notes.md"],
+        ["cat", "main", "file:nb"],
+        ["cat", "first", "file:nb"],
+        ["cat", "main", "path:notes.md"],
+        ["cat", "main", "file:main"],
+        ["cat", "main", "file:zz"],
+        ["show", "main", "file:nb"],
+        ["log", "first"],
+        ["files", "nb"],
+        ["files", "x/pin"],
+        ["files", "gone"],
+    ],
+    # The same, with a bookmark file that is not one: every command refuses.
+    "badname": [["names"], ["log"], ["files", "main"]],
 }
 
 
-def record(temporary, rust):
-    store = temporary / "store-unicode"
-    (store / "café").mkdir(parents=True)
-    (store / "café" / "naïve résumé.md").write_text("an accent\n")
-    (store / "notes.md").write_text("plain\n")
-    home = temporary / "home"
+def record(temporary, rust, corpus):
+    store = temporary / f"store-{corpus}"
+    home = temporary / f"home-{corpus}"
     env = {**os.environ, "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
-    for command in (["init", "."], ["identity", "Check <check@example.com>"], ["record", "-m", "one"]):
+
+    def historica(*command):
         subprocess.run([rust, *command], cwd=store, env=env, check=True, capture_output=True, timeout=120)
+
+    store.mkdir(parents=True)
+    historica("init", ".")
+    historica("identity", "Check <check@example.com>")
+    if corpus == "unicode":
+        (store / "café").mkdir()
+        (store / "café" / "naïve résumé.md").write_text("an accent\n")
+        (store / "notes.md").write_text("plain\n")
+        historica("record", "-m", "one")
+    else:
+        (store / "notes.md").write_text("one\n")
+        historica("record", "-m", "one")
+        historica("name", "first", "head", "--revision")
+        (store / "notes.md").write_text("one\ntwo\n")
+        historica("record", "-m", "two")
+        historica("name", "main", "head")
+        historica("name", "nb", "head", "notes.md")
+        historica("name", "--private", "feature/x", "head")
+        # Last, since every `head` above means the head until it exists.
+        historica("name", "head", "first")
+        names = store / "history" / "names"
+        (names / "x").mkdir()
+        (names / "x" / "pin.txt").write_text("revision " + "0" * 64 + "\n")
+        (names / "gone.txt").write_text("change " + "k" * 24 + "\n")
+        # Not bookmarks, and passed over: no `.txt`, and a name with a
+        # leading space.
+        (names / "notes").write_text("anything\n")
+        (names / " lead.txt").write_text("change " + "k" * 24 + "\n")
+        if corpus == "badname":
+            (names / "bad.txt").write_text("change " + "k" * 24 + "\npublic\n")
     return store
 
 
@@ -150,7 +199,8 @@ def check_store(temporary):
 
     failures = 0
     for corpus, commands in STORES.items():
-        store = record(temporary, rust) if corpus == "unicode" else assemble(temporary, corpus)
+        recorded = corpus in ("unicode", "names", "badname")
+        store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
         for command in commands:
             expected = capture(rust, *command, cwd=store)
             for name, tool in (("native", [str(native)]), ("js", ["bun", str(script)])):

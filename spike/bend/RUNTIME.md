@@ -73,8 +73,10 @@ resources even when the happy-path Bend continuation is not reached.
 ## What each command reads
 
 The boundary is where the cost is, so it is worth stating what crosses it.
-`log` and `files` read the whole of `revisions/` and nothing else: the graph
-is every revision document and a store's revisions are a megabyte or two.
+`log` and `files` read the whole of `revisions/` and nothing else but
+`names/`: the graph is every revision document and a store's revisions are a
+megabyte or two, and a bookmark is a line. `Store.list` walks `names/` only
+when asked for it by name, since nothing there is a document.
 `cat` and `show` read that, then ask `Store.at` for the digests the revisions
 along the chain name for the one file asked about, and read those — a handful
 of operation documents, and a payload only where the file was written whole.
