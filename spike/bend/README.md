@@ -42,25 +42,28 @@ comes back is a path whose contents are read and hashed here before anything
 is believed about them. Nothing walks the payloads to find a name. `check` is
 the exception it is in the Rust tool too: it reports every file, and asks the
 host for the digest and the size of each payload rather than carrying fifty
-megabytes of PDF through a hash that runs at three megabytes a second.
+megabytes of PDF through a hash in Bend.
 
 On a real archive — two hundred and sixty revisions, four thousand
 documents, three hundred and fifty megabytes of them payloads — that is the
 difference between a tool and a demonstration. The native build, against the
 Rust tool on the same store:
 
-| | before | after | `historica` |
-|---|---|---|---|
-| `log` | 138 s | 15 s | 0.01 s |
-| `files head` | 140 s | 20 s | 0.02 s |
-| `cat head Resume.md` | 205 s | 29 s | 0.02 s |
-| `show <revision>` | 143 s | 2.8 s | 0.00 s |
-| `check` | 146 s | 11 s | 0.87 s |
+| | before | lazy | packed hash | `historica` |
+|---|---|---|---|---|
+| `log` | 138 s | 15 s | 15 s | 0.01 s |
+| `files head` | 140 s | 20 s | 0.03 s | 0.02 s |
+| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.02 s |
+| `show <revision>` | 143 s | 2.8 s | 0.03 s | 0.00 s |
+| `check` | 146 s | 11 s | 6 s | 0.87 s |
 
 Wall clock, and near enough all of it user CPU: the store was never the
-syscalls. What is left is Bend's own reading, decoding and hashing of the
-revision documents, and it scales with the graph rather than with the
-archive.
+syscalls. The second column is reading only what a command asks for; the
+third is the hash in `sha256.bend` becoming bend-sha256's packed-array one,
+which runs at about two hundred and seventy megabytes a second here against
+the three of the list-of-bytes hash it replaced. What is left in `log` and
+`check` is Bend's own decoding and parsing of the revision documents, and it
+scales with the graph rather than with the archive.
 
 ```console
 cargo build --release --manifest-path ffi/Cargo.toml
@@ -72,7 +75,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 
 | File | What it is | Rust counterpart |
 |---|---|---|
-| `sha256.bend` | SHA-256 over bytes, from FIPS 180-4 on `U32` bit operations; Base has no hash | `sha2` crate |
+| `sha256.bend` | SHA-256 over bytes: packs them into words for [bend-sha256](https://github.com/Giulio2002/bend-sha256), imported from BendHub by content hash, and spells the digest; Base has no hash | `sha2` crate |
 | `utf8.bend` | bytes ↔ `String`, and reading a file as bytes | `std::str` |
 | `text.bend` | lines, fields, canonical numbers, digest spelling | `format::Lines` |
 | `ident.bend` | change and file IDs in the `k`–`z` alphabet, spelled and deciphered | `core::{ChangeId, FileId}` |

@@ -83,9 +83,9 @@ the ones with a grammar, and asks `Store.digests` for the digest and the size
 of each payload.
 
 That last delegation is the one place a digest is computed outside Bend. It
-is here because Bend's SHA-256 runs at about three megabytes a second and the
-payloads in a real store are hundreds of megabytes, while nothing in a payload
-is parsed and nothing about it is concluded — `check` prints the digest and
+is here because the payloads in a real store are hundreds of megabytes that
+would have to be read into a list of bytes and packed before they were hashed,
+while nothing in a payload is parsed and nothing about it is concluded — `check` prints the digest and
 the count and that is all. Every document with a grammar is still read and
 hashed in `sha256.bend`, which is what the laws and `corpus_*.bend` check,
 and `Store.at`'s answer is still verified against it.
