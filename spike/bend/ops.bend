@@ -701,47 +701,139 @@ def item_at(items: List<&2, Item>, n: Nat) -> Item:
     case it <> rest 1n+p:
       item_at(rest, p)
 
-def nat_at(xs: List<&2, Nat>, n: Nat) -> Nat:
+# Interning
+# ---------
+
+# The table asks the same question of the same two items over and over —
+# `same`, which walks two lines character by character — once for every one
+# of its (n+1)(m+1) cells. So each item takes a number first, and the cells
+# compare numbers: the number is the item's identity, and two items take the
+# same one exactly when `same` holds of them.
+#
+# `same` is text and terminator together, and is false of a forgotten item
+# whatever it is compared with, itself included. So the key is the
+# terminator written in front of the text, and a forgotten item is not keyed
+# at all — it takes a fresh number, which nothing else can hold.
+#
+# The keys are a `Map`, which is a trie over the key's own characters: the
+# numbering is the items' first-seen order and nothing is hashed, so two
+# runs of the same diff give the same table.
+type Pool is Data:
+  Pool{seen: Map<&2, U32>, next: U32}
+
+def pool() -> Pool:
+  Pool{Map.new(&2, U32), 1}
+
+# A number nothing else holds, for an item that is nobody's line.
+def intern.fresh(p: Pool) -> Pool & U32:
+  match p:
+    case Pool{seen, +n}:
+      (Pool{seen, (n + 1 : U32)}, n)
+
+def intern.known(p: Pool, +k: String, +held: U32) -> Pool & U32:
+  match p:
+    case Pool{+seen, +n}:
+      Bool.pick(Pool & U32, U32.is_eq(held, 0), (Pool{Map.set(&2, U32, seen, k, n), (n + 1 : U32)}, n), (Pool{seen, n}, held))
+
+def intern.at(p: Pool, +k: String, r: Map<&2, U32> & U32) -> Pool & U32:
+  (m, held) = r
+  intern.known(p, k, held)
+
+def intern.keyed(p: Pool, +k: String) -> Pool & U32:
+  match p:
+    case Pool{+seen, next}:
+      intern.at(Pool{seen, next}, k, Map.get(U32, 0, seen, k))
+
+def intern.text(p: Pool, +text: String, terminated: Bool) -> Pool & U32:
+  intern.keyed(p, SCon{Bool.pick(Char, terminated, Chr{116}, Chr{102}), text})
+
+def intern.item(p: Pool, text: String, terminated: Bool, forgotten: Bool) -> Pool & U32:
+  match forgotten:
+    case True{}:
+      intern.fresh(p)
+    case False{}:
+      intern.text(p, text, terminated)
+
+def intern.one(p: Pool, it: Item) -> Pool & U32:
+  match it:
+    case Item{text, terminated, forgotten}:
+      intern.item(p, text, terminated, forgotten)
+
+# The items numbered in order. The pool threads through as the pair the last
+# item returned, so the walk is one function and the numbers come out
+# reversed, to be turned round once at the end.
+def intern.go(items: List<&2, Item>, r: Pool & U32, acc: List<&2, U32>) -> Pool & List<&2, U32>:
+  match items r:
+    case Nil{} Tuple{p, h}:
+      (p, List.reverse(&2, U32, h <> acc))
+    case it <> rest Tuple{p, h}:
+      intern.go(rest, intern.one(p, it), h <> acc)
+
+def intern(items: List<&2, Item>, p: Pool) -> Pool & List<&2, U32>:
+  match items:
+    case Nil{}:
+      (p, Nil{})
+    case it <> rest:
+      intern.go(rest, intern.one(p, it), Nil{})
+
+# The table
+# ---------
+
+def u32_at(xs: List<&2, U32>, n: Nat) -> U32:
   match xs n:
     case Nil{} _:
-      0n
+      0
     case x <> rest 0n:
       x
     case x <> rest 1n+p:
-      nat_at(rest, p)
+      u32_at(rest, p)
 
-def cell(table: List<&2, List<&2, Nat>>, i: Nat, j: Nat) -> Nat:
+def cell(table: List<&2, List<&2, U32>>, i: Nat, j: Nat) -> U32:
   match table i:
     case Nil{} _:
-      0n
+      0
     case row <> rest 0n:
-      nat_at(row, j)
+      u32_at(row, j)
     case row <> rest 1n+p:
       cell(rest, p, j)
 
 # The next row of the table from the one above it: `prev` is that row from
-# column j on, and `left` the cell just filled in this row.
-def next_row(new: List<&2, Item>, prev: List<&2, Nat>, +x: Item, +left: Nat) -> List<&2, Nat>:
+# column j on, and `left` the cell just filled in this row. A cell counts a
+# common subsequence, so it is a number rather than a `Nat`: the counts here
+# run to the length of the file, and a unary `Nat.max` of two of them costs
+# what it counts.
+def next_row(new: List<&2, U32>, prev: List<&2, U32>, +x: U32, +left: U32) -> List<&2, U32>:
   match new prev:
     case y <> ys d <> +u <> rest:
-      +v = Bool.pick(Nat, same(x, y), 1n+d, Nat.max(u, left))
+      +v = Bool.pick(U32, U32.is_eq(x, y), (d + 1 : U32), Bool.pick(U32, U32.is_ge(u, left), u, left))
       v <> next_row(ys, u <> rest, x, v)
     case _ _:
       Nil{}
 
-def rows(old: List<&2, Item>, +new: List<&2, Item>, prev: List<&2, Nat>) -> List<&2, List<&2, Nat>>:
+def rows(old: List<&2, U32>, +new: List<&2, U32>, prev: List<&2, U32>) -> List<&2, List<&2, U32>>:
   match old:
     case Nil{}:
       Nil{}
     case x <> xs:
-      +row = {0n <> next_row(new, prev, x, 0n) : List<&2, Nat>}
+      +row = {0 <> next_row(new, prev, x, 0) : List<&2, U32>}
       row <> rows(xs, new, row)
+
+def table.of(old: List<&2, U32>, +new: List<&2, U32>) -> List<&2, List<&2, U32>>:
+  +zeros = List.replicate(U32, 1n+List.length(&2, U32, new), 0)
+  zeros <> rows(old, new, zeros)
+
+def table.both(+oi: List<&2, U32>, r: Pool & List<&2, U32>) -> List<&2, List<&2, U32>>:
+  (p, +ni) = r
+  table.of(oi, ni)
+
+def table.ids(new: List<&2, Item>, r: Pool & List<&2, U32>) -> List<&2, List<&2, U32>>:
+  (p, +oi) = r
+  table.both(oi, intern(new, p))
 
 # Row i, column j is the length of the longest common subsequence of the
 # first i old items and the first j new ones.
-def table(old: List<&2, Item>, +new: List<&2, Item>) -> List<&2, List<&2, Nat>>:
-  +zeros = List.replicate(Nat, 1n+List.length(&2, Item, new), 0n)
-  zeros <> rows(old, new, zeros)
+def table(old: List<&2, Item>, new: List<&2, Item>) -> List<&2, List<&2, U32>>:
+  table.ids(new, intern(old, pool()))
 
 # Which way the backtrack goes from a cell.
 type Verdict is Data:
@@ -757,7 +849,7 @@ def step.of(matched: Bool, up_wins: Bool) -> Verdict:
     case False{}:
       Bool.pick(Verdict, up_wins, Up{}, Left{})
 
-def step(+old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, Nat>>, i: Nat, j: Nat) -> Verdict:
+def step(+old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, U32>>, i: Nat, j: Nat) -> Verdict:
   match i j:
     case 0n 0n:
       Stop{}
@@ -768,7 +860,7 @@ def step(+old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, Nat
     case 1n+p 1n+q:
       +p = p
       +q = q
-      step.of(same(item_at(old, p), item_at(new, q)), Nat.is_ge(cell(tbl, p, 1n+q), cell(tbl, 1n+p, q)))
+      step.of(same(item_at(old, p), item_at(new, q)), U32.is_ge(cell(tbl, p, 1n+q), cell(tbl, 1n+p, q)))
 
 type Move is Data:
   Keep{}
@@ -776,7 +868,7 @@ type Move is Data:
   Ins{y: Item}
 
 # From the last cell back to the first, collecting the edit script forwards.
-def backtrack(fuel: Nat, v: Verdict, i: Nat, j: Nat, +old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, Nat>>, script: List<&2, Move>) -> List<&2, Move>:
+def backtrack(fuel: Nat, v: Verdict, i: Nat, j: Nat, +old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, U32>>, script: List<&2, Move>) -> List<&2, Move>:
   match fuel v:
     case _ Stop{}:
       script

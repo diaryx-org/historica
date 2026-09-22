@@ -70,6 +70,19 @@ reading `revisions/` a second time. What is left is Bend's own decoding and
 parsing of the revision documents, and it scales with the graph rather than
 with the archive.
 
+`diff` has its own floor. Its table asked `same` — two lines walked
+character by character — of every one of its (n+1)(m+1) cells, so each item
+is numbered first, by first-seen order through a `Map`, and the cells compare
+numbers; and a cell is a `U32` rather than a `Nat` counted in unary. Two
+files of three thousand lines, a third of them changed and five hundred
+inserted, natively: 7.6 s before, 1.0 s after, the same document out. What
+is left is the table itself, nine million cells of a list of lists, and the
+backtrack walking a row from its front for each cell it asks about. An
+`Array<U32>` table would answer both, but an array is a Type, and a Type
+cannot be marked `+` for reuse the way `backtrack` reuses its table, so the
+table would have to be threaded through the backtrack and `diff_applies`
+restated over that shape.
+
 ```console
 cargo build --release --manifest-path ffi/Cargo.toml
 bend main.bend -o main.c
