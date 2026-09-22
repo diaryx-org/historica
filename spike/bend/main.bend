@@ -420,13 +420,41 @@ def longest_shared(+id: String, others: List<&2, String>) -> Nat:
 def abbreviate(+id: String, +among: List<&2, String>) -> String:
   String.take(id, Nat.max(8n, 1n+longest_shared(id, among)))
 
+# Was this file added here? The added files are a set rather than a list,
+# because a revision that adds a folder names every file in it twice — once
+# to add it and once for the bytes it stored — and walking the added names
+# for each of those is the whole listing squared. A `Set` is a trie over the
+# name, which answers the same question by the name's own characters.
+def was_added.of(r: Set() & Bool) -> Bool:
+  (s, b) = r
+  b
+
+def was_added(+added: Set(), +file: String) -> Bool:
+  was_added.of(Set.has(added, file))
+
+# One fact, counted: under this key, and — where the key is one a revision
+# states about a file it also added — not about such a file.
+def count_facts.excl(+added: Set(), +v: String, exclude: Bool) -> Nat:
+  match exclude:
+    case False{}:
+      1n
+    case True{}:
+      Bool.pick(Nat, was_added(added, T.word(v)), 0n, 1n)
+
+def count_facts.one(+added: Set(), +exclude: Bool, +v: String, matched: Bool) -> Nat:
+  match matched:
+    case False{}:
+      0n
+    case True{}:
+      count_facts.excl(added, v, exclude)
+
 # What a revision says it did to the file set, counted.
-def count_facts(facts: List<&2, Rev.Header>, +key: String, +not_added: List<&2, String>, +exclude: Bool) -> Nat:
+def count_facts(facts: List<&2, Rev.Header>, +key: String, +added: Set(), +exclude: Bool) -> Nat:
   match facts:
     case Nil{}:
       0n
     case Rev.Header{+k, +v} <> rest:
-      Nat.add(Bool.pick(Nat, Bool.and(String.eq(k, key), Bool.or(Bool.not(exclude), Bool.not(Rev.member(not_added, T.word(v))))), 1n, 0n), count_facts(rest, key, not_added, exclude))
+      Nat.add(count_facts.one(added, exclude, v, String.eq(k, key)), count_facts(rest, key, added, exclude))
 
 def fact.show(what: String, n: Nat, rest: List<&2, String>) -> List<&2, String>:
   match n:
@@ -436,7 +464,7 @@ def fact.show(what: String, n: Nat, rest: List<&2, String>) -> List<&2, String>:
       (what ++ " " ++ Nat.show(1n+p)) <> rest
 
 def tree_facts(+facts: List<&2, Rev.Header>) -> String:
-  +added = Rev.files_of(facts, "add")
+  +added : Set() = Set.from_list(Rev.files_of(facts, "add"))
   String.join(
     fact.show("added", count_facts(facts, "add", added, False{}),
     fact.show("moved", count_facts(facts, "move", added, False{}),
@@ -638,25 +666,37 @@ def payloads(ls: List<&2, String>) -> List<&2, String>:
     case +l <> rest:
       Rev.keep(is_payload(l), l, payloads(rest))
 
-def check_filed(+root: String, f: Filed) -> IO(Unit):
+# A revision is reported and then kept: the graph `check` closes with is the
+# same documents, and reading and hashing the whole of `revisions/` a second
+# time to ask which parents are missing is a second pass over the store for
+# an answer the first pass already holds.
+def check_filed.doc(+path: String, +rev: Bool, +d: Store.Doc) -> IO(List<&2, Store.Doc>):
+  do IO<List<&2, Store.Doc>>:
+    IO.print(check_doc.of(d, rev) ++ "  " ++ path)
+    return Bool.pick(List<&2, Store.Doc>, rev, d <> Nil{}, Nil{})
+
+def check_filed(+root: String, f: Filed) -> IO(List<&2, Store.Doc>):
   match f:
     case Filed{+path, doc, rev, +stat}:
       match doc:
         case True{}:
-          do IO<Unit>:
+          do IO<List<&2, Store.Doc>>:
             d : Store.Doc <- Store.read_doc(root ++ "/" ++ path)
-            IO.print(check_doc.of(d, rev) ++ "  " ++ path)
+            check_filed.doc(path, rev, d)
         case False{}:
-          IO.print(check_payload(stat) ++ "  " ++ path)
+          do IO<List<&2, Store.Doc>>:
+            IO.print(check_payload(stat) ++ "  " ++ path)
+            return Nil{}
 
-def check_files(+root: String, fs: List<&2, Filed>) -> IO(Unit):
+def check_files(+root: String, fs: List<&2, Filed>) -> IO(List<&2, Store.Doc>):
   match fs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      IO.pure(List<&2, Store.Doc>, Nil{})
     case f <> rest:
-      do IO<Unit>:
-        check_filed(root, f)
-        check_files(root, rest)
+      do IO<List<&2, Store.Doc>>:
+        here : List<&2, Store.Doc> <- check_filed(root, f)
+        later : List<&2, Store.Doc> <- check_files(root, rest)
+        return List.append(&2, Store.Doc, here, later)
 
 def check() -> IO(Unit):
   do IO<Unit>:
@@ -665,8 +705,7 @@ def check() -> IO(Unit):
     ls : List<&2, String> <- Store.listing(r)
     +ls2 : List<&2, String> = ls
     stats : List<&2, String> <- Store.stats(r, payloads(ls2))
-    check_files(r, attach(filed(ls2), stats))
-    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    rs : List<&2, Store.Doc> <- check_files(r, attach(filed(ls2), stats))
     print_missing(Rev.missing_parents(history(fulls(r, rs))))
 
 # The file set at a revision
