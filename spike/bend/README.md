@@ -124,12 +124,39 @@ is numbered first, by first-seen order through a `Map`, and the cells compare
 numbers; and a cell is a `U32` rather than a `Nat` counted in unary. Two
 files of three thousand lines, a third of them changed and five hundred
 inserted, natively: 7.6 s before, 1.0 s after, the same document out. What
-is left is the table itself, nine million cells of a list of lists, and the
-backtrack walking a row from its front for each cell it asks about. An
-`Array<U32>` table would answer both, but an array is a Type, and a Type
-cannot be marked `+` for reuse the way `backtrack` reuses its table, so the
-table would have to be threaded through the backtrack and `diff_applies`
-restated over that shape.
+was left was the backtrack reading it. `cell(tbl, i, j)` walked the table
+from its first row and the row from its first column, and the backtrack asks
+two of them at every one of its (n+m) steps, so reading the table cost the
+table's own size over again — two thirds of the walk, against the fifth the
+walk spends building all nine million cells.
+
+An `Array<U32>` table would answer it, but an array is a Type, and a Type
+cannot be marked `+` for reuse the way `backtrack` reuses its table. It does
+not need one. A backtrack only ever moves to (i-1, j), (i, j-1) or
+(i-1, j-1), so the only cells it ever reads are the one it stands on, the one
+left of it and the one above it. `Ops.Zip` holds the row and the row above
+it, each reversed and cut at the column the walk is at, so all three are the
+head of a list; the rows below stay as the table built them, and one of them
+is reversed up to that column each time the walk drops a row — paid once per
+row where the lookup was paid twice per step. Two files of three thousand
+lines, natively: `diff` 1.00 s to 0.82 s, and the backtrack itself 0.92 s to
+0.37 s.
+
+`diff_lemmas.back` carries the zipper where it carried the table, and moves
+it by the same three functions the walk does. It never looks inside either:
+the verdict's `up_wins` is generalised as a `Bool` in `back.of`, and the
+table was already a free variable, so the restatement is the parameter's type
+and `Ops.zip.diag`, `Ops.zip.up_move` and `Ops.zip.left_move` written where
+`tbl` stood — no new lemma, and `edits_ok` hands `Ops.zip.start` where it
+handed `Ops.table`.
+
+What is left in `diff` is the table itself, nine million cells of a list of
+lists, and `item_at(old, i)` — the parent walked from its first line at every
+step, which is now the larger half of what the backtrack spends. The same
+zipper would answer it, and that one is not free: `back.of` reads the match
+as `same(item_at(old, p), item_at(new, q))` and supplies the equation by
+computation, so an item taken from a zipper has to be *proven* to be the item
+at the index before the lemma will take it.
 
 ```console
 cargo build --release --manifest-path ffi/Cargo.toml

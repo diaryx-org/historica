@@ -835,6 +835,116 @@ def table.ids(new: List<&2, Item>, r: Pool & List<&2, U32>) -> List<&2, List<&2,
 def table(old: List<&2, Item>, new: List<&2, Item>) -> List<&2, List<&2, U32>>:
   table.ids(new, intern(old, pool()))
 
+# The cell the backtrack stands on
+# --------------------------------
+
+# `cell` is what a cell of the table means, and what the zipper below
+# answers; nothing calls it any more. It walked the table from row zero and
+# the row from column zero for every question, and the backtrack asks two of
+# them at every one of its (n+m) steps, so the walk cost the table's own size
+# over again — two thirds of `diff`'s second and a half on three thousand
+# lines.
+#
+# The backtrack only ever moves to (i-1, j), (i, j-1) or (i-1, j-1), so it
+# needs no random access at all: it needs the cell it stands on, the one left
+# of it, and the one above it. The zipper holds the current row and the row
+# above it, each reversed and cut at the current column, so that the cell,
+# its neighbour and the step left are all the head of a list; the rows below
+# stay as they were built, and one of them is cut when the walk drops a row.
+# A step left is free, and a step up costs the column it is at, which is what
+# the reversal of one row costs and is paid once per row rather than twice
+# per cell.
+#
+# `Zip` is threaded through `step` and `backtrack` the way the table was.
+# `diff_lemmas.back` never looks inside either: the verdict's `up_wins` is
+# generalised as a `Bool`, so the lemma carries the zipper where it carried
+# the table, and moves it by the same three functions the walk does.
+type Zip is Data:
+  Zip{cur: List<&2, U32>, above: List<&2, U32>, below: List<&2, List<&2, U32>>, at: U32}
+
+# The first `n` of a row, reversed: the row cut at a column, head first.
+def rev_take(row: List<&2, U32>, +n: U32, acc: List<&2, U32>, more: Bool) -> List<&2, U32>:
+  match row more:
+    case Nil{} False{}:
+      acc
+    case Nil{} True{}:
+      acc
+    case x <> rest False{}:
+      acc
+    case x <> rest True{}:
+      rev_take(rest, (n - 1 : U32), x <> acc, U32.is_gt(n, 1))
+
+def rev_pre(row: List<&2, U32>, +n: U32) -> List<&2, U32>:
+  rev_take(row, n, Nil{}, U32.is_gt(n, 0))
+
+def u_head(xs: List<&2, U32>) -> U32:
+  match xs:
+    case Nil{}:
+      0
+    case x <> rest:
+      x
+
+def u_tail(xs: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      rest
+
+def row_head(rs: List<&2, List<&2, U32>>) -> List<&2, U32>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      r
+
+def row_tail(rs: List<&2, List<&2, U32>>) -> List<&2, List<&2, U32>>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      rest
+
+# The cell above, and the cell to the left.
+def zip.up(z: Zip) -> U32:
+  match z:
+    case Zip{cur, above, below, at}:
+      u_head(above)
+
+def zip.left(z: Zip) -> U32:
+  match z:
+    case Zip{cur, above, below, at}:
+      u_head(u_tail(cur))
+
+# One column left: both rows lose their head, and the rows below stand.
+def zip.left_move(z: Zip) -> Zip:
+  match z:
+    case Zip{cur, above, below, at}:
+      Zip{u_tail(cur), u_tail(above), below, (at - 1 : U32)}
+
+# One row up: the row above becomes the row, and the row below it is cut at
+# the column the walk is still at.
+def zip.up_move(z: Zip) -> Zip:
+  match z:
+    case Zip{cur, above, +below, +at}:
+      Zip{above, rev_pre(row_head(below), (at + 1 : U32)), row_tail(below), at}
+
+# Up and left at once: the row above loses its head as it becomes the row.
+def zip.diag(z: Zip) -> Zip:
+  match z:
+    case Zip{cur, above, +below, +at}:
+      Zip{u_tail(above), rev_pre(row_head(below), at), row_tail(below), (at - 1 : U32)}
+
+# The zipper at the last cell: the table with its rows in reverse, the last
+# two of them cut at the last column.
+def zip.of(+rs: List<&2, List<&2, U32>>, +m: U32) -> Zip:
+  Zip{rev_pre(row_head(rs), (m + 1 : U32)),
+      rev_pre(row_head(row_tail(rs)), (m + 1 : U32)),
+      row_tail(row_tail(rs)), m}
+
+def zip.start(old: List<&2, Item>, new: List<&2, Item>, +m: Nat) -> Zip:
+  zip.of(List.reverse(&2, List<&2, U32>, table(old, new)), U32.from_nat(m))
+
 # Which way the backtrack goes from a cell.
 type Verdict is Data:
   Diag{}
@@ -849,7 +959,7 @@ def step.of(matched: Bool, up_wins: Bool) -> Verdict:
     case False{}:
       Bool.pick(Verdict, up_wins, Up{}, Left{})
 
-def step(+old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, U32>>, i: Nat, j: Nat) -> Verdict:
+def step(+old: List<&2, Item>, +new: List<&2, Item>, +z: Zip, i: Nat, j: Nat) -> Verdict:
   match i j:
     case 0n 0n:
       Stop{}
@@ -860,7 +970,7 @@ def step(+old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, U32
     case 1n+p 1n+q:
       +p = p
       +q = q
-      step.of(same(item_at(old, p), item_at(new, q)), U32.is_ge(cell(tbl, p, 1n+q), cell(tbl, 1n+p, q)))
+      step.of(same(item_at(old, p), item_at(new, q)), U32.is_ge(zip.up(z), zip.left(z)))
 
 type Move is Data:
   Keep{}
@@ -868,7 +978,7 @@ type Move is Data:
   Ins{y: Item}
 
 # From the last cell back to the first, collecting the edit script forwards.
-def backtrack(fuel: Nat, v: Verdict, i: Nat, j: Nat, +old: List<&2, Item>, +new: List<&2, Item>, +tbl: List<&2, List<&2, U32>>, script: List<&2, Move>) -> List<&2, Move>:
+def backtrack(fuel: Nat, v: Verdict, i: Nat, j: Nat, +old: List<&2, Item>, +new: List<&2, Item>, +z: Zip, script: List<&2, Move>) -> List<&2, Move>:
   match fuel v:
     case _ Stop{}:
       script
@@ -877,21 +987,24 @@ def backtrack(fuel: Nat, v: Verdict, i: Nat, j: Nat, +old: List<&2, Item>, +new:
     case 1n+f Diag{}:
       +i2 = Nat.sub(i, 1n)
       +j2 = Nat.sub(j, 1n)
-      backtrack(f, step(old, new, tbl, i2, j2), i2, j2, old, new, tbl, Keep{} <> script)
+      +z2 = zip.diag(z)
+      backtrack(f, step(old, new, z2, i2, j2), i2, j2, old, new, z2, Keep{} <> script)
     case 1n+f Up{}:
       +i2 = Nat.sub(i, 1n)
       +j = j
-      backtrack(f, step(old, new, tbl, i2, j), i2, j, old, new, tbl, Del{item_at(old, i2)} <> script)
+      +z2 = zip.up_move(z)
+      backtrack(f, step(old, new, z2, i2, j), i2, j, old, new, z2, Del{item_at(old, i2)} <> script)
     case 1n+f Left{}:
       +j2 = Nat.sub(j, 1n)
       +i = i
-      backtrack(f, step(old, new, tbl, i, j2), i, j2, old, new, tbl, Ins{item_at(new, j2)} <> script)
+      +z2 = zip.left_move(z)
+      backtrack(f, step(old, new, z2, i, j2), i, j2, old, new, z2, Ins{item_at(new, j2)} <> script)
 
 def edits(+old: List<&2, Item>, +new: List<&2, Item>) -> List<&2, Move>:
   +n = List.length(&2, Item, old)
   +m = List.length(&2, Item, new)
-  +tbl = table(old, new)
-  backtrack(Nat.add(n, m), step(old, new, tbl, n, m), n, m, old, new, tbl, Nil{})
+  +z = zip.start(old, new, m)
+  backtrack(Nat.add(n, m), step(old, new, z, n, m), n, m, old, new, z, Nil{})
 
 # The block a run of edits makes: minus lines above plus lines, both
 # anchored where the run began, so a replacement is one block.

@@ -300,8 +300,8 @@ def check_mutations(temporary):
         ),
         (
             "the backtrack drops kept lines",
-            "backtrack(f, step(old, new, tbl, i2, j2), i2, j2, old, new, tbl, Keep{} <> script)",
-            "backtrack(f, step(old, new, tbl, i2, j2), i2, j2, old, new, tbl, script)",
+            "backtrack(f, step(old, new, z2, i2, j2), i2, j2, old, new, z2, Keep{} <> script)",
+            "backtrack(f, step(old, new, z2, i2, j2), i2, j2, old, new, z2, script)",
             "diff_lemmas.back.of",
         ),
         (

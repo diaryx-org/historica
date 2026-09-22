@@ -212,20 +212,20 @@ def back.ins(+i: Nat, +q: Nat, +old: List<&2, Ops.Item>, +new: List<&2, Ops.Item
 
 # The verdict at (1+p, 1+q), decided: each way the walk goes, the script
 # it builds still takes the parent to the child.
-def back.of(f: Nat, +p: Nat, +q: Nat, +old: List<&2, Ops.Item>, +new: List<&2, Ops.Item>, +tbl: List<&2, List<&2, U32>>, +sc: List<&2, Ops.Move>, m: Bool, u: Bool, +em: {Ops.same(Ops.item_at(old, p), Ops.item_at(new, q)) == m : Bool}, +ltp: {Nat.is_lt(p, List.length(&2, Ops.Item, old)) == True{} : Bool}, +ltq: {Nat.is_lt(q, List.length(&2, Ops.Item, new)) == True{} : Bool}, +h: {edits_apply(sc, List.drop(&2, Ops.Item, old, 1n+p)) == Some{List.drop(&2, Ops.Item, new, 1n+q)} : Maybe<&2, List<&2, Ops.Item>>}, ih_diag: @+sc2: List<&2, Ops.Move> -> {edits_apply(sc2, List.drop(&2, Ops.Item, old, p)) == Some{List.drop(&2, Ops.Item, new, q)} : Maybe<&2, List<&2, Ops.Item>>} -> {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, p, q), p, q, old, new, tbl, sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}, ih_up: @+sc2: List<&2, Ops.Move> -> {edits_apply(sc2, List.drop(&2, Ops.Item, old, p)) == Some{List.drop(&2, Ops.Item, new, 1n+q)} : Maybe<&2, List<&2, Ops.Item>>} -> {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, p, 1n+q), p, 1n+q, old, new, tbl, sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}, ih_left: @+sc2: List<&2, Ops.Move> -> {edits_apply(sc2, List.drop(&2, Ops.Item, old, 1n+p)) == Some{List.drop(&2, Ops.Item, new, q)} : Maybe<&2, List<&2, Ops.Item>>} -> {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, 1n+p, q), 1n+p, q, old, new, tbl, sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}) -> {edits_apply(Ops.backtrack(1n+f, Ops.step.of(m, u), 1n+p, 1n+q, old, new, tbl, sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}:
+def back.of(f: Nat, +p: Nat, +q: Nat, +old: List<&2, Ops.Item>, +new: List<&2, Ops.Item>, +z: Ops.Zip, +sc: List<&2, Ops.Move>, m: Bool, u: Bool, +em: {Ops.same(Ops.item_at(old, p), Ops.item_at(new, q)) == m : Bool}, +ltp: {Nat.is_lt(p, List.length(&2, Ops.Item, old)) == True{} : Bool}, +ltq: {Nat.is_lt(q, List.length(&2, Ops.Item, new)) == True{} : Bool}, +h: {edits_apply(sc, List.drop(&2, Ops.Item, old, 1n+p)) == Some{List.drop(&2, Ops.Item, new, 1n+q)} : Maybe<&2, List<&2, Ops.Item>>}, ih_diag: @+sc2: List<&2, Ops.Move> -> {edits_apply(sc2, List.drop(&2, Ops.Item, old, p)) == Some{List.drop(&2, Ops.Item, new, q)} : Maybe<&2, List<&2, Ops.Item>>} -> {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.diag(z), p, q), p, q, old, new, Ops.zip.diag(z), sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}, ih_up: @+sc2: List<&2, Ops.Move> -> {edits_apply(sc2, List.drop(&2, Ops.Item, old, p)) == Some{List.drop(&2, Ops.Item, new, 1n+q)} : Maybe<&2, List<&2, Ops.Item>>} -> {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.up_move(z), p, 1n+q), p, 1n+q, old, new, Ops.zip.up_move(z), sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}, ih_left: @+sc2: List<&2, Ops.Move> -> {edits_apply(sc2, List.drop(&2, Ops.Item, old, 1n+p)) == Some{List.drop(&2, Ops.Item, new, q)} : Maybe<&2, List<&2, Ops.Item>>} -> {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.left_move(z), 1n+p, q), 1n+p, q, old, new, Ops.zip.left_move(z), sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}) -> {edits_apply(Ops.backtrack(1n+f, Ops.step.of(m, u), 1n+p, 1n+q, old, new, z, sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}:
   match m:
     case True{}:
       +sc2 = {Ops.Keep{} <> sc : List<&2, Ops.Move>}
-      %Equal.sym(Nat, Nat.sub(p, 0n), p, Pos.sub_zero(p)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, _, Nat.sub(q, 0n)), _, Nat.sub(q, 0n), old, new, tbl, sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
-      %Equal.sym(Nat, Nat.sub(q, 0n), q, Pos.sub_zero(q)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, p, _), p, _, old, new, tbl, sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
+      %Equal.sym(Nat, Nat.sub(p, 0n), p, Pos.sub_zero(p)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.diag(z), _, Nat.sub(q, 0n)), _, Nat.sub(q, 0n), old, new, Ops.zip.diag(z), sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
+      %Equal.sym(Nat, Nat.sub(q, 0n), q, Pos.sub_zero(q)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.diag(z), p, _), p, _, old, new, Ops.zip.diag(z), sc2), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
       ih_diag(sc2, back.keep(p, q, old, new, sc, em, ltp, ltq, h))
     case False{}:
       match u:
         case True{}:
-          %Equal.sym(Nat, Nat.sub(p, 0n), p, Pos.sub_zero(p)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, _, 1n+q), _, 1n+q, old, new, tbl, Ops.Del{Ops.item_at(old, _)} <> sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
+          %Equal.sym(Nat, Nat.sub(p, 0n), p, Pos.sub_zero(p)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.up_move(z), _, 1n+q), _, 1n+q, old, new, Ops.zip.up_move(z), Ops.Del{Ops.item_at(old, _)} <> sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
           ih_up(Ops.Del{Ops.item_at(old, p)} <> sc, back.del(p, 1n+q, old, new, sc, ltp, h))
         case False{}:
-          %Equal.sym(Nat, Nat.sub(q, 0n), q, Pos.sub_zero(q)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, 1n+p, _), 1n+p, _, old, new, tbl, Ops.Ins{Ops.item_at(new, _)} <> sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
+          %Equal.sym(Nat, Nat.sub(q, 0n), q, Pos.sub_zero(q)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.left_move(z), 1n+p, _), 1n+p, _, old, new, Ops.zip.left_move(z), Ops.Ins{Ops.item_at(new, _)} <> sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
           ih_left(Ops.Ins{Ops.item_at(new, q)} <> sc, back.ins(1n+p, q, old, new, sc, ltq, h))
 
 def le_cast(-a: Nat, -b: Nat, -f: Nat, eq: {a == b : Nat}, e: {Nat.is_le(a, f) == True{} : Bool}) -> {Nat.is_le(b, f) == True{} : Bool}:
@@ -240,33 +240,33 @@ def fits_left(+p: Nat, +q: Nat, f: Nat, e: {Nat.is_le(Nat.add(1n+p, 1n+q), 1n+f)
 
 # With fuel for every step, the backtrack from (i, j) prepends to `sc` a
 # script from the first i parent items to the first j child items.
-def back(fuel: Nat, i: Nat, j: Nat, +old: List<&2, Ops.Item>, +new: List<&2, Ops.Item>, +tbl: List<&2, List<&2, U32>>, +sc: List<&2, Ops.Move>, +fits: {Nat.is_le(Nat.add(i, j), fuel) == True{} : Bool}, +li: {Nat.is_le(i, List.length(&2, Ops.Item, old)) == True{} : Bool}, +lj: {Nat.is_le(j, List.length(&2, Ops.Item, new)) == True{} : Bool}, +h: {edits_apply(sc, List.drop(&2, Ops.Item, old, i)) == Some{List.drop(&2, Ops.Item, new, j)} : Maybe<&2, List<&2, Ops.Item>>}) -> {edits_apply(Ops.backtrack(fuel, Ops.step(old, new, tbl, i, j), i, j, old, new, tbl, sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}:
+def back(fuel: Nat, i: Nat, j: Nat, +old: List<&2, Ops.Item>, +new: List<&2, Ops.Item>, +z: Ops.Zip, +sc: List<&2, Ops.Move>, +fits: {Nat.is_le(Nat.add(i, j), fuel) == True{} : Bool}, +li: {Nat.is_le(i, List.length(&2, Ops.Item, old)) == True{} : Bool}, +lj: {Nat.is_le(j, List.length(&2, Ops.Item, new)) == True{} : Bool}, +h: {edits_apply(sc, List.drop(&2, Ops.Item, old, i)) == Some{List.drop(&2, Ops.Item, new, j)} : Maybe<&2, List<&2, Ops.Item>>}) -> {edits_apply(Ops.backtrack(fuel, Ops.step(old, new, z, i, j), i, j, old, new, z, sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}:
   match fuel i j:
     case 0n 0n 0n:
       %Pos.drop_zero(old) : {edits_apply(sc, _) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
       %Pos.drop_zero(new) : {edits_apply(sc, List.drop(&2, Ops.Item, old, 0n)) == Some{_} : Maybe<&2, List<&2, Ops.Item>>}
       h
     case 0n 0n 1n+q:
-      Empty.absurd({edits_apply(Ops.backtrack(0n, Ops.step(old, new, tbl, 0n, 1n+q), 0n, 1n+q, old, new, tbl, sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}, Comp.false_true(fits))
+      Empty.absurd({edits_apply(Ops.backtrack(0n, Ops.step(old, new, z, 0n, 1n+q), 0n, 1n+q, old, new, z, sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}, Comp.false_true(fits))
     case 0n 1n+p j:
-      Empty.absurd({edits_apply(Ops.backtrack(0n, Ops.step(old, new, tbl, 1n+p, j), 1n+p, j, old, new, tbl, sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}, Comp.false_true(fits))
+      Empty.absurd({edits_apply(Ops.backtrack(0n, Ops.step(old, new, z, 1n+p, j), 1n+p, j, old, new, z, sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}, Comp.false_true(fits))
     case 1n+f 0n 0n:
       %Pos.drop_zero(old) : {edits_apply(sc, _) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
       %Pos.drop_zero(new) : {edits_apply(sc, List.drop(&2, Ops.Item, old, 0n)) == Some{_} : Maybe<&2, List<&2, Ops.Item>>}
       h
     case 1n++f 0n 1n++q:
-      %Equal.sym(Nat, Nat.sub(q, 0n), q, Pos.sub_zero(q)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, 0n, _), 0n, _, old, new, tbl, Ops.Ins{Ops.item_at(new, _)} <> sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
-      back(f, 0n, q, old, new, tbl, Ops.Ins{Ops.item_at(new, q)} <> sc, fits, li, Comp.le_pred(q, List.length(&2, Ops.Item, new), lj), back.ins(0n, q, old, new, sc, Dec.lt_of_le_succ(q, List.length(&2, Ops.Item, new), lj), h))
+      %Equal.sym(Nat, Nat.sub(q, 0n), q, Pos.sub_zero(q)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.left_move(z), 0n, _), 0n, _, old, new, Ops.zip.left_move(z), Ops.Ins{Ops.item_at(new, _)} <> sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
+      back(f, 0n, q, old, new, Ops.zip.left_move(z), Ops.Ins{Ops.item_at(new, q)} <> sc, fits, li, Comp.le_pred(q, List.length(&2, Ops.Item, new), lj), back.ins(0n, q, old, new, sc, Dec.lt_of_le_succ(q, List.length(&2, Ops.Item, new), lj), h))
     case 1n++f 1n++p 0n:
-      %Equal.sym(Nat, Nat.sub(p, 0n), p, Pos.sub_zero(p)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, tbl, _, 0n), _, 0n, old, new, tbl, Ops.Del{Ops.item_at(old, _)} <> sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
-      back(f, p, 0n, old, new, tbl, Ops.Del{Ops.item_at(old, p)} <> sc, fits, Comp.le_pred(p, List.length(&2, Ops.Item, old), li), lj, back.del(p, 0n, old, new, sc, Dec.lt_of_le_succ(p, List.length(&2, Ops.Item, old), li), h))
+      %Equal.sym(Nat, Nat.sub(p, 0n), p, Pos.sub_zero(p)) : {edits_apply(Ops.backtrack(f, Ops.step(old, new, Ops.zip.up_move(z), _, 0n), _, 0n, old, new, Ops.zip.up_move(z), Ops.Del{Ops.item_at(old, _)} <> sc), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}
+      back(f, p, 0n, old, new, Ops.zip.up_move(z), Ops.Del{Ops.item_at(old, p)} <> sc, fits, Comp.le_pred(p, List.length(&2, Ops.Item, old), li), lj, back.del(p, 0n, old, new, sc, Dec.lt_of_le_succ(p, List.length(&2, Ops.Item, old), li), h))
     case 1n++f 1n++p 1n++q:
       +n = List.length(&2, Ops.Item, old)
       +m = List.length(&2, Ops.Item, new)
-      back.of(f, p, q, old, new, tbl, sc, Ops.same(Ops.item_at(old, p), Ops.item_at(new, q)), U32.is_ge(Ops.cell(tbl, p, 1n+q), Ops.cell(tbl, 1n+p, q)), {==}, Dec.lt_of_le_succ(p, n, li), Dec.lt_of_le_succ(q, m, lj), h,
-        sc2 => h2 => back(f, p, q, old, new, tbl, sc2, fits_diag(p, q, f, fits), Comp.le_pred(p, n, li), Comp.le_pred(q, m, lj), h2),
-        sc2 => h2 => back(f, p, 1n+q, old, new, tbl, sc2, fits, Comp.le_pred(p, n, li), lj, h2),
-        sc2 => h2 => back(f, 1n+p, q, old, new, tbl, sc2, fits_left(p, q, f, fits), li, Comp.le_pred(q, m, lj), h2))
+      back.of(f, p, q, old, new, z, sc, Ops.same(Ops.item_at(old, p), Ops.item_at(new, q)), U32.is_ge(Ops.zip.up(z), Ops.zip.left(z)), {==}, Dec.lt_of_le_succ(p, n, li), Dec.lt_of_le_succ(q, m, lj), h,
+        sc2 => h2 => back(f, p, q, old, new, Ops.zip.diag(z), sc2, fits_diag(p, q, f, fits), Comp.le_pred(p, n, li), Comp.le_pred(q, m, lj), h2),
+        sc2 => h2 => back(f, p, 1n+q, old, new, Ops.zip.up_move(z), sc2, fits, Comp.le_pred(p, n, li), lj, h2),
+        sc2 => h2 => back(f, 1n+p, q, old, new, Ops.zip.left_move(z), sc2, fits_left(p, q, f, fits), li, Comp.le_pred(q, m, lj), h2))
 
 # The diff's script takes the parent to the child.
 def edits_ok.base(old: List<&2, Ops.Item>, new: List<&2, Ops.Item>) -> {edits_apply(Nil{}, List.drop(&2, Ops.Item, old, List.length(&2, Ops.Item, old))) == Some{List.drop(&2, Ops.Item, new, List.length(&2, Ops.Item, new))} : Maybe<&2, List<&2, Ops.Item>>}:
@@ -277,7 +277,7 @@ def edits_ok.base(old: List<&2, Ops.Item>, new: List<&2, Ops.Item>) -> {edits_ap
 def edits_ok(+old: List<&2, Ops.Item>, +new: List<&2, Ops.Item>) -> {edits_apply(Ops.edits(old, new), old) == Some{new} : Maybe<&2, List<&2, Ops.Item>>}:
   +n = List.length(&2, Ops.Item, old)
   +m = List.length(&2, Ops.Item, new)
-  back(Nat.add(n, m), n, m, old, new, Ops.table(old, new), Nil{}, Comp.le_refl(Nat.add(n, m)), Comp.le_refl(n), Comp.le_refl(m), edits_ok.base(old, new))
+  back(Nat.add(n, m), n, m, old, new, Ops.zip.start(old, new, m), Nil{}, Comp.le_refl(Nat.add(n, m)), Comp.le_refl(n), Comp.le_refl(m), edits_ok.base(old, new))
 
 # Runs of edits as blocks
 # -----------------------
