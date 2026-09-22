@@ -24,8 +24,9 @@ def Store.locate(from: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_locate.js"
 
 # Every file under `revisions/` and `operations/`, relative to the root,
-# sorted, one per line.
-def Store.list(root: String) -> IO(Result<&1, &1, U32 & String, String>):
+# sorted, one per line: the root, then — to walk fewer — the document
+# directories wanted, a line each.
+def Store.list(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_list.c"
   import "./ffi/store_list.js"
 
@@ -52,8 +53,13 @@ def Store.digests(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 type Doc is Data:
   Doc{path: String, id: String, size: Nat, text: String}
 
+# The byte count is walked once, here, and handed to the hash and the
+# decoder, which would otherwise each walk the list again to find it.
+def doc_of.sized(path: String, +bs: List<&2, U32>, +n: Nat) -> Doc:
+  Doc{path, Sha.digest.sized(bs, n), n, Utf8.decode.sized(bs, n)}
+
 def doc_of(path: String, +bs: List<&2, U32>) -> Doc:
-  Doc{path, Sha.digest(bs), List.length(&2, U32, bs), Utf8.decode(bs)}
+  doc_of.sized(path, bs, List.length(&2, U32, bs))
 
 def read_doc(+path: String) -> IO(Doc):
   do IO<Doc>:
@@ -119,27 +125,15 @@ def listing(+root: String) -> IO(List<&2, String>):
     text : String <- IO.try(String, Store.list(root))
     return kept(String.lines(text))
 
-def only_revisions.keep(b: Bool, +l: String, rest: List<&2, String>) -> List<&2, String>:
-  match b:
-    case True{}:
-      l <> rest
-    case False{}:
-      rest
-
-def only_revisions(ls: List<&2, String>) -> List<&2, String>:
-  match ls:
-    case Nil{}:
-      Nil{}
-    case +l <> rest:
-      only_revisions.keep(String.starts_with(l, "revisions/"), l, only_revisions(rest))
-
 # Every revision document the store holds, read and named by its own bytes.
 # The whole of `revisions/` and none of `operations/`: this is the graph, and
-# there is no command that does not want the whole of it.
+# there is no command that does not want the whole of it. Only `revisions/`
+# is listed, too — `operations/` is most of a store's paths, and a listing
+# crosses the boundary a character a cell.
 def revisions(+root: String) -> IO(List<&2, Doc>):
   do IO<List<&2, Doc>>:
-    ls : List<&2, String> <- listing(root)
-    read_docs(under(root, only_revisions(ls)))
+    text : String <- IO.try(String, Store.list(root ++ "\nrevisions"))
+    read_docs(under(root, String.lines(text)))
 
 # The documents these digests name, read — and hashed here, so that a path
 # the host offered for a digest is believed only where its bytes are that

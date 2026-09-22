@@ -65,20 +65,37 @@ pub unsafe extern "C" fn hist_store_locate(
 /// Every document a store holds: the files under `revisions/` and
 /// `operations/`, as paths relative to `root`, sorted, one per line.
 ///
+/// The argument is the root, then — if the caller wants less than every
+/// document — one document directory per line, and only those are walked.
+/// A command that reads the graph asks for `revisions`, and is not handed
+/// the thousands of payload paths it would only throw away.
+///
 /// # Safety
 ///
 /// As [`hist_store_locate`].
 #[no_mangle]
 pub unsafe extern "C" fn hist_store_list(
-    root: *const c_char,
-    root_len: usize,
+    query: *const c_char,
+    query_len: usize,
     out: *mut *mut c_char,
     out_len: *mut usize,
 ) -> i32 {
     answer(out, out_len, || {
-        let root = Path::new(text(root, root_len)?);
+        let (root, asked) = split(text(query, query_len)?);
+        let root = Path::new(root);
+        let mut dirs = Vec::new();
+        for dir in asked {
+            match DOCUMENT_DIRS.iter().find(|known| **known == dir) {
+                Some(known) if !dirs.contains(known) => dirs.push(*known),
+                Some(_) => {}
+                None => return Err((EINVAL, format!("`{dir}` is not a document directory"))),
+            }
+        }
+        if dirs.is_empty() {
+            dirs.extend(DOCUMENT_DIRS);
+        }
         let mut paths = Vec::new();
-        for dir in DOCUMENT_DIRS {
+        for dir in dirs {
             walk(root, &root.join(dir), &mut paths)?;
         }
         paths.sort();
@@ -402,6 +419,15 @@ mod tests {
             listing,
             "operations/2026-09/x/notes.txt\nrevisions/2026-09/a.rev.txt\nrevisions/2026-09/b.rev.txt"
         );
+
+        // Asked for one directory, only that one is walked; asked for one
+        // that holds no documents, the answer is a refusal, not a listing.
+        let (code, listing) = call(hist_store_list, format!("{root}\nrevisions").as_bytes());
+        assert_eq!(code, 0);
+        assert_eq!(listing, "revisions/2026-09/a.rev.txt\nrevisions/2026-09/b.rev.txt");
+        let (code, text) = call(hist_store_list, format!("{root}\ncache").as_bytes());
+        assert_eq!(code, EINVAL);
+        assert_eq!(text, "`cache` is not a document directory");
     }
 
     #[test]

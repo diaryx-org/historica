@@ -94,6 +94,10 @@ def decode.go(fuel: Nat, step: Maybe<&2, Step>) -> String:
 def decode(+bs: List<&2, U32>) -> String:
   decode.go(List.length(&2, U32, bs), decode.step(bs))
 
+# The same, told the byte count.
+def decode.sized(bs: List<&2, U32>, n: Nat) -> String:
+  decode.go(n, decode.step(bs))
+
 # Encoding
 # --------
 

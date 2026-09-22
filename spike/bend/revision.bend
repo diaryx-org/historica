@@ -205,22 +205,51 @@ def is_timestamp(+s: String) -> Bool:
         Bool.and(within(s, 17n, 2n, 0n, 60n), Bool.and(within(s, 20n, 2n, 0n, 23n), within(s, 23n, 2n, 0n, 59n))))))
 
 # A path is relative, with no empty component and no `.` or `..`, and no
-# leading or trailing space. (Unicode normal form C is not checked here.)
-def path_part_ok(p: String) -> Bool:
+# leading or trailing space, and no backslash. (Unicode normal form C is not
+# checked here.)
+#
+# One walk decides it: `part` is what the component so far is — nothing, a
+# `.`, a `..`, or a name — and a component is closed at each `/` and at the
+# end, where only a name will do.
+type Part is Data:
+  Part.Empty{}
+  Part.Dot{}
+  Part.Dots{}
+  Part.Name{}
+
+def part.named(part: Part) -> Bool:
+  match part:
+    case Part.Name{}:
+      True{}
+    case _:
+      False{}
+
+def part.next(part: Part, +c: Char) -> Part:
+  match part:
+    case Part.Empty{}:
+      Bool.pick(Part, Char.is_eq(c, '.'), Part.Dot{}, Part.Name{})
+    case Part.Dot{}:
+      Bool.pick(Part, Char.is_eq(c, '.'), Part.Dots{}, Part.Name{})
+    case _:
+      Part.Name{}
+
+def is_path.go(p: String, part: Part, last: Bool) -> Bool:
   match p:
-    case "":
+    case SNil{}:
+      Bool.and(part.named(part), Bool.not(last))
+    case SCon{'/', t}:
+      Bool.and(part.named(part), is_path.go(t, Part.Empty{}, False{}))
+    case SCon{'\\', t}:
       False{}
-    case ".":
-      False{}
-    case "..":
+    case SCon{+c, t}:
+      is_path.go(t, part.next(part, c), Char.is_eq(c, ' '))
+
+def is_path(p: String) -> Bool:
+  match p:
+    case SCon{' ', t}:
       False{}
     case _:
-      True{}
-
-def is_path(+p: String) -> Bool:
-  Bool.and(Bool.not(String.is_empty(p)),
-    Bool.and(Bool.not(Bool.or(String.starts_with(p, " "), String.ends_with(p, " "))),
-      Bool.and(Bool.not(T.has_char(p, '\\')), List.all(~&2, ~String, ~path_part_ok, String.split(p, '/')))))
+      is_path.go(p, Part.Empty{}, False{})
 
 # A value that is a file ID and one more thing, cut at the first space.
 def entry(v: String) -> Maybe<&2, T.Split>:
@@ -531,6 +560,33 @@ def unlines(ls: List<&2, T.Line>) -> String:
     case T.Line{t, n} <> rest:
       t ++ Bool.pick(String, n, "\n", SNil{}) ++ unlines(rest)
 
+# What one walk over a header's value finds: whether it starts or ends with
+# a space, and whether it holds a control character.
+type Scan is Data:
+  Scan{padded: Bool, control: Bool}
+
+def scan.go(s: String, last: Bool, control: Bool, first: Bool) -> Scan:
+  match s:
+    case SNil{}:
+      Scan{Bool.or(first, last), control}
+    case SCon{+c, t}:
+      scan.go(t, Char.is_eq(c, ' '), Bool.or(control, is_control(c)), first)
+
+def scan(s: String) -> Scan:
+  match s:
+    case SNil{}:
+      Scan{False{}, False{}}
+    case SCon{+c, t}:
+      scan.go(t, Char.is_eq(c, ' '), is_control(c), Char.is_eq(c, ' '))
+
+def header_of.scanned(+k: String, v: String, sc: Scan) -> Result<&2, &2, String, Header>:
+  match sc:
+    case Scan{padded, control}:
+      do Result<&2, &2, String, Header>:
+        ensure(Bool.not(padded), "the header `" ++ k ++ "` has a padded value")
+        ensure(Bool.not(control), "the header `" ++ k ++ "` holds a control character")
+        return Header{k, v}
+
 def header_of(+t: String, cut: Maybe<&2, T.Split>) -> Result<&2, &2, String, Header>:
   match cut:
     case None{}:
@@ -539,9 +595,7 @@ def header_of(+t: String, cut: Maybe<&2, T.Split>) -> Result<&2, &2, String, Hea
       do Result<&2, &2, String, Header>:
         ensure(shaped_key(k), "a malformed key `" ++ k ++ "`")
         ensure(Bool.not(String.is_empty(v)), "the header `" ++ k ++ "` has no value")
-        ensure(Bool.not(Bool.or(String.starts_with(v, " "), String.ends_with(v, " "))), "the header `" ++ k ++ "` has a padded value")
-        ensure(Bool.not(List.any(~&2, ~Char, ~is_control, String.to_list(v))), "the header `" ++ k ++ "` holds a control character")
-        return Header{k, v}
+        header_of.scanned(k, v, scan(v))
 
 # The headers and the message. Headers run to the first blank line, after
 # which the message is everything, and must be something.

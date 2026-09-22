@@ -74,9 +74,11 @@ def gather(r: Maybe<&1, Array<U32>>) -> Hash:
       as_hash(gather.go(7n, 1, Array.get(U32, a, 0), Nil{}))
 
 # The SHA-256 of a byte list, as eight words.
-def digest_words(+bs: List<&2, U32>) -> Hash:
-  +n = List.length(&2, U32, bs)
+def digest_words.sized(bs: List<&2, U32>, +n: Nat) -> Hash:
   gather(Packed.sha256(packed(bs, n), n))
+
+def digest_words(+bs: List<&2, U32>) -> Hash:
+  digest_words.sized(bs, List.length(&2, U32, bs))
 
 def hex_digit.pick(+n: U32, small: Bool) -> Char:
   match small:
@@ -104,6 +106,10 @@ def show_hash(st: Hash) -> String:
 # `shasum -a 256` prints.
 def digest(bs: List<&2, U32>) -> String:
   show_hash(digest_words(bs))
+
+# The same, told the byte count, which a caller that has it saves a walk.
+def digest.sized(bs: List<&2, U32>, +n: Nat) -> String:
+  show_hash(digest_words.sized(bs, n))
 
 # ASCII only: a String whose chars are all below 128, as bytes.
 def ascii_bytes(s: String) -> List<&2, U32>:

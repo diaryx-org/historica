@@ -49,13 +49,13 @@ documents, three hundred and fifty megabytes of them payloads — that is the
 difference between a tool and a demonstration. The native build, against the
 Rust tool on the same store:
 
-| | before | lazy | packed hash | sets | parse | split | walk | merge | seen | `historica` |
-|---|---|---|---|---|---|---|---|---|---|---|
-| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.89 s | 0.28 s | 0.28 s | 0.30 s | 0.01 s |
-| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.84 s | 0.50 s | 0.02 s |
-| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.77 s | 0.47 s | 0.02 s |
-| `show <revision>` | 143 s | 2.8 s | — | — | 1.9 s | 0.24 s | 0.25 s | 0.23 s | 0.23 s | 0.00 s |
-| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 1.1 s | 0.69 s | 0.69 s | 0.73 s | 0.87 s |
+| | before | lazy | packed hash | sets | parse | split | walk | merge | seen | read | `historica` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `log` | 138 s | 15 s | 15 s | 5.5 s | 2.2 s | 0.89 s | 0.28 s | 0.28 s | 0.30 s | 0.21 s | 0.01 s |
+| `files head` | 140 s | 20 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.84 s | 0.50 s | 0.40 s | 0.02 s |
+| `cat head Resume.md` | 205 s | 29 s | 0.03 s | 0.03 s | 0.03 s | 0.02 s | 13.5 s | 0.77 s | 0.47 s | 0.39 s | 0.02 s |
+| `show <revision>` | 143 s | 2.8 s | — | — | 1.9 s | 0.24 s | 0.25 s | 0.23 s | 0.23 s | 0.15 s | 0.00 s |
+| `check` | 146 s | 11 s | 6 s | 5.3 s | 4.9 s | 1.1 s | 0.69 s | 0.69 s | 0.73 s | 0.62 s | 0.87 s |
 
 Wall clock, and near enough all of it user CPU: the store was never the
 syscalls. A dash is a column `show` was not measured in. The second column is reading only what a command asks for; the
@@ -157,16 +157,38 @@ taken an event or neither — stay alike through one event
 nothing above it changed. The five lemmas about `ready`, `stuck` and
 `seen.add` went with them.
 
-What is left in `files` is what `log` pays for the reading, two hundred
-and fifty milliseconds; `gather` and `decide_all` at eighty each, which
-are now linear in the facts; and the printing, a tenth of a second.
+The tenth column is the reading, which every command but `check` paid in
+the same measure, a fifth of a second of `log`. Timing it a stage at a time
+over the archive: the listing was forty milliseconds, the bytes read, hashed
+and decoded forty-five, and the parser ninety.
 
-What is left in `log` is the first revision's five thousand
-headers through the validators — five linear passes over its four hundred and
-fifty thousand characters, none of them dominant — the four hundred thousand
-characters of the store listing that `Store.list` hands back whole when `log`
-wants only `revisions/`, and the revisions read as lists of characters at
-about a hundred nanoseconds a cell, which is what a cons cell costs here.
+- `Store.list` handed back every path the store holds, and the revision
+  readers kept the tenth of them under `revisions/`. The four hundred
+  thousand characters of `operations/` paths crossed the boundary a cell
+  each to be thrown away. The effect now takes the directories wanted after
+  the root, as `Store.at` takes digests, and `revisions` asks for the one it
+  reads: forty milliseconds to three. `check` still asks for both.
+- A document's bytes were counted three times — by `doc_of`, by the hash,
+  and by the decoder for its fuel — besides the two walks that use them. The
+  count is taken once and handed to both: eleven milliseconds.
+- A header's value was walked for `starts_with`, reversed for `ends_with`,
+  and copied to a list for `any`, to say whether it is padded or holds a
+  control character; `scan` answers both in one walk. `is_path` reversed the
+  path, split it at every `/` and walked it for a backslash; it is one walk
+  that knows what the component so far is. Twenty-five milliseconds. Nothing
+  in `LAWS.bend` reaches the revision parser, and the corpus refuses none of
+  these, so both were held to the definitions they replace over forty-odd
+  edge cases — empty, spaced, `.` `..` `...`, `//`, backslashes, C0 and C1
+  controls, non-ASCII — as well as to `check.py`.
+
+`log` goes from 0.30 s to 0.21 s, `show` from 0.23 s to 0.15 s, and `files`
+and `cat` by as much, all printing the same bytes as before. What is left of
+the reading is the parser's other passes — `facts_ok`'s sets over the first
+revision's two and a half thousand files are twenty milliseconds of it —
+and the revisions read as lists, at about a hundred nanoseconds a cell,
+which is what a cons cell costs here. What is left in `files` besides is
+`gather` and `decide_all` at eighty milliseconds each, now linear in the
+facts, and the printing, a tenth of a second.
 
 `diff` has its own floor. Its table asked `same` — two lines walked
 character by character — of every one of its (n+1)(m+1) cells, so each item
