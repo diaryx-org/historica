@@ -83,9 +83,15 @@ STORES = {
         ["cat", "kxry", "current"],
         ["cat", "mzvw", "2026/08.md"],
         ["cat", "head", "2026/08.md"],
+        ["diff", "head"],
+        ["diff", "kxry"],
+        ["blame", "head", "current"],
     ],
-    "modes": [["log"], ["files", "head"]],
-    "whole": [["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"]],
+    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"]],
+    "whole": [
+        ["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"],
+        ["diff", "head"], ["blame", "head", "notes/photo.png"], ["blame", "head", "notes/2026-08-20.md"],
+    ],
     # Recorded here by the Rust tool rather than taken from a corpus: the
     # widest path holds characters outside ASCII, which the Rust tool
     # measures in bytes and pads in characters.
@@ -132,6 +138,17 @@ STORES = {
         ["log", "--path", "renamed.md"],
         ["log", "tip", "--path", "nope.md"],
         ["log", "base..zzzz"],
+        # `diff` and `blame`, which the rename and the second author are for.
+        ["diff", "tip"],
+        ["diff", "tip", "--onto", "base"],
+        ["diff", "base", "--onto", "tip"],
+        ["diff", "tip", "renamed.md"],
+        ["diff", "tip", "--color", "never"],
+        ["diff", "tip", "nope.md"],
+        ["blame", "tip", "renamed.md"],
+        ["blame", "tip", "renamed.md", "--lines", "2..3"],
+        ["blame", "tip", "renamed.md", "--lines", "9"],
+        ["blame", "base", "notes.md"],
     ],
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
@@ -140,6 +157,10 @@ STORES = {
     "merge": [
         *(["cat", target, path] for target in ("left", "m1", "after", "m2") for path in ("f.md", "h.md")),
         *(["cat", target, "f.md"] for target in ("unknown", "range", "result", "notlast", "adjacent", "positioned")),
+        ["diff", "m1"],
+        ["diff", "m1", "--onto", "left"],
+        ["diff", "m2", "--onto", "x", "f.md"],
+        *(["blame", target, path] for target in ("m1", "m2") for path in ("f.md", "h.md")),
     ],
 }
 

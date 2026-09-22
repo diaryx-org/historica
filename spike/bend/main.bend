@@ -14,7 +14,11 @@
 #   bend main.bend -- check                  every document, named by digest
 #   bend main.bend -- names                  the bookmarks, and what they point at
 #   bend main.bend -- replay <ops docs..>    the file a chain of documents makes
-#   bend main.bend -- diff <parent> <child>  the operation document between two files
+#   bend main.bend -- diff <target> [<path>] [--onto <target>] [--color <when>]
+#                                            what a revision did, rendered
+#   bend main.bend -- blame <target> <path> [--lines <first>..<last>]
+#                                            who wrote each line
+#   bend main.bend -- opdiff <parent> <child> the operation document between two files
 #
 # Or compile it: `bend main.bend -o main.c`, then link the archive `ffi/`
 # builds — `check.py` does both. What `bend main.bend` runs and what the
@@ -1890,12 +1894,19 @@ def edited.doc(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: St
 
 # The documents the resolutions among these keep items of, which a reader
 # fetches after the documents the revisions name and before it assembles.
+def kept_digests.of(+text: String, resolution: Bool) -> List<&2, String>:
+  match resolution:
+    case True{}:
+      Res.keeps(Res.parse(text))
+    case False{}:
+      Nil{}
+
 def kept_digests(ds: List<&2, Store.Doc>) -> List<&2, String>:
   match ds:
     case Nil{}:
       Nil{}
     case Store.Doc{path, id, size, +text} <> rest:
-      List.append(&2, String, Bool.pick(List<&2, String>, Res.is_resolution(text), Res.keeps(Res.parse(text)), Nil{}), kept_digests(rest))
+      List.append(&2, String, kept_digests.of(text, Res.is_resolution(text)), kept_digests(rest))
 
 def contents.said(+ds: List<&2, Store.Doc>, +id: String, +file: String, inherited: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, s: Said) -> Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>:
   match s:
@@ -1926,6 +1937,9 @@ def content.found(+file: String, found: Maybe<&2, Result<&2, &2, String, List<&2
       Fail{"no revision behind here says what " ++ file ++ " holds"}
     case Some{r}:
       r
+
+def content.in(oldest_first: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  content.found(file, content_of(contents.go(oldest_first, ds, file, Nil{}), id))
 
 def content(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   content.found(file, content_of(contents.go(List.reverse(&2, Full, presentation(fs)), ds, file, Nil{}), id))
@@ -2071,6 +2085,1382 @@ def show(+target: String, path: Maybe<&2, String>) -> IO(Unit):
     f : Full <- resolved(fs, bs2, target)
     show.of(fs, bs2, r, f, path)
 
+# What changed
+# ------------
+
+# A comparison laid over the parent: every line the parent held, in order,
+# as a context line or a removal, and each run that arrived where the
+# document puts it — removals first where a run was replaced. The positions
+# are the document's, counted into the parent, so this is arithmetic rather
+# than a second diff; `diff` renders it and `blame` reads its origins off it.
+type Laid is Data:
+  Laid{sign: String, item: Ops.Item}
+
+def laid.sign(l: Laid) -> String:
+  match l:
+    case Laid{sign, item}:
+      sign
+
+def laid.all(+sign: String, items: List<&2, Ops.Item>, acc: List<&2, Laid>) -> List<&2, Laid>:
+  match items:
+    case Nil{}:
+      acc
+    case it <> rest:
+      laid.all(sign, rest, Laid{sign, it} <> acc)
+
+# The parent's items still to lay, where they start, the operations still
+# to consult, and the lines laid so far, newest first.
+type Lay is Data:
+  Lay{items: List<&2, Ops.Item>, at: Nat, ops: List<&2, Ops.Op>, acc: List<&2, Laid>}
+
+def lay.arrived(+at: Nat, here: Bool, op: Ops.Op, rest: List<&2, Ops.Op>, acc: List<&2, Laid>) -> Lay:
+  match here op:
+    case True{} Ops.Op{v, p, items}:
+      Lay{Nil{}, at, rest, laid.all("+", items, acc)}
+    case False{} _:
+      Lay{Nil{}, at, op <> rest, acc}
+
+def lay.arrivals(+at: Nat, ops: List<&2, Ops.Op>, acc: List<&2, Laid>) -> Lay:
+  match ops:
+    case Ops.Op{Ops.Insert{}, +p, items} <> rest:
+      lay.arrived(at, Nat.is_eq(p, at), Ops.Op{Ops.Insert{}, p, items}, rest, acc)
+    case +other:
+      Lay{Nil{}, at, other, acc}
+
+def lay.context(items: List<&2, Ops.Item>, +at: Nat, l: Lay) -> Lay:
+  match items l:
+    case it <> rest Lay{none, a, ops, acc}:
+      Lay{rest, 1n+at, ops, Laid{" ", it} <> acc}
+    case Nil{} Lay{none, a, ops, acc}:
+      Lay{Nil{}, at, ops, acc}
+
+def lay.removed(+n: Nat, items: List<&2, Ops.Item>, +at: Nat, l: Lay) -> Lay:
+  match l:
+    case Lay{none, a, ops, acc}:
+      Lay{List.drop(&2, Ops.Item, items, n), Nat.add(at, n), ops, acc}
+
+def lay.delete(+items: List<&2, Ops.Item>, +at: Nat, +n: Nat, rest: List<&2, Ops.Op>, acc: List<&2, Laid>) -> Lay:
+  lay.removed(n, items, at, lay.arrivals(at, rest, laid.all("-", List.take(&2, Ops.Item, items, n), acc)))
+
+def lay.tail(ops: List<&2, Ops.Op>) -> List<&2, Ops.Op>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case op <> rest:
+      rest
+
+def lay.at(items: List<&2, Ops.Item>, +at: Nat, ops: List<&2, Ops.Op>, acc: List<&2, Laid>, deleting: Maybe<&2, Nat>) -> Lay:
+  match deleting:
+    case Some{n}:
+      lay.delete(items, at, n, lay.tail(ops), acc)
+    case None{}:
+      lay.context(items, at, lay.arrivals(at, ops, acc))
+
+def lay.deleting(+at: Nat, ops: List<&2, Ops.Op>) -> Maybe<&2, Nat>:
+  match ops:
+    case Ops.Op{Ops.Delete{}, +p, +gone} <> rest:
+      Bool.pick(Maybe<&2, Nat>, Nat.is_eq(p, at), Some{List.length(&2, Ops.Item, gone)}, None{})
+    case _:
+      None{}
+
+def lay.step(l: Lay) -> Lay:
+  match l:
+    case Lay{items, +at, +ops, acc}:
+      lay.at(items, at, ops, acc, lay.deleting(at, ops))
+
+def lay.go(fuel: Nat, l: Lay) -> List<&2, Laid>:
+  match fuel l:
+    case _ Lay{Nil{}, at, Nil{}, acc}:
+      List.reverse(&2, Laid, acc)
+    case 0n Lay{items, at, ops, acc}:
+      List.reverse(&2, Laid, acc)
+    case 1n+f Lay{items, at, ops, acc}:
+      lay.go(f, lay.step(Lay{items, at, ops, acc}))
+
+def laid(+before: List<&2, Ops.Item>, doc: Ops.Doc) -> List<&2, Laid>:
+  match doc:
+    case Ops.Doc{forgets, result, +ops}:
+      lay.go(Nat.add(1n+List.length(&2, Ops.Item, before), Nat.mul(2n, List.length(&2, Ops.Op, ops))), Lay{before, 0n, ops, Nil{}})
+
+# Hunks
+# -----
+
+# A line of the rendering and the colour it is drawn in where there is
+# colour: bold for a fact about a file, cyan for a hunk's header, red and
+# green for what left and arrived, nothing for context. Off, every line is
+# the bytes it would be anyway, which is what `historica diff | patch` sees.
+type Painted is Data:
+  Painted{code: String, text: String}
+
+def plain(text: String) -> Painted:
+  Painted{SNil{}, text}
+
+def meta(text: String) -> Painted:
+  Painted{"\u{1b}[1m", text}
+
+def sign_code(+sign: String) -> String:
+  Bool.pick(String, String.eq(sign, "-"), "\u{1b}[31m", Bool.pick(String, String.eq(sign, "+"), "\u{1b}[32m", SNil{}))
+
+# A laid line with its line number on each side, counting from one.
+type Numbered is Data:
+  Numbered{laid: Laid, before: Nat, after: Nat}
+
+def numbered(ls: List<&2, Laid>, +b: Nat, +a: Nat) -> List<&2, Numbered>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Laid{+sign, it} <> rest:
+      Numbered{Laid{sign, it}, b, a} <> numbered(rest, Bool.pick(Nat, String.eq(sign, "+"), b, 1n+b), Bool.pick(Nat, String.eq(sign, "-"), a, 1n+a))
+
+def numbered.sign(n: Numbered) -> String:
+  match n:
+    case Numbered{l, b, a}:
+      laid.sign(l)
+
+# A run of lines to print, `end` exclusive.
+type Span2 is Data:
+  Span2{start: Nat, end: Nat}
+
+# Three lines of context around each change, and two runs whose context
+# would print a line twice are one.
+def spans.add(+start: Nat, +end: Nat, acc: List<&2, Span2>) -> List<&2, Span2>:
+  match acc:
+    case Span2{+s, +e} <> +rest:
+      Bool.pick(List<&2, Span2>, Nat.is_ge(e, start), Span2{s, Nat.max(end, e)} <> rest, Span2{start, end} <> Span2{s, e} <> rest)
+    case Nil{}:
+      [Span2{start, end}]
+
+def spans.at(+i: Nat, +len: Nat, changed: Bool, acc: List<&2, Span2>) -> List<&2, Span2>:
+  match changed:
+    case True{}:
+      spans.add(Nat.sub(i, 3n), Nat.min(Nat.add(i, 4n), len), acc)
+    case False{}:
+      acc
+
+def spans(ns: List<&2, Numbered>, +i: Nat, +len: Nat, acc: List<&2, Span2>) -> List<&2, Span2>:
+  match ns:
+    case Nil{}:
+      List.reverse(&2, Span2, acc)
+    case n <> rest:
+      spans(rest, 1n+i, len, spans.at(i, len, Bool.not(String.eq(numbered.sign(n), " ")), acc))
+
+def hunk.count(ns: List<&2, Numbered>, +skip: String) -> Nat:
+  match ns:
+    case Nil{}:
+      0n
+    case n <> rest:
+      Nat.add(Bool.pick(Nat, String.eq(numbered.sign(n), skip), 0n, 1n), hunk.count(rest, skip))
+
+def hunk.first(ns: List<&2, Numbered>, before: Bool) -> Nat:
+  match ns:
+    case Nil{}:
+      0n
+    case Numbered{l, b, a} <> rest:
+      Bool.pick(Nat, before, b, a)
+
+def hunk.side(+count: Nat, first: Nat) -> Nat:
+  Bool.pick(Nat, Nat.is_eq(count, 0n), 0n, first)
+
+# One line of a comparison, and the marker after one that ends without a
+# newline.
+def laid.text(+sign: String, it: Ops.Item) -> List<&2, Painted>:
+  match it:
+    case Ops.Item{t, True{}, f}:
+      [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, True{}, f})}]
+    case Ops.Item{t, False{}, f}:
+      [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, False{}, f})}, Painted{sign_code(sign), "\\ no newline at end of file"}]
+
+def hunk.lines(ns: List<&2, Numbered>) -> List<&2, Painted>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case Numbered{Laid{sign, it}, b, a} <> rest:
+      List.append(&2, Painted, laid.text(sign, it), hunk.lines(rest))
+
+def hunk(+ns: List<&2, Numbered>, sp: Span2) -> List<&2, Painted>:
+  match sp:
+    case Span2{+start, end}:
+      +slice = List.take(&2, Numbered, List.drop(&2, Numbered, ns, start), Nat.sub(end, start))
+      +bc = hunk.count(slice, "+")
+      +ac = hunk.count(slice, "-")
+      Painted{"\u{1b}[36m", "@@ -" ++ Nat.show(hunk.side(bc, hunk.first(slice, True{}))) ++ "," ++ Nat.show(bc) ++ " +" ++ Nat.show(hunk.side(ac, hunk.first(slice, False{}))) ++ "," ++ Nat.show(ac) ++ " @@"} <> hunk.lines(slice)
+
+def hunks.of(+ns: List<&2, Numbered>, sps: List<&2, Span2>) -> List<&2, Painted>:
+  match sps:
+    case Nil{}:
+      Nil{}
+    case sp <> rest:
+      List.append(&2, Painted, hunk(ns, sp), hunks.of(ns, rest))
+
+def hunks(+ls: List<&2, Laid>) -> List<&2, Painted>:
+  +ns = numbered(ls, 1n, 1n)
+  hunks.of(ns, spans(ns, 0n, List.length(&2, Numbered, ns), Nil{}))
+
+# diff
+# ----
+
+# What one side holds of a file: its lines, or the digest of a file of
+# bytes and how many there are, where the store holds them.
+type Side is Data:
+  Side.Lines{items: List<&2, Ops.Item>}
+  Side.Whole{digest: String, size: Maybe<&2, Nat>}
+
+def side.digest(s: Maybe<&2, Side>) -> String:
+  match s:
+    case None{}:
+      SNil{}
+    case Some{Side.Lines{items}}:
+      Ops.state_digest(items)
+    case Some{Side.Whole{d, n}}:
+      d
+
+# A link's target as a person reads it at that revision: the path a `file:`
+# target resolves to there, and the identity beside it.
+def shown.target(+t: Tree.Tree(), +at: String, target: Tree.Target) -> String:
+  match target:
+    case Tree.Reference{+file}:
+      materialise(t, at, Tree.Reference{file}) ++ " (file:" ++ String.take(file, 8n) ++ ")"
+    case Tree.Verbatim{spelling}:
+      spelling
+
+def shown(+t: Tree.Tree(), e: Maybe<&2, Tree.Entry>) -> Maybe<&2, String>:
+  match e:
+    case None{}:
+      None{}
+    case Some{Tree.Entry{f, +p, k, y, g, m}}:
+      Maybe.map(&2, Tree.Target, String, x => shown.target(t, p, x), g)
+
+# Where a link pointed on each side, where they differ; `None` on a side
+# that holds no link at all.
+type Retarget is Data:
+  Retarget{was: Maybe<&2, String>, now: Maybe<&2, String>}
+
+# One file as the two sides hold it.
+# `stated` is the operation document the revision wrote for this file, where
+# the comparison is what that revision did: the Rust tool recomputes it
+# with the diff `record` wrote it with, so rendering the one `record` wrote
+# is the same answer without that algorithm here.
+type Compared is Data:
+  Compared{from: Maybe<&2, String>, to: Maybe<&2, String>, before: Maybe<&2, Side>, after: Maybe<&2, Side>,
+       modes: Maybe<&2, T.Split>, targets: Maybe<&2, Retarget>, stated: Maybe<&2, Ops.Doc>}
+
+def maybe_eq(a: Maybe<&2, String>, b: Maybe<&2, String>) -> Bool:
+  match a b:
+    case None{} None{}:
+      True{}
+    case Some{x} Some{y}:
+      String.eq(x, y)
+    case _ _:
+      False{}
+
+def side.present(s: Maybe<&2, Side>) -> Bool:
+  match s:
+    case None{}:
+      False{}
+    case Some{x}:
+      True{}
+
+def pair.differs(p: Compared) -> Bool:
+  match p:
+    case Compared{from, to, +before, +after, modes, targets, stated}:
+      Bool.or(Bool.or(Bool.not(maybe_eq(from, to)), Bool.or(Maybe.is_some(&2, T.Split, modes), Maybe.is_some(&2, Retarget, targets))),
+        Bool.or(Bool.xor(side.present(before), side.present(after)), Bool.not(String.eq(side.digest(before), side.digest(after)))))
+
+def entry.path(e: Maybe<&2, Tree.Entry>) -> Maybe<&2, String>:
+  Maybe.map(&2, Tree.Entry, String, x => Tree.entry_path(x), e)
+
+def modes(was: Maybe<&2, Tree.Entry>, now: Maybe<&2, Tree.Entry>) -> Maybe<&2, T.Split>:
+  match was now:
+    case Some{Tree.Entry{f, p, Tree.Link{}, y, g, m}} _:
+      None{}
+    case Some{Tree.Entry{f, p, k, y, g, +m}} Some{Tree.Entry{f2, p2, k2, y2, g2, +m2}}:
+      Bool.pick(Maybe<&2, T.Split>, Tree.mode_eq(m, m2), None{}, Some{T.Split{Tree.mode_show(m), Tree.mode_show(m2)}})
+    case _ _:
+      None{}
+
+def retargeting(was: Maybe<&2, String>, now: Maybe<&2, String>) -> Maybe<&2, Retarget>:
+  match was now:
+    case None{} None{}:
+      None{}
+    case Some{+a} Some{+b}:
+      Bool.pick(Maybe<&2, Retarget>, String.eq(a, b), None{}, Some{Retarget{Some{a}, Some{b}}})
+    case x y:
+      Some{Retarget{x, y}}
+
+# Rendering
+# ---------
+
+def spelled.side(s: Maybe<&2, String>) -> String:
+  match s:
+    case None{}:
+      SNil{}
+    case Some{x}:
+      " " ++ x
+
+def binary.side(s: Maybe<&2, Side>) -> String:
+  match s:
+    case None{}:
+      SNil{}
+    case Some{Side.Whole{d, None{}}}:
+      " " ++ String.take(d, 12n)
+    case Some{Side.Whole{d, Some{n}}}:
+      " " ++ String.take(d, 12n) ++ " " ++ Nat.show(n) ++ " bytes"
+    case Some{Side.Lines{+items}}:
+      " " ++ String.take(Ops.state_digest(items), 12n) ++ " " ++ Nat.show(List.length(&2, U32, Utf8.encode(Ops.text(items)))) ++ " bytes"
+
+def side.lines(s: Maybe<&2, Side>) -> Maybe<&2, List<&2, Ops.Item>>:
+  match s:
+    case None{}:
+      Some{Nil{}}
+    case Some{Side.Lines{items}}:
+      Some{items}
+    case Some{Side.Whole{d, n}}:
+      None{}
+
+def render.facts(from: Maybe<&2, String>, to: Maybe<&2, String>) -> List<&2, Painted>:
+  match from to:
+    case None{} Some{p}:
+      [meta("new file " ++ p)]
+    case Some{p} None{}:
+      [meta("deleted file " ++ p)]
+    case Some{+a} Some{+b}:
+      Bool.pick(List<&2, Painted>, String.eq(a, b), Nil{}, [meta("rename from " ++ a), meta("rename to " ++ b)])
+    case _ _:
+      Nil{}
+
+def render.mode(+path: String, m: Maybe<&2, T.Split>) -> List<&2, Painted>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{T.Split{was, now}}:
+      [meta("mode " ++ path ++ " " ++ was ++ " -> " ++ now)]
+
+def render.link(+path: String, t: Maybe<&2, Retarget>) -> List<&2, Painted>:
+  match t:
+    case None{}:
+      Nil{}
+    case Some{Retarget{was, now}}:
+      [meta("link " ++ path ++ spelled.side(was) ++ " ->" ++ spelled.side(now))]
+
+def render.hunks(+left: String, +right: String, +before: List<&2, Ops.Item>, d: Maybe<&2, Ops.Doc>) -> List<&2, Painted>:
+  match d:
+    case None{}:
+      Nil{}
+    case Some{doc}:
+      meta("--- " ++ left) <> meta("+++ " ++ right) <> hunks(laid(before, doc))
+
+def render.doc(+b: List<&2, Ops.Item>, a: List<&2, Ops.Item>, stated: Maybe<&2, Ops.Doc>) -> Maybe<&2, Ops.Doc>:
+  match stated:
+    case Some{d}:
+      Some{d}
+    case None{}:
+      Ops.diff(b, a)
+
+def render.content(+left: String, +right: String, before: Maybe<&2, List<&2, Ops.Item>>, after: Maybe<&2, List<&2, Ops.Item>>, +whole: String, stated: Maybe<&2, Ops.Doc>) -> List<&2, Painted>:
+  match before after:
+    case Some{+b} Some{a}:
+      render.hunks(left, right, b, render.doc(b, a, stated))
+    case _ _:
+      [meta("--- " ++ left), meta("+++ " ++ right), meta("binary files differ:" ++ whole)]
+
+def render(p: Compared) -> List<&2, Painted>:
+  match p:
+    case Compared{+from, +to, +before, +after, modes, targets, stated}:
+      +path = Maybe.default(&2, String, Maybe.or(&2, String, to, from), "?")
+      List.append(&2, Painted, render.facts(from, to), List.append(&2, Painted, render.mode(path, modes), List.append(&2, Painted, render.link(path, targets),
+        render.content(Maybe.default(&2, String, Maybe.map(&2, String, String, x => "a/" ++ x, from), "/dev/null"), Maybe.default(&2, String, Maybe.map(&2, String, String, x => "b/" ++ x, to), "/dev/null"),
+          side.lines(before), side.lines(after), binary.side(before) ++ " ->" ++ binary.side(after), stated))))
+
+def print_lines(ls: List<&2, String>) -> IO(Unit):
+  match ls:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case l <> rest:
+      do IO<Unit>:
+        IO.print(l)
+        print_lines(rest)
+
+def diff.rendered(ps: List<&2, Compared>) -> List<&2, Painted>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      List.append(&2, Painted, render(p), diff.rendered(rest))
+
+def painted(+paint: Bool, p: Painted) -> String:
+  match p:
+    case Painted{+code, +text}:
+      Bool.pick(String, Bool.and(paint, Bool.not(String.is_empty(code))), code ++ text ++ "\u{1b}[0m", text)
+
+def print_painted(+paint: Bool, ls: List<&2, Painted>) -> IO(Unit):
+  match ls:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case l <> rest:
+      do IO<Unit>:
+        IO.print(painted(paint, l))
+        print_painted(paint, rest)
+
+def print_pairs(+paint: Bool, ps: List<&2, Compared>) -> IO(Unit):
+  match ps:
+    case Nil{}:
+      IO.print("nothing differs")
+    case +some:
+      print_painted(paint, diff.rendered(some))
+
+# The command
+# -----------
+
+# What `diff` was asked: `--onto`, `--color`, and the rest in order.
+type DiffAsked is Data:
+  DiffAsked{onto: Maybe<&2, String>, color: String, rest: List<&2, String>}
+
+type DParse is Data:
+  DParse{args: List<&2, String>, asked: Result<&2, &2, String, DiffAsked>}
+
+def dasked.onto(a: DiffAsked, v: String) -> DiffAsked:
+  match a:
+    case DiffAsked{o, c, r}:
+      DiffAsked{Some{v}, c, r}
+
+def dasked.word(a: DiffAsked, w: String) -> DiffAsked:
+  match a:
+    case DiffAsked{o, c, r}:
+      DiffAsked{o, c, w <> r}
+
+def dasked.set_color(a: DiffAsked, v: String) -> DiffAsked:
+  match a:
+    case DiffAsked{o, c, r}:
+      DiffAsked{o, v, r}
+
+def color_ok(+v: String) -> Bool:
+  Bool.or(String.eq(v, "auto"), Bool.or(String.eq(v, "always"), String.eq(v, "never")))
+
+def dasked.color(a: DiffAsked, +v: String, ok: Bool) -> Result<&2, &2, String, DiffAsked>:
+  match ok:
+    case True{}:
+      Done{dasked.set_color(a, v)}
+    case False{}:
+      Fail{"`" ++ v ++ "` is not a `--color` setting; it is `auto`, which decorates a terminal and nothing else, `always`, or `never`"}
+
+def dasked.other(a: DiffAsked, +w: String, spelled: Maybe<&2, String>) -> Result<&2, &2, String, DiffAsked>:
+  match spelled:
+    case Some{+v}:
+      dasked.color(a, v, color_ok(v))
+    case None{}:
+      Done{dasked.word(a, w)}
+
+def dasked.step(args: List<&2, String>, a: DiffAsked) -> DParse:
+  match args:
+    case "--onto" <> v <> rest:
+      DParse{rest, Done{dasked.onto(a, v)}}
+    case "--onto" <> Nil{}:
+      DParse{Nil{}, Fail{"`--onto` wants a value"}}
+    case "--color" <> +v <> rest:
+      DParse{rest, dasked.color(a, v, color_ok(v))}
+    case "--color" <> Nil{}:
+      DParse{Nil{}, Fail{"`--color` wants `auto`, `always`, or `never`"}}
+    case +w <> rest:
+      DParse{rest, dasked.other(a, w, T.strip_prefix(w, "--color="))}
+    case Nil{}:
+      DParse{Nil{}, Done{a}}
+
+def dasked.go(fuel: Nat, p: DParse) -> Result<&2, &2, String, DiffAsked>:
+  match fuel p:
+    case _ DParse{rest, Fail{e}}:
+      Fail{e}
+    case _ DParse{Nil{}, r}:
+      r
+    case 0n DParse{rest, r}:
+      r
+    case 1n+f DParse{args, Done{a}}:
+      dasked.go(f, dasked.step(args, a))
+
+def dasked.io(r: Result<&2, &2, String, DiffAsked>) -> IO(DiffAsked):
+  match r:
+    case Fail{e}:
+      die(DiffAsked, 2, e)
+    case Done{a}:
+      IO.pure(DiffAsked, a)
+
+# Whether a spelling could name a target at all: `head`, a bookmark, or a
+# spelling in either alphabet. What nothing else could name is a path.
+def could_be_target(+bs: List<&2, Bm.Bookmark>, +s: String) -> Bool:
+  Bool.and(Bool.not(String.is_empty(s)), Bool.or(Bool.or(String.eq(s, "head"), Maybe.is_some(&2, Bm.Target, Bm.find(bs, s))),
+    Bool.or(all_chars(~(c => is_hex(c)), s), all_chars(~(c => Id.is_letter(c)), s))))
+
+# What that revision did is a comparison with its parent; a merge has more
+# than one, and which a reader means is theirs to say.
+def sole_parent.named(+id: String, ps: List<&2, String>) -> String:
+  match ps:
+    case Nil{}:
+      SNil{}
+    case p <> rest:
+      "\n  historica diff " ++ String.take(id, 12n) ++ " --onto " ++ String.take(p, 12n) ++ sole_parent.named(id, rest)
+
+def sole_parent.of(+id: String, ps: List<&2, String>) -> IO(Maybe<&2, String>):
+  match ps:
+    case Nil{}:
+      IO.pure(Maybe<&2, String>, None{})
+    case p <> Nil{}:
+      IO.pure(Maybe<&2, String>, Some{p})
+    case +several:
+      die(Maybe<&2, String>, 1, String.take(id, 12n) ++ " is a merge, so what it did depends on which side you are asking about; name one with --onto:" ++ sole_parent.named(id, several))
+
+def diff.left(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: Full, onto: Maybe<&2, String>) -> IO(Maybe<&2, String>):
+  match onto:
+    case Some{t}:
+      do IO<Maybe<&2, String>>:
+        f : Full <- resolved(fs, bs, t)
+        return Some{id_of(f)}
+    case None{}:
+      sole_parent.of(id_of(right), parents_of(right))
+
+# The one file a comparison is limited to: an identifier, which both sides
+# share through any rename, or a path, which either side may hold.
+type Limit is Data:
+  Limit.None{}
+  Limit.File{file: String}
+  Limit.Path{path: String}
+
+def limit.wants(l: Limit, +file: String, was: Maybe<&2, String>, now: Maybe<&2, String>) -> Bool:
+  match l:
+    case Limit.None{}:
+      True{}
+    case Limit.File{+f}:
+      String.eq(f, file)
+    case Limit.Path{+p}:
+      Bool.or(maybe_eq(was, Some{p}), maybe_eq(now, Some{p}))
+
+def diff.limit.file(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, +sp: String) -> IO(Limit):
+  do IO<Limit>:
+    t : Tree.Tree() <- tree(fs, right)
+    f : String <- file_in(right, bs, sp, t)
+    return Limit.File{f}
+
+def diff.limit(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, only: Maybe<&2, String>) -> IO(Limit):
+  match only:
+    case None{}:
+      IO.pure(Limit, Limit.None{})
+    case Some{+sp}:
+      Bool.pick(IO(Limit), String.starts_with(sp, "file:"), diff.limit.file(fs, bs, right, sp), IO.pure(Limit, Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}))
+
+# Which revisions stated each file's content, on one side: its ancestry's
+# `text`, `bytes` and `edit` lines, newest first. Two sides whose lists for
+# a file agree hold the same content for it — the same documents over the
+# same graph — so only a file whose lists differ, or that one side lacks, is
+# read at all; the rest are equal without being replayed.
+def stating.put(+id: String, +file: String, r: Map<&2, List<&2, String>> & List<&2, String>) -> Map<&2, List<&2, String>>:
+  (m, had) = r
+  Map.set(&2, List<&2, String>, m, file, id <> had)
+
+def stating.key(+k: String) -> Bool:
+  Bool.or(String.eq(k, "text"), Bool.or(String.eq(k, "bytes"), String.eq(k, "edit")))
+
+def stating.fact(+id: String, m: Map<&2, List<&2, String>>, +file: String, content: Bool) -> Map<&2, List<&2, String>>:
+  match content:
+    case True{}:
+      stating.put(id, file, Map.get(List<&2, String>, Nil{}, m, file))
+    case False{}:
+      m
+
+def stating.facts(+id: String, facts: List<&2, Rev.Header>, m: Map<&2, List<&2, String>>) -> Map<&2, List<&2, String>>:
+  match facts:
+    case Nil{}:
+      m
+    case Rev.Header{+k, +v} <> rest:
+      stating.facts(id, rest, stating.fact(id, m, T.word(v), stating.key(k)))
+
+def stating(fs: List<&2, Full>, m: Map<&2, List<&2, String>>) -> Map<&2, List<&2, String>>:
+  match fs:
+    case Nil{}:
+      m
+    case +f <> rest:
+      stating(rest, stating.facts(id_of(f), facts_of(f), m))
+
+def same_list(xs: List<&2, String>, ys: List<&2, String>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case x <> xr y <> yr:
+      Bool.and(String.eq(x, y), same_list(xr, yr))
+    case _ _:
+      False{}
+
+def stated.lists(r: Map<&2, List<&2, String>> & List<&2, String>) -> List<&2, String>:
+  (m, xs) = r
+  xs
+
+# Both sides, and what reading content on them needs.
+type Sides is Data:
+  Sides{before: Tree.Tree(), after: Tree.Tree(), older: List<&2, Full>, newer: List<&2, Full>, docs: List<&2, Store.Doc>,
+        left: String, right: String, all: Bool, facts: List<&2, Rev.Header>, was_stated: Map<&2, List<&2, String>>, now_stated: Map<&2, List<&2, String>>}
+
+def side.read(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +at: String, +file: String, needed: Bool) -> Result<&2, &2, String, Maybe<&2, Side>>:
+  match needed:
+    case True{}:
+      Result.map(&2, &2, String, List<&2, Ops.Item>, Maybe<&2, Side>, items => Some{Side.Lines{items}}, content.in(oldest, ds, at, file))
+    case False{}:
+      Done{Some{Side.Lines{Nil{}}}}
+
+# What one side holds of a file: nothing for a link, whose target is said
+# instead, the digest for a file of bytes, and the lines — where this
+# comparison could find them changed, and otherwise a stand-in both sides
+# share, since a file the revision said nothing about is what its parent
+# held.
+def side(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +at: String, +file: String, needed: Bool, e: Maybe<&2, Tree.Entry>) -> Result<&2, &2, String, Maybe<&2, Side>>:
+  match e:
+    case None{}:
+      Done{None{}}
+    case Some{Tree.Entry{f, p, Tree.Link{}, y, g, m}}:
+      Done{None{}}
+    case Some{Tree.Entry{f, p, Tree.Whole{}, y, g, m}}:
+      Done{Some{Side.Whole{Maybe.default(&2, String, y, SNil{}), None{}}}}
+    case Some{Tree.Entry{f, p, Tree.Lines{}, y, g, m}}:
+      side.read(oldest, ds, at, file, needed)
+
+def compare.built(+c: Compared) -> Maybe<&2, Compared>:
+  Bool.pick(Maybe<&2, Compared>, pair.differs(c), Some{c}, None{})
+
+# The operation document the revision stated for a file, where the
+# comparison is with its own parent and it stated one.
+def stated.parsed(r: Result<&2, &2, String, Ops.Doc>) -> Maybe<&2, Ops.Doc>:
+  match r:
+    case Done{d}:
+      Some{d}
+    case Fail{e}:
+      None{}
+
+def stated.text(+text: String, resolution: Bool) -> Maybe<&2, Ops.Doc>:
+  match resolution:
+    case True{}:
+      None{}
+    case False{}:
+      stated.parsed(Ops.parse(text))
+
+def stated.found(doc: Maybe<&2, String>) -> Maybe<&2, Ops.Doc>:
+  match doc:
+    case None{}:
+      None{}
+    case Some{+text}:
+      stated.text(text, Res.is_resolution(text))
+
+def stated_doc(all: Bool, +ds: List<&2, Store.Doc>, s: Said) -> Maybe<&2, Ops.Doc>:
+  match all s:
+    case False{} Edited{+d}:
+      stated.found(doc_by_id(ds, d))
+    case _ _:
+      None{}
+
+# A file is read where one side lacks it or the two were stated by
+# different revisions.
+def compare.needed(+ws: Map<&2, List<&2, String>>, +ns: Map<&2, List<&2, String>>, +file: String, +was: Maybe<&2, Tree.Entry>, +now: Maybe<&2, Tree.Entry>) -> Bool:
+  Bool.or(Bool.xor(Maybe.is_some(&2, Tree.Entry, was), Maybe.is_some(&2, Tree.Entry, now)),
+    Bool.not(same_list(stated.lists(Map.get(List<&2, String>, Nil{}, ws, file)), stated.lists(Map.get(List<&2, String>, Nil{}, ns, file)))))
+
+def compare.sides(+sd: Sides, +file: String, +was: Maybe<&2, Tree.Entry>, +now: Maybe<&2, Tree.Entry>) -> Result<&2, &2, String, Maybe<&2, Compared>>:
+  match sd:
+    case Sides{+before, +after, +older, +newer, +ds, +left, +right, all, +facts, +ws, +ns}:
+      +needed = compare.needed(ws, ns, file, was, now)
+      do Result<&2, &2, String, Maybe<&2, Compared>>:
+        b : Maybe<&2, Side> <- side(older, ds, left, file, needed, was)
+        a : Maybe<&2, Side> <- side(newer, ds, right, file, needed, now)
+        return compare.built(Compared{entry.path(was), entry.path(now), b, a, modes(was, now), retargeting(shown(before, was), shown(after, now)), stated_doc(all, ds, said(facts, file))})
+
+def compare.wanted(+sd: Sides, +file: String, +was: Maybe<&2, Tree.Entry>, +now: Maybe<&2, Tree.Entry>, wants: Bool) -> Result<&2, &2, String, Maybe<&2, Compared>>:
+  match wants:
+    case True{}:
+      compare.sides(sd, file, was, now)
+    case False{}:
+      Done{None{}}
+
+def sides.before(sd: Sides) -> Tree.Tree():
+  match sd:
+    case Sides{before, after, older, newer, ds, left, right, all, facts, ws, ns}:
+      before
+
+def sides.after(sd: Sides) -> Tree.Tree():
+  match sd:
+    case Sides{before, after, older, newer, ds, left, right, all, facts, ws, ns}:
+      after
+
+# One file on both sides, found by walking the two trees together: each is
+# in identifier order, so the pairing is one pass rather than a lookup in
+# each for every file.
+type Both is Data:
+  Both{file: String, was: Maybe<&2, Tree.Entry>, now: Maybe<&2, Tree.Entry>}
+
+def both.cmp(xs: List<&2, Tree.Entry>, ys: List<&2, Tree.Entry>) -> Cmp:
+  match xs ys:
+    case x <> xr y <> yr:
+      String.order(Tree.entry_file(x), Tree.entry_file(y))
+    case Nil{} _:
+      GT{}
+    case _ Nil{}:
+      LT{}
+
+def both.go(fuel: Nat, xs: List<&2, Tree.Entry>, ys: List<&2, Tree.Entry>, c: Cmp) -> List<&2, Both>:
+  match fuel xs ys c:
+    case 0n _ _ _:
+      Nil{}
+    case _ Nil{} Nil{} _:
+      Nil{}
+    case 1n+f +x <> +xr +y <> +yr EQ{}:
+      Both{Tree.entry_file(x), Some{x}, Some{y}} <> both.go(f, xr, yr, both.cmp(xr, yr))
+    case 1n+f +x <> +xr +ys2 LT{}:
+      Both{Tree.entry_file(x), Some{x}, None{}} <> both.go(f, xr, ys2, both.cmp(xr, ys2))
+    case 1n+f +xs2 +y <> +yr _:
+      Both{Tree.entry_file(y), None{}, Some{y}} <> both.go(f, xs2, yr, both.cmp(xs2, yr))
+    case 1n+f +x <> +xr Nil{} _:
+      Both{Tree.entry_file(x), Some{x}, None{}} <> both.go(f, xr, Nil{}, both.cmp(xr, Nil{}))
+
+def by_file(+a: Tree.Entry, +b: Tree.Entry) -> Bool:
+  String.is_le(Tree.entry_file(a), Tree.entry_file(b))
+
+def both(xs: List<&2, Tree.Entry>, ys: List<&2, Tree.Entry>) -> List<&2, Both>:
+  +xs2 = List.sort(~Tree.Entry, ~(a => b => by_file(a, b)), xs)
+  +ys2 = List.sort(~Tree.Entry, ~(a => b => by_file(a, b)), ys)
+  both.go(1n+Nat.add(List.length(&2, Tree.Entry, xs2), List.length(&2, Tree.Entry, ys2)), xs2, ys2, both.cmp(xs2, ys2))
+
+def compare.one(+sd: Sides, +l: Limit, b: Both) -> Result<&2, &2, String, Maybe<&2, Compared>>:
+  match b:
+    case Both{+file, +was, +now}:
+      compare.wanted(sd, file, was, now, limit.wants(l, file, entry.path(was), entry.path(now)))
+
+def compare.push(m: Maybe<&2, Compared>, rest: List<&2, Compared>) -> List<&2, Compared>:
+  match m:
+    case None{}:
+      rest
+    case Some{c}:
+      c <> rest
+
+def compare(+sd: Sides, +l: Limit, files: List<&2, Both>) -> Result<&2, &2, String, List<&2, Compared>>:
+  match files:
+    case Nil{}:
+      Done{Nil{}}
+    case f <> rest:
+      do Result<&2, &2, String, List<&2, Compared>>:
+        here : Maybe<&2, Compared> <- compare.one(sd, l, f)
+        later : List<&2, Compared> <- compare(sd, l, rest)
+        return compare.push(here, later)
+
+# Each identifier once, in order.
+def distinct.keep(+a: String, rest: List<&2, String>, same: Bool) -> List<&2, String>:
+  match same:
+    case True{}:
+      rest
+    case False{}:
+      a <> rest
+
+def distinct(xs: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case +a <> +b <> rest:
+      distinct.keep(a, distinct(b <> rest), String.eq(a, b))
+    case other:
+      other
+
+def both.files(bs: List<&2, Both>) -> List<&2, String>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Both{f, w, n} <> rest:
+      f <> both.files(rest)
+
+# The documents every file this comparison reads needs, fetched at once.
+# Matched rather than picked: `Bool.pick` is strict, and would walk the
+# history for every file in the tree to throw most of it away.
+def compare.wanted_one(+fs: List<&2, Full>, +f: String, needed: Bool) -> List<&2, String>:
+  match needed:
+    case True{}:
+      wanted(fs, f)
+    case False{}:
+      Nil{}
+
+def compare.wanted_docs(+fs: List<&2, Full>, +ws: Map<&2, List<&2, String>>, +ns: Map<&2, List<&2, String>>, files: List<&2, Both>) -> List<&2, String>:
+  match files:
+    case Nil{}:
+      Nil{}
+    case Both{+f, +was, +now} <> rest:
+      List.append(&2, String, compare.wanted_one(fs, f, compare.needed(ws, ns, f, was, now)), compare.wanted_docs(fs, ws, ns, rest))
+
+# How many bytes each payload is, asked of the host and believed only where
+# the digest it reports is the one asked for.
+def sizes.keep(+d: String, +p: String, rest: List<&2, T.Split>, missing: Bool) -> List<&2, T.Split>:
+  match missing:
+    case True{}:
+      rest
+    case False{}:
+      T.Split{d, p} <> rest
+
+def sizes.of(+root: String, digests: List<&2, String>, located: List<&2, String>) -> List<&2, T.Split>:
+  match digests located:
+    case +d <> rest +p <> more:
+      sizes.keep(d, p, sizes.of(root, rest, more), String.eq(p, "-"))
+    case _ _:
+      Nil{}
+
+def sizes.believed(+d: String, +st: String, rest: List<&2, T.Split>, same: Bool) -> List<&2, T.Split>:
+  match same:
+    case True{}:
+      T.Split{d, String.drop(st, 65n)} <> rest
+    case False{}:
+      rest
+
+def sizes.read(found: List<&2, T.Split>, stats: List<&2, String>) -> List<&2, T.Split>:
+  match found stats:
+    case T.Split{+d, p} <> rest +st <> more:
+      sizes.believed(d, st, sizes.read(rest, more), String.eq(T.word(st), d))
+    case _ _:
+      Nil{}
+
+def size_of(ss: List<&2, T.Split>, +d: String) -> Maybe<&2, Nat>:
+  match ss:
+    case Nil{}:
+      None{}
+    case T.Split{+x, n} <> rest:
+      Bool.pick(Maybe<&2, Nat>, String.eq(x, d), Nat.read(n), size_of(rest, d))
+
+def side.sized(+ss: List<&2, T.Split>, s: Maybe<&2, Side>) -> Maybe<&2, Side>:
+  match s:
+    case Some{Side.Whole{+d, n}}:
+      Some{Side.Whole{d, size_of(ss, d)}}
+    case other:
+      other
+
+def sized(+ss: List<&2, T.Split>, cs: List<&2, Compared>) -> List<&2, Compared>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case Compared{f, t, b, a, m, g, d} <> rest:
+      Compared{f, t, side.sized(ss, b), side.sized(ss, a), m, g, d} <> sized(ss, rest)
+
+def side.payload(s: Maybe<&2, Side>) -> List<&2, String>:
+  match s:
+    case Some{Side.Whole{d, n}}:
+      [d]
+    case _:
+      Nil{}
+
+def payloads_of(cs: List<&2, Compared>) -> List<&2, String>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case Compared{f, t, b, a, m, g, d} <> rest:
+      List.append(&2, String, side.payload(b), List.append(&2, String, side.payload(a), payloads_of(rest)))
+
+def split_rests(xs: List<&2, T.Split>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case T.Split{a, b} <> rest:
+      b <> split_rests(rest)
+
+def diff.sized(+root: String, +paint: Bool, cs: List<&2, Compared>) -> IO(Unit):
+  do IO<Unit>:
+    +cs2 : List<&2, Compared> = cs
+    +ds : List<&2, String> = distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), payloads_of(cs2)))
+    at : List<&2, String> <- Store.located(root, ds)
+    +found : List<&2, T.Split> = sizes.of(root, ds, at)
+    stats : List<&2, String> <- Store.stats(root, split_rests(found))
+    print_pairs(paint, sized(sizes.read(found, stats), cs2))
+
+def diff.compared(+root: String, +paint: Bool, r: Result<&2, &2, String, List<&2, Compared>>) -> IO(Unit):
+  match r:
+    case Fail{e}:
+      die(Unit, 1, e)
+    case Done{cs}:
+      diff.sized(root, paint, cs)
+
+def oldest_of(+fs: List<&2, Full>, at: Maybe<&2, String>) -> List<&2, Full>:
+  match at:
+    case None{}:
+      Nil{}
+    case Some{+id}:
+      List.reverse(&2, Full, presentation(ancestry(fs, id)))
+
+def tree.maybe(+fs: List<&2, Full>, at: Maybe<&2, String>) -> IO(Tree.Tree()):
+  match at:
+    case None{}:
+      IO.pure(Tree.Tree(), Nil{})
+    case Some{+id}:
+      tree(fs, id)
+
+def diff.revisions(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: Full, +all: Bool, +paint: Bool, only: Maybe<&2, String>, left: Maybe<&2, String>) -> IO(Unit):
+  do IO<Unit>:
+    +l : Maybe<&2, String> = left
+    +r : String = id_of(right)
+    lim : Limit <- diff.limit(fs, bs, r, only)
+    before : Tree.Tree() <- tree.maybe(fs, l)
+    after : Tree.Tree() <- tree(fs, r)
+    +b2 : Tree.Tree() = before
+    +a2 : Tree.Tree() = after
+    +pairs : List<&2, Both> = both(b2, a2)
+    +older : List<&2, Full> = oldest_of(fs, l)
+    +newer : List<&2, Full> = oldest_of(fs, Some{r})
+    +ws : Map<&2, List<&2, String>> = stating(older, Map.new(&2, List<&2, String>))
+    +ns : Map<&2, List<&2, String>> = stating(newer, Map.new(&2, List<&2, String>))
+    ds : List<&2, Store.Doc> <- Store.fetch(root, compare.wanted_docs(fs, ws, ns, pairs))
+    +ds2 : List<&2, Store.Doc> = ds
+    more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
+    diff.compared(root, paint, compare(Sides{b2, a2, older, newer, List.append(&2, Store.Doc, ds2, more), Maybe.default(&2, String, l, SNil{}), r, all, facts_of(right), ws, ns}, lim, pairs))
+
+def diff.named(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, String>, +paint: Bool, named: Maybe<&2, String>, only: Maybe<&2, String>) -> IO(Unit):
+  match named:
+    case None{}:
+      die(Unit, 1, "the folder is not read here, so `diff` compares what two revisions recorded: name one, as `diff <target> [<path>]`, and `--onto` for the other")
+    case Some{t}:
+      do IO<Unit>:
+        f : Full <- resolved(fs, bs, t)
+        +f2 : Full = f
+        +all : Bool = Maybe.is_some(&2, String, onto)
+        left : Maybe<&2, String> <- diff.left(fs, bs, f2, onto)
+        diff.revisions(root, fs, bs, f2, all, paint, only, left)
+
+def diff.split(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, String>, +paint: Bool, rest: List<&2, String>) -> IO(Unit):
+  match rest:
+    case Nil{}:
+      diff.named(root, fs, bs, onto, paint, None{}, None{})
+    case +first <> Nil{}:
+      Bool.pick(IO(Unit), could_be_target(bs, first), diff.named(root, fs, bs, onto, paint, Some{first}, None{}), diff.named(root, fs, bs, onto, paint, None{}, Some{first}))
+    case first <> second <> Nil{}:
+      diff.named(root, fs, bs, onto, paint, Some{first}, Some{second})
+    case first <> second <> third <> more:
+      die(Unit, 2, "`diff` takes a target and a path, and `" ++ third ++ "` is a third argument")
+
+# `auto` colours a terminal and nothing else, and this port cannot ask
+# whether it is writing to one, so it colours only where told to.
+def diff.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: DiffAsked) -> IO(Unit):
+  match a:
+    case DiffAsked{onto, color, rest}:
+      diff.split(root, fs, bs, onto, String.eq(color, "always"), List.reverse(&2, String, rest))
+
+def diff(+args: List<&2, String>) -> IO(Unit):
+  do IO<Unit>:
+    root : String <- Store.root()
+    +r : String = root
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    bs : List<&2, Bm.Bookmark> <- bookmarks(r)
+    a : DiffAsked <- dasked.io(dasked.go(1n+List.length(&2, String, args), DParse{args, Done{DiffAsked{None{}, "auto", Nil{}}}}))
+    diff.of(r, fulls(r, rs), bs, a)
+
+# blame
+# -----
+
+# One line and the revision that wrote it: `None` for a line only the folder
+# holds.
+type Row is Data:
+  Row{by: Maybe<&2, String>, item: Ops.Item}
+
+# A line's origin through an edit: what stood keeps its author, what arrived
+# is this revision's, and what left is gone.
+def overlay(ls: List<&2, Laid>, origins: List<&2, Row>, +by: Maybe<&2, String>) -> List<&2, Row>:
+  match ls origins:
+    case Laid{"+", it} <> rest _:
+      Row{by, it} <> overlay(rest, origins, by)
+    case Laid{"-", it} <> rest o <> more:
+      overlay(rest, more, by)
+    case Laid{s, it} <> rest Row{b, i} <> more:
+      Row{b, it} <> overlay(rest, more, by)
+    case _ _:
+      Nil{}
+
+def rows.items(rs: List<&2, Row>) -> List<&2, Ops.Item>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case Row{b, it} <> rest:
+      it <> rows.items(rest)
+
+def rows.by(+by: Maybe<&2, String>, items: List<&2, Ops.Item>) -> List<&2, Row>:
+  match items:
+    case Nil{}:
+      Nil{}
+    case it <> rest:
+      Row{by, it} <> rows.by(by, rest)
+
+# The revision whose document minted the items a `keep` names: the one that
+# stated that document for some file.
+def minter.says(+d: String, facts: List<&2, Rev.Header>) -> Bool:
+  match facts:
+    case Nil{}:
+      False{}
+    case Rev.Header{k, +v} <> rest:
+      Bool.or(String.ends_with(v, " " ++ d), minter.says(d, rest))
+
+def minter(fs: List<&2, Full>, +d: String) -> Maybe<&2, String>:
+  match fs:
+    case Nil{}:
+      None{}
+    case +f <> rest:
+      Bool.pick(Maybe<&2, String>, minter.says(d, facts_of(f)), Some{id_of(f)}, minter(rest, d))
+
+def origins.piece(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, p: Res.Piece) -> List<&2, Row>:
+  match p:
+    case Res.Piece.Keep{+d, first, count}:
+      rows.by(minter(oldest, d), List.take(&2, Ops.Item, List.drop(&2, Ops.Item, minted(Maybe.default(&2, String, doc_by_id(ds, d), SNil{})), first), count))
+    case Res.Piece.Insert{items}:
+      rows.by(Some{id}, items)
+
+def origins.pieces(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, ps: List<&2, Res.Piece>) -> List<&2, Row>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      List.append(&2, Row, origins.piece(oldest, ds, id, p), origins.pieces(oldest, ds, id, rest))
+
+def origins.resolved(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, parsed: Result<&2, &2, String, Res.Doc>) -> Maybe<&2, List<&2, Row>>:
+  match parsed:
+    case Fail{e}:
+      None{}
+    case Done{Res.Doc{f, r, ps}}:
+      Some{origins.pieces(oldest, ds, id, ps)}
+
+def origins.edited(+id: String, before: Maybe<&2, List<&2, Row>>, parsed: Result<&2, &2, String, Ops.Doc>) -> Maybe<&2, List<&2, Row>>:
+  match before parsed:
+    case Some{+rs} Done{doc}:
+      Some{overlay(laid(rows.items(rs), doc), rs, Some{id})}
+    case _ _:
+      None{}
+
+def origins.text(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, before: Maybe<&2, List<&2, Row>>, +text: String, resolution: Bool) -> Maybe<&2, List<&2, Row>>:
+  match resolution:
+    case True{}:
+      origins.resolved(oldest, ds, id, Res.parse(text))
+    case False{}:
+      origins.edited(id, before, Ops.parse(text))
+
+def origins.doc(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, before: Maybe<&2, List<&2, Row>>, doc: Maybe<&2, String>) -> Maybe<&2, List<&2, Row>>:
+  match doc:
+    case None{}:
+      None{}
+    case Some{+text}:
+      origins.text(oldest, ds, id, before, text, Res.is_resolution(text))
+
+def origins.said(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, inherited: Maybe<&2, List<&2, Row>>, s: Said) -> Maybe<&2, List<&2, Row>>:
+  match s:
+    case Whole{+d}:
+      Maybe.map(&2, String, List<&2, Row>, t => rows.by(Some{id}, Ops.from_text(t)), doc_by_id(ds, d))
+    case Edited{+d}:
+      origins.doc(oldest, ds, id, inherited, doc_by_id(ds, d))
+    case Nothing{}:
+      inherited
+
+# Who wrote each line of the file at every revision that holds it, walked
+# as `content` walks, oldest first; `content` is what says whether the file
+# is readable at all, and this only who wrote what it reads.
+type Origins is Data:
+  Origins{rows: List<&2, Row>, id: String}
+
+def origins_of(os: List<&2, Origins>, +id: String) -> Maybe<&2, List<&2, Row>>:
+  match os:
+    case Nil{}:
+      None{}
+    case Origins{rs, +i} <> rest:
+      Bool.pick(Maybe<&2, List<&2, Row>>, String.eq(i, id), Some{rs}, origins_of(rest, id))
+
+def origins.parents(+os: List<&2, Origins>, ps: List<&2, String>) -> Maybe<&2, List<&2, Row>>:
+  match ps:
+    case Nil{}:
+      None{}
+    case p <> rest:
+      Maybe.or(&2, List<&2, Row>, origins_of(os, p), origins.parents(os, rest))
+
+def origins.push(+id: String, o: Maybe<&2, List<&2, Row>>, os: List<&2, Origins>) -> List<&2, Origins>:
+  match o:
+    case None{}:
+      os
+    case Some{rs}:
+      Origins{rs, id} <> os
+
+def origins.go(+all: List<&2, Full>, oldest_first: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, +os: List<&2, Origins>) -> List<&2, Origins>:
+  match oldest_first:
+    case Nil{}:
+      os
+    case Full{+id, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest:
+      origins.go(all, rest, ds, file, origins.push(id, origins.said(all, ds, id, origins.parents(os, parents), said(facts, file)), os))
+
+def origins(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> List<&2, Row>:
+  Maybe.default(&2, List<&2, Row>, origins_of(origins.go(oldest, oldest, ds, file, Nil{}), id), Nil{})
+
+# Printing
+# --------
+
+# The name in an author line, without the address: what comes before the
+# first ` <`, trimmed.
+def author_name.at(s: String, +i: Nat, space: Bool) -> Maybe<&2, Nat>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{+c, rest}:
+      Bool.pick(Maybe<&2, Nat>, Bool.and(space, Char.is_eq(c, '<')), Some{Nat.sub(i, 1n)}, author_name.at(rest, 1n+i, Char.is_eq(c, ' ')))
+
+def author_name.of(+a: String, at: Maybe<&2, Nat>) -> String:
+  match at:
+    case None{}:
+      String.trim(a)
+    case Some{n}:
+      String.trim(String.take(a, n))
+
+def author_name(+a: String) -> String:
+  author_name.of(a, author_name.at(a, 0n, False{}))
+
+type Columns is Data:
+  Columns{change: String, who: String, day: String}
+
+def columns.of(+all_changes: List<&2, String>, +by: String, found: Maybe<&2, Full>) -> Columns:
+  match found:
+    case None{}:
+      Columns{String.take(by, 8n), SNil{}, SNil{}}
+    case Some{+f}:
+      Columns{abbreviate(change_of(f), all_changes), author_name(author_of(f)), String.take(when_of(f), 10n)}
+
+def columns(+fs: List<&2, Full>, +all_changes: List<&2, String>, by: Maybe<&2, String>) -> Columns:
+  match by:
+    case None{}:
+      Columns{"-", "(the folder)", "-"}
+    case Some{+b}:
+      columns.of(all_changes, b, find(fs, b))
+
+type Shown is Data:
+  Shown{n: Nat, cols: Columns, item: Ops.Item}
+
+def shown.rows(+fs: List<&2, Full>, +all_changes: List<&2, String>, rs: List<&2, Row>, +n: Nat) -> List<&2, Shown>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case Row{by, it} <> rest:
+      Shown{n, columns(fs, all_changes, by), it} <> shown.rows(fs, all_changes, rest, 1n+n)
+
+def widest.col(ss: List<&2, Shown>, +which: Nat) -> Nat:
+  match ss:
+    case Nil{}:
+      0n
+    case Shown{n, Columns{c, w, d}, it} <> rest:
+      Nat.max(String.length(Bool.pick(String, Nat.is_eq(which, 0n), c, Bool.pick(String, Nat.is_eq(which, 1n), w, d))), widest.col(rest, which))
+
+def last_number(ss: List<&2, Shown>) -> Nat:
+  match ss:
+    case Nil{}:
+      0n
+    case Shown{n, c, it} <> Nil{}:
+      String.length(Nat.show(n))
+    case s <> rest:
+      last_number(rest)
+
+def pad_left(+s: String, width: Nat) -> String:
+  String.repeat(" ", Nat.sub(width, String.length(s))) ++ s
+
+def blame.lines(ss: List<&2, Shown>, +cw: Nat, +ww: Nat, +dw: Nat, +nw: Nat) -> IO(Unit):
+  match ss:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case Shown{n, Columns{c, w, d}, Ops.Item{t, +term, forgot}} <> rest:
+      do IO<Unit>:
+        IO.print(pad_left(c, cw) ++ "  " ++ pad(w, ww) ++ "  " ++ pad(d, dw) ++ "  " ++ pad_left(Nat.show(n), nw) ++ "  " ++ Ops.shown(Ops.Item{t, term, forgot}))
+        Bool.pick(IO(Unit), term, IO.pure(Unit, Unit{}), IO.print("\\ no newline at end of file"))
+        blame.lines(rest, cw, ww, dw, nw)
+
+def blame.print(+ss: List<&2, Shown>) -> IO(Unit):
+  blame.lines(ss, widest.col(ss, 0n), widest.col(ss, 1n), widest.col(ss, 2n), last_number(ss))
+
+# The span asked for, counting from one: `<first>..<last>`, or one line.
+type Wanted is Data:
+  Wanted{first: Nat, last: Nat}
+
+def lines.nat(+s: String) -> Maybe<&2, Nat>:
+  Bool.pick(Maybe<&2, Nat>, Bool.and(Bool.not(String.is_empty(s)), all_chars(~(c => Char.is_digit(c)), s)), Nat.read(s), None{})
+
+def lines.one(+s: String) -> Maybe<&2, Nat>:
+  lines.nat(Maybe.default(&2, String, T.strip_prefix(s, "+"), s))
+
+def lines.pair(a: Maybe<&2, Nat>, b: Maybe<&2, Nat>) -> Result<&2, &2, String, Wanted>:
+  match a b:
+    case Some{x} Some{y}:
+      Done{Wanted{x, y}}
+    case _ _:
+      Fail{"a span is `<first>..<last>`, or one line number"}
+
+def lines.single(a: Maybe<&2, Nat>) -> Result<&2, &2, String, Wanted>:
+  match a:
+    case Some{+x}:
+      Done{Wanted{x, x}}
+    case None{}:
+      Fail{"a span is `<first>..<last>`, or one line number"}
+
+def lines.cut(+s: String, cut: Maybe<&2, T.Split>) -> Result<&2, &2, String, Wanted>:
+  match cut:
+    case Some{T.Split{+a, +b}}:
+      lines.pair(lines.one(a), lines.one(b))
+    case None{}:
+      lines.single(lines.one(s))
+
+def lines.checked(r: Result<&2, &2, String, Wanted>) -> Result<&2, &2, String, Wanted>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{Wanted{+a, +b}}:
+      Bool.pick(Result<&2, &2, String, Wanted>, Bool.or(Nat.is_eq(a, 0n), Nat.is_gt(a, b)), Fail{"a span runs from a first line to a last one, counting from 1"}, Done{Wanted{a, b}})
+
+def lines.of(+s: String) -> Result<&2, &2, String, Wanted>:
+  lines.checked(lines.cut(s, range.cut(s, SNil{})))
+
+# Arguments
+# ---------
+
+type BlameAsked is Data:
+  BlameAsked{lines: Maybe<&2, String>, rest: List<&2, String>}
+
+type BParse is Data:
+  BParse{args: List<&2, String>, asked: Result<&2, &2, String, BlameAsked>}
+
+def basked.lines(a: BlameAsked, v: String) -> BlameAsked:
+  match a:
+    case BlameAsked{l, r}:
+      BlameAsked{Some{v}, r}
+
+def basked.push(a: BlameAsked, w: String) -> BlameAsked:
+  match a:
+    case BlameAsked{l, r}:
+      BlameAsked{l, w <> r}
+
+def basked.word(a: BlameAsked, +w: String, flag: Bool) -> Result<&2, &2, String, BlameAsked>:
+  match flag:
+    case True{}:
+      Fail{"`" ++ w ++ "` is not an argument `blame` takes"}
+    case False{}:
+      Done{basked.push(a, w)}
+
+def basked.step(args: List<&2, String>, a: BlameAsked) -> BParse:
+  match args:
+    case "--lines" <> v <> rest:
+      BParse{rest, Done{basked.lines(a, v)}}
+    case "--lines" <> Nil{}:
+      BParse{Nil{}, Fail{"`--lines` wants a span, as `<first>..<last>`"}}
+    case +w <> rest:
+      BParse{rest, basked.word(a, w, String.starts_with(w, "-"))}
+    case Nil{}:
+      BParse{Nil{}, Done{a}}
+
+def basked.go(fuel: Nat, p: BParse) -> Result<&2, &2, String, BlameAsked>:
+  match fuel p:
+    case _ BParse{rest, Fail{e}}:
+      Fail{e}
+    case _ BParse{Nil{}, r}:
+      r
+    case 0n BParse{rest, r}:
+      r
+    case 1n+f BParse{args, Done{a}}:
+      basked.go(f, basked.step(args, a))
+
+def basked.io(r: Result<&2, &2, String, BlameAsked>) -> IO(BlameAsked):
+  match r:
+    case Fail{e}:
+      die(BlameAsked, 2, e)
+    case Done{a}:
+      IO.pure(BlameAsked, a)
+
+def usage.io(-A: Data, r: Result<&2, &2, String, A>) -> IO(A):
+  match r:
+    case Fail{e}:
+      die(A, 2, e)
+    case Done{a}:
+      IO.pure(A, a)
+
+# The rows asked for, or where a span begins past the end.
+def blame.limited(+fs: List<&2, Full>, +all_changes: List<&2, String>, +rs: List<&2, Row>, asked_span: Maybe<&2, Wanted>) -> IO(Unit):
+  match asked_span:
+    case None{}:
+      blame.print(shown.rows(fs, all_changes, rs, 1n))
+    case Some{Wanted{+first, last}}:
+      +len = List.length(&2, Row, rs)
+      Bool.pick(IO(Unit), Nat.is_gt(first, len), die(Unit, 1, "that span begins past the end: the file has " ++ Nat.show(len) ++ " lines"),
+        blame.print(shown.rows(fs, all_changes, List.take(&2, Row, List.drop(&2, Row, rs, Nat.sub(first, 1n)), Nat.sub(Nat.min(last, len), Nat.sub(first, 1n))), first)))
+
+# A file of bytes has no lines, and a link holds where it points.
+def lines_only(+path: String, k: Maybe<&2, Tree.FileKind>) -> IO(Unit):
+  match k:
+    case Some{Tree.Whole{}}:
+      die(Unit, 1, path ++ " is a file of bytes: decision 0017 gives it no lines, and there is nothing to attribute line by line")
+    case Some{Tree.Link{}}:
+      die(Unit, 1, path ++ " is a link: what it holds is where it points, which the revision that stated it is the whole of the answer for")
+    case _:
+      IO.pure(Unit, Unit{})
+
+def blame.readable(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> IO(List<&2, Ops.Item>):
+  match r:
+    case Fail{e}:
+      die(List<&2, Ops.Item>, 1, e)
+    case Done{items}:
+      IO.pure(List<&2, Ops.Item>, items)
+
+# Who wrote each line of the file as a revision left it.
+def blame.recorded(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +spelling: String, asked_span: Maybe<&2, Wanted>) -> IO(Unit):
+  do IO<Unit>:
+    f : Full <- resolved(fs, bs, target)
+    +id : String = id_of(f)
+    t : Tree.Tree() <- tree(fs, id)
+    +t2 : Tree.Tree() = t
+    file : String <- file_in(id, bs, spelling, t2)
+    +file2 : String = file
+    lines_only(Maybe.default(&2, String, Tree.path(t2, file2), spelling), Tree.kind(t2, file2))
+    ds : List<&2, Store.Doc> <- Store.fetch(root, wanted(fs, file2))
+    +ds2 : List<&2, Store.Doc> = ds
+    more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
+    +all : List<&2, Store.Doc> = List.append(&2, Store.Doc, ds2, more)
+    +oldest : List<&2, Full> = List.reverse(&2, Full, presentation(ancestry(fs, id)))
+    items : List<&2, Ops.Item> <- blame.readable(content.in(oldest, all, id, file2))
+    blame.limited(fs, changes(fs), origins(oldest, all, id, file2), asked_span)
+
+def blame.wanted(lines: Maybe<&2, String>) -> IO(Maybe<&2, Wanted>):
+  match lines:
+    case None{}:
+      IO.pure(Maybe<&2, Wanted>, None{})
+    case Some{+l}:
+      do IO<Maybe<&2, Wanted>>:
+        w : Wanted <- usage.io(Wanted, lines.of(l))
+        return Some{w}
+
+def blame.side(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>, +sp: String, asked_span: Maybe<&2, Wanted>) -> IO(Unit):
+  match named:
+    case Some{+t}:
+      blame.recorded(root, fs, bs, t, sp, asked_span)
+    case None{}:
+      die(Unit, 1, "the folder is not read here, so `blame` reads a file as a revision left it: name one, as `blame <target> " ++ sp ++ "`")
+
+def blame.named(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>, only: Maybe<&2, String>, lines: Maybe<&2, String>) -> IO(Unit):
+  match only:
+    case None{}:
+      die(Unit, 2, "`blame` wants a path: it answers who wrote each line of one file")
+    case Some{+sp}:
+      do IO<Unit>:
+        asked_span : Maybe<&2, Wanted> <- blame.wanted(lines)
+        blame.side(root, fs, bs, named, sp, asked_span)
+
+def blame.split(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +lines: Maybe<&2, String>, rest: List<&2, String>) -> IO(Unit):
+  match rest:
+    case Nil{}:
+      blame.named(root, fs, bs, None{}, None{}, lines)
+    case +first <> Nil{}:
+      Bool.pick(IO(Unit), could_be_target(bs, first), blame.named(root, fs, bs, Some{first}, None{}, lines), blame.named(root, fs, bs, None{}, Some{first}, lines))
+    case first <> second <> Nil{}:
+      blame.named(root, fs, bs, Some{first}, Some{second}, lines)
+    case first <> second <> third <> more:
+      die(Unit, 2, "`blame` takes a target and a path, and `" ++ third ++ "` is a third argument")
+
+def blame.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: BlameAsked) -> IO(Unit):
+  match a:
+    case BlameAsked{lines, rest}:
+      blame.split(root, fs, bs, lines, List.reverse(&2, String, rest))
+
+def blame(+args: List<&2, String>) -> IO(Unit):
+  do IO<Unit>:
+    root : String <- Store.root()
+    +r : String = root
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    bs : List<&2, Bm.Bookmark> <- bookmarks(r)
+    a : BlameAsked <- basked.io(basked.go(1n+List.length(&2, String, args), BParse{args, Done{BlameAsked{None{}, Nil{}}}}))
+    blame.of(r, fulls(r, rs), bs, a)
+
 # replay
 # ------
 
@@ -2104,24 +3494,24 @@ def replay(paths: List<&2, String>) -> IO(Unit):
 # diff
 # ----
 
-def diff.print(d: Maybe<&2, Ops.Doc>) -> IO(Unit):
+def opdiff.print(d: Maybe<&2, Ops.Doc>) -> IO(Unit):
   match d:
     case None{}:
       IO.print("the two files agree")
     case Some{doc}:
       IO.write(Ops.write(doc))
 
-def diff(parent: String, child: String) -> IO(Unit):
+def opdiff(parent: String, child: String) -> IO(Unit):
   do IO<Unit>:
     p : Store.Doc <- Store.read_doc(parent)
     c : Store.Doc <- Store.read_doc(child)
-    diff.print(Ops.diff(Ops.from_text(Store.text_of(p)), Ops.from_text(Store.text_of(c))))
+    opdiff.print(Ops.diff(Ops.from_text(Store.text_of(p)), Ops.from_text(Store.text_of(c))))
 
 # main
 # ----
 
 def usage() -> IO(Unit):
-  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | replay <ops docs..> | diff <parent> <child>")
+  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff <target> [<path>] [--onto <target>] [--color <when>] | blame <target> <path> [--lines <first>..<last>] | replay <ops docs..> | opdiff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
@@ -2143,8 +3533,12 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       die(Unit, 2, "`names` takes no arguments, and `" ++ extra ++ "` is one")
     case "replay" <> paths:
       replay(paths)
-    case "diff" <> parent <> child <> Nil{}:
-      diff(parent, child)
+    case "diff" <> args:
+      diff(args)
+    case "blame" <> args:
+      blame(args)
+    case "opdiff" <> parent <> child <> Nil{}:
+      opdiff(parent, child)
     case _:
       usage()
 

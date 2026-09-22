@@ -175,6 +175,17 @@ def fetch(+root: String, digests: List<&2, String>) -> IO(List<&2, Doc>):
     case +some:
       fetch.of(root, some)
 
+# Where the bytes with each of these digests are, relative to the root, or
+# `-`: the host's answer, not yet believed.
+def located(+root: String, digests: List<&2, String>) -> IO(List<&2, String>):
+  match digests:
+    case Nil{}:
+      IO.pure(List<&2, String>, Nil{})
+    case +some:
+      do IO<List<&2, String>>:
+        answer : String <- IO.try(String, Store.at(root ++ "\n" ++ String.join(some, "\n")))
+        return String.split(answer, '\n')
+
 # `<digest> <size>` for each of these paths, in the order they were given.
 def stats.of(+root: String, paths: List<&2, String>) -> IO(List<&2, String>):
   do IO<List<&2, String>>:

@@ -21,7 +21,9 @@ bend main.bend -- cat head notes.txt
 bend main.bend -- show kxry
 bend main.bend -- check
 bend main.bend -- replay history/operations/*/Start/notes.txt history/operations/*/*/notes.txt.ops.txt
-bend main.bend -- diff   old.txt new.txt
+bend main.bend -- diff head             # what a revision did, rendered
+bend main.bend -- blame head notes.txt
+bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
 The store commands find the store the way `historica` does — the `history/`
@@ -190,7 +192,7 @@ which is what a cons cell costs here. What is left in `files` besides is
 `gather` and `decide_all` at eighty milliseconds each, now linear in the
 facts, and the printing, a tenth of a second.
 
-`diff` has its own floor. Its table asked `same` — two lines walked
+`Ops.diff` — `opdiff` — has its own floor. Its table asked `same` — two lines walked
 character by character — of every one of its (n+1)(m+1) cells, so each item
 is numbered first, by first-seen order through a `Map`, and the cells compare
 numbers; and a cell is a `U32` rather than a `Nat` counted in unary. Two
@@ -211,7 +213,7 @@ it, each reversed and cut at the column the walk is at, so all three are the
 head of a list; the rows below stay as the table built them, and one of them
 is reversed up to that column each time the walk drops a row — paid once per
 row where the lookup was paid twice per step. Two files of three thousand
-lines, natively: `diff` 1.00 s to 0.82 s, and the backtrack itself 0.92 s to
+lines, natively: `opdiff` 1.00 s to 0.82 s, and the backtrack itself 0.92 s to
 0.37 s.
 
 `diff_lemmas.back` carries the zipper where it carried the table, and moves
@@ -222,7 +224,7 @@ and `Ops.zip.diag`, `Ops.zip.up_move` and `Ops.zip.left_move` written where
 `tbl` stood — no new lemma, and `edits_ok` hands `Ops.zip.start` where it
 handed `Ops.table`.
 
-What is left in `diff` is the table itself, nine million cells of a list of
+What is left in `Ops.diff` is the table itself, nine million cells of a list of
 lists, and `item_at(old, i)` — the parent walked from its first line at every
 step, which is now the larger half of what the backtrack spends. The same
 zipper would answer it, and that one is not free: `back.of` reads the match
@@ -250,7 +252,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, and what a payload weighs: four effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names` over the store it finds, and a resolution assembled from what it keeps; `replay` and `diff` over named files | `cli`, `replay::assemble` |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
 | `LAWS.bend` / `PROOF.bend` | forty-five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -299,8 +301,8 @@ abbreviations, marks, counted facts, the message verbatim — `files` the same
 file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
 binary and the JavaScript build against the Rust tool on eleven such stores.
-`check` names every document by the digest `shasum` prints, and `diff` writes
-the operation document the Rust tool wrote, `result` included. `cat` of a
+`check` names every document by the digest `shasum` prints, and `opdiff`
+writes an operation document the Rust tool reads, `result` included. `cat` of a
 link refuses in the Rust tool's words, naming where it points relative to
 where it sits.
 
@@ -339,6 +341,27 @@ resolution states, refusing in the Rust tool's words a document that is not
 here, a run past what one mints, an unterminated line before the last, and
 a result that disagrees. `check.py`'s `merge` store is two merges the Rust
 tool resolved, and six written by hand to fail each way.
+
+`diff <target> [<path>]` renders what a revision did, and `--onto` what one
+revision holds against another: the facts about each file first — new,
+deleted, renamed, a mode, a link's target — then its hunks, three lines of
+context around each change, or the digest and length of a file of bytes;
+`blame <target> <path> [--lines <first>..<last>]` names the change, author
+and day that wrote each line. Both lay the operation document back over the
+parent line by line, which is what `blame`'s origins are read off. Two sides
+hold the same content for a file where the same revisions stated it, so
+only the files that differ are replayed. Where a revision is compared with
+its own parent, the document laid is the one it stated: the Rust tool
+recomputes that comparison with `similar`'s Histogram diff, which is what
+`record` wrote the document with, so the stated one is the same answer
+without the algorithm here. Across `--onto`, `Ops.diff` computes it — a
+longest common subsequence, which agrees with Histogram wherever the change
+has one alignment and can place a moved blank line differently where it has
+two. Not read: the folder, which Base cannot list, so neither command takes
+a target-less form; `--color auto` colours nothing, having no way to ask
+for a terminal; and `--color always` draws everything but the word-level
+emphasis, which is `similar`'s Myers over words. `opdiff` is what `diff` was
+here before: the operation document between two files.
 
 What `cat` does not do is decision 0032's rule for a merge that states no
 resolution: the Rust tool reads a file whose parents disagree by walking
