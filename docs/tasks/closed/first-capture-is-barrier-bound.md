@@ -4,12 +4,12 @@ description: Recording a folder into a fresh store costs ~8 ms per file, spent b
 status: done
 created: 2026-09-02
 updated: 2026-09-16
-part_of: "[Tasks](tasks.md)"
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # The first capture is barrier-bound
 
-**Status: done.** [0075](../decisions/0075-what-a-capture-owes-the-drive.md)
+**Status: done.** [0075](/docs/decisions/0075-what-a-capture-owes-the-drive.md)
 carries the argument. `Disk::write_in_pieces` now asks for the barrier pair
 `create_new` always asked for — `Ordered` on the staged file and on the
 directory — where it had drained the drive twice per payload; the first
@@ -130,8 +130,8 @@ files that nothing names — which is the state the store is built to tolerate,
 and which an interrupted `record` can already leave today.
 
 That argument is the work, not the speedup.
-[0026 — A mutable file changes all at once](../decisions/0026-atomic-mutable-files.md)
-and [0067 — Content that arrives whole is named, not carried](../decisions/0067-content-that-arrives-whole-is-named-not-carried.md)
+[0026 — A mutable file changes all at once](/docs/decisions/0026-atomic-mutable-files.md)
+and [0067 — Content that arrives whole is named, not carried](/docs/decisions/0067-content-that-arrives-whole-is-named-not-carried.md)
 are the ones to read before arguing with it.
 
 ## Done when

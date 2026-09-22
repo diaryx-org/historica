@@ -4,7 +4,7 @@ description: Land each payload and document handed over rather than barriered, a
 status: done
 created: 2026-09-16
 updated: 2026-09-17
-part_of: "[Tasks](tasks.md)"
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # A capture pushes per file and barriers once
@@ -16,7 +16,7 @@ gained `barrier`, `Store::insert_at` calls it, `Disk::create_new` and
 0.39 s on the reference machine where 0075 left it at 1.0–1.6 s. 0075 is
 amended in place.
 
-[0075](../decisions/0075-what-a-capture-owes-the-drive.md) took the first
+[0075](/docs/decisions/0075-what-a-capture-owes-the-drive.md) took the first
 capture from 13 s to 1.0–1.6 s for 2,000 files by asking `Disk::write_in_pieces`
 for the barrier pair `create_new` always asked for, instead of two drains. What
 remains per file is that pair: `F_BARRIERFSYNC` on the file and on the
@@ -39,7 +39,7 @@ barrier needs in order to speak for files it was not issued on.
    [fs-transaction's task](https://github.com/diaryx-org/fs-transaction/blob/main/docs/tasks/a-strength-below-ordered.md),
    a version Adam names, and a pin bumped here once it is published.
 2. **`Filesystem` says where a set ends.** A method with a do-nothing default,
-   on [0043](../decisions/0043-what-a-command-does-not-have-to-read.md)'s
+   on [0043](/docs/decisions/0043-what-a-command-does-not-have-to-read.md)'s
    terms for a capability an implementation may decline: *everything written
    before this call lands before anything written after it*. The default is
    right for a filesystem whose every write is durable when it returns and

@@ -4,7 +4,7 @@ description: Implement 0074's `historica-wrote-1` — the `--fields` flag on the
 status: done
 created: 2026-09-02
 updated: 2026-09-03
-part_of: "[Tasks](tasks.md)"
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # Saying what a command wrote
@@ -35,7 +35,7 @@ up; what it prints from is asserted where the library's fetch is. And the two
 sidecar tasks below are unblocked only once the parser is published, since they
 depend on `historica` by version.
 
-[0074](../decisions/0074-saying-where-to-look.md) was argued and nothing
+[0074](/docs/decisions/0074-saying-where-to-look.md) was argued and nothing
 implemented it. `grep -rn historica-wrote src cli tests docs` finds nothing, so
 this is the whole of the writing half: the grammar, the flag on each writing
 command, the parser, the corpus comparison, and the guide.
@@ -58,7 +58,7 @@ grammar.
 **A bookmark name can hold a space, so `name` and `unname` take the rest of the
 line.** 0074 says the vocabulary has no path in it and leans on 0064's "no field
 can hold a space, and that is not luck". That does not survive
-[0071](../decisions/0071-a-name-with-structure-in-it.md), which makes a name a
+[0071](/docs/decisions/0071-a-name-with-structure-in-it.md), which makes a name a
 path with no *leading or trailing* space — `feature/two words` is a legal
 bookmark. The fix is 0074's own rule, that a path goes last: say that `name` and
 `unname` take everything after the first space, that a reader splits once, and
@@ -92,7 +92,7 @@ decision.
 - **A public parser for `historica-wrote-1`, in the library, beside the
   writer.** 0074's consequences do not name it and it is the piece the sidecars
   need: `historica-minisign` and `historica-git` read this format from the far
-  side of a pipe, and [0053](../decisions/0053-room-for-another-tool.md)
+  side of a pipe, and [0053](/docs/decisions/0053-room-for-another-tool.md)
   says a side tool gets what it needs from the API rather than by writing a
   second implementation of a grammar we own. One implementation shared by the
   writer, the corpus test, and every consumer is also the only way the corpus
@@ -115,7 +115,7 @@ historica receive --fields ../other | historica-minisign verify --complete
 Empty statement, wrapper does nothing — which is why the header-and-no-lines
 case is the most useful line in the format. Making `historica record` run the
 sidecar itself is what 0053 refused and
-[0072](../decisions/0072-a-command-this-tool-does-not-have.md) restated; the
+[0072](/docs/decisions/0072-a-command-this-tool-does-not-have.md) restated; the
 only automatic on offer is the person's own alias.
 
 The two sides of that pipe are tasks in their own repositories:

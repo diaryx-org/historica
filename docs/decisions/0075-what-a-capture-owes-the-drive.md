@@ -9,7 +9,7 @@
 > is 0.4 s where this decision left it at 1.0–1.6 s. *What a crash can leave*
 > is amended in place, because "at most one torn document" was a property
 > of the barrier per file and goes with it. The task was
-> [`docs/tasks/a-capture-pushes-per-file-and-barriers-once.md`](../tasks/a-capture-pushes-per-file-and-barriers-once.md).
+> [`docs/tasks/closed/a-capture-pushes-per-file-and-barriers-once.md`](../tasks/a-capture-pushes-per-file-and-barriers-once.md).
 
 A first capture of 2,000 small files took 13 s on the reference machine, and
 0.07 s of that was the process working. The rest was the process waiting for
@@ -159,7 +159,7 @@ name them, rather than a stronger one nothing could cash.
 - **A drain per payload**, which is what stood. It bought durability for
   bytes that would be named by a revision that was not itself durable, and
   it cost 6 ms per file. The task that measured it is
-  [`docs/tasks/first-capture-is-barrier-bound.md`](../tasks/first-capture-is-barrier-bound.md).
+  [`docs/tasks/closed/first-capture-is-barrier-bound.md`](../tasks/first-capture-is-barrier-bound.md).
 - **No flush per file, and one barrier for the set.** The task proposed
   this, and it is unsound as stated: a barrier is issued on one file and
   pushes that file's bytes to the device — other files' bytes stay in the
@@ -172,7 +172,7 @@ name them, rather than a stronger one nothing could cash.
 **Handed over per file, one barrier per set.** *Done, as the amendment at
 the top says; the argument is left as it was made.* The right shape, and
 the one the refused proposal was reaching for — filed as
-[`docs/tasks/a-capture-pushes-per-file-and-barriers-once.md`](../tasks/a-capture-pushes-per-file-and-barriers-once.md),
+[`docs/tasks/closed/a-capture-pushes-per-file-and-barriers-once.md`](../tasks/a-capture-pushes-per-file-and-barriers-once.md),
 with fs-transaction's half as a task there: `fsync(2)` on each file and each
 directory as it lands (0.14 ms per file, measured, against 0.44 ms for the
 barrier pair), then one barrier before the revision document, then the
