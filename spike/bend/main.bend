@@ -22,8 +22,8 @@
 #
 # A target may also be a bookmark (`names/`), which wins over any other
 # spelling, `head` included; a path may be `file:` and a file identifier or
-# a file bookmark, or `path:` and a path. Not here: a merge's `keep`
-# resolution, which `cat` refuses rather than guesses at.
+# a file bookmark, or `path:` and a path. A merge's resolution — the file
+# stated whole, by `keep` and `insert` — is read where an `edit` names one.
 
 import Base
 import ./text.bend as T
@@ -34,6 +34,7 @@ import ./store.bend as Store
 import ./tree.bend as Tree
 import ./utf8.bend as Utf8
 import ./bookmark.bend as Bm
+import ./resolution.bend as Res
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -1711,8 +1712,8 @@ def held(+id: String, +digest: String, doc: Maybe<&2, String>) -> Result<&2, &2,
 
 # The file's content at every revision that holds it, oldest first as the
 # trees are. A revision that says nothing inherits the first parent's that
-# holds the file; a merge that resolved the file says so with an `edit`,
-# whose `keep` grammar this spike does not read, so it is refused there.
+# holds the file; a merge that resolved the file says so with an `edit`
+# naming a resolution, which is the file whatever the parents hold.
 type Contents is Data:
   Contents{content: Result<&2, &2, String, List<&2, Ops.Item>>, id: String}
 
@@ -1741,12 +1742,167 @@ def edited(state: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, doc: Re
         parsed : Ops.Doc <- Ops.parse(text)
         Ops.apply(items, parsed)
 
+# Resolutions
+# -----------
+
+# The items one document mints, in its own order: a resolution's inserts,
+# an operation document's inserts, or the lines of a payload, which is the
+# document that inserts every line at 0.
+def minted.inserts(ops: List<&2, Ops.Op>) -> List<&2, Ops.Item>:
+  match ops:
+    case Nil{}:
+      Nil{}
+    case Ops.Op{Ops.Insert{}, at, items} <> rest:
+      List.append(&2, Ops.Item, items, minted.inserts(rest))
+    case Ops.Op{Ops.Delete{}, at, items} <> rest:
+      minted.inserts(rest)
+
+def minted.ops(+text: String, parsed: Result<&2, &2, String, Ops.Doc>) -> List<&2, Ops.Item>:
+  match parsed:
+    case Done{Ops.Doc{forgets, result, ops}}:
+      minted.inserts(ops)
+    case Fail{e}:
+      Ops.from_text(text)
+
+def minted.resolution(parsed: Result<&2, &2, String, Res.Doc>) -> List<&2, Ops.Item>:
+  match parsed:
+    case Done{d}:
+      Res.minted(d)
+    case Fail{e}:
+      Nil{}
+
+def minted.by(+text: String, resolution: Bool) -> List<&2, Ops.Item>:
+  match resolution:
+    case True{}:
+      minted.resolution(Res.parse(text))
+    case False{}:
+      minted.ops(text, Ops.parse(text))
+
+def minted(+text: String) -> List<&2, Ops.Item>:
+  minted.by(text, Res.is_resolution(text))
+
+def kept.run(+d: String, +first: Nat, +count: Nat, +items: List<&2, Ops.Item>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  +holds = List.length(&2, Ops.Item, items)
+  Bool.pick(Result<&2, &2, String, List<&2, Ops.Item>>, Nat.is_gt(Nat.add(first, count), holds),
+    Fail{"this resolution keeps up to item " ++ Nat.show(Nat.add(first, count)) ++ " of " ++ d ++ ", which mints " ++ Nat.show(holds) ++ "; count the `+` lines of that document to see what the run should say"},
+    Done{List.take(&2, Ops.Item, List.drop(&2, Ops.Item, items, first), count)})
+
+def kept.found(+d: String, +first: Nat, +count: Nat, doc: Maybe<&2, String>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match doc:
+    case None{}:
+      Fail{"this resolution keeps items of " ++ d ++ ", which nothing here holds; a resolution names the documents its lines come from, and that one has not arrived"}
+    case Some{text}:
+      kept.run(d, first, count, minted(text))
+
+def assemble.piece(+ds: List<&2, Store.Doc>, p: Res.Piece) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match p:
+    case Res.Piece.Keep{+d, first, count}:
+      kept.found(d, first, count, doc_by_id(ds, d))
+    case Res.Piece.Insert{items}:
+      Done{items}
+
+def assemble.pieces(+ds: List<&2, Store.Doc>, ps: List<&2, Res.Piece>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match ps:
+    case Nil{}:
+      Done{Nil{}}
+    case p <> rest:
+      do Result<&2, &2, String, List<&2, Ops.Item>>:
+        here : List<&2, Ops.Item> <- assemble.piece(ds, p)
+        later : List<&2, Ops.Item> <- assemble.pieces(ds, rest)
+        return List.append(&2, Ops.Item, here, later)
+
+# The first item but the last that ends without a newline, if any.
+def unterminated_at(items: List<&2, Ops.Item>, +i: Nat) -> Maybe<&2, Nat>:
+  match items:
+    case Nil{}:
+      None{}
+    case it <> Nil{}:
+      None{}
+    case Ops.Item{t, True{}, f} <> rest:
+      unterminated_at(rest, 1n+i)
+    case Ops.Item{t, False{}, f} <> rest:
+      Some{i}
+
+def assembled.shape(at: Maybe<&2, Nat>) -> Result<&2, &2, String, Unit>:
+  match at:
+    case None{}:
+      Done{Unit{}}
+    case Some{i}:
+      Fail{"only a file's last line may end without a newline, and item " ++ Nat.show(i) ++ " of the result does not end with one; delete that line and add it back with a terminator, in the revision that puts items after it"}
+
+# Decision 0031: a hand-assembled resolution is verified by `shasum` like
+# everything else, until forgetting has put bytes in it nobody hashed.
+def assembled.result(result: Maybe<&2, String>, +items: List<&2, Ops.Item>) -> Result<&2, &2, String, Unit>:
+  match result:
+    case None{}:
+      Done{Unit{}}
+    case Some{+stated}:
+      +found = Ops.state_digest(items)
+      Bool.pick(Result<&2, &2, String, Unit>, Bool.or(Ops.any_forgotten(items), String.eq(stated, found)), Done{Unit{}},
+        Fail{"this document says it produces " ++ stated ++ " and replaying it produces " ++ found ++ "; the document, its parent, or the replayer is wrong, and `shasum -a 256` on the replayed file is how to see which"})
+
+def assemble(+ds: List<&2, Store.Doc>, d: Res.Doc) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match d:
+    case Res.Doc{forgets, result, pieces}:
+      do Result<&2, &2, String, List<&2, Ops.Item>>:
+        +items : List<&2, Ops.Item> <- assemble.pieces(ds, pieces)
+        assembled.shape(unterminated_at(items, 0n))
+        assembled.result(result, items)
+        return items
+
+def resolved.said(+id: String, +file: String, r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match r:
+    case Fail{e}:
+      Fail{id ++ ", file " ++ file ++ ": " ++ e}
+    case Done{items}:
+      Done{items}
+
+# Where the document with this digest was read from.
+def path_by_id(ds: List<&2, Store.Doc>, +id: String) -> String:
+  match ds:
+    case Nil{}:
+      id
+    case Store.Doc{path, +i, size, text} <> rest:
+      Bool.pick(String, String.eq(i, id), path, path_by_id(rest, id))
+
+def resolved.doc(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: String, parsed: Result<&2, &2, String, Res.Doc>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match parsed:
+    case Fail{e}:
+      Fail{"what the revisions did could not be read: " ++ path_by_id(ds, digest) ++ ": " ++ e}
+    case Done{d}:
+      resolved.said(id, file, assemble(ds, d))
+
+# What an `edit` names is a resolution or an operation document, and which
+# is said by the document's own bytes.
+def edited.by(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: String, inherited: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, +text: String, resolution: Bool) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match resolution:
+    case True{}:
+      resolved.doc(ds, id, file, digest, Res.parse(text))
+    case False{}:
+      edited(inherited, Done{text}, file)
+
+def edited.doc(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: String, inherited: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match doc:
+    case Fail{e}:
+      Fail{e}
+    case Done{+text}:
+      edited.by(ds, id, file, digest, inherited, text, Res.is_resolution(text))
+
+# The documents the resolutions among these keep items of, which a reader
+# fetches after the documents the revisions name and before it assembles.
+def kept_digests(ds: List<&2, Store.Doc>) -> List<&2, String>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case Store.Doc{path, id, size, +text} <> rest:
+      List.append(&2, String, Bool.pick(List<&2, String>, Res.is_resolution(text), Res.keeps(Res.parse(text)), Nil{}), kept_digests(rest))
+
 def contents.said(+ds: List<&2, Store.Doc>, +id: String, +file: String, inherited: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, s: Said) -> Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>:
   match s:
     case Whole{+d}:
       Some{Result.map(&2, &2, String, String, List<&2, Ops.Item>, t => Ops.from_text(t), held(id, d, doc_by_id(ds, d)))}
     case Edited{+d}:
-      Some{edited(inherited, held(id, d, doc_by_id(ds, d)), file)}
+      Some{edited.doc(ds, id, file, d, inherited, held(id, d, doc_by_id(ds, d)))}
     case Nothing{}:
       inherited
 
@@ -1866,7 +2022,9 @@ def cat(+target: String, +path: String) -> IO(Unit):
     +file2 : String = file
     not_a_link(t2, path2, file2, Tree.entry_target_of(Tree.lookup(t2, file2)))
     ds : List<&2, Store.Doc> <- Store.fetch(r, wanted(fs, file2))
-    cat.print(content(fs, ds, id, file2))
+    +ds2 : List<&2, Store.Doc> = ds
+    more : List<&2, Store.Doc> <- Store.fetch(r, kept_digests(ds2))
+    cat.print(content(fs, List.append(&2, Store.Doc, ds2, more), id, file2))
 
 # show
 # ----

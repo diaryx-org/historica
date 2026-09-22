@@ -249,7 +249,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
 | `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, and what a payload weighs: four effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names` over the store it finds; `replay` and `diff` over named files | `cli` |
+| `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names` over the store it finds, and a resolution assembled from what it keeps; `replay` and `diff` over named files | `cli`, `replay::assemble` |
 | `LAWS.bend` / `PROOF.bend` | forty-five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -297,7 +298,7 @@ On a store assembled from each corpus, and on one `historica init` and
 abbreviations, marks, counted facts, the message verbatim — `files` the same
 file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
-binary and the JavaScript build against the Rust tool on ten such stores.
+binary and the JavaScript build against the Rust tool on eleven such stores.
 `check` names every document by the digest `shasum` prints, and `diff` writes
 the operation document the Rust tool wrote, `result` included. `cat` of a
 link refuses in the Rust tool's words, naming where it points relative to
@@ -329,8 +330,21 @@ unknown offset — which is what the Rust parser always did, for a revision's
 `when` as for a bound. A usage error says what the Rust tool says, with the
 same exit code, and not the Rust tool's usage text after it.
 
-Not read: a merge's `keep` resolution, which `cat` refuses rather than
-guesses at.
+A merge's resolution (`resolution.bend`, decision 0032) is the file stated
+whole: `keep` runs of the items a document minted — an operation document's
+inserts, an earlier resolution's, or a payload's lines — and `insert`s of
+its own. Where an `edit` names one, `cat` fetches the documents it keeps
+from, assembles the pieces, and holds the result to the digest the
+resolution states, refusing in the Rust tool's words a document that is not
+here, a run past what one mints, an unterminated line before the last, and
+a result that disagrees. `check.py`'s `merge` store is two merges the Rust
+tool resolved, and six written by hand to fail each way.
+
+What `cat` does not do is decision 0032's rule for a merge that states no
+resolution: the Rust tool reads a file whose parents disagree by walking
+the merge (`merge.rs`), and a file one side never saw as absent rather than
+empty. Here a revision that says nothing inherits the first parent that
+holds the file, which is the same answer wherever the parents agree.
 
 ### What the laws say
 
@@ -773,10 +787,10 @@ The port is the *format* and the *core*; the Rust crate is 33k lines and this
 is under 5k. Not ported:
 
 - **Merging** concurrent branches as a command over the store (`merge.rs`
-  is modelled in `merge.bend`, not ported: no revision graph is read for
-  content, no `contested` report is made — the tree's contests are computed
-  and not yet printed), and **resolutions** — the `keep`/`insert` document a
-  merge states.
+  is modelled in `merge.bend`, not ported: no revision graph is walked for
+  content where a merge states no resolution, no `contested` report is
+  made — the tree's contests are computed and not yet printed). A stated
+  resolution is read.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
 - **Writing the store**: `init`, `record`, `name`, `arrange`, `fetch`,

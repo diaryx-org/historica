@@ -2,7 +2,9 @@
 """Check proofs, run JS/native corpora, ensure replay mutations are rejected,
 and hold the store commands to the Rust tool's output."""
 from pathlib import Path
+import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -131,7 +133,49 @@ STORES = {
         ["log", "tip", "--path", "nope.md"],
         ["log", "base..zzzz"],
     ],
+    # Two merges the Rust tool resolved, the first by hand: resolutions that
+    # keep a payload's lines, an operation document's inserts and an earlier
+    # resolution's, and insert their own — and a merge written here for each
+    # way a resolution can fail to assemble or to parse.
+    "merge": [
+        *(["cat", target, path] for target in ("left", "m1", "after", "m2") for path in ("f.md", "h.md")),
+        *(["cat", target, "f.md"] for target in ("unknown", "range", "result", "notlast", "adjacent", "positioned")),
+    ],
 }
+
+
+def craft(history):
+    """Merges like `m1`, each naming a resolution of `f.md` broken one way.
+
+    Written by hand, as the Rust tool never would: a revision is its bytes'
+    digest, so each is a new revision beside `m1`, pinned by a bookmark.
+    """
+    digest = lambda data: hashlib.sha256(data).hexdigest()
+    m1 = (history / "names" / "m1.txt").read_text().split()[1]
+    revision = next(p for p in history.glob("revisions/**/*.rev.txt") if digest(p.read_bytes()) == m1)
+    text = revision.read_text()
+    documents = {digest(p.read_bytes()): p for p in history.glob("operations/**/*") if p.is_file()}
+    file, named = next(
+        (f, d) for f, d in re.findall(r"^edit (\S+) ([0-9a-f]{64})$", text, re.M) if b"+BOTH" in documents[d].read_bytes()
+    )
+    resolution = documents[named].read_text()
+    kept = re.search(r"^keep (\S+) 0 1$", resolution, re.M).group(1)
+    broken = {
+        "unknown": resolution.replace(f"keep {kept} 0 1", "keep " + "a" * 64 + " 0 1", 1),
+        "range": resolution.replace(" 2 2\n", " 2 9\n"),
+        "result": re.sub(r"^result \S+", "result " + "b" * 64, resolution, flags=re.M),
+        "notlast": resolution.replace("+BOTH\n", "+BOTH\n\\ no newline\n"),
+        "adjacent": resolution.replace("+BOTH\n", "+BOTH\ninsert\n+MORE\n"),
+        "positioned": resolution.replace("insert\n", "insert 1\n"),
+    }
+    (history / "operations" / "crafted").mkdir()
+    (history / "revisions" / "crafted").mkdir()
+    for name, body in broken.items():
+        (history / "operations" / "crafted" / f"{name}.ops.txt").write_text(body)
+        stated = text.replace(f"edit {file} {named}", f"edit {file} {digest(body.encode())}")
+        stated = stated.replace("resolved by hand", f"crafted: {name}")
+        (history / "revisions" / "crafted" / f"{name}.rev.txt").write_text(stated)
+        (history / "names" / f"{name}.txt").write_text(f"revision {digest(stated.encode())}\n")
 
 
 def record(temporary, rust, corpus):
@@ -150,6 +194,35 @@ def record(temporary, rust, corpus):
         (store / "café" / "naïve résumé.md").write_text("an accent\n")
         (store / "notes.md").write_text("plain\n")
         historica("record", "-m", "one")
+    elif corpus == "merge":
+        pinned = {}
+
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def write(**files):
+            for path, text in files.items():
+                (store / f"{path}.md").write_text(text)
+
+        write(f="a\nb\nc\nd", h="one\n")
+        rec("base", "-m", "base")
+        write(f="a\nLEFT\nc\nd", h="one\nleft h\n")
+        rec("left", "-m", "left")
+        write(f="a\nRIGHT\nc\nd", h="one\nright h\n")
+        rec("right", "--onto", "base", "-m", "right")
+        write(f="a\nBOTH\nc\nd", h="one\nleft h\nright h\n")
+        rec("m1", "--merge", "left", "--merge", "right", "-m", "resolved by hand")
+        write(f="a\nBOTH\nc\nd\ne\n")
+        rec("after", "-m", "after the merge")
+        write(f="a\nBOTH\nc\nd\ne\nx\n")
+        rec("x", "-m", "x")
+        write(f="z\na\nBOTH\nc\nd\ne\n")
+        rec("z", "--onto", "after", "-m", "z")
+        write(f="z\na\nBOTH\nc\nd\ne\nx\n")
+        rec("m2", "--merge", "x", "--merge", "z", "-m", "second merge")
+        craft(store / "history")
     elif corpus == "log":
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "first: notes")
@@ -239,7 +312,7 @@ def check_store(temporary):
 
     failures = 0
     for corpus, commands in STORES.items():
-        recorded = corpus in ("unicode", "names", "badname", "log")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge")
         store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
         for command in commands:
             expected = capture(rust, *command, cwd=store)
