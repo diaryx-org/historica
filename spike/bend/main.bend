@@ -26,6 +26,7 @@ import ./ops.bend as Ops
 import ./revision.bend as Rev
 import ./store.bend as Store
 import ./tree.bend as Tree
+import ./utf8.bend as Utf8
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -867,12 +868,16 @@ def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
 def pad(+s: String, width: Nat) -> String:
   s ++ String.repeat(" ", Nat.sub(width, String.length(s)))
 
+# The column is as wide as the longest path in bytes, and a path is padded
+# out to it in characters: the Rust tool's `path.len()` measures the one and
+# `{path:width$}` fills the other, so a path with a character outside ASCII
+# in the store widens every line, and this prints the same bytes.
 def widest(es: Tree.Tree()) -> Nat:
   match es:
     case Nil{}:
       0n
     case +e <> rest:
-      Nat.max(String.length(Tree.entry_path(e)), widest(rest))
+      Nat.max(List.length(&2, U32, Utf8.encode(Tree.entry_path(e))), widest(rest))
 
 def by_path(+a: Tree.Entry, +b: Tree.Entry) -> Bool:
   String.is_le(Tree.entry_path(a) ++ "  " ++ Tree.entry_file(a), Tree.entry_path(b) ++ "  " ++ Tree.entry_file(b))

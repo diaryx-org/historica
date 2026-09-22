@@ -84,7 +84,23 @@ STORES = {
     ],
     "modes": [["log"], ["files", "head"]],
     "whole": [["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"]],
+    # Recorded here by the Rust tool rather than taken from a corpus: the
+    # widest path holds characters outside ASCII, which the Rust tool
+    # measures in bytes and pads in characters.
+    "unicode": [["files", "head"], ["cat", "head", "café/naïve résumé.md"]],
 }
+
+
+def record(temporary, rust):
+    store = temporary / "store-unicode"
+    (store / "café").mkdir(parents=True)
+    (store / "café" / "naïve résumé.md").write_text("an accent\n")
+    (store / "notes.md").write_text("plain\n")
+    home = temporary / "home"
+    env = {**os.environ, "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
+    for command in (["init", "."], ["identity", "Check <check@example.com>"], ["record", "-m", "one"]):
+        subprocess.run([rust, *command], cwd=store, env=env, check=True, capture_output=True, timeout=120)
+    return store
 
 
 def assemble(temporary, corpus):
@@ -134,7 +150,7 @@ def check_store(temporary):
 
     failures = 0
     for corpus, commands in STORES.items():
-        store = assemble(temporary, corpus)
+        store = record(temporary, rust) if corpus == "unicode" else assemble(temporary, corpus)
         for command in commands:
             expected = capture(rust, *command, cwd=store)
             for name, tool in (("native", [str(native)]), ("js", ["bun", str(script)])):
