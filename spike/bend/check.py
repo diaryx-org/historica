@@ -1095,6 +1095,13 @@ def check_mutations(temporary):
             "blame_lemmas.put_items",
             "main.bend",
         ),
+        (
+            "a name rule lets its pattern hold a slash",
+            '    Bool.pick(Result<&2, &2, String, String>, has_slash(v), Fail{"a pattern is one path component and holds no `/`: a path is spelled with `skip`"},',
+            '    Bool.pick(Result<&2, &2, String, String>, False{}, Fail{"a pattern is one path component and holds no `/`: a path is spelled with `skip`"},',
+            "folder_lemmas.pattern_ok",
+            "folder.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

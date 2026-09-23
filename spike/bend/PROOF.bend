@@ -450,3 +450,6 @@ def Laws.laid_reads_child(parent, doc, child, e):
 
 def Laws.blame_shows_the_folder(rows, text):
   BlameL.folder_lines(rows, text)
+
+def Laws.rules_are_well_formed(text):
+  FolderL.rules_ok(text)

@@ -669,3 +669,9 @@ law blame_shows_the_folder:
   for +rows: List<&2, Main.Row>
   for +text: String
   {Main.rows.items(Main.wc.overlay(rows, Ops.from_text(text))) == Ops.from_text(text) : List<&2, Ops.Item>}
+
+# Every rule a file in `skipped/` states is well formed: a path with a
+# value, or a name that is one component, not empty and not only `*`.
+law rules_are_well_formed:
+  for +text: String
+  {Folder.stated.ok(Folder.rule_in(text)) == True{} : Bool}

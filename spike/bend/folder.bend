@@ -123,20 +123,23 @@ def scope.value(+v: String, name: Bool) -> Result<&2, &2, String, Scope>:
   +bare = trim_slashes(String.reverse(v))
   Bool.pick(Result<&2, &2, String, Scope>, String.is_empty(bare), Fail{value_error()}, scope.of(bare, name, String.ends_with(v, "/")))
 
+def scope.keyed(+v: String, path: Bool, name: Bool, retired: Bool) -> Result<&2, &2, String, Scope>:
+  match path:
+    case True{}:
+      scope.value(v, False{})
+    case False{}:
+      match name:
+        case True{}:
+          scope.value(v, True{})
+        case False{}:
+          match retired:
+            case True{}:
+              Fail{"`skip-suffix` is retired: an ending is now `skip-name *` and the ending, matched against a file's own name"}
+            case False{}:
+              Fail{"the keys are `skip`, `skip-name`, `private` and `private-name`"}
+
 def scope.key(+k: String, +v: String) -> Result<&2, &2, String, Scope>:
-  match k:
-    case "skip":
-      scope.value(v, False{})
-    case "private":
-      scope.value(v, False{})
-    case "skip-name":
-      scope.value(v, True{})
-    case "private-name":
-      scope.value(v, True{})
-    case "skip-suffix":
-      Fail{"`skip-suffix` is retired: an ending is now `skip-name *` and the ending, matched against a file's own name"}
-    case _:
-      Fail{"the keys are `skip`, `skip-name`, `private` and `private-name`"}
+  scope.keyed(v, Bool.or(String.eq(k, "skip"), String.eq(k, "private")), Bool.or(String.eq(k, "skip-name"), String.eq(k, "private-name")), String.eq(k, "skip-suffix"))
 
 def scope.cut(cut: Maybe<&2, T.Split>) -> Result<&2, &2, String, Scope>:
   match cut:
@@ -206,6 +209,28 @@ def stated.go(ls: List<&2, String>, +at: Nat, st: Stated) -> Stated:
       st
     case +l <> rest:
       stated.go(rest, 1n+at, stated.line(st, at, said(l)))
+
+# What a stated rule is: a path with a value, or a name that is one
+# component, not empty and not only `*` (`LAWS.rules_are_well_formed`).
+def scope.ok(sc: Scope) -> Bool:
+  match sc:
+    case Scope.Path{+v}:
+      Bool.not(String.is_empty(v))
+    case Scope.Under{+v}:
+      Bool.not(String.is_empty(v))
+    case Scope.Name{+p}:
+      Bool.and(Bool.not(String.is_empty(p)), Bool.and(Bool.not(has_slash(p)), Bool.not(all_stars(p))))
+    case Scope.NameUnder{+p}:
+      Bool.and(Bool.not(String.is_empty(p)), Bool.and(Bool.not(has_slash(p)), Bool.not(all_stars(p))))
+
+def stated.ok(st: Stated) -> Bool:
+  match st:
+    case Stated.One{sc}:
+      scope.ok(sc)
+    case Stated.None{}:
+      True{}
+    case Stated.Wrong{e}:
+      True{}
 
 # `Skipped::rule_in`: the rule one file states, if any.
 def rule_in(+text: String) -> Stated:
