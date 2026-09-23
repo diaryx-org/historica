@@ -675,3 +675,12 @@ law blame_shows_the_folder:
 law rules_are_well_formed:
   for +text: String
   {Folder.stated.ok(Folder.rule_in(text)) == True{} : Bool}
+
+# A bookmark file reads back as the bookmark it was written for: the target
+# line and, where the name stays out of an export, `private` below it —
+# wherever the identifier is spelled as its kind is.
+law bookmark_reads_back:
+  for +t: Bm.Target
+  for p: Bool
+  for +h: {Bm.target_ok(t) == True{} : Bool}
+  {Bm.parse(Bm.write(Bm.Stated{t, p})) == Done{Bm.Stated{t, p}} : Result<&2, &2, String, Bm.Stated>}

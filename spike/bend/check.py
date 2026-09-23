@@ -1102,6 +1102,13 @@ def check_mutations(temporary):
             "folder_lemmas.pattern_ok",
             "folder.bend",
         ),
+        (
+            "a change bookmark reads back as a file bookmark",
+            '      Bool.pick(Result<&2, &2, String, Target>, Id.is_assigned(value), Done{Target.Change{value}}, Fail{target_error()})',
+            '      Bool.pick(Result<&2, &2, String, Target>, Id.is_assigned(value), Done{Target.File{value}}, Fail{target_error()})',
+            "bookmark_lemmas.target_back",
+            "bookmark.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

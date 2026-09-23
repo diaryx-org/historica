@@ -135,21 +135,57 @@ def last_empty(ls: List<&2, String>) -> Bool:
     case l <> rest:
       last_empty(rest)
 
+def parse.axis(t: Target, a: Result<&2, &2, String, Bool>) -> Result<&2, &2, String, Stated>:
+  match a:
+    case Fail{e}:
+      Fail{e}
+    case Done{p}:
+      Done{Stated{t, p}}
+
+def parse.target(r: Result<&2, &2, String, Target>, rest: List<&2, String>) -> Result<&2, &2, String, Stated>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{t}:
+      parse.axis(t, axis(rest))
+
 def parse.lines(ls: List<&2, String>) -> Result<&2, &2, String, Stated>:
   match ls:
     case Nil{}:
       Fail{target_error()}
     case first <> rest:
-      do Result<&2, &2, String, Stated>:
-        t : Target <- target(T.split_once(first))
-        p : Bool <- axis(rest)
-        return Stated{t, p}
+      parse.target(target(T.split_once(first)), rest)
 
 # A bookmark file, from its text: the target line is read before the rest,
 # so a file wrong in both says what is wrong with the first.
 def parse(+text: String) -> Result<&2, &2, String, Stated>:
   +ls = String.split(text, '\n')
   parse.lines(lines.trim(ls, last_empty(ls)))
+
+# The file the Rust tool writes for a bookmark: the target line, and
+# `private` below it where the name stays out of an export. A target is
+# well formed where its identifier is spelled as its kind is: what `parse`
+# reads back (`LAWS.bookmark_reads_back`).
+def private_line(p: Bool) -> String:
+  match p:
+    case True{}:
+      "private\n"
+    case False{}:
+      SNil{}
+
+def write(st: Stated) -> String:
+  match st:
+    case Stated{t, p}:
+      show_target(t) ++ SCon{'\n', private_line(p)}
+
+def target_ok(t: Target) -> Bool:
+  match t:
+    case Target.Change{+id}:
+      Id.is_assigned(id)
+    case Target.Revision{id}:
+      Id.is_digest(id)
+    case Target.File{+id}:
+      Id.is_assigned(id)
 
 # Lookup
 # ------

@@ -36,6 +36,7 @@ import ./log_lemmas.bend as LogL
 import ./fileat_lemmas.bend as FileAt
 import ./laid_lemmas.bend as LaidL
 import ./blame_lemmas.bend as BlameL
+import ./bookmark_lemmas.bend as BmL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -453,3 +454,6 @@ def Laws.blame_shows_the_folder(rows, text):
 
 def Laws.rules_are_well_formed(text):
   FolderL.rules_ok(text)
+
+def Laws.bookmark_reads_back(t, p, h):
+  BmL.reads_back(t, p, h)
