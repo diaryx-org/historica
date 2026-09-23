@@ -34,6 +34,7 @@ import ./folder_lemmas.bend as FolderL
 import ./target_lemmas.bend as Target
 import ./log_lemmas.bend as LogL
 import ./fileat_lemmas.bend as FileAt
+import ./laid_lemmas.bend as LaidL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -439,3 +440,9 @@ def Laws.log_lists_what_it_asks(fl, fs, limit):
 
 def Laws.file_is_held(id, bs, path, t, f, e):
   FileAt.file_ok(id, bs, path, t, f, e)
+
+def Laws.laid_keeps_parent(parent, doc):
+  LaidL.laid_keeps_parent(parent, doc)
+
+def Laws.laid_reads_child(parent, doc, child, e):
+  LaidL.laid_reads_child(parent, doc, child, Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.apply(parent, doc), Ops.apply(parent, doc), Done{child}, Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Laws.cursor_apply_equivalent(parent, doc)), e))

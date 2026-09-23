@@ -1081,6 +1081,13 @@ def check_mutations(temporary):
             "fileat_lemmas.held_ok",
             "main.bend",
         ),
+        (
+            "a comparison lays a removed line as context",
+            '        List.append(&2, Laid, laid.all("-", List.take(&2, Ops.Item, List.drop(&2, Ops.Item, state, Nat.sub(at, pos)), List.length(&2, Ops.Item, items))),',
+            '        List.append(&2, Laid, laid.all(" ", List.take(&2, Ops.Item, List.drop(&2, Ops.Item, state, Nat.sub(at, pos)), List.length(&2, Ops.Item, items))),',
+            "laid_lemmas.old_walk",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

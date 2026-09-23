@@ -2482,86 +2482,59 @@ def laid.sign(l: Laid) -> String:
     case Laid{sign, item}:
       sign
 
-def laid.all(+sign: String, items: List<&2, Ops.Item>, acc: List<&2, Laid>) -> List<&2, Laid>:
+def laid.all(+sign: String, items: List<&2, Ops.Item>) -> List<&2, Laid>:
   match items:
     case Nil{}:
-      acc
+      Nil{}
     case it <> rest:
-      laid.all(sign, rest, Laid{sign, it} <> acc)
+      Laid{sign, it} <> laid.all(sign, rest)
 
-# The parent's items still to lay, where they start, the operations still
-# to consult, and the lines laid so far, newest first.
-type Lay is Data:
-  Lay{items: List<&2, Ops.Item>, at: Nat, ops: List<&2, Ops.Op>, acc: List<&2, Laid>}
-
-def lay.arrived(+at: Nat, here: Bool, op: Ops.Op, rest: List<&2, Ops.Op>, acc: List<&2, Laid>) -> Lay:
-  match here op:
-    case True{} Ops.Op{v, p, items}:
-      Lay{Nil{}, at, rest, laid.all("+", items, acc)}
-    case False{} _:
-      Lay{Nil{}, at, op <> rest, acc}
-
-def lay.arrivals(+at: Nat, ops: List<&2, Ops.Op>, acc: List<&2, Laid>) -> Lay:
-  match ops:
-    case Ops.Op{Ops.Insert{}, +p, items} <> rest:
-      lay.arrived(at, Nat.is_eq(p, at), Ops.Op{Ops.Insert{}, p, items}, rest, acc)
-    case +other:
-      Lay{Nil{}, at, other, acc}
-
-def lay.context(items: List<&2, Ops.Item>, +at: Nat, l: Lay) -> Lay:
-  match items l:
-    case it <> rest Lay{none, a, ops, acc}:
-      Lay{rest, 1n+at, ops, Laid{" ", it} <> acc}
-    case Nil{} Lay{none, a, ops, acc}:
-      Lay{Nil{}, at, ops, acc}
-
-def lay.removed(+n: Nat, items: List<&2, Ops.Item>, +at: Nat, l: Lay) -> Lay:
-  match l:
-    case Lay{none, a, ops, acc}:
-      Lay{List.drop(&2, Ops.Item, items, n), Nat.add(at, n), ops, acc}
-
-def lay.delete(+items: List<&2, Ops.Item>, +at: Nat, +n: Nat, rest: List<&2, Ops.Op>, acc: List<&2, Laid>) -> Lay:
-  lay.removed(n, items, at, lay.arrivals(at, rest, laid.all("-", List.take(&2, Ops.Item, items, n), acc)))
-
-def lay.tail(ops: List<&2, Ops.Op>) -> List<&2, Ops.Op>:
+# The document's operations walked over the parent as the cursor walks them
+# (`cursor_spec.bend`): the parent's lines before each operation are
+# context, an insert's items arrive, and a delete's run of the parent
+# leaves. The parent's lines are laid in order and each once, whatever the
+# document says (`LAWS.laid_keeps_parent`), and where the cursor reads the
+# child, the lines that stay and arrive are the child (`LAWS.laid_reads_child`).
+def laid.walk(ops: List<&2, Ops.Op>, +pos: Nat, +state: List<&2, Ops.Item>) -> List<&2, Laid>:
   match ops:
     case Nil{}:
-      Nil{}
-    case op <> rest:
-      rest
-
-def lay.at(items: List<&2, Ops.Item>, +at: Nat, ops: List<&2, Ops.Op>, acc: List<&2, Laid>, deleting: Maybe<&2, Nat>) -> Lay:
-  match deleting:
-    case Some{n}:
-      lay.delete(items, at, n, lay.tail(ops), acc)
-    case None{}:
-      lay.context(items, at, lay.arrivals(at, ops, acc))
-
-def lay.deleting(+at: Nat, ops: List<&2, Ops.Op>) -> Maybe<&2, Nat>:
-  match ops:
-    case Ops.Op{Ops.Delete{}, +p, +gone} <> rest:
-      Bool.pick(Maybe<&2, Nat>, Nat.is_eq(p, at), Some{List.length(&2, Ops.Item, gone)}, None{})
-    case _:
-      None{}
-
-def lay.step(l: Lay) -> Lay:
-  match l:
-    case Lay{items, +at, +ops, acc}:
-      lay.at(items, at, ops, acc, lay.deleting(at, ops))
-
-def lay.go(fuel: Nat, l: Lay) -> List<&2, Laid>:
-  match fuel l:
-    case _ Lay{Nil{}, at, Nil{}, acc}:
-      List.reverse(&2, Laid, acc)
-    case 0n Lay{items, at, ops, acc}:
-      List.reverse(&2, Laid, acc)
-    case 1n+f Lay{items, at, ops, acc}:
-      lay.go(f, lay.step(Lay{items, at, ops, acc}))
+      laid.all(" ", state)
+    case Ops.Op{Ops.Insert{}, +at, items} <> rest:
+      List.append(&2, Laid, laid.all(" ", List.take(&2, Ops.Item, state, Nat.sub(at, pos))),
+        List.append(&2, Laid, laid.all("+", items),
+          laid.walk(rest, Nat.max(pos, at), List.drop(&2, Ops.Item, state, Nat.sub(at, pos)))))
+    case Ops.Op{Ops.Delete{}, +at, +items} <> rest:
+      List.append(&2, Laid, laid.all(" ", List.take(&2, Ops.Item, state, Nat.sub(at, pos))),
+        List.append(&2, Laid, laid.all("-", List.take(&2, Ops.Item, List.drop(&2, Ops.Item, state, Nat.sub(at, pos)), List.length(&2, Ops.Item, items))),
+          laid.walk(rest, Nat.add(at, List.length(&2, Ops.Item, items)), List.drop(&2, Ops.Item, List.drop(&2, Ops.Item, state, Nat.sub(at, pos)), List.length(&2, Ops.Item, items)))))
 
 def laid(+before: List<&2, Ops.Item>, doc: Ops.Doc) -> List<&2, Laid>:
   match doc:
-    case Ops.Doc{forgets, result, +ops}:
-      lay.go(Nat.add(1n+List.length(&2, Ops.Item, before), Nat.mul(2n, List.length(&2, Ops.Op, ops))), Lay{before, 0n, ops, Nil{}})
+    case Ops.Doc{forgets, result, ops}:
+      laid.walk(ops, 0n, before)
+
+# Each side of what is laid: the parent's lines, context and removals; the
+# lines that stay and arrive.
+def laid.side(other: Bool, it: Ops.Item, rest: List<&2, Ops.Item>) -> List<&2, Ops.Item>:
+  match other:
+    case True{}:
+      rest
+    case False{}:
+      it <> rest
+
+def laid.old(ls: List<&2, Laid>) -> List<&2, Ops.Item>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Laid{+sign, it} <> rest:
+      laid.side(String.eq(sign, "+"), it, laid.old(rest))
+
+def laid.new(ls: List<&2, Laid>) -> List<&2, Ops.Item>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Laid{+sign, it} <> rest:
+      laid.side(String.eq(sign, "-"), it, laid.new(rest))
 
 # Hunks
 # -----

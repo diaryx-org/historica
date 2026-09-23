@@ -643,3 +643,20 @@ law file_is_held:
   for +f: String
   for e: {Main.file_in.r(id, bs, path, t) == Done{f} : Result<&2, &2, Main.Refused, String>}
   {Tree.holds(t, f) == True{} : Bool}
+
+# What `diff` and `blame` lay out is both sides. A comparison is laid over
+# the parent line by line, walking the document's operations as the cursor
+# does: the lines that are context or removals are the parent, whatever the
+# document says, and where the document applies, the lines that are context
+# or arrivals are the child.
+law laid_keeps_parent:
+  for +parent: List<&2, Ops.Item>
+  for doc: Ops.Doc
+  {Main.laid.old(Main.laid(parent, doc)) == parent : List<&2, Ops.Item>}
+
+law laid_reads_child:
+  for +parent: List<&2, Ops.Item>
+  for +doc: Ops.Doc
+  for +child: List<&2, Ops.Item>
+  for e: {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}
+  {Main.laid.new(Main.laid(parent, doc)) == child : List<&2, Ops.Item>}
