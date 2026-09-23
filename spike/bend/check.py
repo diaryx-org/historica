@@ -898,6 +898,27 @@ def check_mutations(temporary):
             "anchor_lemmas.leftmost_stay",
             "merge.bend",
         ),
+        (
+            "the revision writer puts `when` before `author`",
+            '++ "author " ++ author ++ "\\n" ++ "when " ++ when ++ "\\n" ++',
+            '++ "when " ++ when ++ "\\n" ++ "author " ++ author ++ "\\n" ++',
+            "revision_lemmas.written",
+            "revision.bend",
+        ),
+        (
+            "revision validation lets `change` repeat",
+            "    case Key.Change{}:\n      False{}\n    case Key.Author{}:",
+            "    case Key.Change{}:\n      True{}\n    case Key.Author{}:",
+            "revision_lemmas.canon",
+            "revision.bend",
+        ),
+        (
+            "the key table classifies `parent` as `supersedes`",
+            'Named{"parent", Key.Parent{}}',
+            'Named{"parent", Key.Supersedes{}}',
+            "revision_lemmas.classify_named",
+            "revision.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

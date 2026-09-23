@@ -15,6 +15,7 @@ import ./composition_lemmas.bend as Comp
 import ./parser_lemmas.bend as Parse
 import ./decimal_lemmas.bend as Dec
 import ./spelling_lemmas.bend as Spell
+import ./revision_lemmas.bend as RevL
 import ./diff_lemmas.bend as Diff
 import ./refusal_lemmas.bend as Refuse
 import ./merge_lemmas.bend as Conv
@@ -299,6 +300,9 @@ def Laws.spell_number(s, n, e):
 
 def Laws.write_parse(s, doc, e):
   Spell.write_parse(s, doc, e)
+
+def Laws.revision_write_parse(s, r, e):
+  RevL.write_parse(s, r, e)
 
 def Laws.diff_applies(parent, child, tbl, doc, e):
   Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Done{child},

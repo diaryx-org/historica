@@ -123,40 +123,29 @@ def classify.named(+k: String, dotted: Bool) -> Key:
     case False{}:
       Key.Unknown{}
 
-def classify(+k: String) -> Key:
-  match k:
-    case "change":
-      Key.Change{}
-    case "parent":
-      Key.Parent{}
-    case "supersedes":
-      Key.Supersedes{}
-    case "author":
-      Key.Author{}
-    case "when":
-      Key.When{}
-    case "revised-by":
-      Key.RevisedBy{}
-    case "revised":
-      Key.Revised{}
-    case "add":
-      Key.Add{}
-    case "move":
-      Key.Move{}
-    case "mode":
-      Key.Mode{}
-    case "drop":
-      Key.Drop{}
-    case "edit":
-      Key.Edit{}
-    case "text":
-      Key.Text{}
-    case "bytes":
-      Key.Bytes{}
-    case "link":
-      Key.Link{}
-    case _:
+# The keys the format names, in rank order. `classify` walks the table
+# rather than matching the key against fifteen literals, so a proof can say
+# which key a header is from the comparison that chose it
+# (`revision_lemmas.classify_named`).
+type Named is Data:
+  Named{name: String, key: Key}
+
+def keys() -> List<&2, Named>:
+  [Named{"change", Key.Change{}}, Named{"parent", Key.Parent{}}, Named{"supersedes", Key.Supersedes{}},
+   Named{"author", Key.Author{}}, Named{"when", Key.When{}}, Named{"revised-by", Key.RevisedBy{}},
+   Named{"revised", Key.Revised{}}, Named{"add", Key.Add{}}, Named{"move", Key.Move{}}, Named{"mode", Key.Mode{}},
+   Named{"drop", Key.Drop{}}, Named{"edit", Key.Edit{}}, Named{"text", Key.Text{}}, Named{"bytes", Key.Bytes{}},
+   Named{"link", Key.Link{}}]
+
+def classify.go(table: List<&2, Named>, +k: String) -> Key:
+  match table:
+    case Nil{}:
       classify.named(k, T.has_char(k, '.'))
+    case Named{name, key} <> rest:
+      Bool.pick(Key, T.same(k, name), key, classify.go(rest, k))
+
+def classify(+k: String) -> Key:
+  classify.go(keys(), k)
 
 def classify_head(hs: List<&2, Header>) -> Key:
   match hs:
@@ -562,19 +551,49 @@ def facts_ok(+hs: List<&2, Header>) -> Result<&2, &2, String, Unit>:
     ensure(subset(texts, added), "a `text` names a file this revision does not add")
     ensure(Bool.and(Bool.and(disjoint(edited, texts), disjoint(edited, bytes)), Bool.and(Bool.and(disjoint(edited, links), disjoint(texts, bytes)), Bool.and(disjoint(texts, links), disjoint(bytes, links)))), "a file's content is stated twice, in two models")
 
-def assemble(+hs: List<&2, Header>, message: String) -> Result<&2, &2, String, Rev>:
+# What `assemble` checks once the three required headers are found.
+def assemble.checks(+hs: List<&2, Header>, +author: String) -> Result<&2, &2, String, Unit>:
   +supersedes = values_of(hs, "supersedes")
   +revised = value_of(hs, "revised")
   +revised_by = value_of(hs, "revised-by")
-  do Result<&2, &2, String, Rev>:
-    change : String <- required(value_of(hs, "change"), "change")
-    +author : String <- required(value_of(hs, "author"), "author")
-    when : String <- required(value_of(hs, "when"), "when")
+  do Result<&2, &2, String, Unit>:
     ensure(Bool.or(List.is_empty(&2, String, supersedes), Maybe.is_some(&2, String, revised)), "a revision that supersedes must say when it was revised")
     ensure(Bool.or(Bool.not(List.is_empty(&2, String, supersedes)), Bool.and(Maybe.is_none(&2, String, revised), Maybe.is_none(&2, String, revised_by))), "`revised` and `revised-by` need a `supersedes`")
     ensure(Bool.not(maybe_eq(revised_by, author)), "`revised-by` names the author, which says nothing")
     facts_ok(hs)
-    return Rev{change, values_of(hs, "parent"), supersedes, author, when, revised_by, revised, facts_of(hs), message}
+
+def assemble.checked(ok: Result<&2, &2, String, Unit>, r: Rev) -> Result<&2, &2, String, Rev>:
+  match ok:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      Done{r}
+
+def assemble.when(+hs: List<&2, Header>, message: String, change: String, +author: String, w: Result<&2, &2, String, String>) -> Result<&2, &2, String, Rev>:
+  match w:
+    case Fail{e}:
+      Fail{e}
+    case Done{when}:
+      assemble.checked(assemble.checks(hs, author), Rev{change, values_of(hs, "parent"), values_of(hs, "supersedes"), author, when, value_of(hs, "revised-by"), value_of(hs, "revised"), facts_of(hs), message})
+
+def assemble.author(+hs: List<&2, Header>, message: String, change: String, a: Result<&2, &2, String, String>) -> Result<&2, &2, String, Rev>:
+  match a:
+    case Fail{e}:
+      Fail{e}
+    case Done{author}:
+      assemble.when(hs, message, change, author, required(value_of(hs, "when"), "when"))
+
+def assemble.change(+hs: List<&2, Header>, message: String, c: Result<&2, &2, String, String>) -> Result<&2, &2, String, Rev>:
+  match c:
+    case Fail{e}:
+      Fail{e}
+    case Done{change}:
+      assemble.author(hs, message, change, required(value_of(hs, "author"), "author"))
+
+# One def per stage, each taking the last stage's result, so that a proof
+# opens the assembly a `match` at a time (`revision_lemmas.assembled`).
+def assemble(+hs: List<&2, Header>, message: String) -> Result<&2, &2, String, Rev>:
+  assemble.change(hs, message, required(value_of(hs, "change"), "change"))
 
 # Parsing
 # -------
@@ -666,12 +685,17 @@ def parse.split(s: Result<&2, &2, String, Split>) -> Result<&2, &2, String, Rev>
     case Done{Headers{+hs, message}}:
       parse.validated(hs, message, validate(hs, classify_head(hs), None{}, 0n, 2n))
 
+def parse.head(+t: String, historica: Bool, +rest: List<&2, T.Line>) -> Result<&2, &2, String, Rev>:
+  match historica:
+    case True{}:
+      parse.split(headers.go(rest, head_header(rest), 2n, Nil{}))
+    case False{}:
+      Bool.pick(Result<&2, &2, String, Rev>, String.starts_with(t, "historica-"), Fail{"line 1: an unknown version `" ++ t ++ "`, likely a newer historica"}, Fail{"line 1: not a historica document"})
+
 def parse.preamble(ls: List<&2, T.Line>) -> Result<&2, &2, String, Rev>:
   match ls:
-    case T.Line{"historica", True{}} <> +rest:
-      parse.split(headers.go(rest, head_header(rest), 2n, Nil{}))
     case T.Line{+t, term} <> rest:
-      Bool.pick(Result<&2, &2, String, Rev>, String.starts_with(t, "historica-"), Fail{"line 1: an unknown version `" ++ t ++ "`, likely a newer historica"}, Fail{"line 1: not a historica document"})
+      parse.head(t, Bool.and(term, T.same(t, "historica")), rest)
     case Nil{}:
       Fail{"an empty document"}
 

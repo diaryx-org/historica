@@ -179,8 +179,8 @@ and decoded forty-five, and the parser ninety.
   and copied to a list for `any`, to say whether it is padded or holds a
   control character; `scan` answers both in one walk. `is_path` reversed the
   path, split it at every `/` and walked it for a backslash; it is one walk
-  that knows what the component so far is. Twenty-five milliseconds. Nothing
-  in `LAWS.bend` reaches the revision parser, and the corpus refuses none of
+  that knows what the component so far is. Twenty-five milliseconds. No law
+  says which values the revision parser accepts, and the corpus refuses none of
   these, so both were held to the definitions they replace over forty-odd
   edge cases — empty, spaced, `.` `..` `...`, `//`, backslashes, C0 and C1
   controls, non-ASCII — as well as to `check.py`.
@@ -258,7 +258,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | forty-five claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | forty-six claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -269,6 +269,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
 | `anchor_lemmas.bend` | the reachable-state invariant of a view and one insertion landing at the visible gap it asked for, tombstones or not | `merge.rs`'s anchor, Fugue's rule |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
+| `revision_lemmas.bend` | `write(parse(s)) == s` for revision documents: validation sorts the headers by rank, and sorted headers are what `write` spells | the revision round-trip tests |
 | `cursor_spec.bend`, `replay_lemmas.bend` | forward cursor specification and accumulator/error algebra | refinement of the Bend walk |
 | `replay_tests.bend`, `check.py` | oracle comparisons, refusal regressions, proof mutations; JS and native gates | replay tests |
 | `corpus_ops.bend`, `corpus_rev.bend`, `corpus_tree.bend` | the corpus, executed | `tests/*.rs` |
@@ -567,6 +568,34 @@ item above, a `\ forgotten` line is a forgotten item), `next_op_sp` for the
 operation line (cut at its first space, its keyword and numbers spelled
 back), `collect_sp` for the loop, and one lemma per header validator.
 
+The revision writer is proven the same way: `revision_write_parse` says
+`Rev.write(r) == s` whenever `Rev.parse(s)` is `Done{r}`
+(`revision_lemmas.bend`). The parser keeps the headers as it read them, but
+`Rev` does not: it keeps the causal headers as fields, and `write` spells
+them in a fixed order. The proof has to show that the order it read them in
+was that one. `validate_sorted` says that what `validate` passes is sorted
+by rank, with a rank repeated only where its key may repeat. Headers sorted
+that way are, in order, those of each named rank followed by the facts.
+`split` cuts off one rank at a time, `slice_values` says a rank's headers
+are `values_of` under its name, and `single` says a key that may not repeat
+gives at most one value. `canon` puts them together as the text `write`
+spells. Two lemmas tie this back to the text. `classify_named` says a
+header of a named rank is spelled with that rank's name, and `headers_sp`
+says the header loop's headers and message are its lines: each header line
+is its key, a space and its value (`header_line`, through `split_top`), and
+the blank line and message after them come back as they were read.
+
+Three changes to `revision.bend` exist for the proof, and none changes a
+result or a message. `classify` walks a table of names with `T.same`,
+because the checker cannot invert a match against fifteen string literals:
+its fallthrough case keeps the key as a partially known string, which
+`classify` will not reduce. The `historica` line is compared with `T.same`
+rather than matched as a literal. `assemble` is one def per stage, as
+`Tree.apply` is. Three mutations are refused where they should be: a
+writer that puts `when` before `author` (`written`), a validator that lets
+`change` repeat (`canon`), and a table that files `parent` under
+`supersedes` (`classify_named`).
+
 The diff is proven to replay: `diff_applies` says `Ops.apply(parent, doc)`
 is `Done{child}` whenever `Ops.diff(parent, child)` is `Some{doc}` and the
 child has a newline on every item but the last (what a file has).
@@ -757,7 +786,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Forty-one mutations cover the primitive helpers, lost inserts, a lost trailing
+Forty-four mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -782,7 +811,9 @@ dangling reference not checked, and a `mode` that resets the kind; and two
 graph breaks: an ancestry closure that keeps only the first parent, and a
 readiness that checks only the first; and two anchor breaks: right
 children found among standing elements only, and a descent that follows
-standing left children only. The proof gate rejects
+standing left children only; and three revision round-trip breaks: `when`
+written before `author`, `change` allowed to repeat, and `parent` classified
+as `supersedes`. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees

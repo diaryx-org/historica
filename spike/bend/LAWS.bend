@@ -226,6 +226,16 @@ law write_parse:
   for e: {Ops.parse(s) == Done{doc} : Result<&2, &2, String, Ops.Doc>}
   {Ops.write(doc) == s : String}
 
+# So does the revision writer: every revision document the parser accepts
+# is the one `Rev.write` spells from what it read. The headers come in one
+# order and a key that may not repeat comes once, so the parser admits one
+# spelling of each revision.
+law revision_write_parse:
+  for +s: String
+  for +r: Rev.Rev
+  for e: {Rev.parse(s) == Done{r} : Result<&2, &2, String, Rev.Rev>}
+  {Rev.write(r) == s : String}
+
 # The diff replays: whatever document `Ops.diff` writes for a parent and a
 # child, applying it to the parent produces the child. A child that is a
 # file has a newline on every item but the last.
