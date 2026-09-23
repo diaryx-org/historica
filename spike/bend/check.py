@@ -4,6 +4,10 @@ and hold the store commands to the Rust tool's output.
 
 The stages are independent and run at once; `check.py <stage>...` runs only
 those named, for iterating on one: store, corpora, similar, proof, mutations.
+
+The corpora and the store commands run on the JS build alone unless given
+`--native`, which builds and runs each natively as well: emitting and
+compiling `main.bend`'s C takes minutes the JS build does not.
 """
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -31,6 +35,7 @@ BEND = str(Path(BEND).resolve())
 # Bend's checker and `cc` each take about two cores; more of them at once than
 # the machine holds only slows every one, until the proofs run into timeouts.
 SLOTS = threading.BoundedSemaphore(max(1, (os.cpu_count() or 2) // 2))
+NATIVE = "--native" in sys.argv[1:]
 
 
 def run(*args, cwd=ROOT, timeout=120):
@@ -65,9 +70,10 @@ def check_corpora(temporary):
     def suite(name):
         def job():
             run(BEND, f"{name}.bend")
-            executable = temporary / name
-            run(BEND, f"{name}.bend", "-o", str(executable), timeout=600)
-            run(str(executable))
+            if NATIVE:
+                executable = temporary / name
+                run(BEND, f"{name}.bend", "-o", str(executable), timeout=600)
+                run(str(executable))
         return job
 
     parallel([suite(name) for name in ("corpus_ops", "corpus_rev", "corpus_tree", "replay_tests")])
@@ -95,7 +101,7 @@ def main():
         "proof": check_proof,
         "mutations": check_mutations,
     }
-    asked = sys.argv[1:] or list(stages)
+    asked = [a for a in sys.argv[1:] if a != "--native"] or list(stages)
     unknown = [name for name in asked if name not in stages]
     if unknown:
         raise SystemExit(f"unknown stage {', '.join(unknown)}; the stages are {', '.join(stages)}")
@@ -215,9 +221,10 @@ def check_similar(temporary):
 # `main.bend`'s `log`, `files`, `cat` and `show` are held to the Rust tool,
 # byte for byte, on stores assembled from the corpora: each corpus's
 # `revisions/` and `operations/` under a `history/` with the header file the
-# tool looks for. What is compared is the native binary, linked against the
-# Rust archive in `ffi/`, and the `.js` build, which runs the adapter's JS
-# twins — so a twin that drifts from its C side fails here.
+# tool looks for. What is compared is the `.js` build, which runs the
+# adapter's JS twins, and with `--native` the native binary too, linked
+# against the Rust archive in `ffi/` — so a twin that drifts from its C side
+# fails a `--native` run.
 #
 # One command per corpus is a target the Rust tool resolves; the rest are
 # refusals, whose text is compared too.
@@ -572,14 +579,14 @@ def check_store(temporary):
 
     archive = ROOT / "ffi" / "target" / "release" / "libhistorica_bend_ffi.a"
     # The boundary's own tests — malformed input, error paths, freeing,
-    # repeated calls — then the archive the program links.
+    # repeated calls. The archive the native program links is built with it.
     run("cargo", "test", "-q", "--release", cwd=ROOT / "ffi", timeout=600)
-    run("cargo", "build", "-q", "--release", cwd=ROOT / "ffi", timeout=600)
     source = temporary / "main.c"
     native = temporary / "main"
     script = temporary / "main.js"
 
     def build_native():
+        run("cargo", "build", "-q", "--release", cwd=ROOT / "ffi", timeout=600)
         run(BEND, "main.bend", "-o", str(source), timeout=600)
         # `bend -o` links nothing of ours, so the C is compiled here; `-w`
         # because the generated program is not ours to lint.
@@ -588,7 +595,12 @@ def check_store(temporary):
             str(archive), "-lm", "-lpthread", timeout=900,
         )
 
-    parallel([build_native, lambda: run(BEND, "main.bend", "-o", str(script), timeout=600)])
+    tools = [("js", ["bun", str(script)])]
+    builds = [lambda: run(BEND, "main.bend", "-o", str(script), timeout=600)]
+    if NATIVE:
+        tools.insert(0, ("native", [str(native)]))
+        builds.append(build_native)
+    parallel(builds)
 
     def compare(corpus, commands):
         recorded = corpus in ("unicode", "names", "badname", "log", "merge", "folder", "badskip", "fresh", "notext")
@@ -596,7 +608,7 @@ def check_store(temporary):
         lines, failures = [], 0
         for command in commands:
             expected = capture(rust, *command, cwd=store)
-            for name, tool in (("native", [str(native)]), ("js", ["bun", str(script)])):
+            for name, tool in tools:
                 got = capture(*tool, *command, cwd=store)
                 if got != expected:
                     failures += 1
