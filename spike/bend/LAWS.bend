@@ -14,6 +14,7 @@ import ./merge.bend as Merge
 import ./tree.bend as Tree
 import ./main.bend as Main
 import ./similar.bend as Sim
+import ./folder.bend as Folder
 import ./store.bend as Store
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
@@ -593,3 +594,16 @@ law emphasis_keeps_now:
   for -n: List<&2, Main.Piece>
   for e: {Main.apart(was, now) == Some{Main.Marked{w, n}} : Maybe<&2, Main.Marked>}
   {Main.pieces.text(n) == now : String}
+
+# The folder's walk takes nothing a rule in `skipped/` skips. Reading one
+# directory's listing, a line an entry as the host hands it over, adds a
+# file or a link only where no rule skips its path, and a directory to walk
+# next only where no rule skips it whole; `walk` reads each listing onto
+# what the last left, from nothing, so no file it returns is skipped.
+law listing_skips_nothing:
+  for +ls: List<&2, String>
+  for +prefix: String
+  for +rules: List<&2, Folder.Scope>
+  for +l: Folder.Listing
+  for h: {Folder.listing.ok(rules, l) == True{} : Bool}
+  {Folder.listing.ok(rules, Folder.listing.go(ls, prefix, rules, l)) == True{} : Bool}

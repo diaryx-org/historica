@@ -392,30 +392,95 @@ def tracked(+prefix: String, +name: String, +rules: List<&2, Scope>) -> Bool:
   +path = joined(prefix, name)
   Bool.and(Bool.not(is_store(prefix, name)), Bool.and(Bool.not(skips(rules, path)), Bm.name_ok(path)))
 
+def listing.took(dirs: List<&2, String>, +found: List<&2, Found>, +prefix: String, +runs: Bool, size: String, +name: String, take: Bool) -> Listing:
+  match take:
+    case True{}:
+      Listing{dirs, Found.File{joined(prefix, name), runs, Maybe.default(&2, Nat, Nat.read(size), 0n)} <> found, None{}}
+    case False{}:
+      Listing{dirs, found, None{}}
+
 def listing.file(dirs: List<&2, String>, +found: List<&2, Found>, +prefix: String, +rules: List<&2, Scope>, +runs: Bool, cut: Maybe<&2, T.Split>) -> Listing:
   match cut:
     case None{}:
       Listing{dirs, found, None{}}
     case Some{T.Split{size, +name}}:
-      Listing{dirs, Bool.pick(List<&2, Found>, tracked(prefix, name, rules), Found.File{joined(prefix, name), runs, Maybe.default(&2, Nat, Nat.read(size), 0n)} <> found, found), None{}}
+      listing.took(dirs, found, prefix, runs, size, name, tracked(prefix, name, rules))
 
-def listing.entry(+dirs: List<&2, String>, +found: List<&2, Found>, +prefix: String, +rules: List<&2, Scope>, +name: String, kind: String) -> Listing:
-  match kind:
-    case "d":
-      Listing{Bool.pick(List<&2, String>, Bool.or(is_store(prefix, name), skips_directory(rules, joined(prefix, name))), dirs, joined(prefix, name) <> dirs), found, None{}}
-    case "f":
-      listing.file(dirs, found, prefix, rules, String.starts_with(name, "1"), T.split_once(String.drop(name, 2n)))
-    case "l":
-      Listing{dirs, found, Some{Bool.pick(String, tracked(prefix, name, rules), joined(prefix, name), SNil{})}}
-    case _:
+def listing.dir(+dirs: List<&2, String>, +found: List<&2, Found>, +prefix: String, +rules: List<&2, Scope>, +name: String, skip: Bool) -> Listing:
+  match skip:
+    case True{}:
       Listing{dirs, found, None{}}
+    case False{}:
+      Listing{joined(prefix, name) <> dirs, found, None{}}
+
+def listing.link(+dirs: List<&2, String>, +found: List<&2, Found>, +prefix: String, +name: String, take: Bool) -> Listing:
+  match take:
+    case True{}:
+      Listing{dirs, found, Some{joined(prefix, name)}}
+    case False{}:
+      Listing{dirs, found, Some{SNil{}}}
+
+# What an entry's kind letter is: `d`, `f`, `l`, or anything else.
+def listing.kind(+dirs: List<&2, String>, +found: List<&2, Found>, +prefix: String, +rules: List<&2, Scope>, +name: String, d: Bool, f: Bool, l: Bool) -> Listing:
+  match d:
+    case True{}:
+      listing.dir(dirs, found, prefix, rules, name, Bool.or(is_store(prefix, name), skips_directory(rules, joined(prefix, name))))
+    case False{}:
+      match f:
+        case True{}:
+          listing.file(dirs, found, prefix, rules, String.starts_with(name, "1"), T.split_once(String.drop(name, 2n)))
+        case False{}:
+          match l:
+            case True{}:
+              listing.link(dirs, found, prefix, name, tracked(prefix, name, rules))
+            case False{}:
+              Listing{dirs, found, None{}}
+
+def listing.entry(+dirs: List<&2, String>, +found: List<&2, Found>, +prefix: String, +rules: List<&2, Scope>, +name: String, +kind: String) -> Listing:
+  listing.kind(dirs, found, prefix, rules, name, String.eq(kind, "d"), String.eq(kind, "f"), String.eq(kind, "l"))
+
+def listing.linked(dirs: List<&2, String>, +found: List<&2, Found>, +p: String, line: String, empty: Bool) -> Listing:
+  match empty:
+    case True{}:
+      Listing{dirs, found, None{}}
+    case False{}:
+      Listing{dirs, Found.Link{p, line} <> found, None{}}
 
 def listing.line(l: Listing, +prefix: String, +rules: List<&2, Scope>, +line: String) -> Listing:
   match l:
-    case Listing{dirs, +found, Some{+p}}:
-      Listing{dirs, Bool.pick(List<&2, Found>, String.is_empty(p), found, Found.Link{p, line} <> found), None{}}
+    case Listing{dirs, found, Some{+p}}:
+      listing.linked(dirs, found, p, line, String.is_empty(p))
     case Listing{dirs, found, None{}}:
       listing.entry(dirs, found, prefix, rules, String.drop(line, 2n), String.take(line, 1n))
+
+# What a listing may hold: no file and no link a rule skips, no directory
+# a rule skips whole, and a link waiting for its target only where the link
+# is tracked (`LAWS.listing_skips_nothing`).
+def none_skipped(+rules: List<&2, Scope>, fs: List<&2, Found>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case f <> rest:
+      Bool.and(Bool.not(skips(rules, found.path(f))), none_skipped(rules, rest))
+
+def dirs_kept(+rules: List<&2, Scope>, ds: List<&2, String>) -> Bool:
+  match ds:
+    case Nil{}:
+      True{}
+    case +d <> rest:
+      Bool.and(Bool.not(skips_directory(rules, d)), dirs_kept(rules, rest))
+
+def link_kept(+rules: List<&2, Scope>, link: Maybe<&2, String>) -> Bool:
+  match link:
+    case None{}:
+      True{}
+    case Some{+p}:
+      Bool.or(String.is_empty(p), Bool.not(skips(rules, p)))
+
+def listing.ok(+rules: List<&2, Scope>, l: Listing) -> Bool:
+  match l:
+    case Listing{dirs, found, link}:
+      Bool.and(dirs_kept(rules, dirs), Bool.and(none_skipped(rules, found), link_kept(rules, link)))
 
 def listing.go(ls: List<&2, String>, +prefix: String, +rules: List<&2, Scope>, l: Listing) -> Listing:
   match ls:

@@ -1053,6 +1053,13 @@ def check_mutations(temporary):
             "emphasis_lemmas.marked_text",
             "main.bend",
         ),
+        (
+            "the walk takes a file without asking the rules",
+            "  Bool.and(Bool.not(is_store(prefix, name)), Bool.and(Bool.not(skips(rules, path)), Bm.name_ok(path)))",
+            "  Bool.and(Bool.not(is_store(prefix, name)), Bm.name_ok(path))",
+            "folder_lemmas.took_ok",
+            "folder.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

@@ -30,6 +30,7 @@ import ./view_lemmas.bend as View
 import ./order_lemmas.bend as Order
 import ./similar_lemmas.bend as SimL
 import ./emphasis_lemmas.bend as Emph
+import ./folder_lemmas.bend as FolderL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -423,3 +424,6 @@ def Laws.emphasis_keeps_was(was, now, w, n, e):
 
 def Laws.emphasis_keeps_now(was, now, w, n, e):
   Emph.apart_now(was, now, w, n, e)
+
+def Laws.listing_skips_nothing(ls, prefix, rules, l, h):
+  FolderL.listing_ok(ls, prefix, rules, l, h)
