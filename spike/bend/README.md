@@ -259,7 +259,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | fifty-five claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | fifty-seven claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -272,6 +272,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `walk_lemmas.bend` | `merge_walk_invariant`: every tree a walk builds keeps the invariant, however concurrent its events; `merge_extends`: an event that had seen everything walked before it leaves what `Ops.apply` makes of its document | `merge.rs`'s walk, decision 0007 |
 | `order_lemmas.bend` | `walked_order_causal`: the order `main.bend` walks a merge in — an insertion sort by how many events each had seen — is causal and holds every event once; `walked_reads_every_order`: so the file the tool reads is what every causal order reads | `merge.rs`'s topological order |
 | `similar_lemmas.bend` | `similar_diff_applies`: the document `diff` and `blame` draw from `similar`'s search takes the parent to the child — the search's moves are checked in one pass, and moves that pass are an edit script `diff_lemmas.bend` proves; `Ops.diff` answers any that do not, which the crate's two thousand cases never ask for | `historica::diff` |
+| `emphasis_lemmas.bend` | `emphasis_keeps_was`, `emphasis_keeps_now`: emphasis changes no character — a changed line's words are the line, and the runs `similar`'s Myers marks on either side read, in order, as that side's line | `diff`'s emphasis |
 | `view_lemmas.bend` | `view_keeps_invariant`: every author's view of a walked tree — the tree restricted to a set holding the past of each of its events — keeps the invariant, since it is the tree that set alone walks to; `merge_intent`: an event that had seen part of a history reads, in its own view, its document applied to what it saw | `merge.rs`'s view, decision 0007 |
 | `anchor_lemmas.bend` | the reachable-state invariant of a view and one insertion landing at the visible gap it asked for, tombstones or not | `merge.rs`'s anchor, Fugue's rule |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
@@ -930,7 +931,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Fifty-one mutations cover the primitive helpers, lost inserts, a lost trailing
+Fifty-two mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -963,8 +964,8 @@ not hold its events' pasts, and an author's view that reads the whole
 tree; and one resolution break: a resolution that removes what its author
 never saw; and two walk-order breaks: ranks by index rather than by what
 each event had seen, and a walk that runs where its order is not known to
-be causal; and one diff break: a check that lets a kept line differ.
-The proof gate rejects
+be causal; and one diff break: a check that lets a kept line differ; and one emphasis break: a marked line
+that drops the words two lines share. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees

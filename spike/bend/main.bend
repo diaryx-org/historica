@@ -2722,25 +2722,48 @@ def joined.all(ws: List<&2, String>) -> String:
     case w <> rest:
       w ++ joined.all(rest)
 
-def emphasised(+n: Nat, +ws: List<&2, String>) -> String:
-  Bool.pick(String, Nat.is_eq(n, 0n), SNil{}, "\u{1b}[7m" ++ joined.all(List.take(&2, String, ws, n)) ++ "\u{1b}[27m")
+# A run of a marked line: its text, and whether it is drawn in inverse
+# video. The runs of a line are the line (`LAWS.emphasis_keeps_was`).
+type Piece is Data:
+  Piece{text: String, strong: Bool}
+
+def piece.show(p: Piece) -> String:
+  match p:
+    case Piece{+t, True{}}:
+      Bool.pick(String, String.is_empty(t), SNil{}, "\u{1b}[7m" ++ t ++ "\u{1b}[27m")
+    case Piece{t, False{}}:
+      t
+
+def pieces.show(ps: List<&2, Piece>) -> String:
+  match ps:
+    case Nil{}:
+      SNil{}
+    case p <> rest:
+      piece.show(p) ++ pieces.show(rest)
+
+def pieces.text(ps: List<&2, Piece>) -> String:
+  match ps:
+    case Nil{}:
+      SNil{}
+    case Piece{t, s} <> rest:
+      t ++ pieces.text(rest)
 
 # One side's line with its differing runs marked: the old side's losses, or
 # the new side's gains.
-def marked.go(cs: List<&2, Chunk>, ws: List<&2, String>, +old: Bool) -> String:
+def marked.go(cs: List<&2, Chunk>, ws: List<&2, String>, +old: Bool) -> List<&2, Piece>:
   match cs:
     case Nil{}:
-      joined.all(ws)
+      [Piece{joined.all(ws), False{}}]
     case Chunk.Keep{+n} <> rest:
       +ws2 = ws
-      joined.all(List.take(&2, String, ws2, n)) ++ marked.go(rest, List.drop(&2, String, ws2, n), old)
+      Piece{joined.all(List.take(&2, String, ws2, n)), False{}} <> marked.go(rest, List.drop(&2, String, ws2, n), old)
     case Chunk.Change{+l, +g} <> rest:
       +ws2 = ws
       +n = Bool.pick(Nat, old, l, g)
-      emphasised(n, ws2) ++ marked.go(rest, List.drop(&2, String, ws2, n), old)
+      Piece{joined.all(List.take(&2, String, ws2, n)), True{}} <> marked.go(rest, List.drop(&2, String, ws2, n), old)
 
 type Marked is Data:
-  Marked{was: String, now: String}
+  Marked{was: List<&2, Piece>, now: List<&2, Piece>}
 
 def apart.chunks(+old: List<&2, String>, +new: List<&2, String>, +cs: List<&2, Chunk>) -> Maybe<&2, Marked>:
   Bool.pick(Maybe<&2, Marked>, Bool.and(shared.go(cs, old), changed(cs)), Some{Marked{marked.go(cs, old, True{}), marked.go(cs, new, False{})}}, None{})
@@ -2787,7 +2810,7 @@ type Pairs is Data:
 def pairs.of(m: Maybe<&2, Marked>, p: Pairs) -> Pairs:
   match m p:
     case Some{Marked{w, n}} Pairs{ws, ns}:
-      Pairs{Some{w} <> ws, Some{n} <> ns}
+      Pairs{Some{pieces.show(w)} <> ws, Some{pieces.show(n)} <> ns}
     case None{} Pairs{ws, ns}:
       Pairs{None{} <> ws, None{} <> ns}
 

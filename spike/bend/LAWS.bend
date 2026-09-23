@@ -573,3 +573,23 @@ law similar_diff_applies:
   for +doc: Ops.Doc
   for e: {Sim.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>}
   {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# Emphasis changes no character. Where two lines were replaced one for one,
+# each is cut into words, compared with `similar`'s Myers, and drawn with
+# the runs that differ in inverse video; the runs of either side, read in
+# order, are that side's line, whatever the comparison found.
+law emphasis_keeps_was:
+  for +was: String
+  for +now: String
+  for -w: List<&2, Main.Piece>
+  for -n: List<&2, Main.Piece>
+  for e: {Main.apart(was, now) == Some{Main.Marked{w, n}} : Maybe<&2, Main.Marked>}
+  {Main.pieces.text(w) == was : String}
+
+law emphasis_keeps_now:
+  for +was: String
+  for +now: String
+  for -w: List<&2, Main.Piece>
+  for -n: List<&2, Main.Piece>
+  for e: {Main.apart(was, now) == Some{Main.Marked{w, n}} : Maybe<&2, Main.Marked>}
+  {Main.pieces.text(n) == now : String}

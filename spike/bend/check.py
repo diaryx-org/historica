@@ -1046,6 +1046,13 @@ def check_mutations(temporary):
             "similar_lemmas.fit_apply",
             "similar.bend",
         ),
+        (
+            "emphasis drops the words two lines share",
+            "      Piece{joined.all(List.take(&2, String, ws2, n)), False{}} <> marked.go(rest, List.drop(&2, String, ws2, n), old)",
+            "      marked.go(rest, List.drop(&2, String, ws2, n), old)",
+            "emphasis_lemmas.marked_text",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

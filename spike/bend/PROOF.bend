@@ -29,6 +29,7 @@ import ./walk_lemmas.bend as Walk
 import ./view_lemmas.bend as View
 import ./order_lemmas.bend as Order
 import ./similar_lemmas.bend as SimL
+import ./emphasis_lemmas.bend as Emph
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -416,3 +417,9 @@ def Laws.similar_diff_applies(parent, child, tbl, doc, e):
   Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Done{child},
     Laws.cursor_apply_equivalent(parent, doc),
     SimL.similar_applies(parent, child, tbl, doc, e))
+
+def Laws.emphasis_keeps_was(was, now, w, n, e):
+  Emph.apart_was(was, now, w, n, e)
+
+def Laws.emphasis_keeps_now(was, now, w, n, e):
+  Emph.apart_now(was, now, w, n, e)
