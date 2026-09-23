@@ -2163,17 +2163,12 @@ def walked.revs(rs: List<&2, Full>, +names: List<&2, String>, +digests: List<&2,
 type Rank is Data:
   Rank{depth: Nat, at: Nat}
 
-def ranks(g: List<&2, Merge.Rev>, +n: Nat) -> List<&2, Rank>:
-  match g:
+def ranks(+g: List<&2, Merge.Rev>, ixs: List<&2, Nat>) -> List<&2, Rank>:
+  match ixs:
     case Nil{}:
       Nil{}
-    case Merge.Rev{p, o} <> rest:
-      Rank{List.length(&2, Nat, p), n} <> ranks(rest, 1n+n)
-
-def rank_le(a: Rank, b: Rank) -> Bool:
-  match a b:
-    case Rank{+d1, a1} Rank{+d2, a2}:
-      Bool.or(Nat.is_lt(d1, d2), Bool.and(Nat.is_eq(d1, d2), Nat.is_le(a1, a2)))
+    case +i <> rest:
+      Rank{List.length(&2, Nat, Merge.past(g, i)), i} <> ranks(g, rest)
 
 def rank_at(rs: List<&2, Rank>) -> List<&2, Nat>:
   match rs:
@@ -2182,8 +2177,57 @@ def rank_at(rs: List<&2, Rank>) -> List<&2, Nat>:
     case Rank{d, at} <> rest:
       at <> rank_at(rest)
 
-def walked.order(g: List<&2, Merge.Rev>) -> List<&2, Nat>:
-  rank_at(List.sort(~Rank, ~(a => b => rank_le(a, b)), ranks(g, 0n)))
+def depth_of(r: Rank) -> Nat:
+  match r:
+    case Rank{d, at}:
+      d
+
+# An insertion sort by depth, stable: `x` goes before the first rank at
+# least as deep, and every rank it passes has a greater index, so the ranks
+# come out by depth and then by index.
+def rank.put.pick(+x: Rank, y: Rank, ys: List<&2, Rank>, later: List<&2, Rank>, le: Bool) -> List<&2, Rank>:
+  match le:
+    case True{}:
+      x <> y <> ys
+    case False{}:
+      y <> later
+
+def rank.put(+x: Rank, ys: List<&2, Rank>) -> List<&2, Rank>:
+  match ys:
+    case Nil{}:
+      [x]
+    case +y <> +rest:
+      rank.put.pick(x, y, rest, rank.put(x, rest), Nat.is_le(depth_of(x), depth_of(y)))
+
+def rank.sort(rs: List<&2, Rank>) -> List<&2, Rank>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      rank.put(x, rank.sort(rest))
+
+def walked.order(+g: List<&2, Merge.Rev>) -> List<&2, Nat>:
+  rank_at(rank.sort(ranks(g, Merge.upto(List.length(&2, Merge.Rev, g)))))
+
+# What makes that order causal: every event had seen more events than any
+# event it had seen. A graph whose pasts are closed under what each had
+# seen, and never hold the event itself, has it.
+def shallower(+g: List<&2, Merge.Rev>, js: List<&2, Nat>, +d: Nat) -> Bool:
+  match js:
+    case Nil{}:
+      True{}
+    case j <> rest:
+      Bool.and(Nat.is_lt(List.length(&2, Nat, Merge.past(g, j)), d), shallower(g, rest, d))
+
+def deepens.all(+g: List<&2, Merge.Rev>, ixs: List<&2, Nat>) -> Bool:
+  match ixs:
+    case Nil{}:
+      True{}
+    case +i <> rest:
+      Bool.and(shallower(g, Merge.past(g, i), List.length(&2, Nat, Merge.past(g, i))), deepens.all(g, rest))
+
+def deepens(+g: List<&2, Merge.Rev>) -> Bool:
+  deepens.all(g, Merge.upto(List.length(&2, Merge.Rev, g)))
 
 # The walked tree, beside the revisions its authors are indices into.
 type Walked is Data:
@@ -2196,6 +2240,17 @@ def walked.tree(+head: String, +file: String, names: List<&2, String>, m: Maybe<
     case Some{t}:
       Done{Walked{names, t}}
 
+# The walk, once the order it takes is known to be causal: every revision
+# of an ancestry had seen more than any it had seen, which is what makes
+# `walked.order` causal (`LAWS.walked_order_causal`). A store's ancestry
+# always does; one that did not would not be a history.
+def walked.causal(+head: String, +file: String, names: List<&2, String>, +g: List<&2, Merge.Rev>, ok: Bool) -> Result<&2, &2, String, Walked>:
+  match ok:
+    case True{}:
+      walked.tree(head, file, names, Merge.walk(walked.order(g), g, Some{Nil{}}))
+    case False{}:
+      Fail{head ++ ", file " ++ file ++ ": a revision behind it had seen no more revisions than one it had seen, so the ancestry is not a history"}
+
 def walked.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String, r: Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>) -> Result<&2, &2, String, Walked>:
   match r:
     case Fail{e}:
@@ -2203,7 +2258,7 @@ def walked.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +f
     case Done{+ss}:
       do Result<&2, &2, String, Walked>:
         +g : List<&2, Merge.Rev> <- walked.revs(rs, ids(rs), minted_digests(rs, file), ss, ds, file)
-        walked.tree(head, file, ids(rs), Merge.walk(walked.order(g), g, Some{Nil{}}))
+        walked.causal(head, file, ids(rs), g, deepens(g))
 
 def walked.sorted(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, Walked>:
   walked.seen(rs, ds, head, file, Tree.seen(List.length(&2, Full, rs), events_of(rs), Nil{}))

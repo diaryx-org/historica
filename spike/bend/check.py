@@ -1022,6 +1022,20 @@ def check_mutations(temporary):
             "revision_lemmas.classify_named",
             "revision.bend",
         ),
+        (
+            "the walk sorts by index rather than by what each had seen",
+            "      Rank{List.length(&2, Nat, Merge.past(g, i)), i} <> ranks(g, rest)",
+            "      Rank{i, i} <> ranks(g, rest)",
+            "order_lemmas.ranks_good",
+            "main.bend",
+        ),
+        (
+            "the walk runs where its order is not known to be causal",
+            '      Fail{head ++ ", file " ++ file ++ ": a revision behind it had seen no more revisions than one it had seen, so the ancestry is not a history"}',
+            "      walked.tree(head, file, names, Merge.walk(walked.order(g), g, Some{Nil{}}))",
+            "order_lemmas.reads.at",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

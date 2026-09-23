@@ -12,6 +12,7 @@ import ./cursor_spec.bend as Cursor
 import ./semantic_replay.bend as Block
 import ./merge.bend as Merge
 import ./tree.bend as Tree
+import ./main.bend as Main
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -510,3 +511,29 @@ law merge_parents_unordered:
   for +a: {Tree.alike(es, es2) == True{} : Bool}
   for e: {Tree.merge(es) == Done{m} : Result<&2, &2, Tree.Fault, Tree.Merged>}
   {Tree.merge(es2) == Done{m} : Result<&2, &2, Tree.Fault, Tree.Merged>}
+
+# The order the tool walks a merge in. `cat`, `diff` and `blame` walk a
+# target's ancestry sorted by how many events each had seen; where every
+# event had seen more than any event it had seen (`Main.deepens`), that is
+# a causal order: nothing comes before an event it had seen.
+law walked_order_causal:
+  for +g: List<&2, Merge.Rev>
+  for +h: {Main.deepens(g) == True{} : Bool}
+  {Merge.causal(Main.walked.order(g), g) == True{} : Bool}
+
+# And what the tool reads from its walk is what any causal order of the
+# graph's events reads, by `merge_converges`: which of them the tool picks
+# is not something a reader can see.
+law walked_reads_every_order:
+  for +head: String
+  for +file: String
+  for +names: List<&2, String>
+  for +g: List<&2, Merge.Rev>
+  for +b: List<&2, Nat>
+  for +w: Main.Walked
+  for +hb: {Merge.distinct(b) == True{} : Bool}
+  for +hc: {Merge.causal(b, g) == True{} : Bool}
+  for +hs: {Merge.subset(b, Merge.upto(List.length(&2, Merge.Rev, g))) == True{} : Bool}
+  for +ht: {Merge.subset(Merge.upto(List.length(&2, Merge.Rev, g)), b) == True{} : Bool}
+  for e: {Main.walked.causal(head, file, names, g, Main.deepens(g)) == Done{w} : Result<&2, &2, String, Main.Walked>}
+  {Some{Main.walked.file(w)} == Merge.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}

@@ -27,6 +27,7 @@ import ./merge.bend as Merge
 import ./linear_lemmas.bend as Lin
 import ./walk_lemmas.bend as Walk
 import ./view_lemmas.bend as View
+import ./order_lemmas.bend as Order
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -400,3 +401,9 @@ def Laws.move_then_drop(t, e, p):
 
 def Laws.merge_parents_unordered(es, es2, m, a, e):
   GL.merge_alike(es, es2, m, a, e)
+
+def Laws.walked_order_causal(g, h):
+  Order.order_causal(g, h)
+
+def Laws.walked_reads_every_order(head, file, names, g, b, w, hb, hc, hs, ht, e):
+  Order.reads_every_order(head, file, names, g, b, w, hb, hc, hs, ht, e)

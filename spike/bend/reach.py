@@ -58,9 +58,39 @@ def read():
     return defs, sizes, laws
 
 
+BINDER = re.compile(r"[+\-@]?([A-Za-z_]\w*)\s*:(?!\s*$)")
+
+
+def bound(text):
+    """The plain names a declaration binds: its parameters and quantified
+    variables, what its patterns and lambdas bind, and its `do` lets. They
+    shadow a def of the same name, so a use of one is not a reference."""
+    names = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("case "):
+            names.update(WORD.findall(stripped[5:]))
+        for m in re.finditer(r"([A-Za-z_]\w*)\s*=>", line):
+            names.add(m.group(1))
+        m = re.match(r"\s*[+\-]?([A-Za-z_]\w*)\s*:.*(<-|=)", line)
+        if m and not stripped.startswith(("def ", "law ")):
+            names.add(m.group(1))
+        m = re.match(r"\s*for\s+[+\-]?([A-Za-z_]\w*)\s*:", line)
+        if m:
+            names.add(m.group(1))
+    first = text.splitlines()[0] if text else ""
+    if first.startswith("def "):
+        signature = first[first.index("(") + 1:]
+        names.update(m.group(1) for m in BINDER.finditer(signature))
+    return names
+
+
 def named(text, aliases, module, defs):
     """The defs a piece of text names, from inside `module`."""
+    shadowed = bound(text)
     for word in set(WORD.findall(text)):
+        if word in shadowed:
+            continue
         head, _, rest = word.partition(".")
         if head in aliases and rest:
             key = (aliases[head], rest)
