@@ -28,3 +28,8 @@ panic = "unwind"
 
 [dev-dependencies]
 tempfile = "3"
+# The reference `similar.bend` is held to: `examples/similar_ops.rs` prints
+# what the crate's Histogram diff makes of each case `check.py` hands it.
+# Pinned to the version the workspace's `Cargo.lock` resolves `similar` to,
+# since that is the diff the Rust tool draws; move the two together.
+similar = "=3.2.0"

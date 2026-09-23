@@ -4,6 +4,7 @@ and hold the store commands to the Rust tool's output."""
 from pathlib import Path
 import hashlib
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -44,7 +45,103 @@ def main():
             run(str(executable))
 
         check_mutations(temporary)
+        check_similar(temporary)
         check_store(temporary)
+
+
+# The diff
+# --------
+
+# `similar.bend` is `similar`'s Histogram diff, held to the crate itself on
+# cases drawn to reach each of its paths: small edits over few distinct
+# lines, runs where every shared line is common (the Myers fallback, with its
+# heuristics and its exact small-side search), and long sides that share
+# almost nothing (the preflights). Bend prints the operations before the
+# `Replace` hook groups them, and the grouping is applied here.
+def similar_cases(rng):
+    kind = rng.random()
+    if kind < 0.5:
+        alpha = rng.randint(1, 8)
+        old = [str(rng.randint(0, alpha)) for _ in range(rng.randint(0, 30))]
+        new = list(old)
+        for _ in range(rng.randint(0, 8)):
+            r = rng.random()
+            if r < 0.4 and new:
+                del new[rng.randrange(len(new))]
+            elif r < 0.8:
+                new.insert(rng.randint(0, len(new)), str(rng.randint(0, alpha + 3)))
+            elif new:
+                new[rng.randrange(len(new))] = str(rng.randint(0, alpha))
+        return old, new
+    if kind < 0.8:
+        old = [rng.choice(["x", "x", "x", "y", str(rng.randint(0, 50))]) for _ in range(rng.randint(60, 300))]
+        new = [rng.choice(["x", "x", "y", "z", str(rng.randint(0, 50))]) for _ in range(rng.randint(60, 300))]
+        return old, new
+    n, m = rng.randint(512, 1200), rng.randint(512, 1200)
+    old = [f"a{rng.randint(0, 5000)}" for _ in range(n)]
+    new = [f"b{rng.randint(0, 5000)}" for _ in range(m)]
+    for _ in range(rng.choice([1, 3, 20, 80])):
+        old[rng.randint(10, n - 10)] = "x"
+        new[rng.randint(10, m - 10)] = "x"
+    for _ in range(rng.choice([0, 1, 5, 30])):
+        shared = f"c{rng.randint(0, 40)}"
+        old[rng.randint(10, n - 10)] = shared
+        new[rng.randint(10, m - 10)] = shared
+    return old, new
+
+
+def replaced(line):
+    """The `Replace` hook: each run between shared runs as one operation."""
+    out, eq, dl, ins = [], None, None, None
+
+    def flush():
+        nonlocal dl, ins
+        if dl and ins:
+            out.append(f"R{dl[0]},{dl[1]},{ins[1]},{ins[2]}")
+        elif dl:
+            out.append(f"D{dl[0]},{dl[1]},{dl[2]}")
+        elif ins:
+            out.append(f"I{ins[0]},{ins[1]},{ins[2]}")
+        dl = ins = None
+
+    for token in line.split():
+        a, b, c = map(int, token[1:].split(","))
+        if token[0] == "E":
+            flush()
+            eq = [eq[0], eq[1], eq[2] + c] if eq else [a, b, c]
+            continue
+        if eq:
+            out.append(f"E{eq[0]},{eq[1]},{eq[2]}")
+            eq = None
+        if token[0] == "D":
+            dl = [dl[0], dl[1] + b, dl[2]] if dl else [a, b, c]
+        else:
+            ins = [ins[0], ins[1], ins[2] + c] if ins else [a, b, c]
+    if eq:
+        out.append(f"E{eq[0]},{eq[1]},{eq[2]}")
+    flush()
+    return " ".join(out)
+
+
+def check_similar(temporary):
+    run("cargo", "build", "-q", "--release", "--example", "similar_ops", cwd=ROOT / "ffi", timeout=600)
+    source = temporary / "similar.c"
+    native = temporary / "similar"
+    run(BEND, "similar.bend", "-o", str(source), timeout=600)
+    run(os.environ.get("CC", "cc"), "-O2", "-w", "-o", str(native), str(source), "-lm", "-lpthread", timeout=900)
+    rng = random.Random(20260922)
+    cases = [similar_cases(rng) for _ in range(1500)]
+    text = "".join(" ".join(old) + "|" + " ".join(new) + "\n" for old, new in cases)
+    (temporary / "cases.txt").write_text(text)
+    reference = ROOT / "ffi" / "target" / "release" / "examples" / "similar_ops"
+    expected = subprocess.run([str(reference)], input=text, capture_output=True, text=True, check=True).stdout.splitlines()
+    got = subprocess.run([str(native), str(temporary / "cases.txt")], capture_output=True, text=True, check=True).stdout.splitlines()
+    differ = [i for i, want in enumerate(expected) if i >= len(got) or replaced(got[i]) != want]
+    for i in differ[:3]:
+        print(f"DIFF similar case {i}:\n  {text.splitlines()[i][:200]}\n  want {expected[i][:200]}\n  got  {replaced(got[i])[:200] if i < len(got) else ''}")
+    if differ or len(got) != len(cases):
+        sys.exit(f"{len(differ)} of {len(cases)} diffs differ from `similar`")
+    print(f"similar: {len(cases)} cases, as the crate draws them")
 
 
 # The store commands
@@ -86,11 +183,14 @@ STORES = {
         ["diff", "head"],
         ["diff", "kxry"],
         ["blame", "head", "current"],
+        ["diff"],
     ],
-    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"]],
+    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"]],
     "whole": [
         ["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"],
         ["diff", "head"], ["blame", "head", "notes/photo.png"], ["blame", "head", "notes/2026-08-20.md"],
+        # An assembled store has no folder beside it, so everything is gone.
+        ["diff"], ["blame", "notes/2026-08-20.md"],
     ],
     # Recorded here by the Rust tool rather than taken from a corpus: the
     # widest path holds characters outside ASCII, which the Rust tool
@@ -149,7 +249,47 @@ STORES = {
         ["blame", "tip", "renamed.md", "--lines", "2..3"],
         ["blame", "tip", "renamed.md", "--lines", "9"],
         ["blame", "base", "notes.md"],
+        # Two heads: the folder has no one position to be compared with.
+        ["diff"],
+        ["blame", "renamed.md"],
+        ["diff", "--onto", "tip"],
+        ["blame", "renamed.md", "--lines", "1..1"],
     ],
+    # The folder against the position: an edit, a file gone, files new —
+    # text and bytes — a file of bytes changed, a mode, links retargeted,
+    # made and removed, a file become a link, and rules skipping a path, a
+    # directory, a name and a directory's name, filed flat and in folders.
+    "folder": [
+        ["diff"],
+        ["diff", "notes.md"],
+        ["diff", "path:notes.md"],
+        ["diff", "file:nb"],
+        ["diff", "gone.md"],
+        ["diff", "nope.md"],
+        ["diff", "--onto", "first"],
+        ["diff", "--onto", "first", "notes.md"],
+        ["diff", "--color", "never"],
+        ["blame", "notes.md"],
+        ["blame", "file:nb"],
+        ["blame", "path:notes.md", "--lines", "2..3"],
+        ["blame", "new.md"],
+        ["blame", "kept.md"],
+        ["blame", "gone.md"],
+        ["blame", "photo.bin"],
+        ["blame", "data.bin"],
+        ["blame", "current"],
+        ["blame", "build/out.md"],
+        ["blame", "deep/scratch.tmp"],
+        ["blame", "nope.md"],
+        ["blame", "file:zz"],
+    ],
+    # A rule file stating two rules: the store will not open.
+    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"]],
+    # Nothing recorded yet: every file is the folder's own.
+    "fresh": [["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"]],
+    # A file recorded as lines that is no longer text.
+    "notext": [["diff"], ["diff", "kept.md"], ["blame", "notes.md"]],
+
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
     # resolution's, and insert their own — and a merge written here for each
@@ -262,6 +402,53 @@ def record(temporary, rust, corpus):
         historica("name", "tip", "head", "--revision")
         (store / "side.md").write_text("side\n")
         historica("record", "--onto", "base", "-m", "a side line")
+    elif corpus in ("folder", "badskip", "notext"):
+        (store / "notes.md").write_text("one\ntwo\nthree\nfour\n")
+        (store / "kept.md").write_text("kept\n")
+        (store / "gone.md").write_text("going\n")
+        (store / "data.bin").write_bytes(b"\x00\x01bytes")
+        (store / "run.sh").write_text("#!/bin/sh\n")
+        (store / "target.md").write_text("pointed at\n")
+        os.symlink("target.md", store / "current")
+        os.symlink("kept.md", store / "was-link")
+        os.symlink("gone.md", store / "removed-link")
+        historica("record", "-m", "one")
+        historica("name", "first", "head", "--revision")
+        (store / "notes.md").write_text("one\n2\nthree\nfour\nfive\n")
+        historica("record", "-m", "two")
+        historica("name", "nb", "head", "notes.md")
+        historica("skip", "build/")
+        historica("skip", "--name", "*.tmp")
+        historica("skip", "--private", "secret.md")
+        historica("skip", "--name", "cache/")
+        # A rule filed in a folder of its own, and a note stating none.
+        (store / "history" / "skipped" / "grouped").mkdir()
+        (store / "history" / "skipped" / "grouped" / "logs.txt").write_text("# the logs\n\nskip logs/\n")
+        (store / "history" / "skipped" / "grouped" / ".DS_Store").write_bytes(b"\x00")
+        (store / "notes.md").write_text("zero\none\ntwo\nthree\nfour\nfive\nsix\n")
+        (store / "gone.md").unlink()
+        (store / "new.md").write_text("brand\nnew\n")
+        (store / "photo.bin").write_bytes(b"\x89PNG\x00\x00")
+        (store / "data.bin").write_bytes(b"\x00\x02more bytes")
+        (store / "run.sh").chmod(0o755)
+        os.remove(store / "current")
+        os.symlink("new.md", store / "current")
+        os.remove(store / "was-link")
+        (store / "was-link").write_text("now a file\n")
+        os.remove(store / "removed-link")
+        os.symlink("kept.md", store / "new-link")
+        for skipped in ("build/out.md", "deep/scratch.tmp", "secret.md", "a/cache/x.md", "logs/today.md"):
+            (store / skipped).parent.mkdir(parents=True, exist_ok=True)
+            (store / skipped).write_text("not taken\n")
+        (store / "deep" / "kept.txt").write_text("taken\n")
+        (store / "cache").write_text("a file, which a directory's name does not cover\n")
+        if corpus == "badskip":
+            (store / "history" / "skipped" / "two.txt").write_text("skip a\nskip b\n")
+        if corpus == "notext":
+            (store / "notes.md").write_bytes(b"one\n\xff\xfe\n")
+    elif corpus == "fresh":
+        (store / "a.md").write_text("only\nthe folder\n")
+        (store / "b.bin").write_bytes(b"\x00")
     else:
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "one")
@@ -333,7 +520,7 @@ def check_store(temporary):
 
     failures = 0
     for corpus, commands in STORES.items():
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "folder", "badskip", "fresh", "notext")
         store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
         for command in commands:
             expected = capture(rust, *command, cwd=store)

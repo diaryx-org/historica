@@ -27,9 +27,10 @@ const HEADER_FILE: &str = "historica.txt";
 /// named by its own digest, and nothing else in a store is.
 const DOCUMENT_DIRS: [&str; 2] = ["revisions", "operations"];
 /// Every directory `Store.list` walks when asked: the documents, and the
-/// bookmarks, which are not documents — nothing names one by its digest —
-/// and so are listed only by a caller that asks for them.
-const LISTED_DIRS: [&str; 3] = ["revisions", "operations", "names"];
+/// bookmarks and the rules of what recording skips, which are not documents
+/// — nothing names one by its digest — and so are listed only by a caller
+/// that asks for them.
+const LISTED_DIRS: [&str; 4] = ["revisions", "operations", "names", "skipped"];
 
 /// Where a store keeps what it can rebuild, and what decision 0036's
 /// catalogue of `operations/` is called inside it.
@@ -173,6 +174,81 @@ pub unsafe extern "C" fn hist_store_digests(
             .collect::<Vec<_>>()
             .join("\n"))
     })
+}
+
+/// One directory of the folder beside the store, as the working copy's walk
+/// sees it: an entry a line, in name order, each saying what it is without
+/// following it.
+///
+/// - `d <name>`: a directory;
+/// - `f <x> <size> <name>`: a regular file, `x` `1` where any execute bit
+///   is set, and its length in bytes;
+/// - `l <name>`, then its target on the next line: a symbolic link, read and
+///   not followed;
+/// - `L <name>`: a link whose target is not UTF-8, or cannot be one line;
+/// - `o <name>`: anything else — a socket, a device;
+/// - `u`: a name that is not UTF-8, which cannot be spelled.
+///
+/// A name holding a newline cannot be a line and is left out; the working
+/// copy refuses such a path anyway, so nothing it would have tracked is lost.
+/// Nothing here decides what is tracked: the rules of `skipped/`, the store's
+/// own directory, and whether a path is one the format can hold are the Bend
+/// side's, which asks for a directory only once it has decided to walk it.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_folder_list(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || folder(Path::new(text(query, query_len)?)))
+}
+
+fn folder(dir: &Path) -> Result<String, (i32, String)> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|error| failed(dir, error))? {
+        let entry = entry.map_err(|error| failed(dir, error))?;
+        let kind = entry.file_type().map_err(|error| failed(dir, error))?;
+        entries.push((entry.path(), kind));
+    }
+    // The order the working copy's walk sorts its entries in.
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut lines = Vec::new();
+    for (path, kind) in entries {
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            lines.push("u".to_owned());
+            continue;
+        };
+        if name.contains('\n') {
+            continue;
+        }
+        if kind.is_symlink() {
+            let target = fs::read_link(&path).map_err(|error| failed(&path, error))?;
+            match target.to_str() {
+                Some(target) if !target.contains('\n') => {
+                    lines.push(format!("l {name}"));
+                    lines.push(target.to_owned());
+                }
+                _ => lines.push(format!("L {name}")),
+            }
+        } else if kind.is_dir() {
+            lines.push(format!("d {name}"));
+        } else if kind.is_file() {
+            let metadata = fs::symlink_metadata(&path).map_err(|error| failed(&path, error))?;
+            let runs = metadata.permissions().mode() & 0o111 != 0;
+            lines.push(format!("f {} {} {name}", u8::from(runs), metadata.len()));
+        } else {
+            lines.push(format!("o {name}"));
+        }
+    }
+    Ok(lines.join("\n"))
 }
 
 /// Return a buffer [`hist_store_locate`] or [`hist_store_list`] handed out.
@@ -405,6 +481,29 @@ mod tests {
         // Not a document directory: never listed.
         fs::create_dir_all(history.join("cache")).unwrap();
         fs::write(history.join("cache/README.txt"), "").unwrap();
+    }
+
+    #[test]
+    fn a_folder_is_listed_one_directory_at_a_time_without_following_links() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("notes/deep")).unwrap();
+        fs::write(root.join("notes/deep/hidden.txt"), "x").unwrap();
+        fs::write(root.join("b.txt"), "four").unwrap();
+        fs::write(root.join("run.sh"), "#!/bin/sh\n").unwrap();
+        fs::set_permissions(root.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+        std::os::unix::fs::symlink("notes", root.join("a-link")).unwrap();
+        fs::write(root.join("two\nlines"), "").unwrap();
+
+        let (code, listed) = call(hist_folder_list, root.to_str().unwrap().as_bytes());
+        assert_eq!(code, 0, "{listed}");
+        assert_eq!(listed, "l a-link\nnotes\nf 0 4 b.txt\nd notes\nf 1 10 run.sh");
+
+        let (code, message) = call(hist_folder_list, root.join("gone").to_str().unwrap().as_bytes());
+        assert_eq!(code, ENOENT);
+        assert!(message.contains("gone"), "{message}");
     }
 
     #[test]

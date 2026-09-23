@@ -47,6 +47,15 @@ def Store.digests(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_digests.c"
   import "./ffi/store_digests.js"
 
+# One directory of the folder beside the store, an entry a line in name
+# order, each saying what it is without following it: `d <name>`,
+# `f <x> <size> <name>`, `l <name>` and its target on the next line, `L`
+# for a link whose target cannot be spelled, `o` for anything else, `u` for
+# a name that is not UTF-8. What is tracked is decided here, by `folder.bend`.
+def Store.folder(dir: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_folder.c"
+  import "./ffi/store_folder.js"
+
 # One document read from disk: where it was, the digest of its bytes — the
 # only name it has — how many bytes, and its text. A payload of bytes that
 # is not UTF-8 decodes to something, and the count is of the bytes.
@@ -142,6 +151,16 @@ def name_paths(+root: String) -> IO(List<&2, String>):
   do IO<List<&2, String>>:
     text : String <- IO.try(String, Store.list(root ++ "\nnames"))
     return kept(String.lines(text))
+
+# The rule files of `skipped/`, relative to the root, in path order.
+def skipped_paths(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root ++ "\nskipped"))
+    return kept(String.lines(text))
+
+# One directory of the folder, as `Store.folder` lists it.
+def listing_of(dir: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.folder(dir)
 
 def read_text(path: String) -> IO(String):
   do IO<String>:

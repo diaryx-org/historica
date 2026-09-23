@@ -22,12 +22,14 @@ bend main.bend -- show kxry
 bend main.bend -- check
 bend main.bend -- replay history/operations/*/Start/notes.txt history/operations/*/*/notes.txt.ops.txt
 bend main.bend -- diff head             # what a revision did, rendered
+bend main.bend -- diff                  # the folder against the head
 bend main.bend -- blame head notes.txt
+bend main.bend -- blame notes.txt        # the folder's lines, attributed
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through four host effects (`store.bend`): `bend main.bend` runs
+here or above — through five host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -246,10 +248,12 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `utf8.bend` | bytes ↔ `String`, and reading a file as bytes | `std::str` |
 | `text.bend` | lines, fields, canonical numbers, digest spelling | `format::Lines` |
 | `ident.bend` | change and file IDs in the `k`–`z` alphabet, spelled and deciphered | `core::{ChangeId, FileId}` |
-| `ops.bend` | the operation document: parse, write, replay, diff | `format::operations`, `replay`, `diff` |
+| `ops.bend` | the operation document: parse, write, replay, and the longest-common-subsequence diff the proofs are about | `format::operations`, `replay` |
+| `similar.bend` | the diff the commands draw: `similar` 3.2.0's Histogram, with its preflights, its Myers fallback and heuristics, and the compaction around it, held to the crate on fifteen hundred cases | `diff`, the `similar` crate |
+| `folder.bend` | the working copy: `skipped/`'s rules read and matched, the folder walked a directory at a time, and what counts as text | `working` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, and what a payload weighs: four effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, and what one directory of the folder holds: five effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
@@ -300,7 +304,7 @@ On a store assembled from each corpus, and on one `historica init` and
 abbreviations, marks, counted facts, the message verbatim — `files` the same
 file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
-binary and the JavaScript build against the Rust tool on eleven such stores.
+binary and the JavaScript build against the Rust tool on fifteen such stores.
 `check` names every document by the digest `shasum` prints, and `opdiff`
 writes an operation document the Rust tool reads, `result` included. `cat` of a
 link refuses in the Rust tool's words, naming where it points relative to
@@ -347,21 +351,39 @@ revision holds against another: the facts about each file first — new,
 deleted, renamed, a mode, a link's target — then its hunks, three lines of
 context around each change, or the digest and length of a file of bytes;
 `blame <target> <path> [--lines <first>..<last>]` names the change, author
-and day that wrote each line. Both lay the operation document back over the
-parent line by line, which is what `blame`'s origins are read off. Two sides
-hold the same content for a file where the same revisions stated it, so
-only the files that differ are replayed. Where a revision is compared with
-its own parent, the document laid is the one it stated: the Rust tool
-recomputes that comparison with `similar`'s Histogram diff, which is what
-`record` wrote the document with, so the stated one is the same answer
-without the algorithm here. Across `--onto`, `Ops.diff` computes it — a
-longest common subsequence, which agrees with Histogram wherever the change
-has one alignment and can place a moved blank line differently where it has
-two. Not read: the folder, which Base cannot list, so neither command takes
-a target-less form; `--color auto` colours nothing, having no way to ask
-for a terminal; and `--color always` draws everything but the word-level
-emphasis, which is `similar`'s Myers over words. `opdiff` is what `diff` was
-here before: the operation document between two files.
+and day that wrote each line. Two sides hold the same content for a file
+where the same revisions stated it, so only the files that differ are
+replayed. What is laid over the parent is what the Rust tool lays:
+`similar`'s Histogram diff, recomputed, which `similar.bend` ports whole —
+the preflight that answers two long, nearly disjoint sides with one
+replacement, the search for a rare shared run, the Myers search it falls
+back to where every shared line is common (with Myers' own preflight, its
+heuristics, and its exact search where one side is small), and the
+compaction that slides each run of changes to where it groups. `check.py`
+holds it to the crate on fifteen hundred cases drawn to reach every one of
+those paths, and on the archive `diff head --onto` an early revision prints
+the Rust tool's 2,479 lines byte for byte.
+
+With no target, both read the folder beside the store (`folder.bend`),
+walked as the working copy is: everything is tracked but `history/` itself,
+what a rule in `skipped/` keeps out — a path, a directory, a name with `*`s
+in it, or a directory's name, filed flat or in folders of their own — and a
+path the format cannot hold. `diff` compares it with the head, or with what
+`--onto` names, a path or `file:` limiting it to one file; the folder has
+no identifiers, so a file that moved there is a loss and an arrival. A file
+the position holds as lines must still be text, and one it does not is
+lines or bytes as decision 0017 sniffs it. `blame <path>` attributes the
+folder's lines as far as history can and marks the rest `(the folder)`. A
+file of lines is read only where the host's digest of it is not the one its
+nearest statement on the head's first-parent line leaves, so `diff` over
+the archive's folder takes 1.4 s. A malformed rule in `skipped/` refuses
+every command, in the Rust tool's words, as a malformed bookmark does.
+
+Not yet: `--color auto` colours nothing, having no way to ask for a
+terminal, and `--color always` draws everything but the word-level
+emphasis. Names are compared as the filesystem spells them, with no
+normal form C. `opdiff` is what `diff` was here before: the operation
+document between two files, by `Ops.diff`.
 
 What `cat` does not do is decision 0032's rule for a merge that states no
 resolution: the Rust tool reads a file whose parents disagree by walking
@@ -818,7 +840,7 @@ is under 5k. Not ported:
   that replaces a destroyed payload.
 - **Writing the store**: `init`, `record`, `name`, `arrange`, `fetch`,
   `export`. Everything here reads. `check` does not report on `names/`.
-- Unicode normal form C on paths and bookmark names.
+- Unicode normal form C on paths, bookmark names and the folder's names.
 
 ## What Bend asked for
 

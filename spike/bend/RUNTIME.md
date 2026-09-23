@@ -9,8 +9,8 @@ providing the filesystem and process services it needs.
 
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
-`Store.locate`, `Store.list`, `Store.at` and `Store.digests`,
-`ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.locate`, `Store.list`, `Store.at`, `Store.digests` and
+`Store.folder`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -40,8 +40,13 @@ the minutes instead.)
 
 An effect answers a question and decides nothing. `Store.locate` says where
 the store is, `Store.list` what paths it holds, `Store.at` where the bytes
-with a digest are, and `Store.digests` what a file's digest and byte count
-are. Which files a command opens is the Bend side's, and so is every
+with a digest are, `Store.digests` what a file's digest and byte count
+are, and `Store.folder` what one directory of the folder beside the store
+holds — each entry's name and what it is, a link's target read and never
+followed, a file's execute bit and length. Which directories are walked,
+which files a `skipped/` rule keeps out, and which paths the format can hold
+are decided in `folder.bend`, which asks for a directory only once it has
+decided to walk it: a skipped `target/` is never listed. Which files a command opens is the Bend side's, and so is every
 conclusion: a path `Store.at` offers is opened and hashed in `sha256.bend`
 before the document at it is believed to be the one asked for, which is
 `store::catalogue`'s own rule — *the digest of a file is never believed*.
@@ -63,7 +68,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The four effects here are one-shot — a string in, a string out, nothing
+The five effects here are one-shot — a string in, a string out, nothing
 held between calls — which avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
 Do not represent ownership merely by a freely copyable numeric pointer.
@@ -74,9 +79,10 @@ resources even when the happy-path Bend continuation is not reached.
 
 The boundary is where the cost is, so it is worth stating what crosses it.
 `log` and `files` read the whole of `revisions/` and nothing else but
-`names/`: the graph is every revision document and a store's revisions are a
-megabyte or two, and a bookmark is a line. `Store.list` walks `names/` only
-when asked for it by name, since nothing there is a document.
+`names/` and `skipped/`: the graph is every revision document and a store's
+revisions are a megabyte or two, and a bookmark or a rule is a line.
+`Store.list` walks `names/` and `skipped/` only when asked for them by name,
+since nothing there is a document.
 `cat` and `show` read that, then ask `Store.at` for the digests the revisions
 along the chain name for the one file asked about, and read those — a handful
 of operation documents, and a payload only where the file was written whole.
@@ -84,11 +90,19 @@ of operation documents, and a payload only where the file was written whole.
 the ones with a grammar, and asks `Store.digests` for the digest and the size
 of each payload.
 
-That last delegation is the one place a digest is computed outside Bend. It
-is here because the payloads in a real store are hundreds of megabytes that
-would have to be read into a list of bytes and packed before they were hashed,
-while nothing in a payload is parsed and nothing about it is concluded — `check` prints the digest and
-the count and that is all. Every document with a grammar is still read and
+`diff` and `blame` with no target read the folder as well: they walk it a
+directory at a time, ask `Store.digests` for the digest of each file it
+tracks, and read here only the files whose digest is not the one the
+position's nearest statement of them leaves — a `text` payload's name, or the
+`result` an `edit`'s document states — or that the position does not hold.
+
+Those two delegations are the only places a digest is computed outside Bend. They
+are there because the payloads in a real store are hundreds of megabytes, and
+the folder is the store's size again, all of which would have to be read into
+a list of bytes and packed before it was hashed — while nothing in a payload
+is parsed, and a folder digest only decides whether a file is read: `check`
+prints the digest and the count and that is all, and a file `diff` reads is
+compared here, line by line. Every document with a grammar is still read and
 hashed in `sha256.bend`, which is what the laws and `corpus_*.bend` check,
 and `Store.at`'s answer is still verified against it.
 
