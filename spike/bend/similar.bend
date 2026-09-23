@@ -1874,10 +1874,73 @@ def walked.moves(w: Walked) -> List<&2, Ops.Move>:
     case Walked{old, new, moves}:
       List.reverse(&2, Ops.Move, moves)
 
+# The moves, checked in one pass: a kept line the same on both sides, a
+# lost line the parent's, a gained line the child's, and both sides used
+# up. Moves that pass take the parent to the child (`LAWS.similar_diff_applies`).
+def fit.item(a: Ops.Item, b: Ops.Item) -> Bool:
+  match a b:
+    case Ops.Item{x, n, f} Ops.Item{y, m, g}:
+      Bool.and(String.eq(x, y), Bool.and(Bool.not(Bool.xor(n, m)), Bool.not(Bool.xor(f, g))))
+
+def fit.head(+x: Ops.Item, ys: List<&2, Ops.Item>) -> Bool:
+  match ys:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      fit.item(x, y)
+
+def fit.agrees(+x: Ops.Item, ys: List<&2, Ops.Item>) -> Bool:
+  match ys:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Ops.agrees(x, y)
+
+def fit.kept(xs: List<&2, Ops.Item>, ys: List<&2, Ops.Item>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      fit.head(x, ys)
+
+def fit.tail(xs: List<&2, Ops.Item>) -> List<&2, Ops.Item>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      rest
+
+def fit.empty(xs: List<&2, Ops.Item>, ys: List<&2, Ops.Item>) -> Bool:
+  Bool.and(List.is_empty(&2, Ops.Item, xs), List.is_empty(&2, Ops.Item, ys))
+
+def fit(es: List<&2, Ops.Move>, +old: List<&2, Ops.Item>, +new: List<&2, Ops.Item>) -> Bool:
+  match es:
+    case Nil{}:
+      fit.empty(old, new)
+    case Ops.Keep{} <> r:
+      Bool.and(fit.kept(old, new), fit(r, fit.tail(old), fit.tail(new)))
+    case Ops.Del{d} <> r:
+      Bool.and(fit.agrees(d, old), fit(r, fit.tail(old), new))
+    case Ops.Ins{y} <> r:
+      Bool.and(fit.head(y, new), fit(r, old, fit.tail(new)))
+
+# Moves that do not take the parent to the child would be a fault in the
+# search above, which the crate's cases have not found; were there one, the
+# longest common subsequence `Ops.diff` is proven to take them there.
+def diff.checked(+parent: List<&2, Ops.Item>, +child: List<&2, Ops.Item>, moves: List<&2, Ops.Move>, ok: Bool) -> Maybe<&2, Ops.Doc>:
+  match ok:
+    case True{}:
+      Ops.diff.of(Ops.script(Ops.runs(moves, 0n, Nil{}, Nil{}), 0n), Ops.state_digest(child))
+    case False{}:
+      Ops.diff(parent, child)
+
+def diff.moves(+parent: List<&2, Ops.Item>, +child: List<&2, Ops.Item>, +moves: List<&2, Ops.Move>) -> Maybe<&2, Ops.Doc>:
+  diff.checked(parent, child, moves, fit(moves, parent, child))
+
 # The document that takes `parent` to `child`, or None where they agree:
 # `historica::diff::diff`.
 def diff(+parent: List<&2, Ops.Item>, +child: List<&2, Ops.Item>) -> Maybe<&2, Ops.Doc>:
-  Ops.diff.of(Ops.script(Ops.runs(walked.moves(walked.go(ops(parent, child), Walked{parent, child, Nil{}})), 0n, Nil{}, Nil{}), 0n), Ops.state_digest(child))
+  diff.moves(parent, child, walked.moves(walked.go(ops(parent, child), Walked{parent, child, Nil{}})))
 
 # A check against the Rust crate
 # ------------------------------
@@ -1916,6 +1979,12 @@ def spaced(parts: List<&2, String>) -> List<&2, String>:
     case p <> rest:
       p <> spaced(rest)
 
+# A line case's operations, and — so that the crate's cases also show the
+# fallback in `diff` is never taken — a mark where the moves would not pass
+# the check.
+def case.lines(+old: List<&2, Ops.Item>, +new: List<&2, Ops.Item>) -> String:
+  show.ops(ops(old, new)) ++ Bool.pick(String, fit(walked.moves(walked.go(ops(old, new), Walked{old, new, Nil{}})), old, new), "", " UNFIT")
+
 # A case whose old side begins `M:` asks for Myers over the words, as the
 # emphasis inside a changed line does; any other, for Histogram over lines.
 def case.both(+a: String, b: String, myers: Bool) -> String:
@@ -1923,7 +1992,7 @@ def case.both(+a: String, b: String, myers: Bool) -> String:
     case True{}:
       show.ops(myers.words(spaced(String.split(String.drop(a, 2n), ' ')), spaced(String.split(b, ' '))))
     case False{}:
-      show.ops(ops(tokens(String.split(a, ' '), Nil{}), tokens(String.split(b, ' '), Nil{})))
+      case.lines(tokens(String.split(a, ' '), Nil{}), tokens(String.split(b, ' '), Nil{}))
 
 def case.of(parts: List<&2, String>) -> String:
   match parts:

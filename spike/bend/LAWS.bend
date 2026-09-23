@@ -13,6 +13,7 @@ import ./semantic_replay.bend as Block
 import ./merge.bend as Merge
 import ./tree.bend as Tree
 import ./main.bend as Main
+import ./similar.bend as Sim
 import ./store.bend as Store
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
@@ -560,3 +561,15 @@ law walked_file_every_order:
   for +ht: {Merge.subset(Merge.upto(List.length(&2, Merge.Rev, g)), b) == True{} : Bool}
   for e: {Main.walked.of(fs, ds, head, file) == Done{w} : Result<&2, &2, String, Main.Walked>}
   {Some{Main.walked.file(w)} == Merge.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}
+
+# The diff the commands draw takes one side to the other. `diff` and
+# `blame` over the folder and across `--onto` compare with `similar`'s
+# Histogram search, as the Rust tool does; whatever it finds, the document
+# written from it applies to the parent and gives the child.
+law similar_diff_applies:
+  for +parent: List<&2, Ops.Item>
+  for +child: List<&2, Ops.Item>
+  for tbl: {Ops.terminated_but_last(child) == True{} : Bool}
+  for +doc: Ops.Doc
+  for e: {Sim.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>}
+  {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}

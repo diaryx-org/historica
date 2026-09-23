@@ -214,6 +214,9 @@ def check_similar(temporary):
     reference = ROOT / "ffi" / "target" / "release" / "examples" / "similar_ops"
     expected = subprocess.run([str(reference)], input=text, capture_output=True, text=True, check=True).stdout.splitlines()
     got = subprocess.run([str(native), str(temporary / "cases.txt")], capture_output=True, text=True, check=True).stdout.splitlines()
+    unfit = [i for i, line in enumerate(got) if "UNFIT" in line]
+    if unfit:
+        sys.exit(f"{len(unfit)} of {len(cases)} cases found moves the check in `Sim.diff` refuses, first {text.splitlines()[unfit[0]][:200]}")
     differ = [i for i, want in enumerate(expected) if i >= len(got) or replaced(got[i]) != want]
     for i in differ[:3]:
         print(f"DIFF similar case {i}:\n  {text.splitlines()[i][:200]}\n  want {expected[i][:200]}\n  got  {replaced(got[i])[:200] if i < len(got) else ''}")
@@ -1035,6 +1038,13 @@ def check_mutations(temporary):
             "      walked.tree(head, file, names, Merge.walk(walked.order(g), g, Some{Nil{}}))",
             "order_lemmas.reads.at",
             "main.bend",
+        ),
+        (
+            "the diff's check lets a kept line differ",
+            "      Bool.and(fit.kept(old, new), fit(r, fit.tail(old), fit.tail(new)))",
+            "      fit(r, fit.tail(old), fit.tail(new))",
+            "similar_lemmas.fit_apply",
+            "similar.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):
