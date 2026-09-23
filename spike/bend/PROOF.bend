@@ -37,6 +37,7 @@ import ./fileat_lemmas.bend as FileAt
 import ./laid_lemmas.bend as LaidL
 import ./blame_lemmas.bend as BlameL
 import ./bookmark_lemmas.bend as BmL
+import ./abbrev_lemmas.bend as Abbrev
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -457,3 +458,9 @@ def Laws.rules_are_well_formed(text):
 
 def Laws.bookmark_reads_back(t, p, h):
   BmL.reads_back(t, p, h)
+
+def Laws.abbreviation_is_a_prefix(id, among):
+  Abbrev.prefix_ok(id, among)
+
+def Laws.abbreviation_names_one(id, among, other, m, ne, len):
+  Abbrev.unique(id, among, other, m, ne, len)

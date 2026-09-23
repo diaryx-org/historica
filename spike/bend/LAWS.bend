@@ -684,3 +684,20 @@ law bookmark_reads_back:
   for p: Bool
   for +h: {Bm.target_ok(t) == True{} : Bool}
   {Bm.parse(Bm.write(Bm.Stated{t, p})) == Done{Bm.Stated{t, p}} : Result<&2, &2, String, Bm.Stated>}
+
+# An abbreviated digest names one revision: it is a prefix of the digest,
+# and no other digest of the same length among those it was abbreviated
+# against starts with it, however they share their prefixes.
+law abbreviation_is_a_prefix:
+  for +id: String
+  for +among: List<&2, String>
+  {String.starts_with(id, Main.abbreviate(id, among)) == True{} : Bool}
+
+law abbreviation_names_one:
+  for +id: String
+  for +among: List<&2, String>
+  for +other: String
+  for m: {Rev.member(among, other) == True{} : Bool}
+  for +ne: {String.eq(other, id) == False{} : Bool}
+  for len: {String.length(other) == String.length(id) : Nat}
+  {String.starts_with(other, Main.abbreviate(id, among)) == False{} : Bool}

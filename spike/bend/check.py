@@ -1109,6 +1109,13 @@ def check_mutations(temporary):
             "bookmark_lemmas.target_back",
             "bookmark.bend",
         ),
+        (
+            "an abbreviation stops at the longest share",
+            '  String.take(id, Nat.max(8n, 1n+longest_shared(id, among)))',
+            '  String.take(id, Nat.max(8n, longest_shared(id, among)))',
+            "abbrev_lemmas.unique",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
