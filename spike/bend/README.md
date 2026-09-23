@@ -12,6 +12,7 @@ Everything here is held to the same corpus the Rust crate is
 ```console
 cd historica/spike/bend
 python3 check.py                 # proofs, JS/native corpora, mutation checks
+python3 reach.py                 # how much of what the tool runs a law reaches
 bend PROOF.bend                  # the laws: prints "All terms check."
 bend corpus_ops.bend             # the operations corpus, every line `ok`
 bend corpus_rev.bend             # the revision corpora, every line `ok`
@@ -400,13 +401,15 @@ A file's content is decision 0032's rule, as the Rust tool reads it: a
 revision that says nothing holds what its parents agree on, and a parent
 that never saw the file has no say. Where the parents disagree and the
 merge states no resolution, the rule stops, and so does every edit
-recorded on top. There `cat`, `diff` and `blame` read the file from
+recorded on top. There `cat` and `diff` read the file from
 `merge.bend`'s walk, the one `merge_converges`, `view_keeps_invariant`
 and `merge_intent` are proven about. It walks the target's ancestry in
 digest order, each revision with its ancestors as indices, in order of
 how many ancestors it has. That is a causal order, and the walk reads the
-same file in every causal order. `blame` names the author of each
-standing element. A resolution in that history is walked as `merge.rs`
+same file in every causal order. `blame` reads the walk everywhere, as
+the Rust tool's reads `merged_content`, and names the author of each
+standing element: on one line of history the walk is plain replay
+(`merge_linear`), so no overlay of each edit is kept beside it. A resolution in that history is walked as `merge.rs`
 walks one: a `keep` of a digest names the elements minted by the events
 that stated that document. `check.py`'s `walked` store has four
 hand-written merges that state nothing:
@@ -965,7 +968,15 @@ and compiling it ten seconds or so.
 
 Every theorem the Verus spike states now has a Bend counterpart. What the
 merge laws are about is `merge.bend`, held to `merge.rs`'s tests, and it
-is the code `main.bend` runs wherever a merge states no resolution. See
+is the code `main.bend` runs wherever a merge states no resolution, and
+for every `blame`.
+
+`reach.py` measures how far that goes. It follows every def from `main`,
+and every def a law in `LAWS.bend` names, through the imports, and prints
+per file how many of the lines the tool runs a law reaches; `check.py`
+prints it too. Reached is generous — a def a law only mentions counts — so
+the number is where to look, and what it calls unreached has no law at all.
+`python3 reach.py --unproven` lists those defs. See
 [RUNTIME.md](RUNTIME.md) for the C/Rust interop direction and proof boundary.
 
 ## What the port found

@@ -66,6 +66,12 @@ def check_proof(temporary):
     run(BEND, "PROOF.bend")
 
 
+# How much of what the tool runs a law reaches (`reach.py`): a report, not a
+# gate, so that the number is in front of whoever runs the check.
+def check_reach(temporary):
+    run(sys.executable, "reach.py")
+
+
 def check_corpora(temporary):
     def suite(name):
         def job():
@@ -100,6 +106,7 @@ def main():
         "similar": check_similar,
         "proof": check_proof,
         "mutations": check_mutations,
+        "reach": check_reach,
     }
     asked = [a for a in sys.argv[1:] if a != "--native"] or list(stages)
     unknown = [name for name in asked if name not in stages]
@@ -393,7 +400,7 @@ STORES = {
         ["diff", "after"],
         ["diff", "after", "g.md"],
         *(["cat", target, path] for target in ("resolved", "crossed") for path in ("f.md", "g.md")),
-        *(["blame", "crossed", path] for path in ("f.md", "g.md")),
+        *(["blame", target, path] for target in ("resolved", "side", "crossed") for path in ("f.md", "g.md")),
         ["diff", "crossed", "--onto", "side"],
     ],
 }

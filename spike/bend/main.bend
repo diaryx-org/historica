@@ -4017,117 +4017,10 @@ def rows.items(rs: List<&2, Row>) -> List<&2, Ops.Item>:
     case Row{b, it} <> rest:
       it <> rows.items(rest)
 
-def rows.by(+by: Maybe<&2, String>, items: List<&2, Ops.Item>) -> List<&2, Row>:
-  match items:
-    case Nil{}:
-      Nil{}
-    case it <> rest:
-      Row{by, it} <> rows.by(by, rest)
-
-# The revision whose document minted the items a `keep` names: the one that
-# stated that document for some file.
-def minter.says(+d: String, facts: List<&2, Rev.Header>) -> Bool:
-  match facts:
-    case Nil{}:
-      False{}
-    case Rev.Header{k, +v} <> rest:
-      Bool.or(String.ends_with(v, " " ++ d), minter.says(d, rest))
-
-def minter(fs: List<&2, Full>, +d: String) -> Maybe<&2, String>:
-  match fs:
-    case Nil{}:
-      None{}
-    case +f <> rest:
-      Bool.pick(Maybe<&2, String>, minter.says(d, facts_of(f)), Some{id_of(f)}, minter(rest, d))
-
-def origins.piece(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, p: Res.Piece) -> List<&2, Row>:
-  match p:
-    case Res.Piece.Keep{+d, first, count}:
-      rows.by(minter(oldest, d), List.take(&2, Ops.Item, List.drop(&2, Ops.Item, minted(Maybe.default(&2, String, doc_by_id(ds, d), SNil{})), first), count))
-    case Res.Piece.Insert{items}:
-      rows.by(Some{id}, items)
-
-def origins.pieces(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, ps: List<&2, Res.Piece>) -> List<&2, Row>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case p <> rest:
-      List.append(&2, Row, origins.piece(oldest, ds, id, p), origins.pieces(oldest, ds, id, rest))
-
-def origins.resolved(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, parsed: Result<&2, &2, String, Res.Doc>) -> Maybe<&2, List<&2, Row>>:
-  match parsed:
-    case Fail{e}:
-      None{}
-    case Done{Res.Doc{f, r, ps}}:
-      Some{origins.pieces(oldest, ds, id, ps)}
-
-def origins.edited(+id: String, before: Maybe<&2, List<&2, Row>>, parsed: Result<&2, &2, String, Ops.Doc>) -> Maybe<&2, List<&2, Row>>:
-  match before parsed:
-    case Some{+rs} Done{doc}:
-      Some{overlay(laid(rows.items(rs), doc), rs, Some{id})}
-    case _ _:
-      None{}
-
-def origins.text(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, before: Maybe<&2, List<&2, Row>>, +text: String, resolution: Bool) -> Maybe<&2, List<&2, Row>>:
-  match resolution:
-    case True{}:
-      origins.resolved(oldest, ds, id, Res.parse(text))
-    case False{}:
-      origins.edited(id, before, Ops.parse(text))
-
-def origins.doc(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, before: Maybe<&2, List<&2, Row>>, doc: Maybe<&2, String>) -> Maybe<&2, List<&2, Row>>:
-  match doc:
-    case None{}:
-      None{}
-    case Some{+text}:
-      origins.text(oldest, ds, id, before, text, Res.is_resolution(text))
-
-def origins.said(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, inherited: Maybe<&2, List<&2, Row>>, s: Said) -> Maybe<&2, List<&2, Row>>:
-  match s:
-    case Whole{+d}:
-      Maybe.map(&2, String, List<&2, Row>, t => rows.by(Some{id}, Ops.from_text(t)), doc_by_id(ds, d))
-    case Edited{+d}:
-      origins.doc(oldest, ds, id, inherited, doc_by_id(ds, d))
-    case Nothing{}:
-      inherited
-
-# Who wrote each line of the file at every revision that holds it, walked
-# as `content` walks, oldest first; `content` is what says whether the file
-# is readable at all, and this only who wrote what it reads.
-type Origins is Data:
-  Origins{rows: List<&2, Row>, id: String}
-
-def origins_of(os: List<&2, Origins>, +id: String) -> Maybe<&2, List<&2, Row>>:
-  match os:
-    case Nil{}:
-      None{}
-    case Origins{rs, +i} <> rest:
-      Bool.pick(Maybe<&2, List<&2, Row>>, String.eq(i, id), Some{rs}, origins_of(rest, id))
-
-def origins.parents(+os: List<&2, Origins>, ps: List<&2, String>) -> Maybe<&2, List<&2, Row>>:
-  match ps:
-    case Nil{}:
-      None{}
-    case p <> rest:
-      Maybe.or(&2, List<&2, Row>, origins_of(os, p), origins.parents(os, rest))
-
-def origins.push(+id: String, o: Maybe<&2, List<&2, Row>>, os: List<&2, Origins>) -> List<&2, Origins>:
-  match o:
-    case None{}:
-      os
-    case Some{rs}:
-      Origins{rs, id} <> os
-
-def origins.go(+all: List<&2, Full>, oldest_first: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, +os: List<&2, Origins>) -> List<&2, Origins>:
-  match oldest_first:
-    case Nil{}:
-      os
-    case Full{+id, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest:
-      origins.go(all, rest, ds, file, origins.push(id, origins.said(all, ds, id, origins.parents(os, parents), said(facts, file)), os))
-
-def origins(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> List<&2, Row>:
-  Maybe.default(&2, List<&2, Row>, origins_of(origins.go(oldest, oldest, ds, file, Nil{}), id), Nil{})
-
+# Who wrote each line of the file at a revision: the walk, as the Rust
+# tool's `merged_content` answers it, wherever decision 0032's rule reaches
+# too. On one line of history the walk is plain replay (`merge_linear`), so
+# the authors are the ones an overlay of each edit would give.
 def walked.rows(ns: List<&2, Merge.Node>, +names: List<&2, String>) -> List<&2, Row>:
   match ns:
     case Nil{}:
@@ -4141,31 +4034,15 @@ def walked.origins(w: Walked) -> List<&2, Row>:
     case Walked{+names, t}:
       walked.rows(Merge.visible(t), names)
 
-# Where decision 0032's rule stops, who wrote each line is what the walk
-# says, as the file is.
-def origins.walked(r: Result<&2, &2, String, Walked>) -> List<&2, Row>:
+def origins.walked(r: Result<&2, &2, String, Walked>) -> IO(List<&2, Row>):
   match r:
     case Fail{e}:
-      Nil{}
+      die(List<&2, Row>, 1, e)
     case Done{w}:
-      walked.origins(w)
+      IO.pure(List<&2, Row>, walked.origins(w))
 
-def origins.rule(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, h: Rule) -> List<&2, Row>:
-  match h:
-    case Unstated{}:
-      origins.walked(walked.of(oldest, ds, id, file))
-    case Known{items}:
-      origins(oldest, ds, id, file)
-
-def origins.found(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, found: Maybe<&2, Result<&2, &2, String, Rule>>) -> List<&2, Row>:
-  match found:
-    case Some{Done{h}}:
-      origins.rule(oldest, ds, id, file, h)
-    case _:
-      origins(oldest, ds, id, file)
-
-def origins.at(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> List<&2, Row>:
-  origins.found(oldest, ds, id, file, content_of(contents.go(oldest, ds, file, Nil{}), id))
+def origins.at(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> IO(List<&2, Row>):
+  origins.walked(walked.of(oldest, ds, id, file))
 
 # Printing
 # --------
@@ -4394,7 +4271,8 @@ def blame.recorded(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark
     +all : List<&2, Store.Doc> = List.append(&2, Store.Doc, ds2, more)
     +oldest : List<&2, Full> = List.reverse(&2, Full, presentation(ancestry(fs, id)))
     items : List<&2, Ops.Item> <- blame.readable(content.in(oldest, all, id, file2))
-    blame.limited(fs, changes(fs), origins.at(oldest, all, id, file2), asked_span)
+    rows : List<&2, Row> <- origins.at(oldest, all, id, file2)
+    blame.limited(fs, changes(fs), rows, asked_span)
 
 def blame.wanted(lines: Maybe<&2, String>) -> IO(Maybe<&2, Wanted>):
   match lines:
@@ -4512,7 +4390,7 @@ def wcf.origins(+root: String, +fs: List<&2, Full>, +left: Maybe<&2, String>, fi
         +all : List<&2, Store.Doc> = List.append(&2, Store.Doc, ds2, more)
         +oldest : List<&2, Full> = List.reverse(&2, Full, presentation(ancestry(fs, id)))
         items : List<&2, Ops.Item> <- blame.readable(content.in(oldest, all, id, f))
-        return origins.at(oldest, all, id, f)
+        origins.at(oldest, all, id, f)
     case _ _:
       IO.pure(List<&2, Row>, Nil{})
 
