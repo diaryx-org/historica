@@ -24,6 +24,7 @@ import ./tree_lemmas.bend as TL
 import ./graph_lemmas.bend as GL
 import ./anchor_lemmas.bend as AL
 import ./merge.bend as Merge
+import ./linear_lemmas.bend as Lin
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -325,6 +326,25 @@ def Laws.merge_converges(g, a, b, e):
 
 def Laws.merge_records_nothing(g, o, past, b):
   Conv.merge_records_nothing(g, o, past, b)
+
+# Plain replay is replay by the cursor specification, one document at a time.
+def replay_creplay(docs: List<&2, List<&2, Ops.Op>>, r: Result<&2, &2, String, List<&2, Ops.Item>>) -> {Merge.replay(docs, r) == Lin.creplay(docs, r) : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  match docs r:
+    case Nil{} Fail{m}:
+      {==}
+    case Nil{} Done{f}:
+      {==}
+    case d <> ds Fail{m}:
+      {==}
+    case +d <> +ds Done{+f}:
+      Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Merge.replay(ds, Ops.apply(f, Ops.Doc{None{}, None{}, d})), Merge.replay(ds, Cursor.apply(f, Ops.Doc{None{}, None{}, d})), Lin.creplay(ds, Cursor.apply(f, Ops.Doc{None{}, None{}, d})),
+        Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Result<&2, &2, String, List<&2, Ops.Item>>, x => Merge.replay(ds, x), Ops.apply(f, Ops.Doc{None{}, None{}, d}), Cursor.apply(f, Ops.Doc{None{}, None{}, d}), Laws.cursor_apply_equivalent(f, Ops.Doc{None{}, None{}, d})),
+        replay_creplay(ds, Cursor.apply(f, Ops.Doc{None{}, None{}, d})))
+
+def Laws.merge_linear(docs, f, o, e):
+  Lin.merge_linear_c(docs, f, Lin.all_strict_of(docs, o),
+    Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Lin.creplay(docs, Done{Nil{}}), Merge.replay(docs, Done{Nil{}}), Done{f},
+      Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Merge.replay(docs, Done{Nil{}}), Lin.creplay(docs, Done{Nil{}}), replay_creplay(docs, Done{Nil{}})), e))
 
 def Laws.insert_at_gap(t, at, nm, it, left, inv, fr, lo):
   AL.insert_at(t, at, nm, it, left, inv, fr, lo)

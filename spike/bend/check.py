@@ -899,6 +899,13 @@ def check_mutations(temporary):
             "merge.bend",
         ),
         (
+            "an event of a chain has seen none of the events before it",
+            "      Rev{upto(n), Some{d}} <> chain.go(ds, 1n+n)",
+            "      Rev{Nil{}, Some{d}} <> chain.go(ds, 1n+n)",
+            "linear_lemmas.chain_go",
+            "merge.bend",
+        ),
+        (
             "the revision writer puts `when` before `author`",
             '++ "author " ++ author ++ "\\n" ++ "when " ++ when ++ "\\n" ++',
             '++ "when " ++ when ++ "\\n" ++ "author " ++ author ++ "\\n" ++',

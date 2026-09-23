@@ -258,7 +258,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | forty-six claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | forty-seven claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -267,6 +267,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `diff_lemmas.bend` | `apply(diff(parent, child)) == child`: the LCS backtrack yields a script that takes the parent to the child, and the runs of that script are blocks the cursor walks to it | `tests/diff.rs` |
 | `merge.bend`, `merge_lemmas.bend` | the merge as a model — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
 | `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
+| `linear_lemmas.bend` | `merge_linear`: on one line of history, each event having seen every event before it, the merge walk reads what plain replay makes | `merge.rs`'s `linear` fast path, decision 0007 |
 | `anchor_lemmas.bend` | the reachable-state invariant of a view and one insertion landing at the visible gap it asked for, tombstones or not | `merge.rs`'s anchor, Fugue's rule |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `revision_lemmas.bend` | `write(parse(s)) == s` for revision documents: validation sorts the headers by rank, and sorted headers are what `write` spells | the revision round-trip tests |
@@ -531,8 +532,8 @@ checks it).
 
 The parser is proven to accept nothing else. `Ops.next_op.bounded` is now
 the one place operations are ordered: each must follow both the previous
-operation and the last delete (`Ops.ordered`), which `parser_lemmas.bend`
-names `ordered_all`. Two theorems close the gap:
+operation and the last delete (`Ops.ordered`), which `semantic_replay.bend`
+names `Block.ordered_all`. Two theorems close the gap:
 
 - `parser_accepts_ordered`: whenever `Ops.parse(s)` is
   `Done{Doc{_, _, ops}}`, `Block.ordered(ops, 0n)` holds. `parser_ordered`
@@ -715,11 +716,34 @@ proof is the index bookkeeping (`merge_lemmas.bend`: `walk_append`,
 holds (`Merge.below`), since an index past the end is refused. No
 mutation is added for it: the breaks that would fail it — a step that
 empties the tree on an empty event, a walk that reads the wrong index —
-fail `merge_converges` first. Not proven, and the larger claim: that the walk agrees with plain
-application on a chain, which is decision 0007's promise and what
-`merge.rs`'s `linear` fast path relies on. `insert_at_gap` below is the
-one-step case of it; the chain needs it composed with the run's own
-growing view and with deletes, which is not done.
+fail `merge_converges` first.
+
+On one line of history the walk is plain replay. `merge_linear` says: for
+documents each of which the parser would accept (`Block.each_ordered`,
+every one `Block.ordered_all`), if applying them in turn to the empty file
+with `Ops.apply` gives `f` (`Merge.replay`), then the walk of the chain
+they make — event `n` has seen events `0..n` (`Merge.chain`) — over the
+order `0..n` gives `f` too. That is decision 0007's promise and what
+`merge.rs`'s `linear` fast path relies on. The ordering hypothesis is not
+a convenience: two inserts at one gap in one document are read by the
+merge in the reverse of the order plain replay writes them, and the
+parser refuses such a document ("two inserts at one position"). The proof
+(`linear_lemmas.bend`) walks one run beside `Cursor.walk`, operation by
+operation (`run_sim`), carrying a Bool conclusion (`fine`): the view the
+run acts on keeps `insert_at_gap`'s invariant, every name in it is below
+the event's own, and its visible reading is the file so far. Positions are
+counted in a view written as a prefix already walked and `drop(P, c)` of
+what is left; deletes are tracked as the marks `cuts` a view has taken
+and the marks `mk` a run has yet to apply, and separated from the
+inserts by the reading's `nodup`. The order the run needs — a delete then
+an insert at one position is one replacement, an insert closes the gap
+behind it — is `strict`, and `parser_strict` derives it from
+`Ops.ordered`. Across the chain, `restrict(t, seen)` is the whole tree,
+because each event has seen everything before it, so the invariant
+`insert_at_gap` takes as a hypothesis is carried rather than assumed. The
+statement was fuzzed against the runtime before it was proven, which is
+how the two-inserts case was found; one mutation, a chain whose events
+have seen nothing before them, is rejected at `chain_go`.
 
 One insertion lands at the gap its author asked for. `insert_at_gap`
 says: on a view with the reachable-state invariant, an element of a
@@ -748,8 +772,8 @@ with leaving tombstones out because the element followed is visible
 (`standing_splice`). The freshness `inserts` relies on — a name the view
 neither holds nor hangs anything under — is a hypothesis
 (`Merge.fresh`), as is the view being one this author's run built: the
-invariant is not shown of `restrict(t, seen)` for a walked tree `t`,
-which would need the whole tree's invariant under concurrent attaches
+invariant is not shown of `restrict(t, seen)` for a walked tree `t` in
+general — on a chain it is, by `merge_linear` above — which would need the whole tree's invariant under concurrent attaches
 (an element among same-side siblings), and the name-sorted commutation
 that takes. What is fuel-bound stays explicit: `fits` is carried in the
 invariant, not derived from a depth, and `leftmost`'s fuel (the element
@@ -786,7 +810,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Forty-four mutations cover the primitive helpers, lost inserts, a lost trailing
+Forty-five mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -813,7 +837,8 @@ readiness that checks only the first; and two anchor breaks: right
 children found among standing elements only, and a descent that follows
 standing left children only; and three revision round-trip breaks: `when`
 written before `author`, `change` allowed to repeat, and `parent` classified
-as `supersedes`. The proof gate rejects
+as `supersedes`; and one chain break: an event of a chain that has seen
+none of the events before it. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees

@@ -1,4 +1,4 @@
-# The parser only accepts ordered documents. `ordered_all` is what
+# The parser only accepts ordered documents. `Block.ordered_all` is what
 # `Ops.next_op.bounded` demands of every operation; the first half shows it
 # implies `Block.ordered`, the second that `Ops.parse` establishes it.
 import Base
@@ -147,15 +147,6 @@ def after_delete.c(+pat: Nat, +pitems: List<&2, Ops.Item>, +nat: Nat, c: Cmp, +e
 def after_delete(+pat: Nat, +pitems: List<&2, Ops.Item>, nv: Ops.Verb, +nat: Nat, -nitems: List<&2, Ops.Item>, e: {Ops.ordered(Some{Ops.Op{Ops.Delete{}, pat, pitems}}, Ops.Op{nv, nat, nitems}) == None{} : Maybe<&2, String>}) -> {Bool.pick(Bool, Nat.is_eq(nat, pat), Ops.verb_is(nv, Ops.Insert{}), Nat.is_le(Nat.add(pat, List.length(&2, Ops.Item, pitems)), nat)) == True{} : Bool}:
   after_delete.c(pat, pitems, nat, Nat.cmp(nat, pat), {==}, nv, e)
 
-# What the parser demands: every operation may follow the previous one and
-# the last delete, as `Ops.next_op.bounded` checks.
-def ordered_all(ops: List<&2, Ops.Op>, prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>) -> Bool:
-  match ops:
-    case Nil{}:
-      True{}
-    case +op <> rest:
-      Bool.and(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(rest, Some{op}, Ops.remember_delete(op, pd))))
-
 # Where a list starts, with a default for the empty one.
 def first_at(ops: List<&2, Ops.Op>, d: Nat) -> Nat:
   match ops:
@@ -164,17 +155,17 @@ def first_at(ops: List<&2, Ops.Op>, d: Nat) -> Nat:
     case Ops.Op{v, at, items} <> rest:
       at
 
-def accepted_prev(+prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, +op: Ops.Op, +rest: List<&2, Ops.Op>, e: {ordered_all(op <> rest, prev, pd) == True{} : Bool}) -> {Ops.ordered(prev, op) == None{} : Maybe<&2, String>}:
-  none_of_is_none(Ops.ordered(prev, op), Comp.and_left(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(rest, Some{op}, Ops.remember_delete(op, pd))), e))
+def accepted_prev(+prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, +op: Ops.Op, +rest: List<&2, Ops.Op>, e: {Block.ordered_all(op <> rest, prev, pd) == True{} : Bool}) -> {Ops.ordered(prev, op) == None{} : Maybe<&2, String>}:
+  none_of_is_none(Ops.ordered(prev, op), Comp.and_left(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), Block.ordered_all(rest, Some{op}, Ops.remember_delete(op, pd))), e))
 
-def accepted_pd(+prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, +op: Ops.Op, +rest: List<&2, Ops.Op>, e: {ordered_all(op <> rest, prev, pd) == True{} : Bool}) -> {Ops.ordered(pd, op) == None{} : Maybe<&2, String>}:
-  none_of_is_none(Ops.ordered(pd, op), Comp.and_left(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(rest, Some{op}, Ops.remember_delete(op, pd)), Comp.and_right(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(rest, Some{op}, Ops.remember_delete(op, pd))), e)))
+def accepted_pd(+prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, +op: Ops.Op, +rest: List<&2, Ops.Op>, e: {Block.ordered_all(op <> rest, prev, pd) == True{} : Bool}) -> {Ops.ordered(pd, op) == None{} : Maybe<&2, String>}:
+  none_of_is_none(Ops.ordered(pd, op), Comp.and_left(Maybe.is_none(&2, String, Ops.ordered(pd, op)), Block.ordered_all(rest, Some{op}, Ops.remember_delete(op, pd)), Comp.and_right(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), Block.ordered_all(rest, Some{op}, Ops.remember_delete(op, pd))), e)))
 
-def accepted_rest(+prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, +op: Ops.Op, +rest: List<&2, Ops.Op>, e: {ordered_all(op <> rest, prev, pd) == True{} : Bool}) -> {ordered_all(rest, Some{op}, Ops.remember_delete(op, pd)) == True{} : Bool}:
-  Comp.and_right(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(rest, Some{op}, Ops.remember_delete(op, pd)), Comp.and_right(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(rest, Some{op}, Ops.remember_delete(op, pd))), e))
+def accepted_rest(+prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, +op: Ops.Op, +rest: List<&2, Ops.Op>, e: {Block.ordered_all(op <> rest, prev, pd) == True{} : Bool}) -> {Block.ordered_all(rest, Some{op}, Ops.remember_delete(op, pd)) == True{} : Bool}:
+  Comp.and_right(Maybe.is_none(&2, String, Ops.ordered(pd, op)), Block.ordered_all(rest, Some{op}, Ops.remember_delete(op, pd)), Comp.and_right(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), Block.ordered_all(rest, Some{op}, Ops.remember_delete(op, pd))), e))
 
 # After an insert, whatever follows starts past it.
-def first_after_insert(rest: List<&2, Ops.Op>, +at: Nat, +items: List<&2, Ops.Item>, +pd: Maybe<&2, Ops.Op>, e: {ordered_all(rest, Some{Ops.Op{Ops.Insert{}, at, items}}, pd) == True{} : Bool}) -> {Nat.is_le(at, first_at(rest, at)) == True{} : Bool}:
+def first_after_insert(rest: List<&2, Ops.Op>, +at: Nat, +items: List<&2, Ops.Item>, +pd: Maybe<&2, Ops.Op>, e: {Block.ordered_all(rest, Some{Ops.Op{Ops.Insert{}, at, items}}, pd) == True{} : Bool}) -> {Nat.is_le(at, first_at(rest, at)) == True{} : Bool}:
   match rest:
     case Nil{}:
       Comp.le_refl(at)
@@ -183,7 +174,7 @@ def first_after_insert(rest: List<&2, Ops.Op>, +at: Nat, +items: List<&2, Ops.It
 
 # After a replacement, whatever follows starts at the delete's end or later:
 # the insert forbids the delete's own position, the delete forbids its run.
-def first_after_replacement(rest: List<&2, Ops.Op>, +at: Nat, +items: List<&2, Ops.Item>, +at2: Nat, +items2: List<&2, Ops.Item>, eq: {at == at2 : Nat}, +e: {ordered_all(rest, Some{Ops.Op{Ops.Insert{}, at2, items2}}, Some{Ops.Op{Ops.Delete{}, at, items}}) == True{} : Bool}) -> {Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), first_at(rest, Nat.add(at, List.length(&2, Ops.Item, items)))) == True{} : Bool}:
+def first_after_replacement(rest: List<&2, Ops.Op>, +at: Nat, +items: List<&2, Ops.Item>, +at2: Nat, +items2: List<&2, Ops.Item>, eq: {at == at2 : Nat}, +e: {Block.ordered_all(rest, Some{Ops.Op{Ops.Insert{}, at2, items2}}, Some{Ops.Op{Ops.Delete{}, at, items}}) == True{} : Bool}) -> {Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), first_at(rest, Nat.add(at, List.length(&2, Ops.Item, items)))) == True{} : Bool}:
   match rest:
     case Nil{}:
       Comp.le_refl(Nat.add(at, List.length(&2, Ops.Item, items)))
@@ -214,7 +205,7 @@ def delete_apart(+at: Nat, +items: List<&2, Ops.Item>, +at2: Nat, -items2: List<
 
 # A delete and the insert after it, as `Block.ordered` reads them: the
 # insert is a replacement when it shares the delete's position.
-def parser_ordered.replacement(+pos: Nat, +at: Nat, +items: List<&2, Ops.Item>, +at2: Nat, +items2: List<&2, Ops.Item>, +more: List<&2, Ops.Op>, +prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, same: Bool, +eq: {Nat.is_eq(at2, at) == same : Bool}, +e: {ordered_all(Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more, prev, pd) == True{} : Bool}, lo: {Nat.is_le(pos, at) == True{} : Bool}, ih_stop: {ordered_all(more, Some{Ops.Op{Ops.Insert{}, at2, items2}}, Some{Ops.Op{Ops.Delete{}, at, items}}) == True{} : Bool} -> {Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), first_at(more, Nat.add(at, List.length(&2, Ops.Item, items)))) == True{} : Bool} -> {Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))) == True{} : Bool}, ih_at2: {ordered_all(more, Some{Ops.Op{Ops.Insert{}, at2, items2}}, Some{Ops.Op{Ops.Delete{}, at, items}}) == True{} : Bool} -> {Nat.is_le(at2, first_at(more, at2)) == True{} : Bool} -> {Block.ordered(more, at2) == True{} : Bool}) -> {Bool.and(Nat.is_le(pos, at), Bool.pick(Bool, same, Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))), Bool.and(Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), at2), Block.ordered(more, at2)))) == True{} : Bool}:
+def parser_ordered.replacement(+pos: Nat, +at: Nat, +items: List<&2, Ops.Item>, +at2: Nat, +items2: List<&2, Ops.Item>, +more: List<&2, Ops.Op>, +prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, same: Bool, +eq: {Nat.is_eq(at2, at) == same : Bool}, +e: {Block.ordered_all(Ops.Op{Ops.Delete{}, at, items} <> Ops.Op{Ops.Insert{}, at2, items2} <> more, prev, pd) == True{} : Bool}, lo: {Nat.is_le(pos, at) == True{} : Bool}, ih_stop: {Block.ordered_all(more, Some{Ops.Op{Ops.Insert{}, at2, items2}}, Some{Ops.Op{Ops.Delete{}, at, items}}) == True{} : Bool} -> {Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), first_at(more, Nat.add(at, List.length(&2, Ops.Item, items)))) == True{} : Bool} -> {Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))) == True{} : Bool}, ih_at2: {Block.ordered_all(more, Some{Ops.Op{Ops.Insert{}, at2, items2}}, Some{Ops.Op{Ops.Delete{}, at, items}}) == True{} : Bool} -> {Nat.is_le(at2, first_at(more, at2)) == True{} : Bool} -> {Block.ordered(more, at2) == True{} : Bool}) -> {Bool.and(Nat.is_le(pos, at), Bool.pick(Bool, same, Block.ordered(more, Nat.add(at, List.length(&2, Ops.Item, items))), Bool.and(Nat.is_le(Nat.add(at, List.length(&2, Ops.Item, items)), at2), Block.ordered(more, at2)))) == True{} : Bool}:
   match same:
     case True{}:
       +tail = {Ops.Op{Ops.Insert{}, at2, items2} <> more : List<&2, Ops.Op>}
@@ -231,7 +222,7 @@ def parser_ordered.replacement(+pos: Nat, +at: Nat, +items: List<&2, Ops.Item>, 
       and_intro(Nat.is_le(pos, at), Bool.and(Nat.is_le(stop, at2), Block.ordered(more, at2)), lo, and_intro(Nat.is_le(stop, at2), Block.ordered(more, at2), apart, ih_at2(e3, first_after_insert(more, at2, items2, Some{Ops.Op{Ops.Delete{}, at, items}}, e3))))
 
 # Every list the parser's ordering admits is one `Block.ordered` admits.
-def parser_ordered(ops: List<&2, Ops.Op>, +pos: Nat, +prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, +e: {ordered_all(ops, prev, pd) == True{} : Bool}, lo: {Nat.is_le(pos, first_at(ops, pos)) == True{} : Bool}) -> {Block.ordered(ops, pos) == True{} : Bool}:
+def parser_ordered(ops: List<&2, Ops.Op>, +pos: Nat, +prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, +e: {Block.ordered_all(ops, prev, pd) == True{} : Bool}, lo: {Nat.is_le(pos, first_at(ops, pos)) == True{} : Bool}) -> {Block.ordered(ops, pos) == True{} : Bool}:
   match ops:
     case Nil{}:
       {==}
@@ -384,29 +375,29 @@ def collect_of_ops.rev(r: Result<&2, &2, String, List<&2, Ops.Op>>, -ops: List<&
 def collect_of_ops(+fuel: Nat, +n: Ops.Next, +pd: Maybe<&2, Ops.Op>, -ops: List<&2, Ops.Op>, e: {Ops.parse.ops(fuel, n, Nil{}, pd) == Done{ops} : Result<&2, &2, String, List<&2, Ops.Op>>}) -> {collect(fuel, n, pd) == Done{ops} : Result<&2, &2, String, List<&2, Ops.Op>>}:
   collect_of_ops.rev(collect(fuel, n, pd), ops, Equal.trans(Result<&2, &2, String, List<&2, Ops.Op>>, prepend_rev(Nil{}, collect(fuel, n, pd)), Ops.parse.ops(fuel, n, Nil{}, pd), Done{ops}, Equal.sym(Result<&2, &2, String, List<&2, Ops.Op>>, Ops.parse.ops(fuel, n, Nil{}, pd), prepend_rev(Nil{}, collect(fuel, n, pd)), ops_collect(fuel, n, Nil{}, pd)), e))
 
-def collect_ordered.step(+op: Ops.Op, r: Result<&2, &2, String, List<&2, Ops.Op>>, +prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, -ops: List<&2, Ops.Op>, +ok: {Bool.and(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Maybe.is_none(&2, String, Ops.ordered(pd, op))) == True{} : Bool}, e: {prepend_one(op, r) == Done{ops} : Result<&2, &2, String, List<&2, Ops.Op>>}, ih: @-xs: List<&2, Ops.Op> -> {r == Done{xs} : Result<&2, &2, String, List<&2, Ops.Op>>} -> {ordered_all(xs, Some{op}, Ops.remember_delete(op, pd)) == True{} : Bool}) -> {ordered_all(ops, prev, pd) == True{} : Bool}:
+def collect_ordered.step(+op: Ops.Op, r: Result<&2, &2, String, List<&2, Ops.Op>>, +prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, -ops: List<&2, Ops.Op>, +ok: {Bool.and(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Maybe.is_none(&2, String, Ops.ordered(pd, op))) == True{} : Bool}, e: {prepend_one(op, r) == Done{ops} : Result<&2, &2, String, List<&2, Ops.Op>>}, ih: @-xs: List<&2, Ops.Op> -> {r == Done{xs} : Result<&2, &2, String, List<&2, Ops.Op>>} -> {Block.ordered_all(xs, Some{op}, Ops.remember_delete(op, pd)) == True{} : Bool}) -> {Block.ordered_all(ops, prev, pd) == True{} : Bool}:
   match r:
     case Fail{msg}:
-      Empty.absurd({ordered_all(ops, prev, pd) == True{} : Bool}, fail_done(msg, ops, e))
+      Empty.absurd({Block.ordered_all(ops, prev, pd) == True{} : Bool}, fail_done(msg, ops, e))
     case Done{+xs}:
-      %done_inj(op <> xs, ops, e) : {ordered_all(_, prev, pd) == True{} : Bool}
-      and_intro(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(xs, Some{op}, Ops.remember_delete(op, pd))), Comp.and_left(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Maybe.is_none(&2, String, Ops.ordered(pd, op)), ok), and_intro(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(xs, Some{op}, Ops.remember_delete(op, pd)), Comp.and_right(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Maybe.is_none(&2, String, Ops.ordered(pd, op)), ok), ih(xs, {==})))
+      %done_inj(op <> xs, ops, e) : {Block.ordered_all(_, prev, pd) == True{} : Bool}
+      and_intro(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), Block.ordered_all(xs, Some{op}, Ops.remember_delete(op, pd))), Comp.and_left(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Maybe.is_none(&2, String, Ops.ordered(pd, op)), ok), and_intro(Maybe.is_none(&2, String, Ops.ordered(pd, op)), Block.ordered_all(xs, Some{op}, Ops.remember_delete(op, pd)), Comp.and_right(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Maybe.is_none(&2, String, Ops.ordered(pd, op)), ok), ih(xs, {==})))
 
 # Every list the loop collects is ordered from the state it started in.
-def collect_ordered(fuel: Nat, n: Ops.Next, +prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, -ops: List<&2, Ops.Op>, ok: {ordered_more(prev, pd, n) == True{} : Bool}, e: {collect(fuel, n, pd) == Done{ops} : Result<&2, &2, String, List<&2, Ops.Op>>}) -> {ordered_all(ops, prev, pd) == True{} : Bool}:
+def collect_ordered(fuel: Nat, n: Ops.Next, +prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>, -ops: List<&2, Ops.Op>, ok: {ordered_more(prev, pd, n) == True{} : Bool}, e: {collect(fuel, n, pd) == Done{ops} : Result<&2, &2, String, List<&2, Ops.Op>>}) -> {Block.ordered_all(ops, prev, pd) == True{} : Bool}:
   match fuel n:
     case 0n Ops.End{}:
-      %done_inj(Nil{}, ops, e) : {ordered_all(_, prev, pd) == True{} : Bool}
+      %done_inj(Nil{}, ops, e) : {Block.ordered_all(_, prev, pd) == True{} : Bool}
       {==}
     case 1n+p Ops.End{}:
-      %done_inj(Nil{}, ops, e) : {ordered_all(_, prev, pd) == True{} : Bool}
+      %done_inj(Nil{}, ops, e) : {Block.ordered_all(_, prev, pd) == True{} : Bool}
       {==}
     case 0n Ops.Bad{at, msg}:
-      Empty.absurd({ordered_all(ops, prev, pd) == True{} : Bool}, fail_done("line " ++ Nat.show(at) ++ ": " ++ msg, ops, e))
+      Empty.absurd({Block.ordered_all(ops, prev, pd) == True{} : Bool}, fail_done("line " ++ Nat.show(at) ++ ": " ++ msg, ops, e))
     case 1n+p Ops.Bad{at, msg}:
-      Empty.absurd({ordered_all(ops, prev, pd) == True{} : Bool}, fail_done("line " ++ Nat.show(at) ++ ": " ++ msg, ops, e))
+      Empty.absurd({Block.ordered_all(ops, prev, pd) == True{} : Bool}, fail_done("line " ++ Nat.show(at) ++ ": " ++ msg, ops, e))
     case 0n Ops.More{op, rest, at}:
-      Empty.absurd({ordered_all(ops, prev, pd) == True{} : Bool}, fail_done("the walk ran out of lines", ops, e))
+      Empty.absurd({Block.ordered_all(ops, prev, pd) == True{} : Bool}, fail_done("the walk ran out of lines", ops, e))
     case 1n++p Ops.More{+op, +rest, +at}:
       +deletion = Ops.remember_delete(op, pd)
       +next = Ops.next_op.bounded(Some{op}, deletion, Ops.next_op(rest, at))
@@ -474,10 +465,10 @@ def body_ops(+f: Maybe<&2, String>, +r: Maybe<&2, String>, res: Result<&2, &2, S
           %Equal.cong(Result<&2, &2, String, Ops.Doc>, List<&2, Ops.Op>, ops_of_doc, Done{Ops.Doc{f, r, o <> os}}, Done{Ops.Doc{f2, r2, ops}}, accepted) : {Done{o <> os} == Done{_} : Result<&2, &2, String, List<&2, Ops.Op>>}
           {==}
 
-def separator_ordered(ls: List<&2, T.Line>, +at: Nat, +f: Maybe<&2, String>, +r: Maybe<&2, String>, -f2: Maybe<&2, String>, -r2: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse.separator(f, r, ls, at) == Done{Ops.Doc{f2, r2, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {ordered_all(ops, None{}, None{}) == True{} : Bool}:
+def separator_ordered(ls: List<&2, T.Line>, +at: Nat, +f: Maybe<&2, String>, +r: Maybe<&2, String>, -f2: Maybe<&2, String>, -r2: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse.separator(f, r, ls, at) == Done{Ops.Doc{f2, r2, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {Block.ordered_all(ops, None{}, None{}) == True{} : Bool}:
   match ls:
     case Nil{}:
-      Empty.absurd({ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "missing the blank line after the headers"), Ops.Doc{f2, r2, ops}, {==}, e))
+      Empty.absurd({Block.ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "missing the blank line after the headers"), Ops.Doc{f2, r2, ops}, {==}, e))
     case T.Line{t, term} <> +rest:
       match t term:
         case SNil{} True{}:
@@ -486,34 +477,34 @@ def separator_ordered(ls: List<&2, T.Line>, +at: Nat, +f: Maybe<&2, String>, +r:
           +n = Ops.next_op.bounded(None{}, None{}, start)
           collect_ordered(fuel, n, None{}, None{}, ops, bounded_ok(None{}, None{}, start), collect_of_ops(fuel, n, None{}, ops, body_ops(f, r, Ops.parse.ops(fuel, n, Nil{}, None{}), f2, r2, ops, e)))
         case SNil{} False{}:
-          Empty.absurd({ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "missing the blank line after the headers"), Ops.Doc{f2, r2, ops}, {==}, e))
+          Empty.absurd({Block.ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "missing the blank line after the headers"), Ops.Doc{f2, r2, ops}, {==}, e))
         case SCon{c, cs} True{}:
-          Empty.absurd({ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "missing the blank line after the headers"), Ops.Doc{f2, r2, ops}, {==}, e))
+          Empty.absurd({Block.ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "missing the blank line after the headers"), Ops.Doc{f2, r2, ops}, {==}, e))
         case SCon{c, cs} False{}:
-          Empty.absurd({ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "missing the blank line after the headers"), Ops.Doc{f2, r2, ops}, {==}, e))
+          Empty.absurd({Block.ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "missing the blank line after the headers"), Ops.Doc{f2, r2, ops}, {==}, e))
 
-def result_ordered(f: Maybe<&2, String>, h: Ops.Headed, -f2: Maybe<&2, String>, -r2: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse.result(f, h) == Done{Ops.Doc{f2, r2, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {ordered_all(ops, None{}, None{}) == True{} : Bool}:
+def result_ordered(f: Maybe<&2, String>, h: Ops.Headed, -f2: Maybe<&2, String>, -r2: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse.result(f, h) == Done{Ops.Doc{f2, r2, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {Block.ordered_all(ops, None{}, None{}) == True{} : Bool}:
   match f h:
     case Some{x} Ops.Headed{Some{y}, rest, at}:
-      Empty.absurd({ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "a result beside forgets"), Ops.Doc{f2, r2, ops}, {==}, e))
+      Empty.absurd({Block.ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, at, "a result beside forgets"), Ops.Doc{f2, r2, ops}, {==}, e))
     case Some{+x} Ops.Headed{None{}, +rest, +at}:
       separator_ordered(rest, at, Some{x}, None{}, f2, r2, ops, pick_done(Ops.valid_digest(None{}), Ops.parse.separator(Some{x}, None{}, rest, at), Ops.fail(Ops.Doc, at, "a malformed result"), Ops.Doc{f2, r2, ops}, {==}, e))
     case None{} Ops.Headed{+result, +rest, +at}:
       separator_ordered(rest, at, None{}, result, f2, r2, ops, pick_done(Ops.valid_digest(result), Ops.parse.separator(None{}, result, rest, at), Ops.fail(Ops.Doc, at, "a malformed result"), Ops.Doc{f2, r2, ops}, {==}, e))
 
-def forgets_ordered(h: Ops.Headed, -f2: Maybe<&2, String>, -r2: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse.forgets(h) == Done{Ops.Doc{f2, r2, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {ordered_all(ops, None{}, None{}) == True{} : Bool}:
+def forgets_ordered(h: Ops.Headed, -f2: Maybe<&2, String>, -r2: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse.forgets(h) == Done{Ops.Doc{f2, r2, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {Block.ordered_all(ops, None{}, None{}) == True{} : Bool}:
   match h:
     case Ops.Headed{+forgets, +rest, +at}:
       result_ordered(forgets, Ops.header(rest, at, "result "), f2, r2, ops, pick_done(Ops.valid_digest(forgets), Ops.parse.result(forgets, Ops.header(rest, at, "result ")), Ops.fail(Ops.Doc, at, "a malformed forgets"), Ops.Doc{f2, r2, ops}, {==}, e))
 
-def preamble_ordered(ls: List<&2, T.Line>, -f2: Maybe<&2, String>, -r2: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse.preamble(ls) == Done{Ops.Doc{f2, r2, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {ordered_all(ops, None{}, None{}) == True{} : Bool}:
+def preamble_ordered(ls: List<&2, T.Line>, -f2: Maybe<&2, String>, -r2: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse.preamble(ls) == Done{Ops.Doc{f2, r2, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {Block.ordered_all(ops, None{}, None{}) == True{} : Bool}:
   match ls:
     case Nil{}:
-      Empty.absurd({ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, 1n, "not a historica document"), Ops.Doc{f2, r2, ops}, {==}, e))
+      Empty.absurd({Block.ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, 1n, "not a historica document"), Ops.Doc{f2, r2, ops}, {==}, e))
     case T.Line{+t, term} <> +rest:
       match term:
         case False{}:
-          Empty.absurd({ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, 1n, "not a historica document"), Ops.Doc{f2, r2, ops}, {==}, e))
+          Empty.absurd({Block.ordered_all(ops, None{}, None{}) == True{} : Bool}, refuse(Ops.fail(Ops.Doc, 1n, "not a historica document"), Ops.Doc{f2, r2, ops}, {==}, e))
         case True{}:
           forgets_ordered(Ops.header(rest, 2n, "forgets "), f2, r2, ops, pick_done(T.same(t, "historica"), Ops.parse.forgets(Ops.header(rest, 2n, "forgets ")), Ops.fail(Ops.Doc, 1n, "not a historica document: " ++ t), Ops.Doc{f2, r2, ops}, {==}, e))
 

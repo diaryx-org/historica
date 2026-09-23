@@ -203,6 +203,13 @@ def stated(past: List<&2, Nat>, ops: List<&2, Ops.Op>) -> Merge.Rev:
 def abc() -> Merge.Rev:
   stated(Nil{}, [Ops.Op{Ops.Insert{}, 0n, Ops.from_text("a\nb\nc\n")}])
 
+# One line of history: a replacement, an insert at the end, an insert at
+# the front with a delete. The walk reads what the replay wrote.
+def chain_docs() -> List<&2, List<&2, Ops.Op>>:
+  [[Ops.Op{Ops.Insert{}, 0n, Ops.from_text("a\nb\nc\n")}],
+   [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}, Ops.Op{Ops.Insert{}, 1n, [Ops.line("x")]}, Ops.Op{Ops.Insert{}, 3n, [Ops.line("y")]}],
+   [Ops.Op{Ops.Insert{}, 0n, [Ops.line("z")]}, Ops.Op{Ops.Delete{}, 3n, [Ops.line("y")]}]]
+
 def main() -> IO(Unit):
   do IO<Unit>:
     parent_cases([Nil{}, [Ops.line("a")], [Ops.line("a"), Ops.line("b")], [Ops.line("a"), Ops.line("b"), Ops.line("c")], [Ops.line("same"), Ops.line("same"), Ops.forgotten(), Ops.line("end")]])
@@ -296,4 +303,6 @@ def main() -> IO(Unit):
     merge_case("merge: a document past its view is refused", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 4n, [Ops.line("far")]}])], None{}, [[0n, 1n]])
     check(Bool.not(Merge.orders([abc(), stated([0n], Nil{})], [0n, 1n], [1n, 0n])), "merge: an order before its past is not causal")
     check(Bool.not(Merge.orders([abc(), stated([0n], Nil{})], [0n, 1n], [0n, 1n, 1n])), "merge: an order with an event twice is not distinct")
+    accepted("merge: a chain replays", Ops.from_text("z\na\nx\nc\n"), Merge.replay(chain_docs(), Done{Nil{}}))
+    check(merged_equal(Merge.merged(Merge.chain(chain_docs()), Merge.upto(3n)), Some{Ops.from_text("z\na\nx\nc\n")}), "merge: a chain merges to its replay")
     IO.print("ok    positional/cursor/block/script/diff/cause/merge oracles, spelling and refusal regressions")

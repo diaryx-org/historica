@@ -294,6 +294,20 @@ law merge_records_nothing:
   for b: {Merge.below(o, List.length(&2, Merge.Rev, g)) == True{} : Bool}
   {Merge.merged(List.append(&2, Merge.Rev, g, [Merge.Rev{past, None{}}]), List.append(&2, Nat, o, [List.length(&2, Merge.Rev, g)])) == Merge.merged(g, o) : Maybe<&2, List<&2, Ops.Item>>}
 
+# On one line of history the merge is plain replay (decision 0007): a
+# chain of documents — each an event that has seen every event before it,
+# each ordered as the parser orders operations — that applies link by link
+# from the empty file merges, walked in its own order, to the file the
+# replay made. The parser's order matters: two inserts at one position in
+# one document replay in the order written, where Fugue reads the second
+# before the first.
+law merge_linear:
+  for +docs: List<&2, List<&2, Ops.Op>>
+  for -f: List<&2, Ops.Item>
+  for +o: {Block.each_ordered(docs) == True{} : Bool}
+  for e: {Merge.replay(docs, Done{Nil{}}) == Done{f} : Result<&2, &2, String, List<&2, Ops.Item>>}
+  {Merge.merged(Merge.chain(docs), Merge.upto(List.length(&2, List<&2, Ops.Op>, docs))) == Some{f} : Maybe<&2, List<&2, Ops.Item>>}
+
 # One insertion lands at the gap its author asked for. `Merge.invariant`
 # is what holds of an author's view as their run grows it — the reading
 # of every sibling list finishes within the fuel `order` gives it, and no

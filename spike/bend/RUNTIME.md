@@ -144,7 +144,10 @@ operations too, for any list `Block.ordered` accepts — and
 `parsed_document_semantics` runs from the document's text. `write_parse`
 closes the other direction: what the parser accepts, the writer spells
 back byte for byte, decimal numbers included; `diff_applies` says the
-document `Ops.diff` writes replays to the child it was written from. The
+document `Ops.diff` writes replays to the child it was written from.
+`merge_linear` says the merge walk over a chain of parsed documents reads
+what applying them in turn does, which is what `merge.rs`'s `linear` fast
+path relies on. The
 decimal layer is unary underneath — as every `Nat` here is — so it counts rather than divides;
 positions are line numbers, and a million of them spell in well under a
 second, but a divmod writer proven equal to `T.digits` would be the fix if

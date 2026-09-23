@@ -84,6 +84,23 @@ def ordered(ops: List<&2, Ops.Op>, +pos: Nat) -> Bool:
         case Ops.Op{Ops.Delete{}, +at2, +items2} <> +more:
           Bool.and(Nat.is_le(pos, at), ordered(Ops.Op{Ops.Delete{}, at2, items2} <> more, Nat.add(at, List.length(&2, Ops.Item, items))))
 
+# What the parser demands: every operation may follow the previous one and
+# the last delete, as `Ops.next_op.bounded` checks.
+def ordered_all(ops: List<&2, Ops.Op>, prev: Maybe<&2, Ops.Op>, +pd: Maybe<&2, Ops.Op>) -> Bool:
+  match ops:
+    case Nil{}:
+      True{}
+    case +op <> rest:
+      Bool.and(Maybe.is_none(&2, String, Ops.ordered(prev, op)), Bool.and(Maybe.is_none(&2, String, Ops.ordered(pd, op)), ordered_all(rest, Some{op}, Ops.remember_delete(op, pd))))
+
+# Every document of a chain ordered so.
+def each_ordered(docs: List<&2, List<&2, Ops.Op>>) -> Bool:
+  match docs:
+    case Nil{}:
+      True{}
+    case d <> ds:
+      Bool.and(ordered_all(d, None{}, None{}), each_ordered(ds))
+
 # The script an ordered operation list is, read from `pos`.
 def steps_of(ops: List<&2, Ops.Op>, +pos: Nat) -> List<&2, Ops.Step>:
   match ops:

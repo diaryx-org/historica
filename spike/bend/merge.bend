@@ -576,3 +576,41 @@ def in_view(+t: List<&2, Node>, left: Maybe<&2, Name>) -> Bool:
       True{}
     case Some{nm}:
       named(visible(t), nm)
+
+# One line of history
+# -------------------
+#
+# A chain of documents, each an event that has seen every event before
+# it — the history recorded when nobody branches — and `replay`, plain
+# application along it from the empty file. `LAWS.merge_linear` says the
+# walk agrees with the replay wherever the replay succeeds.
+
+# The indices from `k`, `n` of them, in order.
+def upto.go(n: Nat, +k: Nat) -> List<&2, Nat>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      k <> upto.go(p, 1n+k)
+
+def upto(n: Nat) -> List<&2, Nat>:
+  upto.go(n, 0n)
+
+def chain.go(docs: List<&2, List<&2, Ops.Op>>, +n: Nat) -> List<&2, Rev>:
+  match docs:
+    case Nil{}:
+      Nil{}
+    case d <> ds:
+      Rev{upto(n), Some{d}} <> chain.go(ds, 1n+n)
+
+def chain(docs: List<&2, List<&2, Ops.Op>>) -> List<&2, Rev>:
+  chain.go(docs, 0n)
+
+def replay(docs: List<&2, List<&2, Ops.Op>>, r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match docs r:
+    case _ Fail{e}:
+      Fail{e}
+    case Nil{} Done{f}:
+      Done{f}
+    case d <> ds Done{f}:
+      replay(ds, Ops.apply(f, Ops.Doc{None{}, None{}, d}))
