@@ -1144,14 +1144,24 @@ type Span is Data:
 # The first `..` cuts a spelling no minted identifier could have, so the
 # only thing it can collide with is a bookmark, which is looked up whole
 # first.
-def range.cut(s: String, before: String) -> Maybe<&2, T.Split>:
+def dots_first(s: String) -> Bool:
   match s:
-    case SNil{}:
+    case SCon{a, SCon{b, t}}:
+      Bool.and(Char.is_eq(a, '.'), Char.is_eq(b, '.'))
+    case _:
+      False{}
+
+def range.cut.go(s: String, before: String, hit: Bool) -> Maybe<&2, T.Split>:
+  match s hit:
+    case SNil{} _:
       None{}
-    case SCon{'.', SCon{'.', rest}}:
-      Some{T.Split{String.reverse(before), rest}}
-    case SCon{c, rest}:
-      range.cut(rest, SCon{c, before})
+    case SCon{c, t} True{}:
+      Some{T.Split{String.reverse(before), String.drop(t, 1n)}}
+    case SCon{c, +t} False{}:
+      range.cut.go(t, SCon{c, before}, dots_first(t))
+
+def range.cut(+s: String, before: String) -> Maybe<&2, T.Split>:
+  range.cut.go(s, before, dots_first(s))
 
 def span.between(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +from: String, +to: String) -> IO(Span):
   do IO<Span>:

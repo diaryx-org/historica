@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Check proofs, run JS/native corpora, ensure replay mutations are rejected,
-and hold the store commands to the Rust tool's output."""
+and hold the store commands to the Rust tool's output.
+
+The stages are independent and run at once; `check.py <stage>...` runs only
+those named, for iterating on one: store, corpora, similar, proof, mutations.
+"""
+from concurrent.futures import ThreadPoolExecutor
+import time
 from pathlib import Path
 import hashlib
 import os
@@ -10,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
@@ -21,10 +28,15 @@ if BEND is None:
     raise SystemExit("bend is required on PATH")
 BEND = str(Path(BEND).resolve())
 
+# Bend's checker and `cc` each take about two cores; more of them at once than
+# the machine holds only slows every one, until the proofs run into timeouts.
+SLOTS = threading.BoundedSemaphore(max(1, (os.cpu_count() or 2) // 2))
+
 
 def run(*args, cwd=ROOT, timeout=120):
     print("+", " ".join(map(str, args)), flush=True)
-    subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
+    with SLOTS:
+        subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
 
 
 def capture(*args, cwd):
@@ -33,20 +45,69 @@ def capture(*args, cwd):
     return done.stdout, done.stderr, done.returncode
 
 
-def main():
-    run(BEND, "version")
+def parallel(jobs, workers=os.cpu_count()):
+    """Run each job at once, and raise the first failure after all finish."""
+    with ThreadPoolExecutor(max(1, min(workers, len(jobs)))) as pool:
+        futures = [pool.submit(job) for job in jobs]
+    failures = [f.exception() for f in futures if f.exception() is not None]
+    for failure in failures[1:]:
+        print("also failed:", failure, flush=True)
+    if failures:
+        raise failures[0]
+    return [f.result() for f in futures]
+
+
+def check_proof(temporary):
     run(BEND, "PROOF.bend")
+
+
+def check_corpora(temporary):
+    def suite(name):
+        def job():
+            run(BEND, f"{name}.bend")
+            executable = temporary / name
+            run(BEND, f"{name}.bend", "-o", str(executable), timeout=600)
+            run(str(executable))
+        return job
+
+    parallel([suite(name) for name in ("corpus_ops", "corpus_rev", "corpus_tree", "replay_tests")])
+
+
+def timed(name, stage, temporary):
+    def job():
+        started = time.monotonic()
+        try:
+            stage(temporary)
+        except BaseException as failure:
+            print(f"FAILED {name} after {time.monotonic() - started:.0f}s", flush=True)
+            # A `sys.exit` in a thread is a failure to report, not an exit.
+            raise RuntimeError(f"{name}: {failure}") from failure
+        print(f"done  {name} in {time.monotonic() - started:.0f}s", flush=True)
+    return job
+
+
+def main():
+    # The longest first, so that it takes the first slots.
+    stages = {
+        "store": check_store,
+        "corpora": check_corpora,
+        "similar": check_similar,
+        "proof": check_proof,
+        "mutations": check_mutations,
+    }
+    asked = sys.argv[1:] or list(stages)
+    unknown = [name for name in asked if name not in stages]
+    if unknown:
+        raise SystemExit(f"unknown stage {', '.join(unknown)}; the stages are {', '.join(stages)}")
+    run(BEND, "version")
+    started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="historica-bend-") as directory:
         temporary = Path(directory)
-        for suite in ("corpus_ops", "corpus_rev", "corpus_tree", "replay_tests"):
-            run(BEND, f"{suite}.bend")
-            executable = temporary / suite
-            run(BEND, f"{suite}.bend", "-o", str(executable), timeout=600)
-            run(str(executable))
-
-        check_mutations(temporary)
-        check_similar(temporary)
-        check_store(temporary)
+        try:
+            parallel([timed(name, stages[name], temporary) for name in asked])
+        except RuntimeError as failure:
+            raise SystemExit(str(failure))
+    print(f"all of {', '.join(asked)} in {time.monotonic() - started:.0f}s")
 
 
 # The diff
@@ -516,33 +577,42 @@ def check_store(temporary):
     run("cargo", "build", "-q", "--release", cwd=ROOT / "ffi", timeout=600)
     source = temporary / "main.c"
     native = temporary / "main"
-    run(BEND, "main.bend", "-o", str(source), timeout=600)
-    # `bend -o` links nothing of ours, so the C is compiled here; `-w` because
-    # the generated program is not ours to lint.
-    run(
-        os.environ.get("CC", "cc"), "-O3", "-w", "-o", str(native), str(source),
-        str(archive), "-lm", "-lpthread", timeout=900,
-    )
     script = temporary / "main.js"
-    run(BEND, "main.bend", "-o", str(script), timeout=600)
 
-    failures = 0
-    for corpus, commands in STORES.items():
+    def build_native():
+        run(BEND, "main.bend", "-o", str(source), timeout=600)
+        # `bend -o` links nothing of ours, so the C is compiled here; `-w`
+        # because the generated program is not ours to lint.
+        run(
+            os.environ.get("CC", "cc"), "-O3", "-w", "-o", str(native), str(source),
+            str(archive), "-lm", "-lpthread", timeout=900,
+        )
+
+    parallel([build_native, lambda: run(BEND, "main.bend", "-o", str(script), timeout=600)])
+
+    def compare(corpus, commands):
         recorded = corpus in ("unicode", "names", "badname", "log", "merge", "folder", "badskip", "fresh", "notext")
         store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
+        lines, failures = [], 0
         for command in commands:
             expected = capture(rust, *command, cwd=store)
             for name, tool in (("native", [str(native)]), ("js", ["bun", str(script)])):
                 got = capture(*tool, *command, cwd=store)
                 if got != expected:
                     failures += 1
-                    print(f"DIFF {corpus} {name}: {' '.join(command)}")
-                    print("  rust:", expected)
-                    print("  bend:", got)
+                    lines += [f"DIFF {corpus} {name}: {' '.join(command)}", f"  rust: {expected}", f"  bend: {got}"]
                 else:
-                    print(f"same {corpus} {name}: {' '.join(command)}")
+                    lines.append(f"same {corpus} {name}: {' '.join(command)}")
+        return lines, failures
+
+    results = parallel([lambda c=corpus, cs=commands: compare(c, cs) for corpus, commands in STORES.items()])
+    for lines, _ in results:
+        print("\n".join(lines), flush=True)
+    failures = sum(f for _, f in results)
+    compared = sum(len(lines) for lines, _ in results)
     if failures:
         sys.exit(f"{failures} store commands differ from the Rust tool")
+    print(f"store: {compared} comparisons, each the same as the Rust tool", flush=True)
 
 
 def check_mutations(temporary):
@@ -817,30 +887,35 @@ def check_mutations(temporary):
             "merge.bend",
         ),
     )
-    for index, (name, before, after, proof, *source_files) in enumerate(mutations):
+    def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
-        shutil.copytree(ROOT, mutant)
+        # The Rust build under `ffi/` is a hundred megabytes nothing here reads.
+        shutil.copytree(ROOT, mutant, ignore=shutil.ignore_patterns("target"))
         source = mutant / (source_files[0] if source_files else "ops.bend")
         original = source.read_text()
         assert original.count(before) == 1, name
         source.write_text(original.replace(before, after))
-        checked = subprocess.run(
-            [BEND, "PROOF.bend"], cwd=mutant,
-            capture_output=True, text=True, timeout=120,
-        )
+        with SLOTS:
+            checked = subprocess.run(
+                [BEND, "PROOF.bend"], cwd=mutant,
+                capture_output=True, text=True, timeout=120,
+            )
         diagnostic = checked.stdout + checked.stderr
         if checked.returncode == 0 or proof not in diagnostic or "expected" not in diagnostic:
             raise RuntimeError(f"Mutation did not fail in {proof}: {name}\n{diagnostic}")
         print(f"ok    proof rejects: {name}", flush=True)
         if index == 0:
-            regression = subprocess.run(
-                [BEND, "replay_tests.bend"], cwd=mutant,
-                capture_output=True, text=True, timeout=120,
-            )
+            with SLOTS:
+                regression = subprocess.run(
+                    [BEND, "replay_tests.bend"], cwd=mutant,
+                    capture_output=True, text=True, timeout=120,
+                )
             diagnostic = regression.stdout + regression.stderr
             if regression.returncode == 0 or "forgotten quote preserves newline" not in diagnostic:
                 raise RuntimeError(f"Original newline bug escaped the regression test:\n{diagnostic}")
             print("ok    replay regression rejects the original newline bug", flush=True)
+
+    parallel([lambda i=i, m=m: mutate(i, *m) for i, m in enumerate(mutations)])
 
 
 if __name__ == "__main__":
