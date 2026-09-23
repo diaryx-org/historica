@@ -621,3 +621,13 @@ law target_is_held:
   for +id: String
   for e: {Main.resolve(fs, bs, spelling) == Done{id} : Result<&2, &2, String, String>}
   {Rev.member(Main.ids(fs), id) == True{} : Bool}
+
+# `log` lists only what every filter admits. Whatever it is handed and
+# whatever the limit, each revision it lists has the author and message
+# asked for, falls between `--since` and `--until`, and touches the file
+# `--path` follows.
+law log_lists_what_it_asks:
+  for +fl: Main.Filter
+  for fs: List<&2, Main.Full>
+  for limit: Maybe<&2, Nat>
+  {Main.all_kept(fl, Main.limited(Main.kept(fl, fs), limit)) == True{} : Bool}

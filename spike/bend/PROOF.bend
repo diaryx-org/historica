@@ -32,6 +32,7 @@ import ./similar_lemmas.bend as SimL
 import ./emphasis_lemmas.bend as Emph
 import ./folder_lemmas.bend as FolderL
 import ./target_lemmas.bend as Target
+import ./log_lemmas.bend as LogL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -431,3 +432,6 @@ def Laws.listing_skips_nothing(ls, prefix, rules, l, h):
 
 def Laws.target_is_held(fs, bs, spelling, id, e):
   Target.resolve_mem(fs, bs, spelling, id, e)
+
+def Laws.log_lists_what_it_asks(fl, fs, limit):
+  LogL.listed_ok(fl, fs, limit)

@@ -1322,6 +1322,15 @@ def kept(+fl: Filter, fs: List<&2, Full>) -> List<&2, Full>:
     case +f <> rest:
       keep_full(keeps(fl, f), f, kept(fl, rest))
 
+# What every listed revision satisfies: each filter asked of it
+# (`LAWS.log_lists_what_it_asks`).
+def all_kept(+fl: Filter, fs: List<&2, Full>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      Bool.and(keeps(fl, f), all_kept(fl, rest))
+
 def limited(fs: List<&2, Full>, limit: Maybe<&2, Nat>) -> List<&2, Full>:
   match limit:
     case None{}:

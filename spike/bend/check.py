@@ -1067,6 +1067,13 @@ def check_mutations(temporary):
             "target_lemmas.bookmarked_mem",
             "main.bend",
         ),
+        (
+            "log lists a revision no filter was asked of",
+            "      keep_full(keeps(fl, f), f, kept(fl, rest))",
+            "      keep_full(True{}, f, kept(fl, rest))",
+            "log_lemmas.kept_ok",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
