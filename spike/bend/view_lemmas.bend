@@ -578,6 +578,17 @@ def restrict_restrict(t: List<&2, M.Node>, +S: List<&2, Nat>, +seen: List<&2, Na
 def actions_restrict(+t: List<&2, M.Node>, +S: List<&2, Nat>, +seen: List<&2, Nat>, +e: Nat, +ops: List<&2, Ops.Op>, +sub: {M.subset(seen, S) == True{} : Bool}) -> {M.actions(M.restrict(t, S), seen, e, ops) == M.actions(t, seen, e, ops) : Maybe<&2, List<&2, M.Action>>}:
   Equal.cong(List<&2, M.Node>, Maybe<&2, List<&2, M.Action>>, +v => M.run.acts(M.run(ops, Some{M.Running{v, 0n, Nil{}}}, e, M.visible(v))), M.restrict(M.restrict(t, S), seen), M.restrict(t, seen), restrict_restrict(t, S, seen, sub))
 
+def resolve_restrict(+t: List<&2, M.Node>, +S: List<&2, Nat>, +seen: List<&2, Nat>, +e: Nat, +parts: List<&2, M.Part>, +sub: {M.subset(seen, S) == True{} : Bool}) -> {M.resolve(M.restrict(t, S), seen, e, parts) == M.resolve(t, seen, e, parts) : Maybe<&2, List<&2, M.Action>>}:
+  Equal.cong(List<&2, M.Node>, Maybe<&2, List<&2, M.Action>>, +v => M.run.acts(M.res.done(M.res(parts, Some{M.Resolving{v, 0n, Nil{}, Nil{}, None{}}}, e, M.visible(v)), M.visible(v))), M.restrict(M.restrict(t, S), seen), M.restrict(t, seen), restrict_restrict(t, S, seen, sub))
+
+# Whatever an event stated, it decides on its view alone.
+def event_restrict(+t: List<&2, M.Node>, +S: List<&2, Nat>, +seen: List<&2, Nat>, +e: Nat, s: M.Statement, +sub: {M.subset(seen, S) == True{} : Bool}) -> {M.event_acts(M.restrict(t, S), seen, e, s) == M.event_acts(t, seen, e, s) : Maybe<&2, List<&2, M.Action>>}:
+  match s:
+    case M.Edits{+ops}:
+      actions_restrict(t, S, seen, e, ops, sub)
+    case M.Resolves{+parts}:
+      resolve_restrict(t, S, seen, e, parts, sub)
+
 # The set's own walk
 # ------------------
 #
@@ -657,7 +668,7 @@ def mtree(m: Maybe<&2, List<&2, M.Node>>) -> List<&2, M.Node>:
 # An event that stated something: in the set, it decides on the restriction
 # what it decided on the tree, and its actions commute with restricting; out
 # of it, the restriction does not see them.
-def wr.acts(m: Maybe<&2, List<&2, M.Action>>, hs: Bool, +rest: List<&2, Nat>, +g: List<&2, M.Rev>, +S: List<&2, Nat>, +x: Nat, +t0: List<&2, M.Node>, +t: List<&2, M.Node>, +seen: List<&2, Nat>, +ops: List<&2, Ops.Op>, +eqev: {List.get(&2, M.Rev, g, x) == Some{M.Rev{seen, Some{ops}}} : Maybe<&2, M.Rev>}, +eqm: {M.actions(t0, seen, x, ops) == m : Maybe<&2, List<&2, M.Action>>}, +eqs: {M.has(S, x) == hs : Bool}, +hw: {wf(t0) == True{} : Bool}, +hc: {M.closed(S, g, S) == True{} : Bool}, e: {M.walk(rest, g, M.step.of(t0, x, m)) == Some{t} : Maybe<&2, List<&2, M.Node>>}, ih: @u: List<&2, M.Node> -> {wf(u) == True{} : Bool} -> {M.walk(rest, g, Some{u}) == Some{t} : Maybe<&2, List<&2, M.Node>>} -> {M.walk(only(rest, S), g, Some{M.restrict(u, S)}) == Some{M.restrict(t, S)} : Maybe<&2, List<&2, M.Node>>}) -> {M.walk(List.filter.put(Nat, x, only(rest, S), hs), g, Some{M.restrict(t0, S)}) == Some{M.restrict(t, S)} : Maybe<&2, List<&2, M.Node>>}:
+def wr.acts(m: Maybe<&2, List<&2, M.Action>>, hs: Bool, +rest: List<&2, Nat>, +g: List<&2, M.Rev>, +S: List<&2, Nat>, +x: Nat, +t0: List<&2, M.Node>, +t: List<&2, M.Node>, +seen: List<&2, Nat>, +ops: M.Statement, +eqev: {List.get(&2, M.Rev, g, x) == Some{M.Rev{seen, Some{ops}}} : Maybe<&2, M.Rev>}, +eqm: {M.event_acts(t0, seen, x, ops) == m : Maybe<&2, List<&2, M.Action>>}, +eqs: {M.has(S, x) == hs : Bool}, +hw: {wf(t0) == True{} : Bool}, +hc: {M.closed(S, g, S) == True{} : Bool}, e: {M.walk(rest, g, M.step.of(t0, x, m)) == Some{t} : Maybe<&2, List<&2, M.Node>>}, ih: @u: List<&2, M.Node> -> {wf(u) == True{} : Bool} -> {M.walk(rest, g, Some{u}) == Some{t} : Maybe<&2, List<&2, M.Node>>} -> {M.walk(only(rest, S), g, Some{M.restrict(u, S)}) == Some{M.restrict(t, S)} : Maybe<&2, List<&2, M.Node>>}) -> {M.walk(List.filter.put(Nat, x, only(rest, S), hs), g, Some{M.restrict(t0, S)}) == Some{M.restrict(t, S)} : Maybe<&2, List<&2, M.Node>>}:
   match m hs:
     case None{} True{}:
       Empty.absurd({M.walk(x <> only(rest, S), g, Some{M.restrict(t0, S)}) == Some{M.restrict(t, S)} : Maybe<&2, List<&2, M.Node>>}, walk_refused(rest, g, t, e))
@@ -665,9 +676,9 @@ def wr.acts(m: Maybe<&2, List<&2, M.Action>>, hs: Bool, +rest: List<&2, Nat>, +g
       Empty.absurd({M.walk(only(rest, S), g, Some{M.restrict(t0, S)}) == Some{M.restrict(t, S)} : Maybe<&2, List<&2, M.Node>>}, walk_refused(rest, g, t, e))
     case Some{+acts} True{}:
       %Equal.sym(Maybe<&2, M.Rev>, List.get(&2, M.Rev, g, x), Some{M.Rev{seen, Some{ops}}}, eqev) : {M.walk(only(rest, S), g, M.step.m(Some{M.restrict(t0, S)}, _, x)) == Some{M.restrict(t, S)} : Maybe<&2, List<&2, M.Node>>}
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(M.restrict(t0, S), seen, x, ops), Some{acts},
-        Equal.trans(Maybe<&2, List<&2, M.Action>>, M.actions(M.restrict(t0, S), seen, x, ops), M.actions(t0, seen, x, ops), Some{acts},
-          actions_restrict(t0, S, seen, x, ops,
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(M.restrict(t0, S), seen, x, ops), Some{acts},
+        Equal.trans(Maybe<&2, List<&2, M.Action>>, M.event_acts(M.restrict(t0, S), seen, x, ops), M.event_acts(t0, seen, x, ops), Some{acts},
+          event_restrict(t0, S, seen, x, ops,
             (%eqev : {M.subset(M.Rev.past(_), S) == True{} : Bool}
               closed_has(S, g, S, x, hc, eqs))),
           eqm)) : {M.walk(only(rest, S), g, M.step.of(M.restrict(t0, S), x, _)) == Some{M.restrict(t, S)} : Maybe<&2, List<&2, M.Node>>}
@@ -692,7 +703,7 @@ def wr.ev(ev: Maybe<&2, M.Rev>, hs: Bool, +rest: List<&2, Nat>, +g: List<&2, M.R
     case Some{M.Rev{+seen, None{}}}:
       wr.none(hs, rest, g, S, x, t0, t, seen, eqev, hw, e, ih)
     case Some{M.Rev{+seen, Some{+ops}}}:
-      wr.acts(M.actions(t0, seen, x, ops), hs, rest, g, S, x, t0, t, seen, ops, eqev, {==}, eqs, hw, hc, e, ih)
+      wr.acts(M.event_acts(t0, seen, x, ops), hs, rest, g, S, x, t0, t, seen, ops, eqev, {==}, eqs, hw, hc, e, ih)
 
 # Walking only the set's events, from the restriction of where the walk
 # started, reaches the restriction of where it ended.
@@ -741,7 +752,7 @@ def wf_ev(ev: Maybe<&2, M.Rev>, +rest: List<&2, Nat>, +g: List<&2, M.Rev>, +t0: 
     case Some{M.Rev{seen, None{}}}:
       ih(t0, hw, e)
     case Some{M.Rev{+seen, Some{+ops}}}:
-      wf_m(M.actions(t0, seen, x, ops), rest, g, t0, x, t, hw, e, ih)
+      wf_m(M.event_acts(t0, seen, x, ops), rest, g, t0, x, t, hw, e, ih)
 
 # Every tree a walk builds is in name order, its removals in index order.
 def walk_wf(o: List<&2, Nat>, +g: List<&2, M.Rev>, +t0: List<&2, M.Node>, +t: List<&2, M.Node>, +hw: {wf(t0) == True{} : Bool}, e: {M.walk(o, g, Some{t0}) == Some{t} : Maybe<&2, List<&2, M.Node>>}) -> {wf(t) == True{} : Bool}:
@@ -797,10 +808,10 @@ def intent_at(m: Maybe<&2, List<&2, M.Action>>, +t: List<&2, M.Node>, +e: Nat, +
 # of `t` restricted to `past`, and if their document applies to it, their
 # view once the event is walked reads what it applied to — whatever else
 # `p` holds that they had not seen.
-def merge_intent_c(+g: List<&2, M.Rev>, +p: List<&2, Nat>, +e: Nat, +past: List<&2, Nat>, +d: List<&2, Ops.Op>, +t: List<&2, M.Node>, +f1: List<&2, Ops.Item>, +hd: {M.distinct(p) == True{} : Bool}, +he: {M.has(p, e) == False{} : Bool}, +hc: {M.closed(past, g, past) == True{} : Bool}, +hg: {List.get(&2, M.Rev, g, e) == Some{M.Rev{past, Some{d}}} : Maybe<&2, M.Rev>}, +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}, +hw: {M.walk(p, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, M.Node>>}, +ha: {Cursor.apply(M.file(M.restrict(t, past)), Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {M.seen_file(M.walk(List.append(&2, Nat, p, [e]), g, Some{Nil{}}), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}:
+def merge_intent_c(+g: List<&2, M.Rev>, +p: List<&2, Nat>, +e: Nat, +past: List<&2, Nat>, +d: List<&2, Ops.Op>, +t: List<&2, M.Node>, +f1: List<&2, Ops.Item>, +hd: {M.distinct(p) == True{} : Bool}, +he: {M.has(p, e) == False{} : Bool}, +hc: {M.closed(past, g, past) == True{} : Bool}, +hg: {List.get(&2, M.Rev, g, e) == Some{M.Rev{past, Some{M.Edits{d}}}} : Maybe<&2, M.Rev>}, +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}, +hw: {M.walk(p, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, M.Node>>}, +ha: {Cursor.apply(M.file(M.restrict(t, past)), Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {M.seen_file(M.walk(List.append(&2, Nat, p, [e]), g, Some{Nil{}}), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}:
   %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.walk(List.append(&2, Nat, p, [e]), g, Some{Nil{}}), M.step.m(M.walk(p, g, Some{Nil{}}), List.get(&2, M.Rev, g, e), e), ML.walk_append(p, e, g, Some{Nil{}})) : {M.seen_file(_, e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
   %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.walk(p, g, Some{Nil{}}), Some{t}, hw) : {M.seen_file(M.step.m(_, List.get(&2, M.Rev, g, e), e), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
-  %Equal.sym(Maybe<&2, M.Rev>, List.get(&2, M.Rev, g, e), Some{M.Rev{past, Some{d}}}, hg) : {M.seen_file(M.step.m(Some{t}, _, e), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+  %Equal.sym(Maybe<&2, M.Rev>, List.get(&2, M.Rev, g, e), Some{M.Rev{past, Some{M.Edits{d}}}}, hg) : {M.seen_file(M.step.m(Some{t}, _, e), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
   intent_at(M.actions(t, past, e, d), t, e, past, f1,
     walk_wf(p, g, Nil{}, t, {==}, hw),
     restrict_absent(t, Walk.revapp(p, Nil{}), e, past, Walk.has_revapp_false(p, Nil{}, e, he, {==}),

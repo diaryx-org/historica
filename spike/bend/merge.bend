@@ -15,7 +15,7 @@
 #
 # Positions are unary, the tree is a flat list, and the reading carries
 # fuel: made to be proven about, and still the merge `main.bend` walks
-# where a merge states no resolution. Resolutions are not modelled.
+# where a merge states no resolution.
 
 import Base
 import ./ops.bend as Ops
@@ -23,11 +23,24 @@ import ./ops.bend as Ops
 # Events
 # ------
 
+# A resolution's part (decision 0032): elements kept by name — the events
+# that stated the document minting them, the first ordinal, how many — or
+# items of its own.
+type Part is Data:
+  Kept{authors: List<&2, Nat>, first: Nat, count: Nat}
+  Own{items: List<&2, Ops.Item>}
+
+# What an event stated: operations counted into its author's view, or a
+# resolution stating the file whole.
+type Statement is Data:
+  Edits{ops: List<&2, Ops.Op>}
+  Resolves{parts: List<&2, Part>}
+
 # One revision as an event: the events its author had seen — strictly its
 # past, as indices
 # into the graph, which is in digest order — and what it stated, if anything.
 type Rev is Data:
-  Rev{past: List<&2, Nat>, ops: Maybe<&2, List<&2, Ops.Op>>}
+  Rev{past: List<&2, Nat>, stated: Maybe<&2, Statement>}
 
 def has(xs: List<&2, Nat>, +x: Nat) -> Bool:
   match xs:
@@ -403,6 +416,140 @@ def actions(+t: List<&2, Node>, +seen: List<&2, Nat>, +e: Nat, ops: List<&2, Ops
   +v = restrict(t, seen)
   run.acts(run(ops, Some{Running{v, 0n, Nil{}}}, e, visible(v)))
 
+# Resolving
+# ---------
+#
+# Decision 0032's resolution, walked as `merge.rs` walks it. On the author's
+# view, a keep names elements as a `keep` line does, by the document that
+# minted them and an ordinal there, and takes the first element standing
+# in the view under that name that no earlier keep took. An insert is
+# anchored after what came before it, kept or inserted, as a run is. Every
+# element of the view left unkept is removed. What is kept stays where it
+# is, under its own name, so a concurrent edit to it still lands.
+def Node.minted(n: Node) -> Nat:
+  match n:
+    case Node{Name{a, m}, it, pl, d}:
+      m
+
+def res.taken(ks: List<&2, Name>, +nm: Name) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case k <> rest:
+      Bool.or(Name.eq(k, nm), res.taken(rest, nm))
+
+def keepable(+n: Node, +authors: List<&2, Nat>, +m: Nat, +kept: List<&2, Name>) -> Bool:
+  Bool.and(has(authors, Node.author(n)), Bool.and(Nat.is_eq(Node.minted(n), m), Bool.not(res.taken(kept, Node.name(n)))))
+
+def res.find.at(+n: Node, rest: Maybe<&2, Name>, hit: Bool) -> Maybe<&2, Name>:
+  match hit:
+    case True{}:
+      Some{Node.name(n)}
+    case False{}:
+      rest
+
+# The first element of the view a keep of ordinal `m` may take.
+def res.find(P: List<&2, Node>, +authors: List<&2, Nat>, +m: Nat, +kept: List<&2, Name>) -> Maybe<&2, Name>:
+  match P:
+    case Nil{}:
+      None{}
+    case +n <> more:
+      res.find.at(n, res.find(more, authors, m, kept), keepable(n, authors, m, kept))
+
+# A resolution in progress: the view as its own inserts grow it, the count
+# minted so far, the actions decided, the elements kept, and what the next
+# insert follows. `None` once a keep names nothing the view holds.
+type Resolving is Data:
+  Resolving{view: List<&2, Node>, minted: Nat, acts: List<&2, Action>, kept: List<&2, Name>, left: Maybe<&2, Name>}
+
+def res.took(+v: List<&2, Node>, minted: Nat, acts: List<&2, Action>, kept: List<&2, Name>, found: Maybe<&2, Name>) -> Maybe<&2, Resolving>:
+  match found:
+    case None{}:
+      None{}
+    case Some{+nm}:
+      Some{Resolving{v, minted, acts, nm <> kept, Some{nm}}}
+
+def res.one(st: Maybe<&2, Resolving>, +authors: List<&2, Nat>, +m: Nat, +P: List<&2, Node>) -> Maybe<&2, Resolving>:
+  match st:
+    case None{}:
+      None{}
+    case Some{Resolving{v, minted, acts, +kept, left}}:
+      res.took(v, minted, acts, kept, res.find(P, authors, m, kept))
+
+def res.keep(count: Nat, st: Maybe<&2, Resolving>, +authors: List<&2, Nat>, +first: Nat, +P: List<&2, Node>) -> Maybe<&2, Resolving>:
+  match count:
+    case 0n:
+      st
+    case 1n+c:
+      res.keep(c, res.one(st, authors, first, P), authors, 1n+first, P)
+
+# What follows a run of inserts: its last element, or what it followed.
+def res.last(items: List<&2, Ops.Item>, +e: Nat, left: Maybe<&2, Name>, +minted: Nat) -> Maybe<&2, Name>:
+  match items:
+    case Nil{}:
+      left
+    case it <> more:
+      res.last(more, e, Some{Name{e, minted}}, 1n+minted)
+
+def res.inserted(acts: List<&2, Action>, kept: List<&2, Name>, left: Maybe<&2, Name>, done: Inserted) -> Maybe<&2, Resolving>:
+  match done:
+    case Inserted{v2, new, m2}:
+      Some{Resolving{v2, m2, List.append(&2, Action, acts, new), kept, left}}
+
+def res.step(st: Maybe<&2, Resolving>, p: Part, +e: Nat, +P: List<&2, Node>) -> Maybe<&2, Resolving>:
+  match st:
+    case None{}:
+      None{}
+    case Some{Resolving{+v, +minted, acts, kept, +left}}:
+      match p:
+        case Kept{authors, first, count}:
+          res.keep(count, Some{Resolving{v, minted, acts, kept, left}}, authors, first, P)
+        case Own{+items}:
+          res.inserted(acts, kept, res.last(items, e, left, minted), inserts(items, v, e, left, minted))
+
+def res(parts: List<&2, Part>, st: Maybe<&2, Resolving>, +e: Nat, +P: List<&2, Node>) -> Maybe<&2, Resolving>:
+  match parts:
+    case Nil{}:
+      st
+    case p <> rest:
+      res(rest, res.step(st, p, e, P), e, P)
+
+def unkept.put(+n: Node, rest: List<&2, Action>, hit: Bool) -> List<&2, Action>:
+  match hit:
+    case True{}:
+      rest
+    case False{}:
+      Delete{Node.name(n)} <> rest
+
+# Every element of the view no keep took.
+def unkept(P: List<&2, Node>, +kept: List<&2, Name>) -> List<&2, Action>:
+  match P:
+    case Nil{}:
+      Nil{}
+    case +n <> more:
+      unkept.put(n, unkept(more, kept), res.taken(kept, Node.name(n)))
+
+# The resolution done: its inserts, then the removal of what it left out,
+# as a run whose last operation deleted them.
+def res.done(st: Maybe<&2, Resolving>, +P: List<&2, Node>) -> Maybe<&2, Running>:
+  match st:
+    case None{}:
+      None{}
+    case Some{Resolving{v, m, acts, +kept, left}}:
+      run.deleted(v, m, acts, Some{unkept(P, kept)})
+
+def resolve(+t: List<&2, Node>, +seen: List<&2, Nat>, +e: Nat, parts: List<&2, Part>) -> Maybe<&2, List<&2, Action>>:
+  +v = restrict(t, seen)
+  run.acts(res.done(res(parts, Some{Resolving{v, 0n, Nil{}, Nil{}, None{}}}, e, visible(v)), visible(v)))
+
+# What an event does, whichever it stated.
+def event_acts(+t: List<&2, Node>, +seen: List<&2, Nat>, +e: Nat, s: Statement) -> Maybe<&2, List<&2, Action>>:
+  match s:
+    case Edits{ops}:
+      actions(t, seen, e, ops)
+    case Resolves{parts}:
+      resolve(t, seen, e, parts)
+
 # Applying them to the whole tree, as the event's own.
 def one(t: List<&2, Node>, +by: Nat, act: Action) -> List<&2, Node>:
   match act:
@@ -433,8 +580,8 @@ def step(ev: Maybe<&2, Rev>, +t: List<&2, Node>, +e: Nat) -> Maybe<&2, List<&2, 
       None{}
     case Some{Rev{seen, None{}}}:
       Some{t}
-    case Some{Rev{seen, Some{ops}}}:
-      step.of(t, e, actions(t, seen, e, ops))
+    case Some{Rev{seen, Some{s}}}:
+      step.of(t, e, event_acts(t, seen, e, s))
 
 def step.m(mt: Maybe<&2, List<&2, Node>>, ev: Maybe<&2, Rev>, e: Nat) -> Maybe<&2, List<&2, Node>>:
   match mt:
@@ -618,7 +765,7 @@ def chain.go(docs: List<&2, List<&2, Ops.Op>>, +n: Nat) -> List<&2, Rev>:
     case Nil{}:
       Nil{}
     case d <> ds:
-      Rev{upto(n), Some{d}} <> chain.go(ds, 1n+n)
+      Rev{upto(n), Some{Edits{d}}} <> chain.go(ds, 1n+n)
 
 def chain(docs: List<&2, List<&2, Ops.Op>>) -> List<&2, Rev>:
   chain.go(docs, 0n)

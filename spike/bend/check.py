@@ -383,7 +383,8 @@ STORES = {
     # `merge.bend`'s proven walk reads. Two branches edit apart, and one
     # deletes beside the other's insert; two insert at one place, so the
     # digests break the tie; a third merge joins all three; and `after` is
-    # recorded on top of one, so its edit counts into the walked file.
+    # recorded on top of one, so its edit counts into the walked file; and
+    # a merge joining a resolution with an edit concurrent with it.
     "walked": [
         *(["cat", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         *(["blame", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
@@ -391,6 +392,9 @@ STORES = {
         ["diff", "joined", "--onto", "right"],
         ["diff", "after"],
         ["diff", "after", "g.md"],
+        *(["cat", target, path] for target in ("resolved", "crossed") for path in ("f.md", "g.md")),
+        *(["blame", "crossed", path] for path in ("f.md", "g.md")),
+        ["diff", "crossed", "--onto", "side"],
     ],
 }
 
@@ -516,6 +520,14 @@ def record(temporary, rust, corpus):
         join(store / "history", "all", ("joined", "third"), "m" * 24)
         write(f="top\na\nB2\nc\nd\nbottom\nafter\n", g="one\nleft g\nright g\n")
         rec("after", "--onto", "joined", "-m", "after")
+        # A merge the Rust tool resolves, and an edit concurrent with it of a
+        # line it kept: joined, the walk crosses the resolution, and the
+        # edit lands on the kept element, since it kept its name.
+        write(f="top\na\nc\nd\nbottom\nresolved\n", g="one\nleft g\nright g\n")
+        rec("resolved", "--merge", "left", "--merge", "right", "-m", "resolved")
+        write(f="top\na\nC\nd\n", g="one\nleft g\nside g\n")
+        rec("side", "--onto", "left", "-m", "side")
+        join(store / "history", "crossed", ("resolved", "side"), "p" * 24)
     elif corpus == "log":
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "first: notes")
@@ -956,8 +968,8 @@ def check_mutations(temporary):
         ),
         (
             "an event of a chain has seen none of the events before it",
-            "      Rev{upto(n), Some{d}} <> chain.go(ds, 1n+n)",
-            "      Rev{Nil{}, Some{d}} <> chain.go(ds, 1n+n)",
+            "      Rev{upto(n), Some{Edits{d}}} <> chain.go(ds, 1n+n)",
+            "      Rev{Nil{}, Some{Edits{d}}} <> chain.go(ds, 1n+n)",
             "linear_lemmas.chain_go",
             "merge.bend",
         ),
@@ -966,6 +978,13 @@ def check_mutations(temporary):
             "      Bool.and(subset(past(g, x), s), closed(rest, g, s))",
             "      Bool.and(True{}, closed(rest, g, s))",
             "view_lemmas.closed_has",
+            "merge.bend",
+        ),
+        (
+            "a resolution removes what its author never saw",
+            "  run.acts(res.done(res(parts, Some{Resolving{v, 0n, Nil{}, Nil{}, None{}}}, e, visible(v)), visible(v)))",
+            "  run.acts(res.done(res(parts, Some{Resolving{v, 0n, Nil{}, Nil{}, None{}}}, e, visible(v)), visible(t)))",
+            "merge_lemmas.resolve_avoid",
             "merge.bend",
         ),
         (

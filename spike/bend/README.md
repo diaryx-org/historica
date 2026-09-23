@@ -265,7 +265,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `parser_lemmas.bend` | the parser only accepts ordered documents: its per-operation check implies `Block.ordered`, and the parse loop applies it to every operation | the parser theorem |
 | `refusal_lemmas.bend` | refusals are justified: every refusal of an ordered document has one of four positional causes, and no cause means the positional result | error soundness |
 | `diff_lemmas.bend` | `apply(diff(parent, child)) == child`: the LCS backtrack yields a script that takes the parent to the child, and the runs of that script are blocks the cursor walks to it | `tests/diff.rs` |
-| `merge.bend`, `merge_lemmas.bend` | the merge — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — which `cat`, `diff` and `blame` walk where a merge states no resolution; and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
+| `merge.bend`, `merge_lemmas.bend` | the merge — Eg-walker over Fugue, each event, edit or resolution, decided on its author's view, elements placed by name — which `cat`, `diff` and `blame` walk where a merge states no resolution; and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
 | `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
 | `linear_lemmas.bend` | `merge_linear`: on one line of history, each event having seen every event before it, the merge walk reads what plain replay makes | `merge.rs`'s `linear` fast path, decision 0007 |
 | `walk_lemmas.bend` | `merge_walk_invariant`: every tree a walk builds keeps the invariant, however concurrent its events; `merge_extends`: an event that had seen everything walked before it leaves what `Ops.apply` makes of its document | `merge.rs`'s walk, decision 0007 |
@@ -406,16 +406,18 @@ and `merge_intent` are proven about. It walks the target's ancestry in
 digest order, each revision with its ancestors as indices, in order of
 how many ancestors it has. That is a causal order, and the walk reads the
 same file in every causal order. `blame` names the author of each
-standing element. `check.py`'s `walked` store has three hand-written
-merges that state nothing:
+standing element. A resolution in that history is walked as `merge.rs`
+walks one: a `keep` of a digest names the elements minted by the events
+that stated that document. `check.py`'s `walked` store has four
+hand-written merges that state nothing:
 - two edits apart, one of them a delete beside the other's insert;
 - two inserts at one place, where the digests break the tie;
-- one joining all three.
+- one joining all three;
+- one joining a merge the Rust tool resolved with an edit concurrent with
+  it, whose edit lands on a line the resolution kept.
 
 It also has a revision recorded on top of the first. Every `cat`, `blame`
-and `diff` over them prints what the Rust tool prints. What the walk
-cannot yet cross is a resolution: a history like that is refused, saying
-so, where the Rust tool walks it.
+and `diff` over them prints what the Rust tool prints.
 
 ### What the laws say
 
@@ -642,7 +644,7 @@ refusal depends on anything the cursor knows.
 
 The merge converges. `merge.bend` is a model of `merge.rs`, not a port of
 it: a graph is a list of events in digest order, each with the events its
-author had seen and the operations it stated; a walk replays them into one
+author had seen and what it stated — operations, or a resolution; a walk replays them into one
 flat list of elements, each named `(author, minted)` and kept in name
 order, with a parent name, a side, and the events that removed it. What an
 event does is decided on its *view* — the tree restricted to what its
@@ -659,7 +661,16 @@ drops both (`restrict_apply`). The actions of two such events commute on
 the tree: two attaches are one sorted insertion twice, two marks on one
 element are one sorted insertion twice, and a mark never lands on an
 element the other event wrote, because a delete's target comes from a
-view whose authors the deleting event had all seen (`actions_avoid`). So
+view whose authors the deleting event had all seen (`actions_avoid`).
+A resolution (decision 0032) is an event of the same kind. On its view it
+takes each `keep` as the first standing element minted under that name
+that no earlier keep took. It anchors its inserts by Fugue's rule after
+what came before them, kept or its own. It removes whatever it left
+unkept. So its actions are attaches and marks decided on its view, and the
+same lemmas hold of them (`resolve_avoid`, `resolve_stable`). Every law
+about walks covers histories holding resolutions: convergence, the
+invariant of every walked tree (`res_ok`) and of every view
+(`resolve_restrict`). So
 the two events commute as steps (`comm`), and any causal order is any
 other with concurrent neighbours swapped: the first event of one order is
 concurrent with everything before it in the other, so it bubbles to the
@@ -837,7 +848,11 @@ in the whole history, the event decides the same actions
 runtime test has an event that saw one of two concurrent edits, and reads
 its document applied to that edit alone, in either order of the history.
 One mutation, a view that reads the whole tree, is rejected at
-`intent_at` and by that test.
+`intent_at` and by that test. `merge_intent` is about an edit. No law yet says the same of
+a resolution: that its view, once walked, reads the file its pieces
+assemble to. That holds where its keeps run in view order, as every
+resolution this tool writes does. The runtime tests and the `walked`
+store hold it to examples.
 
 One insertion lands at the gap its author asked for. `insert_at_gap`
 says: on a view with the reachable-state invariant, an element of a
@@ -890,8 +905,10 @@ insertion keeps the insertion; a merge that records nothing changes
 nothing; an insert after an element whose right child is a tombstone,
 and one whose descent passes a tombstone, land where asked; every topological order of a four-event graph reads the same
 file; and a document that contradicts its author's view is refused.
-Resolutions (decision 0032) and `contested` are not modelled, as in the
-Verus file. The reading carries fuel — one more than the element count,
+Resolutions say what survived, keep their elements' names so a
+concurrent edit lands on one, and refuse a keep of an element nobody
+wrote or one already kept. `contested` is not modelled, as in the Verus
+file. The reading carries fuel — one more than the element count,
 enough for any tree `attach` built — and positions are unary.
 
 Trying to prove the round trip found two ways the port accepted what it
@@ -902,7 +919,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Forty-seven mutations cover the primitive helpers, lost inserts, a lost trailing
+Forty-eight mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -932,7 +949,8 @@ written before `author`, `change` allowed to repeat, and `parent` classified
 as `supersedes`; and one chain break: an event of a chain that has seen
 none of the events before it; and two view breaks: a closed set that need
 not hold its events' pasts, and an author's view that reads the whole
-tree. The proof gate rejects
+tree; and one resolution break: a resolution that removes what its author
+never saw. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees
@@ -990,8 +1008,7 @@ is under 5k. Not ported:
 
 - **Merging** concurrent branches as a command over the store. A stated
   resolution is read. Where a merge states none, the proven walk reads
-  the file, but not across an earlier resolution, which `merge.bend` does
-  not model. No `contested` report is made: the tree's contests are
+  the file. No `contested` report is made: the tree's contests are
   computed and not yet printed.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.

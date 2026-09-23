@@ -358,7 +358,7 @@ law merge_extends:
   for +hd: {Merge.distinct(p) == True{} : Bool}
   for +he: {Merge.has(p, e) == False{} : Bool}
   for +hs: {Merge.subset(p, past) == True{} : Bool}
-  for +hg: {List.get(&2, Merge.Rev, g, e) == Some{Merge.Rev{past, Some{d}}} : Maybe<&2, Merge.Rev>}
+  for +hg: {List.get(&2, Merge.Rev, g, e) == Some{Merge.Rev{past, Some{Merge.Edits{d}}}} : Maybe<&2, Merge.Rev>}
   for +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}
   for +hm: {Merge.merged(g, p) == Some{f0} : Maybe<&2, List<&2, Ops.Item>>}
   for +ha: {Ops.apply(f0, Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}
@@ -382,7 +382,7 @@ law merge_intent:
   for +hd: {Merge.distinct(p) == True{} : Bool}
   for +he: {Merge.has(p, e) == False{} : Bool}
   for +hc: {Merge.closed(past, g, past) == True{} : Bool}
-  for +hg: {List.get(&2, Merge.Rev, g, e) == Some{Merge.Rev{past, Some{d}}} : Maybe<&2, Merge.Rev>}
+  for +hg: {List.get(&2, Merge.Rev, g, e) == Some{Merge.Rev{past, Some{Merge.Edits{d}}}} : Maybe<&2, Merge.Rev>}
   for +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}
   for +hw: {Merge.walk(p, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, Merge.Node>>}
   for +ha: {Ops.apply(Merge.file(Merge.restrict(t, past)), Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}

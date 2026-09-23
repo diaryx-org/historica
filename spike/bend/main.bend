@@ -2049,55 +2049,113 @@ def indices(xs: List<&2, String>, +names: List<&2, String>) -> List<&2, Nat>:
     case x <> rest:
       index_of(names, x, 0n) <> indices(rest, names)
 
-def walked.ops(d: Ops.Doc) -> Maybe<&2, List<&2, Ops.Op>>:
+def walked.ops(d: Ops.Doc) -> Maybe<&2, Merge.Statement>:
   match d:
     case Ops.Doc{forgets, result, ops}:
-      Some{ops}
+      Some{Merge.Edits{ops}}
 
-def walked.by(+head: String, +id: String, +file: String, +text: String, resolution: Bool) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Op>>>:
+# The document each event stated about the file, by digest, where it
+# minted elements a `keep` can name: an `edit`, or a `text` payload.
+def minted_digest(text: Bool, s: Said) -> String:
+  match s:
+    case Nothing{}:
+      ""
+    case Whole{d}:
+      Bool.pick(String, text, d, "")
+    case Edited{d}:
+      d
+
+def minted_digests.of(f: Full, +file: String) -> String:
+  match f:
+    case Full{id, change, parents, supersedes, author, when, revised_by, revised, +facts, message}:
+      minted_digest(is_text(facts, file), said(facts, file))
+
+def minted_digests(rs: List<&2, Full>, +file: String) -> List<&2, String>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case f <> rest:
+      minted_digests.of(f, file) <> minted_digests(rest, file)
+
+# The events that stated the document with this digest: whose elements a
+# `keep` of it names. Two revisions may state one document, byte for byte.
+def authors_of.put(+n: Nat, rest: List<&2, Nat>, hit: Bool) -> List<&2, Nat>:
+  match hit:
+    case True{}:
+      n <> rest
+    case False{}:
+      rest
+
+def authors_of(ds: List<&2, String>, +d: String, +n: Nat) -> List<&2, Nat>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      authors_of.put(n, authors_of(rest, d, 1n+n), String.eq(x, d))
+
+def walked.part(+digests: List<&2, String>, p: Res.Piece) -> Merge.Part:
+  match p:
+    case Res.Piece.Keep{d, first, count}:
+      Merge.Kept{authors_of(digests, d, 0n), first, count}
+    case Res.Piece.Insert{items}:
+      Merge.Own{items}
+
+def walked.parts(+digests: List<&2, String>, ps: List<&2, Res.Piece>) -> List<&2, Merge.Part>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      walked.part(digests, p) <> walked.parts(digests, rest)
+
+def walked.resolution(+digests: List<&2, String>, d: Res.Doc) -> Maybe<&2, Merge.Statement>:
+  match d:
+    case Res.Doc{forgets, result, pieces}:
+      Some{Merge.Resolves{walked.parts(digests, pieces)}}
+
+def walked.by(+digests: List<&2, String>, +text: String, resolution: Bool) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
   match resolution:
     case True{}:
-      Fail{head ++ ", file " ++ file ++ ": its parents disagree and it states no resolution, so the file is what the merge walk reads; that walk crosses " ++ id ++ ", which resolved the file, and the proven walk does not read a resolution yet"}
+      Result.map(&2, &2, String, Res.Doc, Maybe<&2, Merge.Statement>, d => walked.resolution(digests, d), Res.parse(text))
     case False{}:
-      Result.map(&2, &2, String, Ops.Doc, Maybe<&2, List<&2, Ops.Op>>, d => walked.ops(d), Ops.parse(text))
+      Result.map(&2, &2, String, Ops.Doc, Maybe<&2, Merge.Statement>, d => walked.ops(d), Ops.parse(text))
 
-def walked.edited(+head: String, +id: String, +file: String, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Op>>>:
+def walked.edited(+digests: List<&2, String>, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
   match doc:
     case Fail{e}:
       Fail{e}
     case Done{+text}:
-      walked.by(head, id, file, text, Res.is_resolution(text))
+      walked.by(digests, text, Res.is_resolution(text))
 
 # A payload is the document that inserts every line of it at 0.
-def walked.whole(text: Bool, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Op>>>:
+def walked.whole(text: Bool, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
   match text:
     case False{}:
       Done{None{}}
     case True{}:
-      Result.map(&2, &2, String, String, Maybe<&2, List<&2, Ops.Op>>, t => Some{[Ops.Op{Ops.Insert{}, 0n, Ops.from_text(t)}]}, doc)
+      Result.map(&2, &2, String, String, Maybe<&2, Merge.Statement>, t => Some{Merge.Edits{[Ops.Op{Ops.Insert{}, 0n, Ops.from_text(t)}]}}, doc)
 
-def walked.said(+ds: List<&2, Store.Doc>, +head: String, +id: String, +file: String, text: Bool, s: Said) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Op>>>:
+def walked.said(+ds: List<&2, Store.Doc>, +digests: List<&2, String>, +id: String, text: Bool, s: Said) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
   match s:
     case Nothing{}:
       Done{None{}}
     case Whole{+d}:
       walked.whole(text, held(id, d, doc_by_id(ds, d)))
     case Edited{+d}:
-      walked.edited(head, id, file, held(id, d, doc_by_id(ds, d)))
+      walked.edited(digests, held(id, d, doc_by_id(ds, d)))
 
-def walked.rev(+names: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +head: String, +file: String, f: Full) -> Result<&2, &2, String, Merge.Rev>:
+def walked.rev(+names: List<&2, String>, +digests: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +file: String, f: Full) -> Result<&2, &2, String, Merge.Rev>:
   match f:
     case Full{+id, change, parents, supersedes, author, when, revised_by, revised, +facts, message}:
-      Result.map(&2, &2, String, Maybe<&2, List<&2, Ops.Op>>, Merge.Rev, ops => Merge.Rev{indices(Tree.ancestors_of(ss, id), names), ops}, walked.said(ds, head, id, file, is_text(facts, file), said(facts, file)))
+      Result.map(&2, &2, String, Maybe<&2, Merge.Statement>, Merge.Rev, st => Merge.Rev{indices(Tree.ancestors_of(ss, id), names), st}, walked.said(ds, digests, id, is_text(facts, file), said(facts, file)))
 
-def walked.revs(rs: List<&2, Full>, +names: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, List<&2, Merge.Rev>>:
+def walked.revs(rs: List<&2, Full>, +names: List<&2, String>, +digests: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +file: String) -> Result<&2, &2, String, List<&2, Merge.Rev>>:
   match rs:
     case Nil{}:
       Done{Nil{}}
     case f <> rest:
       do Result<&2, &2, String, List<&2, Merge.Rev>>:
-        here : Merge.Rev <- walked.rev(names, ss, ds, head, file, f)
-        more : List<&2, Merge.Rev> <- walked.revs(rest, names, ss, ds, head, file)
+        here : Merge.Rev <- walked.rev(names, digests, ss, ds, file, f)
+        more : List<&2, Merge.Rev> <- walked.revs(rest, names, digests, ss, ds, file)
         return here <> more
 
 # Each event beside how many it had seen, so that sorting by that count is
@@ -2144,7 +2202,7 @@ def walked.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +f
       Fail{head ++ ": " ++ Tree.fault_show(e)}
     case Done{+ss}:
       do Result<&2, &2, String, Walked>:
-        +g : List<&2, Merge.Rev> <- walked.revs(rs, ids(rs), ss, ds, head, file)
+        +g : List<&2, Merge.Rev> <- walked.revs(rs, ids(rs), minted_digests(rs, file), ss, ds, file)
         walked.tree(head, file, ids(rs), Merge.walk(walked.order(g), g, Some{Nil{}}))
 
 def walked.sorted(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, Walked>:

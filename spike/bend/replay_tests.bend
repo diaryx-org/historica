@@ -198,7 +198,7 @@ def merge_case(+name: String, +g: List<&2, Merge.Rev>, +expected: Maybe<&2, List
       merge_each(name, g, expected, first, first <> rest)
 
 def stated(past: List<&2, Nat>, ops: List<&2, Ops.Op>) -> Merge.Rev:
-  Merge.Rev{past, Some{ops}}
+  Merge.Rev{past, Some{Merge.Edits{ops}}}
 
 def abc() -> Merge.Rev:
   stated(Nil{}, [Ops.Op{Ops.Insert{}, 0n, Ops.from_text("a\nb\nc\n")}])
@@ -221,6 +221,25 @@ def partial_doc() -> List<&2, Ops.Op>:
 
 def partial() -> List<&2, Merge.Rev>:
   [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("top")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 3n, [Ops.line("bottom")]}]), stated([0n, 1n], partial_doc())]
+
+# A resolution (decision 0032): what it keeps, by the events that minted
+# it and the ordinal there, and what it inserts.
+def resolved(past: List<&2, Nat>, parts: List<&2, Merge.Part>) -> Merge.Rev:
+  Merge.Rev{past, Some{Merge.Resolves{parts}}}
+
+# `abc` with `top` before it and `b` deleted, concurrently, then resolved:
+# `top`, `a`, a line of its own, `c`.
+def resolution() -> List<&2, Merge.Rev>:
+  [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("top")]}]), stated([0n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}]),
+   resolved([0n, 1n, 2n], [Merge.Kept{[1n], 0n, 1n}, Merge.Kept{[0n], 0n, 1n}, Merge.Own{[Ops.line("mid")]}, Merge.Kept{[0n], 2n, 1n}])]
+
+# A resolution that keeps `a`, `c` and a concurrent `x`, leaving `b` out,
+# and an edit concurrent with it that replaces `c`: the edit lands on the
+# element the resolution kept.
+def kept_lands() -> List<&2, Merge.Rev>:
+  [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 3n, [Ops.line("x")]}]),
+   resolved([0n, 1n], [Merge.Kept{[0n], 0n, 1n}, Merge.Kept{[0n], 2n, 1n}, Merge.Kept{[1n], 0n, 1n}]),
+   stated([0n, 1n], [Ops.Op{Ops.Delete{}, 2n, [Ops.line("c")]}, Ops.Op{Ops.Insert{}, 3n, [Ops.line("C")]}])]
 
 def chain_docs() -> List<&2, List<&2, Ops.Op>>:
   [[Ops.Op{Ops.Insert{}, 0n, Ops.from_text("a\nb\nc\n")}],
@@ -317,6 +336,10 @@ def main() -> IO(Unit):
     merge_case("merge: an insert after an element whose right child is a tombstone", [stated(Nil{}, [Ops.Op{Ops.Insert{}, 0n, [Ops.line("a")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("x")]}]), stated([0n, 1n], [Ops.Op{Ops.Insert{}, 2n, [Ops.line("w")]}]), stated([0n, 1n, 2n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("x")]}]), stated([0n, 1n, 2n, 3n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("y")]}])], Some{Ops.from_text("a\ny\nw\n")}, [[0n, 1n, 2n, 3n, 4n]])
     merge_case("merge: an insert whose descent passes a tombstone", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("x")]}]), stated([0n, 1n], [Ops.Op{Ops.Insert{}, 2n, [Ops.line("w")]}]), stated([0n, 1n, 2n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("x")]}]), stated([0n, 1n, 2n, 3n], [Ops.Op{Ops.Insert{}, 1n, [Ops.line("y")]}])], Some{Ops.from_text("a\ny\nw\nb\nc\n")}, [[0n, 1n, 2n, 3n, 4n]])
     merge_case("merge: a document that disagrees with its view is refused", [abc(), stated([0n], [Ops.Op{Ops.Delete{}, 1n, [Ops.line("not-b")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("top")]}])], None{}, [[0n, 1n, 2n], [0n, 2n, 1n]])
+    merge_case("merge: a resolution says what survived", resolution(), Some{Ops.from_text("top\na\nmid\nc\n")}, [[0n, 1n, 2n, 3n], [0n, 2n, 1n, 3n]])
+    merge_case("merge: a kept element keeps its name, and a concurrent edit lands on it", kept_lands(), Some{Ops.from_text("a\nC\nx\n")}, [[0n, 1n, 2n, 3n], [0n, 1n, 3n, 2n]])
+    merge_case("merge: a keep of an element nobody wrote is refused", [abc(), resolved([0n], [Merge.Kept{[5n], 0n, 1n}])], None{}, [[0n, 1n]])
+    merge_case("merge: a keep of an element already kept is refused", [abc(), resolved([0n], [Merge.Kept{[0n], 0n, 1n}, Merge.Kept{[0n], 0n, 1n}])], None{}, [[0n, 1n]])
     merge_case("merge: a document past its view is refused", [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 4n, [Ops.line("far")]}])], None{}, [[0n, 1n]])
     check(Bool.not(Merge.orders([abc(), stated([0n], Nil{})], [0n, 1n], [1n, 0n])), "merge: an order before its past is not causal")
     check(Bool.not(Merge.orders([abc(), stated([0n], Nil{})], [0n, 1n], [0n, 1n, 1n])), "merge: an order with an event twice is not distinct")

@@ -746,6 +746,99 @@ def actions_avoid(+t: List<&2, M.Node>, +seen: List<&2, Nat>, +e: Nat, +ops: Lis
   acts_avoid(M.run(ops, Some{M.Running{M.restrict(t, seen), 0n, Nil{}}}, e, M.visible(M.restrict(t, seen))), f,
     run_avoid(ops, Some{M.Running{M.restrict(t, seen), 0n, Nil{}}}, e, M.visible(M.restrict(t, seen)), seen, f, visible_authors(t, seen), hf, {==}))
 
+# A resolution deletes only what it saw
+# -------------------------------------
+#
+# Its inserts are a run's, and what it removes is its view less what it
+# kept: every target an element of the view.
+def avoid.rs(st: Maybe<&2, M.Resolving>, f: Nat) -> Bool:
+  match st:
+    case None{}:
+      True{}
+    case Some{M.Resolving{v, m, acts, kept, left}}:
+      avoid(acts, f)
+
+def res_took_avoid(+v: List<&2, M.Node>, minted: Nat, +acts: List<&2, M.Action>, kept: List<&2, M.Name>, found: Maybe<&2, M.Name>, +f: Nat, h0: {avoid(acts, f) == True{} : Bool}) -> {avoid.rs(M.res.took(v, minted, acts, kept, found), f) == True{} : Bool}:
+  match found:
+    case None{}:
+      {==}
+    case Some{nm}:
+      h0
+
+def res_one_avoid(st: Maybe<&2, M.Resolving>, +authors: List<&2, Nat>, +m: Nat, +P: List<&2, M.Node>, +f: Nat, h0: {avoid.rs(st, f) == True{} : Bool}) -> {avoid.rs(M.res.one(st, authors, m, P), f) == True{} : Bool}:
+  match st:
+    case None{}:
+      {==}
+    case Some{M.Resolving{+v, +minted, +acts, +kept, left}}:
+      res_took_avoid(v, minted, acts, kept, M.res.find(P, authors, m, kept), f, h0)
+
+def res_keep_avoid(count: Nat, +st: Maybe<&2, M.Resolving>, +authors: List<&2, Nat>, +first: Nat, +P: List<&2, M.Node>, +f: Nat, h0: {avoid.rs(st, f) == True{} : Bool}) -> {avoid.rs(M.res.keep(count, st, authors, first, P), f) == True{} : Bool}:
+  match count:
+    case 0n:
+      h0
+    case 1n+c:
+      res_keep_avoid(c, M.res.one(st, authors, first, P), authors, 1n+first, P, f, res_one_avoid(st, authors, first, P, f, h0))
+
+def res_inserted_avoid(+acts: List<&2, M.Action>, kept: List<&2, M.Name>, left: Maybe<&2, M.Name>, done: M.Inserted, +f: Nat, h0: {avoid(acts, f) == True{} : Bool}, hn: {avoid(Inserted.acts(done), f) == True{} : Bool}) -> {avoid.rs(M.res.inserted(acts, kept, left, done), f) == True{} : Bool}:
+  match done:
+    case M.Inserted{v2, new, m2}:
+      append_avoid(acts, new, f, h0, hn)
+
+def res_step_avoid(st: Maybe<&2, M.Resolving>, p: M.Part, +e: Nat, +P: List<&2, M.Node>, +f: Nat, h0: {avoid.rs(st, f) == True{} : Bool}) -> {avoid.rs(M.res.step(st, p, e, P), f) == True{} : Bool}:
+  match st:
+    case None{}:
+      {==}
+    case Some{M.Resolving{+v, +minted, +acts, +kept, +left}}:
+      match p:
+        case M.Kept{+authors, +first, count}:
+          res_keep_avoid(count, Some{M.Resolving{v, minted, acts, kept, left}}, authors, first, P, f, h0)
+        case M.Own{+items}:
+          res_inserted_avoid(acts, kept, M.res.last(items, e, left, minted), M.inserts(items, v, e, left, minted), f, h0, inserts_avoid(items, v, e, left, minted, f))
+
+def res_avoid(parts: List<&2, M.Part>, +st: Maybe<&2, M.Resolving>, +e: Nat, +P: List<&2, M.Node>, +f: Nat, h0: {avoid.rs(st, f) == True{} : Bool}) -> {avoid.rs(M.res(parts, st, e, P), f) == True{} : Bool}:
+  match parts:
+    case Nil{}:
+      h0
+    case +p <> rest:
+      res_avoid(rest, M.res.step(st, p, e, P), e, P, f, res_step_avoid(st, p, e, P, f, h0))
+
+def unkept_put_avoid(n: M.Node, +rest: List<&2, M.Action>, hit: Bool, +f: Nat, hn: {Bool.not(Nat.is_eq(f, M.Node.author(n))) == True{} : Bool}, hr: {avoid(rest, f) == True{} : Bool}) -> {avoid(M.unkept.put(n, rest, hit), f) == True{} : Bool}:
+  match n:
+    case M.Node{M.Name{+a, +m}, it, pl, d}:
+      match hit:
+        case True{}:
+          hr
+        case False{}:
+          and_intro(Bool.not(Nat.is_eq(f, a)), avoid(rest, f), hn, hr)
+
+def unkept_avoid(P: List<&2, M.Node>, +kept: List<&2, M.Name>, +seen: List<&2, Nat>, +f: Nat, +hp: {authors_in(P, seen) == True{} : Bool}, +hf: {M.has(seen, f) == False{} : Bool}) -> {avoid(M.unkept(P, kept), f) == True{} : Bool}:
+  match P:
+    case Nil{}:
+      {==}
+    case +n <> +more:
+      unkept_put_avoid(n, M.unkept(more, kept), M.res.taken(kept, M.Node.name(n)), f,
+        not_false(Nat.is_eq(f, M.Node.author(n)), ne_of_has(seen, f, M.Node.author(n), hf, Comp.and_left(M.has(seen, M.Node.author(n)), authors_in(more, seen), hp))),
+        unkept_avoid(more, kept, seen, f, Comp.and_right(M.has(seen, M.Node.author(n)), authors_in(more, seen), hp), hf))
+
+def res_done_avoid(st: Maybe<&2, M.Resolving>, +P: List<&2, M.Node>, +seen: List<&2, Nat>, +f: Nat, hp: {authors_in(P, seen) == True{} : Bool}, hf: {M.has(seen, f) == False{} : Bool}, h0: {avoid.rs(st, f) == True{} : Bool}) -> {avoid.m(M.run.acts(M.res.done(st, P)), f) == True{} : Bool}:
+  match st:
+    case None{}:
+      {==}
+    case Some{M.Resolving{+v, +m, +acts, +kept, left}}:
+      append_avoid(acts, M.unkept(P, kept), f, h0, unkept_avoid(P, kept, seen, f, hp, hf))
+
+def resolve_avoid(+t: List<&2, M.Node>, +seen: List<&2, Nat>, +e: Nat, +parts: List<&2, M.Part>, +f: Nat, hf: {M.has(seen, f) == False{} : Bool}) -> {avoid.m(M.resolve(t, seen, e, parts), f) == True{} : Bool}:
+  res_done_avoid(M.res(parts, Some{M.Resolving{M.restrict(t, seen), 0n, Nil{}, Nil{}, None{}}}, e, M.visible(M.restrict(t, seen))), M.visible(M.restrict(t, seen)), seen, f, visible_authors(t, seen), hf,
+    res_avoid(parts, Some{M.Resolving{M.restrict(t, seen), 0n, Nil{}, Nil{}, None{}}}, e, M.visible(M.restrict(t, seen)), f, {==}))
+
+# Whatever an event stated.
+def event_avoid(+t: List<&2, M.Node>, +seen: List<&2, Nat>, +e: Nat, s: M.Statement, +f: Nat, hf: {M.has(seen, f) == False{} : Bool}) -> {avoid.m(M.event_acts(t, seen, e, s), f) == True{} : Bool}:
+  match s:
+    case M.Edits{+ops}:
+      actions_avoid(t, seen, e, ops, f, hf)
+    case M.Resolves{+parts}:
+      resolve_avoid(t, seen, e, parts, f, hf)
+
 # Commuting events
 # ----------------
 #
@@ -755,23 +848,34 @@ def actions_stable(+t: List<&2, M.Node>, b: List<&2, M.Action>, +x: Nat, +seen: 
   %Equal.sym(List<&2, M.Node>, M.restrict(M.apply(b, t, x), seen), M.restrict(t, seen), restrict_apply(b, t, x, seen, hx)) : {M.run.acts(M.run(ops, Some{M.Running{_, 0n, Nil{}}}, f, M.visible(_))) == M.actions(t, seen, f, ops) : Maybe<&2, List<&2, M.Action>>}
   {==}
 
-def core(+t: List<&2, M.Node>, +f: Nat, +x: Nat, +sf: List<&2, Nat>, +opsf: List<&2, Ops.Op>, +sx: List<&2, Nat>, +opsx: List<&2, Ops.Op>, ma: Maybe<&2, List<&2, M.Action>>, mb: Maybe<&2, List<&2, M.Action>>, eA: {M.actions(t, sf, f, opsf) == ma : Maybe<&2, List<&2, M.Action>>}, eB: {M.actions(t, sx, x, opsx) == mb : Maybe<&2, List<&2, M.Action>>}, avA: {avoid.m(ma, x) == True{} : Bool}, avB: {avoid.m(mb, f) == True{} : Bool}, +hx: {M.has(sf, x) == False{} : Bool}, +hf: {M.has(sx, f) == False{} : Bool}, ne: {Nat.is_eq(f, x) == False{} : Bool}) -> {M.step.m(M.step.of(t, f, ma), Some{M.Rev{sx, Some{opsx}}}, x) == M.step.m(M.step.of(t, x, mb), Some{M.Rev{sf, Some{opsf}}}, f) : Maybe<&2, List<&2, M.Node>>}:
+def resolve_stable(+t: List<&2, M.Node>, b: List<&2, M.Action>, +x: Nat, +seen: List<&2, Nat>, +f: Nat, +parts: List<&2, M.Part>, hx: {M.has(seen, x) == False{} : Bool}) -> {M.resolve(M.apply(b, t, x), seen, f, parts) == M.resolve(t, seen, f, parts) : Maybe<&2, List<&2, M.Action>>}:
+  %Equal.sym(List<&2, M.Node>, M.restrict(M.apply(b, t, x), seen), M.restrict(t, seen), restrict_apply(b, t, x, seen, hx)) : {M.run.acts(M.res.done(M.res(parts, Some{M.Resolving{_, 0n, Nil{}, Nil{}, None{}}}, f, M.visible(_)), M.visible(_))) == M.resolve(t, seen, f, parts) : Maybe<&2, List<&2, M.Action>>}
+  {==}
+
+def event_stable(+t: List<&2, M.Node>, b: List<&2, M.Action>, +x: Nat, +seen: List<&2, Nat>, +f: Nat, s: M.Statement, hx: {M.has(seen, x) == False{} : Bool}) -> {M.event_acts(M.apply(b, t, x), seen, f, s) == M.event_acts(t, seen, f, s) : Maybe<&2, List<&2, M.Action>>}:
+  match s:
+    case M.Edits{+ops}:
+      actions_stable(t, b, x, seen, f, ops, hx)
+    case M.Resolves{+parts}:
+      resolve_stable(t, b, x, seen, f, parts, hx)
+
+def core(+t: List<&2, M.Node>, +f: Nat, +x: Nat, +sf: List<&2, Nat>, +opsf: M.Statement, +sx: List<&2, Nat>, +opsx: M.Statement, ma: Maybe<&2, List<&2, M.Action>>, mb: Maybe<&2, List<&2, M.Action>>, eA: {M.event_acts(t, sf, f, opsf) == ma : Maybe<&2, List<&2, M.Action>>}, eB: {M.event_acts(t, sx, x, opsx) == mb : Maybe<&2, List<&2, M.Action>>}, avA: {avoid.m(ma, x) == True{} : Bool}, avB: {avoid.m(mb, f) == True{} : Bool}, +hx: {M.has(sf, x) == False{} : Bool}, +hf: {M.has(sx, f) == False{} : Bool}, ne: {Nat.is_eq(f, x) == False{} : Bool}) -> {M.step.m(M.step.of(t, f, ma), Some{M.Rev{sx, Some{opsx}}}, x) == M.step.m(M.step.of(t, x, mb), Some{M.Rev{sf, Some{opsf}}}, f) : Maybe<&2, List<&2, M.Node>>}:
   match ma mb:
     case None{} None{}:
       {==}
     case None{} Some{b}:
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(M.apply(b, t, x), sf, f, opsf), M.actions(t, sf, f, opsf), actions_stable(t, b, x, sf, f, opsf, hx)) : {None{} == M.step.of(M.apply(b, t, x), f, _) : Maybe<&2, List<&2, M.Node>>}
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(t, sf, f, opsf), None{}, eA) : {None{} == M.step.of(M.apply(b, t, x), f, _) : Maybe<&2, List<&2, M.Node>>}
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(M.apply(b, t, x), sf, f, opsf), M.event_acts(t, sf, f, opsf), event_stable(t, b, x, sf, f, opsf, hx)) : {None{} == M.step.of(M.apply(b, t, x), f, _) : Maybe<&2, List<&2, M.Node>>}
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(t, sf, f, opsf), None{}, eA) : {None{} == M.step.of(M.apply(b, t, x), f, _) : Maybe<&2, List<&2, M.Node>>}
       {==}
     case Some{a} None{}:
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(M.apply(a, t, f), sx, x, opsx), M.actions(t, sx, x, opsx), actions_stable(t, a, f, sx, x, opsx, hf)) : {M.step.of(M.apply(a, t, f), x, _) == None{} : Maybe<&2, List<&2, M.Node>>}
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(t, sx, x, opsx), None{}, eB) : {M.step.of(M.apply(a, t, f), x, _) == None{} : Maybe<&2, List<&2, M.Node>>}
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(M.apply(a, t, f), sx, x, opsx), M.event_acts(t, sx, x, opsx), event_stable(t, a, f, sx, x, opsx, hf)) : {M.step.of(M.apply(a, t, f), x, _) == None{} : Maybe<&2, List<&2, M.Node>>}
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(t, sx, x, opsx), None{}, eB) : {M.step.of(M.apply(a, t, f), x, _) == None{} : Maybe<&2, List<&2, M.Node>>}
       {==}
     case Some{+a} Some{+b}:
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(M.apply(a, t, f), sx, x, opsx), M.actions(t, sx, x, opsx), actions_stable(t, a, f, sx, x, opsx, hf)) : {M.step.of(M.apply(a, t, f), x, _) == M.step.of(M.apply(b, t, x), f, M.actions(M.apply(b, t, x), sf, f, opsf)) : Maybe<&2, List<&2, M.Node>>}
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(t, sx, x, opsx), Some{b}, eB) : {M.step.of(M.apply(a, t, f), x, _) == M.step.of(M.apply(b, t, x), f, M.actions(M.apply(b, t, x), sf, f, opsf)) : Maybe<&2, List<&2, M.Node>>}
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(M.apply(b, t, x), sf, f, opsf), M.actions(t, sf, f, opsf), actions_stable(t, b, x, sf, f, opsf, hx)) : {Some{M.apply(b, M.apply(a, t, f), x)} == M.step.of(M.apply(b, t, x), f, _) : Maybe<&2, List<&2, M.Node>>}
-      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.actions(t, sf, f, opsf), Some{a}, eA) : {Some{M.apply(b, M.apply(a, t, f), x)} == M.step.of(M.apply(b, t, x), f, _) : Maybe<&2, List<&2, M.Node>>}
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(M.apply(a, t, f), sx, x, opsx), M.event_acts(t, sx, x, opsx), event_stable(t, a, f, sx, x, opsx, hf)) : {M.step.of(M.apply(a, t, f), x, _) == M.step.of(M.apply(b, t, x), f, M.event_acts(M.apply(b, t, x), sf, f, opsf)) : Maybe<&2, List<&2, M.Node>>}
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(t, sx, x, opsx), Some{b}, eB) : {M.step.of(M.apply(a, t, f), x, _) == M.step.of(M.apply(b, t, x), f, M.event_acts(M.apply(b, t, x), sf, f, opsf)) : Maybe<&2, List<&2, M.Node>>}
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(M.apply(b, t, x), sf, f, opsf), M.event_acts(t, sf, f, opsf), event_stable(t, b, x, sf, f, opsf, hx)) : {Some{M.apply(b, M.apply(a, t, f), x)} == M.step.of(M.apply(b, t, x), f, _) : Maybe<&2, List<&2, M.Node>>}
+      %Equal.sym(Maybe<&2, List<&2, M.Action>>, M.event_acts(t, sf, f, opsf), Some{a}, eA) : {Some{M.apply(b, M.apply(a, t, f), x)} == M.step.of(M.apply(b, t, x), f, _) : Maybe<&2, List<&2, M.Node>>}
       Equal.cong(List<&2, M.Node>, Maybe<&2, List<&2, M.Node>>, l => Some{l}, M.apply(b, M.apply(a, t, f), x), M.apply(a, M.apply(b, t, x), f), apply_comm(b, a, t, f, x, ne, avA, avB))
 
 def step_m_none(m: Maybe<&2, List<&2, M.Node>>, f: Nat) -> {M.step.m(m, None{}, f) == None{} : Maybe<&2, List<&2, M.Node>>}:
@@ -795,11 +899,11 @@ def comm(ef: Maybe<&2, M.Rev>, ex: Maybe<&2, M.Rev>, +t: List<&2, M.Node>, +f: N
     case Some{M.Rev{sf, None{}}} _:
       Equal.sym(Maybe<&2, List<&2, M.Node>>, M.step.m(M.step(ex, t, x), Some{M.Rev{sf, None{}}}, f), M.step(ex, t, x), step_m_nothing(M.step(ex, t, x), sf, f))
     case Some{M.Rev{sf, Some{opsf}}} None{}:
-      step_m_none(M.step.of(t, f, M.actions(t, sf, f, opsf)), x)
+      step_m_none(M.step.of(t, f, M.event_acts(t, sf, f, opsf)), x)
     case Some{M.Rev{sf, Some{opsf}}} Some{M.Rev{sx, None{}}}:
-      step_m_nothing(M.step.of(t, f, M.actions(t, sf, f, opsf)), sx, x)
+      step_m_nothing(M.step.of(t, f, M.event_acts(t, sf, f, opsf)), sx, x)
     case Some{M.Rev{+sf, Some{+opsf}}} Some{M.Rev{+sx, Some{+opsx}}}:
-      core(t, f, x, sf, opsf, sx, opsx, M.actions(t, sf, f, opsf), M.actions(t, sx, x, opsx), {==}, {==}, actions_avoid(t, sf, f, opsf, x, hx), actions_avoid(t, sx, x, opsx, f, hf), hx, hf, ne)
+      core(t, f, x, sf, opsf, sx, opsx, M.event_acts(t, sf, f, opsf), M.event_acts(t, sx, x, opsx), {==}, {==}, event_avoid(t, sf, f, opsf, x, hx), event_avoid(t, sx, x, opsx, f, hf), hx, hf, ne)
 
 def comm.m(mt: Maybe<&2, List<&2, M.Node>>, ef: Maybe<&2, M.Rev>, ex: Maybe<&2, M.Rev>, +f: Nat, +x: Nat, hx: {M.has(M.Rev.past(ef), x) == False{} : Bool}, hf: {M.has(M.Rev.past(ex), f) == False{} : Bool}, ne: {Nat.is_eq(f, x) == False{} : Bool}) -> {M.step.m(M.step.m(mt, ef, f), ex, x) == M.step.m(M.step.m(mt, ex, x), ef, f) : Maybe<&2, List<&2, M.Node>>}:
   match mt:
