@@ -308,6 +308,45 @@ law merge_linear:
   for e: {Merge.replay(docs, Done{Nil{}}) == Done{f} : Result<&2, &2, String, List<&2, Ops.Item>>}
   {Merge.merged(Merge.chain(docs), Merge.upto(List.length(&2, List<&2, Ops.Op>, docs))) == Some{f} : Maybe<&2, List<&2, Ops.Item>>}
 
+# Every merge keeps the invariant. `insert_at_gap` assumes of an author's
+# view that its reading finishes within its fuel and reads no element
+# twice; this is that assumption discharged for every tree a walk builds,
+# in any order that names each event once, however concurrent its events.
+# An element a concurrent event attached may sit among siblings anywhere
+# in name order, and the reading is still the old one with it spliced in
+# once, where its parent's list is read.
+law merge_walk_invariant:
+  for +g: List<&2, Merge.Rev>
+  for +o: List<&2, Nat>
+  for +t: List<&2, Merge.Node>
+  for +d: {Merge.distinct(o) == True{} : Bool}
+  for e: {Merge.walk(o, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, Merge.Node>>}
+  {Merge.invariant(t) == True{} : Bool}
+
+# An event that had seen everything before it applies its document. Walk
+# any history `p` to `f0`; an event `e` outside it that had seen every one
+# of its events, and states a document the parser would accept, walked
+# next leaves exactly what `Ops.apply` makes of that document on `f0`.
+# This is `merge_linear` without the line: the history may be as
+# concurrent as the graph likes — the event's view is the whole tree, and
+# the tree keeps the invariant however it was built.
+law merge_extends:
+  for +g: List<&2, Merge.Rev>
+  for +p: List<&2, Nat>
+  for +e: Nat
+  for +past: List<&2, Nat>
+  for +d: List<&2, Ops.Op>
+  for +f0: List<&2, Ops.Item>
+  for +f1: List<&2, Ops.Item>
+  for +hd: {Merge.distinct(p) == True{} : Bool}
+  for +he: {Merge.has(p, e) == False{} : Bool}
+  for +hs: {Merge.subset(p, past) == True{} : Bool}
+  for +hg: {List.get(&2, Merge.Rev, g, e) == Some{Merge.Rev{past, Some{d}}} : Maybe<&2, Merge.Rev>}
+  for +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}
+  for +hm: {Merge.merged(g, p) == Some{f0} : Maybe<&2, List<&2, Ops.Item>>}
+  for +ha: {Ops.apply(f0, Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}
+  {Merge.merged(g, List.append(&2, Nat, p, [e])) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+
 # One insertion lands at the gap its author asked for. `Merge.invariant`
 # is what holds of an author's view as their run grows it — the reading
 # of every sibling list finishes within the fuel `order` gives it, and no

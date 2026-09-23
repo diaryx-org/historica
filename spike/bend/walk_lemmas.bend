@@ -19,6 +19,7 @@ import ./merge_lemmas.bend as ML
 import ./anchor_lemmas.bend as AL
 import ./semantic_replay.bend as Block
 import ./linear_lemmas.bend as Lin
+import ./parser_lemmas.bend as PL
 
 # Numbers
 # -------
@@ -611,6 +612,709 @@ def leaf_at(+t: List<&2, M.Node>, +n: M.Node, P: Maybe<&2, M.Name>, +R: Bool, +h
 def invariant_leaf(+t: List<&2, M.Node>, +n: M.Node, +P: Maybe<&2, M.Name>, +R: Bool, +hp: {M.Node.place(n) == M.Place{P, R} : M.Place}, +fr: {M.fresh(t, M.Node.name(n)) == True{} : Bool}, +np: {M.Name.same(P, Some{M.Node.name(n)}) == False{} : Bool}, +inv: {M.invariant(t) == True{} : Bool}) -> {M.invariant(M.attach(t, n)) == True{} : Bool}:
   %Equal.sym(Nat, List.length(&2, M.Node, M.attach(t, n)), 1n+List.length(&2, M.Node, t), AL.attach_length(t, n)) : {Bool.and(M.fits(1n+_, M.attach(t, n), M.children(M.attach(t, n), None{}, True{})), M.nodup(M.read_all(1n+_, M.attach(t, n), M.children(M.attach(t, n), None{}, True{})))) == True{} : Bool}
   leaf_at(t, n, P, R, hp, fr, np, inv)
+
+# An event's actions
+# ------------------
+#
+# What `apply` needs of an event's actions: each element it attaches has a
+# name its author mints no lower than the last, and hangs under a name the
+# event had seen or minted before it (`aok`). Then every attach is a fresh
+# leaf, and every mark keeps the invariant.
+def pok(pl: M.Place, +W: List<&2, Nat>, +k: Nat, +m: Nat) -> Bool:
+  match pl:
+    case M.Place{p, r}:
+      Lin.before.m(p, W, k, m)
+
+def aok(acts: List<&2, M.Action>, +W: List<&2, Nat>, +k: Nat, +lo: Nat) -> Bool:
+  match acts:
+    case Nil{}:
+      True{}
+    case M.Attach{+a, it, pl} <> rest:
+      Bool.and(Nat.is_le(lo, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)))
+    case M.Delete{tg} <> rest:
+      aok(rest, W, k, lo)
+
+# The ordinal the event mints next, once the actions are done.
+def mfin(acts: List<&2, M.Action>, lo: Nat) -> Nat:
+  match acts:
+    case Nil{}:
+      lo
+    case M.Attach{a, it, pl} <> rest:
+      mfin(rest, 1n+a)
+    case M.Delete{tg} <> rest:
+      mfin(rest, lo)
+
+def before_le(nm: M.Name, +W: List<&2, Nat>, +k: Nat, +m: Nat, +a: Nat, +le: {Nat.is_le(m, a) == True{} : Bool}, +h: {Lin.before(nm, W, k, m) == True{} : Bool}) -> {Lin.before(nm, W, k, a) == True{} : Bool}:
+  match nm:
+    case M.Name{+x, +o}:
+      Lin.or_and_mono(Bool.and(Bool.not(Nat.is_eq(x, k)), M.has(W, x)), Nat.is_eq(x, k), Nat.is_lt(o, m), Nat.is_lt(o, a), h, e => Lin.lt_le_trans(o, m, a, e, le))
+
+def before.m_le(p: Maybe<&2, M.Name>, +W: List<&2, Nat>, +k: Nat, +m: Nat, +a: Nat, +le: {Nat.is_le(m, a) == True{} : Bool}, +h: {Lin.before.m(p, W, k, m) == True{} : Bool}) -> {Lin.before.m(p, W, k, a) == True{} : Bool}:
+  match p:
+    case None{}:
+      {==}
+    case Some{x}:
+      before_le(x, W, k, m, a, le, h)
+
+def good_le(n: M.Node, +W: List<&2, Nat>, +k: Nat, +m: Nat, +a: Nat, +le: {Nat.is_le(m, a) == True{} : Bool}, +h: {Lin.good(n, W, k, m) == True{} : Bool}) -> {Lin.good(n, W, k, a) == True{} : Bool}:
+  match n:
+    case M.Node{+nm, +it, M.Place{+p, +r}, +d}:
+      AL.and_intro(Lin.before(nm, W, k, a), Bool.and(Lin.before.m(p, W, k, a), Lin.all_has(d, k <> W)),
+        before_le(nm, W, k, m, a, le, Comp.and_left(Lin.before(nm, W, k, m), Bool.and(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W)), h)),
+        AL.and_intro(Lin.before.m(p, W, k, a), Lin.all_has(d, k <> W),
+          before.m_le(p, W, k, m, a, le, Comp.and_left(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W), Comp.and_right(Lin.before(nm, W, k, m), Bool.and(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W)), h))),
+          Comp.and_right(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W), Comp.and_right(Lin.before(nm, W, k, m), Bool.and(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W)), h))))
+
+def goods_le(t: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +m: Nat, +a: Nat, +le: {Nat.is_le(m, a) == True{} : Bool}, +h: {Lin.goods(t, W, k, m) == True{} : Bool}) -> {Lin.goods(t, W, k, a) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +x <> +xs:
+      AL.and_intro(Lin.good(x, W, k, a), Lin.goods(xs, W, k, a),
+        good_le(x, W, k, m, a, le, Comp.and_left(Lin.good(x, W, k, m), Lin.goods(xs, W, k, m), h)),
+        goods_le(xs, W, k, m, a, le, Comp.and_right(Lin.good(x, W, k, m), Lin.goods(xs, W, k, m), h)))
+
+def pok_mono(pl: M.Place, +W: List<&2, Nat>, +k: Nat, +m: Nat, +h: {pok(pl, W, k, m) == True{} : Bool}) -> {pok(pl, W, k, 1n+m) == True{} : Bool}:
+  match pl:
+    case M.Place{+p, r}:
+      Lin.before.m_mono(p, W, k, m, h)
+
+def good_leaf(+k: Nat, +a: Nat, +it: Ops.Item, pl: M.Place, +W: List<&2, Nat>, +hp: {pok(pl, W, k, a) == True{} : Bool}) -> {Lin.good(M.Node{M.Name{k, a}, it, pl, Nil{}}, W, k, 1n+a) == True{} : Bool}:
+  match pl:
+    case M.Place{+p, +r}:
+      AL.and_intro(Lin.before(M.Name{k, a}, W, k, 1n+a), Bool.and(Lin.before.m(p, W, k, 1n+a), True{}),
+        Lin.before_self(W, k, a),
+        AL.and_intro(Lin.before.m(p, W, k, 1n+a), True{}, Lin.before.m_mono(p, W, k, a, hp), {==}))
+
+# One attach of the event's own: a fresh leaf, and the bound moves past it.
+def attach_ok(+t: List<&2, M.Node>, +k: Nat, +a: Nat, +it: Ops.Item, pl: M.Place, +W: List<&2, Nat>, +hi: {M.invariant(t) == True{} : Bool}, +hg: {Lin.goods(t, W, k, a) == True{} : Bool}, +hp: {pok(pl, W, k, a) == True{} : Bool}) -> {Bool.and(M.invariant(M.attach(t, M.Node{M.Name{k, a}, it, pl, Nil{}})), Lin.goods(M.attach(t, M.Node{M.Name{k, a}, it, pl, Nil{}}), W, k, 1n+a)) == True{} : Bool}:
+  match pl:
+    case M.Place{+p, +r}:
+      AL.and_intro(M.invariant(M.attach(t, M.Node{M.Name{k, a}, it, M.Place{p, r}, Nil{}})), Lin.goods(M.attach(t, M.Node{M.Name{k, a}, it, M.Place{p, r}, Nil{}}), W, k, 1n+a),
+        invariant_leaf(t, M.Node{M.Name{k, a}, it, M.Place{p, r}, Nil{}}, p, r, {==}, Lin.fresh_of(t, W, k, a, hg), Lin.under_ne(p, W, k, a, hp), hi),
+        Lin.goods_attach(t, M.Node{M.Name{k, a}, it, M.Place{p, r}, Nil{}}, W, k, 1n+a, good_leaf(k, a, it, M.Place{p, r}, W, hp), Lin.goods_mono(t, W, k, a, hg)))
+
+# The event's actions, applied to the whole tree, keep the invariant and
+# the bound.
+def apply_ok(acts: List<&2, M.Action>, +t: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +lo: Nat, +hi: {M.invariant(t) == True{} : Bool}, +hg: {Lin.goods(t, W, k, lo) == True{} : Bool}, +ha: {aok(acts, W, k, lo) == True{} : Bool}) -> {Bool.and(M.invariant(M.apply(acts, t, k)), Lin.goods(M.apply(acts, t, k), W, k, mfin(acts, lo))) == True{} : Bool}:
+  match acts:
+    case Nil{}:
+      AL.and_intro(M.invariant(t), Lin.goods(t, W, k, lo), hi, hg)
+    case M.Attach{+a, +it, +pl} <> +rest:
+      apply_ok(rest, M.attach(t, M.Node{M.Name{k, a}, it, pl, Nil{}}), W, k, 1n+a,
+        Comp.and_left(M.invariant(M.attach(t, M.Node{M.Name{k, a}, it, pl, Nil{}})), Lin.goods(M.attach(t, M.Node{M.Name{k, a}, it, pl, Nil{}}), W, k, 1n+a), attach_ok(t, k, a, it, pl, W, hi, goods_le(t, W, k, lo, a, Comp.and_left(Nat.is_le(lo, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)), ha), hg), Comp.and_left(pok(pl, W, k, a), aok(rest, W, k, 1n+a), Comp.and_right(Nat.is_le(lo, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)), ha)))),
+        Comp.and_right(M.invariant(M.attach(t, M.Node{M.Name{k, a}, it, pl, Nil{}})), Lin.goods(M.attach(t, M.Node{M.Name{k, a}, it, pl, Nil{}}), W, k, 1n+a), attach_ok(t, k, a, it, pl, W, hi, goods_le(t, W, k, lo, a, Comp.and_left(Nat.is_le(lo, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)), ha), hg), Comp.and_left(pok(pl, W, k, a), aok(rest, W, k, 1n+a), Comp.and_right(Nat.is_le(lo, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)), ha)))),
+        Comp.and_right(pok(pl, W, k, a), aok(rest, W, k, 1n+a), Comp.and_right(Nat.is_le(lo, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)), ha)))
+    case M.Delete{+tg} <> +rest:
+      apply_ok(rest, M.mark(t, tg, k), W, k, lo, AL.invariant_mark(t, tg, k, hi), Lin.goods_mark(t, tg, k, W, k, lo, AL.or_left(Nat.is_eq(k, k), M.has(W, k), Comp.eq_refl(k)), hg), ha)
+
+def aok_lower(b: List<&2, M.Action>, +W: List<&2, Nat>, +k: Nat, +l: Nat, +m: Nat, +le: {Nat.is_le(l, m) == True{} : Bool}, +h: {aok(b, W, k, m) == True{} : Bool}) -> {aok(b, W, k, l) == True{} : Bool}:
+  match b:
+    case Nil{}:
+      {==}
+    case M.Attach{+a, +it, +pl} <> +rest:
+      AL.and_intro(Nat.is_le(l, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)),
+        Lin.le_trans(l, m, a, le, Comp.and_left(Nat.is_le(m, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)), h)),
+        Comp.and_right(Nat.is_le(m, a), Bool.and(pok(pl, W, k, a), aok(rest, W, k, 1n+a)), h))
+    case M.Delete{tg} <> +rest:
+      aok_lower(rest, W, k, l, m, le, h)
+
+def aok_app(a: List<&2, M.Action>, +b: List<&2, M.Action>, +W: List<&2, Nat>, +k: Nat, +lo: Nat, +ha: {aok(a, W, k, lo) == True{} : Bool}, hb: {aok(b, W, k, mfin(a, lo)) == True{} : Bool}) -> {aok(List.append(&2, M.Action, a, b), W, k, lo) == True{} : Bool}:
+  match a:
+    case Nil{}:
+      hb
+    case M.Attach{+x, +it, +pl} <> +rest:
+      AL.and_intro(Nat.is_le(lo, x), Bool.and(pok(pl, W, k, x), aok(List.append(&2, M.Action, rest, b), W, k, 1n+x)),
+        Comp.and_left(Nat.is_le(lo, x), Bool.and(pok(pl, W, k, x), aok(rest, W, k, 1n+x)), ha),
+        AL.and_intro(pok(pl, W, k, x), aok(List.append(&2, M.Action, rest, b), W, k, 1n+x),
+          Comp.and_left(pok(pl, W, k, x), aok(rest, W, k, 1n+x), Comp.and_right(Nat.is_le(lo, x), Bool.and(pok(pl, W, k, x), aok(rest, W, k, 1n+x)), ha)),
+          aok_app(rest, b, W, k, 1n+x, Comp.and_right(pok(pl, W, k, x), aok(rest, W, k, 1n+x), Comp.and_right(Nat.is_le(lo, x), Bool.and(pok(pl, W, k, x), aok(rest, W, k, 1n+x)), ha)), hb)))
+    case M.Delete{tg} <> +rest:
+      aok_app(rest, b, W, k, lo, ha, hb)
+
+def mfin_app(a: List<&2, M.Action>, +b: List<&2, M.Action>, +lo: Nat) -> {mfin(List.append(&2, M.Action, a, b), lo) == mfin(b, mfin(a, lo)) : Nat}:
+  match a:
+    case Nil{}:
+      {==}
+    case M.Attach{+x, it, pl} <> rest:
+      mfin_app(rest, b, 1n+x)
+    case M.Delete{tg} <> rest:
+      mfin_app(rest, b, lo)
+
+def mfin_mono(b: List<&2, M.Action>, +l: Nat, +m: Nat, +le: {Nat.is_le(l, m) == True{} : Bool}) -> {Nat.is_le(mfin(b, l), mfin(b, m)) == True{} : Bool}:
+  match b:
+    case Nil{}:
+      le
+    case M.Attach{+x, it, pl} <> rest:
+      Comp.le_refl(mfin(rest, 1n+x))
+    case M.Delete{tg} <> rest:
+      mfin_mono(rest, l, m, le)
+
+# A delete's actions are deletes only.
+def dels_only(acts: List<&2, M.Action>) -> Bool:
+  match acts:
+    case Nil{}:
+      True{}
+    case M.Attach{a, it, pl} <> rest:
+      False{}
+    case M.Delete{tg} <> rest:
+      dels_only(rest)
+
+def aok_dels(a: List<&2, M.Action>, +W: List<&2, Nat>, +k: Nat, +lo: Nat, +h: {dels_only(a) == True{} : Bool}) -> {aok(a, W, k, lo) == True{} : Bool}:
+  match a:
+    case Nil{}:
+      {==}
+    case M.Attach{x, it, pl} <> rest:
+      Empty.absurd({aok(M.Attach{x, it, pl} <> rest, W, k, lo) == True{} : Bool}, Comp.false_true(h))
+    case M.Delete{tg} <> rest:
+      aok_dels(rest, W, k, lo, h)
+
+def mfin_dels(a: List<&2, M.Action>, +lo: Nat, +h: {dels_only(a) == True{} : Bool}) -> {mfin(a, lo) == lo : Nat}:
+  match a:
+    case Nil{}:
+      {==}
+    case M.Attach{x, it, pl} <> rest:
+      Empty.absurd({mfin(M.Attach{x, it, pl} <> rest, lo) == lo : Nat}, Comp.false_true(h))
+    case M.Delete{tg} <> rest:
+      mfin_dels(rest, lo, h)
+
+def dmo(m: Maybe<&2, List<&2, M.Action>>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{a}:
+      dels_only(a)
+
+def dels_agreed(+nm: M.Name, agreed: Bool, more: Maybe<&2, List<&2, M.Action>>, h: {dmo(more) == True{} : Bool}) -> {dmo(M.deletes.agreed(nm, more, agreed)) == True{} : Bool}:
+  match agreed:
+    case False{}:
+      {==}
+    case True{}:
+      match more:
+        case None{}:
+          {==}
+        case Some{a}:
+          h
+
+def dels_at(it: Ops.Item, more: Maybe<&2, List<&2, M.Action>>, found: Maybe<&2, M.Node>, h: {dmo(more) == True{} : Bool}) -> {dmo(M.deletes.at(it, more, found)) == True{} : Bool}:
+  match found:
+    case None{}:
+      {==}
+    case Some{M.Node{+nm, item, pl, d}}:
+      dels_agreed(nm, Ops.agrees(it, item), more, h)
+
+def deletes_dels(items: List<&2, Ops.Item>, +prepare: List<&2, M.Node>, +at: Nat) -> {dmo(M.deletes(items, prepare, at)) == True{} : Bool}:
+  match items:
+    case Nil{}:
+      {==}
+    case it <> +more:
+      dels_at(it, M.deletes(more, prepare, 1n+at), List.get(&2, M.Node, prepare, at), deletes_dels(more, prepare, 1n+at))
+
+# Names a view holds
+# ------------------
+#
+# The elements a run counts positions in are all in its view, which only
+# grows: so an insert's anchor is always a name the view holds.
+def nv(xs: List<&2, M.Node>, +v: List<&2, M.Node>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(M.named(v, M.Node.name(x)), nv(rest, v))
+
+def named_attach.at(+x: M.Node, +xs: List<&2, M.Node>, +n: M.Node, +nm: M.Name, lt: Bool, h: {M.named(x <> xs, nm) == True{} : Bool}, ih: {M.named(xs, nm) == True{} : Bool} -> {M.named(M.attach(xs, n), nm) == True{} : Bool}) -> {M.named(M.attach.put(n, x, xs, M.attach(xs, n), lt), nm) == True{} : Bool}:
+  match lt:
+    case True{}:
+      AL.or_right(M.Name.eq(M.Node.name(n), nm), M.named(x <> xs, nm), h)
+    case False{}:
+      AL.or_cases({M.named(x <> M.attach(xs, n), nm) == True{} : Bool}, M.Name.eq(M.Node.name(x), nm), M.named(xs, nm), h,
+        e => AL.or_left(M.Name.eq(M.Node.name(x), nm), M.named(M.attach(xs, n), nm), e),
+        e => AL.or_right(M.Name.eq(M.Node.name(x), nm), M.named(M.attach(xs, n), nm), ih(e)))
+
+def named_attach(v: List<&2, M.Node>, +n: M.Node, +nm: M.Name, h: {M.named(v, nm) == True{} : Bool}) -> {M.named(M.attach(v, n), nm) == True{} : Bool}:
+  match v:
+    case Nil{}:
+      Empty.absurd({M.named([n], nm) == True{} : Bool}, Comp.false_true(h))
+    case +x <> +xs:
+      named_attach.at(x, xs, n, nm, Cmp.is_lt(M.Name.cmp(M.Node.name(n), M.Node.name(x))), h, e => named_attach(xs, n, nm, e))
+
+def named_self.at(+x: M.Node, +xs: List<&2, M.Node>, +n: M.Node, lt: Bool, ih: {M.named(M.attach(xs, n), M.Node.name(n)) == True{} : Bool}) -> {M.named(M.attach.put(n, x, xs, M.attach(xs, n), lt), M.Node.name(n)) == True{} : Bool}:
+  match lt:
+    case True{}:
+      AL.or_left(M.Name.eq(M.Node.name(n), M.Node.name(n)), M.named(x <> xs, M.Node.name(n)), AL.name_eq_refl(M.Node.name(n)))
+    case False{}:
+      AL.or_right(M.Name.eq(M.Node.name(x), M.Node.name(n)), M.named(M.attach(xs, n), M.Node.name(n)), ih)
+
+def named_attach_self(v: List<&2, M.Node>, +n: M.Node) -> {M.named(M.attach(v, n), M.Node.name(n)) == True{} : Bool}:
+  match v:
+    case Nil{}:
+      AL.or_left(M.Name.eq(M.Node.name(n), M.Node.name(n)), False{}, AL.name_eq_refl(M.Node.name(n)))
+    case +x <> +xs:
+      named_self.at(x, xs, n, Cmp.is_lt(M.Name.cmp(M.Node.name(n), M.Node.name(x))), named_attach_self(xs, n))
+
+def nv_attach(P: List<&2, M.Node>, +v: List<&2, M.Node>, +n: M.Node, +h: {nv(P, v) == True{} : Bool}) -> {nv(P, M.attach(v, n)) == True{} : Bool}:
+  match P:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(M.named(M.attach(v, n), M.Node.name(x)), nv(rest, M.attach(v, n)),
+        named_attach(v, n, M.Node.name(x), Comp.and_left(M.named(v, M.Node.name(x)), nv(rest, v), h)),
+        nv_attach(rest, v, n, Comp.and_right(M.named(v, M.Node.name(x)), nv(rest, v), h)))
+
+def mnode_disc(m: Maybe<&2, M.Node>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{x}:
+      True{}
+
+def nv_get(P: List<&2, M.Node>, +v: List<&2, M.Node>, i: Nat, +x: M.Node, +h: {nv(P, v) == True{} : Bool}, e: {List.get(&2, M.Node, P, i) == Some{x} : Maybe<&2, M.Node>}) -> {M.named(v, M.Node.name(x)) == True{} : Bool}:
+  match P:
+    case Nil{}:
+      Empty.absurd({M.named(v, M.Node.name(x)) == True{} : Bool}, Comp.false_true(Equal.cong(Maybe<&2, M.Node>, Bool, m => mnode_disc(m), List.get(&2, M.Node, Nil{}, i), Some{x}, e)))
+    case +y <> +ys:
+      match i:
+        case 0n:
+          %ML.some_node(y, x, e) : {M.named(v, M.Node.name(_)) == True{} : Bool}
+          Comp.and_left(M.named(v, M.Node.name(y)), nv(ys, v), h)
+        case 1n+j:
+          nv_get(ys, v, j, x, Comp.and_right(M.named(v, M.Node.name(y)), nv(ys, v), h), e)
+
+def nv_weak(xs: List<&2, M.Node>, +y: M.Node, +ys: List<&2, M.Node>, +h: {nv(xs, ys) == True{} : Bool}) -> {nv(xs, y <> ys) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(M.named(y <> ys, M.Node.name(x)), nv(rest, y <> ys),
+        AL.or_right(M.Name.eq(M.Node.name(y), M.Node.name(x)), M.named(ys, M.Node.name(x)), Comp.and_left(M.named(ys, M.Node.name(x)), nv(rest, ys), h)),
+        nv_weak(rest, y, ys, Comp.and_right(M.named(ys, M.Node.name(x)), nv(rest, ys), h)))
+
+def nv_self(v: List<&2, M.Node>) -> {nv(v, v) == True{} : Bool}:
+  match v:
+    case Nil{}:
+      {==}
+    case +x <> +xs:
+      AL.and_intro(M.named(x <> xs, M.Node.name(x)), nv(xs, x <> xs),
+        AL.or_left(M.Name.eq(M.Node.name(x), M.Node.name(x)), M.named(xs, M.Node.name(x)), AL.name_eq_refl(M.Node.name(x))),
+        nv_weak(xs, x, xs, nv_self(xs)))
+
+def nv_put(+x: M.Node, +xs: List<&2, M.Node>, +v: List<&2, M.Node>, b: Bool, hx: {M.named(v, M.Node.name(x)) == True{} : Bool}, h: {nv(xs, v) == True{} : Bool}) -> {nv(List.filter.put(M.Node, x, xs, b), v) == True{} : Bool}:
+  match b:
+    case True{}:
+      AL.and_intro(M.named(v, M.Node.name(x)), nv(xs, v), hx, h)
+    case False{}:
+      h
+
+def nv_children(t: List<&2, M.Node>, +q: Maybe<&2, M.Name>, +r: Bool, +v: List<&2, M.Node>, +h: {nv(t, v) == True{} : Bool}) -> {nv(M.children(t, q, r), v) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +x <> +xs:
+      nv_put(x, M.children(xs, q, r), v, M.Node.hangs(x, q, r), Comp.and_left(M.named(v, M.Node.name(x)), nv(xs, v), h), nv_children(xs, q, r, v, Comp.and_right(M.named(v, M.Node.name(x)), nv(xs, v), h)))
+
+def nv_append(a: List<&2, M.Node>, +b: List<&2, M.Node>, +v: List<&2, M.Node>, +ha: {nv(a, v) == True{} : Bool}, hb: {nv(b, v) == True{} : Bool}) -> {nv(List.append(&2, M.Node, a, b), v) == True{} : Bool}:
+  match a:
+    case Nil{}:
+      hb
+    case +x <> +xs:
+      AL.and_intro(M.named(v, M.Node.name(x)), nv(List.append(&2, M.Node, xs, b), v), Comp.and_left(M.named(v, M.Node.name(x)), nv(xs, v), ha), nv_append(xs, b, v, Comp.and_right(M.named(v, M.Node.name(x)), nv(xs, v), ha), hb))
+
+def nv_read(f: Nat, +t: List<&2, M.Node>, L: List<&2, M.Node>, +ht: {nv(t, t) == True{} : Bool}, +hs: {nv(L, t) == True{} : Bool}) -> {nv(M.read_all(f, t, L), t) == True{} : Bool}:
+  match f:
+    case 0n:
+      {==}
+    case 1n++p:
+      match L:
+        case Nil{}:
+          {==}
+        case +s <> +rest:
+          nv_append(M.read_all(p, t, M.children(t, Some{M.Node.name(s)}, False{})), s <> List.append(&2, M.Node, M.read_all(p, t, M.children(t, Some{M.Node.name(s)}, True{})), M.read_all(p, t, rest)), t,
+            nv_read(p, t, M.children(t, Some{M.Node.name(s)}, False{}), ht, nv_children(t, Some{M.Node.name(s)}, False{}, t, ht)),
+            AL.and_intro(M.named(t, M.Node.name(s)), nv(List.append(&2, M.Node, M.read_all(p, t, M.children(t, Some{M.Node.name(s)}, True{})), M.read_all(p, t, rest)), t),
+              Comp.and_left(M.named(t, M.Node.name(s)), nv(rest, t), hs),
+              nv_append(M.read_all(p, t, M.children(t, Some{M.Node.name(s)}, True{})), M.read_all(p, t, rest), t,
+                nv_read(p, t, M.children(t, Some{M.Node.name(s)}, True{}), ht, nv_children(t, Some{M.Node.name(s)}, True{}, t, ht)),
+                nv_read(p, t, rest, ht, Comp.and_right(M.named(t, M.Node.name(s)), nv(rest, t), hs)))))
+
+def nv_standing(xs: List<&2, M.Node>, +v: List<&2, M.Node>, +h: {nv(xs, v) == True{} : Bool}) -> {nv(M.standing(xs), v) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      nv_put(x, M.standing(rest), v, M.Node.standing(x), Comp.and_left(M.named(v, M.Node.name(x)), nv(rest, v), h), nv_standing(rest, v, Comp.and_right(M.named(v, M.Node.name(x)), nv(rest, v), h)))
+
+def nv_visible(+v: List<&2, M.Node>) -> {nv(M.visible(v), v) == True{} : Bool}:
+  nv_standing(M.order(v), v, nv_read(1n+List.length(&2, M.Node, v), v, M.children(v, None{}, True{}), nv_self(v), nv_children(v, None{}, True{}, v, nv_self(v))))
+
+# Where an insert anchors
+# -----------------------
+
+def ln(l: Maybe<&2, M.Name>, +v: List<&2, M.Node>) -> Bool:
+  match l:
+    case None{}:
+      True{}
+    case Some{nm}:
+      M.named(v, nm)
+
+def lokm(lm: Maybe<&2, Maybe<&2, M.Name>>, +v: List<&2, M.Node>) -> Bool:
+  match lm:
+    case None{}:
+      True{}
+    case Some{l}:
+      ln(l, v)
+
+def left_ok.at(+P: List<&2, M.Node>, +v: List<&2, M.Node>, +p: Nat, gm: Maybe<&2, M.Node>, eg: {List.get(&2, M.Node, P, p) == gm : Maybe<&2, M.Node>}, +h: {nv(P, v) == True{} : Bool}) -> {lokm(Maybe.map(&2, M.Node, Maybe<&2, M.Name>, x => Some{M.Node.name(x)}, gm), v) == True{} : Bool}:
+  match gm:
+    case None{}:
+      {==}
+    case Some{+x}:
+      nv_get(P, v, p, x, h, eg)
+
+def left_of_ok(+P: List<&2, M.Node>, +v: List<&2, M.Node>, at: Nat, +h: {nv(P, v) == True{} : Bool}) -> {lokm(M.left_of(P, at), v) == True{} : Bool}:
+  match at:
+    case 0n:
+      {==}
+    case 1n++p:
+      left_ok.at(P, v, p, List.get(&2, M.Node, P, p), {==}, h)
+
+def left_before(l: Maybe<&2, M.Name>, +v: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +m: Nat, +hg: {Lin.goods(v, W, k, m) == True{} : Bool}, hl: {ln(l, v) == True{} : Bool}) -> {Lin.before.m(l, W, k, m) == True{} : Bool}:
+  match l:
+    case None{}:
+      {==}
+    case Some{+nm}:
+      Lin.named_before(v, nm, W, k, m, hg, hl)
+
+def anchor_pok.of(+v: List<&2, M.Node>, +left: Maybe<&2, M.Name>, cs: List<&2, M.Node>, ecs: {M.children(v, left, True{}) == cs : List<&2, M.Node>}, +W: List<&2, Nat>, +k: Nat, +m: Nat, +hg: {Lin.goods(v, W, k, m) == True{} : Bool}, hl: {ln(left, v) == True{} : Bool}) -> {pok(M.anchor.of(v, left, cs), W, k, m) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      left_before(left, v, W, k, m, hg, hl)
+    case +c <> +more:
+      Lin.named_before(v, M.leftmost(List.length(&2, M.Node, v), v, M.Node.name(c)), W, k, m, hg, AL.leftmost_named(List.length(&2, M.Node, v), v, M.Node.name(c), AL.children_named(v, left, True{}, M.Node.name(c), AL.head_named(v, left, True{}, c, more, ecs))))
+
+# Fugue's anchor hangs the element under a name the view holds.
+def anchor_pok(+v: List<&2, M.Node>, +left: Maybe<&2, M.Name>, +W: List<&2, Nat>, +k: Nat, +m: Nat, +hg: {Lin.goods(v, W, k, m) == True{} : Bool}, hl: {ln(left, v) == True{} : Bool}) -> {pok(M.anchor(v, left), W, k, m) == True{} : Bool}:
+  anchor_pok.of(v, left, M.children(v, left, True{}), {==}, W, k, m, hg, hl)
+
+# A run of inserted items
+# -----------------------
+
+def iok(r: M.Inserted, +P: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +m: Nat) -> Bool:
+  match r:
+    case M.Inserted{+v2, +acts, +m2}:
+      Bool.and(Lin.goods(v2, W, k, m2), Bool.and(aok(acts, W, k, m), Bool.and(Nat.is_le(mfin(acts, m), m2), nv(P, v2))))
+
+def iok_of(+m: Nat, +it: Ops.Item, +pl: M.Place, r: M.Inserted, +P: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +hp: {pok(pl, W, k, m) == True{} : Bool}, +h: {iok(r, P, W, k, 1n+m) == True{} : Bool}) -> {iok(M.inserts.of(m, it, pl, r), P, W, k, m) == True{} : Bool}:
+  match r:
+    case M.Inserted{+v2, +acts, +m2}:
+      AL.and_intro(Lin.goods(v2, W, k, m2), Bool.and(aok(M.Attach{m, it, pl} <> acts, W, k, m), Bool.and(Nat.is_le(mfin(acts, 1n+m), m2), nv(P, v2))),
+        Comp.and_left(Lin.goods(v2, W, k, m2), Bool.and(aok(acts, W, k, 1n+m), Bool.and(Nat.is_le(mfin(acts, 1n+m), m2), nv(P, v2))), h),
+        AL.and_intro(aok(M.Attach{m, it, pl} <> acts, W, k, m), Bool.and(Nat.is_le(mfin(acts, 1n+m), m2), nv(P, v2)),
+          AL.and_intro(Nat.is_le(m, m), Bool.and(pok(pl, W, k, m), aok(acts, W, k, 1n+m)), Comp.le_refl(m),
+            AL.and_intro(pok(pl, W, k, m), aok(acts, W, k, 1n+m), hp, Comp.and_left(aok(acts, W, k, 1n+m), Bool.and(Nat.is_le(mfin(acts, 1n+m), m2), nv(P, v2)), Comp.and_right(Lin.goods(v2, W, k, m2), Bool.and(aok(acts, W, k, 1n+m), Bool.and(Nat.is_le(mfin(acts, 1n+m), m2), nv(P, v2))), h)))),
+          Comp.and_right(aok(acts, W, k, 1n+m), Bool.and(Nat.is_le(mfin(acts, 1n+m), m2), nv(P, v2)), Comp.and_right(Lin.goods(v2, W, k, m2), Bool.and(aok(acts, W, k, 1n+m), Bool.and(Nat.is_le(mfin(acts, 1n+m), m2), nv(P, v2))), h))))
+
+def ins_ok(items: List<&2, Ops.Item>, +v: List<&2, M.Node>, +k: Nat, +left: Maybe<&2, M.Name>, +m: Nat, +P: List<&2, M.Node>, +W: List<&2, Nat>, +hg: {Lin.goods(v, W, k, m) == True{} : Bool}, +hl: {ln(left, v) == True{} : Bool}, +hv: {nv(P, v) == True{} : Bool}) -> {iok(M.inserts(items, v, k, left, m), P, W, k, m) == True{} : Bool}:
+  match items:
+    case Nil{}:
+      AL.and_intro(Lin.goods(v, W, k, m), Bool.and(True{}, Bool.and(Nat.is_le(m, m), nv(P, v))), hg, AL.and_intro(True{}, Bool.and(Nat.is_le(m, m), nv(P, v)), {==}, AL.and_intro(Nat.is_le(m, m), nv(P, v), Comp.le_refl(m), hv)))
+    case +it <> +more:
+      iok_of(m, it, M.anchor(v, left), M.inserts(more, M.attach(v, M.Node{M.Name{k, m}, it, M.anchor(v, left), Nil{}}), k, Some{M.Name{k, m}}, 1n+m), P, W, k,
+        anchor_pok(v, left, W, k, m, hg, hl),
+        ins_ok(more, M.attach(v, M.Node{M.Name{k, m}, it, M.anchor(v, left), Nil{}}), k, Some{M.Name{k, m}}, 1n+m, P, W,
+          Lin.goods_attach(v, M.Node{M.Name{k, m}, it, M.anchor(v, left), Nil{}}, W, k, 1n+m, good_leaf(k, m, it, M.anchor(v, left), W, anchor_pok(v, left, W, k, m, hg, hl)), Lin.goods_mono(v, W, k, m, hg)),
+          named_attach_self(v, M.Node{M.Name{k, m}, it, M.anchor(v, left), Nil{}}),
+          nv_attach(P, v, M.Node{M.Name{k, m}, it, M.anchor(v, left), Nil{}}, hv)))
+
+# A run
+# -----
+#
+# Whatever the document: the view stays bounded by the event, its actions
+# are ones `apply` can take, and the positions it counts stay in its view.
+def rok(st: Maybe<&2, M.Running>, +P: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat) -> Bool:
+  match st:
+    case None{}:
+      True{}
+    case Some{M.Running{+v, +m, +acts}}:
+      Bool.and(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))))
+
+def del_ok(+v: List<&2, M.Node>, +m: Nat, +acts: List<&2, M.Action>, new: Maybe<&2, List<&2, M.Action>>, +P: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +h: {rok(Some{M.Running{v, m, acts}}, P, W, k) == True{} : Bool}, +hd: {dmo(new) == True{} : Bool}) -> {rok(M.run.deleted(v, m, acts, new), P, W, k) == True{} : Bool}:
+  match new:
+    case None{}:
+      {==}
+    case Some{+a}:
+      AL.and_intro(Lin.goods(v, W, k, m), Bool.and(aok(List.append(&2, M.Action, acts, a), W, k, 0n), Bool.and(Nat.is_le(mfin(List.append(&2, M.Action, acts, a), 0n), m), nv(P, v))),
+        Comp.and_left(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h),
+        AL.and_intro(aok(List.append(&2, M.Action, acts, a), W, k, 0n), Bool.and(Nat.is_le(mfin(List.append(&2, M.Action, acts, a), 0n), m), nv(P, v)),
+          aok_app(acts, a, W, k, 0n, Comp.and_left(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h)), aok_dels(a, W, k, mfin(acts, 0n), hd)),
+          AL.and_intro(Nat.is_le(mfin(List.append(&2, M.Action, acts, a), 0n), m), nv(P, v),
+            Equal.trans(Bool, Nat.is_le(mfin(List.append(&2, M.Action, acts, a), 0n), m), Nat.is_le(mfin(acts, 0n), m), True{},
+              Equal.cong(Nat, Bool, l => Nat.is_le(l, m), mfin(List.append(&2, M.Action, acts, a), 0n), mfin(acts, 0n), Equal.trans(Nat, mfin(List.append(&2, M.Action, acts, a), 0n), mfin(a, mfin(acts, 0n)), mfin(acts, 0n), mfin_app(acts, a, 0n), mfin_dels(a, mfin(acts, 0n), hd))),
+              Comp.and_left(Nat.is_le(mfin(acts, 0n), m), nv(P, v), Comp.and_right(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h)))),
+            Comp.and_right(Nat.is_le(mfin(acts, 0n), m), nv(P, v), Comp.and_right(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h))))))
+
+def inserted_ok(+acts: List<&2, M.Action>, r: M.Inserted, +P: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +m: Nat, +ha: {aok(acts, W, k, 0n) == True{} : Bool}, +hle: {Nat.is_le(mfin(acts, 0n), m) == True{} : Bool}, +hi: {iok(r, P, W, k, m) == True{} : Bool}) -> {rok(M.run.inserted(acts, r), P, W, k) == True{} : Bool}:
+  match r:
+    case M.Inserted{+v2, +new, +m2}:
+      AL.and_intro(Lin.goods(v2, W, k, m2), Bool.and(aok(List.append(&2, M.Action, acts, new), W, k, 0n), Bool.and(Nat.is_le(mfin(List.append(&2, M.Action, acts, new), 0n), m2), nv(P, v2))),
+        Comp.and_left(Lin.goods(v2, W, k, m2), Bool.and(aok(new, W, k, m), Bool.and(Nat.is_le(mfin(new, m), m2), nv(P, v2))), hi),
+        AL.and_intro(aok(List.append(&2, M.Action, acts, new), W, k, 0n), Bool.and(Nat.is_le(mfin(List.append(&2, M.Action, acts, new), 0n), m2), nv(P, v2)),
+          aok_app(acts, new, W, k, 0n, ha, aok_lower(new, W, k, mfin(acts, 0n), m, hle, Comp.and_left(aok(new, W, k, m), Bool.and(Nat.is_le(mfin(new, m), m2), nv(P, v2)), Comp.and_right(Lin.goods(v2, W, k, m2), Bool.and(aok(new, W, k, m), Bool.and(Nat.is_le(mfin(new, m), m2), nv(P, v2))), hi)))),
+          AL.and_intro(Nat.is_le(mfin(List.append(&2, M.Action, acts, new), 0n), m2), nv(P, v2),
+            Equal.trans(Bool, Nat.is_le(mfin(List.append(&2, M.Action, acts, new), 0n), m2), Nat.is_le(mfin(new, mfin(acts, 0n)), m2), True{},
+              Equal.cong(Nat, Bool, l => Nat.is_le(l, m2), mfin(List.append(&2, M.Action, acts, new), 0n), mfin(new, mfin(acts, 0n)), mfin_app(acts, new, 0n)),
+              Lin.le_trans(mfin(new, mfin(acts, 0n)), mfin(new, m), m2, mfin_mono(new, mfin(acts, 0n), m, hle), Comp.and_left(Nat.is_le(mfin(new, m), m2), nv(P, v2), Comp.and_right(aok(new, W, k, m), Bool.and(Nat.is_le(mfin(new, m), m2), nv(P, v2)), Comp.and_right(Lin.goods(v2, W, k, m2), Bool.and(aok(new, W, k, m), Bool.and(Nat.is_le(mfin(new, m), m2), nv(P, v2))), hi))))),
+            Comp.and_right(Nat.is_le(mfin(new, m), m2), nv(P, v2), Comp.and_right(aok(new, W, k, m), Bool.and(Nat.is_le(mfin(new, m), m2), nv(P, v2)), Comp.and_right(Lin.goods(v2, W, k, m2), Bool.and(aok(new, W, k, m), Bool.and(Nat.is_le(mfin(new, m), m2), nv(P, v2))), hi))))))
+
+def ins_step_ok(+items: List<&2, Ops.Item>, +v: List<&2, M.Node>, +k: Nat, +m: Nat, +acts: List<&2, M.Action>, left: Maybe<&2, Maybe<&2, M.Name>>, +P: List<&2, M.Node>, +W: List<&2, Nat>, +h: {rok(Some{M.Running{v, m, acts}}, P, W, k) == True{} : Bool}, hl: {lokm(left, v) == True{} : Bool}) -> {rok(M.run.insert(items, v, k, m, acts, left), P, W, k) == True{} : Bool}:
+  match left:
+    case None{}:
+      {==}
+    case Some{+l}:
+      inserted_ok(acts, M.inserts(items, v, k, l, m), P, W, k, m,
+        Comp.and_left(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h)),
+        Comp.and_left(Nat.is_le(mfin(acts, 0n), m), nv(P, v), Comp.and_right(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h))),
+        ins_ok(items, v, k, l, m, P, W,
+          Comp.and_left(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h),
+          hl,
+          Comp.and_right(Nat.is_le(mfin(acts, 0n), m), nv(P, v), Comp.and_right(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h)))))
+
+def step_ok(st: Maybe<&2, M.Running>, op: Ops.Op, +k: Nat, +P: List<&2, M.Node>, +W: List<&2, Nat>, +h: {rok(st, P, W, k) == True{} : Bool}) -> {rok(M.run.step(st, op, k, P), P, W, k) == True{} : Bool}:
+  match st:
+    case None{}:
+      {==}
+    case Some{M.Running{+v, +m, +acts}}:
+      match op:
+        case Ops.Op{Ops.Delete{}, +at, +items}:
+          del_ok(v, m, acts, M.deletes(items, P, at), P, W, k, h, deletes_dels(items, P, at))
+        case Ops.Op{Ops.Insert{}, +at, +items}:
+          ins_step_ok(items, v, k, m, acts, M.left_of(P, at), P, W, h, left_of_ok(P, v, at, Comp.and_right(Nat.is_le(mfin(acts, 0n), m), nv(P, v), Comp.and_right(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, W, k, m), Bool.and(aok(acts, W, k, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), h)))))
+
+def run_ok(ops: List<&2, Ops.Op>, +st: Maybe<&2, M.Running>, +k: Nat, +P: List<&2, M.Node>, +W: List<&2, Nat>, h: {rok(st, P, W, k) == True{} : Bool}) -> {rok(M.run(ops, st, k, P), P, W, k) == True{} : Bool}:
+  match ops:
+    case Nil{}:
+      h
+    case +op <> rest:
+      run_ok(rest, M.run.step(st, op, k, P), k, P, W, step_ok(st, op, k, P, W, h))
+
+# A view restricted from a bounded tree is bounded.
+def keep.at(+y: Nat, +r: List<&2, Nat>, +V: List<&2, Nat>, b: Bool, hy: {M.has(V, y) == True{} : Bool}, h: {Lin.all_has(r, V) == True{} : Bool}) -> {Lin.all_has(List.filter.put(Nat, y, r, b), V) == True{} : Bool}:
+  match b:
+    case True{}:
+      AL.and_intro(M.has(V, y), Lin.all_has(r, V), hy, h)
+    case False{}:
+      h
+
+def all_has_keep(d: List<&2, Nat>, +S: List<&2, Nat>, +V: List<&2, Nat>, +h: {Lin.all_has(d, V) == True{} : Bool}) -> {Lin.all_has(M.keep(d, S), V) == True{} : Bool}:
+  match d:
+    case Nil{}:
+      {==}
+    case +y <> +ys:
+      keep.at(y, M.keep(ys, S), V, M.has(S, y), Comp.and_left(M.has(V, y), Lin.all_has(ys, V), h), all_has_keep(ys, S, V, Comp.and_right(M.has(V, y), Lin.all_has(ys, V), h)))
+
+# An event's view is bounded
+# --------------------------
+
+def good_restrict(x: M.Node, +S: List<&2, Nat>, +W: List<&2, Nat>, +k: Nat, +m: Nat, +h: {Lin.good(x, W, k, m) == True{} : Bool}) -> {Lin.good(M.Node.restrict(x, S), W, k, m) == True{} : Bool}:
+  match x:
+    case M.Node{+nm, +it, M.Place{+p, +r}, +d}:
+      AL.and_intro(Lin.before(nm, W, k, m), Bool.and(Lin.before.m(p, W, k, m), Lin.all_has(M.keep(d, S), k <> W)),
+        Comp.and_left(Lin.before(nm, W, k, m), Bool.and(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W)), h),
+        AL.and_intro(Lin.before.m(p, W, k, m), Lin.all_has(M.keep(d, S), k <> W),
+          Comp.and_left(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W), Comp.and_right(Lin.before(nm, W, k, m), Bool.and(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W)), h)),
+          all_has_keep(d, S, k <> W, Comp.and_right(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W), Comp.and_right(Lin.before(nm, W, k, m), Bool.and(Lin.before.m(p, W, k, m), Lin.all_has(d, k <> W)), h)))))
+
+def gput(+x: M.Node, +r: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +m: Nat, b: Bool, hx: {Lin.good(x, W, k, m) == True{} : Bool}, hr: {Lin.goods(r, W, k, m) == True{} : Bool}) -> {Lin.goods(List.filter.put(M.Node, x, r, b), W, k, m) == True{} : Bool}:
+  match b:
+    case True{}:
+      AL.and_intro(Lin.good(x, W, k, m), Lin.goods(r, W, k, m), hx, hr)
+    case False{}:
+      hr
+
+def goods_restrict(t: List<&2, M.Node>, +S: List<&2, Nat>, +W: List<&2, Nat>, +k: Nat, +m: Nat, +h: {Lin.goods(t, W, k, m) == True{} : Bool}) -> {Lin.goods(M.restrict(t, S), W, k, m) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +x <> +xs:
+      gput(M.Node.restrict(x, S), M.restrict(xs, S), W, k, m, M.has(S, M.Node.author(x)),
+        good_restrict(x, S, W, k, m, Comp.and_left(Lin.good(x, W, k, m), Lin.goods(xs, W, k, m), h)),
+        goods_restrict(xs, S, W, k, m, Comp.and_right(Lin.good(x, W, k, m), Lin.goods(xs, W, k, m), h)))
+
+def start_ok(+v: List<&2, M.Node>, +W: List<&2, Nat>, +k: Nat, +hg: {Lin.goods(v, W, k, 0n) == True{} : Bool}) -> {rok(Some{M.Running{v, 0n, Nil{}}}, M.visible(v), W, k) == True{} : Bool}:
+  AL.and_intro(Lin.goods(v, W, k, 0n), Bool.and(True{}, Bool.and(Nat.is_le(0n, 0n), nv(M.visible(v), v))), hg,
+    AL.and_intro(True{}, Bool.and(Nat.is_le(0n, 0n), nv(M.visible(v), v)), {==},
+      AL.and_intro(Nat.is_le(0n, 0n), nv(M.visible(v), v), Comp.le_refl(0n), nv_visible(v))))
+
+# The walk
+# --------
+#
+# Every tree a walk builds keeps the invariant, and every name, parent and
+# removal in it is by an event the walk has passed. Nothing about the
+# graph is needed but that the order names each event once.
+def wok(mt: Maybe<&2, List<&2, M.Node>>, +E: List<&2, Nat>) -> Bool:
+  match mt:
+    case None{}:
+      True{}
+    case Some{+t}:
+      Bool.and(M.invariant(t), Lin.inw(t, E))
+
+def revapp(o: List<&2, Nat>, E: List<&2, Nat>) -> List<&2, Nat>:
+  match o:
+    case Nil{}:
+      E
+    case x <> xs:
+      revapp(xs, x <> E)
+
+def fin_ok(st: Maybe<&2, M.Running>, +t: List<&2, M.Node>, +x: Nat, +E: List<&2, Nat>, +P: List<&2, M.Node>, +hr: {rok(st, P, E, x) == True{} : Bool}, +hi: {M.invariant(t) == True{} : Bool}, +hg: {Lin.goods(t, E, x, 0n) == True{} : Bool}) -> {wok(M.step.of(t, x, M.run.acts(st)), x <> E) == True{} : Bool}:
+  match st:
+    case None{}:
+      {==}
+    case Some{M.Running{+v, +m, +acts}}:
+      AL.and_intro(M.invariant(M.apply(acts, t, x)), Lin.inw(M.apply(acts, t, x), x <> E),
+        Comp.and_left(M.invariant(M.apply(acts, t, x)), Lin.goods(M.apply(acts, t, x), E, x, mfin(acts, 0n)), apply_ok(acts, t, E, x, 0n, hi, hg, Comp.and_left(aok(acts, E, x, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, E, x, m), Bool.and(aok(acts, E, x, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), hr)))),
+        Lin.goods_inw(M.apply(acts, t, x), E, x, mfin(acts, 0n), Comp.and_right(M.invariant(M.apply(acts, t, x)), Lin.goods(M.apply(acts, t, x), E, x, mfin(acts, 0n)), apply_ok(acts, t, E, x, 0n, hi, hg, Comp.and_left(aok(acts, E, x, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v)), Comp.and_right(Lin.goods(v, E, x, m), Bool.and(aok(acts, E, x, 0n), Bool.and(Nat.is_le(mfin(acts, 0n), m), nv(P, v))), hr))))))
+
+def subset_refl_n(a: List<&2, Nat>) -> {M.subset(a, a) == True{} : Bool}:
+  match a:
+    case Nil{}:
+      {==}
+    case +x <> +xs:
+      AL.and_intro(M.has(x <> xs, x), M.subset(xs, x <> xs),
+        AL.or_left(Nat.is_eq(x, x), M.has(xs, x), Comp.eq_refl(x)),
+        Lin.subset_weak(xs, xs, x, subset_refl_n(xs)))
+
+# One event: whatever it states, the tree it leaves keeps the invariant.
+def ev_ok(ev: Maybe<&2, M.Rev>, +t: List<&2, M.Node>, +x: Nat, +E: List<&2, Nat>, +hi: {M.invariant(t) == True{} : Bool}, +hn: {Lin.inw(t, E) == True{} : Bool}, +hk: {M.has(E, x) == False{} : Bool}) -> {wok(M.step(ev, t, x), x <> E) == True{} : Bool}:
+  match ev:
+    case None{}:
+      {==}
+    case Some{M.Rev{seen, None{}}}:
+      AL.and_intro(M.invariant(t), Lin.inw(t, x <> E), hi, Lin.inw_sub(t, E, x <> E, Lin.subset_weak(E, E, x, subset_refl_n(E)), hn))
+    case Some{M.Rev{+seen, Some{+ops}}}:
+      fin_ok(M.run(ops, Some{M.Running{M.restrict(t, seen), 0n, Nil{}}}, x, M.visible(M.restrict(t, seen))), t, x, E, M.visible(M.restrict(t, seen)),
+        run_ok(ops, Some{M.Running{M.restrict(t, seen), 0n, Nil{}}}, x, M.visible(M.restrict(t, seen)), E, start_ok(M.restrict(t, seen), E, x, goods_restrict(t, seen, E, x, 0n, Lin.inw_goods(t, E, x, hk, hn)))),
+        hi, Lin.inw_goods(t, E, x, hk, hn))
+
+def walk_none(o: List<&2, Nat>, +g: List<&2, M.Rev>) -> {M.walk(o, g, None{}) == None{} : Maybe<&2, List<&2, M.Node>>}:
+  match o:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      walk_none(rest, g)
+
+def walk_step(+rest: List<&2, Nat>, +g: List<&2, M.Rev>, +x: Nat, +E: List<&2, Nat>, mt: Maybe<&2, List<&2, M.Node>>, +h: {wok(mt, x <> E) == True{} : Bool}, ih: @u: List<&2, M.Node> -> {M.invariant(u) == True{} : Bool} -> {Lin.inw(u, x <> E) == True{} : Bool} -> {wok(M.walk(rest, g, Some{u}), revapp(rest, x <> E)) == True{} : Bool}) -> {wok(M.walk(rest, g, mt), revapp(rest, x <> E)) == True{} : Bool}:
+  match mt:
+    case None{}:
+      %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.walk(rest, g, None{}), None{}, walk_none(rest, g)) : {wok(_, revapp(rest, x <> E)) == True{} : Bool}
+      {==}
+    case Some{+u}:
+      ih(u, Comp.and_left(M.invariant(u), Lin.inw(u, x <> E), h), Comp.and_right(M.invariant(u), Lin.inw(u, x <> E), h))
+
+def nk_cons(+E: List<&2, Nat>, +x: Nat, rest: List<&2, Nat>, +h1: {M.none_known(E, rest) == True{} : Bool}, +h2: {M.has(rest, x) == False{} : Bool}) -> {M.none_known(x <> E, rest) == True{} : Bool}:
+  match rest:
+    case Nil{}:
+      {==}
+    case +y <> +ys:
+      AL.and_intro(Bool.not(M.has(x <> E, y)), M.none_known(x <> E, ys),
+        AL.not_true(M.has(x <> E, y), AL.or_false(Nat.is_eq(x, y), M.has(E, y), ML.ne_sym(y, x, AL.or_false_l(Nat.is_eq(y, x), M.has(ys, x), h2)), AL.not_of_true(M.has(E, y), Comp.and_left(Bool.not(M.has(E, y)), M.none_known(E, ys), h1)))),
+        nk_cons(E, x, ys, Comp.and_right(Bool.not(M.has(E, y)), M.none_known(E, ys), h1), AL.or_false_r(Nat.is_eq(y, x), M.has(ys, x), h2)))
+
+def nk_nil(o: List<&2, Nat>) -> {M.none_known(Nil{}, o) == True{} : Bool}:
+  match o:
+    case Nil{}:
+      {==}
+    case y <> ys:
+      AL.and_intro(True{}, M.none_known(Nil{}, ys), {==}, nk_nil(ys))
+
+# Any order naming each event once builds trees that keep the invariant.
+def walk_ok(o: List<&2, Nat>, +g: List<&2, M.Rev>, +t: List<&2, M.Node>, +E: List<&2, Nat>, +hi: {M.invariant(t) == True{} : Bool}, +hn: {Lin.inw(t, E) == True{} : Bool}, +hd: {M.distinct(o) == True{} : Bool}, +hk: {M.none_known(E, o) == True{} : Bool}) -> {wok(M.walk(o, g, Some{t}), revapp(o, E)) == True{} : Bool}:
+  match o:
+    case Nil{}:
+      AL.and_intro(M.invariant(t), Lin.inw(t, E), hi, hn)
+    case +x <> +rest:
+      walk_step(rest, g, x, E, M.step(List.get(&2, M.Rev, g, x), t, x),
+        ev_ok(List.get(&2, M.Rev, g, x), t, x, E, hi, hn, AL.not_of_true(M.has(E, x), Comp.and_left(Bool.not(M.has(E, x)), M.none_known(E, rest), hk))),
+        u => h1 => h2 => walk_ok(rest, g, u, x <> E, h1, h2, Comp.and_right(Bool.not(M.has(rest, x)), M.distinct(rest), hd), nk_cons(E, x, rest, Comp.and_right(Bool.not(M.has(E, x)), M.none_known(E, rest), hk), AL.not_of_true(M.has(rest, x), Comp.and_left(Bool.not(M.has(rest, x)), M.distinct(rest), hd)))))
+
+def subset_revapp(o: List<&2, Nat>, +E: List<&2, Nat>, +S: List<&2, Nat>, +h1: {M.subset(o, S) == True{} : Bool}, +h2: {M.subset(E, S) == True{} : Bool}) -> {M.subset(revapp(o, E), S) == True{} : Bool}:
+  match o:
+    case Nil{}:
+      h2
+    case +x <> +xs:
+      subset_revapp(xs, x <> E, S, Comp.and_right(M.has(S, x), M.subset(xs, S), h1), AL.and_intro(M.has(S, x), M.subset(E, S), Comp.and_left(M.has(S, x), M.subset(xs, S), h1), h2))
+
+def has_revapp_false(o: List<&2, Nat>, +E: List<&2, Nat>, +y: Nat, +h1: {M.has(o, y) == False{} : Bool}, +h2: {M.has(E, y) == False{} : Bool}) -> {M.has(revapp(o, E), y) == False{} : Bool}:
+  match o:
+    case Nil{}:
+      h2
+    case +x <> +xs:
+      has_revapp_false(xs, x <> E, y, AL.or_false_r(Nat.is_eq(x, y), M.has(xs, y), h1), AL.or_false(Nat.is_eq(x, y), M.has(E, y), AL.or_false_l(Nat.is_eq(x, y), M.has(xs, y), h1), h2))
+
+# An event that had seen everything walked
+# ----------------------------------------
+#
+# Its view is the whole tree, which keeps the invariant however concurrent
+# the history that built it; so its run is the cursor walk `linear_lemmas`
+# simulates, and it leaves what plain application of its document leaves.
+def fine_merged(st: Maybe<&2, M.Running>, +t: List<&2, M.Node>, +W: List<&2, Nat>, +e: Nat, +f: List<&2, Ops.Item>, h: {Lin.fine(st, t, W, e, f) == True{} : Bool}) -> {M.merged.of(M.step.of(t, e, M.run.acts(st))) == Some{f} : Maybe<&2, List<&2, Ops.Item>>}:
+  match st:
+    case None{}:
+      Empty.absurd({M.merged.of(None{}) == Some{f} : Maybe<&2, List<&2, Ops.Item>>}, Comp.false_true(h))
+    case Some{M.Running{v, m, +acts}}:
+      Equal.cong(List<&2, Ops.Item>, Maybe<&2, List<&2, Ops.Item>>, x => Some{x}, M.file(M.apply(acts, t, e)), f,
+        Lin.items_eq_equal(M.file(M.apply(acts, t, e)), f, Comp.and_right(Lin.inw(M.apply(acts, t, e), e <> W), Lin.items_eq(M.file(M.apply(acts, t, e)), f), Comp.and_right(M.invariant(M.apply(acts, t, e)), Bool.and(Lin.inw(M.apply(acts, t, e), e <> W), Lin.items_eq(M.file(M.apply(acts, t, e)), f)), h))))
+
+def event_c(+t: List<&2, M.Node>, +W: List<&2, Nat>, +e: Nat, +past: List<&2, Nat>, +d: List<&2, Ops.Op>, +f1: List<&2, Ops.Item>, +hi: {M.invariant(t) == True{} : Bool}, +hn: {Lin.inw(t, W) == True{} : Bool}, +hk: {M.has(W, e) == False{} : Bool}, +hs: {M.subset(W, past) == True{} : Bool}, +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}, +ha: {Cursor.apply(M.file(t), Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {M.merged.of(M.step(Some{M.Rev{past, Some{d}}}, t, e)) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}:
+  %Equal.sym(List<&2, M.Node>, M.restrict(t, past), t, Lin.restrict_id(t, past, Lin.inw_sub(t, W, past, hs, hn))) : {M.merged.of(M.step.of(t, e, M.run.acts(M.run(d, Some{M.Running{_, 0n, Nil{}}}, e, M.visible(_))))) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+  fine_merged(M.run(d, Some{M.Running{t, 0n, Nil{}}}, e, M.visible(t)), t, W, e, f1,
+    (%Lin.restrict_id(t, W, hn) : {Lin.fine(M.run(d, Some{M.Running{_, 0n, Nil{}}}, e, M.visible(_)), t, W, e, f1) == True{} : Bool}
+      Lin.step_fine(t, W, e, d, f1, hi, hn, hk,
+        Lin.parser_strict(d, None{}, None{}, 0n, True{}, ho, Lin.rep_none(d), v => x => its => h1 => h2 => h3 => PL.le_zero(x)),
+        (%Lin.len_file(M.visible(t)) : {Ops.in_range(d, _) == True{} : Bool}
+          Lin.checked_range(Ops.in_range(d, List.length(&2, Ops.Item, M.file(t))), Cursor.walk(d, 0n, M.file(t)), f1, ha)),
+        Lin.checked_walk(Cursor.walk(d, 0n, M.file(t)), f1, (%Lin.checked_range(Ops.in_range(d, List.length(&2, Ops.Item, M.file(t))), Cursor.walk(d, 0n, M.file(t)), f1, ha) : {Cursor.checked(_, None{}, Cursor.walk(d, 0n, M.file(t))) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}
+          ha)))))
+
+def mitems(m: Maybe<&2, List<&2, Ops.Item>>) -> List<&2, Ops.Item>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{x}:
+      x
+
+def mis(m: Maybe<&2, List<&2, Ops.Item>>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{x}:
+      True{}
+
+def final_at(mt: Maybe<&2, List<&2, M.Node>>, +e: Nat, +past: List<&2, Nat>, +d: List<&2, Ops.Op>, -f0: List<&2, Ops.Item>, +f1: List<&2, Ops.Item>, +W: List<&2, Nat>, +hw: {wok(mt, W) == True{} : Bool}, +hk: {M.has(W, e) == False{} : Bool}, +hs: {M.subset(W, past) == True{} : Bool}, +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}, hm: {M.merged.of(mt) == Some{f0} : Maybe<&2, List<&2, Ops.Item>>}, +ha: {Cursor.apply(f0, Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {M.merged.of(M.step.m(mt, Some{M.Rev{past, Some{d}}}, e)) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}:
+  match mt:
+    case None{}:
+      Empty.absurd({M.merged.of(None{}) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}, Comp.false_true(Equal.cong(Maybe<&2, List<&2, Ops.Item>>, Bool, x => mis(x), None{}, Some{f0}, hm)))
+    case Some{+t}:
+      event_c(t, W, e, past, d, f1, Comp.and_left(M.invariant(t), Lin.inw(t, W), hw), Comp.and_right(M.invariant(t), Lin.inw(t, W), hw), hk, hs, ho,
+        (%Equal.sym(List<&2, Ops.Item>, M.file(t), f0, Equal.cong(Maybe<&2, List<&2, Ops.Item>>, List<&2, Ops.Item>, x => mitems(x), Some{M.file(t)}, Some{f0}, hm)) : {Cursor.apply(_, Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}
+          ha))
+
+# Every tree a walk builds keeps the invariant.
+def walk_invariant_c(+g: List<&2, M.Rev>, +o: List<&2, Nat>, +t: List<&2, M.Node>, +hd: {M.distinct(o) == True{} : Bool}, e: {M.walk(o, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, M.Node>>}) -> {M.invariant(t) == True{} : Bool}:
+  Comp.and_left(M.invariant(t), Lin.inw(t, revapp(o, Nil{})),
+    (%e : {wok(_, revapp(o, Nil{})) == True{} : Bool}
+      walk_ok(o, g, Nil{}, Nil{}, AL.invariant_nil(), {==}, hd, nk_nil(o))))
+
+
+# The theorem: a history that walks to `f0`, extended by an event that had
+# seen every event of it and states a document the parser would accept,
+# walks to what applying that document to `f0` leaves.
+def merge_extends_c(+g: List<&2, M.Rev>, +p: List<&2, Nat>, +e: Nat, +past: List<&2, Nat>, +d: List<&2, Ops.Op>, -f0: List<&2, Ops.Item>, +f1: List<&2, Ops.Item>, +hd: {M.distinct(p) == True{} : Bool}, +he: {M.has(p, e) == False{} : Bool}, +hs: {M.subset(p, past) == True{} : Bool}, +hg: {List.get(&2, M.Rev, g, e) == Some{M.Rev{past, Some{d}}} : Maybe<&2, M.Rev>}, +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}, +hm: {M.merged(g, p) == Some{f0} : Maybe<&2, List<&2, Ops.Item>>}, +ha: {Cursor.apply(f0, Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {M.merged(g, List.append(&2, Nat, p, [e])) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}:
+  %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.walk(List.append(&2, Nat, p, [e]), g, Some{Nil{}}), M.step.m(M.walk(p, g, Some{Nil{}}), List.get(&2, M.Rev, g, e), e), ML.walk_append(p, e, g, Some{Nil{}})) : {M.merged.of(_) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+  %Equal.sym(Maybe<&2, M.Rev>, List.get(&2, M.Rev, g, e), Some{M.Rev{past, Some{d}}}, hg) : {M.merged.of(M.step.m(M.walk(p, g, Some{Nil{}}), _, e)) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+  final_at(M.walk(p, g, Some{Nil{}}), e, past, d, f0, f1, revapp(p, Nil{}),
+    walk_ok(p, g, Nil{}, Nil{}, AL.invariant_nil(), {==}, hd, nk_nil(p)),
+    has_revapp_false(p, Nil{}, e, he, {==}),
+    subset_revapp(p, Nil{}, past, hs, {==}),
+    ho, hm, ha)
 
 def main() -> Unit:
   Unit{}

@@ -147,7 +147,10 @@ back byte for byte, decimal numbers included; `diff_applies` says the
 document `Ops.diff` writes replays to the child it was written from.
 `merge_linear` says the merge walk over a chain of parsed documents reads
 what applying them in turn does, which is what `merge.rs`'s `linear` fast
-path relies on. The
+path relies on. `merge_extends` extends that past a line: after any
+history, an event that had seen all of it leaves what applying its
+document leaves, and `merge_walk_invariant` says every tree a walk builds
+keeps the invariant Fugue's anchor needs. The
 decimal layer is unary underneath — as every `Nat` here is — so it counts rather than divides;
 positions are line numbers, and a million of them spell in well under a
 second, but a divmod writer proven equal to `T.digits` would be the fix if

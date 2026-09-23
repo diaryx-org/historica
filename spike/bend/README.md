@@ -258,7 +258,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | forty-seven claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | forty-nine claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -268,6 +268,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `merge.bend`, `merge_lemmas.bend` | the merge as a model — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
 | `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
 | `linear_lemmas.bend` | `merge_linear`: on one line of history, each event having seen every event before it, the merge walk reads what plain replay makes | `merge.rs`'s `linear` fast path, decision 0007 |
+| `walk_lemmas.bend` | `merge_walk_invariant`: every tree a walk builds keeps the invariant, however concurrent its events; `merge_extends`: an event that had seen everything walked before it leaves what `Ops.apply` makes of its document | `merge.rs`'s walk, decision 0007 |
 | `anchor_lemmas.bend` | the reachable-state invariant of a view and one insertion landing at the visible gap it asked for, tombstones or not | `merge.rs`'s anchor, Fugue's rule |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `revision_lemmas.bend` | `write(parse(s)) == s` for revision documents: validation sorts the headers by rank, and sorted headers are what `write` spells | the revision round-trip tests |
@@ -730,8 +731,9 @@ merge in the reverse of the order plain replay writes them, and the
 parser refuses such a document ("two inserts at one position"). The proof
 (`linear_lemmas.bend`) walks one run beside `Cursor.walk`, operation by
 operation (`run_sim`), carrying a Bool conclusion (`fine`): the view the
-run acts on keeps `insert_at_gap`'s invariant, every name in it is below
-the event's own, and its visible reading is the file so far. Positions are
+run acts on keeps `insert_at_gap`'s invariant, every name in it is by an
+event the author had seen or by the author earlier in the run, and its
+visible reading is the file so far. Positions are
 counted in a view written as a prefix already walked and `drop(P, c)` of
 what is left; deletes are tracked as the marks `cuts` a view has taken
 and the marks `mk` a run has yet to apply, and separated from the
@@ -744,6 +746,45 @@ because each event has seen everything before it, so the invariant
 statement was fuzzed against the runtime before it was proven, which is
 how the two-inserts case was found; one mutation, a chain whose events
 have seen nothing before them, is rejected at `chain_go`.
+
+The same holds after any history, not only a line. `merge_walk_invariant`
+says every tree a walk builds keeps the invariant, in any order that
+names each event once — causal or not, however concurrent — and
+`merge_extends` says: walk any such history `p` to `f0`, then an event
+outside it that had seen every event of `p` and states a document the
+parser would accept; the walk leaves exactly what `Ops.apply` makes of
+that document on `f0`. A merge revision that edits the merged file is
+this case, and `merge_linear` is it repeated. The work is the invariant
+(`walk_lemmas.bend`): an element a concurrent event attached may sit
+anywhere among its siblings in name order, where `insert_at_gap`'s
+argument needed it an only child. So the first half shows any fresh leaf
+that is not its own parent, attached anywhere, keeps the invariant
+(`invariant_leaf`). The tree splits at the attach point
+(`children_attach_split`), so the leaf's sibling list is the part before,
+the leaf, and the part after; a reading that does not reach the leaf's
+parent reads as it did (`read_same`); one that does is the old reading
+with the leaf spliced in once, returned through a continuation that
+names the halves (`hit`, split on whether the parent is the element read,
+or below its left children, its right children, or its later siblings);
+and the reading still finishes one fuel up, since each sibling costs a
+fuel and the leaf's cost is the one fuel the longer tree adds
+(`read_app`, `fits_app`, `li_read`). The second half carries that through
+an event: for any document, the run's view stays bounded by the events
+the author had seen (`rok`), each attach it decides hangs under a name
+its view holds and is minted above the last (`aok`, `anchor_pok`), so
+every attach the walk applies is such a leaf (`apply_ok`), and every
+event keeps the invariant (`ev_ok`, `walk_ok`). The bound that made a
+chain's names fresh — every author below the event's index — became
+"every author in the set the event had seen" (`Lin.before`, `Lin.inw`),
+which is what a graph gives. An event that had seen everything walked
+then has the whole tree as its view (`restrict_id`), and `run_sim`
+applies unchanged (`event_c`). Not shown: the view of an event walked
+after events it had not seen, `restrict(t, seen)` of a tree with more in
+it — though with `merge_converges` a causal order may put the event
+right after its own past, where this theorem applies. No mutation is
+added: the breaks that would fail these laws — names that collide,
+siblings out of name order, an order that repeats an event — fail
+`merge_converges` first.
 
 One insertion lands at the gap its author asked for. `insert_at_gap`
 says: on a view with the reachable-state invariant, an element of a
@@ -771,11 +812,11 @@ insertion after the element followed (`splice_swap`), which commutes
 with leaving tombstones out because the element followed is visible
 (`standing_splice`). The freshness `inserts` relies on — a name the view
 neither holds nor hangs anything under — is a hypothesis
-(`Merge.fresh`), as is the view being one this author's run built: the
-invariant is not shown of `restrict(t, seen)` for a walked tree `t` in
-general — on a chain it is, by `merge_linear` above — which would need the whole tree's invariant under concurrent attaches
-(an element among same-side siblings), and the name-sorted commutation
-that takes. What is fuel-bound stays explicit: `fits` is carried in the
+(`Merge.fresh`), as is the invariant of the view; every tree a walk
+builds has it (`merge_walk_invariant` above), and an event that had seen
+everything walked before it has the whole tree as its view, while the
+restriction of a larger tree to what an event had seen is not shown to
+keep it. What is fuel-bound stays explicit: `fits` is carried in the
 invariant, not derived from a depth, and `leftmost`'s fuel (the element
 count) is shown enough from it (`lchain_of_fits`, `leftmost_lands`,
 `leftmost_stable`), so neither bound is assumed past what the invariant

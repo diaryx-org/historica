@@ -25,6 +25,7 @@ import ./graph_lemmas.bend as GL
 import ./anchor_lemmas.bend as AL
 import ./merge.bend as Merge
 import ./linear_lemmas.bend as Lin
+import ./walk_lemmas.bend as Walk
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -345,6 +346,15 @@ def Laws.merge_linear(docs, f, o, e):
   Lin.merge_linear_c(docs, f, Lin.all_strict_of(docs, o),
     Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Lin.creplay(docs, Done{Nil{}}), Merge.replay(docs, Done{Nil{}}), Done{f},
       Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Merge.replay(docs, Done{Nil{}}), Lin.creplay(docs, Done{Nil{}}), replay_creplay(docs, Done{Nil{}})), e))
+
+def Laws.merge_walk_invariant(g, o, t, d, e):
+  Walk.walk_invariant_c(g, o, t, d, e)
+
+def Laws.merge_extends(g, p, e, past, d, f0, f1, hd, he, hs, hg, ho, hm, ha):
+  Walk.merge_extends_c(g, p, e, past, d, f0, f1, hd, he, hs, hg, ho, hm,
+    Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.apply(f0, Ops.Doc{None{}, None{}, d}), Ops.apply(f0, Ops.Doc{None{}, None{}, d}), Done{f1},
+      Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(f0, Ops.Doc{None{}, None{}, d}), Cursor.apply(f0, Ops.Doc{None{}, None{}, d}), Laws.cursor_apply_equivalent(f0, Ops.Doc{None{}, None{}, d})),
+      ha))
 
 def Laws.insert_at_gap(t, at, nm, it, left, inv, fr, lo):
   AL.insert_at(t, at, nm, it, left, inv, fr, lo)
