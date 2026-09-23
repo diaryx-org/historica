@@ -56,6 +56,11 @@ def Store.folder(dir: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_folder.c"
   import "./ffi/store_folder.js"
 
+# Whether standard output is a terminal: `1` or `0`, for `--color auto`.
+def Store.tty(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_tty.c"
+  import "./ffi/store_tty.js"
+
 # One document read from disk: where it was, the digest of its bytes — the
 # only name it has — how many bytes, and its text. A payload of bytes that
 # is not UTF-8 decodes to something, and the count is of the bytes.
@@ -151,6 +156,12 @@ def name_paths(+root: String) -> IO(List<&2, String>):
   do IO<List<&2, String>>:
     text : String <- IO.try(String, Store.list(root ++ "\nnames"))
     return kept(String.lines(text))
+
+# Whether what is printed goes to a terminal.
+def terminal() -> IO(Bool):
+  do IO<Bool>:
+    answer : String <- IO.try(String, Store.tty(SNil{}))
+    return String.eq(answer, "1")
 
 # The rule files of `skipped/`, relative to the root, in path order.
 def skipped_paths(+root: String) -> IO(List<&2, String>):

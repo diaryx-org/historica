@@ -1783,6 +1783,44 @@ def ops.of(d: Sides) -> List<&2, Op>:
 def ops(old: List<&2, Ops.Item>, new: List<&2, Ops.Item>) -> List<&2, Op>:
   ops.of(sides(old, new))
 
+# Myers over words
+# ----------------
+
+# `capture_diff_slices(Algorithm::Myers, ..)`, which `diff` draws the
+# emphasis inside a changed line with: the Myers search behind its own
+# preflight, compacted, over whatever the caller numbers.
+def intern.words.go(ws: List<&2, String>, r: Ops.Pool & U32, +i: U32, m: UMap) -> Interned:
+  match ws r:
+    case Nil{} Tuple{p, h}:
+      Interned{p, put(m, i, h), (i + 1 : U32)}
+    case w <> rest Tuple{p, h}:
+      intern.words.go(rest, Ops.intern.keyed(p, w), (i + 1 : U32), put(m, i, h))
+
+def intern.words(ws: List<&2, String>, p: Ops.Pool) -> Interned:
+  match ws:
+    case Nil{}:
+      Interned{p, UNone{}, 0}
+    case w <> rest:
+      intern.words.go(rest, Ops.intern.keyed(p, w), 0, UNone{})
+
+def words.fin(oids: UMap, ol: U32, b: Interned) -> Sides:
+  match b:
+    case Interned{p, nids, nl}:
+      Sides{Seqs{oids, nids}, ol, nl}
+
+def words.of(a: Interned, new: List<&2, String>) -> Sides:
+  match a:
+    case Interned{p, ids, len}:
+      words.fin(ids, len, intern.words(new, p))
+
+def myers.words.of(d: Sides) -> List<&2, Op>:
+  match d:
+    case Sides{+s, +ol, +nl}:
+      compact(s, List.reverse(&2, Op, myers.diff(s, 0, ol, 0, nl)), fuel.of(ol, nl))
+
+def myers.words(old: List<&2, String>, new: List<&2, String>) -> List<&2, Op>:
+  myers.words.of(words.of(intern.words(old, Ops.pool()), new))
+
 # The document
 # ------------
 
@@ -1869,10 +1907,28 @@ def tokens(parts: List<&2, String>, +acc: List<&2, Ops.Item>) -> List<&2, Ops.It
     case +p <> rest:
       tokens(rest, Bool.pick(List<&2, Ops.Item>, String.is_empty(p), acc, Ops.line(p) <> acc))
 
+def spaced(parts: List<&2, String>) -> List<&2, String>:
+  match parts:
+    case Nil{}:
+      Nil{}
+    case SNil{} <> rest:
+      spaced(rest)
+    case p <> rest:
+      p <> spaced(rest)
+
+# A case whose old side begins `M:` asks for Myers over the words, as the
+# emphasis inside a changed line does; any other, for Histogram over lines.
+def case.both(+a: String, b: String, myers: Bool) -> String:
+  match myers:
+    case True{}:
+      show.ops(myers.words(spaced(String.split(String.drop(a, 2n), ' ')), spaced(String.split(b, ' '))))
+    case False{}:
+      show.ops(ops(tokens(String.split(a, ' '), Nil{}), tokens(String.split(b, ' '), Nil{})))
+
 def case.of(parts: List<&2, String>) -> String:
   match parts:
-    case a <> b <> Nil{}:
-      show.ops(ops(tokens(String.split(a, ' '), Nil{}), tokens(String.split(b, ' '), Nil{})))
+    case +a <> b <> Nil{}:
+      case.both(a, b, String.starts_with(a, "M:"))
     case _:
       "?"
 

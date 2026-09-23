@@ -57,7 +57,9 @@ def main():
 # lines, runs where every shared line is common (the Myers fallback, with its
 # heuristics and its exact small-side search), and long sides that share
 # almost nothing (the preflights). Bend prints the operations before the
-# `Replace` hook groups them, and the grouping is applied here.
+# `Replace` hook groups them, and the grouping is applied here. A case
+# marked `M:` asks both for Myers instead, which `diff` draws a changed
+# line's emphasis with.
 def similar_cases(rng):
     kind = rng.random()
     if kind < 0.5:
@@ -131,7 +133,9 @@ def check_similar(temporary):
     run(os.environ.get("CC", "cc"), "-O2", "-w", "-o", str(native), str(source), "-lm", "-lpthread", timeout=900)
     rng = random.Random(20260922)
     cases = [similar_cases(rng) for _ in range(1500)]
-    text = "".join(" ".join(old) + "|" + " ".join(new) + "\n" for old, new in cases)
+    # A third again for Myers alone, which `diff` draws a line's emphasis with.
+    cases += [(["M:"] + old, new) for old, new in (similar_cases(rng) for _ in range(500))]
+    text = "".join(" ".join(old).replace("M: ", "M:", 1) + "|" + " ".join(new) + "\n" for old, new in cases)
     (temporary / "cases.txt").write_text(text)
     reference = ROOT / "ffi" / "target" / "release" / "examples" / "similar_ops"
     expected = subprocess.run([str(reference)], input=text, capture_output=True, text=True, check=True).stdout.splitlines()
@@ -244,6 +248,8 @@ STORES = {
         ["diff", "base", "--onto", "tip"],
         ["diff", "tip", "renamed.md"],
         ["diff", "tip", "--color", "never"],
+        ["diff", "tip", "--color", "always"],
+        ["diff", "tip", "--onto", "base", "--color=always"],
         ["diff", "tip", "nope.md"],
         ["blame", "tip", "renamed.md"],
         ["blame", "tip", "renamed.md", "--lines", "2..3"],
@@ -269,6 +275,8 @@ STORES = {
         ["diff", "--onto", "first"],
         ["diff", "--onto", "first", "notes.md"],
         ["diff", "--color", "never"],
+        ["diff", "--color", "always"],
+        ["diff", "--color", "auto"],
         ["blame", "notes.md"],
         ["blame", "file:nb"],
         ["blame", "path:notes.md", "--lines", "2..3"],
@@ -425,7 +433,7 @@ def record(temporary, rust, corpus):
         (store / "history" / "skipped" / "grouped").mkdir()
         (store / "history" / "skipped" / "grouped" / "logs.txt").write_text("# the logs\n\nskip logs/\n")
         (store / "history" / "skipped" / "grouped" / ".DS_Store").write_bytes(b"\x00")
-        (store / "notes.md").write_text("zero\none\ntwo\nthree\nfour\nfive\nsix\n")
+        (store / "notes.md").write_text("zero\none\ntwo, then — café\nthree\nfour v2\nfive\nsix\n")
         (store / "gone.md").unlink()
         (store / "new.md").write_text("brand\nnew\n")
         (store / "photo.bin").write_bytes(b"\x89PNG\x00\x00")

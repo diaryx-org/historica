@@ -251,6 +251,27 @@ fn folder(dir: &Path) -> Result<String, (i32, String)> {
     Ok(lines.join("\n"))
 }
 
+/// Whether this process's standard output is a terminal: `1` or `0`.
+///
+/// What `--color auto` asks, and nothing else: whether to decorate is the
+/// Bend side's, which also reads `NO_COLOR`. The argument is ignored.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_stdout_terminal(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    use std::io::IsTerminal as _;
+
+    let _ = (query, query_len);
+    answer(out, out_len, || Ok(if std::io::stdout().is_terminal() { "1" } else { "0" }.to_owned()))
+}
+
 /// Return a buffer [`hist_store_locate`] or [`hist_store_list`] handed out.
 ///
 /// # Safety
@@ -481,6 +502,13 @@ mod tests {
         // Not a document directory: never listed.
         fs::create_dir_all(history.join("cache")).unwrap();
         fs::write(history.join("cache/README.txt"), "").unwrap();
+    }
+
+    #[test]
+    fn a_test_run_is_not_writing_to_a_terminal() {
+        let (code, answer) = call(hist_stdout_terminal, b"");
+        assert_eq!(code, 0);
+        assert!(answer == "0" || answer == "1", "{answer}");
     }
 
     #[test]

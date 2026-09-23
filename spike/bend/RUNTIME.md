@@ -9,8 +9,8 @@ providing the filesystem and process services it needs.
 
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
-`Store.locate`, `Store.list`, `Store.at`, `Store.digests` and
-`Store.folder`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
+`Store.folder` and `Store.tty`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -46,7 +46,8 @@ holds — each entry's name and what it is, a link's target read and never
 followed, a file's execute bit and length. Which directories are walked,
 which files a `skipped/` rule keeps out, and which paths the format can hold
 are decided in `folder.bend`, which asks for a directory only once it has
-decided to walk it: a skipped `target/` is never listed. Which files a command opens is the Bend side's, and so is every
+decided to walk it: a skipped `target/` is never listed. `Store.tty` says
+whether standard output is a terminal, and `--color auto` decides. Which files a command opens is the Bend side's, and so is every
 conclusion: a path `Store.at` offers is opened and hashed in `sha256.bend`
 before the document at it is believed to be the one asked for, which is
 `store::catalogue`'s own rule — *the digest of a file is never believed*.
@@ -68,7 +69,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The five effects here are one-shot — a string in, a string out, nothing
+The six effects here are one-shot — a string in, a string out, nothing
 held between calls — which avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
 Do not represent ownership merely by a freely copyable numeric pointer.

@@ -42,6 +42,7 @@ import ./bookmark.bend as Bm
 import ./resolution.bend as Res
 import ./similar.bend as Sim
 import ./folder.bend as Folder
+import ./unicode.bend as Uni
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -2278,31 +2279,252 @@ def laid.text(+sign: String, it: Ops.Item) -> List<&2, Painted>:
     case Ops.Item{t, False{}, f}:
       [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, False{}, f})}, Painted{sign_code(sign), "\\ no newline at end of file"}]
 
-def hunk.lines(ns: List<&2, Numbered>) -> List<&2, Painted>:
+# Emphasis
+# --------
+
+# Where two lines replaced one for one differ, drawn in inverse video inside
+# the line's own colour — only when there is colour, since emphasis has no
+# plain-text spelling that would not change the bytes. A line is cut into
+# words: a run of letters and digits is one, and every other character is
+# one on its own. The words are compared with `similar`'s Myers, as the
+# Rust tool compares them, and a pair that shares no word but whitespace, or
+# more than 1024 words on a side, is left plain.
+type Words is Data:
+  Words{run: String, acc: List<&2, String>}
+
+def words.flush(+run: String, +acc: List<&2, String>) -> List<&2, String>:
+  Bool.pick(List<&2, String>, String.is_empty(run), acc, String.reverse(run) <> acc)
+
+def words.char(w: Words, +c: Char, lettered: Bool) -> Words:
+  match w:
+    case Words{+run, +acc}:
+      match lettered:
+        case True{}:
+          Words{SCon{c, run}, acc}
+        case False{}:
+          Words{SNil{}, SCon{c, SNil{}} <> words.flush(run, acc)}
+
+def words.go(s: String, w: Words) -> Words:
+  match s:
+    case SNil{}:
+      w
+    case SCon{+c, t}:
+      words.go(t, words.char(w, c, Uni.is_alnum(c)))
+
+def words.done(w: Words) -> List<&2, String>:
+  match w:
+    case Words{run, acc}:
+      List.reverse(&2, String, words.flush(run, acc))
+
+def words(s: String) -> List<&2, String>:
+  words.done(words.go(s, Words{SNil{}, Nil{}}))
+
+# The operations, grouped as the `Replace` hook groups them: a shared run,
+# or everything between two shared runs.
+type Chunk is Data:
+  Chunk.Keep{len: Nat}
+  Chunk.Change{lost: Nat, gained: Nat}
+
+def chunks.close(+lost: Nat, +gained: Nat, +acc: List<&2, Chunk>) -> List<&2, Chunk>:
+  Bool.pick(List<&2, Chunk>, Nat.is_eq(Nat.add(lost, gained), 0n), acc, Chunk.Change{lost, gained} <> acc)
+
+def chunks.go(ops: List<&2, Sim.Op>, +lost: Nat, +gained: Nat, acc: List<&2, Chunk>) -> List<&2, Chunk>:
+  match ops:
+    case Nil{}:
+      List.reverse(&2, Chunk, chunks.close(lost, gained, acc))
+    case Sim.Same{o, n, len} <> rest:
+      chunks.go(rest, 0n, 0n, Chunk.Keep{U32.to_nat(len)} <> chunks.close(lost, gained, acc))
+    case Sim.Lose{o, len, n} <> rest:
+      chunks.go(rest, Nat.add(lost, U32.to_nat(len)), gained, acc)
+    case Sim.Gain{o, n, len} <> rest:
+      chunks.go(rest, lost, Nat.add(gained, U32.to_nat(len)), acc)
+
+# A word that is not whitespace: what `!word.trim().is_empty()` asks of one.
+def word.solid(w: String) -> Bool:
+  match w:
+    case SCon{c, SNil{}}:
+      Bool.not(Folder.is_ws(c))
+    case _:
+      True{}
+
+def shared.go(cs: List<&2, Chunk>, ws: List<&2, String>) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case Chunk.Keep{+n} <> rest:
+      +ws2 = ws
+      Bool.or(List.any(~&2, ~String, ~word.solid, List.take(&2, String, ws2, n)), shared.go(rest, List.drop(&2, String, ws2, n)))
+    case Chunk.Change{l, g} <> rest:
+      shared.go(rest, List.drop(&2, String, ws, l))
+
+def changed(cs: List<&2, Chunk>) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case Chunk.Keep{n} <> rest:
+      changed(rest)
+    case Chunk.Change{l, g} <> rest:
+      True{}
+
+def joined.all(ws: List<&2, String>) -> String:
+  match ws:
+    case Nil{}:
+      SNil{}
+    case w <> rest:
+      w ++ joined.all(rest)
+
+def emphasised(+n: Nat, +ws: List<&2, String>) -> String:
+  Bool.pick(String, Nat.is_eq(n, 0n), SNil{}, "\u{1b}[7m" ++ joined.all(List.take(&2, String, ws, n)) ++ "\u{1b}[27m")
+
+# One side's line with its differing runs marked: the old side's losses, or
+# the new side's gains.
+def marked.go(cs: List<&2, Chunk>, ws: List<&2, String>, +old: Bool) -> String:
+  match cs:
+    case Nil{}:
+      joined.all(ws)
+    case Chunk.Keep{+n} <> rest:
+      +ws2 = ws
+      joined.all(List.take(&2, String, ws2, n)) ++ marked.go(rest, List.drop(&2, String, ws2, n), old)
+    case Chunk.Change{+l, +g} <> rest:
+      +ws2 = ws
+      +n = Bool.pick(Nat, old, l, g)
+      emphasised(n, ws2) ++ marked.go(rest, List.drop(&2, String, ws2, n), old)
+
+type Marked is Data:
+  Marked{was: String, now: String}
+
+def apart.chunks(+old: List<&2, String>, +new: List<&2, String>, +cs: List<&2, Chunk>) -> Maybe<&2, Marked>:
+  Bool.pick(Maybe<&2, Marked>, Bool.and(shared.go(cs, old), changed(cs)), Some{Marked{marked.go(cs, old, True{}), marked.go(cs, new, False{})}}, None{})
+
+def apart.of(+old: List<&2, String>, +new: List<&2, String>, short: Bool) -> Maybe<&2, Marked>:
+  match short:
+    case False{}:
+      None{}
+    case True{}:
+      apart.chunks(old, new, chunks.go(Sim.myers.words(old, new), 0n, 0n, Nil{}))
+
+def apart(was: String, now: String) -> Maybe<&2, Marked>:
+  +old = words(was)
+  +new = words(now)
+  apart.of(old, new, Bool.and(Nat.is_le(List.length(&2, String, old), 1024n), Nat.is_le(List.length(&2, String, new), 1024n)))
+
+# Pairing: a run of removals followed by as many arrivals is replaced one
+# for one, and pairs up without anybody guessing which line became which;
+# an unequal run has no such pairing and is left plain.
+def head_is(ns: List<&2, Numbered>, +sign: String) -> Bool:
   match ns:
     case Nil{}:
-      Nil{}
-    case Numbered{Laid{sign, it}, b, a} <> rest:
-      List.append(&2, Painted, laid.text(sign, it), hunk.lines(rest))
+      False{}
+    case n <> rest:
+      String.eq(numbered.sign(n), sign)
 
-def hunk(+ns: List<&2, Numbered>, sp: Span2) -> List<&2, Painted>:
+def run.count(ns: List<&2, Numbered>, +sign: String, hit: Bool) -> Nat:
+  match ns hit:
+    case _ False{}:
+      0n
+    case Nil{} True{}:
+      0n
+    case n <> +rest True{}:
+      1n+run.count(rest, sign, head_is(rest, sign))
+
+def numbered.shown(n: Numbered) -> String:
+  match n:
+    case Numbered{Laid{s, it}, b, a}:
+      Ops.shown(it)
+
+type Pairs is Data:
+  Pairs{was: List<&2, Maybe<&2, String>>, now: List<&2, Maybe<&2, String>>}
+
+def pairs.of(m: Maybe<&2, Marked>, p: Pairs) -> Pairs:
+  match m p:
+    case Some{Marked{w, n}} Pairs{ws, ns}:
+      Pairs{Some{w} <> ws, Some{n} <> ns}
+    case None{} Pairs{ws, ns}:
+      Pairs{None{} <> ws, None{} <> ns}
+
+def pairs(rem: List<&2, Numbered>, arr: List<&2, Numbered>) -> Pairs:
+  match rem arr:
+    case r <> rs a <> more:
+      pairs.of(apart(numbered.shown(r), numbered.shown(a)), pairs(rs, more))
+    case _ _:
+      Pairs{Nil{}, Nil{}}
+
+def pairs.flat(p: Pairs) -> List<&2, Maybe<&2, String>>:
+  match p:
+    case Pairs{ws, ns}:
+      List.append(&2, Maybe<&2, String>, ws, ns)
+
+def emph.marks(+ns: List<&2, Numbered>, +r: Nat, +a: Nat, paired: Bool) -> List<&2, Maybe<&2, String>>:
+  match paired:
+    case True{}:
+      pairs.flat(pairs(List.take(&2, Numbered, ns, r), List.take(&2, Numbered, List.drop(&2, Numbered, ns, r), a)))
+    case False{}:
+      List.replicate(Maybe<&2, String>, Nat.max(Nat.add(r, a), 1n), None{})
+
+def emph.go(fuel: Nat, ns: List<&2, Numbered>, acc: List<&2, Maybe<&2, String>>) -> List<&2, Maybe<&2, String>>:
+  match fuel ns:
+    case 0n _:
+      List.reverse(&2, Maybe<&2, String>, acc)
+    case 1n+q Nil{}:
+      List.reverse(&2, Maybe<&2, String>, acc)
+    case 1n+q +n <> +rest:
+      +all = {n <> rest : List<&2, Numbered>}
+      +r = run.count(all, "-", head_is(all, "-"))
+      +after = List.drop(&2, Numbered, all, r)
+      +a = run.count(after, "+", head_is(after, "+"))
+      +marks = emph.marks(all, r, a, Bool.and(Nat.is_gt(r, 0n), Nat.is_eq(r, a)))
+      emph.go(q, List.drop(&2, Numbered, all, Nat.max(Nat.add(r, a), 1n)), List.append(&2, Maybe<&2, String>, List.reverse(&2, Maybe<&2, String>, marks), acc))
+
+# Each line's marked text where it has one; nothing to compute without
+# colour.
+def emph(+ns: List<&2, Numbered>, paint: Bool) -> List<&2, Maybe<&2, String>>:
+  match paint:
+    case True{}:
+      emph.go(1n+List.length(&2, Numbered, ns), ns, Nil{})
+    case False{}:
+      Nil{}
+
+def laid.marked.of(+sign: String, it: Ops.Item, t: String) -> List<&2, Painted>:
+  match it:
+    case Ops.Item{x, True{}, f}:
+      [Painted{sign_code(sign), sign ++ t}]
+    case Ops.Item{x, False{}, f}:
+      [Painted{sign_code(sign), sign ++ t}, Painted{sign_code(sign), "\\ no newline at end of file"}]
+
+def laid.marked(+sign: String, it: Ops.Item, m: Maybe<&2, String>) -> List<&2, Painted>:
+  match m:
+    case None{}:
+      laid.text(sign, it)
+    case Some{t}:
+      laid.marked.of(sign, it, t)
+
+def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, String>>) -> List<&2, Painted>:
+  match ns marks:
+    case Nil{} _:
+      Nil{}
+    case Numbered{Laid{sign, it}, b, a} <> rest m <> ms:
+      List.append(&2, Painted, laid.marked(sign, it, m), hunk.lines(rest, ms))
+    case Numbered{Laid{sign, it}, b, a} <> rest Nil{}:
+      List.append(&2, Painted, laid.text(sign, it), hunk.lines(rest, Nil{}))
+
+def hunk(+paint: Bool, +ns: List<&2, Numbered>, sp: Span2) -> List<&2, Painted>:
   match sp:
     case Span2{+start, end}:
       +slice = List.take(&2, Numbered, List.drop(&2, Numbered, ns, start), Nat.sub(end, start))
       +bc = hunk.count(slice, "+")
       +ac = hunk.count(slice, "-")
-      Painted{"\u{1b}[36m", "@@ -" ++ Nat.show(hunk.side(bc, hunk.first(slice, True{}))) ++ "," ++ Nat.show(bc) ++ " +" ++ Nat.show(hunk.side(ac, hunk.first(slice, False{}))) ++ "," ++ Nat.show(ac) ++ " @@"} <> hunk.lines(slice)
+      Painted{"\u{1b}[36m", "@@ -" ++ Nat.show(hunk.side(bc, hunk.first(slice, True{}))) ++ "," ++ Nat.show(bc) ++ " +" ++ Nat.show(hunk.side(ac, hunk.first(slice, False{}))) ++ "," ++ Nat.show(ac) ++ " @@"} <> hunk.lines(slice, emph(slice, paint))
 
-def hunks.of(+ns: List<&2, Numbered>, sps: List<&2, Span2>) -> List<&2, Painted>:
+def hunks.of(+paint: Bool, +ns: List<&2, Numbered>, sps: List<&2, Span2>) -> List<&2, Painted>:
   match sps:
     case Nil{}:
       Nil{}
     case sp <> rest:
-      List.append(&2, Painted, hunk(ns, sp), hunks.of(ns, rest))
+      List.append(&2, Painted, hunk(paint, ns, sp), hunks.of(paint, ns, rest))
 
-def hunks(+ls: List<&2, Laid>) -> List<&2, Painted>:
+def hunks(+paint: Bool, +ls: List<&2, Laid>) -> List<&2, Painted>:
   +ns = numbered(ls, 1n, 1n)
-  hunks.of(ns, spans(ns, 0n, List.length(&2, Numbered, ns), Nil{}))
+  hunks.of(paint, ns, spans(ns, 0n, List.length(&2, Numbered, ns), Nil{}))
 
 # diff
 # ----
@@ -2446,28 +2668,28 @@ def render.link(+path: String, t: Maybe<&2, Retarget>) -> List<&2, Painted>:
     case Some{Retarget{was, now}}:
       [meta("link " ++ path ++ spelled.side(was) ++ " ->" ++ spelled.side(now))]
 
-def render.hunks(+left: String, +right: String, +before: List<&2, Ops.Item>, d: Maybe<&2, Ops.Doc>) -> List<&2, Painted>:
+def render.hunks(+paint: Bool, +left: String, +right: String, +before: List<&2, Ops.Item>, d: Maybe<&2, Ops.Doc>) -> List<&2, Painted>:
   match d:
     case None{}:
       Nil{}
     case Some{doc}:
-      meta("--- " ++ left) <> meta("+++ " ++ right) <> hunks(laid(before, doc))
+      meta("--- " ++ left) <> meta("+++ " ++ right) <> hunks(paint, laid(before, doc))
 
 # The same decomposition `record` would write down, rendered: `similar`'s
 # Histogram diff, which `Sim` ports.
-def render.content(+left: String, +right: String, before: Maybe<&2, List<&2, Ops.Item>>, after: Maybe<&2, List<&2, Ops.Item>>, +whole: String) -> List<&2, Painted>:
+def render.content(+paint: Bool, +left: String, +right: String, before: Maybe<&2, List<&2, Ops.Item>>, after: Maybe<&2, List<&2, Ops.Item>>, +whole: String) -> List<&2, Painted>:
   match before after:
     case Some{+b} Some{a}:
-      render.hunks(left, right, b, Sim.diff(b, a))
+      render.hunks(paint, left, right, b, Sim.diff(b, a))
     case _ _:
       [meta("--- " ++ left), meta("+++ " ++ right), meta("binary files differ:" ++ whole)]
 
-def render(p: Compared) -> List<&2, Painted>:
+def render(+paint: Bool, p: Compared) -> List<&2, Painted>:
   match p:
     case Compared{+from, +to, +before, +after, modes, targets}:
       +path = Maybe.default(&2, String, Maybe.or(&2, String, to, from), "?")
       List.append(&2, Painted, render.facts(from, to), List.append(&2, Painted, render.mode(path, modes), List.append(&2, Painted, render.link(path, targets),
-        render.content(Maybe.default(&2, String, Maybe.map(&2, String, String, x => "a/" ++ x, from), "/dev/null"), Maybe.default(&2, String, Maybe.map(&2, String, String, x => "b/" ++ x, to), "/dev/null"),
+        render.content(paint, Maybe.default(&2, String, Maybe.map(&2, String, String, x => "a/" ++ x, from), "/dev/null"), Maybe.default(&2, String, Maybe.map(&2, String, String, x => "b/" ++ x, to), "/dev/null"),
           side.lines(before), side.lines(after), binary.side(before) ++ " ->" ++ binary.side(after)))))
 
 def print_lines(ls: List<&2, String>) -> IO(Unit):
@@ -2479,12 +2701,12 @@ def print_lines(ls: List<&2, String>) -> IO(Unit):
         IO.print(l)
         print_lines(rest)
 
-def diff.rendered(ps: List<&2, Compared>) -> List<&2, Painted>:
+def diff.rendered(+paint: Bool, ps: List<&2, Compared>) -> List<&2, Painted>:
   match ps:
     case Nil{}:
       Nil{}
     case p <> rest:
-      List.append(&2, Painted, render(p), diff.rendered(rest))
+      List.append(&2, Painted, render(paint, p), diff.rendered(paint, rest))
 
 def painted(+paint: Bool, p: Painted) -> String:
   match p:
@@ -2505,7 +2727,7 @@ def print_pairs(+paint: Bool, ps: List<&2, Compared>) -> IO(Unit):
     case Nil{}:
       IO.print("nothing differs")
     case +some:
-      print_painted(paint, diff.rendered(some))
+      print_painted(paint, diff.rendered(paint, some))
 
 # The command
 # -----------
@@ -3440,12 +3662,34 @@ def diff.split(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +
     case first <> second <> third <> more:
       die(Unit, 2, "`diff` takes a target and a path, and `" ++ third ++ "` is a third argument")
 
-# `auto` colours a terminal and nothing else, and this port cannot ask
-# whether it is writing to one, so it colours only where told to.
+# `NO_COLOR` set to anything settles `auto` and leaves `always` alone,
+# which is the point of having said `always` out loud.
+def no_color(r: Result<&1, &1, U32 & String, String>) -> Bool:
+  match r:
+    case Fail{e}:
+      False{}
+    case Done{v}:
+      Bool.not(String.is_empty(v))
+
+# `auto` colours a terminal and nothing else.
+def decorates(color: String) -> IO(Bool):
+  match color:
+    case "always":
+      IO.pure(Bool, True{})
+    case "never":
+      IO.pure(Bool, False{})
+    case _:
+      do IO<Bool>:
+        t : Bool <- Store.terminal()
+        nc : Result<&1, &1, U32 & String, String> <- IO.get_env("NO_COLOR")
+        return Bool.and(t, Bool.not(no_color(nc)))
+
 def diff.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: DiffAsked) -> IO(Unit):
   match a:
     case DiffAsked{onto, color, rest}:
-      diff.split(root, fs, bs, onto, String.eq(color, "always"), List.reverse(&2, String, rest))
+      do IO<Unit>:
+        paint : Bool <- decorates(color)
+        diff.split(root, fs, bs, onto, paint, List.reverse(&2, String, rest))
 
 def diff(+args: List<&2, String>) -> IO(Unit):
   do IO<Unit>:

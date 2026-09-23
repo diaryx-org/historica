@@ -29,7 +29,7 @@ bend main.bend -- opdiff old.txt new.txt # the operation document between two fi
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through five host effects (`store.bend`): `bend main.bend` runs
+here or above — through six host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -249,11 +249,12 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `text.bend` | lines, fields, canonical numbers, digest spelling | `format::Lines` |
 | `ident.bend` | change and file IDs in the `k`–`z` alphabet, spelled and deciphered | `core::{ChangeId, FileId}` |
 | `ops.bend` | the operation document: parse, write, replay, and the longest-common-subsequence diff the proofs are about | `format::operations`, `replay` |
-| `similar.bend` | the diff the commands draw: `similar` 3.2.0's Histogram, with its preflights, its Myers fallback and heuristics, and the compaction around it, held to the crate on fifteen hundred cases | `diff`, the `similar` crate |
+| `similar.bend` | the diff the commands draw: `similar` 3.2.0's Histogram, with its preflights, its Myers fallback and heuristics, and the compaction around it, held to the crate on two thousand cases, Myers alone among them | `diff`, the `similar` crate |
+| `unicode.bend` | which characters are letters or digits, as Rust's `char::is_alphanumeric` reads Unicode 17 | `char` |
 | `folder.bend` | the working copy: `skipped/`'s rules read and matched, the folder walked a directory at a time, and what counts as text | `working` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, and what one directory of the folder holds: five effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal: six effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
@@ -360,7 +361,7 @@ replacement, the search for a rare shared run, the Myers search it falls
 back to where every shared line is common (with Myers' own preflight, its
 heuristics, and its exact search where one side is small), and the
 compaction that slides each run of changes to where it groups. `check.py`
-holds it to the crate on fifteen hundred cases drawn to reach every one of
+holds it to the crate on two thousand cases drawn to reach every one of
 those paths, and on the archive `diff head --onto` an early revision prints
 the Rust tool's 2,479 lines byte for byte.
 
@@ -379,10 +380,16 @@ nearest statement on the head's first-parent line leaves, so `diff` over
 the archive's folder takes 1.4 s. A malformed rule in `skipped/` refuses
 every command, in the Rust tool's words, as a malformed bookmark does.
 
-Not yet: `--color auto` colours nothing, having no way to ask for a
-terminal, and `--color always` draws everything but the word-level
-emphasis. Names are compared as the filesystem spells them, with no
-normal form C. `opdiff` is what `diff` was here before: the operation
+Colour is the Rust tool's too: `auto` asks the host whether standard output
+is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
+replaced one for one has the words that differ drawn in inverse video —
+the line cut into runs of letters and digits and single other characters,
+by the Unicode 17 table Rust's `char::is_alphanumeric` reads
+(`unicode.bend`), and compared with `similar`'s Myers, which
+`similar.bend` also ports and `check.py` holds to the crate. On a terminal,
+`diff head --onto` an early revision prints the Rust tool's bytes, its 653
+marks of emphasis included. Names are compared as the filesystem spells
+them, with no normal form C. `opdiff` is what `diff` was here before: the operation
 document between two files, by `Ops.diff`.
 
 What `cat` does not do is decision 0032's rule for a merge that states no
