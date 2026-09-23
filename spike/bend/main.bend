@@ -49,6 +49,17 @@ import ./unicode.bend as Uni
 def die(-A: Type, code: U32, msg: String) -> IO(A):
   IO.die(A, code, "historica: " ++ msg)
 
+# A refusal decided without IO, and the IO that says it.
+type Refused is Data:
+  Refused{code: U32, msg: String}
+
+def refused.io(-A: Data, r: Result<&2, &2, Refused, A>) -> IO(A):
+  match r:
+    case Fail{Refused{code, msg}}:
+      die(A, code, msg)
+    case Done{x}:
+      IO.pure(A, x)
+
 # A revision the store holds: its digest and what its document says.
 type Full is Data:
   Full{id: String, change: String, parents: List<&2, String>, supersedes: List<&2, String>,
@@ -883,14 +894,14 @@ def tree.of(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> IO(
 def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
   tree.of(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
 
-def file_in.of(+id: String, +path: String, found: List<&2, String>) -> IO(String):
+def file_in.of.r(+id: String, +path: String, found: List<&2, String>) -> Result<&2, &2, Refused, String>:
   match found:
     case Nil{}:
-      die(String, 1, String.take(id, 12n) ++ " holds no file at " ++ path ++ "; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds")
+      Fail{Refused{1, String.take(id, 12n) ++ " holds no file at " ++ path ++ "; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds"}}
     case only <> Nil{}:
-      IO.pure(String, only)
+      Done{only}
     case +several:
-      die(String, 1, String.take(id, 12n) ++ " has " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ path ++ ", so the path does not name one of them:" ++ String.concat(T.map(~String, ~String, ~(f => "\n  file:" ++ f), several)))
+      Fail{Refused{1, String.take(id, 12n) ++ " has " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ path ++ ", so the path does not name one of them:" ++ String.concat(T.map(~String, ~String, ~(f => "\n  file:" ++ f), several))}}
 
 def file_named.listed(+t: Tree.Tree(), fs: List<&2, String>) -> String:
   match fs:
@@ -901,63 +912,66 @@ def file_named.listed(+t: Tree.Tree(), fs: List<&2, String>) -> String:
 
 # A `file:` spelling: a bookmark first, then an identifier's prefix among
 # the files this revision holds, which are the ones `files` prints.
-def file_named.matched(+id: String, +spelling: String, +t: Tree.Tree(), found: List<&2, String>) -> IO(String):
+def file_named.matched.r(+id: String, +spelling: String, +t: Tree.Tree(), found: List<&2, String>) -> Result<&2, &2, Refused, String>:
   match found:
     case Nil{}:
-      die(String, 1, "no file at " ++ String.take(id, 12n) ++ " has an identifier starting `" ++ spelling ++ "`; `historica files " ++ String.take(id, 12n) ++ "` lists them")
+      Fail{Refused{1, "no file at " ++ String.take(id, 12n) ++ " has an identifier starting `" ++ spelling ++ "`; `historica files " ++ String.take(id, 12n) ++ "` lists them"}}
     case only <> Nil{}:
-      IO.pure(String, only)
+      Done{only}
     case +several:
-      die(String, 1, "`" ++ spelling ++ "` could be " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ String.take(id, 12n) ++ ":" ++ file_named.listed(t, several))
+      Fail{Refused{1, "`" ++ spelling ++ "` could be " ++ Nat.show(List.length(&2, String, several)) ++ " files at " ++ String.take(id, 12n) ++ ":" ++ file_named.listed(t, List.sort(~String, ~(a => b => String.is_le(a, b)), several))}}
 
-def file_named.prefix(+id: String, +spelling: String, +t: Tree.Tree(), letters: Bool) -> IO(String):
+def file_named.prefix.r(+id: String, +spelling: String, +t: Tree.Tree(), letters: Bool) -> Result<&2, &2, Refused, String>:
   match letters:
     case False{}:
-      die(String, 1, "`" ++ spelling ++ "` is not a file bookmark here, and a file identifier is spelled in `k`–`z`")
+      Fail{Refused{1, "`" ++ spelling ++ "` is not a file bookmark here, and a file identifier is spelled in `k`–`z`"}}
     case True{}:
-      file_named.matched(id, spelling, t, List.sort(~String, ~(a => b => String.is_le(a, b)), with_prefix(Tree.files(t), spelling)))
+      file_named.matched.r(id, spelling, t, with_prefix(Tree.files(t), spelling))
 
-def file_named.held(+id: String, +spelling: String, +file: String, at: Maybe<&2, String>) -> IO(String):
+def file_named.held.r(+id: String, +spelling: String, +file: String, at: Maybe<&2, String>) -> Result<&2, &2, Refused, String>:
   match at:
     case None{}:
-      die(String, 1, "the bookmark `" ++ spelling ++ "` names the file " ++ file ++ ", which " ++ String.take(id, 12n) ++ " does not hold; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds")
+      Fail{Refused{1, "the bookmark `" ++ spelling ++ "` names the file " ++ file ++ ", which " ++ String.take(id, 12n) ++ " does not hold; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds"}}
     case Some{p}:
-      IO.pure(String, file)
+      Done{file}
 
-def file_named.bookmark(+id: String, +spelling: String, +t: Tree.Tree(), target: Bm.Target) -> IO(String):
+def file_named.bookmark.r(+id: String, +spelling: String, +t: Tree.Tree(), target: Bm.Target) -> Result<&2, &2, Refused, String>:
   match target:
     case Bm.Target.File{+f}:
-      file_named.held(id, spelling, f, Tree.path(t, f))
+      file_named.held.r(id, spelling, f, Tree.path(t, f))
     case +other:
-      die(String, 1, "the bookmark `" ++ spelling ++ "` names a " ++ Bm.kind(other) ++ ", and this position names a file")
+      Fail{Refused{1, "the bookmark `" ++ spelling ++ "` names a " ++ Bm.kind(other) ++ ", and this position names a file"}}
 
-def file_named.found(+id: String, +spelling: String, +t: Tree.Tree(), found: Maybe<&2, Bm.Target>) -> IO(String):
+def file_named.found.r(+id: String, +spelling: String, +t: Tree.Tree(), found: Maybe<&2, Bm.Target>) -> Result<&2, &2, Refused, String>:
   match found:
     case Some{target}:
-      file_named.bookmark(id, spelling, t, target)
+      file_named.bookmark.r(id, spelling, t, target)
     case None{}:
-      file_named.prefix(id, spelling, t, all_chars(~(c => Id.is_letter(c)), spelling))
+      file_named.prefix.r(id, spelling, t, all_chars(~(c => Id.is_letter(c)), spelling))
 
-def file_named(+id: String, +bs: List<&2, Bm.Bookmark>, spelling: String, +t: Tree.Tree()) -> IO(String):
+def file_named.r(+id: String, +bs: List<&2, Bm.Bookmark>, spelling: String, +t: Tree.Tree()) -> Result<&2, &2, Refused, String>:
   match spelling:
     case SNil{}:
-      die(String, 2, "`file:` wants an identifier or a bookmark after it")
+      Fail{Refused{2, "`file:` wants an identifier or a bookmark after it"}}
     case +s:
-      file_named.found(id, s, t, Bm.find(bs, s))
+      file_named.found.r(id, s, t, Bm.find(bs, s))
 
-def file_in.spelled(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree(), named: Maybe<&2, String>) -> IO(String):
+def file_in.spelled.r(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree(), named: Maybe<&2, String>) -> Result<&2, &2, Refused, String>:
   match named:
     case Some{n}:
-      file_named(id, bs, n, t)
+      file_named.r(id, bs, n, t)
     case None{}:
       +p = Maybe.default(&2, String, T.strip_prefix(path, "path:"), path)
-      file_in.of(id, p, Tree.at(t, p))
+      file_in.of.r(id, p, Tree.at(t, p))
 
 # The file one argument names at one revision: a path, `path:` and a path
 # for a file whose own name begins `file:`, or `file:` and an identifier or
 # a file bookmark — the one name a file keeps through a rename.
+def file_in.r(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree()) -> Result<&2, &2, Refused, String>:
+  file_in.spelled.r(id, bs, path, t, T.strip_prefix(path, "file:"))
+
 def file_in(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree()) -> IO(String):
-  file_in.spelled(id, bs, path, t, T.strip_prefix(path, "file:"))
+  refused.io(String, file_in.r(id, bs, path, t))
 
 # What `log` was asked. Every flag is read before any target is resolved,
 # and a word that is not a flag is the one target or range.

@@ -631,3 +631,15 @@ law log_lists_what_it_asks:
   for fs: List<&2, Main.Full>
   for limit: Maybe<&2, Nat>
   {Main.all_kept(fl, Main.limited(Main.kept(fl, fs), limit)) == True{} : Bool}
+
+# A file argument names a file the revision holds: a path, `path:` and a
+# path, `file:` and a file bookmark, or `file:` and an identifier's prefix,
+# whichever an argument is read as, the file it resolves to is in the tree.
+law file_is_held:
+  for +id: String
+  for +bs: List<&2, Bm.Bookmark>
+  for +path: String
+  for +t: Tree.Tree()
+  for +f: String
+  for e: {Main.file_in.r(id, bs, path, t) == Done{f} : Result<&2, &2, Main.Refused, String>}
+  {Tree.holds(t, f) == True{} : Bool}

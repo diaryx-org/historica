@@ -210,6 +210,17 @@ def fail_done(-e: String, -x: String, h: {Fail{e} == Done{x} : Result<&2, &2, St
   %h : {rdisc(_) : Type}
   Unit{}
 
+def mdisc_s(m: Maybe<&2, String>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      Empty
+
+def none_some_s(-x: String, e: {None{} == Some{x} : Maybe<&2, String>}) -> Empty:
+  %e : {mdisc_s(_) : Type}
+  Unit{}
+
 def done_eq(-a: String, -b: String, h: {Done{a} == Done{b} : Result<&2, &2, String, String>}) -> {a == b : String}:
   Equal.cong(Result<&2, &2, String, String>, String, r => Result.default(&2, &2, String, String, r, a), Done{a}, Done{b}, h)
 

@@ -1074,6 +1074,13 @@ def check_mutations(temporary):
             "log_lemmas.kept_ok",
             "main.bend",
         ),
+        (
+            "a file bookmark names a file the revision does not hold",
+            '      Fail{Refused{1, "the bookmark `" ++ spelling ++ "` names the file " ++ file ++ ", which " ++ String.take(id, 12n) ++ " does not hold; `historica files " ++ String.take(id, 12n) ++ "` lists what it holds"}}',
+            "      Done{file}",
+            "fileat_lemmas.held_ok",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
