@@ -14,8 +14,8 @@
 # events that had not seen each other commute.
 #
 # Positions are unary, the tree is a flat list, and the reading carries
-# fuel: a model to prove things about and hold examples to, not the store's
-# merge.
+# fuel: made to be proven about, and still the merge `main.bend` walks
+# where a merge states no resolution. Resolutions are not modelled.
 
 import Base
 import ./ops.bend as Ops

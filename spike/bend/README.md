@@ -265,7 +265,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `parser_lemmas.bend` | the parser only accepts ordered documents: its per-operation check implies `Block.ordered`, and the parse loop applies it to every operation | the parser theorem |
 | `refusal_lemmas.bend` | refusals are justified: every refusal of an ordered document has one of four positional causes, and no cause means the positional result | error soundness |
 | `diff_lemmas.bend` | `apply(diff(parent, child)) == child`: the LCS backtrack yields a script that takes the parent to the child, and the runs of that script are blocks the cursor walks to it | `tests/diff.rs` |
-| `merge.bend`, `merge_lemmas.bend` | the merge as a model — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
+| `merge.bend`, `merge_lemmas.bend` | the merge — Eg-walker over Fugue, each event decided on its author's view, elements placed by name — which `cat`, `diff` and `blame` walk where a merge states no resolution; and `merge_converges`: two causal orders of one graph merge to one file | `merge.rs`, `spike/verus/merge_model.rs` |
 | `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
 | `linear_lemmas.bend` | `merge_linear`: on one line of history, each event having seen every event before it, the merge walk reads what plain replay makes | `merge.rs`'s `linear` fast path, decision 0007 |
 | `walk_lemmas.bend` | `merge_walk_invariant`: every tree a walk builds keeps the invariant, however concurrent its events; `merge_extends`: an event that had seen everything walked before it leaves what `Ops.apply` makes of its document | `merge.rs`'s walk, decision 0007 |
@@ -309,7 +309,7 @@ On a store assembled from each corpus, and on one `historica init` and
 abbreviations, marks, counted facts, the message verbatim — `files` the same
 file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
-binary and the JavaScript build against the Rust tool on fifteen such stores.
+binary and the JavaScript build against the Rust tool on sixteen such stores.
 `check` names every document by the digest `shasum` prints, and `opdiff`
 writes an operation document the Rust tool reads, `result` included. `cat` of a
 link refuses in the Rust tool's words, naming where it points relative to
@@ -396,11 +396,26 @@ marks of emphasis included. Names are compared as the filesystem spells
 them, with no normal form C. `opdiff` is what `diff` was here before: the operation
 document between two files, by `Ops.diff`.
 
-What `cat` does not do is decision 0032's rule for a merge that states no
-resolution: the Rust tool reads a file whose parents disagree by walking
-the merge (`merge.rs`), and a file one side never saw as absent rather than
-empty. Here a revision that says nothing inherits the first parent that
-holds the file, which is the same answer wherever the parents agree.
+A file's content is decision 0032's rule, as the Rust tool reads it: a
+revision that says nothing holds what its parents agree on, and a parent
+that never saw the file has no say. Where the parents disagree and the
+merge states no resolution, the rule stops, and so does every edit
+recorded on top. There `cat`, `diff` and `blame` read the file from
+`merge.bend`'s walk, the one `merge_converges`, `view_keeps_invariant`
+and `merge_intent` are proven about. It walks the target's ancestry in
+digest order, each revision with its ancestors as indices, in order of
+how many ancestors it has. That is a causal order, and the walk reads the
+same file in every causal order. `blame` names the author of each
+standing element. `check.py`'s `walked` store has three hand-written
+merges that state nothing:
+- two edits apart, one of them a delete beside the other's insert;
+- two inserts at one place, where the digests break the tie;
+- one joining all three.
+
+It also has a revision recorded on top of the first. Every `cat`, `blame`
+and `diff` over them prints what the Rust tool prints. What the walk
+cannot yet cross is a resolution: a history like that is refused, saying
+so, where the Rust tool walks it.
 
 ### What the laws say
 
@@ -931,8 +946,8 @@ the C for `main.bend` takes about half a minute on the development machine,
 and compiling it ten seconds or so.
 
 Every theorem the Verus spike states now has a Bend counterpart. What the
-merge law is about is the model in `merge.bend`, held to `merge.rs`'s
-tests; the store's merge itself is not ported. See
+merge laws are about is `merge.bend`, held to `merge.rs`'s tests, and it
+is the code `main.bend` runs wherever a merge states no resolution. See
 [RUNTIME.md](RUNTIME.md) for the C/Rust interop direction and proof boundary.
 
 ## What the port found
@@ -973,11 +988,11 @@ rules beside them.
 The port is the *format* and the *core*; the Rust crate is 33k lines and this
 is under 5k. Not ported:
 
-- **Merging** concurrent branches as a command over the store (`merge.rs`
-  is modelled in `merge.bend`, not ported: no revision graph is walked for
-  content where a merge states no resolution, no `contested` report is
-  made — the tree's contests are computed and not yet printed). A stated
-  resolution is read.
+- **Merging** concurrent branches as a command over the store. A stated
+  resolution is read. Where a merge states none, the proven walk reads
+  the file, but not across an earlier resolution, which `merge.bend` does
+  not model. No `contested` report is made: the tree's contests are
+  computed and not yet printed.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
 - **Writing the store**: `init`, `record`, `name`, `arrange`, `fetch`,

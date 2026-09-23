@@ -378,7 +378,40 @@ STORES = {
         ["diff", "m2", "--onto", "x", "f.md"],
         *(["blame", target, path] for target in ("m1", "m2") for path in ("f.md", "h.md")),
     ],
+    # Merges that state no resolution, written by hand as the Rust tool
+    # never would: where decision 0032's rule stops, and the file is what
+    # `merge.bend`'s proven walk reads. Two branches edit apart, and one
+    # deletes beside the other's insert; two insert at one place, so the
+    # digests break the tie; a third merge joins all three; and `after` is
+    # recorded on top of one, so its edit counts into the walked file.
+    "walked": [
+        *(["cat", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
+        *(["blame", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
+        ["diff", "joined", "--onto", "left"],
+        ["diff", "joined", "--onto", "right"],
+        ["diff", "after"],
+        ["diff", "after", "g.md"],
+    ],
 }
+
+
+def join(history, name, parents, change):
+    """A merge of `parents` that says nothing about any file.
+
+    Its parents disagree about every file both edited, so the file there is
+    the walk's. Pinned by a bookmark, as `craft`'s merges are.
+    """
+    digest = lambda data: hashlib.sha256(data).hexdigest()
+    named = {n.stem: n.read_text().split()[1] for n in (history / "names").glob("*.txt")}
+    text = (
+        f"historica\nchange {change}\n"
+        + "".join(f"parent {p}\n" for p in sorted(named[p] for p in parents))
+        + "author Check <check@example.com>\nwhen 2026-09-23T12:00:00+00:00\n\n"
+        + f"joined {' and '.join(parents)}, resolving nothing"
+    )
+    (history / "revisions" / "crafted").mkdir(exist_ok=True)
+    (history / "revisions" / "crafted" / f"{name}.rev.txt").write_text(text)
+    (history / "names" / f"{name}.txt").write_text(f"revision {digest(text.encode())}\n")
 
 
 def craft(history):
@@ -460,6 +493,29 @@ def record(temporary, rust, corpus):
         write(f="z\na\nBOTH\nc\nd\ne\nx\n")
         rec("m2", "--merge", "x", "--merge", "z", "-m", "second merge")
         craft(store / "history")
+    elif corpus == "walked":
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def write(**files):
+            for path, text in files.items():
+                (store / f"{path}.md").write_text(text)
+
+        write(f="a\nb\nc\nd\n", g="one\n")
+        rec("base", "-m", "base")
+        write(f="top\na\nc\nd\n", g="one\nleft g\n")
+        rec("left", "-m", "left")
+        write(f="a\nb\nB2\nc\nd\nbottom\n", g="one\nright g\n")
+        rec("right", "--onto", "base", "-m", "right")
+        write(f="also top\na\nb\nc\nd\n", g="one\n")
+        rec("third", "--onto", "base", "-m", "third")
+        join(store / "history", "joined", ("left", "right"), "k" * 24)
+        join(store / "history", "tops", ("left", "third"), "l" * 24)
+        join(store / "history", "all", ("joined", "third"), "m" * 24)
+        write(f="top\na\nB2\nc\nd\nbottom\nafter\n", g="one\nleft g\nright g\n")
+        rec("after", "--onto", "joined", "-m", "after")
     elif corpus == "log":
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "first: notes")
@@ -603,7 +659,7 @@ def check_store(temporary):
     parallel(builds)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "folder", "badskip", "fresh", "notext")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext")
         store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:

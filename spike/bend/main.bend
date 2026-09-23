@@ -40,6 +40,7 @@ import ./tree.bend as Tree
 import ./utf8.bend as Utf8
 import ./bookmark.bend as Bm
 import ./resolution.bend as Res
+import ./merge.bend as Merge
 import ./similar.bend as Sim
 import ./folder.bend as Folder
 import ./unicode.bend as Uni
@@ -1734,36 +1735,93 @@ def held(+id: String, +digest: String, doc: Maybe<&2, String>) -> Result<&2, &2,
       Done{text}
 
 # The file's content at every revision that holds it, oldest first as the
-# trees are. A revision that says nothing inherits the first parent's that
-# holds the file; a merge that resolved the file says so with an `edit`
-# naming a resolution, which is the file whatever the parents hold.
-type Contents is Data:
-  Contents{content: Result<&2, &2, String, List<&2, Ops.Item>>, id: String}
+# trees are, by decision 0032's rule. A revision that says nothing holds
+# what its parents agree it holds; an `edit` naming an operation document
+# applies it to that; an `edit` naming a resolution is the file whatever
+# the parents hold. A revision whose parents disagree and which states no
+# resolution is where the rule stops (`Unstated`), and so is every edit
+# over one: there the merge walk reads the file instead (`walked`).
+type Rule is Data:
+  Known{items: List<&2, Ops.Item>}
+  Unstated{}
 
-def content_of(cs: List<&2, Contents>, +id: String) -> Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>:
+type Contents is Data:
+  Contents{content: Result<&2, &2, String, Rule>, id: String}
+
+def content_of(cs: List<&2, Contents>, +id: String) -> Maybe<&2, Result<&2, &2, String, Rule>>:
   match cs:
     case Nil{}:
       None{}
     case Contents{c, +i} <> rest:
-      Bool.pick(Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, String.eq(i, id), Some{c}, content_of(rest, id))
+      Bool.pick(Maybe<&2, Result<&2, &2, String, Rule>>, String.eq(i, id), Some{c}, content_of(rest, id))
 
-def contents.parents(+cs: List<&2, Contents>, ps: List<&2, String>) -> Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>:
+# Two states are one when their items are, forgotten or not.
+def item_eq(a: Ops.Item, b: Ops.Item) -> Bool:
+  match a b:
+    case Ops.Item{t1, n1, f1} Ops.Item{t2, n2, f2}:
+      Bool.and(String.eq(t1, t2), Bool.and(Bool.not(Bool.xor(n1, n2)), Bool.not(Bool.xor(f1, f2))))
+
+def items_eq(a: List<&2, Ops.Item>, b: List<&2, Ops.Item>) -> Bool:
+  match a b:
+    case x <> xs y <> ys:
+      Bool.and(item_eq(x, y), items_eq(xs, ys))
+    case Nil{} Nil{}:
+      True{}
+    case _ _:
+      False{}
+
+def agree.rule(a: Rule, b: Rule) -> Rule:
+  match a b:
+    case Known{+x} Known{+y}:
+      Bool.pick(Rule, items_eq(x, y), Known{x}, Unstated{})
+    case _ _:
+      Unstated{}
+
+def agree.some(r: Result<&2, &2, String, Rule>, next: Maybe<&2, Result<&2, &2, String, Rule>>) -> Result<&2, &2, String, Rule>:
+  match next:
+    case None{}:
+      r
+    case Some{s}:
+      do Result<&2, &2, String, Rule>:
+        a : Rule <- r
+        b : Rule <- s
+        return agree.rule(a, b)
+
+# A parent that never mentioned the file has no say; the first failure
+# among the rest is the answer.
+def agree(acc: Maybe<&2, Result<&2, &2, String, Rule>>, next: Maybe<&2, Result<&2, &2, String, Rule>>) -> Maybe<&2, Result<&2, &2, String, Rule>>:
+  match acc:
+    case None{}:
+      next
+    case Some{r}:
+      Some{agree.some(r, next)}
+
+def contents.parents(+cs: List<&2, Contents>, ps: List<&2, String>, acc: Maybe<&2, Result<&2, &2, String, Rule>>) -> Maybe<&2, Result<&2, &2, String, Rule>>:
   match ps:
     case Nil{}:
-      None{}
+      acc
     case p <> rest:
-      Maybe.or(&2, Result<&2, &2, String, List<&2, Ops.Item>>, content_of(cs, p), contents.parents(cs, rest))
+      contents.parents(cs, rest, agree(acc, content_of(cs, p)))
 
-def edited(state: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, doc: Result<&2, &2, String, String>, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+def edited.over(h: Rule, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Rule>:
+  match h:
+    case Unstated{}:
+      Done{Unstated{}}
+    case Known{items}:
+      do Result<&2, &2, String, Rule>:
+        text : String <- doc
+        parsed : Ops.Doc <- Ops.parse(text)
+        after : List<&2, Ops.Item> <- Ops.apply(items, parsed)
+        return Known{after}
+
+def edited(state: Maybe<&2, Result<&2, &2, String, Rule>>, doc: Result<&2, &2, String, String>, +file: String) -> Result<&2, &2, String, Rule>:
   match state:
     case None{}:
       Fail{"an edit of " ++ file ++ " where no parent holds it"}
     case Some{r}:
-      do Result<&2, &2, String, List<&2, Ops.Item>>:
-        items : List<&2, Ops.Item> <- r
-        text : String <- doc
-        parsed : Ops.Doc <- Ops.parse(text)
-        Ops.apply(items, parsed)
+      do Result<&2, &2, String, Rule>:
+        h : Rule <- r
+        edited.over(h, doc)
 
 # Resolutions
 # -----------
@@ -1897,14 +1955,14 @@ def resolved.doc(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: 
 
 # What an `edit` names is a resolution or an operation document, and which
 # is said by the document's own bytes.
-def edited.by(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: String, inherited: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, +text: String, resolution: Bool) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+def edited.by(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: String, inherited: Maybe<&2, Result<&2, &2, String, Rule>>, +text: String, resolution: Bool) -> Result<&2, &2, String, Rule>:
   match resolution:
     case True{}:
-      resolved.doc(ds, id, file, digest, Res.parse(text))
+      Result.map(&2, &2, String, List<&2, Ops.Item>, Rule, items => Known{items}, resolved.doc(ds, id, file, digest, Res.parse(text)))
     case False{}:
       edited(inherited, Done{text}, file)
 
-def edited.doc(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: String, inherited: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+def edited.doc(+ds: List<&2, Store.Doc>, +id: String, +file: String, +digest: String, inherited: Maybe<&2, Result<&2, &2, String, Rule>>, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Rule>:
   match doc:
     case Fail{e}:
       Fail{e}
@@ -1927,16 +1985,16 @@ def kept_digests(ds: List<&2, Store.Doc>) -> List<&2, String>:
     case Store.Doc{path, id, size, +text} <> rest:
       List.append(&2, String, kept_digests.of(text, Res.is_resolution(text)), kept_digests(rest))
 
-def contents.said(+ds: List<&2, Store.Doc>, +id: String, +file: String, inherited: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, s: Said) -> Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>:
+def contents.said(+ds: List<&2, Store.Doc>, +id: String, +file: String, inherited: Maybe<&2, Result<&2, &2, String, Rule>>, s: Said) -> Maybe<&2, Result<&2, &2, String, Rule>>:
   match s:
     case Whole{+d}:
-      Some{Result.map(&2, &2, String, String, List<&2, Ops.Item>, t => Ops.from_text(t), held(id, d, doc_by_id(ds, d)))}
+      Some{Result.map(&2, &2, String, String, Rule, t => Known{Ops.from_text(t)}, held(id, d, doc_by_id(ds, d)))}
     case Edited{+d}:
       Some{edited.doc(ds, id, file, d, inherited, held(id, d, doc_by_id(ds, d)))}
     case Nothing{}:
       inherited
 
-def contents.push(+id: String, c: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>, cs: List<&2, Contents>) -> List<&2, Contents>:
+def contents.push(+id: String, c: Maybe<&2, Result<&2, &2, String, Rule>>, cs: List<&2, Contents>) -> List<&2, Contents>:
   match c:
     case None{}:
       cs
@@ -1948,20 +2006,183 @@ def contents.go(oldest_first: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: S
     case Nil{}:
       cs
     case Full{+id, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest:
-      contents.go(rest, ds, file, contents.push(id, contents.said(ds, id, file, contents.parents(cs, parents), said(facts, file)), cs))
+      contents.go(rest, ds, file, contents.push(id, contents.said(ds, id, file, contents.parents(cs, parents, None{}), said(facts, file)), cs))
 
-def content.found(+file: String, found: Maybe<&2, Result<&2, &2, String, List<&2, Ops.Item>>>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+# The merge walk
+# --------------
+#
+# Where decision 0032's rule stops, the file is what `merge.bend`'s walk
+# reads — the walk `LAWS.merge_converges`, `view_keeps_invariant` and
+# `merge_intent` are about. Its graph is the target's ancestry in digest
+# order, each revision with its ancestors as indices into it; its order is
+# by the number of ancestors, which is causal because a revision has
+# strictly more than any of its ancestors, and which causal order does not
+# matter, since every one merges to one file.
+
+# Whether a revision states a `text` payload for this file: what `merge.rs`
+# reads as a creation, where a file of bytes is nothing to walk.
+def is_text.cut(+file: String, cut: Maybe<&2, T.Split>) -> Bool:
+  match cut:
+    case Some{T.Split{f, d}}:
+      String.eq(f, file)
+    case None{}:
+      False{}
+
+def is_text(facts: List<&2, Rev.Header>, +file: String) -> Bool:
+  match facts:
+    case Nil{}:
+      False{}
+    case Rev.Header{+k, +v} <> rest:
+      Bool.or(Bool.and(String.eq(k, "text"), is_text.cut(file, T.split_once(v))), is_text(rest, file))
+
+def index_of(names: List<&2, String>, +x: String, +n: Nat) -> Nat:
+  match names:
+    case Nil{}:
+      n
+    case i <> rest:
+      Bool.pick(Nat, String.eq(i, x), n, index_of(rest, x, 1n+n))
+
+def indices(xs: List<&2, String>, +names: List<&2, String>) -> List<&2, Nat>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      index_of(names, x, 0n) <> indices(rest, names)
+
+def walked.ops(d: Ops.Doc) -> Maybe<&2, List<&2, Ops.Op>>:
+  match d:
+    case Ops.Doc{forgets, result, ops}:
+      Some{ops}
+
+def walked.by(+head: String, +id: String, +file: String, +text: String, resolution: Bool) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Op>>>:
+  match resolution:
+    case True{}:
+      Fail{head ++ ", file " ++ file ++ ": its parents disagree and it states no resolution, so the file is what the merge walk reads; that walk crosses " ++ id ++ ", which resolved the file, and the proven walk does not read a resolution yet"}
+    case False{}:
+      Result.map(&2, &2, String, Ops.Doc, Maybe<&2, List<&2, Ops.Op>>, d => walked.ops(d), Ops.parse(text))
+
+def walked.edited(+head: String, +id: String, +file: String, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Op>>>:
+  match doc:
+    case Fail{e}:
+      Fail{e}
+    case Done{+text}:
+      walked.by(head, id, file, text, Res.is_resolution(text))
+
+# A payload is the document that inserts every line of it at 0.
+def walked.whole(text: Bool, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Op>>>:
+  match text:
+    case False{}:
+      Done{None{}}
+    case True{}:
+      Result.map(&2, &2, String, String, Maybe<&2, List<&2, Ops.Op>>, t => Some{[Ops.Op{Ops.Insert{}, 0n, Ops.from_text(t)}]}, doc)
+
+def walked.said(+ds: List<&2, Store.Doc>, +head: String, +id: String, +file: String, text: Bool, s: Said) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Op>>>:
+  match s:
+    case Nothing{}:
+      Done{None{}}
+    case Whole{+d}:
+      walked.whole(text, held(id, d, doc_by_id(ds, d)))
+    case Edited{+d}:
+      walked.edited(head, id, file, held(id, d, doc_by_id(ds, d)))
+
+def walked.rev(+names: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +head: String, +file: String, f: Full) -> Result<&2, &2, String, Merge.Rev>:
+  match f:
+    case Full{+id, change, parents, supersedes, author, when, revised_by, revised, +facts, message}:
+      Result.map(&2, &2, String, Maybe<&2, List<&2, Ops.Op>>, Merge.Rev, ops => Merge.Rev{indices(Tree.ancestors_of(ss, id), names), ops}, walked.said(ds, head, id, file, is_text(facts, file), said(facts, file)))
+
+def walked.revs(rs: List<&2, Full>, +names: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, List<&2, Merge.Rev>>:
+  match rs:
+    case Nil{}:
+      Done{Nil{}}
+    case f <> rest:
+      do Result<&2, &2, String, List<&2, Merge.Rev>>:
+        here : Merge.Rev <- walked.rev(names, ss, ds, head, file, f)
+        more : List<&2, Merge.Rev> <- walked.revs(rest, names, ss, ds, head, file)
+        return here <> more
+
+# Each event beside how many it had seen, so that sorting by that count is
+# a causal order.
+type Rank is Data:
+  Rank{depth: Nat, at: Nat}
+
+def ranks(g: List<&2, Merge.Rev>, +n: Nat) -> List<&2, Rank>:
+  match g:
+    case Nil{}:
+      Nil{}
+    case Merge.Rev{p, o} <> rest:
+      Rank{List.length(&2, Nat, p), n} <> ranks(rest, 1n+n)
+
+def rank_le(a: Rank, b: Rank) -> Bool:
+  match a b:
+    case Rank{+d1, a1} Rank{+d2, a2}:
+      Bool.or(Nat.is_lt(d1, d2), Bool.and(Nat.is_eq(d1, d2), Nat.is_le(a1, a2)))
+
+def rank_at(rs: List<&2, Rank>) -> List<&2, Nat>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case Rank{d, at} <> rest:
+      at <> rank_at(rest)
+
+def walked.order(g: List<&2, Merge.Rev>) -> List<&2, Nat>:
+  rank_at(List.sort(~Rank, ~(a => b => rank_le(a, b)), ranks(g, 0n)))
+
+# The walked tree, beside the revisions its authors are indices into.
+type Walked is Data:
+  Walked{names: List<&2, String>, tree: List<&2, Merge.Node>}
+
+def walked.tree(+head: String, +file: String, names: List<&2, String>, m: Maybe<&2, List<&2, Merge.Node>>) -> Result<&2, &2, String, Walked>:
+  match m:
+    case None{}:
+      Fail{head ++ ", file " ++ file ++ ": a revision behind it names a position or an item its author's view of the file does not hold; the document was recorded against a different history"}
+    case Some{t}:
+      Done{Walked{names, t}}
+
+def walked.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String, r: Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>) -> Result<&2, &2, String, Walked>:
+  match r:
+    case Fail{e}:
+      Fail{head ++ ": " ++ Tree.fault_show(e)}
+    case Done{+ss}:
+      do Result<&2, &2, String, Walked>:
+        +g : List<&2, Merge.Rev> <- walked.revs(rs, ids(rs), ss, ds, head, file)
+        walked.tree(head, file, ids(rs), Merge.walk(walked.order(g), g, Some{Nil{}}))
+
+def walked.sorted(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, Walked>:
+  walked.seen(rs, ds, head, file, Tree.seen(List.length(&2, Full, rs), events_of(rs), Nil{}))
+
+def walked.of(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, Walked>:
+  walked.sorted(List.sort(~Full, ~(a => b => String.is_le(id_of(a), id_of(b))), ancestry(fs, head)), ds, head, file)
+
+def walked.file(w: Walked) -> List<&2, Ops.Item>:
+  match w:
+    case Walked{names, t}:
+      Merge.file(t)
+
+# The file, as `Merge.merged` reads a walk: `Merge.file` of its tree.
+def walked(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  Result.map(&2, &2, String, Walked, List<&2, Ops.Item>, w => walked.file(w), walked.of(fs, ds, head, file))
+
+def content.rule(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, h: Rule) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match h:
+    case Known{items}:
+      Done{items}
+    case Unstated{}:
+      walked(fs, ds, id, file)
+
+def content.found(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, found: Maybe<&2, Result<&2, &2, String, Rule>>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match found:
     case None{}:
       Fail{"no revision behind here says what " ++ file ++ " holds"}
     case Some{r}:
-      r
+      do Result<&2, &2, String, List<&2, Ops.Item>>:
+        h : Rule <- r
+        content.rule(fs, ds, id, file, h)
 
-def content.in(oldest_first: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
-  content.found(file, content_of(contents.go(oldest_first, ds, file, Nil{}), id))
+def content.in(+oldest_first: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  content.found(oldest_first, ds, id, file, content_of(contents.go(oldest_first, ds, file, Nil{}), id))
 
 def content(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
-  content.found(file, content_of(contents.go(List.reverse(&2, Full, presentation(fs)), ds, file, Nil{}), id))
+  content.found(fs, ds, id, file, content_of(contents.go(List.reverse(&2, Full, presentation(fs)), ds, file, Nil{}), id))
 
 # Decision 0040: a link has no bytes, and printing the target where the
 # content goes would be a rendering standing in for a file; the reader is
@@ -3849,6 +4070,45 @@ def origins.go(+all: List<&2, Full>, oldest_first: List<&2, Full>, +ds: List<&2,
 def origins(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> List<&2, Row>:
   Maybe.default(&2, List<&2, Row>, origins_of(origins.go(oldest, oldest, ds, file, Nil{}), id), Nil{})
 
+def walked.rows(ns: List<&2, Merge.Node>, +names: List<&2, String>) -> List<&2, Row>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case +n <> rest:
+      Row{List.get(&2, String, names, Merge.Node.author(n)), Merge.Node.item(n)} <> walked.rows(rest, names)
+
+# Who wrote each line of that file: the author of each element standing.
+def walked.origins(w: Walked) -> List<&2, Row>:
+  match w:
+    case Walked{+names, t}:
+      walked.rows(Merge.visible(t), names)
+
+# Where decision 0032's rule stops, who wrote each line is what the walk
+# says, as the file is.
+def origins.walked(r: Result<&2, &2, String, Walked>) -> List<&2, Row>:
+  match r:
+    case Fail{e}:
+      Nil{}
+    case Done{w}:
+      walked.origins(w)
+
+def origins.rule(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, h: Rule) -> List<&2, Row>:
+  match h:
+    case Unstated{}:
+      origins.walked(walked.of(oldest, ds, id, file))
+    case Known{items}:
+      origins(oldest, ds, id, file)
+
+def origins.found(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, found: Maybe<&2, Result<&2, &2, String, Rule>>) -> List<&2, Row>:
+  match found:
+    case Some{Done{h}}:
+      origins.rule(oldest, ds, id, file, h)
+    case _:
+      origins(oldest, ds, id, file)
+
+def origins.at(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> List<&2, Row>:
+  origins.found(oldest, ds, id, file, content_of(contents.go(oldest, ds, file, Nil{}), id))
+
 # Printing
 # --------
 
@@ -4076,7 +4336,7 @@ def blame.recorded(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark
     +all : List<&2, Store.Doc> = List.append(&2, Store.Doc, ds2, more)
     +oldest : List<&2, Full> = List.reverse(&2, Full, presentation(ancestry(fs, id)))
     items : List<&2, Ops.Item> <- blame.readable(content.in(oldest, all, id, file2))
-    blame.limited(fs, changes(fs), origins(oldest, all, id, file2), asked_span)
+    blame.limited(fs, changes(fs), origins.at(oldest, all, id, file2), asked_span)
 
 def blame.wanted(lines: Maybe<&2, String>) -> IO(Maybe<&2, Wanted>):
   match lines:
@@ -4194,7 +4454,7 @@ def wcf.origins(+root: String, +fs: List<&2, Full>, +left: Maybe<&2, String>, fi
         +all : List<&2, Store.Doc> = List.append(&2, Store.Doc, ds2, more)
         +oldest : List<&2, Full> = List.reverse(&2, Full, presentation(ancestry(fs, id)))
         items : List<&2, Ops.Item> <- blame.readable(content.in(oldest, all, id, f))
-        return origins(oldest, all, id, f)
+        return origins.at(oldest, all, id, f)
     case _ _:
       IO.pure(List<&2, Row>, Nil{})
 
