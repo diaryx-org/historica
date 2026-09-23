@@ -1060,6 +1060,13 @@ def check_mutations(temporary):
             "folder_lemmas.took_ok",
             "folder.bend",
         ),
+        (
+            "a bookmark's revision is taken without asking the store",
+            '      Bool.pick(Result<&2, &2, String, String>, Rev.member(ids(fs), id), Done{id}, Fail{"the bookmark `" ++ name ++ "` names the revision " ++ id ++ ", which this store does not hold yet"})',
+            '      Bool.pick(Result<&2, &2, String, String>, True{}, Done{id}, Fail{"the bookmark `" ++ name ++ "` names the revision " ++ id ++ ", which this store does not hold yet"})',
+            "target_lemmas.bookmarked_mem",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

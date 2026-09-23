@@ -15,6 +15,7 @@ import ./tree.bend as Tree
 import ./main.bend as Main
 import ./similar.bend as Sim
 import ./folder.bend as Folder
+import ./bookmark.bend as Bm
 import ./store.bend as Store
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
@@ -607,3 +608,16 @@ law listing_skips_nothing:
   for +l: Folder.Listing
   for h: {Folder.listing.ok(rules, l) == True{} : Bool}
   {Folder.listing.ok(rules, Folder.listing.go(ls, prefix, rules, l)) == True{} : Bool}
+
+# Every target names a revision the store holds. A bookmark, `head`, a
+# digest prefix or a change prefix: whichever a spelling is read as, the
+# revision it resolves to is one of the store's — through the history's
+# heads and changes too, since that history holds only the store's
+# revisions.
+law target_is_held:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +spelling: String
+  for +id: String
+  for e: {Main.resolve(fs, bs, spelling) == Done{id} : Result<&2, &2, String, String>}
+  {Rev.member(Main.ids(fs), id) == True{} : Bool}
