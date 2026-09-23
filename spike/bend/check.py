@@ -913,6 +913,13 @@ def check_mutations(temporary):
             "merge.bend",
         ),
         (
+            "an author's view reads the whole tree",
+            "      Some{file(restrict(t, s))}",
+            "      Some{file(t)}",
+            "view_lemmas.intent_at",
+            "merge.bend",
+        ),
+        (
             "the revision writer puts `when` before `author`",
             '++ "author " ++ author ++ "\\n" ++ "when " ++ when ++ "\\n" ++',
             '++ "when " ++ when ++ "\\n" ++ "author " ++ author ++ "\\n" ++',

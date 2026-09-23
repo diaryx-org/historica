@@ -213,6 +213,15 @@ def after_merge_doc() -> List<&2, Ops.Op>:
 def after_merge() -> List<&2, Merge.Rev>:
   [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("top")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 3n, [Ops.line("bottom")]}]), stated([0n, 1n, 2n], after_merge_doc())]
 
+# Two concurrent edits of `abc`, then an event that had seen only the
+# first: it reads its document applied to what it saw, whatever the other
+# put in the tree.
+def partial_doc() -> List<&2, Ops.Op>:
+  [Ops.Op{Ops.Delete{}, 2n, [Ops.line("b")]}, Ops.Op{Ops.Insert{}, 4n, [Ops.line("end")]}]
+
+def partial() -> List<&2, Merge.Rev>:
+  [abc(), stated([0n], [Ops.Op{Ops.Insert{}, 0n, [Ops.line("top")]}]), stated([0n], [Ops.Op{Ops.Insert{}, 3n, [Ops.line("bottom")]}]), stated([0n, 1n], partial_doc())]
+
 def chain_docs() -> List<&2, List<&2, Ops.Op>>:
   [[Ops.Op{Ops.Insert{}, 0n, Ops.from_text("a\nb\nc\n")}],
    [Ops.Op{Ops.Delete{}, 1n, [Ops.line("b")]}, Ops.Op{Ops.Insert{}, 1n, [Ops.line("x")]}, Ops.Op{Ops.Insert{}, 3n, [Ops.line("y")]}],
@@ -316,4 +325,8 @@ def main() -> IO(Unit):
     accepted("merge: a document on a merged history replays", Ops.from_text("top\na\nc\nbottom\nend\n"), Ops.apply(Ops.from_text("top\na\nb\nc\nbottom\n"), Ops.Doc{None{}, None{}, after_merge_doc()}))
     check(merged_equal(Merge.merged(after_merge(), [0n, 1n, 2n, 3n]), Some{Ops.from_text("top\na\nc\nbottom\nend\n")}), "merge: an event that saw a concurrent history applies its document")
     check(merged_equal(Merge.merged(after_merge(), [0n, 2n, 1n, 3n]), Some{Ops.from_text("top\na\nc\nbottom\nend\n")}), "merge: and does so in either order of that history")
+    accepted("merge: a document on part of a history replays", Ops.from_text("top\na\nc\nend\n"), Ops.apply(Ops.from_text("top\na\nb\nc\n"), Ops.Doc{None{}, None{}, partial_doc()}))
+    check(merged_equal(Merge.seen_file(Merge.walk([0n, 1n, 2n, 3n], partial(), Some{Nil{}}), [3n, 0n, 1n]), Some{Ops.from_text("top\na\nc\nend\n")}), "merge: an event that saw part of a history reads its document applied to what it saw")
+    check(merged_equal(Merge.seen_file(Merge.walk([0n, 2n, 1n, 3n], partial(), Some{Nil{}}), [3n, 0n, 1n]), Some{Ops.from_text("top\na\nc\nend\n")}), "merge: and does so whenever the event it had not seen was walked")
+    check(merged_equal(Merge.merged(partial(), [0n, 1n, 2n, 3n]), Some{Ops.from_text("top\na\nc\nbottom\nend\n")}), "merge: and the merge keeps what it had not seen, siblings in digest order")
     IO.print("ok    positional/cursor/block/script/diff/cause/merge oracles, spelling and refusal regressions")

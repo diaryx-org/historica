@@ -364,6 +364,30 @@ law merge_extends:
   for +ha: {Ops.apply(f0, Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}
   {Merge.merged(g, List.append(&2, Nat, p, [e])) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
 
+# An event applies its document to what its author saw. Walk any history
+# `p` to `t`; an event outside it had seen the closed set `past`, and saw
+# the file of `t` restricted to it. If its document applies to that file,
+# then once the event is walked, the author's view — `past` and the event
+# itself — reads what the document made of it, whatever `p` holds that the
+# author had not seen. `merge_extends` is the case where `past` holds all
+# of `p`; this is Eg-walker's promise for every event of every merge.
+law merge_intent:
+  for +g: List<&2, Merge.Rev>
+  for +p: List<&2, Nat>
+  for +e: Nat
+  for +past: List<&2, Nat>
+  for +d: List<&2, Ops.Op>
+  for +t: List<&2, Merge.Node>
+  for +f1: List<&2, Ops.Item>
+  for +hd: {Merge.distinct(p) == True{} : Bool}
+  for +he: {Merge.has(p, e) == False{} : Bool}
+  for +hc: {Merge.closed(past, g, past) == True{} : Bool}
+  for +hg: {List.get(&2, Merge.Rev, g, e) == Some{Merge.Rev{past, Some{d}}} : Maybe<&2, Merge.Rev>}
+  for +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}
+  for +hw: {Merge.walk(p, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, Merge.Node>>}
+  for +ha: {Ops.apply(Merge.file(Merge.restrict(t, past)), Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}
+  {Merge.seen_file(Merge.walk(List.append(&2, Nat, p, [e]), g, Some{Nil{}}), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+
 # One insertion lands at the gap its author asked for. `Merge.invariant`
 # is what holds of an author's view as their run grows it — the reading
 # of every sibling list finishes within the fuel `order` gives it, and no

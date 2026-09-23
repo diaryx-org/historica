@@ -22,6 +22,8 @@ import ./merge_lemmas.bend as ML
 import ./anchor_lemmas.bend as AL
 import ./linear_lemmas.bend as Lin
 import ./walk_lemmas.bend as Walk
+import ./cursor_spec.bend as Cursor
+import ./semantic_replay.bend as Block
 
 # Order
 # -----
@@ -707,6 +709,112 @@ def wr(o: List<&2, Nat>, +g: List<&2, M.Rev>, +S: List<&2, Nat>, +t0: List<&2, M
 # any tree a walk builds keeps the invariant.
 def view_invariant(+g: List<&2, M.Rev>, +o: List<&2, Nat>, +t: List<&2, M.Node>, +S: List<&2, Nat>, +hd: {M.distinct(o) == True{} : Bool}, +hc: {M.closed(S, g, S) == True{} : Bool}, e: {M.walk(o, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, M.Node>>}) -> {M.invariant(M.restrict(t, S)) == True{} : Bool}:
   Walk.walk_invariant_c(g, only(o, S), M.restrict(t, S), distinct_only(o, S, hd), wr(o, g, S, Nil{}, t, {==}, hc, e))
+
+# An event applies its document to what its author saw
+# -----------------------------------------------------
+
+def subset_only.at(+x: Nat, +xs: List<&2, Nat>, +S: List<&2, Nat>, k: Bool, ek: {M.has(S, x) == k : Bool}, ih: {M.subset(only(xs, S), S) == True{} : Bool}) -> {M.subset(List.filter.put(Nat, x, only(xs, S), k), S) == True{} : Bool}:
+  match k:
+    case True{}:
+      AL.and_intro(M.has(S, x), M.subset(only(xs, S), S), ek, ih)
+    case False{}:
+      ih
+
+def subset_only(o: List<&2, Nat>, +S: List<&2, Nat>) -> {M.subset(only(o, S), S) == True{} : Bool}:
+  match o:
+    case Nil{}:
+      {==}
+    case +x <> +xs:
+      subset_only.at(x, xs, S, M.has(S, x), {==}, subset_only(xs, S))
+
+def wf_m(m: Maybe<&2, List<&2, M.Action>>, +rest: List<&2, Nat>, +g: List<&2, M.Rev>, +t0: List<&2, M.Node>, +x: Nat, +t: List<&2, M.Node>, +hw: {wf(t0) == True{} : Bool}, e: {M.walk(rest, g, M.step.of(t0, x, m)) == Some{t} : Maybe<&2, List<&2, M.Node>>}, ih: @u: List<&2, M.Node> -> {wf(u) == True{} : Bool} -> {M.walk(rest, g, Some{u}) == Some{t} : Maybe<&2, List<&2, M.Node>>} -> {wf(t) == True{} : Bool}) -> {wf(t) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({wf(t) == True{} : Bool}, walk_refused(rest, g, t, e))
+    case Some{+acts}:
+      ih(M.apply(acts, t0, x), wf_apply(acts, t0, x, hw), e)
+
+def wf_ev(ev: Maybe<&2, M.Rev>, +rest: List<&2, Nat>, +g: List<&2, M.Rev>, +t0: List<&2, M.Node>, +x: Nat, +t: List<&2, M.Node>, +hw: {wf(t0) == True{} : Bool}, e: {M.walk(rest, g, M.step(ev, t0, x)) == Some{t} : Maybe<&2, List<&2, M.Node>>}, ih: @u: List<&2, M.Node> -> {wf(u) == True{} : Bool} -> {M.walk(rest, g, Some{u}) == Some{t} : Maybe<&2, List<&2, M.Node>>} -> {wf(t) == True{} : Bool}) -> {wf(t) == True{} : Bool}:
+  match ev:
+    case None{}:
+      Empty.absurd({wf(t) == True{} : Bool}, walk_refused(rest, g, t, e))
+    case Some{M.Rev{seen, None{}}}:
+      ih(t0, hw, e)
+    case Some{M.Rev{+seen, Some{+ops}}}:
+      wf_m(M.actions(t0, seen, x, ops), rest, g, t0, x, t, hw, e, ih)
+
+# Every tree a walk builds is in name order, its removals in index order.
+def walk_wf(o: List<&2, Nat>, +g: List<&2, M.Rev>, +t0: List<&2, M.Node>, +t: List<&2, M.Node>, +hw: {wf(t0) == True{} : Bool}, e: {M.walk(o, g, Some{t0}) == Some{t} : Maybe<&2, List<&2, M.Node>>}) -> {wf(t) == True{} : Bool}:
+  match o:
+    case Nil{}:
+      (%Equal.cong(Maybe<&2, List<&2, M.Node>>, List<&2, M.Node>, m => mtree(m), Some{t0}, Some{t}, e) : {wf(_) == True{} : Bool}
+        hw)
+    case +x <> +rest:
+      wf_ev(List.get(&2, M.Rev, g, x), rest, g, t0, x, t, hw, e,
+        u => hu => eu => walk_wf(rest, g, u, t, hu, eu))
+
+# A tree no element or removal of which is by `e`: restricting it to a set
+# with `e` added is restricting it to the set.
+def keep_absent(d: List<&2, Nat>, +W: List<&2, Nat>, +e: Nat, +S: List<&2, Nat>, +hk: {M.has(W, e) == False{} : Bool}, +h: {Lin.all_has(d, W) == True{} : Bool}) -> {M.keep(d, e <> S) == M.keep(d, S) : List<&2, Nat>}:
+  match d:
+    case Nil{}:
+      {==}
+    case +y <> +ys:
+      %Equal.sym(Bool, Nat.is_eq(e, y), False{}, ML.ne_of_has(W, e, y, hk, Comp.and_left(M.has(W, y), Lin.all_has(ys, W), h))) : {List.filter.put(Nat, y, M.keep(ys, e <> S), Bool.or(_, M.has(S, y))) == List.filter.put(Nat, y, M.keep(ys, S), M.has(S, y)) : List<&2, Nat>}
+      Equal.cong(List<&2, Nat>, List<&2, Nat>, l => List.filter.put(Nat, y, l, M.has(S, y)), M.keep(ys, e <> S), M.keep(ys, S), keep_absent(ys, W, e, S, hk, Comp.and_right(M.has(W, y), Lin.all_has(ys, W), h)))
+
+def node_absent(x: M.Node, +W: List<&2, Nat>, +e: Nat, +S: List<&2, Nat>, +hk: {M.has(W, e) == False{} : Bool}, h: {Lin.inw.node(x, W) == True{} : Bool}) -> {M.Node.restrict(x, e <> S) == M.Node.restrict(x, S) : M.Node}:
+  match x:
+    case M.Node{+nm, +it, M.Place{+p, +r}, +d}:
+      Equal.cong(List<&2, Nat>, M.Node, l => M.Node{nm, it, M.Place{p, r}, l}, M.keep(d, e <> S), M.keep(d, S),
+        keep_absent(d, W, e, S, hk, Comp.and_right(Lin.inw.m(p, W), Lin.all_has(d, W), Comp.and_right(Lin.inw.n(nm, W), Bool.and(Lin.inw.m(p, W), Lin.all_has(d, W)), h))))
+
+def author_absent(x: M.Node, +W: List<&2, Nat>, +e: Nat, +hk: {M.has(W, e) == False{} : Bool}, h: {Lin.inw.node(x, W) == True{} : Bool}) -> {Nat.is_eq(e, M.Node.author(x)) == False{} : Bool}:
+  match x:
+    case M.Node{M.Name{+a, +o}, it, M.Place{+p, r}, +d}:
+      ML.ne_of_has(W, e, a, hk, Comp.and_left(Lin.inw.n(M.Name{a, o}, W), Bool.and(Lin.inw.m(p, W), Lin.all_has(d, W)), h))
+
+def restrict_absent(t: List<&2, M.Node>, +W: List<&2, Nat>, +e: Nat, +S: List<&2, Nat>, +hk: {M.has(W, e) == False{} : Bool}, +h: {Lin.inw(t, W) == True{} : Bool}) -> {M.restrict(t, e <> S) == M.restrict(t, S) : List<&2, M.Node>}:
+  match t:
+    case Nil{}:
+      {==}
+    case +x <> +xs:
+      %Equal.sym(Bool, Nat.is_eq(e, M.Node.author(x)), False{}, author_absent(x, W, e, hk, Comp.and_left(Lin.inw.node(x, W), Lin.inw(xs, W), h))) : {List.filter.put(M.Node, M.Node.restrict(x, e <> S), M.restrict(xs, e <> S), Bool.or(_, M.has(S, M.Node.author(x)))) == M.restrict(x <> xs, S) : List<&2, M.Node>}
+      %Equal.sym(M.Node, M.Node.restrict(x, e <> S), M.Node.restrict(x, S), node_absent(x, W, e, S, hk, Comp.and_left(Lin.inw.node(x, W), Lin.inw(xs, W), h))) : {List.filter.put(M.Node, _, M.restrict(xs, e <> S), M.has(S, M.Node.author(x))) == M.restrict(x <> xs, S) : List<&2, M.Node>}
+      Equal.cong(List<&2, M.Node>, List<&2, M.Node>, l => List.filter.put(M.Node, M.Node.restrict(x, S), l, M.has(S, M.Node.author(x))), M.restrict(xs, e <> S), M.restrict(xs, S), restrict_absent(xs, W, e, S, hk, Comp.and_right(Lin.inw.node(x, W), Lin.inw(xs, W), h)))
+
+def intent_at(m: Maybe<&2, List<&2, M.Action>>, +t: List<&2, M.Node>, +e: Nat, +past: List<&2, Nat>, +f1: List<&2, Ops.Item>, +hw: {wf(t) == True{} : Bool}, +hr: {M.restrict(t, e <> past) == M.restrict(t, past) : List<&2, M.Node>}, ext: {M.merged.of(M.step.of(M.restrict(t, past), e, m)) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}) -> {M.seen_file(M.step.of(t, e, m), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}:
+  match m:
+    case None{}:
+      Empty.absurd({M.seen_file(None{}, e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}, Comp.false_true(Equal.cong(Maybe<&2, List<&2, Ops.Item>>, Bool, x => Walk.mis(x), None{}, Some{f1}, ext)))
+    case Some{+acts}:
+      %Equal.sym(List<&2, M.Node>, M.restrict(M.apply(acts, t, e), e <> past), M.apply(acts, M.restrict(t, e <> past), e), restrict_apply_in(acts, t, e, e <> past, AL.or_left(Nat.is_eq(e, e), M.has(past, e), Comp.eq_refl(e)), hw)) : {Some{M.file(_)} == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+      %Equal.sym(List<&2, M.Node>, M.restrict(t, e <> past), M.restrict(t, past), hr) : {Some{M.file(M.apply(acts, _, e))} == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+      ext
+
+# The theorem. Walk any history `p` to `t`, and an event outside it whose
+# author had seen the closed set `past`: what that author saw is the file
+# of `t` restricted to `past`, and if their document applies to it, their
+# view once the event is walked reads what it applied to — whatever else
+# `p` holds that they had not seen.
+def merge_intent_c(+g: List<&2, M.Rev>, +p: List<&2, Nat>, +e: Nat, +past: List<&2, Nat>, +d: List<&2, Ops.Op>, +t: List<&2, M.Node>, +f1: List<&2, Ops.Item>, +hd: {M.distinct(p) == True{} : Bool}, +he: {M.has(p, e) == False{} : Bool}, +hc: {M.closed(past, g, past) == True{} : Bool}, +hg: {List.get(&2, M.Rev, g, e) == Some{M.Rev{past, Some{d}}} : Maybe<&2, M.Rev>}, +ho: {Block.ordered_all(d, None{}, None{}) == True{} : Bool}, +hw: {M.walk(p, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, M.Node>>}, +ha: {Cursor.apply(M.file(M.restrict(t, past)), Ops.Doc{None{}, None{}, d}) == Done{f1} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {M.seen_file(M.walk(List.append(&2, Nat, p, [e]), g, Some{Nil{}}), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}:
+  %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.walk(List.append(&2, Nat, p, [e]), g, Some{Nil{}}), M.step.m(M.walk(p, g, Some{Nil{}}), List.get(&2, M.Rev, g, e), e), ML.walk_append(p, e, g, Some{Nil{}})) : {M.seen_file(_, e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+  %Equal.sym(Maybe<&2, List<&2, M.Node>>, M.walk(p, g, Some{Nil{}}), Some{t}, hw) : {M.seen_file(M.step.m(_, List.get(&2, M.Rev, g, e), e), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+  %Equal.sym(Maybe<&2, M.Rev>, List.get(&2, M.Rev, g, e), Some{M.Rev{past, Some{d}}}, hg) : {M.seen_file(M.step.m(Some{t}, _, e), e <> past) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+  intent_at(M.actions(t, past, e, d), t, e, past, f1,
+    walk_wf(p, g, Nil{}, t, {==}, hw),
+    restrict_absent(t, Walk.revapp(p, Nil{}), e, past, Walk.has_revapp_false(p, Nil{}, e, he, {==}),
+      Comp.and_right(M.invariant(t), Lin.inw(t, Walk.revapp(p, Nil{})),
+        (%hw : {Walk.wok(_, Walk.revapp(p, Nil{})) == True{} : Bool}
+          Walk.walk_ok(p, g, Nil{}, Nil{}, AL.invariant_nil(), {==}, hd, Walk.nk_nil(p))))),
+    (%actions_restrict(t, past, past, e, d, Walk.subset_refl_n(past)) : {M.merged.of(M.step.of(M.restrict(t, past), e, _)) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+      (%hg : {M.merged.of(M.step.m(Some{M.restrict(t, past)}, _, e)) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+        (%wr(p, g, past, Nil{}, t, {==}, hc, hw) : {M.merged.of(M.step.m(_, List.get(&2, M.Rev, g, e), e)) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+          (%ML.walk_append(only(p, past), e, g, Some{Nil{}}) : {M.merged.of(_) == Some{f1} : Maybe<&2, List<&2, Ops.Item>>}
+            Walk.merge_extends_c(g, only(p, past), e, past, d, M.file(M.restrict(t, past)), f1,
+              distinct_only(p, past, hd), has_only_false(p, past, e, he), subset_only(p, past), hg, ho,
+              Equal.cong(Maybe<&2, List<&2, M.Node>>, Maybe<&2, List<&2, Ops.Item>>, m => M.merged.of(m), M.walk(only(p, past), g, Some{Nil{}}), Some{M.restrict(t, past)}, wr(p, g, past, Nil{}, t, {==}, hc, hw)),
+              ha))))))
 
 def main() -> Unit:
   Unit{}

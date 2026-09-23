@@ -463,6 +463,14 @@ def merged.of(mt: Maybe<&2, List<&2, Node>>) -> Maybe<&2, List<&2, Ops.Item>>:
 def merged(g: List<&2, Rev>, o: List<&2, Nat>) -> Maybe<&2, List<&2, Ops.Item>>:
   merged.of(walk(o, g, Some{Nil{}}))
 
+# The file as an author who had seen the events of `s` reads a walk's tree.
+def seen_file(mt: Maybe<&2, List<&2, Node>>, +s: List<&2, Nat>) -> Maybe<&2, List<&2, Ops.Item>>:
+  match mt:
+    case None{}:
+      None{}
+    case Some{t}:
+      Some{file(restrict(t, s))}
+
 # Causal orders
 # -------------
 #

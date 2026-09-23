@@ -269,7 +269,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
 | `linear_lemmas.bend` | `merge_linear`: on one line of history, each event having seen every event before it, the merge walk reads what plain replay makes | `merge.rs`'s `linear` fast path, decision 0007 |
 | `walk_lemmas.bend` | `merge_walk_invariant`: every tree a walk builds keeps the invariant, however concurrent its events; `merge_extends`: an event that had seen everything walked before it leaves what `Ops.apply` makes of its document | `merge.rs`'s walk, decision 0007 |
-| `view_lemmas.bend` | `view_keeps_invariant`: every author's view of a walked tree — the tree restricted to a set holding the past of each of its events — keeps the invariant, since it is the tree that set alone walks to | `merge.rs`'s view, decision 0007 |
+| `view_lemmas.bend` | `view_keeps_invariant`: every author's view of a walked tree — the tree restricted to a set holding the past of each of its events — keeps the invariant, since it is the tree that set alone walks to; `merge_intent`: an event that had seen part of a history reads, in its own view, its document applied to what it saw | `merge.rs`'s view, decision 0007 |
 | `anchor_lemmas.bend` | the reachable-state invariant of a view and one insertion landing at the visible gap it asked for, tombstones or not | `merge.rs`'s anchor, Fugue's rule |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `revision_lemmas.bend` | `write(parse(s)) == s` for revision documents: validation sorts the headers by rank, and sorted headers are what `write` spells | the revision round-trip tests |
@@ -806,6 +806,24 @@ model's `Rev.past` is whatever the graph says, so closure is a
 hypothesis. One mutation, a `closed` that does not check an event's
 past, is rejected at `closed_has`.
 
+An event applies its document to what its author saw, however much of
+the history it had not seen. `merge_intent` says: walk any history `p` to
+`t`. An event outside it had seen the closed set `past`, and so saw the
+file of `t` restricted to `past`. If its document applies to that file,
+then once the event is walked, its author's view — `past` and the event
+itself (`Merge.seen_file`) — reads what the document made of it. That is
+Eg-walker's promise for every event, and `merge_extends` is the case
+where `past` holds all of `p`. The proof reduces to that case. The view is
+the walk of `only(p, past)` (`wr`), where `merge_extends` applies. Walked
+in the whole history, the event decides the same actions
+(`actions_restrict`), and they commute with restricting to its view
+(`restrict_apply_in`). Nothing in `t` is by the event itself
+(`restrict_absent`), and every walked tree is in order (`walk_wf`). A
+runtime test has an event that saw one of two concurrent edits, and reads
+its document applied to that edit alone, in either order of the history.
+One mutation, a view that reads the whole tree, is rejected at
+`intent_at` and by that test.
+
 One insertion lands at the gap its author asked for. `insert_at_gap`
 says: on a view with the reachable-state invariant, an element of a
 fresh name anchored by Fugue's rule after the visible element at `at`
@@ -869,7 +887,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Forty-six mutations cover the primitive helpers, lost inserts, a lost trailing
+Forty-seven mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -897,8 +915,9 @@ children found among standing elements only, and a descent that follows
 standing left children only; and three revision round-trip breaks: `when`
 written before `author`, `change` allowed to repeat, and `parent` classified
 as `supersedes`; and one chain break: an event of a chain that has seen
-none of the events before it; and one view break: a closed set that need
-not hold its events' pasts. The proof gate rejects
+none of the events before it; and two view breaks: a closed set that need
+not hold its events' pasts, and an author's view that reads the whole
+tree. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees

@@ -360,6 +360,12 @@ def Laws.merge_extends(g, p, e, past, d, f0, f1, hd, he, hs, hg, ho, hm, ha):
       Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(f0, Ops.Doc{None{}, None{}, d}), Cursor.apply(f0, Ops.Doc{None{}, None{}, d}), Laws.cursor_apply_equivalent(f0, Ops.Doc{None{}, None{}, d})),
       ha))
 
+def Laws.merge_intent(g, p, e, past, d, t, f1, hd, he, hc, hg, ho, hw, ha):
+  View.merge_intent_c(g, p, e, past, d, t, f1, hd, he, hc, hg, ho, hw,
+    Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.apply(Merge.file(Merge.restrict(t, past)), Ops.Doc{None{}, None{}, d}), Ops.apply(Merge.file(Merge.restrict(t, past)), Ops.Doc{None{}, None{}, d}), Done{f1},
+      Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(Merge.file(Merge.restrict(t, past)), Ops.Doc{None{}, None{}, d}), Cursor.apply(Merge.file(Merge.restrict(t, past)), Ops.Doc{None{}, None{}, d}), Laws.cursor_apply_equivalent(Merge.file(Merge.restrict(t, past)), Ops.Doc{None{}, None{}, d})),
+      ha))
+
 def Laws.insert_at_gap(t, at, nm, it, left, inv, fr, lo):
   AL.insert_at(t, at, nm, it, left, inv, fr, lo)
 
