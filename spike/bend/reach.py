@@ -36,7 +36,16 @@ def blocks(path):
         # Trailing comments and blanks belong to the next declaration.
         while body and (not body[-1].strip() or body[-1].startswith("#")):
             body.pop()
-        yield lines[a], len(body), "\n".join(line.split("#", 1)[0] for line in body)
+        yield lines[a], len(body), "\n".join(code(line) for line in body)
+
+
+LITERAL = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])\'')
+
+
+def code(line):
+    """A line without its string and character literals or its comment: a
+    word in an error message is not a reference."""
+    return LITERAL.sub('""', line).split("#", 1)[0]
 
 
 def read():
@@ -100,15 +109,17 @@ def named(text, aliases, module, defs):
             yield key
 
 
-def closure(roots, defs):
-    seen, todo = set(), list(roots)
+def closure(roots, defs, parent=None):
+    seen, todo = set(), [(r, None) for r in roots]
     while todo:
-        key = todo.pop()
+        key, via = todo.pop()
         if key in seen:
             continue
         seen.add(key)
+        if parent is not None:
+            parent[key] = via
         text, aliases = defs[key]
-        todo.extend(named(text, aliases, key[0], defs))
+        todo.extend((k, key) for k in named(text, aliases, key[0], defs))
     return seen
 
 
@@ -116,7 +127,20 @@ def main():
     defs, sizes, laws = read()
     run = closure([("main", "main")], defs)
     roots = [k for text, aliases in laws.values() for k in named(text, aliases, "LAWS", defs)]
-    lawful = closure(roots, defs)
+    parent = {}
+    lawful = closure(roots, defs, parent)
+
+    if "--why" in sys.argv:
+        # How a law reaches a def: `--why main.names`.
+        module, _, name = sys.argv[sys.argv.index("--why") + 1].partition(".")
+        key = (module, name)
+        if key not in lawful:
+            print(f"no law reaches {module}.{name}")
+        while key is not None and key in parent:
+            print(f"{key[0]}.{key[1]}")
+            key = parent[key]
+        print("named by", [law for law, (text, aliases) in laws.items() if key and False] or "a law")
+        return
 
     files = {}
     for key in run:

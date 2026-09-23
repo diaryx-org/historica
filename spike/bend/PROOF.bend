@@ -407,3 +407,6 @@ def Laws.walked_order_causal(g, h):
 
 def Laws.walked_reads_every_order(head, file, names, g, b, w, hb, hc, hs, ht, e):
   Order.reads_every_order(head, file, names, g, b, w, hb, hc, hs, ht, e)
+
+def Laws.walked_file_every_order(fs, ds, head, file, ss, g, b, w, hs, hg, hb, hc, hu, ht, e):
+  Order.file_every_order(fs, ds, head, file, ss, g, b, w, hs, hg, hb, hc, hu, ht, e)

@@ -8,6 +8,8 @@ import Base
 import ./ops.bend as Ops
 import ./merge.bend as M
 import ./main.bend as Main
+import ./store.bend as Store
+import ./tree.bend as Tree
 import ./composition_lemmas.bend as Comp
 import ./merge_lemmas.bend as ML
 import ./anchor_lemmas.bend as AL
@@ -444,3 +446,14 @@ def reads.at(+head: String, +file: String, +names: List<&2, String>, +g: List<&2
 
 def reads_every_order(+head: String, +file: String, +names: List<&2, String>, +g: List<&2, M.Rev>, +b: List<&2, Nat>, +w: Main.Walked, +hb: {M.distinct(b) == True{} : Bool}, +hc: {M.causal(b, g) == True{} : Bool}, +hs: {M.subset(b, M.upto(List.length(&2, M.Rev, g))) == True{} : Bool}, +ht: {M.subset(M.upto(List.length(&2, M.Rev, g)), b) == True{} : Bool}, e: {Main.walked.causal(head, file, names, g, Main.deepens(g)) == Done{w} : Result<&2, &2, String, Main.Walked>}) -> {Some{Main.walked.file(w)} == M.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}:
   reads.at(head, file, names, g, b, w, Main.deepens(g), {==}, hb, hc, hs, ht, e)
+
+# The reading, unfolded: once the ancestry's table and graph are known, the
+# tool's reading is the walk of that graph.
+def of_causal(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String, +ss: List<&2, Tree.Seen>, +g: List<&2, M.Rev>, +hs: {Tree.seen(List.length(&2, Main.Full, Main.walked.ancestry(fs, head)), Main.events_of(Main.walked.ancestry(fs, head)), Nil{}) == Done{ss} : Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>}, +hg: {Main.walked.revs(Main.walked.ancestry(fs, head), Main.ids(Main.walked.ancestry(fs, head)), Main.minted_digests(Main.walked.ancestry(fs, head), file), ss, ds, file) == Done{g} : Result<&2, &2, String, List<&2, M.Rev>>}) -> {Main.walked.causal(head, file, Main.ids(Main.walked.ancestry(fs, head)), g, Main.deepens(g)) == Main.walked.of(fs, ds, head, file) : Result<&2, &2, String, Main.Walked>}:
+  (%Equal.sym(Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>, Tree.seen(List.length(&2, Main.Full, Main.walked.ancestry(fs, head)), Main.events_of(Main.walked.ancestry(fs, head)), Nil{}), Done{ss}, hs) : {Main.walked.causal(head, file, Main.ids(Main.walked.ancestry(fs, head)), g, Main.deepens(g)) == Main.walked.seen(Main.walked.ancestry(fs, head), ds, head, file, _) : Result<&2, &2, String, Main.Walked>}
+    (%Equal.sym(Result<&2, &2, String, List<&2, M.Rev>>, Main.walked.revs(Main.walked.ancestry(fs, head), Main.ids(Main.walked.ancestry(fs, head)), Main.minted_digests(Main.walked.ancestry(fs, head), file), ss, ds, file), Done{g}, hg) : {Main.walked.causal(head, file, Main.ids(Main.walked.ancestry(fs, head)), g, Main.deepens(g)) == Result.bind(&2, &2, String, List<&2, M.Rev>, Main.Walked, _, g => Main.walked.causal(head, file, Main.ids(Main.walked.ancestry(fs, head)), g, Main.deepens(g))) : Result<&2, &2, String, Main.Walked>}
+      {==}))
+
+def file_every_order(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String, +ss: List<&2, Tree.Seen>, +g: List<&2, M.Rev>, +b: List<&2, Nat>, +w: Main.Walked, +hs: {Tree.seen(List.length(&2, Main.Full, Main.walked.ancestry(fs, head)), Main.events_of(Main.walked.ancestry(fs, head)), Nil{}) == Done{ss} : Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>}, +hg: {Main.walked.revs(Main.walked.ancestry(fs, head), Main.ids(Main.walked.ancestry(fs, head)), Main.minted_digests(Main.walked.ancestry(fs, head), file), ss, ds, file) == Done{g} : Result<&2, &2, String, List<&2, M.Rev>>}, +hb: {M.distinct(b) == True{} : Bool}, +hc: {M.causal(b, g) == True{} : Bool}, +hu: {M.subset(b, M.upto(List.length(&2, M.Rev, g))) == True{} : Bool}, +ht: {M.subset(M.upto(List.length(&2, M.Rev, g)), b) == True{} : Bool}, e: {Main.walked.of(fs, ds, head, file) == Done{w} : Result<&2, &2, String, Main.Walked>}) -> {Some{Main.walked.file(w)} == M.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}:
+  reads_every_order(head, file, Main.ids(Main.walked.ancestry(fs, head)), g, b, w, hb, hc, hu, ht,
+    Equal.trans(Result<&2, &2, String, Main.Walked>, Main.walked.causal(head, file, Main.ids(Main.walked.ancestry(fs, head)), g, Main.deepens(g)), Main.walked.of(fs, ds, head, file), Done{w}, of_causal(fs, ds, head, file, ss, g, hs, hg), e))

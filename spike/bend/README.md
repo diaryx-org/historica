@@ -259,7 +259,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | fifty-three claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | fifty-four claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -410,7 +410,9 @@ how many ancestors it has. Where every revision had seen more than any it
 had seen — which the tool checks before it walks, and a store's ancestry
 always satisfies — that is a causal order of every event
 (`walked_order_causal`, `order_lemmas.bend`), so what the tool reads is
-what every causal order reads (`walked_reads_every_order`). `blame` reads the walk everywhere, as
+what every causal order reads (`walked_reads_every_order`), and so is
+the whole reading of a target's ancestry, from the graph it builds out of
+the store (`walked_file_every_order`). `blame` reads the walk everywhere, as
 the Rust tool's reads `merged_content`, and names the author of each
 standing element: on one line of history the walk is plain replay
 (`merge_linear`), so no overlay of each edit is kept beside it. A resolution in that history is walked as `merge.rs`

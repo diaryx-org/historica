@@ -2263,8 +2263,13 @@ def walked.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +f
 def walked.sorted(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, Walked>:
   walked.seen(rs, ds, head, file, Tree.seen(List.length(&2, Full, rs), events_of(rs), Nil{}))
 
+# The target's ancestry in digest order: the graph's events, whose indices
+# its authors are.
+def walked.ancestry(+fs: List<&2, Full>, +head: String) -> List<&2, Full>:
+  List.sort(~Full, ~(a => b => String.is_le(id_of(a), id_of(b))), ancestry(fs, head))
+
 def walked.of(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, Walked>:
-  walked.sorted(List.sort(~Full, ~(a => b => String.is_le(id_of(a), id_of(b))), ancestry(fs, head)), ds, head, file)
+  walked.sorted(walked.ancestry(fs, head), ds, head, file)
 
 def walked.file(w: Walked) -> List<&2, Ops.Item>:
   match w:

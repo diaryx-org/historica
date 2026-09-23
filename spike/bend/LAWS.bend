@@ -13,6 +13,7 @@ import ./semantic_replay.bend as Block
 import ./merge.bend as Merge
 import ./tree.bend as Tree
 import ./main.bend as Main
+import ./store.bend as Store
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -536,4 +537,26 @@ law walked_reads_every_order:
   for +hs: {Merge.subset(b, Merge.upto(List.length(&2, Merge.Rev, g))) == True{} : Bool}
   for +ht: {Merge.subset(Merge.upto(List.length(&2, Merge.Rev, g)), b) == True{} : Bool}
   for e: {Main.walked.causal(head, file, names, g, Main.deepens(g)) == Done{w} : Result<&2, &2, String, Main.Walked>}
+  {Some{Main.walked.file(w)} == Merge.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}
+
+# The same of the whole reading: the file `cat`, `diff` and `blame` take
+# from the walk of a target's ancestry is what every causal order of the
+# graph it builds from the store reads — each revision an event, its
+# ancestors its past, what it stated about the file its statement.
+law walked_file_every_order:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +head: String
+  for +file: String
+  for +ss: List<&2, Tree.Seen>
+  for +g: List<&2, Merge.Rev>
+  for +b: List<&2, Nat>
+  for +w: Main.Walked
+  for +hs: {Tree.seen(List.length(&2, Main.Full, Main.walked.ancestry(fs, head)), Main.events_of(Main.walked.ancestry(fs, head)), Nil{}) == Done{ss} : Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>}
+  for +hg: {Main.walked.revs(Main.walked.ancestry(fs, head), Main.ids(Main.walked.ancestry(fs, head)), Main.minted_digests(Main.walked.ancestry(fs, head), file), ss, ds, file) == Done{g} : Result<&2, &2, String, List<&2, Merge.Rev>>}
+  for +hb: {Merge.distinct(b) == True{} : Bool}
+  for +hc: {Merge.causal(b, g) == True{} : Bool}
+  for +hu: {Merge.subset(b, Merge.upto(List.length(&2, Merge.Rev, g))) == True{} : Bool}
+  for +ht: {Merge.subset(Merge.upto(List.length(&2, Merge.Rev, g)), b) == True{} : Bool}
+  for e: {Main.walked.of(fs, ds, head, file) == Done{w} : Result<&2, &2, String, Main.Walked>}
   {Some{Main.walked.file(w)} == Merge.merged(g, b) : Maybe<&2, List<&2, Ops.Item>>}
