@@ -660,3 +660,12 @@ law laid_reads_child:
   for +child: List<&2, Ops.Item>
   for e: {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}
   {Main.laid.new(Main.laid(parent, doc)) == child : List<&2, Ops.Item>}
+
+# `blame <path>` prints the folder's file. Its rows are laid over the lines
+# history holds, a line that stayed keeping its author and one that arrived
+# the folder's own; whatever the folder holds, the lines of the rows are
+# the lines of its text, each once and in order.
+law blame_shows_the_folder:
+  for +rows: List<&2, Main.Row>
+  for +text: String
+  {Main.rows.items(Main.wc.overlay(rows, Ops.from_text(text))) == Ops.from_text(text) : List<&2, Ops.Item>}

@@ -13,6 +13,17 @@ import ./composition_lemmas.bend as Comp
 import ./diff_lemmas.bend as Diff
 import ./linear_lemmas.bend as Lin
 
+def mdisc(m: Maybe<&2, Ops.Doc>) -> Type:
+  match m:
+    case None{}:
+      Empty
+    case Some{d}:
+      Unit
+
+def some_none(-d: Ops.Doc, e: {Some{d} == None{} : Maybe<&2, Ops.Doc>}) -> Empty:
+  %e : {mdisc(_) : Type}
+  Unit{}
+
 def item_is_equal(x: Ops.Item, y: Ops.Item, +h: {Sim.fit.item(x, y) == True{} : Bool}) -> {x == y : Ops.Item}:
   match x y:
     case Ops.Item{+s, +n, +f} Ops.Item{+t, +m, +g}:

@@ -4078,16 +4078,41 @@ type Row is Data:
 
 # A line's origin through an edit: what stood keeps its author, what arrived
 # is this revision's, and what left is gone.
-def overlay(ls: List<&2, Laid>, origins: List<&2, Row>, +by: Maybe<&2, String>) -> List<&2, Row>:
-  match ls origins:
-    case Laid{"+", it} <> rest _:
-      Row{by, it} <> overlay(rest, origins, by)
-    case Laid{"-", it} <> rest o <> more:
-      overlay(rest, more, by)
-    case Laid{s, it} <> rest Row{b, i} <> more:
-      Row{b, it} <> overlay(rest, more, by)
-    case _ _:
+def overlay.put(plus: Bool, +by: Maybe<&2, String>, it: Ops.Item, origins: List<&2, Row>, minus: Bool, r: List<&2, Row>) -> List<&2, Row>:
+  match plus:
+    case True{}:
+      Row{by, it} <> r
+    case False{}:
+      match origins:
+        case Nil{}:
+          Nil{}
+        case Row{b, i} <> more:
+          match minus:
+            case True{}:
+              r
+            case False{}:
+              Row{b, it} <> r
+
+def overlay.tail(rs: List<&2, Row>) -> List<&2, Row>:
+  match rs:
+    case Nil{}:
       Nil{}
+    case r <> rest:
+      rest
+
+def overlay.next(plus: Bool, rs: List<&2, Row>) -> List<&2, Row>:
+  match plus:
+    case True{}:
+      rs
+    case False{}:
+      overlay.tail(rs)
+
+def overlay(ls: List<&2, Laid>, +origins: List<&2, Row>, +by: Maybe<&2, String>) -> List<&2, Row>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Laid{+s, it} <> rest:
+      overlay.put(String.eq(s, "+"), by, it, origins, String.eq(s, "-"), overlay(rest, overlay.next(String.eq(s, "+"), origins), by))
 
 def rows.items(rs: List<&2, Row>) -> List<&2, Ops.Item>:
   match rs:

@@ -1088,6 +1088,13 @@ def check_mutations(temporary):
             "laid_lemmas.old_walk",
             "main.bend",
         ),
+        (
+            "blame drops a line that stayed",
+            "              Row{b, it} <> r",
+            "              r",
+            "blame_lemmas.put_items",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
