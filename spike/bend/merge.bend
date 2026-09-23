@@ -508,6 +508,15 @@ def below(o: List<&2, Nat>, +n: Nat) -> Bool:
 def orders(+g: List<&2, Rev>, +a: List<&2, Nat>, +b: List<&2, Nat>) -> Bool:
   Bool.and(distinct(a), Bool.and(distinct(b), Bool.and(subset(a, b), Bool.and(subset(b, a), Bool.and(causal(a, g), causal(b, g))))))
 
+# Every event of `xs` had seen only events in `s`. Of `s` itself, a set
+# of events that holds the past of each: what an author can have seen.
+def closed(xs: List<&2, Nat>, +g: List<&2, Rev>, +s: List<&2, Nat>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(subset(past(g, x), s), closed(rest, g, s))
+
 # Reachable states
 # ----------------
 #

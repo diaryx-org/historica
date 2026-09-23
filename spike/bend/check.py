@@ -906,6 +906,13 @@ def check_mutations(temporary):
             "merge.bend",
         ),
         (
+            "a closed set need not hold its events' pasts",
+            "      Bool.and(subset(past(g, x), s), closed(rest, g, s))",
+            "      Bool.and(True{}, closed(rest, g, s))",
+            "view_lemmas.closed_has",
+            "merge.bend",
+        ),
+        (
             "the revision writer puts `when` before `author`",
             '++ "author " ++ author ++ "\\n" ++ "when " ++ when ++ "\\n" ++',
             '++ "when " ++ when ++ "\\n" ++ "author " ++ author ++ "\\n" ++',

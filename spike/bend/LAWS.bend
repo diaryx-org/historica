@@ -323,6 +323,23 @@ law merge_walk_invariant:
   for e: {Merge.walk(o, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, Merge.Node>>}
   {Merge.invariant(t) == True{} : Bool}
 
+# Every view keeps the invariant. An author's view is the tree restricted
+# to the events they had seen; walked after events they had not, the tree
+# holds more than the view. Restricted to any set of events that holds the
+# past of each — as what an author had seen does — a tree a walk built is
+# the tree the set's own events walk to, in the same order, so it keeps
+# the invariant too, and `insert_at_gap` applies to every event of every
+# merge, however concurrent.
+law view_keeps_invariant:
+  for +g: List<&2, Merge.Rev>
+  for +o: List<&2, Nat>
+  for +t: List<&2, Merge.Node>
+  for +s: List<&2, Nat>
+  for +d: {Merge.distinct(o) == True{} : Bool}
+  for +c: {Merge.closed(s, g, s) == True{} : Bool}
+  for e: {Merge.walk(o, g, Some{Nil{}}) == Some{t} : Maybe<&2, List<&2, Merge.Node>>}
+  {Merge.invariant(Merge.restrict(t, s)) == True{} : Bool}
+
 # An event that had seen everything before it applies its document. Walk
 # any history `p` to `f0`; an event `e` outside it that had seen every one
 # of its events, and states a document the parser would accept, walked

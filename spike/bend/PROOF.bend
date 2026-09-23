@@ -26,6 +26,7 @@ import ./anchor_lemmas.bend as AL
 import ./merge.bend as Merge
 import ./linear_lemmas.bend as Lin
 import ./walk_lemmas.bend as Walk
+import ./view_lemmas.bend as View
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -349,6 +350,9 @@ def Laws.merge_linear(docs, f, o, e):
 
 def Laws.merge_walk_invariant(g, o, t, d, e):
   Walk.walk_invariant_c(g, o, t, d, e)
+
+def Laws.view_keeps_invariant(g, o, t, s, d, c, e):
+  View.view_invariant(g, o, t, s, d, c, e)
 
 def Laws.merge_extends(g, p, e, past, d, f0, f1, hd, he, hs, hg, ho, hm, ha):
   Walk.merge_extends_c(g, p, e, past, d, f0, f1, hd, he, hs, hg, ho, hm,

@@ -269,6 +269,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `string_lemmas.bend`, `tree_lemmas.bend`, `graph_lemmas.bend` | strings compare as they are, down to the bit; what a revision leaves: one file per path, no link dangling, the kind fixed at the add, a move a drop follows; and the merge a function of each revision's parent set, not its parent order | `tree.rs`'s rules, decisions 0017 and 0040 |
 | `linear_lemmas.bend` | `merge_linear`: on one line of history, each event having seen every event before it, the merge walk reads what plain replay makes | `merge.rs`'s `linear` fast path, decision 0007 |
 | `walk_lemmas.bend` | `merge_walk_invariant`: every tree a walk builds keeps the invariant, however concurrent its events; `merge_extends`: an event that had seen everything walked before it leaves what `Ops.apply` makes of its document | `merge.rs`'s walk, decision 0007 |
+| `view_lemmas.bend` | `view_keeps_invariant`: every author's view of a walked tree — the tree restricted to a set holding the past of each of its events — keeps the invariant, since it is the tree that set alone walks to | `merge.rs`'s view, decision 0007 |
 | `anchor_lemmas.bend` | the reachable-state invariant of a view and one insertion landing at the visible gap it asked for, tombstones or not | `merge.rs`'s anchor, Fugue's rule |
 | `equality_lemmas.bend`, `decimal_lemmas.bend`, `spelling_lemmas.bend` | `write(parse(s)) == s`: equality decided down to the bits of a word, decimal numbers spelled as read, and every line the parser consumed written back | `writing_a_parsed_document_reproduces_its_bytes` |
 | `revision_lemmas.bend` | `write(parse(s)) == s` for revision documents: validation sorts the headers by rank, and sorted headers are what `write` spells | the revision round-trip tests |
@@ -778,13 +779,32 @@ chain's names fresh — every author below the event's index — became
 "every author in the set the event had seen" (`Lin.before`, `Lin.inw`),
 which is what a graph gives. An event that had seen everything walked
 then has the whole tree as its view (`restrict_id`), and `run_sim`
-applies unchanged (`event_c`). Not shown: the view of an event walked
-after events it had not seen, `restrict(t, seen)` of a tree with more in
-it — though with `merge_converges` a causal order may put the event
-right after its own past, where this theorem applies. No mutation is
+applies unchanged (`event_c`). No mutation is
 added: the breaks that would fail these laws — names that collide,
 siblings out of name order, an order that repeats an event — fail
 `merge_converges` first.
+
+Every view keeps the invariant, including an event's view walked after
+events it had not seen. `view_keeps_invariant` says: restrict a tree any
+walk built to a set of events that holds the past of each
+(`Merge.closed`, which is what an author had seen), and the invariant
+holds. The restriction is the tree the set's own events walk to, in the
+same order (`view_lemmas.bend`: `wr`), and `merge_walk_invariant` applies
+to that walk. The events outside the set leave the restriction alone
+(`restrict_apply`, from the convergence proof). An event inside it
+decides on the restriction what it decided on the whole tree, because
+restricting to a set and then to a subset of it is restricting to the
+subset (`restrict_restrict`, `actions_restrict`). Its actions commute
+with restricting (`restrict_apply_in`). That needs two facts every walked
+tree has (`wf`, `wf_apply`): its names are in order, so an element placed
+before one the restriction drops is still before all the rest
+(`restrict_attach_in`), and each removal list is in index order, for the
+same reason (`keep_ins_in`). With `insert_at_gap`, every insertion of
+every event lands where its author asked, however concurrent the merge.
+The pasts in `merge.rs`'s graph are ancestor sets and so closed; the
+model's `Rev.past` is whatever the graph says, so closure is a
+hypothesis. One mutation, a `closed` that does not check an event's
+past, is rejected at `closed_has`.
 
 One insertion lands at the gap its author asked for. `insert_at_gap`
 says: on a view with the reachable-state invariant, an element of a
@@ -813,10 +833,8 @@ with leaving tombstones out because the element followed is visible
 (`standing_splice`). The freshness `inserts` relies on — a name the view
 neither holds nor hangs anything under — is a hypothesis
 (`Merge.fresh`), as is the invariant of the view; every tree a walk
-builds has it (`merge_walk_invariant` above), and an event that had seen
-everything walked before it has the whole tree as its view, while the
-restriction of a larger tree to what an event had seen is not shown to
-keep it. What is fuel-bound stays explicit: `fits` is carried in the
+builds has it (`merge_walk_invariant` above), and so does every view
+of such a tree an author can hold (`view_keeps_invariant`). What is fuel-bound stays explicit: `fits` is carried in the
 invariant, not derived from a depth, and `leftmost`'s fuel (the element
 count) is shown enough from it (`lchain_of_fits`, `leftmost_lands`,
 `leftmost_stable`), so neither bound is assumed past what the invariant
@@ -851,7 +869,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Forty-five mutations cover the primitive helpers, lost inserts, a lost trailing
+Forty-six mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -879,7 +897,8 @@ children found among standing elements only, and a descent that follows
 standing left children only; and three revision round-trip breaks: `when`
 written before `author`, `change` allowed to repeat, and `parent` classified
 as `supersedes`; and one chain break: an event of a chain that has seen
-none of the events before it. The proof gate rejects
+none of the events before it; and one view break: a closed set that need
+not hold its events' pasts. The proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
 deletions, an insert at a deleted run's end, a second block that disagrees
