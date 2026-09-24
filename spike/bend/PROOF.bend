@@ -659,3 +659,9 @@ def Laws.record_refuses_a_dangling_link(t, looked, held, walked, ss, moves):
 
 def Laws.status_refuses_what_the_folder_holds(t, held, walked, ss):
   SurveyL.refused_ok(t, held, walked, ss)
+
+def Laws.record_states_a_kind_only_for_an_arrival(only, t, ks):
+  SurveyL.kinds_ok(only, t, ks)
+
+def Laws.record_moves_each_file_once(ms, gone):
+  SurveyL.moves_final_ok(ms, gone)
