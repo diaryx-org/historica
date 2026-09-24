@@ -1144,6 +1144,27 @@ def check_mutations(temporary):
             "blamed_lemmas.spelled_r",
             "main.bend",
         ),
+        (
+            "blame asks the kind of the spelling, not of the file",
+            '    lines_only.r(Maybe.default(&2, String, Tree.path(t, file), spelling), Tree.kind(t, file))',
+            '    lines_only.r(Maybe.default(&2, String, Tree.path(t, file), spelling), Tree.kind(t, spelling))',
+            "blamed_lemmas.pk_tree",
+            "main.bend",
+        ),
+        (
+            "blame <target> <path> ignores the span",
+            '    blame.limited.r(fs, changes(fs), rows, span)',
+            '    blame.limited.r(fs, changes(fs), rows, None{})',
+            "blamed_lemmas.recorded_printed",
+            "main.bend",
+        ),
+        (
+            "blame <path> takes bytes the position never saw for text",
+            '      wcf.sniffed.r(path, Folder.is_text(bs))',
+            '      Done{Unit{}}',
+            "blamed_lemmas.folder_kind",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

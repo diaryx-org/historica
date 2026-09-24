@@ -753,3 +753,43 @@ law blame_reads_the_position:
   for +p: Main.Position
   for e: {Main.wcf.position.r(fs, bs, sp) == Done{p} : Result<&2, &2, Main.Refused, Main.Position>}
   {Main.position.ok(fs, p) == True{} : Bool}
+
+# `blame <target> <path>` reads a revision the store holds, and a file its
+# tree holds that has lines: not a file of bytes, and not a link.
+law blame_reads_a_held_file:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +target: String
+  for +sp: String
+  for +p: Main.Picked
+  for e: {Main.blame.picked.r(fs, bs, target, sp) == Done{p} : Result<&2, &2, Main.Refused, Main.Picked>}
+  {Main.picked.ok(fs, p) == True{} : Bool}
+
+# What `blame <target> <path>` prints is the file the walk of the target's
+# ancestry reads: one line for each line of the span, in order, ending with
+# it.
+law blame_prints_the_walk:
+  for +fs: List<&2, Main.Full>
+  for +all: List<&2, Store.Doc>
+  for +id: String
+  for +file: String
+  for +span: Maybe<&2, Main.Wanted>
+  for +out: List<&2, String>
+  for e: {Main.blame.recorded.r(fs, all, id, file, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}
+  for +w: List<&2, Ops.Item>
+  for +ew: {Main.walked(Main.oldest_of(fs, Some{id}), all, id, file) == Done{w} : Result<&2, &2, String, List<&2, Ops.Item>>}
+  {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(w, 1n), span)))) == True{} : Bool}
+
+# What `blame <path>` prints is the folder's text: a file with lines, by
+# the kind the position gave it or by the recorder's reckoning, and one
+# line for each line of the span, in order, ending with it.
+law blame_prints_the_folder:
+  for +fs: List<&2, Main.Full>
+  for +path: String
+  for +k: Maybe<&2, Tree.FileKind>
+  for +bs: List<&2, U32>
+  for +rows: List<&2, Main.Row>
+  for +span: Maybe<&2, Main.Wanted>
+  for +out: List<&2, String>
+  for e: {Main.blame.folder.r(fs, path, k, bs, rows, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}
+  {Bool.and(Main.folder.has_lines(k, bs), Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Ops.from_text(Folder.lossy(bs)), 1n), span))))) == True{} : Bool}

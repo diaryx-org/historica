@@ -477,3 +477,12 @@ def Laws.blame_prints_each_line(fs, cs, rs, span, out, e):
 
 def Laws.blame_reads_the_position(fs, bs, sp, p, e):
   Blamed.position_ok(fs, bs, sp, p, e)
+
+def Laws.blame_reads_a_held_file(fs, bs, target, sp, p, e):
+  Blamed.picked_ok(fs, bs, target, sp, p, e)
+
+def Laws.blame_prints_the_walk(fs, all, id, file, span, out, e, w, ew):
+  Blamed.recorded_printed(fs, all, id, file, span, out, e, w, ew)
+
+def Laws.blame_prints_the_folder(fs, path, k, bs, rows, span, out, e):
+  Blamed.folder_printed(fs, path, k, bs, rows, span, out, e)

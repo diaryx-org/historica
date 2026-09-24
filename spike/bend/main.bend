@@ -4541,6 +4541,34 @@ def lines_only.r(+path: String, k: Maybe<&2, Tree.FileKind>) -> Result<&2, &2, R
 type Picked is Data:
   Picked{id: String, file: String}
 
+# A kind of file blame can attribute line by line: not a file of bytes, and
+# not a link.
+def kind.has_lines(k: Maybe<&2, Tree.FileKind>) -> Bool:
+  match k:
+    case None{}:
+      True{}
+    case Some{Tree.Lines{}}:
+      True{}
+    case Some{Tree.Whole{}}:
+      False{}
+    case Some{Tree.Link{}}:
+      False{}
+
+def tree.has_lines(r: Result<&2, &2, Refused, Tree.Tree()>, +file: String) -> Bool:
+  match r:
+    case Fail{e}:
+      False{}
+    case Done{+t}:
+      Bool.and(Tree.holds(t, file), kind.has_lines(Tree.kind(t, file)))
+
+# What `blame <target> <path>` reads is a revision the store holds, and a
+# file with lines that revision's tree holds. `LAWS.blame_reads_a_held_file`
+# holds `blame.picked.r` to it.
+def picked.ok(+fs: List<&2, Full>, p: Picked) -> Bool:
+  match p:
+    case Picked{+id, +file}:
+      Bool.and(Rev.member(ids(fs), id), tree.has_lines(tree.r(fs, id), file))
+
 def blame.picked.file(+t: Tree.Tree(), +spelling: String, +id: String, +file: String) -> Result<&2, &2, Refused, Picked>:
   do Result<&2, &2, Refused, Picked>:
     lines_only.r(Maybe.default(&2, String, Tree.path(t, file), spelling), Tree.kind(t, file))
@@ -4716,6 +4744,15 @@ def wcf.kind.r(+path: String, k: Maybe<&2, Tree.FileKind>, +bs: List<&2, U32>) -
       lines_only.r(path, Some{kind})
     case None{}:
       wcf.sniffed.r(path, Folder.is_text(bs))
+
+# The folder's file has lines: the kind the position gave it, or text by
+# the recorder's reckoning where the position holds nothing there.
+def folder.has_lines(k: Maybe<&2, Tree.FileKind>, +bs: List<&2, U32>) -> Bool:
+  match k:
+    case Some{kind}:
+      kind.has_lines(Some{kind})
+    case None{}:
+      Folder.is_text(bs)
 
 # The lines history holds keep the revision that wrote them; the rest are
 # the folder's own and belong to nobody yet — which is which comes from the

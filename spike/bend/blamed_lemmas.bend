@@ -15,6 +15,8 @@ import ./graph_lemmas.bend as GL
 import ./anchor_lemmas.bend as AL
 import ./target_lemmas.bend as TG
 import ./fileat_lemmas.bend as FileAt
+import ./blame_lemmas.bend as BlameL
+import ./folder.bend as Folder
 
 def rdisc(-A: Data, r: Result<&2, &2, Main.Refused, A>) -> Type:
   match r:
@@ -379,3 +381,157 @@ def pos_head(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, 
 # the file it names there is one that revision's tree holds.
 def position_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, +p: Main.Position, e: {Main.wcf.position.r(fs, bs, sp) == Done{p} : Result<&2, &2, Main.Refused, Main.Position>}) -> {Main.position.ok(fs, p) == True{} : Bool}:
   pos_head(fs, bs, sp, Main.the_head.r(fs, bs, Main.current_heads(Main.history(fs))), {==}, p, e)
+
+# The revision and file `blame <target> <path>` reads
+# ----------------------------------------------------
+
+def mdisc_f(m: Maybe<&2, Main.Full>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      Empty
+
+def some_eq_f(-a: Main.Full, -b: Main.Full, h: {Some{a} == Some{b} : Maybe<&2, Main.Full>}) -> {a == b : Main.Full}:
+  Equal.cong(Maybe<&2, Main.Full>, Main.Full, m => Maybe.default(&2, Main.Full, m, a), Some{a}, Some{b}, h)
+
+def find_at(b: Bool, +i: String, +change: String, +parents: List<&2, String>, +supersedes: List<&2, String>, +author: String, +when: String, +revised_by: Maybe<&2, String>, +revised: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, +rest: List<&2, Main.Full>, +x: String, +g: Main.Full, e: {Bool.pick(Maybe<&2, Main.Full>, b, Some{Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}}, Main.find(rest, x)) == Some{g} : Maybe<&2, Main.Full>}, ih: {Main.find(rest, x) == Some{g} : Maybe<&2, Main.Full>} -> {Rev.member(Main.ids(rest), Main.id_of(g)) == True{} : Bool}) -> {Rev.member(i <> Main.ids(rest), Main.id_of(g)) == True{} : Bool}:
+  match b:
+    case True{}:
+      +d = some_eq_f(Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}, g, e)
+      %d : {Rev.member(i <> Main.ids(rest), Main.id_of(_)) == True{} : Bool}
+      GL.member_head(i, Main.ids(rest))
+    case False{}:
+      GL.member_tail(i, Main.ids(rest), Main.id_of(g), ih(e))
+
+# What `find` finds is one of the revisions it looked through.
+def find_mem(fs: List<&2, Main.Full>, +x: String, +g: Main.Full, e: {Main.find(fs, x) == Some{g} : Maybe<&2, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(g)) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({Rev.member(Main.ids(Nil{}), Main.id_of(g)) == True{} : Bool}, (%e : {mdisc_f(_) : Type} Unit{}))
+    case Main.Full{+i, +change, +parents, +supersedes, +author, +when, +revised_by, +revised, +facts, +message} <> +rest:
+      find_at(String.eq(i, x), i, change, parents, supersedes, author, when, revised_by, revised, facts, message, rest, x, g, e, h => find_mem(rest, x, g, h))
+
+def found_mem(+fs: List<&2, Main.Full>, +id: String, m: Maybe<&2, Main.Full>, +em: {Main.find(fs, id) == m : Maybe<&2, Main.Full>}, +f: Main.Full, e: {Main.resolved.found.r(id, m) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, refuse(Main.Full, Main.resolved.found.r(id, None{}), f, {==}, e))
+    case Some{+g}:
+      +d = done_eq(Main.Full, g, f, e)
+      %d : {Rev.member(Main.ids(fs), Main.id_of(_)) == True{} : Bool}
+      find_mem(fs, id, g, em)
+
+def resolved_of_mem(+fs: List<&2, Main.Full>, r: Result<&2, &2, String, String>, +f: Main.Full, e: {Main.resolved.of.r(fs, r) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, fail_done(Main.Full, Main.Refused{1, x}, f, e))
+    case Done{+id}:
+      found_mem(fs, id, Main.find(fs, id), {==}, f, e)
+
+# A target resolves to a revision the store holds.
+def resolved_mem(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +f: Main.Full, e: {Main.resolved.r(fs, bs, target) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
+  resolved_of_mem(fs, Main.resolve(fs, bs, target), f, e)
+
+def lines_ok(+x: String, k: Maybe<&2, Tree.FileKind>, +u: Unit, e: {Main.lines_only.r(x, k) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.kind.has_lines(k) == True{} : Bool}:
+  match k:
+    case None{}:
+      {==}
+    case Some{kd}:
+      match kd:
+        case Tree.Lines{}:
+          {==}
+        case Tree.Whole{}:
+          Empty.absurd({Main.kind.has_lines(Some{Tree.Whole{}}) == True{} : Bool}, refuse(Unit, Main.lines_only.r(x, Some{Tree.Whole{}}), u, {==}, e))
+        case Tree.Link{}:
+          Empty.absurd({Main.kind.has_lines(Some{Tree.Link{}}) == True{} : Bool}, refuse(Unit, Main.lines_only.r(x, Some{Tree.Link{}}), u, {==}, e))
+
+def pk_file(+fs: List<&2, Main.Full>, +id: String, +hm: {Rev.member(Main.ids(fs), id) == True{} : Bool}, +t: Tree.Tree(), +file: String, +sp: String, +et: {Main.tree.r(fs, id) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, +hh: {Tree.holds(t, file) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Unit>, +er: {Main.lines_only.r(Maybe.default(&2, String, Tree.path(t, file), sp), Tree.kind(t, file)) == r : Result<&2, &2, Main.Refused, Unit>}, +p: Main.Picked, e: {Result.bind(&2, &2, Main.Refused, Unit, Main.Picked, r, u => Done{Main.Picked{id, file}}) == Done{p} : Result<&2, &2, Main.Refused, Main.Picked>}) -> {Main.picked.ok(fs, p) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.picked.ok(fs, p) == True{} : Bool}, fail_done(Main.Picked, x, p, e))
+    case Done{+u}:
+      +d = done_eq(Main.Picked, Main.Picked{id, file}, p, e)
+      %d : {Main.picked.ok(fs, _) == True{} : Bool}
+      +es = Equal.sym(Result<&2, &2, Main.Refused, Tree.Tree()>, Main.tree.r(fs, id), Done{t}, et)
+      %es : {Bool.and(Rev.member(Main.ids(fs), id), Main.tree.has_lines(_, file)) == True{} : Bool}
+      and_tt(Rev.member(Main.ids(fs), id), Bool.and(Tree.holds(t, file), Main.kind.has_lines(Tree.kind(t, file))), hm,
+        and_tt(Tree.holds(t, file), Main.kind.has_lines(Tree.kind(t, file)), hh, lines_ok(Maybe.default(&2, String, Tree.path(t, file), sp), Tree.kind(t, file), u, er)))
+
+def pk_tree(+fs: List<&2, Main.Full>, +id: String, +hm: {Rev.member(Main.ids(fs), id) == True{} : Bool}, +bs: List<&2, Bm.Bookmark>, +sp: String, +t: Tree.Tree(), +et: {Main.tree.r(fs, id) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, r: Result<&2, &2, Main.Refused, String>, +er: {Main.file_in.r(id, bs, sp, t) == r : Result<&2, &2, Main.Refused, String>}, +p: Main.Picked, e: {Result.bind(&2, &2, Main.Refused, String, Main.Picked, r, file => Main.blame.picked.file(t, sp, id, file)) == Done{p} : Result<&2, &2, Main.Refused, Main.Picked>}) -> {Main.picked.ok(fs, p) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.picked.ok(fs, p) == True{} : Bool}, fail_done(Main.Picked, x, p, e))
+    case Done{+file}:
+      pk_file(fs, id, hm, t, file, sp, et, FileAt.file_ok(id, bs, sp, t, file, er), Main.lines_only.r(Maybe.default(&2, String, Tree.path(t, file), sp), Tree.kind(t, file)), {==}, p, e)
+
+def pk_full(+fs: List<&2, Main.Full>, +id: String, +hm: {Rev.member(Main.ids(fs), id) == True{} : Bool}, +bs: List<&2, Bm.Bookmark>, +sp: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, +er: {Main.tree.r(fs, id) == r : Result<&2, &2, Main.Refused, Tree.Tree()>}, +p: Main.Picked, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), Main.Picked, r, t => Main.blame.picked.tree(bs, sp, id, t)) == Done{p} : Result<&2, &2, Main.Refused, Main.Picked>}) -> {Main.picked.ok(fs, p) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.picked.ok(fs, p) == True{} : Bool}, fail_done(Main.Picked, x, p, e))
+    case Done{+t}:
+      pk_tree(fs, id, hm, bs, sp, t, er, Main.file_in.r(id, bs, sp, t), {==}, p, e)
+
+def pk_r(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +sp: String, r: Result<&2, &2, Main.Refused, Main.Full>, +er: {Main.resolved.r(fs, bs, target) == r : Result<&2, &2, Main.Refused, Main.Full>}, +p: Main.Picked, e: {Result.bind(&2, &2, Main.Refused, Main.Full, Main.Picked, r, f => Main.blame.picked.full(fs, bs, sp, Main.id_of(f))) == Done{p} : Result<&2, &2, Main.Refused, Main.Picked>}) -> {Main.picked.ok(fs, p) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.picked.ok(fs, p) == True{} : Bool}, fail_done(Main.Picked, x, p, e))
+    case Done{+f}:
+      pk_full(fs, Main.id_of(f), resolved_mem(fs, bs, target, f, er), bs, sp, Main.tree.r(fs, Main.id_of(f)), {==}, p, e)
+
+# `blame <target> <path>` reads a revision the store holds, and a file
+# with lines that revision's tree holds.
+def picked_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +sp: String, +p: Main.Picked, e: {Main.blame.picked.r(fs, bs, target, sp) == Done{p} : Result<&2, &2, Main.Refused, Main.Picked>}) -> {Main.picked.ok(fs, p) == True{} : Bool}:
+  pk_r(fs, bs, target, sp, Main.resolved.r(fs, bs, target), {==}, p, e)
+
+# What `blame` prints
+# -------------------
+
+def sniff(+path: String, +bs: List<&2, U32>, b: Bool, +eb: {Folder.is_text(bs) == b : Bool}, +u: Unit, e: {Main.wcf.sniffed.r(path, b) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Folder.is_text(bs) == True{} : Bool}:
+  match b:
+    case True{}:
+      eb
+    case False{}:
+      Empty.absurd({Folder.is_text(bs) == True{} : Bool}, refuse(Unit, Main.wcf.sniffed.r(path, False{}), u, {==}, e))
+
+def folder_kind(+path: String, k: Maybe<&2, Tree.FileKind>, +bs: List<&2, U32>, +u: Unit, e: {Main.wcf.kind.r(path, k, bs) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.folder.has_lines(k, bs) == True{} : Bool}:
+  match k:
+    case Some{kd}:
+      lines_ok(path, Some{kd}, u, e)
+    case None{}:
+      sniff(path, bs, Folder.is_text(bs), {==}, u, e)
+
+def fold_ends(+rows: List<&2, Main.Row>, +bs: List<&2, U32>, +span: Maybe<&2, Main.Wanted>, +out: List<&2, String>, pl: {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Main.rows.items(Main.wc.overlay(rows, Ops.from_text(Folder.lossy(bs)))), 1n), span)))) == True{} : Bool}) -> {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Ops.from_text(Folder.lossy(bs)), 1n), span)))) == True{} : Bool}:
+  +fl = BlameL.folder_lines(rows, Folder.lossy(bs))
+  %fl : {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(_, 1n), span)))) == True{} : Bool}
+  pl
+
+def fold_bind(+fs: List<&2, Main.Full>, +path: String, +k: Maybe<&2, Tree.FileKind>, +bs: List<&2, U32>, +rows: List<&2, Main.Row>, +span: Maybe<&2, Main.Wanted>, r: Result<&2, &2, Main.Refused, Unit>, +er: {Main.wcf.kind.r(path, k, bs) == r : Result<&2, &2, Main.Refused, Unit>}, +out: List<&2, String>, e: {Result.bind(&2, &2, Main.Refused, Unit, List<&2, String>, r, u => Main.blame.limited.r(fs, Main.changes(fs), Main.wc.overlay(rows, Ops.from_text(Folder.lossy(bs))), span)) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Bool.and(Main.folder.has_lines(k, bs), Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Ops.from_text(Folder.lossy(bs)), 1n), span))))) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Bool.and(Main.folder.has_lines(k, bs), Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Ops.from_text(Folder.lossy(bs)), 1n), span))))) == True{} : Bool}, fail_done(List<&2, String>, x, out, e))
+    case Done{+u}:
+      and_tt(Main.folder.has_lines(k, bs), Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Ops.from_text(Folder.lossy(bs)), 1n), span)))), folder_kind(path, k, bs, u, er),
+        fold_ends(rows, bs, span, out, printed_lines(fs, Main.changes(fs), Main.wc.overlay(rows, Ops.from_text(Folder.lossy(bs))), span, out, e)))
+
+# `blame <path>` prints the folder's text: a file with lines, one printed
+# line for each line of the span, ending with it.
+def folder_printed(+fs: List<&2, Main.Full>, +path: String, +k: Maybe<&2, Tree.FileKind>, +bs: List<&2, U32>, +rows: List<&2, Main.Row>, +span: Maybe<&2, Main.Wanted>, +out: List<&2, String>, e: {Main.blame.folder.r(fs, path, k, bs, rows, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Bool.and(Main.folder.has_lines(k, bs), Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Ops.from_text(Folder.lossy(bs)), 1n), span))))) == True{} : Bool}:
+  fold_bind(fs, path, k, bs, rows, span, Main.wcf.kind.r(path, k, bs), {==}, out, e)
+
+def done_eq_s(-a: List<&2, Ops.Item>, -b: List<&2, Ops.Item>, h: {Done{a} == Done{b} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {a == b : List<&2, Ops.Item>}:
+  Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, List<&2, Ops.Item>, r => Result.default(&2, &2, String, List<&2, Ops.Item>, r, a), Done{a}, Done{b}, h)
+
+def rec_bind(+fs: List<&2, Main.Full>, +all: List<&2, Store.Doc>, +id: String, +file: String, +span: Maybe<&2, Main.Wanted>, r: Result<&2, &2, Main.Refused, List<&2, Main.Row>>, +er: {Main.blame.rows.r(Main.oldest_of(fs, Some{id}), all, id, file) == r : Result<&2, &2, Main.Refused, List<&2, Main.Row>>}, +out: List<&2, String>, e: {Result.bind(&2, &2, Main.Refused, List<&2, Main.Row>, List<&2, String>, r, rows => Main.blame.limited.r(fs, Main.changes(fs), rows, span)) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}, +w: List<&2, Ops.Item>, +ew: {Main.walked(Main.oldest_of(fs, Some{id}), all, id, file) == Done{w} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(w, 1n), span)))) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(w, 1n), span)))) == True{} : Bool}, fail_done(List<&2, String>, x, out, e))
+    case Done{+rs}:
+      +rw = rows_walked(Main.oldest_of(fs, Some{id}), all, id, file, rs, er)
+      +dw = done_eq_s(Main.rows.items(rs), w, Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Done{Main.rows.items(rs)}, Main.walked(Main.oldest_of(fs, Some{id}), all, id, file), Done{w}, Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Main.walked(Main.oldest_of(fs, Some{id}), all, id, file), Done{Main.rows.items(rs)}, rw), ew))
+      %dw : {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(_, 1n), span)))) == True{} : Bool}
+      printed_lines(fs, Main.changes(fs), rs, span, out, e)
+
+# `blame <target> <path>` prints the file the walk reads: one printed line
+# for each line of the span, ending with it.
+def recorded_printed(+fs: List<&2, Main.Full>, +all: List<&2, Store.Doc>, +id: String, +file: String, +span: Maybe<&2, Main.Wanted>, +out: List<&2, String>, e: {Main.blame.recorded.r(fs, all, id, file, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}, +w: List<&2, Ops.Item>, +ew: {Main.walked(Main.oldest_of(fs, Some{id}), all, id, file) == Done{w} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(w, 1n), span)))) == True{} : Bool}:
+  rec_bind(fs, all, id, file, span, Main.blame.rows.r(Main.oldest_of(fs, Some{id}), all, id, file), {==}, out, e, w, ew)
