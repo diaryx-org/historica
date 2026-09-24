@@ -42,6 +42,7 @@ import ./blamed_lemmas.bend as Blamed
 import ./diffcmd_lemmas.bend as DiffCmd
 import ./logargs_lemmas.bend as LogArgs
 import ./check_lemmas.bend as CheckL
+import ./show_lemmas.bend as ShowL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -528,3 +529,15 @@ def Laws.check_pairs_each_payload(ls, stats, h):
 
 def Laws.check_refuses_what_does_not_parse(d, rev):
   CheckL.doc_line(d, rev)
+
+def Laws.cat_reads_a_held_file(fs, bs, target, path, p, e):
+  ShowL.cat_ok(fs, bs, target, path, p, e)
+
+def Laws.show_names_a_held_file(fs, bs, id, p, file, e):
+  ShowL.file_ok(fs, bs, id, p, file, e)
+
+def Laws.show_prints_a_held_document(id, d, ds, text, e):
+  ShowL.doc_ok(id, d, ds, text, e)
+
+def Laws.show_prints_what_the_revision_states(id, file, ds, s, text, e):
+  ShowL.said_ok(id, file, ds, s, text, e)

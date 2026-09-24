@@ -925,3 +925,43 @@ law check_refuses_what_does_not_parse:
   for +d: Store.Doc
   for rev: Bool
   {Main.check.refuses(Main.check_doc.of(d, rev)) == Main.doc.fails(d, rev) : Bool}
+
+# `cat <target> <path>` reads a revision the store holds, and a file its
+# tree holds that is not a link.
+law cat_reads_a_held_file:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +target: String
+  for +path: String
+  for +p: Main.Picked
+  for e: {Main.cat.picked.r(fs, bs, target, path) == Done{p} : Result<&2, &2, Main.Refused, Main.Picked>}
+  {Main.cat.ok(fs, p) == True{} : Bool}
+
+# `show <target> <path>` names a file the target's tree holds, and what
+# `show` prints is a document the store holds under the digest named — the
+# revision's own, or the one it states for the file.
+law show_names_a_held_file:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +id: String
+  for +p: String
+  for +file: String
+  for e: {Main.show.file.r(fs, bs, id, p) == Done{file} : Result<&2, &2, Main.Refused, String>}
+  {Main.tree.holds.r(Main.tree.r(fs, id), file) == True{} : Bool}
+
+law show_prints_a_held_document:
+  for +id: String
+  for +d: String
+  for +ds: List<&2, Store.Doc>
+  for +text: String
+  for e: {Main.show.doc.r(id, d, Main.doc_by_id(ds, d)) == Done{text} : Result<&2, &2, Main.Refused, String>}
+  {Main.doc.holds(ds, d, text) == True{} : Bool}
+
+law show_prints_what_the_revision_states:
+  for +id: String
+  for +file: String
+  for +ds: List<&2, Store.Doc>
+  for s: Main.Said
+  for +text: String
+  for e: {Main.show.said.r(id, file, ds, s) == Done{text} : Result<&2, &2, Main.Refused, String>}
+  {Main.doc.holds(ds, Main.said.digest(s), text) == True{} : Bool}

@@ -1235,6 +1235,20 @@ def check_mutations(temporary):
             "check_lemmas.ops_line",
             "main.bend",
         ),
+        (
+            "show finds a document whose digest the named one starts",
+            '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, doc_by_id(rest, id))',
+            '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, doc_by_id(rest, id))',
+            "show_lemmas.by_id",
+            "main.bend",
+        ),
+        (
+            "cat prints through a link",
+            '    not_a_link.r(t, path, file, Tree.entry_target_of(Tree.lookup(t, file)))',
+            '    not_a_link.r(t, path, file, None{})',
+            "show_lemmas.ck_tree",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

@@ -259,7 +259,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | eighty-eight claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | ninety-two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -283,6 +283,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `diffcmd_lemmas.bend` | `diff_reads_its_words`: `diff` reads its arguments as their plain reading says — `--onto` and `--color` take the word after them, `--color=` spells a colour in the word, the last of each counting, and the other words are the target and the path, in order; `diff_compares_with_the_parent`, `diff_folder_compares_with_a_held_revision`: the other side is what `--onto` names, a revision the store holds, or else the target's one parent or the head; `diff_limits_to_a_held_file`, `diff_folder_limits_to_a_held_file`: a file a comparison is limited to is one the tree it was named at holds; `diff_shows_what_differs`: `diff` shows only files whose two sides differ, and under a path limit only a file at that path on one side; `diff_folder_keeps_what_the_limit_wants`, `diff_folder_shows_what_differs`: over the folder, only paths the limit wants, and of those only ones whose sides differ | `diff`'s arguments, sides and files |
 | `logargs_lemmas.bend` | `log_reads_its_words`: `log` reads its arguments as their plain reading says — the word after a flag that takes a value is its value, the last counting, `--limit`, `--since` and `--until` read as a count and bounds, `--fields` asked for if it is there, and the other word the target | `log`'s arguments |
 | `check_lemmas.bend` | `check_pairs_each_payload`: `check` reports each payload with the digest asked for it — one per payload in the listing's order, none taken by a revision or an operation document; `check_refuses_what_does_not_parse`: it calls a document refused exactly where it does not parse | `check` |
+| `show_lemmas.bend` | `cat_reads_a_held_file`: `cat <target> <path>` reads a revision the store holds and a file its tree holds that is not a link; `show_names_a_held_file`, `show_prints_a_held_document`, `show_prints_what_the_revision_states`: `show` names a file the target holds, and prints a document the store holds under the digest named — the revision's own, or the one it states for the file | `cat`, `show` |
 | `bookmark_lemmas.bend` | `bookmark_reads_back`: the file the Rust tool writes for a bookmark — the target line, and `private` where the name stays out of an export — parses back as that bookmark wherever its identifier is spelled as its kind is | `store::Bookmark` |
 | `abbrev_lemmas.bend` | `abbreviation_is_a_prefix`, `abbreviation_names_one`: the short digest `log` and every message print is a prefix of the digest, and no other digest of its length starts with it | `log`'s abbreviations |
 | `view_lemmas.bend` | `view_keeps_invariant`: every author's view of a walked tree — the tree restricted to a set holding the past of each of its events — keeps the invariant, since it is the tree that set alone walks to; `merge_intent`: an event that had seen part of a history reads, in its own view, its document applied to what it saw | `merge.rs`'s view, decision 0007 |
@@ -943,7 +944,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Seventy-eight mutations cover the primitive helpers, lost inserts, a lost trailing
+Eighty mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1001,7 +1002,8 @@ file it names; and one shown-file break: a file shown whose sides agree; and one
 folder-limit break: the folder's paths kept whatever the limit; and one
 log-argument break: `--author` read as `--grep`; and two check breaks: a
 document taking a payload's digest, and a parsed operation document called
-refused. The
+refused; and two cat-and-show breaks: a document found whose digest the
+named one begins, and a link printed through. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent

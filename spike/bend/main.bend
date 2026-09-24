@@ -2588,12 +2588,37 @@ def materialise(+t: Tree.Tree(), +at: String, target: Tree.Target) -> String:
     case Tree.Reference{+named}:
       materialise.of(at, Tree.path(t, named), "file:" ++ named)
 
-def not_a_link(+t: Tree.Tree(), +path: String, +file: String, target: Maybe<&2, Tree.Target>) -> IO(Unit):
+# The revision and the file a command reads.
+type Picked is Data:
+  Picked{id: String, file: String}
+
+def not_a_link.r(+t: Tree.Tree(), +path: String, +file: String, target: Maybe<&2, Tree.Target>) -> Result<&2, &2, Refused, Unit>:
   match target:
     case None{}:
-      IO.pure(Unit, Unit{})
+      Done{Unit{}}
     case Some{g}:
-      die(Unit, 1, "`" ++ path ++ "` is a link to `" ++ materialise(t, Maybe.default(&2, String, Tree.path(t, file), path), g) ++ "`, so there is nothing to print; what it holds is where it points")
+      Fail{Refused{1, "`" ++ path ++ "` is a link to `" ++ materialise(t, Maybe.default(&2, String, Tree.path(t, file), path), g) ++ "`, so there is nothing to print; what it holds is where it points"}}
+
+# The revision and the file `cat <target> <path>` prints.
+def cat.picked.file(+t: Tree.Tree(), +path: String, +id: String, +file: String) -> Result<&2, &2, Refused, Picked>:
+  do Result<&2, &2, Refused, Picked>:
+    not_a_link.r(t, path, file, Tree.entry_target_of(Tree.lookup(t, file)))
+    return Picked{id, file}
+
+def cat.picked.tree(+bs: List<&2, Bm.Bookmark>, +path: String, +id: String, +t: Tree.Tree()) -> Result<&2, &2, Refused, Picked>:
+  do Result<&2, &2, Refused, Picked>:
+    file : String <- file_in.r(id, bs, path, t)
+    cat.picked.file(t, path, id, file)
+
+def cat.picked.full(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, +id: String) -> Result<&2, &2, Refused, Picked>:
+  do Result<&2, &2, Refused, Picked>:
+    t : Tree.Tree() <- tree.r(fs, id)
+    cat.picked.tree(bs, path, id, t)
+
+def cat.picked.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +path: String) -> Result<&2, &2, Refused, Picked>:
+  do Result<&2, &2, Refused, Picked>:
+    f : Full <- resolved.r(fs, bs, target)
+    cat.picked.full(fs, bs, path, id_of(f))
 
 def cat.print(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> IO(Unit):
   match r:
@@ -2602,6 +2627,30 @@ def cat.print(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> IO(Unit):
     case Done{items}:
       IO.write(Ops.text(items))
 
+# What `cat <target> <path>` reads is a revision the store holds, and a
+# file its tree holds that is not a link. `LAWS.cat_reads_a_held_file` holds
+# `cat.picked.r` to it.
+def tree.cat_ok(r: Result<&2, &2, Refused, Tree.Tree()>, +file: String) -> Bool:
+  match r:
+    case Fail{e}:
+      False{}
+    case Done{+t}:
+      Bool.and(Tree.holds(t, file), Maybe.is_none(&2, Tree.Target, Tree.entry_target_of(Tree.lookup(t, file))))
+
+def cat.ok(+fs: List<&2, Full>, p: Picked) -> Bool:
+  match p:
+    case Picked{+id, +file}:
+      Bool.and(Rev.member(ids(fs), id), tree.cat_ok(tree.r(fs, id), file))
+
+def cat.fetched(+r: String, +fs: List<&2, Full>, p: Picked) -> IO(Unit):
+  match p:
+    case Picked{+id, +file}:
+      do IO<Unit>:
+        ds : List<&2, Store.Doc> <- Store.fetch(r, wanted(fs, file))
+        +ds2 : List<&2, Store.Doc> = ds
+        more : List<&2, Store.Doc> <- Store.fetch(r, kept_digests(ds2))
+        cat.print(content(fs, List.append(&2, Store.Doc, ds2, more), id, file))
+
 def cat(+target: String, +path: String) -> IO(Unit):
   do IO<Unit>:
     root : String <- Store.root()
@@ -2609,53 +2658,71 @@ def cat(+target: String, +path: String) -> IO(Unit):
     rs : List<&2, Store.Doc> <- Store.revisions(r)
     +fs : List<&2, Full> = fulls(r, rs)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
-    +bs2 : List<&2, Bm.Bookmark> = bs
-    f : Full <- resolved(fs, bs2, target)
-    +id : String = id_of(f)
-    t : Tree.Tree() <- tree(fs, id)
-    +t2 : Tree.Tree() = t
-    +path2 : String = path
-    file : String <- file_in(id, bs2, path2, t2)
-    +file2 : String = file
-    not_a_link(t2, path2, file2, Tree.entry_target_of(Tree.lookup(t2, file2)))
-    ds : List<&2, Store.Doc> <- Store.fetch(r, wanted(fs, file2))
-    +ds2 : List<&2, Store.Doc> = ds
-    more : List<&2, Store.Doc> <- Store.fetch(r, kept_digests(ds2))
-    cat.print(content(fs, List.append(&2, Store.Doc, ds2, more), id, file2))
+    p : Picked <- refused.io(Picked, cat.picked.r(fs, bs, target, path))
+    cat.fetched(r, fs, p)
 
 # show
 # ----
 
-def show.doc(+id: String, +digest: String, doc: Maybe<&2, String>) -> IO(Unit):
+def show.doc.r(+id: String, +digest: String, doc: Maybe<&2, String>) -> Result<&2, &2, Refused, String>:
   match doc:
     case None{}:
-      die(Unit, 1, String.take(id, 12n) ++ " names the content document " ++ digest ++ ", which this store does not hold yet")
+      Fail{Refused{1, String.take(id, 12n) ++ " names the content document " ++ digest ++ ", which this store does not hold yet"}}
     case Some{text}:
-      IO.write(text)
+      Done{text}
 
-def show.said(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Said) -> IO(Unit):
+def show.said.r(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Said) -> Result<&2, &2, Refused, String>:
   match s:
     case Nothing{}:
-      die(Unit, 1, String.take(id, 12n) ++ " did nothing to " ++ file)
+      Fail{Refused{1, String.take(id, 12n) ++ " did nothing to " ++ file}}
     case Whole{+d}:
-      show.doc(id, d, doc_by_id(ds, d))
+      show.doc.r(id, d, doc_by_id(ds, d))
     case Edited{+d}:
-      show.doc(id, d, doc_by_id(ds, d))
+      show.doc.r(id, d, doc_by_id(ds, d))
+
+# The file `show <target> <path>` names at the target.
+def show.file.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +p: String) -> Result<&2, &2, Refused, String>:
+  do Result<&2, &2, Refused, String>:
+    t : Tree.Tree() <- tree.r(fs, id)
+    file_in.r(id, bs, p, t)
+
+# What `show` prints is a document the store holds under the digest named:
+# the revision's own, or the one it states for the file. `LAWS.show_prints_a_held_document`
+# holds `show.doc.r` and `show.said.r` to it.
+def doc.holds(ds: List<&2, Store.Doc>, +d: String, +text: String) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case Store.Doc{p, +i, n, +t} <> rest:
+      Bool.or(Bool.and(String.starts_with(i, d), String.eq(t, text)), doc.holds(rest, d, text))
+
+def said.digest(s: Said) -> String:
+  match s:
+    case Whole{d}:
+      d
+    case Edited{d}:
+      d
+    case Nothing{}:
+      SNil{}
+
+def show.write(r: Result<&2, &2, Refused, String>) -> IO(Unit):
+  do IO<Unit>:
+    text : String <- refused.io(String, r)
+    IO.write(text)
 
 def show.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +root: String, +f: Full, path: Maybe<&2, String>) -> IO(Unit):
   match path:
     case None{}:
       do IO<Unit>:
         ds : List<&2, Store.Doc> <- Store.fetch(root, [id_of(f)])
-        show.doc(id_of(f), id_of(f), doc_by_id(ds, id_of(f)))
+        show.write(show.doc.r(id_of(f), id_of(f), doc_by_id(ds, id_of(f))))
     case Some{+p}:
       do IO<Unit>:
-        t : Tree.Tree() <- tree(fs, id_of(f))
-        file : String <- file_in(id_of(f), bs, p, t)
+        file : String <- refused.io(String, show.file.r(fs, bs, id_of(f), p))
         +file2 : String = file
         +s : Said = said(facts_of(f), file2)
         ds : List<&2, Store.Doc> <- Store.fetch(root, said_digests(s))
-        show.said(id_of(f), file2, ds, s)
+        show.write(show.said.r(id_of(f), file2, ds, s))
 
 def show(+target: String, path: Maybe<&2, String>) -> IO(Unit):
   do IO<Unit>:
@@ -5030,10 +5097,6 @@ def lines_only.r(+path: String, k: Maybe<&2, Tree.FileKind>) -> Result<&2, &2, R
       Fail{Refused{1, path ++ " is a link: what it holds is where it points, which the revision that stated it is the whole of the answer for"}}
     case _:
       Done{Unit{}}
-
-# The revision and the file `blame <target> <path>` reads.
-type Picked is Data:
-  Picked{id: String, file: String}
 
 # A kind of file blame can attribute line by line: not a file of bytes, and
 # not a link.
