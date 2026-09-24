@@ -221,11 +221,11 @@ def stated.ok(s: Folder.Stated) -> Bool:
     case _:
       True{}
 
-def texts.rules(ts: List<&2, String>) -> Bool:
+def texts.rules(ts: List<&2, T.Split>) -> Bool:
   match ts:
     case Nil{}:
       True{}
-    case t <> rest:
+    case T.Split{p, t} <> rest:
       Bool.and(stated.ok(Folder.rule_in(t)), texts.rules(rest))
 
 def tree.ok(r: Result<&2, &2, Main.Refused, Tree.Tree()>) -> Bool:
@@ -255,7 +255,7 @@ def fulls(ds: List<&2, Store.Doc>) -> List<&2, Main.Full>:
 # its digest, in the walk's order; and the text of every bookmark file and
 # every rule file.
 type Stored is Data:
-  Stored{docs: List<&2, Store.Doc>, revs: List<&2, T.Split>, bodies: List<&2, Body>, payloads: List<&2, T.Split>, names: List<&2, String>, rules: List<&2, String>}
+  Stored{docs: List<&2, Store.Doc>, revs: List<&2, T.Split>, odocs: List<&2, Store.Doc>, bodies: List<&2, Body>, payloads: List<&2, T.Split>, names: List<&2, String>, rules: List<&2, T.Split>}
 
 # Whether the Rust tool's `check` would pass this store, as far as the port
 # reads it: every revision and every document parses, no file's name lies
@@ -263,7 +263,7 @@ type Stored is Data:
 # a tree.
 def sound(s: Stored) -> Bool:
   match s:
-    case Stored{+docs, +revs, +bs, +ps, +names, +rules}:
+    case Stored{+docs, +revs, od, +bs, +ps, +names, +rules}:
       +fs = Arrange.distinct(fulls(Arrange.revision_docs(docs)))
       Bool.and(Bool.and(Bool.and(Arrange.all_parse(Arrange.revision_docs(docs)), revs.sound(revs)), Bool.and(bodies.sound(bs), revs.sound(ps))),
         Bool.and(Bool.and(texts.bookmarks(names), texts.rules(rules)), heads.sound(Rev.heads(Main.history(fs)), fs)))
@@ -478,6 +478,16 @@ def named.path(n: Main.Named) -> String:
     case Main.Named{name, path}:
       path
 
+def read_splits(+r: String, ps: List<&2, String>) -> IO(List<&2, T.Split>):
+  match ps:
+    case Nil{}:
+      IO.pure(List<&2, T.Split>, Nil{})
+    case +p <> rest:
+      do IO<List<&2, T.Split>>:
+        t : String <- Store.read_text(r ++ "/" ++ p)
+        ts : List<&2, T.Split> <- read_splits(r, rest)
+        return T.Split{p, t} <> ts
+
 def read_texts(+r: String, ps: List<&2, String>) -> IO(List<&2, String>):
   match ps:
     case Nil{}:
@@ -514,12 +524,13 @@ def read(+r: String) -> IO(Stored):
     nps : List<&2, String> <- Store.name_paths(r)
     names : List<&2, String> <- read_texts(r, T.map(~Main.Named, ~String, ~(n => named.path(n)), Main.named(nps)))
     sps : List<&2, String> <- Store.skipped_paths(r)
-    rules : List<&2, String> <- read_texts(r, Folder.rules.kept(sps))
-    return Stored{rs2, splits.walked(Arrange.rev.digests(r, rs2)), List.sort(~Body, ~(a => b => body_le(a, b)), bodies(r, ods)), splits.walked(Arrange.zip.stats(pay, stats)), names, rules}
+    rules : List<&2, T.Split> <- read_splits(r, Arrange.walked(Folder.rules.kept(sps)))
+    +ods2 : List<&2, Store.Doc> = ods
+    return Stored{rs2, splits.walked(Arrange.rev.digests(r, rs2)), ods2, List.sort(~Body, ~(a => b => body_le(a, b)), bodies(r, ods2)), splits.walked(Arrange.zip.stats(pay, stats)), names, rules}
 
 def stored.plan(s: Stored) -> Pruned:
   match s:
-    case Stored{docs, +revs, +bs, +ps, names, rules}:
+    case Stored{docs, +revs, od, +bs, +ps, names, rules}:
       plan(Arrange.distinct(fulls(Arrange.revision_docs(docs))), revs, bs, ps)
 
 # The refusal a store `check` would call broken gets.
