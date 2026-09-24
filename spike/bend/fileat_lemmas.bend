@@ -2,7 +2,7 @@
 # path, `file:` and a file bookmark, or `file:` and an identifier's prefix:
 # whichever an argument is read as, the file it names is one the tree holds.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./tree.bend as Tree
 import ./revision.bend as Rev
 import ./bookmark.bend as Bm

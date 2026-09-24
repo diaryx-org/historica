@@ -3,7 +3,7 @@
 import Base
 import ./ops.bend as Ops
 import ./merge.bend as Merge
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./store.bend as Store
 import ./string_lemmas.bend as S
 import ./diff_lemmas.bend as Diff

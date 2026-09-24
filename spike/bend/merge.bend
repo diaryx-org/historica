@@ -14,7 +14,7 @@
 # events that had not seen each other commute.
 #
 # Positions are unary, the tree is a flat list, and the reading carries
-# fuel: made to be proven about, and still the merge `main.bend` walks
+# fuel: made to be proven about, and still the merge `commands.bend` walks
 # where a merge states no resolution.
 
 import Base

@@ -5,7 +5,7 @@
 # the parent to the child.
 import Base
 import ./ops.bend as Ops
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./laid_lemmas.bend as LaidL
 import ./position_lemmas.bend as Pos
 import ./composition_lemmas.bend as Comp

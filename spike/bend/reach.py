@@ -131,7 +131,7 @@ def main():
     lawful = closure(roots, defs, parent)
 
     if "--why" in sys.argv:
-        # How a law reaches a def: `--why main.names`.
+        # How a law reaches a def: `--why commands.names`.
         module, _, name = sys.argv[sys.argv.index("--why") + 1].partition(".")
         key = (module, name)
         if key not in lawful:

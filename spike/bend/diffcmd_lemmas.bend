@@ -2,7 +2,7 @@
 # `--color` take the word after them, `--color=` spells a colour in the word,
 # the last of each counting, and every other word is the target or the path.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./text.bend as T
 import ./bookmark.bend as Bm
 import ./string_lemmas.bend as S

@@ -10,7 +10,7 @@ import ./tree.bend as T
 import ./text.bend as Tx
 import ./bookmark.bend as Bm
 import ./ident.bend as Id
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./string_lemmas.bend as S
 import ./graph_lemmas.bend as GL
 import ./composition_lemmas.bend as Comp

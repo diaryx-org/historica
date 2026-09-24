@@ -4,7 +4,7 @@
 # `--onto` and each `--merge` resolve to, and the head where it is taken,
 # sorted and each once.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./sort_lemmas.bend as SortL
 import ./blamed_lemmas.bend as B
 import ./revision.bend as Rev

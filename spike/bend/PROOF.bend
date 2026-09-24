@@ -52,7 +52,7 @@ import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./survey.bend as Sv
 import ./store.bend as Store
-import ./main.bend as Main
+import ./commands.bend as Main
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.

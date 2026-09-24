@@ -6,7 +6,7 @@
 import Base
 import ./ops.bend as Ops
 import ./cursor_spec.bend as Cursor
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./similar.bend as Sim
 import ./composition_lemmas.bend as Comp
 import ./string_lemmas.bend as S
