@@ -106,6 +106,18 @@ fn a_documents_id_is_the_digest_of_its_file() {
 fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
     vec![
         (
+            "invalid/overlapping-delete-after-replacement.ops.txt",
+            ParseErrorKind::OverlappingOperations { position: 1 },
+        ),
+        (
+            "invalid/overlapping-insert-after-replacement.ops.txt",
+            ParseErrorKind::OverlappingOperations { position: 1 },
+        ),
+        (
+            "invalid/adjacent-deletes-after-replacement.ops.txt",
+            ParseErrorKind::AdjacentDeletes { at: 0, total: 3 },
+        ),
+        (
             "invalid/adjacent-deletes.ops.txt",
             ParseErrorKind::AdjacentDeletes { at: 0, total: 3 },
         ),
@@ -189,6 +201,10 @@ fn expected_failures() -> Vec<(&'static str, ParseErrorKind)> {
             ParseErrorKind::UnknownOperation {
                 found: "replace 3 1".to_owned(),
             },
+        ),
+        (
+            "invalid/unterminated-marker.ops.txt",
+            ParseErrorKind::UnterminatedLine,
         ),
     ]
 }

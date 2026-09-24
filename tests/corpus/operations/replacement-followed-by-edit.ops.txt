@@ -1,0 +1,11 @@
+historica
+
+delete 0 2
+-a
+-b
+insert 0
++x
+insert 2
++y
+delete 3 1
+-d
