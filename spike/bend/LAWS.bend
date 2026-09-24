@@ -701,3 +701,17 @@ law abbreviation_names_one:
   for +ne: {String.eq(other, id) == False{} : Bool}
   for len: {String.length(other) == String.length(id) : Nat}
   {String.starts_with(other, Main.abbreviate(id, among)) == False{} : Bool}
+
+# `blame <target> <path>` attributes the file the walk reads. Its rows are
+# what the walk of the target's ancestry leaves standing, each with the
+# revision that wrote it; read without their authors, they are the file
+# `walked` reads — the one every causal order of the graph reads, by
+# `walked_file_every_order`.
+law blame_reads_the_walk:
+  for +oldest: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +file: String
+  for +rs: List<&2, Main.Row>
+  for e: {Main.blame.rows.r(oldest, ds, id, file) == Done{rs} : Result<&2, &2, Main.Refused, List<&2, Main.Row>>}
+  {Main.walked(oldest, ds, id, file) == Done{Main.rows.items(rs)} : Result<&2, &2, String, List<&2, Ops.Item>>}

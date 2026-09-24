@@ -1116,6 +1116,13 @@ def check_mutations(temporary):
             "abbrev_lemmas.unique",
             "main.bend",
         ),
+        (
+            "blame attributes the removed lines too",
+            '      walked.rows(Merge.visible(t), names)',
+            '      walked.rows(Merge.order(t), names)',
+            "blamed_lemmas.origins_file",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

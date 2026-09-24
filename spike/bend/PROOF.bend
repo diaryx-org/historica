@@ -38,6 +38,7 @@ import ./laid_lemmas.bend as LaidL
 import ./blame_lemmas.bend as BlameL
 import ./bookmark_lemmas.bend as BmL
 import ./abbrev_lemmas.bend as Abbrev
+import ./blamed_lemmas.bend as Blamed
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -464,3 +465,6 @@ def Laws.abbreviation_is_a_prefix(id, among):
 
 def Laws.abbreviation_names_one(id, among, other, m, ne, len):
   Abbrev.unique(id, among, other, m, ne, len)
+
+def Laws.blame_reads_the_walk(oldest, ds, id, file, rs, e):
+  Blamed.rows_walked(oldest, ds, id, file, rs, e)
