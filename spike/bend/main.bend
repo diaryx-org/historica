@@ -1619,6 +1619,33 @@ def check_doc.of(+d: Store.Doc, is_rev: Bool) -> String:
     case False{}:
       check_ops.of(Store.id_of(d), Ops.parse(Store.text_of(d)))
 
+# `check` calls a document refused exactly where it does not parse, as a
+# revision or as an operation document. `LAWS.check_refuses_what_does_not_parse`
+# holds `check_doc.of` to it.
+def check.refuses(+line: String) -> Bool:
+  String.starts_with(line, "refused ")
+
+def rev.fails(r: Result<&2, &2, String, Rev.Rev>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{x}:
+      False{}
+
+def ops.fails(r: Result<&2, &2, String, Ops.Doc>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{x}:
+      False{}
+
+def doc.fails(+d: Store.Doc, rev: Bool) -> Bool:
+  match rev:
+    case True{}:
+      rev.fails(Rev.parse(Store.text_of(d)))
+    case False{}:
+      ops.fails(Ops.parse(Store.text_of(d)))
+
 # A payload has no grammar: what `check` says about one is the digest of its
 # bytes and how many there are, which is what `Store.digests` answers. Its
 # bytes are the only thing in a store no reader here parses, and the only

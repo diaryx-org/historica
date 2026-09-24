@@ -5,6 +5,8 @@ import Base
 import ./main.bend as Main
 import ./text.bend as T
 import ./revision.bend as Rev
+import ./ops.bend as Ops
+import ./store.bend as Store
 
 def ndisc(n: Nat) -> Type:
   match n:
@@ -45,3 +47,30 @@ def pairs_ok(ls: List<&2, String>, stats: List<&2, String>, h: {List.length(&2, 
       {==}
     case +l <> +rest:
       att_step(Bool.or(String.starts_with(l, "revisions/"), String.ends_with(l, ".ops.txt")), l, String.starts_with(l, "revisions/"), rest, stats, h, st => hs => pairs_ok(rest, st, hs))
+
+# Refusals
+# --------
+
+def rev_line(+id: String, r: Result<&2, &2, String, Rev.Rev>) -> {Main.check.refuses(Main.check_rev(id, r)) == Main.rev.fails(r) : Bool}:
+  match r:
+    case Fail{e}:
+      {==}
+    case Done{x}:
+      {==}
+
+def ops_line(+id: String, r: Result<&2, &2, String, Ops.Doc>) -> {Main.check.refuses(Main.check_ops.of(id, r)) == Main.ops.fails(r) : Bool}:
+  match r:
+    case Fail{e}:
+      {==}
+    case Done{x}:
+      match x:
+        case Ops.Doc{f, res, ops}:
+          {==}
+
+# `check` calls a document refused exactly where it does not parse.
+def doc_line(+d: Store.Doc, rev: Bool) -> {Main.check.refuses(Main.check_doc.of(d, rev)) == Main.doc.fails(d, rev) : Bool}:
+  match rev:
+    case True{}:
+      rev_line(Store.id_of(d), Rev.parse(Store.text_of(d)))
+    case False{}:
+      ops_line(Store.id_of(d), Ops.parse(Store.text_of(d)))

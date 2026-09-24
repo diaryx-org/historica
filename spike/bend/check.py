@@ -1228,6 +1228,13 @@ def check_mutations(temporary):
             "check_lemmas.att_step",
             "main.bend",
         ),
+        (
+            "check calls a parsed operation document refused",
+            '      "edit     " ++ String.take(id, 12n)',
+            '      "refused  " ++ String.take(id, 12n)',
+            "check_lemmas.ops_line",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

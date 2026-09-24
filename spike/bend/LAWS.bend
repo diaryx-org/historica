@@ -918,3 +918,10 @@ law check_pairs_each_payload:
   for stats: List<&2, String>
   for h: {List.length(&2, String, stats) == List.length(&2, String, Main.payloads(ls)) : Nat}
   {Main.payload.pairs(Main.attach(Main.filed(ls), stats)) == Main.zip.pairs(Main.payloads(ls), stats) : List<&2, T.Split>}
+
+# `check` calls a document refused exactly where it does not parse, as a
+# revision under `revisions/` and as an operation document elsewhere.
+law check_refuses_what_does_not_parse:
+  for +d: Store.Doc
+  for rev: Bool
+  {Main.check.refuses(Main.check_doc.of(d, rev)) == Main.doc.fails(d, rev) : Bool}

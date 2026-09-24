@@ -525,3 +525,6 @@ def Laws.log_reads_its_words(args, a, e):
 
 def Laws.check_pairs_each_payload(ls, stats, h):
   CheckL.pairs_ok(ls, stats, h)
+
+def Laws.check_refuses_what_does_not_parse(d, rev):
+  CheckL.doc_line(d, rev)
