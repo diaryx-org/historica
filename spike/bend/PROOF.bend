@@ -704,3 +704,6 @@ def Laws.record_refuses_only_what_it_looks_at(only, t, t0, found, walked, held, 
 
 def Laws.a_summary_fits_its_limit(message, change):
   NamingL.summary_fits(message, change)
+
+def Laws.a_summary_gives_up_its_ends(message, change, hc):
+  NamingL.summary_trimmed(message, change, hc)
