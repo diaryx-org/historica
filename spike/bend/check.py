@@ -8,6 +8,9 @@ those named, for iterating on one: store, corpora, similar, proof, mutations.
 The corpora and the store commands run on the JS build alone unless given
 `--native`, which builds and runs each natively as well: emitting and
 compiling `main.bend`'s C takes minutes the JS build does not.
+
+`--stores=a,b` holds only the stores named to the Rust tool, and leaves the
+corpus of `opdiff` fixtures out, for iterating on one command's store.
 """
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -38,6 +41,7 @@ BEND = str(Path(BEND).resolve())
 # the machine holds only slows every one, until the proofs run into timeouts.
 SLOTS = threading.BoundedSemaphore(max(1, (os.cpu_count() or 2) // 2))
 NATIVE = "--native" in sys.argv[1:]
+ONLY = next((a.split("=", 1)[1].split(",") for a in sys.argv[1:] if a.startswith("--stores=")), None)
 
 
 def run(*args, cwd=ROOT, timeout=120):
@@ -110,7 +114,7 @@ def main():
         "mutations": check_mutations,
         "reach": check_reach,
     }
-    asked = [a for a in sys.argv[1:] if a != "--native"] or list(stages)
+    asked = [a for a in sys.argv[1:] if a != "--native" and not a.startswith("--stores=")] or list(stages)
     unknown = [name for name in asked if name not in stages]
     if unknown:
         raise SystemExit(f"unknown stage {', '.join(unknown)}; the stages are {', '.join(stages)}")
@@ -1335,7 +1339,8 @@ def check_store(temporary):
         return lines, failures
 
     results = parallel(
-        [lambda c=corpus, cs=commands: compare(c, cs) for corpus, commands in STORES.items()] + [pinned]
+        [lambda c=corpus, cs=commands: compare(c, cs) for corpus, commands in STORES.items() if ONLY is None or corpus in ONLY]
+        + ([pinned] if ONLY is None else [])
     )
     for lines, _ in results:
         print("\n".join(lines), flush=True)
