@@ -16,6 +16,7 @@ import ./anchor_lemmas.bend as AL
 import ./string_lemmas.bend as S
 import ./composition_lemmas.bend as Comp
 import ./sort_lemmas.bend as SortL
+import ./pair_lemmas.bend as PairL
 
 # The walk's refusals
 # -------------------
@@ -1189,3 +1190,24 @@ def renames_good(+os: List<&2, Sv.Obs>) -> {Sv.renames_ok(Sv.departed(os), Sv.ar
   map_good(List.sort(~Sv.Rename, ~(a => b => Sv.rename_le(a, b)), Sv.renames.go(Sv.departed(os), Sv.departed(os), Sv.arrived(os))), Sv.departed(os), Sv.arrived(os),
     SortL.all_sort_at(~Sv.Rename, ~(a => b => Sv.rename_le(a, b)), ~RCtx, ~rename_good, RCtx{Sv.departed(os), Sv.departed(os), Sv.arrived(os)}, Sv.renames.go(Sv.departed(os), Sv.departed(os), Sv.arrived(os)),
       go_good(Sv.departed(os), Sv.departed(os), Sv.arrived(os), departed_full(os))))
+
+# The position `record` plans from
+# --------------------------------
+
+def order_same(t: Tree.Tree(), +k: String) -> {Sv.file_order.from(t, k) == SortL.sorted.from(~Tree.Entry, ~Tree.entry_file, t, k) : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      Equal.cong(Bool, Bool, x => Bool.and(String.is_le(k, Tree.entry_file(e)), x), Sv.file_order.from(rest, Tree.entry_file(e)), SortL.sorted.from(~Tree.Entry, ~Tree.entry_file, rest, Tree.entry_file(e)), order_same(rest, Tree.entry_file(e)))
+
+def by_file_ordered(+t: Tree.Tree()) -> {Sv.in_file_order(Sv.by_file(t)) == True{} : Bool}:
+  Equal.trans(Bool, Sv.file_order.from(Sv.by_file(t), SNil{}), SortL.sorted.from(~Tree.Entry, ~Tree.entry_file, Sv.by_file(t), SNil{}), True{},
+    order_same(Sv.by_file(t), SNil{}), SortL.sort_sorted(~Tree.Entry, ~Tree.entry_file, t))
+
+def by_file_keeps(+t: Tree.Tree(), +f: String) -> {Main.entries.at(f, Sv.by_file(t)) == Main.entries.at(f, t) : Tree.Tree()}:
+  Equal.trans(Tree.Tree(), Main.entries.at(f, Sv.by_file(t)), SortL.keyed(~Tree.Entry, ~Tree.entry_file, f, Sv.by_file(t)), Main.entries.at(f, t),
+    PairL.kd_at(f, Sv.by_file(t)),
+    Equal.trans(Tree.Tree(), SortL.keyed(~Tree.Entry, ~Tree.entry_file, f, Sv.by_file(t)), SortL.keyed(~Tree.Entry, ~Tree.entry_file, f, t), Main.entries.at(f, t),
+      SortL.sort_keyed(~Tree.Entry, ~Tree.entry_file, t, f),
+      Equal.sym(Tree.Tree(), Main.entries.at(f, t), SortL.keyed(~Tree.Entry, ~Tree.entry_file, f, t), PairL.kd_at(f, t))))

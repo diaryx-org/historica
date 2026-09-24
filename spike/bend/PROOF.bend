@@ -710,3 +710,9 @@ def Laws.a_summary_gives_up_its_ends(message, change, hc):
 
 def Laws.status_offers_a_rename_the_bytes_make(t, held, walked, ss):
   SurveyL.renames_good(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held)))
+
+def Laws.record_plans_in_file_order(t):
+  SurveyL.by_file_ordered(t)
+
+def Laws.record_plans_every_file(t, f):
+  SurveyL.by_file_keeps(t, f)
