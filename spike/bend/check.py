@@ -243,7 +243,8 @@ def check_similar(temporary):
 # message, since the Rust tool prints its whole usage after it. `record`
 # and `name` run each tool on a copy of the store of its own, and what the
 # folder and `names/` hold after is compared too: `--move` renames before
-# anything is read, and `name` writes and deletes bookmarks.
+# anything is read, and `name` writes and deletes bookmarks — or, for
+# `init`, the whole of what is there.
 STORES = {
     "tree": [
         ["log"],
@@ -496,6 +497,22 @@ STORES = {
         ["record", "-n", "--bytes", "a", "--lines", "b", "--bytes", "b"],
         ["record", "-n", "-m", "a message", "--message", "another"],
     ],
+    # `init`, where there is nothing yet: here, in a directory named — `.`,
+    # nothing, nested, with a slash — made with its parents; refused beside a
+    # second argument, and where a store is already. And every command that
+    # needs a store, finding none.
+    "bare": [
+        ["init"],
+        ["init", "."],
+        ["init", ""],
+        ["init", "sub"],
+        ["init", "sub/deeper/"],
+        ["init", "sub/./deeper/.."],
+        ["init", "a", "b"],
+        ["status"],
+        ["name", "x", "head"],
+        ["record", "-n"],
+    ],
     # A rule file stating two rules: the store will not open.
     "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"]],
     # Nothing recorded yet: every file is the folder's own.
@@ -506,6 +523,9 @@ STORES = {
         ["record", "-n", "--move", "a.md=c.md"],
         ["name", "x", "head"],
         ["name", "--fields", "x", "head"],
+        ["init"],
+        ["init", "."],
+        ["init", "history"],
     ],
     # A file recorded as lines that is no longer text.
     "notext": [["diff"], ["diff", "kept.md"], ["blame", "notes.md"], ["status"], ["record", "-n"], ["record", "-n", "kept.md"]],
@@ -666,6 +686,12 @@ def record(temporary, rust, corpus):
         subprocess.run([rust, *command], cwd=store, env=env, check=True, capture_output=True, timeout=120)
 
     store.mkdir(parents=True)
+    if corpus == "bare":
+        # No store at all: a folder with a file in it, and a file where a
+        # directory would have to be made.
+        (store / "notes.md").write_text("notes\n")
+        (store / "taken").write_text("a file\n")
+        return store
     historica("init", ".")
     historica("identity", "Check <check@example.com>")
     if corpus == "unicode":
@@ -969,18 +995,20 @@ def check_store(temporary):
     native = temporary / "main"
     script = temporary / "main.js"
 
+    # Emitting `main.bend` takes about a minute alone, and many times that
+    # beside the mutation stage's checkers, so the builds are given long.
     def build_native():
         run("cargo", "build", "-q", "--release", cwd=ROOT / "ffi", timeout=600)
-        run(BEND, "main.bend", "-o", str(source), timeout=600)
+        run(BEND, "main.bend", "-o", str(source), timeout=1800)
         # `bend -o` links nothing of ours, so the C is compiled here; `-w`
         # because the generated program is not ours to lint.
         run(
             os.environ.get("CC", "cc"), "-O3", "-w", "-o", str(native), str(source),
-            str(archive), "-lm", "-lpthread", timeout=900,
+            str(archive), "-lm", "-lpthread", timeout=1800,
         )
 
     tools = [("js", ["bun", str(script)])]
-    builds = [lambda: run(BEND, "main.bend", "-o", str(script), timeout=600)]
+    builds = [lambda: run(BEND, "main.bend", "-o", str(script), timeout=1800)]
     if NATIVE:
         tools.insert(0, ("native", [str(native)]))
         builds.append(build_native)
@@ -995,14 +1023,14 @@ def check_store(temporary):
         subprocess.run(["cp", "-a", str(store), str(copy)], check=True)
         return copy
 
-    # The folder beside the store, and the store's bookmarks, as a walk that
-    # follows nothing sees them.
-    def folder_of(root):
+    # The folder beside the store, and the store's bookmarks — or, for
+    # `init`, everything — as a walk that follows nothing sees them.
+    def folder_of(root, whole=False):
         seen = []
-        walks = itertools.chain(os.walk(root), os.walk(root / "history" / "names"))
+        walks = os.walk(root) if whole else itertools.chain(os.walk(root), os.walk(root / "history" / "names"))
         for directory, dirs, files in walks:
             here = Path(directory)
-            if here == root:
+            if here == root and not whole:
                 dirs[:] = [d for d in dirs if d != "history"]
             dirs.sort()
             for name in sorted(dirs + files):
@@ -1025,20 +1053,21 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare")
         store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
             # `record` may write the folder — `--move` renames before it
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too.
-            writes = command[0] in ("record", "name")
+            writes = command[0] in ("record", "name", "init")
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store
-            expected = said(capture(rust, *command, cwd=copy)) + (folder_of(copy) if writes else ())
+            whole = command[0] == "init"
+            expected = said(capture(rust, *command, cwd=copy)) + (folder_of(copy, whole) if writes else ())
             for name, tool in tools:
                 copy = fresh(store, at) if writes else store
-                got = said(capture(*tool, *command, cwd=copy)) + (folder_of(copy) if writes else ())
+                got = said(capture(*tool, *command, cwd=copy)) + (folder_of(copy, whole) if writes else ())
                 if got != expected:
                     failures += 1
                     lines += [f"DIFF {corpus} {name}: {' '.join(command)}", f"  rust: {expected}", f"  bend: {got}"]

@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write` and `Store.remove`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real` and `Store.mkdirs`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -36,7 +36,10 @@ nothing else, so an archive cannot be linked that way: emit C with `-o x.c`
 and link by hand. Bend 2.0.25 emits some 3.5 MB of C for `main.bend` in
 about half a minute, which `cc -O3` compiles in ten seconds or so;
 `check.py` allows minutes for both. (2.0.20 emitted 60 MB and clang took
-the minutes instead.)
+the minutes instead.) With `record --dry-run`, `name` and `init` in it, and
+under 2.0.27, it is some 9.7 MB in about a minute — a megabyte of it the
+notes `init` writes, since a string is a list — and beside the mutation
+stage's checkers it can take ten, so `check.py` allows half an hour.
 
 An effect answers a question and decides nothing. `Store.locate` says where
 the store is, `Store.list` what paths it holds, `Store.at` where the bytes
@@ -69,7 +72,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The nine effects here are one-shot — a string in, a string out, nothing
+The eleven effects here are one-shot — a string in, a string out, nothing
 held between calls — which avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
 Do not represent ownership merely by a freely copyable numeric pointer.
@@ -120,6 +123,13 @@ to and not including `names/`. Which file, and what goes in it, is the
 Bend side's, and so is every refusal: a name that would leave `names/` is
 refused before either is asked.
 
+`init` reads nothing of a store — there is none yet. It asks `Store.real`
+for the current directory, and whether `historica.txt` is already where
+the store would go (a path that is not there has no real path); makes the
+directories with `Store.mkdirs`; writes the four notes through
+`Store.write`; and asks `Store.real` once more where the store really is,
+to say so.
+
 Those two delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and
 the folder is the store's size again, all of which would have to be read into
@@ -131,7 +141,11 @@ hashed in `sha256.bend`, which is what the laws and `corpus_*.bend` check,
 and `Store.at`'s answer is still verified against it.
 
 The `.js` twin of an effect also needs an implementation, or a clear
-unsupported-backend error. A native-only adapter must not silently change the
+unsupported-backend error. It fails through a `hist_fail` of its own
+rather than the runtime's `io_fail`, which keeps only the code and says
+the system's words for it — a refusal like "no `history` directory here
+or above …" would otherwise reach a person as "No such file or
+directory". A native-only adapter must not silently change the
 behavior of `bend main.bend` or of the JavaScript tests.
 
 ## What the proofs cover
