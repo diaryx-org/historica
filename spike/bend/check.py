@@ -253,7 +253,14 @@ PINS = {
     "HISTORICA_AUTHOR": "Check <check@example.com>",
     "HISTORICA_PINNED_NOW": "2026-03-04T09:10:11+02:00",
     "HISTORICA_PINNED_SEED": "check.py",
+    # No editor: a command wanting a message it was not given refuses the
+    # same way on every machine, whatever this one's environment says.
+    "VISUAL": "",
+    "EDITOR": "",
 }
+
+# The commands that supersede, which write the store as `record` does.
+REWRITES = ("amend", "abandon", "carry")
 
 STORES = {
     "tree": [
@@ -535,6 +542,91 @@ STORES = {
         [{"HISTORICA_AUTHOR": " Spaced <s@example.com>"}, "record", "-m", "who"],
         [{"HISTORICA_AUTHOR": " Spaced <s@example.com>"}, "record", "-m", "who", "--fields"],
         ["record", "-m", "not here", "nope.md"],
+    ],
+    # Rewriting, written: `abandon`, `amend` and `carry` against the pinned
+    # build, every byte they file compared. A run abandoned and one revision
+    # alone; a reword above a stack, and an amendment the folder speaks for;
+    # a move onto another line, restating what the rewrite moved beneath it,
+    # and each refusal in the order the Rust tool meets it.
+    "rewriting": [
+        ["abandon"],
+        ["abandon", "a", "b"],
+        ["abandon", "--bogus"],
+        ["abandon", "-m"],
+        ["abandon", "-n", "--fields", "top"],
+        ["abandon", "nope"],
+        ["abandon", "-n", "top"],
+        ["abandon", "-n", "base"],
+        ["abandon", "-n", "tip"],
+        ["abandon", "-n", "base", "--only"],
+        ["abandon", "-n", "top", "--only"],
+        ["abandon", "top", "-m", "gone"],
+        ["abandon", "top", "-m", "gone", "--fields"],
+        ["abandon", "top", "-m", " "],
+        ["abandon", "top"],
+        ["abandon", "tip", "-m", "why"],
+        ["abandon", "base", "-m", "forked"],
+        ["abandon", "top", "--only", "-m", "not that"],
+        ["abandon", "top", "--only", "-m", "not that", "--fields"],
+        ["abandon", "bottom", "--only", "-m", "contested"],
+        ["abandon", "base", "--only", "-m", "lost"],
+        ["abandon", "middle", "-m", "the side goes"],
+        ["amend"],
+        ["amend", "a", "b"],
+        ["amend", "--only"],
+        ["amend", "-n", "--fields"],
+        ["amend", "nope"],
+        ["amend", "top", "-m", "top, reworded"],
+        ["amend", "top", "-m", "top, reworded", "--fields"],
+        ["amend", "-n", "top", "-m", "top, reworded"],
+        ["amend", "top"],
+        ["amend", "top", "-m", "top"],
+        ["amend", "top", "--move", "f.md=x.md", "-m", "x"],
+        ["amend", "base", "-m", "a new base"],
+        ["amend", "-n", "tip"],
+        ["amend", "tip"],
+        ["amend", "tip", "--fields"],
+        ["amend", "tip", "-m", "tip, again"],
+        ["amend", "tip", "--move", "extra.md=more.md"],
+        ["amend", "tip", "--move", "g.md=h.md", "-m", "moved"],
+        ["amend", "tip", "--move", "nope.md=x.md"],
+        [{"HISTORICA_AUTHOR": "Other <o@example.com>"}, "amend", "tip", "-m", "by another"],
+        ["amend", "middle", "-m", "middle"],
+        ["carry"],
+        ["carry", "-n"],
+        ["carry", "--fields"],
+        ["carry", "a", "b"],
+        ["carry", "--only"],
+        ["carry", "-n", "--fields"],
+        ["carry", "--onto", "base"],
+        ["carry", "top"],
+        ["carry", "top", "--onto", "middle"],
+        ["carry", "-n", "top", "--onto", "middle"],
+        ["carry", "top", "--onto", "middle", "--fields"],
+        ["carry", "bottom", "--onto", "middle"],
+        ["carry", "tip", "--onto", "middle"],
+        ["carry", "middle", "--onto", "top"],
+        ["carry", "middle", "--onto", "tip"],
+        ["carry", "tip", "--onto", "bottom"],
+        ["carry", "top", "--onto", "tip"],
+        ["carry", "base", "--onto", "tip"],
+        ["carry", "top", "--onto", "side"],
+        ["carry", "side", "--onto", "nope"],
+    ],
+    # A rewrite that arrived without its carries: the repair, swept, named,
+    # and planned; and what already rewritten refuses.
+    "stranded": [
+        ["carry", "-n"],
+        ["carry"],
+        ["carry", "--fields"],
+        ["carry", "bottom"],
+        ["carry", "tip"],
+        ["carry", "top"],
+        ["carry", "-n", "side", "--onto", "tip"],
+        ["amend", "top", "-m", "again"],
+        ["abandon", "top", "-m", "again"],
+        ["status"],
+        ["log"],
     ],
     # `init`, where there is nothing yet: here, in a directory named — `.`,
     # nothing, nested, with a slash — made with its parents; refused beside a
@@ -1015,6 +1107,55 @@ def record(temporary, rust, corpus, pinned=None):
         os.symlink("/etc/hosts", store / "abs-link")
         (store / "to-notes").unlink()
         os.symlink("old.md", store / "to-notes")
+    elif corpus in ("rewriting", "stranded"):
+        # A line of work and two lines beside it, recorded by the pinned
+        # build: `f.md` edited at its top, its bottom and its end along the
+        # line, in its middle on one side and at its top on the other.
+        def pin(now, seed, *command):
+            at = {**env, "HISTORICA_AUTHOR": "Check <check@example.com>", "HISTORICA_PINNED_NOW": now, "HISTORICA_PINNED_SEED": seed}
+            done = subprocess.run([pinned, *command], cwd=store, env=at, check=True, capture_output=True, text=True, timeout=120)
+            return done.stdout
+
+        def rec(name, now, seed, *command):
+            said = pin(now, seed, "record", *command)
+            historica("name", name, re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", said, re.M).group(1), "--revision")
+
+        def write(**files):
+            for name, text in files.items():
+                (store / f"{name}.md").write_text(text)
+
+        write(f="a\nb\nc\nd\ne\nf\ng\nh\n", g="one\n")
+        (store / "p.bin").write_bytes(b"\x00x")
+        rec("base", "2026-03-01T10:00:00+00:00", "s1", "-m", "base")
+        historica("name", "main", "head")
+        write(f="A\nb\nc\nd\ne\nf\ng\nh\n")
+        rec("top", "2026-03-02T10:00:00+00:00", "s2", "-m", "top")
+        write(f="A\nb\nc\nd\ne\nf\ng\nH\n", g="one\ntwo\n")
+        rec("bottom", "2026-03-03T10:00:00+00:00", "s3", "-m", "bottom")
+        write(f="A\nb\nc\nd\ne\nf\ng\nH\nnew\n", n="n\n")
+        rec("tip", "2026-03-04T10:00:00+00:00", "s4", "-m", "tip")
+        write(f="a\nb\nc\nMID\ne\nf\ng\nh\n", g="one\n")
+        (store / "n.md").unlink()
+        rec("middle", "2026-03-05T10:00:00+00:00", "s5", "--onto", "base", "-m", "middle")
+        write(f="Z\nb\nc\nd\ne\nf\ng\nh\n")
+        rec("side", "2026-03-05T11:00:00+00:00", "s6", "--onto", "base", "-m", "side")
+        # The folder as the tip left it, and moved on.
+        write(f="A\nb\nc\nd\ne\nf\ng\nH\nnew\nmore\n", g="one\ntwo\n", n="n\n", extra="extra\n")
+        if corpus == "stranded":
+            # A rewrite that arrived without the carries it forced: `top`
+            # abandoned alone elsewhere, and only its tombstone copied here —
+            # the state `carry` with no target repairs.
+            elsewhere = temporary / "stranded-elsewhere"
+            shutil.copytree(store, elsewhere, symlinks=True)
+            at = {**env, "HISTORICA_AUTHOR": "Check <check@example.com>", "HISTORICA_PINNED_NOW": "2026-03-06T10:00:00+00:00", "HISTORICA_PINNED_SEED": "s7"}
+            subprocess.run([pinned, "abandon", "top", "--only", "-m", "gone"], cwd=elsewhere, env=at, check=True, capture_output=True, timeout=120)
+            top = (store / "history" / "names" / "top.txt").read_text().split()[1]
+            for path in (elsewhere / "history" / "revisions").rglob("*.rev.txt"):
+                if f"\nsupersedes {top}\n" in path.read_text():
+                    tombstone = store / "history" / "revisions" / path.relative_to(elsewhere / "history" / "revisions")
+                    tombstone.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(path, tombstone)
+            shutil.rmtree(elsewhere)
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1146,7 +1287,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -1157,12 +1298,12 @@ def check_store(temporary):
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too; and a
             # record that is not a dry run, the whole store it wrote.
-            writes = command[0] in ("record", "name", "init")
-            recording = command[0] == "record" and not {"-n", "--dry-run"} & set(command)
+            writes = command[0] in ("record", "name", "init", *REWRITES)
+            recording = command[0] in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store
             whole = command[0] == "init" or recording
-            reference = writer if command[0] == "record" else rust
+            reference = writer if command[0] in ("record", *REWRITES) else rust
             shown = " ".join([f"{k}={v}" for k, v in changed.items()] + command)
             expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
             for name, tool in tools:
