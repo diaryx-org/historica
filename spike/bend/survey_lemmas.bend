@@ -835,3 +835,201 @@ def path_moved(ms: List<&2, T.Split>, +t: Tree.Tree(), +g: String, +hh: {Tree.ho
       Equal.trans(Maybe<&2, String>, Tree.path(Sv.moved_all(rest, Sv.relocated(t, f, to)), g), Maybe.or(&2, String, Sv.last_move(rest, g), Tree.path(Sv.relocated(t, f, to), g)), Maybe.or(&2, String, Maybe.or(&2, String, Sv.last_move(rest, g), Bool.pick(Maybe<&2, String>, String.eq(f, g), Some{to}, None{})), Tree.path(t, g)),
         path_moved(rest, Sv.relocated(t, f, to), g, Equal.trans(Bool, Tree.holds(Sv.relocated(t, f, to), g), Tree.holds(t, g), True{}, holds_relocated(t, f, to, g), hh)),
         moved_or(Sv.last_move(rest, g), Tree.path(Sv.relocated(t, f, to), g), Bool.pick(Maybe<&2, String>, String.eq(f, g), Some{to}, None{}), Tree.path(t, g), moved_pick(String.eq(f, g), t, f, to, g, {==}, hh)))
+
+# What a restricted record looks at
+# ---------------------------------
+
+def covered_app(+only: List<&2, String>, xs: List<&2, T.Split>, +ys: List<&2, T.Split>, +hx: {Sv.all_covered(only, xs) == True{} : Bool}, hy: {Sv.all_covered(only, ys) == True{} : Bool}) -> {Sv.all_covered(only, List.append(&2, T.Split, xs, ys)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      hy
+    case T.Split{+p, b} <> rest:
+      AL.and_intro(Sv.covers(only, p), Sv.all_covered(only, List.append(&2, T.Split, rest, ys)), Comp.and_left(Sv.covers(only, p), Sv.all_covered(only, rest), hx),
+        covered_app(only, rest, ys, Comp.and_right(Sv.covers(only, p), Sv.all_covered(only, rest), hx), hy))
+
+def refused_pick(c: Bool, +p: String, +b: String, +only: List<&2, String>, +later: List<&2, T.Split>, +ec: {Sv.covers(only, p) == c : Bool}, +ih: {Sv.all_covered(only, later) == True{} : Bool}) -> {Sv.all_covered(only, Bool.pick(List<&2, T.Split>, c, T.Split{p, b} <> later, later)) == True{} : Bool}:
+  match c:
+    case True{}:
+      AL.and_intro(Sv.covers(only, p), Sv.all_covered(only, later), ec, ih)
+    case False{}:
+      ih
+
+def only_refused_ok(+only: List<&2, String>, rs: List<&2, T.Split>) -> {Sv.all_covered(only, Sv.only.refused(only, rs)) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case T.Split{+p, +b} <> +rest:
+      refused_pick(Sv.covers(only, p), p, b, only, Sv.only.refused(only, rest), {==}, only_refused_ok(only, rest))
+
+# Every surveyed path is covered, so a path a refusal names is.
+def seens_covered(+only: List<&2, String>, ss: List<&2, Sv.Seen>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case Sv.Seen{+path, e, found, d, b, x, sh, pr} <> rest:
+      Bool.and(Sv.covers(only, path), seens_covered(only, rest))
+
+def here_covered(+only: List<&2, String>, +path: String, +p: String, heq: {String.eq(path, p) == True{} : Bool}, hc: {Sv.covers(only, path) == True{} : Bool}) -> {Sv.covers(only, p) == True{} : Bool}:
+  %S.eq_true(path, p, heq) : {Sv.covers(only, _) == True{} : Bool}
+  hc
+
+def at_covered(ss: List<&2, Sv.Seen>, +only: List<&2, String>, +p: String, +hs: {seens_covered(only, ss) == True{} : Bool}, hf: {Sv.found_at(ss, p) == True{} : Bool}) -> {Sv.covers(only, p) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      Empty.absurd({Sv.covers(only, p) == True{} : Bool}, S.false_true(hf))
+    case Sv.Seen{+path, +e, +found, +d, +b, +x, +sh, +pr} <> +rest:
+      AL.or_cases({Sv.covers(only, p) == True{} : Bool}, Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), Sv.found_at(rest, p), hf,
+        hl => here_covered(only, path, p, Comp.and_left(String.eq(path, p), Maybe.is_some(&2, F.Found, found), hl), Comp.and_left(Sv.covers(only, path), seens_covered(only, rest), hs)),
+        hr => at_covered(rest, only, p, Comp.and_right(Sv.covers(only, path), seens_covered(only, rest), hs), hr))
+
+def found_covered(+only: List<&2, String>, +ss: List<&2, Sv.Seen>, rs: List<&2, T.Split>, +hs: {seens_covered(only, ss) == True{} : Bool}, +hf: {found_all(ss, rs) == True{} : Bool}) -> {Sv.all_covered(only, rs) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case T.Split{+p, b} <> rest:
+      AL.and_intro(Sv.covers(only, p), Sv.all_covered(only, rest), at_covered(ss, only, p, hs, Comp.and_left(Sv.found_at(ss, p), found_all(ss, rest), hf)),
+        found_covered(only, ss, rest, hs, Comp.and_right(Sv.found_at(ss, p), found_all(ss, rest), hf)))
+
+# What the survey pairs is what the restriction kept.
+def heres_covered(+only: List<&2, String>, hs: List<&2, Main.Here>) -> Bool:
+  match hs:
+    case Nil{}:
+      True{}
+    case Main.Here{+p, e, f} <> rest:
+      Bool.and(Sv.covers(only, p), heres_covered(only, rest))
+
+def status_seens_ok(+only: List<&2, String>, +t0: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Main.Here>, +h: {heres_covered(only, hs) == True{} : Bool}) -> {seens_covered(only, Main.status.seens(t0, dg, bf, reads, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case Main.Here{+p, +e, +f} <> +rest:
+      AL.and_intro(Sv.covers(only, p), seens_covered(only, Main.status.seens(t0, dg, bf, reads, rest)), Comp.and_left(Sv.covers(only, p), heres_covered(only, rest), h),
+        status_seens_ok(only, t0, dg, bf, reads, rest, Comp.and_right(Sv.covers(only, p), heres_covered(only, rest), h)))
+
+def limited_pick(c: Bool, +only: List<&2, String>, +h: Main.Here, +later: List<&2, Main.Here>, +hh: {heres_covered(only, [h]) == True{} : Bool}, +ih: {heres_covered(only, later) == True{} : Bool}) -> {heres_covered(only, Bool.pick(List<&2, Main.Here>, c, h <> later, later)) == True{} : Bool}:
+  match c:
+    case True{}:
+      match h:
+        case Main.Here{+p, +e, +f}:
+          AL.and_intro(Sv.covers(only, p), heres_covered(only, later), Comp.and_left(Sv.covers(only, p), True{}, hh), ih)
+    case False{}:
+      ih
+
+def limited_ok(+only: List<&2, String>, +l: Main.Limit, hs: List<&2, Main.Here>, +h: {heres_covered(only, hs) == True{} : Bool}) -> {heres_covered(only, Main.heres.limited(l, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case Main.Here{+p, +e, +f} <> +rest:
+      limited_pick(Main.here.wanted(l, Main.Here{p, e, f}), only, Main.Here{p, e, f}, Main.heres.limited(l, rest),
+        AL.and_intro(Sv.covers(only, p), True{}, Comp.and_left(Sv.covers(only, p), heres_covered(only, rest), h), {==}),
+        limited_ok(only, l, rest, Comp.and_right(Sv.covers(only, p), heres_covered(only, rest), h)))
+
+def entry_covered(only: List<&2, String>, e: Tree.Entry) -> Bool:
+  Sv.covers(only, Tree.entry_path(e))
+
+def found_in(only: List<&2, String>, f: F.Found) -> Bool:
+  Sv.covers(only, F.found.path(f))
+
+def go_ok(fuel: Nat, xs: List<&2, Tree.Entry>, ys: List<&2, F.Found>, c: Cmp, +only: List<&2, String>, +hx: {SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xs) == True{} : Bool}, +hy: {SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, ys) == True{} : Bool}) -> {heres_covered(only, Main.here.go(fuel, xs, ys, c)) == True{} : Bool}:
+  match fuel xs ys c:
+    case 0n Nil{} Nil{} _:
+      {==}
+    case 0n Nil{} y <> yr _:
+      {==}
+    case 0n x <> xr Nil{} _:
+      {==}
+    case 0n x <> xr y <> yr _:
+      {==}
+    case 1n+f Nil{} Nil{} _:
+      {==}
+    case 1n+f Nil{} +y <> +yr _:
+      AL.and_intro(Sv.covers(only, F.found.path(y)), heres_covered(only, Main.here.go(f, Nil{}, yr, Main.here.cmp(Nil{}, yr))),
+        Comp.and_left(found_in(only, y), SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, yr), hy),
+        go_ok(f, Nil{}, yr, Main.here.cmp(Nil{}, yr), only, hx, Comp.and_right(found_in(only, y), SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, yr), hy)))
+    case 1n+f +x <> +xr Nil{} LT{}:
+      AL.and_intro(Sv.covers(only, Tree.entry_path(x)), heres_covered(only, Main.here.go(f, xr, Nil{}, Main.here.cmp(xr, Nil{}))),
+        Comp.and_left(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx),
+        go_ok(f, xr, Nil{}, Main.here.cmp(xr, Nil{}), only, Comp.and_right(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx), hy))
+    case 1n+f +x <> +xr Nil{} EQ{}:
+      AL.and_intro(Sv.covers(only, Tree.entry_path(x)), heres_covered(only, Main.here.go(f, xr, Nil{}, Main.here.cmp(xr, Nil{}))),
+        Comp.and_left(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx),
+        go_ok(f, xr, Nil{}, Main.here.cmp(xr, Nil{}), only, Comp.and_right(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx), hy))
+    case 1n+f +x <> +xr Nil{} GT{}:
+      AL.and_intro(Sv.covers(only, Tree.entry_path(x)), heres_covered(only, Main.here.go(f, xr, Nil{}, Main.here.cmp(xr, Nil{}))),
+        Comp.and_left(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx),
+        go_ok(f, xr, Nil{}, Main.here.cmp(xr, Nil{}), only, Comp.and_right(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx), hy))
+    case 1n+f +x <> +xr +y <> +yr EQ{}:
+      AL.and_intro(Sv.covers(only, Tree.entry_path(x)), heres_covered(only, Main.here.go(f, xr, yr, Main.here.cmp(xr, yr))),
+        Comp.and_left(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx),
+        go_ok(f, xr, yr, Main.here.cmp(xr, yr), only, Comp.and_right(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx), Comp.and_right(found_in(only, y), SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, yr), hy)))
+    case 1n+f +x <> +xr +y <> +yr LT{}:
+      AL.and_intro(Sv.covers(only, Tree.entry_path(x)), heres_covered(only, Main.here.go(f, xr, y <> yr, Main.here.cmp(xr, y <> yr))),
+        Comp.and_left(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx),
+        go_ok(f, xr, y <> yr, Main.here.cmp(xr, y <> yr), only, Comp.and_right(entry_covered(only, x), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, xr), hx), hy))
+    case 1n+f +x <> +xr +y <> +yr GT{}:
+      AL.and_intro(Sv.covers(only, F.found.path(y)), heres_covered(only, Main.here.go(f, x <> xr, yr, Main.here.cmp(x <> xr, yr))),
+        Comp.and_left(found_in(only, y), SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, yr), hy),
+        go_ok(f, x <> xr, yr, Main.here.cmp(x <> xr, yr), only, hx, Comp.and_right(found_in(only, y), SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, yr), hy)))
+
+def heres_ok(+only: List<&2, String>, +t: Tree.Tree(), +found: List<&2, F.Found>, +hx: {SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, t) == True{} : Bool}, +hy: {SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, found) == True{} : Bool}) -> {heres_covered(only, Main.heres(t, found, Main.Limit.None{})) == True{} : Bool}:
+  limited_ok(only, Main.Limit.None{}, Main.here.go(1n+Nat.add(List.length(&2, Tree.Entry, List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t)), List.length(&2, F.Found, found)), List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t), found, Main.here.cmp(List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t), found)),
+    go_ok(1n+Nat.add(List.length(&2, Tree.Entry, List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t)), List.length(&2, F.Found, found)), List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t), found, Main.here.cmp(List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t), found), only,
+      SortL.all_sort_at(~Tree.Entry, ~(a => b => Main.by_path(a, b)), ~List<&2, String>, ~entry_covered, only, t, hx), hy))
+
+# Keeping only what a test passes keeps a list that passes.
+def kept_first(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, b: Bool, +x: A, +later: List<&2, A>, +hb: {ok(c, x) == b : Bool}, +hl: {SortL.all_at(~A, ~C, ~ok, c, later) == True{} : Bool}) -> {SortL.all_at(~A, ~C, ~ok, c, Bool.pick(List<&2, A>, b, x <> later, later)) == True{} : Bool}:
+  match b:
+    case True{}:
+      AL.and_intro(ok(c, x), SortL.all_at(~A, ~C, ~ok, c, later), hb, hl)
+    case False{}:
+      hl
+
+def kept_second(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, b: Bool, +x: A, +later: List<&2, A>, +hx: {ok(c, x) == True{} : Bool}, +hl: {SortL.all_at(~A, ~C, ~ok, c, later) == True{} : Bool}) -> {SortL.all_at(~A, ~C, ~ok, c, Bool.pick(List<&2, A>, b, later, x <> later)) == True{} : Bool}:
+  match b:
+    case True{}:
+      hl
+    case False{}:
+      AL.and_intro(ok(c, x), SortL.all_at(~A, ~C, ~ok, c, later), hx, hl)
+
+def only_tree_ok(+only: List<&2, String>, t: Tree.Tree()) -> {SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, Sv.only.tree(only, t)) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      kept_first(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, Sv.covers(only, Tree.entry_path(e)), e, Sv.only.tree(only, rest), {==}, only_tree_ok(only, rest))
+
+def only_found_ok(+only: List<&2, String>, fs: List<&2, F.Found>) -> {SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, Sv.only.found(only, fs)) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      kept_first(~F.Found, ~List<&2, String>, ~found_in, only, Sv.covers(only, F.found.path(f)), f, Sv.only.found(only, rest), {==}, only_found_ok(only, rest))
+
+def unclaimed_ok(+only: List<&2, String>, t: Tree.Tree(), +cs: List<&2, T.Split>, +h: {SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, t) == True{} : Bool}) -> {SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, Sv.unclaimed(t, cs)) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      kept_second(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, Sv.claimed.has(cs, Tree.entry_path(e)), e, Sv.unclaimed(rest, cs),
+        Comp.and_left(entry_covered(only, e), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, rest), h),
+        unclaimed_ok(only, rest, cs, Comp.and_right(entry_covered(only, e), SortL.all_at(~Tree.Entry, ~List<&2, String>, ~entry_covered, only, rest), h)))
+
+def unclaimed_found_ok(+only: List<&2, String>, fs: List<&2, F.Found>, +cs: List<&2, T.Split>, +h: {SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, fs) == True{} : Bool}) -> {SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, Sv.unclaimed_found(fs, cs)) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      kept_second(~F.Found, ~List<&2, String>, ~found_in, only, Sv.claimed.has(cs, F.found.path(f)), f, Sv.unclaimed_found(rest, cs),
+        Comp.and_left(found_in(only, f), SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, rest), h),
+        unclaimed_found_ok(only, rest, cs, Comp.and_right(found_in(only, f), SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, rest), h)))
+
+# What a record restricted to some paths refuses is among them.
+def restricted_ok(+only: List<&2, String>, +t: Tree.Tree(), +t0: Tree.Tree(), +found: List<&2, F.Found>, +walked: List<&2, T.Split>, +held: Set(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +moves: List<&2, T.Split>) -> {Sv.all_covered(only, Sv.planned.refused(Sv.planned(t, Sv.only.tree(only, t), held, Sv.only.refused(only, walked), Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), moves))) == True{} : Bool}:
+  covered_app(only, Sv.only.refused(only, walked), Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}))), Sv.claimed_drops(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held))),
+    only_refused_ok(only, walked),
+    found_covered(only, Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}))), Sv.claimed_drops(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held))),
+      status_seens_ok(only, t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}),
+        heres_ok(only, Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))),
+          unclaimed_ok(only, Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), only_tree_ok(only, t)),
+          unclaimed_found_ok(only, Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t)), only_found_ok(only, found)))),
+      obs_found(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held, Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})))))
