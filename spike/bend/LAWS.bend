@@ -661,6 +661,21 @@ law laid_reads_child:
   for e: {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}
   {Main.laid.new(Main.laid(parent, doc)) == child : List<&2, Ops.Item>}
 
+# What `diff` prints, `patch` reads back. The comparison is grouped into
+# hunks — each run of lines within three of a change, a line counted on
+# each side it is on — and read as `patch` reads a unified diff, without
+# fuzz: each hunk found at the line its header names on both sides, the
+# parent's lines before it copied, its context and removals read off the
+# parent there, its context and arrivals written, and its header's counts
+# the lines each side holds. Whatever the document, its hunks take the
+# parent to the child.
+law diff_hunks_apply:
+  for +parent: List<&2, Ops.Item>
+  for +doc: Ops.Doc
+  for +child: List<&2, Ops.Item>
+  for e: {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}
+  {Main.patch(parent, Main.hunks.made(Main.laid(parent, doc))) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
 # `blame <path>` prints the folder's file. Its rows are laid over the lines
 # history holds, a line that stayed keeping its author and one that arrived
 # the folder's own; whatever the folder holds, the lines of the rows are

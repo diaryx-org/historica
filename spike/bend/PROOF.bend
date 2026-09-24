@@ -43,6 +43,7 @@ import ./diffcmd_lemmas.bend as DiffCmd
 import ./logargs_lemmas.bend as LogArgs
 import ./check_lemmas.bend as CheckL
 import ./show_lemmas.bend as ShowL
+import ./hunk_lemmas.bend as HunkL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -454,6 +455,9 @@ def Laws.laid_keeps_parent(parent, doc):
 
 def Laws.laid_reads_child(parent, doc, child, e):
   LaidL.laid_reads_child(parent, doc, child, Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Cursor.apply(parent, doc), Ops.apply(parent, doc), Done{child}, Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Laws.cursor_apply_equivalent(parent, doc)), e))
+
+def Laws.diff_hunks_apply(parent, doc, child, e):
+  HunkL.hunks_patch(parent, doc, child, Laws.laid_keeps_parent(parent, doc), Laws.laid_reads_child(parent, doc, child, e))
 
 def Laws.blame_shows_the_folder(rows, text):
   BlameL.folder_lines(rows, text)

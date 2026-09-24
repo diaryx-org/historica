@@ -1249,6 +1249,27 @@ def check_mutations(temporary):
             "show_lemmas.ck_tree",
             "main.bend",
         ),
+        (
+            "diff numbers an arrival as a line of the parent",
+            'hunks.walk(rest, Bool.pick(Nat, String.eq(sign, "+"), b, 1n+b)',
+            'hunks.walk(rest, Bool.pick(Nat, String.eq(sign, "-"), b, 1n+b)',
+            "hunk_lemmas.walk_ok",
+            "main.bend",
+        ),
+        (
+            "a hunk holding no line of a side names its first line anyway",
+            '  Bool.pick(Nat, Nat.is_eq(count, 0n), 0n, first)',
+            '  first',
+            "hunk_lemmas.from_nz",
+            "main.bend",
+        ),
+        (
+            "diff shows a change only where another is near",
+            '  Bool.or(changed, Bool.or(Nat.is_gt(owed, 0n), near))',
+            '  Bool.or(Nat.is_gt(owed, 0n), near)',
+            "hunk_lemmas.walk_cons",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

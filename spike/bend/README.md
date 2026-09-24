@@ -259,7 +259,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | ninety-two claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | ninety-three claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -278,6 +278,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `log_lemmas.bend` | `log_lists_what_it_asks`: every revision `log` lists satisfies every filter asked of it, whatever the limit | `log`'s filters |
 | `fileat_lemmas.bend` | `file_is_held`: a file argument — a path, `path:` and a path, `file:` and a file bookmark or an identifier's prefix — names a file the revision's tree holds | `target::file_in` |
 | `laid_lemmas.bend` | `laid_keeps_parent`, `laid_reads_child`: the lines `diff` renders and `blame` overlays are both sides — context and removals are the parent, whatever the document, and context and arrivals are the child wherever the document applies | `diff`'s hunks, `blame`'s overlay |
+| `hunk_lemmas.bend` | `diff_hunks_apply`: the hunks `diff` groups a comparison into — each run of lines within three of a change — read back as `patch` reads a unified diff, without fuzz, take the parent to the child: each found where its header says on both sides, its lines the parent's there, its counts right | `diff`'s hunks |
 | `blame_lemmas.bend` | `blame_shows_the_folder`: `blame <path>`'s rows are the folder file's lines, each once and in order, whatever history holds — built on `similar_diff_applies` and the layout laws | `blame`'s folder overlay |
 | `blamed_lemmas.bend` | `blame_reads_the_walk`: `blame <target> <path>`'s rows, read without their authors, are the file the walk of the target's ancestry reads; `blame_numbers_its_lines`: `blame` numbers each line as the file does, and prints exactly the lines whose number falls in the span asked; `blame_prints_each_line`: each line it prints ends with the line it attributes, in order, with the marker after a line without a newline; `blame_reads_the_position`: `blame <path>` compares the folder with a revision the store holds, and the file it names is one that revision holds, or none is at the path; `blame_reads_a_held_file`: `blame <target> <path>` reads a revision the store holds and a file with lines its tree holds; `blame_prints_the_walk`, `blame_prints_the_folder`: what either form prints is one line for each line of the span, ending with it — of the file the walk reads, or of the folder's text; `blame_reads_its_words`: `blame` reads its arguments as their plain reading says — the last `--lines` value is the span, and the other words are the target and the path, in order; `blame_reads_a_folder_file`: `blame <path>` reads a file the folder holds at the path rather than a link, with the kind the position gives it | `blame`'s attribution |
 | `diffcmd_lemmas.bend` | `diff_reads_its_words`: `diff` reads its arguments as their plain reading says — `--onto` and `--color` take the word after them, `--color=` spells a colour in the word, the last of each counting, and the other words are the target and the path, in order; `diff_compares_with_the_parent`, `diff_folder_compares_with_a_held_revision`: the other side is what `--onto` names, a revision the store holds, or else the target's one parent or the head; `diff_limits_to_a_held_file`, `diff_folder_limits_to_a_held_file`: a file a comparison is limited to is one the tree it was named at holds; `diff_shows_what_differs`: `diff` shows only files whose two sides differ, and under a path limit only a file at that path on one side; `diff_folder_keeps_what_the_limit_wants`, `diff_folder_shows_what_differs`: over the folder, only paths the limit wants, and of those only ones whose sides differ | `diff`'s arguments, sides and files |
@@ -385,7 +386,11 @@ compaction that slides each run of changes to where it groups. `check.py`
 holds it to the crate on two thousand cases drawn to reach every one of
 those paths, and the document written from what it finds is proven to
 take the parent to the child (`similar_diff_applies`), and on the archive `diff head --onto` an early revision prints
-the Rust tool's 2,479 lines byte for byte.
+the Rust tool's 2,479 lines byte for byte. What it prints of that document,
+`patch` reads back (`diff_hunks_apply`): read as a unified diff without
+fuzz, each hunk is found at the line its header names on both sides, its
+context and removals are the parent's lines there, its counts are the
+lines each side holds, and the hunks take the parent to the child.
 
 With no target, both read the folder beside the store (`folder.bend`),
 walked as the working copy is: everything is tracked but `history/` itself,
@@ -944,7 +949,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Eighty mutations cover the primitive helpers, lost inserts, a lost trailing
+Eighty-three mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -991,7 +996,7 @@ longest prefix it shares rather than one past it; and one walked-blame
 break: rows read from every element the walk placed, removed or not; and
 one span break: a span that drops its last line; and one printing break:
 the marker after a line without a newline left out; and one position
-break: a `path:` spelling looked up with its prefix; and three blame
+break: a `path:` spelling looked up with its prefix; and four blame
 breaks: the kind asked of the spelling rather than the file, a span
 ignored, bytes the position never saw taken for text, and the target and
 path read in reverse; and one folder-file break: a link in the folder
@@ -1003,7 +1008,10 @@ folder-limit break: the folder's paths kept whatever the limit; and one
 log-argument break: `--author` read as `--grep`; and two check breaks: a
 document taking a payload's digest, and a parsed operation document called
 refused; and two cat-and-show breaks: a document found whose digest the
-named one begins, and a link printed through. The
+named one begins, and a link printed through; and three hunk breaks: an
+arrival numbered as a line of the parent, a side that holds none of a
+hunk's lines named by its first line anyway, and a change shown only where
+another is near. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent

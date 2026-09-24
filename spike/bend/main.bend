@@ -2828,44 +2828,10 @@ def sign_code(+sign: String) -> String:
 type Numbered is Data:
   Numbered{laid: Laid, before: Nat, after: Nat}
 
-def numbered(ls: List<&2, Laid>, +b: Nat, +a: Nat) -> List<&2, Numbered>:
-  match ls:
-    case Nil{}:
-      Nil{}
-    case Laid{+sign, it} <> rest:
-      Numbered{Laid{sign, it}, b, a} <> numbered(rest, Bool.pick(Nat, String.eq(sign, "+"), b, 1n+b), Bool.pick(Nat, String.eq(sign, "-"), a, 1n+a))
-
 def numbered.sign(n: Numbered) -> String:
   match n:
     case Numbered{l, b, a}:
       laid.sign(l)
-
-# A run of lines to print, `end` exclusive.
-type Span2 is Data:
-  Span2{start: Nat, end: Nat}
-
-# Three lines of context around each change, and two runs whose context
-# would print a line twice are one.
-def spans.add(+start: Nat, +end: Nat, acc: List<&2, Span2>) -> List<&2, Span2>:
-  match acc:
-    case Span2{+s, +e} <> +rest:
-      Bool.pick(List<&2, Span2>, Nat.is_ge(e, start), Span2{s, Nat.max(end, e)} <> rest, Span2{start, end} <> Span2{s, e} <> rest)
-    case Nil{}:
-      [Span2{start, end}]
-
-def spans.at(+i: Nat, +len: Nat, changed: Bool, acc: List<&2, Span2>) -> List<&2, Span2>:
-  match changed:
-    case True{}:
-      spans.add(Nat.sub(i, 3n), Nat.min(Nat.add(i, 4n), len), acc)
-    case False{}:
-      acc
-
-def spans(ns: List<&2, Numbered>, +i: Nat, +len: Nat, acc: List<&2, Span2>) -> List<&2, Span2>:
-  match ns:
-    case Nil{}:
-      List.reverse(&2, Span2, acc)
-    case n <> rest:
-      spans(rest, 1n+i, len, spans.at(i, len, Bool.not(String.eq(numbered.sign(n), " ")), acc))
 
 def hunk.count(ns: List<&2, Numbered>, +skip: String) -> Nat:
   match ns:
@@ -2883,6 +2849,85 @@ def hunk.first(ns: List<&2, Numbered>, before: Bool) -> Nat:
 
 def hunk.side(+count: Nat, first: Nat) -> Nat:
   Bool.pick(Nat, Nat.is_eq(count, 0n), 0n, first)
+
+# A hunk: the line it begins at on each side and how many of its lines that
+# side holds, and the lines. A side holding none of them begins at the line
+# before, which a hunk's context makes the start of the file.
+type Hunk is Data:
+  Hunk{old: Nat, olds: Nat, new: Nat, news: Nat, lines: List<&2, Numbered>}
+
+def hunk.of(+ns: List<&2, Numbered>) -> Hunk:
+  +bc = hunk.count(ns, "+")
+  +ac = hunk.count(ns, "-")
+  Hunk{hunk.side(bc, hunk.first(ns, True{})), bc, hunk.side(ac, hunk.first(ns, False{})), ac, ns}
+
+# Three lines of context around each change: a line is shown where a change
+# is within three lines of it, before or after, and each run of shown lines
+# is a hunk — so two changes whose context would print a line twice share
+# one. `owed` is how many lines after the last change are still its context.
+def laid.changed(+sign: String) -> Bool:
+  Bool.not(String.eq(sign, " "))
+
+def changed.near(ls: List<&2, Laid>, k: Nat) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case Laid{+sign, it} <> rest:
+      match k:
+        case 0n:
+          False{}
+        case 1n+j:
+          Bool.or(laid.changed(sign), changed.near(rest, j))
+
+def hunks.owed(changed: Bool, owed: Nat) -> Nat:
+  match changed:
+    case True{}:
+      3n
+    case False{}:
+      Nat.sub(owed, 1n)
+
+def hunks.showing(changed: Bool, owed: Nat, near: Bool) -> Bool:
+  Bool.or(changed, Bool.or(Nat.is_gt(owed, 0n), near))
+
+# The shown lines from here up to the first that is not, and the hunks after
+# it.
+type Cut is Data:
+  Cut{lines: List<&2, Numbered>, after: List<&2, Hunk>}
+
+def hunks.close(ns: List<&2, Numbered>, hs: List<&2, Hunk>) -> List<&2, Hunk>:
+  match ns:
+    case Nil{}:
+      hs
+    case n <> rest:
+      hunk.of(n <> rest) <> hs
+
+def cut.step(n: Numbered, shown: Bool, c: Cut) -> Cut:
+  match shown:
+    case True{}:
+      match c:
+        case Cut{ns, hs}:
+          Cut{n <> ns, hs}
+    case False{}:
+      match c:
+        case Cut{ns, hs}:
+          Cut{Nil{}, hunks.close(ns, hs)}
+
+# Each line numbered on each side, counting from one.
+def hunks.walk(ls: List<&2, Laid>, +b: Nat, +a: Nat, +owed: Nat) -> Cut:
+  match ls:
+    case Nil{}:
+      Cut{Nil{}, Nil{}}
+    case Laid{+sign, it} <> +rest:
+      cut.step(Numbered{Laid{sign, it}, b, a}, hunks.showing(laid.changed(sign), owed, changed.near(rest, 3n)),
+        hunks.walk(rest, Bool.pick(Nat, String.eq(sign, "+"), b, 1n+b), Bool.pick(Nat, String.eq(sign, "-"), a, 1n+a), hunks.owed(laid.changed(sign), owed)))
+
+def cut.close(c: Cut) -> List<&2, Hunk>:
+  match c:
+    case Cut{ns, hs}:
+      hunks.close(ns, hs)
+
+def hunks.made(ls: List<&2, Laid>) -> List<&2, Hunk>:
+  cut.close(hunks.walk(ls, 1n, 1n, 0n))
 
 # One line of a comparison, and the marker after one that ends without a
 # newline.
@@ -3144,24 +3189,182 @@ def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, String>>) -> Li
     case Numbered{Laid{sign, it}, b, a} <> rest Nil{}:
       List.append(&2, Painted, laid.text(sign, it), hunk.lines(rest, Nil{}))
 
-def hunk(+paint: Bool, +ns: List<&2, Numbered>, sp: Span2) -> List<&2, Painted>:
-  match sp:
-    case Span2{+start, end}:
-      +slice = List.take(&2, Numbered, List.drop(&2, Numbered, ns, start), Nat.sub(end, start))
-      +bc = hunk.count(slice, "+")
-      +ac = hunk.count(slice, "-")
-      Painted{"\u{1b}[36m", "@@ -" ++ Nat.show(hunk.side(bc, hunk.first(slice, True{}))) ++ "," ++ Nat.show(bc) ++ " +" ++ Nat.show(hunk.side(ac, hunk.first(slice, False{}))) ++ "," ++ Nat.show(ac) ++ " @@"} <> hunk.lines(slice, emph(slice, paint))
+def hunk.shown(+paint: Bool, h: Hunk) -> List<&2, Painted>:
+  match h:
+    case Hunk{o, oc, n, nc, +ns}:
+      Painted{"\u{1b}[36m", "@@ -" ++ Nat.show(o) ++ "," ++ Nat.show(oc) ++ " +" ++ Nat.show(n) ++ "," ++ Nat.show(nc) ++ " @@"} <> hunk.lines(ns, emph(ns, paint))
 
-def hunks.of(+paint: Bool, +ns: List<&2, Numbered>, sps: List<&2, Span2>) -> List<&2, Painted>:
-  match sps:
+def hunks.shown(+paint: Bool, hs: List<&2, Hunk>) -> List<&2, Painted>:
+  match hs:
     case Nil{}:
       Nil{}
-    case sp <> rest:
-      List.append(&2, Painted, hunk(paint, ns, sp), hunks.of(paint, ns, rest))
+    case h <> rest:
+      List.append(&2, Painted, hunk.shown(paint, h), hunks.shown(paint, rest))
 
-def hunks(+paint: Bool, +ls: List<&2, Laid>) -> List<&2, Painted>:
-  +ns = numbered(ls, 1n, 1n)
-  hunks.of(paint, ns, spans(ns, 0n, List.length(&2, Numbered, ns), Nil{}))
+def hunks(+paint: Bool, ls: List<&2, Laid>) -> List<&2, Painted>:
+  hunks.shown(paint, hunks.made(ls))
+
+# What `patch` makes of them
+# --------------------------
+
+# The hunks, read back as `patch` reads a unified diff, without fuzz: each
+# is found at the line its header names on each side, the parent's lines
+# before it copied; its context and removals are read off the parent as it
+# stands there and its context and arrivals written, and the header's
+# counts are how many lines each side holds; whatever follows the last hunk
+# is copied. A hunk anywhere but its own line, a line that is not the
+# parent's, or a count that is wrong is refused. `LAWS.diff_hunks_apply`
+# says what diff prints this way takes the parent to the child.
+type Skipped is Data:
+  Skipped{copied: List<&2, Ops.Item>, rest: List<&2, Ops.Item>}
+
+type Patched is Data:
+  Patched{rest: List<&2, Ops.Item>, out: List<&2, Ops.Item>, took: Nat, gave: Nat}
+
+# The line a hunk's side begins at: the line after, where it holds none.
+def patch.from(+first: Nat, +count: Nat) -> Nat:
+  Bool.pick(Nat, Nat.is_eq(count, 0n), 1n+first, first)
+
+def patch.end(here: Bool, both: Bool) -> Result<&2, &2, String, Skipped>:
+  match here both:
+    case True{} True{}:
+      Done{Skipped{Nil{}, Nil{}}}
+    case _ _:
+      Fail{"a hunk is not where its header says"}
+
+def patch.here(here: Bool, both: Bool, p: Ops.Item, ps: List<&2, Ops.Item>, r: Result<&2, &2, String, Skipped>) -> Result<&2, &2, String, Skipped>:
+  match here:
+    case True{}:
+      match both:
+        case True{}:
+          Done{Skipped{Nil{}, p <> ps}}
+        case False{}:
+          Fail{"a hunk is not where its header says"}
+    case False{}:
+      match r:
+        case Done{Skipped{c, rest}}:
+          Done{Skipped{p <> c, rest}}
+        case Fail{e}:
+          Fail{e}
+
+# Copying the parent up to the line a hunk begins at on each side, `at` and
+# `nat` numbering the next line of the parent and of what is written.
+def patch.skip(parent: List<&2, Ops.Item>, +at: Nat, +nat: Nat, +so: Nat, +sn: Nat) -> Result<&2, &2, String, Skipped>:
+  match parent:
+    case Nil{}:
+      patch.end(Nat.is_eq(so, at), Nat.is_eq(sn, nat))
+    case +p <> +ps:
+      patch.here(Nat.is_eq(so, at), Nat.is_eq(sn, nat), p, ps, patch.skip(ps, 1n+at, 1n+nat, so, sn))
+
+def patch.same(eq: Bool, keep: Bool, it: Ops.Item, ps: List<&2, Ops.Item>, out: List<&2, Ops.Item>, +took: Nat, +gave: Nat) -> Result<&2, &2, String, Patched>:
+  match eq:
+    case False{}:
+      Fail{"a line of a hunk is not the parent's"}
+    case True{}:
+      match keep:
+        case True{}:
+          Done{Patched{ps, List.append(&2, Ops.Item, out, [it]), 1n+took, 1n+gave}}
+        case False{}:
+          Done{Patched{ps, out, 1n+took, gave}}
+
+def patch.read(+it: Ops.Item, keep: Bool, st: Patched) -> Result<&2, &2, String, Patched>:
+  match st:
+    case Patched{parent, out, took, gave}:
+      match parent:
+        case Nil{}:
+          Fail{"a hunk reads past the parent"}
+        case p <> ps:
+          patch.same(item_eq(p, it), keep, it, ps, out, took, gave)
+
+def patch.sign(plus: Bool, minus: Bool, space: Bool, +it: Ops.Item, st: Patched) -> Result<&2, &2, String, Patched>:
+  match plus:
+    case True{}:
+      match st:
+        case Patched{parent, out, took, gave}:
+          Done{Patched{parent, List.append(&2, Ops.Item, out, [it]), took, 1n+gave}}
+    case False{}:
+      match minus:
+        case True{}:
+          patch.read(it, False{}, st)
+        case False{}:
+          match space:
+            case True{}:
+              patch.read(it, True{}, st)
+            case False{}:
+              Fail{"a line of a hunk is marked neither ' ', '-' nor '+'"}
+
+def patch.line(n: Numbered, st: Patched) -> Result<&2, &2, String, Patched>:
+  match n:
+    case Numbered{Laid{+sign, it}, b, a}:
+      patch.sign(String.eq(sign, "+"), String.eq(sign, "-"), String.eq(sign, " "), it, st)
+
+def patch.line.then(n: Numbered, r: Result<&2, &2, String, Patched>) -> Result<&2, &2, String, Patched>:
+  match r:
+    case Done{st}:
+      patch.line(n, st)
+    case Fail{e}:
+      Fail{e}
+
+def patch.lines(ns: List<&2, Numbered>, r: Result<&2, &2, String, Patched>) -> Result<&2, &2, String, Patched>:
+  match ns:
+    case Nil{}:
+      r
+    case n <> rest:
+      patch.lines(rest, patch.line.then(n, r))
+
+# Where the reading stands between hunks: what is left of the parent, what
+# is written, and the numbers of the next line of each.
+type Patching is Data:
+  Patching{parent: List<&2, Ops.Item>, out: List<&2, Ops.Item>, at: Nat, nat: Nat}
+
+def patch.check(ok: Bool, st: Patching) -> Result<&2, &2, String, Patching>:
+  match ok:
+    case True{}:
+      Done{st}
+    case False{}:
+      Fail{"a hunk's header miscounts its lines"}
+
+def patch.done(p: Result<&2, &2, String, Patched>, +olds: Nat, +news: Nat, +out: List<&2, Ops.Item>, +at: Nat, +nat: Nat) -> Result<&2, &2, String, Patching>:
+  match p:
+    case Done{Patched{rest, o, +took, +gave}}:
+      patch.check(Bool.and(Nat.is_eq(took, olds), Nat.is_eq(gave, news)), Patching{rest, List.append(&2, Ops.Item, out, o), at, nat})
+    case Fail{e}:
+      Fail{e}
+
+def patch.hunk(s: Result<&2, &2, String, Skipped>, ls: List<&2, Numbered>, +out: List<&2, Ops.Item>, +olds: Nat, +news: Nat, +so: Nat, +sn: Nat) -> Result<&2, &2, String, Patching>:
+  match s:
+    case Done{Skipped{copied, rest}}:
+      patch.done(patch.lines(ls, Done{Patched{rest, Nil{}, 0n, 0n}}), olds, news, List.append(&2, Ops.Item, out, copied), Nat.add(so, olds), Nat.add(sn, news))
+    case Fail{e}:
+      Fail{e}
+
+def patch.step(h: Hunk, st: Patching) -> Result<&2, &2, String, Patching>:
+  match h:
+    case Hunk{+o, +oc, +n, +nc, ls}:
+      match st:
+        case Patching{parent, out, +at, +nat}:
+          patch.hunk(patch.skip(parent, at, nat, patch.from(o, oc), patch.from(n, nc)), ls, out, oc, nc, patch.from(o, oc), patch.from(n, nc))
+
+def patch.then(h: Hunk, r: Result<&2, &2, String, Patching>) -> Result<&2, &2, String, Patching>:
+  match r:
+    case Done{st}:
+      patch.step(h, st)
+    case Fail{e}:
+      Fail{e}
+
+def patch.go(hs: List<&2, Hunk>, r: Result<&2, &2, String, Patching>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match hs:
+    case Nil{}:
+      match r:
+        case Done{Patching{parent, out, at, nat}}:
+          Done{List.append(&2, Ops.Item, out, parent)}
+        case Fail{e}:
+          Fail{e}
+    case h <> more:
+      patch.go(more, patch.then(h, r))
+
+def patch(parent: List<&2, Ops.Item>, hs: List<&2, Hunk>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  patch.go(hs, Done{Patching{parent, Nil{}, 1n, 1n}})
 
 # diff
 # ----
