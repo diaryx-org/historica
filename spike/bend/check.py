@@ -718,6 +718,8 @@ STORES = {
         ["status", "--merge", "base", "--merge", "left"],
         ["merge"],
         ["merge", "left"],
+        ["record", "--onto", "left", "--merge", "right", "-m", "joined"],
+        ["record", "--merge", "left", "--merge", "right", "-m", "joined", "a.md"],
     ],
 
     # Two lines of work that each added a file at one path, and each wrote
@@ -740,6 +742,8 @@ STORES = {
         ["record", "-n"],
         ["status", "--onto", "left", "--merge", "right"],
         ["merge", "right", "left"],
+        ["record", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "c.bin", "-m", "settled"],
+        ["record", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "c.bin", "--accept", "a.md", "-m", "settled"],
     ],
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
@@ -804,6 +808,7 @@ STORES = {
         ["merge", "right", "left"],
         ["merge", "nope"],
         ["merge", "--bogus"],
+        ["record", "--merge", "left", "--merge", "right", "-m", "the right side"],
     ],
     # The same once `merge` has written it and a person has started: one
     # file resolved, one untouched, one with only the closing line
@@ -820,6 +825,18 @@ STORES = {
     ],
     # And with one file left marked.
     "marked1": [["status", "--onto", "left", "--merge", "right"], ["record", "-n", "--onto", "left", "--merge", "right"]],
+    # And resolved: a merge recorded, each file the parents disagree about
+    # stated as a resolution of what the walk proposed — named items kept,
+    # what the person wrote inserted — beside an ordinary edit of a file
+    # they agree about.
+    "resolved": [
+        ["status", "--onto", "left", "--merge", "right"],
+        ["record", "-n", "--merge", "left", "--merge", "right"],
+        ["record", "--merge", "left", "--merge", "right", "-m", "joined"],
+        ["record", "--onto", "left", "--merge", "right", "-m", "joined", "--fields"],
+        ["record", "--merge", "right", "--onto", "left", "-m", "joined\n\nat length"],
+        ["merge"],
+    ],
     "walked": [
         *(["cat", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         *(["blame", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
@@ -1021,7 +1038,7 @@ def record(temporary, rust, corpus, pinned=None):
         if corpus == "caught":
             historica("update", "tip")
             (store / "side.md").unlink()
-    elif corpus in ("meeting", "marked", "marked1"):
+    elif corpus in ("meeting", "marked", "marked1", "resolved"):
         def rec(name, *command):
             done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
             digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
@@ -1043,12 +1060,14 @@ def record(temporary, rust, corpus, pinned=None):
         write(k="kept\n")
         rec("right", "--onto", "base", "-m", "right")
         write(k="kept, and not recorded\n")
-        if corpus in ("marked", "marked1"):
+        if corpus in ("marked", "marked1", "resolved"):
             historica("merge")
             text = (store / "t.md").read_text()
             write(f="a\nLEFT and RIGHT\nc\n", t=text[: text.rindex("^^^ historica")], k="kept, and not recorded\nvvv historica: 0badbeef wrote vvv\n")
-            if corpus == "marked1":
+            if corpus in ("marked1", "resolved"):
                 write(h="x\nY\nz\n")
+            if corpus == "resolved":
+                write(t="end, both ways\n", g="zero\none\ntwo, then\nthree\nfour\nfive\n")
     elif corpus == "blocked":
         (store / "a.md").write_text("a\n")
         (store / "c.bin").write_bytes(b"\x00base")
@@ -1485,7 +1504,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked", "meeting", "marked", "marked1")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked", "meeting", "marked", "marked1", "resolved")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
