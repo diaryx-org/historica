@@ -19,6 +19,7 @@ import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
 import ./sort_lemmas.bend as SortL
+import ./naming.bend as Naming
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1339,3 +1340,20 @@ law record_moves_each_file_once:
   for +ms: List<&2, T.Split>
   for +gone: Set()
   {Sv.moves_ok(ms, gone, Sv.moved.final(ms, gone)) == True{} : Bool}
+
+# A revision is filed one directory deep, under its month. Whatever its
+# message says, the name it has in that directory holds nothing a
+# filesystem reserves — no separator of any platform's, none of
+# `:*?"<>|`, and no control character — where its date, its change and
+# its digest hold none either: the message's first line gave all of them up
+# to spaces before a word of it was kept.
+law a_revision_is_filed_under_its_month:
+  for +when: String
+  for +message: String
+  for +change: String
+  for +id: String
+  for +ns: List<&2, Naming.Named>
+  for hw: {Naming.plain(String.take(when, 10n)) == True{} : Bool}
+  for hc: {Naming.plain(change) == True{} : Bool}
+  for hi: {Naming.plain(id) == True{} : Bool}
+  {Naming.in_month(String.take(when, 7n), Naming.stem(when, message, change, id, ns)) == True{} : Bool}

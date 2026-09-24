@@ -51,6 +51,7 @@ import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./listing_lemmas.bend as ListL
+import ./naming_lemmas.bend as NamingL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -665,3 +666,6 @@ def Laws.record_states_a_kind_only_for_an_arrival(only, t, ks):
 
 def Laws.record_moves_each_file_once(ms, gone):
   SurveyL.moves_final_ok(ms, gone)
+
+def Laws.a_revision_is_filed_under_its_month(when, message, change, id, ns, hw, hc, hi):
+  NamingL.stem_ok(when, message, change, id, ns, hw, hc, hi)
