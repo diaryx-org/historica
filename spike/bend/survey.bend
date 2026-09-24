@@ -1013,6 +1013,11 @@ def planned.refused(pl: Planned) -> List<&2, T.Split>:
     case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
       refused
 
+def planned.claimed(pl: Planned) -> List<&2, T.Split>:
+  match pl:
+    case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
+      claimed
+
 # The files a plan drops, and the paths of the folder's links it observes.
 def planned.gone(pl: Planned) -> Set():
   match pl:

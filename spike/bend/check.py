@@ -2211,6 +2211,20 @@ def check_mutations(temporary):
             "survey.bend",
         ),
         (
+            "a run of one path counted once too few",
+            "claims.go(rest, path, 1n+n, heads_eq(rest, path))",
+            "claims.go(rest, path, n, heads_eq(rest, path))",
+            "survey_lemmas.go_same",
+            "survey.bend",
+        ),
+        (
+            "a link written as a reference where the revision states nothing",
+            'Bool.pick(String, stated(t, gone, arriving, at), "r" ++ at, "v" ++ target)',
+            'Bool.pick(String, True{}, "r" ++ at, "v" ++ target)',
+            "survey_lemmas.observed_of",
+            "survey.bend",
+        ),
+        (
             "record goes on with a path nothing answers to",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, absent)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, False{},",

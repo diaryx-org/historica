@@ -1506,3 +1506,20 @@ law a_link_refers_only_to_what_the_revision_states:
   for +at: String
   for e: {Sv.observed(t, gone, arriving, path, target) == "r" ++ at : String}
   {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}
+
+# `record` goes on only where each path it looks at holds one file.
+# Decision 0008 lets a merge leave two files at one path, and `--at` is how
+# a person settles them: whatever the position, the plan goes on only where
+# no path of it holds more than one, however the paths sort.
+law record_goes_on_where_each_path_holds_one_file:
+  for +t: Tree.Tree()
+  for +looked: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  for +moves: List<&2, T.Split>
+  for +accepted: List<&2, String>
+  for +done: Sv.Planned
+  for e: {Main.planned.r(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted) == Done{done} : Result<&2, &2, Main.Refused, Sv.Planned>}
+  for +p: String
+  {Tree.at_most_one(Tree.at(looked, p)) == True{} : Bool}

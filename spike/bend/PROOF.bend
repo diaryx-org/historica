@@ -719,3 +719,6 @@ def Laws.record_plans_every_file(t, f):
 
 def Laws.a_link_refers_only_to_what_the_revision_states(t, gone, arriving, path, target, at, e):
   SurveyL.observed_ok(t, gone, arriving, path, target, at, e)
+
+def Laws.record_goes_on_where_each_path_holds_one_file(t, looked, held, walked, ss, moves, accepted, done, e, p):
+  SurveyL.path_once(looked, p, SurveyL.planned_claims(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted, done, e))
