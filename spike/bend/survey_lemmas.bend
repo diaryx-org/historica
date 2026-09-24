@@ -1251,3 +1251,208 @@ def observed_of(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, 
 
 def observed_ok(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +at: String, e: {Sv.observed(t, gone, arriving, path, target) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
   observed_of(t, gone, arriving, path, target, Sv.resolution(path, target), {==}, at, e)
+
+# A path claimed once
+# -------------------
+
+def sdisc(xs: List<&2, T.Split>) -> Type:
+  match xs:
+    case Nil{}:
+      Empty
+    case x <> rest:
+      Unit
+
+def split_nil(-x: T.Split, -rest: List<&2, T.Split>, e: {x <> rest == Nil{} : List<&2, T.Split>}) -> Empty:
+  %e : {sdisc(_) : Type}
+  Unit{}
+
+def empty_nil(xs: List<&2, T.Split>, h: {List.is_empty(&2, T.Split, xs) == True{} : Bool}) -> {xs == Nil{} : List<&2, T.Split>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      Empty.absurd({x <> rest == Nil{} : List<&2, T.Split>}, S.false_true(h))
+
+def done_cond(c: Bool, -r: Main.Refused, -rest: Result<&2, &2, Main.Refused, Sv.Planned>, -done: Sv.Planned, e: {Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, c, Fail{r}, rest) == Done{done} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {c == False{} : Bool}:
+  match c:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, Blamed.fail_done(Sv.Planned, r, done, e))
+    case False{}:
+      {==}
+
+def cnt(xs: List<&2, String>, +q: String) -> Nat:
+  List.length(&2, String, SortL.keyed(~String, ~(s => s), q, xs))
+
+def gt_false_le(a: Nat, b: Nat, e: {Nat.is_gt(a, b) == False{} : Bool}) -> {Nat.is_le(a, b) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      {==}
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      Empty.absurd({Nat.is_le(1n+p, 0n) == True{} : Bool}, S.true_false(e))
+    case 1n+p 1n+q:
+      gt_false_le(p, q, e)
+
+def run_cond(c: Bool, -x: T.Split, -rest: List<&2, T.Split>, e: {Bool.pick(List<&2, T.Split>, c, x <> rest, rest) == Nil{} : List<&2, T.Split>}) -> {c == False{} : Bool}:
+  match c:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, split_nil(x, rest, e))
+    case False{}:
+      {==}
+
+def run_rest(c: Bool, -x: T.Split, -rest: List<&2, T.Split>, e: {Bool.pick(List<&2, T.Split>, c, x <> rest, rest) == Nil{} : List<&2, T.Split>}) -> {rest == Nil{} : List<&2, T.Split>}:
+  match c:
+    case True{}:
+      Empty.absurd({rest == Nil{} : List<&2, T.Split>}, split_nil(x, rest, e))
+    case False{}:
+      e
+
+def add_succ_r(a: Nat, -b: Nat) -> {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %add_succ_r(p, b) : {1n+Nat.add(p, 1n+b) == 1n+_ : Nat}
+      {==}
+
+# The end of the paths: the run in hand is the one path left.
+def nil_case(c: Bool, +n: Nat, h: {Nat.is_le(n, 1n) == True{} : Bool}) -> {Nat.is_le(Nat.add(Bool.pick(Nat, c, n, 0n), 0n), 1n) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Nat, Nat.add(n, 0n), n, Comp.add_zero(n)) : {Nat.is_le(_, 1n) == True{} : Bool}
+      h
+    case False{}:
+      {==}
+
+# Another of the run's path: it counts once more.
+def same_case(d: Bool, -x: String, +n: Nat, +k: List<&2, String>, ih: {Nat.is_le(Nat.add(Bool.pick(Nat, d, 1n+n, 0n), List.length(&2, String, k)), 1n) == True{} : Bool}) -> {Nat.is_le(Nat.add(Bool.pick(Nat, d, n, 0n), List.length(&2, String, Bool.pick(List<&2, String>, d, x <> k, k))), 1n) == True{} : Bool}:
+  match d:
+    case True{}:
+      %Equal.sym(Nat, Nat.add(n, 1n+List.length(&2, String, k)), 1n+Nat.add(n, List.length(&2, String, k)), add_succ_r(n, List.length(&2, String, k))) : {Nat.is_le(_, 1n) == True{} : Bool}
+      ih
+    case False{}:
+      ih
+
+# A path counted where it is, and not in the run before it.
+def one_case(e2: Bool, -x: String, +k: List<&2, String>, ih: {Nat.is_le(Nat.add(Bool.pick(Nat, e2, 1n, 0n), List.length(&2, String, k)), 1n) == True{} : Bool}) -> {Nat.is_le(List.length(&2, String, Bool.pick(List<&2, String>, e2, x <> k, k)), 1n) == True{} : Bool}:
+  match e2:
+    case True{}:
+      ih
+    case False{}:
+      ih
+
+def cmp_le(c: Cmp, h1: {Cmp.is_le(SortL.cflip(c)) == True{} : Bool}, hne: {Cmp.is_eq(c) == False{} : Bool}) -> {Cmp.is_le(c) == False{} : Bool}:
+  match c:
+    case LT{}:
+      Empty.absurd({True{} == False{} : Bool}, S.false_true(h1))
+    case EQ{}:
+      Empty.absurd({True{} == False{} : Bool}, S.true_false(hne))
+    case GT{}:
+      {==}
+
+# No earlier path is at or after a later one it is not.
+def antisym(+a: String, +b: String, h1: {String.is_le(a, b) == True{} : Bool}, hne: {String.eq(b, a) == False{} : Bool}) -> {String.is_le(b, a) == False{} : Bool}:
+  cmp_le(String.order(b, a),
+    Equal.trans(Bool, Cmp.is_le(SortL.cflip(String.order(b, a))), Cmp.is_le(String.order(a, b)), True{},
+      Equal.cong(Cmp, Bool, c => Cmp.is_le(c), SortL.cflip(String.order(b, a)), String.order(a, b), Equal.sym(Cmp, String.order(a, b), SortL.cflip(String.order(b, a)), SortL.str_flip(b, a))),
+      h1),
+    Equal.trans(Bool, Cmp.is_eq(String.order(b, a)), String.eq(b, a), False{}, Equal.sym(Bool, String.eq(b, a), Cmp.is_eq(String.order(b, a)), S.eq_order(b, a)), hne))
+
+# The path of a run that ended: no later path is it.
+def diff_case(d: Bool, +path: String, +p: String, +q: String, +n: Nat, +rest: List<&2, String>, +ed: {String.eq(path, q) == d : Bool}, +hne: {String.eq(p, path) == False{} : Bool}, +hle: {String.is_le(path, p) == True{} : Bool}, +hs: {SortL.sorted.from(~String, ~(s => s), rest, p) == True{} : Bool}, +hn: {Nat.is_le(n, 1n) == True{} : Bool}, ih: {Nat.is_le(Nat.add(Bool.pick(Nat, String.eq(p, q), 1n, 0n), cnt(rest, q)), 1n) == True{} : Bool}) -> {Nat.is_le(Nat.add(Bool.pick(Nat, d, n, 0n), List.length(&2, String, Bool.pick(List<&2, String>, String.eq(p, q), p <> SortL.keyed(~String, ~(s => s), q, rest), SortL.keyed(~String, ~(s => s), q, rest)))), 1n) == True{} : Bool}:
+  match d:
+    case True{}:
+      %S.eq_true(path, q, ed) : {Nat.is_le(Nat.add(n, List.length(&2, String, Bool.pick(List<&2, String>, String.eq(p, _), p <> SortL.keyed(~String, ~(s => s), _, rest), SortL.keyed(~String, ~(s => s), _, rest)))), 1n) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(p, path), False{}, hne) : {Nat.is_le(Nat.add(n, List.length(&2, String, Bool.pick(List<&2, String>, _, p <> SortL.keyed(~String, ~(s => s), path, rest), SortL.keyed(~String, ~(s => s), path, rest)))), 1n) == True{} : Bool}
+      %Equal.sym(List<&2, String>, SortL.keyed(~String, ~(s => s), path, rest), Nil{}, SortL.keyed_none(~String, ~(s => s), rest, p, path, antisym(path, p, hle, hne), hs)) : {Nat.is_le(Nat.add(n, List.length(&2, String, _)), 1n) == True{} : Bool}
+      nil_case(True{}, n, hn)
+    case False{}:
+      one_case(String.eq(p, q), p, SortL.keyed(~String, ~(s => s), q, rest), ih)
+
+def sorted_at(+rest: List<&2, String>, +a: String, +b: String, e: {a == b : String}, h: {SortL.sorted.from(~String, ~(s => s), rest, a) == True{} : Bool}) -> {SortL.sorted.from(~String, ~(s => s), rest, b) == True{} : Bool}:
+  %e : {SortL.sorted.from(~String, ~(s => s), rest, _) == True{} : Bool}
+  h
+
+def go_same(c: Bool, +p: String, +rest: List<&2, String>, +path: String, +n: Nat, +q: String, +ec: {String.eq(p, path) == c : Bool}, +hs: {SortL.sorted.from(~String, ~(s => s), rest, p) == True{} : Bool}, +hle: {String.is_le(path, p) == True{} : Bool}, +e: {Sv.claims.go(p <> rest, path, n, c) == Nil{} : List<&2, T.Split>}, ihs: @m: Nat -> {SortL.sorted.from(~String, ~(s => s), rest, path) == True{} : Bool} -> {Sv.claims.go(rest, path, m, Sv.heads_eq(rest, path)) == Nil{} : List<&2, T.Split>} -> {Nat.is_le(Nat.add(Bool.pick(Nat, String.eq(path, q), m, 0n), cnt(rest, q)), 1n) == True{} : Bool}, ihd: {Sv.claims.go(rest, p, 1n, Sv.heads_eq(rest, p)) == Nil{} : List<&2, T.Split>} -> {Nat.is_le(Nat.add(Bool.pick(Nat, String.eq(p, q), 1n, 0n), cnt(rest, q)), 1n) == True{} : Bool}) -> {Nat.is_le(Nat.add(Bool.pick(Nat, String.eq(path, q), n, 0n), cnt(p <> rest, q)), 1n) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(String, p, path, S.eq_true(p, path, ec)) : {Nat.is_le(Nat.add(Bool.pick(Nat, String.eq(path, q), n, 0n), List.length(&2, String, Bool.pick(List<&2, String>, String.eq(_, q), p <> SortL.keyed(~String, ~(s => s), q, rest), SortL.keyed(~String, ~(s => s), q, rest)))), 1n) == True{} : Bool}
+      same_case(String.eq(path, q), p, n, SortL.keyed(~String, ~(s => s), q, rest), ihs(1n+n, sorted_at(rest, p, path, S.eq_true(p, path, ec), hs), e))
+    case False{}:
+      diff_case(String.eq(path, q), path, p, q, n, rest, {==}, ec, hle, hs,
+        gt_false_le(n, 1n, run_cond(Nat.is_gt(n, 1n), T.Split{path, Nat.show(n)}, Sv.claims.go(rest, p, 1n, Sv.heads_eq(rest, p)), e)),
+        ihd(run_rest(Nat.is_gt(n, 1n), T.Split{path, Nat.show(n)}, Sv.claims.go(rest, p, 1n, Sv.heads_eq(rest, p)), e)))
+
+# Walking the sorted paths in runs: where no run is longer than one, no
+# path is counted twice.
+def go_once(ps: List<&2, String>, +path: String, +n: Nat, +q: String, +hs: {SortL.sorted.from(~String, ~(s => s), ps, path) == True{} : Bool}, e: {Sv.claims.go(ps, path, n, Sv.heads_eq(ps, path)) == Nil{} : List<&2, T.Split>}) -> {Nat.is_le(Nat.add(Bool.pick(Nat, String.eq(path, q), n, 0n), cnt(ps, q)), 1n) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      nil_case(String.eq(path, q), n, gt_false_le(n, 1n, run_cond(Nat.is_gt(n, 1n), T.Split{path, Nat.show(n)}, Nil{}, e)))
+    case +p <> +rest:
+      go_same(String.eq(p, path), p, rest, path, n, q, {==},
+        Comp.and_right(String.is_le(path, p), SortL.sorted.from(~String, ~(s => s), rest, p), hs),
+        Comp.and_left(String.is_le(path, p), SortL.sorted.from(~String, ~(s => s), rest, p), hs),
+        e,
+        m => h => e2 => go_once(rest, path, m, q, h, e2),
+        e3 => go_once(rest, p, 1n, q, Comp.and_right(String.is_le(path, p), SortL.sorted.from(~String, ~(s => s), rest, p), hs), e3))
+
+def claims_once(ps: List<&2, String>, +q: String, +hs: {SortL.sorted.from(~String, ~(s => s), ps, SNil{}) == True{} : Bool}, e: {Sv.claims.of(ps) == Nil{} : List<&2, T.Split>}) -> {Nat.is_le(cnt(ps, q), 1n) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +rest:
+      one_case(String.eq(p, q), p, SortL.keyed(~String, ~(s => s), q, rest), go_once(rest, p, 1n, q, Comp.and_right(String.is_le(SNil{}, p), SortL.sorted.from(~String, ~(s => s), rest, p), hs), e))
+
+# The files at a path are as many as the paths it has among them.
+def keep_len(c: Bool, -f: String, -x: String, -xs: List<&2, String>, -ys: List<&2, String>, ih: {List.length(&2, String, xs) == List.length(&2, String, ys) : Nat}) -> {List.length(&2, String, Rev.keep(c, f, xs)) == List.length(&2, String, Bool.pick(List<&2, String>, c, x <> ys, ys)) : Nat}:
+  match c:
+    case True{}:
+      Equal.cong(Nat, Nat, m => 1n+m, List.length(&2, String, xs), List.length(&2, String, ys), ih)
+    case False{}:
+      ih
+
+def at_len(t: Tree.Tree(), +p: String) -> {List.length(&2, String, Tree.at(t, p)) == cnt(Sv.paths(t), p) : Nat}:
+  match t:
+    case Nil{}:
+      {==}
+    case Tree.Entry{+f, +q, k, y, g, m} <> +rest:
+      keep_len(String.eq(q, p), f, q, Tree.at(rest, p), SortL.keyed(~String, ~(s => s), p, Sv.paths(rest)), at_len(rest, p))
+
+def amo(xs: List<&2, String>, h: {Nat.is_le(List.length(&2, String, xs), 1n) == True{} : Bool}) -> {Tree.at_most_one(xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> Nil{}:
+      {==}
+    case x <> y <> rest:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+
+# Where no path is claimed, each holds at most one file.
+def path_once_len(+t: Tree.Tree(), +p: String, e: {Sv.claims(t) == Nil{} : List<&2, T.Split>}) -> {Nat.is_le(List.length(&2, String, Tree.at(t, p)), 1n) == True{} : Bool}:
+  %Equal.sym(Nat, List.length(&2, String, Tree.at(t, p)), cnt(Sv.paths(t), p), at_len(t, p)) : {Nat.is_le(_, 1n) == True{} : Bool}
+  %SortL.sort_keyed(~String, ~(s => s), Sv.paths(t), p) : {Nat.is_le(List.length(&2, String, _), 1n) == True{} : Bool}
+  claims_once(List.sort(~String, ~(a => b => String.is_le(a, b)), Sv.paths(t)), p, SortL.sort_sorted(~String, ~(s => s), Sv.paths(t)), e)
+
+def path_once(+t: Tree.Tree(), +p: String, e: {Sv.claims(t) == Nil{} : List<&2, T.Split>}) -> {Tree.at_most_one(Tree.at(t, p)) == True{} : Bool}:
+  amo(Tree.at(t, p), path_once_len(t, p, e))
+
+# `record` goes on only where the survey claims no path.
+def planned_claims(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>, -done: Sv.Planned, e: {Main.planned.r(looked, pl, accepted) == Done{done} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {Sv.planned.claimed(pl) == Nil{} : List<&2, T.Split>}:
+  match pl:
+    case Sv.Planned{facts, +refused, +claimed, +accept, +emptied, dangles, obs, links}:
+      match dangles:
+        case Some{m}:
+          Empty.absurd({claimed == Nil{} : List<&2, T.Split>}, Blamed.fail_done(Sv.Planned, Main.Refused{1, m}, done, e))
+        case None{}:
+          empty_nil(claimed, not_false(List.is_empty(&2, T.Split, claimed),
+            done_cond(Bool.not(List.is_empty(&2, T.Split, claimed)), Main.Refused{1, Main.claimed.msg(looked, claimed)},
+      Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}},
+      Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)),
+        Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}},
+      Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))),
+        Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}},
+      Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))),
+        Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}},
+        Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))), done, e)))
