@@ -672,3 +672,49 @@ def asked_said(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>, r: Result<&2
 # `blame` reads its arguments as their plain reading says.
 def args_said(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>, +b: Main.Blame, e: {Main.blame.args.r(bs, args) == Done{b} : Result<&2, &2, Main.Refused, Main.Blame>}) -> {Main.bargs.said(args) == Main.blame.said(b) : Main.BSaid}:
   asked_said(bs, args, Main.basked.go(args), {==}, b, e)
+
+# The folder's file
+# -----------------
+
+def kind_refl(x: Tree.FileKind) -> {Tree.kind_eq(x, x) == True{} : Bool}:
+  match x:
+    case Tree.Lines{}:
+      {==}
+    case Tree.Whole{}:
+      {==}
+    case Tree.Link{}:
+      {==}
+
+def same_refl(m: Maybe<&2, Tree.FileKind>) -> {Main.kind.same(m, m) == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{x}:
+      kind_refl(x)
+
+def ck_lines(+found: List<&2, Folder.Found>, +path: String, +t: Tree.Tree(), +file: Maybe<&2, String>, +p: String, +rn: Bool, +n: Nat, +em: {Main.found_at(found, path) == Some{Folder.Found.File{p, rn, n}} : Maybe<&2, Folder.Found>}, r: Result<&2, &2, Main.Refused, Unit>, +er: {Main.lines_only.r(path, Main.wcf.kind_of(t, file)) == r : Result<&2, &2, Main.Refused, Unit>}, +k: Maybe<&2, Tree.FileKind>, e: {Result.bind(&2, &2, Main.Refused, Unit, Maybe<&2, Tree.FileKind>, r, u => Done{Main.wcf.kind_of(t, file)}) == Done{k} : Result<&2, &2, Main.Refused, Maybe<&2, Tree.FileKind>>}) -> {Main.checked.ok(found, path, t, file, k) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.checked.ok(found, path, t, file, k) == True{} : Bool}, fail_done(Maybe<&2, Tree.FileKind>, x, k, e))
+    case Done{+u}:
+      +d = done_eq(Maybe<&2, Tree.FileKind>, Main.wcf.kind_of(t, file), k, e)
+      %d : {Main.checked.ok(found, path, t, file, _) == True{} : Bool}
+      +ef = Equal.sym(Maybe<&2, Folder.Found>, Main.found_at(found, path), Some{Folder.Found.File{p, rn, n}}, em)
+      %ef : {Bool.and(Main.found.regular(_), Bool.and(Main.kind.same(Main.wcf.kind_of(t, file), Main.wcf.kind_of(t, file)), Main.kind.has_lines(Main.wcf.kind_of(t, file)))) == True{} : Bool}
+      and_tt(Main.kind.same(Main.wcf.kind_of(t, file), Main.wcf.kind_of(t, file)), Main.kind.has_lines(Main.wcf.kind_of(t, file)), same_refl(Main.wcf.kind_of(t, file)), lines_ok(path, Main.wcf.kind_of(t, file), u, er))
+
+def ck_found(+found: List<&2, Folder.Found>, +path: String, +t: Tree.Tree(), +file: Maybe<&2, String>, m: Maybe<&2, Folder.Found>, +em: {Main.found_at(found, path) == m : Maybe<&2, Folder.Found>}, +k: Maybe<&2, Tree.FileKind>, e: {Result.bind(&2, &2, Main.Refused, Folder.Found, Maybe<&2, Tree.FileKind>, Main.wcf.found.r(path, m), f => Result.bind(&2, &2, Main.Refused, Unit, Maybe<&2, Tree.FileKind>, Main.wcf.link.r(path, f), u => Result.bind(&2, &2, Main.Refused, Unit, Maybe<&2, Tree.FileKind>, Main.lines_only.r(path, Main.wcf.kind_of(t, file)), v => Done{Main.wcf.kind_of(t, file)}))) == Done{k} : Result<&2, &2, Main.Refused, Maybe<&2, Tree.FileKind>>}) -> {Main.checked.ok(found, path, t, file, k) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Main.checked.ok(found, path, t, file, k) == True{} : Bool}, refuse(Maybe<&2, Tree.FileKind>, Result.bind(&2, &2, Main.Refused, Folder.Found, Maybe<&2, Tree.FileKind>, Main.wcf.found.r(path, None{}), f => Result.bind(&2, &2, Main.Refused, Unit, Maybe<&2, Tree.FileKind>, Main.wcf.link.r(path, f), u => Result.bind(&2, &2, Main.Refused, Unit, Maybe<&2, Tree.FileKind>, Main.lines_only.r(path, Main.wcf.kind_of(t, file)), v => Done{Main.wcf.kind_of(t, file)}))), k, {==}, e))
+    case Some{f}:
+      match f:
+        case Folder.Found.File{+p, +rn, +n}:
+          ck_lines(found, path, t, file, p, rn, n, em, Main.lines_only.r(path, Main.wcf.kind_of(t, file)), {==}, k, e)
+        case Folder.Found.Link{p, tg}:
+          Empty.absurd({Main.checked.ok(found, path, t, file, k) == True{} : Bool}, refuse(Maybe<&2, Tree.FileKind>, Result.bind(&2, &2, Main.Refused, Folder.Found, Maybe<&2, Tree.FileKind>, Main.wcf.found.r(path, Some{Folder.Found.Link{p, tg}}), f => Result.bind(&2, &2, Main.Refused, Unit, Maybe<&2, Tree.FileKind>, Main.wcf.link.r(path, f), u => Result.bind(&2, &2, Main.Refused, Unit, Maybe<&2, Tree.FileKind>, Main.lines_only.r(path, Main.wcf.kind_of(t, file)), v => Done{Main.wcf.kind_of(t, file)}))), k, {==}, e))
+
+# `blame <path>` reads a file the folder holds at the path, not a link, and
+# goes on with the kind the position gives it, one with lines.
+def checked_ok(+path: String, +t: Tree.Tree(), +file: Maybe<&2, String>, +found: List<&2, Folder.Found>, +k: Maybe<&2, Tree.FileKind>, e: {Main.wcf.checked.r(path, t, file, found) == Done{k} : Result<&2, &2, Main.Refused, Maybe<&2, Tree.FileKind>>}) -> {Main.checked.ok(found, path, t, file, k) == True{} : Bool}:
+  ck_found(found, path, t, file, Main.found_at(found, path), {==}, k, e)

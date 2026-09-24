@@ -1172,6 +1172,13 @@ def check_mutations(temporary):
             "blamed_lemmas.run_word",
             "main.bend",
         ),
+        (
+            "blame <path> reads through a link in the folder",
+            '    case Folder.Found.Link{p, t}:\n      lines_only.r(path, Some{Tree.Link{}})',
+            '    case Folder.Found.Link{p, t}:\n      Done{Unit{}}',
+            "blamed_lemmas.ck_found",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

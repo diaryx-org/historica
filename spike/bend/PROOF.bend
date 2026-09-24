@@ -489,3 +489,6 @@ def Laws.blame_prints_the_folder(fs, path, k, bs, rows, span, out, e):
 
 def Laws.blame_reads_its_words(bs, args, b, e):
   Blamed.args_said(bs, args, b, e)
+
+def Laws.blame_reads_a_folder_file(path, t, file, found, k, e):
+  Blamed.checked_ok(path, t, file, found, k, e)

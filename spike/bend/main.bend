@@ -4800,6 +4800,30 @@ def wcf.checked.r(+path: String, +t: Tree.Tree(), file: Maybe<&2, String>, found
     lines_only.r(path, k)
     return k
 
+# What `blame <path>` reads from the folder is a file there rather than a
+# link, and the kind it goes on with is the position's, one with lines.
+# `LAWS.blame_reads_a_folder_file` holds `wcf.checked.r` to it.
+def found.regular(m: Maybe<&2, Folder.Found>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{Folder.Found.File{p, r, n}}:
+      True{}
+    case Some{Folder.Found.Link{p, t}}:
+      False{}
+
+def kind.same(a: Maybe<&2, Tree.FileKind>, b: Maybe<&2, Tree.FileKind>) -> Bool:
+  match a b:
+    case None{} None{}:
+      True{}
+    case Some{x} Some{y}:
+      Tree.kind_eq(x, y)
+    case _ _:
+      False{}
+
+def checked.ok(found: List<&2, Folder.Found>, +path: String, +t: Tree.Tree(), +file: Maybe<&2, String>, +k: Maybe<&2, Tree.FileKind>) -> Bool:
+  Bool.and(found.regular(found_at(found, path)), Bool.and(kind.same(k, wcf.kind_of(t, file)), kind.has_lines(k)))
+
 # A file the position holds keeps the kind it was added with; one it does
 # not is whatever the recorder would call it.
 def wcf.sniffed.r(+path: String, text: Bool) -> Result<&2, &2, Refused, Unit>:

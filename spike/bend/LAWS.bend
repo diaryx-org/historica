@@ -803,3 +803,14 @@ law blame_reads_its_words:
   for +b: Main.Blame
   for e: {Main.blame.args.r(bs, args) == Done{b} : Result<&2, &2, Main.Refused, Main.Blame>}
   {Main.bargs.said(args) == Main.blame.said(b) : Main.BSaid}
+
+# `blame <path>` reads a file the folder holds at the path rather than a
+# link, and goes on with the kind the position gives it, one with lines.
+law blame_reads_a_folder_file:
+  for +path: String
+  for +t: Tree.Tree()
+  for +file: Maybe<&2, String>
+  for +found: List<&2, Folder.Found>
+  for +k: Maybe<&2, Tree.FileKind>
+  for e: {Main.wcf.checked.r(path, t, file, found) == Done{k} : Result<&2, &2, Main.Refused, Maybe<&2, Tree.FileKind>>}
+  {Main.checked.ok(found, path, t, file, k) == True{} : Bool}
