@@ -18,6 +18,7 @@ import ./folder.bend as Folder
 import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
+import ./standin.bend as Stand
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1038,7 +1039,11 @@ law cat_reads_a_held_file:
 
 # `show <target> <path>` names a file the target's tree holds, and what
 # `show` prints is a document the store holds under the digest named — the
-# revision's own, or the one it states for the file.
+# revision's own, or the one it states for the file. Where a forgetting
+# destroyed the one it states (decisions 0014, 0050, 0066), what it prints
+# is what stands in for it: documents the store holds, each whole and in
+# the store's order, each saying in its first header that it `forgets` the
+# digest named — never a document of its own making.
 law show_names_a_held_file:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
@@ -1063,7 +1068,7 @@ law show_prints_what_the_revision_states:
   for s: Main.Said
   for +text: String
   for e: {Main.show.said.r(id, file, ds, s) == Done{text} : Result<&2, &2, Main.Refused, String>}
-  {Main.doc.holds(ds, Main.said.digest(s), text) == True{} : Bool}
+  {Bool.or(Main.doc.holds(ds, Main.said.digest(s), text), Stand.made_of(ds, Main.said.digest(s), text)) == True{} : Bool}
 
 # `name` writes where its name puts it, under `names/`: a name it takes is
 # never absolute and never climbs out with `..`, since a bookmark whose
