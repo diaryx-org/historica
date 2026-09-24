@@ -50,6 +50,7 @@ import ./pair_lemmas.bend as PairL
 import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
+import ./update_lemmas.bend as UpdL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -593,3 +594,12 @@ def Laws.status_joins_held_revisions(fs, bs, onto, ms, ps, e):
 
 def Laws.name_stays_in_names(n, e):
   NameL.stays(n, e)
+
+def Laws.update_reads_its_words(ws, c, e):
+  UpdL.args_said(ws, c, e)
+
+def Laws.update_lands(tr, looks, gones, p, e):
+  UpdL.plan_lands(tr, looks, gones, p, e)
+
+def Laws.update_spares_the_unrecorded(tr, looks, gones, p, e):
+  UpdL.plan_spares(tr, looks, gones, p, e)

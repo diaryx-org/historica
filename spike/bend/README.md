@@ -35,11 +35,12 @@ bend main.bend -- abandon tip -m "why"    # supersede a run of work with a tombs
 bend main.bend -- carry tip --onto main   # restate work against another parent
 bend main.bend -- name main head        # point a bookmark, and `--delete` one
 bend main.bend -- init notes            # make a store in notes/history
+bend main.bend -- update tip            # make the folder hold a head
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through fifteen host effects (`store.bend`): `bend main.bend` runs
+here or above — through nineteen host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -265,13 +266,13 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, and a document or a payload filed once: fifteen effects, a C adapter, a Rust static library |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, a document or a payload filed once, and the folder laid out — a file of lines written, a payload laid, a link made, a bit set: nineteen effects, a C adapter, a Rust static library |
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | a hundred and five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -291,6 +292,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
 | `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added | `working::walk`, `Survey::facts` |
 | `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given | `status`'s arguments and parents |
+| `update.bend`, `update_lemmas.bend` | `update`: the folder made to hold a head — the plan of what each path takes, from the target's tree, the walk, a directory's listing where the walk took nothing, and what history records at each path; and the IO that performs it. `update_reads_its_words`: `-n` or `--dry-run` anywhere makes a dry run, and the target is the one word not beginning with `-`; `update_lands`: where it plans at all, every path the target holds with one file ends up holding what the target records, bytes and mode, or a link where the tree points; `update_spares_the_unrecorded`: a file it writes over or takes away holds bytes some revision records there, and a link it takes away points where one was recorded | `cli::update`, `update::{plan, apply}` |
 | `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet | `store::check_name` |
 | `PROOF.bend` (`replay`) | `replay_keeps_a_refusal`: once a document in the chain is refused, nothing after it — a payload included — makes the chain a file; `opdiff_replays_to_the_child`: the document `opdiff` finds between two files, applied as `replay` applies one, makes the second | `replay`, `opdiff` |
 | `target_lemmas.bend` | `target_is_held`: every target — a bookmark, `head`, a digest prefix or a change prefix — resolves to a revision the store holds; setting a key in Base's `Map` never invents a value, so the history heads and changes are read from holds only the store's revisions | `target::resolve` |
@@ -572,6 +574,44 @@ path really is. The notes are prose the Rust tool keeps in its source;
 `notes.bend`, and `check.py`, which compares everything `init` leaves,
 fails where they have drifted. The `bare` store, a folder with no store
 in it, has seven `init`s and the commands that need a store refusing.
+
+`update [<target>] [--dry-run]` makes the folder hold a head, decision
+0030: the one head there is, or the one named, and a revision that is not
+a current head is refused with the heads listed. Each path the head's tree
+holds is written as the target records it — a file of lines as the text
+`cat` prints, a file of bytes as the payload the store holds, copied, a
+link spelled relative to where it sits — and a file whose bytes are right
+and whose bit is not has its mode set; each path the folder holds that the
+head does not is removed where some revision, superseded or abandoned
+included, records its bytes, and a directory it empties goes with it.
+Nothing any revision does not record is written over or removed: such a
+file where the head wants one refuses the whole update, and at a path the
+head does not hold it is left, said to be where a current head tracks it
+and silent where nothing does. So is everything the folder cannot take — a
+path two files claim, bytes a merge left contested, a file and a
+directory at one path, the store's own directory, a rule in `skipped/`, a
+payload the store does not hold, a directory, a link or something the walk
+did not offer where a file goes — all collected, sorted and said at once
+before anything is written. The plan (`update.bend`) is pure, and the IO
+performs it with four writes that decide nothing: `Store.put` lands a
+file of lines staged and renamed over what stood there, keeping its
+permissions as the Rust tool's `write_if` does; `Store.lay` copies a
+payload in as a new file, refused where its bytes are not the digest;
+`Store.link` makes a link beside the path and renames it over; and
+`Store.chmod` sets the bit as the read bits say and answers what it was,
+which is how a `mode` line is owed. A written file that does not read back
+as what was written is the folder folding two paths onto one, and is
+refused after the fact, as the Rust tool refuses it. What the port does not
+do is look again at each path just before touching it: the Rust tool's
+`apply` narrows the window between the plan and the write, and a folder
+changing under an update is not something `check.py` can make happen.
+`check.py`'s `updating` store has two heads beside a base, and a folder
+standing at the base with a stray and a file nobody recorded; `caught` is
+the same folder once it holds the tip; and `blocked` has a head no folder
+can take, and a folder in its way at every turn. With `update` over the
+corpus stores, which arrive with no folder at all, over the walked and
+resolved merges, and where there is no store or nothing recorded, 33
+comparisons hold it to the Rust tool, the folder after included.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1117,7 +1157,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Ninety-seven mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1191,7 +1231,9 @@ payload after a refusal starting the file over, and a document applied to
 nothing rather than to what came before; and two status breaks: the
 revisions joined kept newest first, and a `--merge` joined by its spelling
 rather than the revision it names; and one name break: a name taken without
-asking the path rules. The
+asking the path rules; and three update breaks: bytes no revision records
+written over, a file kept whose mode is not the one recorded, and a file
+nobody recorded taken away. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
