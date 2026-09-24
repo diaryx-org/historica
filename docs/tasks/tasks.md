@@ -2,9 +2,10 @@
 title: Tasks
 description: Deferred work in historica — one file each, every one with a done state
 created: 2026-09-02
-updated: 2026-09-16
+updated: 2026-09-23
 contents:
   - "[The state at a revision without the walk](the-state-at-a-revision-without-the-walk.md)"
+  - "[An export restates its indexes whole](an-export-restates-its-indexes-whole.md)"
   - '[Closed tasks](/docs/tasks/closed/closed.md)'
 part_of: '[historica](/README.md)'
 ---
