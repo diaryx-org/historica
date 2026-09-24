@@ -2,8 +2,10 @@
 // its bytes staged beside it and renamed over it.
 function store_write(query) {
   // The runtime's `io_fail` keeps only a code and says the system's words
-  // for it; this keeps what the refusal says, as the C side does.
+  // for it; this keeps what the refusal says, in Rust's words for the
+  // system's failure, as the C side does.
   const hist_fail = (code, message) => ({ $: "Fail", error: io_tup(code >>> 0, String(message)) });
+  const said = (e) => `${io_sys().strerror(e.errno ? -e.errno : 5)} (os error ${e.errno ? -e.errno : 5})`;
   const fs = require("node:fs");
   const path = require("node:path");
   const cut = query.indexOf("\n");
@@ -13,7 +15,7 @@ function store_write(query) {
   try {
     fs.mkdirSync(directory, { recursive: true });
   } catch (e) {
-    return hist_fail(e.errno ? -e.errno : 5, `${directory}: ${e.message}`);
+    return hist_fail(e.errno ? -e.errno : 5, `${directory}: ${said(e)}`);
   }
   const staged = `${file}.${process.pid}.staged`;
   try {
@@ -21,7 +23,7 @@ function store_write(query) {
     fs.renameSync(staged, file);
   } catch (e) {
     try { fs.unlinkSync(staged); } catch (_) {}
-    return hist_fail(e.errno ? -e.errno : 5, `${file}: ${e.message}`);
+    return hist_fail(e.errno ? -e.errno : 5, `${file}: ${said(e)}`);
   }
   return io_done("");
 }

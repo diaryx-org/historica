@@ -16,9 +16,12 @@
 import Base
 import ./utf8.bend as Utf8
 import ./sha256.bend as Sha
+import ./argv.bend as Argv
 
-# The `history` directory holding a `historica.txt`, here or above `from`;
-# an empty `from` is the current directory.
+# The `history` directory in `from` or the nearest directory above it that
+# has one. Whether it is a store is asked of its `historica.txt` when a
+# command opens it, as the Rust tool asks: a `history` directory without
+# one stops the walk, and is refused as not a store rather than passed by.
 def Store.locate(from: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_locate.c"
   import "./ffi/store_locate.js"
@@ -120,6 +123,50 @@ def Store.tty(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_tty.c"
   import "./ffi/store_tty.js"
 
+# A program run to its end, in a directory, with this process's standard
+# streams: the directory, the program and each argument, separated by NUL,
+# and back the code it exited with, or `signal`. A program that could not
+# be started is refused with the system's code; which of those is "no such
+# command" is decided here, not there.
+def Store.run(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_run.c"
+  import "./ffi/store_run.js"
+
+# The process ending with this code, once what it printed is out, and
+# saying nothing more: a halt says its message and a newline after it, and
+# a command that has said its piece on stdout — `check` — or a program run
+# for this one ends with a code alone.
+def Store.exit(code: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_exit.c"
+  import "./ffi/store_exit.js"
+
+# What `Store.run` is asked: the directory, the program and each argument,
+# a NUL before each after the first — the one character no argument can
+# hold, so nothing needs escaping.
+def run.args(args: List<&2, String>) -> String:
+  match args:
+    case Nil{}:
+      SNil{}
+    case a <> rest:
+      "\u{0}" ++ a ++ run.args(rest)
+
+def run.query(+dir: String, +program: String, args: List<&2, String>) -> String:
+  dir ++ "\u{0}" ++ program ++ run.args(args)
+
+# A program run, as `Store.run` runs it.
+def ran(+dir: String, +program: String, args: List<&2, String>) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.run(run.query(dir, program, args))
+
+# The process ending with a code and nothing more said; ending with `0` is
+# what a program does anyway, so that one is left to the end.
+def exit.with(+code: Nat) -> IO(Unit):
+  do IO<Unit>:
+    r : Result<&1, &1, U32 & String, String> <- Store.exit(Nat.show(code))
+    IO.die(Unit, 1, "historica: the process would not end")
+
+def ended(+code: Nat) -> IO(Unit):
+  Bool.pick(IO(Unit), Nat.is_eq(code, 0n), IO.pure(Unit, Unit{}), exit.with(code))
+
 # One document read from disk: where it was, the digest of its bytes — the
 # only name it has — how many bytes, and its text. A payload of bytes that
 # is not UTF-8 decodes to something, and the count is of the bytes.
@@ -187,15 +234,142 @@ def root.of(r: Result<&1, &1, U32 & String, String>) -> IO(String):
     case Done{found}:
       IO.pure(String, found)
 
+# Where the store is looked for from: the directory `-C` names, as it was
+# typed, or here. The Rust tool joins nothing to it before looking, and
+# neither does this.
+def from() -> IO(String):
+  do IO<String>:
+    args : List<&2, String> <- Argv.args()
+    return Maybe.default(&2, String, Argv.base(args), ".")
+
+# The directory a command runs in, spelled as the Rust tool spells its
+# `base`: `-C`'s directory as it was typed, or here, as the path it really
+# is — which is what a path joined to it says in a message.
+def base.of(b: Maybe<&2, String>) -> IO(Result<&1, &1, U32 & String, String>):
+  match b:
+    case Some{d}:
+      IO.pure(Result<&1, &1, U32 & String, String>, Done{d})
+    case None{}:
+      Store.real(SNil{})
+
+def base() -> IO(Result<&1, &1, U32 & String, String>):
+  do IO<Result<&1, &1, U32 & String, String>>:
+    args : List<&2, String> <- Argv.args()
+    base.of(Argv.base(args))
+
 # Where the store is, or why there is none, for a caller with something to
 # say before the refusal.
 def root.found() -> IO(Result<&1, &1, U32 & String, String>):
-  Store.locate(SNil{})
+  do IO<Result<&1, &1, U32 & String, String>>:
+    here : String <- from()
+    Store.locate(here)
 
 def root() -> IO(String):
   do IO<String>:
-    r : Result<&1, &1, U32 & String, String> <- Store.locate(SNil{})
+    r : Result<&1, &1, U32 & String, String> <- root.found()
     root.of(r)
+
+# The header
+# ----------
+
+def read_text(path: String) -> IO(String):
+  do IO<String>:
+    bs : List<&2, U32> <- Utf8.read_file(path)
+    return Utf8.decode(bs)
+
+# `str::lines` asked for two lines: the first, and whether a second
+# follows. A `\r` before the newline is not part of the line.
+def line.cut(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{'\r', SCon{'\n', t}}:
+      SNil{}
+    case SCon{'\n', t}:
+      SNil{}
+    case SCon{c, t}:
+      SCon{c, line.cut(t)}
+
+def line.after(s: String) -> Maybe<&2, String>:
+  match s:
+    case SNil{}:
+      None{}
+    case SCon{'\n', SNil{}}:
+      None{}
+    case SCon{'\n', t}:
+      Some{t}
+    case SCon{c, t}:
+      line.after(t)
+
+# The format this reader reads, as the first line of `historica.txt` says it.
+def PREAMBLE() -> String:
+  "historica"
+
+# What the host says went wrong, as Rust's `io::Error` spells it.
+def os_error(code: U32, +msg: String) -> String:
+  msg ++ " (os error " ++ Nat.show(U32.to_nat(code)) ++ ")"
+
+# `Store::open`'s gate, decisions 0017 and 0069: the first line names the
+# format, and the block under it is empty — a line there is a newer
+# Historica saying what the store uses, which this reader cannot be told
+# any other way. A format this reader lacks is refused in the Rust tool's
+# words, a pre-1.0 one by name.
+def header.pre(+v: String) -> Bool:
+  Bool.or(Bool.or(String.eq(v, "0"), String.eq(v, "1")), Bool.or(Bool.or(String.eq(v, "2"), String.eq(v, "3")), Bool.or(String.eq(v, "4"), String.eq(v, "5"))))
+
+def header.old(+found: String) -> Bool:
+  Bool.and(String.starts_with(found, "historica-v"), header.pre(String.drop(found, 11n)))
+
+def header.version(+found: String) -> String:
+  Bool.pick(String, header.old(found),
+    "this store says `" ++ found ++ "`, a pre-1.0 format this release no longer reads; a 0.x Historica still reads it",
+    "this store says `" ++ found ++ "` and this reader reads `" ++ PREAMBLE() ++ "`; upgrade Historica")
+
+def header.layout(second: Maybe<&2, String>) -> Result<&2, &2, String, Unit>:
+  match second:
+    case None{}:
+      Done{Unit{}}
+    case Some{+rest}:
+      +found = line.cut(rest)
+      Bool.pick(Result<&2, &2, String, Unit>, String.is_empty(found), Done{Unit{}},
+        Fail{"this store states `" ++ found ++ "` under its format line, where only a newer Historica writes; upgrade Historica — or, if that line is a note you wrote, put a blank line above it"})
+
+def header.r(+text: String) -> Result<&2, &2, String, Unit>:
+  +first = line.cut(text)
+  Bool.pick(Result<&2, &2, String, Unit>, String.eq(first, PREAMBLE()), header.layout(line.after(text)), Fail{header.version(first)})
+
+# Whether the store at `root` is one this reader reads: the header read,
+# or where there is none, the directory refused as not a store.
+def header.read(+root: String, r: Result<&1, &1, U32 & String, File>) -> IO(Result<&2, &2, String, Unit>):
+  match r:
+    case Fail{Tuple{+code, msg}}:
+      IO.pure(Result<&2, &2, String, Unit>, Bool.pick(Result<&2, &2, String, Unit>, U32.is_eq(code, 2),
+        Fail{root ++ " is not a store: no `historica.txt` file; `init` makes one"},
+        Fail{root ++ "/historica.txt: " ++ os_error(code, msg)}))
+    case Done{f}:
+      do IO<Result<&2, &2, String, Unit>>:
+        File.close(f)
+        text : String <- read_text(root ++ "/historica.txt")
+        return header.r(text)
+
+def header(+root: String) -> IO(Result<&2, &2, String, Unit>):
+  do IO<Result<&2, &2, String, Unit>>:
+    r : Result<&1, &1, U32 & String, File> <- File.open(root ++ "/historica.txt", "r")
+    header.read(root, r)
+
+def opened.of(r: Result<&2, &2, String, Unit>) -> IO(Unit):
+  match r:
+    case Fail{msg}:
+      IO.die(Unit, 1, "historica: " ++ msg)
+    case Done{u}:
+      IO.pure(Unit, Unit{})
+
+# The store opened: refused, as the Rust tool's `Store::open` refuses it,
+# where its header says it is none this reader reads.
+def opened(+root: String) -> IO(Unit):
+  do IO<Unit>:
+    r : Result<&2, &2, String, Unit> <- header(root)
+    opened.of(r)
 
 # A listing without the empty line an empty listing is.
 def kept(ls: List<&2, String>) -> List<&2, String>:
@@ -213,13 +387,16 @@ def listing(+root: String) -> IO(List<&2, String>):
     text : String <- IO.try(String, Store.list(root))
     return kept(String.lines(text))
 
-# Every revision document the store holds, read and named by its own bytes.
+# Every revision document the store holds, read and named by its own bytes,
+# once the header says the store is one this reader reads: reading them is
+# opening the store, for every command, at the moment the Rust tool opens it.
 # The whole of `revisions/` and none of `operations/`: this is the graph, and
 # there is no command that does not want the whole of it. Only `revisions/`
 # is listed, too — `operations/` is most of a store's paths, and a listing
 # crosses the boundary a character a cell.
 def revisions(+root: String) -> IO(List<&2, Doc>):
   do IO<List<&2, Doc>>:
+    opened(root)
     text : String <- IO.try(String, Store.list(root ++ "\nrevisions"))
     read_docs(under(root, String.lines(text)))
 
@@ -274,11 +451,6 @@ def filed(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def copied(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.copy(query)
-
-def read_text(path: String) -> IO(String):
-  do IO<String>:
-    bs : List<&2, U32> <- Utf8.read_file(path)
-    return Utf8.decode(bs)
 
 # The documents these digests name, read — and hashed here, so that a path
 # the host offered for a digest is believed only where its bytes are that
