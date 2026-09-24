@@ -9632,22 +9632,14 @@ def found_of(bs: List<&2, Bm.Bookmark>, +n: String) -> Maybe<&2, Bm.Bookmark>:
 # What the bookmark will point at: a file where a path is given, resolved
 # at the revision named; the revision itself where `--revision` pins it;
 # and otherwise its change, which follows amend and rebase.
-def name.change(f: Full) -> String:
-  match f:
-    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
-      change
-
 def name.target.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +f: Full, path: Maybe<&2, String>, pin: Bool) -> Result<&2, &2, Refused, Bm.Target>:
   match path pin:
     case Some{+p} _:
-      do Result<&2, &2, Refused, Bm.Target>:
-        t : Tree.Tree() <- tree.r(fs, id_of(f))
-        file : String <- file_in.r(id_of(f), bs, p, t)
-        return Bm.Target.File{file}
+      Result.map(&2, &2, Refused, String, Bm.Target, file => Bm.Target.File{file}, show.file.r(fs, bs, id_of(f), p))
     case None{} True{}:
       Done{Bm.Target.Revision{id_of(f)}}
     case None{} False{}:
-      Done{Bm.Target.Change{name.change(f)}}
+      Done{Bm.Target.Change{change_of(f)}}
 
 def name.resolved.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +spelling: String) -> Result<&2, &2, Refused, Full>:
   Bool.pick(Result<&2, &2, Refused, Full>, String.is_empty(spelling), Fail{Refused{2, "a target cannot be empty"}}, resolved.r(fs, bs, spelling))
@@ -9666,16 +9658,18 @@ def name.io(r: Result<&1, &1, U32 & String, String>) -> IO(String):
 # too; it is not, where the line may yet prove wrong (an empty target, or
 # `file:` naming nothing), and the header then waits for a refusal the
 # Bend side decides.
-def name.said(+n: String, b: Bm.Bookmark, +fields: Bool, +early: Bool, shared: Bool) -> IO(Unit):
+def name.head(b: Bool) -> List<&2, String>:
+  Bool.pick(List<&2, String>, b, [WROTE()], Nil{})
+
+def name.said.lines(+n: String, b: Bm.Bookmark, +fields: Bool, +early: Bool, shared: Bool) -> List<&2, String>:
   match fields:
     case True{}:
-      do IO<Unit>:
-        name.header(Bool.not(early))
-        IO.print("name " ++ n)
+      List.append(&2, String, name.head(Bool.not(early)), ["name " ++ n])
     case False{}:
-      do IO<Unit>:
-        IO.print(n ++ " -> " ++ Bm.show(b))
-        Bool.pick(IO(Unit), shared, IO.print("note: a replica still calling `" ++ n ++ "` private will make it private again on the next receive"), IO.pure(Unit, Unit{}))
+      (n ++ " -> " ++ Bm.show(b)) <> Bool.pick(List<&2, String>, shared, ["note: a replica still calling `" ++ n ++ "` private will make it private again on the next receive"], Nil{})
+
+def name.said(+n: String, b: Bm.Bookmark, +fields: Bool, +early: Bool, shared: Bool) -> IO(Unit):
+  print_lines(name.said.lines(n, b, fields, early, shared))
 
 def name.shared(axis: Maybe<&2, Bool>) -> Bool:
   match axis:
@@ -9684,35 +9678,48 @@ def name.shared(axis: Maybe<&2, Bool>) -> Bool:
     case _:
       False{}
 
+# The bookmark a set writes, decided before anything is: the target
+# resolved and pointed at as asked, the name checked, and whether it is
+# private — as asked, or as the bookmark it replaces was. A refusal is the
+# first of these to fail, as the Rust tool meets them.
+def name.stated.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +spelling: String, path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>) -> Result<&2, &2, Refused, Bm.Bookmark>:
+  do Result<&2, &2, Refused, Bm.Bookmark>:
+    f : Full <- name.resolved.r(fs, bs, spelling)
+    t : Bm.Target <- name.target.r(fs, bs, f, path, pin)
+    u : Unit <- name.checked.r(n)
+    return Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, private_of(bs, n))}
+
+# What its file says: the target line, and `private` where it is.
+def name.text(b: Bm.Bookmark) -> String:
+  match b:
+    case Bm.Bookmark{n, t, p}:
+      Bm.write(Bm.Stated{t, p})
+
 def name.set(+n: String, +spelling: String, path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +fields: Bool, +early: Bool) -> IO(Unit):
   +late = Bool.and(fields, Bool.not(early))
   do IO<Unit>:
-    name.header(early)
+    print_lines(name.head(early))
     root : String <- Store.root()
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     +bs2 : List<&2, Bm.Bookmark> = bs
     +fs : List<&2, Full> = fulls(r, rs)
-    f : Full <- stated.io(Full, late, name.resolved.r(fs, bs2, spelling))
-    t : Bm.Target <- stated.io(Bm.Target, late, name.target.r(fs, bs2, f, path, pin))
-    +t2 : Bm.Target = t
-    +kept : Bool = Maybe.default(&2, Bool, axis, private_of(bs2, n))
-    stated.io(Unit, late, name.checked.r(n))
-    w : Result<&1, &1, U32 & String, String> <- Store.written(r ++ "/names/" ++ n ++ ".txt\n" ++ Bm.write(Bm.Stated{t2, kept}))
+    b : Bm.Bookmark <- stated.io(Bm.Bookmark, late, name.stated.r(fs, bs2, n, spelling, path, pin, axis))
+    +b2 : Bm.Bookmark = b
+    w : Result<&1, &1, U32 & String, String> <- Store.written(r ++ "/names/" ++ n ++ ".txt\n" ++ name.text(b2))
     done : String <- name.io(w)
-    name.said(n, Bm.Bookmark{n, t2, kept}, fields, early, name.shared(axis))
+    name.said(n, b2, fields, early, name.shared(axis))
 
-def name.deleted(+n: String, b: Bm.Bookmark, +fields: Bool, +early: Bool) -> IO(Unit):
+def name.deleted.lines(+n: String, b: Bm.Bookmark, +fields: Bool, +early: Bool) -> List<&2, String>:
   match fields:
     case True{}:
-      do IO<Unit>:
-        name.header(Bool.not(early))
-        IO.print("unname " ++ n)
+      List.append(&2, String, name.head(Bool.not(early)), ["unname " ++ n])
     case False{}:
-      do IO<Unit>:
-        IO.print("deleted " ++ n ++ ", which was " ++ Bm.show(b))
-        IO.print("note: a replica that still holds `" ++ n ++ "` will bring it back on the next receive")
+      ["deleted " ++ n ++ ", which was " ++ Bm.show(b), "note: a replica that still holds `" ++ n ++ "` will bring it back on the next receive"]
+
+def name.deleted(+n: String, b: Bm.Bookmark, +fields: Bool, +early: Bool) -> IO(Unit):
+  print_lines(name.deleted.lines(n, b, fields, early))
 
 def name.present.r(+n: String, found: Maybe<&2, Bm.Bookmark>) -> Result<&2, &2, Refused, Bm.Bookmark>:
   match found:
@@ -9723,7 +9730,7 @@ def name.present.r(+n: String, found: Maybe<&2, Bm.Bookmark>) -> Result<&2, &2, 
 
 def name.delete(+n: String, +fields: Bool) -> IO(Unit):
   do IO<Unit>:
-    name.header(fields)
+    print_lines(name.head(fields))
     root : String <- Store.root()
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
@@ -9810,6 +9817,78 @@ def name.plan.meant(c: NameCmd, p: NamePlan) -> Bool:
     case NameCmd{pin, axis, d, f, sh, rest} NamePlan.Set{n, t, +path, +pin2, axis2, +f2, early}:
       Bool.and(Bool.not(d), Bool.and(nplan.words(rest, n <> t <> nplan.path(path)), Bool.and(nplan.same(pin, pin2), Bool.and(nplan.axis(axis, axis2), Bool.and(nplan.same(f, f2),
         Bool.and(Bool.not(Bool.and(pin2, Maybe.is_some(&2, String, path))), Bool.or(Bool.not(early), f2)))))))
+
+# Where a set points, as `LAWS.name_points_where_asked` holds it: the
+# bookmark named as asked, under `names/`; at a revision the store holds
+# where `--revision` pins it, at a change one of its revisions carries
+# where a target alone is given, and at a file one of its revisions' trees
+# holds where a path is; private as `--private` or `--shared` says, or as
+# the bookmark of that name already is, or shared where there is none.
+def name.somewhere(held: List<&2, String>, +fs: List<&2, Full>, +x: String) -> Bool:
+  match held:
+    case Nil{}:
+      False{}
+    case +i <> rest:
+      Bool.or(tree.holds.r(tree.r(fs, i), x), name.somewhere(rest, fs, x))
+
+def name.aimed(+fs: List<&2, Full>, path: Maybe<&2, String>, pin: Bool, t: Bm.Target) -> Bool:
+  match path pin t:
+    case None{} True{} Bm.Target.Revision{id}:
+      Rev.member(ids(fs), id)
+    case None{} False{} Bm.Target.Change{c}:
+      Rev.member(changes(fs), c)
+    case Some{p} _ Bm.Target.File{x}:
+      name.somewhere(ids(fs), fs, x)
+    case _ _ _:
+      False{}
+
+def name.kept.of(found: Maybe<&2, Bm.Bookmark>, p: Bool) -> Bool:
+  match found:
+    case None{}:
+      Bool.not(p)
+    case Some{b}:
+      nplan.same(Bm.private_of(b), p)
+
+def name.kept(bs: List<&2, Bm.Bookmark>, +n: String, axis: Maybe<&2, Bool>, p: Bool) -> Bool:
+  match axis:
+    case Some{x}:
+      nplan.same(x, p)
+    case None{}:
+      name.kept.of(found_of(bs, n), p)
+
+def name.points(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +n: String, path: Maybe<&2, String>, pin: Bool, axis: Maybe<&2, Bool>, b: Bm.Bookmark) -> Bool:
+  match b:
+    case Bm.Bookmark{+m, t, p}:
+      Bool.and(String.eq(m, n), Bool.and(Bool.not(escapes(m)), Bool.and(name.aimed(fs, path, pin, t), name.kept(bs, n, axis, p))))
+
+# What `--delete` finds, as `LAWS.name_deletes_the_bookmark_named` holds
+# it: a refusal exactly where the store has no bookmark of that name, and
+# otherwise a bookmark the store holds, of that name.
+def name.any(bs: List<&2, Bm.Bookmark>, +n: String) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case b <> rest:
+      Bool.or(String.eq(Bm.name_of(b), n), name.any(rest, n))
+
+def name.same(a: Bm.Bookmark, b: Bm.Bookmark) -> Bool:
+  match a b:
+    case Bm.Bookmark{m, s, p} Bm.Bookmark{n, t, q}:
+      Bool.and(String.eq(m, n), Bool.and(String.eq(Bm.show_target(s), Bm.show_target(t)), nplan.same(p, q)))
+
+def name.holds(bs: List<&2, Bm.Bookmark>, +b: Bm.Bookmark) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Bool.or(name.same(x, b), name.holds(rest, b))
+
+def name.gone(bs: List<&2, Bm.Bookmark>, +n: String, r: Result<&2, &2, Refused, Bm.Bookmark>) -> Bool:
+  match r:
+    case Fail{e}:
+      Bool.not(name.any(bs, n))
+    case Done{+b}:
+      Bool.and(String.eq(Bm.name_of(b), n), name.holds(bs, b))
 
 def name.planned(p: NamePlan) -> IO(Unit):
   match p:

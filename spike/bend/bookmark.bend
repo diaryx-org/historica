@@ -37,6 +37,11 @@ def target_of(b: Bookmark) -> Target:
     case Bookmark{name, target, private}:
       target
 
+def private_of(b: Bookmark) -> Bool:
+  match b:
+    case Bookmark{name, target, private}:
+      private
+
 # What kind of thing a target names, as a person would say it.
 def kind(t: Target) -> String:
   match t:

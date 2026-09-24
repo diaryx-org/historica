@@ -3,6 +3,13 @@
 # choosing where in the store — or out of it — its file goes. Every name
 # `name` takes is refused neither by `check_name` nor by the path rules it
 # reads, so it is never absolute and never climbs.
+#
+# And what `name` does: it reads its words as they say, a field at a time;
+# a plan is what the words said, a deletion only of the one word beside
+# `--delete`; the bookmark it sets points at what was asked — a revision,
+# a change or a file the store holds — as private as asked or as it was;
+# `--delete` is refused exactly where no bookmark has the name; and
+# `--fields` says its header once.
 import Base
 import ./commands.bend as Main
 import ./survey.bend as Sv
@@ -12,6 +19,11 @@ import ./anchor_lemmas.bend as AL
 import ./string_lemmas.bend as S
 import ./ident.bend as Id
 import ./sort_lemmas.bend as SortL
+import ./graph_lemmas.bend as GL
+import ./show_lemmas.bend as ShowL
+import ./bookmark.bend as Bm
+import ./revision.bend as Rev
+import ./composition_lemmas.bend as Comp
 
 def mnone(m: Maybe<&2, String>) -> Type:
   match m:
@@ -257,3 +269,210 @@ def plan_meant(c: Main.NameCmd, +p: Main.NamePlan, e: {Main.name.plan.r(c) == Do
     case Main.NameCmd{False{}, +axis, False{}, +f, sh, +n <> +t <> Nil{}}:
       %done_plan(Main.NamePlan.Set{n, t, None{}, False{}, axis, f, Bool.and(f, Bool.not(String.is_empty(t)))}, p, e) : {Main.name.plan.meant(Main.NameCmd{False{}, axis, False{}, f, sh, n <> t <> Nil{}}, _) == True{} : Bool}
       set_meant(sh, n, t, None{}, False{}, axis, f, Bool.not(String.is_empty(t)), unpinned(False{}))
+
+# Where it points
+# ---------------
+
+# A bookmark moved keeps the privacy of the one it replaces: the first of
+# that name, which is the one `--delete` would find.
+def kept_at(b: Bool, +m: String, +t: Bm.Target, +p: Bool, +rest: List<&2, Bm.Bookmark>, +n: String, ih: {Main.name.kept.of(Main.found_of(rest, n), Main.private_of(rest, n)) == True{} : Bool}) -> {Main.name.kept.of(Bool.pick(Maybe<&2, Bm.Bookmark>, b, Some{Bm.Bookmark{m, t, p}}, Main.found_of(rest, n)), Bool.pick(Bool, b, p, Main.private_of(rest, n))) == True{} : Bool}:
+  match b:
+    case True{}:
+      same_refl(p)
+    case False{}:
+      ih
+
+def kept_found(bs: List<&2, Bm.Bookmark>, +n: String) -> {Main.name.kept.of(Main.found_of(bs, n), Main.private_of(bs, n)) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Bm.Bookmark{+m, +t, +p} <> +rest:
+      kept_at(String.eq(m, n), m, t, p, rest, n, kept_found(rest, n))
+
+def kept_ok(+bs: List<&2, Bm.Bookmark>, +n: String, axis: Maybe<&2, Bool>) -> {Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))) == True{} : Bool}:
+  match axis:
+    case Some{x}:
+      same_refl(x)
+    case None{}:
+      kept_found(bs, n)
+
+# A change the store's revisions carry is among its changes.
+def push_has.of(b: Bool, +c: String, +rest: List<&2, String>, eb: {Rev.member(rest, c) == b : Bool}) -> {Rev.member(Rev.keep(Bool.not(b), c, rest), c) == True{} : Bool}:
+  match b:
+    case True{}:
+      eb
+    case False{}:
+      GL.member_head(c, rest)
+
+def push_keeps(b: Bool, +c: String, +rest: List<&2, String>, +x: String, m: {Rev.member(rest, x) == True{} : Bool}) -> {Rev.member(Rev.keep(b, c, rest), x) == True{} : Bool}:
+  match b:
+    case True{}:
+      GL.member_tail(c, rest, x, m)
+    case False{}:
+      m
+
+def find_change_at(b: Bool, +i: String, +change: String, +parents: List<&2, String>, +supersedes: List<&2, String>, +author: String, +when: String, +revised_by: Maybe<&2, String>, +revised: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, +rest: List<&2, Main.Full>, +x: String, +g: Main.Full, e: {Bool.pick(Maybe<&2, Main.Full>, b, Some{Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}}, Main.find(rest, x)) == Some{g} : Maybe<&2, Main.Full>}, ih: {Main.find(rest, x) == Some{g} : Maybe<&2, Main.Full>} -> {Rev.member(Main.changes(rest), Main.change_of(g)) == True{} : Bool}) -> {Rev.member(Main.changes.push(change, Main.changes(rest)), Main.change_of(g)) == True{} : Bool}:
+  match b:
+    case True{}:
+      +d = B.some_eq_f(Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}, g, e)
+      %d : {Rev.member(Main.changes.push(change, Main.changes(rest)), Main.change_of(_)) == True{} : Bool}
+      push_has.of(Rev.member(Main.changes(rest), change), change, Main.changes(rest), {==})
+    case False{}:
+      push_keeps(Bool.not(Rev.member(Main.changes(rest), change)), change, Main.changes(rest), Main.change_of(g), ih(e))
+
+def find_change(fs: List<&2, Main.Full>, +x: String, +g: Main.Full, e: {Main.find(fs, x) == Some{g} : Maybe<&2, Main.Full>}) -> {Rev.member(Main.changes(fs), Main.change_of(g)) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({Rev.member(Main.changes(Nil{}), Main.change_of(g)) == True{} : Bool}, (%e : {B.mdisc_f(_) : Type} Unit{}))
+    case Main.Full{+i, +change, +parents, +supersedes, +author, +when, +revised_by, +revised, +facts, +message} <> +rest:
+      find_change_at(String.eq(i, x), i, change, parents, supersedes, author, when, revised_by, revised, facts, message, rest, x, g, e, h => find_change(rest, x, g, h))
+
+def found_change(+fs: List<&2, Main.Full>, +id: String, m: Maybe<&2, Main.Full>, +em: {Main.find(fs, id) == m : Maybe<&2, Main.Full>}, +f: Main.Full, e: {Main.resolved.found.r(id, m) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}, B.refuse(Main.Full, Main.resolved.found.r(id, None{}), f, {==}, e))
+    case Some{+g}:
+      +d = B.done_eq(Main.Full, g, f, e)
+      %d : {Rev.member(Main.changes(fs), Main.change_of(_)) == True{} : Bool}
+      find_change(fs, id, g, em)
+
+def resolved_of_change(+fs: List<&2, Main.Full>, r: Result<&2, &2, String, String>, +f: Main.Full, e: {Main.resolved.of.r(fs, r) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}, B.fail_done(Main.Full, Main.Refused{1, x}, f, e))
+    case Done{+id}:
+      found_change(fs, id, Main.find(fs, id), {==}, f, e)
+
+# A target resolves to a revision carrying one of the store's changes.
+def resolved_change(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +f: Main.Full, e: {Main.resolved.r(fs, bs, target) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}:
+  resolved_of_change(fs, Main.resolve(fs, bs, target), f, e)
+
+# `name` refuses an empty target before resolving it, and otherwise
+# resolves it as every command does.
+def name_resolved(b: Bool, -r: Result<&2, &2, Main.Refused, Main.Full>, -f: Main.Full, e: {Bool.pick(Result<&2, &2, Main.Refused, Main.Full>, b, Fail{Main.Refused{2, "a target cannot be empty"}}, r) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {r == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}:
+  match b:
+    case True{}:
+      Empty.absurd({r == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}, B.fail_done(Main.Full, Main.Refused{2, "a target cannot be empty"}, f, e))
+    case False{}:
+      e
+
+# A file some revision the store holds has in its tree.
+def somewhere_at(held: List<&2, String>, +fs: List<&2, Main.Full>, +x: String, +i: String, m: {Rev.member(held, i) == True{} : Bool}, +h: {Main.tree.holds.r(Main.tree.r(fs, i), x) == True{} : Bool}) -> {Main.name.somewhere(held, fs, x) == True{} : Bool}:
+  match held:
+    case Nil{}:
+      Empty.absurd({Main.name.somewhere(Nil{}, fs, x) == True{} : Bool}, S.false_true(m))
+    case +y <> +rest:
+      GL.member_cons({Main.name.somewhere(y <> rest, fs, x) == True{} : Bool}, y, rest, i, m,
+        yi => (%Equal.sym(String, y, i, yi) : {Bool.or(Main.tree.holds.r(Main.tree.r(fs, _), x), Main.name.somewhere(rest, fs, x)) == True{} : Bool}
+          AL.or_left(Main.tree.holds.r(Main.tree.r(fs, i), x), Main.name.somewhere(rest, fs, x), h)),
+        mr => AL.or_right(Main.tree.holds.r(Main.tree.r(fs, y), x), Main.name.somewhere(rest, fs, x), somewhere_at(rest, fs, x, i, mr, h)))
+
+def target_eq(-a: Bm.Target, -b: Bm.Target, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Bm.Target>}) -> {a == b : Bm.Target}:
+  B.done_eq(Bm.Target, a, b, h)
+
+def file_aimed(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +hf: {Rev.member(Main.ids(fs), id) == True{} : Bool}, +p: String, +pin: Bool, r: Result<&2, &2, Main.Refused, String>, +er: {Main.show.file.r(fs, bs, id, p) == r : Result<&2, &2, Main.Refused, String>}, +t: Bm.Target, e: {Result.map(&2, &2, Main.Refused, String, Bm.Target, file => Bm.Target.File{file}, r) == Done{t} : Result<&2, &2, Main.Refused, Bm.Target>}) -> {Main.name.aimed(fs, Some{p}, pin, t) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.name.aimed(fs, Some{p}, pin, t) == True{} : Bool}, B.fail_done(Bm.Target, x, t, e))
+    case Done{+x}:
+      %target_eq(Bm.Target.File{x}, t, e) : {Main.name.aimed(fs, Some{p}, pin, _) == True{} : Bool}
+      somewhere_at(Main.ids(fs), fs, x, id, hf, ShowL.file_ok(fs, bs, id, p, x, er))
+
+# The target is what was asked for, at the revision named.
+def aimed_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +f: Main.Full, path: Maybe<&2, String>, pin: Bool, +hf: {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, +hc: {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}, +t: Bm.Target, e: {Main.name.target.r(fs, bs, f, path, pin) == Done{t} : Result<&2, &2, Main.Refused, Bm.Target>}) -> {Main.name.aimed(fs, path, pin, t) == True{} : Bool}:
+  match path pin:
+    case Some{+p} True{}:
+      file_aimed(fs, bs, Main.id_of(f), hf, p, True{}, Main.show.file.r(fs, bs, Main.id_of(f), p), {==}, t, e)
+    case Some{+p} False{}:
+      file_aimed(fs, bs, Main.id_of(f), hf, p, False{}, Main.show.file.r(fs, bs, Main.id_of(f), p), {==}, t, e)
+    case None{} True{}:
+      %target_eq(Bm.Target.Revision{Main.id_of(f)}, t, e) : {Main.name.aimed(fs, None{}, True{}, _) == True{} : Bool}
+      hf
+    case None{} False{}:
+      %target_eq(Bm.Target.Change{Main.change_of(f)}, t, e) : {Main.name.aimed(fs, None{}, False{}, _) == True{} : Bool}
+      hc
+
+def bm_eq(-a: Bm.Bookmark, -b: Bm.Bookmark, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {a == b : Bm.Bookmark}:
+  B.done_eq(Bm.Bookmark, a, b, h)
+
+def checked_unit(u: Unit, -n: String, e: {Main.name.checked.r(n) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.name.checked.r(n) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}:
+  match u:
+    case Unit{}:
+      e
+
+def points3(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, path: Maybe<&2, String>, pin: Bool, +axis: Maybe<&2, Bool>, +t: Bm.Target, +ht: {Main.name.aimed(fs, path, pin, t) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Unit>, +er: {Main.name.checked.r(n) == r : Result<&2, &2, Main.Refused, Unit>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, r, u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}}) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
+    case Done{u}:
+      %bm_eq(Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}, b, e) : {Main.name.points(fs, bs, n, path, pin, axis, _) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(n, n), True{}, S.eq_refl(n)) : {Bool.and(_, Bool.and(Bool.not(Main.escapes(n)), Bool.and(Main.name.aimed(fs, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n)))))) == True{} : Bool}
+      AL.and_intro(Bool.not(Main.escapes(n)), Bool.and(Main.name.aimed(fs, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n)))),
+        AL.not_true(Main.escapes(n), stays(n, checked_unit(u, n, er))),
+        AL.and_intro(Main.name.aimed(fs, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))), ht, kept_ok(bs, n, axis)))
+
+def points2(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +f: Main.Full, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +hf: {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, +hc: {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Bm.Target>, +er: {Main.name.target.r(fs, bs, f, path, pin) == r : Result<&2, &2, Main.Refused, Bm.Target>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Bm.Target, Bm.Bookmark, r, t => Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, Main.name.checked.r(n), u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}})) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
+    case Done{+t}:
+      points3(fs, bs, n, path, pin, axis, t, aimed_ok(fs, bs, f, path, pin, hf, hc, t, er), Main.name.checked.r(n), {==}, b, e)
+
+def points1(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +sp: String, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, r: Result<&2, &2, Main.Refused, Main.Full>, +er: {Main.name.resolved.r(fs, bs, sp) == r : Result<&2, &2, Main.Refused, Main.Full>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Main.Full, Bm.Bookmark, r, f => Result.bind(&2, &2, Main.Refused, Bm.Target, Bm.Bookmark, Main.name.target.r(fs, bs, f, path, pin), t => Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, Main.name.checked.r(n), u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}}))) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
+    case Done{+f}:
+      +held = name_resolved(String.is_empty(sp), Main.resolved.r(fs, bs, sp), f, er)
+      points2(fs, bs, n, f, path, pin, axis, B.resolved_mem(fs, bs, sp, f, held), resolved_change(fs, bs, sp, f, held), Main.name.target.r(fs, bs, f, path, pin), {==}, b, e)
+
+# The bookmark `name` sets is named as asked, stays under `names/`, points
+# where it was asked to, and is as private as asked or as it was.
+def points_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +sp: String, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +b: Bm.Bookmark, e: {Main.name.stated.r(fs, bs, n, sp, path, pin, axis) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}:
+  points1(fs, bs, n, sp, path, pin, axis, Main.name.resolved.r(fs, bs, sp), {==}, b, e)
+
+# What it deletes
+# ---------------
+
+def same_self(+b: Bm.Bookmark) -> {Main.name.same(b, b) == True{} : Bool}:
+  match b:
+    case Bm.Bookmark{+m, +s, +p}:
+      AL.and_intro(String.eq(m, m), Bool.and(String.eq(Bm.show_target(s), Bm.show_target(s)), Main.nplan.same(p, p)), S.eq_refl(m),
+        AL.and_intro(String.eq(Bm.show_target(s), Bm.show_target(s)), Main.nplan.same(p, p), S.eq_refl(Bm.show_target(s)), same_refl(p)))
+
+def gone_skip(+b: Bm.Bookmark, +rest: List<&2, Bm.Bookmark>, +n: String, r: Result<&2, &2, Main.Refused, Bm.Bookmark>, eb: {String.eq(Bm.name_of(b), n) == False{} : Bool}, +h: {Main.name.gone(rest, n, r) == True{} : Bool}) -> {Main.name.gone(b <> rest, n, r) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      %Equal.sym(Bool, String.eq(Bm.name_of(b), n), False{}, eb) : {Bool.not(Bool.or(_, Main.name.any(rest, n))) == True{} : Bool}
+      h
+    case Done{+c}:
+      AL.and_intro(String.eq(Bm.name_of(c), n), Bool.or(Main.name.same(b, c), Main.name.holds(rest, c)), Comp.and_left(String.eq(Bm.name_of(c), n), Main.name.holds(rest, c), h),
+        AL.or_right(Main.name.same(b, c), Main.name.holds(rest, c), Comp.and_right(String.eq(Bm.name_of(c), n), Main.name.holds(rest, c), h)))
+
+def gone_at(c: Bool, +b: Bm.Bookmark, +rest: List<&2, Bm.Bookmark>, +n: String, ec: {String.eq(Bm.name_of(b), n) == c : Bool}, ih: {Main.name.gone(rest, n, Main.name.present.r(n, Main.found_of(rest, n))) == True{} : Bool}) -> {Main.name.gone(b <> rest, n, Main.name.present.r(n, Bool.pick(Maybe<&2, Bm.Bookmark>, c, Some{b}, Main.found_of(rest, n)))) == True{} : Bool}:
+  match c:
+    case True{}:
+      AL.and_intro(String.eq(Bm.name_of(b), n), Bool.or(Main.name.same(b, b), Main.name.holds(rest, b)), ec, AL.or_left(Main.name.same(b, b), Main.name.holds(rest, b), same_self(b)))
+    case False{}:
+      gone_skip(b, rest, n, Main.name.present.r(n, Main.found_of(rest, n)), ec, ih)
+
+# `--delete` is refused exactly where there is no bookmark of that name,
+# and otherwise finds one the store holds under it.
+def found_gone(bs: List<&2, Bm.Bookmark>, +n: String) -> {Main.name.gone(bs, n, Main.name.present.r(n, Main.found_of(bs, n))) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case +b <> +rest:
+      gone_at(String.eq(Bm.name_of(b), n), b, rest, n, {==}, found_gone(rest, n))
+
+# What it says
+# ------------
+
+# Asked for `--fields`, a bookmark set says so once: the header before the
+# store was opened or after it was written, never both, and `name` with it.
+def said_fields(+n: String, b: Bm.Bookmark, early: Bool, s: Bool) -> {List.append(&2, String, Main.name.head(early), Main.name.said.lines(n, b, True{}, early, s)) == [Main.WROTE(), "name " ++ n] : List<&2, String>}:
+  match early:
+    case True{}:
+      {==}
+    case False{}:
+      {==}

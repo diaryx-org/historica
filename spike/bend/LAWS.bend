@@ -1096,3 +1096,41 @@ law name_does_what_it_reads:
   for +p: Main.NamePlan
   for e: {Main.name.plan.r(c) == Done{p} : Result<&2, &2, Main.Refused, Main.NamePlan>}
   {Main.name.plan.meant(c, p) == True{} : Bool}
+
+# The bookmark `name` sets is the one asked for. It has the name given,
+# which stays under `names/`; it points at a revision the store holds where
+# `--revision` pins it, at a change one of the store's revisions carries
+# where a target alone is given, and at a file one of those revisions'
+# trees holds where a path is; and it is private as `--private` or
+# `--shared` says, or else as the bookmark of that name already was — the
+# one `--delete` would find — or shared where there was none.
+law name_points_where_asked:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +n: String
+  for +spelling: String
+  for +path: Maybe<&2, String>
+  for +pin: Bool
+  for +axis: Maybe<&2, Bool>
+  for +b: Bm.Bookmark
+  for e: {Main.name.stated.r(fs, bs, n, spelling, path, pin, axis) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}
+  {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}
+
+# `name --delete` removes the bookmark named: it is refused exactly where
+# the store has no bookmark of that name, and the bookmark it says it
+# deleted is one the store holds under that name, as it was.
+law name_deletes_the_bookmark_named:
+  for bs: List<&2, Bm.Bookmark>
+  for +n: String
+  {Main.name.gone(bs, n, Main.name.present.r(n, Main.found_of(bs, n))) == True{} : Bool}
+
+# Asked for `--fields`, a bookmark set says what it wrote in decision
+# 0074's words: `historica-wrote-1` once — before the store is opened where
+# the command line cannot yet prove wrong, and after the bookmark is
+# written where it can — and then `name` with the bookmark's name.
+law name_states_what_it_set:
+  for +n: String
+  for b: Bm.Bookmark
+  for early: Bool
+  for shared: Bool
+  {List.append(&2, String, Main.name.head(early), Main.name.said.lines(n, b, True{}, early, shared)) == [Main.WROTE(), "name " ++ n] : List<&2, String>}
