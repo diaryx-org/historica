@@ -1458,6 +1458,34 @@ def check_mutations(temporary):
             "survey_lemmas.facts_ok",
             "survey.bend",
         ),
+        (
+            "replay starts over at a payload after a refusal",
+            "    case Fail{e}:\n      Fail{e}\n    case Done{items}:\n      Done{Ops.from_text(text)}",
+            "    case Fail{e}:\n      Done{Ops.from_text(text)}\n    case Done{items}:\n      Done{Ops.from_text(text)}",
+            "replay_doc_fail",
+            "main.bend",
+        ),
+        (
+            "replay applies a document to nothing rather than to what came before",
+            "    Ops.apply(items, doc)",
+            "    Ops.apply(Nil{}, doc)",
+            "LAWS.opdiff_replays_to_the_child",
+            "main.bend",
+        ),
+        (
+            "status keeps the revisions joined newest first",
+            "      status.args.go(rest, onto, List.append(&2, String, merges, [v]), sword(rest))",
+            "      status.args.go(rest, onto, v <> merges, sword(rest))",
+            "status_lemmas.args_go",
+            "main.bend",
+        ),
+        (
+            "status joins a `--merge` by its spelling rather than the revision it names",
+            "      Done{List.append(&2, String, ps, [id])}",
+            "      Done{List.append(&2, String, ps, [m])}",
+            "status_lemmas.named_held",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

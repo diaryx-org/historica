@@ -620,6 +620,45 @@ law listing_skips_nothing:
   for h: {Folder.listing.ok(rules, l) == True{} : Bool}
   {Folder.listing.ok(rules, Folder.listing.go(ls, prefix, rules, l)) == True{} : Bool}
 
+# `replay` keeps a refusal. Once a document in the chain is refused, what
+# follows it — another operation document, or a payload that would start a
+# file afresh — leaves that refusal as it was: a chain with a document that
+# does not apply makes no file.
+law replay_keeps_a_refusal:
+  for ds: List<&2, Store.Doc>
+  for +e: String
+  {Main.replay.go(ds, Fail{e}) == Fail{e} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# What `opdiff` prints replays: the document it finds between two files,
+# applied to the first as `replay` applies a document, makes the second.
+law opdiff_replays_to_the_child:
+  for +parent: String
+  for +child: String
+  for +doc: Ops.Doc
+  for e: {Ops.diff(Ops.from_text(parent), Ops.from_text(child)) == Some{doc} : Maybe<&2, Ops.Doc>}
+  {Main.replay.step(Done{Ops.from_text(parent)}, Done{doc}) == Done{Ops.from_text(child)} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# `status` reads its words as they say: the word after a flag is its
+# value, the last `--onto` is where the folder is compared from, and every
+# `--merge` names one more revision joined, in the order given.
+law status_reads_its_words:
+  for +args: List<&2, String>
+  for +cmd: Main.StatusCmd
+  for e: {Main.status.args.r(args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.StatusCmd>}
+  {cmd == Main.StatusCmd{Main.sargs.onto(args, None{}, Main.sword(args)), Main.sargs.merges(args, Main.sword(args))} : Main.StatusCmd}
+
+# Every revision `status` joins is one the store holds: what `--onto` and
+# each `--merge` resolve to, and the head where it is taken — neither named
+# twice, sorted, and each once.
+law status_joins_held_revisions:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +onto: Maybe<&2, String>
+  for +ms: List<&2, String>
+  for +ps: List<&2, String>
+  for e: {Main.status.parents.r(fs, bs, onto, ms) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}
+  {Main.all_held(Main.ids(fs), ps) == True{} : Bool}
+
 # `status` refuses no path a rule skips: a rule is how a person silences
 # one. Each listing line is refused only once the rules have let its path
 # through, and a refusal names the path that was asked about, so reading a

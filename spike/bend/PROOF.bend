@@ -48,7 +48,10 @@ import ./mark_lemmas.bend as MarkL
 import ./sort_lemmas.bend as SortL
 import ./pair_lemmas.bend as PairL
 import ./survey_lemmas.bend as SurveyL
+import ./status_lemmas.bend as StatusL
 import ./survey.bend as Sv
+import ./store.bend as Store
+import ./main.bend as Main
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -562,3 +565,27 @@ def Laws.walk_refuses_nothing_skipped(ls, prefix, rules, after, acc, h):
 
 def Laws.status_says_an_arrival_once(os, links):
   SurveyL.facts_ok(Set.from_list(Sv.added(os)), os, links)
+
+def replay_doc_fail(+e: String, text: String, is_ops: Bool) -> {Main.replay.doc(Fail{e}, text, is_ops) == Fail{e} : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  match is_ops:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def Laws.replay_keeps_a_refusal(ds, e):
+  match ds:
+    case Nil{}:
+      {==}
+    case Store.Doc{+path, id, size, +text} <> rest:
+      %Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Main.replay.doc(Fail{e}, text, String.ends_with(path, ".ops.txt")), Fail{e}, replay_doc_fail(e, text, String.ends_with(path, ".ops.txt"))) : {Main.replay.go(rest, _) == Fail{e} : Result<&2, &2, String, List<&2, Ops.Item>>}
+      Laws.replay_keeps_a_refusal(rest, e)
+
+def Laws.opdiff_replays_to_the_child(parent, child, doc, e):
+  Laws.diff_applies(Ops.from_text(parent), Ops.from_text(child), BlameL.tbl_text(child), doc, e)
+
+def Laws.status_reads_its_words(args, cmd, e):
+  StatusL.args_said(args, cmd, e)
+
+def Laws.status_joins_held_revisions(fs, bs, onto, ms, ps, e):
+  StatusL.parents_held(fs, bs, onto, ms, ps, e)
