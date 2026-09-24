@@ -4344,6 +4344,46 @@ def blamed.lines(bs: List<&2, Blamed>) -> List<&2, NLine>:
     case Blamed{n, Row{by, it}} <> rest:
       NLine{n, it} <> blamed.lines(rest)
 
+def lines.items(ls: List<&2, NLine>) -> List<&2, Ops.Item>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case NLine{n, it} <> rest:
+      it <> lines.items(rest)
+
+def shown.items(ss: List<&2, Shown>) -> List<&2, Ops.Item>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case Shown{n, c, it} <> rest:
+      it <> shown.items(rest)
+
+# What each printed line of these ends with: the line as `Ops.shown` spells
+# it, and after a line without a newline, the marker saying so.
+def blame.ends.item(+s: String, term: Bool, rest: List<&2, String>) -> List<&2, String>:
+  match term:
+    case True{}:
+      s <> rest
+    case False{}:
+      s <> "\\ no newline at end of file" <> rest
+
+def blame.ends(its: List<&2, Ops.Item>) -> List<&2, String>:
+  match its:
+    case Nil{}:
+      Nil{}
+    case Ops.Item{t, +term, f} <> rest:
+      blame.ends.item(Ops.shown(Ops.Item{t, term, f}), term, blame.ends(rest))
+
+# One line for each ending, each ending with it.
+def ends_all(ls: List<&2, String>, es: List<&2, String>) -> Bool:
+  match ls es:
+    case Nil{} Nil{}:
+      True{}
+    case l <> lr e <> er:
+      Bool.and(String.ends_with(l, e), ends_all(lr, er))
+    case _ _:
+      False{}
+
 # The rows asked for, each with its number, or where a span begins past the
 # end.
 def blame.span.at(+rs: List<&2, Row>, +first: Nat, +last: Nat, past: Bool) -> Result<&2, &2, Refused, List<&2, Blamed>>:

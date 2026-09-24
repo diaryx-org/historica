@@ -727,3 +727,16 @@ law blame_numbers_its_lines:
   for +bl: List<&2, Main.Blamed>
   for e: {Main.blame.span.r(rs, span) == Done{bl} : Result<&2, &2, Main.Refused, List<&2, Main.Blamed>>}
   {Main.blamed.lines(bl) == Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span) : List<&2, Main.NLine>}
+
+# And what `blame` prints of them is one line for each line of the span, in
+# order, ending with the line as `Ops.shown` spells it — whatever the
+# columns before it say — and after a line without a newline, the marker
+# saying so.
+law blame_prints_each_line:
+  for +fs: List<&2, Main.Full>
+  for +cs: List<&2, String>
+  for +rs: List<&2, Main.Row>
+  for +span: Maybe<&2, Main.Wanted>
+  for +out: List<&2, String>
+  for e: {Main.blame.limited.r(fs, cs, rs, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}
+  {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span)))) == True{} : Bool}

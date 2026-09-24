@@ -6,6 +6,7 @@ import ./merge.bend as Merge
 import ./main.bend as Main
 import ./store.bend as Store
 import ./string_lemmas.bend as S
+import ./diff_lemmas.bend as Diff
 
 def rdisc(-A: Data, r: Result<&2, &2, Main.Refused, A>) -> Type:
   match r:
@@ -114,3 +115,138 @@ def span_lines(+rs: List<&2, Main.Row>, span: Maybe<&2, Main.Wanted>, +bl: List<
       all_lines(rs, 1n)
     case Some{Main.Wanted{+f, +l}}:
       span_at(rs, f, l, Nat.is_gt(f, List.length(&2, Main.Row, rs)), bl, e)
+
+# Printing
+# --------
+
+def app_nil(a: String) -> {String.append(a, SNil{}) == a : String}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{+h, t}:
+      Equal.cong(String, String, x => SCon{h, x}, String.append(t, SNil{}), t, app_nil(t))
+
+def app_assoc(a: String, +b: String, +c: String) -> {String.append(String.append(a, b), c) == String.append(a, String.append(b, c)) : String}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{+h, t}:
+      Equal.cong(String, String, x => SCon{h, x}, String.append(String.append(t, b), c), String.append(t, String.append(b, c)), app_assoc(t, b, c))
+
+def rev_go_app(a: String, +b: String, acc: String) -> {String.reverse.go(String.append(a, b), acc) == String.reverse.go(b, String.reverse.go(a, acc)) : String}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      rev_go_app(t, b, SCon{h, acc})
+
+def rev_acc(s: String, +acc: String) -> {String.reverse.go(s, acc) == String.append(String.reverse.go(s, SNil{}), acc) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+h, +t}:
+      Equal.trans(String, String.reverse.go(t, SCon{h, acc}), String.append(String.reverse.go(t, SNil{}), SCon{h, acc}), String.append(String.reverse.go(t, SCon{h, SNil{}}), acc),
+        rev_acc(t, SCon{h, acc}),
+        Equal.trans(String, String.append(String.reverse.go(t, SNil{}), SCon{h, acc}), String.append(String.append(String.reverse.go(t, SNil{}), SCon{h, SNil{}}), acc), String.append(String.reverse.go(t, SCon{h, SNil{}}), acc),
+          Equal.sym(String, String.append(String.append(String.reverse.go(t, SNil{}), SCon{h, SNil{}}), acc), String.append(String.reverse.go(t, SNil{}), SCon{h, acc}), app_assoc(String.reverse.go(t, SNil{}), SCon{h, SNil{}}, acc)),
+          Equal.cong(String, String, x => String.append(x, acc), String.append(String.reverse.go(t, SNil{}), SCon{h, SNil{}}), String.reverse.go(t, SCon{h, SNil{}}), Equal.sym(String, String.reverse.go(t, SCon{h, SNil{}}), String.append(String.reverse.go(t, SNil{}), SCon{h, SNil{}}), rev_acc(t, SCon{h, SNil{}})))))
+
+def rev_app(+a: String, +b: String) -> {String.reverse(String.append(a, b)) == String.append(String.reverse(b), String.reverse(a)) : String}:
+  Equal.trans(String, String.reverse.go(String.append(a, b), SNil{}), String.reverse.go(b, String.reverse.go(a, SNil{})), String.append(String.reverse.go(b, SNil{}), String.reverse.go(a, SNil{})),
+    rev_go_app(a, b, SNil{}), rev_acc(b, String.reverse.go(a, SNil{})))
+
+def sw_if(c: Bool, -z: String, xt: String, yt: String, h: {String.starts_with.if(xt, yt, c) == True{} : Bool}, ih: {String.starts_with(xt, yt) == True{} : Bool} -> {String.starts_with(String.append(xt, z), yt) == True{} : Bool}) -> {String.starts_with.if(String.append(xt, z), yt, c) == True{} : Bool}:
+  match c:
+    case True{}:
+      ih(h)
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+
+def sw_nil(z: String) -> {String.starts_with(z, SNil{}) == True{} : Bool}:
+  match z:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      {==}
+
+# What starts with `b` still does with anything after it.
+def sw_ext(a: String, b: String, +z: String, h: {String.starts_with(a, b) == True{} : Bool}) -> {String.starts_with(String.append(a, z), b) == True{} : Bool}:
+  match a b:
+    case SNil{} SNil{}:
+      sw_nil(z)
+    case SNil{} SCon{y, +yt}:
+      Empty.absurd({String.starts_with(z, SCon{y, yt}) == True{} : Bool}, S.false_true(h))
+    case SCon{x, +xt} SNil{}:
+      {==}
+    case SCon{x, xt} SCon{y, +yt}:
+      sw_if(Char.is_eq(x, y), z, xt, yt, h, hh => sw_ext(xt, yt, z, hh))
+
+def sw_refl(a: String) -> {String.starts_with(a, a) == True{} : Bool}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{+x, +t}:
+      +r = Equal.sym(Bool, Char.is_eq(x, x), True{}, Diff.char_eq_refl(x))
+      %r : {String.starts_with.if(t, t, _) == True{} : Bool}
+      sw_refl(t)
+
+def ends_refl(+t: String) -> {String.ends_with(t, t) == True{} : Bool}:
+  sw_refl(String.reverse(t))
+
+# What ends with `t` still does with anything before it.
+def ends_pre(+p: String, +s: String, +t: String, h: {String.ends_with(s, t) == True{} : Bool}) -> {String.ends_with(String.append(p, s), t) == True{} : Bool}:
+  +ra = Equal.sym(String, String.reverse(String.append(p, s)), String.append(String.reverse(s), String.reverse(p)), rev_app(p, s))
+  %ra : {String.starts_with(_, String.reverse(t)) == True{} : Bool}
+  sw_ext(String.reverse(s), String.reverse(t), String.reverse(p), h)
+
+def and_tt(a: Bool, -b: Bool, ha: {a == True{} : Bool}, hb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      hb
+    case False{}:
+      Empty.absurd({Bool.and(False{}, b) == True{} : Bool}, S.false_true(ha))
+
+def line_ends(+c: String, +w: String, +d: String, +n: Nat, +cw: Nat, +ww: Nat, +dw: Nat, +nw: Nat, +t: String, +term: Bool, +forgot: Bool) -> {String.ends_with(String.append(Main.pad_left(c, cw), String.append("  ", String.append(Main.pad(w, ww), String.append("  ", String.append(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot}))))))))), Ops.shown(Ops.Item{t, term, forgot})) == True{} : Bool}:
+  ends_pre(Main.pad_left(c, cw), String.append("  ", String.append(Main.pad(w, ww), String.append("  ", String.append(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot})))))))), Ops.shown(Ops.Item{t, term, forgot}), ends_pre("  ", String.append(Main.pad(w, ww), String.append("  ", String.append(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot}))))))), Ops.shown(Ops.Item{t, term, forgot}), ends_pre(Main.pad(w, ww), String.append("  ", String.append(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot})))))), Ops.shown(Ops.Item{t, term, forgot}), ends_pre("  ", String.append(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot}))))), Ops.shown(Ops.Item{t, term, forgot}), ends_pre(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot})))), Ops.shown(Ops.Item{t, term, forgot}), ends_pre("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot}))), Ops.shown(Ops.Item{t, term, forgot}), ends_pre(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot})), Ops.shown(Ops.Item{t, term, forgot}), ends_pre("  ", Ops.shown(Ops.Item{t, term, forgot}), Ops.shown(Ops.Item{t, term, forgot}), ends_refl(Ops.shown(Ops.Item{t, term, forgot}))))))))))
+
+def ends_row(term: Bool, +c: String, +w: String, +d: String, +n: Nat, +cw: Nat, +ww: Nat, +dw: Nat, +nw: Nat, +t: String, +forgot: Bool, +r: List<&2, String>, +es: List<&2, String>, ih: {Main.ends_all(r, es) == True{} : Bool}) -> {Main.ends_all(Main.blame.line(String.append(Main.pad_left(c, cw), String.append("  ", String.append(Main.pad(w, ww), String.append("  ", String.append(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, term, forgot}))))))))), term, r), Main.blame.ends.item(Ops.shown(Ops.Item{t, term, forgot}), term, es)) == True{} : Bool}:
+  match term:
+    case True{}:
+      and_tt(String.ends_with(String.append(Main.pad_left(c, cw), String.append("  ", String.append(Main.pad(w, ww), String.append("  ", String.append(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, True{}, forgot}))))))))), Ops.shown(Ops.Item{t, True{}, forgot})), Main.ends_all(r, es), line_ends(c, w, d, n, cw, ww, dw, nw, t, True{}, forgot), ih)
+    case False{}:
+      and_tt(String.ends_with(String.append(Main.pad_left(c, cw), String.append("  ", String.append(Main.pad(w, ww), String.append("  ", String.append(Main.pad(d, dw), String.append("  ", String.append(Main.pad_left(Nat.show(n), nw), String.append("  ", Ops.shown(Ops.Item{t, False{}, forgot}))))))))), Ops.shown(Ops.Item{t, False{}, forgot})), Bool.and(String.ends_with("\\ no newline at end of file", "\\ no newline at end of file"), Main.ends_all(r, es)), line_ends(c, w, d, n, cw, ww, dw, nw, t, False{}, forgot),
+        and_tt(String.ends_with("\\ no newline at end of file", "\\ no newline at end of file"), Main.ends_all(r, es), ends_refl("\\ no newline at end of file"), ih))
+
+# Each line `blame` prints ends with the line it attributes, whatever the
+# columns before it, and a line without a newline is followed by the marker.
+def shown_ends(ss: List<&2, Main.Shown>, +cw: Nat, +ww: Nat, +dw: Nat, +nw: Nat) -> {Main.ends_all(Main.blame.lines(ss, cw, ww, dw, nw), Main.blame.ends(Main.shown.items(ss))) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case Main.Shown{+n, Main.Columns{+c, +w, +d}, Ops.Item{+t, +term, +forgot}} <> +rest:
+      ends_row(term, c, w, d, n, cw, ww, dw, nw, t, forgot, Main.blame.lines(rest, cw, ww, dw, nw), Main.blame.ends(Main.shown.items(rest)), shown_ends(rest, cw, ww, dw, nw))
+
+def items_shown(+fs: List<&2, Main.Full>, +cs: List<&2, String>, bl: List<&2, Main.Blamed>) -> {Main.shown.items(Main.shown.rows(fs, cs, bl)) == Main.lines.items(Main.blamed.lines(bl)) : List<&2, Ops.Item>}:
+  match bl:
+    case Nil{}:
+      {==}
+    case Main.Blamed{n, Main.Row{by, +it}} <> rest:
+      Equal.cong(List<&2, Ops.Item>, List<&2, Ops.Item>, l => it <> l, Main.shown.items(Main.shown.rows(fs, cs, rest)), Main.lines.items(Main.blamed.lines(rest)), items_shown(fs, cs, rest))
+
+def printed(+fs: List<&2, Main.Full>, +cs: List<&2, String>, +rs: List<&2, Main.Row>, +span: Maybe<&2, Main.Wanted>, r: Result<&2, &2, Main.Refused, List<&2, Main.Blamed>>, +er: {Main.blame.span.r(rs, span) == r : Result<&2, &2, Main.Refused, List<&2, Main.Blamed>>}, +out: List<&2, String>, e: {Main.blame.shown(fs, cs, r) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span)))) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span)))) == True{} : Bool}, fail_done(List<&2, String>, x, out, e))
+    case Done{+bl}:
+      +d = done_eq(List<&2, String>, Main.blame.print(Main.shown.rows(fs, cs, bl)), out, e)
+      %d : {Main.ends_all(_, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span)))) == True{} : Bool}
+      +sl = span_lines(rs, span, bl, er)
+      %sl : {Main.ends_all(Main.blame.print(Main.shown.rows(fs, cs, bl)), Main.blame.ends(Main.lines.items(_))) == True{} : Bool}
+      +ixs = items_shown(fs, cs, bl)
+      %ixs : {Main.ends_all(Main.blame.print(Main.shown.rows(fs, cs, bl)), Main.blame.ends(_)) == True{} : Bool}
+      shown_ends(Main.shown.rows(fs, cs, bl), Main.widest.col(Main.shown.rows(fs, cs, bl), 0n), Main.widest.col(Main.shown.rows(fs, cs, bl), 1n), Main.widest.col(Main.shown.rows(fs, cs, bl), 2n), Main.last_number(Main.shown.rows(fs, cs, bl)))
+
+# What `blame` prints is one line for each line of the span asked, ending
+# with that line, and the marker after a line without a newline.
+def printed_lines(+fs: List<&2, Main.Full>, +cs: List<&2, String>, +rs: List<&2, Main.Row>, +span: Maybe<&2, Main.Wanted>, +out: List<&2, String>, e: {Main.blame.limited.r(fs, cs, rs, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span)))) == True{} : Bool}:
+  printed(fs, cs, rs, span, Main.blame.span.r(rs, span), {==}, out, e)

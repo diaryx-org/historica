@@ -471,3 +471,6 @@ def Laws.blame_reads_the_walk(oldest, ds, id, file, rs, e):
 
 def Laws.blame_numbers_its_lines(rs, span, bl, e):
   Blamed.span_lines(rs, span, bl, e)
+
+def Laws.blame_prints_each_line(fs, cs, rs, span, out, e):
+  Blamed.printed_lines(fs, cs, rs, span, out, e)

@@ -1130,6 +1130,13 @@ def check_mutations(temporary):
             "blamed_lemmas.in_lines",
             "main.bend",
         ),
+        (
+            "blame drops the marker after a line without a newline",
+            '      l <> "\\\\ no newline at end of file" <> rest',
+            '      l <> rest',
+            "blamed_lemmas.ends_row",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
