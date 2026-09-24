@@ -598,6 +598,35 @@ def survey(+t: Tree.Tree(), +held: Set(), walked: List<&2, T.Split>, ss: List<&2
   +cs = claims(t)
   of(t, cs, walked, List.append(&2, Obs, seens(ss), claimed_drops(t, cs, held)))
 
+def survey.refused(s: Survey) -> List<&2, T.Split>:
+  match s:
+    case Survey{facts, refused, claimed, accept, renames}:
+      refused
+
+# What `LAWS.status_refuses_what_the_folder_holds` asks of the refusals:
+# each names a path the walk refused, or one a surveyed path found in the
+# folder.
+def walked_at(ws: List<&2, T.Split>, +p: String) -> Bool:
+  match ws:
+    case Nil{}:
+      False{}
+    case T.Split{q, b} <> rest:
+      Bool.or(String.eq(q, p), walked_at(rest, p))
+
+def found_at(ss: List<&2, Seen>, +p: String) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case Seen{path, e, found, d, b, x, sh, pr} <> rest:
+      Bool.or(Bool.and(String.eq(path, p), Maybe.is_some(&2, Folder.Found, found)), found_at(rest, p))
+
+def refuses_found(+walked: List<&2, T.Split>, +ss: List<&2, Seen>, rs: List<&2, T.Split>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case T.Split{+p, b} <> rest:
+      Bool.and(Bool.or(walked_at(walked, p), found_at(ss, p)), refuses_found(walked, ss, rest))
+
 # Whether the folder says nothing the position does not.
 def is_quiet(s: Survey) -> Bool:
   match s:
@@ -816,6 +845,23 @@ def dangle(t: Tree.Tree(), +gone: Set(), +pointing: Set(), +os: List<&2, Obs>) -
       +later = dangle(rest, gone, pointing, os)
       Bool.pick(Maybe<&2, String>, Bool.or(has(gone, f), has(pointing, p)), later, dangle.target(p, g, gone, os, later))
 
+# What that refusal asks of the position: no link of it names a file going,
+# unless the link is going too or the folder's link at its path is one the
+# record restates (`LAWS.record_refuses_a_dangling_link`).
+def names_gone(g: Maybe<&2, Tree.Target>, +gone: Set()) -> Bool:
+  match g:
+    case Some{Tree.Reference{+named}}:
+      has(gone, named)
+    case _:
+      False{}
+
+def anchored(t: Tree.Tree(), +gone: Set(), +pointing: Set()) -> Bool:
+  match t:
+    case Nil{}:
+      True{}
+    case Tree.Entry{+f, +p, k, y, g, m} <> rest:
+      Bool.and(Bool.or(Bool.or(has(gone, f), has(pointing, p)), Bool.not(names_gone(g, gone))), anchored(rest, gone, pointing))
+
 # What `record --dry-run` prints: `status`'s facts, with a line for each
 # file moved.
 def facts.recorded(+arriving: Set(), +os: List<&2, Obs>, +links: List<&2, String>, +moved: List<&2, String>) -> List<&2, T.Split>:
@@ -843,3 +889,24 @@ def planned(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), walked: List<&2
   +arriving = Set.from_list(added(os))
   +ls = links(t, gone, arriving, os)
   Planned{facts.recorded(arriving, os, ls, moved.paths(moves, gone)), List.append(&2, T.Split, walked, refusals(os)), cs, sorted(accepts(os)), emptied(os), dangle(t, gone, Set.from_list(pointed(os)), os), os, ls}
+
+def planned.dangles(pl: Planned) -> Maybe<&2, String>:
+  match pl:
+    case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
+      dangles
+
+def planned.refused(pl: Planned) -> List<&2, T.Split>:
+  match pl:
+    case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
+      refused
+
+# The files a plan drops, and the paths of the folder's links it observes.
+def planned.gone(pl: Planned) -> Set():
+  match pl:
+    case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
+      Set.from_list(dropped_files(obs))
+
+def planned.pointing(pl: Planned) -> Set():
+  match pl:
+    case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
+      Set.from_list(pointed(obs))

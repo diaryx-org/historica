@@ -654,3 +654,8 @@ def Laws.status_believes_what_is_stated(older, ds, left, eds, os, hs, m, e, h):
 
 def Laws.status_joins_what_it_reads(hs, fs, ds, ps, m, e, h):
   StatusL.joined_fails(hs, fs, ds, ps, m, e, h)
+def Laws.record_refuses_a_dangling_link(t, looked, held, walked, ss, moves):
+  SurveyL.dangle_ok(t, Set.from_list(Sv.dropped_files(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))), Set.from_list(Sv.pointed(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))), List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))
+
+def Laws.status_refuses_what_the_folder_holds(t, held, walked, ss):
+  SurveyL.refused_ok(t, held, walked, ss)
