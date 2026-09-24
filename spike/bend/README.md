@@ -35,6 +35,7 @@ bend main.bend -- abandon tip -m "why"    # supersede a run of work with a tombs
 bend main.bend -- carry tip --onto main   # restate work against another parent
 bend main.bend -- name main head        # point a bookmark, and `--delete` one
 bend main.bend -- init notes            # make a store in notes/history
+bend main.bend -- arrange -n            # the readable names, planned; and given
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
@@ -265,12 +266,14 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, and a document or a payload filed once: fifteen effects, a C adapter, a Rust static library |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, a document or a payload filed once, and the directories a rename or a removal leaves empty, tidied: seventeen effects, a C adapter, a Rust static library |
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `arrange.bend` | `arrange`: every revision's stem over the whole store — the base, a change's first letters, a digest's — each file of content filed under the stem of the revision whose claim on it wins, at the path it had; the plan, in the Rust tool's walk order, and the renames carried out, each asking again whether its name is free; and the opening the Rust tool refuses where a revision does not parse | `store::arrange`, `naming::stems` |
+| `arrange_lemmas.bend` | `arrange_reads_its_words`: a command line `arrange` accepts is all flags; `arrange_plans_no_overwrite`: every rename it plans goes to a path nothing was at, from a different one; `arrange_keeps_a_revision_where_it_sits`: without `--refile`, a revision is renamed only within its directory; `arrange_opens_what_parses`: it opens a store only where every revision parses; `arrange_counts_every_file`: every file it walks is counted once in what it prints | `arrange` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -572,6 +575,33 @@ path really is. The notes are prose the Rust tool keeps in its source;
 `notes.bend`, and `check.py`, which compares everything `init` leaves,
 fails where they have drifted. The `bare` store, a folder with no store
 in it, has seven `init`s and the commands that need a store refusing.
+
+`arrange` gives a store's files the names decision 0006 made
+deterministic, and touches no file's bytes. Every revision takes a stem
+over the whole store — its month and day and its message's first line,
+the change's first eight letters where another revision has that, and its
+own digest's first twelve where another of the same change does too — and
+is renamed where it sits (`arrange_keeps_a_revision_where_it_sits`), or
+filed under its month with `--refile`. Every file of `operations/` is
+filed under the stem of the revision whose claim on its digest wins — the
+smallest revision, then the smallest path, a payload before a document —
+at the path it had there, as `naming.bend` files a record's content. A
+file already at its name stays, one whose name is taken is left, and one
+no revision names is counted; the plan is worked out in the Rust tool's
+walk order, a path at a time by component, and no rename in it is onto a
+path the store holds (`arrange_plans_no_overwrite`). `-n` prints the plan;
+without it each rename asks the host once more, through `Store.move`,
+whether its new name is free — two files holding one document want one
+name — and the directories it empties go through `Store.tidy`, up to the
+store's own. Opening the store is the Rust tool's: a revision that does not
+parse refuses it, naming the file (`arrange_opens_what_parses`). The
+`arranging` store is filed flat by digest, with one revision in a folder
+of a person's own, content in a directory of its own, a duplicate of each
+kind, a file no revision names, and three revisions sharing a summary —
+two changes, and a reword — so every tier of a stem is reached; with
+`arrange` added to the corpus stores and to `log`'s, `check.py` holds
+seventeen `arrange`s to the Rust tool, every file of the store compared
+after.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1191,7 +1221,10 @@ payload after a refusal starting the file over, and a document applied to
 nothing rather than to what came before; and two status breaks: the
 revisions joined kept newest first, and a `--merge` joined by its spelling
 rather than the revision it names; and one name break: a name taken without
-asking the path rules. The
+asking the path rules; and four arrange breaks: a rename planned onto a
+name that is taken, a revision refiled without `--refile`, a dry run's
+count leaving out the files it would leave, and a store opened past a
+revision that does not parse. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1300,7 +1333,7 @@ is under 5k. Not ported:
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
 - **Writing the store**: `record --merge`, whose resolutions nothing here
-  writes; `arrange`, `fetch`, `export`. `record` and `abandon` without
+  writes; `fetch`, `export`. `record` and `abandon` without
   `-m` do not open an editor — with no `$VISUAL` or `$EDITOR` both refuse
   as the Rust tool does — and who is recording is
   read from `HISTORICA_AUTHOR` alone, not from the identity file the Rust

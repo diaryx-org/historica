@@ -50,6 +50,7 @@ import ./pair_lemmas.bend as PairL
 import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
+import ./arrange_lemmas.bend as ArrangeL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -593,3 +594,18 @@ def Laws.status_joins_held_revisions(fs, bs, onto, ms, ps, e):
 
 def Laws.name_stays_in_names(n, e):
   NameL.stays(n, e)
+
+def Laws.arrange_reads_its_words(ws, c, e):
+  ArrangeL.args_flags(ws, c, e)
+
+def Laws.arrange_plans_no_overwrite(refile, fs, revs, ops, ls, a, e):
+  ArrangeL.plan_safe(refile, fs, revs, ops, ls, a, e)
+
+def Laws.arrange_keeps_a_revision_where_it_sits(fs, revs, ops, ls, a, e):
+  ArrangeL.kept(fs, revs, ops, ls, a, e)
+
+def Laws.arrange_opens_what_parses(ds, u, e):
+  ArrangeL.opened(ds, u, e)
+
+def Laws.arrange_counts_every_file(refile, fs, revs, ops, ls, a, e):
+  ArrangeL.counts(refile, fs, revs, ops, ls, a, e)

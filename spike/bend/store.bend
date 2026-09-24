@@ -77,6 +77,19 @@ def Store.remove(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_remove.c"
   import "./ffi/store_remove.js"
 
+# The directories a moved file left empty: where tidying stops, then the
+# directory it left; that one and each above it go until one holds
+# something. Back how many went.
+def Store.tidy(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_tidy.c"
+  import "./ffi/store_tidy.js"
+
+# Every directory under the one named that holds nothing, removed deepest
+# first; the one named stays. Back how many went.
+def Store.sweep(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_sweep.c"
+  import "./ffi/store_sweep.js"
+
 # Where a path really is — links, `.` and `..` resolved — or, for an empty
 # one, the current directory. A path that is not there has no answer.
 def Store.real(query: String) -> IO(Result<&1, &1, U32 & String, String>):
@@ -256,6 +269,12 @@ def written(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def removed(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.remove(query)
+
+def tidied(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.tidy(query)
+
+def swept(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.sweep(query)
 
 def really(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.real(query)

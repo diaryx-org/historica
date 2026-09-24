@@ -405,6 +405,94 @@ pub unsafe extern "C" fn hist_store_remove(
     })
 }
 
+/// The directories a moved file emptied: `arrange`'s tidying after each
+/// rename.
+///
+/// The argument is the directory removal stops at, then the directory the
+/// file was moved out of. That directory is removed, then each above it,
+/// until one will not go — a directory holding anything refuses, which is
+/// the whole guard — or the first line's is reached, which is never removed.
+/// The answer is how many went. Nothing is decided here: which file moved,
+/// and where tidying stops, are the Bend side's.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_tidy(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let Some((boundary, directory)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a tidying is where it stops, then the directory".to_owned()));
+        };
+        let boundary = Path::new(boundary);
+        let mut removed = 0usize;
+        let mut empty = Some(Path::new(directory));
+        while let Some(directory) = empty {
+            if directory == boundary || fs::remove_dir(directory).is_err() {
+                break;
+            }
+            removed += 1;
+            empty = directory.parent();
+        }
+        Ok(removed.to_string())
+    })
+}
+
+/// Every directory under one that holds nothing: `prune`'s sweep after the
+/// files it removed, and the one `receive` and `export` make after a
+/// forgotten original goes.
+///
+/// The argument is the directory. Each directory beneath it whose entries
+/// are all directories that went is removed, deepest first; the directory
+/// named is kept however empty it is left, and a link is never followed. A
+/// directory that is not there is an empty one. The answer is how many went.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_sweep(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let mut removed = 0usize;
+        sweep(Path::new(text(query, query_len)?), &mut removed)?;
+        Ok(removed.to_string())
+    })
+}
+
+/// Whether `directory` holds nothing once the empty directories under it are
+/// gone, removing each of those on the way.
+fn sweep(directory: &Path, removed: &mut usize) -> Result<bool, (i32, String)> {
+    let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+        Err(error) => return Err(failed(directory, error)),
+    };
+    let mut empty = true;
+    for entry in entries {
+        let entry = entry.map_err(|error| failed(directory, error))?;
+        let path = entry.path();
+        let kind = entry.file_type().map_err(|error| failed(&path, error))?;
+        if kind.is_dir() && sweep(&path, removed)? {
+            fs::remove_dir(&path).map_err(|error| failed(&path, error))?;
+            *removed += 1;
+        } else {
+            empty = false;
+        }
+    }
+    Ok(empty)
+}
+
 /// Where a path really is: the current directory for an empty argument,
 /// and otherwise the path with every link and `.` and `..` resolved — which
 /// only a path that exists has, so a failure is also `init`'s answer to
@@ -1168,6 +1256,50 @@ mod tests {
         assert!(names.is_dir(), "names/ itself stays");
         assert_eq!(asked("top.txt"), (0, "absent".to_owned()));
         assert_eq!(call(hist_store_remove, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_tidying_removes_what_a_move_emptied_and_stops_at_the_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let operations = dir.path().join("operations");
+        fs::create_dir_all(operations.join("a/b/c")).unwrap();
+        fs::create_dir_all(operations.join("a/kept")).unwrap();
+        let asked = |directory: &Path| call(hist_store_tidy, format!("{}\n{}", operations.display(), directory.display()).as_bytes());
+
+        // `c` and `b` go; `a` holds `kept`, and refuses.
+        assert_eq!(asked(&operations.join("a/b/c")), (0, "2".to_owned()));
+        assert!(!operations.join("a/b").exists());
+        assert!(operations.join("a/kept").is_dir());
+        // A directory that holds a file is not emptied by being asked.
+        fs::write(operations.join("a/kept/x"), "").unwrap();
+        assert_eq!(asked(&operations.join("a/kept")), (0, "0".to_owned()));
+        fs::remove_file(operations.join("a/kept/x")).unwrap();
+        // The boundary itself is never removed, however empty.
+        assert_eq!(asked(&operations.join("a/kept")), (0, "2".to_owned()));
+        assert!(operations.is_dir());
+        assert_eq!(asked(&operations), (0, "0".to_owned()));
+        assert_eq!(call(hist_store_tidy, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_sweep_removes_every_empty_directory_and_keeps_the_one_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let revisions = dir.path().join("revisions");
+        fs::create_dir_all(revisions.join("2026-01/deep/er")).unwrap();
+        fs::create_dir_all(revisions.join("2026-02")).unwrap();
+        fs::create_dir_all(revisions.join("2026-03")).unwrap();
+        fs::write(revisions.join("2026-03/x.rev.txt"), "").unwrap();
+        // A link to an empty directory is not one, and is not followed.
+        std::os::unix::fs::symlink(revisions.join("2026-02"), revisions.join("2026-03/link")).unwrap();
+        let asked = call(hist_store_sweep, revisions.display().to_string().as_bytes());
+        assert_eq!(asked, (0, "4".to_owned()));
+        assert!(!revisions.join("2026-01").exists() && !revisions.join("2026-02").exists());
+        assert!(revisions.join("2026-03/x.rev.txt").exists());
+        assert!(revisions.is_dir());
+        // Swept again, nothing is left to go; and nothing there is empty.
+        assert_eq!(call(hist_store_sweep, revisions.display().to_string().as_bytes()), (0, "0".to_owned()));
+        let gone = dir.path().join("gone");
+        assert_eq!(call(hist_store_sweep, gone.display().to_string().as_bytes()), (0, "0".to_owned()));
     }
 
     #[test]

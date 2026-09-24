@@ -266,6 +266,10 @@ PINS = {
 # The commands that supersede, which write the store as `record` does.
 REWRITES = ("amend", "abandon", "carry")
 
+# The commands that move, remove and copy what a store holds: after each,
+# the whole of every store under the copy is compared, less `cache/`.
+MOVES = ("arrange", "prune", "receive", "offer", "export")
+
 STORES = {
     "tree": [
         ["log"],
@@ -284,8 +288,8 @@ STORES = {
         ["record", "-n"],
         ["record", "-n", "--onto", "kxry", "docs"],
     ],
-    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"], ["status"], ["record", "-n"]],
-    "merged": [["log"], ["files", "head"], ["status"]],
+    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"], ["status"], ["record", "-n"], ["arrange", "-n"], ["arrange"], ["arrange", "--refile"]],
+    "merged": [["log"], ["files", "head"], ["status"], ["arrange"]],
     "links": [
         ["log"],
         ["files", "head"],
@@ -302,13 +306,15 @@ STORES = {
         ["status", "--onto", "kxry"],
         ["record", "-n"],
         ["record", "-n", "--onto", "kxry", "current"],
+        ["arrange", "--refile"],
     ],
-    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"], ["record", "-n"]],
+    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"], ["record", "-n"], ["arrange", "--refile"]],
     "whole": [
         ["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"],
         ["diff", "head"], ["blame", "head", "notes/photo.png"], ["blame", "head", "notes/2026-08-20.md"],
         # An assembled store has no folder beside it, so everything is gone.
         ["diff"], ["blame", "notes/2026-08-20.md"], ["status"], ["record", "-n"], ["record", "-n", "notes/photo.png"],
+        ["arrange", "-n"], ["arrange"],
     ],
     # Recorded here by the Rust tool rather than taken from a corpus: the
     # widest path holds characters outside ASCII, which the Rust tool
@@ -438,6 +444,9 @@ STORES = {
         ["status", "--onto", "base"],
         ["status", "--onto", "zzzz"],
         ["status", "--onto", "base", "--onto", "tip"],
+        # Written by the Rust tool, so already arranged.
+        ["arrange", "-n"],
+        ["arrange"],
     ],
     # The folder against the position: an edit, a file gone, files new —
     # text and bytes — a file of bytes changed, a mode, links retargeted,
@@ -650,6 +659,22 @@ STORES = {
     ],
     # A rule file stating two rules: the store will not open.
     "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"]],
+    # A store filed flat, by digest, as an older writer or a copy by hand
+    # leaves one: one revision in a folder of a person's own, one filed in
+    # its month already, content under digest names and in a directory of
+    # its own, two files holding one document, a file no revision names,
+    # and three revisions sharing a summary — two changes, and a reword of
+    # one — so every tier of a name is reached. Arranged in place and
+    # refiled, planned and done, and a word it does not take refused.
+    "arranging": [
+        ["arrange", "-n"],
+        ["arrange", "--dry-run", "--refile"],
+        ["arrange"],
+        ["arrange", "--refile", "-n", "--refile"],
+        ["arrange", "--refile"],
+        ["arrange", "-n", "extra"],
+        ["arrange", "--bogus", "-n"],
+    ],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
         ["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"],
@@ -1160,6 +1185,45 @@ def record(temporary, rust, corpus, pinned=None):
                     tombstone.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, tombstone)
             shutil.rmtree(elsewhere)
+    elif corpus == "arranging":
+        (store / "notes.md").write_text("one\n")
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        (store / "b.bin").write_bytes(b"\x00bin")
+        (store / "odd.ops.txt").write_text("not a document\n")
+        historica("record", "-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "b.bin").write_bytes(b"\x00bin, again")
+        historica("record", "-m", "same: again")
+        (store / "notes.md").write_text("one\ntwo\nthree\n")
+        historica("record", "-m", "same: again")
+        (store / "notes.md").write_text("one\ntwo\nthree\nfour\n")
+        historica("amend", "-m", "same: again")
+        history = store / "history"
+        digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+        first = next(p for p in history.glob("revisions/*/*.rev.txt") if p.name.endswith(" one.rev.txt"))
+        # Everything but the first revision and its content filed flat, by
+        # digest; one revision in a folder of a person's own, one file of
+        # content in a directory of its own.
+        for path in sorted(history.glob("revisions/*/*.rev.txt")):
+            if path != first:
+                path.rename(history / "revisions" / f"{digest(path)}.rev.txt")
+        own = sorted(history.glob("revisions/*.rev.txt"))[0]
+        (history / "revisions" / "mine").mkdir()
+        own.rename(history / "revisions" / "mine" / own.name)
+        kept = history / "operations" / first.parent.name / first.name.removesuffix(".rev.txt")
+        for path in sorted(p for p in history.glob("operations/**/*") if p.is_file() and kept not in p.parents):
+            name = digest(path) + (".ops.txt" if path.name.endswith(".ops.txt") and not path.name.startswith("odd") else "")
+            path.rename(history / "operations" / name)
+        for directory in sorted((p for p in history.glob("operations/**/*") if p.is_dir()), reverse=True):
+            if not any(directory.iterdir()):
+                directory.rmdir()
+        document = next(p for p in history.glob("operations/*.ops.txt"))
+        (history / "operations" / "by hand" / "deep").mkdir(parents=True)
+        document.rename(history / "operations" / "by hand" / "deep" / document.name)
+        shutil.copy(history / "operations" / "by hand" / "deep" / document.name, history / "operations" / "copy.ops.txt")
+        shutil.copy(own.parent / "mine" / own.name, history / "revisions" / "copy.rev.txt")
+        (history / "operations" / "stray.txt").write_text("named by nothing\n")
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1268,7 +1332,7 @@ def check_store(temporary):
             here = Path(directory)
             if here == root and not whole:
                 dirs[:] = [d for d in dirs if d != "history"]
-            if here == root / "history" / "cache" and not cached:
+            if here.name == "cache" and here.parent.name == "history" and not cached:
                 files = [f for f in files if f == "README.txt"]
             dirs.sort()
             for name in sorted(dirs + files):
@@ -1291,7 +1355,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -1302,17 +1366,19 @@ def check_store(temporary):
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too; and a
             # record that is not a dry run, the whole store it wrote.
-            writes = command[0] in ("record", "name", "init", *REWRITES)
+            writes = command[0] in ("record", "name", "init", *REWRITES, *MOVES)
             recording = command[0] in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
+            moving = command[0] in MOVES
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store
-            whole = command[0] == "init" or recording
+            whole = command[0] == "init" or recording or moving
+            cached = not (recording or moving)
             reference = writer if command[0] in ("record", *REWRITES) else rust
             shown = " ".join([f"{k}={v}" for k, v in changed.items()] + command)
-            expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
+            expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, cached) if writes else ())
             for name, tool in tools:
                 copy = fresh(store, at) if writes else store
-                got = said(capture(*tool, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
+                got = said(capture(*tool, *command, cwd=copy, env=env)) + (folder_of(copy, whole, cached) if writes else ())
                 if got != expected:
                     failures += 1
                     lines += [f"DIFF {corpus} {name}: {shown}", f"  rust: {expected}", f"  bend: {got}"]
@@ -2013,6 +2079,34 @@ def check_mutations(temporary):
             "    None{}))\n\ndef name.usable.r(",
             "name_lemmas.stays",
             "commands.bend",
+        ),
+        (
+            "arrange plans a rename onto a name that is taken",
+            "    Bool.pick(Placing, has(taken, target), Placing.Occupied{path, target}, Placing.Rename{path, target}))",
+            "    Bool.pick(Placing, False{}, Placing.Occupied{path, target}, Placing.Rename{path, target}))",
+            "arrange_lemmas.place_safe",
+            "arrange.bend",
+        ),
+        (
+            "arrange refiles a revision it was not asked to",
+            '      String.append(Naming.head(path), leaf(stem) ++ ".rev.txt")',
+            '      "revisions/" ++ stem ++ ".rev.txt"',
+            "arrange_lemmas.kept_here",
+            "arrange.bend",
+        ),
+        (
+            "arrange's dry run leaves out the files it would leave",
+            "  Came{done.renamed(ps), done.already(ps), done.occupied(ps), done.unnamed(ps)}\n",
+            "  Came{done.renamed(ps), done.already(ps), Nil{}, done.unnamed(ps)}\n",
+            "arrange_lemmas.tally_planned",
+            "arrange.bend",
+        ),
+        (
+            "arrange opens a store past a revision that does not parse",
+            '      Some{Main.Refused{1, path ++ ": " ++ e}}',
+            "      None{}",
+            "arrange_lemmas.fault_parses",
+            "arrange.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):
