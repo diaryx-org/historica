@@ -508,3 +508,6 @@ def Laws.diff_limits_to_a_held_file(fs, bs, right, only, lim, e):
 
 def Laws.diff_folder_limits_to_a_held_file(fs, bs, left, only, lim, e):
   DiffCmd.wc_limit_ok(fs, bs, left, only, lim, e)
+
+def Laws.diff_shows_what_differs(sd, l, files, cs, e):
+  DiffCmd.compare_ok(sd, l, files, cs, e)

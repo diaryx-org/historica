@@ -10,6 +10,7 @@ import ./blamed_lemmas.bend as B
 import ./tree.bend as Tree
 import ./revision.bend as Rev
 import ./fileat_lemmas.bend as FileAt
+import ./store.bend as Store
 
 def done_eq_d(-a: Main.DiffAsked, -b: Main.DiffAsked, h: {Done{a} == Done{b} : Result<&2, &2, String, Main.DiffAsked>}) -> {a == b : Main.DiffAsked}:
   Equal.cong(Result<&2, &2, String, Main.DiffAsked>, Main.DiffAsked, r => Result.default(&2, &2, String, Main.DiffAsked, r, a), Done{a}, Done{b}, h)
@@ -266,3 +267,118 @@ def wc_limit_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +left: May
       {==}
     case Some{+sp}:
       wc_lim_spelled(fs, bs, left, sp, String.starts_with(sp, "file:"), lim, e)
+
+# What is shown
+# -------------
+
+def shows_m(l: Main.Limit, m: Maybe<&2, Main.Compared>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{+c}:
+      Bool.and(Main.pair.differs(c), Main.limit.shows(l, c))
+
+def rdisc_str(-A: Data, r: Result<&2, &2, String, A>) -> Type:
+  match r:
+    case Done{x}:
+      Empty
+    case Fail{e}:
+      Unit
+
+def fail_done_str(-A: Data, -e: String, -x: A, h: {Fail{e} == Done{x} : Result<&2, &2, String, A>}) -> Empty:
+  %h : {rdisc_str(A, _) : Type}
+  Unit{}
+
+def done_eq_str(-A: Data, -a: A, -b: A, h: {Done{a} == Done{b} : Result<&2, &2, String, A>}) -> {a == b : A}:
+  Equal.cong(Result<&2, &2, String, A>, A, r => Result.default(&2, &2, String, A, r, a), Done{a}, Done{b}, h)
+
+def built_at(+l: Main.Limit, +c: Main.Compared, d: Bool, +ed: {Main.pair.differs(c) == d : Bool}, +hs: {Main.limit.shows(l, c) == True{} : Bool}) -> {shows_m(l, Bool.pick(Maybe<&2, Main.Compared>, d, Some{c}, None{})) == True{} : Bool}:
+  match d:
+    case True{}:
+      B.and_tt(Main.pair.differs(c), Main.limit.shows(l, c), ed, hs)
+    case False{}:
+      {==}
+
+# A comparison is kept only where its sides differ.
+def built_ok(+l: Main.Limit, +c: Main.Compared, +hs: {Main.limit.shows(l, c) == True{} : Bool}) -> {shows_m(l, Main.compare.built(c)) == True{} : Bool}:
+  built_at(l, c, Main.pair.differs(c), {==}, hs)
+
+# A path limit wants a file at that path on one side, which is where the
+# comparison says it is.
+def wants_shows(l: Main.Limit, +file: String, +was: Maybe<&2, Tree.Entry>, +now: Maybe<&2, Tree.Entry>, -b: Maybe<&2, Main.Side>, -a: Maybe<&2, Main.Side>, -md: Maybe<&2, T.Split>, -rt: Maybe<&2, Main.Retarget>, h: {Main.limit.wants(l, file, Main.entry.path(was), Main.entry.path(now)) == True{} : Bool}) -> {Main.limit.shows(l, Main.Compared{Main.entry.path(was), Main.entry.path(now), b, a, md, rt}) == True{} : Bool}:
+  match l:
+    case Main.Limit.None{}:
+      {==}
+    case Main.Limit.File{f}:
+      {==}
+    case Main.Limit.Path{p}:
+      h
+
+def sides_after(+l: Main.Limit, +file: String, +was: Maybe<&2, Tree.Entry>, +now: Maybe<&2, Tree.Entry>, +before: Tree.Tree(), +after: Tree.Tree(), +b: Maybe<&2, Main.Side>, +hw: {Main.limit.wants(l, file, Main.entry.path(was), Main.entry.path(now)) == True{} : Bool}, r: Result<&2, &2, String, Maybe<&2, Main.Side>>, +m: Maybe<&2, Main.Compared>, e: {Result.bind(&2, &2, String, Maybe<&2, Main.Side>, Maybe<&2, Main.Compared>, r, a => Done{Main.compare.built(Main.Compared{Main.entry.path(was), Main.entry.path(now), b, a, Main.modes(was, now), Main.retargeting(Main.shown(before, was), Main.shown(after, now))})}) == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>}) -> {shows_m(l, m) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({shows_m(l, m) == True{} : Bool}, fail_done_str(Maybe<&2, Main.Compared>, x, m, e))
+    case Done{+a}:
+      +d = done_eq_str(Maybe<&2, Main.Compared>, Main.compare.built(Main.Compared{Main.entry.path(was), Main.entry.path(now), b, a, Main.modes(was, now), Main.retargeting(Main.shown(before, was), Main.shown(after, now))}), m, e)
+      %d : {shows_m(l, _) == True{} : Bool}
+      built_ok(l, Main.Compared{Main.entry.path(was), Main.entry.path(now), b, a, Main.modes(was, now), Main.retargeting(Main.shown(before, was), Main.shown(after, now))}, wants_shows(l, file, was, now, b, a, Main.modes(was, now), Main.retargeting(Main.shown(before, was), Main.shown(after, now)), hw))
+
+def sides_before(+l: Main.Limit, +file: String, +was: Maybe<&2, Tree.Entry>, +now: Maybe<&2, Tree.Entry>, +before: Tree.Tree(), +after: Tree.Tree(), +newer: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +right: String, +needed: Bool, +hw: {Main.limit.wants(l, file, Main.entry.path(was), Main.entry.path(now)) == True{} : Bool}, r: Result<&2, &2, String, Maybe<&2, Main.Side>>, +m: Maybe<&2, Main.Compared>, e: {Result.bind(&2, &2, String, Maybe<&2, Main.Side>, Maybe<&2, Main.Compared>, r, b => Result.bind(&2, &2, String, Maybe<&2, Main.Side>, Maybe<&2, Main.Compared>, Main.side(newer, ds, right, file, needed, now), a => Done{Main.compare.built(Main.Compared{Main.entry.path(was), Main.entry.path(now), b, a, Main.modes(was, now), Main.retargeting(Main.shown(before, was), Main.shown(after, now))})})) == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>}) -> {shows_m(l, m) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({shows_m(l, m) == True{} : Bool}, fail_done_str(Maybe<&2, Main.Compared>, x, m, e))
+    case Done{+b}:
+      sides_after(l, file, was, now, before, after, b, hw, Main.side(newer, ds, right, file, needed, now), m, e)
+
+def sides_ok(sd: Main.Sides, +l: Main.Limit, +file: String, +was: Maybe<&2, Tree.Entry>, +now: Maybe<&2, Tree.Entry>, +hw: {Main.limit.wants(l, file, Main.entry.path(was), Main.entry.path(now)) == True{} : Bool}, +m: Maybe<&2, Main.Compared>, e: {Main.compare.sides(sd, file, was, now) == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>}) -> {shows_m(l, m) == True{} : Bool}:
+  match sd:
+    case Main.Sides{+before, +after, +older, +newer, +ds, +left, +right, +ws, +ns}:
+      sides_before(l, file, was, now, before, after, newer, ds, right, Main.compare.needed(ws, ns, file, was, now), hw, Main.side(older, ds, left, file, Main.compare.needed(ws, ns, file, was, now), was), m, e)
+
+def wanted_ok(+sd: Main.Sides, +l: Main.Limit, +file: String, +was: Maybe<&2, Tree.Entry>, +now: Maybe<&2, Tree.Entry>, w: Bool, +ew: {Main.limit.wants(l, file, Main.entry.path(was), Main.entry.path(now)) == w : Bool}, +m: Maybe<&2, Main.Compared>, e: {Main.compare.wanted(sd, file, was, now, w) == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>}) -> {shows_m(l, m) == True{} : Bool}:
+  match w:
+    case True{}:
+      sides_ok(sd, l, file, was, now, ew, m, e)
+    case False{}:
+      +d = done_eq_str(Maybe<&2, Main.Compared>, None{}, m, e)
+      %d : {shows_m(l, _) == True{} : Bool}
+      {==}
+
+def one_ok(+sd: Main.Sides, +l: Main.Limit, b: Main.Both, +m: Maybe<&2, Main.Compared>, e: {Main.compare.one(sd, l, b) == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>}) -> {shows_m(l, m) == True{} : Bool}:
+  match b:
+    case Main.Both{+file, +was, +now}:
+      wanted_ok(sd, l, file, was, now, Main.limit.wants(l, file, Main.entry.path(was), Main.entry.path(now)), {==}, m, e)
+
+def push_ok(+l: Main.Limit, here: Maybe<&2, Main.Compared>, +later: List<&2, Main.Compared>, h1: {shows_m(l, here) == True{} : Bool}, h2: {Main.all.shown(l, later) == True{} : Bool}) -> {Main.all.shown(l, Main.compare.push(here, later)) == True{} : Bool}:
+  match here:
+    case None{}:
+      h2
+    case Some{+c}:
+      B.and_tt(Bool.and(Main.pair.differs(c), Main.limit.shows(l, c)), Main.all.shown(l, later), h1, h2)
+
+def later_ok(+l: Main.Limit, +here: Maybe<&2, Main.Compared>, +h1: {shows_m(l, here) == True{} : Bool}, r: Result<&2, &2, String, List<&2, Main.Compared>>, ih: @xs: List<&2, Main.Compared> -> {r == Done{xs} : Result<&2, &2, String, List<&2, Main.Compared>>} -> {Main.all.shown(l, xs) == True{} : Bool}, +cs: List<&2, Main.Compared>, e: {Result.bind(&2, &2, String, List<&2, Main.Compared>, List<&2, Main.Compared>, r, later => Done{Main.compare.push(here, later)}) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}) -> {Main.all.shown(l, cs) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.all.shown(l, cs) == True{} : Bool}, fail_done_str(List<&2, Main.Compared>, x, cs, e))
+    case Done{+later}:
+      +d = done_eq_str(List<&2, Main.Compared>, Main.compare.push(here, later), cs, e)
+      %d : {Main.all.shown(l, _) == True{} : Bool}
+      push_ok(l, here, later, h1, ih(later, {==}))
+
+def here_ok(+sd: Main.Sides, +l: Main.Limit, +f: Main.Both, +rest: List<&2, Main.Both>, r: Result<&2, &2, String, Maybe<&2, Main.Compared>>, +er: {Main.compare.one(sd, l, f) == r : Result<&2, &2, String, Maybe<&2, Main.Compared>>}, ih: @xs: List<&2, Main.Compared> -> {Main.compare(sd, l, rest) == Done{xs} : Result<&2, &2, String, List<&2, Main.Compared>>} -> {Main.all.shown(l, xs) == True{} : Bool}, +cs: List<&2, Main.Compared>, e: {Result.bind(&2, &2, String, Maybe<&2, Main.Compared>, List<&2, Main.Compared>, r, here => Result.bind(&2, &2, String, List<&2, Main.Compared>, List<&2, Main.Compared>, Main.compare(sd, l, rest), later => Done{Main.compare.push(here, later)})) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}) -> {Main.all.shown(l, cs) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.all.shown(l, cs) == True{} : Bool}, fail_done_str(List<&2, Main.Compared>, x, cs, e))
+    case Done{+here}:
+      later_ok(l, here, one_ok(sd, l, f, here, er), Main.compare(sd, l, rest), ih, cs, e)
+
+# `diff` shows only files whose two sides differ, and under a path limit
+# only a file at that path on one side.
+def compare_ok(+sd: Main.Sides, +l: Main.Limit, files: List<&2, Main.Both>, +cs: List<&2, Main.Compared>, e: {Main.compare(sd, l, files) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}) -> {Main.all.shown(l, cs) == True{} : Bool}:
+  match files:
+    case Nil{}:
+      +d = done_eq_str(List<&2, Main.Compared>, Nil{}, cs, e)
+      %d : {Main.all.shown(l, _) == True{} : Bool}
+      {==}
+    case +f <> +rest:
+      here_ok(sd, l, f, rest, Main.compare.one(sd, l, f), {==}, xs => h => compare_ok(sd, l, rest, xs, h), cs, e)

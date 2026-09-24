@@ -867,3 +867,14 @@ law diff_folder_limits_to_a_held_file:
   for +lim: Main.Limit
   for e: {Main.wc.limit.r(fs, bs, left, only) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}
   {Main.limit.held(fs, lim, left) == True{} : Bool}
+
+# `diff` shows only files whose two sides differ — in path, mode, link
+# target, presence or content — and under a path limit only a file at
+# that path on one side or the other.
+law diff_shows_what_differs:
+  for +sd: Main.Sides
+  for +l: Main.Limit
+  for files: List<&2, Main.Both>
+  for +cs: List<&2, Main.Compared>
+  for e: {Main.compare(sd, l, files) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}
+  {Main.all.shown(l, cs) == True{} : Bool}

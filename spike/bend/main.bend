@@ -3453,6 +3453,27 @@ def compare(+sd: Sides, +l: Limit, files: List<&2, Both>) -> Result<&2, &2, Stri
         later : List<&2, Compared> <- compare(sd, l, rest)
         return compare.push(here, later)
 
+# What `diff` shows: only files whose two sides differ, and under a path
+# limit only a file at that path on one side or the other.
+# `LAWS.diff_shows_what_differs` holds `compare` to it.
+def limit.shows(l: Limit, c: Compared) -> Bool:
+  match l:
+    case Limit.None{}:
+      True{}
+    case Limit.File{f}:
+      True{}
+    case Limit.Path{+p}:
+      match c:
+        case Compared{from, to, b, a, m, t}:
+          Bool.or(maybe_eq(from, Some{p}), maybe_eq(to, Some{p}))
+
+def all.shown(+l: Limit, cs: List<&2, Compared>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case +c <> rest:
+      Bool.and(Bool.and(pair.differs(c), limit.shows(l, c)), all.shown(l, rest))
+
 # Each identifier once, in order.
 def distinct.keep(+a: String, rest: List<&2, String>, same: Bool) -> List<&2, String>:
   match same:

@@ -1200,6 +1200,13 @@ def check_mutations(temporary):
             "diffcmd_lemmas.lim_file_bind",
             "main.bend",
         ),
+        (
+            "diff shows a file whose sides agree",
+            '  Bool.pick(Maybe<&2, Compared>, pair.differs(c), Some{c}, None{})',
+            '  Some{c}',
+            "diffcmd_lemmas.built_ok",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
