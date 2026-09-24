@@ -21,6 +21,7 @@ import ./survey.bend as Sv
 import ./arrange.bend as Arrange
 import ./prune.bend as Prune
 import ./receive.bend as Receive
+import ./offer.bend as Offer
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1186,3 +1187,26 @@ law receive_destroys_only_what_is_forgotten:
   for +here: Receive.Side
   for +there: Receive.Side
   {Main.all_held(Receive.forgotten(here, there), Receive.rplan.destroys(Receive.plan.of(here, there))) == True{} : Bool}
+
+# `offer` names no private bookmark: the manifest is the one a store with
+# none would write, so the file a private key exists to keep back never
+# leaves the store as a `name` line.
+law offer_names_no_private_bookmark:
+  for +prefix: String
+  for +s: Prune.Stored
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +rids: List<&2, T.Split>
+  for +nids: List<&2, T.Split>
+  {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, s, Offer.shared(bs), claims, rids, nids) : List<&2, String>}
+
+# `offer` names no private rule either: the manifest is the one a store
+# whose `private` rules were never written would have.
+law offer_names_no_private_rule:
+  for +prefix: String
+  for +s: Prune.Stored
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +rids: List<&2, T.Split>
+  for +nids: List<&2, T.Split>
+  {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, Offer.shared_rules(s), bs, claims, rids, nids) : List<&2, String>}

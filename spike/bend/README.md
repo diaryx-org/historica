@@ -278,6 +278,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `prune_lemmas.bend` | `prune_reads_its_words`: a command line `prune` accepts is all flags, and not a plan and a statement at once; `prune_keeps_what_work_stands_on`: no revision it keeps names one it lets go of as a parent, through an invariant every step of every pass keeps; `prune_removes_only_unneeded_content`: every document and payload it removes holds a digest nothing kept needs | `prune` |
 | `receive.bend` | `receive`: two stores read as the Rust tool opens them, each held to the part of `check` the port reads, related or joined; the union planned — revisions, documents and payloads this store lacks and neither forgets, bookmarks new or joined on their axis and the disagreements, rules under the labels `Rule::label` gives, the files of `claims/` — and carried out, content before the revisions naming it, with the originals a forgetting document stands in for destroyed | `store::receive`, decisions 0029, 0044, 0045, 0053, 0062 |
 | `receive_lemmas.bend` | `receive_takes_only_what_is_missing`: every revision, document and payload it plans to write is one this store has nothing under the digest of, and neither store forgets; `receive_moves_no_bookmark`: each bookmark it writes is new here or at the target it has here; `receive_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document names | `receive` |
+| `offer.bend` | `offer`: the published copy's store read as `prune` reads it and opened as the Rust tool opens a store, and its manifest written to standard output — the header, every head of the graph, then payloads, documents, revisions, rules, the other tool's files and bookmarks, each group by path and each path under the copy's own name — with no private rule or bookmark named | `store::offer`, decisions 0048, 0052, 0056 |
+| `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have | `offer` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -655,6 +657,25 @@ copy that went on, with its `main` moved and without; a stranger; and a
 copy that forgot a line this store still holds. `check.py` holds twenty
 `receive`s to the Rust tool, every file of every store in the folder
 compared after.
+
+`offer <dir>` writes decision 0048's manifest, as 0052 amends it, to
+standard output: the listing a published copy cannot give, since a URL
+cannot be walked. It is pointed at the copy `export` wrote, and refuses a
+directory with no `history/historica.txt` in it, naming the store inside
+as the likely mistake; the store is opened as the Rust tool opens one.
+The heads come first — every head of the graph, superseded ones too —
+then a line per file that travels, in the order a fetcher should take
+them: payloads, documents with what each forgets, revisions, then the
+rules, the other tool's files of `claims/` and the bookmarks (decision
+0056), each group by path and each path under the copy's own name. A rule
+or a bookmark that is private is left out, since its file's name is the
+disclosure its key exists to prevent: the manifest is the one the store
+would have with no private bookmark (`offer_names_no_private_bookmark`)
+and with no private rule (`offer_names_no_private_rule`). `check.py`
+holds nine `offer`s to the Rust tool, over the stores of the `receiving`
+folder, one of them with a private rule and two private bookmarks, and
+the refusals: no directory, two, a word it does not take, the store
+rather than the copy, and a directory that is not there.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1281,7 +1302,8 @@ revision that does not parse; and three prune breaks: a revision let go
 that work still stands on, content removed that a kept revision names,
 and a plan and a statement taken at once; and three receive breaks: a
 document taken that this store already holds, a bookmark moved to where
-the source has it, and an original destroyed that nothing forgets. The
+the source has it, and an original destroyed that nothing forgets; and two offer
+breaks: a private bookmark named, and a private rule named. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent

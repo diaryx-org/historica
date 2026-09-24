@@ -729,6 +729,18 @@ STORES = {
         ["receive", "forgetful", "-n"],
         ["receive", "forgetful"],
         ["receive", "forgetful", "--fields"],
+        # The manifest of each store in the folder, and of this one: every
+        # kind a file can be listed as, what a forgetting document forgets,
+        # and the private rule and bookmark left out.
+        ["offer", "."],
+        ["offer", "agreeing"],
+        ["offer", "forgetful"],
+        ["offer", "stranger"],
+        ["offer", "history"],
+        ["offer", "nowhere"],
+        ["offer"],
+        ["offer", "a", "b"],
+        ["offer", "agreeing", "-x"],
     ],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
@@ -2276,6 +2288,20 @@ def check_mutations(temporary):
             "  Main.sorted_distinct(among(List.append(&2, String, forgotten(here, there), body.ids(stored.bodies(stored.of(there)))), Set.from_list(",
             "receive_lemmas.destroys",
             "receive.bend",
+        ),
+        (
+            "offer names a private bookmark",
+            "      offered.found(Bool.not(p), Arrange.lookup(ids, \"names/\" ++ n ++ \".txt\")",
+            "      offered.found(True{}, Arrange.lookup(ids, \"names/\" ++ n ++ \".txt\")",
+            "offer_lemmas.names_shared",
+            "offer.bend",
+        ),
+        (
+            "offer names a private rule",
+            "      offered.found(Bool.not(String.starts_with(line, \"private\")), Arrange.lookup(ids, \"skipped/\" ++ file)",
+            "      offered.found(True{}, Arrange.lookup(ids, \"skipped/\" ++ file)",
+            "offer_lemmas.rule_kept",
+            "offer.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):

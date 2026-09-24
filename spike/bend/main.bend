@@ -29,6 +29,11 @@
 #   bend main.bend -- prune [--dry-run] [--fields]
 #                                            superseded work nothing stands
 #                                            on removed, and what only it named
+#   bend main.bend -- receive <dir> [--dry-run] [--join-unrelated] [--fields]
+#                                            another store's history unioned
+#                                            into this one
+#   bend main.bend -- offer <dir>             the manifest a published copy
+#                                            cannot give, on standard output
 #
 # Or compile it: `bend main.bend -o main.c`, then link the archive `ffi/`
 # builds — `check.py` does both. What `bend main.bend` runs and what the
@@ -44,9 +49,10 @@ import ./commands.bend as C
 import ./arrange.bend as Arrange
 import ./prune.bend as Prune
 import ./receive.bend as Receive
+import ./offer.bend as Offer
 
 def usage() -> IO(Unit):
-  C.die(Unit, 2, "usage: init [<dir>] | log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | arrange [-n|--dry-run] [--refile] | prune [--dry-run] [--fields] | receive <dir> [--dry-run] [--join-unrelated] [--fields] | replay <ops docs..> | opdiff <parent> <child>")
+  C.die(Unit, 2, "usage: init [<dir>] | log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | arrange [-n|--dry-run] [--refile] | prune [--dry-run] [--fields] | receive <dir> [--dry-run] [--join-unrelated] [--fields] | offer <dir> | replay <ops docs..> | opdiff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
@@ -92,6 +98,8 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       Prune.prune(args)
     case "receive" <> args:
       Receive.receive(args)
+    case "offer" <> args:
+      Offer.offer(args)
     case "opdiff" <> parent <> child <> Nil{}:
       C.opdiff(parent, child)
     case _:
