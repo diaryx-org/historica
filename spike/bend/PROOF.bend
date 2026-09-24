@@ -716,3 +716,6 @@ def Laws.record_plans_in_file_order(t):
 
 def Laws.record_plans_every_file(t, f):
   SurveyL.by_file_keeps(t, f)
+
+def Laws.a_link_refers_only_to_what_the_revision_states(t, gone, arriving, path, target, at, e):
+  SurveyL.observed_ok(t, gone, arriving, path, target, at, e)

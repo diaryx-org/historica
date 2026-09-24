@@ -492,6 +492,12 @@ def maybe_eq(a: Maybe<&2, String>, b: Maybe<&2, String>) -> Bool:
     case _ _:
       False{}
 
+# What `LAWS.a_link_refers_only_to_what_the_revision_states` asks of a
+# reference a link's target is written as: the path the target lands on,
+# folded against the link's own directory, and one the revision states.
+def lands_on(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +at: String) -> Bool:
+  Bool.and(maybe_eq(resolution(path, target), Some{at}), stated(t, gone, arriving, at))
+
 def retargeted(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +held: Maybe<&2, Tree.Entry>, shown: Maybe<&2, String>) -> Bool:
   Bool.pick(Bool, same(standing(gone, held, shown), target), False{},
     Bool.not(maybe_eq(recorded(t, gone, held), Some{observed(t, gone, arriving, path, target)})))
