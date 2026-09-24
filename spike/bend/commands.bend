@@ -1371,38 +1371,39 @@ def span.shown(+fs: List<&2, Full>, sp: Span) -> List<&2, Full>:
 
 # The revision a `--path` is read at: the far end of what was named, or the
 # head where nothing was — and where there are several heads, none.
-def read_at.heads(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, heads: List<&2, String>) -> IO(String):
+def read_at.heads.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, heads: List<&2, String>) -> Result<&2, &2, Refused, String>:
   match heads:
     case Nil{}:
-      die(String, 1, "this store holds no revisions yet")
+      Fail{Refused{1, "this store holds no revisions yet"}}
     case only <> Nil{}:
-      IO.pure(String, only)
+      Done{only}
     case +several:
-      die(String, 1, "this store has " ++ Nat.show(List.length(&2, String, several)) ++ " heads, so there is no one place to read `" ++ path ++ "` at; say which revision to read it at, as `historica log <target> --path " ++ path ++ "`:" ++ described(fs, bs, List.sort(~String, ~(a => b => String.is_le(a, b)), several)))
+      Fail{Refused{1, "this store has " ++ Nat.show(List.length(&2, String, several)) ++ " heads, so there is no one place to read `" ++ path ++ "` at; say which revision to read it at, as `historica log <target> --path " ++ path ++ "`:" ++ described(fs, bs, List.sort(~String, ~(a => b => String.is_le(a, b)), several))}}
 
-def read_at(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, sp: Span) -> IO(String):
+def read_at.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, sp: Span) -> Result<&2, &2, Refused, String>:
   match sp:
     case Span.All{}:
-      read_at.heads(fs, bs, path, current_heads(history(fs)))
+      read_at.heads.r(fs, bs, path, current_heads(history(fs)))
     case Span.From{id}:
-      IO.pure(String, id)
+      Done{id}
     case Span.Between{from, to}:
-      IO.pure(String, to)
+      Done{to}
 
 # The file a `--path` names, read once, at one revision: what the log then
 # follows is the file, through the `move` that renamed it as readily as
 # through the edits either side.
-def followed(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, path: Maybe<&2, String>) -> IO(Maybe<&2, String>):
+def followed.at.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +p: String, +at: String) -> Result<&2, &2, Refused, Maybe<&2, String>>:
+  Result.map(&2, &2, Refused, String, Maybe<&2, String>, file => Some{file}, Result.bind(&2, &2, Refused, Tree.Tree(), String, tree.r(fs, at), t => file_in.r(at, bs, p, t)))
+
+def followed.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, path: Maybe<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, String>>:
   match path:
     case None{}:
-      IO.pure(Maybe<&2, String>, None{})
+      Done{None{}}
     case Some{+p}:
-      do IO<Maybe<&2, String>>:
-        at : String <- read_at(fs, bs, p, sp)
-        +at2 : String = at
-        t : Tree.Tree() <- tree(fs, at2)
-        file : String <- file_in(at2, bs, p, t)
-        return Some{file}
+      Result.bind(&2, &2, Refused, String, Maybe<&2, String>, read_at.r(fs, bs, p, sp), at => followed.at.r(fs, bs, p, at))
+
+def followed(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, path: Maybe<&2, String>) -> IO(Maybe<&2, String>):
+  refused.io(Maybe<&2, String>, followed.r(fs, bs, sp, path))
 
 # Filtering
 # ---------
@@ -6342,6 +6343,50 @@ def contest.lines(cs: List<&2, Tree.Contest>) -> List<&2, String>:
 def contests.said(+ps: List<&2, String>, cs: List<&2, Tree.Contest>) -> List<&2, String>:
   Bool.pick(List<&2, String>, Nat.is_gt(List.length(&2, String, ps), 1n), contest.lines(cs), Nil{})
 
+# What `LAWS.status_says_each_contest` reads in the contests: where work
+# is joined, a line for each contest the merge found, in its order, opening
+# with the file contested — a path several files claim is said as `claimed`
+# instead — and where it is not, none.
+def contest.opens(c: Tree.Contest) -> Maybe<&2, String>:
+  match c:
+    case Tree.Dropped{f, by}:
+      Some{"kept " ++ String.take(f, 8n)}
+    case Tree.Moved{f, cs}:
+      Some{"moved " ++ String.take(f, 8n)}
+    case Tree.Content{f, cs}:
+      Some{String.take(f, 8n)}
+    case Tree.ModeOf{f, cs}:
+      Some{String.take(f, 8n)}
+    case Tree.TargetOf{f, cs}:
+      Some{String.take(f, 8n)}
+    case Tree.Referenced{f, by, links}:
+      Some{"kept " ++ String.take(f, 8n)}
+    case Tree.Path{p, fs}:
+      None{}
+
+def contests.opens(cs: List<&2, Tree.Contest>) -> List<&2, String>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> rest:
+      contest.push(contest.opens(c), contests.opens(rest))
+
+def contests.open(ls: List<&2, String>, os: List<&2, String>) -> Bool:
+  match ls os:
+    case Nil{} Nil{}:
+      True{}
+    case l <> lr o <> or:
+      Bool.and(String.starts_with(l, o), contests.open(lr, or))
+    case _ _:
+      False{}
+
+def contests.shown(+ps: List<&2, String>, cs: List<&2, Tree.Contest>, ls: List<&2, String>) -> Bool:
+  match ls:
+    case Nil{}:
+      Bool.or(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), List.is_empty(&2, String, contests.opens(cs)))
+    case +some:
+      Bool.and(Nat.is_gt(List.length(&2, String, ps), 1n), contests.open(some, contests.opens(cs)))
+
 # Printing
 # --------
 
@@ -6354,76 +6399,127 @@ def names_list(bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +id: String) -> Lis
     case Bm.Bookmark{+n, t, p} <> rest:
       Rev.keep(names_at.one(h, id, t), n, names_list(rest, h, id))
 
-def status.parent(+bs: List<&2, Bm.Bookmark>, +all_ids: List<&2, String>, +all_changes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History(), f: Maybe<&2, Full>) -> IO(Unit):
+def status.parent(+bs: List<&2, Bm.Bookmark>, +all_ids: List<&2, String>, +all_changes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History(), f: Maybe<&2, Full>) -> List<&2, String>:
   match f:
     case None{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case Some{Full{+id, +change, parents, supersedes, author, when, revised_by, revised, facts, message}}:
-      IO.print(abbreviate(change, all_changes) ++ "  " ++ abbreviate(id, all_ids) ++ parenthesised(List.append(&2, String, marks.list(id, change, parents, supersedes, heads, gone, h), names_list(bs, h, id))))
+      [abbreviate(change, all_changes) ++ "  " ++ abbreviate(id, all_ids) ++ parenthesised(List.append(&2, String, marks.list(id, change, parents, supersedes, heads, gone, h), names_list(bs, h, id)))]
 
-def status.parents(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +h: Rev.History(), ps: List<&2, String>) -> IO(Unit):
+def status.parents(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +h: Rev.History(), ps: List<&2, String>) -> List<&2, String>:
   match ps:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case +p <> rest:
-      do IO<Unit>:
-        status.parent(bs, ids(fs), changes(fs), Rev.heads(h), Rev.superseded(h), h, find(fs, p))
-        status.parents(fs, bs, h, rest)
+      List.append(&2, String, status.parent(bs, ids(fs), changes(fs), Rev.heads(h), Rev.superseded(h), h, find(fs, p)), status.parents(fs, bs, h, rest))
 
-def status.position(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>) -> IO(Unit):
-  Bool.pick(IO(Unit), List.is_empty(&2, String, ps), IO.print("no revisions here yet"), status.parents(fs, bs, history(fs), ps))
+def status.position(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>) -> List<&2, String>:
+  Bool.pick(List<&2, String>, List.is_empty(&2, String, ps), ["no revisions here yet"], status.parents(fs, bs, history(fs), ps))
 
-def print_splits(+pre: String, +mid: String, +post: String, xs: List<&2, T.Split>) -> IO(Unit):
+def splits.said(+pre: String, +mid: String, +post: String, xs: List<&2, T.Split>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case T.Split{a, b} <> rest:
-      do IO<Unit>:
-        IO.print(pre ++ a ++ mid ++ b ++ post)
-        print_splits(pre, mid, post, rest)
+      (pre ++ a ++ mid ++ b ++ post) <> splits.said(pre, mid, post, rest)
+
+def facts.said(xs: List<&2, T.Split>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case T.Split{k, p} <> rest:
+      (pad(k, 7n) ++ " " ++ p) <> facts.said(rest)
 
 def print_facts(xs: List<&2, T.Split>) -> IO(Unit):
-  match xs:
-    case Nil{}:
-      IO.pure(Unit, Unit{})
-    case T.Split{k, p} <> rest:
-      do IO<Unit>:
-        IO.print(pad(k, 7n) ++ " " ++ p)
-        print_facts(rest)
+  print_lines(facts.said(xs))
 
-def print_accepts(xs: List<&2, String>) -> IO(Unit):
+def accepts.said(xs: List<&2, String>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case +p <> rest:
-      do IO<Unit>:
-        IO.print("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p)
-        print_accepts(rest)
+      ("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p) <> accepts.said(rest)
 
-def print_renames(xs: List<&2, T.Split>) -> IO(Unit):
+def renames.said(xs: List<&2, T.Split>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case T.Split{+from, +to} <> rest:
-      do IO<Unit>:
-        IO.print(SNil{})
-        IO.print(from ++ " and " ++ to ++ " hold the same bytes; if that is a rename,")
-        IO.print("say so with --move " ++ from ++ "=" ++ to)
-        print_renames(rest)
+      SNil{} <> (from ++ " and " ++ to ++ " hold the same bytes; if that is a rename,") <> ("say so with --move " ++ from ++ "=" ++ to) <> renames.said(rest)
 
 # `render::status`: where the folder is, and what it differs by.
-def status.print(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, contests: List<&2, String>, +sv: Sv.Survey) -> IO(Unit):
+def status.report(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, cs: List<&2, Tree.Contest>, +sv: Sv.Survey) -> List<&2, String>:
   match sv:
     case Sv.Survey{facts, refused, claimed, accept, renames}:
-      do IO<Unit>:
-        status.position(fs, bs, ps)
-        print_facts(facts)
-        print_splits("refused ", ": ", SNil{}, refused)
-        print_splits("claimed ", ": ", " files claim it; say where each goes with --at", claimed)
-        print_accepts(accept)
-        print_lines(contests)
-        Bool.pick(IO(Unit), Sv.is_quiet(sv), IO.print("nothing here differs from what is recorded"), IO.pure(Unit, Unit{}))
-        print_renames(renames)
+      List.append(&2, String, status.position(fs, bs, ps),
+      List.append(&2, String, facts.said(facts),
+      List.append(&2, String, splits.said("refused ", ": ", SNil{}, refused),
+      List.append(&2, String, splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed),
+      List.append(&2, String, accepts.said(accept),
+      List.append(&2, String, contests.said(ps, cs),
+      List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(sv), ["nothing here differs from what is recorded"], Nil{}),
+        renames.said(renames))))))))
+
+# What `LAWS.status_says_what_it_found` reads in the report: each fact,
+# refusal, claim and accept the survey found, in the order found, on a line
+# of its own that names it — a fact beginning with its kind and ending with
+# its path, a refusal or a claim beginning with its word and the path, an
+# accept beginning `accept` and the path and ending with it. A line is
+# looked for among those after the one the line before was found on.
+type Expect is Data:
+  Expect{starts: String, ends: String}
+
+def expect.met(+l: String, e: Expect) -> Bool:
+  match e:
+    case Expect{s, t}:
+      Bool.and(String.starts_with(l, s), String.ends_with(l, t))
+
+def expect.first(ls: List<&2, String>, es: List<&2, Expect>) -> Bool:
+  match ls es:
+    case +l <> lr e <> er:
+      expect.met(l, e)
+    case _ _:
+      False{}
+
+def expect.go(ls: List<&2, String>, es: List<&2, Expect>, m: Bool) -> Bool:
+  match ls es m:
+    case _ Nil{} _:
+      True{}
+    case Nil{} e <> er _:
+      False{}
+    case l <> +lr e <> +er True{}:
+      expect.go(lr, er, expect.first(lr, er))
+    case l <> +lr +e <> +er False{}:
+      expect.go(lr, e <> er, expect.first(lr, e <> er))
+
+def expect.in(+ls: List<&2, String>, +es: List<&2, Expect>) -> Bool:
+  expect.go(ls, es, expect.first(ls, es))
+
+def facts.expect(xs: List<&2, T.Split>) -> List<&2, Expect>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case T.Split{k, p} <> rest:
+      Expect{k, p} <> facts.expect(rest)
+
+def splits.expect(+pre: String, xs: List<&2, T.Split>) -> List<&2, Expect>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case T.Split{a, b} <> rest:
+      Expect{pre ++ a, SNil{}} <> splits.expect(pre, rest)
+
+def accepts.expect(xs: List<&2, String>) -> List<&2, Expect>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +p <> rest:
+      Expect{"accept  " ++ p, p} <> accepts.expect(rest)
+
+def status.expects(sv: Sv.Survey) -> List<&2, Expect>:
+  match sv:
+    case Sv.Survey{facts, refused, claimed, accept, renames}:
+      List.append(&2, Expect, facts.expect(facts), List.append(&2, Expect, splits.expect("refused ", refused), List.append(&2, Expect, splits.expect("claimed ", claimed), accepts.expect(accept))))
 
 def status.surveyed(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
@@ -6445,7 +6541,7 @@ def status.surveyed(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmar
     +bf2 : Map<&2, String> = bf
     reads : Map<&2, List<&2, U32>> <- read_all(repo, status.reads(dg, bf2, hs), Map.new(&2, List<&2, U32>))
     +held : Set() = Set.from_list(T.map(~Folder.Found, ~String, ~(f => Folder.found.path(f)), Folder.walked.found(w2)))
-    status.print(fs, bs, ps, contests.said(ps, Tree.merged_contested(m2)), Sv.survey(t2, held, Folder.walked.refused(w2), status.seens(t2, dg, bf2, reads, hs)))
+    print_lines(status.report(fs, bs, ps, Tree.merged_contested(m2), Sv.survey(t2, held, Folder.walked.refused(w2), status.seens(t2, dg, bf2, reads, hs))))
 
 def status.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: StatusCmd) -> IO(Unit):
   match a:

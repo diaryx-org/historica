@@ -1194,3 +1194,49 @@ law log_counts_each_fact:
   for +key: String
   for +added: Set()
   {Main.count_facts(facts, key, added, False{}) == List.length(&2, String, Rev.values_of(facts, key)) : Nat}
+
+# The file `log --path` follows is one the tree holds at the revision the
+# path is read at — the far end of the span named, or the one head — so
+# what the log then lists is that file's history, whatever it was called.
+law log_follows_a_held_file:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +sp: Main.Span
+  for +path: String
+  for +at: String
+  for +file: String
+  for ea: {Main.read_at.r(fs, bs, path, sp) == Done{at} : Result<&2, &2, Main.Refused, String>}
+  for e: {Main.followed.r(fs, bs, sp, Some{path}) == Done{Some{file}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}
+  {Main.tree.holds.r(Main.tree.r(fs, at), file) == True{} : Bool}
+
+# `status` says everything its survey of the folder found, in the order
+# found, each on a line of its own that names it: after the revisions the
+# folder is compared with, each fact on a line beginning with its kind and
+# ending with its path, then each path refused or claimed on a line
+# beginning `refused` or `claimed` and the path, and each accept on one
+# beginning `accept` and the path and ending with it again.
+law status_says_what_it_found:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ps: List<&2, String>
+  for +cs: List<&2, Tree.Contest>
+  for sv: Sv.Survey
+  {Main.expect.in(Main.status.report(fs, bs, ps, cs, sv), Main.status.expects(sv)) == True{} : Bool}
+
+# Where work is joined, `status` says each contest the tree merge found,
+# once and in its order, on a line opening with the file contested — a
+# path several files claim is said as `claimed` instead; where one
+# revision or none is the position, it says none, since a contest deeper
+# in the graph was settled when its merge was recorded.
+law status_says_each_contest:
+  for +ps: List<&2, String>
+  for +cs: List<&2, Tree.Contest>
+  {Main.contests.shown(ps, cs, Main.contests.said(ps, cs)) == True{} : Bool}
+
+# Against one revision, `status` compares the folder with the very tree
+# `files`, `cat` and `diff` read there — the file set the revision's
+# ancestry merges to — or refuses as they do.
+law status_compares_with_the_revisions_tree:
+  for +fs: List<&2, Main.Full>
+  for +p: String
+  {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.r(fs, [p])) == Main.tree.r(fs, p) : Result<&2, &2, Main.Refused, Tree.Tree()>}
