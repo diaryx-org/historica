@@ -21,6 +21,7 @@ import ./anchor_lemmas.bend as AL
 import ./abbrev_lemmas.bend as Abbrev
 import ./target_lemmas.bend as TG
 import ./diff_lemmas.bend as Diff
+import ./show_lemmas.bend as ShowL
 
 # `files`
 # -------
@@ -176,3 +177,28 @@ def counts_each(facts: List<&2, Rev.Header>, +key: String, +added: Set()) -> {Ma
       %Equal.sym(Nat, Main.count_facts.one(added, False{}, v, String.eq(k, key)), Bool.pick(Nat, String.eq(k, key), 1n, 0n), one_count(String.eq(k, key), added, v)) : {Nat.add(_, Main.count_facts(rest, key, added, False{})) == List.length(&2, String, Rev.keep(String.eq(k, key), v, Rev.values_of(rest, key))) : Nat}
       %Equal.sym(Nat, Main.count_facts(rest, key, added, False{}), List.length(&2, String, Rev.values_of(rest, key)), counts_each(rest, key, added)) : {Nat.add(Bool.pick(Nat, String.eq(k, key), 1n, 0n), _) == List.length(&2, String, Rev.keep(String.eq(k, key), v, Rev.values_of(rest, key))) : Nat}
       Equal.sym(Nat, List.length(&2, String, Rev.keep(String.eq(k, key), v, Rev.values_of(rest, key))), Nat.add(Bool.pick(Nat, String.eq(k, key), 1n, 0n), List.length(&2, String, Rev.values_of(rest, key))), keep_len(String.eq(k, key), v, Rev.values_of(rest, key)))
+
+def some_file(-a: String, -b: String, h: {Done{Some{a}} == Done{Some{b}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {a == b : String}:
+  Equal.cong(Result<&2, &2, Main.Refused, Maybe<&2, String>>, String, r => Maybe.default(&2, String, Result.default(&2, &2, Main.Refused, Maybe<&2, String>, r, None{}), a), Done{Some{a}}, Done{Some{b}}, h)
+
+def at_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +p: String, +at: String, r: Result<&2, &2, Main.Refused, String>, +er: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), String, Main.tree.r(fs, at), t => Main.file_in.r(at, bs, p, t)) == r : Result<&2, &2, Main.Refused, String>}, +file: String, e: {Result.map(&2, &2, Main.Refused, String, Maybe<&2, String>, f => Some{f}, r) == Done{Some{file}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Main.tree.holds.r(Main.tree.r(fs, at), file) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.tree.holds.r(Main.tree.r(fs, at), file) == True{} : Bool}, B.fail_done(Maybe<&2, String>, x, Some{file}, e))
+    case Done{+x}:
+      %some_file(x, file, e) : {Main.tree.holds.r(Main.tree.r(fs, at), _) == True{} : Bool}
+      ShowL.sf_bind(fs, bs, at, p, Main.tree.r(fs, at), {==}, x, er)
+
+def followed_at(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: Main.Span, +p: String, +at: String, r: Result<&2, &2, Main.Refused, String>, +er: {Main.read_at.r(fs, bs, p, sp) == r : Result<&2, &2, Main.Refused, String>}, +ea: {Main.read_at.r(fs, bs, p, sp) == Done{at} : Result<&2, &2, Main.Refused, String>}, +file: String, e: {Result.bind(&2, &2, Main.Refused, String, Maybe<&2, String>, r, a => Main.followed.at.r(fs, bs, p, a)) == Done{Some{file}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Main.tree.holds.r(Main.tree.r(fs, at), file) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.tree.holds.r(Main.tree.r(fs, at), file) == True{} : Bool}, B.fail_done(Maybe<&2, String>, x, Some{file}, e))
+    case Done{+a}:
+      +same = B.done_eq(String, a, at, Equal.trans(Result<&2, &2, Main.Refused, String>, Done{a}, Main.read_at.r(fs, bs, p, sp), Done{at}, Equal.sym(Result<&2, &2, Main.Refused, String>, Main.read_at.r(fs, bs, p, sp), Done{a}, er), ea))
+      %same : {Main.tree.holds.r(Main.tree.r(fs, _), file) == True{} : Bool}
+      at_held(fs, bs, p, a, Result.bind(&2, &2, Main.Refused, Tree.Tree(), String, Main.tree.r(fs, a), t => Main.file_in.r(a, bs, p, t)), {==}, file, e)
+
+# The file `log --path` follows is one the tree holds at the revision the
+# path is read at.
+def followed_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: Main.Span, +p: String, +at: String, +file: String, +ea: {Main.read_at.r(fs, bs, p, sp) == Done{at} : Result<&2, &2, Main.Refused, String>}, e: {Main.followed.r(fs, bs, sp, Some{p}) == Done{Some{file}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Main.tree.holds.r(Main.tree.r(fs, at), file) == True{} : Bool}:
+  followed_at(fs, bs, sp, p, at, Main.read_at.r(fs, bs, p, sp), {==}, ea, file, e)

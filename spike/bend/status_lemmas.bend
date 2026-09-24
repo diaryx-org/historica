@@ -3,6 +3,10 @@
 # in order — and every revision it joins is one the store holds: what
 # `--onto` and each `--merge` resolve to, and the head where it is taken,
 # sorted and each once.
+#
+# And what it says: everything the survey found, in order, each fact,
+# refusal, claim and accept on a line of its own naming it; and where work
+# is joined, each contest the merge found, once, opening with its file.
 import Base
 import ./commands.bend as Main
 import ./sort_lemmas.bend as SortL
@@ -11,6 +15,11 @@ import ./revision.bend as Rev
 import ./bookmark.bend as Bm
 import ./anchor_lemmas.bend as AL
 import ./composition_lemmas.bend as Comp
+import ./string_lemmas.bend as S
+import ./text.bend as T
+import ./survey.bend as Sv
+import ./tree.bend as Tree
+import ./listing_lemmas.bend as ListL
 
 # Its words
 # ---------
@@ -266,3 +275,183 @@ def top1(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, 
 # Every revision `status` joins is one the store holds.
 def parents_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, String>, +ms: List<&2, String>, +ps: List<&2, String>, e: {Main.status.parents.r(fs, bs, onto, ms) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.all_held(Main.ids(fs), ps) == True{} : Bool}:
   top1(fs, bs, onto, ms, Main.status.onto.r(fs, bs, onto), {==}, ps, e)
+
+# What it says
+# ------------
+
+# A line looked for is found among later lines too: one more line in front
+# loses no match, and one expectation fewer is met wherever more were.
+def prepend_at(m: Bool, +x: String, +lr: List<&2, String>, +e: Main.Expect, +er: List<&2, Main.Expect>, h: {Main.expect.in(lr, e <> er) == True{} : Bool}, suf: @e2: Main.Expect -> @er2: List<&2, Main.Expect> -> {Main.expect.in(lr, e2 <> er2) == True{} : Bool} -> {Main.expect.in(lr, er2) == True{} : Bool}) -> {Main.expect.go(x <> lr, e <> er, m) == True{} : Bool}:
+  match m:
+    case True{}:
+      suf(e, er, h)
+    case False{}:
+      h
+
+def prepend(+x: String, +lr: List<&2, String>, es: List<&2, Main.Expect>, h: {Main.expect.in(lr, es) == True{} : Bool}, suf: @e2: Main.Expect -> @er2: List<&2, Main.Expect> -> {Main.expect.in(lr, e2 <> er2) == True{} : Bool} -> {Main.expect.in(lr, er2) == True{} : Bool}) -> {Main.expect.in(x <> lr, es) == True{} : Bool}:
+  match es:
+    case Nil{}:
+      {==}
+    case +e <> +er:
+      prepend_at(Main.expect.met(x, e), x, lr, e, er, h, suf)
+
+def suffix_at(m: Bool, +l: String, +lr: List<&2, String>, +e: Main.Expect, +er: List<&2, Main.Expect>, h: {Main.expect.go(l <> lr, e <> er, m) == True{} : Bool}, suf: @e2: Main.Expect -> @er2: List<&2, Main.Expect> -> {Main.expect.in(lr, e2 <> er2) == True{} : Bool} -> {Main.expect.in(lr, er2) == True{} : Bool}, suf2: @e2: Main.Expect -> @er2: List<&2, Main.Expect> -> {Main.expect.in(lr, e2 <> er2) == True{} : Bool} -> {Main.expect.in(lr, er2) == True{} : Bool}) -> {Main.expect.in(l <> lr, er) == True{} : Bool}:
+  match m:
+    case True{}:
+      prepend(l, lr, er, h, suf)
+    case False{}:
+      prepend(l, lr, er, suf2(e, er, h), suf)
+
+def suffix(ls: List<&2, String>, +e: Main.Expect, +er: List<&2, Main.Expect>, h: {Main.expect.in(ls, e <> er) == True{} : Bool}) -> {Main.expect.in(ls, er) == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      Empty.absurd({Main.expect.in(Nil{}, er) == True{} : Bool}, S.false_true(h))
+    case +l <> +lr:
+      suffix_at(Main.expect.met(l, e), l, lr, e, er, h, e2 => er2 => h2 => suffix(lr, e2, er2, h2), e3 => er3 => h3 => suffix(lr, e3, er3, h3))
+
+# Lines before those that meet every expectation leave them met.
+def skip(xs: List<&2, String>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, xs, ls), es) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case +x <> +xr:
+      prepend(x, List.append(&2, String, xr, ls), es, skip(xr, ls, es, h), e2 => er2 => h2 => suffix(List.append(&2, String, xr, ls), e2, er2, h2))
+
+def in_nil(ls: List<&2, String>) -> {Main.expect.in(ls, Nil{}) == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      {==}
+    case l <> lr:
+      {==}
+
+def fact_met(+k: String, +p: String) -> {Main.expect.met(Main.pad(k, 7n) ++ " " ++ p, Main.Expect{k, p}) == True{} : Bool}:
+  AL.and_intro(String.starts_with(Main.pad(k, 7n) ++ " " ++ p, k), String.ends_with(Main.pad(k, 7n) ++ " " ++ p, p),
+    B.sw_ext(Main.pad(k, 7n), k, " " ++ p, B.sw_ext(k, k, String.repeat(" ", Nat.sub(7n, String.length(k))), B.sw_refl(k))),
+    B.ends_pre(Main.pad(k, 7n), " " ++ p, p, B.ends_pre(" ", p, p, B.ends_refl(p))))
+
+# Each fact is said on the line its turn comes to, beginning with its kind
+# and ending with its path.
+def facts_exact(xs: List<&2, T.Split>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, Main.facts.said(xs), ls), List.append(&2, Main.Expect, Main.facts.expect(xs), es)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case T.Split{+k, +p} <> +rest:
+      %Equal.sym(Bool, Main.expect.met(Main.pad(k, 7n) ++ " " ++ p, Main.Expect{k, p}), True{}, fact_met(k, p)) : {Main.expect.go((Main.pad(k, 7n) ++ " " ++ p) <> List.append(&2, String, Main.facts.said(rest), ls), Main.Expect{k, p} <> List.append(&2, Main.Expect, Main.facts.expect(rest), es), _) == True{} : Bool}
+      facts_exact(rest, ls, es, h)
+
+def split_met(+pre: String, +a: String, +mid: String, +b: String, +post: String) -> {Main.expect.met(pre ++ a ++ mid ++ b ++ post, Main.Expect{pre ++ a, SNil{}}) == True{} : Bool}:
+  AL.and_intro(String.starts_with(pre ++ a ++ mid ++ b ++ post, pre ++ a), String.ends_with(pre ++ a ++ mid ++ b ++ post, SNil{}),
+    ListL.sw_prefix(pre, a ++ mid ++ b ++ post, a, B.sw_ext(a, a, mid ++ b ++ post, B.sw_refl(a))),
+    B.sw_nil(String.reverse(pre ++ a ++ mid ++ b ++ post)))
+
+# Each refusal or claim is said on the line its turn comes to, beginning
+# with its word and its path.
+def splits_exact(+pre: String, +mid: String, +post: String, xs: List<&2, T.Split>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, Main.splits.said(pre, mid, post, xs), ls), List.append(&2, Main.Expect, Main.splits.expect(pre, xs), es)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case T.Split{+a, +b} <> +rest:
+      %Equal.sym(Bool, Main.expect.met(pre ++ a ++ mid ++ b ++ post, Main.Expect{pre ++ a, SNil{}}), True{}, split_met(pre, a, mid, b, post)) : {Main.expect.go((pre ++ a ++ mid ++ b ++ post) <> List.append(&2, String, Main.splits.said(pre, mid, post, rest), ls), Main.Expect{pre ++ a, SNil{}} <> List.append(&2, Main.Expect, Main.splits.expect(pre, rest), es), _) == True{} : Bool}
+      splits_exact(pre, mid, post, rest, ls, es, h)
+
+def accept_met(+p: String) -> {Main.expect.met("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p, Main.Expect{"accept  " ++ p, p}) == True{} : Bool}:
+  AL.and_intro(String.starts_with("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p, "accept  " ++ p), String.ends_with("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p, p),
+    ListL.sw_prefix("accept  ", p ++ ": selected revisions state different bytes; record with --accept " ++ p, p, B.sw_ext(p, p, ": selected revisions state different bytes; record with --accept " ++ p, B.sw_refl(p))),
+    B.ends_pre("accept  ", p ++ ": selected revisions state different bytes; record with --accept " ++ p, p, B.ends_pre(p, ": selected revisions state different bytes; record with --accept " ++ p, p, B.ends_pre(": selected revisions state different bytes; record with --accept ", p, p, B.ends_refl(p)))))
+
+# Each accept is said on the line its turn comes to, beginning `accept` and
+# its path, and ending with the path again.
+def accepts_exact(xs: List<&2, String>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, Main.accepts.said(xs), ls), List.append(&2, Main.Expect, Main.accepts.expect(xs), es)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case +p <> +rest:
+      %Equal.sym(Bool, Main.expect.met("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p, Main.Expect{"accept  " ++ p, p}), True{}, accept_met(p)) : {Main.expect.go(("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p) <> List.append(&2, String, Main.accepts.said(rest), ls), Main.Expect{"accept  " ++ p, p} <> List.append(&2, Main.Expect, Main.accepts.expect(rest), es), _) == True{} : Bool}
+      accepts_exact(rest, ls, es, h)
+
+def accepts_all(+xs: List<&2, String>, +tail: List<&2, String>) -> {Main.expect.in(List.append(&2, String, Main.accepts.said(xs), tail), Main.accepts.expect(xs)) == True{} : Bool}:
+  %SortL.lapp_nil(Main.Expect, Main.accepts.expect(xs)) : {Main.expect.in(List.append(&2, String, Main.accepts.said(xs), tail), _) == True{} : Bool}
+  accepts_exact(xs, tail, Nil{}, in_nil(tail))
+
+# Everything the survey found is in the report, in order: after the
+# revisions the folder is compared with, each fact on a line beginning with
+# its kind and ending with its path, then each refusal, claim and accept on
+# a line beginning with its word and its path.
+def report_says(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +cs: List<&2, Tree.Contest>, sv: Sv.Survey) -> {Main.expect.in(Main.status.report(fs, bs, ps, cs, sv), Main.status.expects(sv)) == True{} : Bool}:
+  match sv:
+    case Sv.Survey{+facts, +refused, +claimed, +accept, +renames}:
+      skip(Main.status.position(fs, bs, ps), List.append(&2, String, Main.facts.said(facts), List.append(&2, String, Main.splits.said("refused ", ": ", SNil{}, refused), List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))))), List.append(&2, Main.Expect, Main.facts.expect(facts), List.append(&2, Main.Expect, Main.splits.expect("refused ", refused), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), Main.accepts.expect(accept)))),
+        facts_exact(facts, List.append(&2, String, Main.splits.said("refused ", ": ", SNil{}, refused), List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))))), List.append(&2, Main.Expect, Main.splits.expect("refused ", refused), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), Main.accepts.expect(accept))),
+          splits_exact("refused ", ": ", SNil{}, refused, List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), Main.accepts.expect(accept)),
+            splits_exact("claimed ", ": ", " files claim it; say where each goes with --at", claimed, List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))), Main.accepts.expect(accept),
+              accepts_all(accept, List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))))))
+
+# The contests
+# ------------
+
+def push_open(c: Tree.Contest, +ls: List<&2, String>, +os: List<&2, String>, h: {Main.contests.open(ls, os) == True{} : Bool}) -> {Main.contests.open(Main.contest.push(Main.contest.line(c), ls), Main.contest.push(Main.contest.opens(c), os)) == True{} : Bool}:
+  match c:
+    case Tree.Dropped{+f, +by}:
+      B.and_tt(String.starts_with("kept " ++ String.take(f, 8n) ++ " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not", "kept " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("kept ", String.take(f, 8n) ++ (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not"), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not"), B.sw_refl(String.take(f, 8n)))), h)
+    case Tree.Moved{+f, +cs}:
+      B.and_tt(String.starts_with("moved " ++ String.take(f, 8n) ++ Main.lower_of(" to ", cs), "moved " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("moved ", String.take(f, 8n) ++ Main.lower_of(" to ", cs), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" to ", cs), B.sw_refl(String.take(f, 8n)))), h)
+    case Tree.Content{+f, +cs}:
+      B.and_tt(String.starts_with(String.take(f, 8n) ++ " was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cs)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder", String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cs)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder"), B.sw_refl(String.take(f, 8n))), h)
+    case Tree.ModeOf{+f, +cs}:
+      B.and_tt(String.starts_with(String.take(f, 8n) ++ Main.lower_of(" is ", cs), String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" is ", cs), B.sw_refl(String.take(f, 8n))), h)
+    case Tree.TargetOf{+f, +cs}:
+      B.and_tt(String.starts_with(String.take(f, 8n) ++ Main.lower_of(" points at ", cs), String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" points at ", cs), B.sw_refl(String.take(f, 8n))), h)
+    case Tree.Referenced{+f, +by, +links}:
+      B.and_tt(String.starts_with("kept " ++ String.take(f, 8n) ++ " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it", "kept " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("kept ", String.take(f, 8n) ++ (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it"), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it"), B.sw_refl(String.take(f, 8n)))), h)
+    case Tree.Path{p, fs}:
+      h
+
+def lines_open(cs: List<&2, Tree.Contest>) -> {Main.contests.open(Main.contest.lines(cs), Main.contests.opens(cs)) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +c <> +rest:
+      push_open(c, Main.contest.lines(rest), Main.contests.opens(rest), lines_open(rest))
+
+def open_nil(os: List<&2, String>, h: {Main.contests.open(Nil{}, os) == True{} : Bool}) -> {List.is_empty(&2, String, os) == True{} : Bool}:
+  match os:
+    case Nil{}:
+      {==}
+    case o <> rest:
+      Empty.absurd({List.is_empty(&2, String, o <> rest) == True{} : Bool}, S.false_true(h))
+
+def joined_shown(+ps: List<&2, String>, +cs: List<&2, Tree.Contest>, ls: List<&2, String>, j: {Nat.is_gt(List.length(&2, String, ps), 1n) == True{} : Bool}, h: {Main.contests.open(ls, Main.contests.opens(cs)) == True{} : Bool}) -> {Main.contests.shown(ps, cs, ls) == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      %Equal.sym(Bool, Nat.is_gt(List.length(&2, String, ps), 1n), True{}, j) : {Bool.or(Bool.not(_), List.is_empty(&2, String, Main.contests.opens(cs))) == True{} : Bool}
+      open_nil(Main.contests.opens(cs), h)
+    case +l <> +lr:
+      B.and_tt(Nat.is_gt(List.length(&2, String, ps), 1n), Main.contests.open(l <> lr, Main.contests.opens(cs)), j, h)
+
+def said_shown(b: Bool, +ps: List<&2, String>, +cs: List<&2, Tree.Contest>, eb: {Nat.is_gt(List.length(&2, String, ps), 1n) == b : Bool}) -> {Main.contests.shown(ps, cs, Bool.pick(List<&2, String>, b, Main.contest.lines(cs), Nil{})) == True{} : Bool}:
+  match b:
+    case True{}:
+      joined_shown(ps, cs, Main.contest.lines(cs), eb, lines_open(cs))
+    case False{}:
+      %Equal.sym(Bool, Nat.is_gt(List.length(&2, String, ps), 1n), False{}, eb) : {Bool.or(Bool.not(_), List.is_empty(&2, String, Main.contests.opens(cs))) == True{} : Bool}
+      {==}
+
+# Where work is joined, `status` says each contest the merge found once, in
+# its order, opening with the file contested; where it is not, none.
+def contests_said(+ps: List<&2, String>, +cs: List<&2, Tree.Contest>) -> {Main.contests.shown(ps, cs, Main.contests.said(ps, cs)) == True{} : Bool}:
+  said_shown(Nat.is_gt(List.length(&2, String, ps), 1n), ps, cs, {==})
+
+# The tree it compares with
+# -------------------------
+
+def tree_of(+p: String, r: Result<&2, &2, Tree.Fault, Tree.Merged>) -> {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.of.r(p, r)) == Main.tree.of.r(p, r) : Result<&2, &2, Main.Refused, Tree.Tree()>}:
+  match r:
+    case Fail{e}:
+      {==}
+    case Done{m}:
+      {==}
+
+# Against one revision, `status` compares the folder with the tree `files`,
+# `cat` and `diff` read there, or refuses as they do.
+def one_tree(+fs: List<&2, Main.Full>, +p: String) -> {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.r(fs, [p])) == Main.tree.r(fs, p) : Result<&2, &2, Main.Refused, Tree.Tree()>}:
+  tree_of(p, Tree.merge(Main.events_of(Main.ancestry.oldest(fs, p))))

@@ -630,3 +630,15 @@ def Laws.log_fields_lists_what_it_keeps(fs, bs, sp, shown, fl, limit):
 
 def Laws.log_counts_each_fact(facts, key, added):
   ListL.counts_each(facts, key, added)
+
+def Laws.log_follows_a_held_file(fs, bs, sp, path, at, file, ea, e):
+  ListL.followed_held(fs, bs, sp, path, at, file, ea, e)
+
+def Laws.status_says_what_it_found(fs, bs, ps, cs, sv):
+  StatusL.report_says(fs, bs, ps, cs, sv)
+
+def Laws.status_says_each_contest(ps, cs):
+  StatusL.contests_said(ps, cs)
+
+def Laws.status_compares_with_the_revisions_tree(fs, p):
+  StatusL.one_tree(fs, p)

@@ -2091,6 +2091,41 @@ def check_mutations(temporary):
             "listing_lemmas.one_count",
             "commands.bend",
         ),
+        (
+            "status names a fact by its path first",
+            '      (pad(k, 7n) ++ " " ++ p) <> facts.said(rest)',
+            '      (pad(p, 7n) ++ " " ++ k) <> facts.said(rest)',
+            "status_lemmas.facts_exact",
+            "commands.bend",
+        ),
+        (
+            "status leaves the accepts out",
+            "      List.append(&2, String, accepts.said(accept),",
+            "      List.append(&2, String, Nil{},",
+            "status_lemmas.report_says",
+            "commands.bend",
+        ),
+        (
+            "status says contests where no work is joined",
+            "  Bool.pick(List<&2, String>, Nat.is_gt(List.length(&2, String, ps), 1n), contest.lines(cs), Nil{})",
+            "  Bool.pick(List<&2, String>, Nat.is_gt(List.length(&2, String, ps), 0n), contest.lines(cs), Nil{})",
+            "status_lemmas.contests_said",
+            "commands.bend",
+        ),
+        (
+            "a contest line names the lower digest first",
+            '      Some{String.take(f, 8n) ++ lower_of(" is ", cs)}',
+            '      Some{lower_of(" is ", cs) ++ String.take(f, 8n)}',
+            "status_lemmas.push_open",
+            "commands.bend",
+        ),
+        (
+            "status merges only the parents after the first",
+            "      status.tree.of.r(first, Tree.merge(events_of(picked(reached.all(fs, ps), Pick{waiting(fs), Nil{}}))))",
+            "      status.tree.of.r(first, Tree.merge(events_of(picked(reached.all(fs, rest), Pick{waiting(fs), Nil{}}))))",
+            "status_lemmas.one_tree",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
