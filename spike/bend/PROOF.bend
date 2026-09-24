@@ -698,3 +698,6 @@ def Laws.a_rename_keeps_each_file_once(t, ats, ms, t2, moved, e):
 def Laws.a_rename_puts_each_file_where_it_was_said(t, ats, ms, t2, moved, e, g, hg):
   %Equal.sym(Tree.Tree(), t2, Sv.moved_all(moved, t), SurveyL.placed_moved(t, ats, ms, t2, moved, e)) : {Tree.path(_, g) == Maybe.or(&2, String, Sv.last_move(moved, g), Tree.path(t, g)) : Maybe<&2, String>}
   SurveyL.path_moved(moved, t, g, hg)
+
+def Laws.record_refuses_only_what_it_looks_at(only, t, t0, found, walked, held, dg, bf, reads, moves):
+  SurveyL.restricted_ok(only, t, t0, found, walked, held, dg, bf, reads, moves)

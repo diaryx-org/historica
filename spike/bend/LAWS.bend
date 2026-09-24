@@ -1427,3 +1427,21 @@ law a_rename_puts_each_file_where_it_was_said:
   for +g: String
   for hg: {Tree.holds(t, g) == True{} : Bool}
   {Tree.path(t2, g) == Maybe.or(&2, String, Sv.last_move(moved, g), Tree.path(t, g)) : Maybe<&2, String>}
+
+# `record` restricted to some paths refuses only among them. Naming paths
+# narrows what the survey pairs, from the position and the folder alike,
+# and what the walk refused, so whatever the folder and the store answer,
+# every path the plan refuses is one the restriction covers: a file the
+# format cannot take elsewhere does not stop a record of the paths named.
+law record_refuses_only_what_it_looks_at:
+  for +only: List<&2, String>
+  for +t: Tree.Tree()
+  for +t0: Tree.Tree()
+  for +found: List<&2, Folder.Found>
+  for +walked: List<&2, T.Split>
+  for +held: Set()
+  for +dg: Map<&2, String>
+  for +bf: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +moves: List<&2, T.Split>
+  {Sv.all_covered(only, Sv.planned.refused(Sv.planned(t, Sv.only.tree(only, t), held, Sv.only.refused(only, walked), Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), moves))) == True{} : Bool}

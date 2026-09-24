@@ -709,6 +709,15 @@ def only.refused(+only: List<&2, String>, rs: List<&2, T.Split>) -> List<&2, T.S
       +later = only.refused(only, rest)
       Bool.pick(List<&2, T.Split>, covers(only, p), T.Split{p, b} <> later, later)
 
+# What `LAWS.record_refuses_only_what_it_looks_at` asks of what a record
+# restricted to some paths refuses: each is a path the restriction covers.
+def all_covered(+only: List<&2, String>, rs: List<&2, T.Split>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case T.Split{+p, b} <> rest:
+      Bool.and(covers(only, p), all_covered(only, rest))
+
 # A named path nothing answers to — not the folder, not the position, not
 # where the stated renames put things — and whether a rule keeps it out,
 # since the two have different fixes.
