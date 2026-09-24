@@ -48,6 +48,7 @@ import ./similar.bend as Sim
 import ./folder.bend as Folder
 import ./unicode.bend as Uni
 import ./survey.bend as Sv
+import ./notes.bend as Notes
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -7212,11 +7213,90 @@ def name.of(c: NameCmd) -> IO(Unit):
 def name(+args: List<&2, String>) -> IO(Unit):
   name.of(name.args(args, NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}))
 
+# init
+# ----
+
+# `init [<dir>]`: the layout decision 0006 settled on, under `history/` in
+# the directory named or this one — made with the parents it lacks — and
+# refused where a store is already there. Where it lands is said as the
+# path really is.
+
+# `Path::join`: a path that is absolute replaces what it is joined to.
+def path_join(+base: String, +p: String) -> String:
+  Bool.pick(String, String.starts_with(p, "/"), p,
+  Bool.pick(String, Bool.or(String.is_empty(base), String.ends_with(base, "/")), base ++ p, base ++ "/" ++ p))
+
+def init.io(-A: Data, r: Result<&1, &1, U32 & String, A>) -> IO(A):
+  match r:
+    case Fail{Tuple{code, msg}}:
+      die(A, 1, msg)
+    case Done{x}:
+      IO.pure(A, x)
+
+def init.fresh(+root: String, r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
+  match r:
+    case Done{there}:
+      die(Unit, 1, root ++ " is already a store")
+    case Fail{e}:
+      IO.pure(Unit, Unit{})
+
+def init.said(+root: String, r: Result<&1, &1, U32 & String, String>) -> String:
+  match r:
+    case Done{real}:
+      real
+    case Fail{e}:
+      root
+
+def init.write(+path: String, +text: String) -> IO(Unit):
+  do IO<Unit>:
+    w : Result<&1, &1, U32 & String, String> <- Store.written(path ++ "\n" ++ text)
+    done : String <- init.io(String, w)
+    IO.pure(Unit, Unit{})
+
+def init.dirs(+root: String, ds: List<&2, String>) -> String:
+  match ds:
+    case Nil{}:
+      SNil{}
+    case d <> rest:
+      root ++ "/" ++ d ++ "\n" ++ init.dirs(root, rest)
+
+def init.base(+base: String, dir: Maybe<&2, String>) -> String:
+  match dir:
+    case None{}:
+      base
+    case Some{+d}:
+      path_join(base, d)
+
+def init.at(dir: Maybe<&2, String>) -> IO(Unit):
+  do IO<Unit>:
+    here : Result<&1, &1, U32 & String, String> <- Store.really(SNil{})
+    base : String <- init.io(String, here)
+    +root : String = path_join(init.base(base, dir), "history")
+    header : Result<&1, &1, U32 & String, String> <- Store.really(root ++ "/historica.txt")
+    init.fresh(root, header)
+    m : Result<&1, &1, U32 & String, String> <- Store.made(init.dirs(root, ["revisions", "operations", "names", "cache", "skipped"]))
+    done : String <- init.io(String, m)
+    init.write(root ++ "/historica.txt", Notes.HEADER_NOTE())
+    init.write(root ++ "/skipped/README.txt", Notes.SKIPPED_NOTE())
+    init.write(root ++ "/format.txt", Notes.FORMAT_NOTE())
+    init.write(root ++ "/cache/README.txt", Notes.CACHE_NOTE())
+    real : Result<&1, &1, U32 & String, String> <- Store.really(root)
+    IO.print("made a store at " ++ init.said(root, real))
+
+def init(args: List<&2, String>) -> IO(Unit):
+  match args:
+    case Nil{}:
+      init.at(None{})
+    case d <> Nil{}:
+      init.at(Some{d})
+    case d <> extra <> more:
+      die(Unit, 2, "`init` takes one directory, and `" ++ extra ++ "` is a second")
+
 # main
 # ----
 
 def usage() -> IO(Unit):
-  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | replay <ops docs..> | opdiff <parent> <child>")
+  die(Unit, 2, "usage: init [<dir>] | log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | replay <ops docs..> | opdiff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
@@ -7248,6 +7328,8 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       record(args)
     case "name" <> args:
       name(args)
+    case "init" <> args:
+      init(args)
     case "opdiff" <> parent <> child <> Nil{}:
       opdiff(parent, child)
     case _:

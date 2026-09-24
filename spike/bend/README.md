@@ -30,11 +30,12 @@ bend main.bend -- status                 # how the folder differs from the head
 bend main.bend -- status --onto left --merge right   # and what joining them contests
 bend main.bend -- record --dry-run --move a.md=b.md   # what recording would state
 bend main.bend -- name main head        # point a bookmark, and `--delete` one
+bend main.bend -- init notes            # make a store in notes/history
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through nine host effects (`store.bend`): `bend main.bend` runs
+here or above — through eleven host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -260,10 +261,11 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; and three writes — a rename `record --move` states, and a bookmark written and removed: nine effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; and the writes — a rename `record --move` states, a bookmark written and removed, and `init`'s directories: eleven effects, a C adapter, a Rust static library |
+| `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record --dry-run` and `name` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record --dry-run` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -488,6 +490,17 @@ and renamed over, through `Store.write`, and goes through `Store.remove`.
 `check.py` holds 58 `name` commands to the Rust tool with `names/` compared
 after: every target, nested names and a name beside a directory of the
 same name, every refusal, and a store whose bookmarks will not open.
+
+`init [<dir>]` makes a store: `history/` in the directory named, or this
+one, with the directories it lacks, joined as `Path::join` joins, so a
+refusal names the path as it was joined — `…/./history` for `init .` —
+and refused wherever a `historica.txt` is already there. It lays down the five directories and
+the four notes the Rust tool writes, and says where the store is as the
+path really is. The notes are prose the Rust tool keeps in its source;
+`notes.py` takes them from the bytes a Rust `init` writes into
+`notes.bend`, and `check.py`, which compares everything `init` leaves,
+fails where they have drifted. The `bare` store, a folder with no store
+in it, has seven `init`s and the commands that need a store refusing.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1136,6 +1149,13 @@ the number is where to look, and what it calls unreached has no law at all.
 
 ## What the port found
 
+Porting `init` found that the JavaScript build had never said why an
+effect failed: Bend's JS runtime builds a failure from its code alone and
+says the system's words for it, so where there was no store the JS build
+said "No such file or directory" and the native build said what the Rust
+tool says. Every twin now fails with its own message, and the `bare`
+store holds the JS build to the Rust tool's words where there is no store.
+
 Porting `record --dry-run` found that the Rust tool's `--move` renames
 before it asks whether either end is a path, and joins the path to the
 folder with `Path::join` — which an absolute path replaces. So
@@ -1197,9 +1217,12 @@ is under 5k. Not ported:
   carries no spelling of it.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
-- **Writing the store**: `init`, `record` but its dry run, `arrange`,
-  `fetch`, `export`. Nothing here writes but `name` and the rename
-  `--move` states. `check` does not report on `names/`. A merge's file
+- **Writing the store**: `record` but its dry run, `arrange`, `fetch`,
+  `export`. Nothing here writes but `init`, `name` and the rename
+  `--move` states. The Rust tool finds a store by a `history` directory
+  and refuses one without `historica.txt` as not a store; the port looks
+  for the file, so it goes on looking above such a directory. `-C` is
+  not read. `check` does not report on `names/`. A merge's file
   still holding the renderer's marker lines is not refused by
   `record --dry-run`, since the markers are not modelled.
 - **A name that is not UTF-8**, which the Rust tool's `record` refuses

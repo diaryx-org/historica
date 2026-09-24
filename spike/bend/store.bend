@@ -77,6 +77,17 @@ def Store.remove(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_remove.c"
   import "./ffi/store_remove.js"
 
+# Where a path really is — links, `.` and `..` resolved — or, for an empty
+# one, the current directory. A path that is not there has no answer.
+def Store.real(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_real.c"
+  import "./ffi/store_real.js"
+
+# Each directory named, a line each, made with the parents it lacks.
+def Store.mkdirs(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_mkdirs.c"
+  import "./ffi/store_mkdirs.js"
+
 # Whether standard output is a terminal: `1` or `0`, for `--color auto`.
 def Store.tty(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_tty.c"
@@ -141,8 +152,18 @@ def under(+root: String, ls: List<&2, String>) -> List<&2, String>:
     case l <> rest:
       (root ++ "/" ++ l) <> under(root, rest)
 
+# Where the store is, or the Rust tool's refusal where there is none.
+def root.of(r: Result<&1, &1, U32 & String, String>) -> IO(String):
+  match r:
+    case Fail{Tuple{code, msg}}:
+      IO.die(String, 1, "historica: " ++ msg)
+    case Done{found}:
+      IO.pure(String, found)
+
 def root() -> IO(String):
-  IO.try(String, Store.locate(SNil{}))
+  do IO<String>:
+    r : Result<&1, &1, U32 & String, String> <- Store.locate(SNil{})
+    root.of(r)
 
 # A listing without the empty line an empty listing is.
 def kept(ls: List<&2, String>) -> List<&2, String>:
@@ -203,6 +224,12 @@ def written(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def removed(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.remove(query)
+
+def really(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.real(query)
+
+def made(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.mkdirs(query)
 
 def read_text(path: String) -> IO(String):
   do IO<String>:

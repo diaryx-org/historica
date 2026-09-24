@@ -6,8 +6,8 @@
 //! returns it through [`hist_free`] with the length it was given, and nothing
 //! else. No panic crosses the boundary — `catch_unwind` turns one into `EIO`.
 //!
-//! Reading is here, and three writes: the rename `record --move` makes in
-//! the folder, and a bookmark written and removed. Nothing in this library
+//! Reading is here, and the writes: the rename `record --move` makes in
+//! the folder, a bookmark written and removed, and `init`'s directories. Nothing in this library
 //! decides anything about a store; that is what the Bend side is for. The two lookups answer *where*
 //! bytes are and *what* bytes are, and the Bend side reads, hashes and
 //! parses every document it goes on to believe anything about.
@@ -402,6 +402,56 @@ pub unsafe extern "C" fn hist_store_remove(
             empty = directory.parent();
         }
         Ok("removed".to_owned())
+    })
+}
+
+/// Where a path really is: the current directory for an empty argument,
+/// and otherwise the path with every link and `.` and `..` resolved — which
+/// only a path that exists has, so a failure is also `init`'s answer to
+/// whether its header is already there.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_path_real(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let path = text(query, query_len)?;
+        let found = if path.is_empty() {
+            std::env::current_dir().map_err(|error| (code(&error), format!("$PWD: {error}")))?
+        } else {
+            fs::canonicalize(path).map_err(|error| (code(&error), format!("{path}: {error}")))?
+        };
+        found
+            .into_os_string()
+            .into_string()
+            .map_err(|_| (EINVAL, "a path that is not UTF-8".to_owned()))
+    })
+}
+
+/// Each directory named, a line each, made with every parent it lacks: the
+/// layout `init` lays down. A failure is the Rust tool's own sentence for it.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_dirs_make(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        for path in text(query, query_len)?.split('\n').filter(|path| !path.is_empty()) {
+            fs::create_dir_all(path).map_err(|error| (code(&error), format!("{path}: {error}")))?;
+        }
+        Ok(String::new())
     })
 }
 
@@ -938,6 +988,37 @@ mod tests {
         assert!(names.is_dir(), "names/ itself stays");
         assert_eq!(asked("top.txt"), (0, "absent".to_owned()));
         assert_eq!(call(hist_store_remove, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_path_is_found_where_it_really_is_and_only_where_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir(real.join("a")).unwrap();
+        std::os::unix::fs::symlink(real.join("a"), real.join("link")).unwrap();
+        let asked = format!("{}/link/../a/.", real.display());
+        assert_eq!(call(hist_path_real, asked.as_bytes()), (0, real.join("a").display().to_string()));
+        let (code, answer) = call(hist_path_real, real.join("gone").display().to_string().as_bytes());
+        assert_eq!(code, ENOENT);
+        assert!(answer.starts_with(&format!("{}: ", real.join("gone").display())), "{answer}");
+        let (code, here) = call(hist_path_real, b"");
+        assert_eq!(code, 0);
+        assert_eq!(here, std::env::current_dir().unwrap().display().to_string());
+    }
+
+    #[test]
+    fn directories_are_made_with_their_parents_or_the_first_failure_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let query = format!("{}\n{}\n", root.join("h/revisions").display(), root.join("h/names").display());
+        assert_eq!(call(hist_dirs_make, query.as_bytes()), (0, String::new()));
+        assert!(root.join("h/revisions").is_dir() && root.join("h/names").is_dir());
+        // Made again, nothing is wrong.
+        assert_eq!(call(hist_dirs_make, query.as_bytes()), (0, String::new()));
+        fs::write(root.join("file"), "").unwrap();
+        let (code, answer) = call(hist_dirs_make, root.join("file/h").display().to_string().as_bytes());
+        assert_ne!(code, 0);
+        assert!(answer.starts_with(&format!("{}: ", root.join("file/h").display())), "{answer}");
     }
 
     #[test]

@@ -4,13 +4,16 @@
 // target that cannot be spelled, `o` for anything else, `u` for a name that
 // is not UTF-8. A name holding a newline is left out.
 function store_folder(dir) {
+  // The runtime's `io_fail` keeps only a code and says the system's words
+  // for it; this keeps what the refusal says, as the C side does.
+  const hist_fail = (code, message) => ({ $: "Fail", error: io_tup(code >>> 0, String(message)) });
   const fs = require("node:fs");
   const path = require("node:path");
   let names;
   try {
     names = fs.readdirSync(dir, { encoding: "buffer" });
   } catch (e) {
-    return io_fail(e.errno ? -e.errno : 5, `${dir}: ${e.message}`);
+    return hist_fail(e.errno ? -e.errno : 5, `${dir}: ${e.message}`);
   }
   names.sort((a, b) => Buffer.compare(a, b));
   // Bun hands back a plain Uint8Array for `encoding: "buffer"`, whose
@@ -44,7 +47,7 @@ function store_folder(dir) {
       }
     }
   } catch (e) {
-    return io_fail(e.errno ? -e.errno : 5, `${dir}: ${e.message}`);
+    return hist_fail(e.errno ? -e.errno : 5, `${dir}: ${e.message}`);
   }
   return io_done(lines.join("\n"));
 }
