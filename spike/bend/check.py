@@ -46,9 +46,9 @@ def run(*args, cwd=ROOT, timeout=120):
         subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
 
 
-def capture(*args, cwd):
+def capture(*args, cwd, env=None):
     """A command's stdout, stderr and exit code, for comparing two tools."""
-    done = subprocess.run(args, cwd=cwd, capture_output=True, timeout=120)
+    done = subprocess.run(args, cwd=cwd, env=env, capture_output=True, timeout=120)
     return done.stdout, done.stderr, done.returncode
 
 
@@ -245,6 +245,16 @@ def check_similar(temporary):
 # folder and `names/` hold after is compared too: `--move` renames before
 # anything is read, and `name` writes and deletes bookmarks — or, for
 # `init`, the whole of what is there.
+# What both writers are told, so that a record is the same bytes from
+# either: the moment, the seed every identifier is drawn from, and who.
+# The Rust side is `historica-pinned`, the test build of the same command
+# line; a command led by a dict runs with those variables changed.
+PINS = {
+    "HISTORICA_AUTHOR": "Check <check@example.com>",
+    "HISTORICA_PINNED_NOW": "2026-03-04T09:10:11+02:00",
+    "HISTORICA_PINNED_SEED": "check.py",
+}
+
 STORES = {
     "tree": [
         ["log"],
@@ -497,6 +507,35 @@ STORES = {
         ["record", "-n", "--bytes", "a", "--lines", "b", "--bytes", "b"],
         ["record", "-n", "-m", "a message", "--message", "another"],
     ],
+    # Recording, written: the store's own words and every byte it filed,
+    # against the Rust tool's with the same clock and the same minting. Each
+    # kind of file arriving, edited, going, renamed, run and pointed at; a
+    # name another revision already has, and a summary the filesystem will
+    # not take whole; the bookmarks that follow; content the store already
+    # holds; and what is refused before anything is written.
+    "recording": [
+        ["record", "-m", "second"],
+        ["record", "-m", "second", "--fields"],
+        ["record", "--fields", "-m", "the first"],
+        ["record", "-m", "the first"],
+        ["record", "-m", "", "notes.md"],
+        ["record", "-m", "...", "notes.md"],
+        ["record", "-m", "Fix: the parser? <yes> \"quoted\" | piped *star*, and on until it is cut\nand a second line", "notes.md"],
+        ["record", "-m", "moved", "--move", "old.md=moved.md"],
+        ["record", "-m", "moved", "old.md", "moved.md", "--move", "old.md=moved.md"],
+        ["record", "-m", "kinds", "new.md", "blob.bin", "--bytes", "new.md", "--lines", "blob.bin"],
+        ["record", "-m", "twins", "twin-a.md", "twin-b.md", "copy.md", "odd.ops.txt"],
+        ["record", "-m", "links", "to-new", "new.md", "abs-link", "to-notes", "going.md"],
+        ["record", "-m", "runs", "run.sh", "tool.sh", "empty.md", "sub"],
+        ["record", "-m", "on the first", "--onto", "first"],
+        ["record", "-m", "nothing", "unchanged.md"],
+        ["record", "-m", "nothing", "unchanged.md", "--fields"],
+        [{"HISTORICA_PINNED_NOW": "2026-03-03T23:59:59-01:00"}, "record", "-m", "late"],
+        [{"HISTORICA_PINNED_NOW": "2026-03-04T05:06:07+00:00"}, "record", "-m", "at once", "notes.md"],
+        [{"HISTORICA_AUTHOR": " Spaced <s@example.com>"}, "record", "-m", "who"],
+        [{"HISTORICA_AUTHOR": " Spaced <s@example.com>"}, "record", "-m", "who", "--fields"],
+        ["record", "-m", "not here", "nope.md"],
+    ],
     # `init`, where there is nothing yet: here, in a directory named — `.`,
     # nothing, nested, with a slash — made with its parents; refused beside a
     # second argument, and where a store is already. And every command that
@@ -521,6 +560,10 @@ STORES = {
         ["record", "--dry-run"], ["record", "-n", "a.md"], ["record", "-n", "--lines", "b.bin"],
         ["record", "-n", "--bytes", "a.md", "--lines", "a.md"], ["record", "-n", "--onto", "head"],
         ["record", "-n", "--move", "a.md=c.md"],
+        ["record", "-m", "a root"],
+        ["record", "-m", "a root", "--fields"],
+        ["record", "-m", "a root", "b.bin"],
+        ["record", "-m", "a root", "--bytes", "a.md"],
         ["name", "x", "head"],
         ["name", "--fields", "x", "head"],
         ["init"],
@@ -677,7 +720,7 @@ def craft(history):
         (history / "names" / f"{name}.txt").write_text(f"revision {digest(stated.encode())}\n")
 
 
-def record(temporary, rust, corpus):
+def record(temporary, rust, corpus, pinned=None):
     store = temporary / f"store-{corpus}"
     home = temporary / f"home-{corpus}"
     env = {**os.environ, "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
@@ -932,6 +975,46 @@ def record(temporary, rust, corpus):
         (store / "history" / "skipped").mkdir(exist_ok=True)
         (store / "history" / "skipped" / "private.txt").write_text("skip private.md\n")
         (store / "history" / "skipped" / "also.txt").write_text("skip also.md\n")
+    elif corpus == "recording":
+        # Recorded by the pinned build, early the same day `PINS` says it is
+        # now, so the store's one revision is the same bytes every run.
+        def pin(*command):
+            early = {**env, "HISTORICA_AUTHOR": "Check <check@example.com>", "HISTORICA_PINNED_NOW": "2026-03-04T05:06:07+00:00", "HISTORICA_PINNED_SEED": "fixture"}
+            subprocess.run([pinned, *command], cwd=store, env=early, check=True, capture_output=True, timeout=120)
+
+        (store / "notes.md").write_text("one\ntwo\nthree\n")
+        (store / "old.md").write_text("old\n")
+        (store / "same.md").write_text("shared text\n")
+        (store / "photo.bin").write_bytes(b"\x89PNG\x00\x01")
+        (store / "run.sh").write_text("#!/bin/sh\n")
+        (store / "run.sh").chmod(0o755)
+        (store / "unchanged.md").write_text("still\n")
+        (store / "going.md").write_text("bye\n")
+        os.symlink("notes.md", store / "to-notes")
+        pin("record", "-m", "the first")
+        historica("name", "first", "head", "--revision")
+        historica("name", "main", "head")
+        historica("name", "mine", "head", "--private")
+        # And the folder moves on.
+        (store / "notes.md").write_text("one\n2\nthree\nfour\n")
+        (store / "photo.bin").write_bytes(b"\x89PNG\x00\x02")
+        (store / "run.sh").chmod(0o644)
+        (store / "going.md").unlink()
+        (store / "new.md").write_text("brand new\n")
+        (store / "copy.md").write_text("shared text\n")
+        (store / "twin-a.md").write_text("twins\n")
+        (store / "twin-b.md").write_text("twins\n")
+        (store / "blob.bin").write_bytes(b"\x00\x00\x01")
+        (store / "empty.md").write_text("")
+        (store / "tool.sh").write_text("#!/bin/sh\necho\n")
+        (store / "tool.sh").chmod(0o755)
+        (store / "odd.ops.txt").write_text("not a document\n")
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        os.symlink("new.md", store / "to-new")
+        os.symlink("/etc/hosts", store / "abs-link")
+        (store / "to-notes").unlink()
+        os.symlink("old.md", store / "to-notes")
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -987,6 +1070,11 @@ def check_store(temporary):
         run("cargo", "build", "-q", "-p", "historica-cli", cwd=REPO, timeout=600)
         rust = str(REPO / "target" / "debug" / "historica")
 
+    # The writer's reference: the same command line with its clock and its
+    # minting fixed, which only a build asking for `pinned` has.
+    run("cargo", "build", "-q", "--release", "-p", "historica-cli", "--features", "pinned", cwd=REPO, timeout=1800)
+    writer = str(REPO / "target" / "release" / "historica-pinned")
+
     archive = ROOT / "ffi" / "target" / "release" / "libhistorica_bend_ffi.a"
     # The boundary's own tests — malformed input, error paths, freeing,
     # repeated calls. The archive the native program links is built with it.
@@ -1025,13 +1113,18 @@ def check_store(temporary):
 
     # The folder beside the store, and the store's bookmarks — or, for
     # `init`, everything — as a walk that follows nothing sees them.
-    def folder_of(root, whole=False):
+    # A record's whole store, less what only the Rust tool keeps of it: the
+    # catalogues under `cache/`, which any reader rebuilds, and which carry
+    # the moment each file was last seen.
+    def folder_of(root, whole=False, cached=True):
         seen = []
         walks = os.walk(root) if whole else itertools.chain(os.walk(root), os.walk(root / "history" / "names"))
         for directory, dirs, files in walks:
             here = Path(directory)
             if here == root and not whole:
                 dirs[:] = [d for d in dirs if d != "history"]
+            if here == root / "history" / "cache" and not cached:
+                files = [f for f in files if f == "README.txt"]
             dirs.sort()
             for name in sorted(dirs + files):
                 path = here / name
@@ -1053,26 +1146,33 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare")
-        store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording")
+        store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
+            changed = command[0] if isinstance(command[0], dict) else {}
+            command = command[1:] if changed else command
+            env = {**os.environ, **PINS, **changed}
             # `record` may write the folder — `--move` renames before it
             # surveys, dry run or not — so each tool runs on a copy of its
-            # own, and what the folder holds after is compared too.
+            # own, and what the folder holds after is compared too; and a
+            # record that is not a dry run, the whole store it wrote.
             writes = command[0] in ("record", "name", "init")
+            recording = command[0] == "record" and not {"-n", "--dry-run"} & set(command)
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store
-            whole = command[0] == "init"
-            expected = said(capture(rust, *command, cwd=copy)) + (folder_of(copy, whole) if writes else ())
+            whole = command[0] == "init" or recording
+            reference = writer if command[0] == "record" else rust
+            shown = " ".join([f"{k}={v}" for k, v in changed.items()] + command)
+            expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
             for name, tool in tools:
                 copy = fresh(store, at) if writes else store
-                got = said(capture(*tool, *command, cwd=copy)) + (folder_of(copy, whole) if writes else ())
+                got = said(capture(*tool, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
                 if got != expected:
                     failures += 1
-                    lines += [f"DIFF {corpus} {name}: {' '.join(command)}", f"  rust: {expected}", f"  bend: {got}"]
+                    lines += [f"DIFF {corpus} {name}: {shown}", f"  rust: {expected}", f"  bend: {got}"]
                 else:
-                    lines.append(f"same {corpus} {name}: {' '.join(command)}")
+                    lines.append(f"same {corpus} {name}: {shown}")
         return lines, failures
 
     # The writer's choices, pinned by the corpus rather than by the Rust

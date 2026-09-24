@@ -29,13 +29,14 @@ bend main.bend -- blame notes.txt        # the folder's lines, attributed
 bend main.bend -- status                 # how the folder differs from the head
 bend main.bend -- status --onto left --merge right   # and what joining them contests
 bend main.bend -- record --dry-run --move a.md=b.md   # what recording would state
+bend main.bend -- record -m "what changed"  # and recording it
 bend main.bend -- name main head        # point a bookmark, and `--delete` one
 bend main.bend -- init notes            # make a store in notes/history
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through eleven host effects (`store.bend`): `bend main.bend` runs
+here or above — through fifteen host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -261,11 +262,12 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; and the writes — a rename `record --move` states, a bookmark written and removed, and `init`'s directories: eleven effects, a C adapter, a Rust static library |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, and a document or a payload filed once: fifteen effects, a C adapter, a Rust static library |
+| `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record --dry-run` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -471,6 +473,41 @@ well as what was said: 90 commands across fourteen stores, one of them
 settled with `--at` by file bookmark, bytes written two ways, and a link to
 a file the folder dropped. A usage error is now compared too, to the end of
 its message.
+
+`record` writes, too, where no merge is being recorded. It mints an
+identifier for each file arriving, in path order, then the change's; says
+what each file holds now — a new file of lines as its text, a file edited
+as the operation document `Ops.diff` finds between the position's content
+and the folder's, a file of bytes as a payload — with a `mode` line for a
+file arriving that can be run, and each link spelled `file:` and the
+identifier where its target resolves to one file of the tree the revision
+states; writes the revision, in the order the format fixes; files the
+content under the revision's stem, at the path each file had, and none the
+store already holds; and moves each bookmark naming a parent's change on to
+this one, private or not. What it prints is what the Rust tool prints — or,
+with `--fields`, `historica-wrote-1`, the revision and the bookmarks — and
+before any refusal but a usage error the header goes out first, whenever
+`--fields` is among the words, which is the Rust tool's own test. Before it
+surveys it asks who is recording, what time it is, and why, in that order:
+a clock behind the newest work the store holds is said on standard error,
+and a revision that would state nothing is refused.
+
+The time and the identifiers are the two things decision 0010 made inputs,
+and they are what made this comparable. The Rust command line takes them
+as arguments now too, and `historica-pinned` — a test build of it, never
+installed, behind a `pinned` feature — fixes both from
+`HISTORICA_PINNED_NOW` and `HISTORICA_PINNED_SEED`; the port's host reads
+the same two. So `check.py` gives both writers one moment, one seed and one
+author, and compares the whole store each leaves byte for byte, less the
+Rust tool's `cache/`: the revision's name and bytes, every file of content
+and where it was filed, and every bookmark. Its `recording` store was
+recorded by `historica-pinned` too, and has every kind of file arriving,
+edited, going, renamed, run and pointed at; a message another revision of
+the same day already has, one that is nothing a filesystem will take, and
+one cut between words; twins, and a file whose bytes the store already
+holds; a clock behind the store; an author the format cannot hold; and a
+record of nothing — twenty-one records there and four more on the `fresh`
+store, the first a store has.
 
 `name` is the first command that writes the store. It points a bookmark
 at a change, which follows amend and rebase; at a revision with
@@ -1149,6 +1186,16 @@ the number is where to look, and what it calls unreached has no law at all.
 
 ## What the port found
 
+Porting `record` found that its output could not be compared at all.
+Decision 0010 made the clock and the random source inputs to the library
+so that "a corpus that pins a writer's bytes" could exist, but the
+command line reached for the machine's own in four places, so no two runs
+of `historica record` — the Rust tool's own included — leave the same
+bytes. The command line now takes both as arguments, `main` is the one
+place they come from the machine, and `historica-pinned` is the test build
+that fixes them; `historica` itself cannot be told either, whatever it was
+built with.
+
 Porting `init` found that the JavaScript build had never said why an
 effect failed: Bend's JS runtime builds a failure from its code alone and
 says the system's words for it, so where there was no store the JS build
@@ -1217,9 +1264,11 @@ is under 5k. Not ported:
   carries no spelling of it.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
-- **Writing the store**: `record` but its dry run, `arrange`, `fetch`,
-  `export`. Nothing here writes but `init`, `name` and the rename
-  `--move` states. The Rust tool finds a store by a `history` directory
+- **Writing the store**: `record --merge`, whose resolutions nothing here
+  writes; `amend`, `abandon`, `carry`; `arrange`, `fetch`, `export`.
+  `record` without `-m` does not open an editor, and who is recording is
+  read from `HISTORICA_AUTHOR` alone, not from the identity file the Rust
+  tool falls back on. It writes no `cache/`, which any reader rebuilds. The Rust tool finds a store by a `history` directory
   and refuses one without `historica.txt` as not a store; the port looks
   for the file, so it goes on looking above such a directory. `-C` is
   not read. `check` does not report on `names/`. A merge's file

@@ -88,6 +88,33 @@ def Store.mkdirs(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_mkdirs.c"
   import "./ffi/store_mkdirs.js"
 
+# What time it is, spelled as the format spells a timestamp: the moment
+# `HISTORICA_PINNED_NOW` pins where it is set, as `historica-pinned` reads
+# it, and the system clock in the local offset otherwise.
+def Store.now(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_now.c"
+  import "./ffi/store_now.js"
+
+# Random bytes, as hex, the count asked for: drawn from
+# `HISTORICA_PINNED_SEED`'s stream where it is set, as `historica-pinned`
+# draws it, and from the operating system otherwise.
+def Store.fill(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_fill.c"
+  import "./ffi/store_fill.js"
+
+# A document filed once: its path, then its bytes after the first newline.
+# Back `written`, or `there` where the same bytes already were; different
+# bytes under the name are refused.
+def Store.once(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_once.c"
+  import "./ffi/store_once.js"
+
+# A folder's file filed once, the way `Store.once` files text: where it is,
+# where it goes, and the digest it must still have, a line each.
+def Store.copy(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_copy.c"
+  import "./ffi/store_copy.js"
+
 # Whether standard output is a terminal: `1` or `0`, for `--color auto`.
 def Store.tty(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_tty.c"
@@ -160,6 +187,11 @@ def root.of(r: Result<&1, &1, U32 & String, String>) -> IO(String):
     case Done{found}:
       IO.pure(String, found)
 
+# Where the store is, or why there is none, for a caller with something to
+# say before the refusal.
+def root.found() -> IO(Result<&1, &1, U32 & String, String>):
+  Store.locate(SNil{})
+
 def root() -> IO(String):
   do IO<String>:
     r : Result<&1, &1, U32 & String, String> <- Store.locate(SNil{})
@@ -230,6 +262,18 @@ def really(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def made(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.mkdirs(query)
+
+def clock(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.now(query)
+
+def drawn(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.fill(query)
+
+def filed(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.once(query)
+
+def copied(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.copy(query)
 
 def read_text(path: String) -> IO(String):
   do IO<String>:

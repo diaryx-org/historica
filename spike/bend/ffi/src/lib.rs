@@ -455,6 +455,186 @@ pub unsafe extern "C" fn hist_dirs_make(
     })
 }
 
+// Recording
+// ---------
+
+/// The environment variable that fixes the clock, and the one that fixes
+/// the minting: `historica-pinned`'s two, read here the same way so that
+/// `check.py` can hold both writers to one store's bytes. Unset, the machine
+/// answers, as it does for `historica`.
+const PINNED_NOW: &str = "HISTORICA_PINNED_NOW";
+const PINNED_SEED: &str = "HISTORICA_PINNED_SEED";
+
+/// What time it is, spelled as the format spells one: the pinned moment
+/// where there is one, and otherwise the system clock in the offset the
+/// platform reports for it, to the second — `record::Platform`'s spelling.
+/// The argument is ignored.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_clock_now(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        text(query, query_len)?;
+        if let Ok(pinned) = std::env::var(PINNED_NOW) {
+            return Ok(pinned);
+        }
+        Ok(jiff::Zoned::now().strftime("%Y-%m-%dT%H:%M:%S%:z").to_string())
+    })
+}
+
+/// Where the pinned stream has got to: the next block, and what is left of
+/// the last. One program mints from one stream, so this is the process's.
+static DRAWN: std::sync::Mutex<(u64, Vec<u8>)> = std::sync::Mutex::new((0, Vec::new()));
+
+/// Bytes nothing can predict, as lowercase hex: the count asked for, in
+/// decimal. With a seed pinned, the stream `historica-pinned` draws —
+/// SHA-256 of the seed then an eight-byte big-endian block counter, digest
+/// after digest — carried on from wherever the last call left it.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_entropy_fill(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    use std::io::Read as _;
+
+    answer(out, out_len, || {
+        let asked = text(query, query_len)?;
+        let count: usize = asked
+            .parse()
+            .map_err(|_| (EINVAL, format!("`{asked}` is not a count of bytes")))?;
+        let mut bytes = vec![0u8; count];
+        match std::env::var(PINNED_SEED) {
+            Ok(seed) => {
+                let mut drawn = DRAWN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                for byte in &mut bytes {
+                    if drawn.1.is_empty() {
+                        let mut hash = Sha256::new();
+                        hash.update(seed.as_bytes());
+                        hash.update(drawn.0.to_be_bytes());
+                        drawn.0 += 1;
+                        drawn.1 = hash.finalize().iter().rev().copied().collect();
+                    }
+                    *byte = drawn.1.pop().expect("a block just drawn");
+                }
+            }
+            Err(_) => {
+                let source = "/dev/urandom";
+                fs::File::open(source)
+                    .and_then(|mut random| random.read_exact(&mut bytes))
+                    .map_err(|error| {
+                        (
+                            code(&error),
+                            format!(
+                                "the operating system's random source refused, so no change ID can be minted: {error}"
+                            ),
+                        )
+                    })?;
+            }
+        }
+        Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    })
+}
+
+/// Bytes filed once under a name, as the store files a document: the path,
+/// then the bytes after the first newline. The directory is made first. A
+/// file already there is left alone where it holds these bytes and refused
+/// where it does not, since a document's name is a promise about its bytes.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_once(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let Some((path, bytes)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a write is a path, then its bytes".to_owned()));
+        };
+        once(Path::new(path), bytes.as_bytes())
+    })
+}
+
+/// A file of the folder's filed once in the store: where it is, where it
+/// goes, and the digest the survey found it to have, a line each. Bytes
+/// that no longer hash to that are refused and nothing is written.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_copy(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let mut lines = text(query, query_len)?.split('\n');
+        let (Some(from), Some(to), Some(wanted), None) =
+            (lines.next(), lines.next(), lines.next(), lines.next())
+        else {
+            return Err((EINVAL, "a copy is a path, where it goes, and its digest".to_owned()));
+        };
+        let bytes = fs::read(from).map_err(|error| (code(&error), format!("{from}: {error}")))?;
+        let found = digest(&bytes);
+        if found != wanted {
+            return Err((
+                EIO,
+                format!(
+                    "the content for {to} hashes to {found} rather than {wanted}, so nothing \
+                     was written; it changed while it was being copied"
+                ),
+            ));
+        }
+        once(Path::new(to), &bytes)
+    })
+}
+
+fn once(path: &Path, bytes: &[u8]) -> Result<String, (i32, String)> {
+    use std::io::Write as _;
+
+    let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+    if let Some(directory) = path.parent() {
+        fs::create_dir_all(directory).map_err(|error| failed(directory, error))?;
+    }
+    match fs::OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut file) => {
+            file.write_all(bytes)
+                .and_then(|()| file.sync_all())
+                .map_err(|error| failed(path, error))?;
+            Ok("written".to_owned())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let existing = fs::read(path).map_err(|error| failed(path, error))?;
+            if existing != bytes {
+                return Err((
+                    EIO,
+                    format!("{} is named for a digest its bytes do not have", path.display()),
+                ));
+            }
+            Ok("there".to_owned())
+        }
+        Err(error) => Err(failed(path, error)),
+    }
+}
+
 /// Return a buffer [`hist_store_locate`] or [`hist_store_list`] handed out.
 ///
 /// # Safety
@@ -1034,4 +1214,64 @@ mod tests {
             assert_eq!(call(hist_store_at, query.as_bytes()), found);
         }
     }
+
+    #[test]
+    fn a_pinned_seed_is_drawn_as_historica_pinned_draws_it() {
+        // One test owns the process's environment and its stream: the
+        // others here never set either variable.
+        std::env::set_var(PINNED_SEED, "a seed");
+        std::env::set_var(PINNED_NOW, "2026-01-02T03:04:05+01:00");
+        let mut expected = Vec::new();
+        for block in 0u64..2 {
+            let mut hash = Sha256::new();
+            hash.update(b"a seed");
+            hash.update(block.to_be_bytes());
+            expected.extend(hash.finalize());
+        }
+        let hex: String = expected.iter().map(|byte| format!("{byte:02x}")).collect();
+        // Twelve bytes, then twenty-four: the second call carries on across
+        // the block boundary where the first stopped.
+        assert_eq!(call(hist_entropy_fill, b"12"), (0, hex[..24].to_owned()));
+        assert_eq!(call(hist_entropy_fill, b"24"), (0, hex[24..72].to_owned()));
+        assert_eq!(call(hist_clock_now, b""), (0, "2026-01-02T03:04:05+01:00".to_owned()));
+        std::env::remove_var(PINNED_SEED);
+        std::env::remove_var(PINNED_NOW);
+    }
+
+    #[test]
+    fn a_count_that_is_not_one_is_refused() {
+        assert_eq!(call(hist_entropy_fill, b"twelve").0, EINVAL);
+    }
+
+    #[test]
+    fn a_document_is_filed_once_and_its_name_is_held_to_its_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("operations/2026-01/a b/one.txt");
+        let query = format!("{}\none\n", file.display());
+        assert_eq!(call(hist_store_once, query.as_bytes()), (0, "written".to_owned()));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "one\n");
+        assert_eq!(call(hist_store_once, query.as_bytes()), (0, "there".to_owned()));
+        let other = format!("{}\ntwo\n", file.display());
+        let (code, said) = call(hist_store_once, other.as_bytes());
+        assert_eq!(code, EIO);
+        assert!(said.ends_with("is named for a digest its bytes do not have"), "{said}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "one\n");
+    }
+
+    #[test]
+    fn a_copy_is_refused_when_the_bytes_moved_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("photo.bin");
+        fs::write(&from, b"\x00\xff").unwrap();
+        let to = dir.path().join("history/operations/x/photo.bin");
+        let query = format!("{}\n{}\n{}", from.display(), to.display(), digest(b"\x00\xff"));
+        assert_eq!(call(hist_store_copy, query.as_bytes()), (0, "written".to_owned()));
+        assert_eq!(fs::read(&to).unwrap(), b"\x00\xff");
+        let stale = format!("{}\n{}.2\n{}", from.display(), to.display(), digest(b"other"));
+        let (code, said) = call(hist_store_copy, stale.as_bytes());
+        assert_eq!(code, EIO);
+        assert!(said.contains("changed while it was being copied"), "{said}");
+        assert!(!dir.path().join("history/operations/x/photo.bin.2").exists());
+    }
+
 }
