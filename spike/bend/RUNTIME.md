@@ -204,6 +204,14 @@ effect with no Rust behind it — ending the program is the C runtime's, and
 nothing about a store comes into it — and the JS twin's writes are
 synchronous, so nothing printed is lost.
 
+`offer` writes nothing but standard output. It reads what `prune` reads,
+the bookmarks, and the files of `claims/` with their digests from
+`Store.digests`; each rule and bookmark file is read and hashed here, so
+its line carries the digest its bytes have. `Store.really` answers
+whether the copy holds `history/historica.txt`, and gives the copy's own
+name, resolved, to put before every path. Which files are listed, in what
+order, and which are private is decided in Bend.
+
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and
 the folder is the store's size again, all of which would have to be read into
