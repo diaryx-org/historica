@@ -41,6 +41,7 @@ import ./abbrev_lemmas.bend as Abbrev
 import ./blamed_lemmas.bend as Blamed
 import ./diffcmd_lemmas.bend as DiffCmd
 import ./logargs_lemmas.bend as LogArgs
+import ./check_lemmas.bend as CheckL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -521,3 +522,6 @@ def Laws.diff_folder_shows_what_differs(t, older, ds, left, reads, ps, cs, e):
 
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
+
+def Laws.check_pairs_each_payload(ls, stats, h):
+  CheckL.pairs_ok(ls, stats, h)

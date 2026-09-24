@@ -1677,6 +1677,27 @@ def payloads(ls: List<&2, String>) -> List<&2, String>:
     case +l <> rest:
       Rev.keep(is_payload(l), l, payloads(rest))
 
+# Each payload is reported with the digest asked for it: the payloads of
+# the listing, in order, paired one for one with what `Store.stats`
+# answered. `LAWS.check_pairs_each_payload` holds `attach` to it.
+def payload.pairs(fs: List<&2, Filed>) -> List<&2, T.Split>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case Filed{path, doc, rev, stat} <> rest:
+      match doc:
+        case True{}:
+          payload.pairs(rest)
+        case False{}:
+          T.Split{path, stat} <> payload.pairs(rest)
+
+def zip.pairs(ps: List<&2, String>, stats: List<&2, String>) -> List<&2, T.Split>:
+  match ps stats:
+    case p <> pr s <> sr:
+      T.Split{p, s} <> zip.pairs(pr, sr)
+    case _ _:
+      Nil{}
+
 # A revision is reported and then kept: the graph `check` closes with is the
 # same documents, and reading and hashing the whole of `revisions/` a second
 # time to ask which parents are missing is a second pass over the store for

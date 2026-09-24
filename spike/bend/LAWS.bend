@@ -908,3 +908,13 @@ law log_reads_its_words:
   for +a: Main.Asked
   for e: {Main.asked(args) == Done{a} : Result<&2, &2, String, Main.Asked>}
   {Main.asked.of(Main.largs.raw(args)) == Done{a} : Result<&2, &2, String, Main.Asked>}
+
+# `check` reports each payload with the digest asked for it. The store is
+# asked for one digest per payload, in the listing's order; given one for
+# each, every payload is paired with its own, in order, and no revision or
+# operation document takes one.
+law check_pairs_each_payload:
+  for ls: List<&2, String>
+  for stats: List<&2, String>
+  for h: {List.length(&2, String, stats) == List.length(&2, String, Main.payloads(ls)) : Nat}
+  {Main.payload.pairs(Main.attach(Main.filed(ls), stats)) == Main.zip.pairs(Main.payloads(ls), stats) : List<&2, T.Split>}

@@ -1221,6 +1221,13 @@ def check_mutations(temporary):
             "logargs_lemmas.run_ok",
             "main.bend",
         ),
+        (
+            "check lets a document take a payload's digest",
+            '          Filed{path, True{}, rev, stat} <> attach(rest, stats)',
+            '          Filed{path, True{}, rev, stat} <> attach(rest, List.drop(&2, String, stats, 1n))',
+            "check_lemmas.att_step",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
