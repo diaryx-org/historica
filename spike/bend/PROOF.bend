@@ -687,3 +687,14 @@ def reason_pick(b: Bool, -r: Main.Refused) -> {Result.is_done(&2, &2, Main.Refus
 def Laws.abandon_takes_a_reason_that_says_something(m):
   %NamingL.blank(m) : {Result.is_done(&2, &2, Main.Refused, Unit, Main.reason.r(m)) == Bool.not(_) : Bool}
   reason_pick(String.is_empty(Naming.trim_space(m)), Main.Refused{1, "abandoning removes this work from what the history means, and the reason is the only thing the tombstone carries; say why with -m"})
+
+def Laws.record_names_only_what_is_there(rules, named, folder, was, placed, e):
+  SurveyL.named_ok(rules, named, folder, was, placed, e)
+
+def Laws.a_rename_keeps_each_file_once(t, ats, ms, t2, moved, e):
+  %Equal.sym(Tree.Tree(), t2, Sv.moved_all(moved, t), SurveyL.placed_moved(t, ats, ms, t2, moved, e)) : {Sv.files(_) == Sv.files(t) : List<&2, String>}
+  SurveyL.files_moved(moved, t)
+
+def Laws.a_rename_puts_each_file_where_it_was_said(t, ats, ms, t2, moved, e, g, hg):
+  %Equal.sym(Tree.Tree(), t2, Sv.moved_all(moved, t), SurveyL.placed_moved(t, ats, ms, t2, moved, e)) : {Tree.path(_, g) == Maybe.or(&2, String, Sv.last_move(moved, g), Tree.path(t, g)) : Maybe<&2, String>}
+  SurveyL.path_moved(moved, t, g, hg)

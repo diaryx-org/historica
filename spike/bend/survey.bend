@@ -728,6 +728,17 @@ def kept_out(+rules: List<&2, Folder.Scope>, ns: List<&2, String>, +keep: Bool) 
       +later = kept_out(rules, rest, keep)
       Bool.pick(List<&2, String>, Bool.xor(Bool.or(Folder.skips(rules, n), Folder.skips_directory(rules, n)), Bool.not(keep)), n <> later, later)
 
+# What `record` asks of the paths a person names before it looks
+# (`LAWS.record_names_only_what_is_there`): each answers to a file the
+# folder holds, one the position holds, or one the stated renames put
+# there, at the path or beneath it.
+def answered(ns: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case +n <> rest:
+      Bool.and(Bool.or(any_beneath(n, folder), Bool.or(any_beneath(n, was), any_beneath(n, placed))), answered(rest, folder, was, placed))
+
 # Where the stated renames put each file: the position's tree, with one
 # file's path changed.
 def placed.entry(e: Tree.Entry, +file: String, +to: String) -> Tree.Entry:
@@ -744,6 +755,24 @@ def relocated(t: Tree.Tree(), +file: String, +to: String) -> Tree.Tree():
 
 def by_file(+t: Tree.Tree()) -> Tree.Tree():
   List.sort(~Tree.Entry, ~(a => b => String.is_le(Tree.entry_file(a), Tree.entry_file(b))), t)
+
+# What `LAWS.a_rename_keeps_each_file_once` and
+# `LAWS.a_rename_puts_each_file_where_it_was_said` ask of where the stated
+# renames leave the position: its files, and the position with each rename
+# done in turn.
+def files(t: Tree.Tree()) -> List<&2, String>:
+  match t:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      Tree.entry_file(e) <> files(rest)
+
+def moved_all(ms: List<&2, T.Split>, +t: Tree.Tree()) -> Tree.Tree():
+  match ms:
+    case Nil{}:
+      t
+    case T.Split{+f, +to} <> rest:
+      moved_all(rest, relocated(t, f, to))
 
 # A kind stated too late, or for a path nobody is looking at.
 def kind_fixed(+p: String, t: Tree.Tree(), later: Maybe<&2, String>) -> Maybe<&2, String>:
