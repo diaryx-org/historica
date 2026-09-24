@@ -1370,3 +1370,19 @@ law content_is_filed_under_a_name_a_filesystem_holds:
   for hf: {Naming.helds_controlless(fs) == True{} : Bool}
   for hh: {Naming.controlless(held) == True{} : Bool}
   {Naming.controlless(Naming.filed_as(Naming.filed(fs), held)) == True{} : Bool}
+
+# `record` compares this machine's clock with the latest work the store
+# holds. Of the timestamps it is handed, the one `newest` answers is one of
+# them, and none of the others is later, however their offsets spell them.
+law record_compares_with_the_latest:
+  for +ws: List<&2, String>
+  for +w: String
+  for e: {Naming.newest(ws, None{}) == Some{w} : Maybe<&2, String>}
+  {Naming.latest(ws, w) == True{} : Bool}
+
+# `abandon` takes a reason exactly where it says something. The reason is
+# the only thing a tombstone carries, so one that is empty or nothing but
+# whitespace is refused, and any other is taken.
+law abandon_takes_a_reason_that_says_something:
+  for +m: String
+  {Result.is_done(&2, &2, Main.Refused, Unit, Main.reason.r(m)) == Bool.not(Naming.every(~Naming.is_space, m)) : Bool}

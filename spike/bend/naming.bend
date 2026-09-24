@@ -394,6 +394,18 @@ def helds_controlless(fs: List<&2, Filing>) -> Bool:
     case Filing{h, p, d} <> rest:
       Bool.and(controlless(h), helds_controlless(rest))
 
+# What `LAWS.record_compares_with_the_latest` asks of the timestamp `newest`
+# answers: one it was handed, and none of them later.
+def no_later(ws: List<&2, String>, +w: String) -> Bool:
+  match ws:
+    case Nil{}:
+      True{}
+    case +v <> rest:
+      Bool.and(Nat.is_le(instant(v), instant(w)), no_later(rest, w))
+
+def latest(+ws: List<&2, String>, +w: String) -> Bool:
+  Bool.and(member(ws, w), no_later(ws, w))
+
 def show_split(s: T.Split) -> String:
   match s:
     case T.Split{a, b}:

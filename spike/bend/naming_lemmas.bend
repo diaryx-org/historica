@@ -451,3 +451,224 @@ def filed_as_ok(xs: List<&2, T.Split>, +held: String, +hx: {SortL.all_ok(~T.Spli
       as_pick(Bool.and(String.eq(h, held), String.eq(N.filed_as(rest, held), held)), n, N.filed_as(rest, held),
         Comp.and_left(N.controlless(n), SortL.all_ok(~T.Split, ~split_ok, rest), hx),
         filed_as_ok(rest, held, Comp.and_right(N.controlless(n), SortL.all_ok(~T.Split, ~split_ok, rest), hx), hh))
+
+# The latest timestamp
+# --------------------
+
+def mdisc(m: Maybe<&2, String>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      Empty
+
+def none_some(-x: String, e: {None{} == Some{x} : Maybe<&2, String>}) -> Empty:
+  %e : {mdisc(_) : Type}
+  Unit{}
+
+def some_inj(-x: String, -y: String, e: {Some{x} == Some{y} : Maybe<&2, String>}) -> {x == y : String}:
+  Equal.cong(Maybe<&2, String>, String, m => Maybe.default(&2, String, m, x), Some{x}, Some{y}, e)
+
+def ge_zero(n: Nat) -> {Nat.is_ge(n, 0n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      {==}
+
+def ge_false_le(a: Nat, b: Nat, e: {Nat.is_ge(a, b) == False{} : Bool}) -> {Nat.is_le(a, b) == True{} : Bool}:
+  match a b:
+    case 0n 0n:
+      Empty.absurd({Nat.is_le(0n, 0n) == True{} : Bool}, S.true_false(e))
+    case 0n 1n+q:
+      {==}
+    case 1n+p 0n:
+      Empty.absurd({Nat.is_le(1n+p, 0n) == True{} : Bool}, S.true_false(e))
+    case 1n+p 1n+q:
+      ge_false_le(p, q, e)
+
+def le_refl(n: Nat) -> {Nat.is_le(n, n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      le_refl(p)
+
+# What holds of `newest`'s answer as it walks, with `best` the answer so
+# far: it is one it was handed or the best, no later one was handed, and
+# the best is no later.
+def best_is(best: Maybe<&2, String>, +r: String) -> Bool:
+  match best:
+    case None{}:
+      False{}
+    case Some{b}:
+      String.eq(b, r)
+
+def best_le(best: Maybe<&2, String>, +r: String) -> Bool:
+  match best:
+    case None{}:
+      True{}
+    case Some{b}:
+      Nat.is_le(N.instant(b), N.instant(r))
+
+def inv(+ws: List<&2, String>, +best: Maybe<&2, String>, +r: String) -> Bool:
+  Bool.and(Bool.or(N.member(ws, r), best_is(best, r)), Bool.and(N.no_later(ws, r), best_le(best, r)))
+
+def found_or(+e: Bool, +m: Bool, +b: Bool, h: {Bool.or(m, b) == True{} : Bool}) -> {Bool.or(Bool.or(e, m), b) == True{} : Bool}:
+  AL.or_cases({Bool.or(Bool.or(e, m), b) == True{} : Bool}, m, b, h,
+    hm => AL.or_left(Bool.or(e, m), b, AL.or_right(e, m, hm)),
+    hb => AL.or_right(Bool.or(e, m), b, hb))
+
+def found_here(+e: Bool, +m: Bool, +b: Bool, h: {Bool.or(m, e) == True{} : Bool}) -> {Bool.or(Bool.or(e, m), b) == True{} : Bool}:
+  AL.or_cases({Bool.or(Bool.or(e, m), b) == True{} : Bool}, m, e, h,
+    hm => AL.or_left(Bool.or(e, m), b, AL.or_right(e, m, hm)),
+    he => AL.or_left(Bool.or(e, m), b, AL.or_left(e, m, he)))
+
+# Where the timestamp in hand is at least the best, it becomes the best,
+# and the old best is no later than the answer.
+def taken_best(best: Maybe<&2, String>, +w: String, +r: String, +ec: {Nat.is_ge(N.instant(w), Maybe.default(&2, Nat, Maybe.map(&2, String, Nat, b => N.instant(b), best), 0n)) == True{} : Bool}, +hw: {Nat.is_le(N.instant(w), N.instant(r)) == True{} : Bool}) -> {best_le(best, r) == True{} : Bool}:
+  match best:
+    case None{}:
+      {==}
+    case Some{+b}:
+      SortL.nat_le_trans(N.instant(b), N.instant(w), N.instant(r), Abbrev.ge_le(N.instant(w), N.instant(b), ec), hw)
+
+# Where it is earlier than the best, it is no later than the answer either.
+def passed_best(best: Maybe<&2, String>, +w: String, +r: String, +ec: {Nat.is_ge(N.instant(w), Maybe.default(&2, Nat, Maybe.map(&2, String, Nat, b => N.instant(b), best), 0n)) == False{} : Bool}, +hb: {best_le(best, r) == True{} : Bool}) -> {Nat.is_le(N.instant(w), N.instant(r)) == True{} : Bool}:
+  match best:
+    case None{}:
+      Empty.absurd({Nat.is_le(N.instant(w), N.instant(r)) == True{} : Bool}, S.true_false(Equal.trans(Bool, True{}, Nat.is_ge(N.instant(w), 0n), False{}, Equal.sym(Bool, Nat.is_ge(N.instant(w), 0n), True{}, ge_zero(N.instant(w))), ec)))
+    case Some{+b}:
+      SortL.nat_le_trans(N.instant(w), N.instant(b), N.instant(r), ge_false_le(N.instant(w), N.instant(b), ec), hb)
+
+def newest_step(c: Bool, +w: String, +rest: List<&2, String>, +best: Maybe<&2, String>, +r: String, +ec: {Nat.is_ge(N.instant(w), Maybe.default(&2, Nat, Maybe.map(&2, String, Nat, b => N.instant(b), best), 0n)) == c : Bool}, +ih: {inv(rest, Bool.pick(Maybe<&2, String>, c, Some{w}, best), r) == True{} : Bool}) -> {inv(w <> rest, best, r) == True{} : Bool}:
+  match c:
+    case True{}:
+      AL.and_intro(Bool.or(N.member(w <> rest, r), best_is(best, r)), Bool.and(N.no_later(w <> rest, r), best_le(best, r)),
+        found_here(String.eq(w, r), N.member(rest, r), best_is(best, r), Comp.and_left(Bool.or(N.member(rest, r), String.eq(w, r)), Bool.and(N.no_later(rest, r), Nat.is_le(N.instant(w), N.instant(r))), ih)),
+        AL.and_intro(N.no_later(w <> rest, r), best_le(best, r),
+          AL.and_intro(Nat.is_le(N.instant(w), N.instant(r)), N.no_later(rest, r),
+            Comp.and_right(N.no_later(rest, r), Nat.is_le(N.instant(w), N.instant(r)), Comp.and_right(Bool.or(N.member(rest, r), String.eq(w, r)), Bool.and(N.no_later(rest, r), Nat.is_le(N.instant(w), N.instant(r))), ih)),
+            Comp.and_left(N.no_later(rest, r), Nat.is_le(N.instant(w), N.instant(r)), Comp.and_right(Bool.or(N.member(rest, r), String.eq(w, r)), Bool.and(N.no_later(rest, r), Nat.is_le(N.instant(w), N.instant(r))), ih))),
+          taken_best(best, w, r, ec, Comp.and_right(N.no_later(rest, r), Nat.is_le(N.instant(w), N.instant(r)), Comp.and_right(Bool.or(N.member(rest, r), String.eq(w, r)), Bool.and(N.no_later(rest, r), Nat.is_le(N.instant(w), N.instant(r))), ih)))))
+    case False{}:
+      AL.and_intro(Bool.or(N.member(w <> rest, r), best_is(best, r)), Bool.and(N.no_later(w <> rest, r), best_le(best, r)),
+        found_or(String.eq(w, r), N.member(rest, r), best_is(best, r), Comp.and_left(Bool.or(N.member(rest, r), best_is(best, r)), Bool.and(N.no_later(rest, r), best_le(best, r)), ih)),
+        AL.and_intro(N.no_later(w <> rest, r), best_le(best, r),
+          AL.and_intro(Nat.is_le(N.instant(w), N.instant(r)), N.no_later(rest, r),
+            passed_best(best, w, r, ec, Comp.and_right(N.no_later(rest, r), best_le(best, r), Comp.and_right(Bool.or(N.member(rest, r), best_is(best, r)), Bool.and(N.no_later(rest, r), best_le(best, r)), ih))),
+            Comp.and_left(N.no_later(rest, r), best_le(best, r), Comp.and_right(Bool.or(N.member(rest, r), best_is(best, r)), Bool.and(N.no_later(rest, r), best_le(best, r)), ih))),
+          Comp.and_right(N.no_later(rest, r), best_le(best, r), Comp.and_right(Bool.or(N.member(rest, r), best_is(best, r)), Bool.and(N.no_later(rest, r), best_le(best, r)), ih))))
+
+def newest_end(best: Maybe<&2, String>, +r: String, e: {best == Some{r} : Maybe<&2, String>}) -> {inv(Nil{}, best, r) == True{} : Bool}:
+  match best:
+    case None{}:
+      Empty.absurd({inv(Nil{}, None{}, r) == True{} : Bool}, none_some(r, e))
+    case Some{+b}:
+      %some_inj(b, r, e) : {Bool.and(Bool.or(False{}, String.eq(b, _)), Bool.and(True{}, Nat.is_le(N.instant(b), N.instant(_)))) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(b, b), True{}, S.eq_refl(b)) : {Bool.and(_, Nat.is_le(N.instant(b), N.instant(b))) == True{} : Bool}
+      le_refl(N.instant(b))
+
+def newest_inv(ws: List<&2, String>, +best: Maybe<&2, String>, +r: String, e: {N.newest(ws, best) == Some{r} : Maybe<&2, String>}) -> {inv(ws, best, r) == True{} : Bool}:
+  match ws:
+    case Nil{}:
+      newest_end(best, r, e)
+    case +w <> +rest:
+      newest_step(Nat.is_ge(N.instant(w), Maybe.default(&2, Nat, Maybe.map(&2, String, Nat, b => N.instant(b), best), 0n)), w, rest, best, r, {==},
+        newest_inv(rest, Bool.pick(Maybe<&2, String>, Nat.is_ge(N.instant(w), Maybe.default(&2, Nat, Maybe.map(&2, String, Nat, b => N.instant(b), best), 0n)), Some{w}, best), r, e))
+
+def or_false_id(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def and_true_id(b: Bool) -> {Bool.and(b, True{}) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def latest_ok(+ws: List<&2, String>, +r: String, e: {N.newest(ws, None{}) == Some{r} : Maybe<&2, String>}) -> {N.latest(ws, r) == True{} : Bool}:
+  %or_false_id(N.member(ws, r)) : {Bool.and(_, N.no_later(ws, r)) == True{} : Bool}
+  %and_true_id(N.no_later(ws, r)) : {Bool.and(Bool.or(N.member(ws, r), False{}), _) == True{} : Bool}
+  newest_inv(ws, None{}, r, e)
+
+# A blank message
+# ---------------
+
+def rev_nonempty(s: String, -c: Char, -acc: String) -> {String.is_empty(String.reverse.go(s, SCon{c, acc})) == False{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      rev_nonempty(t, h, SCon{c, acc})
+
+def empty_rev(s: String) -> {String.is_empty(String.reverse(s)) == String.is_empty(s) : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      rev_nonempty(t, h, SNil{})
+
+def and_swap(x: Bool, y: Bool, -z: Bool) -> {Bool.and(y, Bool.and(x, z)) == Bool.and(Bool.and(x, y), z) : Bool}:
+  match x y:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def every_rev_go_eq(~p: Char -> Bool, s: String, +acc: String) -> {N.every(~p, String.reverse.go(s, acc)) == Bool.and(N.every(~p, s), N.every(~p, acc)) : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      Equal.trans(Bool, N.every(~p, String.reverse.go(rest, SCon{c, acc})), Bool.and(N.every(~p, rest), Bool.and(p(c), N.every(~p, acc))), Bool.and(Bool.and(p(c), N.every(~p, rest)), N.every(~p, acc)),
+        every_rev_go_eq(~p, rest, SCon{c, acc}), and_swap(p(c), N.every(~p, rest), N.every(~p, acc)))
+
+def every_rev_eq(~p: Char -> Bool, +s: String) -> {N.every(~p, String.reverse(s)) == N.every(~p, s) : Bool}:
+  Equal.trans(Bool, N.every(~p, String.reverse(s)), Bool.and(N.every(~p, s), True{}), N.every(~p, s), every_rev_go_eq(~p, s, SNil{}), and_true_id(N.every(~p, s)))
+
+def drop_pick(b: Bool, -c: Char, -rest: String, -later: String, -all: Bool, ih: {String.is_empty(later) == all : Bool}) -> {String.is_empty(Bool.pick(String, b, later, SCon{c, rest})) == Bool.and(b, all) : Bool}:
+  match b:
+    case True{}:
+      ih
+    case False{}:
+      {==}
+
+# Leading space is dropped all the way exactly where there is nothing else.
+def empty_drop(s: String) -> {String.is_empty(N.drop_space(s)) == N.every(~N.is_space, s) : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      drop_pick(N.is_space(c), c, rest, N.drop_space(rest), N.every(~N.is_space, rest), empty_drop(rest))
+
+def every_pick(b: Bool, +c: Char, +rest: String, -later: String, ih: {N.every(~N.is_space, later) == N.every(~N.is_space, rest) : Bool}, e: {N.is_space(c) == b : Bool}) -> {N.every(~N.is_space, Bool.pick(String, b, later, SCon{c, rest})) == Bool.and(N.is_space(c), N.every(~N.is_space, rest)) : Bool}:
+  match b:
+    case True{}:
+      %Equal.sym(Bool, N.is_space(c), True{}, e) : {N.every(~N.is_space, later) == Bool.and(_, N.every(~N.is_space, rest)) : Bool}
+      ih
+    case False{}:
+      {==}
+
+def every_drop(s: String) -> {N.every(~N.is_space, N.drop_space(s)) == N.every(~N.is_space, s) : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      every_pick(N.is_space(c), c, rest, N.drop_space(rest), every_drop(rest), {==})
+
+def blank(+s: String) -> {String.is_empty(N.trim_space(s)) == N.every(~N.is_space, s) : Bool}:
+  Equal.trans(Bool, String.is_empty(N.trim_space(s)), String.is_empty(N.drop_space(String.reverse(N.drop_space(s)))), N.every(~N.is_space, s),
+    empty_rev(N.drop_space(String.reverse(N.drop_space(s)))),
+    Equal.trans(Bool, String.is_empty(N.drop_space(String.reverse(N.drop_space(s)))), N.every(~N.is_space, String.reverse(N.drop_space(s))), N.every(~N.is_space, s),
+      empty_drop(String.reverse(N.drop_space(s))),
+      Equal.trans(Bool, N.every(~N.is_space, String.reverse(N.drop_space(s))), N.every(~N.is_space, N.drop_space(s)), N.every(~N.is_space, s),
+        every_rev_eq(~N.is_space, N.drop_space(s)), every_drop(s))))
