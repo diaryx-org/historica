@@ -9,9 +9,10 @@ use std::env;
 use std::fmt;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 use historica::format::Timestamp;
-use historica::record::{Kinds, Restriction, survey};
+use historica::record::{Clock, Entropy, Kinds, Restriction, survey};
 use historica::store::{
     Bookmark, Content, Extent, Forgetting, HEADER_FILE, MutableConflict, Name, Placement,
     STORE_DIR, Store, StoreError,
@@ -317,8 +318,40 @@ fn no_statement_of_a_plan(command: &str, dry_run: bool, fields: bool) -> Result<
     Ok(())
 }
 
+/// Decision 0010's two inputs a writer cannot derive: what time it is, and
+/// identifiers nobody has minted before.
+///
+/// The library has always taken them as arguments; this is the command line
+/// taking them too, so that the one place they come from the machine is
+/// `main`. [`Platform`](historica::record::Platform) is what `historica` passes. The only other caller is
+/// `historica-pinned`, the test build `pinned.rs` makes, which a person never
+/// installs.
+pub trait Source: Clock + Entropy {}
+
+impl<S: Clock + Entropy> Source for S {}
+
+/// A whole program: run the command line, say what went wrong, and exit.
+pub fn main(platform: &mut impl Source) -> ExitCode {
+    match run(std::env::args().skip(1), platform) {
+        Ok(code) => ExitCode::from(code),
+        Err(failure) => {
+            if let Some(message) = failure.message() {
+                eprintln!("historica: {message}");
+            }
+            if failure.wants_usage() {
+                eprintln!();
+                eprint!("{}", usage());
+            }
+            ExitCode::from(failure.code())
+        }
+    }
+}
+
 /// Run one command line, returning the code to exit with.
-pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
+pub fn run(
+    arguments: impl IntoIterator<Item = String>,
+    platform: &mut impl Source,
+) -> Result<u8, Failure> {
     let mut arguments = arguments.into_iter();
     let mut base: Option<PathBuf> = None;
 
@@ -372,10 +405,10 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "names" => names(&base, rest),
         "name" => name(&base, rest),
         "skip" => skip(&base, rest),
-        "record" => record::record(&base, locate(&base)?, rest),
-        "amend" => record::amend(locate(&base)?, rest),
-        "abandon" => record::abandon(&base, locate(&base)?, rest),
-        "carry" => record::carry(locate(&base)?, rest),
+        "record" => record::record(&base, locate(&base)?, rest, platform),
+        "amend" => record::amend(locate(&base)?, rest, platform),
+        "abandon" => record::abandon(&base, locate(&base)?, rest, platform),
+        "carry" => record::carry(locate(&base)?, rest, platform),
         "prune" => prune(&base, rest),
         "receive" => receive(&base, rest),
         "export" => export::export(&base, locate(&base)?, rest),
