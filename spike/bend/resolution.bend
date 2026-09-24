@@ -222,6 +222,31 @@ def preamble(ls: List<&2, T.Line>) -> Result<&2, &2, String, Doc>:
 def parse(s: String) -> Result<&2, &2, String, Doc>:
   preamble(T.lines(s))
 
+# Writing
+# -------
+
+# The exact bytes of a resolution, as the Rust writer spells one: the
+# headers, the blank line, and each piece — a `keep` as its three fields, an
+# `insert` as its items, `\ forgotten` where one's text was destroyed.
+def write.piece(p: Piece) -> String:
+  match p:
+    case Piece.Keep{d, first, count}:
+      "keep " ++ d ++ " " ++ T.spell(first) ++ " " ++ T.spell(count) ++ "\n"
+    case Piece.Insert{items}:
+      "insert\n" ++ Ops.write_items('+', items)
+
+def write.pieces(ps: List<&2, Piece>) -> String:
+  match ps:
+    case Nil{}:
+      SNil{}
+    case p <> rest:
+      write.piece(p) ++ write.pieces(rest)
+
+def write(d: Doc) -> String:
+  match d:
+    case Doc{forgets, result, pieces}:
+      "historica\n" ++ Ops.header_line("forgets", forgets) ++ Ops.header_line("result", result) ++ "\n" ++ write.pieces(pieces)
+
 # What a resolution names
 # -----------------------
 

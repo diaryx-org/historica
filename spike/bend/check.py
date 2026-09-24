@@ -619,6 +619,58 @@ STORES = {
     ],
     # A rewrite that arrived without its carries: the repair, swept, named,
     # and planned; and what already rewritten refuses.
+    # Decisions 0014, 0050 and 0066, read: a store the Rust tool's `forget`
+    # destroyed lines of — of an edit, of a file added whole, of a line a
+    # merge's resolution copied — and a payload of bytes in, with two
+    # stand-ins for one document. Every reading command reads the stand-ins
+    # where the originals were; `record`, `amend` and `carry` read them too.
+    "forgotten": [
+        ["log"],
+        ["files", "head"],
+        ["cat", "head", "notes.md"],
+        ["cat", "first", "notes.md"],
+        ["cat", "r1", "notes.md"],
+        ["cat", "r3", "notes.md"],
+        ["cat", "r9", "notes.md"],
+        ["cat", "first", "photo.bin"],
+        ["cat", "r5", "photo.bin"],
+        ["cat", "m1", "f.md"],
+        ["cat", "left", "f.md"],
+        ["cat", "head", "f.md"],
+        ["show", "head", "notes.md"],
+        ["show", "first", "notes.md"],
+        ["show", "r1", "notes.md"],
+        ["show", "r3", "notes.md"],
+        ["show", "first", "photo.bin"],
+        ["show", "m1", "f.md"],
+        ["show", "left", "f.md"],
+        ["diff", "head"],
+        ["diff", "first"],
+        ["diff", "r1"],
+        ["diff", "r3"],
+        ["diff", "r5"],
+        ["diff", "left"],
+        ["diff", "m1", "--onto", "left"],
+        ["diff", "m1", "--onto", "right"],
+        ["diff", "head", "--onto", "first"],
+        ["blame", "head", "notes.md"],
+        ["blame", "first", "notes.md"],
+        ["blame", "r3", "notes.md"],
+        ["blame", "m1", "f.md"],
+        ["blame", "left", "f.md"],
+        ["blame", "notes.md"],
+        ["blame", "f.md"],
+        ["status"],
+        ["status", "--onto", "r9"],
+        ["diff"],
+        ["diff", "--onto", "r1"],
+        ["record", "-n"],
+        ["record", "-m", "again"],
+        ["record", "notes.md", "-m", "some"],
+        ["amend", "-m", "reworded"],
+        ["carry", "r13", "--onto", "r11"],
+        ["carry", "left", "--onto", "right"],
+    ],
     "stranded": [
         ["carry", "-n"],
         ["carry"],
@@ -1160,6 +1212,53 @@ def record(temporary, rust, corpus, pinned=None):
                     tombstone.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, tombstone)
             shutil.rmtree(elsewhere)
+    elif corpus in ("forgotten", "forgetting"):
+        # A file of lines edited a line at a time, long enough that reading
+        # it leaves the Rust tool a state in `cache/`; a file of bytes
+        # replaced twice; a merge whose resolution copies a line it moved;
+        # an empty file and a link. `forgotten` then has the Rust tool's
+        # `forget` destroy some of each; `forgetting` is where `forget`
+        # itself is compared.
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        notes = ["one", "two", "three", "four", "five", "six"]
+        (store / "notes.md").write_text("".join(f"{line}\n" for line in notes))
+        (store / "photo.bin").write_bytes(b"\x00\x01first")
+        (store / "f.md").write_text("a\nb\n")
+        (store / "empty.md").write_text("")
+        os.symlink("notes.md", store / "link")
+        rec("first", "-m", "first")
+        for n in range(1, 18):
+            notes[n % 5] = f"edit {n}"
+            (store / "notes.md").write_text("".join(f"{line}\n" for line in notes))
+            if n in (5, 10):
+                (store / "photo.bin").write_bytes(b"\x00\x02" + bytes(str(n), "ascii"))
+            rec(f"r{n}", "-m", f"edit {n}")
+        (store / "f.md").write_text("a\nb\nL\n")
+        rec("left", "-m", "left")
+        (store / "f.md").write_text("R\na\nb\n")
+        rec("right", "--onto", "r17", "-m", "right")
+        (store / "f.md").write_text("L\nR\na\nb\n")
+        rec("m1", "--merge", "left", "--merge", "right", "-m", "merged")
+        notes[5] = "six, at last"
+        (store / "notes.md").write_text("".join(f"{line}\n" for line in notes))
+        rec("after", "-m", "after the merge")
+        if corpus == "forgotten":
+            historica("forget", "first", "notes.md", "--lines", "2")
+            historica("forget", "head", "notes.md", "--lines", "3..4")
+            historica("forget", "left", "f.md", "--lines", "3")
+            historica("forget", "first", "photo.bin")
+            # A second span of a document already forgotten: two stand-ins
+            # for one digest, read together.
+            historica("forget", "first", "notes.md", "--lines", "4")
+        # Read, so that `cache/` holds a state of the file and a catalogue
+        # of `operations/` as it now stands: what `forget` destroys the
+        # copies in, and what it leaves alone.
+        historica("cat", "head", "notes.md")
+        historica("cat", "r9", "notes.md")
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1291,7 +1390,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "forgotten", "forgetting")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -2013,6 +2112,13 @@ def check_mutations(temporary):
             "    None{}))\n\ndef name.usable.r(",
             "name_lemmas.stays",
             "commands.bend",
+        ),
+        (
+            "show takes a document as standing in whatever its header forgets",
+            "    case True{} True{} _:\n      Taken.Stands{}",
+            "    case _ True{} _:\n      Taken.Stands{}",
+            "show_lemmas.taken_says",
+            "standin.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):
