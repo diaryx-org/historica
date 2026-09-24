@@ -251,9 +251,11 @@ STORES = {
         ["show", "mzvw", "docs/README.md"],
         ["show", "zzzz"],
         ["show", "nope"],
+        ["status"],
+        ["status", "--onto", "kxry"],
     ],
-    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"]],
-    "merged": [["log"], ["files", "head"]],
+    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"], ["status"]],
+    "merged": [["log"], ["files", "head"], ["status"]],
     "links": [
         ["log"],
         ["files", "head"],
@@ -266,13 +268,15 @@ STORES = {
         ["diff", "kxry"],
         ["blame", "head", "current"],
         ["diff"],
+        ["status"],
+        ["status", "--onto", "kxry"],
     ],
-    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"]],
+    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"]],
     "whole": [
         ["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"],
         ["diff", "head"], ["blame", "head", "notes/photo.png"], ["blame", "head", "notes/2026-08-20.md"],
         # An assembled store has no folder beside it, so everything is gone.
-        ["diff"], ["blame", "notes/2026-08-20.md"],
+        ["diff"], ["blame", "notes/2026-08-20.md"], ["status"],
     ],
     # Recorded here by the Rust tool rather than taken from a corpus: the
     # widest path holds characters outside ASCII, which the Rust tool
@@ -338,6 +342,11 @@ STORES = {
         ["blame", "renamed.md"],
         ["diff", "--onto", "tip"],
         ["blame", "renamed.md", "--lines", "1..1"],
+        ["status"],
+        ["status", "--onto", "tip"],
+        ["status", "--onto", "base"],
+        ["status", "--onto", "zzzz"],
+        ["status", "--onto", "base", "--onto", "tip"],
     ],
     # The folder against the position: an edit, a file gone, files new —
     # text and bytes — a file of bytes changed, a mode, links retargeted,
@@ -368,13 +377,38 @@ STORES = {
         ["blame", "deep/scratch.tmp"],
         ["blame", "nope.md"],
         ["blame", "file:zz"],
+        ["status"],
+        ["status", "--onto", "first"],
     ],
     # A rule file stating two rules: the store will not open.
-    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"]],
+    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"]],
     # Nothing recorded yet: every file is the folder's own.
-    "fresh": [["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"]],
+    "fresh": [["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"]],
     # A file recorded as lines that is no longer text.
-    "notext": [["diff"], ["diff", "kept.md"], ["blame", "notes.md"]],
+    "notext": [["diff"], ["diff", "kept.md"], ["blame", "notes.md"], ["status"]],
+    # What `status` says of a folder: files moved with `mv`, of lines and of
+    # bytes, one to one and not; empty files, which match nothing; links
+    # spelled differently to the same file, pointing at an arrival, at a
+    # file going, at an absolute path, and at `file:`; names the format
+    # cannot hold, a target that is not UTF-8, and a pipe.
+    # And a file added empty, which every reader takes as no lines at all.
+    "surveyed": [["status"], ["status", "--onto", "first"], ["diff"], ["diff", "first"], ["cat", "first", "empty.md"], ["blame", "first", "empty.md"]],
+    # A rule skipping a file the position holds: `status` refuses.
+    "skipheld": [["status"], ["diff"]],
+    # Two lines of work from one base, being joined: a file both moved, bytes
+    # both changed, a file one dropped and the other edited, a link each
+    # pointed elsewhere, a mode one changed, and a file both edited — which
+    # the folder resolves, so a merge owes it — beside one both left alone.
+    "joining": [
+        ["status", "--onto", "left", "--merge", "right"],
+        ["status", "--merge", "left", "--merge", "right"],
+        ["status", "--merge", "right", "--onto", "left"],
+        ["status", "--merge", "right"],
+        ["status", "--onto", "left", "--merge", "left"],
+        ["status", "--onto", "left"],
+        ["status", "--onto", "right"],
+        ["status", "--merge", "base", "--merge", "left"],
+    ],
 
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
@@ -405,6 +439,8 @@ STORES = {
         *(["cat", target, path] for target in ("resolved", "crossed") for path in ("f.md", "g.md")),
         *(["blame", target, path] for target in ("resolved", "side", "crossed") for path in ("f.md", "g.md")),
         ["diff", "crossed", "--onto", "side"],
+        ["status", "--onto", "after", "--merge", "crossed"],
+        ["status", "--merge", "tops", "--merge", "all"],
     ],
 }
 
@@ -600,6 +636,95 @@ def record(temporary, rust, corpus):
             (store / "history" / "skipped" / "two.txt").write_text("skip a\nskip b\n")
         if corpus == "notext":
             (store / "notes.md").write_bytes(b"one\n\xff\xfe\n")
+    elif corpus == "surveyed":
+        (store / "a.md").write_text("alpha\nbeta\n")
+        (store / "b.bin").write_bytes(b"\x00bin")
+        (store / "twin1.md").write_text("same\n")
+        (store / "twin2.md").write_text("same\n")
+        (store / "empty.md").write_text("")
+        (store / "edited.md").write_text("one\n")
+        (store / "target.md").write_text("pointed at\n")
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        os.symlink("target.md", store / "ref")
+        os.symlink("sub/deep.md", store / "ref2")
+        os.symlink("/etc/hosts", store / "abs")
+        os.symlink("b.bin", store / "to-bin")
+        historica("record", "-m", "one")
+        historica("name", "first", "head", "--revision")
+        (store / "edited.md").write_text("one\ntwo\n")
+        (store / "a.md").write_text("alpha\nbeta\ngamma\n")
+        historica("record", "-m", "two")
+        os.rename(store / "a.md", store / "renamed.md")
+        os.rename(store / "b.bin", store / "moved.bin")
+        (store / "twin1.md").unlink()
+        (store / "twin2.md").unlink()
+        (store / "twin-new.md").write_text("same\n")
+        (store / "empty.md").unlink()
+        (store / "fresh-empty.md").write_text("")
+        (store / "edited.md").write_text("one\ntwo\nthree\n")
+        os.remove(store / "ref")
+        os.symlink("./target.md", store / "ref")
+        os.remove(store / "ref2")
+        os.symlink("sub/../sub/deep.md", store / "ref2")
+        os.remove(store / "abs")
+        os.symlink("/etc/passwd", store / "abs")
+        os.symlink("renamed.md", store / "to-arrival")
+        os.symlink("file:x", store / "bad-link")
+        os.symlink(b"\xff", os.fsencode(store / "unreadable-link"))
+        (store / "trailing .md").write_text("a space at the end\n")
+        (store / "bell\x07.md").write_text("a control character\n")
+        (store / "d ").mkdir()
+        (store / "d " / "x.md").write_text("a space inside\n")
+        os.mkfifo(store / "pipe")
+        (store / "run-new.sh").write_text("#!/bin/sh\n")
+        (store / "run-new.sh").chmod(0o755)
+        (store / "sub" / "deep.md").chmod(0o755)
+    elif corpus == "joining":
+        (store / "a.md").write_text("one\ntwo\n")
+        (store / "b.md").write_text("bee\n")
+        (store / "c.bin").write_bytes(b"\x00base")
+        (store / "run.sh").write_text("#!/bin/sh\n")
+        (store / "gone.md").write_text("going\n")
+        (store / "same.md").write_text("same\n")
+        (store / "empty-me.md").write_text("both\n")
+        os.symlink("a.md", store / "lnk")
+        historica("record", "-m", "base")
+        historica("name", "base", "head", "--revision")
+        (store / "a.md").write_text("one\ntwo\nleft\n")
+        (store / "empty-me.md").write_text("both\nleft\n")
+        (store / "b.md").rename(store / "b-left.md")
+        (store / "c.bin").write_bytes(b"\x00left")
+        (store / "run.sh").chmod(0o755)
+        (store / "gone.md").unlink()
+        os.remove(store / "lnk")
+        os.symlink("same.md", store / "lnk")
+        historica("record", "--move", "b.md=b-left.md", "-m", "left")
+        historica("name", "left", "head", "--revision")
+        (store / "a.md").write_text("right\none\ntwo\n")
+        (store / "empty-me.md").write_text("right\nboth\n")
+        (store / "b-left.md").rename(store / "b-right.md")
+        (store / "c.bin").write_bytes(b"\x00right")
+        (store / "run.sh").chmod(0o644)
+        (store / "gone.md").write_text("going\nstill\n")
+        os.remove(store / "lnk")
+        os.symlink("b-right.md", store / "lnk")
+        historica("record", "--onto", "base", "--move", "b.md=b-right.md", "-m", "right")
+        fields = subprocess.run([rust, "log", "--fields"], cwd=store, env=env, check=True, capture_output=True, text=True).stdout
+        left = (store / "history" / "names" / "left.txt").read_text().split()[1]
+        right = next(line.split()[0] for line in fields.splitlines()[1:] if "head" in line.split()[3] and line.split()[0] != left)
+        historica("name", "right", right, "--revision")
+        (store / "a.md").write_text("right\none\ntwo\nleft\n")
+        (store / "empty-me.md").write_text("")
+        (store / "new.md").write_text("new\n")
+    elif corpus == "skipheld":
+        (store / "kept.md").write_text("kept\n")
+        (store / "private.md").write_text("private\n")
+        (store / "also.md").write_text("also\n")
+        historica("record", "-m", "one")
+        (store / "history" / "skipped").mkdir(exist_ok=True)
+        (store / "history" / "skipped" / "private.txt").write_text("skip private.md\n")
+        (store / "history" / "skipped" / "also.txt").write_text("skip also.md\n")
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -681,7 +806,7 @@ def check_store(temporary):
     parallel(builds)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining")
         store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -1311,6 +1436,27 @@ def check_mutations(temporary):
             '  +ys2 = List.sort(~Tree.Entry, ~(a => b => String.is_le(Tree.entry_file(b), Tree.entry_file(a))), ys)',
             "pair_lemmas.pairs_by_file",
             "main.bend",
+        ),
+        (
+            "the walk refuses a path without asking the rules",
+            "  Bool.pick(Maybe<&2, T.Split>, Bool.or(is_store(prefix, name), skips(rules, joined(prefix, name))), None{}, refusal.kind(",
+            "  Bool.pick(Maybe<&2, T.Split>, is_store(prefix, name), None{}, refusal.kind(",
+            "survey_lemmas.of_ok",
+            "folder.bend",
+        ),
+        (
+            "a refusal names a path other than the one the rules were asked about",
+            '      Some{T.Split{path, "not a regular file"}}',
+            '      Some{T.Split{"", "not a regular file"}}',
+            "survey_lemmas.kind_ok",
+            "folder.bend",
+        ),
+        (
+            "status says an arriving file changed as well",
+            '  List.append(&2, T.Split, fact("edited", without(sorted(edited(os)), arriving)),',
+            '  List.append(&2, T.Split, fact("edited", sorted(edited(os))),',
+            "survey_lemmas.facts_ok",
+            "survey.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):

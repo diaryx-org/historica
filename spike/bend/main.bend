@@ -20,6 +20,9 @@
 #   bend main.bend -- blame [<target>] <path> [--lines <first>..<last>]
 #                                            who wrote each line
 #   bend main.bend -- opdiff <parent> <child> the operation document between two files
+#   bend main.bend -- status [--onto <target>] [--merge <target>]..
+#                                            where the folder is, and what it
+#                                            differs by
 #
 # Or compile it: `bend main.bend -o main.c`, then link the archive `ffi/`
 # builds — `check.py` does both. What `bend main.bend` runs and what the
@@ -44,6 +47,7 @@ import ./merge.bend as Merge
 import ./similar.bend as Sim
 import ./folder.bend as Folder
 import ./unicode.bend as Uni
+import ./survey.bend as Sv
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -802,15 +806,21 @@ def is_divergent(state: Rev.ChangeState) -> Bool:
     case _:
       False{}
 
-def marks(+id: String, +change: String, parents: List<&2, String>, supersedes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> String:
+def marks.list(+id: String, +change: String, parents: List<&2, String>, supersedes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> List<&2, String>:
   +n_parents = List.length(&2, String, parents)
   +n_supersedes = List.length(&2, String, supersedes)
-  +ms = mark(Rev.member(heads, id), "head",
+  mark(Rev.member(heads, id), "head",
     mark(Nat.is_gt(n_parents, 1n), "merge",
     mark(Rev.member(gone, id), "superseded",
     mark(Nat.is_gt(n_supersedes, 0n), "rewrites " ++ Nat.show(n_supersedes),
     mark(is_divergent(Rev.change_state(h, change)), "divergent", Nil{})))))
+
+# Marks as they sit after a digest, or nothing where there are none.
+def parenthesised(+ms: List<&2, String>) -> String:
   Bool.pick(String, List.is_empty(&2, String, ms), SNil{}, "  (" ++ String.join(ms, ", ") ++ ")")
+
+def marks(+id: String, +change: String, parents: List<&2, String>, supersedes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> String:
+  parenthesised(marks.list(id, change, parents, supersedes, heads, gone, h))
 
 def revised_line(by: Maybe<&2, String>, at: Maybe<&2, String>) -> IO(Unit):
   match by at:
@@ -5816,11 +5826,523 @@ def opdiff(parent: String, child: String) -> IO(Unit):
     c : Store.Doc <- Store.read_doc(child)
     opdiff.print(Ops.diff(Ops.from_text(Store.text_of(p)), Ops.from_text(Store.text_of(c))))
 
+# status
+# ------
+
+# `status [--onto <target>] [--merge <target>]..`, read as the Rust tool
+# reads it: `--onto` takes the word after it, the last counting, and each
+# `--merge` names one more revision being joined.
+type StatusCmd is Data:
+  StatusCmd{onto: Maybe<&2, String>, merges: List<&2, String>}
+
+def status.args.go(args: List<&2, String>, onto: Maybe<&2, String>, merges: List<&2, String>) -> Result<&2, &2, Refused, StatusCmd>:
+  match args:
+    case Nil{}:
+      Done{StatusCmd{onto, List.reverse(&2, String, merges)}}
+    case "--onto" <> Nil{}:
+      Fail{Refused{2, "`--onto` wants a value"}}
+    case "--onto" <> v <> rest:
+      status.args.go(rest, Some{v}, merges)
+    case "--merge" <> Nil{}:
+      Fail{Refused{2, "`--merge` wants a value"}}
+    case "--merge" <> v <> rest:
+      status.args.go(rest, onto, v <> merges)
+    case other <> rest:
+      Fail{Refused{2, "`" ++ other ++ "` is not an argument `status` takes"}}
+
+def status.args.r(args: List<&2, String>) -> Result<&2, &2, Refused, StatusCmd>:
+  status.args.go(args, None{}, Nil{})
+
+# A rule covering a file the position holds is refused before anything is
+# described: the walk never offered the path, so it would read as dropped,
+# and a person who wrote the rule for privacy would get the opposite.
+def skipped_held(+rules: List<&2, Folder.Scope>, t: Tree.Tree()) -> List<&2, String>:
+  match t:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      +later = skipped_held(rules, rest)
+      Bool.pick(List<&2, String>, Folder.skips(rules, Tree.entry_path(e)), Tree.entry_path(e) <> later, later)
+
+def skips_held.lines(ps: List<&2, String>) -> String:
+  match ps:
+    case Nil{}:
+      SNil{}
+    case p <> rest:
+      "\n  " ++ p ++ skips_held.lines(rest)
+
+def skips_held.r(+ps: List<&2, String>) -> Result<&2, &2, Refused, Unit>:
+  +one = Nat.is_eq(List.length(&2, String, ps), 1n)
+  Bool.pick(Result<&2, &2, Refused, Unit>, List.is_empty(&2, String, ps), Done{Unit{}},
+    Fail{Refused{1, "`history/skipped/` skips " ++ Bool.pick(String, one, "a file", Nat.show(List.length(&2, String, ps)) ++ " files") ++ " history already holds, so recording would spell " ++ Bool.pick(String, one, "it", "them") ++ " as a deletion; delete the " ++ Bool.pick(String, one, "file", "files") ++ " first and record that, or drop the rule — history holds what it holds, and `forget` is what removes recorded content:" ++ skips_held.lines(ps)}})
+
+# What the survey needs to know of a path's content at the position: the
+# digest of a file of lines, where the folder holds a file there to compare
+# with or holds nothing and an arrival might be it moved.
+def status.lines(h: Here) -> Bool:
+  match h:
+    case Here{p, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}:
+      True{}
+    case Here{p, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, None{}}:
+      True{}
+    case _:
+      False{}
+
+def status.edits(+os: Map<&2, T.Split>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      List.append(&2, String, edit_of(os, h, status.lines(h)), status.edits(os, rest))
+
+# The files whose digest nothing states, which are replayed.
+def status.unknown(+eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      +later = status.unknown(eds, os, rest)
+      Bool.pick(List<&2, String>, Bool.and(status.lines(h), Maybe.is_none(&2, String, stated_digest(eds, origin(os, here.file(h))))), here.file(h) <> later, later)
+
+def status.digest.of(+stated: Maybe<&2, String>, +older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +file: String) -> Result<&2, &2, String, String>:
+  match stated:
+    case Some{d}:
+      Done{d}
+    case None{}:
+      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), content.in(older, ds, left, file))
+
+# Each such file's digest at the position, by file: stated where the
+# nearest statement says it, replayed where it does not.
+def status.lined(hs: List<&2, Here>) -> List<&2, Here>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      +later = status.lined(rest)
+      Bool.pick(List<&2, Here>, status.lines(h), h <> later, later)
+
+def status.befores.go(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, hs: List<&2, Here>, m: Map<&2, String>) -> Result<&2, &2, String, Map<&2, String>>:
+  match hs:
+    case Nil{}:
+      Done{m}
+    case +h <> rest:
+      +file = here.file(h)
+      do Result<&2, &2, String, Map<&2, String>>:
+        d : String <- status.digest.of(stated_digest(eds, origin(os, file)), older, ds, left, file)
+        status.befores.go(older, ds, left, eds, os, rest, Map.set(&2, String, m, file, d))
+
+def status.befores(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, hs: List<&2, Here>, m: Map<&2, String>) -> Result<&2, &2, String, Map<&2, String>>:
+  status.befores.go(older, ds, left, eds, os, status.lined(hs), m)
+
+def status.befores.r(r: Result<&2, &2, String, Map<&2, String>>) -> Result<&2, &2, Refused, Map<&2, String>>:
+  match r:
+    case Fail{e}:
+      Fail{Refused{1, e}}
+    case Done{m}:
+      Done{m}
+
+def looked_up(+key: String, r: Map<&2, String> & String) -> Maybe<&2, String>:
+  (m, v) = r
+  +v2 = v
+  Bool.pick(Maybe<&2, String>, String.is_empty(v2), None{}, Some{v2})
+
+# What the position's content has for the survey: the payload of a file of
+# bytes, the digest of a file of lines, and nothing for a link.
+def status.before(+bf: Map<&2, String>, e: Maybe<&2, Tree.Entry>) -> Maybe<&2, String>:
+  match e:
+    case Some{Tree.Entry{+f, p, Tree.Lines{}, y, g, m}}:
+      looked_up(f, Map.get(String, SNil{}, bf, f))
+    case Some{Tree.Entry{f, p, Tree.Whole{}, y, g, m}}:
+      y
+    case _:
+      None{}
+
+def status.folder_digest(+dg: Map<&2, String>, +path: String) -> String:
+  T.word(stat_of(path, Map.get(String, SNil{}, dg, path)))
+
+# A file of lines is read only where its digest differs from the
+# position's: that is where it has to be text still.
+def status.read(+dg: Map<&2, String>, +bf: Map<&2, String>, h: Here) -> Bool:
+  match h:
+    case Here{+path, Some{Tree.Entry{+f, q, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}:
+      Bool.not(Sv.same(looked_up(f, Map.get(String, SNil{}, bf, f)), status.folder_digest(dg, path)))
+    case _:
+      False{}
+
+def status.reads(+dg: Map<&2, String>, +bf: Map<&2, String>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      Rev.keep(status.read(dg, bf, h), here.path(h), status.reads(dg, bf, rest))
+
+def status.shown(+t: Tree.Tree(), +path: String, e: Maybe<&2, Tree.Entry>) -> Maybe<&2, String>:
+  match e:
+    case Some{Tree.Entry{f, p, Tree.Link{}, y, Some{g}, m}}:
+      Some{materialise(t, path, g)}
+    case _:
+      None{}
+
+# Where the parents being joined leave a file of lines differently, its
+# digest is `-`: there is none to compare with.
+def status.proposed(+bf: Map<&2, String>, e: Maybe<&2, Tree.Entry>) -> Bool:
+  match e:
+    case Some{Tree.Entry{+f, p, Tree.Lines{}, y, g, m}}:
+      String.eq(stat_of(f, Map.get(String, SNil{}, bf, f)), "-")
+    case _:
+      False{}
+
+def status.seen(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, h: Here) -> Sv.Seen:
+  match h:
+    case Here{+path, +e, found}:
+      +proposed = status.proposed(bf, e)
+      Sv.Seen{path, e, found, status.folder_digest(dg, path), Bool.pick(Maybe<&2, String>, proposed, None{}, status.before(bf, e)), Folder.is_utf8(bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path))), status.shown(t, path, e), proposed}
+
+def status.seens(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Here>) -> List<&2, Sv.Seen>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case h <> rest:
+      status.seen(t, dg, bf, reads, h) <> status.seens(t, dg, bf, reads, rest)
+
+# Joining
+# -------
+
+# One parent's content of a file, as a digest: `None` where that parent's
+# history never mentions it, which disagrees with nobody.
+def status.joined.found(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +p: String, +file: String, found: Maybe<&2, Result<&2, &2, String, Rule>>) -> Result<&2, &2, String, Maybe<&2, String>>:
+  match found:
+    case None{}:
+      Done{None{}}
+    case Some{r}:
+      Result.map(&2, &2, String, List<&2, Ops.Item>, Maybe<&2, String>, items => Some{Ops.state_digest(items)}, content.found(older, ds, p, file, Some{r}))
+
+def status.joined.one(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, +p: String) -> Result<&2, &2, String, Maybe<&2, String>>:
+  +older = oldest_of(fs, Some{p})
+  status.joined.found(older, ds, p, file, content_of(contents.go(older, ds, file, Nil{}), p))
+
+def status.joined.each(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, ps: List<&2, String>) -> Result<&2, &2, String, List<&2, Maybe<&2, String>>>:
+  match ps:
+    case Nil{}:
+      Done{Nil{}}
+    case +p <> rest:
+      do Result<&2, &2, String, List<&2, Maybe<&2, String>>>:
+        x : Maybe<&2, String> <- status.joined.one(fs, ds, file, p)
+        xs : List<&2, Maybe<&2, String>> <- status.joined.each(fs, ds, file, rest)
+        return x <> xs
+
+def somes(xs: List<&2, Maybe<&2, String>>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case None{} <> rest:
+      somes(rest)
+    case Some{x} <> rest:
+      x <> somes(rest)
+
+def all_eq(xs: List<&2, String>, +d: String) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(String.eq(x, d), all_eq(rest, d))
+
+# `record::joined_content`, as a digest: what every parent that mentions the
+# file leaves it as, nothing where none does, and `-` where they differ.
+def status.agree(+xs: List<&2, String>) -> String:
+  match xs:
+    case Nil{}:
+      Sv.EMPTY()
+    case +d <> rest:
+      Bool.pick(String, all_eq(rest, d), d, "-")
+
+def status.joined.go(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, hs: List<&2, Here>, m: Map<&2, String>) -> Result<&2, &2, String, Map<&2, String>>:
+  match hs:
+    case Nil{}:
+      Done{m}
+    case +h <> rest:
+      +file = here.file(h)
+      do Result<&2, &2, String, Map<&2, String>>:
+        xs : List<&2, Maybe<&2, String>> <- status.joined.each(fs, ds, file, ps)
+        status.joined.go(fs, ds, ps, rest, Map.set(&2, String, m, file, status.agree(somes(xs))))
+
+# The digests at one parent: stated where the nearest statement says, and
+# replayed where it does not.
+def status.befores.one(+root: String, +fs: List<&2, Full>, +left: String, +hs: List<&2, Here>) -> IO(Map<&2, String>):
+  do IO<Map<&2, String>>:
+    +l : Maybe<&2, String> = Some{left}
+    +os : Map<&2, T.Split> = origins.map(chain(fs, l), Map.new(&2, T.Split))
+    eds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), status.edits(os, hs))))
+    +eds2 : List<&2, Store.Doc> = eds
+    ds : List<&2, Store.Doc> <- Store.fetch(root, wanted_all(fs, status.unknown(eds2, os, hs)))
+    +ds2 : List<&2, Store.Doc> = ds
+    more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
+    refused.io(Map<&2, String>, status.befores.r(status.befores(oldest_of(fs, l), List.append(&2, Store.Doc, ds2, more), left, eds2, os, hs, Map.new(&2, String))))
+
+# The digests where several parents are joined, every one replayed.
+def status.befores.joined(+root: String, +fs: List<&2, Full>, +ps: List<&2, String>, +hs: List<&2, Here>) -> IO(Map<&2, String>):
+  do IO<Map<&2, String>>:
+    +lined : List<&2, Here> = status.lined(hs)
+    ds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), wanted_all(fs, T.map(~Here, ~String, ~(h => here.file(h)), lined)))))
+    +ds2 : List<&2, Store.Doc> = ds
+    more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
+    refused.io(Map<&2, String>, status.befores.r(status.joined.go(fs, List.append(&2, Store.Doc, ds2, more), ps, lined, Map.new(&2, String))))
+
+def status.befores.io(+root: String, +fs: List<&2, Full>, ps: List<&2, String>, +hs: List<&2, Here>) -> IO(Map<&2, String>):
+  match ps:
+    case Nil{}:
+      IO.pure(Map<&2, String>, Map.new(&2, String))
+    case +p <> Nil{}:
+      status.befores.one(root, fs, p, hs)
+    case +several:
+      status.befores.joined(root, fs, several, hs)
+
+# The file set the parents leave, and where concurrent work met deciding
+# it: `store::merged_tree_of`, over everything they reach.
+def status.tree.of.r(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> Result<&2, &2, Refused, Tree.Merged>:
+  match merged:
+    case Fail{e}:
+      Fail{Refused{1, id ++ ": " ++ Tree.fault_show(e)}}
+    case Done{m}:
+      Done{m}
+
+def status.tree.r(+fs: List<&2, Full>, +ps: List<&2, String>) -> Result<&2, &2, Refused, Tree.Merged>:
+  match ps:
+    case Nil{}:
+      Done{Tree.Merged{Nil{}, Nil{}}}
+    case +first <> rest:
+      status.tree.of.r(first, Tree.merge(events_of(picked(reached.all(fs, ps), Pick{waiting(fs), Nil{}}))))
+
+# `target::parents`: `--onto`, then each `--merge`, none named twice; the
+# head where nothing is named, or where one `--merge` is all there is; in
+# digest order.
+def status.onto.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, onto: Maybe<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
+  match onto:
+    case None{}:
+      Done{Nil{}}
+    case Some{+t}:
+      do Result<&2, &2, Refused, List<&2, String>>:
+        f : Full <- resolved.r(fs, bs, t)
+        return [id_of(f)]
+
+def status.named(+m: String, +id: String, +ps: List<&2, String>, twice: Bool) -> Result<&2, &2, Refused, List<&2, String>>:
+  match twice:
+    case True{}:
+      Fail{Refused{1, "`" ++ m ++ "` is named twice, and a revision is its own parent exactly never"}}
+    case False{}:
+      Done{List.append(&2, String, ps, [id])}
+
+def status.merged.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, ms: List<&2, String>, +ps: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
+  match ms:
+    case Nil{}:
+      Done{ps}
+    case +m <> rest:
+      do Result<&2, &2, Refused, List<&2, String>>:
+        f : Full <- resolved.r(fs, bs, m)
+        +id : String = id_of(f)
+        more : List<&2, String> <- status.named(m, id, ps, Rev.member(ps, id))
+        status.merged.r(fs, bs, rest, more)
+
+def status.with_head(h: Maybe<&2, String>, +ps: List<&2, String>) -> List<&2, String>:
+  match h:
+    case None{}:
+      ps
+    case Some{+id}:
+      Bool.pick(List<&2, String>, Rev.member(ps, id), ps, List.append(&2, String, ps, [id]))
+
+def status.head.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, wants: Bool) -> Result<&2, &2, Refused, List<&2, String>>:
+  match wants:
+    case False{}:
+      Done{ps}
+    case True{}:
+      do Result<&2, &2, Refused, List<&2, String>>:
+        h : Maybe<&2, String> <- the_head.r(fs, bs, current_heads(history(fs)))
+        return status.with_head(h, ps)
+
+def status.parents.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, String>, +ms: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
+  do Result<&2, &2, Refused, List<&2, String>>:
+    first : List<&2, String> <- status.onto.r(fs, bs, onto)
+    named : List<&2, String> <- status.merged.r(fs, bs, ms, first)
+    +n : List<&2, String> = named
+    +len : Nat = List.length(&2, String, n)
+    all : List<&2, String> <- status.head.r(fs, bs, n, Bool.or(Nat.is_eq(len, 0n), Bool.and(Nat.is_eq(len, 1n), Bool.and(Bool.not(List.is_empty(&2, String, ms)), Maybe.is_none(&2, String, onto)))))
+    return distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), all))
+
+# `render::contest_line`: one tree contest, as a person needs to hear it.
+# A path several files claim is said as `claimed` instead.
+def ab8(xs: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case x <> rest:
+      String.take(x, 8n) <> ab8(rest)
+
+def lower_of(+what: String, +cs: List<&2, Tree.Claim>) -> String:
+  what ++ Tree.first_what(cs, SNil{}) ++ ", which is the lower digest of " ++ String.join(Tree.claims_what(cs), " and ")
+
+def contest.line(c: Tree.Contest) -> Maybe<&2, String>:
+  match c:
+    case Tree.Dropped{f, by}:
+      Some{"kept " ++ String.take(f, 8n) ++ " : " ++ String.join(ab8(by), ", ") ++ " dropped it, and concurrent work did not"}
+    case Tree.Moved{f, +cs}:
+      Some{"moved " ++ String.take(f, 8n) ++ lower_of(" to ", cs)}
+    case Tree.Content{f, cs}:
+      Some{String.take(f, 8n) ++ " was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cs)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder"}
+    case Tree.ModeOf{f, +cs}:
+      Some{String.take(f, 8n) ++ lower_of(" is ", cs)}
+    case Tree.TargetOf{f, +cs}:
+      Some{String.take(f, 8n) ++ lower_of(" points at ", cs)}
+    case Tree.Referenced{f, by, +links}:
+      Some{"kept " ++ String.take(f, 8n) ++ " : " ++ String.join(ab8(by), ", ") ++ " dropped it, and " ++ String.join(ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it"}
+    case Tree.Path{p, fs}:
+      None{}
+
+def contest.push(m: Maybe<&2, String>, rest: List<&2, String>) -> List<&2, String>:
+  match m:
+    case None{}:
+      rest
+    case Some{x}:
+      x <> rest
+
+def contest.lines(cs: List<&2, Tree.Contest>) -> List<&2, String>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case c <> rest:
+      contest.push(contest.line(c), contest.lines(rest))
+
+# Only where a person is joining work: a contest deeper in the graph was
+# settled when its merge was recorded.
+def contests.said(+ps: List<&2, String>, cs: List<&2, Tree.Contest>) -> List<&2, String>:
+  Bool.pick(List<&2, String>, Nat.is_gt(List.length(&2, String, ps), 1n), contest.lines(cs), Nil{})
+
+# Printing
+# --------
+
+# The revisions the folder is compared with, named as `log` names them,
+# with the bookmarks on each.
+def names_list(bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +id: String) -> List<&2, String>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Bm.Bookmark{+n, t, p} <> rest:
+      Rev.keep(names_at.one(h, id, t), n, names_list(rest, h, id))
+
+def status.parent(+bs: List<&2, Bm.Bookmark>, +all_ids: List<&2, String>, +all_changes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History(), f: Maybe<&2, Full>) -> IO(Unit):
+  match f:
+    case None{}:
+      IO.pure(Unit, Unit{})
+    case Some{Full{+id, +change, parents, supersedes, author, when, revised_by, revised, facts, message}}:
+      IO.print(abbreviate(change, all_changes) ++ "  " ++ abbreviate(id, all_ids) ++ parenthesised(List.append(&2, String, marks.list(id, change, parents, supersedes, heads, gone, h), names_list(bs, h, id))))
+
+def status.parents(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +h: Rev.History(), ps: List<&2, String>) -> IO(Unit):
+  match ps:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case +p <> rest:
+      do IO<Unit>:
+        status.parent(bs, ids(fs), changes(fs), Rev.heads(h), Rev.superseded(h), h, find(fs, p))
+        status.parents(fs, bs, h, rest)
+
+def status.position(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>) -> IO(Unit):
+  Bool.pick(IO(Unit), List.is_empty(&2, String, ps), IO.print("no revisions here yet"), status.parents(fs, bs, history(fs), ps))
+
+def print_splits(+pre: String, +mid: String, +post: String, xs: List<&2, T.Split>) -> IO(Unit):
+  match xs:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case T.Split{a, b} <> rest:
+      do IO<Unit>:
+        IO.print(pre ++ a ++ mid ++ b ++ post)
+        print_splits(pre, mid, post, rest)
+
+def print_facts(xs: List<&2, T.Split>) -> IO(Unit):
+  match xs:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case T.Split{k, p} <> rest:
+      do IO<Unit>:
+        IO.print(pad(k, 7n) ++ " " ++ p)
+        print_facts(rest)
+
+def print_accepts(xs: List<&2, String>) -> IO(Unit):
+  match xs:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case +p <> rest:
+      do IO<Unit>:
+        IO.print("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p)
+        print_accepts(rest)
+
+def print_renames(xs: List<&2, T.Split>) -> IO(Unit):
+  match xs:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case T.Split{+from, +to} <> rest:
+      do IO<Unit>:
+        IO.print(SNil{})
+        IO.print(from ++ " and " ++ to ++ " hold the same bytes; if that is a rename,")
+        IO.print("say so with --move " ++ from ++ "=" ++ to)
+        print_renames(rest)
+
+# `render::status`: where the folder is, and what it differs by.
+def status.print(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, contests: List<&2, String>, +sv: Sv.Survey) -> IO(Unit):
+  match sv:
+    case Sv.Survey{facts, refused, claimed, accept, renames}:
+      do IO<Unit>:
+        status.position(fs, bs, ps)
+        print_facts(facts)
+        print_splits("refused ", ": ", SNil{}, refused)
+        print_splits("claimed ", ": ", " files claim it; say where each goes with --at", claimed)
+        print_accepts(accept)
+        print_lines(contests)
+        Bool.pick(IO(Unit), Sv.is_quiet(sv), IO.print("nothing here differs from what is recorded"), IO.pure(Unit, Unit{}))
+        print_renames(renames)
+
+def status.surveyed(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>) -> IO(Unit):
+  do IO<Unit>:
+    rules : List<&2, Folder.Scope> <- Folder.rules(root)
+    +rs : List<&2, Folder.Scope> = rules
+    +repo : String = repository(root)
+    w : Folder.Walked <- Folder.walk.all(repo, rs)
+    +w2 : Folder.Walked = w
+    m : Tree.Merged <- refused.io(Tree.Merged, status.tree.r(fs, ps))
+    +m2 : Tree.Merged = m
+    +t2 : Tree.Tree() = Tree.merged_tree(m2)
+    refused.io(Unit, skips_held.r(skipped_held(rs, t2)))
+    +cs : List<&2, T.Split> = Sv.claims(t2)
+    +hs : List<&2, Here> = heres(Sv.unclaimed(t2, cs), Sv.unclaimed_found(Folder.walked.found(w2), cs), Limit.None{})
+    +paths : List<&2, String> = regular_paths(hs)
+    stats : List<&2, String> <- Store.stats(repo, paths)
+    +dg : Map<&2, String> = stats.map(paths, stats, Map.new(&2, String))
+    bf : Map<&2, String> <- status.befores.io(root, fs, ps, hs)
+    +bf2 : Map<&2, String> = bf
+    reads : Map<&2, List<&2, U32>> <- read_all(repo, status.reads(dg, bf2, hs), Map.new(&2, List<&2, U32>))
+    +held : Set() = Set.from_list(T.map(~Folder.Found, ~String, ~(f => Folder.found.path(f)), Folder.walked.found(w2)))
+    status.print(fs, bs, ps, contests.said(ps, Tree.merged_contested(m2)), Sv.survey(t2, held, Folder.walked.refused(w2), status.seens(t2, dg, bf2, reads, hs)))
+
+def status.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: StatusCmd) -> IO(Unit):
+  match a:
+    case StatusCmd{+onto, +ms}:
+      do IO<Unit>:
+        ps : List<&2, String> <- refused.io(List<&2, String>, status.parents.r(fs, bs, onto, ms))
+        status.surveyed(root, fs, bs, ps)
+
+def status(+args: List<&2, String>) -> IO(Unit):
+  do IO<Unit>:
+    root : String <- Store.root()
+    +r : String = root
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    bs : List<&2, Bm.Bookmark> <- bookmarks(r)
+    +bs2 : List<&2, Bm.Bookmark> = bs
+    a : StatusCmd <- refused.io(StatusCmd, status.args.r(args))
+    status.of(r, fulls(r, rs), bs2, a)
+
 # main
 # ----
 
 def usage() -> IO(Unit):
-  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | replay <ops docs..> | opdiff <parent> <child>")
+  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | replay <ops docs..> | opdiff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
@@ -5846,6 +6368,8 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       diff(args)
     case "blame" <> args:
       blame(args)
+    case "status" <> args:
+      status(args)
     case "opdiff" <> parent <> child <> Nil{}:
       opdiff(parent, child)
     case _:

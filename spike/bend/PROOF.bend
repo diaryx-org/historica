@@ -47,6 +47,8 @@ import ./hunk_lemmas.bend as HunkL
 import ./mark_lemmas.bend as MarkL
 import ./sort_lemmas.bend as SortL
 import ./pair_lemmas.bend as PairL
+import ./survey_lemmas.bend as SurveyL
+import ./survey.bend as Sv
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -554,3 +556,9 @@ def Laws.show_prints_what_the_revision_states(id, file, ds, s, text, e):
 
 def Laws.diff_pairs_each_file(xs, ys, f):
   PairL.pairs_by_file(xs, ys, f)
+
+def Laws.walk_refuses_nothing_skipped(ls, prefix, rules, after, acc, h):
+  SurveyL.refusals_ok(ls, prefix, rules, after, acc, h)
+
+def Laws.status_says_an_arrival_once(os, links):
+  SurveyL.facts_ok(Set.from_list(Sv.added(os)), os, links)

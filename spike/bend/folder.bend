@@ -12,7 +12,8 @@
 # directories are walked at all, which files a rule keeps out, which paths
 # the format can hold, and that `history/` itself is never tracked. A path
 # the walk refuses — a name that is not UTF-8, a device, a path the format
-# cannot spell — is left out, which is all `diff` and `blame` do with one.
+# cannot spell — is left out, which is all `diff` and `blame` do with one;
+# `walk.all` also says why, as `status` does.
 #
 # Not here: Unicode normal form C. A name the filesystem hands back
 # decomposed is compared as it is spelled, as everywhere else in this port.
@@ -538,23 +539,156 @@ def listed(+dir: String) -> IO(String):
     r : Result<&1, &1, U32 & String, String> <- Store.listing_of(dir)
     listed.of(r)
 
-def walk.go(fuel: Nat, +repo: String, +rules: List<&2, Scope>, pending: List<&2, String>, found: List<&2, Found>) -> IO(List<&2, Found>):
+# Refusals
+# --------
+
+# Rust's `char::is_control`: C0, DEL and C1.
+def is_control(c: Char) -> Bool:
+  match c:
+    case Chr{+x}:
+      Bool.or(U32.is_lt(x, 32), Bool.and(U32.is_ge(x, 127), U32.is_lt(x, 160)))
+
+# Why `check_path` refuses a path a listing can hand back: a name, or names
+# joined, is never empty and holds no `.` or `..` component, so what is left
+# is space at either end and a control character. Unicode normal form C is
+# not here, as nowhere in this port.
+def path_fault(+path: String) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, Bool.or(String.starts_with(path, " "), String.ends_with(path, " ")), Some{"it has leading or trailing space"},
+    Bool.pick(Maybe<&2, String>, List.any(~&2, ~Char, ~is_control, String.to_list(path)), Some{"it holds a control character"}, None{}))
+
+# What one entry is refused for, in `working::walk`'s order: the store and
+# what a rule skips are never refused; then anything that is neither a file
+# nor a link; then a path the format cannot spell; then a link whose target
+# is not UTF-8.
+def refusal.spelled(+path: String, fault: Maybe<&2, String>, unreadable: Bool) -> Maybe<&2, T.Split>:
+  match fault:
+    case Some{because}:
+      Some{T.Split{path, because}}
+    case None{}:
+      Bool.pick(Maybe<&2, T.Split>, unreadable, Some{T.Split{path, "a link pointing at a name that is not UTF-8"}}, None{})
+
+def refusal.kind(+path: String, other: Bool, unreadable: Bool) -> Maybe<&2, T.Split>:
+  match other:
+    case True{}:
+      Some{T.Split{path, "not a regular file"}}
+    case False{}:
+      refusal.spelled(path, path_fault(path), unreadable)
+
+def refusal.of(+prefix: String, +rules: List<&2, Scope>, +name: String, other: Bool, unreadable: Bool) -> Maybe<&2, T.Split>:
+  Bool.pick(Maybe<&2, T.Split>, Bool.or(is_store(prefix, name), skips(rules, joined(prefix, name))), None{}, refusal.kind(joined(prefix, name), other, unreadable))
+
+def refusal.push(r: Maybe<&2, T.Split>, rest: List<&2, T.Split>) -> List<&2, T.Split>:
+  match r:
+    case None{}:
+      rest
+    case Some{x}:
+      x <> rest
+
+def refusal.file(+prefix: String, +rules: List<&2, Scope>, cut: Maybe<&2, T.Split>) -> Maybe<&2, T.Split>:
+  match cut:
+    case None{}:
+      None{}
+    case Some{T.Split{size, +name}}:
+      refusal.of(prefix, rules, name, False{}, False{})
+
+# One listing line: `f` and `l` are refused only for their spelling, `L`
+# for its target too, `o` for what it is; `d` is walked and `u` has no name
+# to report.
+def refusal.line.of(+prefix: String, +rules: List<&2, Scope>, +kind: String, +name: String) -> Maybe<&2, T.Split>:
+  Bool.pick(Maybe<&2, T.Split>, String.eq(kind, "f"), refusal.file(prefix, rules, T.split_once(String.drop(name, 2n))),
+  Bool.pick(Maybe<&2, T.Split>, Bool.or(String.eq(kind, "l"), String.eq(kind, "L")), refusal.of(prefix, rules, name, False{}, String.eq(kind, "L")),
+  Bool.pick(Maybe<&2, T.Split>, String.eq(kind, "o"), refusal.of(prefix, rules, name, True{}, False{}), None{})))
+
+def refusal.line(+prefix: String, +rules: List<&2, Scope>, +line: String) -> Maybe<&2, T.Split>:
+  refusal.line.of(prefix, rules, String.take(line, 1n), String.drop(line, 2n))
+
+# A listing's refusals, onto `acc`: `after` says the line is the target of
+# the link before it, which is no entry.
+def refusals.go(ls: List<&2, String>, +prefix: String, +rules: List<&2, Scope>, after: Bool, acc: List<&2, T.Split>) -> List<&2, T.Split>:
+  match ls after:
+    case Nil{} _:
+      acc
+    case line <> rest True{}:
+      refusals.go(rest, prefix, rules, False{}, acc)
+    case +line <> rest False{}:
+      refusals.go(rest, prefix, rules, String.eq(String.take(line, 1n), "l"), refusal.push(refusal.line(prefix, rules, line), acc))
+
+# What `LAWS.walk_refuses_nothing_skipped` asks of refusals: none names a
+# path a rule skips, since a rule is how a person silences one.
+def refusal_ok(+rules: List<&2, Scope>, r: Maybe<&2, T.Split>) -> Bool:
+  match r:
+    case None{}:
+      True{}
+    case Some{T.Split{+p, b}}:
+      Bool.not(skips(rules, p))
+
+def refused_kept(+rules: List<&2, Scope>, rs: List<&2, T.Split>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case T.Split{+p, b} <> rest:
+      Bool.and(Bool.not(skips(rules, p)), refused_kept(rules, rest))
+
+# The order `working::walk` meets paths in: each directory's names in byte
+# order, a directory's contents where its name falls. That is path order
+# with `/` below every other character, and no name holds a NUL.
+def walked_key.go(cs: List<&2, Char>) -> List<&2, Char>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case Chr{+x} <> rest:
+      Bool.pick(Char, U32.is_eq(x, 47), Chr{0}, Chr{x}) <> walked_key.go(rest)
+
+def walked_le(+a: String, +b: String) -> Bool:
+  String.is_le(String.from_list(walked_key.go(String.to_list(a))), String.from_list(walked_key.go(String.to_list(b))))
+
+def refused.path(r: T.Split) -> String:
+  match r:
+    case T.Split{p, b}:
+      p
+
+# Everything one walk of the folder turned up: the files it tracks, and the
+# paths it refused with why.
+type Walked is Data:
+  Walked{found: List<&2, Found>, refused: List<&2, T.Split>}
+
+def walked.found(w: Walked) -> List<&2, Found>:
+  match w:
+    case Walked{found, refused}:
+      found
+
+def walked.refused(w: Walked) -> List<&2, T.Split>:
+  match w:
+    case Walked{found, refused}:
+      refused
+
+def walk.go(fuel: Nat, +repo: String, +rules: List<&2, Scope>, pending: List<&2, String>, found: List<&2, Found>, refused: List<&2, T.Split>) -> IO(Walked):
   match fuel pending:
     case 0n _:
-      IO.pure(List<&2, Found>, found)
+      IO.pure(Walked, Walked{found, refused})
     case 1n+q Nil{}:
-      IO.pure(List<&2, Found>, found)
+      IO.pure(Walked, Walked{found, refused})
     case 1n+q +dir <> rest:
-      do IO<List<&2, Found>>:
-        text : String <- listed(Bool.pick(String, String.is_empty(dir), repo, repo ++ "/" ++ dir))
+      do IO<Walked>:
+        got : String <- listed(Bool.pick(String, String.is_empty(dir), repo, repo ++ "/" ++ dir))
+        +text : String = got
         +l : Listing = listing.go(String.split(text, '\n'), dir, rules, Listing{Nil{}, found, None{}})
-        walk.go(q, repo, rules, List.append(&2, String, listing.dirs(l), rest), listing.found(l))
+        walk.go(q, repo, rules, List.append(&2, String, listing.dirs(l), rest), listing.found(l), refusals.go(String.split(text, '\n'), dir, rules, False{}, refused))
+
+# Every file the working copy tracks, in path order, and every path it
+# refused, in the order the Rust walk refuses them.
+def walk.all(+repo: String, +rules: List<&2, Scope>) -> IO(Walked):
+  do IO<Walked>:
+    w : Walked <- walk.go(U32.to_nat(1000000), repo, rules, [SNil{}], Nil{}, Nil{})
+    +w2 : Walked = w
+    return Walked{List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), walked.found(w2)),
+      List.sort(~T.Split, ~(a => b => walked_le(refused.path(a), refused.path(b))), walked.refused(w2))}
 
 # Every file the working copy tracks, in path order.
 def walk(+repo: String, +rules: List<&2, Scope>) -> IO(List<&2, Found>):
   do IO<List<&2, Found>>:
-    found : List<&2, Found> <- walk.go(U32.to_nat(1000000), repo, rules, [SNil{}], Nil{})
-    return List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), found)
+    w : Walked <- walk.all(repo, rules)
+    return walked.found(w)
 
 # Text
 # ----

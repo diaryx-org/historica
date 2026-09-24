@@ -96,6 +96,10 @@ directory at a time, ask `Store.digests` for the digest of each file it
 tracks, and read here only the files whose digest is not the one the
 position's nearest statement of them leaves — a `text` payload's name, or the
 `result` an `edit`'s document states — or that the position does not hold.
+`status` reads the same, except that it reads a file the position does not
+hold not at all — its digest is what a rename is noticed by — and where
+`--merge` joins several parents, a file of lines is replayed at each of
+them rather than settled by its nearest statement.
 
 Those two delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and
