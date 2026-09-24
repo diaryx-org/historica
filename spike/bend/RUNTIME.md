@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once` and `Store.copy`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.run` and `Store.exit`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -42,7 +42,9 @@ notes `init` writes, since a string is a list — and beside the mutation
 stage's checkers it can take ten, so `check.py` allows half an hour.
 
 An effect answers a question and decides nothing. `Store.locate` says where
-the store is, `Store.list` what paths it holds, `Store.at` where the bytes
+the nearest `history` directory is, from the directory `-C` names or from
+here — whether it is a store is asked of its `historica.txt` on the Bend
+side, when a command opens it — `Store.list` what paths it holds, `Store.at` where the bytes
 with a digest are, `Store.digests` what a file's digest and byte count
 are, and `Store.folder` what one directory of the folder beside the store
 holds — each entry's name and what it is, a link's target read and never
@@ -72,7 +74,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The fifteen effects here are one-shot — a string in, a string out, nothing
+The seventeen effects here are one-shot — a string in, a string out, nothing
 held between calls but where a pinned seed's stream has got to — which
 avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
@@ -148,7 +150,7 @@ document: made once, left alone where the same bytes are already there,
 refused where different ones are. A payload of bytes is `Store.copy`: the
 folder's file, filed the same way, refused where it no longer hashes to
 the digest the survey found. Who is recording is `HISTORICA_AUTHOR`, read
-with Base's own `IO.get_env`. Which identifiers, which files, what they
+with Base's own `IO.get_env`, or the identity file below. Which identifiers, which files, what they
 say, what they are called and which bookmarks follow are all decided in
 Bend first.
 
@@ -174,6 +176,29 @@ prints the digest and the count and that is all, and a file `diff` reads is
 compared here, line by line. Every document with a grammar is still read and
 hashed in `sha256.bend`, which is what the laws and `corpus_*.bend` check,
 and `Store.at`'s answer is still verified against it.
+
+`identity` writes one file, the identity file, through `Store.mkdirs` and
+`Store.write`, having asked `Store.real` whether it is already there; where
+it goes is decided from the environment, read with `IO.get_env`, as the
+Rust tool decides it. A command that records reads the same file, with
+Base's own file effects, when `$HISTORICA_AUTHOR` does not say who is
+recording; which block of it answers for the repository is decided in
+Bend.
+
+Two effects are about the process rather than the store. `Store.run` runs
+a program to its end — the directory, the program and its arguments
+separated by NUL, the one character no argument can hold — with this
+process's standard streams, and answers the code it exited with, or
+`signal`; it is decision 0072's `historica-<word>` and the editor a
+`record` or an `abandon` asks for a message. The C side flushes what has
+been printed before the program runs, since the two share a stream, and
+the JS twin looks the program up on `PATH` as `execvp` does, so that a file
+there that cannot be run is `EACCES` rather than "not found". Which answer
+is "no such command", and what a code means, is decided in Bend.
+`Store.exit` ends the process with a code and nothing more said: a halt
+prints its message and a newline after it, and a command that has said its
+piece on stdout — `check`, or a program run for this one — ends with a
+code alone.
 
 The `.js` twin of an effect also needs an implementation, or a clear
 unsupported-backend error. It fails through a `hist_fail` of its own

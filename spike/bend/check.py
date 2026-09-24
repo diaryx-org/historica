@@ -648,8 +648,115 @@ STORES = {
         ["name", "x", "head"],
         ["record", "-n"],
     ],
+    # The command line before any command: the usage and the version, what
+    # is not an option, `-C` in its every position — the last counting, a
+    # directory below the store, one that is not there, `init` making one —
+    # and decision 0072's dispatch to `historica-<word>` on `PATH`: run in
+    # `-C`'s directory with its own code, killed, not runnable, not there,
+    # and a word never looked for. And the commands that count their words
+    # after opening the store.
+    "shell": [
+        ["help"], ["-h"], ["--help"], [], ["-V"], ["--version"], ["-C", "sub", "--version"],
+        ["-x"], ["-C"], ["-C", "sub", "-q", "log"], ["bogus"], ["a/b"], ["x-"], ["-x-"],
+        ["-C", "sub", "log", "--limit", "1"],
+        ["-C", "nowhere", "-C", "sub", "status"],
+        ["-C", "sub", "-C", "nowhere", "status"],
+        ["-C", "nowhere", "log"],
+        ["-C", "", "log"],
+        ["-C", "sub/", "record", "-n"],
+        ["-C", "sub", "init"],
+        ["-C", ".", "init"],
+        ["-C", "fresh/deeper", "init", "there"],
+        ["-C", "sub", "name", "sub-name", "head"],
+        [{"PATH": "{temporary}/bin:{path}"}, "hello", "a", "b c", ""],
+        [{"PATH": "{temporary}/bin:{path}"}, "-C", "sub", "hello", "--fields"],
+        [{"PATH": "{temporary}/bin:{path}"}, "-C", "nowhere", "hello"],
+        [{"PATH": "{temporary}/bin:{path}"}, "quiet"],
+        [{"PATH": "{temporary}/bin:{path}"}, "killed"],
+        [{"PATH": "{temporary}/bin:{path}"}, "unrunnable"],
+        [{"PATH": "{temporary}/bin:{path}"}, "hello.sh"],
+        ["show"], ["show", "head", "notes.md", "x"], ["files"], ["files", "head", "x"],
+        ["cat"], ["cat", "head"], ["cat", "head", "notes.md", "x"], ["names", "x"],
+    ],
+    # Opening a store, where there is only a `history` directory, or one
+    # whose header names a format or a layout this reader lacks: every
+    # command that opens it is refused, a writing one asked for `--fields`
+    # with its statement first — and the nearest `history` stops the walk.
+    "headless": [
+        ["log"], ["status"], ["names"], ["show", "head"], ["files", "head"], ["cat", "head", "a.md"],
+        ["diff"], ["blame", "a.md"], ["record", "-n"], ["record", "--bogus"], ["record", "-m", "x"],
+        ["record", "--fields", "-m", "x"], ["amend", "--fields"], ["abandon", "x", "--fields"],
+        ["carry", "--fields"], ["name", "x", "head"], ["name", "--fields", "x", "head"],
+        ["name", "--delete", "x", "--fields"], ["names", "x"], ["show"],
+        ["-C", "old", "log"], ["-C", "future", "log"], ["-C", "layout", "log"], ["-C", "layout", "record", "--fields", "-m", "x"],
+        ["-C", "noted", "log"], ["-C", "crlf", "log"], ["-C", "bare", "log"],
+        ["-C", "future/deeper", "status"],
+        ["init"],
+    ],
+    # Who records. `identity` writing the file where the environment says
+    # it goes — under `$XDG_CONFIG_HOME`, under `$HOME/.config`, nowhere —
+    # and refusing to rewrite one; and every writing command, with
+    # `$HISTORICA_AUTHOR` empty, reading it: a default, the deepest `under`
+    # holding the repository, none for it, no file at all, and each way a
+    # file is not blocks of keys and values.
+    "identity": [
+        ["identity"], ["identity", "a", "b"],
+        ["identity", "New Person <n@example.com>"],
+        ["identity", " spaced and\ttabbed "],
+        [{"XDG_CONFIG_HOME": "{copy}/history/configs/default"}, "identity", "X <x@example.com>"],
+        [{"XDG_CONFIG_HOME": ""}, "identity", "Home <h@example.com>"],
+        [{"XDG_CONFIG_HOME": "{copy}/history/configs/"}, "identity", "Slash <s@example.com>"],
+        [{"XDG_CONFIG_HOME": None, "HOME": None, "USERPROFILE": None}, "identity", "Nobody <n@example.com>"],
+        [{"XDG_CONFIG_HOME": None, "HOME": None, "USERPROFILE": "{copy}/history/profile"}, "identity", "Profile <p@example.com>"],
+        [{"XDG_CONFIG_HOME": "{copy}/notes.md"}, "identity", "Blocked <b@example.com>"],
+        [{"HISTORICA_AUTHOR": ""}, "record", "-m", "who"],
+        [{"HISTORICA_AUTHOR": ""}, "record", "-m", "who", "--fields"],
+        [{"HISTORICA_AUTHOR": None}, "record", "-m", "who"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": None, "HOME": None, "USERPROFILE": None}, "record", "-m", "who"],
+        *([{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/" + case}, "record", "-m", "who"]
+          for case in ("default", "under", "nodefault", "twodefaults", "badkey", "nospace", "spaced", "undertwice",
+                       "underlate", "authortwice", "noauthor", "sameunder", "empty", "comment", "crlf")),
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/under", "HOME": "{copy}"}, "record", "-m", "who"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/under", "HOME": "{copy}/sub"}, "record", "-m", "who"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/under", "HOME": None}, "record", "-m", "who"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "", "HOME": "{copy}/history/homes/one"}, "record", "-m", "who"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/default"}, "record", "-m", "who", "--fields"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/badkey"}, "record", "-m", "who", "--fields"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/default"}, "amend", "-m", "reworded"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/default"}, "abandon", "head", "-m", "gone"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/nodefault"}, "abandon", "head", "-m", "gone", "--fields"],
+        [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/default"}, "carry", "head", "--onto", "first"],
+        [{"HISTORICA_AUTHOR": ""}, "record", "-n"],
+    ],
+    # A message from an editor, where `record` and `abandon` are given no
+    # `-m`: `$VISUAL` before `$EDITOR`, an empty one being none; the file
+    # it is handed, empty, in `$TMPDIR`; the editor run in `-C`'s
+    # directory, with the streams this process has; and an editor that
+    # writes nothing, that fails, that takes the file away, that is not
+    # there — each refused as the Rust tool refuses it, a statement owed
+    # first where `--fields` asked for one.
+    "editing": [
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/writes"}, "record"],
+        [{"VISUAL": "{temporary}/editors/writes", "EDITOR": "{temporary}/editors/fails"}, "record"],
+        [{"VISUAL": "", "EDITOR": "{temporary}/editors/writes"}, "record"],
+        [{"VISUAL": None, "EDITOR": ""}, "record"],
+        [{"VISUAL": None, "EDITOR": None}, "record", "--fields"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/writes"}, "record", "--fields"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/nothing"}, "record"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/fails"}, "record"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/fails"}, "record", "--fields"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/removes"}, "record"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/killed"}, "record"],
+        [{"VISUAL": None, "EDITOR": "no-such-editor"}, "record"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/where"}, "-C", "sub", "record"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/where", "TMPDIR": ""}, "record"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/writes"}, "record", "-n"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/writes"}, "abandon", "head"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/fails"}, "abandon", "head", "--fields"],
+        [{"VISUAL": None, "EDITOR": "{temporary}/editors/writes"}, "amend"],
+    ],
     # A rule file stating two rules: the store will not open.
-    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"]],
+    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"]]],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
         ["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"],
@@ -830,6 +937,18 @@ def record(temporary, rust, corpus, pinned=None):
         # directory would have to be made.
         (store / "notes.md").write_text("notes\n")
         (store / "taken").write_text("a file\n")
+        return store
+    if corpus == "headless":
+        # A `history` directory and nothing in it; and beside it stores
+        # whose header this reader does not read, each a store in every
+        # other respect.
+        (store / "history").mkdir()
+        (store / "a.md").write_text("a\n")
+        for name, header in (("old", "historica-v3\n"), ("future", "historica-v9\n\nnote\n"), ("layout", "historica\nuses: something\n"),
+                             ("noted", "historica\n\nuses: nothing, a note\n"), ("crlf", "historica\r\n\r\n"), ("bare", "historica")):
+            subprocess.run([rust, "init", name], cwd=store, env=env, check=True, capture_output=True, timeout=120)
+            (store / name / "history" / "historica.txt").write_text(header)
+            (store / name / "deeper").mkdir()
         return store
     historica("init", ".")
     historica("identity", "Check <check@example.com>")
@@ -1160,6 +1279,49 @@ def record(temporary, rust, corpus, pinned=None):
                     tombstone.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, tombstone)
             shutil.rmtree(elsewhere)
+    elif corpus == "identity":
+        (store / "notes.md").write_text("one\n")
+        historica("record", "-m", "one")
+        historica("name", "first", "head", "--revision")
+        (store / "notes.md").write_text("one\ntwo\n")
+        historica("record", "-m", "two")
+        (store / "notes.md").write_text("one\ntwo\nthree\n")
+        (store / "sub").mkdir()
+        configs = {
+            "default": "author Default Person <d@example.com>\n",
+            "under": "author Default Person <d@example.com>\n\nunder ~/elsewhere/\nauthor Elsewhere <e@example.com>\n\n"
+                     "under ~\nauthor Here <h@example.com>\n\nunder ~/sub\nauthor Below <b@example.com>\n",
+            "nodefault": "under /nowhere/at/all\nauthor Elsewhere <e@example.com>\n",
+            "twodefaults": "author A <a@example.com>\n\nauthor B <b@example.com>\n",
+            "badkey": "author A <a@example.com>\nemail a@example.com\n",
+            "nospace": "author\n",
+            "spaced": "author  A <a@example.com>\n",
+            "undertwice": "under /a\nunder /b\nauthor A <a@example.com>\n",
+            "underlate": "author A <a@example.com>\nunder /a\n",
+            "authortwice": "author A <a@example.com>\nauthor B <b@example.com>\n",
+            "noauthor": "author A <a@example.com>\n\n\nunder /a\n",
+            "sameunder": "under /a/\nauthor A <a@example.com>\n\nunder /a\nauthor B <b@example.com>\n",
+            "empty": "",
+            "comment": "# who I am\nauthor A <a@example.com>\n",
+            "crlf": "author Carriage <c@example.com>\r\n",
+        }
+        for case, text in configs.items():
+            (store / "history" / "configs" / case / "historica").mkdir(parents=True)
+            (store / "history" / "configs" / case / "historica" / "identity").write_text(text)
+        (store / "history" / "homes" / "one" / ".config" / "historica").mkdir(parents=True)
+        (store / "history" / "homes" / "one" / ".config" / "historica" / "identity").write_text("author From Home <h@example.com>\n")
+    elif corpus == "editing":
+        (store / "notes.md").write_text("one\n")
+        historica("record", "-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "sub").mkdir()
+        (store / "history" / "tmp").mkdir()
+    elif corpus == "shell":
+        (store / "notes.md").write_text("one\n")
+        historica("record", "-m", "one")
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        historica("record", "-m", "two")
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1240,10 +1402,14 @@ def check_store(temporary):
             str(archive), "-lm", "-lpthread", timeout=1800,
         )
 
-    tools = [("js", ["bun", str(script)])]
+    # `--` before the command line, so that neither runtime takes a word of
+    # it for its own: both read `--help` and `--threads` otherwise. Bun
+    # takes the first `--` after a script for itself, so the JS build is
+    # given two.
+    tools = [("js", ["bun", str(script), "--", "--"])]
     builds = [lambda: run(BEND, "main.bend", "-o", str(script), timeout=1800)]
     if NATIVE:
-        tools.insert(0, ("native", [str(native)]))
+        tools.insert(0, ("native", [str(native), "--"]))
         builds.append(build_native)
     parallel(builds)
 
@@ -1282,32 +1448,87 @@ def check_store(temporary):
                     seen.append((str(path.relative_to(root)), "o"))
         return (tuple(seen),)
 
-    # A usage error is compared to the end of its message: the Rust tool
-    # prints its own usage after it.
+    # What a command said, whole: a usage error's usage text after its
+    # message included, which the port prints as the Rust tool does.
     def said(captured):
-        out, err, code = captured
-        if code == 2:
-            err = err.split(b"\n\n")[0].rstrip(b"\n") + b"\n"
-        return (out, err, code)
+        return captured
+
+    # The programs a dispatch finds on `PATH` (decision 0072), which say
+    # where they ran and what they were given, and end with a code of their
+    # own; one that a signal ends, and one that is there and not runnable.
+    bin = temporary / "bin"
+    bin.mkdir(exist_ok=True)
+    for name, body in (
+        ("historica-hello", """printf 'hello from %s:' "$(pwd -P)"; for a in "$@"; do printf ' [%s]' "$a"; done; echo; echo "to stderr" >&2; exit 3"""),
+        ("historica-quiet", "exit 0"),
+        ("historica-killed", "kill -9 $$"),
+        ("historica-unrunnable", "exit 0"),
+        ("historica-hello.sh", "exit 0"),
+    ):
+        (bin / name).write_text(f"#!/bin/sh\n{body}\n")
+        (bin / name).chmod(0o644 if name == "historica-unrunnable" else 0o755)
+
+    # The editors a message is asked of: one that writes a message and says
+    # what it was handed, and where; one that writes nothing, one that
+    # fails, one a signal ends, one that takes the file away, and one that
+    # writes where it runs.
+    editors = temporary / "editors"
+    editors.mkdir(exist_ok=True)
+    for name, body in (
+        ("writes", r"""printf 'handed [%s] in %s\n' "$(cat "$1")" "$(pwd -P)"; echo editing >&2; printf 'from the editor\n\nwith a body\n' > "$1" """),
+        ("nothing", "exit 0"),
+        ("fails", "exit 1"),
+        ("killed", "kill -9 $$"),
+        ("removes", 'rm -f "$1"'),
+        ("where", 'pwd -P > "$1"'),
+    ):
+        (editors / name).write_text(f"#!/bin/sh\n{body}\n")
+        (editors / name).chmod(0o755)
+
+    # The word a command line runs, past `-C` and its directory, as
+    # `argv.bend` reads it.
+    def word(command):
+        while len(command) >= 2 and command[0] == "-C":
+            command = command[2:]
+        return command[0] if command else ""
+
+    # A command's environment: the pins, and a home, a configuration and a
+    # temporary directory inside the store's own directory — where no
+    # command takes a file from, and every file a command writes there is
+    # compared — then
+    # what the command changes, `{temporary}` and `{path}` spelled out, and
+    # a variable given `None` taken away. Bun keeps a cache of what it has
+    # compiled under the home it is given, so it is told to keep it here.
+    def environment(copy, changed):
+        env = {**os.environ, **PINS, "HOME": str(copy / "history" / "home"), "XDG_CONFIG_HOME": str(copy / "history" / "config"),
+               "TMPDIR": str(copy / "history" / "tmp"), "BUN_RUNTIME_TRANSPILER_CACHE_PATH": str(temporary / "bun-cache")}
+        for key, value in changed.items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value.format(temporary=temporary, path=os.environ.get("PATH", ""), copy=copy)
+        return env
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
-            changed = command[0] if isinstance(command[0], dict) else {}
+            changed = command[0] if command and isinstance(command[0], dict) else {}
             command = command[1:] if changed else command
-            env = {**os.environ, **PINS, **changed}
             # `record` may write the folder — `--move` renames before it
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too; and a
             # record that is not a dry run, the whole store it wrote.
-            writes = command[0] in ("record", "name", "init", *REWRITES)
-            recording = command[0] in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
+            verb = word(command)
+            writes = verb in ("record", "name", "init", "identity", "skip", *REWRITES)
+            recording = verb in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store
-            whole = command[0] == "init" or recording
-            reference = writer if command[0] in ("record", *REWRITES) else rust
+            env = environment(copy, changed)
+            command = [word.replace("{copy}", str(copy)) for word in command]
+            whole = verb in ("init", "identity") or recording
+            reference = writer if verb in ("record", *REWRITES) else rust
             shown = " ".join([f"{k}={v}" for k, v in changed.items()] + command)
             expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
             for name, tool in tools:
@@ -1346,6 +1567,15 @@ def check_store(temporary):
         print("\n".join(lines), flush=True)
     failures = sum(f for _, f in results)
     compared = sum(len(lines) for lines, _ in results)
+    # The version the port says is the workspace's: a release it has not
+    # caught up with fails here, whatever the Rust tool it is compared with
+    # was built from.
+    version = re.search(r'^\[workspace\.package\][^\[]*?^version = "([^"]+)"', (REPO / "Cargo.toml").read_text(), re.M | re.S).group(1)
+    for name, tool in tools:
+        said_version = capture(*tool, "--version", cwd=temporary)
+        if said_version != (f"historica {version}\n".encode(), b"", 0):
+            failures += 1
+            print(f"DIFF version {name}: the workspace is {version}, and the port says {said_version}", flush=True)
     if failures:
         sys.exit(f"{failures} store commands differ from the Rust tool")
     print(f"store: {compared} comparisons, each the same as the Rust tool", flush=True)

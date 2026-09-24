@@ -25,10 +25,17 @@ import ./survey.bend as Sv
 import ./notes.bend as Notes
 import ./naming.bend as Naming
 import ./sha256.bend as Sha
+import ./identity.bend as Identity
+import ./editor.bend as Editor
+
+# A usage error, exit 2, is a command line that was wrong, and the Rust tool
+# says its usage after the message, a blank line between.
+def usage.after(code: U32) -> String:
+  Bool.pick(String, U32.is_eq(code, 2), "\n\n" ++ Notes.USAGE(), SNil{})
 
 # A refusal, said the way the Rust tool says it.
-def die(-A: Type, code: U32, msg: String) -> IO(A):
-  IO.die(A, code, "historica: " ++ msg)
+def die(-A: Type, +code: U32, msg: String) -> IO(A):
+  IO.die(A, code, "historica: " ++ msg ++ usage.after(code))
 
 # A refusal decided without IO, and the IO that says it.
 type Refused is Data:
@@ -6691,6 +6698,20 @@ def stated.io(-A: Data, +late: Bool, r: Result<&2, &2, Refused, A>) -> IO(A):
     case Done{x}:
       IO.pure(A, x)
 
+def header.refused(r: Result<&2, &2, String, Unit>) -> Result<&2, &2, Refused, Unit>:
+  match r:
+    case Fail{msg}:
+      Fail{Refused{1, msg}}
+    case Done{u}:
+      Done{u}
+
+# The store opened by a command that owes `--fields` a statement: a header
+# `Store.opened` would refuse is refused here, the statement said first.
+def opened.stated(+st: Bool, +root: String) -> IO(Unit):
+  do IO<Unit>:
+    h : Result<&2, &2, String, Unit> <- Store.header(root)
+    stated.io(Unit, st, header.refused(h))
+
 # The renames a person stated, done in the folder before it is read, as
 # the Rust tool does them — whichever state the folder is in. Except for
 # one that would leave the folder: an absolute path, or one climbing out
@@ -8768,46 +8789,46 @@ def record.surveyed(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>
         pl : Sv.Planned <- stated.io(Sv.Planned, st, planned.r(looked, Sv.planned(t, looked, Set.from_list(folder), Sv.only.refused(only, walked), status.seens(t0, dg, bf2, reads2, hs), moved), accepted))
         record.then(st, root, repo, fs, bs, ps, t, hs, dg, reads2, kinds, moved, pl, w)
 
-def author.unset() -> Result<&2, &2, Refused, String>:
-  Fail{Refused{1, "who is recording is read from $HISTORICA_AUTHOR here, and it is not set; the identity file the Rust tool falls back on is not read by this port"}}
-
-# Who is recording, as `identity::author_for` decides it from the
-# environment. The identity file it falls back on is not read here.
-def author.checked(+a: String) -> Result<&2, &2, Refused, String>:
-  Bool.pick(Result<&2, &2, Refused, String>, Bool.or(Bool.or(String.is_empty(a), Bool.not(String.eq(a, Naming.trim_space(a)))), List.any(~&2, ~Char, ~Folder.is_control, String.to_list(a))),
-    Fail{Refused{1, "`" ++ a ++ "` in $HISTORICA_AUTHOR cannot be an author: a header value is not empty, carries no leading or trailing space, and holds no control character"}},
-    Done{a})
-
-def author.r(r: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Refused, String>:
+def author.refused(r: Result<&2, &2, String, String>) -> Result<&2, &2, Refused, String>:
   match r:
-    case Done{+a}:
-      Bool.pick(Result<&2, &2, Refused, String>, String.is_empty(a), author.unset(), author.checked(a))
-    case Fail{e}:
-      author.unset()
+    case Fail{msg}:
+      Fail{Refused{1, msg}}
+    case Done{a}:
+      Done{a}
 
-# Why, from `-m`. Without one the Rust tool opens $VISUAL or $EDITOR, which
-# this port does not; with neither set, both refuse alike.
-def editor.set(r: Result<&1, &1, U32 & String, String>) -> Bool:
+def found.repository(r: Result<&1, &1, U32 & String, String>) -> String:
   match r:
-    case Done{e}:
-      Bool.not(String.is_empty(e))
+    case Done{+root}:
+      repository(root)
     case Fail{e}:
-      False{}
+      SNil{}
 
-def message.r(m: Maybe<&2, String>, editor: Bool) -> Result<&2, &2, Refused, String>:
+# Who is recording, as `identity::author_for` decides it for the repository
+# around the store: `$HISTORICA_AUTHOR`, or what the identity file says of
+# the repository (`identity.bend`). The store is found again, where the
+# command found it, rather than carried here.
+def author.io(+st: Bool) -> IO(String):
+  do IO<String>:
+    found : Result<&1, &1, U32 & String, String> <- Store.root.found()
+    a : Result<&2, &2, String, String> <- Identity.author(found.repository(found))
+    stated.io(String, st, author.refused(a))
+
+def editor.refused(r: Result<&2, &2, Editor.Stop, String>) -> Result<&2, &2, Refused, String>:
+  match r:
+    case Fail{Editor.Stop{code, why}}:
+      Fail{Refused{code, why}}
+    case Done{m}:
+      Done{m}
+
+# Why, from `-m`, or from the editor the person chose (`editor.bend`).
+def message.io(+st: Bool, m: Maybe<&2, String>) -> IO(String):
   match m:
     case Some{x}:
-      Done{x}
+      IO.pure(String, x)
     case None{}:
-      Bool.pick(Result<&2, &2, Refused, String>, editor,
-        Fail{Refused{1, "this port takes a message with `-m`, and does not open an editor for one"}},
-        Fail{Refused{2, "no $VISUAL or $EDITOR here; say what this records with -m"}})
-
-def message.io(+st: Bool, m: Maybe<&2, String>) -> IO(String):
-  do IO<String>:
-    visual : Result<&1, &1, U32 & String, String> <- IO.get_env("VISUAL")
-    editor : Result<&1, &1, U32 & String, String> <- IO.get_env("EDITOR")
-    stated.io(String, st, message.r(m, Bool.or(editor.set(visual), editor.set(editor))))
+      do IO<String>:
+        r : Result<&2, &2, Editor.Stop, String> <- Editor.message()
+        stated.io(String, st, editor.refused(r))
 
 def when.r(r: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Refused, String>:
   match r:
@@ -8840,8 +8861,7 @@ def record.writing(+st: Bool, +fs: List<&2, Full>, +dry: Bool, +fields: Bool, m:
       IO.pure(Maybe<&2, Writing>, None{})
     case False{}:
       do IO<Maybe<&2, Writing>>:
-        env : Result<&1, &1, U32 & String, String> <- IO.get_env("HISTORICA_AUTHOR")
-        author : String <- stated.io(String, st, author.r(env))
+        author : String <- author.io(st)
         now : Result<&1, &1, U32 & String, String> <- Store.clock(SNil{})
         when : String <- stated.io(String, st, when.r(now))
         +when2 : String = when
@@ -8887,6 +8907,7 @@ def record.checked(+st: Bool, +root: String, c: RecordCmd) -> IO(Unit):
         refused.io(Unit, record.stated.r(d, f))
         refused.io(Unit, kinds.clash.r(ks, Nil{}))
         stated.io(Unit, st, record.merge.r(d, ms))
+        opened.stated(st, root)
         rs : List<&2, Store.Doc> <- Store.revisions(root)
         bs : List<&2, Bm.Bookmark> <- bookmarks(root)
         record.go(st, root, fulls(root, rs), bs, RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg})
@@ -9150,6 +9171,7 @@ def abandon.go(+st: Bool, +root: String, c: RwCmd) -> IO(Unit):
   match c:
     case RwCmd{m, mv, o, Some{+spelling}, +d, +f, +only}:
       do IO<Unit>:
+        opened.stated(st, root)
         rs : List<&2, Store.Doc> <- Store.revisions(root)
         bs : List<&2, Bm.Bookmark> <- bookmarks(root)
         +fs : List<&2, Full> = fulls(root, rs)
@@ -9218,8 +9240,7 @@ def amend.target.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe
 # Who is rewriting and when, asked as `record` asks them.
 def amend.writing(+st: Bool, +fs: List<&2, Full>) -> IO(T.Split):
   do IO<T.Split>:
-    env : Result<&1, &1, U32 & String, String> <- IO.get_env("HISTORICA_AUTHOR")
-    author : String <- stated.io(String, st, author.r(env))
+    author : String <- author.io(st)
     now : Result<&1, &1, U32 & String, String> <- Store.clock(SNil{})
     when : String <- stated.io(String, st, when.r(now))
     +when2 : String = when
@@ -9310,6 +9331,7 @@ def amend.go(+st: Bool, +root: String, c: RwCmd) -> IO(Unit):
   match c:
     case RwCmd{+m, +moves, o, named, +d, +f, y}:
       do IO<Unit>:
+        opened.stated(st, root)
         rs : List<&2, Store.Doc> <- Store.revisions(root)
         bs : List<&2, Bm.Bookmark> <- bookmarks(root)
         +fs : List<&2, Full> = fulls(root, rs)
@@ -9413,6 +9435,7 @@ def carry.go(+st: Bool, +root: String, c: RwCmd) -> IO(Unit):
   match c:
     case RwCmd{m, mv, onto, named, +d, +f, y}:
       do IO<Unit>:
+        opened.stated(st, root)
         rs : List<&2, Store.Doc> <- Store.revisions(root)
         bs : List<&2, Bm.Bookmark> <- bookmarks(root)
         +fs : List<&2, Full> = fulls(root, rs)
@@ -9716,7 +9739,7 @@ def init.base(+base: String, dir: Maybe<&2, String>) -> String:
 
 def init.at(dir: Maybe<&2, String>) -> IO(Unit):
   do IO<Unit>:
-    here : Result<&1, &1, U32 & String, String> <- Store.really(SNil{})
+    here : Result<&1, &1, U32 & String, String> <- Store.base()
     base : String <- init.io(String, here)
     +root : String = path_join(init.base(base, dir), "history")
     header : Result<&1, &1, U32 & String, String> <- Store.really(root ++ "/historica.txt")
