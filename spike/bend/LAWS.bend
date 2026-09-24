@@ -19,6 +19,8 @@ import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
 import ./update.bend as Upd
+import ./conflict.bend as Conflict
+import ./resolution.bend as Res
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1107,3 +1109,18 @@ law update_spares_the_unrecorded:
   for +p: Upd.Plan
   for e: {Upd.plan(tr, looks, gones) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
   {Upd.spared(p) == True{} : Bool}
+
+# Decision 0032's promise: the resolution `record --merge` writes for a
+# file of lines, assembled as `cat` assembles one, is exactly the file the
+# person left in the folder — every line they kept named back from the
+# document that minted it, every line they wrote stated, and the digest it
+# states the one `cat` finds — wherever the store's documents mint each
+# element the walk stands under as the walk read them.
+law merge_resolution_reads_back:
+  for +ds: List<&2, Store.Doc>
+  for +j: Conflict.Joined
+  for +s: String
+  for hm: {Main.all_mint(ds, Conflict.named(j)) == True{} : Bool}
+  for doc: Res.Doc
+  for e: {Conflict.resolve(j, Ops.from_text(s)) == Some{doc} : Maybe<&2, Res.Doc>}
+  {Main.assemble(ds, doc) == Done{Ops.from_text(s)} : Result<&2, &2, String, List<&2, Ops.Item>>}

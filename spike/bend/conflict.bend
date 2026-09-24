@@ -256,82 +256,76 @@ def unresolved(+j: Joined, text: String) -> List<&2, String>:
 # The resolution
 # --------------
 
-# The name a `keep` quotes for each element standing: the document that
-# minted it, and its ordinal in that document's order.
+# The name a `keep` quotes for each element standing — the document that
+# minted it, and its ordinal in that document's order — beside the item
+# standing under it.
 type Ref is Data:
   Ref{document: String, minted: Nat}
 
-def refs(ns: List<&2, Merge.Node>, +digests: List<&2, String>) -> List<&2, Ref>:
+type Named is Data:
+  Named{name: Ref, item: Ops.Item}
+
+def named.of(ns: List<&2, Merge.Node>, +digests: List<&2, String>) -> List<&2, Named>:
   match ns:
     case Nil{}:
       Nil{}
     case +n <> rest:
-      Ref{name_at(digests, Merge.Node.author(n)), Merge.Node.minted(n)} <> refs(rest, digests)
+      Named{Ref{name_at(digests, Merge.Node.author(n)), Merge.Node.minted(n)}, Merge.Node.item(n)} <> named.of(rest, digests)
 
-def references(j: Joined) -> List<&2, Ref>:
+def named(j: Joined) -> List<&2, Named>:
   match j:
     case Joined{ns, +ds, g, t}:
-      refs(Merge.visible(t), ds)
+      named.of(Merge.visible(t), ds)
 
-# What survived of the proposal and what the person wrote, one element at a
-# time, as `similar`'s Histogram diff aligns the two.
+# What survived of the proposal, by name, and what the person wrote: one
+# element at a time, as `similar`'s Histogram diff aligns the proposal with
+# what the folder holds.
 type Said is Data:
-  Said.Kept{r: Ref}
+  Said.Kept{n: Named}
   Said.Wrote{it: Ops.Item}
 
-type Aligned is Data:
-  Aligned{refs: List<&2, Ref>, new: List<&2, Ops.Item>, said: List<&2, Said>}
+def said.of(ms: List<&2, Ops.Move>, named: List<&2, Named>) -> List<&2, Said>:
+  match ms named:
+    case Nil{} _:
+      Nil{}
+    case Ops.Keep{} <> rest n <> more:
+      Said.Kept{n} <> said.of(rest, more)
+    case Ops.Del{x} <> rest n <> more:
+      said.of(rest, more)
+    case Ops.Ins{y} <> rest more:
+      Said.Wrote{y} <> said.of(rest, more)
+    case m <> rest Nil{}:
+      said.of(rest, Nil{})
 
-def aligned.keep(fuel: Nat, a: Aligned) -> Aligned:
-  match fuel a:
-    case 0n Aligned{rs, new, said}:
-      Aligned{rs, new, said}
-    case 1n+q Aligned{r <> rs, y <> ys, said}:
-      aligned.keep(q, Aligned{rs, ys, Said.Kept{r} <> said})
-    case 1n+q Aligned{rs, new, said}:
-      Aligned{rs, new, said}
-
-def aligned.lose(fuel: Nat, a: Aligned) -> Aligned:
-  match fuel a:
-    case 0n Aligned{rs, new, said}:
-      Aligned{rs, new, said}
-    case 1n+q Aligned{r <> rs, new, said}:
-      aligned.lose(q, Aligned{rs, new, said})
-    case 1n+q Aligned{Nil{}, new, said}:
-      Aligned{Nil{}, new, said}
-
-def aligned.gain(fuel: Nat, a: Aligned) -> Aligned:
-  match fuel a:
-    case 0n Aligned{rs, new, said}:
-      Aligned{rs, new, said}
-    case 1n+q Aligned{rs, y <> ys, said}:
-      aligned.gain(q, Aligned{rs, ys, Said.Wrote{y} <> said})
-    case 1n+q Aligned{rs, Nil{}, said}:
-      Aligned{rs, Nil{}, said}
-
-def aligned.go(ops: List<&2, Sim.Op>, a: Aligned) -> Aligned:
-  match ops:
+def wrote.all(its: List<&2, Ops.Item>) -> List<&2, Said>:
+  match its:
     case Nil{}:
-      a
-    case Sim.Same{o, n, len} <> rest:
-      aligned.go(rest, aligned.keep(U32.to_nat(len), a))
-    case Sim.Lose{o, len, n} <> rest:
-      aligned.go(rest, aligned.lose(U32.to_nat(len), a))
-    case Sim.Gain{o, n, len} <> rest:
-      aligned.go(rest, aligned.gain(U32.to_nat(len), a))
+      Nil{}
+    case it <> rest:
+      Said.Wrote{it} <> wrote.all(rest)
 
-def aligned.said(a: Aligned) -> List<&2, Said>:
-  match a:
-    case Aligned{rs, new, said}:
-      List.reverse(&2, Said, said)
+# The alignment is checked in one pass before anything is named by it, as
+# `Sim.diff` checks one before a document is written from it; one that did
+# not take the proposal to the folder — which the crate's cases never ask
+# for — would name nothing, and state every line afresh.
+def said.checked(+ms: List<&2, Ops.Move>, named: List<&2, Named>, after: List<&2, Ops.Item>, ok: Bool) -> List<&2, Said>:
+  match ok:
+    case True{}:
+      said.of(ms, named)
+    case False{}:
+      wrote.all(after)
+
+def said(+j: Joined, +after: List<&2, Ops.Item>) -> List<&2, Said>:
+  +ms = Sim.walked.moves(Sim.walked.go(Sim.ops(items(j), after), Sim.Walked{items(j), after, Nil{}}))
+  said.checked(ms, named(j), after, Sim.fit(ms, items(j), after))
 
 # Pieces are maximal: a `keep` continuing the one after it is one run, and
 # two inserts that meet are one insert — exactly one spelling parses.
 def pieces.put(s: Said, ps: List<&2, Res.Piece>) -> List<&2, Res.Piece>:
   match s ps:
-    case Said.Kept{Ref{+d, +m}} Res.Piece.Keep{+e, +first, +count} <> +rest:
+    case Said.Kept{Named{Ref{+d, +m}, it}} Res.Piece.Keep{+e, +first, +count} <> +rest:
       Bool.pick(List<&2, Res.Piece>, Bool.and(String.eq(d, e), Nat.is_eq(1n+m, first)), Res.Piece.Keep{d, m, 1n+count} <> rest, Res.Piece.Keep{d, m, 1n} <> Res.Piece.Keep{e, first, count} <> rest)
-    case Said.Kept{Ref{d, m}} rest:
+    case Said.Kept{Named{Ref{d, m}, it}} rest:
       Res.Piece.Keep{d, m, 1n} <> rest
     case Said.Wrote{it} Res.Piece.Insert{its} <> rest:
       Res.Piece.Insert{it <> its} <> rest
@@ -353,10 +347,9 @@ def resolution.of(+after: List<&2, Ops.Item>, ps: List<&2, Res.Piece>) -> Maybe<
       Some{Res.Doc{None{}, Some{Ops.state_digest(after)}, some}}
 
 # The resolution a merge states, given what the walk proposed and what the
-# folder holds: `diff::resolve`. The proposal is aligned with what the
-# person left, and what survived is named rather than restated — a restated
-# line would be a new item, and the first merge reaching across this one
-# would meet the same text twice. Nothing where nothing is left: the
-# grammar has no spelling for a file with no pieces.
+# folder holds: `diff::resolve`. What survived is named rather than
+# restated — a restated line would be a new item, and the first merge
+# reaching across this one would meet the same text twice. Nothing where
+# nothing is left: the grammar has no spelling for a file with no pieces.
 def resolve(+j: Joined, +after: List<&2, Ops.Item>) -> Maybe<&2, Res.Doc>:
-  resolution.of(after, pieces(aligned.said(aligned.go(Sim.ops(items(j), after), Aligned{references(j), after, Nil{}}))))
+  resolution.of(after, pieces(said(j, after)))

@@ -51,6 +51,7 @@ import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./update_lemmas.bend as UpdL
+import ./conflict_lemmas.bend as ConflictL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -603,3 +604,6 @@ def Laws.update_lands(tr, looks, gones, p, e):
 
 def Laws.update_spares_the_unrecorded(tr, looks, gones, p, e):
   UpdL.plan_spares(tr, looks, gones, p, e)
+
+def Laws.merge_resolution_reads_back(ds, j, s, hm, doc, e):
+  ConflictL.resolved(ds, j, s, hm, doc, e)
