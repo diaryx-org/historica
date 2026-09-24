@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real` and `Store.mkdirs`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once` and `Store.copy`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -72,8 +72,9 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The eleven effects here are one-shot — a string in, a string out, nothing
-held between calls — which avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
+The fifteen effects here are one-shot — a string in, a string out, nothing
+held between calls but where a pinned seed's stream has got to — which
+avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
 Do not represent ownership merely by a freely copyable numeric pointer.
 Shutdown, cancellation, and partial initialization must release Rust-owned
@@ -130,10 +131,32 @@ directories with `Store.mkdirs`; writes the four notes through
 `Store.write`; and asks `Store.real` once more where the store really is,
 to say so.
 
-Those two delegations are the only places a digest is computed outside Bend. They
+`record` writes the store, and asks three things only the host has. What
+time it is (`Store.now`) and random bytes (`Store.fill`, as hex) are the
+two decision 0010 made inputs rather than calls: unset, they are the
+system clock in the local offset and the operating system's random
+source; with `HISTORICA_PINNED_NOW` and `HISTORICA_PINNED_SEED` set, they
+are the moment pinned and the stream `historica-pinned` draws — SHA-256 of
+the seed and a block counter, carried across calls in the process, which
+is the one thing any effect here remembers. `check.py` sets both for the
+port and for `historica-pinned`, the Rust tool's test build, so a record
+from either is the same bytes. The host honours the pins in every build of
+the port, where the Rust tool keeps them out of `historica` altogether; a
+port that shipped would keep them to a build of its own the same way.
+Every file it writes goes through `Store.once`, as the store files a
+document: made once, left alone where the same bytes are already there,
+refused where different ones are. A payload of bytes is `Store.copy`: the
+folder's file, filed the same way, refused where it no longer hashes to
+the digest the survey found. Who is recording is `HISTORICA_AUTHOR`, read
+with Base's own `IO.get_env`. Which identifiers, which files, what they
+say, what they are called and which bookmarks follow are all decided in
+Bend first.
+
+Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and
 the folder is the store's size again, all of which would have to be read into
-a list of bytes and packed before it was hashed — while nothing in a payload
+a list of bytes and packed before it was hashed — and a payload `record`
+files is copied as the Rust tool streams it, hashed on the way past — while nothing in a payload
 is parsed, and a folder digest only decides whether a file is read: `check`
 prints the digest and the count and that is all, and a file `diff` reads is
 compared here, line by line. Every document with a grammar is still read and

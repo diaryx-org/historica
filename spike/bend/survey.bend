@@ -750,6 +750,16 @@ def moved.paths(ms: List<&2, T.Split>, +gone: Set()) -> List<&2, String>:
       +later = moved.paths(rest, gone)
       Bool.pick(List<&2, String>, Bool.or(has(gone, f), moved.later(rest, f)), later, to <> later)
 
+# Each file moved and where it went last, unless the file is going: the
+# `move` lines, in the order the renames were stated.
+def moved.final(ms: List<&2, T.Split>, +gone: Set()) -> List<&2, T.Split>:
+  match ms:
+    case Nil{}:
+      Nil{}
+    case T.Split{+f, +to} <> +rest:
+      +later = moved.final(rest, gone)
+      Bool.pick(List<&2, T.Split>, Bool.or(has(gone, f), moved.later(rest, f)), later, T.Split{f, to} <> later)
+
 def emptied(os: List<&2, Obs>) -> List<&2, String>:
   match os:
     case Nil{}:
@@ -767,6 +777,16 @@ def pointed(os: List<&2, Obs>) -> List<&2, String>:
       p <> pointed(rest)
     case o <> rest:
       pointed(rest)
+
+# What each link in the folder points at, by path.
+def pointing(os: List<&2, Obs>) -> List<&2, T.Split>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case Obs.Points{p, t, h, s} <> rest:
+      T.Split{p, t} <> pointing(rest)
+    case o <> rest:
+      pointing(rest)
 
 def dropped_at(os: List<&2, Obs>, +file: String) -> String:
   match os:
@@ -809,8 +829,10 @@ def facts.recorded(+arriving: Set(), +os: List<&2, Obs>, +links: List<&2, String
 # The survey `record` plans from, and what it refuses: the paths several
 # files claim, what nothing here can take, what a merge would empty, the
 # contested bytes to accept, and a link left dangling.
+# Alongside them, what writing the record needs beyond the facts it
+# prints: every observation, and the paths whose links it states.
 type Planned is Data:
-  Planned{facts: List<&2, T.Split>, refused: List<&2, T.Split>, claimed: List<&2, T.Split>, accept: List<&2, String>, emptied: List<&2, String>, dangles: Maybe<&2, String>}
+  Planned{facts: List<&2, T.Split>, refused: List<&2, T.Split>, claimed: List<&2, T.Split>, accept: List<&2, String>, emptied: List<&2, String>, dangles: Maybe<&2, String>, obs: List<&2, Obs>, links: List<&2, String>}
 
 # `t` is every file where the renames put it, in identifier order, and
 # `looked` the part of it the restriction covers.
@@ -819,4 +841,5 @@ def planned(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), walked: List<&2
   +os = List.append(&2, Obs, seens(ss), claimed_drops(looked, cs, held))
   +gone = Set.from_list(dropped_files(os))
   +arriving = Set.from_list(added(os))
-  Planned{facts.recorded(arriving, os, links(t, gone, arriving, os), moved.paths(moves, gone)), List.append(&2, T.Split, walked, refusals(os)), cs, sorted(accepts(os)), emptied(os), dangle(t, gone, Set.from_list(pointed(os)), os)}
+  +ls = links(t, gone, arriving, os)
+  Planned{facts.recorded(arriving, os, ls, moved.paths(moves, gone)), List.append(&2, T.Split, walked, refusals(os)), cs, sorted(accepts(os)), emptied(os), dangle(t, gone, Set.from_list(pointed(os)), os), os, ls}

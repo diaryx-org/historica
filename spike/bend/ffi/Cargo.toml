@@ -22,6 +22,9 @@ crate-type = ["staticlib"]
 # reads.
 [dependencies]
 sha2 = "0.11.0"
+# What time it is, in the offset the platform reports: the Rust tool's own
+# clock, so an unpinned `record` spells a moment the way it does.
+jiff = "0.2"
 
 [profile.release]
 panic = "unwind"
