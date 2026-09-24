@@ -4,7 +4,9 @@
 # with the entry's file identifier. `names` reads the bookmarks in name
 # order and prints a line for each, beginning with its name, and says a
 # revision pin or a change resolves to an abbreviation of a revision the
-# store holds, or why there is none.
+# store holds, or why there is none. `log --fields` prints its header and
+# a line for each revision it keeps, beginning with its digest; and a log
+# entry counts each `add`, `move`, `drop` and `edit` fact once.
 import Base
 import ./commands.bend as Main
 import ./tree.bend as Tree
@@ -18,6 +20,7 @@ import ./graph_lemmas.bend as GL
 import ./anchor_lemmas.bend as AL
 import ./abbrev_lemmas.bend as Abbrev
 import ./target_lemmas.bend as TG
+import ./diff_lemmas.bend as Diff
 
 # `files`
 # -------
@@ -120,3 +123,56 @@ def resolution_held(+fs: List<&2, Main.Full>, +here: Maybe<&2, Tree.Tree()>, t: 
       pin_held(Rev.member(Main.ids(fs), id), Main.ids(fs), id, {==})
     case Bm.Target.Change{+c}:
       change_held(fs, c, Rev.change_state(Main.history(fs), c), {==})
+
+# `log`
+# -----
+
+# What starts with `c` still does behind the same prefix.
+def sw_prefix(a: String, +b: String, +c: String, h: {String.starts_with(b, c) == True{} : Bool}) -> {String.starts_with(String.append(a, b), String.append(a, c)) == True{} : Bool}:
+  match a:
+    case SNil{}:
+      h
+    case SCon{+x, t}:
+      %Equal.sym(Bool, Char.is_eq(x, x), True{}, Diff.char_eq_refl(x)) : {String.starts_with.if(String.append(t, b), String.append(t, c), _) == True{} : Bool}
+      sw_prefix(t, b, c, h)
+
+def fields_each(fs: List<&2, Main.Full>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> {Main.log.fields.each(Main.fields.lines(fs, heads, gone, h), fs) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case Main.Full{+id, +change, +parents, +supersedes, +author, +when, +revised_by, +revised, +facts, +message} <> +rest:
+      B.and_tt(String.starts_with(Main.fields_line(Main.Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}, heads, gone, h), id ++ " "), Main.log.fields.each(Main.fields.lines(rest, heads, gone, h), rest),
+        sw_prefix(id, " " ++ (change ++ " " ++ when ++ " " ++ Main.found(id, change, heads, gone, h) ++ String.concat(T.map(~String, ~String, ~(p => " " ++ p), parents))), " ",
+          B.sw_nil(change ++ " " ++ when ++ " " ++ Main.found(id, change, heads, gone, h) ++ String.concat(T.map(~String, ~String, ~(p => " " ++ p), parents)))),
+        fields_each(rest, heads, gone, h))
+
+# `log --fields` prints its header, and then a line for each revision it
+# lists, in order, beginning with that revision's digest.
+def fields_listed(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: Main.Span, +shown: List<&2, Main.Full>, +fl: Main.Filter, limit: Maybe<&2, Nat>) -> {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}:
+  %Equal.sym(Bool, Bool.and(List.is_empty(&2, Main.Full, shown), False{}), False{}, AL.and_false_r(List.is_empty(&2, Main.Full, shown))) : {Main.log.fields.ok(Bool.pick(List<&2, String>, _, [Main.log.empty(fs, bs, sp)], Main.log.listed.lines(fs, Main.limited(Main.kept(fl, Main.presentation(shown)), limit), True{}, Main.selects(fl))), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}
+  fields_each(Main.limited(Main.kept(fl, Main.presentation(shown)), limit), Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), Main.history(fs))
+
+def keep_len(b: Bool, -x: String, rest: List<&2, String>) -> {List.length(&2, String, Rev.keep(b, x, rest)) == Nat.add(Bool.pick(Nat, b, 1n, 0n), List.length(&2, String, rest)) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def one_count(b: Bool, +added: Set(), +v: String) -> {Main.count_facts.one(added, False{}, v, b) == Bool.pick(Nat, b, 1n, 0n) : Nat}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# With nothing excluded, `log` counts every fact of a kind the revision
+# states, once, whatever it added.
+def counts_each(facts: List<&2, Rev.Header>, +key: String, +added: Set()) -> {Main.count_facts(facts, key, added, False{}) == List.length(&2, String, Rev.values_of(facts, key)) : Nat}:
+  match facts:
+    case Nil{}:
+      {==}
+    case Rev.Header{+k, +v} <> +rest:
+      %Equal.sym(Nat, Main.count_facts.one(added, False{}, v, String.eq(k, key)), Bool.pick(Nat, String.eq(k, key), 1n, 0n), one_count(String.eq(k, key), added, v)) : {Nat.add(_, Main.count_facts(rest, key, added, False{})) == List.length(&2, String, Rev.keep(String.eq(k, key), v, Rev.values_of(rest, key))) : Nat}
+      %Equal.sym(Nat, Main.count_facts(rest, key, added, False{}), List.length(&2, String, Rev.values_of(rest, key)), counts_each(rest, key, added)) : {Nat.add(Bool.pick(Nat, String.eq(k, key), 1n, 0n), _) == List.length(&2, String, Rev.keep(String.eq(k, key), v, Rev.values_of(rest, key))) : Nat}
+      Equal.sym(Nat, List.length(&2, String, Rev.keep(String.eq(k, key), v, Rev.values_of(rest, key))), Nat.add(Bool.pick(Nat, String.eq(k, key), 1n, 0n), List.length(&2, String, Rev.values_of(rest, key))), keep_len(String.eq(k, key), v, Rev.values_of(rest, key)))

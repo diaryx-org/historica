@@ -1171,3 +1171,26 @@ law names_resolves_to_held:
   for +here: Maybe<&2, Tree.Tree()>
   for t: Bm.Target
   {Main.names.held(fs, t, Main.names.resolution(Main.history(fs), Main.ids(fs), here, t)) == True{} : Bool}
+
+# `log --fields` names exactly what it lists: its header, and then a line
+# for each revision it keeps — those every filter admits, as
+# `log_lists_what_it_asks` says, in the order the walk presents them and
+# as far as the limit — beginning with that revision's digest, whole.
+law log_fields_lists_what_it_keeps:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +sp: Main.Span
+  for +shown: List<&2, Main.Full>
+  for +fl: Main.Filter
+  for limit: Maybe<&2, Nat>
+  {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}
+
+# A log entry counts what its revision did to the file set as the
+# revision states it: the files it added, moved, dropped and edited are
+# each of its `add`, `move`, `drop` and `edit` facts, once — whatever it
+# added besides, which only the counts of modes, links and bytes set aside.
+law log_counts_each_fact:
+  for facts: List<&2, Rev.Header>
+  for +key: String
+  for +added: Set()
+  {Main.count_facts(facts, key, added, False{}) == List.length(&2, String, Rev.values_of(facts, key)) : Nat}

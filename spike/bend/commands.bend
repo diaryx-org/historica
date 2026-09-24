@@ -813,24 +813,22 @@ def parenthesised(+ms: List<&2, String>) -> String:
 def marks(+id: String, +change: String, parents: List<&2, String>, supersedes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> String:
   parenthesised(marks.list(id, change, parents, supersedes, heads, gone, h))
 
-def revised_line(by: Maybe<&2, String>, at: Maybe<&2, String>) -> IO(Unit):
+def revised_line(by: Maybe<&2, String>, at: Maybe<&2, String>) -> List<&2, String>:
   match by at:
     case Some{b} Some{a}:
-      IO.print("    revised by " ++ b ++ "  " ++ a)
+      ["    revised by " ++ b ++ "  " ++ a]
     case _ _:
-      IO.pure(Unit, Unit{})
+      Nil{}
 
-def facts_line(+facts: String) -> IO(Unit):
-  Bool.pick(IO(Unit), String.is_empty(facts), IO.pure(Unit, Unit{}), IO.print("    " ++ facts))
+def facts_line(+facts: String) -> List<&2, String>:
+  Bool.pick(List<&2, String>, String.is_empty(facts), Nil{}, ["    " ++ facts])
 
-def message_lines(ls: List<&2, String>) -> IO(Unit):
+def message_lines(ls: List<&2, String>) -> List<&2, String>:
   match ls:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case +l <> rest:
-      do IO<Unit>:
-        IO.print(Bool.pick(String, String.is_empty(l), SNil{}, "    " ++ l))
-        message_lines(rest)
+      Bool.pick(String, String.is_empty(l), SNil{}, "    " ++ l) <> message_lines(rest)
 
 def line_texts(ls: List<&2, T.Line>) -> List<&2, String>:
   match ls:
@@ -841,28 +839,25 @@ def line_texts(ls: List<&2, T.Line>) -> List<&2, String>:
 
 # `lines` as Rust's `str::lines`: a final newline ends the last line rather
 # than starting an empty one.
-def message.print(+m: String) -> IO(Unit):
-  Bool.pick(IO(Unit), String.is_empty(String.trim(m)), IO.print("    (no message)"), message_lines(line_texts(T.lines(m))))
+def message.said(+m: String) -> List<&2, String>:
+  Bool.pick(List<&2, String>, String.is_empty(String.trim(m)), ["    (no message)"], message_lines(line_texts(T.lines(m))))
 
-def print_entry(f: Full, +all_ids: List<&2, String>, +all_changes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> IO(Unit):
+# One revision as `log` shows it: its change and digest abbreviated, with
+# its marks; who and when; who revised it last, if anyone; what it did to
+# the file set, if anything; and its message, indented.
+def entry.lines(f: Full, +all_ids: List<&2, String>, +all_changes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> List<&2, String>:
   match f:
     case Full{+id, +change, parents, supersedes, author, when, revised_by, revised, facts, message}:
-      do IO<Unit>:
-        IO.print(abbreviate(change, all_changes) ++ "  " ++ abbreviate(id, all_ids) ++ marks(id, change, parents, supersedes, heads, gone, h))
-        IO.print("    " ++ author ++ "  " ++ when)
-        revised_line(revised_by, revised)
-        facts_line(tree_facts(facts))
-        message.print(message)
+      (abbreviate(change, all_changes) ++ "  " ++ abbreviate(id, all_ids) ++ marks(id, change, parents, supersedes, heads, gone, h)) <> ("    " ++ author ++ "  " ++ when) <>
+        List.append(&2, String, revised_line(revised_by, revised), List.append(&2, String, facts_line(tree_facts(facts)), message.said(message)))
 
-def print_entries(fs: List<&2, Full>, +all_ids: List<&2, String>, +all_changes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History(), first: Bool) -> IO(Unit):
+# The entries, a blank line between each and the next.
+def entries.lines(fs: List<&2, Full>, +all_ids: List<&2, String>, +all_changes: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History(), first: Bool) -> List<&2, String>:
   match fs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case f <> rest:
-      do IO<Unit>:
-        Bool.pick(IO(Unit), first, IO.pure(Unit, Unit{}), IO.print(SNil{}))
-        print_entry(f, all_ids, all_changes, heads, gone, h)
-        print_entries(rest, all_ids, all_changes, heads, gone, h, False{})
+      List.append(&2, String, Bool.pick(List<&2, String>, first, Nil{}, [SNil{}]), List.append(&2, String, entry.lines(f, all_ids, all_changes, heads, gone, h), entries.lines(rest, all_ids, all_changes, heads, gone, h, False{})))
 
 def print_missing(ids: List<&2, String>) -> IO(Unit):
   match ids:
@@ -1524,49 +1519,62 @@ def fields_line(f: Full, +heads: List<&2, String>, +gone: List<&2, String>, +h: 
     case Full{+id, +change, parents, supersedes, author, when, revised_by, revised, facts, message}:
       id ++ " " ++ change ++ " " ++ when ++ " " ++ found(id, change, heads, gone, h) ++ String.concat(T.map(~String, ~String, ~(p => " " ++ p), parents))
 
-def print_fields(fs: List<&2, Full>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> IO(Unit):
+def fields.lines(fs: List<&2, Full>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> List<&2, String>:
   match fs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case f <> rest:
-      do IO<Unit>:
-        IO.print(fields_line(f, heads, gone, h))
-        print_fields(rest, heads, gone, h)
+      fields_line(f, heads, gone, h) <> fields.lines(rest, heads, gone, h)
 
 # Printing
 # --------
 
-def log.fields(+h: Rev.History(), listed: List<&2, Full>) -> IO(Unit):
-  do IO<Unit>:
-    IO.print("historica-log-1")
-    print_fields(listed, Rev.heads(h), Rev.superseded(h), h)
-
-def log.entries(+fs: List<&2, Full>, +h: Rev.History(), +listed: List<&2, Full>, +selects: Bool) -> IO(Unit):
-  Bool.pick(IO(Unit), Bool.and(List.is_empty(&2, Full, listed), selects), IO.print("no revision here matches all of those"),
-    print_entries(listed, ids(fs), changes(fs), Rev.heads(h), Rev.superseded(h), h, True{}))
-
-def log.listed(+fs: List<&2, Full>, +listed: List<&2, Full>, fields: Bool, +selects: Bool) -> IO(Unit):
+def log.listed.lines(+fs: List<&2, Full>, +listed: List<&2, Full>, fields: Bool, +selects: Bool) -> List<&2, String>:
   match fields:
     case True{}:
-      log.fields(history(fs), listed)
+      +h = history(fs)
+      "historica-log-1" <> fields.lines(listed, Rev.heads(h), Rev.superseded(h), h)
     case False{}:
-      log.entries(fs, history(fs), listed, selects)
+      +h = history(fs)
+      Bool.pick(List<&2, String>, Bool.and(List.is_empty(&2, Full, listed), selects), ["no revision here matches all of those"],
+        entries.lines(listed, ids(fs), changes(fs), Rev.heads(h), Rev.superseded(h), h, True{}))
 
 def spelled(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String) -> String:
   String.take(id, 12n) ++ names_at(bs, history(fs), id)
 
 # An empty span is an answer rather than a fault: a range that is empty says
 # the work asked about is already behind the revision it was held up against.
-def log.empty(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, sp: Span) -> IO(Unit):
+def log.empty(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, sp: Span) -> String:
   match sp:
     case Span.Between{+from, +to}:
-      IO.print(spelled(fs, bs, to) ++ " holds nothing " ++ spelled(fs, bs, from) ++ " does not")
+      spelled(fs, bs, to) ++ " holds nothing " ++ spelled(fs, bs, from) ++ " does not"
     case _:
-      IO.print("no revisions here yet")
+      "no revisions here yet"
 
-def log.shown(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, +shown: List<&2, Full>, +fl: Filter, +fields: Bool, limit: Maybe<&2, Nat>) -> IO(Unit):
-  Bool.pick(IO(Unit), Bool.and(List.is_empty(&2, Full, shown), Bool.not(fields)), log.empty(fs, bs, sp),
-    log.listed(fs, limited(kept(fl, presentation(shown)), limit), fields, selects(fl)))
+# What `log` prints of what the span shows: the revisions every filter
+# admits, in the order the walk presents them, as far as the limit.
+def log.shown.lines(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, +shown: List<&2, Full>, +fl: Filter, +fields: Bool, limit: Maybe<&2, Nat>) -> List<&2, String>:
+  Bool.pick(List<&2, String>, Bool.and(List.is_empty(&2, Full, shown), Bool.not(fields)), [log.empty(fs, bs, sp)],
+    log.listed.lines(fs, limited(kept(fl, presentation(shown)), limit), fields, selects(fl)))
+
+# What `LAWS.log_fields_lists_what_it_keeps` reads in `--fields`: the
+# header, and a line for each revision listed, in order, beginning with its
+# digest and a space.
+def log.fields.each(ls: List<&2, String>, fs: List<&2, Full>) -> Bool:
+  match ls fs:
+    case Nil{} Nil{}:
+      True{}
+    case l <> lr f <> fr:
+      Bool.and(String.starts_with(l, id_of(f) ++ " "), log.fields.each(lr, fr))
+    case _ _:
+      False{}
+
+def log.fields.ok(ls: List<&2, String>, fs: List<&2, Full>) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case l <> rest:
+      Bool.and(String.eq(l, "historica-log-1"), log.fields.each(rest, fs))
 
 def log.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: Asked) -> IO(Unit):
   match a:
@@ -1575,7 +1583,7 @@ def log.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: Asked) -> IO(Unit
         sp : Span <- span(fs, bs, target)
         +sp2 : Span = sp
         file : Maybe<&2, String> <- followed(fs, bs, sp2, path)
-        log.shown(fs, bs, sp2, span.shown(fs, sp2), Filter{author, grep, since, until, file}, fields, limit)
+        print_lines(log.shown.lines(fs, bs, sp2, span.shown(fs, sp2), Filter{author, grep, since, until, file}, fields, limit))
 
 def log(+args: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
