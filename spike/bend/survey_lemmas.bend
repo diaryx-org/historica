@@ -9,6 +9,7 @@ import ./folder.bend as F
 import ./survey.bend as Sv
 import ./text.bend as T
 import ./tree.bend as Tree
+import ./revision.bend as Rev
 import ./anchor_lemmas.bend as AL
 import ./string_lemmas.bend as S
 import ./composition_lemmas.bend as Comp
@@ -454,3 +455,110 @@ def refused_ok(+t: Tree.Tree(), +held: Set(), +walked: List<&2, T.Split>, +ss: L
   refuses_app(walked, ss, walked, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))),
     walked_self(walked, ss),
     found_refuses(walked, ss, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), obs_found(t, Sv.claims(t), held, ss)))
+
+# A kind stated
+# -------------
+
+def fixed_pick(c: Bool, -msg: String, +f: String, -xs: List<&2, String>, -later: Maybe<&2, String>, -rest: Bool, ih: {Maybe.is_none(&2, String, later) == Bool.and(List.is_empty(&2, String, xs), rest) : Bool}) -> {Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, c, Some{msg}, later)) == Bool.and(List.is_empty(&2, String, Rev.keep(c, f, xs)), rest) : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+def fixed_ok(+p: String, t: Tree.Tree(), -later: Maybe<&2, String>, -rest: Bool, +ih: {Maybe.is_none(&2, String, later) == rest : Bool}) -> {Maybe.is_none(&2, String, Sv.kind_fixed(p, t, later)) == Bool.and(List.is_empty(&2, String, Tree.at(t, p)), rest) : Bool}:
+  match t:
+    case Nil{}:
+      ih
+    case Tree.Entry{+f, +q, +k, +y, +g, +m} <> more:
+      fixed_pick(String.eq(q, p), "`" ++ p ++ "` is already recorded as " ++ Tree.kind_show(k) ++ ", and decision 0017 fixes that when a file is added; a file that has to change kind is a `drop` and an `add`, which is a new file with a new identity", f, Tree.at(more, p), Sv.kind_fixed(p, more, later), rest, fixed_ok(p, more, later, rest, ih))
+
+def fault_pick(c: Bool, +p: String, +t: Tree.Tree(), -msg: String, -later: Maybe<&2, String>, -rest: Bool, +ih: {Maybe.is_none(&2, String, later) == rest : Bool}) -> {Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, c, Sv.kind_fixed(p, t, later), Some{msg})) == Bool.and(Bool.and(c, List.is_empty(&2, String, Tree.at(t, p))), rest) : Bool}:
+  match c:
+    case True{}:
+      fixed_ok(p, t, later, rest, ih)
+    case False{}:
+      {==}
+
+def kinds_ok(+only: List<&2, String>, +t: Tree.Tree(), ks: List<&2, T.Split>) -> {Maybe.is_none(&2, String, Sv.kind_fault(only, t, ks)) == Sv.kinds_fresh(only, t, ks) : Bool}:
+  match ks:
+    case Nil{}:
+      {==}
+    case T.Split{+p, k} <> rest:
+      fault_pick(Sv.covers(only, p), p, t, "`" ++ p ++ "` is not one of the paths this is recording, so saying which kind it is would state nothing; name it as a path too, or drop the restriction", Sv.kind_fault(only, t, rest), Sv.kinds_fresh(only, t, rest), kinds_ok(only, t, rest))
+
+# The `move` lines
+# ----------------
+
+def later_none(ms: List<&2, T.Split>, +f: String, +h: {Sv.moved.later(ms, f) == False{} : Bool}) -> {Sv.last_move(ms, f) == None{} : Maybe<&2, String>}:
+  match ms:
+    case Nil{}:
+      {==}
+    case T.Split{+g, +to} <> rest:
+      %Equal.sym(Maybe<&2, String>, Sv.last_move(rest, f), None{}, later_none(rest, f, AL.or_false_r(String.eq(g, f), Sv.moved.later(rest, f), h))) : {Maybe.or(&2, String, _, Bool.pick(Maybe<&2, String>, String.eq(g, f), Some{to}, None{})) == None{} : Maybe<&2, String>}
+      %Equal.sym(Bool, String.eq(g, f), False{}, AL.or_false_l(String.eq(g, f), Sv.moved.later(rest, f), h)) : {Maybe.or(&2, String, None{}, Bool.pick(Maybe<&2, String>, _, Some{to}, None{})) == None{} : Maybe<&2, String>}
+      {==}
+
+def final_pick(c: Bool, +g: String, +to: String, +later: List<&2, T.Split>, +f: String, heq: {String.eq(g, f) == False{} : Bool}, ih: {Sv.moved.later(later, f) == False{} : Bool}) -> {Sv.moved.later(Bool.pick(List<&2, T.Split>, c, later, T.Split{g, to} <> later), f) == False{} : Bool}:
+  match c:
+    case True{}:
+      ih
+    case False{}:
+      AL.or_false(String.eq(g, f), Sv.moved.later(later, f), heq, ih)
+
+def final_later(ms: List<&2, T.Split>, +gone: Set(), +f: String, +h: {Sv.moved.later(ms, f) == False{} : Bool}) -> {Sv.moved.later(Sv.moved.final(ms, gone), f) == False{} : Bool}:
+  match ms:
+    case Nil{}:
+      {==}
+    case T.Split{+g, +to} <> +rest:
+      final_pick(Bool.or(Sv.has(gone, g), Sv.moved.later(rest, g)), g, to, Sv.moved.final(rest, gone), f,
+        AL.or_false_l(String.eq(g, f), Sv.moved.later(rest, f), h),
+        final_later(rest, gone, f, AL.or_false_r(String.eq(g, f), Sv.moved.later(rest, f), h)))
+
+def or_keep(m: Maybe<&2, String>, -n: Maybe<&2, String>, +to: String, h: {Sv.maybe_eq(m, Some{to}) == True{} : Bool}) -> {Sv.maybe_eq(Maybe.or(&2, String, m, n), Some{to}) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Sv.maybe_eq(n, Some{to}) == True{} : Bool}, S.false_true(h))
+    case Some{y}:
+      h
+
+def moves_weaken(out: List<&2, T.Split>, +x: T.Split, +ms: List<&2, T.Split>, +gone: Set(), +h: {Sv.moves_ok(ms, gone, out) == True{} : Bool}) -> {Sv.moves_ok(x <> ms, gone, out) == True{} : Bool}:
+  match out:
+    case Nil{}:
+      {==}
+    case T.Split{+f, +to} <> +rest:
+      match x:
+        case T.Split{+g, +gt}:
+          AL.and_intro(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(T.Split{g, gt} <> ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(T.Split{g, gt} <> ms, gone, rest)),
+            AL.and_intro(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(T.Split{g, gt} <> ms, f), Some{to}),
+              Comp.and_left(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to}), Comp.and_left(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest)), h)),
+              or_keep(Sv.last_move(ms, f), Bool.pick(Maybe<&2, String>, String.eq(g, f), Some{gt}, None{}), to, Comp.and_right(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to}), Comp.and_left(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest)), h)))),
+            AL.and_intro(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(T.Split{g, gt} <> ms, gone, rest),
+              Comp.and_left(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest), Comp.and_right(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest)), h)),
+              moves_weaken(rest, T.Split{g, gt}, ms, gone, Comp.and_right(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest), Comp.and_right(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest)), h)))))
+
+# The head's own line: the last place it went, since nothing after moves it.
+def moved_here(+f: String, +to: String, +rest: List<&2, T.Split>, +h: {Sv.moved.later(rest, f) == False{} : Bool}) -> {Sv.maybe_eq(Sv.last_move(T.Split{f, to} <> rest, f), Some{to}) == True{} : Bool}:
+  %Equal.sym(Maybe<&2, String>, Sv.last_move(rest, f), None{}, later_none(rest, f, h)) : {Sv.maybe_eq(Maybe.or(&2, String, _, Bool.pick(Maybe<&2, String>, String.eq(f, f), Some{to}, None{})), Some{to}) == True{} : Bool}
+  %Equal.sym(Bool, String.eq(f, f), True{}, S.eq_refl(f)) : {Sv.maybe_eq(Maybe.or(&2, String, None{}, Bool.pick(Maybe<&2, String>, _, Some{to}, None{})), Some{to}) == True{} : Bool}
+  S.eq_refl(to)
+
+def moves_pick(c: Bool, +f: String, +to: String, +rest: List<&2, T.Split>, +gone: Set(), +ec: {Bool.or(Sv.has(gone, f), Sv.moved.later(rest, f)) == c : Bool}, +ih: {Sv.moves_ok(rest, gone, Sv.moved.final(rest, gone)) == True{} : Bool}) -> {Sv.moves_ok(T.Split{f, to} <> rest, gone, Bool.pick(List<&2, T.Split>, c, Sv.moved.final(rest, gone), T.Split{f, to} <> Sv.moved.final(rest, gone))) == True{} : Bool}:
+  match c:
+    case True{}:
+      moves_weaken(Sv.moved.final(rest, gone), T.Split{f, to}, rest, gone, ih)
+    case False{}:
+      AL.and_intro(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(T.Split{f, to} <> rest, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(Sv.moved.final(rest, gone), f)), Sv.moves_ok(T.Split{f, to} <> rest, gone, Sv.moved.final(rest, gone))),
+        AL.and_intro(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(T.Split{f, to} <> rest, f), Some{to}),
+          AL.not_true(Sv.has(gone, f), AL.or_false_l(Sv.has(gone, f), Sv.moved.later(rest, f), ec)),
+          moved_here(f, to, rest, AL.or_false_r(Sv.has(gone, f), Sv.moved.later(rest, f), ec))),
+        AL.and_intro(Bool.not(Sv.moved.later(Sv.moved.final(rest, gone), f)), Sv.moves_ok(T.Split{f, to} <> rest, gone, Sv.moved.final(rest, gone)),
+          AL.not_true(Sv.moved.later(Sv.moved.final(rest, gone), f), final_later(rest, gone, f, AL.or_false_r(Sv.has(gone, f), Sv.moved.later(rest, f), ec))),
+          moves_weaken(Sv.moved.final(rest, gone), T.Split{f, to}, rest, gone, ih)))
+
+def moves_final_ok(ms: List<&2, T.Split>, +gone: Set()) -> {Sv.moves_ok(ms, gone, Sv.moved.final(ms, gone)) == True{} : Bool}:
+  match ms:
+    case Nil{}:
+      {==}
+    case T.Split{+f, +to} <> +rest:
+      moves_pick(Bool.or(Sv.has(gone, f), Sv.moved.later(rest, f)), f, to, rest, gone, {==}, moves_final_ok(rest, gone))

@@ -763,6 +763,16 @@ def kind_fault(+only: List<&2, String>, +t: Tree.Tree(), ks: List<&2, T.Split>) 
       Bool.pick(Maybe<&2, String>, covers(only, p), kind_fixed(p, t, kind_fault(only, t, rest)),
         Some{"`" ++ p ++ "` is not one of the paths this is recording, so saying which kind it is would state nothing; name it as a path too, or drop the restriction"})
 
+# What that refusal asks of the kinds a person states: each for a path the
+# record is looking at, where no file of the position is
+# (`LAWS.record_states_a_kind_only_for_an_arrival`).
+def kinds_fresh(+only: List<&2, String>, +t: Tree.Tree(), ks: List<&2, T.Split>) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case T.Split{+p, k} <> rest:
+      Bool.and(Bool.and(covers(only, p), List.is_empty(&2, String, Tree.at(t, p))), kinds_fresh(only, t, rest))
+
 # Each file moved, where it went last, unless the file is going.
 def moved.later(ms: List<&2, T.Split>, +file: String) -> Bool:
   match ms:
@@ -788,6 +798,23 @@ def moved.final(ms: List<&2, T.Split>, +gone: Set()) -> List<&2, T.Split>:
     case T.Split{+f, +to} <> +rest:
       +later = moved.final(rest, gone)
       Bool.pick(List<&2, T.Split>, Bool.or(has(gone, f), moved.later(rest, f)), later, T.Split{f, to} <> later)
+
+# What that law asks of the `move` lines (`LAWS.record_moves_each_file_once`):
+# each is for a file not going, at the last place the renames put it, and
+# no file has two.
+def last_move(ms: List<&2, T.Split>, +file: String) -> Maybe<&2, String>:
+  match ms:
+    case Nil{}:
+      None{}
+    case T.Split{+f, +to} <> rest:
+      Maybe.or(&2, String, last_move(rest, file), Bool.pick(Maybe<&2, String>, String.eq(f, file), Some{to}, None{}))
+
+def moves_ok(+ms: List<&2, T.Split>, +gone: Set(), out: List<&2, T.Split>) -> Bool:
+  match out:
+    case Nil{}:
+      True{}
+    case T.Split{+f, +to} <> +rest:
+      Bool.and(Bool.and(Bool.not(has(gone, f)), maybe_eq(last_move(ms, f), Some{to})), Bool.and(Bool.not(moved.later(rest, f)), moves_ok(ms, gone, rest)))
 
 def emptied(os: List<&2, Obs>) -> List<&2, String>:
   match os:

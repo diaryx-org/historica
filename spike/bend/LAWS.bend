@@ -1319,3 +1319,23 @@ law status_refuses_what_the_folder_holds:
   for +walked: List<&2, T.Split>
   for +ss: List<&2, Sv.Seen>
   {Sv.refuses_found(walked, ss, Sv.survey.refused(Sv.survey(t, held, walked, ss))) == True{} : Bool}
+
+# A kind is stated only for a file arriving. Decision 0017 fixes a file's
+# kind when it is added, so `record` goes on with a `--lines` or a
+# `--bytes` exactly where each names a path it is looking at that no file of
+# the position holds: a kind for a file already there is refused, since it
+# would restate what was fixed at the add.
+law record_states_a_kind_only_for_an_arrival:
+  for +only: List<&2, String>
+  for +t: Tree.Tree()
+  for +ks: List<&2, T.Split>
+  {Maybe.is_none(&2, String, Sv.kind_fault(only, t, ks)) == Sv.kinds_fresh(only, t, ks) : Bool}
+
+# `record` writes one `move` line for each file moved. However the
+# renames a person stated follow one another, each line is for a file this
+# record is not dropping, says the last place the renames put it, and no
+# file has a second.
+law record_moves_each_file_once:
+  for +ms: List<&2, T.Split>
+  for +gone: Set()
+  {Sv.moves_ok(ms, gone, Sv.moved.final(ms, gone)) == True{} : Bool}
