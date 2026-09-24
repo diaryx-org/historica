@@ -805,6 +805,21 @@ STORES = {
         ["merge", "nope"],
         ["merge", "--bogus"],
     ],
+    # The same once `merge` has written it and a person has started: one
+    # file resolved, one untouched, one with only the closing line
+    # deleted, and a file quoting a fence nobody rendered here. `status`
+    # counts what stands, `record` refuses it, and `merge` again leaves
+    # the work alone.
+    "marked": [
+        ["status", "--onto", "left", "--merge", "right"],
+        ["status", "--merge", "right", "--merge", "left"],
+        ["record", "-n", "--onto", "left", "--merge", "right"],
+        ["record", "-n", "--merge", "left", "--merge", "right"],
+        ["record", "-n", "--merge", "left", "--merge", "right", "h.md"],
+        ["merge"],
+    ],
+    # And with one file left marked.
+    "marked1": [["status", "--onto", "left", "--merge", "right"], ["record", "-n", "--onto", "left", "--merge", "right"]],
     "walked": [
         *(["cat", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         *(["blame", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
@@ -1006,7 +1021,7 @@ def record(temporary, rust, corpus, pinned=None):
         if corpus == "caught":
             historica("update", "tip")
             (store / "side.md").unlink()
-    elif corpus == "meeting":
+    elif corpus in ("meeting", "marked", "marked1"):
         def rec(name, *command):
             done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
             digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
@@ -1028,6 +1043,12 @@ def record(temporary, rust, corpus, pinned=None):
         write(k="kept\n")
         rec("right", "--onto", "base", "-m", "right")
         write(k="kept, and not recorded\n")
+        if corpus in ("marked", "marked1"):
+            historica("merge")
+            text = (store / "t.md").read_text()
+            write(f="a\nLEFT and RIGHT\nc\n", t=text[: text.rindex("^^^ historica")], k="kept, and not recorded\nvvv historica: 0badbeef wrote vvv\n")
+            if corpus == "marked1":
+                write(h="x\nY\nz\n")
     elif corpus == "blocked":
         (store / "a.md").write_text("a\n")
         (store / "c.bin").write_bytes(b"\x00base")
@@ -1464,7 +1485,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked", "meeting")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked", "meeting", "marked", "marked1")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:

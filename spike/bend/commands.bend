@@ -6055,20 +6055,78 @@ def status.proposed(+bf: Map<&2, String>, e: Maybe<&2, Tree.Entry>) -> Bool:
     case _:
       False{}
 
-def status.seen(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, h: Here) -> Sv.Seen:
+# What `merge` proposes for each file of lines the parents being joined
+# leave differently: the walk over everything they reach, which is what a
+# person resolves from, and what the renderer's lines are found against.
+type Proposal is Data:
+  Proposal{file: String, joined: Result<&2, &2, String, Conflict.Joined>}
+
+def proposal.of(ps: List<&2, Proposal>, +file: String) -> Maybe<&2, Result<&2, &2, String, Conflict.Joined>>:
+  match ps:
+    case Nil{}:
+      None{}
+    case Proposal{+f, +j} <> rest:
+      Bool.pick(Maybe<&2, Result<&2, &2, String, Conflict.Joined>>, String.eq(f, file), Some{j}, proposal.of(rest, file))
+
+def proposals(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, files: List<&2, String>) -> List<&2, Proposal>:
+  match files:
+    case Nil{}:
+      Nil{}
+    case +f <> rest:
+      Proposal{f, joined(fs, ds, ps, f)} <> proposals(fs, ds, ps, rest)
+
+def proposed.files(+bf: Map<&2, String>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case Here{p, +e, found} <> rest:
+      Rev.keep(status.proposed(bf, e), Maybe.default(&2, String, Maybe.map(&2, Tree.Entry, String, x => Tree.entry_file(x), e), SNil{}), proposed.files(bf, rest))
+
+def proposals.of(+root: String, +fs: List<&2, Full>, +ps: List<&2, String>, files: List<&2, String>) -> IO(List<&2, Proposal>):
+  match files:
+    case Nil{}:
+      IO.pure(List<&2, Proposal>, Nil{})
+    case +some:
+      do IO<List<&2, Proposal>>:
+        ds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), wanted_all(fs, some))))
+        +ds2 : List<&2, Store.Doc> = ds
+        more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
+        return proposals(fs, List.append(&2, Store.Doc, ds2, more), ps, some)
+
+def proposals.io(+root: String, +fs: List<&2, Full>, +ps: List<&2, String>, +bf: Map<&2, String>, +hs: List<&2, Here>) -> IO(List<&2, Proposal>):
+  proposals.of(root, fs, ps, proposed.files(bf, hs))
+
+# How many of the renderer's lines still stand in a file the merge owes a
+# resolution: decision 0012's check, per line, scoped to this merge.
+def status.marked.of(+text: String, p: Maybe<&2, Result<&2, &2, String, Conflict.Joined>>) -> Nat:
+  match p:
+    case Some{Done{+j}}:
+      List.length(&2, String, Conflict.unresolved(j, text))
+    case _:
+      0n
+
+def status.marked(+props: List<&2, Proposal>, +text: String, e: Maybe<&2, Tree.Entry>) -> Nat:
+  match e:
+    case Some{Tree.Entry{+f, p, k, y, g, m}}:
+      status.marked.of(text, proposal.of(props, f))
+    case None{}:
+      0n
+
+def status.seen(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Proposal>, h: Here) -> Sv.Seen:
   match h:
     case Here{+path, +e, found}:
       +proposed = status.proposed(bf, e)
-      Sv.Seen{path, e, found, status.folder_digest(dg, path), Bool.pick(Maybe<&2, String>, proposed, None{}, status.before(bf, e)), Folder.is_utf8(bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path))), status.shown(t, e), proposed}
+      +bytes = bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path))
+      Sv.Seen{path, e, found, status.folder_digest(dg, path), Bool.pick(Maybe<&2, String>, proposed, None{}, status.before(bf, e)), Folder.is_utf8(bytes), status.shown(t, e), proposed, Bool.pick(Nat, proposed, status.marked(props, Utf8.decode(bytes), e), 0n)}
 
 # `t` is the position's tree as it stands, before any rename a person
 # stated moved a file in it.
-def status.seens(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Here>) -> List<&2, Sv.Seen>:
+def status.seens(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Proposal>, hs: List<&2, Here>) -> List<&2, Sv.Seen>:
   match hs:
     case Nil{}:
       Nil{}
     case h <> rest:
-      status.seen(t, dg, bf, reads, h) <> status.seens(t, dg, bf, reads, rest)
+      status.seen(t, dg, bf, reads, props, h) <> status.seens(t, dg, bf, reads, props, rest)
 
 # Joining
 # -------
@@ -6372,12 +6430,13 @@ def print_renames(xs: List<&2, T.Split>) -> IO(Unit):
 # `render::status`: where the folder is, and what it differs by.
 def status.print(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, contests: List<&2, String>, +sv: Sv.Survey) -> IO(Unit):
   match sv:
-    case Sv.Survey{facts, refused, claimed, accept, renames}:
+    case Sv.Survey{facts, refused, claimed, marked, accept, renames}:
       do IO<Unit>:
         status.position(fs, bs, ps)
         print_facts(facts)
         print_splits("refused ", ": ", SNil{}, refused)
         print_splits("claimed ", ": ", " files claim it; say where each goes with --at", claimed)
+        print_splits("marked  ", " (", " left)", marked)
         print_accepts(accept)
         print_lines(contests)
         Bool.pick(IO(Unit), Sv.is_quiet(sv), IO.print("nothing here differs from what is recorded"), IO.pure(Unit, Unit{}))
@@ -6402,8 +6461,9 @@ def status.surveyed(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmar
     bf : Map<&2, String> <- status.befores.io(root, fs, ps, hs)
     +bf2 : Map<&2, String> = bf
     reads : Map<&2, List<&2, U32>> <- read_all(repo, status.reads(dg, bf2, hs), Map.new(&2, List<&2, U32>))
+    props : List<&2, Proposal> <- proposals.io(root, fs, ps, bf2, hs)
     +held : Set() = Set.from_list(T.map(~Folder.Found, ~String, ~(f => Folder.found.path(f)), Folder.walked.found(w2)))
-    status.print(fs, bs, ps, contests.said(ps, Tree.merged_contested(m2)), Sv.survey(t2, held, Folder.walked.refused(w2), status.seens(t2, dg, bf2, reads, hs)))
+    status.print(fs, bs, ps, contests.said(ps, Tree.merged_contested(m2)), Sv.survey(t2, held, Folder.walked.refused(w2), status.seens(t2, dg, bf2, reads, props, hs)))
 
 def status.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: StatusCmd) -> IO(Unit):
   match a:
@@ -6899,22 +6959,36 @@ def accept.lines(ps: List<&2, String>) -> String:
     case p <> rest:
       "\n  --accept " ++ p ++ accept.lines(rest)
 
+# Decision 0012: while recording a merge, a file the renderer's lines still
+# stand in is refused, and each is named with how many.
+def unresolved.lines(ms: List<&2, T.Split>) -> String:
+  match ms:
+    case Nil{}:
+      SNil{}
+    case T.Split{p, n} <> rest:
+      "\n  " ++ p ++ " (" ++ n ++ " left)" ++ unresolved.lines(rest)
+
+def unresolved.msg(+ms: List<&2, T.Split>) -> String:
+  +one = Nat.is_eq(List.length(&2, T.Split, ms), 1n)
+  "concurrent work is still marked in " ++ Bool.pick(String, one, "one file", "these files") ++ "; resolve " ++ Bool.pick(String, one, "it", "them") ++ " and delete the lines historica wrote:" ++ unresolved.lines(ms)
+
 def planned.r(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>) -> Result<&2, &2, Refused, Sv.Planned>:
   match pl:
     case Sv.Planned{facts, +refused, +claimed, +accept, +emptied, Some{m}, obs, links}:
       Fail{Refused{1, m}}
-    case Sv.Planned{facts, +refused, +claimed, +accept, +emptied, None{}, obs, links}:
+    case Sv.Planned{facts, +refused, +claimed, +accept, +emptied, None{}, +obs, links}:
       +un = minus(accept, accepted)
       +needless = minus(accepted, accept)
       Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, claimed)), Fail{Refused{1, claimed.msg(looked, claimed)}},
       Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Refused{1, refused.msg(refused)}},
+      Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, Sv.marked(obs))), Fail{Refused{1, unresolved.msg(Sv.marked(obs))}},
       Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)),
         Fail{Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ skips_held.lines(emptied)}},
       Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, un)),
         Fail{Refused{1, "concurrent work states different bytes for " ++ these(un, "one attachment", "these attachments") ++ "; inspect " ++ these(un, "it", "them") ++ " and explicitly accept what the folder holds:" ++ accept.lines(un)}},
       Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, needless)),
         Fail{Refused{1, these(needless, "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ accept.lines(needless)}},
-        Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))))
+        Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))))))
 
 def record.print(fs: List<&2, T.Split>) -> IO(Unit):
   match fs:
@@ -8698,7 +8772,9 @@ def record.surveyed(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>
         reads : Map<&2, List<&2, U32>> <- read_all(repo, List.append(&2, String, status.reads(dg, bf2, hs), Bool.pick(List<&2, String>, writes, added.regular(hs), lined_added(kinds, hs))), Map.new(&2, List<&2, U32>))
         +reads2 : Map<&2, List<&2, U32>> = reads
         stated.io(Unit, st, record.fault.r(not_lines(kinds, reads2, hs)))
-        pl : Sv.Planned <- stated.io(Sv.Planned, st, planned.r(looked, Sv.planned(t, looked, Set.from_list(folder), Sv.only.refused(only, walked), status.seens(t0, dg, bf2, reads2, hs), moved), accepted))
+        props : List<&2, Proposal> <- proposals.io(root, fs, ps, bf2, hs)
+        +props2 : List<&2, Proposal> = props
+        pl : Sv.Planned <- stated.io(Sv.Planned, st, planned.r(looked, Sv.planned(t, looked, Set.from_list(folder), Sv.only.refused(only, walked), status.seens(t0, dg, bf2, reads2, props2, hs), moved), accepted))
         record.then(st, root, repo, fs, bs, ps, t, hs, dg, reads2, kinds, moved, pl, w)
 
 def author.unset() -> Result<&2, &2, Refused, String>:
