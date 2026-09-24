@@ -6034,10 +6034,13 @@ def status.reads(+dg: Map<&2, String>, +bf: Map<&2, String>, hs: List<&2, Here>)
     case +h <> rest:
       Rev.keep(status.read(dg, bf, h), here.path(h), status.reads(dg, bf, rest))
 
-def status.shown(+t: Tree.Tree(), +path: String, e: Maybe<&2, Tree.Entry>) -> Maybe<&2, String>:
+# What the last `update` wrote for a recorded link: spelled from where it
+# sat at the position, `t`, since a `mv` of the link no more rewrites its
+# own string than a `mv` of its target does.
+def status.shown(+t: Tree.Tree(), e: Maybe<&2, Tree.Entry>) -> Maybe<&2, String>:
   match e:
-    case Some{Tree.Entry{f, p, Tree.Link{}, y, Some{g}, m}}:
-      Some{materialise(t, path, g)}
+    case Some{Tree.Entry{+f, p, Tree.Link{}, y, Some{g}, m}}:
+      Some{materialise(t, Maybe.default(&2, String, Tree.path(t, f), p), g)}
     case _:
       None{}
 
@@ -6054,8 +6057,10 @@ def status.seen(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +re
   match h:
     case Here{+path, +e, found}:
       +proposed = status.proposed(bf, e)
-      Sv.Seen{path, e, found, status.folder_digest(dg, path), Bool.pick(Maybe<&2, String>, proposed, None{}, status.before(bf, e)), Folder.is_utf8(bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path))), status.shown(t, path, e), proposed}
+      Sv.Seen{path, e, found, status.folder_digest(dg, path), Bool.pick(Maybe<&2, String>, proposed, None{}, status.before(bf, e)), Folder.is_utf8(bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path))), status.shown(t, e), proposed}
 
+# `t` is the position's tree as it stands, before any rename a person
+# stated moved a file in it.
 def status.seens(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Here>) -> List<&2, Sv.Seen>:
   match hs:
     case Nil{}:
@@ -6415,11 +6420,566 @@ def status(+args: List<&2, String>) -> IO(Unit):
     a : StatusCmd <- refused.io(StatusCmd, status.args.r(args))
     status.of(r, fulls(r, rs), bs2, a)
 
+# record
+# ------
+
+# `record [<path>..] [-m <message>] [--onto <target>] [--merge <target>]..
+# [--accept <path>].. [--at <file>=<path>].. [--move <old>=<new>]..
+# [--bytes <path>].. [--lines <path>].. --dry-run`, read as the Rust tool
+# reads it. Only the dry run is here: what recording would state is said,
+# and nothing is written but the renames a person stated, which the Rust
+# tool performs before it surveys, dry run or not.
+type RecordCmd is Data:
+  RecordCmd{onto: Maybe<&2, String>, merges: List<&2, String>, accepted: List<&2, String>, at: List<&2, T.Split>,
+            moves: List<&2, T.Split>, kinds: List<&2, T.Split>, named: List<&2, String>, dry: Bool, fields: Bool}
+
+# What a word is to `record`: a flag and what it takes, or a path.
+type RWord is Data:
+  RWord.Message{}
+  RWord.Onto{}
+  RWord.Merge{}
+  RWord.Accept{}
+  RWord.At{}
+  RWord.Move{}
+  RWord.Bytes{}
+  RWord.Lines{}
+  RWord.Dry{}
+  RWord.Fields{}
+  RWord.Flag{}
+  RWord.Path{}
+
+def rword.of(+w: String) -> RWord:
+  Bool.pick(RWord, Bool.or(String.eq(w, "-m"), String.eq(w, "--message")), RWord.Message{},
+  Bool.pick(RWord, String.eq(w, "--onto"), RWord.Onto{},
+  Bool.pick(RWord, String.eq(w, "--merge"), RWord.Merge{},
+  Bool.pick(RWord, String.eq(w, "--accept"), RWord.Accept{},
+  Bool.pick(RWord, String.eq(w, "--at"), RWord.At{},
+  Bool.pick(RWord, String.eq(w, "--move"), RWord.Move{},
+  Bool.pick(RWord, String.eq(w, "--bytes"), RWord.Bytes{},
+  Bool.pick(RWord, String.eq(w, "--lines"), RWord.Lines{},
+  Bool.pick(RWord, Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), RWord.Dry{},
+  Bool.pick(RWord, String.eq(w, "--fields"), RWord.Fields{},
+  Bool.pick(RWord, String.starts_with(w, "-"), RWord.Flag{}, RWord.Path{})))))))))))
+
+def rword(args: List<&2, String>) -> RWord:
+  match args:
+    case Nil{}:
+      RWord.Path{}
+    case +w <> rest:
+      rword.of(w)
+
+def rc.onto(c: RecordCmd, v: String) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{Some{v}, ms, ac, at, mv, ks, ns, d, f}
+
+def rc.merge(c: RecordCmd, v: String) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{o, List.append(&2, String, ms, [v]), ac, at, mv, ks, ns, d, f}
+
+def rc.accept(c: RecordCmd, v: String) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{o, ms, v <> ac, at, mv, ks, ns, d, f}
+
+def rc.at(c: RecordCmd, v: T.Split) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{o, ms, ac, List.append(&2, T.Split, at, [v]), mv, ks, ns, d, f}
+
+def rc.move(c: RecordCmd, v: T.Split) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{o, ms, ac, at, List.append(&2, T.Split, mv, [v]), ks, ns, d, f}
+
+def rc.kind(c: RecordCmd, v: T.Split) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{o, ms, ac, at, mv, List.append(&2, T.Split, ks, [v]), ns, d, f}
+
+def rc.named(c: RecordCmd, v: String) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{o, ms, ac, at, mv, ks, v <> ns, d, f}
+
+def rc.dry(c: RecordCmd) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{o, ms, ac, at, mv, ks, ns, True{}, f}
+
+def rc.fields(c: RecordCmd) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f}:
+      RecordCmd{o, ms, ac, at, mv, ks, ns, d, True{}}
+
+# `<one>=<other>`, cut at the first `=`.
+def record.split.of(+msg: String, parts: List<&2, String>) -> Result<&2, &2, Refused, T.Split>:
+  match parts:
+    case a <> b <> rest:
+      Done{T.Split{a, String.join(b <> rest, "=")}}
+    case _:
+      Fail{Refused{2, msg}}
+
+def record.split(+v: String, +msg: String) -> Result<&2, &2, Refused, T.Split>:
+  record.split.of(msg, String.split(v, '='))
+
+# A path, with the slashes a shell leaves on a directory taken off.
+def heads_slash(s: String) -> Bool:
+  match s:
+    case SCon{c, t}:
+      Char.is_eq(c, '/')
+    case SNil{}:
+      False{}
+
+def drop_slashes(s: String, slash: Bool) -> String:
+  match s slash:
+    case SCon{c, +t} True{}:
+      drop_slashes(t, heads_slash(t))
+    case other _:
+      other
+
+def trimmed(+p: String) -> String:
+  +r = String.reverse(p)
+  String.reverse(drop_slashes(r, heads_slash(r)))
+
+def record.path(c: RecordCmd, +p: String) -> Result<&2, &2, Refused, RecordCmd>:
+  Bool.pick(Result<&2, &2, Refused, RecordCmd>, String.is_empty(p), Fail{Refused{2, "`record` takes the paths to record, and an empty one names nothing"}}, Done{rc.named(c, p)})
+
+def record.args.go(args: List<&2, String>, c: RecordCmd, k: RWord) -> Result<&2, &2, Refused, RecordCmd>:
+  match args k:
+    case Nil{} _:
+      Done{c}
+    case w <> Nil{} RWord.Message{}:
+      Fail{Refused{2, "`-m` wants a value"}}
+    case w <> v <> +rest RWord.Message{}:
+      record.args.go(rest, c, rword(rest))
+    case w <> Nil{} RWord.Onto{}:
+      Fail{Refused{2, "`--onto` wants a value"}}
+    case w <> v <> +rest RWord.Onto{}:
+      record.args.go(rest, rc.onto(c, v), rword(rest))
+    case w <> Nil{} RWord.Merge{}:
+      Fail{Refused{2, "`--merge` wants a value"}}
+    case w <> v <> +rest RWord.Merge{}:
+      record.args.go(rest, rc.merge(c, v), rword(rest))
+    case w <> Nil{} RWord.Accept{}:
+      Fail{Refused{2, "`--accept` wants a value"}}
+    case w <> v <> +rest RWord.Accept{}:
+      record.args.go(rest, rc.accept(c, v), rword(rest))
+    case w <> Nil{} RWord.At{}:
+      Fail{Refused{2, "`--at` wants a value"}}
+    case w <> +v <> +rest RWord.At{}:
+      do Result<&2, &2, Refused, RecordCmd>:
+        s : T.Split <- record.split(v, "`--at` is spelled `--at <file>=<path>`")
+        record.args.go(rest, rc.at(c, s), rword(rest))
+    case w <> Nil{} RWord.Move{}:
+      Fail{Refused{2, "`--move` wants a value"}}
+    case w <> +v <> +rest RWord.Move{}:
+      do Result<&2, &2, Refused, RecordCmd>:
+        s : T.Split <- record.split(v, "`--move` is spelled `--move <old>=<new>`")
+        record.args.go(rest, rc.move(c, s), rword(rest))
+    case w <> Nil{} RWord.Bytes{}:
+      Fail{Refused{2, "`--bytes` wants a value"}}
+    case w <> v <> +rest RWord.Bytes{}:
+      record.args.go(rest, rc.kind(c, T.Split{v, "bytes"}), rword(rest))
+    case w <> Nil{} RWord.Lines{}:
+      Fail{Refused{2, "`--lines` wants a value"}}
+    case w <> v <> +rest RWord.Lines{}:
+      record.args.go(rest, rc.kind(c, T.Split{v, "lines"}), rword(rest))
+    case w <> +rest RWord.Dry{}:
+      record.args.go(rest, rc.dry(c), rword(rest))
+    case w <> +rest RWord.Fields{}:
+      record.args.go(rest, rc.fields(c), rword(rest))
+    case w <> rest RWord.Flag{}:
+      Fail{Refused{2, "`" ++ w ++ "` is not an argument `record` takes"}}
+    case +w <> +rest RWord.Path{}:
+      do Result<&2, &2, Refused, RecordCmd>:
+        more : RecordCmd <- record.path(c, trimmed(w))
+        record.args.go(rest, more, rword(rest))
+
+def record.args.r(+args: List<&2, String>) -> Result<&2, &2, Refused, RecordCmd>:
+  record.args.go(args, RecordCmd{None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}}, rword(args))
+
+# One path, two kinds, is a person who typed something they did not mean.
+def kinds.differs(ks: List<&2, T.Split>, +p: String, +k: String) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case T.Split{q, j} <> rest:
+      Bool.or(Bool.and(String.eq(q, p), Bool.not(String.eq(j, k))), kinds.differs(rest, p, k))
+
+def kinds.clash.r(ks: List<&2, T.Split>, +seen: List<&2, T.Split>) -> Result<&2, &2, Refused, Unit>:
+  match ks:
+    case Nil{}:
+      Done{Unit{}}
+    case T.Split{+p, +k} <> rest:
+      Bool.pick(Result<&2, &2, Refused, Unit>, kinds.differs(seen, p, k),
+        Fail{Refused{2, "`" ++ p ++ "` is stated as both bytes and lines, and it is one or the other"}},
+        kinds.clash.r(rest, T.Split{p, k} <> seen))
+
+def split_le(a: T.Split, b: T.Split) -> Bool:
+  match a b:
+    case T.Split{x, i} T.Split{y, j}:
+      String.is_le(x, y)
+
+def split_key(s: T.Split) -> String:
+  match s:
+    case T.Split{k, v}:
+      k
+
+def kinds.distinct(ks: List<&2, T.Split>) -> List<&2, T.Split>:
+  match ks:
+    case +a <> +b <> rest:
+      +later = kinds.distinct(b <> rest)
+      Bool.pick(List<&2, T.Split>, String.eq(split_key(a), split_key(b)), later, a <> later)
+    case other:
+      other
+
+# What each kind is stated for, a path once, in path order.
+def kinds.of(ks: List<&2, T.Split>) -> List<&2, T.Split>:
+  kinds.distinct(List.sort(~T.Split, ~(a => b => split_le(a, b)), ks))
+
+def lines.stated(ks: List<&2, T.Split>, +p: String) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case T.Split{q, j} <> rest:
+      Bool.or(Bool.and(String.eq(q, p), String.eq(j, "lines")), lines.stated(rest, p))
+
+# A kind is a fact about a file, so a path with no file under it has none.
+def kinds.unheld.r(ks: List<&2, T.Split>, +found: Set()) -> Result<&2, &2, Refused, Unit>:
+  match ks:
+    case Nil{}:
+      Done{Unit{}}
+    case T.Split{+p, k} <> rest:
+      Bool.pick(Result<&2, &2, Refused, Unit>, Sv.has(found, p), kinds.unheld.r(rest, found),
+        Fail{Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}})
+
+# `--at`'s file, by a file bookmark or an identifier: `target::file_by_name`.
+def at.file.of(+s: String, found: Maybe<&2, Bm.Target>) -> Result<&2, &2, Refused, String>:
+  match found:
+    case Some{Bm.Target.File{f}}:
+      Done{f}
+    case Some{other}:
+      Fail{Refused{2, "the bookmark `" ++ s ++ "` names a " ++ Bm.kind(other) ++ ", and this position names a file"}}
+    case None{}:
+      Bool.pick(Result<&2, &2, Refused, String>, Id.is_assigned(s), Done{s}, Fail{Refused{2, "`" ++ s ++ "` is not a file identifier"}})
+
+def at.files.r(+bs: List<&2, Bm.Bookmark>, ats: List<&2, T.Split>) -> Result<&2, &2, Refused, List<&2, T.Split>>:
+  match ats:
+    case Nil{}:
+      Done{Nil{}}
+    case T.Split{+f, to} <> rest:
+      do Result<&2, &2, Refused, List<&2, T.Split>>:
+        file : String <- at.file.of(f, Bm.find(bs, f))
+        more : List<&2, T.Split> <- at.files.r(bs, rest)
+        return T.Split{file, to} <> more
+
+# `check_restriction`: a merge states every contested file, and a rename
+# has two ends to name.
+def restricted.half.r(+named: List<&2, String>, moves: List<&2, T.Split>) -> Result<&2, &2, Refused, Unit>:
+  match moves:
+    case Nil{}:
+      Done{Unit{}}
+    case T.Split{+from, +to} <> rest:
+      Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(Sv.covers(named, from), Sv.covers(named, to)), restricted.half.r(named, rest),
+        Fail{Refused{1, "`" ++ from ++ "` and `" ++ to ++ "` are one rename, and only one of them is among the paths this would record, which would spell the other end as a file appearing or disappearing; name both `" ++ from ++ "` and `" ++ to ++ "`, or record with no paths named"}})
+
+def restricted.r(+named: List<&2, String>, +ps: List<&2, String>, moves: List<&2, T.Split>) -> Result<&2, &2, Refused, Unit>:
+  Bool.pick(Result<&2, &2, Refused, Unit>, List.is_empty(&2, String, named), Done{Unit{}},
+  Bool.pick(Result<&2, &2, Refused, Unit>, Nat.is_gt(List.length(&2, String, ps), 1n),
+    Fail{Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ skips_held.lines(named)}},
+    restricted.half.r(named, moves)))
+
+# The renames a person stated, done in the folder before it is read, as
+# the Rust tool does them — whichever state the folder is in. Except for
+# one that would leave the folder: an absolute path, or one climbing out
+# with `..`, is refused once the survey asks, with the Rust tool's words,
+# and moving first would have put the file wherever `/abs` or `../x`
+# lands before saying no.
+def escapes(+p: String) -> Bool:
+  Bool.or(String.starts_with(p, "/"), List.any(~&2, ~String, ~(c => String.eq(c, "..")), String.split(p, '/')))
+
+def performed(+from: String, +to: String, r: Result<&1, &1, U32 & String, String>) -> IO(Unit):
+  match r:
+    case Fail{Tuple{code, msg}}:
+      die(Unit, 1, msg)
+    case Done{"both"}:
+      die(Unit, 1, "`" ++ from ++ "` and `" ++ to ++ "` are both here, so which one is the file is not something to guess at")
+    case Done{"neither"}:
+      die(Unit, 1, "neither `" ++ from ++ "` nor `" ++ to ++ "` is here")
+    case Done{done}:
+      IO.pure(Unit, Unit{})
+
+def perform.one(+repo: String, +from: String, +to: String, ok: Bool) -> IO(Unit):
+  match ok:
+    case False{}:
+      IO.pure(Unit, Unit{})
+    case True{}:
+      do IO<Unit>:
+        r : Result<&1, &1, U32 & String, String> <- Store.moved(repo ++ "\n" ++ from ++ "\n" ++ to)
+        performed(from, to, r)
+
+def perform(+repo: String, moves: List<&2, T.Split>) -> IO(Unit):
+  match moves:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case T.Split{+from, +to} <> rest:
+      do IO<Unit>:
+        perform.one(repo, from, to, Bool.not(Bool.or(escapes(from), escapes(to))))
+        perform(repo, rest)
+
+# Where the stated renames put each file: `--at` first, each naming a file
+# the position holds, then each `--move` from a path one file holds to a
+# path the format can.
+type Placed is Data:
+  Placed{tree: Tree.Tree(), moved: List<&2, T.Split>}
+
+def placed.holds(+t: Tree.Tree(), ats: List<&2, T.Split>) -> Bool:
+  match ats:
+    case Nil{}:
+      True{}
+    case T.Split{+f, to} <> rest:
+      Tree.holds(t, f)
+
+def placed.at.r(ats: List<&2, T.Split>, +t: Tree.Tree(), moved: List<&2, T.Split>, held: Bool) -> Result<&2, &2, Refused, Placed>:
+  match ats held:
+    case Nil{} _:
+      Done{Placed{t, moved}}
+    case T.Split{f, to} <> rest False{}:
+      Fail{Refused{1, "`" ++ f ++ "` is not a file this history holds, so nothing can be moved from it"}}
+    case T.Split{+f, +to} <> +rest True{}:
+      +t2 = Sv.relocated(t, f, to)
+      placed.at.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{f, to}]), placed.holds(t2, rest))
+
+def contested.msg(+p: String, +fs: List<&2, String>) -> String:
+  Nat.show(List.length(&2, String, fs)) ++ " files hold `" ++ p ++ "` here, so the path does not name one of them; say where each goes with --at:" ++ String.concat(T.map(~String, ~String, ~(f => "\n  --at " ++ f ++ "=<path>"), fs))
+
+def files_at(+t: Tree.Tree(), +p: String) -> List<&2, String>:
+  List.sort(~String, ~(a => b => String.is_le(a, b)), Tree.at(t, p))
+
+def placed.head(+t: Tree.Tree(), ms: List<&2, T.Split>) -> List<&2, String>:
+  match ms:
+    case Nil{}:
+      Nil{}
+    case T.Split{+from, to} <> rest:
+      files_at(t, from)
+
+def placed.fault(ms: List<&2, T.Split>) -> Maybe<&2, String>:
+  match ms:
+    case Nil{}:
+      None{}
+    case T.Split{from, +to} <> rest:
+      Sv.path_check(to)
+
+def placed.move.r(ms: List<&2, T.Split>, +t: Tree.Tree(), moved: List<&2, T.Split>, at: List<&2, String>, fault: Maybe<&2, String>) -> Result<&2, &2, Refused, Placed>:
+  match ms at fault:
+    case Nil{} _ _:
+      Done{Placed{t, moved}}
+    case T.Split{from, to} <> rest Nil{} _:
+      Fail{Refused{1, "`" ++ from ++ "` is not a file this history holds, so nothing can be moved from it"}}
+    case T.Split{from, +to} <> +rest +f <> Nil{} None{}:
+      +t2 = Sv.relocated(t, f, to)
+      placed.move.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{f, to}]), placed.head(t2, rest), placed.fault(rest))
+    case T.Split{from, to} <> rest f <> Nil{} Some{because}:
+      Fail{Refused{1, "`" ++ to ++ "` cannot be a path here: " ++ because}}
+    case T.Split{+from, to} <> rest +several _:
+      Fail{Refused{1, contested.msg(from, several)}}
+
+def placed.of.r(p: Placed, +ms: List<&2, T.Split>) -> Result<&2, &2, Refused, Placed>:
+  match p:
+    case Placed{+t, moved}:
+      placed.move.r(ms, t, moved, placed.head(t, ms), placed.fault(ms))
+
+def placed.r(+t: Tree.Tree(), +ats: List<&2, T.Split>, +ms: List<&2, T.Split>) -> Result<&2, &2, Refused, Placed>:
+  do Result<&2, &2, Refused, Placed>:
+    p : Placed <- placed.at.r(ats, t, Nil{}, placed.holds(t, ats))
+    placed.of.r(p, ms)
+
+# A named path nothing answers to, and whether a rule keeps it out.
+def these(+ps: List<&2, String>, +one: String, +many: String) -> String:
+  Bool.pick(String, Nat.is_eq(List.length(&2, String, ps), 1n), one, many)
+
+def named.r(+rules: List<&2, Folder.Scope>, +named: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>) -> Result<&2, &2, Refused, Unit>:
+  +unknown = Sv.unknown(named, folder, was, placed)
+  +out = Sv.kept_out(rules, unknown, True{})
+  +absent = Sv.kept_out(rules, unknown, False{})
+  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, out)),
+    Fail{Refused{1, "`history/skipped/` says history does not take " ++ these(out, "this", "these") ++ ", and naming " ++ these(out, "it", "them") ++ " here does not make " ++ these(out, "it", "them") ++ " an exception; remove the rule if " ++ these(out, "it is", "they are") ++ " to be recorded:" ++ skips_held.lines(out)}},
+  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, absent)),
+    Fail{Refused{1, these(absent, "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ skips_held.lines(absent)}},
+    Done{Unit{}}))
+
+def record.fault.r(m: Maybe<&2, String>) -> Result<&2, &2, Refused, Unit>:
+  match m:
+    case None{}:
+      Done{Unit{}}
+    case Some{e}:
+      Fail{Refused{1, e}}
+
+# A file arriving that a person said is lines is read, and has to be text.
+def lined_added(+ks: List<&2, T.Split>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case Here{+p, None{}, Some{Folder.Found.File{q, r, n}}} <> rest:
+      Rev.keep(lines.stated(ks, p), p, lined_added(ks, rest))
+    case h <> rest:
+      lined_added(ks, rest)
+
+def not_lines(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Here>) -> Maybe<&2, String>:
+  match hs:
+    case Nil{}:
+      None{}
+    case Here{+p, None{}, Some{Folder.Found.File{q, r, n}}} <> rest:
+      Bool.pick(Maybe<&2, String>, Bool.and(lines.stated(ks, p), Bool.not(Folder.is_utf8(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))),
+        Some{"`" ++ p ++ "` cannot be recorded as lines: its bytes are not UTF-8, and a line is text whoever says otherwise. Record it as bytes, or convert the file first"},
+        not_lines(ks, reads, rest))
+    case h <> rest:
+      not_lines(ks, reads, rest)
+
+# What recording refuses that `status` only describes, in the order the
+# Rust tool asks: a link left dangling, a path several files claim, what
+# nothing here can take, what a merge would empty, and contested bytes
+# accepted or not.
+def minus(xs: List<&2, String>, +ys: List<&2, String>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +x <> rest:
+      Rev.keep(Bool.not(Rev.member(ys, x)), x, minus(rest, ys))
+
+def claimed.msg(+looked: Tree.Tree(), cs: List<&2, T.Split>) -> String:
+  match cs:
+    case Nil{}:
+      SNil{}
+    case T.Split{+p, n} <> rest:
+      contested.msg(p, files_at(looked, p))
+
+def refused.line(r: T.Split) -> String:
+  match r:
+    case T.Split{p, b}:
+      "\n  " ++ p ++ " (" ++ b ++ ")"
+
+def refused.msg(+rs: List<&2, T.Split>) -> String:
+  +n = List.length(&2, T.Split, rs)
+  +one = Nat.is_eq(n, 1n)
+  Bool.pick(String, one, "one file", Nat.show(n) ++ " files") ++ " the folder holds " ++ Bool.pick(String, one, "is", "are") ++ " not something this format can record; rename or `skip` " ++ Bool.pick(String, one, "it", "them") ++ " in `history/skipped/`:" ++ String.concat(T.map(~T.Split, ~String, ~(r => refused.line(r)), rs))
+
+def accept.lines(ps: List<&2, String>) -> String:
+  match ps:
+    case Nil{}:
+      SNil{}
+    case p <> rest:
+      "\n  --accept " ++ p ++ accept.lines(rest)
+
+def planned.r(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>) -> Result<&2, &2, Refused, List<&2, T.Split>>:
+  match pl:
+    case Sv.Planned{facts, +refused, +claimed, +accept, +emptied, Some{m}}:
+      Fail{Refused{1, m}}
+    case Sv.Planned{facts, +refused, +claimed, +accept, +emptied, None{}}:
+      +un = minus(accept, accepted)
+      +needless = minus(accepted, accept)
+      Bool.pick(Result<&2, &2, Refused, List<&2, T.Split>>, Bool.not(List.is_empty(&2, T.Split, claimed)), Fail{Refused{1, claimed.msg(looked, claimed)}},
+      Bool.pick(Result<&2, &2, Refused, List<&2, T.Split>>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Refused{1, refused.msg(refused)}},
+      Bool.pick(Result<&2, &2, Refused, List<&2, T.Split>>, Bool.not(List.is_empty(&2, String, emptied)),
+        Fail{Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ skips_held.lines(emptied)}},
+      Bool.pick(Result<&2, &2, Refused, List<&2, T.Split>>, Bool.not(List.is_empty(&2, String, un)),
+        Fail{Refused{1, "concurrent work states different bytes for " ++ these(un, "one attachment", "these attachments") ++ "; inspect " ++ these(un, "it", "them") ++ " and explicitly accept what the folder holds:" ++ accept.lines(un)}},
+      Bool.pick(Result<&2, &2, Refused, List<&2, T.Split>>, Bool.not(List.is_empty(&2, String, needless)),
+        Fail{Refused{1, these(needless, "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ accept.lines(needless)}},
+        Done{facts})))))
+
+def record.print(fs: List<&2, T.Split>) -> IO(Unit):
+  match fs:
+    case Nil{}:
+      IO.print("nothing here differs from what is recorded")
+    case some:
+      print_facts(some)
+
+def found_paths(fs: List<&2, Folder.Found>) -> List<&2, String>:
+  T.map(~Folder.Found, ~String, ~(f => Folder.found.path(f)), fs)
+
+# The survey `record` plans from: `t0` is the position's tree, and `p`
+# where the stated renames put its files.
+def record.surveyed(+root: String, +repo: String, +fs: List<&2, Full>, +ps: List<&2, String>, +rules: List<&2, Folder.Scope>, +found: List<&2, Folder.Found>, walked: List<&2, T.Split>, +t0: Tree.Tree(), p: Placed, +only: List<&2, String>, +kinds: List<&2, T.Split>, +accepted: List<&2, String>) -> IO(Unit):
+  match p:
+    case Placed{t1, moved}:
+      +t = Sv.by_file(t1)
+      +folder = found_paths(found)
+      +looked = Sv.only.tree(only, t)
+      +cs = Sv.claims(looked)
+      +hs = heres(Sv.unclaimed(looked, cs), Sv.unclaimed_found(Sv.only.found(only, found), cs), Limit.None{})
+      +paths = regular_paths(hs)
+      do IO<Unit>:
+        refused.io(Unit, skips_held.r(skipped_held(rules, t)))
+        refused.io(Unit, named.r(rules, only, folder, Sv.paths(t0), Sv.paths(t)))
+        refused.io(Unit, record.fault.r(Sv.kind_fault(only, t, kinds)))
+        stats : List<&2, String> <- Store.stats(repo, paths)
+        +dg : Map<&2, String> = stats.map(paths, stats, Map.new(&2, String))
+        bf : Map<&2, String> <- status.befores.io(root, fs, ps, hs)
+        +bf2 : Map<&2, String> = bf
+        reads : Map<&2, List<&2, U32>> <- read_all(repo, List.append(&2, String, status.reads(dg, bf2, hs), lined_added(kinds, hs)), Map.new(&2, List<&2, U32>))
+        +reads2 : Map<&2, List<&2, U32>> = reads
+        refused.io(Unit, record.fault.r(not_lines(kinds, reads2, hs)))
+        facts : List<&2, T.Split> <- refused.io(List<&2, T.Split>, planned.r(looked, Sv.planned(t, looked, Set.from_list(folder), Sv.only.refused(only, walked), status.seens(t0, dg, bf2, reads2, hs), moved), accepted))
+        record.print(facts)
+
+def sorted_distinct(xs: List<&2, String>) -> List<&2, String>:
+  distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))
+
+def record.dry(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, c: RecordCmd) -> IO(Unit):
+  match c:
+    case RecordCmd{+onto, +ms, ac, ats, +moves, ks, ns, d, f}:
+      +repo = repository(root)
+      +only = sorted_distinct(ns)
+      do IO<Unit>:
+        at : List<&2, T.Split> <- refused.io(List<&2, T.Split>, at.files.r(bs, ats))
+        ps : List<&2, String> <- refused.io(List<&2, String>, status.parents.r(fs, bs, onto, ms))
+        +ps2 : List<&2, String> = ps
+        refused.io(Unit, restricted.r(only, ps2, moves))
+        perform(repo, moves)
+        rules : List<&2, Folder.Scope> <- Folder.rules(root)
+        +rs : List<&2, Folder.Scope> = rules
+        w : Folder.Walked <- Folder.walk.all(repo, rs)
+        +w2 : Folder.Walked = w
+        +kinds : List<&2, T.Split> = kinds.of(ks)
+        refused.io(Unit, kinds.unheld.r(kinds, Set.from_list(found_paths(Folder.walked.found(w2)))))
+        m : Tree.Merged <- refused.io(Tree.Merged, status.tree.r(fs, ps2))
+        +t0 : Tree.Tree() = Tree.merged_tree(m)
+        p : Placed <- refused.io(Placed, placed.r(t0, at, moves))
+        record.surveyed(root, repo, fs, ps2, rs, Folder.walked.found(w2), Folder.walked.refused(w2), t0, p, only, kinds, sorted_distinct(ac))
+
+def record.stated.r(+d: Bool, +f: Bool) -> Result<&2, &2, Refused, Unit>:
+  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(d, f), Fail{Refused{2, "`record --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}}, Done{Unit{}})
+
+# Recording itself writes the store, which nothing here does yet.
+def record.dry.r(d: Bool) -> Result<&2, &2, Refused, Unit>:
+  Bool.pick(Result<&2, &2, Refused, Unit>, d, Done{Unit{}}, Fail{Refused{1, "recording writes the store, which this port does not do yet; `record --dry-run` says what it would record"}})
+
+def record.checked(+root: String, c: RecordCmd) -> IO(Unit):
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, +ks, ns, +d, +f}:
+      do IO<Unit>:
+        refused.io(Unit, record.stated.r(d, f))
+        refused.io(Unit, kinds.clash.r(ks, Nil{}))
+        refused.io(Unit, record.dry.r(d))
+        rs : List<&2, Store.Doc> <- Store.revisions(root)
+        bs : List<&2, Bm.Bookmark> <- bookmarks(root)
+        record.dry(root, fulls(root, rs), bs, RecordCmd{o, ms, ac, at, mv, ks, ns, d, f})
+
+def record(+args: List<&2, String>) -> IO(Unit):
+  do IO<Unit>:
+    root : String <- Store.root()
+    +r : String = root
+    a : RecordCmd <- refused.io(RecordCmd, record.args.r(args))
+    record.checked(r, a)
+
 # main
 # ----
 
 def usage() -> IO(Unit):
-  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | replay <ops docs..> | opdiff <parent> <child>")
+  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | replay <ops docs..> | opdiff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
@@ -6447,6 +7007,8 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       blame(args)
     case "status" <> args:
       status(args)
+    case "record" <> args:
+      record(args)
     case "opdiff" <> parent <> child <> Nil{}:
       opdiff(parent, child)
     case _:

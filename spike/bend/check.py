@@ -13,10 +13,12 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 from pathlib import Path
 import hashlib
+import itertools
 import os
 import random
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -237,7 +239,10 @@ def check_similar(temporary):
 # fails a `--native` run.
 #
 # One command per corpus is a target the Rust tool resolves; the rest are
-# refusals, whose text is compared too.
+# refusals, whose text is compared too — a usage error to the end of its
+# message, since the Rust tool prints its whole usage after it. `record`
+# runs each tool on a copy of the store of its own, and what the folder
+# holds after is compared too: `--move` renames before anything is read.
 STORES = {
     "tree": [
         ["log"],
@@ -253,8 +258,10 @@ STORES = {
         ["show", "nope"],
         ["status"],
         ["status", "--onto", "kxry"],
+        ["record", "-n"],
+        ["record", "-n", "--onto", "kxry", "docs"],
     ],
-    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"], ["status"]],
+    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"], ["status"], ["record", "-n"]],
     "merged": [["log"], ["files", "head"], ["status"]],
     "links": [
         ["log"],
@@ -270,13 +277,15 @@ STORES = {
         ["diff"],
         ["status"],
         ["status", "--onto", "kxry"],
+        ["record", "-n"],
+        ["record", "-n", "--onto", "kxry", "current"],
     ],
-    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"]],
+    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"], ["record", "-n"]],
     "whole": [
         ["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"],
         ["diff", "head"], ["blame", "head", "notes/photo.png"], ["blame", "head", "notes/2026-08-20.md"],
         # An assembled store has no folder beside it, so everything is gone.
-        ["diff"], ["blame", "notes/2026-08-20.md"], ["status"],
+        ["diff"], ["blame", "notes/2026-08-20.md"], ["status"], ["record", "-n"], ["record", "-n", "notes/photo.png"],
     ],
     # Recorded here by the Rust tool rather than taken from a corpus: the
     # widest path holds characters outside ASCII, which the Rust tool
@@ -304,8 +313,7 @@ STORES = {
     # The same, with a bookmark file that is not one: every command refuses.
     "badname": [["names"], ["log"], ["files", "main"]],
     # Two authors, a rename, and a line of work beside the main one, for
-    # `log`'s filters, ranges and `--fields`. Usage errors are not compared:
-    # the Rust tool prints its own usage after the message.
+    # `log`'s filters, ranges and `--fields`.
     "log": [
         ["log"],
         ["log", "--limit", "2", "tip"],
@@ -319,6 +327,9 @@ STORES = {
         ["log", "tip..tip"],
         ["log", "--fields"],
         ["log", "--fields", "tip", "--limit", "2"],
+        ["record", "-n"],
+        ["record", "-n", "--onto", "tip"],
+        ["record", "-n", "--onto", "tip", "--merge", "base"],
         ["log", "tip", "--path", "renamed.md"],
         ["log", "base", "--path", "notes.md"],
         ["log", "--path", "renamed.md"],
@@ -379,27 +390,95 @@ STORES = {
         ["blame", "file:zz"],
         ["status"],
         ["status", "--onto", "first"],
+        # What recording would state, and each thing it refuses before
+        # it looks: a path nothing answers to, one a rule keeps out, a kind
+        # stated too late or for a path not looked at or not there, and
+        # bytes that are not lines; and renames, done in the folder first.
+        ["record", "--dry-run"],
+        ["record", "-n", "--onto", "first"],
+        ["record", "-n", "notes.md"],
+        ["record", "-n", "deep", "notes.md/"],
+        ["record", "-n", "current", "gone.md", "run.sh"],
+        ["record", "-n", "build/out.md"],
+        ["record", "-n", "build", "logs", "secret.md"],
+        ["record", "-n", "nope.md", "gone/"],
+        ["record", "-n", "nope.md", "build/out.md"],
+        ["record", "-n", "--lines", "photo.bin"],
+        ["record", "-n", "--bytes", "new.md", "--lines", "photo.bin"],
+        ["record", "-n", "--bytes", "notes.md"],
+        ["record", "-n", "--lines", "data.bin"],
+        ["record", "-n", "--bytes", "current"],
+        ["record", "-n", "notes.md", "--bytes", "new.md"],
+        ["record", "-n", "--lines", "gone.md"],
+        ["record", "-n", "--move", "notes.md=moved/notes.md"],
+        ["record", "-n", "--move", "gone.md=new.md"],
+        ["record", "-n", "--move", "kept.md=secret.md"],
+        ["record", "-n", "--move", "kept.md=build/kept.md"],
+        ["record", "-n", "--move", "kept.md=k.md", "--move", "k.md=l.md"],
+        ["record", "-n", "--move", "kept.md=k.md", "--move", "kept.md=l.md"],
+        ["record", "-n", "--move", "nope.md=new.md"],
+        ["record", "-n", "--move", "notes.md=a/"],
+        ["record", "-n", "--move", "notes.md=a//b.md"],
+        ["record", "-n", "--move", "notes.md= lead.md"],
+        ["record", "-n", "notes.md", "--move", "notes.md=n.md"],
+        ["record", "-n", "notes.md", "n.md", "--move", "notes.md=n.md"],
+        ["record", "-n", "--at", "nb=elsewhere.md"],
+        ["record", "-n", "--at", "first=x.md"],
+        ["record", "-n", "--at", "zz=x.md"],
+        ["record", "-n", "--at", "nb"],
+        ["record", "-n", "--accept", "data.bin"],
+        ["record", "-n", "--accept", "data.bin", "--accept", "photo.bin"],
+        ["record", "-n", "--merge", "first"],
+        ["record", "-n", "--merge", "first", "notes.md"],
+        ["record", "-n", "--fields"],
+        ["record", "-n", "-m"],
+        ["record", "-n", "--frobnicate"],
+        ["record", "-n", ""],
+        ["record", "-n", "//"],
+        ["record", "-n", "--bytes", "a", "--lines", "b", "--bytes", "b"],
+        ["record", "-n", "-m", "a message", "--message", "another"],
     ],
     # A rule file stating two rules: the store will not open.
-    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"]],
+    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"]],
     # Nothing recorded yet: every file is the folder's own.
-    "fresh": [["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"]],
+    "fresh": [
+        ["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"],
+        ["record", "--dry-run"], ["record", "-n", "a.md"], ["record", "-n", "--lines", "b.bin"],
+        ["record", "-n", "--bytes", "a.md", "--lines", "a.md"], ["record", "-n", "--onto", "head"],
+        ["record", "-n", "--move", "a.md=c.md"],
+    ],
     # A file recorded as lines that is no longer text.
-    "notext": [["diff"], ["diff", "kept.md"], ["blame", "notes.md"], ["status"]],
+    "notext": [["diff"], ["diff", "kept.md"], ["blame", "notes.md"], ["status"], ["record", "-n"], ["record", "-n", "kept.md"]],
     # What `status` says of a folder: files moved with `mv`, of lines and of
     # bytes, one to one and not; empty files, which match nothing; links
     # spelled differently to the same file, pointing at an arrival, at a
     # file going, at an absolute path, and at `file:`; names the format
     # cannot hold, a target that is not UTF-8, and a pipe.
     # And a file added empty, which every reader takes as no lines at all.
-    "surveyed": [["status"], ["status", "--onto", "first"], ["diff"], ["diff", "first"], ["cat", "first", "empty.md"], ["blame", "first", "empty.md"]],
+    "surveyed": [
+        ["status"], ["status", "--onto", "first"], ["diff"], ["diff", "first"], ["cat", "first", "empty.md"], ["blame", "first", "empty.md"],
+        # Everything the folder cannot take stops a record, unless the
+        # record is not looking at it.
+        ["record", "-n"],
+        ["record", "-n", "ref", "ref2", "abs", "to-arrival", "renamed.md"],
+        ["record", "-n", "bad-link"],
+        ["record", "-n", "sub", "run-new.sh", "empty.md", "fresh-empty.md"],
+        ["record", "-n", "a.md", "renamed.md", "--move", "a.md=renamed.md"],
+        ["record", "-n", "b.bin", "moved.bin", "to-bin", "--move", "b.bin=moved.bin"],
+        ["record", "-n", "target.md"],
+    ],
     # A rule skipping a file the position holds: `status` refuses.
-    "skipheld": [["status"], ["diff"]],
+    "skipheld": [["status"], ["diff"], ["record", "-n"], ["record", "-n", "kept.md"]],
     # Two lines of work from one base, being joined: a file both moved, bytes
     # both changed, a file one dropped and the other edited, a link each
     # pointed elsewhere, a mode one changed, and a file both edited — which
     # the folder resolves, so a merge owes it — beside one both left alone.
     "joining": [
+        ["record", "-n", "--onto", "left", "--merge", "right"],
+        ["record", "-n", "--merge", "right"],
+        ["record", "-n", "--merge", "right", "a.md"],
+        ["record", "-n", "--onto", "left", "a.md"],
+        ["record", "-n", "--onto", "right"],
         ["status", "--onto", "left", "--merge", "right"],
         ["status", "--merge", "left", "--merge", "right"],
         ["status", "--merge", "right", "--onto", "left"],
@@ -410,6 +489,26 @@ STORES = {
         ["status", "--merge", "base", "--merge", "left"],
     ],
 
+    # Two lines of work that each added a file at one path, and each wrote
+    # different bytes to one file: a merge of them has to say where each
+    # goes and which bytes it keeps. And a link to a file the folder no
+    # longer holds, for a record that is not looking at the link.
+    "claimed": [
+        ["record", "-n", "--onto", "left", "--merge", "right"],
+        ["record", "-n", "--onto", "left", "--merge", "right", "--at", "lx=x.md"],
+        ["record", "-n", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md"],
+        ["record", "-n", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "c.bin"],
+        ["record", "-n", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "c.bin", "--accept", "a.md"],
+        ["record", "-n", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "a.md", "--accept", "t.md"],
+        ["record", "-n", "--onto", "left", "--merge", "right", "--move", "x.md=y.md"],
+        ["record", "-n", "--onto", "left", "--at", "rx=x.md"],
+        ["record", "-n", "--onto", "left", "--at", "left=x.md"],
+        ["record", "-n", "--onto", "left", "t.md"],
+        ["record", "-n", "--onto", "left", "t.md", "lnk"],
+        ["record", "-n", "--onto", "left", "--move", "t.md=u.md"],
+        ["record", "-n"],
+        ["status", "--onto", "left", "--merge", "right"],
+    ],
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
     # resolution's, and insert their own — and a merge written here for each
@@ -717,6 +816,28 @@ def record(temporary, rust, corpus):
         (store / "a.md").write_text("right\none\ntwo\nleft\n")
         (store / "empty-me.md").write_text("")
         (store / "new.md").write_text("new\n")
+    elif corpus == "claimed":
+        (store / "a.md").write_text("a\n")
+        (store / "c.bin").write_bytes(b"\x00base")
+        (store / "t.md").write_text("pointed at\n")
+        os.symlink("t.md", store / "lnk")
+        historica("record", "-m", "base")
+        historica("name", "base", "head", "--revision")
+        (store / "x.md").write_text("left x\n")
+        (store / "c.bin").write_bytes(b"\x00left")
+        historica("record", "-m", "left")
+        historica("name", "left", "head", "--revision")
+        historica("name", "lx", "head", "x.md")
+        (store / "x.md").write_text("right x\n")
+        (store / "c.bin").write_bytes(b"\x00right")
+        historica("record", "--onto", "base", "-m", "right")
+        fields = subprocess.run([rust, "log", "--fields"], cwd=store, env=env, check=True, capture_output=True, text=True).stdout
+        left = (store / "history" / "names" / "left.txt").read_text().split()[1]
+        right = next(line.split()[0] for line in fields.splitlines()[1:] if "head" in line.split()[3] and line.split()[0] != left)
+        historica("name", "right", right, "--revision")
+        historica("name", "rx", right, "x.md")
+        (store / "x.md").write_text("both x\n")
+        (store / "t.md").unlink()
     elif corpus == "skipheld":
         (store / "kept.md").write_text("kept\n")
         (store / "private.md").write_text("private\n")
@@ -805,14 +926,57 @@ def check_store(temporary):
         builds.append(build_native)
     parallel(builds)
 
+    copies = itertools.count()
+
+    # One copy per command, made afresh at the same path for each tool, so
+    # a message naming a path in it names the same one.
+    def fresh(store, copy):
+        shutil.rmtree(copy, ignore_errors=True)
+        subprocess.run(["cp", "-a", str(store), str(copy)], check=True)
+        return copy
+
+    # The folder beside the store, as a walk that follows nothing sees it.
+    def folder_of(root):
+        seen = []
+        for directory, dirs, files in os.walk(root):
+            here = Path(directory)
+            if here == root:
+                dirs[:] = [d for d in dirs if d != "history"]
+            dirs.sort()
+            for name in sorted(dirs + files):
+                path = here / name
+                entry = os.lstat(path)
+                if stat.S_ISLNK(entry.st_mode):
+                    seen.append((str(path.relative_to(root)), "l", os.readlink(path)))
+                elif stat.S_ISREG(entry.st_mode):
+                    seen.append((str(path.relative_to(root)), "f", entry.st_mode & 0o111, path.read_bytes()))
+                else:
+                    seen.append((str(path.relative_to(root)), "o"))
+        return (tuple(seen),)
+
+    # A usage error is compared to the end of its message: the Rust tool
+    # prints its own usage after it.
+    def said(captured):
+        out, err, code = captured
+        if code == 2:
+            err = err.split(b"\n\n")[0].rstrip(b"\n") + b"\n"
+        return (out, err, code)
+
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed")
         store = record(temporary, rust, corpus) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
-            expected = capture(rust, *command, cwd=store)
+            # `record` may write the folder — `--move` renames before it
+            # surveys, dry run or not — so each tool runs on a copy of its
+            # own, and what the folder holds after is compared too.
+            writes = command[0] == "record"
+            at = temporary / f"{store.name}-copy-{next(copies)}"
+            copy = fresh(store, at) if writes else store
+            expected = said(capture(rust, *command, cwd=copy)) + (folder_of(copy) if writes else ())
             for name, tool in tools:
-                got = capture(*tool, *command, cwd=store)
+                copy = fresh(store, at) if writes else store
+                got = said(capture(*tool, *command, cwd=copy)) + (folder_of(copy) if writes else ())
                 if got != expected:
                     failures += 1
                     lines += [f"DIFF {corpus} {name}: {' '.join(command)}", f"  rust: {expected}", f"  bend: {got}"]
@@ -820,7 +984,27 @@ def check_store(temporary):
                     lines.append(f"same {corpus} {name}: {' '.join(command)}")
         return lines, failures
 
-    results = parallel([lambda c=corpus, cs=commands: compare(c, cs) for corpus, commands in STORES.items()])
+    # The writer's choices, pinned by the corpus rather than by the Rust
+    # tool: `opdiff` of each pair writes exactly the `recorded.ops.txt`
+    # beside it.
+    def pinned():
+        lines, failures = [], 0
+        for case in sorted((CORPUS / "diffs").iterdir()):
+            if not case.is_dir():
+                continue
+            expected = ((case / "recorded.ops.txt").read_bytes(), b"", 0)
+            for name, tool in tools:
+                got = capture(*tool, "opdiff", "parent.txt", "child.txt", cwd=case)
+                if got != expected:
+                    failures += 1
+                    lines += [f"DIFF diffs {name}: opdiff {case.name}", f"  corpus: {expected}", f"  bend: {got}"]
+                else:
+                    lines.append(f"same diffs {name}: opdiff {case.name}")
+        return lines, failures
+
+    results = parallel(
+        [lambda c=corpus, cs=commands: compare(c, cs) for corpus, commands in STORES.items()] + [pinned]
+    )
     for lines, _ in results:
         print("\n".join(lines), flush=True)
     failures = sum(f for _, f in results)
@@ -1453,8 +1637,8 @@ def check_mutations(temporary):
         ),
         (
             "status says an arriving file changed as well",
-            '  List.append(&2, T.Split, fact("edited", without(sorted(edited(os)), arriving)),',
-            '  List.append(&2, T.Split, fact("edited", sorted(edited(os))),',
+            'fact("added", sorted(added(os))),\n  List.append(&2, T.Split, fact("dropped", sorted(dropped_paths(os))),\n  List.append(&2, T.Split, fact("edited", without(sorted(edited(os)), arriving)),',
+            'fact("added", sorted(added(os))),\n  List.append(&2, T.Split, fact("dropped", sorted(dropped_paths(os))),\n  List.append(&2, T.Split, fact("edited", sorted(edited(os))),',
             "survey_lemmas.facts_ok",
             "survey.bend",
         ),

@@ -6,8 +6,9 @@
 //! returns it through [`hist_free`] with the length it was given, and nothing
 //! else. No panic crosses the boundary — `catch_unwind` turns one into `EIO`.
 //!
-//! Only reading is here. Nothing in this library decides anything about a
-//! store; that is what the Bend side is for. The two lookups answer *where*
+//! Reading is here, and the one write a stated rename makes in the folder.
+//! Nothing in this library decides anything about a store; that is what
+//! the Bend side is for. The two lookups answer *where*
 //! bytes are and *what* bytes are, and the Bend side reads, hashes and
 //! parses every document it goes on to believe anything about.
 
@@ -270,6 +271,50 @@ pub unsafe extern "C" fn hist_stdout_terminal(
 
     let _ = (query, query_len);
     answer(out, out_len, || Ok(if std::io::stdout().is_terminal() { "1" } else { "0" }.to_owned()))
+}
+
+/// A rename a person stated, done in the folder: `record --move`'s one write
+/// before anything is surveyed, which `record --dry-run` does too.
+///
+/// The argument is the folder, then the old path and the new, a line each,
+/// relative to it. Whether each is there is asked as the Rust tool asks it —
+/// following links, so a link to nothing is not there — and the answer says
+/// which of the four it was: `moved`, having made the new path's directory
+/// and renamed the old to it; `there`, the new being there and the old not,
+/// so nothing is left to do; `both` or `neither`, where nothing is done and
+/// the Bend side says why. A failure is the Rust tool's own sentence for it.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_folder_move(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let mut lines = text(query, query_len)?.split('\n');
+        let (Some(folder), Some(from), Some(to), None) = (lines.next(), lines.next(), lines.next(), lines.next()) else {
+            return Err((EINVAL, "a move is a folder, an old path and a new one".to_owned()));
+        };
+        let (old, new) = (Path::new(folder).join(from), Path::new(folder).join(to));
+        Ok(match (old.exists(), new.exists()) {
+            (true, false) => {
+                if let Some(directory) = new.parent() {
+                    fs::create_dir_all(directory)
+                        .map_err(|error| (code(&error), format!("{}: {error}", directory.display())))?;
+                }
+                fs::rename(&old, &new).map_err(|error| (code(&error), format!("{from} -> {to}: {error}")))?;
+                "moved"
+            }
+            (false, true) => "there",
+            (true, true) => "both",
+            (false, false) => "neither",
+        }
+        .to_owned())
+    })
 }
 
 /// Return a buffer [`hist_store_locate`] or [`hist_store_list`] handed out.
@@ -728,6 +773,39 @@ mod tests {
         let query = format!("{}", root.display());
         assert_eq!(call(hist_store_at, query.as_bytes()), (0, String::new()));
         assert_eq!(call(hist_store_digests, query.as_bytes()), (0, String::new()));
+    }
+
+    #[test]
+    fn a_move_says_which_of_the_four_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "one\n").unwrap();
+        fs::write(root.join("c.md"), "two\n").unwrap();
+        let asked = |from: &str, to: &str| call(hist_folder_move, format!("{}\n{from}\n{to}", root.display()).as_bytes());
+
+        assert_eq!(asked("a.md", "deep/er/b.md"), (0, "moved".to_owned()));
+        assert_eq!(fs::read_to_string(root.join("deep/er/b.md")).unwrap(), "one\n");
+        assert!(!root.join("a.md").exists());
+        assert_eq!(asked("a.md", "deep/er/b.md"), (0, "there".to_owned()));
+        assert_eq!(asked("c.md", "deep/er/b.md"), (0, "both".to_owned()));
+        assert_eq!(asked("x.md", "y.md"), (0, "neither".to_owned()));
+        // Followed, as the Rust tool follows it: a link to nothing is not there.
+        std::os::unix::fs::symlink("nowhere", root.join("dangling")).unwrap();
+        assert_eq!(asked("dangling", "z.md"), (0, "neither".to_owned()));
+    }
+
+    #[test]
+    fn a_move_that_cannot_happen_says_why_and_moves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "one\n").unwrap();
+        fs::write(root.join("file"), "").unwrap();
+        let query = format!("{}\na.md\nfile/b.md", root.display());
+        let (code, answer) = call(hist_folder_move, query.as_bytes());
+        assert_ne!(code, 0);
+        assert!(answer.starts_with(&format!("{}: ", root.join("file").display())), "{answer}");
+        assert!(root.join("a.md").exists());
+        assert_eq!(call(hist_folder_move, b"only one line").0, EINVAL);
     }
 
     #[test]
