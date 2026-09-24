@@ -794,6 +794,19 @@ def relocated(t: Tree.Tree(), +file: String, +to: String) -> Tree.Tree():
 def by_file(+t: Tree.Tree()) -> Tree.Tree():
   List.sort(~Tree.Entry, ~(a => b => String.is_le(Tree.entry_file(a), Tree.entry_file(b))), t)
 
+# What `LAWS.record_plans_in_file_order` asks of the position `record`
+# plans from: each file no earlier than the one before, the order a
+# revision states its files in.
+def file_order.from(t: Tree.Tree(), +k: String) -> Bool:
+  match t:
+    case Nil{}:
+      True{}
+    case +e <> rest:
+      Bool.and(String.is_le(k, Tree.entry_file(e)), file_order.from(rest, Tree.entry_file(e)))
+
+def in_file_order(+t: Tree.Tree()) -> Bool:
+  file_order.from(t, SNil{})
+
 # What `LAWS.a_rename_keeps_each_file_once` and
 # `LAWS.a_rename_puts_each_file_where_it_was_said` ask of where the stated
 # renames leave the position: its files, and the position with each rename

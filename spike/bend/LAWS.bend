@@ -1479,3 +1479,15 @@ law status_offers_a_rename_the_bytes_make:
   for +walked: List<&2, T.Split>
   for +ss: List<&2, Sv.Seen>
   {Sv.renames_ok(Sv.departed(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), Sv.arrived(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), Sv.survey.renames(Sv.survey(t, held, walked, ss))) == True{} : Bool}
+
+# `record` plans from the position in file order, the order a revision
+# states its files in, whatever order the renames left it in; and under
+# each file it holds the entries the renames left, in the order they had.
+law record_plans_in_file_order:
+  for +t: Tree.Tree()
+  {Sv.in_file_order(Sv.by_file(t)) == True{} : Bool}
+
+law record_plans_every_file:
+  for +t: Tree.Tree()
+  for +f: String
+  {Main.entries.at(f, Sv.by_file(t)) == Main.entries.at(f, t) : Tree.Tree()}
