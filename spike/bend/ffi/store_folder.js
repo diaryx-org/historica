@@ -13,7 +13,10 @@ function store_folder(dir) {
     return io_fail(e.errno ? -e.errno : 5, `${dir}: ${e.message}`);
   }
   names.sort((a, b) => Buffer.compare(a, b));
-  const spelled = (bytes) => {
+  // Bun hands back a plain Uint8Array for `encoding: "buffer"`, whose
+  // `toString` spells the bytes as decimals, so each is made a Buffer here.
+  const spelled = (raw) => {
+    const bytes = Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
     const text = bytes.toString("utf8");
     return Buffer.from(text, "utf8").equals(bytes) ? text : null;
   };
