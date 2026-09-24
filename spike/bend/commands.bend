@@ -7124,43 +7124,124 @@ def content.filing(+c: Content) -> Naming.Filing:
 def content.line(+c: Content) -> T.Split:
   T.Split{content.file(c), content.key(c) ++ " " ++ content.file(c) ++ " " ++ content.held(c)}
 
-# What the position's content of a file of lines is, replayed, by file.
-type Before is Data:
-  Before{file: String, items: List<&2, Ops.Item>}
+# What the position's content of a file of lines is, by file: what its one
+# parent holds, or what several agree on — or, where they disagree, what
+# the walk proposes, which the folder's content then resolves.
+type Joining is Data:
+  Joining.Agreed{file: String, items: List<&2, Ops.Item>}
+  Joining.Proposed{file: String, joined: Conflict.Joined}
 
-def befores.of(+f: String, got: Result<&2, &2, String, List<&2, Ops.Item>>, more: Result<&2, &2, Refused, List<&2, Before>>) -> Result<&2, &2, Refused, List<&2, Before>>:
+def befores.of(+f: String, got: Result<&2, &2, String, List<&2, Ops.Item>>, more: Result<&2, &2, Refused, List<&2, Joining>>) -> Result<&2, &2, Refused, List<&2, Joining>>:
   match got:
     case Fail{e}:
       Fail{Refused{1, e}}
     case Done{items}:
-      do Result<&2, &2, Refused, List<&2, Before>>:
-        later : List<&2, Before> <- more
-        return Before{f, items} <> later
+      do Result<&2, &2, Refused, List<&2, Joining>>:
+        later : List<&2, Joining> <- more
+        return Joining.Agreed{f, items} <> later
 
-def befores.r(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>) -> Result<&2, &2, Refused, List<&2, Before>>:
+def befores.r(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>) -> Result<&2, &2, Refused, List<&2, Joining>>:
   match files:
     case Nil{}:
       Done{Nil{}}
     case +f <> rest:
       befores.of(f, content.in(older, ds, left, f), befores.r(older, ds, left, rest))
 
-def befores.io(+st: Bool, +root: String, +fs: List<&2, Full>, ps: List<&2, String>, files: List<&2, String>) -> IO(List<&2, Before>):
+# `record::joined_content`: what each parent that mentions the file leaves
+# it as — a parent that never saw it disagrees with nobody — and where two
+# of them differ, the walk's proposal.
+def joining.found(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +p: String, +file: String, found: Maybe<&2, Result<&2, &2, String, Rule>>) -> Result<&2, &2, String, Maybe<&2, List<&2, Ops.Item>>>:
+  match found:
+    case None{}:
+      Done{None{}}
+    case Some{r}:
+      Result.map(&2, &2, String, List<&2, Ops.Item>, Maybe<&2, List<&2, Ops.Item>>, items => Some{items}, content.found(older, ds, p, file, Some{r}))
+
+def joining.push(x: Maybe<&2, List<&2, Ops.Item>>, xs: List<&2, List<&2, Ops.Item>>) -> List<&2, List<&2, Ops.Item>>:
+  match x:
+    case Some{y}:
+      y <> xs
+    case None{}:
+      xs
+
+def joining.each(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, ps: List<&2, String>) -> Result<&2, &2, String, List<&2, List<&2, Ops.Item>>>:
+  match ps:
+    case Nil{}:
+      Done{Nil{}}
+    case +p <> rest:
+      +older = oldest_of(fs, Some{p})
+      do Result<&2, &2, String, List<&2, List<&2, Ops.Item>>>:
+        x : Maybe<&2, List<&2, Ops.Item>> <- joining.found(older, ds, p, file, content_of(contents.go(older, ds, file, Nil{}), p))
+        xs : List<&2, List<&2, Ops.Item>> <- joining.each(fs, ds, file, rest)
+        return joining.push(x, xs)
+
+def all_items_eq(xs: List<&2, List<&2, Ops.Item>>, +x: List<&2, Ops.Item>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case y <> rest:
+      Bool.and(items_eq(y, x), all_items_eq(rest, x))
+
+def joining.agree(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +file: String, xs: List<&2, List<&2, Ops.Item>>) -> Result<&2, &2, String, Joining>:
+  match xs:
+    case Nil{}:
+      Done{Joining.Agreed{file, Nil{}}}
+    case +x <> rest:
+      Bool.pick(Result<&2, &2, String, Joining>, all_items_eq(rest, x), Done{Joining.Agreed{file, x}},
+        Result.map(&2, &2, String, Conflict.Joined, Joining, j => Joining.Proposed{file, j}, joined(fs, ds, ps, file)))
+
+def said.r(-A: Data, r: Result<&2, &2, String, A>) -> Result<&2, &2, Refused, A>:
+  match r:
+    case Fail{e}:
+      Fail{Refused{1, e}}
+    case Done{x}:
+      Done{x}
+
+def joinings.r(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, files: List<&2, String>) -> Result<&2, &2, Refused, List<&2, Joining>>:
+  match files:
+    case Nil{}:
+      Done{Nil{}}
+    case +f <> rest:
+      do Result<&2, &2, Refused, List<&2, Joining>>:
+        xs : List<&2, List<&2, Ops.Item>> <- said.r(List<&2, List<&2, Ops.Item>>, joining.each(fs, ds, f, ps))
+        j : Joining <- said.r(Joining, joining.agree(fs, ds, ps, f, xs))
+        more : List<&2, Joining> <- joinings.r(fs, ds, ps, rest)
+        return j <> more
+
+def befores.io(+st: Bool, +root: String, +fs: List<&2, Full>, ps: List<&2, String>, files: List<&2, String>) -> IO(List<&2, Joining>):
   match ps files:
     case +left <> Nil{} +some <> +others:
-      do IO<List<&2, Before>>:
+      do IO<List<&2, Joining>>:
         ds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), wanted_all(fs, some <> others))))
         +ds2 : List<&2, Store.Doc> = ds
         more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
-        stated.io(List<&2, Before>, st, befores.r(oldest_of(fs, Some{left}), List.append(&2, Store.Doc, ds2, more), left, some <> others))
+        stated.io(List<&2, Joining>, st, befores.r(oldest_of(fs, Some{left}), List.append(&2, Store.Doc, ds2, more), left, some <> others))
+    case +a <> +b <> +rest +some <> +others:
+      do IO<List<&2, Joining>>:
+        ds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), wanted_all(fs, some <> others))))
+        +ds2 : List<&2, Store.Doc> = ds
+        more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
+        stated.io(List<&2, Joining>, st, joinings.r(fs, List.append(&2, Store.Doc, ds2, more), a <> b <> rest, some <> others))
     case _ _:
-      IO.pure(List<&2, Before>, Nil{})
+      IO.pure(List<&2, Joining>, Nil{})
 
-def before_of(bs: List<&2, Before>, +file: String) -> List<&2, Ops.Item>:
-  match bs:
+def before_of(js: List<&2, Joining>, +file: String) -> List<&2, Ops.Item>:
+  match js:
     case Nil{}:
       Nil{}
-    case Before{+f, items} <> rest:
+    case Joining.Agreed{+f, items} <> rest:
       Bool.pick(List<&2, Ops.Item>, String.eq(f, file), items, before_of(rest, file))
+    case j <> rest:
+      before_of(rest, file)
+
+def proposed_of(js: List<&2, Joining>, +file: String) -> Maybe<&2, Conflict.Joined>:
+  match js:
+    case Nil{}:
+      None{}
+    case Joining.Proposed{+f, j} <> rest:
+      Bool.pick(Maybe<&2, Conflict.Joined>, String.eq(f, file), Some{j}, proposed_of(rest, file))
+    case j <> rest:
+      proposed_of(rest, file)
 
 # The files of lines a record edits, whose position's content it replays.
 def edited.lines(+edited: List<&2, String>, hs: List<&2, Here>) -> List<&2, String>:
@@ -7218,16 +7299,34 @@ def edited.content(+f: String, +p: String, d: Maybe<&2, Ops.Doc>) -> List<&2, Co
     case Some{doc}:
       [Content.Ops{f, p, Ops.write(doc)}]
 
-def stating.held(+edited: List<&2, String>, +befores: List<&2, Before>, +p: String, e: Maybe<&2, Tree.Entry>, +digest: String, +bs: List<&2, U32>) -> Stating:
+# Decision 0032: a merge states a file its parents disagree about whole,
+# as a resolution of what the walk proposed — whether or not the folder
+# holds one side's version — and names it with `edit` as it would an
+# operation document.
+def resolved.content(+f: String, +p: String, d: Maybe<&2, Res.Doc>) -> List<&2, Content>:
+  match d:
+    case None{}:
+      Nil{}
+    case Some{doc}:
+      [Content.Ops{f, p, Res.write(doc)}]
+
+def lines.content(+f: String, +p: String, +befores: List<&2, Joining>, +after: List<&2, Ops.Item>, proposed: Maybe<&2, Conflict.Joined>) -> List<&2, Content>:
+  match proposed:
+    case Some{+j}:
+      resolved.content(f, p, Conflict.resolve(j, after))
+    case None{}:
+      edited.content(f, p, Ops.diff(before_of(befores, f), after))
+
+def stating.held(+edited: List<&2, String>, +befores: List<&2, Joining>, +p: String, e: Maybe<&2, Tree.Entry>, +digest: String, +bs: List<&2, U32>) -> Stating:
   match e:
     case Some{Tree.Entry{+f, q, Tree.Whole{}, y, g, m}}:
       Stating{Bool.pick(List<&2, Content>, Rev.member(edited, p), [Content.Whole{f, p, digest}], Nil{}), Nil{}}
     case Some{Tree.Entry{+f, q, Tree.Lines{}, y, g, m}}:
-      Stating{Bool.pick(List<&2, Content>, Rev.member(edited, p), edited.content(f, p, Ops.diff(before_of(befores, f), Ops.from_text(Utf8.decode(bs)))), Nil{}), Nil{}}
+      Stating{Bool.pick(List<&2, Content>, Rev.member(edited, p), lines.content(f, p, befores, Ops.from_text(Utf8.decode(bs)), proposed_of(befores, f)), Nil{}), Nil{}}
     case _:
       Stating{Nil{}, Nil{}}
 
-def stating.at(+mint: List<&2, T.Split>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +befores: List<&2, Before>, +p: String, e: Maybe<&2, Tree.Entry>, +digest: String, +bs: List<&2, U32>, +runs: Bool, arriving: Bool) -> Stating:
+def stating.at(+mint: List<&2, T.Split>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +befores: List<&2, Joining>, +p: String, e: Maybe<&2, Tree.Entry>, +digest: String, +bs: List<&2, U32>, +runs: Bool, arriving: Bool) -> Stating:
   match arriving:
     case True{}:
       +file = Maybe.default(&2, String, lookup(mint, p), SNil{})
@@ -7235,7 +7334,7 @@ def stating.at(+mint: List<&2, T.Split>, +edited: List<&2, String>, +ks: List<&2
     case False{}:
       stating.held(edited, befores, p, e, digest, bs)
 
-def stating.of(+mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +befores: List<&2, Before>, h: Here) -> Stating:
+def stating.of(+mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +befores: List<&2, Joining>, h: Here) -> Stating:
   match h:
     case Here{+p, e, Some{Folder.Found.File{q, +runs, n}}}:
       stating.at(mint, edited, ks, befores, p, e, status.folder_digest(dg, p), bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), runs, Rev.member(arriving, p))
@@ -7247,7 +7346,7 @@ def stating.join(a: Stating, b: Stating) -> Stating:
     case Stating{c1, m1} Stating{c2, m2}:
       Stating{List.append(&2, Content, c1, c2), List.append(&2, T.Split, m1, m2)}
 
-def stating.all(+mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +befores: List<&2, Before>, hs: List<&2, Here>) -> Stating:
+def stating.all(+mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +befores: List<&2, Joining>, hs: List<&2, Here>) -> Stating:
   match hs:
     case Nil{}:
       Stating{Nil{}, Nil{}}
@@ -7443,6 +7542,7 @@ def record.said(+w: Writing, +facts: List<&2, T.Split>, +change: String, +id: St
         IO.print("recorded " ++ String.take(change, 8n) ++ " as " ++ String.take(id, 12n))
         said.names(SNil{}, " -> " ++ String.take(change, 8n), names)
         Bool.pick(IO(Unit), List.is_empty(&2, String, ps), IO.print("this is a root: it has no parent"), IO.pure(Unit, Unit{}))
+        Bool.pick(IO(Unit), Nat.is_gt(List.length(&2, String, ps), 1n), IO.print("this joins " ++ Nat.show(List.length(&2, String, ps)) ++ " lines of work"), IO.pure(Unit, Unit{}))
 
 def stating.contents(s: Stating) -> List<&2, Content>:
   match s:
@@ -7474,7 +7574,7 @@ def drafted(+st: Bool, +root: String, +fs: List<&2, Full>, +ps: List<&2, String>
   +gone = Sv.dropped_files(obs)
   +edited = Sv.edited(obs)
   do IO<Drafted>:
-    befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(edited, hs))
+    befores : List<&2, Joining> <- befores.io(st, root, fs, ps, edited.lines(edited, hs))
     +said : Stating = stating.all(mint, arriving, edited, ks, dg, reads, befores, hs)
     +cs : List<&2, Content> = stating.contents(said)
     +modes : List<&2, T.Split> = List.append(&2, T.Split, stating.modes(said), modes.held(mint, t, Sv.modes(obs), hs))
@@ -8884,18 +8984,12 @@ def record.go(+st: Bool, +root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bo
 def record.stated.r(+d: Bool, +f: Bool) -> Result<&2, &2, Refused, Unit>:
   Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(d, f), Fail{Refused{2, "`record --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}}, Done{Unit{}})
 
-# A merge states a resolution of each contested file, which nothing here
-# writes yet; `record --dry-run --merge` says what one would record.
-def record.merge.r(d: Bool, ms: List<&2, String>) -> Result<&2, &2, Refused, Unit>:
-  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.or(d, List.is_empty(&2, String, ms)), Done{Unit{}}, Fail{Refused{1, "recording a merge writes resolutions, which this port does not do yet; `record --dry-run` says what it would record"}})
-
 def record.checked(+st: Bool, +root: String, c: RecordCmd) -> IO(Unit):
   match c:
     case RecordCmd{o, +ms, ac, at, mv, +ks, ns, +d, +f, mg}:
       do IO<Unit>:
         refused.io(Unit, record.stated.r(d, f))
         refused.io(Unit, kinds.clash.r(ks, Nil{}))
-        stated.io(Unit, st, record.merge.r(d, ms))
         rs : List<&2, Store.Doc> <- Store.revisions(root)
         bs : List<&2, Bm.Bookmark> <- bookmarks(root)
         record.go(st, root, fulls(root, rs), bs, RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg})
