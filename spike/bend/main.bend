@@ -2226,12 +2226,21 @@ def contents.push(+id: String, c: Maybe<&2, Result<&2, &2, String, Rule>>, cs: L
     case Some{r}:
       Contents{r, id} <> cs
 
+# A file added with no content stated is a file of no lines: decision 0017
+# states a new file's lines outright, and there are none to state.
+def contents.added(added: Bool, inherited: Maybe<&2, Result<&2, &2, String, Rule>>) -> Maybe<&2, Result<&2, &2, String, Rule>>:
+  match added:
+    case True{}:
+      Some{Done{Known{Nil{}}}}
+    case False{}:
+      inherited
+
 def contents.go(oldest_first: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, +cs: List<&2, Contents>) -> List<&2, Contents>:
   match oldest_first:
     case Nil{}:
       cs
-    case Full{+id, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest:
-      contents.go(rest, ds, file, contents.push(id, contents.said(ds, id, file, contents.parents(cs, parents, None{}), said(facts, file)), cs))
+    case Full{+id, change, parents, supersedes, author, when, revised_by, revised, +facts, message} <> rest:
+      contents.go(rest, ds, file, contents.push(id, contents.said(ds, id, file, contents.added(Rev.member(Rev.files_of(facts, "add"), file), contents.parents(cs, parents, None{})), said(facts, file)), cs))
 
 # The merge walk
 # --------------
