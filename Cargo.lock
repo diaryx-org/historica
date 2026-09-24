@@ -219,6 +219,7 @@ dependencies = [
  "jiff",
  "nyquest",
  "nyquest-preset",
+ "sha2",
  "similar",
 ]
 

@@ -31,6 +31,18 @@ exclude = ["tests/"]
 name = "historica"
 path = "src/main.rs"
 
+# The same program with its clock and its random source fixed, for comparing
+# what two implementations of the writer put on disk. Decision 0010 made both
+# inputs so a corpus could pin a writer's bytes; this is the command line
+# taking them as inputs too. `required-features` keeps it out of every build
+# that does not ask for `pinned`, so `cargo install` never makes it, and it is
+# its own binary so that `historica` itself has no way to be told what time it
+# is or what to mint, whatever features it was built with.
+[[bin]]
+name = "historica-pinned"
+path = "src/pinned.rs"
+required-features = ["pinned"]
+
 # `http` is decision 0057's transport: the platform's own HTTP stack, behind one
 # interface. On by default so that `cargo install historica-cli` fetches out of
 # the box, and off in one flag so the program still builds for a target with no
@@ -48,6 +60,9 @@ http = ["dep:nyquest", "dep:nyquest-preset"]
 # turning it off costs is a spelling: the tools are still there under their own
 # names, which is how they were reached before this existed.
 dispatch = []
+# `historica-pinned` above, and the digest its minting is drawn from. Off by
+# default and never wanted outside a test: see `src/pinned.rs`.
+pinned = ["dep:sha2"]
 
 [dependencies]
 # The library, which is where every answer this program prints comes from:
@@ -93,3 +108,6 @@ similar = "3.2"
 # version.
 nyquest = { version = "=0.4.0", optional = true, features = ["blocking"] }
 nyquest-preset = { version = "=0.4.0", optional = true, features = ["blocking"] }
+# What `historica-pinned` stretches its seed with, at the library's own
+# requirement so cargo unifies the two. Only the `pinned` feature asks for it.
+sha2 = { version = "0.11.0", optional = true }

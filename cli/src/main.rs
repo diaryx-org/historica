@@ -15,18 +15,8 @@ mod cli;
 
 use std::process::ExitCode;
 
+use historica::record::Platform;
+
 fn main() -> ExitCode {
-    match cli::run(std::env::args().skip(1)) {
-        Ok(code) => ExitCode::from(code),
-        Err(failure) => {
-            if let Some(message) = failure.message() {
-                eprintln!("historica: {message}");
-            }
-            if failure.wants_usage() {
-                eprintln!();
-                eprint!("{}", cli::usage());
-            }
-            ExitCode::from(failure.code())
-        }
-    }
+    cli::main(&mut Platform)
 }

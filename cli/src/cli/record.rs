@@ -12,9 +12,9 @@ use historica::format::{self, Mode};
 use historica::fs::{Disk, Filesystem as _};
 use historica::record::carry::Carrying;
 use historica::record::{
-    Abandoning, Amendment, Clock, Kinds, Platform, Recording, Restriction,
-    abandon as abandon_revision, abandonment_plan, amend as amend_revision, amendment_plan,
-    check_restriction, identity, plan as plan_for, record as record_revision, standing_on,
+    Abandoning, Amendment, Clock, Kinds, Recording, Restriction, abandon as abandon_revision,
+    abandonment_plan, amend as amend_revision, amendment_plan, check_restriction, identity,
+    plan as plan_for, record as record_revision, standing_on,
 };
 use historica::store::Store;
 use historica::tree::{Kind, TreeContest};
@@ -22,7 +22,7 @@ use historica::working::Working;
 
 use historica::wrote::Statement;
 
-use super::{Failure, no_statement_of_a_plan, printing, render, target};
+use super::{Failure, Source, no_statement_of_a_plan, printing, render, target};
 
 /// `record [<path>...] [-m <message>] [--onto <target>] [--move <old>=<new>]
 /// [--dry-run]`.
@@ -31,7 +31,12 @@ use super::{Failure, no_statement_of_a_plan, printing, render, target};
 /// not compared with the tree, so this records an observed state as much as
 /// the unrestricted command does. There is still no index — nothing here is
 /// remembered past the end of the command.
-pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
+pub fn record(
+    base: &Path,
+    root: PathBuf,
+    arguments: Vec<String>,
+    platform: &mut impl Source,
+) -> Result<u8, Failure> {
     let mut message: Option<String> = None;
     let mut onto: Option<String> = None;
     let mut joining: Vec<String> = Vec::new();
@@ -183,11 +188,10 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
             )));
         }
     }
-    let mut platform = Platform;
 
     if dry_run {
         let asked = recording(String::new(), placeholder(), String::new());
-        let plan = plan_for(&store, &working, &asked, &mut platform).map_err(Failure::error)?;
+        let plan = plan_for(&store, &working, &asked, platform).map_err(Failure::error)?;
         if plan.is_empty() {
             return printing(|out| writeln!(out, "nothing here differs from what is recorded"));
         }
@@ -212,7 +216,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         &mut store,
         &working,
         &recording(author, when, message),
-        &mut platform,
+        platform,
     )
     .map_err(Failure::error)?;
 
@@ -258,7 +262,11 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
 /// that describes the work is the amended revision's and everything the folder
 /// says is worked out again, so the only thing this command has to be given is
 /// a message — and only where the person wants a different one.
-pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
+pub fn amend(
+    root: PathBuf,
+    arguments: Vec<String>,
+    platform: &mut impl Source,
+) -> Result<u8, Failure> {
     let mut message: Option<String> = None;
     let mut moves: Vec<(String, String)> = Vec::new();
     let mut named: Option<String> = None;
@@ -335,7 +343,6 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         true => Working::unread(&repository),
         false => Working::read(&repository, store.skipped()).map_err(Failure::error)?,
     };
-    let mut platform = Platform;
 
     if dry_run {
         let asked = Amendment {
@@ -345,8 +352,7 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             revised: placeholder(),
             moves: moves.clone(),
         };
-        let plan =
-            amendment_plan(&store, &working, &asked, &mut platform).map_err(Failure::error)?;
+        let plan = amendment_plan(&store, &working, &asked, platform).map_err(Failure::error)?;
         let carrying = would_carry(&store, &revision, &standing);
         return printing(|out| {
             for (fact, path) in plan.facts() {
@@ -377,7 +383,7 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         moves,
     };
     let amended =
-        amend_revision(&mut store, &working, &amendment, &mut platform).map_err(Failure::error)?;
+        amend_revision(&mut store, &working, &amendment, platform).map_err(Failure::error)?;
 
     if fields {
         let mut statement = Statement::new();
@@ -453,7 +459,12 @@ fn would_carry<F: historica::fs::Filesystem>(
 /// records nothing and explains everything. The message is the one this
 /// format requires, so with no `-m` the editor opens exactly as `record`'s
 /// does — and an empty message is a refusal rather than a tombstone.
-pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
+pub fn abandon(
+    base: &Path,
+    root: PathBuf,
+    arguments: Vec<String>,
+    platform: &mut impl Source,
+) -> Result<u8, Failure> {
     let mut message: Option<String> = None;
     let mut named: Option<String> = None;
     let mut dry_run = false;
@@ -528,7 +539,6 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
     }
 
     let author = identity::author_for(&repository).map_err(Failure::error)?;
-    let mut platform = Platform;
     let when = platform.now().map_err(Failure::error)?;
     warn_about_the_clock(&store, &when);
 
@@ -544,8 +554,7 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
         when,
         message,
     };
-    let abandoned =
-        abandon_revision(&mut store, &abandoning, &mut platform).map_err(Failure::error)?;
+    let abandoned = abandon_revision(&mut store, &abandoning, platform).map_err(Failure::error)?;
 
     if fields {
         let mut statement = Statement::new();
@@ -604,7 +613,7 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
 /// With `--onto` a person decided, so the revision named takes a reading of
 /// the clock and the stack above it derives from that, exactly as a repair's
 /// does. That is decision 0010's two rows, one command.
-pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
+pub fn carry(root: PathBuf, arguments: Vec<String>, platform: &impl Clock) -> Result<u8, Failure> {
     let mut named: Option<String> = None;
     let mut onto: Option<String> = None;
     let mut dry_run = false;
@@ -647,7 +656,6 @@ pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
         .to_path_buf();
-    let platform = Platform;
     let carrying = match (target, &onto) {
         (Some(revision), Some(spelling)) => {
             let destination = target::resolve(&store, spelling)?;
