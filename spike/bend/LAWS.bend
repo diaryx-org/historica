@@ -18,6 +18,7 @@ import ./folder.bend as Folder
 import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
+import ./sort_lemmas.bend as SortL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1134,3 +1135,39 @@ law name_states_what_it_set:
   for early: Bool
   for shared: Bool
   {List.append(&2, String, Main.name.head(early), Main.name.said.lines(n, b, True{}, early, shared)) == [Main.WROTE(), "name " ++ n] : List<&2, String>}
+
+# `files` lists each file of the tree once, in path order. The entries it
+# prints are each no smaller than the one before, by path and then by file
+# identifier, and each line it prints ends with the identifier of the entry
+# it lists — or says there are none.
+law files_lists_in_path_order:
+  for +t: Tree.Tree()
+  {Bool.and(SortL.sorted(~Tree.Entry, ~(e => Main.files.key(e)), Main.files.listed(t)), Main.ends_all(Main.files.said(t), Main.files.ends(t))) == True{} : Bool}
+
+# And the entries it lists are the tree's: under each path and file, the
+# ones the tree holds there, as many and in the order it holds them.
+law files_lists_the_tree:
+  for +t: Tree.Tree()
+  for +k: String
+  {SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, Main.files.listed(t)) == SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, t) : Tree.Tree()}
+
+# `names` lists every bookmark once, in name order: the store's bookmarks
+# are read sorted by name, and `names` prints a line for each, in the
+# order read, beginning with its name — or says there are none.
+law bookmarks_read_in_name_order:
+  for +ps: List<&2, String>
+  {SortL.sorted(~Main.Named, ~(n => Main.named.name(n)), Main.bookmarks.order(ps)) == True{} : Bool}
+
+law names_lists_each_bookmark:
+  for +fs: List<&2, Main.Full>
+  for bs: List<&2, Bm.Bookmark>
+  {Main.names.begun(bs, Main.names.said(fs, bs)) == True{} : Bool}
+
+# Where `names` says a revision pin or a change resolves is a revision the
+# store holds: an abbreviation of its digest — for a change, of its one
+# current revision — or else, in parentheses, why there is none.
+law names_resolves_to_held:
+  for +fs: List<&2, Main.Full>
+  for +here: Maybe<&2, Tree.Tree()>
+  for t: Bm.Target
+  {Main.names.held(fs, t, Main.names.resolution(Main.history(fs), Main.ids(fs), here, t)) == True{} : Bool}

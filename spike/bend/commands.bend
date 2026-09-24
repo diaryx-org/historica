@@ -41,6 +41,16 @@ def refused.io(-A: Data, r: Result<&2, &2, Refused, A>) -> IO(A):
     case Done{x}:
       IO.pure(A, x)
 
+# Lines a command decided on, printed.
+def print_lines(ls: List<&2, String>) -> IO(Unit):
+  match ls:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case l <> rest:
+      do IO<Unit>:
+        IO.print(l)
+        print_lines(rest)
+
 # A revision the store holds: its digest and what its document says.
 type Full is Data:
   Full{id: String, change: String, parents: List<&2, String>, supersedes: List<&2, String>,
@@ -210,13 +220,17 @@ def bookmarks.read(+root: String, ns: List<&2, Named>) -> IO(List<&2, Bm.Bookmar
         bs : List<&2, Bm.Bookmark> <- bookmarks.read(root, rest)
         return b <> bs
 
+# The bookmarks under `names/`, in name order.
+def bookmarks.order(ps: List<&2, String>) -> List<&2, Named>:
+  List.sort(~Named, ~(a => b => named.le(a, b)), named(ps))
+
 # What opening the store reads besides its documents: the bookmarks, then
 # the rules of `skipped/` — each refusing the store, as the Rust tool's
 # `Store::open` does, where a file is not what it should be.
 def bookmarks(+root: String) -> IO(List<&2, Bm.Bookmark>):
   do IO<List<&2, Bm.Bookmark>>:
     ps : List<&2, String> <- Store.name_paths(root)
-    bs : List<&2, Bm.Bookmark> <- bookmarks.read(root, List.sort(~Named, ~(a => b => named.le(a, b)), named(ps)))
+    bs : List<&2, Bm.Bookmark> <- bookmarks.read(root, bookmarks.order(ps))
     rules : List<&2, Folder.Scope> <- Folder.rules(root)
     return bs
 
@@ -1777,21 +1791,39 @@ def widest(es: Tree.Tree()) -> Nat:
 def by_path(+a: Tree.Entry, +b: Tree.Entry) -> Bool:
   String.is_le(Tree.entry_path(a) ++ "  " ++ Tree.entry_file(a), Tree.entry_path(b) ++ "  " ++ Tree.entry_file(b))
 
-def print_files(es: Tree.Tree(), +width: Nat) -> IO(Unit):
+# In path order, and a path's files in identifier order, as the Rust tool
+# lists them: one line each, the path padded to the widest.
+def files.key(+e: Tree.Entry) -> String:
+  Tree.entry_path(e) ++ "  " ++ Tree.entry_file(e)
+
+def files.listed(+es: Tree.Tree()) -> Tree.Tree():
+  List.sort(~Tree.Entry, ~(a => b => String.is_le(files.key(a), files.key(b))), es)
+
+def files.lines(es: Tree.Tree(), +width: Nat) -> List<&2, String>:
   match es:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case +e <> rest:
-      do IO<Unit>:
-        IO.print(pad(Tree.entry_path(e), width) ++ "  " ++ Tree.entry_file(e))
-        print_files(rest, width)
+      (pad(Tree.entry_path(e), width) ++ "  " ++ Tree.entry_file(e)) <> files.lines(rest, width)
+
+def files.said(+es: Tree.Tree()) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      ["no files here"]
+    case +some:
+      files.lines(files.listed(some), widest(some))
+
+# What each line of `files` ends with, as `LAWS.files_lists_in_path_order`
+# reads it: the file identifier of each entry listed.
+def files.ends(+es: Tree.Tree()) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      ["no files here"]
+    case +some:
+      T.map(~Tree.Entry, ~String, ~(e => Tree.entry_file(e)), files.listed(some))
 
 def files.of(+es: Tree.Tree()) -> IO(Unit):
-  match es:
-    case Nil{}:
-      IO.print("no files here")
-    case +some:
-      print_files(List.sort(~Tree.Entry, ~(a => b => by_path(a, b)), some), widest(some))
+  print_lines(files.said(es))
 
 def files(+target: String) -> IO(Unit):
   do IO<Unit>:
@@ -1851,22 +1883,58 @@ def names.widest(bs: List<&2, Bm.Bookmark>) -> Nat:
     case b <> rest:
       Nat.max(List.length(&2, U32, Utf8.encode(Bm.name_of(b))), names.widest(rest))
 
-def names.lines(bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +all_ids: List<&2, String>, +here: Maybe<&2, Tree.Tree()>, +width: Nat) -> IO(Unit):
+def names.lines(bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +all_ids: List<&2, String>, +here: Maybe<&2, Tree.Tree()>, +width: Nat) -> List<&2, String>:
   match bs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case +b <> rest:
-      do IO<Unit>:
-        IO.print(pad(Bm.name_of(b), width) ++ "  " ++ Bm.show(b) ++ "  ->  " ++ names.resolution(h, all_ids, here, Bm.target_of(b)))
-        names.lines(rest, h, all_ids, here, width)
+      (pad(Bm.name_of(b), width) ++ "  " ++ Bm.show(b) ++ "  ->  " ++ names.resolution(h, all_ids, here, Bm.target_of(b))) <> names.lines(rest, h, all_ids, here, width)
 
-def names.of(+fs: List<&2, Full>, bs: List<&2, Bm.Bookmark>) -> IO(Unit):
+def names.said(+fs: List<&2, Full>, bs: List<&2, Bm.Bookmark>) -> List<&2, String>:
   match bs:
     case Nil{}:
-      IO.print("no bookmarks here yet")
+      ["no bookmarks here yet"]
     case +some:
       +h = history(fs)
       names.lines(some, h, ids(fs), names.here(Tree.merge(events_of(picked(reached.all(fs, current_heads(h)), Pick{waiting(fs), Nil{}})))), names.widest(some))
+
+# What `LAWS.names_lists_each_bookmark` and `LAWS.names_resolves_to_held`
+# read in it: a line for each bookmark, in the order they were read, each
+# beginning with its name; and a revision pin or a change said as an
+# abbreviation of a revision the store holds, or in parentheses why there
+# is none.
+def names.begin(ls: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> Bool:
+  match ls bs:
+    case Nil{} Nil{}:
+      True{}
+    case l <> lr b <> br:
+      Bool.and(String.starts_with(l, Bm.name_of(b)), names.begin(lr, br))
+    case _ _:
+      False{}
+
+def names.begun(bs: List<&2, Bm.Bookmark>, ls: List<&2, String>) -> Bool:
+  match bs:
+    case Nil{}:
+      True{}
+    case +some:
+      names.begin(ls, some)
+
+def names.prefix(held: List<&2, String>, +s: String) -> Bool:
+  match held:
+    case Nil{}:
+      False{}
+    case +i <> rest:
+      Bool.or(String.starts_with(i, s), names.prefix(rest, s))
+
+def names.held(+fs: List<&2, Full>, t: Bm.Target, +s: String) -> Bool:
+  match t:
+    case Bm.Target.File{f}:
+      True{}
+    case _:
+      Bool.or(String.starts_with(s, "("), names.prefix(ids(fs), s))
+
+def names.of(+fs: List<&2, Full>, bs: List<&2, Bm.Bookmark>) -> IO(Unit):
+  print_lines(names.said(fs, bs))
 
 def names() -> IO(Unit):
   do IO<Unit>:
@@ -3607,15 +3675,6 @@ def render(+paint: Bool, p: Compared) -> List<&2, Painted>:
       List.append(&2, Painted, render.facts(from, to), List.append(&2, Painted, render.mode(path, modes), List.append(&2, Painted, render.link(path, targets),
         render.content(paint, Maybe.default(&2, String, Maybe.map(&2, String, String, x => "a/" ++ x, from), "/dev/null"), Maybe.default(&2, String, Maybe.map(&2, String, String, x => "b/" ++ x, to), "/dev/null"),
           side.lines(before), side.lines(after), binary.side(before) ++ " ->" ++ binary.side(after)))))
-
-def print_lines(ls: List<&2, String>) -> IO(Unit):
-  match ls:
-    case Nil{}:
-      IO.pure(Unit, Unit{})
-    case l <> rest:
-      do IO<Unit>:
-        IO.print(l)
-        print_lines(rest)
 
 def diff.rendered(+paint: Bool, ps: List<&2, Compared>) -> List<&2, Painted>:
   match ps:
