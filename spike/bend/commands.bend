@@ -2075,11 +2075,15 @@ def minted.by(+text: String, resolution: Bool) -> List<&2, Ops.Item>:
 def minted(+text: String) -> List<&2, Ops.Item>:
   minted.by(text, Res.is_resolution(text))
 
+def kept.cut(+d: String, +first: Nat, +count: Nat, +items: List<&2, Ops.Item>, over: Bool) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match over:
+    case True{}:
+      Fail{"this resolution keeps up to item " ++ Nat.show(Nat.add(first, count)) ++ " of " ++ d ++ ", which mints " ++ Nat.show(List.length(&2, Ops.Item, items)) ++ "; count the `+` lines of that document to see what the run should say"}
+    case False{}:
+      Done{List.take(&2, Ops.Item, List.drop(&2, Ops.Item, items, first), count)}
+
 def kept.run(+d: String, +first: Nat, +count: Nat, +items: List<&2, Ops.Item>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
-  +holds = List.length(&2, Ops.Item, items)
-  Bool.pick(Result<&2, &2, String, List<&2, Ops.Item>>, Nat.is_gt(Nat.add(first, count), holds),
-    Fail{"this resolution keeps up to item " ++ Nat.show(Nat.add(first, count)) ++ " of " ++ d ++ ", which mints " ++ Nat.show(holds) ++ "; count the `+` lines of that document to see what the run should say"},
-    Done{List.take(&2, Ops.Item, List.drop(&2, Ops.Item, items, first), count)})
+  kept.cut(d, first, count, items, Nat.is_gt(Nat.add(first, count), List.length(&2, Ops.Item, items)))
 
 def kept.found(+d: String, +first: Nat, +count: Nat, doc: Maybe<&2, String>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match doc:
@@ -2095,15 +2099,22 @@ def assemble.piece(+ds: List<&2, Store.Doc>, p: Res.Piece) -> Result<&2, &2, Str
     case Res.Piece.Insert{items}:
       Done{items}
 
+# One piece's items before the rest's, the first refusal winning.
+def assemble.cons(here: Result<&2, &2, String, List<&2, Ops.Item>>, later: Result<&2, &2, String, List<&2, Ops.Item>>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match here later:
+    case Fail{e} _:
+      Fail{e}
+    case Done{h} Fail{e}:
+      Fail{e}
+    case Done{h} Done{l}:
+      Done{List.append(&2, Ops.Item, h, l)}
+
 def assemble.pieces(+ds: List<&2, Store.Doc>, ps: List<&2, Res.Piece>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match ps:
     case Nil{}:
       Done{Nil{}}
     case p <> rest:
-      do Result<&2, &2, String, List<&2, Ops.Item>>:
-        here : List<&2, Ops.Item> <- assemble.piece(ds, p)
-        later : List<&2, Ops.Item> <- assemble.pieces(ds, rest)
-        return List.append(&2, Ops.Item, here, later)
+      assemble.cons(assemble.piece(ds, p), assemble.pieces(ds, rest))
 
 # The first item but the last that ends without a newline, if any.
 def unterminated_at(items: List<&2, Ops.Item>, +i: Nat) -> Maybe<&2, Nat>:
@@ -2126,23 +2137,77 @@ def assembled.shape(at: Maybe<&2, Nat>) -> Result<&2, &2, String, Unit>:
 
 # Decision 0031: a hand-assembled resolution is verified by `shasum` like
 # everything else, until forgetting has put bytes in it nobody hashed.
+def assembled.verdict(ok: Bool, +stated: String, +found: String) -> Result<&2, &2, String, Unit>:
+  match ok:
+    case True{}:
+      Done{Unit{}}
+    case False{}:
+      Fail{"this document says it produces " ++ stated ++ " and replaying it produces " ++ found ++ "; the document, its parent, or the replayer is wrong, and `shasum -a 256` on the replayed file is how to see which"}
+
 def assembled.result(result: Maybe<&2, String>, +items: List<&2, Ops.Item>) -> Result<&2, &2, String, Unit>:
   match result:
     case None{}:
       Done{Unit{}}
     case Some{+stated}:
       +found = Ops.state_digest(items)
-      Bool.pick(Result<&2, &2, String, Unit>, Bool.or(Ops.any_forgotten(items), String.eq(stated, found)), Done{Unit{}},
-        Fail{"this document says it produces " ++ stated ++ " and replaying it produces " ++ found ++ "; the document, its parent, or the replayer is wrong, and `shasum -a 256` on the replayed file is how to see which"})
+      assembled.verdict(Bool.or(Ops.any_forgotten(items), String.eq(stated, found)), stated, found)
+
+# The pieces, then their shape, then the digest stated: the first refusal
+# is the answer, and otherwise the file.
+def assemble.checked(+items: List<&2, Ops.Item>, r: Result<&2, &2, String, Unit>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      Done{items}
+
+def assemble.shaped(result: Maybe<&2, String>, +items: List<&2, Ops.Item>, r: Result<&2, &2, String, Unit>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      assemble.checked(items, assembled.result(result, items))
+
+def assemble.of(result: Maybe<&2, String>, r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+items}:
+      assemble.shaped(result, items, assembled.shape(unterminated_at(items, 0n)))
 
 def assemble(+ds: List<&2, Store.Doc>, d: Res.Doc) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match d:
     case Res.Doc{forgets, result, pieces}:
-      do Result<&2, &2, String, List<&2, Ops.Item>>:
-        +items : List<&2, Ops.Item> <- assemble.pieces(ds, pieces)
-        assembled.shape(unterminated_at(items, 0n))
-        assembled.result(result, items)
-        return items
+      assemble.of(result, assemble.pieces(ds, pieces))
+
+# Whether the document with this digest here mints `it` at ordinal `m`:
+# what the walk minted the element named so from, and what a `keep` of the
+# name assembles back.
+def mints.item(+it: Ops.Item, x: Maybe<&2, Ops.Item>) -> Bool:
+  match x:
+    case Some{y}:
+      Sim.fit.item(y, it)
+    case None{}:
+      False{}
+
+def mints.doc(+m: Nat, +it: Ops.Item, doc: Maybe<&2, String>) -> Bool:
+  match doc:
+    case Some{text}:
+      mints.item(it, List.get(&2, Ops.Item, minted(text), m))
+    case None{}:
+      False{}
+
+def mints(+ds: List<&2, Store.Doc>, n: Conflict.Named) -> Bool:
+  match n:
+    case Conflict.Named{Conflict.Ref{+d, m}, it}:
+      mints.doc(m, it, doc_by_id(ds, d))
+
+def all_mint(+ds: List<&2, Store.Doc>, ns: List<&2, Conflict.Named>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case n <> rest:
+      Bool.and(mints(ds, n), all_mint(ds, rest))
 
 def resolved.said(+id: String, +file: String, r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match r:

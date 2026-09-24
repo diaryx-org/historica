@@ -2248,6 +2248,27 @@ def check_mutations(temporary):
             "update_lemmas.went_of",
             "update.bend",
         ),
+        (
+            "a resolution runs a name into a keep it does not continue",
+            "Bool.and(String.eq(d, e), Nat.is_eq(1n+m, first))",
+            "Bool.and(String.eq(d, e), Nat.is_eq(m, first))",
+            "conflict_lemmas.put_kept",
+            "conflict.bend",
+        ),
+        (
+            "a resolution keeps a line the person deleted",
+            "    case Ops.Del{x} <> rest n <> more:\n      said.of(rest, more)",
+            "    case Ops.Del{x} <> rest n <> more:\n      Said.Kept{n} <> said.of(rest, more)",
+            "conflict_lemmas.said_fit",
+            "conflict.bend",
+        ),
+        (
+            "cat reads a keep from one item past where it starts",
+            "Done{List.take(&2, Ops.Item, List.drop(&2, Ops.Item, items, first), count)}",
+            "Done{List.take(&2, Ops.Item, List.drop(&2, Ops.Item, items, 1n+first), count)}",
+            "conflict_lemmas.keep_one.got",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
