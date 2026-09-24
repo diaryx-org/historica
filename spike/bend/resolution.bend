@@ -259,6 +259,31 @@ def minted(d: Doc) -> List<&2, Ops.Item>:
     case Doc{forgets, result, ps}:
       minted.of(ps)
 
+# Writing
+# -------
+
+# The bytes the Rust tool writes for a resolution: the preamble and headers
+# an operation document has, a blank line, and each piece — a `keep` line,
+# or `insert` and its items spelled as an operation document spells them.
+def write.piece(p: Piece) -> String:
+  match p:
+    case Piece.Keep{d, f, c}:
+      "keep " ++ d ++ " " ++ T.spell(f) ++ " " ++ T.spell(c) ++ "\n"
+    case Piece.Insert{items}:
+      "insert\n" ++ Ops.write_items('+', items)
+
+def write.pieces(ps: List<&2, Piece>) -> String:
+  match ps:
+    case Nil{}:
+      SNil{}
+    case p <> rest:
+      write.piece(p) ++ write.pieces(rest)
+
+def write(d: Doc) -> String:
+  match d:
+    case Doc{forgets, result, ps}:
+      "historica\n" ++ Ops.header_line("forgets", forgets) ++ Ops.header_line("result", result) ++ "\n" ++ write.pieces(ps)
+
 def sample() -> String:
   "historica\nresult 07a9e448f01c537968c69f3fc819f5ca1913b905cfdac762796d122043df8378\n\nkeep 880553fca8fcea94e325ee2cfb48e5a985cc797f39a14cc6d3cedecfeb2ae4d2 0 1\ninsert\n+new\n\\ no newline\n"
 
