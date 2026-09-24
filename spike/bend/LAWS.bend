@@ -1386,3 +1386,44 @@ law record_compares_with_the_latest:
 law abandon_takes_a_reason_that_says_something:
   for +m: String
   {Result.is_done(&2, &2, Main.Refused, Unit, Main.reason.r(m)) == Bool.not(Naming.every(~Naming.is_space, m)) : Bool}
+
+# `record` restricted to some paths names only what is there. It goes on
+# only where each path a person names answers to something — a file the
+# folder holds, one the position holds, or one the stated renames put there,
+# at the path or beneath it as a directory — since a path a rule keeps out
+# is refused as kept out, and any other that answers to nothing as absent.
+law record_names_only_what_is_there:
+  for +rules: List<&2, Folder.Scope>
+  for +named: List<&2, String>
+  for +folder: List<&2, String>
+  for +was: List<&2, String>
+  for +placed: List<&2, String>
+  for e: {Main.named.r(rules, named, folder, was, placed) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
+  {Sv.answered(named, folder, was, placed) == True{} : Bool}
+
+# `--at` and `--move` keep each file once. However a person places files,
+# the position `record` goes on with holds the files it held, each once and
+# in the same order: a rename moves a file and never makes or loses one.
+law a_rename_keeps_each_file_once:
+  for +t: Tree.Tree()
+  for +ats: List<&2, T.Split>
+  for +ms: List<&2, T.Split>
+  for +t2: Tree.Tree()
+  for +moved: List<&2, T.Split>
+  for e: {Main.placed.r(t, ats, ms) == Done{Main.Placed{t2, moved}} : Result<&2, &2, Main.Refused, Main.Placed>}
+  {Sv.files(t2) == Sv.files(t) : List<&2, String>}
+
+# And each file is where a person said. Of the renames `record` goes on
+# with — every `--at`, then every `--move`, each by the file it moves — a
+# file of the position is at the last place one put it, and a file none
+# moved is where it was; so `--at` settles each file it names at its path.
+law a_rename_puts_each_file_where_it_was_said:
+  for +t: Tree.Tree()
+  for +ats: List<&2, T.Split>
+  for +ms: List<&2, T.Split>
+  for +t2: Tree.Tree()
+  for +moved: List<&2, T.Split>
+  for e: {Main.placed.r(t, ats, ms) == Done{Main.Placed{t2, moved}} : Result<&2, &2, Main.Refused, Main.Placed>}
+  for +g: String
+  for hg: {Tree.holds(t, g) == True{} : Bool}
+  {Tree.path(t2, g) == Maybe.or(&2, String, Sv.last_move(moved, g), Tree.path(t, g)) : Maybe<&2, String>}
