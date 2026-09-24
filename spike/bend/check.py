@@ -647,6 +647,7 @@ STORES = {
         ["status"],
         ["name", "x", "head"],
         ["record", "-n"],
+        ["skip"], ["skip", "x"], ["skip", "--bogus"],
     ],
     # The command line before any command: the usage and the version, what
     # is not an option, `-C` in its every position — the last counting, a
@@ -691,6 +692,7 @@ STORES = {
         ["-C", "old", "log"], ["-C", "future", "log"], ["-C", "layout", "log"], ["-C", "layout", "record", "--fields", "-m", "x"],
         ["-C", "noted", "log"], ["-C", "crlf", "log"], ["-C", "bare", "log"],
         ["-C", "future/deeper", "status"],
+        ["skip"], ["skip", "x"], ["-C", "layout", "skip"],
         ["init"],
     ],
     # Who records. `identity` writing the file where the environment says
@@ -755,8 +757,28 @@ STORES = {
         [{"VISUAL": None, "EDITOR": "{temporary}/editors/fails"}, "abandon", "head", "--fields"],
         [{"VISUAL": None, "EDITOR": "{temporary}/editors/writes"}, "amend"],
     ],
+    # `skip`: the rules listed — by path component, each rule once, the
+    # platform's files and a file of comments passed over — and written, a
+    # path relative to the repository whatever `-C` says, a directory as
+    # one, through a link as where it leads, under a label or, where that
+    # cannot be a file or is another's, under the rule's digest; and every
+    # refusal: a path outside, the repository itself, space and line
+    # breaks, a name that is a path or only `*`, the retired flag, and a
+    # rule covering what some head holds.
+    "skipping": [
+        ["skip"], ["skip", "build"], ["skip", "build/"], ["skip", "--private", "out"], ["skip", "out", "--private"],
+        ["skip", "--name", "*.o"], ["skip", "--name", "target/"], ["skip", "--name", "x//"], ["skip", "--name", "README.txt"],
+        ["skip", "--name", ".DS_Store"], ["skip", "notes.md"], ["skip", "notes.md", "docs"], ["skip", "branch.md"],
+        ["skip", "docs"], ["skip", "linkdocs"], ["skip", "--name", "*.md"], ["skip", "/etc"], ["skip", "."], ["skip", ""],
+        ["skip", " x"], ["skip", "a\nb"], ["skip", "a\tb"], ["skip", "--name", "a\nb"], ["skip", "--suffix", ".o"],
+        ["skip", "--bogus"], ["skip", "/etc", "--bogus"], ["skip", "--bogus", "/etc"], ["skip", "--name"],
+        ["skip", "--name", "a/b"], ["skip", "--name", "**"], ["skip", "--name", ""], ["skip", "x", "x"],
+        ["skip", "../outside"], ["skip", "build/../zz"], ["skip", "README"], ["skip", "all", "x/all"],
+        ["skip", "{copy}/new.o"], ["skip", "{copy}"], ["-C", "docs", "skip", "x"], ["-C", "docs", "skip"],
+        ["skip", "tmp", "--name", "*.tmp", "--private", "buildfile"], ["skip", "--name", "*.tmp"],
+    ],
     # A rule file stating two rules: the store will not open.
-    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"]]],
+    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"], ["skip"], ["skip", "x"]],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
         ["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"],
@@ -1316,6 +1338,30 @@ def record(temporary, rust, corpus, pinned=None):
         (store / "notes.md").write_text("one\ntwo\n")
         (store / "sub").mkdir()
         (store / "history" / "tmp").mkdir()
+    elif corpus == "skipping":
+        (store / "notes.md").write_text("one\n")
+        (store / "docs").mkdir()
+        (store / "docs" / "a.md").write_text("a\n")
+        (store / "build").mkdir()
+        (store / "build" / "out.o").write_text("o\n")
+        os.symlink("docs", store / "linkdocs")
+        historica("record", "-m", "one", "notes.md", "docs")
+        historica("name", "first", "head", "--revision")
+        (store / "branch.md").write_text("b\n")
+        historica("record", "-m", "beside", "branch.md")
+        (store / "branch.md").unlink()
+        (store / "notes.md").write_text("one\nother\n")
+        historica("record", "--onto", "first", "-m", "the other head", "notes.md")
+        historica("skip", "build/")
+        historica("skip", "--private", "--name", "*.tmp")
+        skipped = store / "history" / "skipped"
+        (skipped / "zz-dup.txt").write_text("skip build/\n")
+        (skipped / "comment.txt").write_text("# nothing said\n")
+        (skipped / ".DS_Store").write_text("skip notes.md\n")
+        (skipped / "a").mkdir()
+        (skipped / "a" / "b.txt").write_text("private build/\n")
+        (skipped / "build.txt").write_text("skip buildfile\n")
+        (skipped / "build-c.txt").write_text("skip b-c\n")
     elif corpus == "shell":
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "one")
@@ -1510,7 +1556,7 @@ def check_store(temporary):
         return env
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -1527,7 +1573,7 @@ def check_store(temporary):
             copy = fresh(store, at) if writes else store
             env = environment(copy, changed)
             command = [word.replace("{copy}", str(copy)) for word in command]
-            whole = verb in ("init", "identity") or recording
+            whole = verb in ("init", "identity", "skip") or recording
             reference = writer if verb in ("record", *REWRITES) else rust
             shown = " ".join([f"{k}={v}" for k, v in changed.items()] + command)
             expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
