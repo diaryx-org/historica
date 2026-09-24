@@ -5790,13 +5790,23 @@ def replay.step(state: Result<&2, &2, String, List<&2, Ops.Item>>, parsed: Resul
     Ops.apply(items, doc)
 
 # A document that is not an operation document is a payload: the file
-# created whole, which decision 0017 makes the same as an insert at 0.
+# created whole, which decision 0017 makes the same as an insert at 0. A
+# chain already refused stays refused: a payload after a document that did
+# not apply does not make the chain one that works
+# (`LAWS.replay_keeps_a_refusal`).
+def replay.payload(state: Result<&2, &2, String, List<&2, Ops.Item>>, text: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match state:
+    case Fail{e}:
+      Fail{e}
+    case Done{items}:
+      Done{Ops.from_text(text)}
+
 def replay.doc(state: Result<&2, &2, String, List<&2, Ops.Item>>, text: String, is_ops: Bool) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match is_ops:
     case True{}:
       replay.step(state, Ops.parse(text))
     case False{}:
-      Done{Ops.from_text(text)}
+      replay.payload(state, text)
 
 def replay.go(ds: List<&2, Store.Doc>, state: Result<&2, &2, String, List<&2, Ops.Item>>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match ds:
@@ -5835,23 +5845,71 @@ def opdiff(parent: String, child: String) -> IO(Unit):
 type StatusCmd is Data:
   StatusCmd{onto: Maybe<&2, String>, merges: List<&2, String>}
 
-def status.args.go(args: List<&2, String>, onto: Maybe<&2, String>, merges: List<&2, String>) -> Result<&2, &2, Refused, StatusCmd>:
+# What a word is to `status`: a flag that takes the next word, or not.
+type SWord is Data:
+  SWord.Onto{}
+  SWord.Merge{}
+  SWord.Other{}
+
+def sword.of(onto: Bool, merge: Bool) -> SWord:
+  match onto:
+    case True{}:
+      SWord.Onto{}
+    case False{}:
+      Bool.pick(SWord, merge, SWord.Merge{}, SWord.Other{})
+
+def sword(args: List<&2, String>) -> SWord:
   match args:
     case Nil{}:
-      Done{StatusCmd{onto, List.reverse(&2, String, merges)}}
-    case "--onto" <> Nil{}:
-      Fail{Refused{2, "`--onto` wants a value"}}
-    case "--onto" <> v <> rest:
-      status.args.go(rest, Some{v}, merges)
-    case "--merge" <> Nil{}:
-      Fail{Refused{2, "`--merge` wants a value"}}
-    case "--merge" <> v <> rest:
-      status.args.go(rest, onto, v <> merges)
-    case other <> rest:
-      Fail{Refused{2, "`" ++ other ++ "` is not an argument `status` takes"}}
+      SWord.Other{}
+    case +w <> rest:
+      sword.of(String.eq(w, "--onto"), String.eq(w, "--merge"))
 
-def status.args.r(args: List<&2, String>) -> Result<&2, &2, Refused, StatusCmd>:
-  status.args.go(args, None{}, Nil{})
+# `k` is what the first word is.
+def status.args.go(args: List<&2, String>, onto: Maybe<&2, String>, merges: List<&2, String>, k: SWord) -> Result<&2, &2, Refused, StatusCmd>:
+  match args k:
+    case Nil{} _:
+      Done{StatusCmd{onto, merges}}
+    case w <> Nil{} SWord.Onto{}:
+      Fail{Refused{2, "`--onto` wants a value"}}
+    case w <> v <> +rest SWord.Onto{}:
+      status.args.go(rest, Some{v}, merges, sword(rest))
+    case w <> Nil{} SWord.Merge{}:
+      Fail{Refused{2, "`--merge` wants a value"}}
+    case w <> v <> +rest SWord.Merge{}:
+      status.args.go(rest, onto, List.append(&2, String, merges, [v]), sword(rest))
+    case w <> rest SWord.Other{}:
+      Fail{Refused{2, "`" ++ w ++ "` is not an argument `status` takes"}}
+
+def status.args.r(+args: List<&2, String>) -> Result<&2, &2, Refused, StatusCmd>:
+  status.args.go(args, None{}, Nil{}, sword(args))
+
+# What `status`'s words say, read plainly: the word after a flag is its
+# value, whatever it is; the value of `--onto` is where the folder is
+# compared from, the last counting, and each `--merge`'s one more revision
+# joined, in order. `LAWS.status_reads_its_words` holds `status.args.r` to
+# it.
+def sargs.onto(args: List<&2, String>, last: Maybe<&2, String>, k: SWord) -> Maybe<&2, String>:
+  match args k:
+    case Nil{} _:
+      last
+    case w <> v <> +rest SWord.Onto{}:
+      sargs.onto(rest, Some{v}, sword(rest))
+    case w <> v <> +rest SWord.Merge{}:
+      sargs.onto(rest, last, sword(rest))
+    case w <> +rest _:
+      sargs.onto(rest, last, sword(rest))
+
+def sargs.merges(args: List<&2, String>, k: SWord) -> List<&2, String>:
+  match args k:
+    case Nil{} _:
+      Nil{}
+    case w <> v <> +rest SWord.Onto{}:
+      sargs.merges(rest, sword(rest))
+    case w <> v <> +rest SWord.Merge{}:
+      v <> sargs.merges(rest, sword(rest))
+    case w <> +rest _:
+      sargs.merges(rest, sword(rest))
 
 # A rule covering a file the position holds is refused before anything is
 # described: the walk never offered the path, so it would read as dropped,
@@ -6132,6 +6190,9 @@ def status.named(+m: String, +id: String, +ps: List<&2, String>, twice: Bool) ->
     case False{}:
       Done{List.append(&2, String, ps, [id])}
 
+def status.named.of(+m: String, +f: Full, +ps: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
+  status.named(m, id_of(f), ps, Rev.member(ps, id_of(f)))
+
 def status.merged.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, ms: List<&2, String>, +ps: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
   match ms:
     case Nil{}:
@@ -6139,8 +6200,7 @@ def status.merged.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, ms: List<&2
     case +m <> rest:
       do Result<&2, &2, Refused, List<&2, String>>:
         f : Full <- resolved.r(fs, bs, m)
-        +id : String = id_of(f)
-        more : List<&2, String> <- status.named(m, id, ps, Rev.member(ps, id))
+        more : List<&2, String> <- status.named.of(m, f, ps)
         status.merged.r(fs, bs, rest, more)
 
 def status.with_head(h: Maybe<&2, String>, +ps: List<&2, String>) -> List<&2, String>:
@@ -6159,14 +6219,31 @@ def status.head.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2,
         h : Maybe<&2, String> <- the_head.r(fs, bs, current_heads(history(fs)))
         return status.with_head(h, ps)
 
+# The head is wanted where nothing is named, or where one `--merge` is all.
+def status.wants(+n: List<&2, String>, +ms: List<&2, String>, +onto: Maybe<&2, String>) -> Bool:
+  Bool.or(Nat.is_eq(List.length(&2, String, n), 0n), Bool.and(Nat.is_eq(List.length(&2, String, n), 1n), Bool.and(Bool.not(List.is_empty(&2, String, ms)), Maybe.is_none(&2, String, onto))))
+
+def status.head.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +n: List<&2, String>, +ms: List<&2, String>, +onto: Maybe<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
+  status.head.r(fs, bs, n, status.wants(n, ms, onto))
+
+# Each revision once, in digest order.
+def status.sorted(all: List<&2, String>) -> List<&2, String>:
+  distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), all))
+
+# `LAWS.status_joins_held_revisions`: every one is a revision the store holds.
 def status.parents.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, String>, +ms: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
   do Result<&2, &2, Refused, List<&2, String>>:
     first : List<&2, String> <- status.onto.r(fs, bs, onto)
     named : List<&2, String> <- status.merged.r(fs, bs, ms, first)
-    +n : List<&2, String> = named
-    +len : Nat = List.length(&2, String, n)
-    all : List<&2, String> <- status.head.r(fs, bs, n, Bool.or(Nat.is_eq(len, 0n), Bool.and(Nat.is_eq(len, 1n), Bool.and(Bool.not(List.is_empty(&2, String, ms)), Maybe.is_none(&2, String, onto)))))
-    return distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), all))
+    all : List<&2, String> <- status.head.of(fs, bs, named, ms, onto)
+    return status.sorted(all)
+
+def all_held(+ids: List<&2, String>, ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case +p <> rest:
+      Bool.and(Rev.member(ids, p), all_held(ids, rest))
 
 # `render::contest_line`: one tree contest, as a person needs to hear it.
 # A path several files claim is said as `claimed` instead.
