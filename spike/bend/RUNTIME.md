@@ -177,6 +177,16 @@ is never removed. `Store.sweep` removes every empty directory under the
 one named, deepest first, keeping that one. Which files move, where, and
 what a refused rename means are all decided in Bend.
 
+`prune` reads what `arrange` reads, and the bookmark and rule files as
+text, to ask the part of `check` it asks before destroying anything. Each
+file it removes goes through `Store.remove`, with the file's own directory
+as where tidying stops, so each call removes one file and nothing else;
+the entries of `cache/` named by a digest are found through `Store.folder`
+and removed the same way; and `Store.sweep` takes every directory under
+`revisions/` and `operations/` that was left holding nothing. Which
+revisions go, which content is still needed, and what counts as a cache
+entry are decided in Bend.
+
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and
 the folder is the store's size again, all of which would have to be read into

@@ -51,6 +51,7 @@ import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./arrange_lemmas.bend as ArrangeL
+import ./prune_lemmas.bend as PruneL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -609,3 +610,12 @@ def Laws.arrange_opens_what_parses(ds, u, e):
 
 def Laws.arrange_counts_every_file(refile, fs, revs, ops, ls, a, e):
   ArrangeL.counts(refile, fs, revs, ops, ls, a, e)
+
+def Laws.prune_reads_its_words(ws, c, e):
+  PruneL.args_ok(ws, c, e)
+
+def Laws.prune_keeps_what_work_stands_on(fs, id, hf, hk):
+  PruneL.stands(fs, id, hf, hk)
+
+def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps):
+  PruneL.content(fs, revs, bs, ps)

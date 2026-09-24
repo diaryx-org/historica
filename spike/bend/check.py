@@ -397,7 +397,7 @@ STORES = {
         ["name", "--fields", "--delete"],
     ],
     # The same, with a bookmark file that is not one: every command refuses.
-    "badname": [["names"], ["log"], ["files", "main"], ["name", "new", "head"], ["name", "--fields", "new", "head"], ["name", "--delete", "main"]],
+    "badname": [["names"], ["log"], ["files", "main"], ["name", "new", "head"], ["name", "--fields", "new", "head"], ["name", "--delete", "main"], ["prune", "-n"], ["prune", "--fields"]],
     # Two authors, a rename, and a line of work beside the main one, for
     # `log`'s filters, ranges and `--fields`.
     "log": [
@@ -625,6 +625,8 @@ STORES = {
         ["carry", "base", "--onto", "tip"],
         ["carry", "top", "--onto", "side"],
         ["carry", "side", "--onto", "nope"],
+        ["prune", "-n"],
+        ["prune", "--fields"],
     ],
     # A rewrite that arrived without its carries: the repair, swept, named,
     # and planned; and what already rewritten refuses.
@@ -640,6 +642,8 @@ STORES = {
         ["abandon", "top", "-m", "again"],
         ["status"],
         ["log"],
+        ["prune", "-n"],
+        ["prune"],
     ],
     # `init`, where there is nothing yet: here, in a directory named — `.`,
     # nothing, nested, with a slash — made with its parents; refused beside a
@@ -656,9 +660,12 @@ STORES = {
         ["status"],
         ["name", "x", "head"],
         ["record", "-n"],
+        ["prune"],
+        ["prune", "--fields"],
+        ["arrange", "-n"],
     ],
     # A rule file stating two rules: the store will not open.
-    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"]],
+    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"], ["prune", "-n"]],
     # A store filed flat, by digest, as an older writer or a copy by hand
     # leaves one: one revision in a folder of a person's own, one filed in
     # its month already, content under digest names and in a directory of
@@ -675,6 +682,25 @@ STORES = {
         ["arrange", "-n", "extra"],
         ["arrange", "--bogus", "-n"],
     ],
+    # A revision amended, and a run of three abandoned, so pruning takes
+    # the one and clears the run over passes; content only they named, and
+    # content a kept revision shares; a second copy of a pruned revision in
+    # a folder of its own; an empty directory, a platform's file and a
+    # cache entry. And two stores `check` calls broken: a revision filed
+    # under a digest it does not have, and one that does not parse.
+    "pruning": [
+        ["prune", "-n"],
+        ["prune"],
+        ["prune", "--fields"],
+        ["prune", "--dry-run", "--fields"],
+        ["prune", "--bogus", "-n"],
+        ["prune", "-n", "extra"],
+        ["arrange", "-n"],
+    ],
+    "lying": [["prune", "-n"], ["prune", "--fields"], ["arrange", "-n"]],
+    # (The parser's reasons are the port's own words, not the Rust tool's,
+    # so `arrange`'s refusal to open this store is not compared.)
+    "unparsed": [["prune", "-n"], ["prune", "--fields"]],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
         ["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"],
@@ -1224,6 +1250,38 @@ def record(temporary, rust, corpus, pinned=None):
         shutil.copy(history / "operations" / "by hand" / "deep" / document.name, history / "operations" / "copy.ops.txt")
         shutil.copy(own.parent / "mine" / own.name, history / "revisions" / "copy.rev.txt")
         (history / "operations" / "stray.txt").write_text("named by nothing\n")
+    elif corpus in ("pruning", "lying", "unparsed"):
+        def rec(*command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            return re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+
+        (store / "notes.md").write_text("one\n")
+        (store / "photo.bin").write_bytes(b"\x00one")
+        rec("-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "photo.bin").write_bytes(b"\x00two")
+        rec("-m", "two")
+        (store / "notes.md").write_text("one\ntwo\nthree\n")
+        historica("amend", "-m", "two, amended")
+        a = None
+        for name in ("a", "b", "c"):
+            (store / f"{name}.md").write_text(f"{name}\n")
+            if name == "c":
+                (store / "photo.bin").write_bytes(b"\x00one")
+            digest = rec("-m", f"work {name}")
+            a = a or digest
+        historica("abandon", a, "-m", "not this line of work")
+        history = store / "history"
+        two = next(history.glob("revisions/*/* two.rev.txt"))
+        (history / "revisions" / "copy").mkdir()
+        shutil.copy(two, history / "revisions" / "copy" / two.name)
+        (history / "operations" / "empty" / "er").mkdir(parents=True)
+        (history / "operations" / ".DS_Store").write_bytes(b"\x00")
+        (history / "cache" / ("0" * 64)).write_text("derived\n")
+        if corpus == "lying":
+            (history / "revisions" / ("1" * 64 + ".rev.txt")).write_bytes(two.read_bytes())
+        if corpus == "unparsed":
+            (history / "revisions" / "bad.rev.txt").write_text("garbage\n")
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1355,7 +1413,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -2107,6 +2165,27 @@ def check_mutations(temporary):
             "      None{}",
             "arrange_lemmas.fault_parses",
             "arrange.bend",
+        ),
+        (
+            "prune lets go of a revision work still stands on",
+            "  Bool.and(superseded(kept, Main.id_of(f)), Bool.and(Bool.not(stood_on(kept, Main.id_of(f))), Bool.not(evidence(supersedes_of(f), Main.ids(kept)))))",
+            "  Bool.and(superseded(kept, Main.id_of(f)), Bool.and(True{}, Bool.not(evidence(supersedes_of(f), Main.ids(kept)))))",
+            "prune_lemmas.goes_stood",
+            "prune.bend",
+        ),
+        (
+            "prune removes content a revision it keeps names",
+            "      Tree.keep(~T.Split, Bool.not(Arrange.has(keep, id)), T.Split{path, id}, gone.of(rest, keep))",
+            "      Tree.keep(~T.Split, True{}, T.Split{path, id}, gone.of(rest, keep))",
+            "prune_lemmas.gone_unneeded",
+            "prune.bend",
+        ),
+        (
+            "prune takes a plan and a statement at once",
+            "  Bool.pick(Result<&2, &2, Main.Refused, PruneCmd>, Bool.and(dry, fields),",
+            "  Bool.pick(Result<&2, &2, Main.Refused, PruneCmd>, False{},",
+            "prune_lemmas.of_ok",
+            "prune.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):

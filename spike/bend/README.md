@@ -274,6 +274,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
 | `arrange.bend` | `arrange`: every revision's stem over the whole store — the base, a change's first letters, a digest's — each file of content filed under the stem of the revision whose claim on it wins, at the path it had; the plan, in the Rust tool's walk order, and the renames carried out, each asking again whether its name is free; and the opening the Rust tool refuses where a revision does not parse | `store::arrange`, `naming::stems` |
 | `arrange_lemmas.bend` | `arrange_reads_its_words`: a command line `arrange` accepts is all flags; `arrange_plans_no_overwrite`: every rename it plans goes to a path nothing was at, from a different one; `arrange_keeps_a_revision_where_it_sits`: without `--refile`, a revision is renamed only within its directory; `arrange_opens_what_parses`: it opens a store only where every revision parses; `arrange_counts_every_file`: every file it walks is counted once in what it prints | `arrange` |
+| `prune.bend` | `prune`: what may go, to the Rust tool's fixed point — each revision asked, in digest order, against what is kept at its turn — and the content nothing kept still needs, forgetting documents included; the part of `check` a writer that destroys or copies asks first; the files removed, `cache/` cleared, and the directories left empty swept | `store::prune`, decision 0013 |
+| `prune_lemmas.bend` | `prune_reads_its_words`: a command line `prune` accepts is all flags, and not a plan and a statement at once; `prune_keeps_what_work_stands_on`: no revision it keeps names one it lets go of as a parent, through an invariant every step of every pass keeps; `prune_removes_only_unneeded_content`: every document and payload it removes holds a digest nothing kept needs | `prune` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -602,6 +604,30 @@ two changes, and a reword — so every tier of a stem is reached; with
 `arrange` added to the corpus stores and to `log`'s, `check.py` holds
 seventeen `arrange`s to the Rust tool, every file of the store compared
 after.
+
+`prune` is decision 0013's disk half. A revision may go where a revision
+the store keeps supersedes it, nothing kept names it as a parent, and it
+is not itself the evidence that something kept was superseded; the Rust
+tool asks that of each revision in digest order against what is kept at
+that moment, pass after pass until one lets nothing go, and so does
+`prune.bend` — so a run abandoned whole clears over as many passes as it
+takes, and no revision work it keeps stands on is let go
+(`prune_keeps_what_work_stands_on`). Content goes where nothing kept names
+its digest, and a forgetting document stays while what it stands in for
+is named (`prune_removes_only_unneeded_content`). Files are found by what
+they hold, so every copy of a pruned revision goes. Before any of it, a
+store `check` would call broken is refused; the port asks the part of
+`check` it reads — every document parses, no file's name claims a digest
+its bytes do not have, every bookmark and rule file is one, and every head
+has a tree. Each file goes through `Store.remove`, the digest-named
+entries of `cache/` with them, and `Store.sweep` takes the directories
+left empty. `-n` prints the plan, and `--fields` decision 0074's `gone`
+lines. The `pruning` store has an amendment and an abandoned run of three,
+content only they named and content a kept revision shares, a second copy
+of a pruned revision, an empty directory, a platform's file and a cache
+entry; `lying` and `unparsed` are two stores `check` calls broken, and
+`badname`, `badskip`, `bare`, `rewriting` and `stranded` add their own;
+`check.py` holds nineteen `prune`s to the Rust tool.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1224,7 +1250,9 @@ rather than the revision it names; and one name break: a name taken without
 asking the path rules; and four arrange breaks: a rename planned onto a
 name that is taken, a revision refiled without `--refile`, a dry run's
 count leaving out the files it would leave, and a store opened past a
-revision that does not parse. The
+revision that does not parse; and three prune breaks: a revision let go
+that work still stands on, content removed that a kept revision names,
+and a plan and a statement taken at once. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1347,6 +1375,13 @@ is under 5k. Not ported:
   with the rest of what the folder cannot take, is not among the paths
   `record --dry-run` refuses, as `status` does not list it.
 - Unicode normal form C on paths, bookmark names and the folder's names.
+- **All of `check`** before a writer that destroys or copies: `prune`
+  refuses a store whose documents do not parse, whose file names lie about
+  their digests, whose bookmark or rule files are not ones, or whose heads
+  have no tree, and not one whose content contradicts its history or whose
+  rules cover a tracked path. A revision the Rust tool refuses to open is
+  refused here too, naming the file, but in the port's parser's words for
+  why, which are not the Rust tool's.
 
 ## What Bend asked for
 
