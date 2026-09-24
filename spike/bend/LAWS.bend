@@ -1294,3 +1294,28 @@ law status_joins_what_it_reads:
   for +e: String
   for h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
   {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}
+# `record` refuses a link left dangling, exactly where one would be. A
+# link the position holds that names a file this record drops would be a
+# reference to nothing once the revision is written, so the plan goes on
+# only where every such link is going too, or sits at a path whose link in
+# the folder the record observes and writes down afresh.
+law record_refuses_a_dangling_link:
+  for +t: Tree.Tree()
+  for +looked: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  for +moves: List<&2, T.Split>
+  {Maybe.is_none(&2, String, Sv.planned.dangles(Sv.planned(t, looked, held, walked, ss, moves))) == Sv.anchored(t, Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), Sv.planned.pointing(Sv.planned(t, looked, held, walked, ss, moves))) : Bool}
+
+# `status` refuses only what the folder holds. What its walk could not
+# take is refused as the walk found it; past that, a path is refused only
+# where the folder holds something there that the position cannot take — a
+# link whose target this format cannot hold, or a file recorded as lines
+# that is no longer text — and never a path only the position holds.
+law status_refuses_what_the_folder_holds:
+  for +t: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  {Sv.refuses_found(walked, ss, Sv.survey.refused(Sv.survey(t, held, walked, ss))) == True{} : Bool}
