@@ -1291,6 +1291,27 @@ def check_mutations(temporary):
             "mark_lemmas.step_fit",
             "main.bend",
         ),
+        (
+            "diff walks the two sides comparing their files the wrong way round",
+            '      String.order(Tree.entry_file(x), Tree.entry_file(y))\n    case Nil{} _:\n      GT{}',
+            '      String.order(Tree.entry_file(y), Tree.entry_file(x))\n    case Nil{} _:\n      GT{}',
+            "pair_lemmas.join",
+            "main.bend",
+        ),
+        (
+            "diff drops a file only the parent holds",
+            '      Both{Tree.entry_file(x), Some{x}, None{}} <> both.go(f, xr, ys2, both.cmp(xr, ys2))',
+            '      both.go(f, xr, ys2, both.cmp(xr, ys2))',
+            "pair_lemmas.join",
+            "main.bend",
+        ),
+        (
+            "diff sorts the child's files backwards",
+            '  +ys2 = List.sort(~Tree.Entry, ~(a => b => String.is_le(Tree.entry_file(a), Tree.entry_file(b))), ys)',
+            '  +ys2 = List.sort(~Tree.Entry, ~(a => b => String.is_le(Tree.entry_file(b), Tree.entry_file(a))), ys)',
+            "pair_lemmas.pairs_by_file",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

@@ -259,7 +259,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | ninety-four claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | ninety-five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -274,6 +274,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `similar_lemmas.bend` | `similar_diff_applies`: the document `diff` and `blame` draw from `similar`'s search takes the parent to the child — the search's moves are checked in one pass, and moves that pass are an edit script `diff_lemmas.bend` proves; `Ops.diff` answers any that do not, which the crate's two thousand cases never ask for | `historica::diff` |
 | `emphasis_lemmas.bend` | `emphasis_keeps_was`, `emphasis_keeps_now`: emphasis changes no character — a changed line's words are the line, and the runs `similar`'s Myers marks on either side read, in order, as that side's line | `diff`'s emphasis |
 | `mark_lemmas.bend` | `emphasis_marks_its_own_line`: every mark emphasis computes falls on its own line — a run of removals replaced one for one pairs each with the arrival at the same place, the runs a mark draws read as the line it is drawn on, and only a removal or an arrival has one | `diff`'s emphasis |
+| `sort_lemmas.bend` | string order is total and transitive, and Base's `List.sort` by a name returns its items each no smaller than the one before, with the items under each name the ones it was given, in the order given | `diff`'s pairing |
+| `pair_lemmas.bend` | `diff_pairs_each_file`: under any file, the pairs `diff` goes on with are the entries each side holds under it, paired in order as far as either goes — each file compared once with itself where each side holds it once | `diff`'s pairing |
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
 | `target_lemmas.bend` | `target_is_held`: every target — a bookmark, `head`, a digest prefix or a change prefix — resolves to a revision the store holds; setting a key in Base's `Map` never invents a value, so the history heads and changes are read from holds only the store's revisions | `target::resolve` |
 | `log_lemmas.bend` | `log_lists_what_it_asks`: every revision `log` lists satisfies every filter asked of it, whatever the limit | `log`'s filters |
@@ -391,7 +393,11 @@ the Rust tool's 2,479 lines byte for byte. What it prints of that document,
 `patch` reads back (`diff_hunks_apply`): read as a unified diff without
 fuzz, each hunk is found at the line its header names on both sides, its
 context and removals are the parent's lines there, its counts are the
-lines each side holds, and the hunks take the parent to the child.
+lines each side holds, and the hunks take the parent to the child. The
+files compared are paired by name (`diff_pairs_each_file`): each side is
+sorted with Base's `List.sort`, proven to return every entry in order
+(`sort_lemmas.bend`), and walked together, so a file each side holds once
+is compared once, with each side's entry for it.
 
 With no target, both read the folder beside the store (`folder.bend`),
 walked as the working copy is: everything is tracked but `history/` itself,
@@ -952,7 +958,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Eighty-six mutations cover the primitive helpers, lost inserts, a lost trailing
+Eighty-nine mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1016,7 +1022,9 @@ arrival numbered as a line of the parent, a side that holds none of a
 hunk's lines named by its first line anyway, and a change shown only where
 another is near; and three emphasis breaks: a removal compared with its
 arrival the wrong way round, the arrivals' marks drawn before the removals',
-and a context line given no mark. The
+and a context line given no mark; and three pairing breaks: the two
+sides walked comparing their files the wrong way round, a file only the
+parent holds dropped, and the child's files sorted backwards. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent

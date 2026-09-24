@@ -893,6 +893,19 @@ law diff_folder_limits_to_a_held_file:
   for e: {Main.wc.limit.r(fs, bs, left, only) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}
   {Main.limit.held(fs, lim, left) == True{} : Bool}
 
+# `diff` compares each file with itself. It sorts each side by file with
+# `List.sort` — which returns every entry, those under each file in the
+# order they came, and each no smaller than the one before — and walks the
+# two together: for any file, the pairs it goes on with under that file are
+# the entries each side holds under it, paired in order as far as either
+# goes. So where each side holds a file once, it is compared once, with each
+# side's entry for it, and a file one side lacks is paired with nothing.
+law diff_pairs_each_file:
+  for +xs: Tree.Tree()
+  for +ys: Tree.Tree()
+  for +f: String
+  {Main.both.at(f, Main.both(xs, ys)) == Main.both.zip(f, Main.entries.at(f, xs), Main.entries.at(f, ys)) : List<&2, Main.Both>}
+
 # `diff` shows only files whose two sides differ — in path, mode, link
 # target, presence or content — and under a path limit only a file at
 # that path on one side or the other.

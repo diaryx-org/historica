@@ -3969,13 +3969,39 @@ def both.go(fuel: Nat, xs: List<&2, Tree.Entry>, ys: List<&2, Tree.Entry>, c: Cm
     case 1n+f +x <> +xr Nil{} _:
       Both{Tree.entry_file(x), Some{x}, None{}} <> both.go(f, xr, Nil{}, both.cmp(xr, Nil{}))
 
-def by_file(+a: Tree.Entry, +b: Tree.Entry) -> Bool:
-  String.is_le(Tree.entry_file(a), Tree.entry_file(b))
-
 def both(xs: List<&2, Tree.Entry>, ys: List<&2, Tree.Entry>) -> List<&2, Both>:
-  +xs2 = List.sort(~Tree.Entry, ~(a => b => by_file(a, b)), xs)
-  +ys2 = List.sort(~Tree.Entry, ~(a => b => by_file(a, b)), ys)
+  +xs2 = List.sort(~Tree.Entry, ~(a => b => String.is_le(Tree.entry_file(a), Tree.entry_file(b))), xs)
+  +ys2 = List.sort(~Tree.Entry, ~(a => b => String.is_le(Tree.entry_file(a), Tree.entry_file(b))), ys)
   both.go(1n+Nat.add(List.length(&2, Tree.Entry, xs2), List.length(&2, Tree.Entry, ys2)), xs2, ys2, both.cmp(xs2, ys2))
+
+# What `diff` pairs, file by file: the pairs `both` lists under one file are
+# the entries each side holds under it, paired in order as far as either
+# goes (`LAWS.diff_pairs_each_file`) — so where each side holds a file once,
+# `diff` compares it once, with each side's entry for it.
+def entries.at(+f: String, xs: List<&2, Tree.Entry>) -> List<&2, Tree.Entry>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case +x <> +rest:
+      Bool.pick(List<&2, Tree.Entry>, String.eq(Tree.entry_file(x), f), x <> entries.at(f, rest), entries.at(f, rest))
+
+def both.at(+f: String, bs: List<&2, Both>) -> List<&2, Both>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Both{+file, was, now} <> +rest:
+      Bool.pick(List<&2, Both>, String.eq(file, f), Both{file, was, now} <> both.at(f, rest), both.at(f, rest))
+
+def both.zip(+f: String, was: List<&2, Tree.Entry>, now: List<&2, Tree.Entry>) -> List<&2, Both>:
+  match was now:
+    case w <> ws n <> ns:
+      Both{f, Some{w}, Some{n}} <> both.zip(f, ws, ns)
+    case w <> ws Nil{}:
+      Both{f, Some{w}, None{}} <> both.zip(f, ws, Nil{})
+    case Nil{} n <> ns:
+      Both{f, None{}, Some{n}} <> both.zip(f, Nil{}, ns)
+    case Nil{} Nil{}:
+      Nil{}
 
 def compare.one(+sd: Sides, +l: Limit, b: Both) -> Result<&2, &2, String, Maybe<&2, Compared>>:
   match b:
