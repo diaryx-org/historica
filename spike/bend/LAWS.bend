@@ -878,3 +878,23 @@ law diff_shows_what_differs:
   for +cs: List<&2, Main.Compared>
   for e: {Main.compare(sd, l, files) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}
   {Main.all.shown(l, cs) == True{} : Bool}
+
+# `diff` over the folder goes on only with paths the limit wants, and
+# shows only those whose two sides — the position's and the folder's —
+# differ.
+law diff_folder_keeps_what_the_limit_wants:
+  for +t: Tree.Tree()
+  for +found: List<&2, Folder.Found>
+  for +l: Main.Limit
+  {Main.all.wanted(l, Main.heres(t, found, l)) == True{} : Bool}
+
+law diff_folder_shows_what_differs:
+  for +t: Tree.Tree()
+  for +older: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +left: String
+  for +reads: Map<&2, List<&2, U32>>
+  for ps: List<&2, Main.Planned>
+  for +cs: List<&2, Main.Compared>
+  for e: {Main.wc.compare(t, older, ds, left, reads, ps) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}
+  {Main.all.shown(Main.Limit.None{}, cs) == True{} : Bool}

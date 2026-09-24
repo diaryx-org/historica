@@ -11,6 +11,7 @@ import ./tree.bend as Tree
 import ./revision.bend as Rev
 import ./fileat_lemmas.bend as FileAt
 import ./store.bend as Store
+import ./folder.bend as Folder
 
 def done_eq_d(-a: Main.DiffAsked, -b: Main.DiffAsked, h: {Done{a} == Done{b} : Result<&2, &2, String, Main.DiffAsked>}) -> {a == b : Main.DiffAsked}:
   Equal.cong(Result<&2, &2, String, Main.DiffAsked>, Main.DiffAsked, r => Result.default(&2, &2, String, Main.DiffAsked, r, a), Done{a}, Done{b}, h)
@@ -382,3 +383,61 @@ def compare_ok(+sd: Main.Sides, +l: Main.Limit, files: List<&2, Main.Both>, +cs:
       {==}
     case +f <> +rest:
       here_ok(sd, l, f, rest, Main.compare.one(sd, l, f), {==}, xs => h => compare_ok(sd, l, rest, xs, h), cs, e)
+
+# The folder
+# ----------
+
+def keep_w(+l: Main.Limit, +h: Main.Here, +later: List<&2, Main.Here>, b: Bool, +eb: {Main.here.wanted(l, h) == b : Bool}, ih: {Main.all.wanted(l, later) == True{} : Bool}) -> {Main.all.wanted(l, Bool.pick(List<&2, Main.Here>, b, h <> later, later)) == True{} : Bool}:
+  match b:
+    case True{}:
+      B.and_tt(Main.here.wanted(l, h), Main.all.wanted(l, later), eb, ih)
+    case False{}:
+      ih
+
+def limited_ok(+l: Main.Limit, hs: List<&2, Main.Here>) -> {Main.all.wanted(l, Main.heres.limited(l, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case +h <> +rest:
+      keep_w(l, h, Main.heres.limited(l, rest), Main.here.wanted(l, h), {==}, limited_ok(l, rest))
+
+# Every path `diff` over the folder goes on with is one the limit wants.
+def heres_ok(+t: Tree.Tree(), +found: List<&2, Folder.Found>, +l: Main.Limit) -> {Main.all.wanted(l, Main.heres(t, found, l)) == True{} : Bool}:
+  limited_ok(l, Main.here.go(1n+Nat.add(List.length(&2, Tree.Entry, List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t)), List.length(&2, Folder.Found, found)), List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t), found, Main.here.cmp(List.sort(~Tree.Entry, ~(a => b => Main.by_path(a, b)), t), found)))
+
+def bind_built(-A: Data, r: Result<&2, &2, String, A>, -k: A -> Result<&2, &2, String, Maybe<&2, Main.Compared>>, +m: Maybe<&2, Main.Compared>, e: {Result.bind(&2, &2, String, A, Maybe<&2, Main.Compared>, r, k) == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>}, ok: @x: A -> {k(x) == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>} -> {shows_m(Main.Limit.None{}, m) == True{} : Bool}) -> {shows_m(Main.Limit.None{}, m) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({shows_m(Main.Limit.None{}, m) == True{} : Bool}, fail_done_str(Maybe<&2, Main.Compared>, x, m, e))
+    case Done{x}:
+      ok(x, e)
+
+
+def built_done(+c: Main.Compared, +m: Maybe<&2, Main.Compared>, e: {Done{Main.compare.built(c)} == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>}) -> {shows_m(Main.Limit.None{}, m) == True{} : Bool}:
+  +d = done_eq_str(Maybe<&2, Main.Compared>, Main.compare.built(c), m, e)
+  %d : {shows_m(Main.Limit.None{}, _) == True{} : Bool}
+  built_ok(Main.Limit.None{}, c, {==})
+
+def wc_one_ok(+t: Tree.Tree(), +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +reads: Map<&2, List<&2, U32>>, p: Main.Planned, +m: Maybe<&2, Main.Compared>, e: {Main.wc.compare.one(t, older, ds, left, reads, p) == Done{m} : Result<&2, &2, String, Maybe<&2, Main.Compared>>}) -> {shows_m(Main.Limit.None{}, m) == True{} : Bool}:
+  match p:
+    case Main.Planned{Main.Here{+path, +en, +found}, +digest, replay, read}:
+      bind_built(Maybe<&2, Main.Side>, Main.wc.before(en, Main.wc.content(older, ds, left, Maybe.default(&2, String, Maybe.map(&2, Tree.Entry, String, x => Tree.entry_file(x), en), SNil{}), replay)), b => Result.bind(&2, &2, String, Maybe<&2, Main.Side>, Maybe<&2, Main.Compared>, Main.wc.after(path, en, found, Main.bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path)), digest, read), a => Done{Main.compare.built(Main.Compared{Main.entry.path(en), Maybe.map(&2, Folder.Found, String, x => Folder.found.path(x), found), b, a, Main.wc.mode(en, found), Main.retargeting(Main.shown(t, en), Main.wc.target(found))})}), m, e,
+        b => h => bind_built(Maybe<&2, Main.Side>, Main.wc.after(path, en, found, Main.bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path)), digest, read), a => Done{Main.compare.built(Main.Compared{Main.entry.path(en), Maybe.map(&2, Folder.Found, String, x => Folder.found.path(x), found), b, a, Main.wc.mode(en, found), Main.retargeting(Main.shown(t, en), Main.wc.target(found))})}, m, h,
+          a => h2 => built_done(Main.Compared{Main.entry.path(en), Maybe.map(&2, Folder.Found, String, x => Folder.found.path(x), found), b, a, Main.wc.mode(en, found), Main.retargeting(Main.shown(t, en), Main.wc.target(found))}, m, h2)))
+
+def wc_here_ok(+t: Tree.Tree(), +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +reads: Map<&2, List<&2, U32>>, +p: Main.Planned, +rest: List<&2, Main.Planned>, r: Result<&2, &2, String, Maybe<&2, Main.Compared>>, +er: {Main.wc.compare.one(t, older, ds, left, reads, p) == r : Result<&2, &2, String, Maybe<&2, Main.Compared>>}, ih: @xs: List<&2, Main.Compared> -> {Main.wc.compare(t, older, ds, left, reads, rest) == Done{xs} : Result<&2, &2, String, List<&2, Main.Compared>>} -> {Main.all.shown(Main.Limit.None{}, xs) == True{} : Bool}, +cs: List<&2, Main.Compared>, e: {Result.bind(&2, &2, String, Maybe<&2, Main.Compared>, List<&2, Main.Compared>, r, here => Result.bind(&2, &2, String, List<&2, Main.Compared>, List<&2, Main.Compared>, Main.wc.compare(t, older, ds, left, reads, rest), later => Done{Main.compare.push(here, later)})) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}) -> {Main.all.shown(Main.Limit.None{}, cs) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.all.shown(Main.Limit.None{}, cs) == True{} : Bool}, fail_done_str(List<&2, Main.Compared>, x, cs, e))
+    case Done{+here}:
+      later_ok(Main.Limit.None{}, here, wc_one_ok(t, older, ds, left, reads, p, here, er), Main.wc.compare(t, older, ds, left, reads, rest), ih, cs, e)
+
+# `diff` over the folder shows only paths whose two sides differ.
+def wc_compare_ok(+t: Tree.Tree(), +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +reads: Map<&2, List<&2, U32>>, ps: List<&2, Main.Planned>, +cs: List<&2, Main.Compared>, e: {Main.wc.compare(t, older, ds, left, reads, ps) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}) -> {Main.all.shown(Main.Limit.None{}, cs) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      +d = done_eq_str(List<&2, Main.Compared>, Nil{}, cs, e)
+      %d : {Main.all.shown(Main.Limit.None{}, _) == True{} : Bool}
+      {==}
+    case +p <> +rest:
+      wc_here_ok(t, older, ds, left, reads, p, rest, Main.wc.compare.one(t, older, ds, left, reads, p), {==}, xs => h => wc_compare_ok(t, older, ds, left, reads, rest, xs, h), cs, e)

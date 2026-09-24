@@ -511,3 +511,9 @@ def Laws.diff_folder_limits_to_a_held_file(fs, bs, left, only, lim, e):
 
 def Laws.diff_shows_what_differs(sd, l, files, cs, e):
   DiffCmd.compare_ok(sd, l, files, cs, e)
+
+def Laws.diff_folder_keeps_what_the_limit_wants(t, found, l):
+  DiffCmd.heres_ok(t, found, l)
+
+def Laws.diff_folder_shows_what_differs(t, older, ds, left, reads, ps, cs, e):
+  DiffCmd.wc_compare_ok(t, older, ds, left, reads, ps, cs, e)

@@ -3816,6 +3816,15 @@ def heres(t: Tree.Tree(), found: List<&2, Folder.Found>, +l: Limit) -> List<&2, 
   +ys = found
   heres.limited(l, here.go(1n+Nat.add(List.length(&2, Tree.Entry, xs), List.length(&2, Folder.Found, ys)), xs, ys, here.cmp(xs, ys)))
 
+# Every path `diff` over the folder goes on with is one the limit wants.
+# `LAWS.diff_folder_keeps_what_the_limit_wants` holds `heres` to it.
+def all.wanted(+l: Limit, hs: List<&2, Here>) -> Bool:
+  match hs:
+    case Nil{}:
+      True{}
+    case +h <> rest:
+      Bool.and(here.wanted(l, h), all.wanted(l, rest))
+
 def here.lines(h: Here) -> Bool:
   match h:
     case Here{p, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, found}:

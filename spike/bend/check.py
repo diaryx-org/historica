@@ -1207,6 +1207,13 @@ def check_mutations(temporary):
             "diffcmd_lemmas.built_ok",
             "main.bend",
         ),
+        (
+            "diff over the folder ignores the limit",
+            '      Bool.pick(List<&2, Here>, here.wanted(l, h), h <> later, later)',
+            '      h <> later',
+            "diffcmd_lemmas.limited_ok",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
