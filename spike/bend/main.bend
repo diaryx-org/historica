@@ -41,6 +41,7 @@ import ./commands.bend as C
 import ./argv.bend as Argv
 import ./shell.bend as Shell
 import ./identity.bend as Identity
+import ./skip.bend as Skip
 
 def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
   match all:
@@ -94,6 +95,8 @@ def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
       C.carry(args)
     case "init" <> args:
       C.init(args)
+    case "skip" <> args:
+      Skip.skip(args)
     case "identity" <> args:
       Identity.set(args)
     case "opdiff" <> parent <> child <> Nil{}:
