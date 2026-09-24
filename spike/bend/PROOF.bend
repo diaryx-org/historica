@@ -651,3 +651,6 @@ def Laws.status_surveys_each_path(t, dg, bf, reads, hs):
 
 def Laws.status_believes_what_is_stated(older, ds, left, eds, os, hs, m, e, h):
   StatusL.believes(older, ds, left, eds, os, hs, m, e, h)
+
+def Laws.status_joins_what_it_reads(hs, fs, ds, ps, m, e, h):
+  StatusL.joined_fails(hs, fs, ds, ps, m, e, h)

@@ -9,7 +9,8 @@
 # is joined, each contest the merge found, once, opening with its file;
 # against one revision, the tree `files` reads there; it reads and replays
 # only files of lines, tells its survey of each path once, and believes a
-# digest a statement gives, so that only a replay can refuse it.
+# digest a statement gives, so that only a replay can refuse it — or,
+# joining, a parent's reading of a file it compares.
 import Base
 import ./commands.bend as Main
 import ./sort_lemmas.bend as SortL
@@ -608,3 +609,67 @@ def go_fails(hs: List<&2, Main.Here>, +older: List<&2, Main.Full>, +ds: List<&2,
 # no statement settles cannot be replayed, and with that refusal.
 def believes(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +hs: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, h: {Main.status.befores(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.replay_fails(older, ds, left, eds, os, Main.status.lined(hs), e) == True{} : Bool}:
   go_fails(Main.status.lined(hs), older, ds, left, eds, os, m, e, h)
+
+def err_of_l(r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, d: String) -> String:
+  match r:
+    case Fail{x}:
+      x
+    case Done{m}:
+      d
+
+def fail_eq_l(-x: String, -e: String, h: {Fail{x} == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> {x == e : String}:
+  Equal.cong(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, String, r => err_of_l(r, x), Fail{x}, Fail{e}, h)
+
+def rdisc_l(r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>) -> Type:
+  match r:
+    case Fail{x}:
+      Unit
+    case Done{xs}:
+      Empty
+
+def done_fail_l(-xs: List<&2, Maybe<&2, String>>, -e: String, h: {Done{xs} == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> Empty:
+  %Equal.sym(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, Done{xs}, Fail{e}, h) : {rdisc_l(_) : Type}
+  Unit{}
+
+def each_rest(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +x: Maybe<&2, String>, +rest: List<&2, String>, +e: String, r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, +er: {Main.status.joined.each(fs, ds, file, rest) == r : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, Maybe<&2, String>>, r, xs => Done{x <> xs}) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, ih: {Main.status.joined.each(fs, ds, file, rest) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}) -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}:
+  match r:
+    case Fail{+y}:
+      ih(Equal.trans(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, Main.status.joined.each(fs, ds, file, rest), Fail{y}, Fail{e}, er, h))
+    case Done{xs}:
+      Empty.absurd({Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}, done_fail_l(x <> xs, e, h))
+
+def each_one(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +p: String, +rest: List<&2, String>, +e: String, r: Result<&2, &2, String, Maybe<&2, String>>, +er: {Main.status.joined.one(fs, ds, file, p) == r : Result<&2, &2, String, Maybe<&2, String>>}, h: {Result.bind(&2, &2, String, Maybe<&2, String>, List<&2, Maybe<&2, String>>, r, x => Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, Maybe<&2, String>>, Main.status.joined.each(fs, ds, file, rest), xs => Done{x <> xs})) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, ih: {Main.status.joined.each(fs, ds, file, rest) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e)) == True{} : Bool}:
+  match r:
+    case Fail{+y}:
+      AL.or_left(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e),
+        (%Equal.sym(Result<&2, &2, String, Maybe<&2, String>>, Main.status.joined.one(fs, ds, file, p), Fail{y}, er) : {Main.status.one_fails(_, e) == True{} : Bool}
+          (%Equal.sym(String, y, e, fail_eq_l(y, e, h)) : {String.eq(_, e) == True{} : Bool}
+            S.eq_refl(e))))
+    case Done{+x}:
+      AL.or_right(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e),
+        each_rest(fs, ds, file, x, rest, e, Main.status.joined.each(fs, ds, file, rest), {==}, h, ih))
+
+# Reading a file at each parent is refused only where one parent's reading
+# of it is, with that refusal.
+def each_fails(ps: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +e: String, h: {Main.status.joined.each(fs, ds, file, ps) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> {Main.status.parents_fail(fs, ds, file, ps, e) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      Empty.absurd({Main.status.parents_fail(fs, ds, file, Nil{}, e) == True{} : Bool}, done_fail_l(Nil{}, e, h))
+    case +p <> +rest:
+      each_one(fs, ds, file, p, rest, e, Main.status.joined.one(fs, ds, file, p), {==}, h, h2 => each_fails(rest, fs, ds, file, e, h2))
+
+def joined_step(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +x: Main.Here, +rest: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, +er: {Main.status.joined.each(fs, ds, Main.here.file(x), ps) == r : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, Map<&2, String>, r, xs => Main.status.joined.go(fs, ds, ps, rest, Map.set(&2, String, m, Main.here.file(x), Main.status.agree(Main.somes(xs))))) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}, ih: @m2: Map<&2, String> -> {Main.status.joined.go(fs, ds, ps, rest, m2) == Fail{e} : Result<&2, &2, String, Map<&2, String>>} -> {Main.status.joined_fails(fs, ds, ps, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e)) == True{} : Bool}:
+  match r:
+    case Fail{+y}:
+      +same = fail_eq(y, e, h)
+      AL.or_left(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e),
+        each_fails(ps, fs, ds, Main.here.file(x), e, (%same : {Main.status.joined.each(fs, ds, Main.here.file(x), ps) == Fail{_} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} er)))
+    case Done{+xs}:
+      AL.or_right(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e), ih(Map.set(&2, String, m, Main.here.file(x), Main.status.agree(Main.somes(xs))), h))
+
+def joined_fails(hs: List<&2, Main.Here>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +m: Map<&2, String>, +e: String, h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      Empty.absurd({Main.status.joined_fails(fs, ds, ps, Nil{}, e) == True{} : Bool}, B.fail_done_s(Map<&2, String>, e, m, Equal.sym(Result<&2, &2, String, Map<&2, String>>, Done{m}, Fail{e}, h)))
+    case +x <> +rest:
+      joined_step(fs, ds, ps, x, rest, m, e, Main.status.joined.each(fs, ds, Main.here.file(x), ps), {==}, h, m2 => h2 => joined_fails(rest, fs, ds, ps, m2, e, h2))

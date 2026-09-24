@@ -1281,3 +1281,16 @@ law status_believes_what_is_stated:
   for +e: String
   for h: {Main.status.befores(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
   {Main.status.replay_fails(older, ds, left, eds, os, Main.status.lined(hs), e) == True{} : Bool}
+
+# Where several parents are joined, `status` reads each file of lines it
+# compares at each of them, and is refused only where some parent's
+# reading of some such file is, and then with that refusal.
+law status_joins_what_it_reads:
+  for hs: List<&2, Main.Here>
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, String>
+  for +m: Map<&2, String>
+  for +e: String
+  for h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
+  {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}

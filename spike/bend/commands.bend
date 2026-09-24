@@ -6214,6 +6214,29 @@ def status.joined.go(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2
         xs : List<&2, Maybe<&2, String>> <- status.joined.each(fs, ds, file, ps)
         status.joined.go(fs, ds, ps, rest, Map.set(&2, String, m, file, status.agree(somes(xs))))
 
+# Where `LAWS.status_joins_what_it_reads` looks for a refusal: a file
+# compared, and a parent whose content of it could not be read.
+def status.one_fails(r: Result<&2, &2, String, Maybe<&2, String>>, +e: String) -> Bool:
+  match r:
+    case Fail{x}:
+      String.eq(x, e)
+    case Done{d}:
+      False{}
+
+def status.parents_fail(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, ps: List<&2, String>, +e: String) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case +p <> rest:
+      Bool.or(status.one_fails(status.joined.one(fs, ds, file, p), e), status.parents_fail(fs, ds, file, rest, e))
+
+def status.joined_fails(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, hs: List<&2, Here>, +e: String) -> Bool:
+  match hs:
+    case Nil{}:
+      False{}
+    case +h <> rest:
+      Bool.or(status.parents_fail(fs, ds, here.file(h), ps, e), status.joined_fails(fs, ds, ps, rest, e))
+
 # The digests at one parent: stated where the nearest statement says, and
 # replayed where it does not.
 def status.befores.one(+root: String, +fs: List<&2, Full>, +left: String, +hs: List<&2, Here>) -> IO(Map<&2, String>):
