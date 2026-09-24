@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once` and `Store.copy`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.tidy` and `Store.sweep`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -72,7 +72,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The fifteen effects here are one-shot — a string in, a string out, nothing
+The seventeen effects here are one-shot — a string in, a string out, nothing
 held between calls but where a pinned seed's stream has got to — which
 avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
@@ -163,6 +163,19 @@ against them. Each revision and each restated document is filed through
 a bookmark an `abandon` moves goes through `Store.write`. Which revisions
 are carried, in what order, what each restates and what it is called are
 decided in Bend.
+
+`arrange` reads what `check` reads — every revision and operation
+document, read and hashed here, and the digest of each payload from
+`Store.digests` — since a file's digest is what it is called for. Each
+rename it plans goes through `Store.move`, the effect `record --move`
+uses, over the store rather than the folder: it renames where the old
+path is and the new is not, and answers `both` where the new name has
+filled since the plan, which the Bend side reads as a file to leave.
+`Store.tidy` then removes the directory the file left and each above it
+until one holds something or the store's own directory is reached, which
+is never removed. `Store.sweep` removes every empty directory under the
+one named, deepest first, keeping that one. Which files move, where, and
+what a refused rename means are all decided in Bend.
 
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and

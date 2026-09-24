@@ -18,6 +18,7 @@ import ./folder.bend as Folder
 import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
+import ./arrange.bend as Arrange
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1072,3 +1073,60 @@ law name_stays_in_names:
   for +n: String
   for e: {Main.name.checked.r(n) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
   {Main.escapes(n) == False{} : Bool}
+
+# `arrange` takes nothing but its flags: a command line it accepts is one
+# whose every word is `-n`, `--dry-run` or `--refile`, so no word typed to
+# it is quietly passed over.
+law arrange_reads_its_words:
+  for +ws: List<&2, String>
+  for c: Arrange.ArrangeCmd
+  for e: {Arrange.args.r(ws) == Done{c} : Result<&2, &2, Main.Refused, Arrange.ArrangeCmd>}
+  {Arrange.all_flags(ws) == True{} : Bool}
+
+# `arrange` never plans to write over a file: every rename its plan holds,
+# in `revisions/` and in `operations/`, goes from one path to a different
+# one that nothing in the store was at. Two files holding one document
+# want one name, and the second finds it taken when its turn comes.
+law arrange_plans_no_overwrite:
+  for +refile: Bool
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +ops: List<&2, T.Split>
+  for +ls: List<&2, String>
+  for +a: Arrange.Arrangement
+  for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
+  {Arrange.plan_safe(Arrange.taken(ls), a) == True{} : Bool}
+
+# Without `--refile`, `arrange` renames a revision document only within
+# the directory it sits in: a folder a person filed one in is one they
+# meant, and the stem's month is `--refile`'s to apply.
+law arrange_keeps_a_revision_where_it_sits:
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +ops: List<&2, T.Split>
+  for +ls: List<&2, String>
+  for +a: Arrange.Arrangement
+  for e: {Arrange.arrangement.r(False{}, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
+  {Arrange.all_in_place(Arrange.arrangement.revs(a)) == True{} : Bool}
+
+# `arrange` opens a store only where every revision document in it parses,
+# as the Rust tool does, and so plans nothing over a history it has read
+# only part of; the others here pass such a document over.
+law arrange_opens_what_parses:
+  for +ds: List<&2, Store.Doc>
+  for u: Unit
+  for e: {Arrange.opened.r(ds) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  {Arrange.all_parse(Arrange.revision_docs(ds)) == True{} : Bool}
+
+# Every file `arrange` walks is counted once in what it prints for its
+# directory: renamed, already arranged, left because its name is taken, or
+# named by no revision. Nothing it looked at goes unsaid.
+law arrange_counts_every_file:
+  for +refile: Bool
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +ops: List<&2, T.Split>
+  for +ls: List<&2, String>
+  for +a: Arrange.Arrangement
+  for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
+  {Arrange.accounted(a, revs, ops) == True{} : Bool}
