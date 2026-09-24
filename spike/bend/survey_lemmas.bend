@@ -1033,3 +1033,159 @@ def restricted_ok(+only: List<&2, String>, +t: Tree.Tree(), +t0: Tree.Tree(), +f
           unclaimed_ok(only, Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), only_tree_ok(only, t)),
           unclaimed_found_ok(only, Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t)), only_found_ok(only, found)))),
       obs_found(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held, Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})))))
+
+# The renames `status` offers
+# ---------------------------
+
+# No departure is keyed by the digest of nothing.
+def full_keys(xs: List<&2, T.Split>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case T.Split{+k, v} <> rest:
+      Bool.and(Bool.not(String.eq(k, Sv.EMPTY())), full_keys(rest))
+
+def keyed_full(b: Bool, +d: String, +p: String, +rest: List<&2, T.Split>, +eb: {String.eq(d, Sv.EMPTY()) == b : Bool}, +h: {full_keys(rest) == True{} : Bool}) -> {full_keys(Bool.pick(List<&2, T.Split>, b, rest, T.Split{d, p} <> rest)) == True{} : Bool}:
+  match b:
+    case True{}:
+      h
+    case False{}:
+      AL.and_intro(Bool.not(String.eq(d, Sv.EMPTY())), full_keys(rest), AL.not_true(String.eq(d, Sv.EMPTY()), eb), h)
+
+def departed_full(os: List<&2, Sv.Obs>) -> {full_keys(Sv.departed(os)) == True{} : Bool}:
+  match os:
+    case Nil{}:
+      {==}
+    case Sv.Obs.Dropped{f, +p, Some{+d}} <> +rest:
+      keyed_full(String.eq(d, Sv.EMPTY()), d, p, Sv.departed(rest), {==}, departed_full(rest))
+    case Sv.Obs.Dropped{f, p, None{}} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Added{p} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Edited{p} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Mode{p} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Refused{p, why} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Accept{p} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Points{p, g, h, s} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Arrived{p, d} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Emptied{p} <> rest:
+      departed_full(rest)
+
+# The one arrival of some bytes is where `at_digest` finds it.
+def at_pick(c: Bool, +k: String, +v: String, +rest: List<&2, T.Split>, +d: String, +ec: {String.eq(k, d) == c : Bool}, h: {Nat.is_eq(Nat.add(Bool.pick(Nat, c, 1n, 0n), Sv.count(rest, d)), 1n) == True{} : Bool}, ih: {Nat.is_eq(Sv.count(rest, d), 1n) == True{} : Bool} -> {Sv.keyed_at(rest, d, Sv.at_digest(rest, d)) == True{} : Bool}) -> {Bool.or(Bool.and(String.eq(k, d), String.eq(v, Bool.pick(String, c, v, Sv.at_digest(rest, d)))), Sv.keyed_at(rest, d, Bool.pick(String, c, v, Sv.at_digest(rest, d)))) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, String.eq(k, d), True{}, ec) : {Bool.or(Bool.and(_, String.eq(v, v)), Sv.keyed_at(rest, d, v)) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.or(Bool.and(True{}, _), Sv.keyed_at(rest, d, v)) == True{} : Bool}
+      {==}
+    case False{}:
+      AL.or_right(Bool.and(String.eq(k, d), String.eq(v, Sv.at_digest(rest, d))), Sv.keyed_at(rest, d, Sv.at_digest(rest, d)), ih(h))
+
+def at_found(xs: List<&2, T.Split>, +d: String, h: {Nat.is_eq(Sv.count(xs, d), 1n) == True{} : Bool}) -> {Sv.keyed_at(xs, d, Sv.at_digest(xs, d)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+    case T.Split{+k, +v} <> +rest:
+      at_pick(String.eq(k, d), k, v, rest, d, {==}, h, e => at_found(rest, d, e))
+
+# Each rename `renames.go` makes, with the departures it walks.
+type RCtx is Data:
+  RCtx{gs: List<&2, T.Split>, all: List<&2, T.Split>, arr: List<&2, T.Split>}
+
+def rename_good(c: RCtx, r: Sv.Rename) -> Bool:
+  match c r:
+    case RCtx{+gs, +all, +arr} Sv.Rename{+d, +from, +to}:
+      Bool.and(Bool.and(Bool.and(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arr, d), 1n), Sv.keyed_at(arr, d, to)))
+
+def good_head(+k: String, +v: String, +gs: List<&2, T.Split>, +all: List<&2, T.Split>, +arr: List<&2, T.Split>, +d: String, +from: String, +to: String, +h: {rename_good(RCtx{gs, all, arr}, Sv.Rename{d, from, to}) == True{} : Bool}) -> {rename_good(RCtx{T.Split{k, v} <> gs, all, arr}, Sv.Rename{d, from, to}) == True{} : Bool}:
+  AL.and_intro(Bool.and(Bool.and(Sv.keyed_at(T.Split{k, v} <> gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arr, d), 1n), Sv.keyed_at(arr, d, to)),
+    AL.and_intro(Bool.and(Sv.keyed_at(T.Split{k, v} <> gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n),
+      AL.and_intro(Sv.keyed_at(T.Split{k, v} <> gs, d, from), Bool.not(String.eq(d, Sv.EMPTY())),
+        AL.or_right(Bool.and(String.eq(k, d), String.eq(v, from)), Sv.keyed_at(gs, d, from),
+          Comp.and_left(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY())), Comp.and_left(Bool.and(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n), Comp.and_left(Bool.and(Bool.and(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arr, d), 1n), Sv.keyed_at(arr, d, to)), h)))),
+        Comp.and_right(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY())), Comp.and_left(Bool.and(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n), Comp.and_left(Bool.and(Bool.and(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arr, d), 1n), Sv.keyed_at(arr, d, to)), h)))),
+      Comp.and_right(Bool.and(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n), Comp.and_left(Bool.and(Bool.and(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arr, d), 1n), Sv.keyed_at(arr, d, to)), h))),
+    Comp.and_right(Bool.and(Bool.and(Sv.keyed_at(gs, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arr, d), 1n), Sv.keyed_at(arr, d, to)), h))
+
+def good_weaken(rs: List<&2, Sv.Rename>, +x: T.Split, +gs: List<&2, T.Split>, +all: List<&2, T.Split>, +arr: List<&2, T.Split>, +h: {SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{gs, all, arr}, rs) == True{} : Bool}) -> {SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{x <> gs, all, arr}, rs) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case Sv.Rename{+d, +from, +to} <> +rest:
+      match x:
+        case T.Split{+k, +v}:
+          AL.and_intro(rename_good(RCtx{T.Split{k, v} <> gs, all, arr}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{T.Split{k, v} <> gs, all, arr}, rest),
+            good_head(k, v, gs, all, arr, d, from, to, Comp.and_left(rename_good(RCtx{gs, all, arr}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{gs, all, arr}, rest), h)),
+            good_weaken(rest, T.Split{k, v}, gs, all, arr, Comp.and_right(rename_good(RCtx{gs, all, arr}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{gs, all, arr}, rest), h)))
+
+def keyed_here(+d: String, +from: String, -rest: List<&2, T.Split>) -> {Sv.keyed_at(T.Split{d, from} <> rest, d, from) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(d, d), True{}, S.eq_refl(d)) : {Bool.or(Bool.and(_, String.eq(from, from)), Sv.keyed_at(rest, d, from)) == True{} : Bool}
+  %Equal.sym(Bool, String.eq(from, from), True{}, S.eq_refl(from)) : {Bool.or(Bool.and(True{}, _), Sv.keyed_at(rest, d, from)) == True{} : Bool}
+  {==}
+
+def go_pick(c: Bool, +d: String, +from: String, +rest: List<&2, T.Split>, +all: List<&2, T.Split>, +arr: List<&2, T.Split>, +later: List<&2, Sv.Rename>, +ec: {Bool.and(Nat.is_eq(Sv.count(all, d), 1n), Nat.is_eq(Sv.count(arr, d), 1n)) == c : Bool}, +hne: {Bool.not(String.eq(d, Sv.EMPTY())) == True{} : Bool}, +ih: {SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{T.Split{d, from} <> rest, all, arr}, later) == True{} : Bool}) -> {SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{T.Split{d, from} <> rest, all, arr}, Bool.pick(List<&2, Sv.Rename>, c, Sv.Rename{d, from, Sv.at_digest(arr, d)} <> later, later)) == True{} : Bool}:
+  match c:
+    case True{}:
+      AL.and_intro(rename_good(RCtx{T.Split{d, from} <> rest, all, arr}, Sv.Rename{d, from, Sv.at_digest(arr, d)}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{T.Split{d, from} <> rest, all, arr}, later),
+        AL.and_intro(Bool.and(Bool.and(Sv.keyed_at(T.Split{d, from} <> rest, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arr, d), 1n), Sv.keyed_at(arr, d, Sv.at_digest(arr, d))),
+          AL.and_intro(Bool.and(Sv.keyed_at(T.Split{d, from} <> rest, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(all, d), 1n),
+            AL.and_intro(Sv.keyed_at(T.Split{d, from} <> rest, d, from), Bool.not(String.eq(d, Sv.EMPTY())), keyed_here(d, from, rest), hne),
+            Comp.and_left(Nat.is_eq(Sv.count(all, d), 1n), Nat.is_eq(Sv.count(arr, d), 1n), ec)),
+          AL.and_intro(Nat.is_eq(Sv.count(arr, d), 1n), Sv.keyed_at(arr, d, Sv.at_digest(arr, d)),
+            Comp.and_right(Nat.is_eq(Sv.count(all, d), 1n), Nat.is_eq(Sv.count(arr, d), 1n), ec),
+            at_found(arr, d, Comp.and_right(Nat.is_eq(Sv.count(all, d), 1n), Nat.is_eq(Sv.count(arr, d), 1n), ec)))),
+        ih)
+    case False{}:
+      ih
+
+def go_good(gs: List<&2, T.Split>, +all: List<&2, T.Split>, +arr: List<&2, T.Split>, +hf: {full_keys(gs) == True{} : Bool}) -> {SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{gs, all, arr}, Sv.renames.go(gs, all, arr)) == True{} : Bool}:
+  match gs:
+    case Nil{}:
+      {==}
+    case T.Split{+d, +from} <> +rest:
+      go_pick(Bool.and(Nat.is_eq(Sv.count(all, d), 1n), Nat.is_eq(Sv.count(arr, d), 1n)), d, from, rest, all, arr, Sv.renames.go(rest, all, arr), {==},
+        Comp.and_left(Bool.not(String.eq(d, Sv.EMPTY())), full_keys(rest), hf),
+        good_weaken(Sv.renames.go(rest, all, arr), T.Split{d, from}, rest, all, arr, go_good(rest, all, arr, Comp.and_right(Bool.not(String.eq(d, Sv.EMPTY())), full_keys(rest), hf))))
+
+# The departure found is a witness to the bytes a rename moved.
+def bytes_here(+k: String, +v: String, +rest: List<&2, T.Split>, +deps: List<&2, T.Split>, +arrs: List<&2, T.Split>, +d: String, +from: String, +to: String, +hk: {String.eq(k, d) == True{} : Bool}, +hv: {String.eq(v, from) == True{} : Bool}, +hne: {Bool.not(String.eq(d, Sv.EMPTY())) == True{} : Bool}, +hc1: {Nat.is_eq(Sv.count(deps, d), 1n) == True{} : Bool}, +hc2: {Nat.is_eq(Sv.count(arrs, d), 1n) == True{} : Bool}, +ht: {Sv.keyed_at(arrs, d, to) == True{} : Bool}) -> {Sv.bytes_moved(T.Split{k, v} <> rest, deps, arrs, from, to) == True{} : Bool}:
+  %Equal.sym(String, k, d, S.eq_true(k, d, hk)) : {Bool.or(Bool.and(Bool.and(Bool.and(String.eq(v, from), Bool.not(String.eq(_, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, _), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, _), 1n), Sv.keyed_at(arrs, _, to))), Sv.bytes_moved(rest, deps, arrs, from, to)) == True{} : Bool}
+  AL.or_left(Bool.and(Bool.and(Bool.and(String.eq(v, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to))), Sv.bytes_moved(rest, deps, arrs, from, to),
+    AL.and_intro(Bool.and(Bool.and(String.eq(v, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to)),
+      AL.and_intro(Bool.and(String.eq(v, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n), AL.and_intro(String.eq(v, from), Bool.not(String.eq(d, Sv.EMPTY())), hv, hne), hc1),
+      AL.and_intro(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to), hc2, ht)))
+
+def moved_intro(ds: List<&2, T.Split>, +deps: List<&2, T.Split>, +arrs: List<&2, T.Split>, +d: String, +from: String, +to: String, hk: {Sv.keyed_at(ds, d, from) == True{} : Bool}, +hne: {Bool.not(String.eq(d, Sv.EMPTY())) == True{} : Bool}, +hc1: {Nat.is_eq(Sv.count(deps, d), 1n) == True{} : Bool}, +hc2: {Nat.is_eq(Sv.count(arrs, d), 1n) == True{} : Bool}, +ht: {Sv.keyed_at(arrs, d, to) == True{} : Bool}) -> {Sv.bytes_moved(ds, deps, arrs, from, to) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(hk))
+    case T.Split{+k, +v} <> +rest:
+      AL.or_cases({Sv.bytes_moved(T.Split{k, v} <> rest, deps, arrs, from, to) == True{} : Bool}, Bool.and(String.eq(k, d), String.eq(v, from)), Sv.keyed_at(rest, d, from), hk,
+        +hl => bytes_here(k, v, rest, deps, arrs, d, from, to, Comp.and_left(String.eq(k, d), String.eq(v, from), hl), Comp.and_right(String.eq(k, d), String.eq(v, from), hl), hne, hc1, hc2, ht),
+        hr => AL.or_right(Bool.and(Bool.and(Bool.and(String.eq(v, from), Bool.not(String.eq(k, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, k), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, k), 1n), Sv.keyed_at(arrs, k, to))), Sv.bytes_moved(rest, deps, arrs, from, to),
+          moved_intro(rest, deps, arrs, d, from, to, hr, hne, hc1, hc2, ht)))
+
+def map_good(rs: List<&2, Sv.Rename>, +deps: List<&2, T.Split>, +arrs: List<&2, T.Split>, +h: {SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{deps, deps, arrs}, rs) == True{} : Bool}) -> {Sv.renames_ok(deps, arrs, T.map(~Sv.Rename, ~T.Split, ~(r => Sv.rename_pair(r)), rs)) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case Sv.Rename{+d, +from, +to} <> +rest:
+      AL.and_intro(Sv.bytes_moved(deps, deps, arrs, from, to), Sv.renames_ok(deps, arrs, T.map(~Sv.Rename, ~T.Split, ~(r => Sv.rename_pair(r)), rest)),
+        moved_intro(deps, deps, arrs, d, from, to,
+          Comp.and_left(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY())), Comp.and_left(Bool.and(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n), Comp.and_left(Bool.and(Bool.and(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to)), Comp.and_left(rename_good(RCtx{deps, deps, arrs}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{deps, deps, arrs}, rest), h)))),
+          Comp.and_right(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY())), Comp.and_left(Bool.and(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n), Comp.and_left(Bool.and(Bool.and(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to)), Comp.and_left(rename_good(RCtx{deps, deps, arrs}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{deps, deps, arrs}, rest), h)))),
+          Comp.and_right(Bool.and(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n), Comp.and_left(Bool.and(Bool.and(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to)), Comp.and_left(rename_good(RCtx{deps, deps, arrs}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{deps, deps, arrs}, rest), h))),
+          Comp.and_left(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to), Comp.and_right(Bool.and(Bool.and(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to)), Comp.and_left(rename_good(RCtx{deps, deps, arrs}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{deps, deps, arrs}, rest), h))),
+          Comp.and_right(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to), Comp.and_right(Bool.and(Bool.and(Sv.keyed_at(deps, d, from), Bool.not(String.eq(d, Sv.EMPTY()))), Nat.is_eq(Sv.count(deps, d), 1n)), Bool.and(Nat.is_eq(Sv.count(arrs, d), 1n), Sv.keyed_at(arrs, d, to)), Comp.and_left(rename_good(RCtx{deps, deps, arrs}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{deps, deps, arrs}, rest), h)))),
+        map_good(rest, deps, arrs, Comp.and_right(rename_good(RCtx{deps, deps, arrs}, Sv.Rename{d, from, to}), SortL.all_at(~Sv.Rename, ~RCtx, ~rename_good, RCtx{deps, deps, arrs}, rest), h)))
+
+def renames_good(+os: List<&2, Sv.Obs>) -> {Sv.renames_ok(Sv.departed(os), Sv.arrived(os), Sv.renames(Sv.departed(os), Sv.arrived(os))) == True{} : Bool}:
+  map_good(List.sort(~Sv.Rename, ~(a => b => Sv.rename_le(a, b)), Sv.renames.go(Sv.departed(os), Sv.departed(os), Sv.arrived(os))), Sv.departed(os), Sv.arrived(os),
+    SortL.all_sort_at(~Sv.Rename, ~(a => b => Sv.rename_le(a, b)), ~RCtx, ~rename_good, RCtx{Sv.departed(os), Sv.departed(os), Sv.arrived(os)}, Sv.renames.go(Sv.departed(os), Sv.departed(os), Sv.arrived(os)),
+      go_good(Sv.departed(os), Sv.departed(os), Sv.arrived(os), departed_full(os))))

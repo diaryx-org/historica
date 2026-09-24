@@ -549,6 +549,30 @@ def rename_pair(r: Rename) -> T.Split:
 def renames(+gs: List<&2, T.Split>, +arr: List<&2, T.Split>) -> List<&2, T.Split>:
   T.map(~Rename, ~T.Split, ~(r => rename_pair(r)), List.sort(~Rename, ~(a => b => rename_le(a, b)), renames.go(gs, gs, arr)))
 
+# What `LAWS.status_offers_a_rename_the_bytes_make` asks of each rename
+# offered: some bytes, not nothing, that exactly one departure held, at the
+# path it is from, and exactly one arrival holds, at the path it is to.
+def keyed_at(xs: List<&2, T.Split>, +d: String, +p: String) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case T.Split{+k, +v} <> rest:
+      Bool.or(Bool.and(String.eq(k, d), String.eq(v, p)), keyed_at(rest, d, p))
+
+def bytes_moved(ds: List<&2, T.Split>, +deps: List<&2, T.Split>, +arrs: List<&2, T.Split>, +from: String, +to: String) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case T.Split{+d, +p} <> rest:
+      Bool.or(Bool.and(Bool.and(Bool.and(String.eq(p, from), Bool.not(String.eq(d, EMPTY()))), Nat.is_eq(count(deps, d), 1n)), Bool.and(Nat.is_eq(count(arrs, d), 1n), keyed_at(arrs, d, to))), bytes_moved(rest, deps, arrs, from, to))
+
+def renames_ok(+deps: List<&2, T.Split>, +arrs: List<&2, T.Split>, rs: List<&2, T.Split>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case T.Split{+from, +to} <> rest:
+      Bool.and(bytes_moved(deps, deps, arrs, from, to), renames_ok(deps, arrs, rest))
+
 # The survey
 # ----------
 
@@ -602,6 +626,11 @@ def survey.refused(s: Survey) -> List<&2, T.Split>:
   match s:
     case Survey{facts, refused, claimed, accept, renames}:
       refused
+
+def survey.renames(s: Survey) -> List<&2, T.Split>:
+  match s:
+    case Survey{facts, refused, claimed, accept, renames}:
+      renames
 
 # What `LAWS.status_refuses_what_the_folder_holds` asks of the refusals:
 # each names a path the walk refused, or one a surveyed path found in the

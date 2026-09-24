@@ -1467,3 +1467,15 @@ law a_summary_gives_up_its_ends:
   for +change: String
   for hc: {Naming.bare(change) == True{} : Bool}
   {Naming.trimmed(Naming.summary(message, change)) == True{} : Bool}
+
+# `status` offers a rename only where the bytes make one. Decision 0011
+# observes no rename, so the survey says it noticed one only where some
+# bytes, not nothing, left exactly one path and arrived at exactly one
+# other: each rename it offers is from the one path that held them to the
+# one that holds them now.
+law status_offers_a_rename_the_bytes_make:
+  for +t: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  {Sv.renames_ok(Sv.departed(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), Sv.arrived(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), Sv.survey.renames(Sv.survey(t, held, walked, ss))) == True{} : Bool}
