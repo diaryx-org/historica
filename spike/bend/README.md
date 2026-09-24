@@ -271,7 +271,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | a hundred and twenty-two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -290,8 +290,9 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `pair_lemmas.bend` | `diff_pairs_each_file`: under any file, the pairs `diff` goes on with are the entries each side holds under it, paired in order as far as either goes — each file compared once with itself where each side holds it once | `diff`'s pairing |
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
 | `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added | `working::walk`, `Survey::facts` |
-| `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given | `status`'s arguments and parents |
-| `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet | `store::check_name` |
+| `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given; `status_says_what_it_found`: everything the survey found is in the report, in the order found, each on a line of its own naming it — a fact beginning with its kind and ending with its path, a refusal, a claim or an accept beginning with its word and its path; `status_says_each_contest`: where work is joined, each contest the tree merge found is said once, in its order, opening with the file contested, and where it is not, none; `status_compares_with_the_revisions_tree`: against one revision, the folder is compared with the tree `files`, `cat` and `diff` read there; `status_reads_only_lines`: every path it asks the host to read and every file it replays is a file of lines it compares; `status_surveys_each_path`: the survey is told of each path once, in order, and of a file the parents dispute with no digest; `status_believes_what_is_stated`, `status_joins_what_it_reads`: it is refused only where a file no statement settles cannot be replayed, or, joining, where a parent's reading of a file is refused, and with that refusal | `status`'s arguments, parents and report |
+| `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet; `name_reads_its_words`: `name` reads its words as their plain reading says, a field at a time; `name_does_what_it_reads`: a deletion only where `--delete` was said, of the one other word, with nothing shaping a target, and otherwise a bookmark set of the other words in order, never a file pinned; `name_points_where_asked`: the bookmark set has the name given and points at a revision, a change or a file the store holds, as asked, as private as asked or as it was; `name_deletes_the_bookmark_named`: `--delete` is refused exactly where no bookmark has the name, and otherwise reports the store's bookmark of that name; `name_states_what_it_set`: `--fields` says its header once, early or late, and then `name` | `store::check_name`, `name` |
+| `listing_lemmas.bend` | `files_lists_in_path_order`, `files_lists_the_tree`: `files` prints the tree's entries sorted by path and file, under each the ones the tree holds, each line ending with its file identifier; `bookmarks_read_in_name_order`, `names_lists_each_bookmark`: the bookmarks are read in name order and `names` prints a line for each, beginning with its name; `names_resolves_to_held`: a revision pin or a change resolves to an abbreviation of a revision the store holds, or a reason in parentheses; `log_fields_lists_what_it_keeps`: `log --fields` prints its header and a line per revision it keeps, beginning with its digest; `log_counts_each_fact`: an entry counts each `add`, `move`, `drop` and `edit` fact once; `log_follows_a_held_file`: the file `--path` follows is one the tree holds where it is read | `files`, `names`, `log`'s printing |
 | `PROOF.bend` (`replay`) | `replay_keeps_a_refusal`: once a document in the chain is refused, nothing after it — a payload included — makes the chain a file; `opdiff_replays_to_the_child`: the document `opdiff` finds between two files, applied as `replay` applies one, makes the second | `replay`, `opdiff` |
 | `target_lemmas.bend` | `target_is_held`: every target — a bookmark, `head`, a digest prefix or a change prefix — resolves to a revision the store holds; setting a key in Base's `Map` never invents a value, so the history heads and changes are read from holds only the store's revisions | `target::resolve` |
 | `log_lemmas.bend` | `log_lists_what_it_asks`: every revision `log` lists satisfies every filter asked of it, whatever the limit | `log`'s filters |
@@ -453,6 +454,26 @@ a resolution. What the renderer's marker lines leave standing in such a
 file (`marked`) is not reported: that needs the content contests
 `merge.bend` does not model.
 
+What the reading commands and `status` print is decided before anything
+is printed: each builds its lines — an entry of `log`, a line of `files` or
+`names`, the report `status` makes of its survey — and one `print_lines`
+prints them, so a law can read what they say, and `check.py` holds the
+same bytes. `files` lists each file of the tree once, in path order;
+`names` lists every bookmark in name order, and says where a pin or a
+change resolves as a revision the store holds; `log --fields` names each
+revision it keeps by its digest, an entry counts each fact once, and
+`--path` follows a file the tree holds. `status` says everything its survey
+found, each on a line naming it, and each contest once where work is
+joined; against one revision it compares the folder with the tree `files`
+reads there; it tells its survey of each path once, reads and replays only
+files of lines, believes a digest a statement gives, and is refused only
+where a replay, or a parent's reading when joining, is. What no law reaches
+is the IO itself — the order of the effects each command performs. A
+refusal before any effect is a `die`, which halts at once, so a law could
+say a wrong command line does nothing; but the proof would rest on the
+foreign effects the IO value names, and the gate would no longer print
+`All terms check.` alone.
+
 `record --dry-run` is the first of the writing commands, less the writing:
 it prints what `record` would state — the lines `status` prints, and a
 `moved` line for each file a person moved — or the refusal `record` would
@@ -561,6 +582,11 @@ and renamed over, through `Store.write`, and goes through `Store.remove`.
 `check.py` holds 58 `name` commands to the Rust tool with `names/` compared
 after: every target, nested names and a name beside a directory of the
 same name, every refusal, and a store whose bookmarks will not open.
+What `name` decides is pure, and the IO shell only opens, writes and
+prints what it was handed: the plan its words make (`name_reads_its_words`,
+`name_does_what_it_reads`), the bookmark it sets (`name_points_where_asked`),
+the one `--delete` finds (`name_deletes_the_bookmark_named`) and the lines
+it says after (`name_states_what_it_set`).
 
 `init [<dir>]` makes a store: `history/` in the directory named, or this
 one, with the directories it lacks, joined as `Path::join` joins, so a
@@ -1117,7 +1143,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Ninety-seven mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and eighteen mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1190,8 +1216,19 @@ arriving file said to have changed as well; and two replay breaks: a
 payload after a refusal starting the file over, and a document applied to
 nothing rather than to what came before; and two status breaks: the
 revisions joined kept newest first, and a `--merge` joined by its spelling
-rather than the revision it names; and one name break: a name taken without
-asking the path rules. The
+rather than the revision it names; and six name breaks: a name taken without
+asking the path rules, the other words kept newest first, the header sent
+early without `--fields`, a bookmark moved that forgets it was private,
+`--revision` pinning the change, and `--fields`' header said twice; and six
+listing breaks: `files` in reverse path order or with the path last, a pin
+the store lacks said as its digest, bookmarks read in reverse, `log
+--fields` with the change first, and facts of every kind counted; and ten
+status-report breaks: a fact named by its path first, the accepts left out,
+contests said where no work is joined, a contest line naming the lower
+digest first, the parents after the first merged alone, a file of bytes
+read, a file replayed whatever its kind, a disputed file compared with a
+digest, a stated file replayed, and joining refused where no parent was
+read. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
