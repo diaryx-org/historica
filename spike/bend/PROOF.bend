@@ -50,6 +50,7 @@ import ./pair_lemmas.bend as PairL
 import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
+import ./listing_lemmas.bend as ListL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -608,3 +609,18 @@ def Laws.name_deletes_the_bookmark_named(bs, n):
 
 def Laws.name_states_what_it_set(n, b, early, shared):
   NameL.said_fields(n, b, early, shared)
+
+def Laws.files_lists_in_path_order(t):
+  Blamed.and_tt(SortL.sorted(~Tree.Entry, ~(e => Main.files.key(e)), Main.files.listed(t)), Main.ends_all(Main.files.said(t), Main.files.ends(t)), ListL.files_sorted(t), ListL.said_ends(t))
+
+def Laws.files_lists_the_tree(t, k):
+  ListL.files_keyed(t, k)
+
+def Laws.bookmarks_read_in_name_order(ps):
+  ListL.order_sorted(ps)
+
+def Laws.names_lists_each_bookmark(fs, bs):
+  ListL.said_begun(fs, bs)
+
+def Laws.names_resolves_to_held(fs, here, t):
+  ListL.resolution_held(fs, here, t)

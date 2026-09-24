@@ -2049,6 +2049,34 @@ def check_mutations(temporary):
             "name_lemmas.said_fields",
             "commands.bend",
         ),
+        (
+            "files lists paths in reverse order",
+            "  List.sort(~Tree.Entry, ~(a => b => String.is_le(files.key(a), files.key(b))), es)",
+            "  List.sort(~Tree.Entry, ~(a => b => String.is_le(files.key(b), files.key(a))), es)",
+            "listing_lemmas.files_sorted",
+            "commands.bend",
+        ),
+        (
+            "files prints the path last",
+            '      (pad(Tree.entry_path(e), width) ++ "  " ++ Tree.entry_file(e)) <> files.lines(rest, width)',
+            '      (Tree.entry_file(e) ++ "  " ++ pad(Tree.entry_path(e), width)) <> files.lines(rest, width)',
+            "listing_lemmas.lines_end",
+            "commands.bend",
+        ),
+        (
+            "names says a pin the store lacks is its digest",
+            '      Bool.pick(String, Rev.member(all_ids, id), abbreviate(id, all_ids), "(not here yet)")',
+            '      Bool.pick(String, Rev.member(all_ids, id), abbreviate(id, all_ids), id)',
+            "listing_lemmas.resolution_held",
+            "commands.bend",
+        ),
+        (
+            "bookmarks are read in reverse name order",
+            "  List.sort(~Named, ~(a => b => named.le(a, b)), named(ps))",
+            "  List.sort(~Named, ~(a => b => named.le(b, a)), named(ps))",
+            "listing_lemmas.order_sorted",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
