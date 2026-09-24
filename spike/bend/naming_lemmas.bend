@@ -16,6 +16,7 @@ import ./composition_lemmas.bend as Comp
 import ./abbrev_lemmas.bend as Abbrev
 import ./string_lemmas.bend as S
 import ./sort_lemmas.bend as SortL
+import ./equality_lemmas.bend as Eq
 
 # Every character passing a test
 # ------------------------------
@@ -811,3 +812,268 @@ def summary_fits(+message: String, +change: String) -> {Nat.is_le(String.length(
     SortL.nat_le_trans(String.length(N.trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS()))), String.length(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())), N.SUMMARY_CHARS(),
       len_trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())),
       len_clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())))
+
+# The ends a summary gives up
+# ---------------------------
+
+def app_nil(s: String) -> {s ++ SNil{} == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, rest}:
+      %app_nil(rest) : {SCon{c, rest ++ SNil{}} == SCon{c, _} : String}
+      {==}
+
+def rev_go_app(s: String, +acc: String) -> {String.reverse.go(s, acc) == String.reverse(s) ++ acc : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      Equal.trans(String, String.reverse.go(rest, SCon{c, acc}), String.reverse(rest) ++ SCon{c, acc}, String.reverse.go(rest, SCon{c, SNil{}}) ++ acc,
+        rev_go_app(rest, SCon{c, acc}),
+        Equal.sym(String, String.reverse.go(rest, SCon{c, SNil{}}) ++ acc, String.reverse(rest) ++ SCon{c, acc},
+          Equal.trans(String, String.reverse.go(rest, SCon{c, SNil{}}) ++ acc, (String.reverse(rest) ++ SCon{c, SNil{}}) ++ acc, String.reverse(rest) ++ SCon{c, acc},
+            Equal.cong(String, String, x => x ++ acc, String.reverse.go(rest, SCon{c, SNil{}}), String.reverse(rest) ++ SCon{c, SNil{}}, rev_go_app(rest, SCon{c, SNil{}})),
+            str_assoc(String.reverse(rest), SCon{c, SNil{}}, acc))))
+
+def rev_app(a: String, +b: String) -> {String.reverse(a ++ b) == String.reverse(b) ++ String.reverse(a) : String}:
+  match a:
+    case SNil{}:
+      Equal.sym(String, String.reverse(b) ++ SNil{}, String.reverse(b), app_nil(String.reverse(b)))
+    case SCon{+c, +rest}:
+      Equal.trans(String, String.reverse.go(rest ++ b, SCon{c, SNil{}}), String.reverse(rest ++ b) ++ SCon{c, SNil{}}, String.reverse(b) ++ String.reverse.go(rest, SCon{c, SNil{}}),
+        rev_go_app(rest ++ b, SCon{c, SNil{}}),
+        Equal.trans(String, String.reverse(rest ++ b) ++ SCon{c, SNil{}}, (String.reverse(b) ++ String.reverse(rest)) ++ SCon{c, SNil{}}, String.reverse(b) ++ String.reverse.go(rest, SCon{c, SNil{}}),
+          Equal.cong(String, String, x => x ++ SCon{c, SNil{}}, String.reverse(rest ++ b), String.reverse(b) ++ String.reverse(rest), rev_app(rest, b)),
+          Equal.trans(String, (String.reverse(b) ++ String.reverse(rest)) ++ SCon{c, SNil{}}, String.reverse(b) ++ (String.reverse(rest) ++ SCon{c, SNil{}}), String.reverse(b) ++ String.reverse.go(rest, SCon{c, SNil{}}),
+            str_assoc(String.reverse(b), String.reverse(rest), SCon{c, SNil{}}),
+            Equal.cong(String, String, x => String.reverse(b) ++ x, String.reverse(rest) ++ SCon{c, SNil{}}, String.reverse.go(rest, SCon{c, SNil{}}), Equal.sym(String, String.reverse.go(rest, SCon{c, SNil{}}), String.reverse(rest) ++ SCon{c, SNil{}}, rev_go_app(rest, SCon{c, SNil{}}))))))
+
+def rev_rev(s: String) -> {String.reverse(String.reverse(s)) == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      Equal.trans(String, String.reverse(String.reverse.go(rest, SCon{c, SNil{}})), String.reverse(String.reverse(rest) ++ SCon{c, SNil{}}), SCon{c, rest},
+        Equal.cong(String, String, x => String.reverse(x), String.reverse.go(rest, SCon{c, SNil{}}), String.reverse(rest) ++ SCon{c, SNil{}}, rev_go_app(rest, SCon{c, SNil{}})),
+        Equal.trans(String, String.reverse(String.reverse(rest) ++ SCon{c, SNil{}}), SCon{c, SNil{}} ++ String.reverse(String.reverse(rest)), SCon{c, rest},
+          rev_app(String.reverse(rest), SCon{c, SNil{}}),
+          Equal.cong(String, String, x => SCon{c, x}, String.reverse(String.reverse(rest)), rest, rev_rev(rest))))
+
+# What trimming a start takes, and what it leaves, make the string again.
+def taken_spare(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, rest}:
+      Bool.pick(String, N.spare(c), SCon{c, taken_spare(rest)}, SNil{})
+
+def taken_space(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, rest}:
+      Bool.pick(String, N.is_space(c), SCon{c, taken_space(rest)}, SNil{})
+
+def split_pick(b: Bool, +c: Char, +rest: String, -taken: String, -left: String, ih: {taken ++ left == rest : String}) -> {Bool.pick(String, b, SCon{c, taken}, SNil{}) ++ Bool.pick(String, b, left, SCon{c, rest}) == SCon{c, rest} : String}:
+  match b:
+    case True{}:
+      Equal.cong(String, String, x => SCon{c, x}, taken ++ left, rest, ih)
+    case False{}:
+      {==}
+
+def split_spare(s: String) -> {taken_spare(s) ++ N.drop_spare(s) == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      split_pick(N.spare(c), c, rest, taken_spare(rest), N.drop_spare(rest), split_spare(rest))
+
+def split_space(s: String) -> {taken_space(s) ++ N.drop_space(s) == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      split_pick(N.is_space(c), c, rest, taken_space(rest), N.drop_space(rest), split_space(rest))
+
+def starts_app(a: String, +b: String) -> {String.starts_with(a ++ b, a) == True{} : Bool}:
+  match a:
+    case SNil{}:
+      match b:
+        case SNil{}:
+          {==}
+        case SCon{c, r}:
+          {==}
+    case SCon{+c, +rest}:
+      %Equal.sym(Bool, Char.is_eq(c, c), True{}, Abbrev.char_refl(c)) : {String.starts_with.if(rest ++ b, rest, _) == True{} : Bool}
+      starts_app(rest, b)
+
+# A string with an end trimmed is where the string starts.
+def trim_prefix(+x: String, +left: String, +taken: String, e: {String.reverse(x) == taken ++ left : String}) -> {String.starts_with(x, String.reverse(left)) == True{} : Bool}:
+  %Equal.trans(String, String.reverse(left) ++ String.reverse(taken), String.reverse(taken ++ left), x,
+    Equal.sym(String, String.reverse(taken ++ left), String.reverse(left) ++ String.reverse(taken), rev_app(taken, left)),
+    Equal.trans(String, String.reverse(taken ++ left), String.reverse(String.reverse(x)), x,
+      Equal.cong(String, String, y => String.reverse(y), taken ++ left, String.reverse(x), Equal.sym(String, String.reverse(x), taken ++ left, e)),
+      rev_rev(x))) : {String.starts_with(_, String.reverse(left)) == True{} : Bool}
+  starts_app(String.reverse(left), String.reverse(taken))
+
+def trim_end_spare_prefix(+x: String) -> {String.starts_with(x, N.trim_end_spare(x)) == True{} : Bool}:
+  trim_prefix(x, N.drop_spare(String.reverse(x)), taken_spare(String.reverse(x)), Equal.sym(String, taken_spare(String.reverse(x)) ++ N.drop_spare(String.reverse(x)), String.reverse(x), split_spare(String.reverse(x))))
+
+def trim_end_space_prefix(+x: String) -> {String.starts_with(x, String.reverse(N.drop_space(String.reverse(x)))) == True{} : Bool}:
+  trim_prefix(x, N.drop_space(String.reverse(x)), taken_space(String.reverse(x)), Equal.sym(String, taken_space(String.reverse(x)) ++ N.drop_space(String.reverse(x)), String.reverse(x), split_space(String.reverse(x))))
+
+def if_true(b: Bool, -x: String, -w: String, e: {b == True{} : Bool}) -> {String.starts_with.if(x, w, b) == String.starts_with(x, w) : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({String.starts_with.if(x, w, False{}) == String.starts_with(x, w) : Bool}, S.false_true(e))
+
+def starts_if(b: Bool, +x: String, +y: String, +w: String, eb: {b == True{} : Bool} -> {String.starts_with(x ++ y, w) == True{} : Bool}, h: {String.starts_with.if(x, w, b) == True{} : Bool}) -> {String.starts_with.if(x ++ y, w, b) == True{} : Bool}:
+  match b:
+    case True{}:
+      eb({==})
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+
+def starts_ext(w: String, x: String, +y: String, +h: {String.starts_with(x, w) == True{} : Bool}) -> {String.starts_with(x ++ y, w) == True{} : Bool}:
+  match w x:
+    case SNil{} SNil{}:
+      match y:
+        case SNil{}:
+          {==}
+        case SCon{c, r}:
+          {==}
+    case SNil{} SCon{c, r}:
+      {==}
+    case SCon{d, wr} SNil{}:
+      Empty.absurd({String.starts_with(y, SCon{d, wr}) == True{} : Bool}, S.false_true(h))
+    case SCon{+d, +wr} SCon{+c, +xr}:
+      starts_if(Char.is_eq(c, d), xr, y, wr, e => starts_ext(wr, xr, y, Equal.trans(Bool, String.starts_with(xr, wr), String.starts_with.if(xr, wr, Char.is_eq(c, d)), True{}, Equal.sym(Bool, String.starts_with.if(xr, wr, Char.is_eq(c, d)), String.starts_with(xr, wr), if_true(Char.is_eq(c, d), xr, wr, e)), h)), h)
+
+# Cutting at the last space keeps what came before it.
+def m_pre(m: Maybe<&2, String>, +b: String) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{w}:
+      String.starts_with(b, w)
+
+def m_pre_ext(m: Maybe<&2, String>, +x: String, +y: String, h: {m_pre(m, x) == True{} : Bool}) -> {m_pre(m, x ++ y) == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+w}:
+      starts_ext(w, x, y, h)
+
+def bls_pick(b: Bool, +c: Char, +r: String, +later: Maybe<&2, String>, ih: {m_pre(later, String.reverse(r)) == True{} : Bool}) -> {m_pre(Bool.pick(Maybe<&2, String>, b, Some{String.reverse(r)}, later), String.reverse(r) ++ SCon{c, SNil{}}) == True{} : Bool}:
+  match b:
+    case True{}:
+      starts_app(String.reverse(r), SCon{c, SNil{}})
+    case False{}:
+      m_pre_ext(later, String.reverse(r), SCon{c, SNil{}}, ih)
+
+def bls_prefix(s: String) -> {m_pre(N.before_last_space(s), String.reverse(s)) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +r}:
+      %Equal.sym(String, String.reverse.go(r, SCon{c, SNil{}}), String.reverse(r) ++ SCon{c, SNil{}}, rev_go_app(r, SCon{c, SNil{}})) : {m_pre(Bool.pick(Maybe<&2, String>, Char.is_eq(c, ' '), Some{String.reverse(r)}, N.before_last_space(r)), _) == True{} : Bool}
+      bls_pick(Char.is_eq(c, ' '), c, r, N.before_last_space(r), bls_prefix(r))
+
+def if_cond(b: Bool, -x: String, -w: String, h: {String.starts_with.if(x, w, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+# A prefix of a string that does not begin with a dot or a space does not
+# either.
+def prefix_start(t: String, c: String, hp: {String.starts_with(c, t) == True{} : Bool}, hc: {N.spare_start(c) == False{} : Bool}) -> {N.spare_start(t) == False{} : Bool}:
+  match t c:
+    case SNil{} _:
+      {==}
+    case SCon{x, tr} SNil{}:
+      Empty.absurd({N.spare(x) == False{} : Bool}, S.false_true(hp))
+    case SCon{+x, +tr} SCon{+y, +cr}:
+      %Eq.char_eq(y, x, if_cond(Char.is_eq(y, x), cr, tr, hp)) : {N.spare(_) == False{} : Bool}
+      hc
+
+def drop_start_pick(b: Bool, +c: Char, -rest: String, -later: String, eb: {N.spare(c) == b : Bool}, ih: {N.spare_start(later) == False{} : Bool}) -> {N.spare_start(Bool.pick(String, b, later, SCon{c, rest})) == False{} : Bool}:
+  match b:
+    case True{}:
+      ih
+    case False{}:
+      eb
+
+def drop_start(y: String) -> {N.spare_start(N.drop_spare(y)) == False{} : Bool}:
+  match y:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      drop_start_pick(N.spare(c), c, rest, N.drop_spare(rest), {==}, drop_start(rest))
+
+def bare_start(s: String, h: {N.bare(s) == True{} : Bool}) -> {N.spare_start(s) == False{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      AL.not_of_true(N.spare(c), Comp.and_left(Bool.not(N.spare(c)), N.bare(rest), h))
+
+def m_pre_eq(m: Maybe<&2, String>, -a: String, -b: String, e: {a == b : String}, h: {m_pre(m, a) == True{} : Bool}) -> {m_pre(m, b) == True{} : Bool}:
+  %e : {m_pre(m, _) == True{} : Bool}
+  h
+
+def cut_start_pick(b: Bool, +cut: String, +w: String, +hc: {N.spare_start(cut) == False{} : Bool}, +hw: {String.starts_with(cut, w) == True{} : Bool}) -> {N.spare_start(Bool.pick(String, b, String.reverse(N.drop_space(String.reverse(cut))), w)) == False{} : Bool}:
+  match b:
+    case True{}:
+      prefix_start(String.reverse(N.drop_space(String.reverse(cut))), cut, trim_end_space_prefix(cut), hc)
+    case False{}:
+      prefix_start(w, cut, hw, hc)
+
+def cut_start(+cut: String, words: Maybe<&2, String>, +hc: {N.spare_start(cut) == False{} : Bool}, hw: {m_pre(words, cut) == True{} : Bool}) -> {N.spare_start(N.clip.cut(cut, words)) == False{} : Bool}:
+  match words:
+    case Some{+w}:
+      cut_start_pick(String.is_empty(w), cut, w, hc, hw)
+    case None{}:
+      prefix_start(String.reverse(N.drop_space(String.reverse(cut))), cut, trim_end_space_prefix(cut), hc)
+
+def clip_start_pick(b: Bool, +z: String, +n: Nat, +hz: {N.spare_start(z) == False{} : Bool}) -> {N.spare_start(Bool.pick(String, b, z, N.clip.cut(String.take(z, n), N.before_last_space(String.reverse(String.take(z, n)))))) == False{} : Bool}:
+  match b:
+    case True{}:
+      hz
+    case False{}:
+      cut_start(String.take(z, n), N.before_last_space(String.reverse(String.take(z, n))), prefix_start(String.take(z, n), z, Abbrev.take_prefix(z, n), hz),
+        m_pre_eq(N.before_last_space(String.reverse(String.take(z, n))), String.reverse(String.reverse(String.take(z, n))), String.take(z, n), rev_rev(String.take(z, n)), bls_prefix(String.reverse(String.take(z, n)))))
+
+def clip_start(+z: String, +n: Nat, +hz: {N.spare_start(z) == False{} : Bool}) -> {N.spare_start(N.clip(z, n)) == False{} : Bool}:
+  clip_start_pick(Nat.is_le(String.length(z), n), z, n, hz)
+
+def trim_spare_start(+y: String) -> {N.spare_start(N.trim_spare(y)) == False{} : Bool}:
+  prefix_start(N.trim_spare(y), N.drop_spare(y), trim_end_spare_prefix(N.drop_spare(y)), drop_start(y))
+
+def end_start(+c: String) -> {N.spare_start(String.reverse(N.trim_end_spare(c))) == False{} : Bool}:
+  %Equal.sym(String, String.reverse(String.reverse(N.drop_spare(String.reverse(c)))), N.drop_spare(String.reverse(c)), rev_rev(N.drop_spare(String.reverse(c)))) : {N.spare_start(_) == False{} : Bool}
+  drop_start(String.reverse(c))
+
+def trimmed_of(+s: String, +h1: {N.spare_start(s) == False{} : Bool}, +h2: {N.spare_start(String.reverse(s)) == False{} : Bool}) -> {N.trimmed(s) == True{} : Bool}:
+  AL.not_true(Bool.or(N.spare_start(s), N.spare_start(String.reverse(s))), AL.or_false(N.spare_start(s), N.spare_start(String.reverse(s)), h1, h2))
+
+def sum_trim_pick(b: Bool, +change: String, +t: String, +hc: {N.bare(change) == True{} : Bool}, +ht: {N.trimmed(t) == True{} : Bool}) -> {N.trimmed(Bool.pick(String, b, String.take(change, N.CHANGE_CHARS()), t)) == True{} : Bool}:
+  match b:
+    case True{}:
+      trimmed_of(String.take(change, N.CHANGE_CHARS()),
+        bare_start(String.take(change, N.CHANGE_CHARS()), every_take(~(c => Bool.not(N.spare(c))), change, N.CHANGE_CHARS(), hc)),
+        bare_start(String.reverse(String.take(change, N.CHANGE_CHARS())), every_rev(~(c => Bool.not(N.spare(c))), String.take(change, N.CHANGE_CHARS()), every_take(~(c => Bool.not(N.spare(c))), change, N.CHANGE_CHARS(), hc))))
+    case False{}:
+      ht
+
+def summary_trimmed(+message: String, +change: String, +hc: {N.bare(change) == True{} : Bool}) -> {N.trimmed(N.summary(message, change)) == True{} : Bool}:
+  sum_trim_pick(String.is_empty(N.trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS()))), change, N.trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())), hc,
+    trimmed_of(N.trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())),
+      prefix_start(N.trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())), N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS()),
+        trim_end_spare_prefix(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())),
+        clip_start(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS(), trim_spare_start(N.collapsed(N.first_line(message))))),
+      end_start(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS()))))

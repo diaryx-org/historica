@@ -1455,3 +1455,15 @@ law a_summary_fits_its_limit:
   for +message: String
   for +change: String
   {Nat.is_le(String.length(Naming.summary(message, change)), Naming.SUMMARY_CHARS()) == True{} : Bool}
+
+# A revision's summary gives up a dot or a space at either end. It never
+# begins with a dot, so it neither hides a name nor spends its budget on
+# one, and never ends with a dot or a space, which some filesystems drop
+# from a directory's name without saying so — whatever the message, where
+# the change's letters, which stand in for a message that says nothing,
+# are neither.
+law a_summary_gives_up_its_ends:
+  for +message: String
+  for +change: String
+  for hc: {Naming.bare(change) == True{} : Bool}
+  {Naming.trimmed(Naming.summary(message, change)) == True{} : Bool}

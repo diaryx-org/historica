@@ -382,6 +382,10 @@ def spare_start(s: String) -> Bool:
 def trimmed(+s: String) -> Bool:
   Bool.not(Bool.or(spare_start(s), spare_start(String.reverse(s))))
 
+# A string with no dot or space in it, as a change's letters are.
+def bare(s: String) -> Bool:
+  every(~(c => Bool.not(spare(c))), s)
+
 # A name with no control character in it, which is what a filed path is
 # scrubbed of (`LAWS.content_is_filed_under_a_name_a_filesystem_holds`).
 def controlless(s: String) -> Bool:
