@@ -391,7 +391,8 @@ STORES = {
         ["name", "--fields", "--delete"],
     ],
     # The same, with a bookmark file that is not one: every command refuses.
-    "badname": [["names"], ["log"], ["files", "main"], ["name", "new", "head"], ["name", "--fields", "new", "head"], ["name", "--delete", "main"]],
+    "badname": [["names"], ["log"], ["files", "main"], ["name", "new", "head"], ["name", "--fields", "new", "head"], ["name", "--delete", "main"],
+                ["record", "--fields", "-m", "x"], ["amend", "--fields", "-m", "y"], ["abandon", "head", "--fields", "-m", "z"], ["carry", "--fields"]],
     # Two authors, a rename, and a line of work beside the main one, for
     # `log`'s filters, ranges and `--fields`.
     "log": [
@@ -648,6 +649,12 @@ STORES = {
         ["name", "x", "head"],
         ["record", "-n"],
         ["skip"], ["skip", "x"], ["skip", "--bogus"],
+        # No statement where no store is found: the Rust tool leaves before
+        # it considers one, for the four commands it finds the store for
+        # before reading their words — and not for `name`, which finds it
+        # after.
+        ["record", "--fields", "-m", "x"], ["amend", "--fields"], ["abandon", "x", "--fields"], ["carry", "--fields"],
+        ["name", "--fields", "x", "head"], ["-C", "nowhere", "record", "--fields"], ["-C", "nowhere", "name", "--fields", "x", "head"],
     ],
     # The command line before any command: the usage and the version, what
     # is not an option, `-C` in its every position — the last counting, a
@@ -778,7 +785,10 @@ STORES = {
         ["skip", "tmp", "--name", "*.tmp", "--private", "buildfile"], ["skip", "--name", "*.tmp"],
     ],
     # A rule file stating two rules: the store will not open.
-    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"], ["skip"], ["skip", "x"]],
+    # And each writing command asked for `--fields`: the statement, then
+    # the refusal (decision 0074).
+    "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"], ["skip"], ["skip", "x"],
+                ["record", "--fields", "-m", "x"], ["amend", "--fields", "-m", "y"], ["abandon", "head", "--fields", "-m", "z"], ["carry", "--fields"], ["name", "--fields", "x", "head"]],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
         ["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"],
