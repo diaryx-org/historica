@@ -6044,6 +6044,29 @@ def status.befores.r(r: Result<&2, &2, String, Map<&2, String>>) -> Result<&2, &
     case Done{m}:
       Done{m}
 
+# Where `LAWS.status_believes_what_is_stated` looks for a refusal: a file
+# no statement gives the digest of, whose content replayed is refused so.
+def status.fails_as(r: Result<&2, &2, String, List<&2, Ops.Item>>, +e: String) -> Bool:
+  match r:
+    case Fail{x}:
+      String.eq(x, e)
+    case Done{items}:
+      False{}
+
+def status.replay_fails.one(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +e: String, stated: Maybe<&2, String>, +file: String) -> Bool:
+  match stated:
+    case Some{d}:
+      False{}
+    case None{}:
+      status.fails_as(content.in(older, ds, left, file), e)
+
+def status.replay_fails(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, hs: List<&2, Here>, +e: String) -> Bool:
+  match hs:
+    case Nil{}:
+      False{}
+    case +h <> rest:
+      Bool.or(status.replay_fails.one(older, ds, left, e, stated_digest(eds, origin(os, here.file(h))), here.file(h)), status.replay_fails(older, ds, left, eds, os, rest, e))
+
 def looked_up(+key: String, r: Map<&2, String> & String) -> Maybe<&2, String>:
   (m, v) = r
   +v2 = v
