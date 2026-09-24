@@ -4302,6 +4302,48 @@ def lines.checked(r: Result<&2, &2, String, Wanted>) -> Result<&2, &2, String, W
 def lines.of(+s: String) -> Result<&2, &2, String, Wanted>:
   lines.checked(lines.cut(s, range.cut(s, SNil{})))
 
+# What a span asks for, said plainly: every line of the file with its
+# number, counting from one, and of those the ones whose number falls in
+# the span. `LAWS.blame_numbers_its_lines` holds `rows.all` and `rows.in`
+# to it.
+type NLine is Data:
+  NLine{n: Nat, item: Ops.Item}
+
+def lines.numbered(items: List<&2, Ops.Item>, +k: Nat) -> List<&2, NLine>:
+  match items:
+    case Nil{}:
+      Nil{}
+    case it <> rest:
+      NLine{k, it} <> lines.numbered(rest, 1n+k)
+
+def nline.keep(b: Bool, x: NLine, rest: List<&2, NLine>) -> List<&2, NLine>:
+  match b:
+    case True{}:
+      x <> rest
+    case False{}:
+      rest
+
+def lines.in_span(ls: List<&2, NLine>, +first: Nat, +last: Nat) -> List<&2, NLine>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case NLine{+n, it} <> rest:
+      nline.keep(Bool.and(Nat.is_le(first, n), Nat.is_le(n, last)), NLine{n, it}, lines.in_span(rest, first, last))
+
+def lines.asked(ls: List<&2, NLine>, span: Maybe<&2, Wanted>) -> List<&2, NLine>:
+  match span:
+    case None{}:
+      ls
+    case Some{Wanted{+first, +last}}:
+      lines.in_span(ls, first, last)
+
+def blamed.lines(bs: List<&2, Blamed>) -> List<&2, NLine>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Blamed{n, Row{by, it}} <> rest:
+      NLine{n, it} <> blamed.lines(rest)
+
 # The rows asked for, each with its number, or where a span begins past the
 # end.
 def blame.span.at(+rs: List<&2, Row>, +first: Nat, +last: Nat, past: Bool) -> Result<&2, &2, Refused, List<&2, Blamed>>:

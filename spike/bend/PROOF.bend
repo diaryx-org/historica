@@ -468,3 +468,6 @@ def Laws.abbreviation_names_one(id, among, other, m, ne, len):
 
 def Laws.blame_reads_the_walk(oldest, ds, id, file, rs, e):
   Blamed.rows_walked(oldest, ds, id, file, rs, e)
+
+def Laws.blame_numbers_its_lines(rs, span, bl, e):
+  Blamed.span_lines(rs, span, bl, e)

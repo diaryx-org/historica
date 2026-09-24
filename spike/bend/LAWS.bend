@@ -715,3 +715,15 @@ law blame_reads_the_walk:
   for +rs: List<&2, Main.Row>
   for e: {Main.blame.rows.r(oldest, ds, id, file) == Done{rs} : Result<&2, &2, Main.Refused, List<&2, Main.Row>>}
   {Main.walked(oldest, ds, id, file) == Done{Main.rows.items(rs)} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# `blame` numbers each line as the file numbers it, and prints the span
+# asked and nothing else. Of the file's lines, each with its number
+# counting from one, it prints every one without `--lines`, and with a span
+# exactly those whose number falls in it — wherever the span begins, since
+# one that begins past the end is refused.
+law blame_numbers_its_lines:
+  for +rs: List<&2, Main.Row>
+  for +span: Maybe<&2, Main.Wanted>
+  for +bl: List<&2, Main.Blamed>
+  for e: {Main.blame.span.r(rs, span) == Done{bl} : Result<&2, &2, Main.Refused, List<&2, Main.Blamed>>}
+  {Main.blamed.lines(bl) == Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span) : List<&2, Main.NLine>}

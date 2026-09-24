@@ -1123,6 +1123,13 @@ def check_mutations(temporary):
             "blamed_lemmas.origins_file",
             "main.bend",
         ),
+        (
+            "a span that drops its last line",
+            'rows.keep(Bool.and(Nat.is_le(first, k), Nat.is_le(k, last))',
+            'rows.keep(Bool.and(Nat.is_le(first, k), Nat.is_lt(k, last))',
+            "blamed_lemmas.in_lines",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
