@@ -599,3 +599,12 @@ def Laws.name_reads_its_words(ws):
 
 def Laws.name_does_what_it_reads(c, p, e):
   NameL.plan_meant(c, p, e)
+
+def Laws.name_points_where_asked(fs, bs, n, spelling, path, pin, axis, b, e):
+  NameL.points_ok(fs, bs, n, spelling, path, pin, axis, b, e)
+
+def Laws.name_deletes_the_bookmark_named(bs, n):
+  NameL.found_gone(bs, n)
+
+def Laws.name_states_what_it_set(n, b, early, shared):
+  NameL.said_fields(n, b, early, shared)

@@ -2014,6 +2014,41 @@ def check_mutations(temporary):
             "name_lemmas.stays",
             "commands.bend",
         ),
+        (
+            "name keeps the other words newest first",
+            "      NameCmd{p, a, d, f, sh, List.append(&2, String, r, [w])}",
+            "      NameCmd{p, a, d, f, sh, w <> r}",
+            "name_lemmas.args_step",
+            "commands.bend",
+        ),
+        (
+            "name sends the header early without `--fields`",
+            "      Done{NamePlan.Set{n, t, None{}, pin, axis, fields, Bool.and(fields, Bool.not(String.is_empty(t)))}}",
+            "      Done{NamePlan.Set{n, t, None{}, pin, axis, fields, Bool.not(String.is_empty(t))}}",
+            "name_lemmas.plan_meant",
+            "commands.bend",
+        ),
+        (
+            "a bookmark moved forgets it was private",
+            "    return Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, private_of(bs, n))}",
+            "    return Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, False{})}",
+            "name_lemmas.points_ok",
+            "commands.bend",
+        ),
+        (
+            "`name --revision` pins the change",
+            "      Done{Bm.Target.Revision{id_of(f)}}",
+            "      Done{Bm.Target.Change{change_of(f)}}",
+            "name_lemmas.aimed_ok",
+            "commands.bend",
+        ),
+        (
+            "`name --fields` says its header twice",
+            '      List.append(&2, String, name.head(Bool.not(early)), ["name " ++ n])',
+            '      List.append(&2, String, name.head(True{}), ["name " ++ n])',
+            "name_lemmas.said_fields",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
