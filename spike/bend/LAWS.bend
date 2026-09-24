@@ -1357,3 +1357,16 @@ law a_revision_is_filed_under_its_month:
   for hc: {Naming.plain(change) == True{} : Bool}
   for hi: {Naming.plain(id) == True{} : Bool}
   {Naming.in_month(String.take(when, 7n), Naming.stem(when, message, change, id, ns)) == True{} : Bool}
+
+# Content is filed under a name a filesystem can hold. Whatever paths a
+# revision's files had, the name each is written under in the revision's
+# directory — its path with every control character a space, with the
+# digest's first letters where two names meet, or the digest alone where
+# its path is another's directory — holds no control character, where no
+# digest does.
+law content_is_filed_under_a_name_a_filesystem_holds:
+  for +fs: List<&2, Naming.Filing>
+  for +held: String
+  for hf: {Naming.helds_controlless(fs) == True{} : Bool}
+  for hh: {Naming.controlless(held) == True{} : Bool}
+  {Naming.controlless(Naming.filed_as(Naming.filed(fs), held)) == True{} : Bool}

@@ -387,6 +387,13 @@ def trimmed(+s: String) -> Bool:
 def controlless(s: String) -> Bool:
   every(~(c => Bool.not(Folder.is_control(c))), s)
 
+def helds_controlless(fs: List<&2, Filing>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case Filing{h, p, d} <> rest:
+      Bool.and(controlless(h), helds_controlless(rest))
+
 def show_split(s: T.Split) -> String:
   match s:
     case T.Split{a, b}:
