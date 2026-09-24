@@ -2154,6 +2154,13 @@ def check_mutations(temporary):
             "status_lemmas.fails_digest",
             "commands.bend",
         ),
+        (
+            "joining refuses where no parent was read",
+            "    case Nil{}:\n      Done{Nil{}}\n    case +p <> rest:\n      do Result<&2, &2, String, List<&2, Maybe<&2, String>>>:",
+            "    case Nil{}:\n      Fail{\"no parent\"}\n    case +p <> rest:\n      do Result<&2, &2, String, List<&2, Maybe<&2, String>>>:",
+            "status_lemmas.each_fails",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
