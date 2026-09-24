@@ -18,6 +18,7 @@ import ./folder.bend as Folder
 import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
+import ./update.bend as Upd
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1072,3 +1073,37 @@ law name_stays_in_names:
   for +n: String
   for e: {Main.name.checked.r(n) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
   {Main.escapes(n) == False{} : Bool}
+
+# `update` reads its words as they say: a dry run where `-n` or
+# `--dry-run` is among them, and the target the one word that does not
+# begin with `-`.
+law update_reads_its_words:
+  for +ws: List<&2, String>
+  for +c: Upd.UpdateCmd
+  for e: {Upd.args.r(ws) == Done{c} : Result<&2, &2, Main.Refused, Upd.UpdateCmd>}
+  {c == Upd.UpdateCmd{Upd.uargs.target(ws), Upd.uargs.dry(ws)} : Upd.UpdateCmd}
+
+# Where `update` plans at all, the folder it leaves holds the target: every
+# path the target's tree holds with one file ends up holding what the tree
+# records there — a file of lines its text, a file of bytes its payload,
+# each with its mode, a link pointing where the tree says — whatever the
+# folder held before, since everything else refuses the whole update.
+law update_lands:
+  for tr: List<&2, T.Split>
+  for +looks: List<&2, Upd.Look>
+  for +gones: List<&2, Upd.Gone>
+  for +p: Upd.Plan
+  for e: {Upd.plan(tr, looks, gones) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
+  {Upd.landed(p) == True{} : Bool}
+
+# Decision 0030's rule: a file `update` writes over, or takes away, holds
+# bytes some revision records at its path, and a link it takes away points
+# where some revision recorded one — so nothing it touches is the only copy
+# of anything.
+law update_spares_the_unrecorded:
+  for tr: List<&2, T.Split>
+  for +looks: List<&2, Upd.Look>
+  for +gones: List<&2, Upd.Gone>
+  for +p: Upd.Plan
+  for e: {Upd.plan(tr, looks, gones) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
+  {Upd.spared(p) == True{} : Bool}

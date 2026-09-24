@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once` and `Store.copy`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.put`, `Store.lay`, `Store.link` and `Store.chmod`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -72,7 +72,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The fifteen effects here are one-shot — a string in, a string out, nothing
+The nineteen effects here are one-shot — a string in, a string out, nothing
 held between calls but where a pinned seed's stream has got to — which
 avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
@@ -163,6 +163,26 @@ against them. Each revision and each restated document is filed through
 a bookmark an `abandon` moves goes through `Store.write`. Which revisions
 are carried, in what order, what each restates and what it is called are
 decided in Bend.
+
+`update` reads what `status` reads — the walk, and the digest of each
+file it took — and, for each path the head holds where the walk took
+nothing, the listing of that path's directory, which says whether a
+directory, a link or something else stands there. It reads the documents
+the head's files of lines need, and, where the folder holds bytes that are
+not the head's, every document any revision states for a file that has
+been at that path, since whether those bytes may be written over is
+whether some revision records them. It asks `Store.at` where each payload
+the head names is, and nothing else of `operations/`. What it writes is
+the plan Bend made, through four effects that decide nothing: `Store.put`
+writes a file of lines — its directory made, the text staged beside it and
+renamed over it, keeping the permissions of the file it replaces, as the
+Rust tool's `write_if` does; `Store.lay` copies a payload from the store
+into the folder as a new file, refusing bytes that are not the digest it
+was told, as `Store.copy` refuses; `Store.link` makes a link beside the
+path and renames it over whatever stood there; and `Store.chmod` sets a
+file's execute bits as its read bits say and answers what the bit was
+before, so that Bend decides whether a `mode` line is owed. A removal is
+`Store.remove`, with the folder as where tidying stops.
 
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and

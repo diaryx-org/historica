@@ -635,6 +635,177 @@ fn once(path: &Path, bytes: &[u8]) -> Result<String, (i32, String)> {
     }
 }
 
+// Laying the folder out
+// ---------------------
+
+/// Stage bytes beside `path` and rename them over it, making its directory
+/// first: the landing every write into the folder shares, so a reader sees
+/// what stood there or the new file and never half of either. `keep` says
+/// whether a regular file standing there keeps its permissions — a file of
+/// lines written over is the same file with new bytes, as the Rust tool's
+/// `write_if` leaves it, and a payload laid down is a new file.
+fn landed(path: &Path, bytes: &[u8], keep: bool) -> Result<(), (i32, String)> {
+    use std::io::Write as _;
+
+    let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+    let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err((EINVAL, format!("{}: not a file", path.display())));
+    };
+    fs::create_dir_all(directory).map_err(|error| failed(directory, error))?;
+    let mut staged = name.to_owned();
+    staged.push(format!(".{}.staged", std::process::id()));
+    let staged = directory.join(staged);
+    let held = match fs::symlink_metadata(path) {
+        Ok(metadata) if keep && metadata.is_file() => Some(metadata.permissions()),
+        _ => None,
+    };
+    let done = (|| {
+        let mut file = fs::File::create(&staged)?;
+        file.write_all(bytes)?;
+        if let Some(permissions) = held {
+            file.set_permissions(permissions)?;
+        }
+        file.sync_all()?;
+        fs::rename(&staged, path)
+    })();
+    if let Err(error) = done {
+        let _ = fs::remove_file(&staged);
+        return Err(failed(path, error));
+    }
+    Ok(())
+}
+
+/// A file of lines written into the folder: `update`'s and `merge`'s write
+/// of text a revision records. The argument is the path, then the text after
+/// the first newline. Its directory is made, the text lands staged and
+/// renamed over whatever file stood there, and that file's permissions are
+/// kept. The answer is `written`.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_folder_put(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let Some((path, text)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a write is a path, then its text".to_owned()));
+        };
+        landed(Path::new(path), text.as_bytes(), true)?;
+        Ok("written".to_owned())
+    })
+}
+
+/// A payload laid into the folder: where the store holds it, where it goes,
+/// and the digest it must have, a line each. The bytes are read, hashed, and
+/// refused where they are not that digest, with nothing written; otherwise
+/// they land staged and renamed over whatever stood there, a new file, as
+/// the Rust tool's `copy_payload_to` lays one. The answer is `written`.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_folder_lay(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let mut lines = text(query, query_len)?.split('\n');
+        let (Some(from), Some(to), Some(wanted), None) =
+            (lines.next(), lines.next(), lines.next(), lines.next())
+        else {
+            return Err((EINVAL, "a payload laid is where it is, where it goes, and its digest".to_owned()));
+        };
+        let bytes = fs::read(from).map_err(|error| (code(&error), format!("{from}: {error}")))?;
+        let found = digest(&bytes);
+        if found != wanted {
+            return Err((EIO, format!("{from} holds {found} rather than {wanted}")));
+        }
+        landed(Path::new(to), &bytes, false)?;
+        Ok("written".to_owned())
+    })
+}
+
+/// A link made in the folder: its path, then where it points. Its directory
+/// is made, and the link is made at a sibling and renamed over whatever
+/// stood there, so there is no moment the path names nothing. The answer is
+/// `linked`.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_folder_link(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let Some((path, target)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a link is a path, then where it points".to_owned()));
+        };
+        let path = Path::new(path);
+        let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+        let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
+            return Err((EINVAL, format!("{}: not a file", path.display())));
+        };
+        fs::create_dir_all(directory).map_err(|error| failed(directory, error))?;
+        let mut staged = name.to_owned();
+        staged.push(format!(".{}.staged", std::process::id()));
+        let staged = directory.join(staged);
+        let done = std::os::unix::fs::symlink(target, &staged).and_then(|()| fs::rename(&staged, path));
+        if let Err(error) = done {
+            let _ = fs::remove_file(&staged);
+            return Err(failed(path, error));
+        }
+        Ok("linked".to_owned())
+    })
+}
+
+/// A file's execute bit set: its path, then `1` or `0`. The execute bits
+/// follow the read bits, as the Rust tool sets them, so a file its group
+/// may read its group may run and a private file stays private. The answer
+/// is what the bit was before, `1` or `0`: whether that is a change a person
+/// is told of is the Bend side's.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_folder_chmod(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    answer(out, out_len, || {
+        let (path, runs) = match text(query, query_len)?.split_once('\n') {
+            Some((path, "1")) => (path, true),
+            Some((path, "0")) => (path, false),
+            _ => return Err((EINVAL, "a mode is a path, then `1` or `0`".to_owned())),
+        };
+        let failed = |error: std::io::Error| (code(&error), format!("{path}: {error}"));
+        let mut permissions = fs::symlink_metadata(path).map_err(failed)?.permissions();
+        let held = permissions.mode();
+        let mode = if runs { held | ((held & 0o444) >> 2) } else { held & !0o111 };
+        if mode != held {
+            permissions.set_mode(mode);
+            fs::set_permissions(path, permissions).map_err(failed)?;
+        }
+        Ok(if held & 0o111 != 0 { "1" } else { "0" }.to_owned())
+    })
+}
+
 /// Return a buffer [`hist_store_locate`] or [`hist_store_list`] handed out.
 ///
 /// # Safety
@@ -1274,4 +1445,82 @@ mod tests {
         assert!(!dir.path().join("history/operations/x/photo.bin.2").exists());
     }
 
+    #[test]
+    fn a_file_of_lines_is_written_over_keeping_its_bit_and_a_new_one_is_plain() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let run = dir.path().join("run.sh");
+        fs::write(&run, "old\n").unwrap();
+        fs::set_permissions(&run, fs::Permissions::from_mode(0o750)).unwrap();
+        let query = format!("{}\nnew\nlines\n", run.display());
+        assert_eq!(call(hist_folder_put, query.as_bytes()), (0, "written".to_owned()));
+        assert_eq!(fs::read_to_string(&run).unwrap(), "new\nlines\n");
+        assert_eq!(fs::metadata(&run).unwrap().permissions().mode() & 0o777, 0o750);
+
+        let deep = dir.path().join("a/b/new.md");
+        assert_eq!(call(hist_folder_put, format!("{}\n", deep.display()).as_bytes()), (0, "written".to_owned()));
+        assert_eq!(fs::read(&deep).unwrap(), b"");
+        assert_eq!(fs::metadata(&deep).unwrap().permissions().mode() & 0o111, 0);
+        assert_eq!(fs::read_dir(dir.path().join("a/b")).unwrap().count(), 1, "nothing staged is left");
+        assert_eq!(call(hist_folder_put, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_payload_is_laid_as_a_new_file_and_refused_where_its_bytes_differ() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("history/operations/x/photo.bin");
+        fs::create_dir_all(from.parent().unwrap()).unwrap();
+        fs::write(&from, b"\x00\xff").unwrap();
+        let to = dir.path().join("photo.bin");
+        fs::write(&to, b"old").unwrap();
+        fs::set_permissions(&to, fs::Permissions::from_mode(0o755)).unwrap();
+        let query = format!("{}\n{}\n{}", from.display(), to.display(), digest(b"\x00\xff"));
+        assert_eq!(call(hist_folder_lay, query.as_bytes()), (0, "written".to_owned()));
+        assert_eq!(fs::read(&to).unwrap(), b"\x00\xff");
+        assert_eq!(fs::metadata(&to).unwrap().permissions().mode() & 0o111, 0);
+
+        let other = dir.path().join("other.bin");
+        let stale = format!("{}\n{}\n{}", from.display(), other.display(), digest(b"other"));
+        let (code, said) = call(hist_folder_lay, stale.as_bytes());
+        assert_eq!(code, EIO);
+        assert!(said.contains("rather than"), "{said}");
+        assert!(!other.exists());
+    }
+
+    #[test]
+    fn a_link_is_made_over_whatever_stood_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let at = dir.path().join("sub/current");
+        let query = format!("{}\n../notes.md", at.display());
+        assert_eq!(call(hist_folder_link, query.as_bytes()), (0, "linked".to_owned()));
+        assert_eq!(fs::read_link(&at).unwrap(), Path::new("../notes.md"));
+        fs::remove_file(&at).unwrap();
+        fs::write(&at, "a file\n").unwrap();
+        let query = format!("{}\n/etc/hosts", at.display());
+        assert_eq!(call(hist_folder_link, query.as_bytes()), (0, "linked".to_owned()));
+        assert_eq!(fs::read_link(&at).unwrap(), Path::new("/etc/hosts"));
+        assert_eq!(fs::read_dir(dir.path().join("sub")).unwrap().count(), 1, "nothing staged is left");
+    }
+
+    #[test]
+    fn a_bit_is_set_as_the_read_bits_say_and_what_it_was_is_answered() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("run.sh");
+        fs::write(&file, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o640)).unwrap();
+        let on = format!("{}\n1", file.display());
+        assert_eq!(call(hist_folder_chmod, on.as_bytes()), (0, "0".to_owned()));
+        assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o750);
+        assert_eq!(call(hist_folder_chmod, on.as_bytes()), (0, "1".to_owned()));
+        let off = format!("{}\n0", file.display());
+        assert_eq!(call(hist_folder_chmod, off.as_bytes()), (0, "1".to_owned()));
+        assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o640);
+        assert_eq!(call(hist_folder_chmod, format!("{}\n2", file.display()).as_bytes()).0, EINVAL);
+        assert_eq!(call(hist_folder_chmod, format!("{}\n1", dir.path().join("gone").display()).as_bytes()).0, ENOENT);
+    }
 }
