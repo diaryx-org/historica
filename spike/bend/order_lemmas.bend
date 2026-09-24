@@ -7,7 +7,7 @@
 import Base
 import ./ops.bend as Ops
 import ./merge.bend as M
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./store.bend as Store
 import ./tree.bend as Tree
 import ./composition_lemmas.bend as Comp

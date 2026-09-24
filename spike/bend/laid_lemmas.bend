@@ -7,7 +7,7 @@ import Base
 import ./ops.bend as Ops
 import ./cursor_spec.bend as Cursor
 import ./replay_spec.bend as Spec
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./composition_lemmas.bend as Comp
 import ./diff_lemmas.bend as Diff
 import ./refusal_lemmas.bend as Refuse

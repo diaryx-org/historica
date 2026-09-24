@@ -3,7 +3,7 @@
 # drawn in inverse video; whatever the comparison found, the runs of each
 # side, read in order, are that side's line.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./similar.bend as Sim
 import ./unicode.bend as Uni
 import ./composition_lemmas.bend as Comp

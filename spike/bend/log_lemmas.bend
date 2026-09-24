@@ -3,7 +3,7 @@
 # whatever the limit: the filters take entries out and change nothing about
 # the ones that stay, and the limit counts what they left.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./anchor_lemmas.bend as AL
 import ./composition_lemmas.bend as Comp
 

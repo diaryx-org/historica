@@ -12,7 +12,7 @@ import ./cursor_spec.bend as Cursor
 import ./semantic_replay.bend as Block
 import ./merge.bend as Merge
 import ./tree.bend as Tree
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./similar.bend as Sim
 import ./folder.bend as Folder
 import ./bookmark.bend as Bm

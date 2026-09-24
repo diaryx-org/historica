@@ -4,7 +4,7 @@
 # prefix of the digest, and no other digest of the same length starts with
 # it — however the store's digests share their prefixes.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./revision.bend as Rev
 import ./string_lemmas.bend as S
 import ./graph_lemmas.bend as GL

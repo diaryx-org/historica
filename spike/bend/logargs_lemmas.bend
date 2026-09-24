@@ -2,7 +2,7 @@
 # flag that takes a value is that flag's value, the last counting; `--fields`
 # is asked for if it is there; every other word is the target.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./string_lemmas.bend as S
 import ./blamed_lemmas.bend as B
 

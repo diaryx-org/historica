@@ -1,7 +1,7 @@
 # `cat` and `show` read what the store holds: `cat` a file the target's tree
 # holds that is not a link, `show` a document held under the digest named.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./tree.bend as Tree
 import ./revision.bend as Rev
 import ./bookmark.bend as Bm

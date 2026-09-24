@@ -4,7 +4,7 @@
 # `name` takes is refused neither by `check_name` nor by the path rules it
 # reads, so it is never absolute and never climbs.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./survey.bend as Sv
 import ./folder.bend as Folder
 import ./blamed_lemmas.bend as B

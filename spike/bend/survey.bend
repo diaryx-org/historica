@@ -4,7 +4,7 @@
 # arrivals hold exactly the bytes of a departure.
 #
 # Pure: every question the folder and the store answer is asked in
-# `main.bend` and handed in, one path at a time, as a `Seen`.
+# `commands.bend` and handed in, one path at a time, as a `Seen`.
 #
 # Decision 0011 observes everything except a rename, so a file somebody
 # moved with `mv` is an `added` and a `dropped`, and `renames` is where the

@@ -2,7 +2,7 @@
 # are asked for in the listing's own order, one per payload, and taken back
 # one at each payload and none elsewhere.
 import Base
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./text.bend as T
 import ./revision.bend as Rev
 import ./ops.bend as Ops

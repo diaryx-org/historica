@@ -4,7 +4,7 @@
 # that line, and only a removal or an arrival is marked.
 import Base
 import ./ops.bend as Ops
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./emphasis_lemmas.bend as Emph
 import ./composition_lemmas.bend as Comp
 import ./merge_lemmas.bend as ML

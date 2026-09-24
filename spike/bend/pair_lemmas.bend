@@ -5,7 +5,7 @@
 # side's entry for it.
 import Base
 import ./tree.bend as Tree
-import ./main.bend as Main
+import ./commands.bend as Main
 import ./sort_lemmas.bend as SortL
 import ./string_lemmas.bend as S
 import ./composition_lemmas.bend as Comp
