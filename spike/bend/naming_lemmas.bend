@@ -672,3 +672,142 @@ def blank(+s: String) -> {String.is_empty(N.trim_space(s)) == N.every(~N.is_spac
       empty_drop(String.reverse(N.drop_space(s))),
       Equal.trans(Bool, N.every(~N.is_space, String.reverse(N.drop_space(s))), N.every(~N.is_space, N.drop_space(s)), N.every(~N.is_space, s),
         every_rev_eq(~N.is_space, N.drop_space(s)), every_drop(s))))
+
+# Sixty characters at most
+# ------------------------
+
+def le0(n: Nat) -> {Nat.is_le(0n, n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      {==}
+
+def len_take(s: String, n: Nat) -> {Nat.is_le(String.length(String.take(s, n)), n) == True{} : Bool}:
+  match s n:
+    case SNil{} _:
+      le0(n)
+    case SCon{c, rest} 0n:
+      {==}
+    case SCon{c, rest} 1n+m:
+      len_take(rest, m)
+
+def add_succ(a: Nat, -b: Nat) -> {Nat.add(a, 1n+b) == 1n+Nat.add(a, b) : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      %add_succ(p, b) : {1n+Nat.add(p, 1n+b) == 1n+_ : Nat}
+      {==}
+
+def len_rev_go(s: String, +acc: String) -> {String.length(String.reverse.go(s, acc)) == Nat.add(String.length(s), String.length(acc)) : Nat}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      Equal.trans(Nat, String.length(String.reverse.go(rest, SCon{c, acc})), Nat.add(String.length(rest), 1n+String.length(acc)), 1n+Nat.add(String.length(rest), String.length(acc)),
+        len_rev_go(rest, SCon{c, acc}), add_succ(String.length(rest), String.length(acc)))
+
+def len_rev(+s: String) -> {String.length(String.reverse(s)) == String.length(s) : Nat}:
+  Equal.trans(Nat, String.length(String.reverse(s)), Nat.add(String.length(s), 0n), String.length(s), len_rev_go(s, SNil{}), Comp.add_zero(String.length(s)))
+
+def le_cast(-a: Nat, -b: Nat, +k: Nat, e: {a == b : Nat}, h: {Nat.is_le(b, k) == True{} : Bool}) -> {Nat.is_le(a, k) == True{} : Bool}:
+  %Equal.sym(Nat, a, b, e) : {Nat.is_le(_, k) == True{} : Bool}
+  h
+
+def drop_pick_le(b: Bool, +c: Char, +rest: String, +later: String, +ih: {Nat.is_le(String.length(later), String.length(rest)) == True{} : Bool}) -> {Nat.is_le(String.length(Bool.pick(String, b, later, SCon{c, rest})), 1n+String.length(rest)) == True{} : Bool}:
+  match b:
+    case True{}:
+      Comp.le_succ(String.length(later), String.length(rest), ih)
+    case False{}:
+      le_refl(String.length(rest))
+
+def len_drop_spare(s: String) -> {Nat.is_le(String.length(N.drop_spare(s)), String.length(s)) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      drop_pick_le(N.spare(c), c, rest, N.drop_spare(rest), len_drop_spare(rest))
+
+def len_drop_space(s: String) -> {Nat.is_le(String.length(N.drop_space(s)), String.length(s)) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      drop_pick_le(N.is_space(c), c, rest, N.drop_space(rest), len_drop_space(rest))
+
+# Trimming an end shortens.
+def len_trim_end_space(+s: String) -> {Nat.is_le(String.length(String.reverse(N.drop_space(String.reverse(s)))), String.length(s)) == True{} : Bool}:
+  le_cast(String.length(String.reverse(N.drop_space(String.reverse(s)))), String.length(N.drop_space(String.reverse(s))), String.length(s), len_rev(N.drop_space(String.reverse(s))),
+    SortL.nat_le_trans(String.length(N.drop_space(String.reverse(s))), String.length(String.reverse(s)), String.length(s), len_drop_space(String.reverse(s)), le_cast(String.length(String.reverse(s)), String.length(s), String.length(s), len_rev(s), le_refl(String.length(s)))))
+
+def len_trim_end_spare(+s: String) -> {Nat.is_le(String.length(N.trim_end_spare(s)), String.length(s)) == True{} : Bool}:
+  le_cast(String.length(N.trim_end_spare(s)), String.length(N.drop_spare(String.reverse(s))), String.length(s), len_rev(N.drop_spare(String.reverse(s))),
+    SortL.nat_le_trans(String.length(N.drop_spare(String.reverse(s))), String.length(String.reverse(s)), String.length(s), len_drop_spare(String.reverse(s)), le_cast(String.length(String.reverse(s)), String.length(s), String.length(s), len_rev(s), le_refl(String.length(s)))))
+
+def le_m(m: Maybe<&2, String>, +k: Nat) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{w}:
+      Nat.is_le(String.length(w), k)
+
+def le_m_trans(m: Maybe<&2, String>, +a: Nat, +b: Nat, +h: {le_m(m, a) == True{} : Bool}, +hab: {Nat.is_le(a, b) == True{} : Bool}) -> {le_m(m, b) == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+w}:
+      SortL.nat_le_trans(String.length(w), a, b, h, hab)
+
+def last_space_le(b: Bool, +rest: String, +later: Maybe<&2, String>, +ih: {le_m(later, String.length(rest)) == True{} : Bool}) -> {le_m(Bool.pick(Maybe<&2, String>, b, Some{String.reverse(rest)}, later), 1n+String.length(rest)) == True{} : Bool}:
+  match b:
+    case True{}:
+      le_cast(String.length(String.reverse(rest)), String.length(rest), 1n+String.length(rest), len_rev(rest), Comp.le_succ(String.length(rest), String.length(rest), le_refl(String.length(rest))))
+    case False{}:
+      le_m_trans(later, String.length(rest), 1n+String.length(rest), ih, Comp.le_succ(String.length(rest), String.length(rest), le_refl(String.length(rest))))
+
+def len_last_space(s: String) -> {le_m(N.before_last_space(s), String.length(s)) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      last_space_le(Char.is_eq(c, ' '), rest, N.before_last_space(rest), len_last_space(rest))
+
+def cut_le_pick(b: Bool, +cut: String, +w: String, +n: Nat, +hc: {Nat.is_le(String.length(cut), n) == True{} : Bool}, +hw: {Nat.is_le(String.length(w), n) == True{} : Bool}) -> {Nat.is_le(String.length(Bool.pick(String, b, String.reverse(N.drop_space(String.reverse(cut))), w)), n) == True{} : Bool}:
+  match b:
+    case True{}:
+      SortL.nat_le_trans(String.length(String.reverse(N.drop_space(String.reverse(cut)))), String.length(cut), n, len_trim_end_space(cut), hc)
+    case False{}:
+      hw
+
+def len_cut(+cut: String, words: Maybe<&2, String>, +n: Nat, +hc: {Nat.is_le(String.length(cut), n) == True{} : Bool}, hw: {le_m(words, n) == True{} : Bool}) -> {Nat.is_le(String.length(N.clip.cut(cut, words)), n) == True{} : Bool}:
+  match words:
+    case Some{+w}:
+      cut_le_pick(String.is_empty(w), cut, w, n, hc, hw)
+    case None{}:
+      SortL.nat_le_trans(String.length(String.reverse(N.drop_space(String.reverse(cut)))), String.length(cut), n, len_trim_end_space(cut), hc)
+
+def clip_le_pick(b: Bool, +s: String, +n: Nat, eb: {Nat.is_le(String.length(s), n) == b : Bool}) -> {Nat.is_le(String.length(Bool.pick(String, b, s, N.clip.cut(String.take(s, n), N.before_last_space(String.reverse(String.take(s, n)))))), n) == True{} : Bool}:
+  match b:
+    case True{}:
+      eb
+    case False{}:
+      len_cut(String.take(s, n), N.before_last_space(String.reverse(String.take(s, n))), n, len_take(s, n),
+        le_m_trans(N.before_last_space(String.reverse(String.take(s, n))), String.length(String.reverse(String.take(s, n))), n, len_last_space(String.reverse(String.take(s, n))),
+          le_cast(String.length(String.reverse(String.take(s, n))), String.length(String.take(s, n)), n, len_rev(String.take(s, n)), len_take(s, n))))
+
+def len_clip(+s: String, +n: Nat) -> {Nat.is_le(String.length(N.clip(s, n)), n) == True{} : Bool}:
+  clip_le_pick(Nat.is_le(String.length(s), n), s, n, {==})
+
+def summary_le_pick(b: Bool, +change: String, +trimmed: String, +ht: {Nat.is_le(String.length(trimmed), N.SUMMARY_CHARS()) == True{} : Bool}) -> {Nat.is_le(String.length(Bool.pick(String, b, String.take(change, N.CHANGE_CHARS()), trimmed)), N.SUMMARY_CHARS()) == True{} : Bool}:
+  match b:
+    case True{}:
+      SortL.nat_le_trans(String.length(String.take(change, N.CHANGE_CHARS())), N.CHANGE_CHARS(), N.SUMMARY_CHARS(), len_take(change, N.CHANGE_CHARS()), {==})
+    case False{}:
+      ht
+
+def summary_fits(+message: String, +change: String) -> {Nat.is_le(String.length(N.summary(message, change)), N.SUMMARY_CHARS()) == True{} : Bool}:
+  summary_le_pick(String.is_empty(N.trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS()))), change, N.trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())),
+    SortL.nat_le_trans(String.length(N.trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS()))), String.length(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())), N.SUMMARY_CHARS(),
+      len_trim_end_spare(N.clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())),
+      len_clip(N.trim_spare(N.collapsed(N.first_line(message))), N.SUMMARY_CHARS())))
