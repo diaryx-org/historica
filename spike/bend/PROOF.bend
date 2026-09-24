@@ -701,3 +701,6 @@ def Laws.a_rename_puts_each_file_where_it_was_said(t, ats, ms, t2, moved, e, g, 
 
 def Laws.record_refuses_only_what_it_looks_at(only, t, t0, found, walked, held, dg, bf, reads, moves):
   SurveyL.restricted_ok(only, t, t0, found, walked, held, dg, bf, reads, moves)
+
+def Laws.a_summary_fits_its_limit(message, change):
+  NamingL.summary_fits(message, change)

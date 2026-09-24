@@ -1445,3 +1445,13 @@ law record_refuses_only_what_it_looks_at:
   for +reads: Map<&2, List<&2, U32>>
   for +moves: List<&2, T.Split>
   {Sv.all_covered(only, Sv.planned.refused(Sv.planned(t, Sv.only.tree(only, t), held, Sv.only.refused(only, walked), Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), moves))) == True{} : Bool}
+
+# A revision's summary is sixty characters at most. However long the first
+# line of its message, the name keeps as much of it as fits, cut between
+# words where a space allows it and shorter again for the dots and spaces
+# it gives up at the end, so a name leaves room within any filesystem's
+# limit for its date, its suffixes and its extension.
+law a_summary_fits_its_limit:
+  for +message: String
+  for +change: String
+  {Nat.is_le(String.length(Naming.summary(message, change)), Naming.SUMMARY_CHARS()) == True{} : Bool}
