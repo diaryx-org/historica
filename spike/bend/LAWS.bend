@@ -825,3 +825,45 @@ law diff_reads_its_words:
   for +cmd: Main.DiffCmd
   for e: {Main.diff.args.r(bs, args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.DiffCmd>}
   {Main.dargs.said(args) == Main.diff.said(cmd) : Main.DSaid}
+
+# `diff <target>` compares the target with what `--onto` names, a revision
+# the store holds, or else with its one parent — nothing for a root; a
+# merge, having several, is refused.
+law diff_compares_with_the_parent:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for right: Main.Full
+  for onto: Maybe<&2, String>
+  for +l: Maybe<&2, String>
+  for e: {Main.diff.left.r(fs, bs, right, onto) == Done{l} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}
+  {Main.diff.left.ok(fs, right, onto, l) == True{} : Bool}
+
+# `diff` over the folder compares it with what `--onto` names or the head:
+# a revision the store holds, or none in an empty store.
+law diff_folder_compares_with_a_held_revision:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for onto: Maybe<&2, String>
+  for +l: Maybe<&2, String>
+  for e: {Main.wc.left.r(fs, bs, onto) == Done{l} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}
+  {Main.left.ok(fs, l) == True{} : Bool}
+
+# A file `diff <target>` is limited to is one the target's tree holds, and
+# one `diff` over the folder is limited to, one the position's tree holds.
+law diff_limits_to_a_held_file:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +right: String
+  for only: Maybe<&2, String>
+  for +lim: Main.Limit
+  for e: {Main.diff.limit.r(fs, bs, right, only) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}
+  {Main.limit.held(fs, lim, Some{right}) == True{} : Bool}
+
+law diff_folder_limits_to_a_held_file:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +left: Maybe<&2, String>
+  for only: Maybe<&2, String>
+  for +lim: Main.Limit
+  for e: {Main.wc.limit.r(fs, bs, left, only) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}
+  {Main.limit.held(fs, lim, left) == True{} : Bool}

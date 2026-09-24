@@ -496,3 +496,15 @@ def Laws.blame_reads_a_folder_file(path, t, file, found, k, e):
 
 def Laws.diff_reads_its_words(bs, args, cmd, e):
   DiffCmd.args_said(bs, args, cmd, e)
+
+def Laws.diff_compares_with_the_parent(fs, bs, right, onto, l, e):
+  DiffCmd.left_ok(fs, bs, right, onto, l, e)
+
+def Laws.diff_folder_compares_with_a_held_revision(fs, bs, onto, l, e):
+  DiffCmd.wc_left_ok(fs, bs, onto, l, e)
+
+def Laws.diff_limits_to_a_held_file(fs, bs, right, only, lim, e):
+  DiffCmd.limit_ok(fs, bs, right, only, lim, e)
+
+def Laws.diff_folder_limits_to_a_held_file(fs, bs, left, only, lim, e):
+  DiffCmd.wc_limit_ok(fs, bs, left, only, lim, e)

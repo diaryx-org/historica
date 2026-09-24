@@ -7,6 +7,9 @@ import ./text.bend as T
 import ./bookmark.bend as Bm
 import ./string_lemmas.bend as S
 import ./blamed_lemmas.bend as B
+import ./tree.bend as Tree
+import ./revision.bend as Rev
+import ./fileat_lemmas.bend as FileAt
 
 def done_eq_d(-a: Main.DiffAsked, -b: Main.DiffAsked, h: {Done{a} == Done{b} : Result<&2, &2, String, Main.DiffAsked>}) -> {a == b : Main.DiffAsked}:
   Equal.cong(Result<&2, &2, String, Main.DiffAsked>, Main.DiffAsked, r => Result.default(&2, &2, String, Main.DiffAsked, r, a), Done{a}, Done{b}, h)
@@ -133,3 +136,133 @@ def asked_said(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>, r: Result<&2
 # `diff` reads its arguments as their plain reading says.
 def args_said(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>, +cmd: Main.DiffCmd, e: {Main.diff.args.r(bs, args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.DiffCmd>}) -> {Main.dargs.said(args) == Main.diff.said(cmd) : Main.DSaid}:
   asked_said(bs, args, Main.dasked.go(args), {==}, cmd, e)
+
+# The other side
+# --------------
+
+def AL_and_right(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      Empty.absurd({b == True{} : Bool}, S.false_true(h))
+
+def onto_bind(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +t: String, r: Result<&2, &2, Main.Refused, Main.Full>, +er: {Main.resolved.r(fs, bs, t) == r : Result<&2, &2, Main.Refused, Main.Full>}, +l: Maybe<&2, String>, e: {Result.bind(&2, &2, Main.Refused, Main.Full, Maybe<&2, String>, r, f => Done{Some{Main.id_of(f)}}) == Done{l} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Bool.and(Maybe.is_some(&2, String, l), Main.left.ok(fs, l)) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Bool.and(Maybe.is_some(&2, String, l), Main.left.ok(fs, l)) == True{} : Bool}, B.fail_done(Maybe<&2, String>, x, l, e))
+    case Done{+f}:
+      +d = B.done_eq(Maybe<&2, String>, Some{Main.id_of(f)}, l, e)
+      %d : {Bool.and(Maybe.is_some(&2, String, _), Main.left.ok(fs, _)) == True{} : Bool}
+      B.resolved_mem(fs, bs, t, f, er)
+
+# What `--onto` names is a revision the store holds.
+def onto_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +t: String, +l: Maybe<&2, String>, e: {Main.onto.r(fs, bs, t) == Done{l} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Bool.and(Maybe.is_some(&2, String, l), Main.left.ok(fs, l)) == True{} : Bool}:
+  onto_bind(fs, bs, t, Main.resolved.r(fs, bs, t), {==}, l, e)
+
+def parent_ok(+id: String, ps: List<&2, String>, +l: Maybe<&2, String>, e: {Main.sole_parent.r(id, ps) == Done{l} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Main.same_list(Main.maybe.list(l), ps) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      +d = B.done_eq(Maybe<&2, String>, None{}, l, e)
+      %d : {Main.same_list(Main.maybe.list(_), Nil{}) == True{} : Bool}
+      {==}
+    case +p <> rest:
+      match rest:
+        case Nil{}:
+          +d = B.done_eq(Maybe<&2, String>, Some{p}, l, e)
+          %d : {Main.same_list(Main.maybe.list(_), [p]) == True{} : Bool}
+          B.and_tt(String.eq(p, p), True{}, S.eq_refl(p), {==})
+        case +q <> +more:
+          Empty.absurd({Main.same_list(Main.maybe.list(l), p <> q <> more) == True{} : Bool}, B.refuse(Maybe<&2, String>, Main.sole_parent.r(id, p <> q <> more), l, {==}, e))
+
+# `diff <target>` compares the target with what `--onto` names, a revision
+# the store holds, or else with its one parent.
+def left_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, right: Main.Full, onto: Maybe<&2, String>, +l: Maybe<&2, String>, e: {Main.diff.left.r(fs, bs, right, onto) == Done{l} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Main.diff.left.ok(fs, right, onto, l) == True{} : Bool}:
+  match right:
+    case Main.Full{+i, +change, ps, +supersedes, +author, +when, +revised_by, +revised, +facts, +message}:
+      match onto:
+        case Some{+t}:
+          onto_ok(fs, bs, t, l, e)
+        case None{}:
+          parent_ok(i, ps, l, e)
+
+# `diff` over the folder compares it with what `--onto` names or the head,
+# a revision the store holds either way.
+def wc_left_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, onto: Maybe<&2, String>, +l: Maybe<&2, String>, e: {Main.wc.left.r(fs, bs, onto) == Done{l} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Main.left.ok(fs, l) == True{} : Bool}:
+  match onto:
+    case Some{+t}:
+      AL_and_right(Maybe.is_some(&2, String, l), Main.left.ok(fs, l), onto_ok(fs, bs, t, l, e))
+    case None{}:
+      B.head_left(fs, bs, Main.current_heads(Main.history(fs)), l, e, x => m => B.cur_held(fs, x, m))
+
+# The limit
+# ---------
+
+def lim_tree(+bs: List<&2, Bm.Bookmark>, +fs: List<&2, Main.Full>, +id: String, +sp: String, +t: Tree.Tree(), +et: {Main.tree.r(fs, id) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, r: Result<&2, &2, Main.Refused, String>, +er: {Main.file_in.r(id, bs, sp, t) == r : Result<&2, &2, Main.Refused, String>}, +lim: Main.Limit, e: {Result.bind(&2, &2, Main.Refused, String, Main.Limit, r, f => Done{Main.Limit.File{f}}) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, Some{id}) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.limit.held(fs, lim, Some{id}) == True{} : Bool}, B.fail_done(Main.Limit, x, lim, e))
+    case Done{+f}:
+      +d = B.done_eq(Main.Limit, Main.Limit.File{f}, lim, e)
+      %d : {Main.limit.held(fs, _, Some{id}) == True{} : Bool}
+      +es = Equal.sym(Result<&2, &2, Main.Refused, Tree.Tree()>, Main.tree.r(fs, id), Done{t}, et)
+      %es : {Main.tree.holds.r(_, f) == True{} : Bool}
+      FileAt.file_ok(id, bs, sp, t, f, er)
+
+def lim_file_bind(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +sp: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, +er: {Main.tree.r(fs, id) == r : Result<&2, &2, Main.Refused, Tree.Tree()>}, +lim: Main.Limit, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), Main.Limit, r, t => Main.diff.limit.tree(bs, id, sp, t)) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, Some{id}) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.limit.held(fs, lim, Some{id}) == True{} : Bool}, B.fail_done(Main.Limit, x, lim, e))
+    case Done{+t}:
+      lim_tree(bs, fs, id, sp, t, er, Main.file_in.r(id, bs, sp, t), {==}, lim, e)
+
+def lim_file(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +sp: String, +lim: Main.Limit, e: {Main.diff.limit.file.r(fs, bs, id, sp) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, Some{id}) == True{} : Bool}:
+  lim_file_bind(fs, bs, id, sp, Main.tree.r(fs, id), {==}, lim, e)
+
+def path_held(+fs: List<&2, Main.Full>, +p: String, at: Maybe<&2, String>) -> {Main.limit.held(fs, Main.Limit.Path{p}, at) == True{} : Bool}:
+  {==}
+
+def lim_spelled(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +sp: String, b: Bool, +lim: Main.Limit, e: {Main.diff.limit.spelled(fs, bs, id, sp, b) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, Some{id}) == True{} : Bool}:
+  match b:
+    case True{}:
+      lim_file(fs, bs, id, sp, lim, e)
+    case False{}:
+      +d = B.done_eq(Main.Limit, Main.Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}, lim, e)
+      %d : {Main.limit.held(fs, _, Some{id}) == True{} : Bool}
+      {==}
+
+# A file `diff <target>` is limited to is one the target's tree holds.
+def limit_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +right: String, only: Maybe<&2, String>, +lim: Main.Limit, e: {Main.diff.limit.r(fs, bs, right, only) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, Some{right}) == True{} : Bool}:
+  match only:
+    case None{}:
+      +d = B.done_eq(Main.Limit, Main.Limit.None{}, lim, e)
+      %d : {Main.limit.held(fs, _, Some{right}) == True{} : Bool}
+      {==}
+    case Some{+sp}:
+      lim_spelled(fs, bs, right, sp, String.starts_with(sp, "file:"), lim, e)
+
+def wc_lim_file(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, left: Maybe<&2, String>, +lim: Main.Limit, e: {Main.wc.limit.file.r(fs, bs, sp, left) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, left) == True{} : Bool}:
+  match left:
+    case None{}:
+      Empty.absurd({Main.limit.held(fs, lim, None{}) == True{} : Bool}, B.refuse(Main.Limit, Main.wc.limit.file.r(fs, bs, sp, None{}), lim, {==}, e))
+    case Some{+id}:
+      lim_file(fs, bs, id, sp, lim, e)
+
+def wc_lim_spelled(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, String>, +sp: String, b: Bool, +lim: Main.Limit, e: {Main.wc.limit.spelled(fs, bs, left, sp, b) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, left) == True{} : Bool}:
+  match b:
+    case True{}:
+      wc_lim_file(fs, bs, sp, left, lim, e)
+    case False{}:
+      +d = B.done_eq(Main.Limit, Main.Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}, lim, e)
+      %d : {Main.limit.held(fs, _, left) == True{} : Bool}
+      path_held(fs, Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp), left)
+
+# A file `diff` over the folder is limited to is one the position holds.
+def wc_limit_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, String>, only: Maybe<&2, String>, +lim: Main.Limit, e: {Main.wc.limit.r(fs, bs, left, only) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, left) == True{} : Bool}:
+  match only:
+    case None{}:
+      +d = B.done_eq(Main.Limit, Main.Limit.None{}, lim, e)
+      %d : {Main.limit.held(fs, _, left) == True{} : Bool}
+      {==}
+    case Some{+sp}:
+      wc_lim_spelled(fs, bs, left, sp, String.starts_with(sp, "file:"), lim, e)

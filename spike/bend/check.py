@@ -1186,6 +1186,20 @@ def check_mutations(temporary):
             "diffcmd_lemmas.run_ok",
             "main.bend",
         ),
+        (
+            "diff compares a revision with nothing rather than its parent",
+            '    case None{}:\n      sole_parent.r(id_of(right), parents_of(right))',
+            '    case None{}:\n      Done{None{}}',
+            "diffcmd_lemmas.left_ok",
+            "main.bend",
+        ),
+        (
+            "diff limits to the spelling rather than the file it names",
+            '    f : String <- file_in.r(right, bs, sp, t)\n    return Limit.File{f}',
+            '    f : String <- file_in.r(right, bs, sp, t)\n    return Limit.File{sp}',
+            "diffcmd_lemmas.lim_file_bind",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

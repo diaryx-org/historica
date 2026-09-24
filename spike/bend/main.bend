@@ -3222,23 +3222,27 @@ def sole_parent.named(+id: String, ps: List<&2, String>) -> String:
     case p <> rest:
       "\n  historica diff " ++ String.take(id, 12n) ++ " --onto " ++ String.take(p, 12n) ++ sole_parent.named(id, rest)
 
-def sole_parent.of(+id: String, ps: List<&2, String>) -> IO(Maybe<&2, String>):
+def sole_parent.r(+id: String, ps: List<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, String>>:
   match ps:
     case Nil{}:
-      IO.pure(Maybe<&2, String>, None{})
+      Done{None{}}
     case p <> Nil{}:
-      IO.pure(Maybe<&2, String>, Some{p})
+      Done{Some{p}}
     case +several:
-      die(Maybe<&2, String>, 1, String.take(id, 12n) ++ " is a merge, so what it did depends on which side you are asking about; name one with --onto:" ++ sole_parent.named(id, several))
+      Fail{Refused{1, String.take(id, 12n) ++ " is a merge, so what it did depends on which side you are asking about; name one with --onto:" ++ sole_parent.named(id, several)}}
 
-def diff.left(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: Full, onto: Maybe<&2, String>) -> IO(Maybe<&2, String>):
+def onto.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +t: String) -> Result<&2, &2, Refused, Maybe<&2, String>>:
+  do Result<&2, &2, Refused, Maybe<&2, String>>:
+    f : Full <- resolved.r(fs, bs, t)
+    return Some{id_of(f)}
+
+# What a revision is compared with: what `--onto` names, or its one parent.
+def diff.left.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: Full, onto: Maybe<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, String>>:
   match onto:
-    case Some{t}:
-      do IO<Maybe<&2, String>>:
-        f : Full <- resolved(fs, bs, t)
-        return Some{id_of(f)}
+    case Some{+t}:
+      onto.r(fs, bs, t)
     case None{}:
-      sole_parent.of(id_of(right), parents_of(right))
+      sole_parent.r(id_of(right), parents_of(right))
 
 # The one file a comparison is limited to: an identifier, which both sides
 # share through any rename, or a path, which either side may hold.
@@ -3256,18 +3260,29 @@ def limit.wants(l: Limit, +file: String, was: Maybe<&2, String>, now: Maybe<&2, 
     case Limit.Path{+p}:
       Bool.or(maybe_eq(was, Some{p}), maybe_eq(now, Some{p}))
 
-def diff.limit.file(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, +sp: String) -> IO(Limit):
-  do IO<Limit>:
-    t : Tree.Tree() <- tree(fs, right)
-    f : String <- file_in(right, bs, sp, t)
+def diff.limit.tree(+bs: List<&2, Bm.Bookmark>, +right: String, +sp: String, +t: Tree.Tree()) -> Result<&2, &2, Refused, Limit>:
+  do Result<&2, &2, Refused, Limit>:
+    f : String <- file_in.r(right, bs, sp, t)
     return Limit.File{f}
 
-def diff.limit(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, only: Maybe<&2, String>) -> IO(Limit):
+def diff.limit.file.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, +sp: String) -> Result<&2, &2, Refused, Limit>:
+  do Result<&2, &2, Refused, Limit>:
+    t : Tree.Tree() <- tree.r(fs, right)
+    diff.limit.tree(bs, right, sp, t)
+
+def diff.limit.spelled(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, +sp: String, file: Bool) -> Result<&2, &2, Refused, Limit>:
+  match file:
+    case True{}:
+      diff.limit.file.r(fs, bs, right, sp)
+    case False{}:
+      Done{Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}}
+
+def diff.limit.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, only: Maybe<&2, String>) -> Result<&2, &2, Refused, Limit>:
   match only:
     case None{}:
-      IO.pure(Limit, Limit.None{})
+      Done{Limit.None{}}
     case Some{+sp}:
-      Bool.pick(IO(Limit), String.starts_with(sp, "file:"), diff.limit.file(fs, bs, right, sp), IO.pure(Limit, Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}))
+      diff.limit.spelled(fs, bs, right, sp, String.starts_with(sp, "file:"))
 
 # Which revisions stated each file's content, on one side: its ancestry's
 # `text`, `bytes` and `edit` lines, newest first. Two sides whose lists for
@@ -3587,7 +3602,7 @@ def diff.revisions(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark
   do IO<Unit>:
     +l : Maybe<&2, String> = left
     +r : String = id_of(right)
-    lim : Limit <- diff.limit(fs, bs, r, only)
+    lim : Limit <- refused.io(Limit, diff.limit.r(fs, bs, r, only))
     before : Tree.Tree() <- tree.maybe(fs, l)
     after : Tree.Tree() <- tree(fs, r)
     +b2 : Tree.Tree() = before
@@ -4000,28 +4015,83 @@ def wc.compare(+t: Tree.Tree(), +older: List<&2, Full>, +ds: List<&2, Store.Doc>
         later : List<&2, Compared> <- wc.compare(t, older, ds, left, reads, rest)
         return compare.push(here, later)
 
-def wc.left(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, onto: Maybe<&2, String>) -> IO(Maybe<&2, String>):
+# What the folder is compared with: what `--onto` names, or the head.
+def wc.left.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, onto: Maybe<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, String>>:
   match onto:
-    case Some{t}:
-      do IO<Maybe<&2, String>>:
-        f : Full <- resolved(fs, bs, t)
-        return Some{id_of(f)}
+    case Some{+t}:
+      onto.r(fs, bs, t)
     case None{}:
-      the_head(fs, bs, current_heads(history(fs)))
+      the_head.r(fs, bs, current_heads(history(fs)))
 
-def wc.limit.file(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, left: Maybe<&2, String>) -> IO(Limit):
+def wc.limit.file.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, left: Maybe<&2, String>) -> Result<&2, &2, Refused, Limit>:
   match left:
     case None{}:
-      die(Limit, 1, "there is no revision here to name a file against")
-    case Some{id}:
-      diff.limit.file(fs, bs, id, sp)
+      Fail{Refused{1, "there is no revision here to name a file against"}}
+    case Some{+id}:
+      diff.limit.file.r(fs, bs, id, sp)
 
-def wc.limit(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, String>, only: Maybe<&2, String>) -> IO(Limit):
+def wc.limit.spelled(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, String>, +sp: String, file: Bool) -> Result<&2, &2, Refused, Limit>:
+  match file:
+    case True{}:
+      wc.limit.file.r(fs, bs, sp, left)
+    case False{}:
+      Done{Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}}
+
+def wc.limit.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, String>, only: Maybe<&2, String>) -> Result<&2, &2, Refused, Limit>:
   match only:
     case None{}:
-      IO.pure(Limit, Limit.None{})
+      Done{Limit.None{}}
     case Some{+sp}:
-      Bool.pick(IO(Limit), String.starts_with(sp, "file:"), wc.limit.file(fs, bs, sp, left), IO.pure(Limit, Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}))
+      wc.limit.spelled(fs, bs, left, sp, String.starts_with(sp, "file:"))
+
+# What `diff <target>` compares the target with: what `--onto` names, a
+# revision the store holds, or else its one parent — nothing for a root.
+# `LAWS.diff_compares_with_the_parent` holds `diff.left.r` to it, and
+# `LAWS.diff_folder_compares_with_a_held_revision` holds `wc.left.r` to
+# `left.ok`.
+def left.ok(+fs: List<&2, Full>, l: Maybe<&2, String>) -> Bool:
+  match l:
+    case None{}:
+      True{}
+    case Some{id}:
+      Rev.member(ids(fs), id)
+
+def maybe.list(m: Maybe<&2, String>) -> List<&2, String>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{x}:
+      [x]
+
+def diff.left.ok(+fs: List<&2, Full>, +right: Full, onto: Maybe<&2, String>, +l: Maybe<&2, String>) -> Bool:
+  match onto:
+    case Some{t}:
+      Bool.and(Maybe.is_some(&2, String, l), left.ok(fs, l))
+    case None{}:
+      same_list(maybe.list(l), parents_of(right))
+
+# A file a comparison is limited to is one the tree of the revision it was
+# named at holds. `LAWS.diff_limits_to_a_held_file` holds `diff.limit.r`
+# and `wc.limit.r` to it.
+def tree.holds.r(r: Result<&2, &2, Refused, Tree.Tree()>, +file: String) -> Bool:
+  match r:
+    case Fail{e}:
+      False{}
+    case Done{t}:
+      Tree.holds(t, file)
+
+def limit.held(+fs: List<&2, Full>, lim: Limit, at: Maybe<&2, String>) -> Bool:
+  match lim:
+    case Limit.None{}:
+      True{}
+    case Limit.Path{p}:
+      True{}
+    case Limit.File{+f}:
+      match at:
+        case None{}:
+          False{}
+        case Some{+id}:
+          tree.holds.r(tree.r(fs, id), f)
 
 # `diff` with no target: the folder against the position — the head, or
 # what `--onto` names. A file of lines is replayed only where the folder's
@@ -4030,9 +4100,9 @@ def wc.limit(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, S
 def diff.folder(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, String>, +paint: Bool, only: Maybe<&2, String>) -> IO(Unit):
   do IO<Unit>:
     rules : List<&2, Folder.Scope> <- Folder.rules(root)
-    left : Maybe<&2, String> <- wc.left(fs, bs, onto)
+    left : Maybe<&2, String> <- refused.io(Maybe<&2, String>, wc.left.r(fs, bs, onto))
     +l : Maybe<&2, String> = left
-    lim : Limit <- wc.limit(fs, bs, l, only)
+    lim : Limit <- refused.io(Limit, wc.limit.r(fs, bs, l, only))
     +repo : String = repository(root)
     found : List<&2, Folder.Found> <- Folder.walk(repo, rules)
     t : Tree.Tree() <- tree.maybe(fs, l)
@@ -4057,7 +4127,7 @@ def diff.named(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +
       do IO<Unit>:
         f : Full <- resolved(fs, bs, t)
         +f2 : Full = f
-        left : Maybe<&2, String> <- diff.left(fs, bs, f2, onto)
+        left : Maybe<&2, String> <- refused.io(Maybe<&2, String>, diff.left.r(fs, bs, f2, onto))
         diff.revisions(root, fs, bs, f2, paint, only, left)
 
 # `NO_COLOR` set to anything settles `auto` and leaves `always` alone,
@@ -5050,13 +5120,6 @@ def held.ok(+t: Tree.Tree(), h: Held) -> Bool:
       List.is_empty(&2, String, Tree.at(t, path))
     case Held{Some{f}, path}:
       Tree.holds(t, f)
-
-def left.ok(+fs: List<&2, Full>, l: Maybe<&2, String>) -> Bool:
-  match l:
-    case None{}:
-      True{}
-    case Some{id}:
-      Rev.member(ids(fs), id)
 
 def position.ok(+fs: List<&2, Full>, p: Position) -> Bool:
   match p:
