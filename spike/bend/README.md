@@ -28,11 +28,12 @@ bend main.bend -- blame head notes.txt
 bend main.bend -- blame notes.txt        # the folder's lines, attributed
 bend main.bend -- status                 # how the folder differs from the head
 bend main.bend -- status --onto left --merge right   # and what joining them contests
+bend main.bend -- record --dry-run --move a.md=b.md   # what recording would state
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through six host effects (`store.bend`): `bend main.bend` runs
+here or above — through seven host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -255,13 +256,13 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `similar.bend` | the diff the commands draw: `similar` 3.2.0's Histogram, with its preflights, its Myers fallback and heuristics, and the compaction around it, held to the crate on two thousand cases, Myers alone among them | `diff`, the `similar` crate |
 | `unicode.bend` | which characters are letters or digits, as Rust's `char::is_alphanumeric` reads Unicode 17 | `char` |
 | `folder.bend` | the working copy: `skipped/`'s rules read and matched, the folder walked a directory at a time, what it refuses and why, and what counts as text | `working` |
-| `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed | `record::survey` |
+| `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal: six effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal, and the one write — a rename `record --move` states: seven effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record --dry-run` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and one claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -311,7 +312,9 @@ twenty-two invalid ones are refused, the three edits in the numbered history
 replay to the hand-written states in `states/` (held to `result` where one is
 stated), and the four `diffs/` fixtures — a replacement anchored at the
 removed run, a surviving line between two rewrites, a final newline gained
-and lost — are what `diff` writes, byte for byte.
+and lost — are what `diff` writes, byte for byte. `check.py` holds the
+`opdiff` command to the same four, on both builds, from the files to the
+bytes it prints.
 
 `corpus_rev.bend`: twenty-five valid revisions across the `revisions`,
 `tree`, `links`, `modes`, `whole` and `merged` corpora round-trip; twenty-one
@@ -440,6 +443,30 @@ differently is `edited` whatever the folder holds, since the merge owes it
 a resolution. What the renderer's marker lines leave standing in such a
 file (`marked`) is not reported: that needs the content contests
 `merge.bend` does not model.
+
+`record --dry-run` is the first of the writing commands, less the writing:
+it prints what `record` would state — the lines `status` prints, and a
+`moved` line for each file a person moved — or the refusal `record` would
+stop at, in the order the Rust tool asks. The paths named narrow what is
+looked at, a directory covering what is beneath it; `--at` puts each file
+several claim somewhere of its own; `--bytes` and `--lines` say what an
+arriving file is; `--accept` takes the folder's bytes where the parents
+being joined stated different ones. What is refused: a merge restricted to
+some paths, one end of a rename left out of them, a named path nothing
+answers to or a rule keeps out, a kind stated for a file already recorded,
+for one not looked at or not there, or `lines` for bytes that are not
+UTF-8, a link not looked at whose target is going, a path several files
+still claim, what nothing here can take, a merge that empties a file, and
+contested bytes accepted or not. And `--move` renames in the folder before
+anything is read, as the Rust tool does, dry run or not — through
+`Store.move`, the one effect that writes, which renames and answers which
+of the four cases the folder was in. `check.py` runs each `record` on a
+copy of the store of its own, per tool, and compares the folder after as
+well as what was said: 90 commands across fourteen stores, one of them
+`claimed`, built for the merge refusals — two files added at one path,
+settled with `--at` by file bookmark, bytes written two ways, and a link to
+a file the folder dropped. A usage error is now compared too, to the end of
+its message.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1087,6 +1114,16 @@ the number is where to look, and what it calls unreached has no law at all.
 
 ## What the port found
 
+Porting `record --dry-run` found that the Rust tool's `--move` renames
+before it asks whether either end is a path, and joins the path to the
+folder with `Path::join` — which an absolute path replaces. So
+`record --dry-run --move notes.md=/abs` moves `notes.md` to `/abs`, outside
+the folder, and then refuses `/abs` as a path; `--move ../x=notes.md`
+moves a file in from outside. The port refuses the same, in the same words,
+without moving: a move with an end that is absolute or climbs out with `..`
+is not performed. Every other refused path is moved first, as the Rust tool
+moves it, and `check.py` holds the folder to it.
+
 Stating `replay_keeps_a_refusal` found that `replay` hid a refusal: a
 payload after a document that did not apply started the file afresh, so a
 chain with a broken document printed a file and exited zero. A payload now
@@ -1138,8 +1175,14 @@ is under 5k. Not ported:
   carries no spelling of it.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
-- **Writing the store**: `init`, `record`, `name`, `arrange`, `fetch`,
-  `export`. Everything here reads. `check` does not report on `names/`.
+- **Writing the store**: `init`, `record` but its dry run, `name`,
+  `arrange`, `fetch`, `export`. Nothing here writes but the rename
+  `--move` states. `check` does not report on `names/`. A merge's file
+  still holding the renderer's marker lines is not refused by
+  `record --dry-run`, since the markers are not modelled.
+- **A name that is not UTF-8**, which the Rust tool's `record` refuses
+  with the rest of what the folder cannot take, is not among the paths
+  `record --dry-run` refuses, as `status` does not list it.
 - Unicode normal form C on paths, bookmark names and the folder's names.
 
 ## What Bend asked for

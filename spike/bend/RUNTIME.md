@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder` and `Store.tty`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty` and `Store.move`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -69,7 +69,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The six effects here are one-shot — a string in, a string out, nothing
+The seven effects here are one-shot — a string in, a string out, nothing
 held between calls — which avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
 Do not represent ownership merely by a freely copyable numeric pointer.
@@ -100,6 +100,16 @@ position's nearest statement of them leaves — a `text` payload's name, or the
 hold not at all — its digest is what a rename is noticed by — and where
 `--merge` joins several parents, a file of lines is replayed at each of
 them rather than settled by its nearest statement.
+
+`record --dry-run` reads what `status` reads, and a file arriving that a
+person said is lines, which has to be text. Before it reads anything it
+does the one write here: each rename `--move` states, through `Store.move`,
+which asks whether each end is there as the Rust tool asks it — following
+links — and renames where the old is and the new is not, making the new
+path's directory first, and answers `moved`, `there`, `both` or `neither`.
+What each answer means to a person is the Bend side's, and so is which
+moves are asked for: one with an end that is absolute or climbs out with
+`..` is not, since it would land outside the folder.
 
 Those two delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and

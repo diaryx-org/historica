@@ -37,6 +37,7 @@ type Obs is Data:
   Obs.Accept{path: String}
   Obs.Points{path: String, target: String, held: Maybe<&2, Tree.Entry>, shown: Maybe<&2, String>}
   Obs.Arrived{path: String, digest: String}
+  Obs.Emptied{path: String}
 
 # The digest of no bytes at all: every empty file has it, so it matches
 # nothing.
@@ -104,14 +105,16 @@ def lines.agreed(+path: String, +e: Tree.Entry, +digest: String, +before: Maybe<
 # Where the parents being joined leave a file of lines differently, the
 # merge owes a resolution of whatever the folder holds, so there is no
 # digest to settle it by — except that the grammar has no resolution of
-# nothing, and an emptied file is left for the revision after. Marker lines
-# the renderer wrote, which `record` refuses, are not modelled here.
+# nothing, so an emptied file states no edit, and `record` refuses it: it
+# is a merge and a deletion at once, and the deletion belongs in the
+# revision after. Marker lines the renderer wrote, which `record` refuses
+# too, are not modelled here.
 def lines.proposed(+path: String, +e: Tree.Entry, +runs: Bool, +text: Bool, empty: Bool) -> List<&2, Obs>:
   match text:
     case False{}:
       lines.changed(path, e, runs, text)
     case True{}:
-      Bool.pick(List<&2, Obs>, empty, mode(path, e, runs), lines.changed(path, e, runs, text))
+      Bool.pick(List<&2, Obs>, empty, List.append(&2, Obs, mode(path, e, runs), [Obs.Emptied{path}]), lines.changed(path, e, runs, text))
 
 def lines(+path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, +text: Bool, proposed: Bool, empty: Bool) -> List<&2, Obs>:
   match proposed:
@@ -600,3 +603,220 @@ def is_quiet(s: Survey) -> Bool:
   match s:
     case Survey{facts, refused, claimed, accept, renames}:
       Bool.and(Bool.and(List.is_empty(&2, T.Split, facts), List.is_empty(&2, T.Split, refused)), Bool.and(List.is_empty(&2, T.Split, claimed), List.is_empty(&2, String, accept)))
+
+# Recording
+# ---------
+
+# `record --dry-run` surveys as `status` does, with what a person states
+# beside the folder: which paths to look at, where a file several claim
+# goes (`--at`), and the renames nothing can observe (`--move`). And what
+# `status` describes, `record` refuses.
+
+# `format::check_path`: why a path a person typed cannot be one. Unicode
+# normal form C is not here, as nowhere in this port.
+def component_fault(cs: List<&2, String>) -> Maybe<&2, String>:
+  match cs:
+    case Nil{}:
+      None{}
+    case +c <> rest:
+      Bool.pick(Maybe<&2, String>, String.is_empty(c), Some{"it has an empty component"},
+      Bool.pick(Maybe<&2, String>, Bool.or(String.eq(c, "."), String.eq(c, "..")), Some{"`.` and `..` are not components"}, component_fault(rest)))
+
+def path_check(+p: String) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, String.is_empty(p), Some{"it is empty"},
+  Bool.pick(Maybe<&2, String>, String.starts_with(p, "/"), Some{"it begins with `/`, and a path is relative to the repository root"},
+  Bool.pick(Maybe<&2, String>, String.ends_with(p, "/"), Some{"it ends with `/`, and a path names a file rather than a directory"},
+  Bool.pick(Maybe<&2, String>, Bool.or(String.starts_with(p, " "), String.ends_with(p, " ")), Some{"it has leading or trailing space"},
+  Bool.pick(Maybe<&2, String>, List.any(~&2, ~Char, ~Folder.is_control, String.to_list(p)), Some{"it holds a control character"},
+    component_fault(String.split(p, '/')))))))
+
+# `Restriction::covers`: a path named, or one beneath a named directory;
+# every path where none is named.
+def beneath(+named: String, +path: String) -> Bool:
+  Bool.or(String.eq(path, named), String.starts_with(path, named ++ "/"))
+
+def covers.any(ns: List<&2, String>, +path: String) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case +n <> rest:
+      Bool.or(beneath(n, path), covers.any(rest, path))
+
+def covers(only: List<&2, String>, +path: String) -> Bool:
+  match only:
+    case Nil{}:
+      True{}
+    case +some:
+      covers.any(some, path)
+
+def any_beneath(+named: String, ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case +p <> rest:
+      Bool.or(beneath(named, p), any_beneath(named, rest))
+
+def only.tree(+only: List<&2, String>, t: Tree.Tree()) -> Tree.Tree():
+  match t:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      +later = only.tree(only, rest)
+      Bool.pick(Tree.Tree(), covers(only, Tree.entry_path(e)), e <> later, later)
+
+def only.found(+only: List<&2, String>, fs: List<&2, Folder.Found>) -> List<&2, Folder.Found>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case +f <> rest:
+      +later = only.found(only, rest)
+      Bool.pick(List<&2, Folder.Found>, covers(only, Folder.found.path(f)), f <> later, later)
+
+def only.refused(+only: List<&2, String>, rs: List<&2, T.Split>) -> List<&2, T.Split>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case T.Split{+p, +b} <> rest:
+      +later = only.refused(only, rest)
+      Bool.pick(List<&2, T.Split>, covers(only, p), T.Split{p, b} <> later, later)
+
+# A named path nothing answers to — not the folder, not the position, not
+# where the stated renames put things — and whether a rule keeps it out,
+# since the two have different fixes.
+def unknown(ns: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>) -> List<&2, String>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case +n <> rest:
+      +later = unknown(rest, folder, was, placed)
+      Bool.pick(List<&2, String>, Bool.or(any_beneath(n, folder), Bool.or(any_beneath(n, was), any_beneath(n, placed))), later, n <> later)
+
+def kept_out(+rules: List<&2, Folder.Scope>, ns: List<&2, String>, +keep: Bool) -> List<&2, String>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case +n <> rest:
+      +later = kept_out(rules, rest, keep)
+      Bool.pick(List<&2, String>, Bool.xor(Bool.or(Folder.skips(rules, n), Folder.skips_directory(rules, n)), Bool.not(keep)), n <> later, later)
+
+# Where the stated renames put each file: the position's tree, with one
+# file's path changed.
+def placed.entry(e: Tree.Entry, +file: String, +to: String) -> Tree.Entry:
+  match e:
+    case Tree.Entry{+f, p, k, y, g, m}:
+      Tree.Entry{f, Bool.pick(String, String.eq(f, file), to, p), k, y, g, m}
+
+def relocated(t: Tree.Tree(), +file: String, +to: String) -> Tree.Tree():
+  match t:
+    case Nil{}:
+      Nil{}
+    case e <> rest:
+      placed.entry(e, file, to) <> relocated(rest, file, to)
+
+def by_file(+t: Tree.Tree()) -> Tree.Tree():
+  List.sort(~Tree.Entry, ~(a => b => String.is_le(Tree.entry_file(a), Tree.entry_file(b))), t)
+
+# A kind stated too late, or for a path nobody is looking at.
+def kind_fixed(+p: String, t: Tree.Tree(), later: Maybe<&2, String>) -> Maybe<&2, String>:
+  match t:
+    case Nil{}:
+      later
+    case +e <> rest:
+      Bool.pick(Maybe<&2, String>, String.eq(Tree.entry_path(e), p),
+        Some{"`" ++ p ++ "` is already recorded as " ++ Tree.kind_show(Tree.entry_kind(e)) ++ ", and decision 0017 fixes that when a file is added; a file that has to change kind is a `drop` and an `add`, which is a new file with a new identity"},
+        kind_fixed(p, rest, later))
+
+def kind_fault(+only: List<&2, String>, +t: Tree.Tree(), ks: List<&2, T.Split>) -> Maybe<&2, String>:
+  match ks:
+    case Nil{}:
+      None{}
+    case T.Split{+p, k} <> rest:
+      Bool.pick(Maybe<&2, String>, covers(only, p), kind_fixed(p, t, kind_fault(only, t, rest)),
+        Some{"`" ++ p ++ "` is not one of the paths this is recording, so saying which kind it is would state nothing; name it as a path too, or drop the restriction"})
+
+# Each file moved, where it went last, unless the file is going.
+def moved.later(ms: List<&2, T.Split>, +file: String) -> Bool:
+  match ms:
+    case Nil{}:
+      False{}
+    case T.Split{f, to} <> rest:
+      Bool.or(String.eq(f, file), moved.later(rest, file))
+
+def moved.paths(ms: List<&2, T.Split>, +gone: Set()) -> List<&2, String>:
+  match ms:
+    case Nil{}:
+      Nil{}
+    case T.Split{+f, +to} <> +rest:
+      +later = moved.paths(rest, gone)
+      Bool.pick(List<&2, String>, Bool.or(has(gone, f), moved.later(rest, f)), later, to <> later)
+
+def emptied(os: List<&2, Obs>) -> List<&2, String>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case Obs.Emptied{p} <> rest:
+      p <> emptied(rest)
+    case o <> rest:
+      emptied(rest)
+
+def pointed(os: List<&2, Obs>) -> List<&2, String>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case Obs.Points{p, t, h, s} <> rest:
+      p <> pointed(rest)
+    case o <> rest:
+      pointed(rest)
+
+def dropped_at(os: List<&2, Obs>, +file: String) -> String:
+  match os:
+    case Nil{}:
+      SNil{}
+    case Obs.Dropped{+f, +p, c} <> rest:
+      Bool.pick(String, String.eq(f, file), p, dropped_at(rest, file))
+    case o <> rest:
+      dropped_at(rest, file)
+
+# A link this record is not looking at, whose target is going: no
+# restatement can reach it.
+def dangle.target(+link: String, g: Maybe<&2, Tree.Target>, +gone: Set(), +os: List<&2, Obs>, later: Maybe<&2, String>) -> Maybe<&2, String>:
+  match g:
+    case Some{Tree.Reference{+named}}:
+      Bool.pick(Maybe<&2, String>, has(gone, named),
+        Some{"`" ++ dropped_at(os, named) ++ "` is going, and `" ++ link ++ "` is a link to it that this record is not looking at; name `" ++ link ++ "` too, so its target can be written down as the string it will be"},
+        later)
+    case _:
+      later
+
+def dangle(t: Tree.Tree(), +gone: Set(), +pointing: Set(), +os: List<&2, Obs>) -> Maybe<&2, String>:
+  match t:
+    case Nil{}:
+      None{}
+    case Tree.Entry{+f, +p, k, y, g, m} <> rest:
+      +later = dangle(rest, gone, pointing, os)
+      Bool.pick(Maybe<&2, String>, Bool.or(has(gone, f), has(pointing, p)), later, dangle.target(p, g, gone, os, later))
+
+# What `record --dry-run` prints: `status`'s facts, with a line for each
+# file moved.
+def facts.recorded(+arriving: Set(), +os: List<&2, Obs>, +links: List<&2, String>, +moved: List<&2, String>) -> List<&2, T.Split>:
+  List.append(&2, T.Split, fact("added", sorted(added(os))),
+  List.append(&2, T.Split, fact("moved", sorted(moved)),
+  List.append(&2, T.Split, fact("dropped", sorted(dropped_paths(os))),
+  List.append(&2, T.Split, fact("edited", without(sorted(edited(os)), arriving)),
+  List.append(&2, T.Split, fact("mode", without(sorted(modes(os)), arriving)),
+    fact("link", without(sorted(links), arriving)))))))
+
+# The survey `record` plans from, and what it refuses: the paths several
+# files claim, what nothing here can take, what a merge would empty, the
+# contested bytes to accept, and a link left dangling.
+type Planned is Data:
+  Planned{facts: List<&2, T.Split>, refused: List<&2, T.Split>, claimed: List<&2, T.Split>, accept: List<&2, String>, emptied: List<&2, String>, dangles: Maybe<&2, String>}
+
+# `t` is every file where the renames put it, in identifier order, and
+# `looked` the part of it the restriction covers.
+def planned(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), walked: List<&2, T.Split>, ss: List<&2, Seen>, +moves: List<&2, T.Split>) -> Planned:
+  +cs = claims(looked)
+  +os = List.append(&2, Obs, seens(ss), claimed_drops(looked, cs, held))
+  +gone = Set.from_list(dropped_files(os))
+  +arriving = Set.from_list(added(os))
+  Planned{facts.recorded(arriving, os, links(t, gone, arriving, os), moved.paths(moves, gone)), List.append(&2, T.Split, walked, refusals(os)), cs, sorted(accepts(os)), emptied(os), dangle(t, gone, Set.from_list(pointed(os)), os)}
