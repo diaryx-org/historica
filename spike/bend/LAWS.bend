@@ -596,6 +596,16 @@ law emphasis_keeps_now:
   for e: {Main.apart(was, now) == Some{Main.Marked{w, n}} : Maybe<&2, Main.Marked>}
   {Main.pieces.text(n) == now : String}
 
+# And each mark falls on its own line. A run of removals replaced one for
+# one by as many arrivals pairs each removal with the arrival at the same
+# place in its run; every mark emphasis computes, over any lines, draws runs
+# that read as the line it is drawn on, and only a removal or an arrival
+# has one.
+law emphasis_marks_its_own_line:
+  for +ns: List<&2, Main.Numbered>
+  for paint: Bool
+  {Main.marks.fit(ns, Main.emph(ns, paint)) == True{} : Bool}
+
 # The folder's walk takes nothing a rule in `skipped/` skips. Reading one
 # directory's listing, a line an entry as the host hands it over, adds a
 # file or a link only where no rule skips its path, and a directory to walk

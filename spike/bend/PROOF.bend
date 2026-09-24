@@ -44,6 +44,7 @@ import ./logargs_lemmas.bend as LogArgs
 import ./check_lemmas.bend as CheckL
 import ./show_lemmas.bend as ShowL
 import ./hunk_lemmas.bend as HunkL
+import ./mark_lemmas.bend as MarkL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -437,6 +438,9 @@ def Laws.emphasis_keeps_was(was, now, w, n, e):
 
 def Laws.emphasis_keeps_now(was, now, w, n, e):
   Emph.apart_now(was, now, w, n, e)
+
+def Laws.emphasis_marks_its_own_line(ns, paint):
+  MarkL.emph_fit(ns, paint)
 
 def Laws.listing_skips_nothing(ls, prefix, rules, l, h):
   FolderL.listing_ok(ls, prefix, rules, l, h)

@@ -3100,71 +3100,151 @@ def head_is(ns: List<&2, Numbered>, +sign: String) -> Bool:
     case n <> rest:
       String.eq(numbered.sign(n), sign)
 
-def run.count(ns: List<&2, Numbered>, +sign: String, hit: Bool) -> Nat:
-  match ns hit:
-    case _ False{}:
-      0n
-    case Nil{} True{}:
-      0n
-    case n <> +rest True{}:
-      1n+run.count(rest, sign, head_is(rest, sign))
+# A run of lines with one mark, and the lines after it. `hit` is whether
+# the first has the mark.
+type Run is Data:
+  Run{lines: List<&2, Numbered>, rest: List<&2, Numbered>}
+
+def run.cons(n: Numbered, r: Run) -> Run:
+  match r:
+    case Run{ns, rest}:
+      Run{n <> ns, rest}
+
+def run.split(ns: List<&2, Numbered>, +sign: String, hit: Bool) -> Run:
+  match ns:
+    case Nil{}:
+      Run{Nil{}, Nil{}}
+    case n <> +rest:
+      match hit:
+        case False{}:
+          Run{Nil{}, n <> rest}
+        case True{}:
+          run.cons(n, run.split(rest, sign, head_is(rest, sign)))
 
 def numbered.shown(n: Numbered) -> String:
   match n:
     case Numbered{Laid{s, it}, b, a}:
       Ops.shown(it)
 
-type Pairs is Data:
-  Pairs{was: List<&2, Maybe<&2, String>>, now: List<&2, Maybe<&2, String>>}
+# A line's mark: its runs, where it has them.
+def mark.was(m: Maybe<&2, Marked>) -> Maybe<&2, List<&2, Piece>>:
+  match m:
+    case Some{Marked{w, n}}:
+      Some{w}
+    case None{}:
+      None{}
 
-def pairs.of(m: Maybe<&2, Marked>, p: Pairs) -> Pairs:
-  match m p:
-    case Some{Marked{w, n}} Pairs{ws, ns}:
-      Pairs{Some{pieces.show(w)} <> ws, Some{pieces.show(n)} <> ns}
-    case None{} Pairs{ws, ns}:
-      Pairs{None{} <> ws, None{} <> ns}
+def mark.now(m: Maybe<&2, Marked>) -> Maybe<&2, List<&2, Piece>>:
+  match m:
+    case Some{Marked{w, n}}:
+      Some{n}
+    case None{}:
+      None{}
 
-def pairs(rem: List<&2, Numbered>, arr: List<&2, Numbered>) -> Pairs:
+# Each removal with the arrival at the same place in its run.
+def pairs(rem: List<&2, Numbered>, arr: List<&2, Numbered>) -> List<&2, Maybe<&2, Marked>>:
   match rem arr:
     case r <> rs a <> more:
-      pairs.of(apart(numbered.shown(r), numbered.shown(a)), pairs(rs, more))
+      apart(numbered.shown(r), numbered.shown(a)) <> pairs(rs, more)
     case _ _:
-      Pairs{Nil{}, Nil{}}
+      Nil{}
 
-def pairs.flat(p: Pairs) -> List<&2, Maybe<&2, String>>:
-  match p:
-    case Pairs{ws, ns}:
-      List.append(&2, Maybe<&2, String>, ws, ns)
+def marks.was(ps: List<&2, Maybe<&2, Marked>>) -> List<&2, Maybe<&2, List<&2, Piece>>>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      mark.was(p) <> marks.was(rest)
 
-def emph.marks(+ns: List<&2, Numbered>, +r: Nat, +a: Nat, paired: Bool) -> List<&2, Maybe<&2, String>>:
+def marks.now(ps: List<&2, Maybe<&2, Marked>>) -> List<&2, Maybe<&2, List<&2, Piece>>>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      mark.now(p) <> marks.now(rest)
+
+def marks.none(ns: List<&2, Numbered>) -> List<&2, Maybe<&2, List<&2, Piece>>>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case n <> rest:
+      None{} <> marks.none(rest)
+
+# The marks of a stretch of lines, and the lines after it.
+type Chunked is Data:
+  Chunked{marks: List<&2, Maybe<&2, List<&2, Piece>>>, after: List<&2, Numbered>}
+
+def chunked.marks(c: Chunked) -> List<&2, Maybe<&2, List<&2, Piece>>>:
+  match c:
+    case Chunked{ms, a}:
+      ms
+
+def chunked.after(c: Chunked) -> List<&2, Numbered>:
+  match c:
+    case Chunked{ms, a}:
+      a
+
+def emph.pair(paired: Bool, +rem: List<&2, Numbered>, +arr: List<&2, Numbered>, rest: List<&2, Numbered>) -> Chunked:
   match paired:
     case True{}:
-      pairs.flat(pairs(List.take(&2, Numbered, ns, r), List.take(&2, Numbered, List.drop(&2, Numbered, ns, r), a)))
+      +ps = pairs(rem, arr)
+      Chunked{List.append(&2, Maybe<&2, List<&2, Piece>>, marks.was(ps), marks.now(ps)), rest}
     case False{}:
-      List.replicate(Maybe<&2, String>, Nat.max(Nat.add(r, a), 1n), None{})
+      Chunked{marks.none(List.append(&2, Numbered, rem, arr)), rest}
 
-def emph.go(fuel: Nat, ns: List<&2, Numbered>, acc: List<&2, Maybe<&2, String>>) -> List<&2, Maybe<&2, String>>:
+def emph.arrivals(+rem: List<&2, Numbered>, r: Run) -> Chunked:
+  match r:
+    case Run{+arr, rest}:
+      emph.pair(Bool.and(Nat.is_gt(List.length(&2, Numbered, rem), 0n), Nat.is_eq(List.length(&2, Numbered, rem), List.length(&2, Numbered, arr))), rem, arr, rest)
+
+def emph.removals(r: Run) -> Chunked:
+  match r:
+    case Run{rem, +after}:
+      emph.arrivals(rem, run.split(after, "+", head_is(after, "+")))
+
+# A run of removals and the arrivals after it, or one line that is neither.
+def emph.step(changed: Bool, n: Numbered, +rest: List<&2, Numbered>) -> Chunked:
+  match changed:
+    case True{}:
+      +all = {n <> rest : List<&2, Numbered>}
+      emph.removals(run.split(all, "-", head_is(all, "-")))
+    case False{}:
+      Chunked{[None{}], rest}
+
+def emph.go(fuel: Nat, ns: List<&2, Numbered>) -> List<&2, Maybe<&2, List<&2, Piece>>>:
   match fuel ns:
     case 0n _:
-      List.reverse(&2, Maybe<&2, String>, acc)
+      Nil{}
     case 1n+q Nil{}:
-      List.reverse(&2, Maybe<&2, String>, acc)
+      Nil{}
     case 1n+q +n <> +rest:
-      +all = {n <> rest : List<&2, Numbered>}
-      +r = run.count(all, "-", head_is(all, "-"))
-      +after = List.drop(&2, Numbered, all, r)
-      +a = run.count(after, "+", head_is(after, "+"))
-      +marks = emph.marks(all, r, a, Bool.and(Nat.is_gt(r, 0n), Nat.is_eq(r, a)))
-      emph.go(q, List.drop(&2, Numbered, all, Nat.max(Nat.add(r, a), 1n)), List.append(&2, Maybe<&2, String>, List.reverse(&2, Maybe<&2, String>, marks), acc))
+      +c = emph.step(laid.changed(numbered.sign(n)), n, rest)
+      List.append(&2, Maybe<&2, List<&2, Piece>>, chunked.marks(c), emph.go(q, chunked.after(c)))
 
-# Each line's marked text where it has one; nothing to compute without
+# Each line's marked runs where it has them; nothing to compute without
 # colour.
-def emph(+ns: List<&2, Numbered>, paint: Bool) -> List<&2, Maybe<&2, String>>:
+def emph(+ns: List<&2, Numbered>, paint: Bool) -> List<&2, Maybe<&2, List<&2, Piece>>>:
   match paint:
     case True{}:
-      emph.go(1n+List.length(&2, Numbered, ns), ns, Nil{})
+      emph.go(1n+List.length(&2, Numbered, ns), ns)
     case False{}:
       Nil{}
+
+# A mark is its own line's: the runs it draws read as that line, and only a
+# removal or an arrival has one (`LAWS.emphasis_marks_its_own_line`).
+def mark.fits(+n: Numbered, m: Maybe<&2, List<&2, Piece>>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{ps}:
+      Bool.and(String.eq(pieces.text(ps), numbered.shown(n)), laid.changed(numbered.sign(n)))
+
+def marks.fit(ns: List<&2, Numbered>, ms: List<&2, Maybe<&2, List<&2, Piece>>>) -> Bool:
+  match ns ms:
+    case n <> nr m <> mr:
+      Bool.and(mark.fits(n, m), marks.fit(nr, mr))
+    case _ _:
+      True{}
 
 def laid.marked.of(+sign: String, it: Ops.Item, t: String) -> List<&2, Painted>:
   match it:
@@ -3173,14 +3253,14 @@ def laid.marked.of(+sign: String, it: Ops.Item, t: String) -> List<&2, Painted>:
     case Ops.Item{x, False{}, f}:
       [Painted{sign_code(sign), sign ++ t}, Painted{sign_code(sign), "\\ no newline at end of file"}]
 
-def laid.marked(+sign: String, it: Ops.Item, m: Maybe<&2, String>) -> List<&2, Painted>:
+def laid.marked(+sign: String, it: Ops.Item, m: Maybe<&2, List<&2, Piece>>) -> List<&2, Painted>:
   match m:
     case None{}:
       laid.text(sign, it)
-    case Some{t}:
-      laid.marked.of(sign, it, t)
+    case Some{ps}:
+      laid.marked.of(sign, it, pieces.show(ps))
 
-def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, String>>) -> List<&2, Painted>:
+def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, List<&2, Piece>>>) -> List<&2, Painted>:
   match ns marks:
     case Nil{} _:
       Nil{}

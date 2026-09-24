@@ -1270,6 +1270,27 @@ def check_mutations(temporary):
             "hunk_lemmas.walk_cons",
             "main.bend",
         ),
+        (
+            "emphasis compares each removal with its arrival the wrong way round",
+            '      apart(numbered.shown(r), numbered.shown(a)) <> pairs(rs, more)',
+            '      apart(numbered.shown(a), numbered.shown(r)) <> pairs(rs, more)',
+            "mark_lemmas.was_fit",
+            "main.bend",
+        ),
+        (
+            "emphasis marks the arrivals before the removals",
+            'List.append(&2, Maybe<&2, List<&2, Piece>>, marks.was(ps), marks.now(ps))',
+            'List.append(&2, Maybe<&2, List<&2, Piece>>, marks.now(ps), marks.was(ps))',
+            "mark_lemmas.pair_fit",
+            "main.bend",
+        ),
+        (
+            "emphasis gives a context line no mark",
+            '      Chunked{[None{}], rest}',
+            '      Chunked{Nil{}, rest}',
+            "mark_lemmas.step_fit",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
