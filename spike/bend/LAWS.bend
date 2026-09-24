@@ -19,6 +19,7 @@ import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
 import ./arrange.bend as Arrange
+import ./prune.bend as Prune
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1130,3 +1131,33 @@ law arrange_counts_every_file:
   for +a: Arrange.Arrangement
   for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
   {Arrange.accounted(a, revs, ops) == True{} : Bool}
+
+# `prune` takes nothing but its flags, and never a plan and a statement of
+# what is on disk at once: `--dry-run --fields` is refused before the
+# store is opened.
+law prune_reads_its_words:
+  for +ws: List<&2, String>
+  for +c: Prune.PruneCmd
+  for e: {Prune.args.r(ws) == Done{c} : Result<&2, &2, Main.Refused, Prune.PruneCmd>}
+  {Bool.and(Prune.all_flags(ws), Prune.one_or_other(c)) == True{} : Bool}
+
+# `prune` never removes a revision that work it keeps stands on: of the
+# revisions a store holds, one pruning does not keep is named as a parent
+# by nothing it keeps — however many passes the fixed point takes, and in
+# whatever order a pass let revisions go.
+law prune_keeps_what_work_stands_on:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for hf: {Rev.member(Main.ids(fs), id) == True{} : Bool}
+  for hk: {Rev.member(Main.ids(Prune.kept(fs)), id) == False{} : Bool}
+  {Prune.stood_on(Prune.kept(fs), id) == False{} : Bool}
+
+# Every operation document and payload `prune` removes holds a digest
+# nothing it keeps needs: named by no revision it keeps, and no forgetting
+# document standing in for one that is.
+law prune_removes_only_unneeded_content:
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +ps: List<&2, T.Split>
+  {Prune.unneeded(Prune.pruned.content(Prune.plan(fs, revs, bs, ps)), Prune.referenced(Prune.kept(fs), bs)) == True{} : Bool}
