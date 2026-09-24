@@ -541,3 +541,25 @@ def unknown_lined(+eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, hs: List<&2,
 # of lines the position holds: never a file of bytes or a link.
 def reads_only_lines(+dg: Map<&2, String>, +bf: Map<&2, String>, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +hs: List<&2, Main.Here>) -> {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}:
   AL.and_intro(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs)), reads_lined(dg, bf, hs), unknown_lined(eds, os, hs))
+
+# What the survey is told
+# -----------------------
+
+def proposed_none(b: Bool, -x: Maybe<&2, String>) -> {Bool.or(Bool.not(b), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, b, None{}, x))) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# The survey is told of each path compared once, in order, and of a file
+# the parents being joined leave differently, no digest to compare it with.
+def seens_ok(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Main.Here>) -> {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case Main.Here{+path, +e, +found} <> +rest:
+      AL.and_intro(Main.status.surveys.one(Main.Here{path, e, found}, Main.status.seen(t, dg, bf, reads, Main.Here{path, e, found})), Main.status.surveys(rest, Main.status.seens(t, dg, bf, reads, rest)),
+        AL.and_intro(String.eq(path, path), Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))),
+          S.eq_refl(path), proposed_none(Main.status.proposed(bf, e), Main.status.before(bf, e))),
+        seens_ok(t, dg, bf, reads, rest))

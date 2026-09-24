@@ -2140,6 +2140,13 @@ def check_mutations(temporary):
             "status_lemmas.unknown_lined",
             "commands.bend",
         ),
+        (
+            "status compares a file the parents dispute with a digest",
+            "Bool.pick(Maybe<&2, String>, proposed, None{}, status.before(bf, e))",
+            "status.before(bf, e)",
+            "status_lemmas.seens_ok",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

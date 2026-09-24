@@ -1253,3 +1253,15 @@ law status_reads_only_lines:
   for +os: Map<&2, T.Split>
   for +hs: List<&2, Main.Here>
   {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}
+
+# `status` tells its survey of each path it compares once, in order; and
+# where the parents being joined leave a file of lines differently, it
+# gives the survey no digest to compare the folder's with, since there is
+# none — `record::joined_content`'s `-`.
+law status_surveys_each_path:
+  for +t: Tree.Tree()
+  for +dg: Map<&2, String>
+  for +bf: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for hs: List<&2, Main.Here>
+  {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, hs)) == True{} : Bool}
