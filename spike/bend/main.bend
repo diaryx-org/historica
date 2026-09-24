@@ -4780,6 +4780,30 @@ def wcf.position.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: String)
     l : Maybe<&2, String> <- the_head.r(fs, bs, current_heads(history(fs)))
     wcf.position.left(fs, bs, sp, l)
 
+# What `blame <path>` compares the folder with is a revision the store
+# holds, or none in an empty store; and the file the argument names is one
+# that revision's tree holds, or the tree holds nothing at the path and the
+# folder's file is its own. `LAWS.blame_reads_the_position` holds
+# `wcf.position.r` to it.
+def held.ok(+t: Tree.Tree(), h: Held) -> Bool:
+  match h:
+    case Held{None{}, +path}:
+      List.is_empty(&2, String, Tree.at(t, path))
+    case Held{Some{f}, path}:
+      Tree.holds(t, f)
+
+def left.ok(+fs: List<&2, Full>, l: Maybe<&2, String>) -> Bool:
+  match l:
+    case None{}:
+      True{}
+    case Some{id}:
+      Rev.member(ids(fs), id)
+
+def position.ok(+fs: List<&2, Full>, p: Position) -> Bool:
+  match p:
+    case Position{l, +t, h}:
+      Bool.and(left.ok(fs, l), held.ok(t, h))
+
 def blame.position(+root: String, +fs: List<&2, Full>, +repo: String, found: List<&2, Folder.Found>, span: Maybe<&2, Wanted>, p: Position) -> IO(Unit):
   match p:
     case Position{+l, +t, h}:

@@ -740,3 +740,16 @@ law blame_prints_each_line:
   for +out: List<&2, String>
   for e: {Main.blame.limited.r(fs, cs, rs, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}
   {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span)))) == True{} : Bool}
+
+# `blame <path>` compares the folder with a revision the store holds — the
+# one head, or none in an empty store — and the file the argument names is
+# one that revision's tree holds, or the tree holds nothing at the path and
+# every line is the folder's own. Whether it is spelled as a path, `path:`
+# and a path, or `file:` and an identifier or a bookmark.
+law blame_reads_the_position:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +sp: String
+  for +p: Main.Position
+  for e: {Main.wcf.position.r(fs, bs, sp) == Done{p} : Result<&2, &2, Main.Refused, Main.Position>}
+  {Main.position.ok(fs, p) == True{} : Bool}

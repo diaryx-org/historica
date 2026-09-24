@@ -7,6 +7,14 @@ import ./main.bend as Main
 import ./store.bend as Store
 import ./string_lemmas.bend as S
 import ./diff_lemmas.bend as Diff
+import ./tree.bend as Tree
+import ./revision.bend as Rev
+import ./bookmark.bend as Bm
+import ./text.bend as T
+import ./graph_lemmas.bend as GL
+import ./anchor_lemmas.bend as AL
+import ./target_lemmas.bend as TG
+import ./fileat_lemmas.bend as FileAt
 
 def rdisc(-A: Data, r: Result<&2, &2, Main.Refused, A>) -> Type:
   match r:
@@ -250,3 +258,124 @@ def printed(+fs: List<&2, Main.Full>, +cs: List<&2, String>, +rs: List<&2, Main.
 # with that line, and the marker after a line without a newline.
 def printed_lines(+fs: List<&2, Main.Full>, +cs: List<&2, String>, +rs: List<&2, Main.Row>, +span: Maybe<&2, Main.Wanted>, +out: List<&2, String>, e: {Main.blame.limited.r(fs, cs, rs, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Main.rows.items(rs), 1n), span)))) == True{} : Bool}:
   printed(fs, cs, rs, span, Main.blame.span.r(rs, span), {==}, out, e)
+
+# The position
+# ------------
+
+def cur_held(+fs: List<&2, Main.Full>, +x: String, m: {Rev.member(Main.current_heads(Main.history(fs)), x) == True{} : Bool}) -> {Rev.member(Main.ids(fs), x) == True{} : Bool}:
+  AL.or_cases({Rev.member(Main.ids(fs), x) == True{} : Bool}, Rev.member(Rev.heads(Main.history(fs)), x), Rev.member(Rev.without(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs))), x),
+    TG.cur_mem(Rev.heads(Main.history(fs)), Rev.without(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs))), x, m),
+    l => TG.head_held(fs, x, l),
+    r => TG.head_held(fs, x, GL.without_sub(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), x, r)))
+
+def head_left(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, heads: List<&2, String>, +l: Maybe<&2, String>, e: {Main.the_head.r(fs, bs, heads) == Done{l} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}, k: @x: String -> {Rev.member(heads, x) == True{} : Bool} -> {Rev.member(Main.ids(fs), x) == True{} : Bool}) -> {Main.left.ok(fs, l) == True{} : Bool}:
+  match heads:
+    case Nil{}:
+      +d = done_eq(Maybe<&2, String>, None{}, l, e)
+      %d : {Main.left.ok(fs, _) == True{} : Bool}
+      {==}
+    case +only <> Nil{}:
+      +d = done_eq(Maybe<&2, String>, Some{only}, l, e)
+      %d : {Main.left.ok(fs, _) == True{} : Bool}
+      k(only, GL.member_head(only, Nil{}))
+    case +x <> +y <> +r:
+      Empty.absurd({Main.left.ok(fs, l) == True{} : Bool}, refuse(Maybe<&2, String>, Main.the_head.r(fs, bs, x <> y <> r), l, {==}, e))
+
+def at_r(+f: String, p: Maybe<&2, String>, +t: Tree.Tree(), +h: Main.Held, e: {Main.wcf.at.r(f, p) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}, hf: {Tree.holds(t, f) == True{} : Bool}) -> {Main.held.ok(t, h) == True{} : Bool}:
+  match p:
+    case None{}:
+      Empty.absurd({Main.held.ok(t, h) == True{} : Bool}, refuse(Main.Held, Main.wcf.at.r(f, None{}), h, {==}, e))
+    case Some{path}:
+      +d = done_eq(Main.Held, Main.Held{Some{f}, path}, h, e)
+      %d : {Main.held.ok(t, _) == True{} : Bool}
+      hf
+
+def file_bind(+id: String, +bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, r: Result<&2, &2, Main.Refused, String>, +er: {Main.file_in.r(id, bs, sp, t) == r : Result<&2, &2, Main.Refused, String>}, +h: Main.Held, e: {Result.bind(&2, &2, Main.Refused, String, Main.Held, r, f => Main.wcf.path_of(t, f)) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}) -> {Main.held.ok(t, h) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.held.ok(t, h) == True{} : Bool}, fail_done(Main.Held, x, h, e))
+    case Done{+f}:
+      at_r(f, Tree.path(t, f), t, h, e, FileAt.file_ok(id, bs, sp, t, f, er))
+
+def file_r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, left: Maybe<&2, String>, +h: Main.Held, e: {Main.wcf.file.r(bs, t, sp, left) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}) -> {Main.held.ok(t, h) == True{} : Bool}:
+  match left:
+    case None{}:
+      Empty.absurd({Main.held.ok(t, h) == True{} : Bool}, refuse(Main.Held, Main.wcf.file.r(bs, t, sp, None{}), h, {==}, e))
+    case Some{+id}:
+      file_bind(id, bs, t, sp, Main.file_in.r(id, bs, sp, t), {==}, h, e)
+
+def several_bind(+id: String, +bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +path: String, r: Result<&2, &2, Main.Refused, String>, +er: {Main.file_in.r(id, bs, path, t) == r : Result<&2, &2, Main.Refused, String>}, +h: Main.Held, e: {Result.bind(&2, &2, Main.Refused, String, Main.Held, r, f => Done{Main.Held{Some{f}, path}}) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}) -> {Main.held.ok(t, h) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.held.ok(t, h) == True{} : Bool}, fail_done(Main.Held, x, h, e))
+    case Done{+f}:
+      +d = done_eq(Main.Held, Main.Held{Some{f}, path}, h, e)
+      %d : {Main.held.ok(t, _) == True{} : Bool}
+      FileAt.file_ok(id, bs, path, t, f, er)
+
+def several_r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +path: String, left: Maybe<&2, String>, +h: Main.Held, e: {Main.wcf.several.r(bs, t, path, left) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}) -> {Main.held.ok(t, h) == True{} : Bool}:
+  match left:
+    case None{}:
+      Empty.absurd({Main.held.ok(t, h) == True{} : Bool}, refuse(Main.Held, Main.wcf.several.r(bs, t, path, None{}), h, {==}, e))
+    case Some{+id}:
+      several_bind(id, bs, t, path, Main.file_in.r(id, bs, path, t), {==}, h, e)
+
+def at_mem(+t: Tree.Tree(), +path: String, at: List<&2, String>, ea: {Tree.at(t, path) == at : List<&2, String>}, +x: String, m: {Rev.member(at, x) == True{} : Bool}) -> {Rev.member(Tree.at(t, path), x) == True{} : Bool}:
+  +es = Equal.sym(List<&2, String>, Tree.at(t, path), at, ea)
+  %es : {Rev.member(_, x) == True{} : Bool}
+  m
+
+def path_r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +path: String, +left: Maybe<&2, String>, at: List<&2, String>, +ea: {Tree.at(t, path) == at : List<&2, String>}, +h: Main.Held, e: {Main.wcf.path.r(bs, t, path, left, at) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}) -> {Main.held.ok(t, h) == True{} : Bool}:
+  match at:
+    case Nil{}:
+      +d = done_eq(Main.Held, Main.Held{None{}, path}, h, e)
+      %d : {Main.held.ok(t, _) == True{} : Bool}
+      +es = Equal.sym(List<&2, String>, Tree.at(t, path), Nil{}, ea)
+      %es : {List.is_empty(&2, String, _) == True{} : Bool}
+      {==}
+    case +x <> rest:
+      match rest:
+        case Nil{}:
+          +d = done_eq(Main.Held, Main.Held{Some{x}, path}, h, e)
+          %d : {Main.held.ok(t, _) == True{} : Bool}
+          FileAt.files_holds(t, x, FileAt.at_files(t, path, x, at_mem(t, path, [x], ea, x, GL.member_head(x, Nil{}))))
+        case y <> r:
+          several_r(bs, t, path, left, h, e)
+
+def spelled_r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: Maybe<&2, String>, file: Bool, +h: Main.Held, e: {Main.wcf.spelled.r(bs, t, sp, left, file) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}) -> {Main.held.ok(t, h) == True{} : Bool}:
+  match file:
+    case True{}:
+      file_r(bs, t, sp, left, h, e)
+    case False{}:
+      path_r(bs, t, Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp), left, Tree.at(t, Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)), {==}, h, e)
+
+def held_r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: Maybe<&2, String>, +h: Main.Held, e: {Main.wcf.held.r(bs, t, sp, left) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}) -> {Main.held.ok(t, h) == True{} : Bool}:
+  spelled_r(bs, t, sp, left, String.starts_with(sp, "file:"), h, e)
+
+def pos_tree(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, +l: Maybe<&2, String>, +t: Tree.Tree(), +hl: {Main.left.ok(fs, l) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Main.Held>, +er: {Main.wcf.held.r(bs, t, sp, l) == r : Result<&2, &2, Main.Refused, Main.Held>}, +p: Main.Position, e: {Result.bind(&2, &2, Main.Refused, Main.Held, Main.Position, r, h => Done{Main.Position{l, t, h}}) == Done{p} : Result<&2, &2, Main.Refused, Main.Position>}) -> {Main.position.ok(fs, p) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.position.ok(fs, p) == True{} : Bool}, fail_done(Main.Position, x, p, e))
+    case Done{+h}:
+      +d = done_eq(Main.Position, Main.Position{l, t, h}, p, e)
+      %d : {Main.position.ok(fs, _) == True{} : Bool}
+      and_tt(Main.left.ok(fs, l), Main.held.ok(t, h), hl, held_r(bs, t, sp, l, h, er))
+
+def pos_left(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, +l: Maybe<&2, String>, +hl: {Main.left.ok(fs, l) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Tree.Tree()>, +p: Main.Position, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), Main.Position, r, t => Main.wcf.position.tree(bs, sp, l, t)) == Done{p} : Result<&2, &2, Main.Refused, Main.Position>}) -> {Main.position.ok(fs, p) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.position.ok(fs, p) == True{} : Bool}, fail_done(Main.Position, x, p, e))
+    case Done{+t}:
+      pos_tree(fs, bs, sp, l, t, hl, Main.wcf.held.r(bs, t, sp, l), {==}, p, e)
+
+def pos_head(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, r: Result<&2, &2, Main.Refused, Maybe<&2, String>>, +er: {Main.the_head.r(fs, bs, Main.current_heads(Main.history(fs))) == r : Result<&2, &2, Main.Refused, Maybe<&2, String>>}, +p: Main.Position, e: {Result.bind(&2, &2, Main.Refused, Maybe<&2, String>, Main.Position, r, l => Main.wcf.position.left(fs, bs, sp, l)) == Done{p} : Result<&2, &2, Main.Refused, Main.Position>}) -> {Main.position.ok(fs, p) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.position.ok(fs, p) == True{} : Bool}, fail_done(Main.Position, x, p, e))
+    case Done{+l}:
+      pos_left(fs, bs, sp, l, head_left(fs, bs, Main.current_heads(Main.history(fs)), l, er, x => m => cur_held(fs, x, m)), Main.tree.maybe.r(fs, l), p, e)
+
+# `blame <path>` compares the folder with a revision the store holds, and
+# the file it names there is one that revision's tree holds.
+def position_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, +p: Main.Position, e: {Main.wcf.position.r(fs, bs, sp) == Done{p} : Result<&2, &2, Main.Refused, Main.Position>}) -> {Main.position.ok(fs, p) == True{} : Bool}:
+  pos_head(fs, bs, sp, Main.the_head.r(fs, bs, Main.current_heads(Main.history(fs))), {==}, p, e)

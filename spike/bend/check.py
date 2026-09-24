@@ -1137,6 +1137,13 @@ def check_mutations(temporary):
             "blamed_lemmas.ends_row",
             "main.bend",
         ),
+        (
+            "blame looks a `path:` spelling up with its prefix",
+            '      wcf.path.r(bs, t, p, left, Tree.at(t, p))',
+            '      wcf.path.r(bs, t, p, left, Tree.at(t, sp))',
+            "blamed_lemmas.spelled_r",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
