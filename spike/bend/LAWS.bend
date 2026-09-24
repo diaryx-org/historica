@@ -1491,3 +1491,18 @@ law record_plans_every_file:
   for +t: Tree.Tree()
   for +f: String
   {Main.entries.at(f, Sv.by_file(t)) == Main.entries.at(f, t) : Tree.Tree()}
+
+# A link in the folder is written as a reference only to what the revision
+# states. Its target, folded against the link's own directory, is spelled
+# as the path it lands on only where that path is one the revision states —
+# a file the position keeps there, or one arriving; anywhere else the link
+# keeps the string it spells.
+law a_link_refers_only_to_what_the_revision_states:
+  for +t: Tree.Tree()
+  for +gone: Set()
+  for +arriving: Set()
+  for +path: String
+  for +target: String
+  for +at: String
+  for e: {Sv.observed(t, gone, arriving, path, target) == "r" ++ at : String}
+  {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}
