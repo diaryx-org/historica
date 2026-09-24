@@ -59,10 +59,23 @@ def Store.folder(dir: String) -> IO(Result<&1, &1, U32 & String, String>):
 # A rename a person stated with `record --move`, done in the folder before
 # it is surveyed: the folder, the old path and the new, a line each, and
 # back which it was — `moved`, `there` where it already had been, `both` or
-# `neither` where nothing was done. The one effect that writes.
+# `neither` where nothing was done.
 def Store.move(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_move.c"
   import "./ffi/store_move.js"
+
+# A bookmark written: its path, then its bytes after the first newline. Its
+# directory is made first, and the bytes land staged and renamed, so a
+# reader sees the old bookmark or the new one.
+def Store.write(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_write.c"
+  import "./ffi/store_write.js"
+
+# A bookmark removed: where tidying stops, then the file; each directory the
+# removal leaves empty goes too. Back `removed`, or `absent`.
+def Store.remove(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_remove.c"
+  import "./ffi/store_remove.js"
 
 # Whether standard output is a terminal: `1` or `0`, for `--color auto`.
 def Store.tty(query: String) -> IO(Result<&1, &1, U32 & String, String>):
@@ -184,6 +197,12 @@ def listing_of(dir: String) -> IO(Result<&1, &1, U32 & String, String>):
 # A stated rename, done in the folder, as `Store.move` does it.
 def moved(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.move(query)
+
+def written(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.write(query)
+
+def removed(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.remove(query)
 
 def read_text(path: String) -> IO(String):
   do IO<String>:

@@ -29,11 +29,12 @@ bend main.bend -- blame notes.txt        # the folder's lines, attributed
 bend main.bend -- status                 # how the folder differs from the head
 bend main.bend -- status --onto left --merge right   # and what joining them contests
 bend main.bend -- record --dry-run --move a.md=b.md   # what recording would state
+bend main.bend -- name main head        # point a bookmark, and `--delete` one
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through seven host effects (`store.bend`): `bend main.bend` runs
+here or above — through nine host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -259,11 +260,11 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal, and the one write — a rename `record --move` states: seven effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; and three writes — a rename `record --move` states, and a bookmark written and removed: nine effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record --dry-run` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and one claims about the code, each proven | the test suite and Verus replay helpers |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record --dry-run` and `name` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -283,6 +284,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
 | `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added | `working::walk`, `Survey::facts` |
 | `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given | `status`'s arguments and parents |
+| `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet | `store::check_name` |
 | `PROOF.bend` (`replay`) | `replay_keeps_a_refusal`: once a document in the chain is refused, nothing after it — a payload included — makes the chain a file; `opdiff_replays_to_the_child`: the document `opdiff` finds between two files, applied as `replay` applies one, makes the second | `replay`, `opdiff` |
 | `target_lemmas.bend` | `target_is_held`: every target — a bookmark, `head`, a digest prefix or a change prefix — resolves to a revision the store holds; setting a key in Base's `Map` never invents a value, so the history heads and changes are read from holds only the store's revisions | `target::resolve` |
 | `log_lemmas.bend` | `log_lists_what_it_asks`: every revision `log` lists satisfies every filter asked of it, whatever the limit | `log`'s filters |
@@ -459,14 +461,33 @@ UTF-8, a link not looked at whose target is going, a path several files
 still claim, what nothing here can take, a merge that empties a file, and
 contested bytes accepted or not. And `--move` renames in the folder before
 anything is read, as the Rust tool does, dry run or not — through
-`Store.move`, the one effect that writes, which renames and answers which
-of the four cases the folder was in. `check.py` runs each `record` on a
+`Store.move`, which renames and answers which of the four cases the folder
+was in. `check.py` runs each `record` on a
 copy of the store of its own, per tool, and compares the folder after as
 well as what was said: 90 commands across fourteen stores, one of them
 `claimed`, built for the merge refusals — two files added at one path,
 settled with `--at` by file bookmark, bytes written two ways, and a link to
 a file the folder dropped. A usage error is now compared too, to the end of
 its message.
+
+`name` is the first command that writes the store. It points a bookmark
+at a change, which follows amend and rebase; at a revision with
+`--revision`; or at a file, where a path is given — by path, `path:`, or
+`file:` and a file bookmark or identifier. A bookmark moved keeps whether
+it is private unless `--private` or `--shared` says, and `--shared` says
+that a replica still calling it private will make it private again. A
+name is refused by `check_name`'s rules — empty, a backslash, and the
+path rules — and where it is spelled as a file identifier; and none it
+takes leaves `names/` (`LAWS.name_stays_in_names`). `--delete` removes a
+bookmark and each directory it leaves empty, `names/` itself kept. With
+`--fields` it states what it wrote in decision 0074's words —
+`historica-wrote-1`, then `name` or `unname` — and leaves the header
+behind where it stops, whatever stopped it, except a command line that
+was wrong. The file lands as the Rust tool lands it, staged beside itself
+and renamed over, through `Store.write`, and goes through `Store.remove`.
+`check.py` holds 58 `name` commands to the Rust tool with `names/` compared
+after: every target, nested names and a name beside a directory of the
+same name, every refusal, and a store whose bookmarks will not open.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1012,7 +1033,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Ninety-six mutations cover the primitive helpers, lost inserts, a lost trailing
+Ninety-seven mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1085,7 +1106,8 @@ arriving file said to have changed as well; and two replay breaks: a
 payload after a refusal starting the file over, and a document applied to
 nothing rather than to what came before; and two status breaks: the
 revisions joined kept newest first, and a `--merge` joined by its spelling
-rather than the revision it names. The
+rather than the revision it names; and one name break: a name taken without
+asking the path rules. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1175,8 +1197,8 @@ is under 5k. Not ported:
   carries no spelling of it.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
-- **Writing the store**: `init`, `record` but its dry run, `name`,
-  `arrange`, `fetch`, `export`. Nothing here writes but the rename
+- **Writing the store**: `init`, `record` but its dry run, `arrange`,
+  `fetch`, `export`. Nothing here writes but `name` and the rename
   `--move` states. `check` does not report on `names/`. A merge's file
   still holding the renderer's marker lines is not refused by
   `record --dry-run`, since the markers are not modelled.

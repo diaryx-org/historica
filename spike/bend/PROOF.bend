@@ -49,6 +49,7 @@ import ./sort_lemmas.bend as SortL
 import ./pair_lemmas.bend as PairL
 import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
+import ./name_lemmas.bend as NameL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./main.bend as Main
@@ -589,3 +590,6 @@ def Laws.status_reads_its_words(args, cmd, e):
 
 def Laws.status_joins_held_revisions(fs, bs, onto, ms, ps, e):
   StatusL.parents_held(fs, bs, onto, ms, ps, e)
+
+def Laws.name_stays_in_names(n, e):
+  NameL.stays(n, e)
