@@ -7,8 +7,9 @@
 # And what it says: everything the survey found, in order, each fact,
 # refusal, claim and accept on a line of its own naming it; and where work
 # is joined, each contest the merge found, once, opening with its file;
-# against one revision, the tree `files` reads there; and it reads and
-# replays only files of lines.
+# against one revision, the tree `files` reads there; it reads and replays
+# only files of lines, tells its survey of each path once, and believes a
+# digest a statement gives, so that only a replay can refuse it.
 import Base
 import ./commands.bend as Main
 import ./sort_lemmas.bend as SortL
@@ -25,6 +26,7 @@ import ./listing_lemmas.bend as ListL
 import ./graph_lemmas.bend as GL
 import ./folder.bend as Folder
 import ./store.bend as Store
+import ./ops.bend as Ops
 
 # Its words
 # ---------
@@ -563,3 +565,46 @@ def seens_ok(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads
         AL.and_intro(String.eq(path, path), Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))),
           S.eq_refl(path), proposed_none(Main.status.proposed(bf, e), Main.status.before(bf, e))),
         seens_ok(t, dg, bf, reads, rest))
+
+# What it believes
+# ----------------
+
+def err_of(r: Result<&2, &2, String, Map<&2, String>>, d: String) -> String:
+  match r:
+    case Fail{x}:
+      x
+    case Done{m}:
+      d
+
+def fail_eq(-x: String, -e: String, h: {Fail{x} == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {x == e : String}:
+  Equal.cong(Result<&2, &2, String, Map<&2, String>>, String, r => err_of(r, x), Fail{x}, Fail{e}, h)
+
+def fails_replay(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +file: String, +rest: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, r: Result<&2, &2, String, List<&2, Ops.Item>>, +er: {Main.content.in(older, ds, left, file) == r : Result<&2, &2, String, List<&2, Ops.Item>>}, e1: {Result.bind(&2, &2, String, String, Map<&2, String>, Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), r), d => Main.status.befores.go(older, ds, left, eds, os, rest, Map.set(&2, String, m, file, d))) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}, ih: @m2: Map<&2, String> -> {Main.status.befores.go(older, ds, left, eds, os, rest, m2) == Fail{e} : Result<&2, &2, String, Map<&2, String>>} -> {Main.status.replay_fails(older, ds, left, eds, os, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.fails_as(Main.content.in(older, ds, left, file), e), Main.status.replay_fails(older, ds, left, eds, os, rest, e)) == True{} : Bool}:
+  match r:
+    case Fail{+x}:
+      AL.or_left(Main.status.fails_as(Main.content.in(older, ds, left, file), e), Main.status.replay_fails(older, ds, left, eds, os, rest, e),
+        (%Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Main.content.in(older, ds, left, file), Fail{x}, er) : {Main.status.fails_as(_, e) == True{} : Bool}
+          (%Equal.sym(String, x, e, fail_eq(x, e, e1)) : {String.eq(_, e) == True{} : Bool}
+            S.eq_refl(e))))
+    case Done{+items}:
+      AL.or_right(Main.status.fails_as(Main.content.in(older, ds, left, file), e), Main.status.replay_fails(older, ds, left, eds, os, rest, e), ih(Map.set(&2, String, m, file, Ops.state_digest(items)), e1))
+
+def fails_digest(st: Maybe<&2, String>, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +file: String, +rest: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, e1: {Result.bind(&2, &2, String, String, Map<&2, String>, Main.status.digest.of(st, older, ds, left, file), d => Main.status.befores.go(older, ds, left, eds, os, rest, Map.set(&2, String, m, file, d))) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}, ih: @m2: Map<&2, String> -> {Main.status.befores.go(older, ds, left, eds, os, rest, m2) == Fail{e} : Result<&2, &2, String, Map<&2, String>>} -> {Main.status.replay_fails(older, ds, left, eds, os, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.replay_fails.one(older, ds, left, e, st, file), Main.status.replay_fails(older, ds, left, eds, os, rest, e)) == True{} : Bool}:
+  match st:
+    case Some{+d}:
+      AL.or_right(False{}, Main.status.replay_fails(older, ds, left, eds, os, rest, e), ih(Map.set(&2, String, m, file, d), e1))
+    case None{}:
+      fails_replay(older, ds, left, eds, os, file, rest, m, e, Main.content.in(older, ds, left, file), {==}, e1, ih)
+
+def go_fails(hs: List<&2, Main.Here>, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +m: Map<&2, String>, +e: String, h: {Main.status.befores.go(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.replay_fails(older, ds, left, eds, os, hs, e) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      Empty.absurd({Main.status.replay_fails(older, ds, left, eds, os, Nil{}, e) == True{} : Bool}, B.fail_done_s(Map<&2, String>, e, m, Equal.sym(Result<&2, &2, String, Map<&2, String>>, Done{m}, Fail{e}, h)))
+    case +x <> +rest:
+      fails_digest(Main.stated_digest(eds, Main.origin(os, Main.here.file(x))), older, ds, left, eds, os, Main.here.file(x), rest, m, e, h, m2 => h2 => go_fails(rest, older, ds, left, eds, os, m2, e, h2))
+
+# Against one revision, `status` believes a digest a statement gives and
+# replays only where none does, so it is refused only where a file of lines
+# no statement settles cannot be replayed, and with that refusal.
+def believes(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +hs: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, h: {Main.status.befores(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.replay_fails(older, ds, left, eds, os, Main.status.lined(hs), e) == True{} : Bool}:
+  go_fails(Main.status.lined(hs), older, ds, left, eds, os, m, e, h)

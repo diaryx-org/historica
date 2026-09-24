@@ -2147,6 +2147,13 @@ def check_mutations(temporary):
             "status_lemmas.seens_ok",
             "commands.bend",
         ),
+        (
+            "status replays a file a statement settles",
+            "    case Some{d}:\n      Done{d}\n    case None{}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), content.in(older, ds, left, file))",
+            "    case Some{d}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => d, content.in(older, ds, left, file))\n    case None{}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), content.in(older, ds, left, file))",
+            "status_lemmas.fails_digest",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

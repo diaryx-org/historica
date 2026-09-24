@@ -1265,3 +1265,19 @@ law status_surveys_each_path:
   for +reads: Map<&2, List<&2, U32>>
   for hs: List<&2, Main.Here>
   {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, hs)) == True{} : Bool}
+
+# Against one revision, `status` believes the digest a statement gives a
+# file of lines and replays only where none does: it is refused only where
+# a file of lines it compares, whose digest no statement gives, cannot be
+# replayed, and then with that file's refusal.
+law status_believes_what_is_stated:
+  for +older: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +left: String
+  for +eds: List<&2, Store.Doc>
+  for +os: Map<&2, T.Split>
+  for +hs: List<&2, Main.Here>
+  for +m: Map<&2, String>
+  for +e: String
+  for h: {Main.status.befores(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
+  {Main.status.replay_fails(older, ds, left, eds, os, Main.status.lined(hs), e) == True{} : Bool}
