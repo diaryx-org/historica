@@ -26,6 +26,8 @@ bend main.bend -- diff head             # what a revision did, rendered
 bend main.bend -- diff                  # the folder against the head
 bend main.bend -- blame head notes.txt
 bend main.bend -- blame notes.txt        # the folder's lines, attributed
+bend main.bend -- status                 # how the folder differs from the head
+bend main.bend -- status --onto left --merge right   # and what joining them contests
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
@@ -252,14 +254,15 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `ops.bend` | the operation document: parse, write, replay, and the longest-common-subsequence diff the proofs are about | `format::operations`, `replay` |
 | `similar.bend` | the diff the commands draw: `similar` 3.2.0's Histogram, with its preflights, its Myers fallback and heuristics, and the compaction around it, held to the crate on two thousand cases, Myers alone among them | `diff`, the `similar` crate |
 | `unicode.bend` | which characters are letters or digits, as Rust's `char::is_alphanumeric` reads Unicode 17 | `char` |
-| `folder.bend` | the working copy: `skipped/`'s rules read and matched, the folder walked a directory at a time, and what counts as text | `working` |
+| `folder.bend` | the working copy: `skipped/`'s rules read and matched, the folder walked a directory at a time, what it refuses and why, and what counts as text | `working` |
+| `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed | `record::survey` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
 | `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal: six effects, a C adapter, a Rust static library | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | ninety-five claims about the code, each proven | the test suite and Verus replay helpers |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status` over the store it finds, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `LAWS.bend` / `PROOF.bend` | ninety-seven claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -277,6 +280,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `sort_lemmas.bend` | string order is total and transitive, and Base's `List.sort` by a name returns its items each no smaller than the one before, with the items under each name the ones it was given, in the order given | `diff`'s pairing |
 | `pair_lemmas.bend` | `diff_pairs_each_file`: under any file, the pairs `diff` goes on with are the entries each side holds under it, paired in order as far as either goes — each file compared once with itself where each side holds it once | `diff`'s pairing |
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
+| `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added | `working::walk`, `Survey::facts` |
 | `target_lemmas.bend` | `target_is_held`: every target — a bookmark, `head`, a digest prefix or a change prefix — resolves to a revision the store holds; setting a key in Base's `Map` never invents a value, so the history heads and changes are read from holds only the store's revisions | `target::resolve` |
 | `log_lemmas.bend` | `log_lists_what_it_asks`: every revision `log` lists satisfies every filter asked of it, whatever the limit | `log`'s filters |
 | `fileat_lemmas.bend` | `file_is_held`: a file argument — a path, `path:` and a path, `file:` and a file bookmark or an identifier's prefix — names a file the revision's tree holds | `target::file_in` |
@@ -413,6 +417,27 @@ file of lines is read only where the host's digest of it is not the one its
 nearest statement on the head's first-parent line leaves, so `diff` over
 the archive's folder takes 1.4 s. A malformed rule in `skipped/` refuses
 every command, in the Rust tool's words, as a malformed bookmark does.
+
+`status` says how the folder differs from the head, or from what `--onto`
+names, as `record::survey` finds it: each path `added`, `dropped`,
+`edited`, or given a `mode` or a `link` target the position does not
+state; the paths nothing here can take, `refused` with why — a pipe, a
+name with space at an end or a control character, a link whose target is
+not UTF-8 or begins with `file:`, a file of lines no longer text; and a
+dropped path and an added one holding the same bytes, one to one, offered
+as a `--move`. A link's target is resolved as the recorder resolves it,
+against the tree the revision would state, so a target spelled another way
+to the same file says nothing and one pointing at an arrival is a
+reference. Where `--merge` names revisions being joined, the position is
+all of them, merged, and `status` says what the merge decided by rule
+rather than by agreement: a file one side dropped and the other kept, a
+file moved two ways, bytes stated whole on both sides, a mode or a link
+target set two ways — the tree's contests, which `tree.bend` computes and
+which were not printed until now. A file of lines the parents leave
+differently is `edited` whatever the folder holds, since the merge owes it
+a resolution. What the renderer's marker lines leave standing in such a
+file (`marked`) is not reported: that needs the content contests
+`merge.bend` does not model.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -958,7 +983,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Eighty-nine mutations cover the primitive helpers, lost inserts, a lost trailing
+Ninety-two mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1024,7 +1049,10 @@ another is near; and three emphasis breaks: a removal compared with its
 arrival the wrong way round, the arrivals' marks drawn before the removals',
 and a context line given no mark; and three pairing breaks: the two
 sides walked comparing their files the wrong way round, a file only the
-parent holds dropped, and the child's files sorted backwards. The
+parent holds dropped, and the child's files sorted backwards; and two
+refusal breaks: a path refused without asking the rules, and a refusal
+naming a path other than the one asked about; and one survey break: an
+arriving file said to have changed as well. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1091,8 +1119,12 @@ is under 5k. Not ported:
 
 - **Merging** concurrent branches as a command over the store. A stated
   resolution is read. Where a merge states none, the proven walk reads
-  the file. No `contested` report is made: the tree's contests are
-  computed and not yet printed.
+  the file. `status --merge` prints the tree's contests; the content
+  contests of a file both sides edited are not modelled, so neither is
+  the rendering with markers nor `status`'s `marked` count of them.
+- **Refusing a name that is not UTF-8**: the walk leaves it out, as the
+  Rust walk does, but `status` does not list it, since the host's listing
+  carries no spelling of it.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
 - **Writing the store**: `init`, `record`, `name`, `arrange`, `fetch`,

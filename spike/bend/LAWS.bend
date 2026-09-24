@@ -17,6 +17,7 @@ import ./similar.bend as Sim
 import ./folder.bend as Folder
 import ./bookmark.bend as Bm
 import ./store.bend as Store
+import ./survey.bend as Sv
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -618,6 +619,27 @@ law listing_skips_nothing:
   for +l: Folder.Listing
   for h: {Folder.listing.ok(rules, l) == True{} : Bool}
   {Folder.listing.ok(rules, Folder.listing.go(ls, prefix, rules, l)) == True{} : Bool}
+
+# `status` refuses no path a rule skips: a rule is how a person silences
+# one. Each listing line is refused only once the rules have let its path
+# through, and a refusal names the path that was asked about, so reading a
+# directory's listing onto refusals that name no skipped path leaves none.
+law walk_refuses_nothing_skipped:
+  for +ls: List<&2, String>
+  for +prefix: String
+  for +rules: List<&2, Folder.Scope>
+  for after: Bool
+  for +acc: List<&2, T.Split>
+  for h: {Folder.refused_kept(rules, acc) == True{} : Bool}
+  {Folder.refused_kept(rules, Folder.refusals.go(ls, prefix, rules, after, acc)) == True{} : Bool}
+
+# `status` says a file is arriving once. Whatever the survey observed, a
+# line of its report other than `added` or `dropped` names no path being
+# added: an arrival carries its content, mode and target in with it.
+law status_says_an_arrival_once:
+  for +os: List<&2, Sv.Obs>
+  for +links: List<&2, String>
+  {Sv.arrives_once(Set.from_list(Sv.added(os)), Sv.facts(os, links)) == True{} : Bool}
 
 # Every target names a revision the store holds. A bookmark, `head`, a
 # digest prefix or a change prefix: whichever a spelling is read as, the
