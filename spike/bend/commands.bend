@@ -6705,12 +6705,65 @@ def header.refused(r: Result<&2, &2, String, Unit>) -> Result<&2, &2, Refused, U
     case Done{u}:
       Done{u}
 
-# The store opened by a command that owes `--fields` a statement: a header
-# `Store.opened` would refuse is refused here, the statement said first.
+# What opening the store refuses, asked without refusing: the header, then
+# each bookmark, then each rule of `skipped/`, the first that is not what it
+# should be named as `bookmarks` and `Folder.rules` name it.
+def opening.bookmark(+file: String, r: Result<&2, &2, String, Bm.Stated>) -> Result<&2, &2, String, Unit>:
+  match r:
+    case Fail{e}:
+      Fail{file ++ ": " ++ e}
+    case Done{x}:
+      Done{Unit{}}
+
+def opening.rule(+file: String, st: Folder.Stated) -> Result<&2, &2, String, Unit>:
+  match st:
+    case Folder.Stated.Wrong{e}:
+      Fail{file ++ ": " ++ e}
+    case _:
+      Done{Unit{}}
+
+def opening.names(+root: String, ns: List<&2, Named>, r: Result<&2, &2, String, Unit>) -> IO(Result<&2, &2, String, Unit>):
+  match ns r:
+    case _ Fail{e}:
+      IO.pure(Result<&2, &2, String, Unit>, Fail{e})
+    case Nil{} Done{u}:
+      IO.pure(Result<&2, &2, String, Unit>, Done{u})
+    case Named{n, +p} <> rest Done{u}:
+      do IO<Result<&2, &2, String, Unit>>:
+        text : String <- Store.read_text(root ++ "/" ++ p)
+        opening.names(root, rest, opening.bookmark(root ++ "/" ++ p, Bm.parse(text)))
+
+def opening.rules(+root: String, ps: List<&2, String>, r: Result<&2, &2, String, Unit>) -> IO(Result<&2, &2, String, Unit>):
+  match ps r:
+    case _ Fail{e}:
+      IO.pure(Result<&2, &2, String, Unit>, Fail{e})
+    case Nil{} Done{u}:
+      IO.pure(Result<&2, &2, String, Unit>, Done{u})
+    case +p <> rest Done{u}:
+      do IO<Result<&2, &2, String, Unit>>:
+        text : String <- Store.read_text(root ++ "/" ++ p)
+        opening.rules(root, rest, opening.rule(root ++ "/" ++ p, Folder.rule_in(text)))
+
+def opening(+root: String, h: Result<&2, &2, String, Unit>) -> IO(Result<&2, &2, String, Unit>):
+  match h:
+    case Fail{e}:
+      IO.pure(Result<&2, &2, String, Unit>, Fail{e})
+    case Done{u}:
+      do IO<Result<&2, &2, String, Unit>>:
+        ns : List<&2, String> <- Store.name_paths(root)
+        n : Result<&2, &2, String, Unit> <- opening.names(root, List.sort(~Named, ~(a => b => named.le(a, b)), named(ns)), Done{Unit{}})
+        ps : List<&2, String> <- Store.skipped_paths(root)
+        opening.rules(root, Folder.rules.kept(ps), n)
+
+# The store opened by a command that owes `--fields` a statement (decision
+# 0074): whatever opening it would refuse — a header this reader does not
+# read, a bookmark or a rule that is not one — is refused here, the
+# statement said first.
 def opened.stated(+st: Bool, +root: String) -> IO(Unit):
   do IO<Unit>:
     h : Result<&2, &2, String, Unit> <- Store.header(root)
-    stated.io(Unit, st, header.refused(h))
+    o : Result<&2, &2, String, Unit> <- opening(root, h)
+    stated.io(Unit, st, header.refused(o))
 
 # The renames a person stated, done in the folder before it is read, as
 # the Rust tool does them — whichever state the folder is in. Except for
@@ -8912,10 +8965,14 @@ def record.checked(+st: Bool, +root: String, c: RecordCmd) -> IO(Unit):
         bs : List<&2, Bm.Bookmark> <- bookmarks(root)
         record.go(st, root, fulls(root, rs), bs, RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg})
 
+# Where the store is, for the four commands the Rust tool finds it for
+# before it reads their words. No statement is owed where there is none:
+# the Rust tool's `?` on that search leaves `run` before decision 0074's
+# header is considered.
 def record.root(+st: Bool, r: Result<&1, &1, U32 & String, String>) -> IO(String):
   match r:
     case Fail{Tuple{code, msg}}:
-      stated.io(String, st, Fail{Refused{1, msg}})
+      die(String, 1, msg)
     case Done{found}:
       IO.pure(String, found)
 
