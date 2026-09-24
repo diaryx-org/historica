@@ -20,6 +20,7 @@ import ./store.bend as Store
 import ./survey.bend as Sv
 import ./arrange.bend as Arrange
 import ./prune.bend as Prune
+import ./receive.bend as Receive
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1161,3 +1162,27 @@ law prune_removes_only_unneeded_content:
   for +bs: List<&2, Prune.Body>
   for +ps: List<&2, T.Split>
   {Prune.unneeded(Prune.pruned.content(Prune.plan(fs, revs, bs, ps)), Prune.referenced(Prune.kept(fs), bs)) == True{} : Bool}
+
+# `receive` takes only what this store lacks: every revision it plans to
+# write is one this store does not hold, and every document and payload
+# one it has nothing under the digest of — and that neither store forgets,
+# so a forgetting document is never undone by an arriving original.
+law receive_takes_only_what_is_missing:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  {Receive.fresh(here, there, Receive.plan.of(here, there)) == True{} : Bool}
+
+# `receive` moves no bookmark this store has: each it writes is one this
+# store lacks, or one it holds at the same target, whose axis joins. Two
+# targets for one name is a disagreement, and writes nothing.
+law receive_moves_no_bookmark:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  {Receive.names_kept(Receive.rplan.names(Receive.plan.of(here, there)), Receive.side.marks(here)) == True{} : Bool}
+
+# Every original `receive` destroys is one a forgetting document of either
+# store stands in for (decision 0014).
+law receive_destroys_only_what_is_forgotten:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  {Main.all_held(Receive.forgotten(here, there), Receive.rplan.destroys(Receive.plan.of(here, there))) == True{} : Bool}

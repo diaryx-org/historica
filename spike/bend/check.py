@@ -701,6 +701,35 @@ STORES = {
     # (The parser's reasons are the port's own words, not the Rust tool's,
     # so `arrange`'s refusal to open this store is not compared.)
     "unparsed": [["prune", "-n"], ["prune", "--fields"]],
+    # A store and three beside it, filed in its folder: a copy that went on —
+    # a revision, a document and a payload this one lacks, bookmarks new,
+    # moved, and made private at one target, three rules one of which takes
+    # a label a file here already has, and a file of `claims/` — with its
+    # `main` moved elsewhere and without; and a stranger. Planned, done and
+    # stated; refused over the disagreement, over the stranger unless
+    # joined, over a directory with no store, and over the words.
+    "receiving": [
+        ["receive", "agreeing", "-n"],
+        ["receive", "agreeing"],
+        ["receive", "--fields", "agreeing"],
+        ["receive", "agreeing/history", "--dry-run"],
+        ["receive", "other", "-n"],
+        ["receive", "other"],
+        ["receive", "other", "--fields"],
+        ["receive", "stranger", "-n"],
+        ["receive", "stranger", "--join-unrelated", "-n"],
+        ["receive", "stranger", "--join-unrelated"],
+        ["receive", "nowhere"],
+        ["receive", "nowhere", "--fields"],
+        ["receive", "."],
+        ["receive"],
+        ["receive", "a", "b"],
+        ["receive", "-x", "agreeing"],
+        ["receive", "agreeing", "-n", "--fields"],
+        ["receive", "forgetful", "-n"],
+        ["receive", "forgetful"],
+        ["receive", "forgetful", "--fields"],
+    ],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
         ["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"],
@@ -1250,6 +1279,46 @@ def record(temporary, rust, corpus, pinned=None):
         shutil.copy(history / "operations" / "by hand" / "deep" / document.name, history / "operations" / "copy.ops.txt")
         shutil.copy(own.parent / "mine" / own.name, history / "revisions" / "copy.rev.txt")
         (history / "operations" / "stray.txt").write_text("named by nothing\n")
+    elif corpus == "receiving":
+        def at(where, *command):
+            return subprocess.run([rust, *command], cwd=where, env=env, check=True, capture_output=True, text=True, timeout=120).stdout
+
+        (store / "notes.md").write_text("one\n")
+        (store / "p.bin").write_bytes(b"\x00p")
+        historica("record", "-m", "one")
+        historica("name", "main", "head")
+        historica("name", "shared", "head")
+        change = at(store, "log", "--fields").splitlines()[1].split()[1]
+        # A copy that forgot the one line this store's first file holds, so
+        # a forgetting document arrives and the original here is destroyed.
+        forgetful = temporary / "receiving-forgetful"
+        shutil.copytree(store, forgetful, symlinks=True)
+        at(forgetful, "forget", "head", "notes.md", "--lines", "1..1")
+        other = temporary / "receiving-other"
+        shutil.copytree(store, other, symlinks=True)
+        (other / "notes.md").write_text("one\ntwo\n")
+        (other / "q.bin").write_bytes(b"\x00q")
+        at(other, "record", "-m", "two")
+        at(other, "name", "side", "head", "--revision")
+        at(other, "name", "priv", "head", "--private")
+        at(other, "name", "shared", change, "--private")
+        at(other, "skip", "build/")
+        at(other, "skip", "--private", "--name", "*.tmp")
+        at(other, "skip", "--name", "x")
+        (other / "history" / "claims" / "by").mkdir(parents=True)
+        (other / "history" / "claims" / "by" / "one.txt").write_text("vouched\n")
+        (other / "history" / "claims" / ".DS_Store").write_bytes(b"\x00")
+        (store / "history" / "skipped" / "name x.txt").write_text("# a note, stating no rule\n")
+        agreeing = temporary / "receiving-agreeing"
+        shutil.copytree(other, agreeing, symlinks=True)
+        (agreeing / "history" / "names" / "main.txt").unlink()
+        stranger = temporary / "receiving-stranger"
+        stranger.mkdir()
+        at(stranger, "init", ".")
+        (stranger / "else.md").write_text("elsewhere\n")
+        at(stranger, "record", "-m", "elsewhere")
+        for name, path in (("other", other), ("agreeing", agreeing), ("stranger", stranger), ("forgetful", forgetful)):
+            path.rename(store / name)
     elif corpus in ("pruning", "lying", "unparsed"):
         def rec(*command):
             done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
@@ -1413,7 +1482,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -2186,6 +2255,27 @@ def check_mutations(temporary):
             "  Bool.pick(Result<&2, &2, Main.Refused, PruneCmd>, False{},",
             "prune_lemmas.of_ok",
             "prune.bend",
+        ),
+        (
+            "receive takes a document this store already holds",
+            "      doc.keep(Bool.not(Arrange.has(have, Store.id_of(d))), d, docs.lacking(rest, have))",
+            "      doc.keep(True{}, d, docs.lacking(rest, have))",
+            "receive_lemmas.docs_lacking",
+            "receive.bend",
+        ),
+        (
+            "receive moves a bookmark this store holds elsewhere",
+            "      Bool.pick(Marked, same_target(tt, ht), marked.joined(n, ht, hp, tp), Marked{Nil{}, [Conflict{n, Bm.Bookmark{hn, ht, hp}, Bm.Bookmark{n, tt, tp}}]})",
+            "      Bool.pick(Marked, same_target(tt, ht), marked.joined(n, ht, hp, tp), Marked{[Bm.Bookmark{n, tt, tp}], Nil{}})",
+            "receive_lemmas.one_kept",
+            "receive.bend",
+        ),
+        (
+            "receive destroys an original nothing forgets",
+            "  Main.sorted_distinct(among(forgotten(here, there), Set.from_list(",
+            "  Main.sorted_distinct(among(List.append(&2, String, forgotten(here, there), body.ids(stored.bodies(stored.of(there)))), Set.from_list(",
+            "receive_lemmas.destroys",
+            "receive.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):

@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.tidy` and `Store.sweep`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.tidy`, `Store.sweep` and `Store.exit`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -72,7 +72,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The seventeen effects here are one-shot — a string in, a string out, nothing
+The eighteen effects here are one-shot — a string in, a string out, nothing
 held between calls but where a pinned seed's stream has got to — which
 avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
@@ -186,6 +186,23 @@ and removed the same way; and `Store.sweep` takes every directory under
 `revisions/` and `operations/` that was left holding nothing. Which
 revisions go, which content is still needed, and what counts as a cache
 entry are decided in Bend.
+
+`receive` reads what `prune` reads, of both stores, and the files of
+`claims/`, which `Store.list` now walks when asked for by name, their
+digests from `Store.digests`. It writes through the effects `record`
+already uses: every document and revision through `Store.once`, the text
+read and hashed here under the digest it hashed to; every payload and
+every file of `claims/` through `Store.copy`, which hashes it again as it
+copies and refuses one that moved on; every bookmark through
+`Store.write`; every rule through `Store.once`; and the originals a
+forgetting document stands in for through `Store.remove`, then
+`Store.sweep`. Which files, under which names, and what a disagreement is,
+are decided in Bend. A dry run that finds a disagreement prints it and
+ends with code 1, which `IO.die` cannot do without a line on standard
+error: `Store.exit` ends the process with the code given. It is the one
+effect with no Rust behind it — ending the program is the C runtime's, and
+nothing about a store comes into it — and the JS twin's writes are
+synchronous, so nothing printed is lost.
 
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and

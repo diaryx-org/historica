@@ -266,7 +266,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, a document or a payload filed once, and the directories a rename or a removal leaves empty, tidied: seventeen effects, a C adapter, a Rust static library |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, a document or a payload filed once, and the directories a rename or a removal leaves empty, tidied; and a silent exit with a code: eighteen effects, a C adapter, a Rust static library |
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
@@ -276,6 +276,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `arrange_lemmas.bend` | `arrange_reads_its_words`: a command line `arrange` accepts is all flags; `arrange_plans_no_overwrite`: every rename it plans goes to a path nothing was at, from a different one; `arrange_keeps_a_revision_where_it_sits`: without `--refile`, a revision is renamed only within its directory; `arrange_opens_what_parses`: it opens a store only where every revision parses; `arrange_counts_every_file`: every file it walks is counted once in what it prints | `arrange` |
 | `prune.bend` | `prune`: what may go, to the Rust tool's fixed point — each revision asked, in digest order, against what is kept at its turn — and the content nothing kept still needs, forgetting documents included; the part of `check` a writer that destroys or copies asks first; the files removed, `cache/` cleared, and the directories left empty swept | `store::prune`, decision 0013 |
 | `prune_lemmas.bend` | `prune_reads_its_words`: a command line `prune` accepts is all flags, and not a plan and a statement at once; `prune_keeps_what_work_stands_on`: no revision it keeps names one it lets go of as a parent, through an invariant every step of every pass keeps; `prune_removes_only_unneeded_content`: every document and payload it removes holds a digest nothing kept needs | `prune` |
+| `receive.bend` | `receive`: two stores read as the Rust tool opens them, each held to the part of `check` the port reads, related or joined; the union planned — revisions, documents and payloads this store lacks and neither forgets, bookmarks new or joined on their axis and the disagreements, rules under the labels `Rule::label` gives, the files of `claims/` — and carried out, content before the revisions naming it, with the originals a forgetting document stands in for destroyed | `store::receive`, decisions 0029, 0044, 0045, 0053, 0062 |
+| `receive_lemmas.bend` | `receive_takes_only_what_is_missing`: every revision, document and payload it plans to write is one this store has nothing under the digest of, and neither store forgets; `receive_moves_no_bookmark`: each bookmark it writes is new here or at the target it has here; `receive_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document names | `receive` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -628,6 +630,31 @@ of a pruned revision, an empty directory, a platform's file and a cache
 entry; `lying` and `unparsed` are two stores `check` calls broken, and
 `badname`, `badskip`, `bare`, `rewriting` and `stranded` add their own;
 `check.py` holds nineteen `prune`s to the Rust tool.
+
+`receive <dir>` unions another local store's history into this one, as
+decision 0029 has it: by what documents hold. The source is the directory
+named, or the store below it; each side is opened as the Rust tool opens a
+store and held to the part of `check` the port reads, and two nonempty
+stores that share no revision or edge are refused unless joined. A
+revision, a document or a payload arrives where this store has nothing
+under its digest and neither store forgets it
+(`receive_takes_only_what_is_missing`): each document is read and hashed
+here and filed under the digest its bytes have, and each payload copied
+through `Store.copy`, which hashes it on the way past. A bookmark this
+store lacks arrives whole, one both hold at one target is made private
+where either says so, and one they hold at two targets is a disagreement
+that stops the receive, or makes a dry run exit 1 after saying so
+(`receive_moves_no_bookmark`); the dry run's exit goes through
+`Store.exit`, since the Rust tool says nothing on standard error there.
+Rules arrive under `Rule::label`'s names, a rule's digest where a file here
+already has the name; the files of `claims/` by name, unread. An original
+here that an arriving forgetting document stands in for is destroyed
+(`receive_destroys_only_what_is_forgotten`), and so are the directories
+that leaves empty. The `receiving` store has four stores in its folder: a
+copy that went on, with its `main` moved and without; a stranger; and a
+copy that forgot a line this store still holds. `check.py` holds twenty
+`receive`s to the Rust tool, every file of every store in the folder
+compared after.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1252,7 +1279,9 @@ name that is taken, a revision refiled without `--refile`, a dry run's
 count leaving out the files it would leave, and a store opened past a
 revision that does not parse; and three prune breaks: a revision let go
 that work still stands on, content removed that a kept revision names,
-and a plan and a statement taken at once. The
+and a plan and a statement taken at once; and three receive breaks: a
+document taken that this store already holds, a bookmark moved to where
+the source has it, and an original destroyed that nothing forgets. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent

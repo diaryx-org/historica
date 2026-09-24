@@ -43,9 +43,10 @@ import Base
 import ./commands.bend as C
 import ./arrange.bend as Arrange
 import ./prune.bend as Prune
+import ./receive.bend as Receive
 
 def usage() -> IO(Unit):
-  C.die(Unit, 2, "usage: init [<dir>] | log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | arrange [-n|--dry-run] [--refile] | prune [--dry-run] [--fields] | replay <ops docs..> | opdiff <parent> <child>")
+  C.die(Unit, 2, "usage: init [<dir>] | log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | arrange [-n|--dry-run] [--refile] | prune [--dry-run] [--fields] | receive <dir> [--dry-run] [--join-unrelated] [--fields] | replay <ops docs..> | opdiff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
@@ -89,6 +90,8 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       Arrange.arrange(args)
     case "prune" <> args:
       Prune.prune(args)
+    case "receive" <> args:
+      Receive.receive(args)
     case "opdiff" <> parent <> child <> Nil{}:
       C.opdiff(parent, child)
     case _:

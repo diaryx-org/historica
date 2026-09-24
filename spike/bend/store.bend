@@ -90,6 +90,13 @@ def Store.sweep(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_sweep.c"
   import "./ffi/store_sweep.js"
 
+# The process ends, with the code given, once what it printed is out: for
+# a command whose answer is its exit code and says nothing on standard
+# error. It never returns.
+def Store.exit(code: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_exit.c"
+  import "./ffi/store_exit.js"
+
 # Where a path really is — links, `.` and `..` resolved — or, for an empty
 # one, the current directory. A path that is not there has no answer.
 def Store.real(query: String) -> IO(Result<&1, &1, U32 & String, String>):
@@ -244,6 +251,14 @@ def name_paths(+root: String) -> IO(List<&2, String>):
     text : String <- IO.try(String, Store.list(root ++ "\nnames"))
     return kept(String.lines(text))
 
+# Every file under `claims/`, relative to the root, sorted: the one
+# directory another tool keeps that travels (decision 0053), which is
+# carried by name and never read.
+def claims_paths(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root ++ "\nclaims"))
+    return kept(String.lines(text))
+
 # Whether what is printed goes to a terminal.
 def terminal() -> IO(Bool):
   do IO<Bool>:
@@ -275,6 +290,9 @@ def tidied(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def swept(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.sweep(query)
+
+def ended(code: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.exit(code)
 
 def really(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.real(query)

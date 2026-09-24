@@ -30,8 +30,10 @@ const DOCUMENT_DIRS: [&str; 2] = ["revisions", "operations"];
 /// Every directory `Store.list` walks when asked: the documents, and the
 /// bookmarks and the rules of what recording skips, which are not documents
 /// — nothing names one by its digest — and so are listed only by a caller
-/// that asks for them.
-const LISTED_DIRS: [&str; 4] = ["revisions", "operations", "names", "skipped"];
+/// that asks for them; and `claims/`, the one directory decision 0053
+/// reserves for another tool and says travels, which `receive` unions and
+/// `export` and `offer` carry without reading.
+const LISTED_DIRS: [&str; 5] = ["revisions", "operations", "names", "skipped", "claims"];
 
 /// Where a store keeps what it can rebuild, and what decision 0036's
 /// catalogue of `operations/` is called inside it.
@@ -1020,6 +1022,15 @@ mod tests {
         assert_eq!(listing, "names/feature/x.txt");
         let (_, listing) = call(hist_store_list, root.as_bytes());
         assert!(!listing.contains("names/"), "{listing}");
+
+        // So is `claims`, another tool's directory that travels.
+        fs::create_dir_all(dir.path().join("history/claims/by")).unwrap();
+        fs::write(dir.path().join("history/claims/by/one.txt"), "vouched\n").unwrap();
+        let (code, listing) = call(hist_store_list, format!("{root}\nclaims").as_bytes());
+        assert_eq!(code, 0);
+        assert_eq!(listing, "claims/by/one.txt");
+        let (_, listing) = call(hist_store_list, root.as_bytes());
+        assert!(!listing.contains("claims/"), "{listing}");
     }
 
     #[test]

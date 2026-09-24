@@ -52,6 +52,7 @@ import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
+import ./receive_lemmas.bend as ReceiveL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -619,3 +620,12 @@ def Laws.prune_keeps_what_work_stands_on(fs, id, hf, hk):
 
 def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps):
   PruneL.content(fs, revs, bs, ps)
+
+def Laws.receive_takes_only_what_is_missing(here, there):
+  ReceiveL.fresh(here, there)
+
+def Laws.receive_moves_no_bookmark(here, there):
+  ReceiveL.names(here, there)
+
+def Laws.receive_destroys_only_what_is_forgotten(here, there):
+  ReceiveL.destroys(here, there)
