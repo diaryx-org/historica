@@ -341,6 +341,52 @@ def newest(ws: List<&2, String>, +best: Maybe<&2, String>) -> Maybe<&2, String>:
     case +w <> rest:
       newest(rest, Bool.pick(Maybe<&2, String>, Nat.is_ge(instant(w), Maybe.default(&2, Nat, Maybe.map(&2, String, Nat, b => instant(b), best), 0n)), Some{w}, best))
 
+# What the laws ask of a name
+# ---------------------------
+
+# Whether every character of a string passes a test.
+def every(~p: Char -> Bool, s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, rest}:
+      Bool.and(p(c), every(~p, rest))
+
+# A name holding nothing a filesystem reserves, and no control character.
+def plain(s: String) -> Bool:
+  every(~(c => Bool.not(reserved(c))), s)
+
+# A name that is the directory `month` and one plain name inside it
+# (`LAWS.a_revision_is_filed_under_its_month`).
+def in_month(month: String, s: String) -> Bool:
+  match month s:
+    case SNil{} SNil{}:
+      False{}
+    case SNil{} SCon{c, rest}:
+      Bool.and(Char.is_eq(c, '/'), plain(rest))
+    case SCon{m, ms} SNil{}:
+      False{}
+    case SCon{m, ms} SCon{c, rest}:
+      Bool.and(Char.is_eq(c, m), in_month(ms, rest))
+
+# Whether a string begins with a dot or a space.
+def spare_start(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{c, rest}:
+      spare(c)
+
+# A summary's ends (`LAWS.a_summary_gives_up_its_ends`): it neither begins
+# nor ends with a dot or a space.
+def trimmed(+s: String) -> Bool:
+  Bool.not(Bool.or(spare_start(s), spare_start(String.reverse(s))))
+
+# A name with no control character in it, which is what a filed path is
+# scrubbed of (`LAWS.content_is_filed_under_a_name_a_filesystem_holds`).
+def controlless(s: String) -> Bool:
+  every(~(c => Bool.not(Folder.is_control(c))), s)
+
 def show_split(s: T.Split) -> String:
   match s:
     case T.Split{a, b}:
