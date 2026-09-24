@@ -6113,6 +6113,23 @@ def status.seens(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +r
     case h <> rest:
       status.seen(t, dg, bf, reads, h) <> status.seens(t, dg, bf, reads, rest)
 
+# What `LAWS.status_surveys_each_path` reads in what the survey is told:
+# each path compared, once and in order, and where the parents being
+# joined leave a file of lines differently, no digest to compare it with.
+def status.surveys.one(h: Here, s: Sv.Seen) -> Bool:
+  match h s:
+    case Here{p, e, f} Sv.Seen{q, e2, f2, d, before, text, shown, proposed}:
+      Bool.and(String.eq(p, q), Bool.or(Bool.not(proposed), Maybe.is_none(&2, String, before)))
+
+def status.surveys(hs: List<&2, Here>, ss: List<&2, Sv.Seen>) -> Bool:
+  match hs ss:
+    case Nil{} Nil{}:
+      True{}
+    case h <> hr s <> sr:
+      Bool.and(status.surveys.one(h, s), status.surveys(hr, sr))
+    case _ _:
+      False{}
+
 # Joining
 # -------
 

@@ -645,3 +645,6 @@ def Laws.status_compares_with_the_revisions_tree(fs, p):
 
 def Laws.status_reads_only_lines(dg, bf, eds, os, hs):
   StatusL.reads_only_lines(dg, bf, eds, os, hs)
+
+def Laws.status_surveys_each_path(t, dg, bf, reads, hs):
+  StatusL.seens_ok(t, dg, bf, reads, hs)
