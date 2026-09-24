@@ -642,3 +642,6 @@ def Laws.status_says_each_contest(ps, cs):
 
 def Laws.status_compares_with_the_revisions_tree(fs, p):
   StatusL.one_tree(fs, p)
+
+def Laws.status_reads_only_lines(dg, bf, eds, os, hs):
+  StatusL.reads_only_lines(dg, bf, eds, os, hs)

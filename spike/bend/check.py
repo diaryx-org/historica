@@ -2126,6 +2126,20 @@ def check_mutations(temporary):
             "status_lemmas.one_tree",
             "commands.bend",
         ),
+        (
+            "status reads a file of bytes from the folder",
+            "    case Here{+path, Some{Tree.Entry{+f, q, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}:",
+            "    case Here{+path, Some{Tree.Entry{+f, q, Tree.Whole{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}:",
+            "status_lemmas.read_lines",
+            "commands.bend",
+        ),
+        (
+            "status replays a file whatever its kind",
+            "      Bool.pick(List<&2, String>, Bool.and(status.lines(h), Maybe.is_none(&2, String, stated_digest(eds, origin(os, here.file(h))))), here.file(h) <> later, later)",
+            "      Bool.pick(List<&2, String>, Maybe.is_none(&2, String, stated_digest(eds, origin(os, here.file(h)))), here.file(h) <> later, later)",
+            "status_lemmas.unknown_lined",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

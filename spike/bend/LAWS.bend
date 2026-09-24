@@ -1084,14 +1084,14 @@ law name_reads_its_words:
   for +ws: List<&2, String>
   {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.nargs.said(ws) : Main.NameCmd}
 
-# `name` does what its words say, and a command line that says something
-# else is refused before anything is opened. A bookmark is deleted only
-# where `--delete` was said, and then it is the one other word, with no
-# flag shaping a target beside it; otherwise a bookmark is set, the other
-# words being the bookmark, the target and at most one path, in order, with
-# `--revision`, `--private` or `--shared` and `--fields` as they were read.
-# A file bookmark is never pinned, and the header `--fields` asks for goes
-# out before the store is opened only where `--fields` asked for it.
+# What `name` sets out to do, decided before anything is opened, is what
+# its words say. A bookmark is deleted only where `--delete` was said, and
+# then it is the one other word, with no flag shaping a target beside it;
+# otherwise a bookmark is set, the other words being the bookmark, the
+# target and at most one path, in order, with `--revision`, `--private` or
+# `--shared` and `--fields` as they were read. A file bookmark is never
+# pinned, and the header `--fields` asks for goes out before the store is
+# opened only where `--fields` asked for it.
 law name_does_what_it_reads:
   for c: Main.NameCmd
   for +p: Main.NamePlan
@@ -1185,10 +1185,10 @@ law log_fields_lists_what_it_keeps:
   for limit: Maybe<&2, Nat>
   {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}
 
-# A log entry counts what its revision did to the file set as the
-# revision states it: the files it added, moved, dropped and edited are
-# each of its `add`, `move`, `drop` and `edit` facts, once — whatever it
-# added besides, which only the counts of modes, links and bytes set aside.
+# A log entry counts what its revision did to the file set as the revision
+# states it: the files added, moved, dropped and edited are how many `add`,
+# `move`, `drop` and `edit` facts it states, each counted once and none set
+# aside for the files it added — only modes, links and bytes are.
 law log_counts_each_fact:
   for facts: List<&2, Rev.Header>
   for +key: String
@@ -1210,11 +1210,11 @@ law log_follows_a_held_file:
   {Main.tree.holds.r(Main.tree.r(fs, at), file) == True{} : Bool}
 
 # `status` says everything its survey of the folder found, in the order
-# found, each on a line of its own that names it: after the revisions the
-# folder is compared with, each fact on a line beginning with its kind and
-# ending with its path, then each path refused or claimed on a line
-# beginning `refused` or `claimed` and the path, and each accept on one
-# beginning `accept` and the path and ending with it again.
+# found, each on a line of its own that names it: each fact on a line
+# beginning with its kind and ending with its path, then each path refused
+# or claimed on a line beginning `refused` or `claimed` and the path, and
+# each accept on one beginning `accept` and the path and ending with it
+# again.
 law status_says_what_it_found:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
@@ -1240,3 +1240,16 @@ law status_compares_with_the_revisions_tree:
   for +fs: List<&2, Main.Full>
   for +p: String
   {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.r(fs, [p])) == Main.tree.r(fs, p) : Result<&2, &2, Main.Refused, Tree.Tree()>}
+
+# `status` reads from the folder, and replays at the position, only files
+# of lines the position holds — never a file of bytes or a link, whose
+# digest or target settles it: every path it asks the host to read, and
+# every file whose content it replays, is among the files of lines it
+# compares.
+law status_reads_only_lines:
+  for +dg: Map<&2, String>
+  for +bf: Map<&2, String>
+  for +eds: List<&2, Store.Doc>
+  for +os: Map<&2, T.Split>
+  for +hs: List<&2, Main.Here>
+  {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}

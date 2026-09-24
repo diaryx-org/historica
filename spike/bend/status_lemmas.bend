@@ -6,7 +6,9 @@
 #
 # And what it says: everything the survey found, in order, each fact,
 # refusal, claim and accept on a line of its own naming it; and where work
-# is joined, each contest the merge found, once, opening with its file.
+# is joined, each contest the merge found, once, opening with its file;
+# against one revision, the tree `files` reads there; and it reads and
+# replays only files of lines.
 import Base
 import ./commands.bend as Main
 import ./sort_lemmas.bend as SortL
@@ -20,6 +22,9 @@ import ./text.bend as T
 import ./survey.bend as Sv
 import ./tree.bend as Tree
 import ./listing_lemmas.bend as ListL
+import ./graph_lemmas.bend as GL
+import ./folder.bend as Folder
+import ./store.bend as Store
 
 # Its words
 # ---------
@@ -455,3 +460,84 @@ def tree_of(+p: String, r: Result<&2, &2, Tree.Fault, Tree.Merged>) -> {Result.m
 # `cat` and `diff` read there, or refuses as they do.
 def one_tree(+fs: List<&2, Main.Full>, +p: String) -> {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.r(fs, [p])) == Main.tree.r(fs, p) : Result<&2, &2, Main.Refused, Tree.Tree()>}:
   tree_of(p, Tree.merge(Main.events_of(Main.ancestry.oldest(fs, p))))
+
+# What it reads
+# -------------
+
+# A path is read from the folder only where the position holds a file of
+# lines there.
+def read_lines(+dg: Map<&2, String>, +bf: Map<&2, String>, h: Main.Here, e: {Main.status.read(dg, bf, h) == True{} : Bool}) -> {Main.status.lines(h) == True{} : Bool}:
+  match h:
+    case Main.Here{+p, None{}, None{}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, None{}, None{}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, None{}, Some{Folder.Found.File{+r, +x, +n}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, None{}, Some{Folder.Found.File{r, x, n}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, None{}, Some{Folder.Found.Link{+r, +x}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, None{}, Some{Folder.Found.Link{r, x}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Lines{}, +y, +g, +m}}, None{}}:
+      {==}
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Lines{}, +y, +g, +m}}, Some{Folder.Found.File{+r, +x, +n}}}:
+      {==}
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Lines{}, +y, +g, +m}}, Some{Folder.Found.Link{+r, +x}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Whole{}, +y, +g, +m}}, None{}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, None{}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Whole{}, +y, +g, +m}}, Some{Folder.Found.File{+r, +x, +n}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Whole{}, +y, +g, +m}}, Some{Folder.Found.Link{+r, +x}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Link{}, +y, +g, +m}}, None{}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, None{}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Link{}, +y, +g, +m}}, Some{Folder.Found.File{+r, +x, +n}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Link{}, +y, +g, +m}}, Some{Folder.Found.Link{+r, +x}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}) == True{} : Bool}, S.false_true(e))
+
+def ah_weak(+y: String, +ys: List<&2, String>, xs: List<&2, String>, +h: {Main.all_held(ys, xs) == True{} : Bool}) -> {Main.all_held(y <> ys, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(Rev.member(y <> ys, x), Main.all_held(y <> ys, rest), GL.member_tail(y, ys, x, Comp.and_left(Rev.member(ys, x), Main.all_held(ys, rest), h)),
+        ah_weak(y, ys, rest, Comp.and_right(Rev.member(ys, x), Main.all_held(ys, rest), h)))
+
+def reads_step(r: Bool, l: Bool, +dg: Map<&2, String>, +bf: Map<&2, String>, +h: Main.Here, +rest: List<&2, Main.Here>, er: {Main.status.read(dg, bf, h) == r : Bool}, el: {Main.status.lines(h) == l : Bool}, ih: {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.status.reads(dg, bf, rest)) == True{} : Bool}) -> {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Bool.pick(List<&2, Main.Here>, l, h <> Main.status.lined(rest), Main.status.lined(rest))), Rev.keep(r, Main.here.path(h), Main.status.reads(dg, bf, rest))) == True{} : Bool}:
+  match r l:
+    case True{} True{}:
+      AL.and_intro(Rev.member(Main.here.path(h) <> T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.here.path(h)), Main.all_held(Main.here.path(h) <> T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.status.reads(dg, bf, rest)),
+        GL.member_head(Main.here.path(h), T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest))), ah_weak(Main.here.path(h), T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.status.reads(dg, bf, rest), ih))
+    case True{} False{}:
+      Empty.absurd({Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Bool.pick(List<&2, Main.Here>, False{}, h <> Main.status.lined(rest), Main.status.lined(rest))), Main.here.path(h) <> Main.status.reads(dg, bf, rest)) == True{} : Bool}, S.true_false(Equal.trans(Bool, True{}, Main.status.lines(h), False{}, Equal.sym(Bool, Main.status.lines(h), True{}, read_lines(dg, bf, h, er)), el)))
+    case False{} True{}:
+      ah_weak(Main.here.path(h), T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.status.reads(dg, bf, rest), ih)
+    case False{} False{}:
+      ih
+
+def reads_lined(+dg: Map<&2, String>, +bf: Map<&2, String>, hs: List<&2, Main.Here>) -> {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case +h <> +rest:
+      reads_step(Main.status.read(dg, bf, h), Main.status.lines(h), dg, bf, h, rest, {==}, {==}, reads_lined(dg, bf, rest))
+
+def unknown_step(l: Bool, u: Bool, +h: Main.Here, +rest: List<&2, Main.Here>, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, ih: {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.status.unknown(eds, os, rest)) == True{} : Bool}) -> {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Bool.pick(List<&2, Main.Here>, l, h <> Main.status.lined(rest), Main.status.lined(rest))), Bool.pick(List<&2, String>, Bool.and(l, u), Main.here.file(h) <> Main.status.unknown(eds, os, rest), Main.status.unknown(eds, os, rest))) == True{} : Bool}:
+  match l u:
+    case True{} True{}:
+      AL.and_intro(Rev.member(Main.here.file(h) <> T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.here.file(h)), Main.all_held(Main.here.file(h) <> T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.status.unknown(eds, os, rest)),
+        GL.member_head(Main.here.file(h), T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest))), ah_weak(Main.here.file(h), T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.status.unknown(eds, os, rest), ih))
+    case True{} False{}:
+      ah_weak(Main.here.file(h), T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.status.unknown(eds, os, rest), ih)
+    case False{} _:
+      ih
+
+def unknown_lined(+eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, hs: List<&2, Main.Here>) -> {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case +h <> +rest:
+      unknown_step(Main.status.lines(h), Maybe.is_none(&2, String, Main.stated_digest(eds, Main.origin(os, Main.here.file(h)))), h, rest, eds, os, unknown_lined(eds, os, rest))
+
+# `status` reads from the folder, and replays at the position, only files
+# of lines the position holds: never a file of bytes or a link.
+def reads_only_lines(+dg: Map<&2, String>, +bf: Map<&2, String>, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +hs: List<&2, Main.Here>) -> {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}:
+  AL.and_intro(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs)), reads_lined(dg, bf, hs), unknown_lined(eds, os, hs))
