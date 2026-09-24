@@ -6975,11 +6975,248 @@ def record(+args: List<&2, String>) -> IO(Unit):
     a : RecordCmd <- refused.io(RecordCmd, record.args.r(args))
     record.checked(r, a)
 
+# name
+# ----
+
+# `name <bookmark> <target> [<path>] [--revision|--change]
+# [--private|--shared] [--fields]` and `name --delete <bookmark>`, read as
+# the Rust tool reads them: every flag wherever it stands, the last of
+# `--revision` and `--change` and of `--private` and `--shared` counting,
+# and every other word — one starting `-` too — the bookmark, the target
+# and the path, in order. What the flags shaping a target were, as typed,
+# is kept for `--delete`'s refusal of them.
+type NameCmd is Data:
+  NameCmd{pin: Bool, axis: Maybe<&2, Bool>, delete: Bool, fields: Bool, shaping: List<&2, String>, rest: List<&2, String>}
+
+type NWord is Data:
+  NWord.Revision{}
+  NWord.Change{}
+  NWord.Private{}
+  NWord.Shared{}
+  NWord.Delete{}
+  NWord.Fields{}
+  NWord.Other{}
+
+def nword(+w: String) -> NWord:
+  Bool.pick(NWord, String.eq(w, "--revision"), NWord.Revision{},
+  Bool.pick(NWord, String.eq(w, "--change"), NWord.Change{},
+  Bool.pick(NWord, String.eq(w, "--private"), NWord.Private{},
+  Bool.pick(NWord, String.eq(w, "--shared"), NWord.Shared{},
+  Bool.pick(NWord, String.eq(w, "--delete"), NWord.Delete{},
+  Bool.pick(NWord, String.eq(w, "--fields"), NWord.Fields{}, NWord.Other{}))))))
+
+def name.word(c: NameCmd, k: NWord, w: String) -> NameCmd:
+  match c k:
+    case NameCmd{p, a, d, f, sh, r} NWord.Revision{}:
+      NameCmd{True{}, a, d, f, List.append(&2, String, sh, [w]), r}
+    case NameCmd{p, a, d, f, sh, r} NWord.Change{}:
+      NameCmd{False{}, a, d, f, List.append(&2, String, sh, [w]), r}
+    case NameCmd{p, a, d, f, sh, r} NWord.Private{}:
+      NameCmd{p, Some{True{}}, d, f, List.append(&2, String, sh, [w]), r}
+    case NameCmd{p, a, d, f, sh, r} NWord.Shared{}:
+      NameCmd{p, Some{False{}}, d, f, List.append(&2, String, sh, [w]), r}
+    case NameCmd{p, a, d, f, sh, r} NWord.Delete{}:
+      NameCmd{p, a, True{}, f, sh, r}
+    case NameCmd{p, a, d, f, sh, r} NWord.Fields{}:
+      NameCmd{p, a, d, True{}, sh, r}
+    case NameCmd{p, a, d, f, sh, r} NWord.Other{}:
+      NameCmd{p, a, d, f, sh, List.append(&2, String, r, [w])}
+
+def name.args(ws: List<&2, String>, c: NameCmd) -> NameCmd:
+  match ws:
+    case Nil{}:
+      c
+    case +w <> rest:
+      name.args(rest, name.word(c, nword(w), w))
+
+# Decision 0074: asked for a statement, `name` leaves one behind even where
+# it stops — the header, and the refusal — except for a command line that
+# was wrong, which did nothing. `early` is where the header is printed
+# before the store is opened, so that a refusal inside opening it has it
+# too; it is not, where the line may yet prove wrong (an empty target, or
+# `file:` naming nothing), and the header then waits for a refusal the
+# Bend side decides.
+def WROTE() -> String:
+  "historica-wrote-1"
+
+def name.header(b: Bool) -> IO(Unit):
+  Bool.pick(IO(Unit), b, IO.print(WROTE()), IO.pure(Unit, Unit{}))
+
+def stated.io(-A: Data, +late: Bool, r: Result<&2, &2, Refused, A>) -> IO(A):
+  match r:
+    case Fail{Refused{+code, msg}}:
+      do IO<A>:
+        name.header(Bool.and(late, Bool.not(U32.is_eq(code, 2))))
+        die(A, code, msg)
+    case Done{x}:
+      IO.pure(A, x)
+
+# `store::check_name`, and decision 0024's refusal of a name spelled as a
+# file identifier, which would stop the identifier naming its own file.
+def name_fault(+n: String) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, String.is_empty(n), Some{"it is empty, and a bookmark with no name is not a bookmark"},
+  Bool.pick(Maybe<&2, String>, List.any(~&2, ~Char, ~(c => Char.is_eq(c, '\\')), String.to_list(n)), Some{"it holds a backslash, which is a separator on some machines and a character on others; a bookmark that changed shape when its store was copied would be worse than one refused everywhere"},
+    Sv.path_check(n)))
+
+def name.usable.r(+n: String, fault: Maybe<&2, String>) -> Result<&2, &2, Refused, Unit>:
+  match fault:
+    case Some{because}:
+      Fail{Refused{1, "`" ++ n ++ "` cannot be a bookmark: " ++ because}}
+    case None{}:
+      Done{Unit{}}
+
+def name.checked.r(+n: String) -> Result<&2, &2, Refused, Unit>:
+  Bool.pick(Result<&2, &2, Refused, Unit>, Id.is_assigned(n),
+    Fail{Refused{1, "`" ++ n ++ "` is spelled as an identifier, and a bookmark that is one would stop that identifier naming its own file; give it a name a person would say"}},
+    name.usable.r(n, name_fault(n)))
+
+# Whether a bookmark already here keeps its names out of an export: what a
+# bookmark being moved keeps, unless `--private` or `--shared` says.
+def private_of(bs: List<&2, Bm.Bookmark>, +n: String) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case Bm.Bookmark{+m, t, p} <> rest:
+      Bool.pick(Bool, String.eq(m, n), p, private_of(rest, n))
+
+def found_of(bs: List<&2, Bm.Bookmark>, +n: String) -> Maybe<&2, Bm.Bookmark>:
+  match bs:
+    case Nil{}:
+      None{}
+    case +b <> rest:
+      Bool.pick(Maybe<&2, Bm.Bookmark>, String.eq(Bm.name_of(b), n), Some{b}, found_of(rest, n))
+
+# What the bookmark will point at: a file where a path is given, resolved
+# at the revision named; the revision itself where `--revision` pins it;
+# and otherwise its change, which follows amend and rebase.
+def name.change(f: Full) -> String:
+  match f:
+    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
+      change
+
+def name.target.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +f: Full, path: Maybe<&2, String>, pin: Bool) -> Result<&2, &2, Refused, Bm.Target>:
+  match path pin:
+    case Some{+p} _:
+      do Result<&2, &2, Refused, Bm.Target>:
+        t : Tree.Tree() <- tree.r(fs, id_of(f))
+        file : String <- file_in.r(id_of(f), bs, p, t)
+        return Bm.Target.File{file}
+    case None{} True{}:
+      Done{Bm.Target.Revision{id_of(f)}}
+    case None{} False{}:
+      Done{Bm.Target.Change{name.change(f)}}
+
+def name.resolved.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +spelling: String) -> Result<&2, &2, Refused, Full>:
+  Bool.pick(Result<&2, &2, Refused, Full>, String.is_empty(spelling), Fail{Refused{2, "a target cannot be empty"}}, resolved.r(fs, bs, spelling))
+
+def name.io(r: Result<&1, &1, U32 & String, String>) -> IO(String):
+  match r:
+    case Fail{Tuple{code, msg}}:
+      die(String, 1, msg)
+    case Done{answer}:
+      IO.pure(String, answer)
+
+def name.said(+n: String, b: Bm.Bookmark, +fields: Bool, +early: Bool, shared: Bool) -> IO(Unit):
+  match fields:
+    case True{}:
+      do IO<Unit>:
+        name.header(Bool.not(early))
+        IO.print("name " ++ n)
+    case False{}:
+      do IO<Unit>:
+        IO.print(n ++ " -> " ++ Bm.show(b))
+        Bool.pick(IO(Unit), shared, IO.print("note: a replica still calling `" ++ n ++ "` private will make it private again on the next receive"), IO.pure(Unit, Unit{}))
+
+def name.shared(axis: Maybe<&2, Bool>) -> Bool:
+  match axis:
+    case Some{False{}}:
+      True{}
+    case _:
+      False{}
+
+def name.set(+n: String, +spelling: String, path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +fields: Bool, +early: Bool) -> IO(Unit):
+  +late = Bool.and(fields, Bool.not(early))
+  do IO<Unit>:
+    name.header(early)
+    root : String <- Store.root()
+    +r : String = root
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    bs : List<&2, Bm.Bookmark> <- bookmarks(r)
+    +bs2 : List<&2, Bm.Bookmark> = bs
+    +fs : List<&2, Full> = fulls(r, rs)
+    f : Full <- stated.io(Full, late, name.resolved.r(fs, bs2, spelling))
+    t : Bm.Target <- stated.io(Bm.Target, late, name.target.r(fs, bs2, f, path, pin))
+    +t2 : Bm.Target = t
+    +kept : Bool = Maybe.default(&2, Bool, axis, private_of(bs2, n))
+    stated.io(Unit, late, name.checked.r(n))
+    w : Result<&1, &1, U32 & String, String> <- Store.written(r ++ "/names/" ++ n ++ ".txt\n" ++ Bm.write(Bm.Stated{t2, kept}))
+    done : String <- name.io(w)
+    name.said(n, Bm.Bookmark{n, t2, kept}, fields, early, name.shared(axis))
+
+def name.deleted(+n: String, b: Bm.Bookmark, +fields: Bool, +early: Bool) -> IO(Unit):
+  match fields:
+    case True{}:
+      do IO<Unit>:
+        name.header(Bool.not(early))
+        IO.print("unname " ++ n)
+    case False{}:
+      do IO<Unit>:
+        IO.print("deleted " ++ n ++ ", which was " ++ Bm.show(b))
+        IO.print("note: a replica that still holds `" ++ n ++ "` will bring it back on the next receive")
+
+def name.present.r(+n: String, found: Maybe<&2, Bm.Bookmark>) -> Result<&2, &2, Refused, Bm.Bookmark>:
+  match found:
+    case None{}:
+      Fail{Refused{1, "there is no bookmark `" ++ n ++ "` here; `names` lists the ones there are"}}
+    case Some{b}:
+      Done{b}
+
+def name.delete(+n: String, +fields: Bool) -> IO(Unit):
+  do IO<Unit>:
+    name.header(fields)
+    root : String <- Store.root()
+    +r : String = root
+    rs : List<&2, Store.Doc> <- Store.revisions(r)
+    bs : List<&2, Bm.Bookmark> <- bookmarks(r)
+    +bs2 : List<&2, Bm.Bookmark> = bs
+    b : Bm.Bookmark <- stated.io(Bm.Bookmark, False{}, name.present.r(n, found_of(bs2, n)))
+    w : Result<&1, &1, U32 & String, String> <- Store.removed(r ++ "/names\n" ++ r ++ "/names/" ++ n ++ ".txt")
+    done : String <- name.io(w)
+    name.deleted(n, b, fields, fields)
+
+# The words, checked before anything is opened: what a command line that
+# is wrong says.
+def name.of(c: NameCmd) -> IO(Unit):
+  match c:
+    case NameCmd{pin, axis, True{}, fields, sh <> more, rest}:
+      die(Unit, 2, "`" ++ sh ++ "` shapes what a bookmark points at, and `--delete` is the bookmark going: there is nothing left for it to say")
+    case NameCmd{pin, axis, True{}, fields, Nil{}, Nil{}}:
+      die(Unit, 2, "`name --delete` wants a bookmark")
+    case NameCmd{pin, axis, True{}, fields, Nil{}, n <> extra <> more}:
+      die(Unit, 2, "`name --delete` takes one bookmark, and `" ++ extra ++ "` is a second: a deletion names what it is deleting")
+    case NameCmd{pin, axis, True{}, +fields, Nil{}, +n <> Nil{}}:
+      name.delete(n, fields)
+    case NameCmd{pin, axis, False{}, fields, sh, Nil{}}:
+      die(Unit, 2, "`name` wants a bookmark")
+    case NameCmd{pin, axis, False{}, fields, sh, n <> Nil{}}:
+      die(Unit, 2, "`name` wants a target")
+    case NameCmd{pin, axis, False{}, fields, sh, n <> t <> p <> extra <> more}:
+      die(Unit, 2, "`name` takes a bookmark, a target, and one path, and `" ++ extra ++ "` is a fourth argument")
+    case NameCmd{True{}, axis, False{}, fields, sh, n <> t <> p <> Nil{}}:
+      die(Unit, 2, "a file bookmark has nothing to pin: a file identifier is minted once and survives every rename and every amendment, so `--revision` names nothing here")
+    case NameCmd{False{}, axis, False{}, +fields, sh, +n <> +t <> +p <> Nil{}}:
+      name.set(n, t, Some{p}, False{}, axis, fields, Bool.and(fields, Bool.and(Bool.not(String.is_empty(t)), Bool.not(String.eq(p, "file:")))))
+    case NameCmd{+pin, axis, False{}, +fields, sh, +n <> +t <> Nil{}}:
+      name.set(n, t, None{}, pin, axis, fields, Bool.and(fields, Bool.not(String.is_empty(t))))
+
+def name(+args: List<&2, String>) -> IO(Unit):
+  name.of(name.args(args, NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}))
+
 # main
 # ----
 
 def usage() -> IO(Unit):
-  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | replay <ops docs..> | opdiff <parent> <child>")
+  die(Unit, 2, "usage: log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | replay <ops docs..> | opdiff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
@@ -7009,6 +7246,8 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       status(args)
     case "record" <> args:
       record(args)
+    case "name" <> args:
+      name(args)
     case "opdiff" <> parent <> child <> Nil{}:
       opdiff(parent, child)
     case _:

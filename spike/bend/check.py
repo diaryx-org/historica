@@ -241,8 +241,9 @@ def check_similar(temporary):
 # One command per corpus is a target the Rust tool resolves; the rest are
 # refusals, whose text is compared too — a usage error to the end of its
 # message, since the Rust tool prints its whole usage after it. `record`
-# runs each tool on a copy of the store of its own, and what the folder
-# holds after is compared too: `--move` renames before anything is read.
+# and `name` run each tool on a copy of the store of its own, and what the
+# folder and `names/` hold after is compared too: `--move` renames before
+# anything is read, and `name` writes and deletes bookmarks.
 STORES = {
     "tree": [
         ["log"],
@@ -309,9 +310,66 @@ STORES = {
         ["files", "nb"],
         ["files", "x/pin"],
         ["files", "gone"],
+        # A bookmark written: to a change, pinned to a revision, to a file
+        # by path, `path:` or `file:`; moved, keeping its axis or changing
+        # it; nested; and deleted, tidying what it leaves empty. And what
+        # each refuses, with `--fields`' header where a statement was asked.
+        ["name", "new", "first"],
+        ["name", "new", "first", "--revision"],
+        ["name", "new", "--revision", "first", "--change"],
+        ["name", "new", "head", "notes.md"],
+        ["name", "new", "first", "path:notes.md"],
+        ["name", "new", "first", "file:nb"],
+        ["name", "new", "main"],
+        ["name", "main", "first"],
+        ["name", "main", "first", "--private"],
+        ["name", "feature/x", "first"],
+        ["name", "feature/x", "first", "--shared"],
+        ["name", "feature/y", "first", "--private", "--shared"],
+        ["name", "deep/er/z", "first", "--private"],
+        ["name", "x", "first"],
+        ["name", "x/pin/deeper", "first"],
+        ["name", "head", "main"],
+        ["name", "--fields", "new", "first"],
+        ["name", "new", "first", "--fields", "--revision"],
+        ["name", "--fields", "new", "nosuch"],
+        ["name", "--fields", "new", ""],
+        ["name", "--fields", "new", "first", "file:"],
+        ["name", "--fields", "new", "first", "nope.md"],
+        ["name", "--fields", "k" * 24, "first"],
+        ["name", "new", "nosuch"],
+        ["name", "new", "gone"],
+        ["name", "new", "first", "nope.md"],
+        ["name", "new", "first", "file:zz"],
+        ["name", "new", "nb"],
+        ["name", "new", "first", "notes.md", "--revision"],
+        ["name"],
+        ["name", "new"],
+        ["name", "a", "b", "c", "d"],
+        ["name", "a\\b", "first"],
+        ["name", "", "first"],
+        ["name", "/abs", "first"],
+        ["name", "../up", "first"],
+        ["name", "a//b", "first"],
+        ["name", " lead", "first"],
+        ["name", "dir/", "first"],
+        ["name", "bell\x07", "first"],
+        ["name", "k" * 24, "first"],
+        ["name", "--delete", "main"],
+        ["name", "--delete", "x/pin"],
+        ["name", "--delete", "feature/x"],
+        ["name", "--delete", "gone"],
+        ["name", "--delete", "nope"],
+        ["name", "--delete", " lead"],
+        ["name", "--delete"],
+        ["name", "--delete", "a", "b"],
+        ["name", "--delete", "main", "--private"],
+        ["name", "--delete", "main", "--fields"],
+        ["name", "--fields", "--delete", "nope"],
+        ["name", "--fields", "--delete"],
     ],
     # The same, with a bookmark file that is not one: every command refuses.
-    "badname": [["names"], ["log"], ["files", "main"]],
+    "badname": [["names"], ["log"], ["files", "main"], ["name", "new", "head"], ["name", "--fields", "new", "head"], ["name", "--delete", "main"]],
     # Two authors, a rename, and a line of work beside the main one, for
     # `log`'s filters, ranges and `--fields`.
     "log": [
@@ -446,6 +504,8 @@ STORES = {
         ["record", "--dry-run"], ["record", "-n", "a.md"], ["record", "-n", "--lines", "b.bin"],
         ["record", "-n", "--bytes", "a.md", "--lines", "a.md"], ["record", "-n", "--onto", "head"],
         ["record", "-n", "--move", "a.md=c.md"],
+        ["name", "x", "head"],
+        ["name", "--fields", "x", "head"],
     ],
     # A file recorded as lines that is no longer text.
     "notext": [["diff"], ["diff", "kept.md"], ["blame", "notes.md"], ["status"], ["record", "-n"], ["record", "-n", "kept.md"]],
@@ -935,10 +995,12 @@ def check_store(temporary):
         subprocess.run(["cp", "-a", str(store), str(copy)], check=True)
         return copy
 
-    # The folder beside the store, as a walk that follows nothing sees it.
+    # The folder beside the store, and the store's bookmarks, as a walk that
+    # follows nothing sees them.
     def folder_of(root):
         seen = []
-        for directory, dirs, files in os.walk(root):
+        walks = itertools.chain(os.walk(root), os.walk(root / "history" / "names"))
+        for directory, dirs, files in walks:
             here = Path(directory)
             if here == root:
                 dirs[:] = [d for d in dirs if d != "history"]
@@ -970,7 +1032,7 @@ def check_store(temporary):
             # `record` may write the folder — `--move` renames before it
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too.
-            writes = command[0] == "record"
+            writes = command[0] in ("record", "name")
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store
             expected = said(capture(rust, *command, cwd=copy)) + (folder_of(copy) if writes else ())
@@ -1668,6 +1730,13 @@ def check_mutations(temporary):
             "      Done{List.append(&2, String, ps, [id])}",
             "      Done{List.append(&2, String, ps, [m])}",
             "status_lemmas.named_held",
+            "main.bend",
+        ),
+        (
+            "name takes a name without asking the path rules",
+            "    Sv.path_check(n)))\n\ndef name.usable.r(",
+            "    None{}))\n\ndef name.usable.r(",
+            "name_lemmas.stays",
             "main.bend",
         ),
     )

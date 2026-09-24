@@ -6,9 +6,9 @@
 //! returns it through [`hist_free`] with the length it was given, and nothing
 //! else. No panic crosses the boundary — `catch_unwind` turns one into `EIO`.
 //!
-//! Reading is here, and the one write a stated rename makes in the folder.
-//! Nothing in this library decides anything about a store; that is what
-//! the Bend side is for. The two lookups answer *where*
+//! Reading is here, and three writes: the rename `record --move` makes in
+//! the folder, and a bookmark written and removed. Nothing in this library
+//! decides anything about a store; that is what the Bend side is for. The two lookups answer *where*
 //! bytes are and *what* bytes are, and the Bend side reads, hashes and
 //! parses every document it goes on to believe anything about.
 
@@ -314,6 +314,94 @@ pub unsafe extern "C" fn hist_folder_move(
             (false, false) => "neither",
         }
         .to_owned())
+    })
+}
+
+/// A bookmark written: `name`'s one write.
+///
+/// The argument is the file's path, then its bytes after the first newline.
+/// Its directory is made first — a name with structure in it is a file in a
+/// directory that may not be there yet — and the bytes land as the Rust
+/// tool lands them: staged in a sibling, flushed, and renamed over the file,
+/// so a reader sees the old bookmark or the new one and never half of
+/// either. A failure is the Rust tool's own sentence for it.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_write(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    use std::io::Write as _;
+
+    answer(out, out_len, || {
+        let Some((path, bytes)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a write is a path, then its bytes".to_owned()));
+        };
+        let path = Path::new(path);
+        let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+        let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
+            return Err((EINVAL, format!("{}: not a file", path.display())));
+        };
+        fs::create_dir_all(directory).map_err(|error| failed(directory, error))?;
+        let mut staged = name.to_owned();
+        staged.push(format!(".{}.staged", std::process::id()));
+        let staged = directory.join(staged);
+        let landed = (|| {
+            let mut file = fs::File::create(&staged)?;
+            file.write_all(bytes.as_bytes())?;
+            file.sync_all()?;
+            fs::rename(&staged, path)?;
+            fs::File::open(directory)?.sync_all()
+        })();
+        if let Err(error) = landed {
+            let _ = fs::remove_file(&staged);
+            return Err(failed(path, error));
+        }
+        Ok(String::new())
+    })
+}
+
+/// A bookmark deleted: `name --delete`'s one write.
+///
+/// The argument is the directory removal stops at, then the file. The file
+/// is removed, then each directory above it that the removal left empty, up
+/// to and never including the first line's: a `names/feature/` holding
+/// nothing says a `feature/` bookmark is here when none is. The answer is
+/// `removed`, or `absent` for a file that was not there.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_remove(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let Some((boundary, path)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a removal is where it stops, then the file".to_owned()));
+        };
+        let (boundary, path) = (Path::new(boundary), Path::new(path));
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok("absent".to_owned()),
+            Err(error) => return Err((code(&error), format!("{}: {error}", path.display()))),
+        }
+        let mut empty = path.parent();
+        while let Some(directory) = empty {
+            if directory == boundary || fs::remove_dir(directory).is_err() {
+                break;
+            }
+            empty = directory.parent();
+        }
+        Ok("removed".to_owned())
     })
 }
 
@@ -806,6 +894,50 @@ mod tests {
         assert!(answer.starts_with(&format!("{}: ", root.join("file").display())), "{answer}");
         assert!(root.join("a.md").exists());
         assert_eq!(call(hist_folder_move, b"only one line").0, EINVAL);
+    }
+
+    #[test]
+    fn a_bookmark_is_written_whole_where_its_name_puts_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = dir.path().join("names");
+        fs::create_dir(&names).unwrap();
+        let file = names.join("feature/deep/x.txt");
+        let query = format!("{}\nchange {}\nprivate\n", file.display(), "k".repeat(24));
+        assert_eq!(call(hist_store_write, query.as_bytes()), (0, String::new()));
+        assert_eq!(fs::read_to_string(&file).unwrap(), format!("change {}\nprivate\n", "k".repeat(24)));
+        // Written over, and nothing staged left beside it.
+        let query = format!("{}\nrevision {}\n", file.display(), "0".repeat(64));
+        assert_eq!(call(hist_store_write, query.as_bytes()), (0, String::new()));
+        assert_eq!(fs::read_to_string(&file).unwrap(), format!("revision {}\n", "0".repeat(64)));
+        assert_eq!(fs::read_dir(file.parent().unwrap()).unwrap().count(), 1);
+
+        fs::write(names.join("plain"), "").unwrap();
+        let (code, answer) = call(hist_store_write, format!("{}\nx\n", names.join("plain/y.txt").display()).as_bytes());
+        assert_ne!(code, 0);
+        assert!(answer.starts_with(&format!("{}: ", names.join("plain").display())), "{answer}");
+        assert_eq!(call(hist_store_write, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_removal_tidies_what_it_empties_and_stops_at_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = dir.path().join("names");
+        fs::create_dir_all(names.join("a/b")).unwrap();
+        fs::create_dir_all(names.join("a/kept")).unwrap();
+        fs::write(names.join("a/b/x.txt"), "").unwrap();
+        fs::write(names.join("a/kept/y.txt"), "").unwrap();
+        fs::write(names.join("top.txt"), "").unwrap();
+        let asked = |file: &str| call(hist_store_remove, format!("{}\n{}", names.display(), names.join(file).display()).as_bytes());
+
+        assert_eq!(asked("a/b/x.txt"), (0, "removed".to_owned()));
+        assert!(!names.join("a/b").exists());
+        assert!(names.join("a/kept").exists());
+        assert_eq!(asked("a/kept/y.txt"), (0, "removed".to_owned()));
+        assert!(!names.join("a").exists());
+        assert_eq!(asked("top.txt"), (0, "removed".to_owned()));
+        assert!(names.is_dir(), "names/ itself stays");
+        assert_eq!(asked("top.txt"), (0, "absent".to_owned()));
+        assert_eq!(call(hist_store_remove, b"no newline").0, EINVAL);
     }
 
     #[test]

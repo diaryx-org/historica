@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty` and `Store.move`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write` and `Store.remove`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -69,7 +69,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The seven effects here are one-shot — a string in, a string out, nothing
+The nine effects here are one-shot — a string in, a string out, nothing
 held between calls — which avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
 Do not represent ownership merely by a freely copyable numeric pointer.
@@ -110,6 +110,15 @@ path's directory first, and answers `moved`, `there`, `both` or `neither`.
 What each answer means to a person is the Bend side's, and so is which
 moves are asked for: one with an end that is absolute or climbs out with
 `..` is not, since it would land outside the folder.
+
+`name` reads what `names` reads, and writes one file: `Store.write` makes
+the bookmark's directory, stages the bytes beside the file, flushes them
+and renames them over it, as the Rust tool's `write` lands a mutable file,
+so a reader sees the old bookmark or the new one. `name --delete` asks
+`Store.remove` to remove the file and each directory it leaves empty, up
+to and not including `names/`. Which file, and what goes in it, is the
+Bend side's, and so is every refusal: a name that would leave `names/` is
+refused before either is asked.
 
 Those two delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and

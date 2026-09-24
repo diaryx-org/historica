@@ -1064,3 +1064,11 @@ law show_prints_what_the_revision_states:
   for +text: String
   for e: {Main.show.said.r(id, file, ds, s) == Done{text} : Result<&2, &2, Main.Refused, String>}
   {Main.doc.holds(ds, Main.said.digest(s), text) == True{} : Bool}
+
+# `name` writes where its name puts it, under `names/`: a name it takes is
+# never absolute and never climbs out with `..`, since a bookmark whose
+# name did would be a name choosing where its file goes.
+law name_stays_in_names:
+  for +n: String
+  for e: {Main.name.checked.r(n) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
+  {Main.escapes(n) == False{} : Bool}
