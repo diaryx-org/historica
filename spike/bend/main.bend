@@ -4417,9 +4417,6 @@ def blame.limited.r(+fs: List<&2, Full>, +all_changes: List<&2, String>, +rs: Li
 type BlameAsked is Data:
   BlameAsked{lines: Maybe<&2, String>, rest: List<&2, String>}
 
-type BParse is Data:
-  BParse{args: List<&2, String>, asked: Result<&2, &2, String, BlameAsked>}
-
 def basked.lines(a: BlameAsked, v: String) -> BlameAsked:
   match a:
     case BlameAsked{l, r}:
@@ -4428,7 +4425,7 @@ def basked.lines(a: BlameAsked, v: String) -> BlameAsked:
 def basked.push(a: BlameAsked, w: String) -> BlameAsked:
   match a:
     case BlameAsked{l, r}:
-      BlameAsked{l, w <> r}
+      BlameAsked{l, List.append(&2, String, r, [w])}
 
 def basked.word(a: BlameAsked, +w: String, flag: Bool) -> Result<&2, &2, String, BlameAsked>:
   match flag:
@@ -4437,27 +4434,81 @@ def basked.word(a: BlameAsked, +w: String, flag: Bool) -> Result<&2, &2, String,
     case False{}:
       Done{basked.push(a, w)}
 
-def basked.step(args: List<&2, String>, a: BlameAsked) -> BParse:
-  match args:
-    case "--lines" <> v <> rest:
-      BParse{rest, Done{basked.lines(a, v)}}
-    case "--lines" <> Nil{}:
-      BParse{Nil{}, Fail{"`--lines` wants a span, as `<first>..<last>`"}}
-    case +w <> rest:
-      BParse{rest, basked.word(a, w, String.starts_with(w, "-"))}
-    case Nil{}:
-      BParse{Nil{}, Done{a}}
+# The arguments read in one pass: what has been read, and whether the word
+# before was `--lines`, whose value this word is.
+type BRead is Data:
+  BRead{asked: Result<&2, &2, String, BlameAsked>, want: Bool}
 
-def basked.go(fuel: Nat, p: BParse) -> Result<&2, &2, String, BlameAsked>:
-  match fuel p:
-    case _ BParse{rest, Fail{e}}:
+def basked.plain(a: BlameAsked, +w: String, lines: Bool) -> BRead:
+  match lines:
+    case True{}:
+      BRead{Done{a}, True{}}
+    case False{}:
+      BRead{basked.word(a, w, String.starts_with(w, "-")), False{}}
+
+def basked.done(a: BlameAsked, +w: String, want: Bool) -> BRead:
+  match want:
+    case True{}:
+      BRead{Done{basked.lines(a, w)}, False{}}
+    case False{}:
+      basked.plain(a, w, String.eq(w, "--lines"))
+
+def basked.eat(r: BRead, +w: String) -> BRead:
+  match r:
+    case BRead{Fail{e}, want}:
+      BRead{Fail{e}, want}
+    case BRead{Done{a}, want}:
+      basked.done(a, w, want)
+
+def basked.run(args: List<&2, String>, r: BRead) -> BRead:
+  match args:
+    case Nil{}:
+      r
+    case w <> rest:
+      basked.run(rest, basked.eat(r, w))
+
+def basked.end.of(r: Result<&2, &2, String, BlameAsked>, want: Bool) -> Result<&2, &2, String, BlameAsked>:
+  match want:
+    case True{}:
+      Fail{"`--lines` wants a span, as `<first>..<last>`"}
+    case False{}:
+      r
+
+def basked.end(r: BRead) -> Result<&2, &2, String, BlameAsked>:
+  match r:
+    case BRead{Fail{e}, want}:
       Fail{e}
-    case _ BParse{Nil{}, r}:
-      r
-    case 0n BParse{rest, r}:
-      r
-    case 1n+f BParse{args, Done{a}}:
-      basked.go(f, basked.step(args, a))
+    case BRead{Done{a}, want}:
+      basked.end.of(Done{a}, want)
+
+def basked.go(args: List<&2, String>) -> Result<&2, &2, String, BlameAsked>:
+  basked.end(basked.run(args, BRead{Done{BlameAsked{None{}, Nil{}}}, False{}}))
+
+# What `blame`'s arguments say, read plainly: each `--lines` takes the word
+# after it as its value, the last one counting, and every other word is one
+# of the target and the path, in order. `LAWS.blame_reads_its_words` holds
+# `blame.args.r` to it.
+def bargs.words(args: List<&2, String>, want: Bool) -> List<&2, String>:
+  match args:
+    case Nil{}:
+      Nil{}
+    case +w <> +rest:
+      match want:
+        case True{}:
+          bargs.words(rest, False{})
+        case False{}:
+          Bool.pick(List<&2, String>, String.eq(w, "--lines"), bargs.words(rest, True{}), w <> bargs.words(rest, False{}))
+
+def bargs.lines(args: List<&2, String>, want: Bool, +last: Maybe<&2, String>) -> Maybe<&2, String>:
+  match args:
+    case Nil{}:
+      last
+    case +w <> +rest:
+      match want:
+        case True{}:
+          bargs.lines(rest, False{}, Some{w})
+        case False{}:
+          Bool.pick(Maybe<&2, String>, String.eq(w, "--lines"), bargs.lines(rest, True{}, last), bargs.lines(rest, False{}, last))
 
 def usage.io(-A: Data, r: Result<&2, &2, String, A>) -> IO(A):
   match r:
@@ -4522,10 +4573,30 @@ def blame.asked.r(+bs: List<&2, Bm.Bookmark>, r: Result<&2, &2, String, BlameAsk
     case Fail{e}:
       Fail{Refused{2, e}}
     case Done{BlameAsked{lines, rest}}:
-      blame.split.r(bs, lines, List.reverse(&2, String, rest))
+      blame.split.r(bs, lines, rest)
 
 def blame.args.r(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>) -> Result<&2, &2, Refused, Blame>:
-  blame.asked.r(bs, basked.go(1n+List.length(&2, String, args), BParse{args, Done{BlameAsked{None{}, Nil{}}}}))
+  blame.asked.r(bs, basked.go(args))
+
+# What `blame` was asked, as the plain reading of its arguments says it: the
+# target and the path in order, and the span the last `--lines` spells.
+type BSaid is Data:
+  BSaid{words: List<&2, String>, span: Result<&2, &2, Refused, Maybe<&2, Wanted>>}
+
+def bargs.said(+args: List<&2, String>) -> BSaid:
+  BSaid{bargs.words(args, False{}), blame.span.of(bargs.lines(args, False{}, None{}))}
+
+def blame.names(named: Maybe<&2, String>, +path: String) -> List<&2, String>:
+  match named:
+    case None{}:
+      [path]
+    case Some{t}:
+      [t, path]
+
+def blame.said(b: Blame) -> BSaid:
+  match b:
+    case Blame{named, +path, span}:
+      BSaid{blame.names(named, path), Done{span}}
 
 # A file of bytes has no lines, and a link holds where it points.
 def lines_only.r(+path: String, k: Maybe<&2, Tree.FileKind>) -> Result<&2, &2, Refused, Unit>:

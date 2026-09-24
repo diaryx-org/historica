@@ -793,3 +793,13 @@ law blame_prints_the_folder:
   for +out: List<&2, String>
   for e: {Main.blame.folder.r(fs, path, k, bs, rows, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}
   {Bool.and(Main.folder.has_lines(k, bs), Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(Ops.from_text(Folder.lossy(bs)), 1n), span))))) == True{} : Bool}
+
+# `blame` reads its arguments as their plain reading says: each `--lines`
+# takes the word after it, the last counting, and the span is what that
+# word spells; every other word is the target or the path, in order.
+law blame_reads_its_words:
+  for +bs: List<&2, Bm.Bookmark>
+  for +args: List<&2, String>
+  for +b: Main.Blame
+  for e: {Main.blame.args.r(bs, args) == Done{b} : Result<&2, &2, Main.Refused, Main.Blame>}
+  {Main.bargs.said(args) == Main.blame.said(b) : Main.BSaid}

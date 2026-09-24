@@ -486,3 +486,6 @@ def Laws.blame_prints_the_walk(fs, all, id, file, span, out, e, w, ew):
 
 def Laws.blame_prints_the_folder(fs, path, k, bs, rows, span, out, e):
   Blamed.folder_printed(fs, path, k, bs, rows, span, out, e)
+
+def Laws.blame_reads_its_words(bs, args, b, e):
+  Blamed.args_said(bs, args, b, e)

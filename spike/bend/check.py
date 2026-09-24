@@ -1165,6 +1165,13 @@ def check_mutations(temporary):
             "blamed_lemmas.folder_kind",
             "main.bend",
         ),
+        (
+            "blame reads its words in reverse",
+            '      BlameAsked{l, List.append(&2, String, r, [w])}',
+            '      BlameAsked{l, w <> r}',
+            "blamed_lemmas.run_word",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

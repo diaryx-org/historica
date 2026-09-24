@@ -535,3 +535,140 @@ def rec_bind(+fs: List<&2, Main.Full>, +all: List<&2, Store.Doc>, +id: String, +
 # for each line of the span, ending with it.
 def recorded_printed(+fs: List<&2, Main.Full>, +all: List<&2, Store.Doc>, +id: String, +file: String, +span: Maybe<&2, Main.Wanted>, +out: List<&2, String>, e: {Main.blame.recorded.r(fs, all, id, file, span) == Done{out} : Result<&2, &2, Main.Refused, List<&2, String>>}, +w: List<&2, Ops.Item>, +ew: {Main.walked(Main.oldest_of(fs, Some{id}), all, id, file) == Done{w} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {Main.ends_all(out, Main.blame.ends(Main.lines.items(Main.lines.asked(Main.lines.numbered(w, 1n), span)))) == True{} : Bool}:
   rec_bind(fs, all, id, file, span, Main.blame.rows.r(Main.oldest_of(fs, Some{id}), all, id, file), {==}, out, e, w, ew)
+
+# `blame`'s arguments
+# -------------------
+
+def rdisc_s(-A: Data, r: Result<&2, &2, String, A>) -> Type:
+  match r:
+    case Done{x}:
+      Empty
+    case Fail{e}:
+      Unit
+
+def fail_done_s(-A: Data, -e: String, -x: A, h: {Fail{e} == Done{x} : Result<&2, &2, String, A>}) -> Empty:
+  %h : {rdisc_s(A, _) : Type}
+  Unit{}
+
+def done_eq_a(-a: Main.BlameAsked, -b: Main.BlameAsked, h: {Done{a} == Done{b} : Result<&2, &2, String, Main.BlameAsked>}) -> {a == b : Main.BlameAsked}:
+  Equal.cong(Result<&2, &2, String, Main.BlameAsked>, Main.BlameAsked, r => Result.default(&2, &2, String, Main.BlameAsked, r, a), Done{a}, Done{b}, h)
+
+def lapp_nil(xs: List<&2, String>) -> {List.append(&2, String, xs, Nil{}) == xs : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      Equal.cong(List<&2, String>, List<&2, String>, l => x <> l, List.append(&2, String, rest, Nil{}), rest, lapp_nil(rest))
+
+def lapp_assoc(xs: List<&2, String>, +ys: List<&2, String>, +zs: List<&2, String>) -> {List.append(&2, String, List.append(&2, String, xs, ys), zs) == List.append(&2, String, xs, List.append(&2, String, ys, zs)) : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      Equal.cong(List<&2, String>, List<&2, String>, l => x <> l, List.append(&2, String, List.append(&2, String, rest, ys), zs), List.append(&2, String, rest, List.append(&2, String, ys, zs)), lapp_assoc(rest, ys, zs))
+
+# Once a word is refused, the rest are not read.
+def run_fail(args: List<&2, String>, +e: String, +want: Bool) -> {Main.basked.run(args, Main.BRead{Fail{e}, want}) == Main.BRead{Fail{e}, want} : Main.BRead}:
+  match args:
+    case Nil{}:
+      {==}
+    case w <> rest:
+      run_fail(rest, e, want)
+
+def run_word(f: Bool, +w: String, rest: List<&2, String>, +l: Maybe<&2, String>, +acc: List<&2, String>, +fin: Main.BlameAsked, e: {Main.basked.end(Main.basked.run(rest, Main.BRead{Main.basked.word(Main.BlameAsked{l, acc}, w, f), False{}})) == Done{fin} : Result<&2, &2, String, Main.BlameAsked>}, ih: {Main.basked.end(Main.basked.run(rest, Main.BRead{Done{Main.BlameAsked{l, List.append(&2, String, acc, [w])}}, False{}})) == Done{fin} : Result<&2, &2, String, Main.BlameAsked>} -> {fin == Main.BlameAsked{Main.bargs.lines(rest, False{}, l), List.append(&2, String, List.append(&2, String, acc, [w]), Main.bargs.words(rest, False{}))} : Main.BlameAsked}) -> {fin == Main.BlameAsked{Main.bargs.lines(rest, False{}, l), List.append(&2, String, acc, w <> Main.bargs.words(rest, False{}))} : Main.BlameAsked}:
+  match f:
+    case True{}:
+      +m = "`" ++ w ++ "` is not an argument `blame` takes"
+      Empty.absurd({fin == Main.BlameAsked{Main.bargs.lines(rest, False{}, l), List.append(&2, String, acc, w <> Main.bargs.words(rest, False{}))} : Main.BlameAsked},
+        fail_done_s(Main.BlameAsked, m, fin, Equal.trans(Result<&2, &2, String, Main.BlameAsked>, Fail{m}, Main.basked.end(Main.basked.run(rest, Main.BRead{Fail{m}, False{}})), Done{fin},
+          Equal.cong(Main.BRead, Result<&2, &2, String, Main.BlameAsked>, r => Main.basked.end(r), Main.BRead{Fail{m}, False{}}, Main.basked.run(rest, Main.BRead{Fail{m}, False{}}), Equal.sym(Main.BRead, Main.basked.run(rest, Main.BRead{Fail{m}, False{}}), Main.BRead{Fail{m}, False{}}, run_fail(rest, m, False{}))), e)))
+    case False{}:
+      Equal.trans(Main.BlameAsked, fin, Main.BlameAsked{Main.bargs.lines(rest, False{}, l), List.append(&2, String, List.append(&2, String, acc, [w]), Main.bargs.words(rest, False{}))}, Main.BlameAsked{Main.bargs.lines(rest, False{}, l), List.append(&2, String, acc, w <> Main.bargs.words(rest, False{}))},
+        ih(e),
+        Equal.cong(List<&2, String>, Main.BlameAsked, x => Main.BlameAsked{Main.bargs.lines(rest, False{}, l), x}, List.append(&2, String, List.append(&2, String, acc, [w]), Main.bargs.words(rest, False{})), List.append(&2, String, acc, w <> Main.bargs.words(rest, False{})), lapp_assoc(acc, [w], Main.bargs.words(rest, False{}))))
+
+def run_plain(b: Bool, +w: String, rest: List<&2, String>, +l: Maybe<&2, String>, +acc: List<&2, String>, +fin: Main.BlameAsked, e: {Main.basked.end(Main.basked.run(rest, Main.basked.plain(Main.BlameAsked{l, acc}, w, b))) == Done{fin} : Result<&2, &2, String, Main.BlameAsked>}, ht: {Main.basked.end(Main.basked.run(rest, Main.BRead{Done{Main.BlameAsked{l, acc}}, True{}})) == Done{fin} : Result<&2, &2, String, Main.BlameAsked>} -> {fin == Main.BlameAsked{Main.bargs.lines(rest, True{}, l), List.append(&2, String, acc, Main.bargs.words(rest, True{}))} : Main.BlameAsked}, hf: {Main.basked.end(Main.basked.run(rest, Main.BRead{Done{Main.BlameAsked{l, List.append(&2, String, acc, [w])}}, False{}})) == Done{fin} : Result<&2, &2, String, Main.BlameAsked>} -> {fin == Main.BlameAsked{Main.bargs.lines(rest, False{}, l), List.append(&2, String, List.append(&2, String, acc, [w]), Main.bargs.words(rest, False{}))} : Main.BlameAsked}) -> {fin == Main.BlameAsked{Bool.pick(Maybe<&2, String>, b, Main.bargs.lines(rest, True{}, l), Main.bargs.lines(rest, False{}, l)), List.append(&2, String, acc, Bool.pick(List<&2, String>, b, Main.bargs.words(rest, True{}), w <> Main.bargs.words(rest, False{})))} : Main.BlameAsked}:
+  match b:
+    case True{}:
+      ht(e)
+    case False{}:
+      run_word(String.starts_with(w, "-"), w, rest, l, acc, fin, e, hf)
+
+# One pass over the arguments reads what their plain reading says: the
+# last `--lines` value, and every other word after what was read before.
+def run_ok(args: List<&2, String>, want: Bool, +l: Maybe<&2, String>, +acc: List<&2, String>, +fin: Main.BlameAsked, e: {Main.basked.end(Main.basked.run(args, Main.BRead{Done{Main.BlameAsked{l, acc}}, want})) == Done{fin} : Result<&2, &2, String, Main.BlameAsked>}) -> {fin == Main.BlameAsked{Main.bargs.lines(args, want, l), List.append(&2, String, acc, Main.bargs.words(args, want))} : Main.BlameAsked}:
+  match args:
+    case Nil{}:
+      match want:
+        case True{}:
+          Empty.absurd({fin == Main.BlameAsked{Main.bargs.lines(Nil{}, True{}, l), List.append(&2, String, acc, Main.bargs.words(Nil{}, True{}))} : Main.BlameAsked}, fail_done_s(Main.BlameAsked, "`--lines` wants a span, as `<first>..<last>`", fin, e))
+        case False{}:
+          Equal.trans(Main.BlameAsked, fin, Main.BlameAsked{l, acc}, Main.BlameAsked{Main.bargs.lines(Nil{}, False{}, l), List.append(&2, String, acc, Main.bargs.words(Nil{}, False{}))},
+            Equal.sym(Main.BlameAsked, Main.BlameAsked{l, acc}, fin, done_eq_a(Main.BlameAsked{l, acc}, fin, e)),
+            Equal.cong(List<&2, String>, Main.BlameAsked, x => Main.BlameAsked{l, x}, acc, List.append(&2, String, acc, Nil{}), Equal.sym(List<&2, String>, List.append(&2, String, acc, Nil{}), acc, lapp_nil(acc))))
+    case +w <> +rest:
+      match want:
+        case True{}:
+          run_ok(rest, False{}, Some{w}, acc, fin, e)
+        case False{}:
+          run_plain(String.eq(w, "--lines"), w, rest, l, acc, fin, e, h => run_ok(rest, True{}, l, acc, fin, h), h => run_ok(rest, False{}, l, List.append(&2, String, acc, [w]), fin, h))
+
+def span_said(+named: Maybe<&2, String>, +path: String, +lines: Maybe<&2, String>, r: Result<&2, &2, Main.Refused, Maybe<&2, Main.Wanted>>, +er: {Main.blame.span.of(lines) == r : Result<&2, &2, Main.Refused, Maybe<&2, Main.Wanted>>}, +b: Main.Blame, e: {Main.blame.asked.span(named, path, r) == Done{b} : Result<&2, &2, Main.Refused, Main.Blame>}) -> {Main.BSaid{Main.blame.names(named, path), Main.blame.span.of(lines)} == Main.blame.said(b) : Main.BSaid}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.BSaid{Main.blame.names(named, path), Main.blame.span.of(lines)} == Main.blame.said(b) : Main.BSaid}, fail_done(Main.Blame, x, b, e))
+    case Done{+sp}:
+      +d = done_eq(Main.Blame, Main.Blame{named, path, sp}, b, e)
+      %d : {Main.BSaid{Main.blame.names(named, path), Main.blame.span.of(lines)} == Main.blame.said(_) : Main.BSaid}
+      Equal.cong(Result<&2, &2, Main.Refused, Maybe<&2, Main.Wanted>>, Main.BSaid, x => Main.BSaid{Main.blame.names(named, path), x}, Main.blame.span.of(lines), Done{sp}, er)
+
+def first_said(+x: String, +lines: Maybe<&2, String>, t: Bool, +b: Main.Blame, e: {Main.blame.first.r(x, lines, t) == Done{b} : Result<&2, &2, Main.Refused, Main.Blame>}) -> {Main.BSaid{[x], Main.blame.span.of(lines)} == Main.blame.said(b) : Main.BSaid}:
+  match t:
+    case True{}:
+      Empty.absurd({Main.BSaid{[x], Main.blame.span.of(lines)} == Main.blame.said(b) : Main.BSaid}, refuse(Main.Blame, Main.blame.first.r(x, lines, True{}), b, {==}, e))
+    case False{}:
+      span_said(None{}, x, lines, Main.blame.span.of(lines), {==}, b, e)
+
+# What is left once the flags are read is the target and the path, in order.
+def split_said(+bs: List<&2, Bm.Bookmark>, +lines: Maybe<&2, String>, rest: List<&2, String>, +b: Main.Blame, e: {Main.blame.split.r(bs, lines, rest) == Done{b} : Result<&2, &2, Main.Refused, Main.Blame>}) -> {Main.BSaid{rest, Main.blame.span.of(lines)} == Main.blame.said(b) : Main.BSaid}:
+  match rest:
+    case Nil{}:
+      Empty.absurd({Main.BSaid{Nil{}, Main.blame.span.of(lines)} == Main.blame.said(b) : Main.BSaid}, refuse(Main.Blame, Main.blame.split.r(bs, lines, Nil{}), b, {==}, e))
+    case +x <> r1:
+      match r1:
+        case Nil{}:
+          first_said(x, lines, Main.could_be_target(bs, x), b, e)
+        case +y <> r2:
+          match r2:
+            case Nil{}:
+              span_said(Some{x}, y, lines, Main.blame.span.of(lines), {==}, b, e)
+            case +z <> +r3:
+              Empty.absurd({Main.BSaid{x <> y <> z <> r3, Main.blame.span.of(lines)} == Main.blame.said(b) : Main.BSaid}, refuse(Main.Blame, Main.blame.split.r(bs, lines, x <> y <> z <> r3), b, {==}, e))
+
+def ba_lines(a: Main.BlameAsked) -> Maybe<&2, String>:
+  match a:
+    case Main.BlameAsked{l, r}:
+      l
+
+def ba_rest(a: Main.BlameAsked) -> List<&2, String>:
+  match a:
+    case Main.BlameAsked{l, r}:
+      r
+
+def asked_said(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>, r: Result<&2, &2, String, Main.BlameAsked>, +er: {Main.basked.go(args) == r : Result<&2, &2, String, Main.BlameAsked>}, +b: Main.Blame, e: {Main.blame.asked.r(bs, r) == Done{b} : Result<&2, &2, Main.Refused, Main.Blame>}) -> {Main.bargs.said(args) == Main.blame.said(b) : Main.BSaid}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.bargs.said(args) == Main.blame.said(b) : Main.BSaid}, fail_done(Main.Blame, Main.Refused{2, x}, b, e))
+    case Done{a}:
+      match a:
+        case Main.BlameAsked{+lines, +rest}:
+          +ro = run_ok(args, False{}, None{}, Nil{}, Main.BlameAsked{lines, rest}, er)
+          +el = Equal.cong(Main.BlameAsked, Maybe<&2, String>, x => ba_lines(x), Main.BlameAsked{lines, rest}, Main.BlameAsked{Main.bargs.lines(args, False{}, None{}), Main.bargs.words(args, False{})}, ro)
+          +erest = Equal.cong(Main.BlameAsked, List<&2, String>, x => ba_rest(x), Main.BlameAsked{lines, rest}, Main.BlameAsked{Main.bargs.lines(args, False{}, None{}), Main.bargs.words(args, False{})}, ro)
+          %el : {Main.BSaid{Main.bargs.words(args, False{}), Main.blame.span.of(_)} == Main.blame.said(b) : Main.BSaid}
+          %erest : {Main.BSaid{_, Main.blame.span.of(lines)} == Main.blame.said(b) : Main.BSaid}
+          split_said(bs, lines, rest, b, e)
+
+# `blame` reads its arguments as their plain reading says.
+def args_said(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>, +b: Main.Blame, e: {Main.blame.args.r(bs, args) == Done{b} : Result<&2, &2, Main.Refused, Main.Blame>}) -> {Main.bargs.said(args) == Main.blame.said(b) : Main.BSaid}:
+  asked_said(bs, args, Main.basked.go(args), {==}, b, e)
