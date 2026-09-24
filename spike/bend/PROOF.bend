@@ -624,3 +624,9 @@ def Laws.names_lists_each_bookmark(fs, bs):
 
 def Laws.names_resolves_to_held(fs, here, t):
   ListL.resolution_held(fs, here, t)
+
+def Laws.log_fields_lists_what_it_keeps(fs, bs, sp, shown, fl, limit):
+  ListL.fields_listed(fs, bs, sp, shown, fl, limit)
+
+def Laws.log_counts_each_fact(facts, key, added):
+  ListL.counts_each(facts, key, added)

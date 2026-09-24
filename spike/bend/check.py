@@ -2077,6 +2077,20 @@ def check_mutations(temporary):
             "listing_lemmas.order_sorted",
             "commands.bend",
         ),
+        (
+            "log --fields puts the change first",
+            '      id ++ " " ++ change ++ " " ++ when ++ " " ++ found(id, change, heads, gone, h)',
+            '      change ++ " " ++ id ++ " " ++ when ++ " " ++ found(id, change, heads, gone, h)',
+            "listing_lemmas.fields_each",
+            "commands.bend",
+        ),
+        (
+            "log counts facts of every kind",
+            "    case False{}:\n      0n\n    case True{}:\n      count_facts.excl(added, v, exclude)",
+            "    case False{}:\n      1n\n    case True{}:\n      count_facts.excl(added, v, exclude)",
+            "listing_lemmas.one_count",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
