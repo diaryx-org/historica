@@ -15,6 +15,7 @@ import ./anchor_lemmas.bend as AL
 import ./composition_lemmas.bend as Comp
 import ./abbrev_lemmas.bend as Abbrev
 import ./string_lemmas.bend as S
+import ./sort_lemmas.bend as SortL
 
 # Every character passing a test
 # ------------------------------
@@ -265,3 +266,188 @@ def stem_ok(+when: String, +message: String, +change: String, +id: String, +ns: 
     plain_space(String.take(when, 10n), N.summary(message, change), hw, plain_summary(message, change, hc)),
     every_take(~(c => Bool.not(N.reserved(c))), change, N.CHANGE_CHARS(), hc),
     every_take(~(c => Bool.not(N.reserved(c))), id, N.DIGEST_CHARS(), hi))
+
+# Filing content
+# --------------
+
+def ok_char(c: Char) -> Bool:
+  Bool.not(Folder.is_control(c))
+
+def scrub_pick(b: Bool, +c: Char, e: {Folder.is_control(c) == b : Bool}) -> {Bool.not(Folder.is_control(Bool.pick(Char, b, ' ', c))) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      AL.not_true(Folder.is_control(c), e)
+
+def scrubbed_ok(s: String) -> {N.controlless(N.scrubbed(s)) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +rest}:
+      AL.and_intro(Bool.not(Folder.is_control(Bool.pick(Char, Folder.is_control(c), ' ', c))), N.controlless(N.scrubbed(rest)),
+        scrub_pick(Folder.is_control(c), c, {==}), scrubbed_ok(rest))
+
+# The last component, and everything before it.
+def all_every_rev_go(~p: Char -> Bool, xs: List<&2, String>, +acc: List<&2, String>, +hx: {all_every(~p, xs) == True{} : Bool}, +ha: {all_every(~p, acc) == True{} : Bool}) -> {all_every(~p, List.reverse.go(&2, String, xs, acc)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      ha
+    case +x <> +rest:
+      all_every_rev_go(~p, rest, x <> acc, Comp.and_right(N.every(~p, x), all_every(~p, rest), hx), AL.and_intro(N.every(~p, x), all_every(~p, acc), Comp.and_left(N.every(~p, x), all_every(~p, rest), hx), ha))
+
+def all_every_rev(~p: Char -> Bool, +xs: List<&2, String>, +hx: {all_every(~p, xs) == True{} : Bool}) -> {all_every(~p, List.reverse(&2, String, xs)) == True{} : Bool}:
+  all_every_rev_go(~p, xs, Nil{}, hx, {==})
+
+def every_first(~p: Char -> Bool, xs: List<&2, String>, +h: {all_every(~p, xs) == True{} : Bool}) -> {N.every(~p, Maybe.default(&2, String, List.get(&2, String, xs, 0n), SNil{})) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      Comp.and_left(N.every(~p, x), all_every(~p, rest), h)
+
+def every_last(~p: Char -> Bool, +s: String, +h: {N.every(~p, s) == True{} : Bool}) -> {N.every(~p, N.last(s)) == True{} : Bool}:
+  every_first(~p, List.reverse(&2, String, String.split(s, '/')), all_every_rev(~p, String.split(s, '/'), every_split(~p, s, '/', h)))
+
+def head_pick(~p: Char -> Bool, b: Bool, +hs: {N.every(~p, "/") == True{} : Bool}) -> {N.every(~p, Bool.pick(String, b, SNil{}, "/")) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      hs
+
+def every_head_of(~p: Char -> Bool, parts: List<&2, String>, +hs: {N.every(~p, "/") == True{} : Bool}, +h: {all_every(~p, parts) == True{} : Bool}) -> {N.every(~p, N.head.of(parts)) == True{} : Bool}:
+  match parts:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      every_app(~p, String.join(List.reverse(&2, String, rest), "/"), Bool.pick(String, List.is_empty(&2, String, rest), SNil{}, "/"),
+        every_join(~p, List.reverse(&2, String, rest), "/", hs, all_every_rev(~p, rest, Comp.and_right(N.every(~p, x), all_every(~p, rest), h))),
+        head_pick(~p, List.is_empty(&2, String, rest), hs))
+
+def every_head(~p: Char -> Bool, +s: String, +hs: {N.every(~p, "/") == True{} : Bool}, +h: {N.every(~p, s) == True{} : Bool}) -> {N.every(~p, N.head(s)) == True{} : Bool}:
+  every_head_of(~p, List.reverse(&2, String, String.split(s, '/')), hs, all_every_rev(~p, String.split(s, '/'), every_split(~p, s, '/', h)))
+
+def unsuffixed_pick(~p: Char -> Bool, b: Bool, +s: String, +n: Nat, +h: {N.every(~p, s) == True{} : Bool}) -> {N.every(~p, Bool.pick(String, b, String.take(s, n), s)) == True{} : Bool}:
+  match b:
+    case True{}:
+      every_take(~p, s, n, h)
+    case False{}:
+      h
+
+def every_unsuffixed(~p: Char -> Bool, +s: String, +h: {N.every(~p, s) == True{} : Bool}) -> {N.every(~p, N.unsuffixed(s)) == True{} : Bool}:
+  unsuffixed_pick(~p, String.ends_with(s, N.OPS()), s, Nat.sub(String.length(s), String.length(N.OPS())), h)
+
+# A name made distinct keeps its path's characters, a space and the
+# digest's.
+def suffixed_pick(b: Bool, +name: String, +held: String, +hn: {N.controlless(name) == True{} : Bool}, +hh: {N.controlless(held) == True{} : Bool}) -> {N.controlless(Bool.pick(String, b, N.head(name) ++ N.unsuffixed(N.last(name)) ++ " " ++ String.take(held, N.DIGEST_CHARS()) ++ N.OPS(), N.head(name) ++ N.last(name) ++ " " ++ String.take(held, N.DIGEST_CHARS()))) == True{} : Bool}:
+  match b:
+    case True{}:
+      every_app(~ok_char, N.head(name), N.unsuffixed(N.last(name)) ++ " " ++ String.take(held, N.DIGEST_CHARS()) ++ N.OPS(), every_head(~ok_char, name, {==}, hn),
+        every_app(~ok_char, N.unsuffixed(N.last(name)), " " ++ String.take(held, N.DIGEST_CHARS()) ++ N.OPS(), every_unsuffixed(~ok_char, N.last(name), every_last(~ok_char, name, hn)),
+          every_app(~ok_char, " ", String.take(held, N.DIGEST_CHARS()) ++ N.OPS(), {==},
+            every_app(~ok_char, String.take(held, N.DIGEST_CHARS()), N.OPS(), every_take(~ok_char, held, N.DIGEST_CHARS(), hh), {==}))))
+    case False{}:
+      every_app(~ok_char, N.head(name), N.last(name) ++ " " ++ String.take(held, N.DIGEST_CHARS()), every_head(~ok_char, name, {==}, hn),
+        every_app(~ok_char, N.last(name), " " ++ String.take(held, N.DIGEST_CHARS()), every_last(~ok_char, name, hn),
+          every_app(~ok_char, " ", String.take(held, N.DIGEST_CHARS()), {==}, every_take(~ok_char, held, N.DIGEST_CHARS(), hh))))
+
+def suffixed_ok(+name: String, +held: String, document: Bool, +hn: {N.controlless(name) == True{} : Bool}, +hh: {N.controlless(held) == True{} : Bool}) -> {N.controlless(N.suffixed(name, held, document)) == True{} : Bool}:
+  suffixed_pick(document, name, held, hn, hh)
+
+# The name each filing wants, and the one it is settled on.
+def wanted_ok(w: N.Wanted) -> Bool:
+  match w:
+    case N.Wanted{held, name, document}:
+      Bool.and(N.controlless(held), N.controlless(name))
+
+def payload_pick(b: Bool, +p: String, +held: String, +hp: {N.controlless(p) == True{} : Bool}, +hh: {N.controlless(held) == True{} : Bool}) -> {N.controlless(Bool.pick(String, b, N.suffixed(p, held, False{}), p)) == True{} : Bool}:
+  match b:
+    case True{}:
+      suffixed_ok(p, held, False{}, hp, hh)
+    case False{}:
+      hp
+
+def wanted_pick(b: Bool, +p: String, +held: String, +hp: {N.controlless(p) == True{} : Bool}, +hh: {N.controlless(held) == True{} : Bool}) -> {N.controlless(Bool.pick(String, b, p ++ N.OPS(), Bool.pick(String, Bool.or(String.ends_with(N.last(p), N.OPS()), N.platform_name(N.last(p))), N.suffixed(p, held, False{}), p))) == True{} : Bool}:
+  match b:
+    case True{}:
+      every_app(~ok_char, p, N.OPS(), hp, {==})
+    case False{}:
+      payload_pick(Bool.or(String.ends_with(N.last(p), N.OPS()), N.platform_name(N.last(p))), p, held, hp, hh)
+
+def wanted_of_ok(+held: String, +path: String, +document: Bool, +hh: {N.controlless(held) == True{} : Bool}) -> {wanted_ok(N.wanted.of(held, path, document)) == True{} : Bool}:
+  AL.and_intro(N.controlless(held), N.controlless(Bool.pick(String, document, N.scrubbed(path) ++ N.OPS(), Bool.pick(String, Bool.or(String.ends_with(N.last(N.scrubbed(path)), N.OPS()), N.platform_name(N.last(N.scrubbed(path)))), N.suffixed(N.scrubbed(path), held, False{}), N.scrubbed(path)))),
+    hh, wanted_pick(document, N.scrubbed(path), held, scrubbed_ok(path), hh))
+
+def wanted_all(fs: List<&2, N.Filing>, +h: {N.helds_controlless(fs) == True{} : Bool}) -> {SortL.all_ok(~N.Wanted, ~wanted_ok, T.map(~N.Filing, ~N.Wanted, ~(f => N.wanted(f)), fs)) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case N.Filing{+held, +path, +document} <> +rest:
+      AL.and_intro(wanted_ok(N.wanted.of(held, path, document)), SortL.all_ok(~N.Wanted, ~wanted_ok, T.map(~N.Filing, ~N.Wanted, ~(f => N.wanted(f)), rest)),
+        wanted_of_ok(held, path, document, Comp.and_left(N.controlless(held), N.helds_controlless(rest), h)),
+        wanted_all(rest, Comp.and_right(N.controlless(held), N.helds_controlless(rest), h)))
+
+def split_ok(s: T.Split) -> Bool:
+  match s:
+    case T.Split{h, n}:
+      N.controlless(n)
+
+def taken_pick(b: Bool, +name: String, +held: String, +document: Bool, +hn: {N.controlless(name) == True{} : Bool}, +hh: {N.controlless(held) == True{} : Bool}) -> {N.controlless(Bool.pick(String, b, N.suffixed(name, held, document), name)) == True{} : Bool}:
+  match b:
+    case True{}:
+      suffixed_ok(name, held, document, hn, hh)
+    case False{}:
+      hn
+
+def ops_pick(document: Bool) -> {N.controlless(Bool.pick(String, document, N.OPS(), SNil{})) == True{} : Bool}:
+  match document:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def dir_pick(b: Bool, +name: String, +held: String, +document: Bool, +names: List<&2, String>, +hn: {N.controlless(name) == True{} : Bool}, +hh: {N.controlless(held) == True{} : Bool}) -> {N.controlless(Bool.pick(String, b, held ++ Bool.pick(String, document, N.OPS(), SNil{}), Bool.pick(String, Nat.is_gt(N.count(names, name), 1n), N.suffixed(name, held, document), name))) == True{} : Bool}:
+  match b:
+    case True{}:
+      every_app(~ok_char, held, Bool.pick(String, document, N.OPS(), SNil{}), hh, ops_pick(document))
+    case False{}:
+      taken_pick(Nat.is_gt(N.count(names, name), 1n), name, held, document, hn, hh)
+
+def settled_ok(+dirs: List<&2, String>, +names: List<&2, String>, w: N.Wanted, +h: {wanted_ok(w) == True{} : Bool}) -> {split_ok(N.settled(dirs, names, w)) == True{} : Bool}:
+  match w:
+    case N.Wanted{+held, +name, +document}:
+      dir_pick(N.member(dirs, name), name, held, document, names, Comp.and_right(N.controlless(held), N.controlless(name), h), Comp.and_left(N.controlless(held), N.controlless(name), h))
+
+def settled_all_ok(+dirs: List<&2, String>, +names: List<&2, String>, ws: List<&2, N.Wanted>, +h: {SortL.all_ok(~N.Wanted, ~wanted_ok, ws) == True{} : Bool}) -> {SortL.all_ok(~T.Split, ~split_ok, N.settled_all(dirs, names, ws)) == True{} : Bool}:
+  match ws:
+    case Nil{}:
+      {==}
+    case +w <> +rest:
+      AL.and_intro(split_ok(N.settled(dirs, names, w)), SortL.all_ok(~T.Split, ~split_ok, N.settled_all(dirs, names, rest)),
+        settled_ok(dirs, names, w, Comp.and_left(wanted_ok(w), SortL.all_ok(~N.Wanted, ~wanted_ok, rest), h)),
+        settled_all_ok(dirs, names, rest, Comp.and_right(wanted_ok(w), SortL.all_ok(~N.Wanted, ~wanted_ok, rest), h)))
+
+def filed_ok(+fs: List<&2, N.Filing>, +h: {N.helds_controlless(fs) == True{} : Bool}) -> {SortL.all_ok(~T.Split, ~split_ok, N.filed(fs)) == True{} : Bool}:
+  settled_all_ok(
+    List.concat(&2, String, T.map(~String, ~List<&2, String>, ~(n => N.prefixes(n)), T.map(~N.Wanted, ~String, ~(w => N.wanted.name(w)), List.sort(~N.Wanted, ~(a => b => String.is_le(N.wanted.key(a), N.wanted.key(b))), T.map(~N.Filing, ~N.Wanted, ~(f => N.wanted(f)), fs))))),
+    T.map(~N.Wanted, ~String, ~(w => N.wanted.name(w)), List.sort(~N.Wanted, ~(a => b => String.is_le(N.wanted.key(a), N.wanted.key(b))), T.map(~N.Filing, ~N.Wanted, ~(f => N.wanted(f)), fs))),
+    List.sort(~N.Wanted, ~(a => b => String.is_le(N.wanted.key(a), N.wanted.key(b))), T.map(~N.Filing, ~N.Wanted, ~(f => N.wanted(f)), fs)),
+    SortL.all_sort(~N.Wanted, ~(a => b => String.is_le(N.wanted.key(a), N.wanted.key(b))), ~wanted_ok, T.map(~N.Filing, ~N.Wanted, ~(f => N.wanted(f)), fs), wanted_all(fs, h)))
+
+# And the name a digest is looked up under is one of those, or the digest.
+def as_pick(b: Bool, +n: String, +later: String, +hn: {N.controlless(n) == True{} : Bool}, +hl: {N.controlless(later) == True{} : Bool}) -> {N.controlless(Bool.pick(String, b, n, later)) == True{} : Bool}:
+  match b:
+    case True{}:
+      hn
+    case False{}:
+      hl
+
+def filed_as_ok(xs: List<&2, T.Split>, +held: String, +hx: {SortL.all_ok(~T.Split, ~split_ok, xs) == True{} : Bool}, +hh: {N.controlless(held) == True{} : Bool}) -> {N.controlless(N.filed_as(xs, held)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      hh
+    case T.Split{+h, +n} <> +rest:
+      as_pick(Bool.and(String.eq(h, held), String.eq(N.filed_as(rest, held), held)), n, N.filed_as(rest, held),
+        Comp.and_left(N.controlless(n), SortL.all_ok(~T.Split, ~split_ok, rest), hx),
+        filed_as_ok(rest, held, Comp.and_right(N.controlless(n), SortL.all_ok(~T.Split, ~split_ok, rest), hx), hh))
