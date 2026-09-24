@@ -3110,9 +3110,6 @@ def print_pairs(+paint: Bool, ps: List<&2, Compared>) -> IO(Unit):
 type DiffAsked is Data:
   DiffAsked{onto: Maybe<&2, String>, color: String, rest: List<&2, String>}
 
-type DParse is Data:
-  DParse{args: List<&2, String>, asked: Result<&2, &2, String, DiffAsked>}
-
 def dasked.onto(a: DiffAsked, v: String) -> DiffAsked:
   match a:
     case DiffAsked{o, c, r}:
@@ -3121,7 +3118,7 @@ def dasked.onto(a: DiffAsked, v: String) -> DiffAsked:
 def dasked.word(a: DiffAsked, w: String) -> DiffAsked:
   match a:
     case DiffAsked{o, c, r}:
-      DiffAsked{o, c, w <> r}
+      DiffAsked{o, c, List.append(&2, String, r, [w])}
 
 def dasked.set_color(a: DiffAsked, v: String) -> DiffAsked:
   match a:
@@ -3145,38 +3142,70 @@ def dasked.other(a: DiffAsked, +w: String, spelled: Maybe<&2, String>) -> Result
     case None{}:
       Done{dasked.word(a, w)}
 
-def dasked.step(args: List<&2, String>, a: DiffAsked) -> DParse:
-  match args:
-    case "--onto" <> v <> rest:
-      DParse{rest, Done{dasked.onto(a, v)}}
-    case "--onto" <> Nil{}:
-      DParse{Nil{}, Fail{"`--onto` wants a value"}}
-    case "--color" <> +v <> rest:
-      DParse{rest, dasked.color(a, v, color_ok(v))}
-    case "--color" <> Nil{}:
-      DParse{Nil{}, Fail{"`--color` wants `auto`, `always`, or `never`"}}
-    case +w <> rest:
-      DParse{rest, dasked.other(a, w, T.strip_prefix(w, "--color="))}
-    case Nil{}:
-      DParse{Nil{}, Done{a}}
+# What the word before asked of this one: nothing, or to be the value of
+# `--onto` or of `--color`.
+type DWant is Data:
+  DWant.No{}
+  DWant.Onto{}
+  DWant.Color{}
 
-def dasked.go(fuel: Nat, p: DParse) -> Result<&2, &2, String, DiffAsked>:
-  match fuel p:
-    case _ DParse{rest, Fail{e}}:
-      Fail{e}
-    case _ DParse{Nil{}, r}:
-      r
-    case 0n DParse{rest, r}:
-      r
-    case 1n+f DParse{args, Done{a}}:
-      dasked.go(f, dasked.step(args, a))
+# The arguments read in one pass: what has been read, and what the word
+# before asked of this one.
+type DRead is Data:
+  DRead{asked: Result<&2, &2, String, DiffAsked>, want: DWant}
 
-def dasked.io(r: Result<&2, &2, String, DiffAsked>) -> IO(DiffAsked):
+def dasked.plain(a: DiffAsked, +w: String, onto: Bool, color: Bool) -> DRead:
+  match onto:
+    case True{}:
+      DRead{Done{a}, DWant.Onto{}}
+    case False{}:
+      match color:
+        case True{}:
+          DRead{Done{a}, DWant.Color{}}
+        case False{}:
+          DRead{dasked.other(a, w, T.strip_prefix(w, "--color=")), DWant.No{}}
+
+def dasked.done(a: DiffAsked, +w: String, want: DWant) -> DRead:
+  match want:
+    case DWant.No{}:
+      dasked.plain(a, w, String.eq(w, "--onto"), String.eq(w, "--color"))
+    case DWant.Onto{}:
+      DRead{Done{dasked.onto(a, w)}, DWant.No{}}
+    case DWant.Color{}:
+      DRead{dasked.color(a, w, color_ok(w)), DWant.No{}}
+
+def dasked.eat(r: DRead, +w: String) -> DRead:
   match r:
-    case Fail{e}:
-      die(DiffAsked, 2, e)
-    case Done{a}:
-      IO.pure(DiffAsked, a)
+    case DRead{Fail{e}, want}:
+      DRead{Fail{e}, want}
+    case DRead{Done{a}, want}:
+      dasked.done(a, w, want)
+
+def dasked.run(args: List<&2, String>, r: DRead) -> DRead:
+  match args:
+    case Nil{}:
+      r
+    case w <> rest:
+      dasked.run(rest, dasked.eat(r, w))
+
+def dasked.end.of(a: DiffAsked, want: DWant) -> Result<&2, &2, String, DiffAsked>:
+  match want:
+    case DWant.No{}:
+      Done{a}
+    case DWant.Onto{}:
+      Fail{"`--onto` wants a value"}
+    case DWant.Color{}:
+      Fail{"`--color` wants `auto`, `always`, or `never`"}
+
+def dasked.end(r: DRead) -> Result<&2, &2, String, DiffAsked>:
+  match r:
+    case DRead{Fail{e}, want}:
+      Fail{e}
+    case DRead{Done{a}, want}:
+      dasked.end.of(a, want)
+
+def dasked.go(args: List<&2, String>) -> Result<&2, &2, String, DiffAsked>:
+  dasked.end(dasked.run(args, DRead{Done{DiffAsked{None{}, "auto", Nil{}}}, DWant.No{}}))
 
 # Whether a spelling could name a target at all: `head`, a bookmark, or a
 # spelling in either alphabet. What nothing else could name is a path.
@@ -4031,17 +4060,6 @@ def diff.named(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +
         left : Maybe<&2, String> <- diff.left(fs, bs, f2, onto)
         diff.revisions(root, fs, bs, f2, paint, only, left)
 
-def diff.split(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, String>, +paint: Bool, rest: List<&2, String>) -> IO(Unit):
-  match rest:
-    case Nil{}:
-      diff.named(root, fs, bs, onto, paint, None{}, None{})
-    case +first <> Nil{}:
-      Bool.pick(IO(Unit), could_be_target(bs, first), diff.named(root, fs, bs, onto, paint, Some{first}, None{}), diff.named(root, fs, bs, onto, paint, None{}, Some{first}))
-    case first <> second <> Nil{}:
-      diff.named(root, fs, bs, onto, paint, Some{first}, Some{second})
-    case first <> second <> third <> more:
-      die(Unit, 2, "`diff` takes a target and a path, and `" ++ third ++ "` is a third argument")
-
 # `NO_COLOR` set to anything settles `auto` and leaves `always` alone,
 # which is the point of having said `always` out loud.
 def no_color(r: Result<&1, &1, U32 & String, String>) -> Bool:
@@ -4064,12 +4082,120 @@ def decorates(color: String) -> IO(Bool):
         nc : Result<&1, &1, U32 & String, String> <- IO.get_env("NO_COLOR")
         return Bool.and(t, Bool.not(no_color(nc)))
 
-def diff.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: DiffAsked) -> IO(Unit):
+# What `diff` was asked: a target, if one was named, a file, if one was,
+# `--onto`, and `--color`.
+type DiffCmd is Data:
+  DiffCmd{named: Maybe<&2, String>, only: Maybe<&2, String>, onto: Maybe<&2, String>, color: String}
+
+def diff.first.r(+first: String, onto: Maybe<&2, String>, color: String, target: Bool) -> Result<&2, &2, Refused, DiffCmd>:
+  match target:
+    case True{}:
+      Done{DiffCmd{Some{first}, None{}, onto, color}}
+    case False{}:
+      Done{DiffCmd{None{}, Some{first}, onto, color}}
+
+def diff.split.r(+bs: List<&2, Bm.Bookmark>, onto: Maybe<&2, String>, color: String, rest: List<&2, String>) -> Result<&2, &2, Refused, DiffCmd>:
+  match rest:
+    case Nil{}:
+      Done{DiffCmd{None{}, None{}, onto, color}}
+    case +first <> Nil{}:
+      diff.first.r(first, onto, color, could_be_target(bs, first))
+    case first <> second <> Nil{}:
+      Done{DiffCmd{Some{first}, Some{second}, onto, color}}
+    case first <> second <> third <> more:
+      Fail{Refused{2, "`diff` takes a target and a path, and `" ++ third ++ "` is a third argument"}}
+
+def diff.asked.r(+bs: List<&2, Bm.Bookmark>, r: Result<&2, &2, String, DiffAsked>) -> Result<&2, &2, Refused, DiffCmd>:
+  match r:
+    case Fail{e}:
+      Fail{Refused{2, e}}
+    case Done{DiffAsked{onto, color, rest}}:
+      diff.split.r(bs, onto, color, rest)
+
+def diff.args.r(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>) -> Result<&2, &2, Refused, DiffCmd>:
+  diff.asked.r(bs, dasked.go(args))
+
+# What `diff`'s arguments say, read plainly: `--onto` and `--color` take the
+# word after them, `--color=` spells a colour in the word itself, the last
+# of each counting; every other word is the target or the path, in order.
+# `LAWS.diff_reads_its_words` holds `diff.args.r` to it.
+def dargs.other(m: Maybe<&2, String>, +w: String, ws: List<&2, String>) -> List<&2, String>:
+  match m:
+    case None{}:
+      w <> ws
+    case Some{v}:
+      ws
+
+def dargs.words(args: List<&2, String>, want: DWant) -> List<&2, String>:
+  match args:
+    case Nil{}:
+      Nil{}
+    case +w <> +rest:
+      match want:
+        case DWant.No{}:
+          Bool.pick(List<&2, String>, String.eq(w, "--onto"), dargs.words(rest, DWant.Onto{}),
+            Bool.pick(List<&2, String>, String.eq(w, "--color"), dargs.words(rest, DWant.Color{}), dargs.other(T.strip_prefix(w, "--color="), w, dargs.words(rest, DWant.No{}))))
+        case DWant.Onto{}:
+          dargs.words(rest, DWant.No{})
+        case DWant.Color{}:
+          dargs.words(rest, DWant.No{})
+
+def dargs.onto(args: List<&2, String>, want: DWant, +last: Maybe<&2, String>) -> Maybe<&2, String>:
+  match args:
+    case Nil{}:
+      last
+    case +w <> +rest:
+      match want:
+        case DWant.No{}:
+          Bool.pick(Maybe<&2, String>, String.eq(w, "--onto"), dargs.onto(rest, DWant.Onto{}, last),
+            Bool.pick(Maybe<&2, String>, String.eq(w, "--color"), dargs.onto(rest, DWant.Color{}, last), dargs.onto(rest, DWant.No{}, last)))
+        case DWant.Onto{}:
+          dargs.onto(rest, DWant.No{}, Some{w})
+        case DWant.Color{}:
+          dargs.onto(rest, DWant.No{}, last)
+
+def dargs.color(args: List<&2, String>, want: DWant, +last: String) -> String:
+  match args:
+    case Nil{}:
+      last
+    case +w <> +rest:
+      match want:
+        case DWant.No{}:
+          Bool.pick(String, String.eq(w, "--onto"), dargs.color(rest, DWant.Onto{}, last),
+            Bool.pick(String, String.eq(w, "--color"), dargs.color(rest, DWant.Color{}, last), dargs.color(rest, DWant.No{}, Maybe.default(&2, String, T.strip_prefix(w, "--color="), last))))
+        case DWant.Onto{}:
+          dargs.color(rest, DWant.No{}, last)
+        case DWant.Color{}:
+          dargs.color(rest, DWant.No{}, w)
+
+type DSaid is Data:
+  DSaid{words: List<&2, String>, onto: Maybe<&2, String>, color: String}
+
+def dargs.said(+args: List<&2, String>) -> DSaid:
+  DSaid{dargs.words(args, DWant.No{}), dargs.onto(args, DWant.No{}, None{}), dargs.color(args, DWant.No{}, "auto")}
+
+def diff.names(named: Maybe<&2, String>, only: Maybe<&2, String>) -> List<&2, String>:
+  match named only:
+    case None{} None{}:
+      Nil{}
+    case Some{t} None{}:
+      [t]
+    case None{} Some{p}:
+      [p]
+    case Some{t} Some{p}:
+      [t, p]
+
+def diff.said(d: DiffCmd) -> DSaid:
+  match d:
+    case DiffCmd{named, only, onto, color}:
+      DSaid{diff.names(named, only), onto, color}
+
+def diff.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: DiffCmd) -> IO(Unit):
   match a:
-    case DiffAsked{onto, color, rest}:
+    case DiffCmd{named, only, +onto, color}:
       do IO<Unit>:
         paint : Bool <- decorates(color)
-        diff.split(root, fs, bs, onto, paint, List.reverse(&2, String, rest))
+        diff.named(root, fs, bs, onto, paint, named, only)
 
 def diff(+args: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
@@ -4077,8 +4203,9 @@ def diff(+args: List<&2, String>) -> IO(Unit):
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
-    a : DiffAsked <- dasked.io(dasked.go(1n+List.length(&2, String, args), DParse{args, Done{DiffAsked{None{}, "auto", Nil{}}}}))
-    diff.of(r, fulls(r, rs), bs, a)
+    +bs2 : List<&2, Bm.Bookmark> = bs
+    a : DiffCmd <- refused.io(DiffCmd, diff.args.r(bs2, args))
+    diff.of(r, fulls(r, rs), bs2, a)
 
 # blame
 # -----

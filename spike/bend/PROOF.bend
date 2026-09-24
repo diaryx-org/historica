@@ -39,6 +39,7 @@ import ./blame_lemmas.bend as BlameL
 import ./bookmark_lemmas.bend as BmL
 import ./abbrev_lemmas.bend as Abbrev
 import ./blamed_lemmas.bend as Blamed
+import ./diffcmd_lemmas.bend as DiffCmd
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -492,3 +493,6 @@ def Laws.blame_reads_its_words(bs, args, b, e):
 
 def Laws.blame_reads_a_folder_file(path, t, file, found, k, e):
   Blamed.checked_ok(path, t, file, found, k, e)
+
+def Laws.diff_reads_its_words(bs, args, cmd, e):
+  DiffCmd.args_said(bs, args, cmd, e)

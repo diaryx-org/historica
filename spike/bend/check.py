@@ -1179,6 +1179,13 @@ def check_mutations(temporary):
             "blamed_lemmas.ck_found",
             "main.bend",
         ),
+        (
+            "diff's --onto swallows every word after it",
+            '    case DWant.Onto{}:\n      DRead{Done{dasked.onto(a, w)}, DWant.No{}}',
+            '    case DWant.Onto{}:\n      DRead{Done{dasked.onto(a, w)}, DWant.Onto{}}',
+            "diffcmd_lemmas.run_ok",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

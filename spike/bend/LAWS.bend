@@ -814,3 +814,14 @@ law blame_reads_a_folder_file:
   for +k: Maybe<&2, Tree.FileKind>
   for e: {Main.wcf.checked.r(path, t, file, found) == Done{k} : Result<&2, &2, Main.Refused, Maybe<&2, Tree.FileKind>>}
   {Main.checked.ok(found, path, t, file, k) == True{} : Bool}
+
+# `diff` reads its arguments as their plain reading says: `--onto` and
+# `--color` take the word after them and `--color=` spells a colour in the
+# word itself, the last of each counting; every other word is the target
+# or the path, in order.
+law diff_reads_its_words:
+  for +bs: List<&2, Bm.Bookmark>
+  for +args: List<&2, String>
+  for +cmd: Main.DiffCmd
+  for e: {Main.diff.args.r(bs, args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.DiffCmd>}
+  {Main.dargs.said(args) == Main.diff.said(cmd) : Main.DSaid}
