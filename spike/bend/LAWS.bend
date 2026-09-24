@@ -1072,3 +1072,27 @@ law name_stays_in_names:
   for +n: String
   for e: {Main.name.checked.r(n) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
   {Main.escapes(n) == False{} : Bool}
+
+# `name` reads its words as their plain reading says: a flag counts
+# wherever it stands, the last of `--revision` and `--change` and the last
+# of `--private` and `--shared` deciding, `--delete` and `--fields` asked
+# for if they are there; the flags shaping a target are kept as typed, in
+# order, for `--delete` to refuse; and every other word is the bookmark,
+# the target and the path, in order.
+law name_reads_its_words:
+  for +ws: List<&2, String>
+  {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.nargs.said(ws) : Main.NameCmd}
+
+# `name` does what its words say, and a command line that says something
+# else is refused before anything is opened. A bookmark is deleted only
+# where `--delete` was said, and then it is the one other word, with no
+# flag shaping a target beside it; otherwise a bookmark is set, the other
+# words being the bookmark, the target and at most one path, in order, with
+# `--revision`, `--private` or `--shared` and `--fields` as they were read.
+# A file bookmark is never pinned, and the header `--fields` asks for goes
+# out before the store is opened only where `--fields` asked for it.
+law name_does_what_it_reads:
+  for c: Main.NameCmd
+  for +p: Main.NamePlan
+  for e: {Main.name.plan.r(c) == Done{p} : Result<&2, &2, Main.Refused, Main.NamePlan>}
+  {Main.name.plan.meant(c, p) == True{} : Bool}

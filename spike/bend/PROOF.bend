@@ -593,3 +593,9 @@ def Laws.status_joins_held_revisions(fs, bs, onto, ms, ps, e):
 
 def Laws.name_stays_in_names(n, e):
   NameL.stays(n, e)
+
+def Laws.name_reads_its_words(ws):
+  NameL.args_said(ws)
+
+def Laws.name_does_what_it_reads(c, p, e):
+  NameL.plan_meant(c, p, e)

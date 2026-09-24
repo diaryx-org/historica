@@ -9492,6 +9492,108 @@ def name.args(ws: List<&2, String>, c: NameCmd) -> NameCmd:
     case +w <> rest:
       name.args(rest, name.word(c, nword(w), w))
 
+# The words read a field at a time, as `LAWS.name_reads_its_words` holds
+# `name.args` to: the last of `--revision` and `--change`, the last of
+# `--private` and `--shared`, whether `--delete` and `--fields` are there,
+# the flags shaping a target in the order typed, and every other word in
+# order.
+def nargs.pin.of(k: NWord, last: Bool) -> Bool:
+  match k:
+    case NWord.Revision{}:
+      True{}
+    case NWord.Change{}:
+      False{}
+    case _:
+      last
+
+def nargs.pin(ws: List<&2, String>, last: Bool) -> Bool:
+  match ws:
+    case Nil{}:
+      last
+    case +w <> rest:
+      nargs.pin(rest, nargs.pin.of(nword(w), last))
+
+def nargs.axis.of(k: NWord, last: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
+  match k:
+    case NWord.Private{}:
+      Some{True{}}
+    case NWord.Shared{}:
+      Some{False{}}
+    case _:
+      last
+
+def nargs.axis(ws: List<&2, String>, last: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
+  match ws:
+    case Nil{}:
+      last
+    case +w <> rest:
+      nargs.axis(rest, nargs.axis.of(nword(w), last))
+
+def nargs.delete.of(k: NWord, had: Bool) -> Bool:
+  match k:
+    case NWord.Delete{}:
+      True{}
+    case _:
+      had
+
+def nargs.delete(ws: List<&2, String>, had: Bool) -> Bool:
+  match ws:
+    case Nil{}:
+      had
+    case +w <> rest:
+      nargs.delete(rest, nargs.delete.of(nword(w), had))
+
+def nargs.fields.of(k: NWord, had: Bool) -> Bool:
+  match k:
+    case NWord.Fields{}:
+      True{}
+    case _:
+      had
+
+def nargs.fields(ws: List<&2, String>, had: Bool) -> Bool:
+  match ws:
+    case Nil{}:
+      had
+    case +w <> rest:
+      nargs.fields(rest, nargs.fields.of(nword(w), had))
+
+def nargs.shaping.of(k: NWord, w: String, rest: List<&2, String>) -> List<&2, String>:
+  match k:
+    case NWord.Revision{}:
+      w <> rest
+    case NWord.Change{}:
+      w <> rest
+    case NWord.Private{}:
+      w <> rest
+    case NWord.Shared{}:
+      w <> rest
+    case _:
+      rest
+
+def nargs.shaping(ws: List<&2, String>) -> List<&2, String>:
+  match ws:
+    case Nil{}:
+      Nil{}
+    case +w <> rest:
+      nargs.shaping.of(nword(w), w, nargs.shaping(rest))
+
+def nargs.words.of(k: NWord, w: String, rest: List<&2, String>) -> List<&2, String>:
+  match k:
+    case NWord.Other{}:
+      w <> rest
+    case _:
+      rest
+
+def nargs.words(ws: List<&2, String>) -> List<&2, String>:
+  match ws:
+    case Nil{}:
+      Nil{}
+    case +w <> rest:
+      nargs.words.of(nword(w), w, nargs.words(rest))
+
+def nargs.said(+ws: List<&2, String>) -> NameCmd:
+  NameCmd{nargs.pin(ws, False{}), nargs.axis(ws, None{}), nargs.delete(ws, False{}), nargs.fields(ws, False{}), nargs.shaping(ws), nargs.words(ws)}
+
 # `store::check_name`, and decision 0024's refusal of a name spelled as a
 # file identifier, which would stop the identifier naming its own file.
 def name_fault(+n: String) -> Maybe<&2, String>:
@@ -9632,30 +9734,94 @@ def name.delete(+n: String, +fields: Bool) -> IO(Unit):
     done : String <- name.io(w)
     name.deleted(n, b, fields, fields)
 
-# The words, checked before anything is opened: what a command line that
-# is wrong says.
-def name.of(c: NameCmd) -> IO(Unit):
+# What a command line asks for, checked before anything is opened: a
+# bookmark set, or one deleted — or the refusal a command line that is
+# wrong gets, which does nothing.
+type NamePlan is Data:
+  NamePlan.Set{name: String, target: String, path: Maybe<&2, String>, pin: Bool, axis: Maybe<&2, Bool>, fields: Bool, early: Bool}
+  NamePlan.Delete{name: String, fields: Bool}
+
+def name.plan.r(c: NameCmd) -> Result<&2, &2, Refused, NamePlan>:
   match c:
     case NameCmd{pin, axis, True{}, fields, sh <> more, rest}:
-      die(Unit, 2, "`" ++ sh ++ "` shapes what a bookmark points at, and `--delete` is the bookmark going: there is nothing left for it to say")
+      Fail{Refused{2, "`" ++ sh ++ "` shapes what a bookmark points at, and `--delete` is the bookmark going: there is nothing left for it to say"}}
     case NameCmd{pin, axis, True{}, fields, Nil{}, Nil{}}:
-      die(Unit, 2, "`name --delete` wants a bookmark")
+      Fail{Refused{2, "`name --delete` wants a bookmark"}}
     case NameCmd{pin, axis, True{}, fields, Nil{}, n <> extra <> more}:
-      die(Unit, 2, "`name --delete` takes one bookmark, and `" ++ extra ++ "` is a second: a deletion names what it is deleting")
-    case NameCmd{pin, axis, True{}, +fields, Nil{}, +n <> Nil{}}:
-      name.delete(n, fields)
+      Fail{Refused{2, "`name --delete` takes one bookmark, and `" ++ extra ++ "` is a second: a deletion names what it is deleting"}}
+    case NameCmd{pin, axis, True{}, fields, Nil{}, n <> Nil{}}:
+      Done{NamePlan.Delete{n, fields}}
     case NameCmd{pin, axis, False{}, fields, sh, Nil{}}:
-      die(Unit, 2, "`name` wants a bookmark")
+      Fail{Refused{2, "`name` wants a bookmark"}}
     case NameCmd{pin, axis, False{}, fields, sh, n <> Nil{}}:
-      die(Unit, 2, "`name` wants a target")
+      Fail{Refused{2, "`name` wants a target"}}
     case NameCmd{pin, axis, False{}, fields, sh, n <> t <> p <> extra <> more}:
-      die(Unit, 2, "`name` takes a bookmark, a target, and one path, and `" ++ extra ++ "` is a fourth argument")
+      Fail{Refused{2, "`name` takes a bookmark, a target, and one path, and `" ++ extra ++ "` is a fourth argument"}}
     case NameCmd{True{}, axis, False{}, fields, sh, n <> t <> p <> Nil{}}:
-      die(Unit, 2, "a file bookmark has nothing to pin: a file identifier is minted once and survives every rename and every amendment, so `--revision` names nothing here")
-    case NameCmd{False{}, axis, False{}, +fields, sh, +n <> +t <> +p <> Nil{}}:
-      name.set(n, t, Some{p}, False{}, axis, fields, Bool.and(fields, Bool.and(Bool.not(String.is_empty(t)), Bool.not(String.eq(p, "file:")))))
-    case NameCmd{+pin, axis, False{}, +fields, sh, +n <> +t <> Nil{}}:
-      name.set(n, t, None{}, pin, axis, fields, Bool.and(fields, Bool.not(String.is_empty(t))))
+      Fail{Refused{2, "a file bookmark has nothing to pin: a file identifier is minted once and survives every rename and every amendment, so `--revision` names nothing here"}}
+    case NameCmd{False{}, axis, False{}, +fields, sh, n <> +t <> +p <> Nil{}}:
+      Done{NamePlan.Set{n, t, Some{p}, False{}, axis, fields, Bool.and(fields, Bool.and(Bool.not(String.is_empty(t)), Bool.not(String.eq(p, "file:"))))}}
+    case NameCmd{pin, axis, False{}, +fields, sh, n <> +t <> Nil{}}:
+      Done{NamePlan.Set{n, t, None{}, pin, axis, fields, Bool.and(fields, Bool.not(String.is_empty(t)))}}
+
+# What a plan is when it is what the words said, for
+# `LAWS.name_does_what_it_reads`: a deletion only where `--delete` was
+# said, of the one other word, with nothing shaping a target; a bookmark
+# set otherwise, of the other words in order, with the flags as read, never
+# a file pinned, and its header early only where `--fields` asked for one.
+def nplan.words(xs: List<&2, String>, ys: List<&2, String>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case x <> xr y <> yr:
+      Bool.and(String.eq(x, y), nplan.words(xr, yr))
+    case _ _:
+      False{}
+
+def nplan.same(a: Bool, b: Bool) -> Bool:
+  match a b:
+    case True{} True{}:
+      True{}
+    case False{} False{}:
+      True{}
+    case _ _:
+      False{}
+
+def nplan.axis(a: Maybe<&2, Bool>, b: Maybe<&2, Bool>) -> Bool:
+  match a b:
+    case None{} None{}:
+      True{}
+    case Some{x} Some{y}:
+      nplan.same(x, y)
+    case _ _:
+      False{}
+
+def nplan.path(path: Maybe<&2, String>) -> List<&2, String>:
+  match path:
+    case None{}:
+      Nil{}
+    case Some{p}:
+      [p]
+
+def name.plan.meant(c: NameCmd, p: NamePlan) -> Bool:
+  match c p:
+    case NameCmd{pin, axis, d, f, sh, rest} NamePlan.Delete{n, f2}:
+      Bool.and(d, Bool.and(List.is_empty(&2, String, sh), Bool.and(nplan.words(rest, [n]), nplan.same(f, f2))))
+    case NameCmd{pin, axis, d, f, sh, rest} NamePlan.Set{n, t, +path, +pin2, axis2, +f2, early}:
+      Bool.and(Bool.not(d), Bool.and(nplan.words(rest, n <> t <> nplan.path(path)), Bool.and(nplan.same(pin, pin2), Bool.and(nplan.axis(axis, axis2), Bool.and(nplan.same(f, f2),
+        Bool.and(Bool.not(Bool.and(pin2, Maybe.is_some(&2, String, path))), Bool.or(Bool.not(early), f2)))))))
+
+def name.planned(p: NamePlan) -> IO(Unit):
+  match p:
+    case NamePlan.Set{+n, +t, path, +pin, +axis, +fields, +early}:
+      name.set(n, t, path, pin, axis, fields, early)
+    case NamePlan.Delete{+n, +fields}:
+      name.delete(n, fields)
+
+def name.of(c: NameCmd) -> IO(Unit):
+  do IO<Unit>:
+    p : NamePlan <- refused.io(NamePlan, name.plan.r(c))
+    name.planned(p)
 
 def name(+args: List<&2, String>) -> IO(Unit):
   name.of(name.args(args, NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}))
