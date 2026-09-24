@@ -408,22 +408,25 @@ def resolve(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +spelling: String) 
     case +s:
       resolve.named(fs, bs, s, Bm.find(bs, s))
 
-def resolved.found(+id: String, found: Maybe<&2, Full>) -> IO(Full):
+def resolved.found.r(+id: String, found: Maybe<&2, Full>) -> Result<&2, &2, Refused, Full>:
   match found:
     case None{}:
-      die(Full, 1, "this store does not hold the revision " ++ id)
+      Fail{Refused{1, "this store does not hold the revision " ++ id}}
     case Some{f}:
-      IO.pure(Full, f)
+      Done{f}
 
-def resolved.of(+fs: List<&2, Full>, r: Result<&2, &2, String, String>) -> IO(Full):
+def resolved.of.r(+fs: List<&2, Full>, r: Result<&2, &2, String, String>) -> Result<&2, &2, Refused, Full>:
   match r:
     case Fail{e}:
-      die(Full, 1, e)
+      Fail{Refused{1, e}}
     case Done{+id}:
-      resolved.found(id, find(fs, id))
+      resolved.found.r(id, find(fs, id))
+
+def resolved.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +spelling: String) -> Result<&2, &2, Refused, Full>:
+  resolved.of.r(fs, resolve(fs, bs, spelling))
 
 def resolved(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +spelling: String) -> IO(Full):
-  resolved.of(fs, resolve(fs, bs, spelling))
+  refused.io(Full, resolved.r(fs, bs, spelling))
 
 # log
 # ---
@@ -884,15 +887,18 @@ def events_of(fs: List<&2, Full>) -> List<&2, Tree.Ev>:
     case +f <> rest:
       Tree.Ev{id_of(f), rev_of(f)} <> events_of(rest)
 
-def tree.of(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> IO(Tree.Tree()):
+def tree.of.r(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> Result<&2, &2, Refused, Tree.Tree()>:
   match merged:
     case Fail{e}:
-      die(Tree.Tree(), 1, id ++ ": " ++ Tree.fault_show(e))
+      Fail{Refused{1, id ++ ": " ++ Tree.fault_show(e)}}
     case Done{m}:
-      IO.pure(Tree.Tree(), Tree.merged_tree(m))
+      Done{Tree.merged_tree(m)}
+
+def tree.r(+fs: List<&2, Full>, +id: String) -> Result<&2, &2, Refused, Tree.Tree()>:
+  tree.of.r(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
 
 def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
-  tree.of(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
+  refused.io(Tree.Tree(), tree.r(fs, id))
 
 def file_in.of.r(+id: String, +path: String, found: List<&2, String>) -> Result<&2, &2, Refused, String>:
   match found:
@@ -3538,12 +3544,15 @@ def oldest_of(+fs: List<&2, Full>, at: Maybe<&2, String>) -> List<&2, Full>:
     case Some{+id}:
       List.reverse(&2, Full, presentation(ancestry(fs, id)))
 
-def tree.maybe(+fs: List<&2, Full>, at: Maybe<&2, String>) -> IO(Tree.Tree()):
+def tree.maybe.r(+fs: List<&2, Full>, at: Maybe<&2, String>) -> Result<&2, &2, Refused, Tree.Tree()>:
   match at:
     case None{}:
-      IO.pure(Tree.Tree(), Nil{})
+      Done{Nil{}}
     case Some{+id}:
-      tree(fs, id)
+      tree.r(fs, id)
+
+def tree.maybe(+fs: List<&2, Full>, at: Maybe<&2, String>) -> IO(Tree.Tree()):
+  refused.io(Tree.Tree(), tree.maybe.r(fs, at))
 
 def diff.revisions(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: Full, +paint: Bool, only: Maybe<&2, String>, left: Maybe<&2, String>) -> IO(Unit):
   do IO<Unit>:
@@ -3573,14 +3582,17 @@ def repository(+root: String) -> String:
 
 # The position the folder is compared with, where nothing else is named:
 # none in an empty store, and refused where a person has to choose.
-def the_head(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, heads: List<&2, String>) -> IO(Maybe<&2, String>):
+def the_head.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, heads: List<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, String>>:
   match heads:
     case Nil{}:
-      IO.pure(Maybe<&2, String>, None{})
+      Done{None{}}
     case only <> Nil{}:
-      IO.pure(Maybe<&2, String>, Some{only})
+      Done{Some{only}}
     case +several:
-      die(Maybe<&2, String>, 1, "this store has " ++ Nat.show(List.length(&2, String, several)) ++ " heads, so nothing here is `the` latest; name one with --onto, or join them with `historica merge`:" ++ described(fs, bs, List.sort(~String, ~(a => b => String.is_le(a, b)), several)))
+      Fail{Refused{1, "this store has " ++ Nat.show(List.length(&2, String, several)) ++ " heads, so nothing here is `the` latest; name one with --onto, or join them with `historica merge`:" ++ described(fs, bs, List.sort(~String, ~(a => b => String.is_le(a, b)), several))}}
+
+def the_head(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, heads: List<&2, String>) -> IO(Maybe<&2, String>):
+  refused.io(Maybe<&2, String>, the_head.r(fs, bs, heads))
 
 # The first-parent line back from a revision, newest first. A file's content
 # at a revision is what the nearest revision on that line to state it
@@ -4138,16 +4150,6 @@ def walked.origins(w: Walked) -> List<&2, Row>:
     case Walked{+names, t}:
       walked.rows(Merge.visible(t), names)
 
-def origins.walked(r: Result<&2, &2, String, Walked>) -> IO(List<&2, Row>):
-  match r:
-    case Fail{e}:
-      die(List<&2, Row>, 1, e)
-    case Done{w}:
-      IO.pure(List<&2, Row>, walked.origins(w))
-
-def origins.at(+oldest: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> IO(List<&2, Row>):
-  origins.walked(walked.of(oldest, ds, id, file))
-
 # Printing
 # --------
 
@@ -4190,12 +4192,38 @@ def columns(+fs: List<&2, Full>, +all_changes: List<&2, String>, by: Maybe<&2, S
 type Shown is Data:
   Shown{n: Nat, cols: Columns, item: Ops.Item}
 
-def shown.rows(+fs: List<&2, Full>, +all_changes: List<&2, String>, rs: List<&2, Row>, +n: Nat) -> List<&2, Shown>:
+# A row and the number of its line, counting from one.
+type Blamed is Data:
+  Blamed{n: Nat, row: Row}
+
+def rows.all(rs: List<&2, Row>, +k: Nat) -> List<&2, Blamed>:
   match rs:
     case Nil{}:
       Nil{}
-    case Row{by, it} <> rest:
-      Shown{n, columns(fs, all_changes, by), it} <> shown.rows(fs, all_changes, rest, 1n+n)
+    case r <> rest:
+      Blamed{k, r} <> rows.all(rest, 1n+k)
+
+def rows.keep(b: Bool, x: Blamed, rest: List<&2, Blamed>) -> List<&2, Blamed>:
+  match b:
+    case True{}:
+      x <> rest
+    case False{}:
+      rest
+
+# The rows whose numbers fall in `first..last`, this one numbered `k`.
+def rows.in(rs: List<&2, Row>, +k: Nat, +first: Nat, +last: Nat) -> List<&2, Blamed>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case r <> rest:
+      rows.keep(Bool.and(Nat.is_le(first, k), Nat.is_le(k, last)), Blamed{k, r}, rows.in(rest, 1n+k, first, last))
+
+def shown.rows(+fs: List<&2, Full>, +all_changes: List<&2, String>, ns: List<&2, Blamed>) -> List<&2, Shown>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case Blamed{n, Row{by, it}} <> rest:
+      Shown{n, columns(fs, all_changes, by), it} <> shown.rows(fs, all_changes, rest)
 
 def widest.col(ss: List<&2, Shown>, +which: Nat) -> Nat:
   match ss:
@@ -4216,17 +4244,21 @@ def last_number(ss: List<&2, Shown>) -> Nat:
 def pad_left(+s: String, width: Nat) -> String:
   String.repeat(" ", Nat.sub(width, String.length(s))) ++ s
 
-def blame.lines(ss: List<&2, Shown>, +cw: Nat, +ww: Nat, +dw: Nat, +nw: Nat) -> IO(Unit):
+def blame.line(+l: String, term: Bool, rest: List<&2, String>) -> List<&2, String>:
+  match term:
+    case True{}:
+      l <> rest
+    case False{}:
+      l <> "\\ no newline at end of file" <> rest
+
+def blame.lines(ss: List<&2, Shown>, +cw: Nat, +ww: Nat, +dw: Nat, +nw: Nat) -> List<&2, String>:
   match ss:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case Shown{n, Columns{c, w, d}, Ops.Item{t, +term, forgot}} <> rest:
-      do IO<Unit>:
-        IO.print(pad_left(c, cw) ++ "  " ++ pad(w, ww) ++ "  " ++ pad(d, dw) ++ "  " ++ pad_left(Nat.show(n), nw) ++ "  " ++ Ops.shown(Ops.Item{t, term, forgot}))
-        Bool.pick(IO(Unit), term, IO.pure(Unit, Unit{}), IO.print("\\ no newline at end of file"))
-        blame.lines(rest, cw, ww, dw, nw)
+      blame.line(pad_left(c, cw) ++ "  " ++ pad(w, ww) ++ "  " ++ pad(d, dw) ++ "  " ++ pad_left(Nat.show(n), nw) ++ "  " ++ Ops.shown(Ops.Item{t, term, forgot}), term, blame.lines(rest, cw, ww, dw, nw))
 
-def blame.print(+ss: List<&2, Shown>) -> IO(Unit):
+def blame.print(+ss: List<&2, Shown>) -> List<&2, String>:
   blame.lines(ss, widest.col(ss, 0n), widest.col(ss, 1n), widest.col(ss, 2n), last_number(ss))
 
 # The span asked for, counting from one: `<first>..<last>`, or one line.
@@ -4269,6 +4301,33 @@ def lines.checked(r: Result<&2, &2, String, Wanted>) -> Result<&2, &2, String, W
 
 def lines.of(+s: String) -> Result<&2, &2, String, Wanted>:
   lines.checked(lines.cut(s, range.cut(s, SNil{})))
+
+# The rows asked for, each with its number, or where a span begins past the
+# end.
+def blame.span.at(+rs: List<&2, Row>, +first: Nat, +last: Nat, past: Bool) -> Result<&2, &2, Refused, List<&2, Blamed>>:
+  match past:
+    case True{}:
+      Fail{Refused{1, "that span begins past the end: the file has " ++ Nat.show(List.length(&2, Row, rs)) ++ " lines"}}
+    case False{}:
+      Done{rows.in(rs, 1n, first, last)}
+
+def blame.span.r(+rs: List<&2, Row>, span: Maybe<&2, Wanted>) -> Result<&2, &2, Refused, List<&2, Blamed>>:
+  match span:
+    case None{}:
+      Done{rows.all(rs, 1n)}
+    case Some{Wanted{+first, +last}}:
+      blame.span.at(rs, first, last, Nat.is_gt(first, List.length(&2, Row, rs)))
+
+# What `blame` prints of these rows.
+def blame.shown(+fs: List<&2, Full>, +all_changes: List<&2, String>, r: Result<&2, &2, Refused, List<&2, Blamed>>) -> Result<&2, &2, Refused, List<&2, String>>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{ns}:
+      Done{blame.print(shown.rows(fs, all_changes, ns))}
+
+def blame.limited.r(+fs: List<&2, Full>, +all_changes: List<&2, String>, +rs: List<&2, Row>, span: Maybe<&2, Wanted>) -> Result<&2, &2, Refused, List<&2, String>>:
+  blame.shown(fs, all_changes, blame.span.r(rs, span))
 
 # Arguments
 # ---------
@@ -4318,13 +4377,6 @@ def basked.go(fuel: Nat, p: BParse) -> Result<&2, &2, String, BlameAsked>:
     case 1n+f BParse{args, Done{a}}:
       basked.go(f, basked.step(args, a))
 
-def basked.io(r: Result<&2, &2, String, BlameAsked>) -> IO(BlameAsked):
-  match r:
-    case Fail{e}:
-      die(BlameAsked, 2, e)
-    case Done{a}:
-      IO.pure(BlameAsked, a)
-
 def usage.io(-A: Data, r: Result<&2, &2, String, A>) -> IO(A):
   match r:
     case Fail{e}:
@@ -4332,60 +4384,146 @@ def usage.io(-A: Data, r: Result<&2, &2, String, A>) -> IO(A):
     case Done{a}:
       IO.pure(A, a)
 
-# The rows asked for, or where a span begins past the end.
-def blame.limited(+fs: List<&2, Full>, +all_changes: List<&2, String>, +rs: List<&2, Row>, asked_span: Maybe<&2, Wanted>) -> IO(Unit):
-  match asked_span:
-    case None{}:
-      blame.print(shown.rows(fs, all_changes, rs, 1n))
-    case Some{Wanted{+first, last}}:
-      +len = List.length(&2, Row, rs)
-      Bool.pick(IO(Unit), Nat.is_gt(first, len), die(Unit, 1, "that span begins past the end: the file has " ++ Nat.show(len) ++ " lines"),
-        blame.print(shown.rows(fs, all_changes, List.take(&2, Row, List.drop(&2, Row, rs, Nat.sub(first, 1n)), Nat.sub(Nat.min(last, len), Nat.sub(first, 1n))), first)))
+# What `blame` was asked: the target, if one was named, the file, and the
+# span.
+type Blame is Data:
+  Blame{named: Maybe<&2, String>, path: String, span: Maybe<&2, Wanted>}
 
-# A file of bytes has no lines, and a link holds where it points.
-def lines_only(+path: String, k: Maybe<&2, Tree.FileKind>) -> IO(Unit):
-  match k:
-    case Some{Tree.Whole{}}:
-      die(Unit, 1, path ++ " is a file of bytes: decision 0017 gives it no lines, and there is nothing to attribute line by line")
-    case Some{Tree.Link{}}:
-      die(Unit, 1, path ++ " is a link: what it holds is where it points, which the revision that stated it is the whole of the answer for")
-    case _:
-      IO.pure(Unit, Unit{})
-
-def blame.readable(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> IO(List<&2, Ops.Item>):
+def blame.wanted.r(r: Result<&2, &2, String, Wanted>) -> Result<&2, &2, Refused, Maybe<&2, Wanted>>:
   match r:
     case Fail{e}:
-      die(List<&2, Ops.Item>, 1, e)
-    case Done{items}:
-      IO.pure(List<&2, Ops.Item>, items)
+      Fail{Refused{2, e}}
+    case Done{w}:
+      Done{Some{w}}
 
-# Who wrote each line of the file as a revision left it.
-def blame.recorded(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +spelling: String, asked_span: Maybe<&2, Wanted>) -> IO(Unit):
-  do IO<Unit>:
-    f : Full <- resolved(fs, bs, target)
-    +id : String = id_of(f)
-    t : Tree.Tree() <- tree(fs, id)
-    +t2 : Tree.Tree() = t
-    file : String <- file_in(id, bs, spelling, t2)
-    +file2 : String = file
-    lines_only(Maybe.default(&2, String, Tree.path(t2, file2), spelling), Tree.kind(t2, file2))
-    ds : List<&2, Store.Doc> <- Store.fetch(root, wanted(fs, file2))
-    +ds2 : List<&2, Store.Doc> = ds
-    more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
-    +all : List<&2, Store.Doc> = List.append(&2, Store.Doc, ds2, more)
-    +oldest : List<&2, Full> = List.reverse(&2, Full, presentation(ancestry(fs, id)))
-    items : List<&2, Ops.Item> <- blame.readable(content.in(oldest, all, id, file2))
-    rows : List<&2, Row> <- origins.at(oldest, all, id, file2)
-    blame.limited(fs, changes(fs), rows, asked_span)
-
-def blame.wanted(lines: Maybe<&2, String>) -> IO(Maybe<&2, Wanted>):
+def blame.span.of(lines: Maybe<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, Wanted>>:
   match lines:
     case None{}:
-      IO.pure(Maybe<&2, Wanted>, None{})
+      Done{None{}}
     case Some{+l}:
-      do IO<Maybe<&2, Wanted>>:
-        w : Wanted <- usage.io(Wanted, lines.of(l))
-        return Some{w}
+      blame.wanted.r(lines.of(l))
+
+def blame.asked.span(named: Maybe<&2, String>, path: String, r: Result<&2, &2, Refused, Maybe<&2, Wanted>>) -> Result<&2, &2, Refused, Blame>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{s}:
+      Done{Blame{named, path, s}}
+
+def blame.named.r(named: Maybe<&2, String>, only: Maybe<&2, String>, lines: Maybe<&2, String>) -> Result<&2, &2, Refused, Blame>:
+  match only:
+    case None{}:
+      Fail{Refused{2, "`blame` wants a path: it answers who wrote each line of one file"}}
+    case Some{sp}:
+      blame.asked.span(named, sp, blame.span.of(lines))
+
+def blame.first.r(+first: String, lines: Maybe<&2, String>, target: Bool) -> Result<&2, &2, Refused, Blame>:
+  match target:
+    case True{}:
+      blame.named.r(Some{first}, None{}, lines)
+    case False{}:
+      blame.named.r(None{}, Some{first}, lines)
+
+def blame.split.r(+bs: List<&2, Bm.Bookmark>, lines: Maybe<&2, String>, rest: List<&2, String>) -> Result<&2, &2, Refused, Blame>:
+  match rest:
+    case Nil{}:
+      blame.named.r(None{}, None{}, lines)
+    case +first <> Nil{}:
+      blame.first.r(first, lines, could_be_target(bs, first))
+    case first <> second <> Nil{}:
+      blame.named.r(Some{first}, Some{second}, lines)
+    case first <> second <> third <> more:
+      Fail{Refused{2, "`blame` takes a target and a path, and `" ++ third ++ "` is a third argument"}}
+
+def blame.asked.r(+bs: List<&2, Bm.Bookmark>, r: Result<&2, &2, String, BlameAsked>) -> Result<&2, &2, Refused, Blame>:
+  match r:
+    case Fail{e}:
+      Fail{Refused{2, e}}
+    case Done{BlameAsked{lines, rest}}:
+      blame.split.r(bs, lines, List.reverse(&2, String, rest))
+
+def blame.args.r(+bs: List<&2, Bm.Bookmark>, +args: List<&2, String>) -> Result<&2, &2, Refused, Blame>:
+  blame.asked.r(bs, basked.go(1n+List.length(&2, String, args), BParse{args, Done{BlameAsked{None{}, Nil{}}}}))
+
+# A file of bytes has no lines, and a link holds where it points.
+def lines_only.r(+path: String, k: Maybe<&2, Tree.FileKind>) -> Result<&2, &2, Refused, Unit>:
+  match k:
+    case Some{Tree.Whole{}}:
+      Fail{Refused{1, path ++ " is a file of bytes: decision 0017 gives it no lines, and there is nothing to attribute line by line"}}
+    case Some{Tree.Link{}}:
+      Fail{Refused{1, path ++ " is a link: what it holds is where it points, which the revision that stated it is the whole of the answer for"}}
+    case _:
+      Done{Unit{}}
+
+# The revision and the file `blame <target> <path>` reads.
+type Picked is Data:
+  Picked{id: String, file: String}
+
+def blame.picked.file(+t: Tree.Tree(), +spelling: String, +id: String, +file: String) -> Result<&2, &2, Refused, Picked>:
+  do Result<&2, &2, Refused, Picked>:
+    lines_only.r(Maybe.default(&2, String, Tree.path(t, file), spelling), Tree.kind(t, file))
+    return Picked{id, file}
+
+def blame.picked.tree(+bs: List<&2, Bm.Bookmark>, +spelling: String, +id: String, +t: Tree.Tree()) -> Result<&2, &2, Refused, Picked>:
+  do Result<&2, &2, Refused, Picked>:
+    file : String <- file_in.r(id, bs, spelling, t)
+    blame.picked.file(t, spelling, id, file)
+
+def blame.picked.full(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +spelling: String, +id: String) -> Result<&2, &2, Refused, Picked>:
+  do Result<&2, &2, Refused, Picked>:
+    t : Tree.Tree() <- tree.r(fs, id)
+    blame.picked.tree(bs, spelling, id, t)
+
+def blame.picked.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +spelling: String) -> Result<&2, &2, Refused, Picked>:
+  do Result<&2, &2, Refused, Picked>:
+    f : Full <- resolved.r(fs, bs, target)
+    blame.picked.full(fs, bs, spelling, id_of(f))
+
+# Who wrote each line of the file at a revision, from the documents behind
+# it: the content rule must read the file, and the walk says who wrote it.
+def blame.walked.r(r: Result<&2, &2, String, Walked>) -> Result<&2, &2, Refused, List<&2, Row>>:
+  match r:
+    case Fail{e}:
+      Fail{Refused{1, e}}
+    case Done{w}:
+      Done{walked.origins(w)}
+
+def blame.rows.of(+oldest: List<&2, Full>, +all: List<&2, Store.Doc>, +id: String, +file: String, r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Result<&2, &2, Refused, List<&2, Row>>:
+  match r:
+    case Fail{e}:
+      Fail{Refused{1, e}}
+    case Done{items}:
+      blame.walked.r(walked.of(oldest, all, id, file))
+
+def blame.rows.r(+oldest: List<&2, Full>, +all: List<&2, Store.Doc>, +id: String, +file: String) -> Result<&2, &2, Refused, List<&2, Row>>:
+  blame.rows.of(oldest, all, id, file, content.in(oldest, all, id, file))
+
+def blame.recorded.r(+fs: List<&2, Full>, +all: List<&2, Store.Doc>, +id: String, +file: String, span: Maybe<&2, Wanted>) -> Result<&2, &2, Refused, List<&2, String>>:
+  do Result<&2, &2, Refused, List<&2, String>>:
+    rows : List<&2, Row> <- blame.rows.r(oldest_of(fs, Some{id}), all, id, file)
+    blame.limited.r(fs, changes(fs), rows, span)
+
+# The documents a file's history needs, and the documents they keep.
+def blame.docs(+root: String, +fs: List<&2, Full>, +file: String) -> IO(List<&2, Store.Doc>):
+  do IO<List<&2, Store.Doc>>:
+    ds : List<&2, Store.Doc> <- Store.fetch(root, wanted(fs, file))
+    +ds2 : List<&2, Store.Doc> = ds
+    more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
+    return List.append(&2, Store.Doc, ds2, more)
+
+def blame.fetched(+root: String, +fs: List<&2, Full>, span: Maybe<&2, Wanted>, p: Picked) -> IO(Unit):
+  match p:
+    case Picked{+id, +file}:
+      do IO<Unit>:
+        all : List<&2, Store.Doc> <- blame.docs(root, fs, file)
+        out : List<&2, String> <- refused.io(List<&2, String>, blame.recorded.r(fs, all, id, file, span))
+        print_lines(out)
+
+# Who wrote each line of the file as a revision left it.
+def blame.recorded(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +spelling: String, span: Maybe<&2, Wanted>) -> IO(Unit):
+  do IO<Unit>:
+    p : Picked <- refused.io(Picked, blame.picked.r(fs, bs, target, spelling))
+    blame.fetched(root, fs, span, p)
 
 # One file as the folder holds it: which file the argument names, and where
 # the folder keeps it. A `file:` spelling names an identifier, which the
@@ -4394,44 +4532,53 @@ def blame.wanted(lines: Maybe<&2, String>) -> IO(Maybe<&2, Wanted>):
 type Held is Data:
   Held{file: Maybe<&2, String>, path: String}
 
-def wcf.at(+f: String, p: Maybe<&2, String>) -> IO(Held):
+def wcf.at.r(+f: String, p: Maybe<&2, String>) -> Result<&2, &2, Refused, Held>:
   match p:
     case None{}:
-      die(Held, 1, "the position holds no path for that file")
+      Fail{Refused{1, "the position holds no path for that file"}}
     case Some{path}:
-      IO.pure(Held, Held{Some{f}, path})
+      Done{Held{Some{f}, path}}
 
-def wcf.file(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, left: Maybe<&2, String>) -> IO(Held):
+def wcf.path_of(+t: Tree.Tree(), +f: String) -> Result<&2, &2, Refused, Held>:
+  wcf.at.r(f, Tree.path(t, f))
+
+def wcf.file.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, left: Maybe<&2, String>) -> Result<&2, &2, Refused, Held>:
   match left:
     case None{}:
-      die(Held, 1, "there are no revisions here to name a file against")
+      Fail{Refused{1, "there are no revisions here to name a file against"}}
     case Some{+id}:
-      do IO<Held>:
-        f : String <- file_in(id, bs, sp, t)
-        +f2 : String = f
-        wcf.at(f2, Tree.path(t, f2))
+      do Result<&2, &2, Refused, Held>:
+        f : String <- file_in.r(id, bs, sp, t)
+        wcf.path_of(t, f)
 
-def wcf.several(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +path: String, left: Maybe<&2, String>) -> IO(Held):
+def wcf.several.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +path: String, left: Maybe<&2, String>) -> Result<&2, &2, Refused, Held>:
   match left:
     case None{}:
-      die(Held, 1, "this store holds no position")
+      Fail{Refused{1, "this store holds no position"}}
     case Some{+id}:
-      do IO<Held>:
-        f : String <- file_in(id, bs, path, t)
+      do Result<&2, &2, Refused, Held>:
+        f : String <- file_in.r(id, bs, path, t)
         return Held{Some{f}, path}
 
-def wcf.path(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +path: String, +left: Maybe<&2, String>, at: List<&2, String>) -> IO(Held):
+def wcf.path.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +path: String, +left: Maybe<&2, String>, at: List<&2, String>) -> Result<&2, &2, Refused, Held>:
   match at:
     case Nil{}:
-      IO.pure(Held, Held{None{}, path})
+      Done{Held{None{}, path}}
     case only <> Nil{}:
-      IO.pure(Held, Held{Some{only}, path})
+      Done{Held{Some{only}, path}}
     case _:
-      wcf.several(bs, t, path, left)
+      wcf.several.r(bs, t, path, left)
 
-def wcf.held(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: Maybe<&2, String>) -> IO(Held):
-  +p = Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)
-  Bool.pick(IO(Held), String.starts_with(sp, "file:"), wcf.file(bs, t, sp, left), wcf.path(bs, t, p, left, Tree.at(t, p)))
+def wcf.spelled.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: Maybe<&2, String>, file: Bool) -> Result<&2, &2, Refused, Held>:
+  match file:
+    case True{}:
+      wcf.file.r(bs, t, sp, left)
+    case False{}:
+      +p = Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)
+      wcf.path.r(bs, t, p, left, Tree.at(t, p))
+
+def wcf.held.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: Maybe<&2, String>) -> Result<&2, &2, Refused, Held>:
+  wcf.spelled.r(bs, t, sp, left, String.starts_with(sp, "file:"))
 
 def found_at(fs: List<&2, Folder.Found>, +path: String) -> Maybe<&2, Folder.Found>:
   match fs:
@@ -4440,29 +4587,20 @@ def found_at(fs: List<&2, Folder.Found>, +path: String) -> Maybe<&2, Folder.Foun
     case +f <> rest:
       Bool.pick(Maybe<&2, Folder.Found>, String.eq(Folder.found.path(f), path), Some{f}, found_at(rest, path))
 
-def wcf.found(+path: String, f: Maybe<&2, Folder.Found>) -> IO(Folder.Found):
+def wcf.found.r(+path: String, f: Maybe<&2, Folder.Found>) -> Result<&2, &2, Refused, Folder.Found>:
   match f:
     case None{}:
-      die(Folder.Found, 1, "the folder holds no " ++ path ++ "; `historica blame <target> " ++ path ++ "` reads it as a revision left it")
+      Fail{Refused{1, "the folder holds no " ++ path ++ "; `historica blame <target> " ++ path ++ "` reads it as a revision left it"}}
     case Some{x}:
-      IO.pure(Folder.Found, x)
+      Done{x}
 
 # A link holds where it points, asked before anything is read through it.
-def wcf.link(+path: String, f: Folder.Found) -> IO(Unit):
+def wcf.link.r(+path: String, f: Folder.Found) -> Result<&2, &2, Refused, Unit>:
   match f:
     case Folder.Found.Link{p, t}:
-      lines_only(path, Some{Tree.Link{}})
+      lines_only.r(path, Some{Tree.Link{}})
     case Folder.Found.File{p, r, n}:
-      IO.pure(Unit, Unit{})
-
-# A file the position holds keeps the kind it was added with; one it does
-# not is whatever the recorder would call it.
-def wcf.kind(+path: String, k: Maybe<&2, Tree.FileKind>, +bs: List<&2, U32>) -> IO(Unit):
-  match k:
-    case Some{kind}:
-      lines_only(path, Some{kind})
-    case None{}:
-      Bool.pick(IO(Unit), Folder.is_text(bs), IO.pure(Unit, Unit{}), lines_only(path, Some{Tree.Whole{}}))
+      Done{Unit{}}
 
 def wcf.kind_of(+t: Tree.Tree(), f: Maybe<&2, String>) -> Maybe<&2, Tree.FileKind>:
   match f:
@@ -4470,6 +4608,32 @@ def wcf.kind_of(+t: Tree.Tree(), f: Maybe<&2, String>) -> Maybe<&2, Tree.FileKin
       None{}
     case Some{+file}:
       Tree.kind(t, file)
+
+# Where the folder's file is, and what kind the position says it is, before
+# its bytes are read.
+def wcf.checked.r(+path: String, +t: Tree.Tree(), file: Maybe<&2, String>, found: List<&2, Folder.Found>) -> Result<&2, &2, Refused, Maybe<&2, Tree.FileKind>>:
+  do Result<&2, &2, Refused, Maybe<&2, Tree.FileKind>>:
+    f : Folder.Found <- wcf.found.r(path, found_at(found, path))
+    wcf.link.r(path, f)
+    +k : Maybe<&2, Tree.FileKind> = wcf.kind_of(t, file)
+    lines_only.r(path, k)
+    return k
+
+# A file the position holds keeps the kind it was added with; one it does
+# not is whatever the recorder would call it.
+def wcf.sniffed.r(+path: String, text: Bool) -> Result<&2, &2, Refused, Unit>:
+  match text:
+    case True{}:
+      Done{Unit{}}
+    case False{}:
+      lines_only.r(path, Some{Tree.Whole{}})
+
+def wcf.kind.r(+path: String, k: Maybe<&2, Tree.FileKind>, +bs: List<&2, U32>) -> Result<&2, &2, Refused, Unit>:
+  match k:
+    case Some{kind}:
+      lines_only.r(path, Some{kind})
+    case None{}:
+      wcf.sniffed.r(path, Folder.is_text(bs))
 
 # The lines history holds keep the revision that wrote them; the rest are
 # the folder's own and belong to nobody yet — which is which comes from the
@@ -4484,79 +4648,82 @@ def wc.overlay.of(+rows: List<&2, Row>, d: Maybe<&2, Ops.Doc>) -> List<&2, Row>:
 def wc.overlay(+rows: List<&2, Row>, after: List<&2, Ops.Item>) -> List<&2, Row>:
   wc.overlay.of(rows, Sim.diff(rows.items(rows), after))
 
+# What `blame <path>` prints: the folder's text laid over the rows history
+# holds, once the kind of file allows it.
+def blame.folder.r(+fs: List<&2, Full>, +path: String, k: Maybe<&2, Tree.FileKind>, +bs: List<&2, U32>, rows: List<&2, Row>, span: Maybe<&2, Wanted>) -> Result<&2, &2, Refused, List<&2, String>>:
+  do Result<&2, &2, Refused, List<&2, String>>:
+    wcf.kind.r(path, k, bs)
+    blame.limited.r(fs, changes(fs), wc.overlay(rows, Ops.from_text(Folder.lossy(bs))), span)
+
 def wcf.origins(+root: String, +fs: List<&2, Full>, +left: Maybe<&2, String>, file: Maybe<&2, String>) -> IO(List<&2, Row>):
   match left file:
     case Some{+id} Some{+f}:
       do IO<List<&2, Row>>:
-        ds : List<&2, Store.Doc> <- Store.fetch(root, wanted(fs, f))
-        +ds2 : List<&2, Store.Doc> = ds
-        more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
-        +all : List<&2, Store.Doc> = List.append(&2, Store.Doc, ds2, more)
-        +oldest : List<&2, Full> = List.reverse(&2, Full, presentation(ancestry(fs, id)))
-        items : List<&2, Ops.Item> <- blame.readable(content.in(oldest, all, id, f))
-        origins.at(oldest, all, id, f)
+        all : List<&2, Store.Doc> <- blame.docs(root, fs, f)
+        +all2 : List<&2, Store.Doc> = all
+        refused.io(List<&2, Row>, blame.rows.r(oldest_of(fs, Some{id}), all2, id, f))
     case _ _:
       IO.pure(List<&2, Row>, Nil{})
 
-def blame.held(+root: String, +fs: List<&2, Full>, +repo: String, +t: Tree.Tree(), +l: Maybe<&2, String>, found: List<&2, Folder.Found>, h: Held, asked_span: Maybe<&2, Wanted>) -> IO(Unit):
+def blame.held(+root: String, +fs: List<&2, Full>, +repo: String, +t: Tree.Tree(), +l: Maybe<&2, String>, found: List<&2, Folder.Found>, h: Held, span: Maybe<&2, Wanted>) -> IO(Unit):
   match h:
     case Held{+file, +path}:
       do IO<Unit>:
-        f : Folder.Found <- wcf.found(path, found_at(found, path))
-        wcf.link(path, f)
-        +k : Maybe<&2, Tree.FileKind> = wcf.kind_of(t, file)
-        lines_only(path, k)
+        k : Maybe<&2, Tree.FileKind> <- refused.io(Maybe<&2, Tree.FileKind>, wcf.checked.r(path, t, file, found))
+        +k2 : Maybe<&2, Tree.FileKind> = k
         bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ path)
         +bs2 : List<&2, U32> = bs
-        wcf.kind(path, k, bs2)
+        refused.io(Unit, wcf.kind.r(path, k2, bs2))
         rows : List<&2, Row> <- wcf.origins(root, fs, l, file)
-        blame.limited(fs, changes(fs), wc.overlay(rows, Ops.from_text(Folder.lossy(bs2))), asked_span)
+        out : List<&2, String> <- refused.io(List<&2, String>, blame.folder.r(fs, path, k2, bs2, rows, span))
+        print_lines(out)
+
+# The position `blame <path>` compares the folder with, its tree, and the
+# file the argument names there.
+type Position is Data:
+  Position{left: Maybe<&2, String>, tree: Tree.Tree(), held: Held}
+
+def wcf.position.tree(+bs: List<&2, Bm.Bookmark>, +sp: String, +l: Maybe<&2, String>, +t: Tree.Tree()) -> Result<&2, &2, Refused, Position>:
+  do Result<&2, &2, Refused, Position>:
+    h : Held <- wcf.held.r(bs, t, sp, l)
+    return Position{l, t, h}
+
+def wcf.position.left(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, +l: Maybe<&2, String>) -> Result<&2, &2, Refused, Position>:
+  do Result<&2, &2, Refused, Position>:
+    t : Tree.Tree() <- tree.maybe.r(fs, l)
+    wcf.position.tree(bs, sp, l, t)
+
+def wcf.position.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: String) -> Result<&2, &2, Refused, Position>:
+  do Result<&2, &2, Refused, Position>:
+    l : Maybe<&2, String> <- the_head.r(fs, bs, current_heads(history(fs)))
+    wcf.position.left(fs, bs, sp, l)
+
+def blame.position(+root: String, +fs: List<&2, Full>, +repo: String, found: List<&2, Folder.Found>, span: Maybe<&2, Wanted>, p: Position) -> IO(Unit):
+  match p:
+    case Position{+l, +t, h}:
+      blame.held(root, fs, repo, t, l, found, h, span)
 
 # `blame <path>`: the file as the folder holds it, attributed as far as the
 # store can.
-def blame.folder(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, asked_span: Maybe<&2, Wanted>) -> IO(Unit):
+def blame.folder(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, span: Maybe<&2, Wanted>) -> IO(Unit):
   do IO<Unit>:
     rules : List<&2, Folder.Scope> <- Folder.rules(root)
     +repo : String = repository(root)
     found : List<&2, Folder.Found> <- Folder.walk(repo, rules)
-    left : Maybe<&2, String> <- the_head(fs, bs, current_heads(history(fs)))
-    +l : Maybe<&2, String> = left
-    t : Tree.Tree() <- tree.maybe(fs, l)
-    +t2 : Tree.Tree() = t
-    h : Held <- wcf.held(bs, t2, sp, l)
-    blame.held(root, fs, repo, t2, l, found, h, asked_span)
+    p : Position <- refused.io(Position, wcf.position.r(fs, bs, sp))
+    blame.position(root, fs, repo, found, span, p)
 
-def blame.side(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>, +sp: String, asked_span: Maybe<&2, Wanted>) -> IO(Unit):
+def blame.side(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>, +sp: String, span: Maybe<&2, Wanted>) -> IO(Unit):
   match named:
     case Some{+t}:
-      blame.recorded(root, fs, bs, t, sp, asked_span)
+      blame.recorded(root, fs, bs, t, sp, span)
     case None{}:
-      blame.folder(root, fs, bs, sp, asked_span)
+      blame.folder(root, fs, bs, sp, span)
 
-def blame.named(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>, only: Maybe<&2, String>, lines: Maybe<&2, String>) -> IO(Unit):
-  match only:
-    case None{}:
-      die(Unit, 2, "`blame` wants a path: it answers who wrote each line of one file")
-    case Some{+sp}:
-      do IO<Unit>:
-        asked_span : Maybe<&2, Wanted> <- blame.wanted(lines)
-        blame.side(root, fs, bs, named, sp, asked_span)
-
-def blame.split(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +lines: Maybe<&2, String>, rest: List<&2, String>) -> IO(Unit):
-  match rest:
-    case Nil{}:
-      blame.named(root, fs, bs, None{}, None{}, lines)
-    case +first <> Nil{}:
-      Bool.pick(IO(Unit), could_be_target(bs, first), blame.named(root, fs, bs, Some{first}, None{}, lines), blame.named(root, fs, bs, None{}, Some{first}, lines))
-    case first <> second <> Nil{}:
-      blame.named(root, fs, bs, Some{first}, Some{second}, lines)
-    case first <> second <> third <> more:
-      die(Unit, 2, "`blame` takes a target and a path, and `" ++ third ++ "` is a third argument")
-
-def blame.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: BlameAsked) -> IO(Unit):
+def blame.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: Blame) -> IO(Unit):
   match a:
-    case BlameAsked{lines, rest}:
-      blame.split(root, fs, bs, lines, List.reverse(&2, String, rest))
+    case Blame{named, +sp, span}:
+      blame.side(root, fs, bs, named, sp, span)
 
 def blame(+args: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
@@ -4564,8 +4731,9 @@ def blame(+args: List<&2, String>) -> IO(Unit):
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
-    a : BlameAsked <- basked.io(basked.go(1n+List.length(&2, String, args), BParse{args, Done{BlameAsked{None{}, Nil{}}}}))
-    blame.of(r, fulls(r, rs), bs, a)
+    +bs2 : List<&2, Bm.Bookmark> = bs
+    a : Blame <- refused.io(Blame, blame.args.r(bs2, args))
+    blame.of(r, fulls(r, rs), bs2, a)
 
 # replay
 # ------
