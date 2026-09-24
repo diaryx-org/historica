@@ -152,6 +152,18 @@ with Base's own `IO.get_env`. Which identifiers, which files, what they
 say, what they are called and which bookmarks follow are all decided in
 Bend first.
 
+`amend`, `abandon` and `carry` ask the same things of the host and
+nothing new. An `amend` the folder speaks for reads what `record` reads;
+a reword, an `abandon` and a `carry` read no folder, only `revisions/`,
+`names/`, and — where something is carried — every operation document the
+revisions name, fetched once, since a carry that restates a file replays
+its content on both sides of the rewrite and the revision's own document
+against them. Each revision and each restated document is filed through
+`Store.once`, one not already held anywhere, as the Rust store files them;
+a bookmark an `abandon` moves goes through `Store.write`. Which revisions
+are carried, in what order, what each restates and what it is called are
+decided in Bend.
+
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and
 the folder is the store's size again, all of which would have to be read into

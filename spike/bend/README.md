@@ -30,6 +30,9 @@ bend main.bend -- status                 # how the folder differs from the head
 bend main.bend -- status --onto left --merge right   # and what joining them contests
 bend main.bend -- record --dry-run --move a.md=b.md   # what recording would state
 bend main.bend -- record -m "what changed"  # and recording it
+bend main.bend -- amend -m "said better"  # rewrite the head, or reword one work stands on
+bend main.bend -- abandon tip -m "why"    # supersede a run of work with a tombstone
+bend main.bend -- carry tip --onto main   # restate work against another parent
 bend main.bend -- name main head        # point a bookmark, and `--delete` one
 bend main.bend -- init notes            # make a store in notes/history
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
@@ -267,7 +270,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `main.bend` | `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -508,6 +511,37 @@ one cut between words; twins, and a file whose bytes the store already
 holds; a clock behind the store; an author the format cannot hold; and a
 record of nothing — twenty-one records there and four more on the `fresh`
 store, the first a store has.
+
+`amend`, `abandon` and `carry` write too, and are held to
+`historica-pinned` the same way. `amend` of a revision nothing stands on is
+`record`'s survey against that revision's parents, keeping its change, its
+author and its moment, the renames it stated as `--at`, the kind of each file
+it added, and the identifiers it minted — only a path it did not add gets a
+new one; of a revision work stands on it is a reword, the message alone.
+`abandon` supersedes a run of work, a line from the revision named to its
+tip, with a tombstone of a newly minted change that states nothing, and
+moves each bookmark on the run's changes to it; `--only` abandons the one
+revision. Both refuse a second rewrite of one revision, and each thing
+0013, 0023 and 0059 refuse, in the order the Rust tool meets them.
+
+What stands on a rewrite is carried in the same act, and `carry` is that
+restating as a command: with no target it repairs every revision standing
+on a rewritten one, and `--onto` moves one revision onto another parent,
+with the person's reading of the clock. A file whose base did not move is
+named unchanged. One whose base moved is put through the merge walk
+`LAWS.merge_converges` is about, as three events — the old base, the delta
+to the new one, and the revision's own document — and restated as the
+document from the new base to what the walk reads; where the delta and the
+revision's own work meet, `main.bend` counts the
+contested regions as `merge.rs` does — siblings two authors placed
+unaware of each other, a removal beside concurrent work, each counted over
+the run its author wrote, and a missing terminator — and refuses, naming
+how many. The `rewriting` store has a line of four revisions and two lines
+beside it, and holds sixty-odd commands to the Rust tool's bytes: runs and
+single revisions abandoned, rewords carrying a stack and an amendment the
+folder speaks for, moves that restate cleanly and ones that meet, and every
+refusal; `stranded` has a tombstone that arrived without the carries it
+forced, and `carry` repairs it.
 
 `name` is the first command that writes the store. It points a bookmark
 at a change, which follows amend and rebase; at a revision with
@@ -1257,16 +1291,18 @@ is under 5k. Not ported:
 - **Merging** concurrent branches as a command over the store. A stated
   resolution is read. Where a merge states none, the proven walk reads
   the file. `status --merge` prints the tree's contests; the content
-  contests of a file both sides edited are not modelled, so neither is
-  the rendering with markers nor `status`'s `marked` count of them.
+  contests of a file both sides edited are counted only where `carry`
+  restates a file, so neither the rendering with markers nor `status`'s
+  `marked` count of them is here.
 - **Refusing a name that is not UTF-8**: the walk leaves it out, as the
   Rust walk does, but `status` does not list it, since the host's listing
   carries no spelling of it.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
 - **Writing the store**: `record --merge`, whose resolutions nothing here
-  writes; `amend`, `abandon`, `carry`; `arrange`, `fetch`, `export`.
-  `record` without `-m` does not open an editor, and who is recording is
+  writes; `arrange`, `fetch`, `export`. `record` and `abandon` without
+  `-m` do not open an editor — with no `$VISUAL` or `$EDITOR` both refuse
+  as the Rust tool does — and who is recording is
   read from `HISTORICA_AUTHOR` alone, not from the identity file the Rust
   tool falls back on. It writes no `cache/`, which any reader rebuilds. The Rust tool finds a store by a `history` directory
   and refuses one without `historica.txt` as not a store; the port looks
