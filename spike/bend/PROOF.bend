@@ -673,3 +673,17 @@ def Laws.a_revision_is_filed_under_its_month(when, message, change, id, ns, hw, 
 
 def Laws.content_is_filed_under_a_name_a_filesystem_holds(fs, held, hf, hh):
   NamingL.filed_as_ok(Naming.filed(fs), held, NamingL.filed_ok(fs, hf), hh)
+
+def Laws.record_compares_with_the_latest(ws, w, e):
+  NamingL.latest_ok(ws, w, e)
+
+def reason_pick(b: Bool, -r: Main.Refused) -> {Result.is_done(&2, &2, Main.Refused, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, b, Fail{r}, Done{Unit{}})) == Bool.not(b) : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def Laws.abandon_takes_a_reason_that_says_something(m):
+  %NamingL.blank(m) : {Result.is_done(&2, &2, Main.Refused, Unit, Main.reason.r(m)) == Bool.not(_) : Bool}
+  reason_pick(String.is_empty(Naming.trim_space(m)), Main.Refused{1, "abandoning removes this work from what the history means, and the reason is the only thing the tombstone carries; say why with -m"})
