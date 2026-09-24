@@ -898,3 +898,13 @@ law diff_folder_shows_what_differs:
   for +cs: List<&2, Main.Compared>
   for e: {Main.wc.compare(t, older, ds, left, reads, ps) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}
   {Main.all.shown(Main.Limit.None{}, cs) == True{} : Bool}
+
+# `log` reads its arguments as their plain reading says: the word after a
+# flag that takes a value is that flag's value, the last counting, and
+# `--limit`, `--since` and `--until` are read as a count and as bounds;
+# `--fields` is asked for if it is there; the other word is the target.
+law log_reads_its_words:
+  for +args: List<&2, String>
+  for +a: Main.Asked
+  for e: {Main.asked(args) == Done{a} : Result<&2, &2, String, Main.Asked>}
+  {Main.asked.of(Main.largs.raw(args)) == Done{a} : Result<&2, &2, String, Main.Asked>}

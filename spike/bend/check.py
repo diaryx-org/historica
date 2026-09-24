@@ -1214,6 +1214,13 @@ def check_mutations(temporary):
             "diffcmd_lemmas.limited_ok",
             "main.bend",
         ),
+        (
+            "log reads --author as --grep",
+            '        case LFlag.Author{}:\n          LRaw{ws, p, fi, l, Some{v}, g, si, u}',
+            '        case LFlag.Author{}:\n          LRaw{ws, p, fi, l, au, Some{v}, si, u}',
+            "logargs_lemmas.run_ok",
+            "main.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

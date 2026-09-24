@@ -990,64 +990,6 @@ type Asked is Data:
 type Filter is Data:
   Filter{author: Maybe<&2, String>, grep: Maybe<&2, String>, since: Maybe<&2, String>, until: Maybe<&2, String>, file: Maybe<&2, String>}
 
-# The arguments still to read, and what has been read of them.
-type Parse is Data:
-  Parse{rest: List<&2, String>, asked: Result<&2, &2, String, Asked>}
-
-def asked.limit(a: Asked, n: Maybe<&2, Nat>) -> Asked:
-  match a:
-    case Asked{t, p, f, l, au, g, si, u}:
-      Asked{t, p, f, n, au, g, si, u}
-
-def asked.author(a: Asked, x: String) -> Asked:
-  match a:
-    case Asked{t, p, f, l, au, g, si, u}:
-      Asked{t, p, f, l, Some{x}, g, si, u}
-
-def asked.grep(a: Asked, x: String) -> Asked:
-  match a:
-    case Asked{t, p, f, l, au, g, si, u}:
-      Asked{t, p, f, l, au, Some{x}, si, u}
-
-def asked.since(a: Asked, x: String) -> Asked:
-  match a:
-    case Asked{t, p, f, l, au, g, si, u}:
-      Asked{t, p, f, l, au, g, Some{x}, u}
-
-def asked.until(a: Asked, x: String) -> Asked:
-  match a:
-    case Asked{t, p, f, l, au, g, si, u}:
-      Asked{t, p, f, l, au, g, si, Some{x}}
-
-def asked.path(a: Asked, x: String) -> Asked:
-  match a:
-    case Asked{t, p, f, l, au, g, si, u}:
-      Asked{t, Some{x}, f, l, au, g, si, u}
-
-def asked.fields(a: Asked) -> Asked:
-  match a:
-    case Asked{t, p, f, l, au, g, si, u}:
-      Asked{t, p, True{}, l, au, g, si, u}
-
-def asked.target(t: Maybe<&2, String>, p: Maybe<&2, String>, f: Bool, l: Maybe<&2, Nat>, au: Maybe<&2, String>, g: Maybe<&2, String>, si: Maybe<&2, String>, u: Maybe<&2, String>, +word: String) -> Result<&2, &2, String, Asked>:
-  match t:
-    case None{}:
-      Done{Asked{Some{word}, p, f, l, au, g, si, u}}
-    case Some{had}:
-      Fail{"`log` takes one target or one range, and `" ++ word ++ "` is a second"}
-
-def asked.named(a: Asked, +word: String) -> Result<&2, &2, String, Asked>:
-  match a:
-    case Asked{t, p, f, l, au, g, si, u}:
-      asked.target(t, p, f, l, au, g, si, u, word)
-
-def asked.word(a: Asked, +word: String, flag: Bool) -> Result<&2, &2, String, Asked>:
-  match flag:
-    case True{}:
-      Fail{"`" ++ word ++ "` is not an argument `log` takes"}
-    case False{}:
-      asked.named(a, word)
-
 # A count, as Rust reads a `usize`: an optional `+` and at least one digit.
 # Past nine digits it is more entries than any store holds, and past a
 # `usize` it is refused, as there.
@@ -1069,13 +1011,6 @@ def count.of(+ds: String) -> Result<&2, &2, Unit, Maybe<&2, Nat>>:
 def count(+v: String) -> Result<&2, &2, Unit, Maybe<&2, Nat>>:
   count.of(Maybe.default(&2, String, T.strip_prefix(v, "+"), v))
 
-def asked.counted(a: Asked, +v: String, r: Result<&2, &2, Unit, Maybe<&2, Nat>>) -> Result<&2, &2, String, Asked>:
-  match r:
-    case Fail{u}:
-      Fail{"`--limit` wants how many entries to stop after, and `" ++ v ++ "` is not a count"}
-    case Done{n}:
-      Done{asked.limit(a, n)}
-
 # The wall clock a `--since` or `--until` bounds: a whole timestamp's date
 # and time, in the author's own offset, or a date, which is that whole day.
 def bound(+flag: String, +v: String, +time: String) -> Result<&2, &2, String, String>:
@@ -1083,70 +1018,283 @@ def bound(+flag: String, +v: String, +time: String) -> Result<&2, &2, String, St
     Bool.pick(Result<&2, &2, String, String>, Rev.is_timestamp(v ++ "T00:00:00+00:00"), Done{v ++ "T" ++ time},
       Fail{"`" ++ flag ++ "` wants a date, as `YYYY-MM-DD`, or a whole time, as `YYYY-MM-DDThh:mm:ss±hh:mm`; `" ++ v ++ "` is neither"}))
 
-def asked.bound(a: Asked, since: Bool, b: String) -> Asked:
-  match since:
-    case True{}:
-      asked.since(a, b)
-    case False{}:
-      asked.until(a, b)
+# A word of `log`'s arguments: a flag that takes the word after it as its
+# value, `--fields`, some other flag, or a word.
+type LFlag is Data:
+  LFlag.Limit{}
+  LFlag.Author{}
+  LFlag.Grep{}
+  LFlag.Since{}
+  LFlag.Until{}
+  LFlag.Path{}
+  LFlag.Fields{}
+  LFlag.Other{}
+  LFlag.Word{}
 
-def asked.bounded(a: Asked, since: Bool, r: Result<&2, &2, String, String>) -> Result<&2, &2, String, Asked>:
+def log.flag(+w: String) -> LFlag:
+  Bool.pick(LFlag, String.eq(w, "--limit"), LFlag.Limit{}, Bool.pick(LFlag, String.eq(w, "--author"), LFlag.Author{},
+    Bool.pick(LFlag, String.eq(w, "--grep"), LFlag.Grep{}, Bool.pick(LFlag, String.eq(w, "--since"), LFlag.Since{},
+      Bool.pick(LFlag, String.eq(w, "--until"), LFlag.Until{}, Bool.pick(LFlag, String.eq(w, "--path"), LFlag.Path{},
+        Bool.pick(LFlag, String.eq(w, "--fields"), LFlag.Fields{}, Bool.pick(LFlag, String.starts_with(w, "-"), LFlag.Other{}, LFlag.Word{}))))))))
+
+def flag.name(f: LFlag) -> String:
+  match f:
+    case LFlag.Limit{}:
+      "--limit"
+    case LFlag.Author{}:
+      "--author"
+    case LFlag.Grep{}:
+      "--grep"
+    case LFlag.Since{}:
+      "--since"
+    case LFlag.Until{}:
+      "--until"
+    case LFlag.Path{}:
+      "--path"
+    case _:
+      SNil{}
+
+# What the arguments said, as they said it: the words, each flag's last
+# value, and whether `--fields` was among them.
+type LRaw is Data:
+  LRaw{words: List<&2, String>, path: Maybe<&2, String>, fields: Bool, limit: Maybe<&2, String>,
+       author: Maybe<&2, String>, grep: Maybe<&2, String>, since: Maybe<&2, String>, until: Maybe<&2, String>}
+
+def raw.set(r: LRaw, f: LFlag, v: String) -> LRaw:
   match r:
+    case LRaw{ws, p, fi, l, au, g, si, u}:
+      match f:
+        case LFlag.Limit{}:
+          LRaw{ws, p, fi, Some{v}, au, g, si, u}
+        case LFlag.Author{}:
+          LRaw{ws, p, fi, l, Some{v}, g, si, u}
+        case LFlag.Grep{}:
+          LRaw{ws, p, fi, l, au, Some{v}, si, u}
+        case LFlag.Since{}:
+          LRaw{ws, p, fi, l, au, g, Some{v}, u}
+        case LFlag.Until{}:
+          LRaw{ws, p, fi, l, au, g, si, Some{v}}
+        case LFlag.Path{}:
+          LRaw{ws, Some{v}, fi, l, au, g, si, u}
+        case LFlag.Fields{}:
+          LRaw{ws, p, fi, l, au, g, si, u}
+        case LFlag.Other{}:
+          LRaw{ws, p, fi, l, au, g, si, u}
+        case LFlag.Word{}:
+          LRaw{ws, p, fi, l, au, g, si, u}
+
+def raw.fields(r: LRaw) -> LRaw:
+  match r:
+    case LRaw{ws, p, fi, l, au, g, si, u}:
+      LRaw{ws, p, True{}, l, au, g, si, u}
+
+def raw.word(r: LRaw, +w: String) -> Result<&2, &2, String, LRaw>:
+  match r:
+    case LRaw{ws, p, fi, l, au, g, si, u}:
+      match ws:
+        case Nil{}:
+          Done{LRaw{[w], p, fi, l, au, g, si, u}}
+        case +had:
+          Fail{"`log` takes one target or one range, and `" ++ w ++ "` is a second"}
+
+# A value is checked as it is read, so the first that is wrong is the one
+# refused.
+def value.counted(+v: String, r: Result<&2, &2, Unit, Maybe<&2, Nat>>) -> Result<&2, &2, String, Maybe<&2, Nat>>:
+  match r:
+    case Fail{u}:
+      Fail{"`--limit` wants how many entries to stop after, and `" ++ v ++ "` is not a count"}
+    case Done{n}:
+      Done{n}
+
+def value.check(f: LFlag, +v: String) -> Result<&2, &2, String, Unit>:
+  match f:
+    case LFlag.Limit{}:
+      Result.map(&2, &2, String, Maybe<&2, Nat>, Unit, n => Unit{}, value.counted(v, count(v)))
+    case LFlag.Since{}:
+      Result.map(&2, &2, String, String, Unit, b => Unit{}, bound("--since", v, "00:00:00"))
+    case LFlag.Until{}:
+      Result.map(&2, &2, String, String, Unit, b => Unit{}, bound("--until", v, "23:59:59"))
+    case _:
+      Done{Unit{}}
+
+# Whether a flag takes the word after it.
+def flag.want(f: LFlag) -> Maybe<&2, LFlag>:
+  match f:
+    case LFlag.Fields{}:
+      None{}
+    case LFlag.Other{}:
+      None{}
+    case LFlag.Word{}:
+      None{}
+    case +other:
+      Some{other}
+
+# The arguments read in one pass: what has been read, and the flag whose
+# value this word is, if any.
+type LRead is Data:
+  LRead{raw: Result<&2, &2, String, LRaw>, want: Maybe<&2, LFlag>}
+
+def raw.valued(r: LRaw, f: LFlag, +v: String, c: Result<&2, &2, String, Unit>) -> Result<&2, &2, String, LRaw>:
+  match c:
     case Fail{e}:
       Fail{e}
-    case Done{b}:
-      Done{asked.bound(a, since, b)}
+    case Done{u}:
+      Done{raw.set(r, f, v)}
 
-def wants_value(flag: String) -> Parse:
-  Parse{Nil{}, Fail{"`" ++ flag ++ "` wants a value"}}
+def raw.flagged(r: LRaw, +w: String, f: LFlag) -> LRead:
+  match f:
+    case LFlag.Fields{}:
+      LRead{Done{raw.fields(r)}, None{}}
+    case LFlag.Other{}:
+      LRead{Fail{"`" ++ w ++ "` is not an argument `log` takes"}, None{}}
+    case LFlag.Word{}:
+      LRead{raw.word(r, w), None{}}
+    case +other:
+      LRead{Done{r}, Some{other}}
 
-# One argument, or a flag and its value.
-def asked.step(args: List<&2, String>, a: Asked) -> Parse:
+def raw.eat(st: LRead, +w: String) -> LRead:
+  match st:
+    case LRead{Fail{e}, want}:
+      LRead{Fail{e}, want}
+    case LRead{Done{r}, None{}}:
+      raw.flagged(r, w, log.flag(w))
+    case LRead{Done{r}, Some{+f}}:
+      LRead{raw.valued(r, f, w, value.check(f, w)), None{}}
+
+def raw.run(args: List<&2, String>, st: LRead) -> LRead:
   match args:
-    case "--limit" <> +v <> rest:
-      Parse{rest, asked.counted(a, v, count(v))}
-    case "--author" <> v <> rest:
-      Parse{rest, Done{asked.author(a, v)}}
-    case "--grep" <> v <> rest:
-      Parse{rest, Done{asked.grep(a, v)}}
-    case "--since" <> v <> rest:
-      Parse{rest, asked.bounded(a, True{}, bound("--since", v, "00:00:00"))}
-    case "--until" <> v <> rest:
-      Parse{rest, asked.bounded(a, False{}, bound("--until", v, "23:59:59"))}
-    case "--path" <> v <> rest:
-      Parse{rest, Done{asked.path(a, v)}}
-    case "--fields" <> rest:
-      Parse{rest, Done{asked.fields(a)}}
-    case "--limit" <> Nil{}:
-      wants_value("--limit")
-    case "--author" <> Nil{}:
-      wants_value("--author")
-    case "--grep" <> Nil{}:
-      wants_value("--grep")
-    case "--since" <> Nil{}:
-      wants_value("--since")
-    case "--until" <> Nil{}:
-      wants_value("--until")
-    case "--path" <> Nil{}:
-      wants_value("--path")
-    case +w <> rest:
-      Parse{rest, asked.word(a, w, String.starts_with(w, "-"))}
     case Nil{}:
-      Parse{Nil{}, Done{a}}
+      st
+    case w <> rest:
+      raw.run(rest, raw.eat(st, w))
 
-def asked.go(fuel: Nat, p: Parse) -> Result<&2, &2, String, Asked>:
-  match fuel p:
-    case _ Parse{rest, Fail{e}}:
+def raw.end(st: LRead) -> Result<&2, &2, String, LRaw>:
+  match st:
+    case LRead{Fail{e}, want}:
       Fail{e}
-    case _ Parse{Nil{}, r}:
-      r
-    case 0n Parse{rest, r}:
-      r
-    case 1n+f Parse{args, Done{a}}:
-      asked.go(f, asked.step(args, a))
+    case LRead{Done{r}, None{}}:
+      Done{r}
+    case LRead{Done{r}, Some{f}}:
+      Fail{"`" ++ flag.name(f) ++ "` wants a value"}
+
+# What was asked, from what the arguments said: the one target, and each
+# value read as what it names.
+def limit.of(m: Maybe<&2, String>) -> Result<&2, &2, String, Maybe<&2, Nat>>:
+  match m:
+    case None{}:
+      Done{None{}}
+    case Some{+v}:
+      value.counted(v, count(v))
+
+def bound.of(+flag: String, m: Maybe<&2, String>, +time: String) -> Result<&2, &2, String, Maybe<&2, String>>:
+  match m:
+    case None{}:
+      Done{None{}}
+    case Some{+v}:
+      Result.map(&2, &2, String, String, Maybe<&2, String>, b => Some{b}, bound(flag, v, time))
+
+def target.of(ws: List<&2, String>) -> Maybe<&2, String>:
+  match ws:
+    case Nil{}:
+      None{}
+    case w <> rest:
+      Some{w}
+
+def asked.of(r: LRaw) -> Result<&2, &2, String, Asked>:
+  match r:
+    case LRaw{ws, p, fi, l, au, g, si, u}:
+      do Result<&2, &2, String, Asked>:
+        n : Maybe<&2, Nat> <- limit.of(l)
+        s : Maybe<&2, String> <- bound.of("--since", si, "00:00:00")
+        v : Maybe<&2, String> <- bound.of("--until", u, "23:59:59")
+        return Asked{target.of(ws), p, fi, n, au, g, s, v}
 
 def asked(+args: List<&2, String>) -> Result<&2, &2, String, Asked>:
-  asked.go(1n+List.length(&2, String, args), Parse{args, Done{Asked{None{}, None{}, False{}, None{}, None{}, None{}, None{}, None{}}}})
+  do Result<&2, &2, String, Asked>:
+    r : LRaw <- raw.end(raw.run(args, LRead{Done{LRaw{Nil{}, None{}, False{}, None{}, None{}, None{}, None{}, None{}}}, None{}}))
+    asked.of(r)
+
+# What `log`'s arguments say, read plainly: the word after a flag that
+# takes a value is that flag's value, the last counting; `--fields` is asked
+# for if it is there; every other word is the target. `LAWS.log_reads_its_words`
+# holds `asked` to it.
+def flag.word(f: LFlag, +w: String, ws: List<&2, String>) -> List<&2, String>:
+  match f:
+    case LFlag.Word{}:
+      w <> ws
+    case _:
+      ws
+
+def flag.same(g: LFlag, f: LFlag) -> Bool:
+  match g f:
+    case LFlag.Limit{} LFlag.Limit{}:
+      True{}
+    case LFlag.Author{} LFlag.Author{}:
+      True{}
+    case LFlag.Grep{} LFlag.Grep{}:
+      True{}
+    case LFlag.Since{} LFlag.Since{}:
+      True{}
+    case LFlag.Until{} LFlag.Until{}:
+      True{}
+    case LFlag.Path{} LFlag.Path{}:
+      True{}
+    case LFlag.Fields{} LFlag.Fields{}:
+      True{}
+    case LFlag.Other{} LFlag.Other{}:
+      True{}
+    case LFlag.Word{} LFlag.Word{}:
+      True{}
+    case _ _:
+      False{}
+
+def flag.pick(g: LFlag, f: LFlag, +w: String, last: Maybe<&2, String>) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, flag.same(g, f), Some{w}, last)
+
+def flag.fields(f: LFlag, had: Bool) -> Bool:
+  match f:
+    case LFlag.Fields{}:
+      True{}
+    case _:
+      had
+
+def largs.words(args: List<&2, String>, want: Maybe<&2, LFlag>) -> List<&2, String>:
+  match args:
+    case Nil{}:
+      Nil{}
+    case +w <> +rest:
+      match want:
+        case Some{g}:
+          largs.words(rest, None{})
+        case None{}:
+          flag.word(log.flag(w), w, largs.words(rest, flag.want(log.flag(w))))
+
+def largs.last(args: List<&2, String>, want: Maybe<&2, LFlag>, +f: LFlag, last: Maybe<&2, String>) -> Maybe<&2, String>:
+  match args:
+    case Nil{}:
+      last
+    case +w <> +rest:
+      match want:
+        case Some{g}:
+          largs.last(rest, None{}, f, flag.pick(g, f, w, last))
+        case None{}:
+          largs.last(rest, flag.want(log.flag(w)), f, last)
+
+def largs.fields(args: List<&2, String>, want: Maybe<&2, LFlag>, had: Bool) -> Bool:
+  match args:
+    case Nil{}:
+      had
+    case +w <> +rest:
+      match want:
+        case Some{g}:
+          largs.fields(rest, None{}, had)
+        case None{}:
+          largs.fields(rest, flag.want(log.flag(w)), flag.fields(log.flag(w), had))
+
+def largs.raw(+args: List<&2, String>) -> LRaw:
+  LRaw{largs.words(args, None{}), largs.last(args, None{}, LFlag.Path{}, None{}), largs.fields(args, None{}, False{}),
+    largs.last(args, None{}, LFlag.Limit{}, None{}), largs.last(args, None{}, LFlag.Author{}, None{}), largs.last(args, None{}, LFlag.Grep{}, None{}),
+    largs.last(args, None{}, LFlag.Since{}, None{}), largs.last(args, None{}, LFlag.Until{}, None{})}
 
 def asked.io(r: Result<&2, &2, String, Asked>) -> IO(Asked):
   match r:
