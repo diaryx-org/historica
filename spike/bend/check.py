@@ -551,6 +551,7 @@ STORES = {
         [{"HISTORICA_AUTHOR": " Spaced <s@example.com>"}, "record", "-m", "who"],
         [{"HISTORICA_AUTHOR": " Spaced <s@example.com>"}, "record", "-m", "who", "--fields"],
         ["record", "-m", "not here", "nope.md"],
+        ["merge"],
     ],
     # Rewriting, written: `abandon`, `amend` and `carry` against the pinned
     # build, every byte they file compared. A run abandoned and one revision
@@ -636,6 +637,7 @@ STORES = {
         ["abandon", "top", "-m", "again"],
         ["status"],
         ["log"],
+        ["merge"],
     ],
     # `init`, where there is nothing yet: here, in a directory named — `.`,
     # nothing, nested, with a slash — made with its parents; refused beside a
@@ -714,6 +716,8 @@ STORES = {
         ["status", "--onto", "left"],
         ["status", "--onto", "right"],
         ["status", "--merge", "base", "--merge", "left"],
+        ["merge"],
+        ["merge", "left"],
     ],
 
     # Two lines of work that each added a file at one path, and each wrote
@@ -735,6 +739,7 @@ STORES = {
         ["record", "-n", "--onto", "left", "--move", "t.md=u.md"],
         ["record", "-n"],
         ["status", "--onto", "left", "--merge", "right"],
+        ["merge", "right", "left"],
     ],
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
@@ -788,6 +793,18 @@ STORES = {
     # directory, unrecorded bytes where a link goes, a pipe, and a file a
     # rule skips.
     "blocked": [["update"], ["update", "-n"], ["update", "clash"]],
+    # Two lines of work that met: one line rewritten both ways, a line one
+    # side deleted beside the other's insertion, a last line two sides end
+    # differently, edits apart, a file only one side edited, and a mode one
+    # side set — `merge` fences what met and writes the rest; and a file
+    # the folder holds that neither side recorded, which it leaves alone.
+    "meeting": [
+        ["merge"],
+        ["merge", "left"],
+        ["merge", "right", "left"],
+        ["merge", "nope"],
+        ["merge", "--bogus"],
+    ],
     "walked": [
         *(["cat", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         *(["blame", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
@@ -801,6 +818,8 @@ STORES = {
         ["status", "--onto", "after", "--merge", "crossed"],
         ["status", "--merge", "tops", "--merge", "all"],
         *(["update", target] for target in ("after", "all", "crossed", "joined")),
+        ["merge", "tops"],
+        ["merge", "after", "tops"],
     ],
 }
 
@@ -987,6 +1006,28 @@ def record(temporary, rust, corpus, pinned=None):
         if corpus == "caught":
             historica("update", "tip")
             (store / "side.md").unlink()
+    elif corpus == "meeting":
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def write(**files):
+            for path, text in files.items():
+                (store / f"{path}.md").write_text(text)
+
+        write(f="a\nb\nc\n", g="one\ntwo\nthree\nfour\n", h="x\ny\nz\n", t="end", o="only\n", k="kept\n")
+        (store / "run.sh").write_text("#!/bin/sh\n")
+        rec("base", "-m", "base")
+        write(f="a\nLEFT\nc\n", g="zero\none\ntwo\nthree\nfour\n", h="x\nz\n", t="end, left", o="only, left\n")
+        (store / "run.sh").chmod(0o755)
+        rec("left", "-m", "left")
+        write(f="a\nRIGHT\nc\n", g="one\ntwo\nthree\nfour\nfive\n", h="x\ny\nY\nz\n", t="end, right\n", o="only\n", k="kept, and not recorded\n")
+        (store / "run.sh").chmod(0o644)
+        (store / "run.sh").write_text("#!/bin/sh\necho right\n")
+        write(k="kept\n")
+        rec("right", "--onto", "base", "-m", "right")
+        write(k="kept, and not recorded\n")
     elif corpus == "blocked":
         (store / "a.md").write_text("a\n")
         (store / "c.bin").write_bytes(b"\x00base")
@@ -1423,7 +1464,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked", "meeting")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -1434,7 +1475,7 @@ def check_store(temporary):
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too; and a
             # record that is not a dry run, the whole store it wrote.
-            writes = command[0] in ("record", "name", "init", "update", *REWRITES)
+            writes = command[0] in ("record", "name", "init", "update", "merge", *REWRITES)
             recording = command[0] in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store

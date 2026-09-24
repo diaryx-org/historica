@@ -25,6 +25,7 @@ import ./survey.bend as Sv
 import ./notes.bend as Notes
 import ./naming.bend as Naming
 import ./sha256.bend as Sha
+import ./conflict.bend as Conflict
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -2500,6 +2501,30 @@ def walked.file(w: Walked) -> List<&2, Ops.Item>:
 # The file, as `Merge.merged` reads a walk: `Merge.file` of its tree.
 def walked(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   Result.map(&2, &2, String, Walked, List<&2, Ops.Item>, w => walked.file(w), walked.of(fs, ds, head, file))
+
+# One file as several heads leave it, with the graph the walk read:
+# `store::merged_content_of`, which `merge` renders and `status` and
+# `record --merge` hold the folder's file to. The events are everything the
+# heads reach, and no merge of them yet: that is what is being proposed.
+def joined.walked(+digests: List<&2, String>, +g: List<&2, Merge.Rev>, w: Walked) -> Conflict.Joined:
+  match w:
+    case Walked{ns, t}:
+      Conflict.Joined{ns, digests, g, t}
+
+def joined.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String, r: Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>) -> Result<&2, &2, String, Conflict.Joined>:
+  match r:
+    case Fail{e}:
+      Fail{head ++ ": " ++ Tree.fault_show(e)}
+    case Done{+ss}:
+      +digests = minted_digests(rs, file)
+      do Result<&2, &2, String, Conflict.Joined>:
+        +g : List<&2, Merge.Rev> <- walked.revs(rs, ids(rs), digests, ss, ds, file)
+        w : Walked <- walked.causal(head, file, ids(rs), g, deepens(g))
+        return joined.walked(digests, g, w)
+
+def joined(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +file: String) -> Result<&2, &2, String, Conflict.Joined>:
+  +rs = List.sort(~Full, ~(a => b => String.is_le(id_of(a), id_of(b))), among(fs, reached.all(fs, heads)))
+  joined.seen(rs, ds, first_line.of(heads), file, Tree.seen(List.length(&2, Full, rs), events_of(rs), Nil{}))
 
 def content.rule(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, h: Rule) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match h:
@@ -7890,98 +7915,6 @@ def between(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +old: String, +new: S
     +nt2 : List<&2, Tree.Entry> = nt
     with_introduced(introduced(nt2, ot2), between.walk(fs, ds, old, new, ot2, nt2))
 
-# Contested regions
-# -----------------
-#
-# `merge.rs`'s report of where concurrent work met, read off a walk's
-# finished tree: siblings at one place written by authors who had not seen
-# each other; an element removed next to something a concurrent author
-# wrote; each counted over the run its author wrote, and every item but the
-# last that has no terminator.
-def concurrent(+g: List<&2, Merge.Rev>, +a: Nat, +b: Nat) -> Bool:
-  Bool.and(Bool.not(Nat.is_eq(a, b)), Bool.and(Bool.not(Merge.has(Merge.past(g, a), b)), Bool.not(Merge.has(Merge.past(g, b), a))))
-
-def any_concurrent(+g: List<&2, Merge.Rev>, +a: Nat, bs: List<&2, Nat>) -> Bool:
-  match bs:
-    case Nil{}:
-      False{}
-    case +b <> rest:
-      Bool.or(concurrent(g, a, b), any_concurrent(g, a, rest))
-
-def place.eq(a: Merge.Place, b: Merge.Place) -> Bool:
-  match a b:
-    case Merge.Place{p1, r1} Merge.Place{p2, r2}:
-      Bool.and(Merge.Name.same(p1, p2), Bool.not(Bool.xor(r1, r2)))
-
-def sibling.contested(+g: List<&2, Merge.Rev>, +n: Merge.Node, ns: List<&2, Merge.Node>) -> Bool:
-  match ns:
-    case Nil{}:
-      False{}
-    case +m <> rest:
-      Bool.or(Bool.and(Bool.not(Merge.Name.eq(Merge.Node.name(n), Merge.Node.name(m))), Bool.and(place.eq(Merge.Node.place(n), Merge.Node.place(m)), concurrent(g, Merge.Node.author(n), Merge.Node.author(m)))),
-        sibling.contested(g, n, rest))
-
-def insertions(+g: List<&2, Merge.Rev>, ns: List<&2, Merge.Node>, +t: List<&2, Merge.Node>) -> List<&2, Merge.Name>:
-  match ns:
-    case Nil{}:
-      Nil{}
-    case +n <> rest:
-      +later = insertions(g, rest, t)
-      Bool.pick(List<&2, Merge.Name>, sibling.contested(g, n, t), Merge.Node.name(n) <> later, later)
-
-def node.deleted(n: Merge.Node) -> List<&2, Nat>:
-  match n:
-    case Merge.Node{nm, it, pl, d}:
-      d
-
-def before.marked(+g: List<&2, Merge.Rev>, before: Maybe<&2, Merge.Node>, +by: List<&2, Nat>) -> List<&2, Merge.Name>:
-  match before:
-    case None{}:
-      Nil{}
-    case Some{+b}:
-      Bool.pick(List<&2, Merge.Name>, any_concurrent(g, Merge.Node.author(b), by), [Merge.Node.name(b)], Nil{})
-
-def deletions(+g: List<&2, Merge.Rev>, ns: List<&2, Merge.Node>, +before: Maybe<&2, Merge.Node>, +pending: List<&2, Nat>) -> List<&2, Merge.Name>:
-  match ns:
-    case Nil{}:
-      Nil{}
-    case +n <> +rest:
-      +d = node.deleted(n)
-      Bool.pick(List<&2, Merge.Name>, List.is_empty(&2, Nat, d),
-        List.append(&2, Merge.Name, Bool.pick(List<&2, Merge.Name>, any_concurrent(g, Merge.Node.author(n), pending), [Merge.Node.name(n)], Nil{}), deletions(g, rest, Some{n}, Nil{})),
-        List.append(&2, Merge.Name, before.marked(g, before, d), deletions(g, rest, before, List.append(&2, Nat, pending, d))))
-
-def name.in(ms: List<&2, Merge.Name>, +n: Merge.Name) -> Bool:
-  match ms:
-    case Nil{}:
-      False{}
-    case m <> rest:
-      Bool.or(Merge.Name.eq(m, n), name.in(rest, n))
-
-# Runs of one author among what stands, each counted once if any of it met.
-def regions(ns: List<&2, Merge.Node>, +marks: List<&2, Merge.Name>, run: Maybe<&2, Nat>, +hit: Bool) -> Nat:
-  match ns:
-    case Nil{}:
-      Bool.pick(Nat, hit, 1n, 0n)
-    case +n <> rest:
-      +a = Merge.Node.author(n)
-      +same = Maybe.default(&2, Bool, Maybe.map(&2, Nat, Bool, r => Nat.is_eq(r, a), run), False{})
-      +mine = name.in(marks, Merge.Node.name(n))
-      Nat.add(Bool.pick(Nat, Bool.and(Bool.not(same), hit), 1n, 0n), regions(rest, marks, Some{a}, Bool.or(Bool.and(same, hit), mine)))
-
-def unterminated(items: List<&2, Ops.Item>) -> Nat:
-  match items:
-    case Nil{}:
-      0n
-    case Ops.Item{t, n, f} <> Nil{}:
-      0n
-    case Ops.Item{t, n, f} <> rest:
-      Nat.add(Bool.pick(Nat, n, 0n, 1n), unterminated(rest))
-
-def contested(+g: List<&2, Merge.Rev>, +t: List<&2, Merge.Node>) -> Nat:
-  +marks = List.append(&2, Merge.Name, insertions(g, t, t), deletions(g, Merge.order(t), None{}, Nil{}))
-  Nat.add(regions(Merge.visible(t), marks, None{}, False{}), unterminated(Merge.file(t)))
-
 # Restating
 # ---------
 
@@ -8039,7 +7972,7 @@ def restated.walked(+id: String, +file: String, +g: List<&2, Merge.Rev>, +old_af
     case None{}:
       Fail{"what " ++ ab12(id) ++ " did to " ++ file ++ " does not replay against the base it was recorded on"}
     case Some{+t}:
-      +n = contested(g, t)
+      +n = Conflict.contested(g, t)
       Bool.pick(Result<&2, &2, String, Restated>, Nat.is_eq(n, 0n),
         Done{restated.of(file, old_after, new, Merge.file(t))},
         Fail{"what " ++ ab12(id) ++ " did and what the rewrite did meet in " ++ regions.said(n) ++ " of one file (" ++ file ++ "); resolving concurrent work is a person's, so amend it onto the rewrite by hand"})
