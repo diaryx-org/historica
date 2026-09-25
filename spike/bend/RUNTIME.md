@@ -184,6 +184,17 @@ file's execute bits as its read bits say and answers what the bit was
 before, so that Bend decides whether a `mode` line is owed. A removal is
 `Store.remove`, with the folder as where tidying stops.
 
+`merge` reads what `update` reads for the merged tree — the digest of each
+path it would write, the listing where a link goes, where each payload is
+— and the documents the walk of each contested file needs, and then reads
+the text of only the files whose digest is none of what it may write over,
+since whether that text is text decides whether it is anyone's work to
+keep. It writes through the same four effects, and removes nothing.
+`status` and `record` read the documents of the union's ancestry for a
+file the parents leave differently, and hand the walk's proposal to the
+marker check and to the resolution writer; everything they decide from it
+is decided in Bend.
+
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and
 the folder is the store's size again, all of which would have to be read into

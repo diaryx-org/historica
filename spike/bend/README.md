@@ -36,6 +36,8 @@ bend main.bend -- carry tip --onto main   # restate work against another parent
 bend main.bend -- name main head        # point a bookmark, and `--delete` one
 bend main.bend -- init notes            # make a store in notes/history
 bend main.bend -- update tip            # make the folder hold a head
+bend main.bend -- merge right           # lay two lines of work out together, fenced where they met
+bend main.bend -- record --merge right -m "joined"  # and record what the person left
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
@@ -270,9 +272,10 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
-| `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and five claims about the code, each proven | the test suite and Verus replay helpers |
+| `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it, and written back | `format::resolution` |
+| `conflict.bend`, `conflict_lemmas.bend` | where concurrent work met in one file and how a person is shown it: the contested regions, the rendering with fences, the renderer's lines still standing in what a person left, and the resolution `record --merge` states — the walk's proposal aligned with the folder's file, each surviving line named by the document that minted it. `merge_renders_the_uncontested_as_itself`: a file where nothing met renders as the walk's file, byte for byte; `merge_resolution_reads_back`: the resolution `record --merge` writes, assembled as `cat` assembles one, is the folder's file | `merge.rs`'s contests, `conflict.rs`, `diff::resolve` |
+| `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record` — `record --merge` included — `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `LAWS.bend` / `PROOF.bend` | a hundred and seven claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -293,6 +296,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added | `working::walk`, `Survey::facts` |
 | `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given | `status`'s arguments and parents |
 | `update.bend`, `update_lemmas.bend` | `update`: the folder made to hold a head — the plan of what each path takes, from the target's tree, the walk, a directory's listing where the walk took nothing, and what history records at each path; and the IO that performs it. `update_reads_its_words`: `-n` or `--dry-run` anywhere makes a dry run, and the target is the one word not beginning with `-`; `update_lands`: where it plans at all, every path the target holds with one file ends up holding what the target records, bytes and mode, or a link where the tree points; `update_spares_the_unrecorded`: a file it writes over or takes away holds bytes some revision records there, and a link it takes away points where one was recorded | `cli::update`, `update::{plan, apply}` |
+| `merging.bend` | `merge`: the heads joined — what is named, and every current head that is not — and laid out in the folder: each file of lines as the walk reads it, fenced where concurrent work met, each file of bytes as the payload the tree kept, each link where it points, and a file holding work nobody recorded left alone; then the `record` line that records it | `cli::record::merge`, `conflict::render` |
 | `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet | `store::check_name` |
 | `PROOF.bend` (`replay`) | `replay_keeps_a_refusal`: once a document in the chain is refused, nothing after it — a payload included — makes the chain a file; `opdiff_replays_to_the_child`: the document `opdiff` finds between two files, applied as `replay` applies one, makes the second | `replay`, `opdiff` |
 | `target_lemmas.bend` | `target_is_held`: every target — a bookmark, `head`, a digest prefix or a change prefix — resolves to a revision the store holds; setting a key in Base's `Map` never invents a value, so the history heads and changes are read from holds only the store's revisions | `target::resolve` |
@@ -451,9 +455,11 @@ file moved two ways, bytes stated whole on both sides, a mode or a link
 target set two ways — the tree's contests, which `tree.bend` computes and
 which were not printed until now. A file of lines the parents leave
 differently is `edited` whatever the folder holds, since the merge owes it
-a resolution. What the renderer's marker lines leave standing in such a
-file (`marked`) is not reported: that needs the content contests
-`merge.bend` does not model.
+a resolution. Where such a file still holds lines the renderer wrote for
+this merge — a label or a closing line its fences draw, and the walk's
+own file does not hold — `status` says it is `marked`, with how many are
+left, as `conflict::unresolved` counts them; a file quoting a fence some
+other merge drew is not marked, since the lines are scoped to this one.
 
 `record --dry-run` is the first of the writing commands, less the writing:
 it prints what `record` would state — the lines `status` prints, and a
@@ -467,8 +473,9 @@ some paths, one end of a rename left out of them, a named path nothing
 answers to or a rule keeps out, a kind stated for a file already recorded,
 for one not looked at or not there, or `lines` for bytes that are not
 UTF-8, a link not looked at whose target is going, a path several files
-still claim, what nothing here can take, a merge that empties a file, and
-contested bytes accepted or not. And `--move` renames in the folder before
+still claim, what nothing here can take, a file of a merge still holding
+lines the renderer wrote — each named with how many are left — a merge
+that empties a file, and contested bytes accepted or not. And `--move` renames in the folder before
 anything is read, as the Rust tool does, dry run or not — through
 `Store.move`, which renames and answers which of the four cases the folder
 was in. `check.py` runs each `record` on a
@@ -479,7 +486,7 @@ settled with `--at` by file bookmark, bytes written two ways, and a link to
 a file the folder dropped. A usage error is now compared too, to the end of
 its message.
 
-`record` writes, too, where no merge is being recorded. It mints an
+`record` writes, too. It mints an
 identifier for each file arriving, in path order, then the change's; says
 what each file holds now — a new file of lines as its text, a file edited
 as the operation document `Ops.diff` finds between the position's content
@@ -496,6 +503,26 @@ before any refusal but a usage error the header goes out first, whenever
 surveys it asks who is recording, what time it is, and why, in that order:
 a clock behind the newest work the store holds is said on standard error,
 and a revision that would state nothing is refused.
+
+`record --merge` records a merge, decision 0032, and says it joins as
+many lines of work as the revision has parents. A file the parents agree
+about is stated as `record` states any; one they leave differently owes a
+resolution (`conflict.bend`), stated against what the walk of their
+union proposes. `similar`'s Histogram diff aligns the proposal with what
+the person left, checked in one pass as `diff`'s moves are, and each line
+that survived is named — `keep`, the digest of the document that minted
+it and its ordinal there, a run of one document's consecutive items as
+one — while what the person wrote is `insert`ed. A line restated rather
+than named would be a new item, which the first merge reaching across
+this one would meet twice. `merge_resolution_reads_back` is the promise
+this keeps: the resolution written for a file, assembled as `cat`
+assembles one, is exactly the file the person left, its digest the one
+`cat` checks, wherever the store's documents mint each element as the
+walk read it. `resolved` is the `meeting` merge laid out by `merge` and
+resolved by hand, file by file, then recorded three ways — `--onto` and
+`--merge` in either order, `--fields`, a message at length — each
+compared whole with what `historica-pinned` writes; `meeting` records the
+merge where the folder holds one side's work alone.
 
 The time and the identifiers are the two things decision 0010 made inputs,
 and they are what made this comparable. The Rust command line takes them
@@ -612,6 +639,36 @@ can take, and a folder in its way at every turn. With `update` over the
 corpus stores, which arrive with no folder at all, over the walked and
 resolved merges, and where there is no store or nothing recorded, 33
 comparisons hold it to the Rust tool, the folder after included.
+
+`merge [<target>...]` lays two lines of work out in the folder together,
+decision 0012 (`merging.bend`): what is named, and every current head
+that is not, so `merge` alone joins the heads there are, and a store with
+one refuses in the Rust tool's words. Nothing is recorded. Each file of
+lines the merged tree holds is written as the walk reads it
+(`conflict.bend`): the runs concurrent authors met in — siblings two
+authors placed unaware of each other, a removal beside concurrent work —
+fenced, a line naming the revision that wrote each run and one closing
+the fence, and the rest as it stands. A file of bytes is the payload the
+tree kept, or, contested, left as it is with the `historica cat` line for
+each side; a link points where the tree says, and a mode is set where
+the bit differs. A path two files claim gets each file beside it, under a
+name that says whose it is. What the folder holds at a path is written
+over only where it is nothing, what this merge would write, the walk's
+reading unfenced, or what one of the heads leaves; anything else is work
+nobody recorded, and is left alone and said to be. It closes with how
+many files hold work that met and the `record` line that records the
+merge, each head named as the person typed it. The writes are `update`'s
+four. What makes writing into the folder safe where nothing met is
+`merge_renders_the_uncontested_as_itself`: such a file renders as the
+walk's file, byte for byte. `check.py`'s `meeting` store is two lines of
+work that met every way a file of lines can — one line rewritten both
+ways, a deletion beside an insertion, a last line two sides end
+differently, edits apart, a file one side alone touched, a mode one side
+set — beside a file neither side recorded; `marked` and `marked1` are the
+same once a person has started resolving it. With `merge` over the
+corpus, walked and resolved stores too, 14 `merge` comparisons hold it to
+the Rust tool, the folder after included, and 9 more hold `status`'s
+`marked` and `record`'s refusal of it.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1145,8 +1202,8 @@ and one whose descent passes a tombstone, land where asked; every topological or
 file; and a document that contradicts its author's view is refused.
 Resolutions say what survived, keep their elements' names so a
 concurrent edit lands on one, and refuse a keep of an element nobody
-wrote or one already kept. `contested` is not modelled, as in the Verus
-file. The reading carries fuel — one more than the element count,
+wrote or one already kept. `contested` is not part of the model, as in
+the Verus file; `conflict.bend` reads it off the finished tree. The reading carries fuel — one more than the element count,
 enough for any tree `attach` built — and positions are unary.
 
 Trying to prove the round trip found two ways the port accepted what it
@@ -1157,7 +1214,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-A hundred mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and five mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1233,7 +1290,11 @@ revisions joined kept newest first, and a `--merge` joined by its spelling
 rather than the revision it names; and one name break: a name taken without
 asking the path rules; and three update breaks: bytes no revision records
 written over, a file kept whose mode is not the one recorded, and a file
-nobody recorded taken away. The
+nobody recorded taken away; and three resolution breaks: a name run into
+a `keep` it does not continue, a line the person deleted kept, and a
+`keep` read from one item past where it starts; and two rendering breaks:
+a run nothing met labelled, and a region meeting at a file's end left
+uncounted. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1330,28 +1391,24 @@ rules beside them.
 The port is the *format* and the *core*; the Rust crate is 33k lines and this
 is under 5k. Not ported:
 
-- **Merging** concurrent branches as a command over the store. A stated
-  resolution is read. Where a merge states none, the proven walk reads
-  the file. `status --merge` prints the tree's contests; the content
-  contests of a file both sides edited are counted only where `carry`
-  restates a file, so neither the rendering with markers nor `status`'s
-  `marked` count of them is here.
 - **Refusing a name that is not UTF-8**: the walk leaves it out, as the
   Rust walk does, but `status` does not list it, since the host's listing
   carries no spelling of it.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
-- **Writing the store**: `record --merge`, whose resolutions nothing here
-  writes; `arrange`, `fetch`, `export`. `record` and `abandon` without
+- **Writing the store**: `arrange`, `fetch`, `export`. `record` and `abandon` without
   `-m` do not open an editor — with no `$VISUAL` or `$EDITOR` both refuse
   as the Rust tool does — and who is recording is
   read from `HISTORICA_AUTHOR` alone, not from the identity file the Rust
   tool falls back on. It writes no `cache/`, which any reader rebuilds. The Rust tool finds a store by a `history` directory
   and refuses one without `historica.txt` as not a store; the port looks
   for the file, so it goes on looking above such a directory. `-C` is
-  not read. `check` does not report on `names/`. A merge's file
-  still holding the renderer's marker lines is not refused by
-  `record --dry-run`, since the markers are not modelled.
+  not read. `check` does not report on `names/`.
+- **The edges of `merge`**: a file of lines lands staged and renamed over
+  what stood at its path, where the Rust tool's `fs::write` writes through
+  a link standing there; and where the walk of a merge's union fails,
+  `status` counts none of the renderer's lines in that file rather than
+  refusing.
 - **A name that is not UTF-8**, which the Rust tool's `record` refuses
   with the rest of what the folder cannot take, is not among the paths
   `record --dry-run` refuses, as `status` does not list it.
