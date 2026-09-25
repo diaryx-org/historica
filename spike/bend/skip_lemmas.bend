@@ -849,13 +849,6 @@ def only_scoped(+v: String, d: Bool, +q: String, s: {Folder.skips([Bool.pick(Fol
     case True{}:
       split_at(v ++ "/", q, or_false_true(String.starts_with(q, v ++ "/"), s))
 
-def only_directory(+v: String, d: Bool, +p: String, s: {Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], p) == True{} : Bool}) -> {p == v : String}:
-  match d:
-    case False{}:
-      S.eq_true(p, v, or_false_true(String.eq(p, v), s))
-    case True{}:
-      S.eq_true(p, v, or_false_true(String.eq(p, v), s))
-
 def skips_scoped(+v: String, d: Bool, +x: String) -> {Bool.pick(Bool, d, Bool.and(Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], String.append(v ++ "/", x))), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v)) == True{} : Bool}:
   match d:
     case False{}:
@@ -865,6 +858,13 @@ def skips_scoped(+v: String, d: Bool, +x: String) -> {Bool.pick(Bool, d, Bool.an
       %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.and(Bool.or(_, False{}), Bool.or(String.starts_with(String.append(v ++ "/", x), v ++ "/"), False{})) == True{} : Bool}
       %Equal.sym(Bool, String.starts_with(String.append(v ++ "/", x), v ++ "/"), True{}, sw_ext(v ++ "/", v ++ "/", x, sw_refl(v ++ "/"))) : {Bool.or(_, False{}) == True{} : Bool}
       {==}
+
+def only_directory(+v: String, d: Bool, +p: String, s: {Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], p) == True{} : Bool}) -> {p == v : String}:
+  match d:
+    case False{}:
+      S.eq_true(p, v, or_false_true(String.eq(p, v), s))
+    case True{}:
+      S.eq_true(p, v, or_false_true(String.eq(p, v), s))
 
 def scoped_scope.at(+v: String, ut: Bool, hb: Bool, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped.of(Bool.pick(Result<&2, &2, Main.Refused, String>, ut, Fail{Main.Refused{2, "`" ++ v ++ "` cannot be a rule: a value is not empty and carries no leading or trailing space"}}, Bool.pick(Result<&2, &2, Main.Refused, String>, hb, Fail{Main.Refused{2, "a rule is one line, and this value holds a line break"}}, Done{v})), d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}) -> {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope}:
   match ut hb:
