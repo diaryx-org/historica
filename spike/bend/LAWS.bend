@@ -47,6 +47,7 @@ import ./utf8.bend as Utf8
 import ./host_lemmas.bend as HostL
 import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
+import ./stats_lemmas.bend as StatsL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -3020,3 +3021,24 @@ law a_pattern_matches_only_names_it_spells:
   for e: {Folder.matches(String.join(r0 <> more, "*"), c) == True{} : Bool}
   exs xs: List<&2, String>
   {PatL.fill(r0, more, xs) == c : String}
+
+# `forget` reads each file of `operations/` as the host found it.
+# `Store.digests` answers the paths it is asked a line each, in order —
+# `<digest> <size>`, or `- 0` for a file that will not read — and `forget`
+# pairs each path with the digest and the size on the line for it: one
+# line to each path, none skipped and none shifted onto another.
+law forget_reads_what_the_host_hashed:
+  for +ps: List<&2, String>
+  for +ss: List<&2, T.Split>
+  for +hl: {Nat.is_eq(List.length(&2, String, ps), List.length(&2, T.Split, ss)) == True{} : Bool}
+  for +h: {StatsL.stats_ok(ss) == True{} : Bool}
+  {Fg.filed(ps, Store.stats.read(StatsL.digests.answer(ss))) == StatsL.filed(ps, ss) : List<&2, Fg.FgFiled>}
+
+# And `arrange` names each payload by the digest the host found for it,
+# one line to each payload, in order.
+law arrange_reads_what_the_host_hashed:
+  for +ps: List<&2, String>
+  for +ss: List<&2, T.Split>
+  for +hl: {Nat.is_eq(List.length(&2, String, ps), List.length(&2, T.Split, ss)) == True{} : Bool}
+  for +h: {StatsL.stats_ok(ss) == True{} : Bool}
+  {Arrange.zip.stats(ps, Store.stats.read(StatsL.digests.answer(ss))) == StatsL.digested(ps, ss) : List<&2, T.Split>}

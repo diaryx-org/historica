@@ -5178,6 +5178,34 @@ def check_mutations(temporary):
             "pattern_lemmas.spells",
             "folder.bend",
         ),
+        (
+            "the host's answer to `Store.digests` split at its spaces",
+            "  String.split(answer, '\\n')\n\n# `<digest> <size>` for each",
+            "  String.split(answer, ' ')\n\n# `<digest> <size>` for each",
+            "stats_lemmas.answer_lines",
+            "store.bend",
+        ),
+        (
+            "forget files a size as a digest",
+            "      Fg.Filed{path, d, n}",
+            "      Fg.Filed{path, n, d}",
+            "stats_lemmas.filed_lines",
+            "forget.bend",
+        ),
+        (
+            "forget reads one path's line again for the next",
+            "      filed.one(p, T.split_once(st)) <> filed(pr, sr)",
+            "      filed.one(p, T.split_once(st)) <> filed(pr, st <> sr)",
+            "stats_lemmas.filed_lines",
+            "forget.bend",
+        ),
+        (
+            "arrange names a payload by its whole line",
+            "def stat.digest(+stat: String) -> String:\n  T.word(stat)",
+            "def stat.digest(+stat: String) -> String:\n  stat",
+            "stats_lemmas.digested_lines",
+            "arrange.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

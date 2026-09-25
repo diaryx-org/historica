@@ -796,11 +796,15 @@ def located(+root: String, digests: List<&2, String>) -> IO(List<&2, String>):
         answer : String <- IO.try(String, Store.at(root ++ "\n" ++ String.join(some, "\n")))
         return String.split(answer, '\n')
 
+# The host's answer to `Store.digests`, a line for each path asked.
+def stats.read(answer: String) -> List<&2, String>:
+  String.split(answer, '\n')
+
 # `<digest> <size>` for each of these paths, in the order they were given.
 def stats.of(+root: String, paths: List<&2, String>) -> IO(List<&2, String>):
   do IO<List<&2, String>>:
     answer : String <- IO.try(String, Store.digests(root ++ "\n" ++ String.join(paths, "\n")))
-    return String.split(answer, '\n')
+    return stats.read(answer)
 
 def stats(+root: String, paths: List<&2, String>) -> IO(List<&2, String>):
   match paths:
