@@ -1006,8 +1006,14 @@ def Laws.prune_dry_run_names_what_prune_removes(s):
 def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps, d, h):
   PruneL.removes(fs, revs, bs, ps, d, h)
 
-def Laws.receive_takes_only_what_is_missing(here, there):
-  ReceiveL.fresh(here, there)
+def Laws.receive_takes_only_revisions_it_lacks(here, there, join, p, e, id, text, h):
+  ReceiveL.revisions(here, there, join, p, e, id, text, h)
+
+def Laws.receive_takes_only_documents_it_lacks(here, there, id, text, h):
+  ReceiveL.documents(here, there, id, text, h)
+
+def Laws.receive_takes_only_payloads_it_lacks(here, there, path, d, h):
+  ReceiveL.payloads(here, there, path, d, h)
 
 def Laws.receive_moves_no_bookmark(here, there):
   ReceiveL.names(here, there)

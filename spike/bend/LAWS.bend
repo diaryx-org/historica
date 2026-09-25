@@ -45,6 +45,7 @@ import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
+import ./receive_lemmas.bend as ReceiveL
 import ./utf8.bend as Utf8
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
@@ -2563,14 +2564,43 @@ law prune_removes_only_unneeded_content:
   for h: {Rev.member(Prune.pruned.content(Prune.plan(fs, revs, bs, ps)), d) == True{} : Bool}
   {Bool.or(PruneL.named(Prune.kept(fs), d), PruneL.stands_in(bs, Prune.kept(fs), d)) == False{} : Bool}
 
-# `receive` takes only what this store lacks: every revision it plans to
-# write is one this store does not hold, and every document and payload
-# one it has nothing under the digest of — and that neither store forgets,
-# so a forgetting document is never undone by an arriving original.
-law receive_takes_only_what_is_missing:
+# `receive` files as a revision only one of the source's revision
+# documents, its digest and its text, and only under a digest no revision
+# document of this store has — this store's revisions all parse, or no
+# plan is made (receive_trusts_what_it_plans_from).
+law receive_takes_only_revisions_it_lacks:
   for +here: Receive.Side
   for +there: Receive.Side
-  {Receive.fresh(here, there, Receive.plan.of(here, there)) == True{} : Bool}
+  for +join: Bool
+  for +p: Receive.RPlan
+  for e: {Receive.plan.r(here, there, join) == Done{p} : Result<&2, &2, Main.Refused, Receive.RPlan>}
+  for +id: String
+  for +text: String
+  for h: {ReceiveL.holds(Receive.rplan.revisions(p), id, text) == True{} : Bool}
+  {Bool.and(Bool.not(Rev.member(T.map(~Store.Doc, ~String, ~(d => Store.id_of(d)), Arrange.revision_docs(Receive.stored.docs(Receive.stored.of(here)))), id)), ReceiveL.holds(Arrange.revision_docs(Receive.stored.docs(Receive.stored.of(there))), id, text)) == True{} : Bool}
+
+# `receive` files as an operation document only one of the source's, its
+# digest and its text, and only under a digest this store holds no
+# document under and that no forgetting document of either store forgets,
+# so a forgetting document is never undone by an arriving original.
+law receive_takes_only_documents_it_lacks:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for +id: String
+  for +text: String
+  for h: {ReceiveL.holds(ReceiveL.rplan.documents(Receive.plan.of(here, there)), id, text) == True{} : Bool}
+  {Bool.and(Bool.not(Bool.or(Rev.member(T.map(~Prune.Body, ~String, ~(b => Prune.body.id(b)), Receive.stored.bodies(Receive.stored.of(here))), id), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(here)), id), Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), id)))), ReceiveL.holds(Receive.stored.odocs(Receive.stored.of(there)), id, text)) == True{} : Bool}
+
+# `receive` copies only a payload the source lists, from the path it
+# lists it at, and only under a digest this store holds no payload under
+# and that neither store forgets.
+law receive_takes_only_payloads_it_lacks:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for +path: String
+  for +d: String
+  for h: {ReceiveL.lists(ReceiveL.rplan.payloads(Receive.plan.of(here, there)), path, d) == True{} : Bool}
+  {Bool.and(Bool.not(Bool.or(Rev.member(T.map(~T.Split, ~String, ~(s => Receive.split.digest(s)), Receive.stored.payloads(Receive.stored.of(here))), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(here)), d), Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), d)))), ReceiveL.lists(Receive.stored.payloads(Receive.stored.of(there)), path, d)) == True{} : Bool}
 
 # `receive` moves no bookmark this store has: each it writes is one this
 # store lacks, or one it holds at the same target, whose axis joins. Two
