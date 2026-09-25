@@ -90,6 +90,19 @@ def Store.sweep(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_sweep.c"
   import "./ffi/store_sweep.js"
 
+# A link made in a folder: its path, then what it points at, a line each.
+# The directories above it are made, and the link lands staged and renamed;
+# what it points at is never opened. Back `linked`.
+def Store.link(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_link.c"
+  import "./ffi/store_link.js"
+
+# A file made runnable: its path. The execute bits follow the read bits, as
+# the Rust tool sets them. Back `set`, or `held` where they already were.
+def Store.runs(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_runs.c"
+  import "./ffi/store_runs.js"
+
 # The process ends, with the code given, once what it printed is out: for
 # a command whose answer is its exit code and says nothing on standard
 # error. It never returns.
@@ -293,6 +306,12 @@ def swept(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def ended(code: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.exit(code)
+
+def linked(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.link(query)
+
+def made_runnable(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.runs(query)
 
 def really(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.real(query)

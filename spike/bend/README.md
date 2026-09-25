@@ -40,7 +40,7 @@ bend main.bend -- opdiff old.txt new.txt # the operation document between two fi
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through fifteen host effects (`store.bend`): `bend main.bend` runs
+here or above — through twenty host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -266,7 +266,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, a document or a payload filed once, and the directories a rename or a removal leaves empty, tidied; and a silent exit with a code: eighteen effects, a C adapter, a Rust static library |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, a document or a payload filed once, and the directories a rename or a removal leaves empty, tidied; a silent exit with a code; and a link made and a file made runnable: twenty effects, a C adapter, a Rust static library |
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
@@ -280,6 +280,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `receive_lemmas.bend` | `receive_takes_only_what_is_missing`: every revision, document and payload it plans to write is one this store has nothing under the digest of, and neither store forgets; `receive_moves_no_bookmark`: each bookmark it writes is new here or at the target it has here; `receive_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document names | `receive` |
 | `offer.bend` | `offer`: the published copy's store read as `prune` reads it and opened as the Rust tool opens a store, and its manifest written to standard output — the header, every head of the graph, then payloads, documents, revisions, rules, the other tool's files and bookmarks, each group by path and each path under the copy's own name — with no private rule or bookmark named | `store::offer`, decisions 0048, 0052, 0056 |
 | `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have | `offer` |
+| `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0053, 0062 |
+| `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule | `export` |
 | `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -676,6 +678,37 @@ holds nine `offer`s to the Rust tool, over the stores of the `receiving`
 folder, one of them with a private rule and two private bookmarks, and
 the refusals: no directory, two, a word it does not take, the store
 rather than the copy, and a directory that is not there.
+
+`export <dir> [<target>]` writes decision 0042's copy: a fresh repository
+at `<dir>`, assembled rather than mirrored. The target — `head` where none
+is named — is resolved as every command resolves one, and a store `check`
+would call broken is refused, since a copy of a fault is two faults. What
+travels is the target's ancestry, closed over parent edges and nothing
+else, every document and payload those revisions name, followed through a
+resolution's `keep` lines, and every forgetting document standing in for
+any of it; the shared rules, filed under `Rule::label`'s names
+(`export_states_no_private_rule`); the shared bookmarks whose target the
+copy holds (`export_names_only_what_travels`), the rest counted as held
+back or as pointing past the target; and the files of `claims/`, whole.
+The copy's files are named as `arrange` names them, over what travels. The
+folder is laid out path by path, each path the tree places given one
+outcome at that path (`export_lays_out_every_path`): a file of lines
+replayed here, a file of bytes copied out of the store, a link made where
+it sits and spelled as decision 0040 spells it, a runnable file made
+runnable — or, where the folder cannot take the tree whole, every path in
+the way named. `-n` prints the counts and the paths. `--files-only` lays the
+same folder out into a directory holding nothing, with no store beside it,
+and says each link and mode it set. A directory holding anything that is
+not a copy is refused. The `exporting` store has lines, bytes, a runnable
+file, links by reference and verbatim, three revisions, a forgetting
+document for a file only the second holds, bookmarks shared, private,
+pinned and naming a file, rules shared, private and none, and a file of
+`claims/`. With a copy of the `walked` store's resolved merge, which carries
+every document the resolution keeps items of, and its folder laid out from
+the merge walk; the `folder` store's links, mode and rules; the `pruning`
+store's head, whose ancestry leaves a `supersedes` edge dangling; and the
+`merge` store refused as broken, `check.py` holds twenty-two `export`s to
+the Rust tool, every file written compared after.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1303,7 +1336,10 @@ that work still stands on, content removed that a kept revision names,
 and a plan and a statement taken at once; and three receive breaks: a
 document taken that this store already holds, a bookmark moved to where
 the source has it, and an original destroyed that nothing forgets; and two offer
-breaks: a private bookmark named, and a private rule named. The
+breaks: a private bookmark named, and a private rule named; and four
+export breaks: a link laid somewhere other than where it sits, a
+private bookmark given to the copy, a bookmark pointing past the target
+given to it, and a private rule written into it. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1412,7 +1448,7 @@ is under 5k. Not ported:
 - **Forgetting** past the marker: `stand_in`, and the two-header document
   that replaces a destroyed payload.
 - **Writing the store**: `record --merge`, whose resolutions nothing here
-  writes; `fetch`, `export`. `record` and `abandon` without
+  writes; `fetch`. `record` and `abandon` without
   `-m` do not open an editor — with no `$VISUAL` or `$EDITOR` both refuse
   as the Rust tool does — and who is recording is
   read from `HISTORICA_AUTHOR` alone, not from the identity file the Rust
@@ -1433,6 +1469,14 @@ is under 5k. Not ported:
   rules cover a tracked path. A revision the Rust tool refuses to open is
   refused here too, naming the file, but in the port's parser's words for
   why, which are not the Rust tool's.
+- **`export` onto a copy it made** (decision 0052): the port writes into
+  an absent or empty directory only, and refuses one holding a store in
+  words of its own rather than updating it in place. A destination that is
+  a file, or that cannot be listed, fails in the host's words. The copy's
+  documents are written as they were read, not rewritten from what they
+  parse to, which is the same bytes in any store `check` passes; and the
+  folder is not read back after writing, so a filesystem that folds two of
+  the tree's paths onto one file is not caught.
 
 ## What Bend asked for
 
