@@ -4753,7 +4753,25 @@ def check_mutations(temporary):
             "fetch writes one bookmark twice in a pass",
             "      State{tally.name(n, t), rules, n <> held, moved}",
             "      State{tally.name(n, t), rules, held, moved}",
-            "fetching_lemmas.once_a_pass",
+            # And `fetching_lemmas.head_land`, where the law breaks, after it.
+            "fetching_lemmas.held_grows",
+            "fetch.bend",
+        ),
+        (
+            "complying with forgetting forgets the bookmarks the pass wrote",
+            "      State{tally.destroyed(n, t), rules, held, moved}",
+            "      State{tally.destroyed(n, t), rules, Nil{}, moved}",
+            "fetching_lemmas.comply_held",
+            "fetch.bend",
+        ),
+        (
+            "fetch writes a bookmark the pass already holds",
+            "      Bool.pick(Land, Rev.member(held, n), Land.Skip{}, name.of(root, path, n, Bm.parse(text)))",
+            "      name.of(root, path, n, Bm.parse(text))",
+            # The checker meets it first where another law's lemma unfolds
+            # the same pick; `fetching_lemmas.name_unheld`, where this law
+            # breaks, comes after.
+            "fetching_lemmas.nl",
             "fetch.bend",
         ),
         (
