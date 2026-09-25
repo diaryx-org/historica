@@ -621,7 +621,7 @@ def Laws.walk_refuses_nothing_skipped(ls, prefix, rules, after, acc, h):
   SurveyL.refusals_ok(ls, prefix, rules, after, acc, h)
 
 def Laws.status_says_an_arrival_once(os, links):
-  SurveyL.facts_ok(Set.from_list(Sv.added(os)), os, links)
+  Equal.trans(Bool, Sv.arrives_once.list(Sv.added(os), Sv.facts(os, links)), Sv.arrives_once(Set.from_list(Sv.added(os)), Sv.facts(os, links)), True{}, Equal.sym(Bool, Sv.arrives_once(Set.from_list(Sv.added(os)), Sv.facts(os, links)), Sv.arrives_once.list(Sv.added(os), Sv.facts(os, links)), SurveyL.arrives_list(Sv.added(os), Sv.facts(os, links))), SurveyL.facts_ok(Set.from_list(Sv.added(os)), os, links))
 
 def replay_doc_fail(+e: String, text: String, is_ops: Bool) -> {Main.replay.doc(Fail{e}, text, is_ops) == Fail{e} : Result<&2, &2, String, List<&2, Ops.Item>>}:
   match is_ops:
@@ -852,7 +852,7 @@ def Laws.record_restricts_no_merge_and_no_half_rename(named, ps, moves, u, e):
   RecordL.restriction_ok(named, ps, moves, u, e)
 
 def Laws.record_says_an_arrival_once(t, looked, held, walked, ss, moves):
-  RecordL.planned_once(t, looked, held, walked, ss, moves)
+  RecordL.planned_once_list(t, looked, held, walked, ss, moves)
 
 def Laws.writes_say_what_they_wrote(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry):
   RewriteL.writes_fields(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry)
@@ -890,8 +890,8 @@ def Laws.merge_resolution_reads_back(ds, j, s, hm, doc, e):
 def Laws.merge_renders_the_uncontested_as_itself(j, e):
   ConflictL.render_plain(j, e)
 
-def Laws.status_surveys_each_path(t, dg, bf, reads, props, hs):
-  StatusL.seens_ok(t, dg, bf, reads, props, hs)
+def Laws.status_surveys_each_path(t, stats, bf, reads, props, hs):
+  StatusL.seens_ok(t, Main.regular_paths(hs), stats, bf, reads, props, hs)
 
 def Laws.record_refuses_only_what_it_looks_at(only, t, t0, found, walked, held, dg, bf, reads, props, moves):
   SurveyL.restricted_ok(only, t, t0, found, walked, held, dg, bf, reads, props, moves)
