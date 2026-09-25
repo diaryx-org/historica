@@ -1473,3 +1473,16 @@ law record_restricts_no_merge_and_no_half_rename:
   for u: Unit
   for e: {Main.restricted.r(named, ps, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
   {Main.restriction.whole(named, ps, moves) == True{} : Bool}
+
+# `record --dry-run` says a file arriving once. Whatever the survey
+# observed, of the facts the plan it prints states, only an `added` line,
+# and a `moved` or `dropped` one, names a path being added: an arrival
+# carries its content, mode and target in with it.
+law record_says_an_arrival_once:
+  for +t: Tree.Tree()
+  for +looked: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  for +moves: List<&2, T.Split>
+  {Main.recorded.once(Set.from_list(Sv.added(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves)))), Main.planned.facts(Sv.planned(t, looked, held, walked, ss, moves))) == True{} : Bool}

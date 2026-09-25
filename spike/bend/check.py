@@ -2245,6 +2245,13 @@ def check_mutations(temporary):
             "record_lemmas.named_ok",
             "commands.bend",
         ),
+        (
+            "record --dry-run says a link for a file arriving",
+            'fact("link", without(sorted(links), arriving)))))))',
+            'fact("link", sorted(links)))))))',
+            "record_lemmas.recorded_once",
+            "survey.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

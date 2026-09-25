@@ -695,3 +695,6 @@ def Laws.record_names_only_what_is_there(rules, named, folder, was, placed, u, e
 
 def Laws.record_restricts_no_merge_and_no_half_rename(named, ps, moves, u, e):
   RecordL.restriction_ok(named, ps, moves, u, e)
+
+def Laws.record_says_an_arrival_once(t, looked, held, walked, ss, moves):
+  RecordL.planned_once(t, looked, held, walked, ss, moves)
