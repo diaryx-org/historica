@@ -616,3 +616,12 @@ def Laws.forget_reads_its_words(ws, t, p, sp, d, f, e):
 
 def Laws.forget_clears_only_copies(ps, p, e):
   ForgetL.clears(ps, p, e)
+
+def Laws.standin_replays_like_what_it_stands_in_for(st1, st2, f, r, ops1, f2, ops2, hs, hops):
+  ForgetL.replays_like(st1, st2, f, r, ops1, f2, ops2, hs, hops)
+
+def Laws.chain_replays_like_through_standins(ds1, ds2, r1, r2, hd, hr):
+  ForgetL.chain_like(ds1, ds2, r1, r2, hd, hr)
+
+def Laws.forgetting_destroys_only_text(ops, ps, t, i):
+  ForgetL.ops_forgot(ops, ps, t, i)
