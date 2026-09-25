@@ -15,6 +15,7 @@ import ./equality_lemmas.bend as EqL
 import ./revision.bend as Rev
 import ./text.bend as T
 import ./tree.bend as Tree
+import ./identity.bend as Identity
 
 # Rule equality
 # -------------
@@ -1451,3 +1452,89 @@ def covers_nothing_held(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, e: {
   +eg : {Skip.covered.go(fs, rs, Rev.heads(Main.history(fs)), Nil{}) == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>} = after_done(Skip.covered.go(fs, rs, Rev.heads(Main.history(fs)), Nil{}), e)
   %covering_skips(rs, p) : {_ == False{} : Bool}
   held_none(Skip.covering(rs, p), fs, rs, p, {==}, Rev.heads(Main.history(fs)), eg, h, hh, t, et, hp)
+
+# Where a path lies
+# -----------------
+
+def prefix_self(ps: List<&2, String>, +rest: List<&2, String>) -> {Identity.prefix(ps, List.append(&2, String, ps, rest)) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> more:
+      %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.and(_, Identity.prefix(more, List.append(&2, String, more, rest))) == True{} : Bool}
+      prefix_self(more, rest)
+
+def drop_past(ps: List<&2, String>, +rest: List<&2, String>) -> {Skip.drop.n(List.length(&2, String, ps), List.append(&2, String, ps, rest)) == rest : List<&2, String>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> more:
+      drop_past(more, rest)
+
+def join_go_full(ys: List<&2, String>, x: String, +sep: String, h: {String.is_empty(x) == False{} : Bool}) -> {String.is_empty(String.join.go(ys, x, sep)) == False{} : Bool}:
+  match ys x:
+    case Nil{} _:
+      h
+    case y <> t SNil{}:
+      Empty.absurd({String.is_empty(String.join.go(y <> t, SNil{}, sep)) == False{} : Bool}, S.true_false(h))
+    case y <> t SCon{c, u}:
+      {==}
+
+def lapp_nil(xs: List<&2, String>) -> {List.append(&2, String, xs, Nil{}) == xs : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      Equal.cong(List<&2, String>, List<&2, String>, l => x <> l, List.append(&2, String, rest, Nil{}), rest, lapp_nil(rest))
+
+# The repository itself is refused: a rule for all of it would leave
+# history nothing to hold.
+def inside_self(+path: String, +repo: String, +settled: String, e: {Identity.components(settled) == Identity.components(repo) : List<&2, String>}) -> {Skip.inside.r(path, repo, settled) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}:
+  +e2 : {Identity.components(settled) == List.append(&2, String, Identity.components(repo), Nil{}) : List<&2, String>} = Equal.trans(List<&2, String>, Identity.components(settled), Identity.components(repo), List.append(&2, String, Identity.components(repo), Nil{}), e, Equal.sym(List<&2, String>, List.append(&2, String, Identity.components(repo), Nil{}), Identity.components(repo), lapp_nil(Identity.components(repo))))
+  %Equal.sym(List<&2, String>, Identity.components(settled), List.append(&2, String, Identity.components(repo), Nil{}), e2) : {Bool.pick(Result<&2, &2, Main.Refused, String>, Identity.prefix(Identity.components(repo), _), Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), _), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), _), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(Bool, Identity.prefix(Identity.components(repo), List.append(&2, String, Identity.components(repo), Nil{})), True{}, prefix_self(Identity.components(repo), Nil{})) : {Bool.pick(Result<&2, &2, Main.Refused, String>, _, Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), Nil{})), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), Nil{})), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(List<&2, String>, Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), Nil{})), Nil{}, drop_past(Identity.components(repo), Nil{})) : {Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(_, "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(_, "/")}) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}
+  {==}
+
+# `skip <path>`, for a path whose components are the repository's and more
+# — the first of them not empty — reads the rule's path as what lies past
+# the repository, joined by `/`.
+def inside_past(+path: String, +repo: String, +settled: String, +x: String, +more: List<&2, String>, e: {Identity.components(settled) == List.append(&2, String, Identity.components(repo), x <> more) : List<&2, String>}, hx: {String.is_empty(x) == False{} : Bool}) -> {Skip.inside.r(path, repo, settled) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}:
+  %Equal.sym(List<&2, String>, Identity.components(settled), List.append(&2, String, Identity.components(repo), x <> more), e) : {Bool.pick(Result<&2, &2, Main.Refused, String>, Identity.prefix(Identity.components(repo), _), Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), _), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), _), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(Bool, Identity.prefix(Identity.components(repo), List.append(&2, String, Identity.components(repo), x <> more)), True{}, prefix_self(Identity.components(repo), x <> more)) : {Bool.pick(Result<&2, &2, Main.Refused, String>, _, Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), x <> more)), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), x <> more)), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(List<&2, String>, Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), x <> more)), x <> more, drop_past(Identity.components(repo), x <> more)) : {Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(_, "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(_, "/")}) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(Bool, String.is_empty(String.join(x <> more, "/")), False{}, join_go_full(more, x, "/", hx)) : {Bool.pick(Result<&2, &2, Main.Refused, String>, _, Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(x <> more, "/")}) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+  {==}
+
+# Where the path stops, or turns aside, at a component the repository has.
+def turns(+y: String, zs: List<&2, String>) -> Bool:
+  match zs:
+    case Nil{}:
+      True{}
+    case +z <> rest:
+      Bool.not(String.eq(y, z))
+
+def prefix_same(pre: List<&2, String>, +ps: List<&2, String>, +qs: List<&2, String>) -> {Identity.prefix(List.append(&2, String, pre, ps), List.append(&2, String, pre, qs)) == Identity.prefix(ps, qs) : Bool}:
+  match pre:
+    case Nil{}:
+      {==}
+    case +p <> more:
+      %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.and(_, Identity.prefix(List.append(&2, String, more, ps), List.append(&2, String, more, qs))) == Identity.prefix(ps, qs) : Bool}
+      prefix_same(more, ps, qs)
+
+def turns_off(+y: String, +r1: List<&2, String>, zs: List<&2, String>, h: {turns(y, zs) == True{} : Bool}) -> {Identity.prefix(y <> r1, zs) == False{} : Bool}:
+  match zs:
+    case Nil{}:
+      {==}
+    case +z <> r2:
+      %Equal.sym(Bool, String.eq(y, z), False{}, not_true_false(String.eq(y, z), h)) : {Bool.and(_, Identity.prefix(r1, r2)) == False{} : Bool}
+      {==}
+
+# A path that stops, or turns aside, before the repository ends is
+# refused: it is not inside it.
+def inside_outside(+path: String, +repo: String, +settled: String, +pre: List<&2, String>, +y: String, +r1: List<&2, String>, +zs: List<&2, String>, er: {Identity.components(repo) == List.append(&2, String, pre, y <> r1) : List<&2, String>}, es: {Identity.components(settled) == List.append(&2, String, pre, zs) : List<&2, String>}, h: {turns(y, zs) == True{} : Bool}) -> {Skip.inside.r(path, repo, settled) == Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}} : Result<&2, &2, Main.Refused, String>}:
+  +e1 : {Identity.prefix(List.append(&2, String, pre, y <> r1), Identity.components(settled)) == Identity.prefix(y <> r1, zs) : Bool} = (%Equal.sym(List<&2, String>, Identity.components(settled), List.append(&2, String, pre, zs), es) : {Identity.prefix(List.append(&2, String, pre, y <> r1), _) == Identity.prefix(y <> r1, zs) : Bool} prefix_same(pre, y <> r1, zs))
+  +e2 : {Identity.prefix(Identity.components(repo), Identity.components(settled)) == Identity.prefix(y <> r1, zs) : Bool} = (%Equal.sym(List<&2, String>, Identity.components(repo), List.append(&2, String, pre, y <> r1), er) : {Identity.prefix(_, Identity.components(settled)) == Identity.prefix(y <> r1, zs) : Bool} e1)
+  +ep : {Identity.prefix(Identity.components(repo), Identity.components(settled)) == False{} : Bool} = Equal.trans(Bool, Identity.prefix(Identity.components(repo), Identity.components(settled)), Identity.prefix(y <> r1, zs), False{}, e2, turns_off(y, r1, zs, h))
+  %Equal.sym(Bool, Identity.prefix(Identity.components(repo), Identity.components(settled)), False{}, ep) : {Bool.pick(Result<&2, &2, Main.Refused, String>, _, Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), Identity.components(settled)), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), Identity.components(settled)), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}} : Result<&2, &2, Main.Refused, String>}
+  {==}
