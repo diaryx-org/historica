@@ -2287,6 +2287,13 @@ def check_mutations(temporary):
             "rewrite_lemmas.asked_ok",
             "commands.bend",
         ),
+        (
+            "an abandon dry run names the run in reverse",
+            '[each.lines("would abandon ", spelled_all(bs, history(fs), run)),',
+            '[each.lines("would abandon ", spelled_all(bs, history(fs), List.reverse(&2, String, run))),',
+            "rewrite_lemmas.dry_names",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

@@ -716,3 +716,6 @@ def Laws.abandon_asks_for_a_revision_and_a_reason(c, m, u1, u2, u3, e1, e2, e3):
 
 def Laws.record_gives_kinds_only_to_files(ks, found, u, e):
   RecordL.kinds_found(ks, found, u, e)
+
+def Laws.abandon_dry_run_names_the_run(fs, bs, id, only, run):
+  RewriteL.dry_names(fs, bs, id, only, run)

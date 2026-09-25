@@ -1561,3 +1561,13 @@ law record_gives_kinds_only_to_files:
   for u: Unit
   for e: {Main.kinds.unheld.r(ks, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
   {Main.kinds.found(ks, found) == True{} : Bool}
+
+# A dry run of `abandon` begins by naming, in order, each revision of the
+# run it would abandon, by the first twelve letters of its digest.
+law abandon_dry_run_names_the_run:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +id: String
+  for +only: Bool
+  for +run: List<&2, String>
+  {Main.said.first(run, Main.abandon.dry.lines(fs, bs, id, only, run), "would abandon ") == True{} : Bool}

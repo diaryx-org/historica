@@ -629,3 +629,27 @@ def asked_ok(c: Main.RwCmd, +m: String, -u1: Unit, -u2: Unit, -u3: Unit, e1: {Ma
           not_false(String.is_empty(Naming.trim_space(m)), pick_false(Unit, String.is_empty(Naming.trim_space(m)), Main.Refused{1, "abandoning removes this work from what the history means, and the reason is the only thing the tombstone carries; say why with -m"}, Unit{}, u3, e3))))
 
 
+
+# A dry run of abandoning names the run
+# -------------------------------------
+
+def first_nil(ls: List<&2, String>) -> {Main.said.first(Nil{}, ls, "would abandon ") == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      {==}
+    case l <> more:
+      {==}
+
+def first_said(xs: List<&2, String>, +bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +rest: List<&2, String>) -> {Main.said.first(xs, List.append(&2, String, Main.each.lines("would abandon ", Main.spelled_all(bs, h, xs)), rest), "would abandon ") == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      first_nil(rest)
+    case +x <> +more:
+      B.and_tt(String.starts_with("would abandon " ++ (Main.ab12(x) ++ Main.names_at(bs, h, x)), "would abandon " ++ Main.ab12(x)), Main.said.first(more, List.append(&2, String, Main.each.lines("would abandon ", Main.spelled_all(bs, h, more)), rest), "would abandon "),
+        B.sw_ext(Main.ab12(x), Main.ab12(x), Main.names_at(bs, h, x), B.sw_refl(Main.ab12(x))),
+        first_said(more, bs, h, rest))
+
+# What `abandon --dry-run` says begins with each revision of the run.
+def dry_names(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> {Main.said.first(run, Main.abandon.dry.lines(fs, bs, id, only, run), "would abandon ") == True{} : Bool}:
+  +n = List.length(&2, String, run)
+  first_said(run, bs, Main.history(fs), List.concat(&2, String, [["a tombstone would supersede " ++ Bool.pick(String, Nat.is_eq(n, 1n), "this revision", "these " ++ Nat.show(n) ++ " revisions") ++ ", and its message is required"], Main.each.lines("would carry ", Main.map12(Bool.pick(List<&2, String>, only, Main.would_carry(fs, id, Main.standing_on(fs, id)), Nil{})))]))
