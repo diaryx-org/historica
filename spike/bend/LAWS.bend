@@ -48,6 +48,7 @@ import ./host_lemmas.bend as HostL
 import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
+import ./standing_lemmas.bend as StandingL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -3042,3 +3043,17 @@ law arrange_reads_what_the_host_hashed:
   for +hl: {Nat.is_eq(List.length(&2, String, ps), List.length(&2, T.Split, ss)) == True{} : Bool}
   for +h: {StatsL.stats_ok(ss) == True{} : Bool}
   {Arrange.zip.stats(ps, Store.stats.read(StatsL.digests.answer(ss))) == StatsL.digested(ps, ss) : List<&2, T.Split>}
+
+# A stand-in stands for the digest it forgets, and for no other. Every
+# forgetting document the port writes says what it forgets in its first
+# header — an operation document or a resolution that forgets a digest, as
+# `forget` writes one in the grammar of what it stands in for, and a
+# payload's two headers — and of those the scan reads, `standing` keeps for
+# some digests exactly the ones whose digest is among them, whatever else
+# each holds, in the order read: a digest that only begins another is not
+# that one.
+law a_stand_in_stands_for_what_it_forgets:
+  for +ds: List<&2, String>
+  for +ss: List<&2, StandingL.Standing>
+  for +h: {Bool.and(HostL.all_nonl(ds), StandingL.standing_ok(ss)) == True{} : Bool}
+  {Store.standing.of(ds, StandingL.docs(ss)) == StandingL.docs(StandingL.kept(ds, ss)) : List<&2, Store.Doc>}
