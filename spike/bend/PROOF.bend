@@ -803,17 +803,11 @@ def Laws.record_goes_on_where_each_path_holds_one_file(t, looked, held, walked, 
 def Laws.a_link_resolves_inside_the_folder(link, target, p, h, e):
   SurveyL.link_inside(link, target, p, h, e)
 
-def Laws.carry_keeps_what_it_restates(fs, ds, c, steps, e):
-  RewriteL.plan_kept(fs, ds, c, steps, e)
-
 def Laws.abandon_takes_a_line(fs, id, only, run, e):
   RewriteL.plan_line(fs, id, only, run, e)
 
 def Laws.reword_changes_only_the_message(fs, prev, standing, m, reviser, revised, doc, e):
   RewriteL.reword_ok(fs, prev, standing, m, reviser, revised, doc, e)
-
-def Laws.amend_rewrites_a_held_revision(fs, bs, named, f, e):
-  RewriteL.amend_held(fs, bs, named, f, e)
 
 def Laws.carry_carries_a_held_revision(fs, bs, named, id, e):
   RewriteL.carry_held(fs, bs, named, id, e)
@@ -829,9 +823,6 @@ def Laws.writes_say_what_they_wrote(a, when, m, facts, change, id, names, ps, pr
 
 def Laws.amend_keeps_what_it_added(arriving, kept, hex):
   RewriteL.amend_minted_ok(arriving, kept, hex)
-
-def Laws.abandon_asks_for_a_revision_and_a_reason(c, m, u1, u2, u3, e1, e2, e3):
-  RewriteL.asked_ok(c, m, u1, u2, u3, e1, e2, e3)
 
 def Laws.abandon_dry_run_names_the_run(fs, bs, id, only, run):
   RewriteL.dry_names(fs, bs, id, only, run)
@@ -1114,3 +1105,18 @@ def Laws.a_rename_puts_each_file_where_it_was_said(t, ats, t2, moved, e, g, hg):
 
 def Laws.a_link_refers_only_to_what_the_revision_states(mint, t, gone, arriving, path, target, at, f, hr, hl, ho, hm, e):
   SurveyL.ref_held(mint, t, gone, arriving, path, target, at, f, hr, hl, ho, hm, e)
+
+def Laws.carry_says_what_it_files(fs, ds, c, steps, e, path):
+  RewriteL.carry_fields(path, fs, ds, c, steps, e)
+
+def Laws.amend_rewrites_the_revision_named(fs, bs, s, f, e):
+  RewriteL.amend_named(fs, bs, s, f, e)
+
+def Laws.amend_rewrites_the_one_head(fs, bs, f, e):
+  RewriteL.amend_head(fs, bs, f, e)
+
+def Laws.abandon_abandons_only_a_word_it_was_given(args, c, e):
+  RewriteL.target_words(args, c, e)
+
+def Laws.abandon_refuses_a_dry_run_with_fields(args, c, e):
+  RewriteL.dry_fields(args, c, e)
