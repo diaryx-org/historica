@@ -2182,6 +2182,13 @@ def check_mutations(temporary):
             "plan_lemmas.read_unsettled",
             "commands.bend",
         ),
+        (
+            "a chain that stays at the revision it began at",
+            "f <> chain.go(q, fs, first_parent(fs, parents_of(f)))",
+            "f <> chain.go(q, fs, Some{f})",
+            "chain_lemmas.line_at",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

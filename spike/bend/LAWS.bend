@@ -1032,6 +1032,16 @@ law diff_folder_reads_what_is_unsettled:
   for +hs: List<&2, Main.Here>
   {Main.planned.read(Main.plans(dg, os, eds, hs)) == Main.unsettled.paths(dg, os, eds, hs) : List<&2, String>}
 
+# The digest a statement gives a file is read along the first-parent line
+# back from the folder's position, the nearest revision on it to state the
+# file being the one believed. That line is what `chain` walks: it begins
+# at the revision named, and each revision after is the first parent of the
+# one before — every one a revision the store holds.
+law chain_follows_first_parents:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  {Main.first_parents(fs, Main.chain(fs, Some{id}), Some{id}) == True{} : Bool}
+
 # `log` reads its arguments as their plain reading says: the word after a
 # flag that takes a value is that flag's value, the last counting, and
 # `--limit`, `--since` and `--until` are read as a count and as bounds;
