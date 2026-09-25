@@ -4554,6 +4554,13 @@ def check_mutations(temporary):
             "forget.bend",
         ),
         (
+            "opening reads a revision's headers past the blank line",
+            "Bool.pick(List<&2, Header>, String.is_empty(t), Nil{}, List.append(&2, Header, opening.pair(T.split_once(t)), more))",
+            "Bool.pick(List<&2, Header>, String.is_empty(t), more, List.append(&2, Header, opening.pair(T.split_once(t)), more))",
+            "opened_lemmas.headers_read",
+            "revision.bend",
+        ),
+        (
             "a stand-in beside the original rewrites a line it does not forget",
             "      Ops.Item{t, n, f}\n",
             "      Ops.Item{t2, n, f}\n",

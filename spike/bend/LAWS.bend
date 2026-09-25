@@ -46,6 +46,7 @@ import ./shell_lemmas.bend as ShellL
 import ./editor_lemmas.bend as EditorL
 import ./identity_lemmas.bend as IdentityL
 import ./forgetting_lemmas.bend as ForgettingL
+import ./opened_lemmas.bend as OpenedL
 import ./editor.bend as Editor
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
@@ -272,6 +273,23 @@ law revision_write_parse:
   for +r: Rev.Rev
   for e: {Rev.parse(s) == Done{r} : Result<&2, &2, String, Rev.Rev>}
   {Rev.write(r) == s : String}
+
+# What opening a store reads of a revision it accepts — the reading
+# decision 0061 keeps a revision in the graph by when the whole reading
+# refuses it — is the revision its lines state: for a document of a first
+# line, header lines `key value`, a blank line and a message, its change,
+# author and time are what the first `change`, `author` and `when` lines
+# say, its parents and what it supersedes every `parent` and `supersedes`
+# line in order, and its message all that follows the blank line, as
+# written.
+law opening_reads_what_a_revision_states:
+  for +first: String
+  for +hs: List<&2, T.Split>
+  for +m: String
+  for hf: {OpenedL.one_line(first) == True{} : Bool}
+  for hp: {OpenedL.plain(hs) == True{} : Bool}
+  for e: {Rev.refusal.opening(OpenedL.doc(first, hs, m)) == None{} : Maybe<&2, String>}
+  {Rev.opening.read(OpenedL.doc(first, hs, m)) == Some{OpenedL.stated(hs, m)} : Maybe<&2, Rev.Rev>}
 
 # The diff replays: whatever document `Ops.diff` writes for a parent and a
 # child, applying it to the parent produces the child. A child that is a
