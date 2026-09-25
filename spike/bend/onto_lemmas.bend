@@ -290,3 +290,67 @@ def whole_set(p: Export.Plan, +here: List<&2, Prune.Body>, +cst: Prune.Stored, +
             z2 => AL.or_cases({Bool.or(a, Bool.or(wv, fb)) == True{} : Bool}, Rev.member(Export.split.digests(y), d), Rev.member(Nil{}, d), GL.append_mem(Export.split.digests(y), Nil{}, d, z2),
               u1 => final_of(a, wv, fb, Arrange.has(gone, d), s1, splits_cover(y, gone, d, u1), g => gone_or(pl, here, cst, marks, d, g), mm => AL.or_right(m1, Bool.or(d1, Bool.or(f1, s1)), AL.or_right(d1, Bool.or(f1, s1), AL.or_right(f1, s1, mm)))),
               u2 => Empty.absurd({Bool.or(a, Bool.or(wv, fb)) == True{} : Bool}, Comp.false_true(u2))))))
+
+# The files of `claims/` an update carries
+# ----------------------------------------
+
+def labels_named(cs: List<&2, T.Split>, +l: String) -> {Rev.member(Export.split.labels(cs), l) == Export.claim.named(cs, l) : Bool}:
+  match cs:
+    case Nil{}:
+      {==}
+    case T.Split{+x, d} <> +rest:
+      %Equal.sym(Bool, Rev.member(Export.split.labels(rest), l), Export.claim.named(rest, l), labels_named(rest, l)) : {Bool.or(String.eq(x, l), _) == Bool.or(String.eq(x, l), Export.claim.named(rest, l)) : Bool}
+      {==}
+
+def held_named(+cc: List<&2, T.Split>, +l: String) -> {Arrange.has(Set.from_list(Export.split.labels(cc)), l) == Export.claim.named(cc, l) : Bool}:
+  Equal.trans(Bool, Arrange.has(Set.from_list(Export.split.labels(cc)), l), Rev.member(Export.split.labels(cc), l), Export.claim.named(cc, l), CatchL.has_member(Export.split.labels(cc), l), labels_named(cc, l))
+
+def step_true(e: Bool, +r: Bool, n: Bool, h: {e == True{} : Bool} -> {n == False{} : Bool}) -> {Bool.or(e, Bool.and(r, Bool.not(n))) == Bool.and(Bool.or(e, r), Bool.not(n)) : Bool}:
+  match e:
+    case True{}:
+      match n:
+        case True{}:
+          Empty.absurd({True{} == False{} : Bool}, SL.true_false(h({==})))
+        case False{}:
+          {==}
+    case False{}:
+      {==}
+
+def step_false(e: Bool, n: Bool, r: Bool, h: {e == True{} : Bool} -> {n == True{} : Bool}) -> {Bool.and(r, Bool.not(n)) == Bool.and(Bool.or(e, r), Bool.not(n)) : Bool}:
+  match e:
+    case True{}:
+      match n:
+        case True{}:
+          match r:
+            case True{}:
+              {==}
+            case False{}:
+              {==}
+        case False{}:
+          Empty.absurd({Bool.and(r, True{}) == True{} : Bool}, Comp.false_true(h({==})))
+    case False{}:
+      {==}
+
+def cc_is(+cc: List<&2, T.Split>, +x: String, +l: String, +b: Bool, hx: {Arrange.has(Set.from_list(Export.split.labels(cc)), x) == b : Bool}, el: {String.eq(x, l) == True{} : Bool}) -> {Export.claim.named(cc, l) == b : Bool}:
+  %SL.eq_true(x, l, el) : {Export.claim.named(cc, _) == b : Bool}
+  Equal.trans(Bool, Export.claim.named(cc, x), Arrange.has(Set.from_list(Export.split.labels(cc)), x), b, Equal.sym(Bool, Arrange.has(Set.from_list(Export.split.labels(cc)), x), Export.claim.named(cc, x), held_named(cc, x)), hx)
+
+def fresh_step(c: Bool, +x: String, +d: String, +rest: List<&2, T.Split>, +cc: List<&2, T.Split>, +l: String, ec: {Bool.not(Arrange.has(Set.from_list(Export.split.labels(cc)), x)) == c : Bool}, ih: {Export.claim.named(Export.claims.fresh(rest, Set.from_list(Export.split.labels(cc))), l) == Bool.and(Export.claim.named(rest, l), Bool.not(Export.claim.named(cc, l))) : Bool}) -> {Export.claim.named(Tree.keep(~T.Split, c, T.Split{x, d}, Export.claims.fresh(rest, Set.from_list(Export.split.labels(cc)))), l) == Bool.and(Bool.or(String.eq(x, l), Export.claim.named(rest, l)), Bool.not(Export.claim.named(cc, l))) : Bool}:
+  match c:
+    case True{}:
+      +hx = AL.not_of_true(Arrange.has(Set.from_list(Export.split.labels(cc)), x), ec)
+      %Equal.sym(Bool, Export.claim.named(Export.claims.fresh(rest, Set.from_list(Export.split.labels(cc))), l), Bool.and(Export.claim.named(rest, l), Bool.not(Export.claim.named(cc, l))), ih) : {Bool.or(String.eq(x, l), _) == Bool.and(Bool.or(String.eq(x, l), Export.claim.named(rest, l)), Bool.not(Export.claim.named(cc, l))) : Bool}
+      step_true(String.eq(x, l), Export.claim.named(rest, l), Export.claim.named(cc, l), el => cc_is(cc, x, l, False{}, hx, el))
+    case False{}:
+      +hx = not_false_true(Arrange.has(Set.from_list(Export.split.labels(cc)), x), ec)
+      %Equal.sym(Bool, Export.claim.named(Export.claims.fresh(rest, Set.from_list(Export.split.labels(cc))), l), Bool.and(Export.claim.named(rest, l), Bool.not(Export.claim.named(cc, l))), ih) : {_ == Bool.and(Bool.or(String.eq(x, l), Export.claim.named(rest, l)), Bool.not(Export.claim.named(cc, l))) : Bool}
+      step_false(String.eq(x, l), Export.claim.named(cc, l), Export.claim.named(rest, l), el => cc_is(cc, x, l, True{}, hx, el))
+
+# An update carries a file of `claims/` exactly where the origin has it and
+# the copy has none of that name.
+def fresh_named(cs: List<&2, T.Split>, +cc: List<&2, T.Split>, +l: String) -> {Export.claim.named(Export.claims.fresh(cs, Set.from_list(Export.split.labels(cc))), l) == Bool.and(Export.claim.named(cs, l), Bool.not(Export.claim.named(cc, l))) : Bool}:
+  match cs:
+    case Nil{}:
+      {==}
+    case T.Split{+x, +d} <> +rest:
+      fresh_step(Bool.not(Arrange.has(Set.from_list(Export.split.labels(cc)), x)), x, d, rest, cc, l, {==}, fresh_named(rest, cc, l))

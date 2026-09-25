@@ -4190,6 +4190,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export carries a file of claims/ over the copy's own",
+            "      Tree.keep(~T.Split, Bool.not(Arrange.has(held, l)), T.Split{l, d}, claims.fresh(rest, held))",
+            "      Tree.keep(~T.Split, True{}, T.Split{l, d}, claims.fresh(rest, held))",
+            "onto_lemmas.fresh_named",
+            "export.bend",
+        ),
+        (
             "export takes a link's target for an entry of the directory",
             "      entry.push(T.split_once(l), entry.names(rest, String.starts_with(l, \"l \")))",
             "      entry.push(T.split_once(l), entry.names(rest, False{}))",
