@@ -120,6 +120,11 @@ def marks(+g: List<&2, Merge.Rev>, +t: List<&2, Merge.Node>) -> List<&2, Merge.N
 type Joined is Data:
   Joined{names: List<&2, String>, digests: List<&2, String>, graph: List<&2, Merge.Rev>, tree: List<&2, Merge.Node>}
 
+def joined.names(j: Joined) -> List<&2, String>:
+  match j:
+    case Joined{ns, ds, g, t}:
+      ns
+
 def name_at(names: List<&2, String>, n: Nat) -> String:
   match names n:
     case Nil{} _:
@@ -168,12 +173,20 @@ def runs(ns: List<&2, Merge.Node>, +marked: List<&2, Merge.Name>) -> List<&2, Ru
       runs.put(Merge.Node.author(n), Merge.Node.item(n), name.in(marked, Merge.Node.name(n)), runs(rest, marked))
 
 # The renderer's lines: one before each run inside a fence, naming the
-# revision that wrote it, and one closing the fence.
+# revision that wrote it, and one closing the fence — each a line of its
+# own, and each without its newline what `LAWS.merge_counts_what_it_fences`
+# finds the marker search counts.
+def label.line(+names: List<&2, String>, +a: Nat) -> String:
+  "vvv historica: " ++ (String.take(name_at(names, a), 8n) ++ " wrote vvv")
+
+def closing.line() -> String:
+  "^^^ historica: resolve, then delete these lines ^^^"
+
 def label(+names: List<&2, String>, +a: Nat) -> String:
-  "vvv historica: " ++ String.take(name_at(names, a), 8n) ++ " wrote vvv\n"
+  label.line(names, a) ++ "\n"
 
 def closing() -> String:
-  "^^^ historica: resolve, then delete these lines ^^^\n"
+  closing.line() ++ "\n"
 
 # Runs that met and meet each other are one fence: two runs that touch are
 # one disagreement to a person looking at them.

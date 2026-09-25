@@ -969,11 +969,23 @@ def Laws.update_settles_exactly_what_stays(fs, id, t, rs, walked, found, dg, ls,
 def Laws.update_touches_only_the_target(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
   UpdL.plan_confined(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
 
+def Laws.update_says_settled_as_its_dry_run(p, s, e):
+  UpdL.settled_says(p, s, e)
+
 def Laws.update_dry_run_names_what_it_does(p, s):
   UpdL.dry_names(p, s)
 
 def Laws.merge_spares_the_unrecorded(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
   MergingL.spares(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
+
+def Laws.merge_rewrites_nothing_merged(fs, ds, heads, t, dg, texts, ls, located, es, h):
+  MergingL.merged_all(fs, ds, heads, t, dg, texts, ls, located, es, h)
+
+def Laws.merge_counts_what_it_fences(j, x, a, h1, h2, h3):
+  MergingL.fences_counted(j, x, a, h1, h2, h3)
+
+def Laws.merge_counts_nothing_unfenced(j):
+  MergingL.plain_unmarked(j)
 
 def Laws.merge_sets_aside_the_claims(cs):
   MergingL.aside(cs)
