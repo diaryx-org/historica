@@ -674,3 +674,6 @@ def Laws.reword_changes_only_the_message(fs, prev, standing, m, reviser, revised
 
 def Laws.record_states_the_folder(befores, t, hs, dg, reads, ks, moves, obs, ls, mint):
   RecordL.drafted_state(~(p => c => tbl => d => e => Laws.diff_applies(p, c, tbl, d, e)), befores, dg, reads, t, hs, ks, moves, obs, ls, mint)
+
+def Laws.record_names_what_it_writes(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
+  RecordL.planned_named(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)

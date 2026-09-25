@@ -1380,3 +1380,26 @@ law record_states_the_folder:
   for +ls: List<&2, String>
   for +mint: List<&2, T.Split>
   {Main.contents.state(befores, dg, reads, Main.drafted.contents(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
+
+# What `record` writes is named as it says. Each file arriving is added
+# under the identifier minted for it, in path order; the revision is named
+# by the digest of its own text, and filed under the name decision 0019
+# composes from its moment, its message and its change, extended only
+# where the store already holds a revision of that name; and each
+# bookmark it moves names the change of one of its parents.
+law record_names_what_it_writes:
+  for w: Main.Writing
+  for +hex: String
+  for +befores: List<&2, Main.Before>
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ps: List<&2, String>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +dg: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  {Main.record.named(w, Sv.sorted(Sv.added(obs)), Main.parents.changes(fs, ps), Main.record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)) == True{} : Bool}
