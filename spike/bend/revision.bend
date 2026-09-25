@@ -707,6 +707,74 @@ def parse.preamble(ls: List<&2, T.Line>) -> Result<&2, &2, String, Rev>:
 def parse(+s: String) -> Result<&2, &2, String, Rev>:
   Bool.pick(Result<&2, &2, String, Rev>, T.has_char(s, '\r'), Fail{"a carriage return"}, parse.preamble(T.lines(s)))
 
+# A path not in normal form C
+# ---------------------------
+
+# Decision 0033 as the Rust parser meets it: `parse_path` refuses an `add`
+# or `move` whose path is not in normal form C, and says which line. It is
+# the one refusal the Rust tool defers — opening a store reads only the
+# causal headers, and the path is refused where something asks for the
+# whole document — so a reader here needs the revision's causal headers
+# and the refusal both: `unnormal` finds the line, counting the format line
+# as the first, and `mended` is the document with the paths normalised,
+# which parses where nothing else is wrong with it.
+type Unnormal is Data:
+  Unnormal{line: Nat, path: String}
+
+def unnormal.path(cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case None{}:
+      SNil{}
+    case Some{T.Split{file, path}}:
+      path
+
+def unnormal.keyed(+l: String) -> Maybe<&2, String>:
+  Maybe.or(&2, String, T.strip_prefix(l, "add "), T.strip_prefix(l, "move "))
+
+def unnormal.value(+n: Nat, v: Maybe<&2, String>) -> Maybe<&2, Unnormal>:
+  match v:
+    case None{}:
+      None{}
+    case Some{+rest}:
+      +p = unnormal.path(T.split_once(rest))
+      Bool.pick(Maybe<&2, Unnormal>, Nfc.is_nfc(p), None{}, Some{Unnormal{n, p}})
+
+def unnormal.go(ls: List<&2, String>, +n: Nat) -> Maybe<&2, Unnormal>:
+  match ls:
+    case Nil{}:
+      None{}
+    case SNil{} <> rest:
+      None{}
+    case +l <> rest:
+      Maybe.or(&2, Unnormal, unnormal.value(n, unnormal.keyed(l)), unnormal.go(rest, 1n+n))
+
+# The first line of the headers stating a path not in normal form C.
+def unnormal(s: String) -> Maybe<&2, Unnormal>:
+  unnormal.go(String.split(s, '\n'), 1n)
+
+def mended.value(+key: String, cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case None{}:
+      key
+    case Some{T.Split{file, path}}:
+      key ++ file ++ " " ++ Nfc.nfc(path)
+
+def mended.line(+l: String) -> String:
+  Bool.pick(String, String.starts_with(l, "add "), mended.value("add ", T.split_once(String.drop(l, 4n))),
+    Bool.pick(String, String.starts_with(l, "move "), mended.value("move ", T.split_once(String.drop(l, 5n))), l))
+
+def mended.go(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case SNil{} <> rest:
+      SNil{} <> rest
+    case +l <> rest:
+      mended.line(l) <> mended.go(rest)
+
+def mended(s: String) -> String:
+  String.join(mended.go(String.split(s, '\n')), "\n")
+
 # Writing
 # -------
 
