@@ -822,12 +822,6 @@ def Laws.record_goes_on_where_each_path_holds_one_file(t, looked, held, walked, 
 def Laws.a_link_resolves_inside_the_folder(link, target, p, h, e):
   SurveyL.link_inside(link, target, p, h, e)
 
-def Laws.record_reads_its_words(args, cmd, e):
-  RecordL.args_said(args, cmd, e)
-
-def Laws.rewrite_reads_its_words(cmd, args, c, e):
-  RecordL.rw_args_said(cmd, args, c, e)
-
 def Laws.carry_keeps_what_it_restates(fs, ds, c, steps, e):
   RewriteL.plan_kept(fs, ds, c, steps, e)
 
@@ -836,15 +830,6 @@ def Laws.abandon_takes_a_line(fs, id, only, run, e):
 
 def Laws.reword_changes_only_the_message(fs, prev, standing, m, reviser, revised, doc, e):
   RewriteL.reword_ok(fs, prev, standing, m, reviser, revised, doc, e)
-
-def Laws.record_states_the_folder(befores, t, hs, dg, reads, ks, moves, obs, ls, mint):
-  RecordL.drafted_state(~(p => c => tbl => d => e => Laws.diff_applies(p, c, tbl, d, e)), befores, dg, reads, t, hs, ks, moves, obs, ls, mint)
-
-def Laws.record_names_what_it_writes(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
-  RecordL.planned_named(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)
-
-def Laws.record_writes_only_what_is_settled(looked, pl, accepted, pl2, e):
-  RecordL.settled_ok(looked, pl, accepted, pl2, e)
 
 def Laws.amend_rewrites_a_held_revision(fs, bs, named, f, e):
   RewriteL.amend_held(fs, bs, named, f, e)
@@ -855,29 +840,17 @@ def Laws.carry_carries_a_held_revision(fs, bs, named, id, e):
 def Laws.record_moves_only_held_files(t, ats, ms, p, e):
   RecordL.placed_held(t, ats, ms, p, e)
 
-def Laws.record_restricts_no_merge_and_no_half_rename(named, ps, moves, u, e):
-  RecordL.restriction_ok(named, ps, moves, u, e)
-
 def Laws.record_says_an_arrival_once(t, looked, held, walked, ss, moves):
   RecordL.planned_once_list(t, looked, held, walked, ss, moves)
 
 def Laws.writes_say_what_they_wrote(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry):
   RewriteL.writes_fields(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry)
 
-def Laws.record_reads_lines_as_text(ks, reads, hs, e):
-  RecordL.lines_text(ks, reads, hs, e)
-
-def Laws.record_reads_the_position(older, ds, left, files, bs, e):
-  RecordL.befores_read(older, ds, left, files, bs, e)
-
 def Laws.amend_keeps_what_it_added(arriving, kept, hex):
   RewriteL.amend_minted_ok(arriving, kept, hex)
 
 def Laws.abandon_asks_for_a_revision_and_a_reason(c, m, u1, u2, u3, e1, e2, e3):
   RewriteL.asked_ok(c, m, u1, u2, u3, e1, e2, e3)
-
-def Laws.record_gives_kinds_only_to_files(ks, found, u, e):
-  RecordL.kinds_found(ks, found, u, e)
 
 def Laws.abandon_dry_run_names_the_run(fs, bs, id, only, run):
   RewriteL.dry_names(fs, bs, id, only, run)
@@ -1100,3 +1073,45 @@ def Laws.fetch_lands_a_file_only_where_it_hashes_to_its_line(folder, name, o, g,
 
 def Laws.fetch_files_a_payload_under_what_it_hashes_to(root, o, g, f, a, b, e):
   FetchingL.payload_lands_under_its_digest(root, o, g, f, a, b, e)
+
+def Laws.record_reads_its_words(args, o, ms, ac, at, mv, ks, ns, d, f, mg, e, v):
+  RecordL.words_read(args, o, ms, ac, at, mv, ks, ns, d, f, mg, e, v)
+
+def Laws.record_reads_renames_and_paths(args, o, ms, ac, at, mv, ks, ns, d, f, mg, e, a, b, ha, p, hp, hn, hs):
+  RecordL.renames_read(args, o, ms, ac, at, mv, ks, ns, d, f, mg, e, a, b, ha, p, hp, hn, hs)
+
+def Laws.amend_reads_its_words(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw):
+  RecordL.amend_reads_its_words_ok(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw)
+
+def Laws.abandon_reads_its_words(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw):
+  RecordL.abandon_reads_its_words_ok(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw)
+
+def Laws.carry_reads_its_words(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw):
+  RecordL.carry_reads_its_words_ok(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw)
+
+def Laws.record_states_the_folder(older, ds, left, dg, reads, t, hs, ks, moves, obs, ls, mint, bs, e):
+  RecordL.drafted_state(~(p => c => tbl => d => e2 => Laws.diff_applies(p, c, tbl, d, e2)), older, ds, left, dg, reads, t, hs, ks, moves, obs, ls, mint, bs, e)
+
+def Laws.record_resolves_as_the_walk_proposes(fs, ds, ps, reads, dg, t, hs, ks, moves, obs, ls, mint, bs, e):
+  RecordL.drafted_resolves(fs, ds, ps, reads, dg, t, hs, ks, moves, obs, ls, mint, bs, e)
+
+def Laws.record_names_what_it_writes(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
+  RecordL.names_ok(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)
+
+def Laws.record_moves_the_bookmarks_on_its_parents(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls, k, p, hp, m, f, hf, hid, hfirst, i, n, pr, hi):
+  RecordL.parents.move(fs, ps, bs, k, p, hp, m, f, hf, hid, hfirst, i, n, pr, hi)
+
+def Laws.record_moves_only_the_bookmarks_on_its_parents(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls, j, b, hj):
+  RecordL.parents.moved(fs, ps, bs, j, b, hj)
+
+def Laws.record_writes_only_what_is_settled(t, looked, held, walked, ss, moves, accepted, pl2, e, x):
+  RecordL.settled_read(t, looked, held, walked, ss, moves, accepted, pl2, e, x)
+
+def Laws.record_restricts_no_merge_and_no_half_rename(named, ps, moves):
+  RecordL.restriction_iff(named, ps, moves)
+
+def Laws.record_reads_lines_as_text(ks, reads, hs, e, i, p, q, r, n, hi, j, hj):
+  RecordL.lines_read(ks, reads, hs, e, i, p, q, r, n, hi, j, hj)
+
+def Laws.record_gives_kinds_only_to_files(ks, found, u, e, j, p, k, hj):
+  RecordL.kinds_held(ks, found, u, e, j, p, k, hj)
