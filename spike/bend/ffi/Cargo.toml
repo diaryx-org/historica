@@ -36,3 +36,9 @@ tempfile = "3"
 # Pinned to the version the workspace's `Cargo.lock` resolves `similar` to,
 # since that is the diff the Rust tool draws; move the two together.
 similar = "=3.2.0"
+# The reference `nfc.bend` is held to, and what its tables are drawn from:
+# `examples/nfc_tables.rs` dumps every scalar value's combining class and
+# canonical decomposition and every composition pair, and normalises what
+# `check.py` hands it. Pinned to the version the workspace's `Cargo.lock`
+# resolves, since that is the normal form the Rust tool writes paths in.
+unicode-normalization = "=0.1.25"

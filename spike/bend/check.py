@@ -3,7 +3,8 @@
 and hold the store commands to the Rust tool's output.
 
 The stages are independent and run at once; `check.py <stage>...` runs only
-those named, for iterating on one: store, corpora, similar, proof, mutations.
+those named, for iterating on one: store, corpora, similar, nfc, proof,
+mutations.
 
 The corpora and the store commands run on the JS build alone unless given
 `--native`, which builds and runs each natively as well: emitting and
@@ -110,6 +111,7 @@ def main():
         "store": check_store,
         "corpora": check_corpora,
         "similar": check_similar,
+        "nfc": check_nfc,
         "proof": check_proof,
         "mutations": check_mutations,
         "reach": check_reach,
@@ -229,6 +231,71 @@ def check_similar(temporary):
     if differ or len(got) != len(cases):
         sys.exit(f"{len(differ)} of {len(cases)} diffs differ from `similar`")
     print(f"similar: {len(cases)} cases, as the crate draws them")
+
+
+# Normal form C
+# -------------
+
+# `nfc.bend` is the `unicode-normalization` crate's normal form C, held to
+# the crate itself: every character that decomposes, alone and before a
+# mark; and strings drawn from what the tables are about — starters that
+# compose and marks of every class in every order, a mark blocked by
+# another of its class, starters that compose with starters, characters
+# composition excludes, Hangul jamo and syllables, and the quick check's
+# Latin — each compared on normal form C and on normal form D, the
+# decomposition composition starts from.
+def nfc_cases(rng, classes, decompositions, pairs):
+    firsts = sorted({a for a, _, _ in pairs})
+    seconds = sorted({b for _, b, _ in pairs})
+    composites = sorted({x for _, _, x in pairs})
+    marks = sorted(classes)
+    excluded = sorted(set(decompositions) - set(composites))
+    jamo = list(range(0x1100, 0x1113)) + list(range(0x1161, 0x1176)) + list(range(0x11A7, 0x11C3))
+    syllables = [0xAC00, 0xAC01, 0xAC1C, 0xD7A3, 0xB098, 0xD55C]
+    latin = [ord(c) for c in "aeiouAEKZ ;`/._-09"] + list(range(0xC0, 0x180, 7))
+    pools = [firsts, seconds, composites, marks, excluded, jamo, syllables, latin, latin]
+    cases = []
+    for c in sorted(decompositions):
+        cases.append(chr(c))
+        cases.append(chr(c) + chr(rng.choice(marks)) + chr(rng.choice(marks)))
+    for _ in range(12000):
+        size = rng.randint(1, 9)
+        cases.append("".join(chr(rng.choice(rng.choice(pools))) for _ in range(size)))
+    # A pair's halves with marks between them, in every order of two.
+    for _ in range(3000):
+        a, b, _ = rng.choice(pairs)
+        between = [chr(rng.choice(marks)) for _ in range(rng.randint(0, 3))]
+        cases.append(chr(a) + "".join(between) + chr(b) + chr(rng.choice(marks)))
+    return [c for c in cases if "\n" not in c and "\r" not in c]
+
+
+def check_nfc(temporary):
+    run("cargo", "build", "-q", "--release", "--example", "nfc_tables", cwd=ROOT / "ffi", timeout=600)
+    reference = ROOT / "ffi" / "target" / "release" / "examples" / "nfc_tables"
+    source = temporary / "nfc.c"
+    native = temporary / "nfc"
+    run(BEND, "nfc.bend", "-o", str(source), timeout=600)
+    run(os.environ.get("CC", "cc"), "-O2", "-w", "-o", str(native), str(source), "-lm", "-lpthread", timeout=900)
+    classes, decompositions, pairs = {}, {}, []
+    for line in subprocess.run([str(reference), "tables"], capture_output=True, text=True, check=True).stdout.splitlines():
+        kind, *fields = line.split()
+        if kind == "c":
+            classes[int(fields[0], 16)] = int(fields[1], 16)
+        elif kind == "d":
+            decompositions[int(fields[0], 16)] = [int(f, 16) for f in fields[1:]]
+        elif kind == "p":
+            pairs.append(tuple(int(f, 16) for f in fields))
+    cases = nfc_cases(random.Random(20260925), classes, decompositions, pairs)
+    text = "".join(c + "\n" for c in cases)
+    (temporary / "nfc-cases.txt").write_text(text)
+    expected = subprocess.run([str(reference), "nfc"], input=text, capture_output=True, text=True, check=True).stdout.splitlines()
+    got = subprocess.run([str(native), str(temporary / "nfc-cases.txt")], capture_output=True, text=True, check=True).stdout.splitlines()
+    differ = [i for i, want in enumerate(expected) if i >= len(got) or got[i] != want]
+    for i in differ[:5]:
+        print(f"DIFF nfc case {i}: {' '.join(f'{ord(c):x}' for c in cases[i])}\n  want {expected[i]}\n  got  {got[i] if i < len(got) else ''}")
+    if differ or len(got) != len(cases):
+        sys.exit(f"{len(differ)} of {len(cases)} strings normalise otherwise than `unicode-normalization` does")
+    print(f"nfc: {len(cases)} strings, as the crate normalises them")
 
 
 # The store commands
