@@ -111,20 +111,35 @@ def path_is(xdg: Result<&1, &1, U32 & String, String>, home: Result<&1, &1, U32 
 # Who records
 # -----------
 
-def env_set(+a: String) -> {Identity.from_env(Done{a}) == Maybe.map(&2, String, Result<&2, &2, String, String>, x => Identity.checked(x, None{}), EditorL.unless_empty(EditorL.set(Done{a}))) : Maybe<&2, Result<&2, &2, String, String>>}:
+# Set to one a revision can hold, the environment answers.
+def env_first(+a: String, +directory: String, h: {Identity.unusable(a) == False{} : Bool}) -> {Identity.author.of(Done{a}, directory) == IO.pure(Result<&2, &2, String, String>, Done{a}) : IO(Result<&2, &2, String, String>)}:
   match a:
     case SNil{}:
-      {==}
-    case SCon{c, t}:
+      Empty.absurd({Identity.author.of(Done{SNil{}}, directory) == IO.pure(Result<&2, &2, String, String>, Done{SNil{}}) : IO(Result<&2, &2, String, String>)}, S.true_false(h))
+    case SCon{+c, +t}:
+      %Equal.sym(Bool, Identity.unusable(SCon{c, t}), False{}, h) : {IO.pure(Result<&2, &2, String, String>, Bool.pick(Result<&2, &2, String, String>, _, Fail{Identity.checked.said(SCon{c, t}, None{})}, Done{SCon{c, t}})) == IO.pure(Result<&2, &2, String, String>, Done{SCon{c, t}}) : IO(Result<&2, &2, String, String>)}
       {==}
 
-# `var("HISTORICA_AUTHOR").ok().filter(|a| !a.is_empty())`, then `check`.
-def from_env(env: Result<&1, &1, U32 & String, String>) -> {Identity.from_env(env) == Maybe.map(&2, String, Result<&2, &2, String, String>, x => Identity.checked(x, None{}), EditorL.unless_empty(EditorL.set(env))) : Maybe<&2, Result<&2, &2, String, String>>}:
+# Set, not empty, and one no revision can hold, the refusal says so.
+def env_refused(+a: String, +directory: String, he: {String.is_empty(a) == False{} : Bool}, h: {Identity.unusable(a) == True{} : Bool}) -> {Identity.author.of(Done{a}, directory) == IO.pure(Result<&2, &2, String, String>, Fail{"`" ++ a ++ "` in $HISTORICA_AUTHOR cannot be an author: a header value is not empty, carries no leading or trailing space, and holds no control character"}) : IO(Result<&2, &2, String, String>)}:
+  match a:
+    case SNil{}:
+      Empty.absurd({Identity.author.of(Done{SNil{}}, directory) == IO.pure(Result<&2, &2, String, String>, Fail{"`" ++ SNil{} ++ "` in $HISTORICA_AUTHOR cannot be an author: a header value is not empty, carries no leading or trailing space, and holds no control character"}) : IO(Result<&2, &2, String, String>)}, S.true_false(he))
+    case SCon{+c, +t}:
+      %Equal.sym(Bool, Identity.unusable(SCon{c, t}), True{}, h) : {IO.pure(Result<&2, &2, String, String>, Bool.pick(Result<&2, &2, String, String>, _, Fail{Identity.checked.said(SCon{c, t}, None{})}, Done{SCon{c, t}})) == IO.pure(Result<&2, &2, String, String>, Fail{"`" ++ SCon{c, t} ++ "` in $HISTORICA_AUTHOR cannot be an author: a header value is not empty, carries no leading or trailing space, and holds no control character"}) : IO(Result<&2, &2, String, String>)}
+      {==}
+
+# Unset or empty, the file answers.
+def env_unset(env: Result<&1, &1, U32 & String, String>, +directory: String, h: {EditorL.unless_empty(EditorL.set(env)) == None{} : Maybe<&2, String>}) -> {Identity.author.of(env, directory) == Identity.author.file(directory) : IO(Result<&2, &2, String, String>)}:
   match env:
-    case Done{+a}:
-      env_set(a)
     case Fail{e}:
       {==}
+    case Done{a}:
+      match a:
+        case SNil{}:
+          {==}
+        case SCon{+c, +t}:
+          Empty.absurd({Identity.author.of(Done{SCon{c, t}}, directory) == Identity.author.file(directory) : IO(Result<&2, &2, String, String>)}, S.true_false(Equal.cong(Maybe<&2, String>, Bool, m => Maybe.is_some(&2, String, m), Some{SCon{c, t}}, None{}, h)))
 
 # The directory `identity` makes
 # ------------------------------
