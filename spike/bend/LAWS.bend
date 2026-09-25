@@ -2608,6 +2608,15 @@ law editor_is_read_only_when_it_saved:
   for r: Result<&1, &1, U32 & String, String>
   {Result.is_done(&2, &2, Editor.Stop, Unit, Editor.ended(editor, r)) == EditorL.saved(r) : Bool}
 
+# The file the editor is given, `historica-message`, sits directly in the
+# temporary directory — `$TMPDIR`, or `/tmp` where it is not set — so the
+# directory `Path::parent` names for it, where removing it afterwards
+# stops, is that directory, and taking the file away takes nothing else.
+law editor_file_is_in_the_temporary_directory:
+  for r: Result<&1, &1, U32 & String, String>
+  for h: {EditorL.tmp_ok(r) == True{} : Bool}
+  {Identity.parent(Editor.scratch(r)) == EditorL.tmpdir(r) : String}
+
 # `check` reads `--complete` wherever it stands, and every other word, in
 # order, as a directory to check.
 law check_reads_its_words:

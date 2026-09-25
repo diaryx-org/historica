@@ -999,6 +999,9 @@ def Laws.editor_is_the_one_chosen(visual, editor):
 def Laws.editor_is_read_only_when_it_saved(editor, r):
   EditorL.saves(editor, r)
 
+def Laws.editor_file_is_in_the_temporary_directory(r, h):
+  IdentityL.scratch_parent(r, h)
+
 def Laws.check_reads_its_words(ws):
   CheckL.reads_words(ws)
 
