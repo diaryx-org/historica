@@ -29,6 +29,7 @@ import ./bookmark.bend as Bm
 import ./folder.bend as Folder
 import ./commands.bend as Main
 import ./arrange.bend as Arrange
+import ./standin.bend as Stand
 
 # The words
 # ---------
@@ -122,19 +123,44 @@ def res.parsed(r: Result<&2, &2, String, Res.Doc>) -> Bool:
       False{}
 
 # Decision 0032: two grammars share the suffix, and the body says which.
-def body.of(+path: String, +id: String, +text: String, resolution: Bool) -> Body:
+def body.of.two(+path: String, +id: String, +text: String, resolution: Bool) -> Body:
   match resolution:
     case True{}:
       Body{path, id, res.parsed(Res.parse(text)), res.forgets(Res.parse(text))}
     case False{}:
       Body{path, id, ops.parsed(Ops.parse(text)), ops.forgets(Ops.parse(text))}
 
+# Decision 0066 adds a third: what stands in for a payload of bytes, told
+# apart by the `length` header no other document carries — a header line,
+# before the first empty line, after the preamble — and asked about first,
+# as the Rust tool asks.
+def headers.length(ls: List<&2, T.Line>) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case T.Line{+t, n} <> rest:
+      Bool.pick(Bool, String.is_empty(t), False{}, Bool.or(String.starts_with(t, "length "), headers.length(rest)))
+
+def forgotten.payload(ls: List<&2, T.Line>) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case T.Line{+p, n} <> rest:
+      Bool.and(T.same(p, "historica"), headers.length(rest))
+
+def body.of(+path: String, +id: String, +text: String, forgotten: Bool) -> Body:
+  match forgotten:
+    case True{}:
+      Body{path, id, Maybe.is_some(&2, Stand.Payload, Stand.payload.parse(text)), Stand.payload.forgets(Stand.payload.parse(text))}
+    case False{}:
+      body.of.two(path, id, text, Res.is_resolution(text))
+
 def bodies(+root: String, ds: List<&2, Store.Doc>) -> List<&2, Body>:
   match ds:
     case Nil{}:
       Nil{}
     case Store.Doc{+path, +id, size, +text} <> rest:
-      body.of(Store.relative(root, path), id, text, Res.is_resolution(text)) <> bodies(root, rest)
+      body.of(Store.relative(root, path), id, text, forgotten.payload(T.lines(text))) <> bodies(root, rest)
 
 def body.path(b: Body) -> String:
   match b:

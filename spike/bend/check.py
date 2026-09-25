@@ -647,6 +647,19 @@ STORES = {
     # where the originals were; `record`, `amend` and `carry` read them too.
     "forgotten": [
         ["log"],
+        # A copy of a store that forgot: every forgetting document travels
+        # with what it stands in for, and each file is laid out as `cat`
+        # reads it.
+        ["export", "out"],
+        ["export", "out", "first"],
+        ["export", "--files-only", "out", "r1"],
+        # And the other moves over it: what may be pruned while a forgetting
+        # document stands in for what is named, a receive from itself, and
+        # its manifest, each forgetting document listed with what it forgets.
+        ["prune", "-n"],
+        ["prune"],
+        ["receive", ".", "-n"],
+        ["offer", "."],
         ["files", "head"],
         ["cat", "head", "notes.md"],
         ["cat", "first", "notes.md"],
