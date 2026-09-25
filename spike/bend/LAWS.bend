@@ -43,6 +43,10 @@ import ./nfc.bend as Nfc
 import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
+import ./arrange_lemmas.bend as ArrangeL
+import ./prune_lemmas.bend as PruneL
+import ./receive_lemmas.bend as ReceiveL
+import ./offer_lemmas.bend as OfferL
 import ./utf8.bend as Utf8
 import ./manifest_lemmas.bend as ManL
 import ./fetching_lemmas.bend as FetchingL
@@ -2538,9 +2542,9 @@ law arrange_reads_its_words:
   for +ws: List<&2, String>
   {Arrange.accepted(Arrange.ArrangeCmd, Arrange.args.r(ws)) == Bool.pick(Maybe<&2, Arrange.ArrangeCmd>, List.all(~&2, ~String, ~(w => Rev.member(["-n", "--dry-run", "--refile"], w)), ws), Some{Arrange.ArrangeCmd{Bool.or(Rev.member(ws, "-n"), Rev.member(ws, "--dry-run")), Rev.member(ws, "--refile")}}, None{}) : Maybe<&2, Arrange.ArrangeCmd>}
 
-# `arrange` never plans to write over a file: every rename its plan holds,
-# in `revisions/` and in `operations/`, goes from one path to a different
-# one that nothing in the store was at. Two files holding one document
+# `arrange` never writes over a file: every rename it carries out, in
+# `revisions/` and in `operations/`, goes from one path to a different one
+# that the store's listing does not hold. Two files holding one document
 # want one name, and the second finds it taken when its turn comes.
 law arrange_plans_no_overwrite:
   for +refile: Bool
@@ -2550,7 +2554,10 @@ law arrange_plans_no_overwrite:
   for +ls: List<&2, String>
   for +a: Arrange.Arrangement
   for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
-  {Arrange.plan_safe(Arrange.taken(ls), a) == True{} : Bool}
+  for +from: String
+  for +to: String
+  for h: {ArrangeL.moves(List.append(&2, T.Split, Arrange.done.renamed(Arrange.arrangement.revs(a)), Arrange.done.renamed(Arrange.arrangement.ops(a))), from, to) == True{} : Bool}
+  {Bool.or(String.eq(from, to), Rev.member(ls, to)) == False{} : Bool}
 
 # Without `--refile`, `arrange` renames a revision document only within
 # the directory it sits in: a folder a person filed one in is one they
@@ -2593,6 +2600,20 @@ law arrange_counts_every_file:
   for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
   {Arrange.accounted(a, revs, ops) == True{} : Bool}
 
+# `arrange` moves each file once: of each directory, a path is renamed
+# from no more often than the walk found a file there, so a file the walk
+# lists once is moved at most once, and a path it does not list, never.
+law arrange_moves_each_file_once:
+  for +refile: Bool
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +ops: List<&2, T.Split>
+  for +ls: List<&2, String>
+  for +a: Arrange.Arrangement
+  for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
+  for +x: String
+  {Bool.and(Nat.is_le(ArrangeL.times(T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), Arrange.done.renamed(Arrange.arrangement.revs(a))), x), ArrangeL.times(T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), revs), x)), Nat.is_le(ArrangeL.times(T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), Arrange.done.renamed(Arrange.arrangement.ops(a))), x), ArrangeL.times(T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), ops), x))) == True{} : Bool}
+
 # `prune` reads its words as their plain reading says: it accepts a
 # command line exactly where every word is `-n`, `--dry-run` or
 # `--fields` and it does not hold both a flag asking for a plan and
@@ -2614,32 +2635,111 @@ law prune_keeps_what_work_stands_on:
   for hk: {Rev.member(Main.ids(Prune.kept(fs)), id) == False{} : Bool}
   {Prune.stood_on(Prune.kept(fs), id) == False{} : Bool}
 
-# Every operation document and payload `prune` removes holds a digest
-# nothing it keeps needs: named by no revision it keeps, and no forgetting
-# document standing in for one that is.
+# `prune` lets a revision of the store go only where a revision of the
+# store says, in its own `supersedes`, that it supersedes it: one prune
+# keeps, or one it lets go of too, since a superseded run clears in one
+# pruning. Nothing a revision it keeps stands on goes either
+# (prune_keeps_what_work_stands_on), so no head is ever pruned.
+law prune_lets_go_only_what_is_superseded:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for hf: {Rev.member(Main.ids(fs), id) == True{} : Bool}
+  for hk: {Rev.member(Main.ids(Prune.kept(fs)), id) == False{} : Bool}
+  {PruneL.supersedes_any(fs, id) == True{} : Bool}
+
+# `prune --dry-run` and `prune` plan the same: of any store, the dry run
+# removes nothing and names, a line each and in the order they would go,
+# exactly the files the real run removes, and the real run names the same
+# files as it removes them; where nothing is prunable, both say so.
+law prune_dry_run_names_what_prune_removes:
+  for +s: Prune.Stored
+  {(Prune.act.says(Prune.act.of(True{}, False{}, Prune.stored.plan(s))), (Prune.act.says(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), Prune.act.removes(Prune.act.of(True{}, False{}, Prune.stored.plan(s))))) == (PruneL.report(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), T.map(~String, ~String, ~(f => "would remove history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))))), (PruneL.report(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), T.map(~String, ~String, ~(f => "removed history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))))), Nil{})) : List<&2, String> & (List<&2, String> & List<&2, String>)}
+
+# `prune` clears from `cache/` only files named by a digest — what any
+# reader rebuilds, and what may hold content it has just destroyed; the
+# note `init` writes there, or anything else a person put there, stays.
+law prune_clears_only_derived_files:
+  for +ls: List<&2, String>
+  for +x: String
+  for h: {Rev.member(Prune.cached(ls), x) == True{} : Bool}
+  {T.is_digest(x) == True{} : Bool}
+
+# Every operation document and payload `prune` removes holds a digest no
+# revision it keeps names — read from that revision's own `edit`, `text`
+# and `bytes` facts — and is no forgetting document standing in for a
+# digest a revision it keeps names (decision 0014).
 law prune_removes_only_unneeded_content:
   for +fs: List<&2, Main.Full>
   for +revs: List<&2, T.Split>
   for +bs: List<&2, Prune.Body>
   for +ps: List<&2, T.Split>
-  {Prune.unneeded(Prune.pruned.content(Prune.plan(fs, revs, bs, ps)), Prune.referenced(Prune.kept(fs), bs)) == True{} : Bool}
+  for +d: String
+  for h: {Rev.member(Prune.pruned.content(Prune.plan(fs, revs, bs, ps)), d) == True{} : Bool}
+  {Bool.or(PruneL.named(Prune.kept(fs), d), PruneL.stands_in(bs, Prune.kept(fs), d)) == False{} : Bool}
 
-# `receive` takes only what this store lacks: every revision it plans to
-# write is one this store does not hold, and every document and payload
-# one it has nothing under the digest of — and that neither store forgets,
-# so a forgetting document is never undone by an arriving original.
-law receive_takes_only_what_is_missing:
+# `receive` files as a revision only one of the source's revision
+# documents, its digest and its text, and only under a digest no revision
+# document of this store has — this store's revisions all parse, or no
+# plan is made (receive_trusts_what_it_plans_from).
+law receive_takes_only_revisions_it_lacks:
   for +here: Receive.Side
   for +there: Receive.Side
-  {Receive.fresh(here, there, Receive.plan.of(here, there)) == True{} : Bool}
+  for +join: Bool
+  for +p: Receive.RPlan
+  for e: {Receive.plan.r(here, there, join) == Done{p} : Result<&2, &2, Main.Refused, Receive.RPlan>}
+  for +id: String
+  for +text: String
+  for h: {ReceiveL.holds(Receive.rplan.revisions(p), id, text) == True{} : Bool}
+  {Bool.and(Bool.not(Rev.member(T.map(~Store.Doc, ~String, ~(d => Store.id_of(d)), Arrange.revision_docs(Receive.stored.docs(Receive.stored.of(here)))), id)), ReceiveL.holds(Arrange.revision_docs(Receive.stored.docs(Receive.stored.of(there))), id, text)) == True{} : Bool}
 
-# `receive` moves no bookmark this store has: each it writes is one this
-# store lacks, or one it holds at the same target, whose axis joins. Two
-# targets for one name is a disagreement, and writes nothing.
+# `receive` files as an operation document only one of the source's, its
+# digest and its text, and only under a digest this store holds no
+# document under and that no forgetting document of either store forgets,
+# so a forgetting document is never undone by an arriving original.
+law receive_takes_only_documents_it_lacks:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for +id: String
+  for +text: String
+  for h: {ReceiveL.holds(ReceiveL.rplan.documents(Receive.plan.of(here, there)), id, text) == True{} : Bool}
+  {Bool.and(Bool.not(Bool.or(Rev.member(T.map(~Prune.Body, ~String, ~(b => Prune.body.id(b)), Receive.stored.bodies(Receive.stored.of(here))), id), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(here)), id), Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), id)))), ReceiveL.holds(Receive.stored.odocs(Receive.stored.of(there)), id, text)) == True{} : Bool}
+
+# `receive` copies only a payload the source lists, from the path it
+# lists it at, and only under a digest this store holds no payload under
+# and that neither store forgets.
+law receive_takes_only_payloads_it_lacks:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for +path: String
+  for +d: String
+  for h: {ReceiveL.lists(ReceiveL.rplan.payloads(Receive.plan.of(here, there)), path, d) == True{} : Bool}
+  {Bool.and(Bool.not(Bool.or(Rev.member(T.map(~T.Split, ~String, ~(s => Receive.split.digest(s)), Receive.stored.payloads(Receive.stored.of(here))), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(here)), d), Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), d)))), ReceiveL.lists(Receive.stored.payloads(Receive.stored.of(there)), path, d)) == True{} : Bool}
+
+# Between two stores the check passes, `receive` plans exactly where it
+# was given `--join-unrelated` or the histories are related as decision
+# 0029 has it, read from the revisions themselves: one store is empty, or
+# they share a revision, or a revision of either names one of the other's
+# as a parent or as what it supersedes. Anything else is refused.
+law receive_joins_only_related_histories:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for +join: Bool
+  for hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}
+  for ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, join)) == Bool.or(join, ReceiveL.related(Receive.side.fulls(here), Receive.side.fulls(there))) : Bool}
+
+# `receive` moves no bookmark this store has, though it may add one: each
+# it writes, by name and by the target it spells, is one this store has
+# none of by that name, or has at that very target — a bookmark's name is
+# its file's, so a store holds one of each. Two targets for one name is a
+# disagreement, and writes nothing.
 law receive_moves_no_bookmark:
   for +here: Receive.Side
   for +there: Receive.Side
-  {Receive.names_kept(Receive.rplan.names(Receive.plan.of(here, there)), Receive.side.marks(here)) == True{} : Bool}
+  for +n: String
+  for +at: String
+  for h: {ReceiveL.marks_at(Receive.rplan.names(Receive.plan.of(here, there)), n, at) == True{} : Bool}
+  {Bool.or(Bool.not(ReceiveL.named(Receive.side.marks(here), n)), ReceiveL.marks_at(Receive.side.marks(here), n, at)) == True{} : Bool}
 
 # Every original `receive` destroys is one a forgetting document of this
 # store or of the source stands in for (decision 0014): among the
@@ -2673,6 +2773,35 @@ law offer_names_no_private_rule:
   for +rids: List<&2, T.Split>
   for +nids: List<&2, T.Split>
   {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, Offer.shared_rules(s), bs, claims, rids, nids) : List<&2, String>}
+
+# `fetch` reads the line `offer` writes for a file back as that file: its
+# kind, its digest, what it forgets and its path, whatever spaces the path
+# holds — for every kind a reader of `historica-offer-1` knows, a digest
+# that is one, and nothing forgotten or a forgotten digest that is one. So
+# a fetcher checks each file against the digest offer_names_each_file_by_its_digest
+# says its line carries.
+law offer_lines_read_back:
+  for +k: String
+  for +d: String
+  for +g: Maybe<&2, String>
+  for +p: String
+  for +rest: List<&2, String>
+  for +nh: Bool
+  for +hk: {Rev.member(Fetch.KINDS(), k) == True{} : Bool}
+  for +hd: {T.is_digest(d) == True{} : Bool}
+  for +hg: {OfferL.forgets_ok(g) == True{} : Bool}
+  {Fetch.line.at(Offer.offered.line(Offer.Offered{k, d, g, p}) <> rest, nh) == Fetch.LRead.Entry{Offer.Offered{k, d, g, p}} : Fetch.LRead}
+
+# `offer` lists what a document of `operations/` forgets as `prune`,
+# `receive` and `export` read it: a stand-in for a payload, and an
+# operation document, by the `forgets` line of its own grammar — save a
+# resolution that is no stand-in, which the Rust tool's catalogue does not
+# parse, so its manifest lists one as forgetting nothing.
+law offer_lists_forgetting_as_prune_reads_it:
+  for +path: String
+  for +id: String
+  for +text: String
+  {Offer.catalogue.forgets(text) == Bool.pick(Maybe<&2, String>, Bool.and(Res.is_resolution(text), Bool.not(Prune.forgotten.payload(T.lines(text)))), None{}, OfferL.forgets_of(Prune.body.of(path, id, text, Prune.forgotten.payload(T.lines(text))))) : Maybe<&2, String>}
 
 # `export` lays out every path the target's tree places, each once and at
 # its own path, whatever kind of file it is: one outcome a path, in path
@@ -2785,6 +2914,19 @@ law export_renames_nothing_a_copy_holds:
   for +e: {Arrange.lookup(held, id) == Some{s} : Maybe<&2, String>}
   for m: {Rev.member(Main.ids(fs), id) == True{} : Bool}
   {Arrange.lookup(Export.stems.around(fs, held, ex), id) == Some{s} : Maybe<&2, String>}
+
+# The files `receive` removes, for the digests it destroys, are this
+# store's own: each an operation document or a payload file here, at that
+# path, holding one of those digests — so, with
+# receive_destroys_only_what_is_forgotten, every file it removes holds what
+# a forgetting document stands in for.
+law receive_removes_only_the_originals:
+  for +bs: List<&2, Prune.Body>
+  for +ps: List<&2, T.Split>
+  for +des: List<&2, String>
+  for +x: String
+  for h: {Rev.member(Receive.destroyed(bs, ps, des), x) == True{} : Bool}
+  {Bool.or(ReceiveL.gone_at(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), x, des), ReceiveL.gone_at(ps, x, des)) == True{} : Bool}
 
 # `receive` plans nothing from a store holding a revision document whose
 # text does not parse, wherever among its files it stands and whatever
