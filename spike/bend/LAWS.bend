@@ -42,6 +42,9 @@ import ./export.bend as Export
 import ./nfc.bend as Nfc
 import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
+import ./shell_lemmas.bend as ShellL
+import ./editor_lemmas.bend as EditorL
+import ./editor.bend as Editor
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
 
@@ -2305,6 +2308,27 @@ law dispatch_runs_no_path:
   for e: {Shell.plan(base, w, args) == Shell.Plan.Run{d, p, as} : Shell.Plan}
   {T.has_char(p, '/') == False{} : Bool}
 
+# And the rule is decision 0072's positive one, with the alphabet taken
+# from Base's classes of character rather than the code points
+# `shell.bend` compares: a word is looked for exactly when it is ASCII
+# letters and digits with hyphens only between them, and then what runs is
+# `historica-` and the word, in the directory `-C` names, with every word
+# after it as typed; any other word is the refusal a command this tool
+# does not have gets.
+law dispatch_runs_a_spelled_word:
+  for +base: String
+  for +w: String
+  for +args: List<&2, String>
+  for h: {ShellL.word(w) == True{} : Bool}
+  {Shell.plan(base, w, args) == Shell.Plan.Run{base, "historica-" ++ w, args} : Shell.Plan}
+
+law dispatch_refuses_any_other_word:
+  for +base: String
+  for +w: String
+  for +args: List<&2, String>
+  for h: {ShellL.word(w) == False{} : Bool}
+  {Shell.plan(base, w, args) == Shell.Plan.Missing{"there is no `" ++ w ++ "` command"} : Shell.Plan}
+
 # A store's header opens whatever its note says, once a blank line sets the
 # note apart from the format line (decision 0069) — the header `init`
 # writes among them.
@@ -2322,6 +2346,24 @@ law identity_reads_back:
   for +home: Maybe<&2, String>
   for h: {Identity.unusable(a) == False{} : Bool}
   {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}
+
+# `record` and `abandon` given no `-m` ask the editor the person chose, as
+# the Rust tool's `from_an_editor` reads the environment: `$VISUAL` where
+# it is set, `$EDITOR` only where `$VISUAL` is not set at all, and none —
+# the usage error — where the one that decides is empty, so an empty
+# `$VISUAL` is never a fall back to `$EDITOR`.
+law editor_is_the_one_chosen:
+  for visual: Result<&1, &1, U32 & String, String>
+  for editor: Result<&1, &1, U32 & String, String>
+  {Editor.chosen(visual, editor) == EditorL.unless_empty(Maybe.or(&2, String, EditorL.set(visual), EditorL.set(editor))) : Maybe<&2, String>}
+
+# And what the editor leaves is read back as the message exactly where it
+# exited 0: any other code, or a signal, stopped it without saving, and
+# one that would not start at all is said.
+law editor_is_read_only_when_it_saved:
+  for +editor: String
+  for r: Result<&1, &1, U32 & String, String>
+  {Result.is_done(&2, &2, Editor.Stop, Unit, Editor.ended(editor, r)) == EditorL.saved(r) : Bool}
 
 # `check` reads `--complete` wherever it stands, and every other word, in
 # order, as a directory to check.

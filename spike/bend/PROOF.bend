@@ -75,6 +75,7 @@ import ./argv_lemmas.bend as ArgvL
 import ./shell_lemmas.bend as ShellL
 import ./opening_lemmas.bend as OpeningL
 import ./identity_lemmas.bend as IdentityL
+import ./editor_lemmas.bend as EditorL
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
 import ./receive_lemmas.bend as ReceiveL
@@ -921,11 +922,23 @@ def Laws.argv_reads_help(ds, v, rest, h):
 def Laws.dispatch_runs_no_path(base, w, args, d, p, as, e):
   ShellL.runs(base, w, args, d, p, as, e)
 
+def Laws.dispatch_runs_a_spelled_word(base, w, args, h):
+  ShellL.runs_word(base, w, args, h)
+
+def Laws.dispatch_refuses_any_other_word(base, w, args, h):
+  ShellL.refuses_word(base, w, args, h)
+
 def Laws.header_opens_under_a_note(note):
   OpeningL.noted(note)
 
 def Laws.identity_reads_back(file, a, directory, home, h):
   IdentityL.reads_back(file, a, directory, home, h)
+
+def Laws.editor_is_the_one_chosen(visual, editor):
+  EditorL.chooses(visual, editor)
+
+def Laws.editor_is_read_only_when_it_saved(editor, r):
+  EditorL.saves(editor, r)
 
 def Laws.check_reads_its_words(ws):
   CheckL.reads_words(ws)
