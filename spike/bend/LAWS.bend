@@ -1662,3 +1662,266 @@ law a_link_resolves_inside_the_folder:
   for h: {Sv.path_check(link) == None{} : Maybe<&2, String>}
   for e: {Sv.resolution(link, target) == Some{p} : Maybe<&2, String>}
   {Main.escapes(p) == False{} : Bool}
+
+# `record` reads its words as their plain reading says: the word after a
+# flag that takes a value is that value, whatever it is; the last `-m` and
+# the last `--onto` count; each `--merge`, `--at`, `--move`, `--bytes` and
+# `--lines` counts, in the order given, an `--at` or a `--move` cut at its
+# first `=`; `-n` and `--fields` are asked for if they are there; and
+# every other word is a path, the slashes a shell leaves on a directory
+# taken off. Each `--accept` and each path is kept, the last first.
+law record_reads_its_words:
+  for +args: List<&2, String>
+  for +cmd: Main.RecordCmd
+  for e: {Main.record.args.r(args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+  {cmd == Main.rargs.said(Main.rargs.read(args, Main.rword(args))) : Main.RecordCmd}
+
+# `amend`, `abandon` and `carry` read their words as their plain reading
+# says: the word after `-m`, `--move` or `--onto`, where the command takes
+# it, is its value, whatever it is; the last `-m` and the last `--onto`
+# count, and each `--move`, in order, cut at its first `=`; `-n`,
+# `--fields` and `--only` are asked for if they are there; and the one
+# other word is the target.
+law rewrite_reads_its_words:
+  for +cmd: String
+  for +args: List<&2, String>
+  for +c: Main.RwCmd
+  for e: {Main.rw.args.r(cmd, args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}
+  {c == Main.wargs.said(Main.wargs.read(cmd, args, Main.wword(cmd, args))) : Main.RwCmd}
+
+# A carry restates work without changing whose it is or when it was done.
+# Whatever it is asked to carry, each revision a plan would write has the
+# change, author, moment and message of the revision the store holds under
+# the identifier it supersedes, supersedes that one alone, and is named by
+# the digest of its own text: the identifier `carry` reports is the one
+# the store will find the revision under.
+law carry_keeps_what_it_restates:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +c: Main.Carrying
+  for steps: List<&2, Main.Step>
+  for e: {Main.carry.plan(fs, ds, c) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}
+  {Main.steps.kept(fs, steps) == True{} : Bool}
+
+# What `abandon` abandons is a line of work nothing has rewritten yet. It
+# begins at the revision named, and each revision after that stands on the
+# one before it and on nothing else, so the tombstone standing where the
+# first stood takes no other line's work out of the history; and with
+# `--only` it is the revision named alone, which joins no other line.
+law abandon_takes_a_line:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for only: Bool
+  for run: List<&2, String>
+  for e: {Main.abandon.plan.r(fs, id, only) == Done{run} : Result<&2, &2, Main.Refused, List<&2, String>>}
+  {Main.abandon.line(fs, id, only, run) == True{} : Bool}
+
+# A reword changes the message alone. Where work stands on a revision,
+# `amend` may only reword it: the message it writes is the one `-m` gave
+# and not the one the revision had, it supersedes that revision alone, and
+# with the old message put back it says exactly what that revision said.
+law reword_changes_only_the_message:
+  for +fs: List<&2, Main.Full>
+  for prev: Main.Full
+  for +standing: List<&2, String>
+  for +m: Maybe<&2, String>
+  for +reviser: String
+  for +revised: String
+  for doc: Rev.Rev
+  for e: {Main.reword.r(fs, prev, standing, m, reviser, revised) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}
+  {Main.reword.ok(prev, m, doc) == True{} : Bool}
+
+# What `record` states a file holds is what the folder holds there. Of
+# each file it drafts content for, an edit is the written form of the
+# document that replays the position's lines of that file to the lines
+# the folder holds — `befores` being the position's — text is the bytes
+# the folder holds, and a payload is named by the digest of the folder's.
+law record_states_the_folder:
+  for +befores: List<&2, Main.Before>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +dg: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  for +mint: List<&2, T.Split>
+  {Main.contents.state(befores, dg, reads, Main.drafted.contents(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
+
+# What `record` writes is named as it says. Each file arriving is added
+# under the identifier minted for it, in path order; the revision is named
+# by the digest of its own text, and filed under the name decision 0019
+# composes from its moment, its message and its change, extended only
+# where the store already holds a revision of that name; and each
+# bookmark it moves names the change of one of its parents.
+law record_names_what_it_writes:
+  for w: Main.Writing
+  for +hex: String
+  for +befores: List<&2, Main.Before>
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ps: List<&2, String>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +dg: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  {Main.record.named(w, Sv.sorted(Sv.added(obs)), Main.parents.changes(fs, ps), Main.record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)) == True{} : Bool}
+
+# What `record` goes on to write is a plan the survey settled. Where it
+# is not refused, no path is claimed by several files, nothing is there
+# that the format cannot record, nothing a merge would leave empty, no
+# link dangles, and the attachments accepted are exactly the ones
+# concurrent work states different bytes for.
+law record_writes_only_what_is_settled:
+  for +looked: Tree.Tree()
+  for pl: Sv.Planned
+  for +accepted: List<&2, String>
+  for pl2: Sv.Planned
+  for e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
+  {Main.planned.settled(pl2, accepted) == True{} : Bool}
+
+# What `amend` rewrites is a revision the store holds: the target named,
+# or else the one head there is.
+law amend_rewrites_a_held_revision:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for named: Maybe<&2, String>
+  for +f: Main.Full
+  for e: {Main.amend.target.r(fs, bs, named) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}
+  {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}
+
+# What `carry` is asked to carry, where a target is named, is a revision
+# the store holds.
+law carry_carries_a_held_revision:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for named: Maybe<&2, String>
+  for +id: String
+  for e: {Main.carry.target.r(fs, bs, named) == Done{Some{id}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}
+  {Rev.member(Main.ids(fs), id) == True{} : Bool}
+
+# Every file `record` moves by a stated rename is one the position holds:
+# `--at` names a file the history holds, and `--move` a path where one
+# file alone is, so no rename moves a file from nowhere.
+law record_moves_only_held_files:
+  for +t: Tree.Tree()
+  for +ats: List<&2, T.Split>
+  for +ms: List<&2, T.Split>
+  for p: Main.Placed
+  for e: {Main.placed.r(t, ats, ms) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}
+  {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}
+
+# A record restricted to some paths is no merge, since a merge states
+# every contested file, and every rename it states is among those paths
+# at both its ends, since recording one end alone would spell the other as
+# a file appearing or disappearing.
+law record_restricts_no_merge_and_no_half_rename:
+  for +named: List<&2, String>
+  for +ps: List<&2, String>
+  for +moves: List<&2, T.Split>
+  for u: Unit
+  for e: {Main.restricted.r(named, ps, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  {Main.restriction.whole(named, ps, moves) == True{} : Bool}
+
+# `record --dry-run` says a file arriving once. Whatever the survey
+# observed, of the facts the plan it prints states, only an `added` line,
+# and a `moved` or `dropped` one, names a path being added: an arrival
+# carries its content, mode and target in with it.
+law record_says_an_arrival_once:
+  for +t: Tree.Tree()
+  for +looked: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  for +moves: List<&2, T.Split>
+  {Main.recorded.once(Set.from_list(Sv.added(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves)))), Main.planned.facts(Sv.planned(t, looked, held, walked, ss, moves))) == True{} : Bool}
+
+# Asked for `--fields`, what `record`, `amend`, `abandon` and `carry` say
+# of what they wrote is decision 0074's: `historica-wrote-1` first, and
+# then a `revision` line for each revision the act wrote — each named
+# once, in digest order, and none named that it did not write.
+law writes_say_what_they_wrote:
+  for +a: String
+  for +when: String
+  for +m: String
+  for +facts: List<&2, T.Split>
+  for +change: String
+  for +id: String
+  for +names: List<&2, String>
+  for +ps: List<&2, String>
+  for +prev: String
+  for +carrying: List<&2, String>
+  for +steps: List<&2, Main.Step>
+  for +run: List<&2, String>
+  for +dry: Bool
+  {Bool.and(Main.fields.ok([id], Main.record.said.lines(Main.Writing{a, when, m, True{}}, facts, change, id, names, ps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.amend.said.lines(True{}, False{}, facts, prev, change, id, carrying, steps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps))))) == True{} : Bool}
+
+# A file arriving that a person said is lines is read to be sure it is
+# text, and where `record` goes on it is: every file it reads because
+# `--lines` named it has bytes that are UTF-8.
+law record_reads_lines_as_text:
+  for +ks: List<&2, T.Split>
+  for +reads: Map<&2, List<&2, U32>>
+  for hs: List<&2, Main.Here>
+  for e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}
+  {Main.utf8.all(reads, Main.lined_added(ks, hs)) == True{} : Bool}
+
+# What `record` reads of the position, to state an edit against it, is
+# the store's replay of each file of lines it edits: one reading of each
+# file, in the order asked, where every replay succeeds.
+law record_reads_the_position:
+  for +older: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +left: String
+  for files: List<&2, String>
+  for bs: List<&2, Main.Before>
+  for e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
+  {Main.befores.read(older, ds, left, files, bs) == True{} : Bool}
+
+# An amendment keeps the identifiers it minted. Of the files arriving
+# against the amended revision's parents, each is given an identifier, in
+# path order, and each the amended revision added keeps the identifier it
+# was added under: only a path it did not add is minted one afresh.
+law amend_keeps_what_it_added:
+  for +arriving: List<&2, String>
+  for +kept: List<&2, T.Split>
+  for +hex: String
+  {Main.amend.minted.ok(arriving, kept, Main.amend.minted(arriving, kept, hex)) == True{} : Bool}
+
+# `abandon` is asked for a revision and a reason. Where it goes on, a
+# target was named, a dry run did not also ask for `--fields`, and the
+# reason, the one thing a tombstone carries, is not blank.
+law abandon_asks_for_a_revision_and_a_reason:
+  for c: Main.RwCmd
+  for +m: String
+  for u1: Unit
+  for u2: Unit
+  for u3: Unit
+  for e1: {Main.abandon.named.r(Main.rw.named(c)) == Done{u1} : Result<&2, &2, Main.Refused, Unit>}
+  for e2: {Main.rw.plan.r("abandon", Main.rw.dry_of(c), Main.rw.fields_of(c)) == Done{u2} : Result<&2, &2, Main.Refused, Unit>}
+  for e3: {Main.reason.r(m) == Done{u3} : Result<&2, &2, Main.Refused, Unit>}
+  {Main.abandon.asked(c, m) == True{} : Bool}
+
+# A kind is a fact about a file: where `record` goes on, every path
+# `--bytes` or `--lines` names is a file the folder holds.
+law record_gives_kinds_only_to_files:
+  for ks: List<&2, T.Split>
+  for +found: Set()
+  for u: Unit
+  for e: {Main.kinds.unheld.r(ks, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  {Main.kinds.found(ks, found) == True{} : Bool}
+
+# A dry run of `abandon` begins by naming, in order, each revision of the
+# run it would abandon, by the first twelve letters of its digest.
+law abandon_dry_run_names_the_run:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +id: String
+  for +only: Bool
+  for +run: List<&2, String>
+  {Main.said.first(run, Main.abandon.dry.lines(fs, bs, id, only, run), "would abandon ") == True{} : Bool}
