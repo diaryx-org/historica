@@ -86,6 +86,7 @@ import ./fetching_lemmas.bend as FetchingL
 import ./host_lemmas.bend as HostL
 import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
+import ./stats_lemmas.bend as StatsL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1127,3 +1128,9 @@ def Laws.a_pattern_matches_each_name_it_spells(r0, more, xs, h):
 
 def Laws.a_pattern_matches_only_names_it_spells(r0, more, c, h, e):
   PatL.spelled(r0, more, c, h, e)
+
+def Laws.forget_reads_what_the_host_hashed(ps, ss, hl, h):
+  StatsL.forget_reads(ss, ps, hl, h)
+
+def Laws.arrange_reads_what_the_host_hashed(ps, ss, hl, h):
+  StatsL.arrange_reads(ss, ps, hl, h)
