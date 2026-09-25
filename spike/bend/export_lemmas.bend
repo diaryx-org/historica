@@ -7,6 +7,8 @@
 import Base
 import ./export.bend as Export
 import ./receive.bend as Receive
+import ./composition_lemmas.bend as Comp
+import ./offer.bend as Offer
 import ./prune.bend as Prune
 import ./prune_lemmas.bend as PruneL
 import ./arrange.bend as Arrange
@@ -107,40 +109,32 @@ def laid(ps: List<&2, Export.Placed>, +t: Tree.Tree(), +fs: List<&2, Main.Full>,
 # Bookmarks
 # ---------
 
-def withheld_travels(t: Export.Travel, +pt: Export.Pointed, ih: {Export.travels(Export.travel.names(t), pt) == True{} : Bool}) -> {Export.travels(Export.travel.names(Export.travel.withheld(t)), pt) == True{} : Bool}:
+def names_withheld(t: Export.Travel) -> {Export.travel.names(Export.travel.withheld(t)) == Export.travel.names(t) : List<&2, Bm.Bookmark>}:
   match t:
     case Export.Travel{ns, w, y}:
-      ih
+      {==}
 
-def held_travels(+n: String, +g: Bm.Target, +pt: Export.Pointed, h: Bool, e: {Export.pointed.holds(pt, g) == h : Bool}, t: Export.Travel, ih: {Export.travels(Export.travel.names(t), pt) == True{} : Bool}) -> {Export.travels(Export.travel.names(Export.travel.held(Bm.Bookmark{n, g, False{}}, h, t)), pt) == True{} : Bool}:
-  match h:
-    case True{}:
-      match t:
-        case Export.Travel{+ns, w, y}:
-          %Equal.sym(Bool, Export.pointed.holds(pt, g), True{}, e) : {Bool.and(Bool.and(Bool.not(False{}), _), Export.travels(ns, pt)) == True{} : Bool}
-          %Equal.sym(Bool, Export.travels(ns, pt), True{}, ih) : {Bool.and(Bool.and(Bool.not(False{}), True{}), _) == True{} : Bool}
-          {==}
-    case False{}:
-      match t:
-        case Export.Travel{ns, w, y}:
-          ih
+def names_held(b: Bm.Bookmark, h: Bool, t: Export.Travel) -> {Export.travel.names(Export.travel.held(b, h, t)) == Tree.keep(~Bm.Bookmark, h, b, Export.travel.names(t)) : List<&2, Bm.Bookmark>}:
+  match h t:
+    case True{} Export.Travel{ns, w, y}:
+      {==}
+    case False{} Export.Travel{ns, w, y}:
+      {==}
 
-def push_travels(b: Bm.Bookmark, +pt: Export.Pointed, t: Export.Travel, ih: {Export.travels(Export.travel.names(t), pt) == True{} : Bool}) -> {Export.travels(Export.travel.names(Export.travel.push(b, pt, t)), pt) == True{} : Bool}:
-  match b:
-    case Bm.Bookmark{+n, +g, p}:
-      match p:
-        case True{}:
-          withheld_travels(t, pt, ih)
-        case False{}:
-          held_travels(n, g, pt, Export.pointed.holds(pt, g), {==}, t, ih)
-
-# Every bookmark the copy is given is shared, and finds what it names.
-def names(bs: List<&2, Bm.Bookmark>, +pt: Export.Pointed) -> {Export.travels(Export.travel.names(Export.travel.of(bs, pt)), pt) == True{} : Bool}:
+# The bookmarks a copy is given are the shared ones, as `offer` lists them,
+# whose target the copy holds, in order.
+def names(bs: List<&2, Bm.Bookmark>, +pt: Export.Pointed) -> {Export.travel.names(Export.travel.of(bs, pt)) == Export.marks.found(Offer.shared(bs), pt) : List<&2, Bm.Bookmark>}:
   match bs:
     case Nil{}:
       {==}
-    case b <> +rest:
-      push_travels(b, pt, Export.travel.of(rest, pt), names(rest, pt))
+    case Bm.Bookmark{+n, +g, p} <> +rest:
+      match p:
+        case True{}:
+          Equal.trans(List<&2, Bm.Bookmark>, Export.travel.names(Export.travel.withheld(Export.travel.of(rest, pt))), Export.travel.names(Export.travel.of(rest, pt)), Export.marks.found(Offer.shared(rest), pt), names_withheld(Export.travel.of(rest, pt)), names(rest, pt))
+        case False{}:
+          Equal.trans(List<&2, Bm.Bookmark>, Export.travel.names(Export.travel.held(Bm.Bookmark{n, g, False{}}, Export.pointed.holds(pt, g), Export.travel.of(rest, pt))), Tree.keep(~Bm.Bookmark, Export.pointed.holds(pt, g), Bm.Bookmark{n, g, False{}}, Export.travel.names(Export.travel.of(rest, pt))), Tree.keep(~Bm.Bookmark, Export.pointed.holds(pt, g), Bm.Bookmark{n, g, False{}}, Export.marks.found(Offer.shared(rest), pt)),
+            names_held(Bm.Bookmark{n, g, False{}}, Export.pointed.holds(pt, g), Export.travel.of(rest, pt)),
+            Equal.cong(List<&2, Bm.Bookmark>, List<&2, Bm.Bookmark>, l => Tree.keep(~Bm.Bookmark, Export.pointed.holds(pt, g), Bm.Bookmark{n, g, False{}}, l), Export.travel.names(Export.travel.of(rest, pt)), Export.marks.found(Offer.shared(rest), pt), names(rest, pt)))
 
 # Rules
 # -----
@@ -578,32 +572,39 @@ def laid_all(ps: List<&2, Export.Placed>, +t: Tree.Tree(), +fs: List<&2, Main.Fu
 # What a copy carries
 # -------------------
 
-def doc_inj(+a: Store.Doc, -b: Store.Doc, e: {Some{a} == Some{b} : Maybe<&2, Store.Doc>}) -> {Store.id_of(a) == Store.id_of(b) : String}:
-  Equal.cong(Maybe<&2, Store.Doc>, String, m => Store.id_of(Maybe.default(&2, Store.Doc, m, a)), Some{a}, Some{b}, e)
+def some_doc(+a: Store.Doc, -b: Store.Doc, e: {Some{a} == Some{b} : Maybe<&2, Store.Doc>}) -> {a == b : Store.Doc}:
+  Equal.cong(Maybe<&2, Store.Doc>, Store.Doc, m => Maybe.default(&2, Store.Doc, m, a), Some{a}, Some{b}, e)
 
-def found_step(c: Bool, +p0: String, +i0: String, +n0: Nat, +t0: String, +rest: List<&2, Store.Doc>, +id: String, +p: String, +i: String, +n: Nat, +t: String, ec: {String.eq(i0, id) == c : Bool}, e: {Bool.pick(Maybe<&2, Store.Doc>, c, Some{Store.Doc{p0, i0, n0, t0}}, Export.doc.find(rest, id)) == Some{Store.Doc{p, i, n, t}} : Maybe<&2, Store.Doc>}, ih: {Export.doc.find(rest, id) == Some{Store.Doc{p, i, n, t}} : Maybe<&2, Store.Doc>} -> {Export.doc.has(rest, i) == True{} : Bool}) -> {Bool.or(String.eq(i0, i), Export.doc.has(rest, i)) == True{} : Bool}:
+def doc_refl(d: Store.Doc) -> {Export.doc.same(d, d) == True{} : Bool}:
+  match d:
+    case Store.Doc{+p, +i, +n, +t}:
+      and_tt(String.eq(p, p), Bool.and(String.eq(i, i), Bool.and(Nat.is_eq(n, n), String.eq(t, t))), S.eq_refl(p),
+        and_tt(String.eq(i, i), Bool.and(Nat.is_eq(n, n), String.eq(t, t)), S.eq_refl(i),
+          and_tt(Nat.is_eq(n, n), String.eq(t, t), Comp.eq_refl(n), S.eq_refl(t))))
+
+def found_step(c: Bool, +x: Store.Doc, +rest: List<&2, Store.Doc>, +id: String, +d: Store.Doc, e: {Bool.pick(Maybe<&2, Store.Doc>, c, Some{x}, Export.doc.find(rest, id)) == Some{d} : Maybe<&2, Store.Doc>}, ih: {Export.doc.find(rest, id) == Some{d} : Maybe<&2, Store.Doc>} -> {Export.doc.among(rest, d) == True{} : Bool}) -> {Bool.or(Export.doc.same(x, d), Export.doc.among(rest, d)) == True{} : Bool}:
   match c:
     case True{}:
-      %doc_inj(Store.Doc{p0, i0, n0, t0}, Store.Doc{p, i, n, t}, e) : {Bool.or(String.eq(i0, _), Export.doc.has(rest, _)) == True{} : Bool}
-      %Equal.sym(Bool, String.eq(i0, i0), True{}, S.eq_refl(i0)) : {Bool.or(_, Export.doc.has(rest, i0)) == True{} : Bool}
-      {==}
+      %some_doc(x, d, e) : {Bool.or(Export.doc.same(x, _), Export.doc.among(rest, _)) == True{} : Bool}
+      or_l(Export.doc.same(x, x), Export.doc.among(rest, x), doc_refl(x))
     case False{}:
-      or_r(String.eq(i0, i), Export.doc.has(rest, i), ih(e))
+      or_r(Export.doc.same(x, d), Export.doc.among(rest, d), ih(e))
 
-# A document found by its digest is one of the documents it was found among.
-def found_has(ds: List<&2, Store.Doc>, +id: String, +p: String, +i: String, +n: Nat, +t: String, e: {Export.doc.find(ds, id) == Some{Store.Doc{p, i, n, t}} : Maybe<&2, Store.Doc>}) -> {Export.doc.has(ds, i) == True{} : Bool}:
+# A document found by its digest is, whole, one of the documents it was
+# found among.
+def found_among(ds: List<&2, Store.Doc>, +id: String, +d: Store.Doc, e: {Export.doc.find(ds, id) == Some{d} : Maybe<&2, Store.Doc>}) -> {Export.doc.among(ds, d) == True{} : Bool}:
   match ds:
     case Nil{}:
-      Empty.absurd({False{} == True{} : Bool}, none_some(Store.Doc, Store.Doc{p, i, n, t}, e))
+      Empty.absurd({False{} == True{} : Bool}, none_some(Store.Doc, d, e))
     case Store.Doc{+p0, +i0, +n0, +t0} <> +rest:
-      found_step(String.eq(i0, id), p0, i0, n0, t0, rest, id, p, i, n, t, {==}, e, x => found_has(rest, id, p, i, n, t, x))
+      found_step(String.eq(i0, id), Store.Doc{p0, i0, n0, t0}, rest, id, d, e, x => found_among(rest, id, d, x))
 
 def push_from(m: Maybe<&2, Store.Doc>, +ds: List<&2, Store.Doc>, +id: String, +rest: List<&2, Store.Doc>, em: {Export.doc.find(ds, id) == m : Maybe<&2, Store.Doc>}, ih: {Export.docs.from(rest, ds) == True{} : Bool}) -> {Export.docs.from(Export.doc.push(m, rest), ds) == True{} : Bool}:
   match m:
     case None{}:
       ih
-    case Some{Store.Doc{+p, +i, +n, +t}}:
-      and_tt(Export.doc.has(ds, i), Export.docs.from(rest, ds), found_has(ds, id, p, i, n, t, em), ih)
+    case Some{+x}:
+      and_tt(Export.doc.among(ds, x), Export.docs.from(rest, ds), found_among(ds, id, x, em), ih)
 
 def among_from(ids: List<&2, String>, +ds: List<&2, Store.Doc>) -> {Export.docs.from(Export.docs.among(ids, ds), ds) == True{} : Bool}:
   match ids:
@@ -641,7 +642,8 @@ def plan_named(+held: List<&2, Main.Full>, +t: Tree.Tree(), +ds: List<&2, Store.
     among_from(ns, ds),
     and_tt(Export.pays.from(Export.payloads.among(ns, dset, ps), ps), Export.docs.from(Export.docs.among(forg, ds), ds), pays_among(ns, dset, ps), among_from(forg, ds)))
 
-# A copy is assembled from this store's own files.
+# A copy is assembled from this store's own files: every document it
+# carries is, whole, one of this store's.
 def plan_from(+held: List<&2, Main.Full>, +t: Tree.Tree(), +ds: List<&2, Store.Doc>, +ps: List<&2, T.Split>, +bodies: List<&2, Prune.Body>, +rs: List<&2, Receive.Ruled>, +bs: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>) -> {Export.plan.from(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), ds, ps) == True{} : Bool}:
   plan_named(held, t, ds, ps, bodies, rs, bs, claims, Export.closure(Nat.mul(2n, 1n+Nat.add(List.length(&2, String, Export.named.by(held)), Export.keeps.all(ds))), ds, Export.named.by(held), Nil{}))
 
@@ -771,62 +773,3 @@ def app_nil(-A: Data, xs: List<&2, A>, -ys: List<&2, A>, e: {List.append(&2, A, 
       {==}
     case x <> r:
       Empty.absurd({x <> r == Nil{} : List<&2, A>}, cons_nil(A, x, List.append(&2, A, r, ys), e))
-
-def keep_nil_b(b: Bool, -x: T.Split, -r: List<&2, T.Split>, e: {Tree.keep(~T.Split, b, x, r) == Nil{} : List<&2, T.Split>}) -> {b == False{} : Bool}:
-  match b:
-    case True{}:
-      Empty.absurd({True{} == False{} : Bool}, cons_nil(T.Split, x, r, e))
-    case False{}:
-      {==}
-
-def keep_nil_r(b: Bool, -x: T.Split, -r: List<&2, T.Split>, e: {Tree.keep(~T.Split, b, x, r) == Nil{} : List<&2, T.Split>}) -> {r == Nil{} : List<&2, T.Split>}:
-  match b:
-    case True{}:
-      Empty.absurd({r == Nil{} : List<&2, T.Split>}, cons_nil(T.Split, x, r, e))
-    case False{}:
-      e
-
-def head_clear(o: Export.Outcome, +path: String, +rest: List<&2, Export.Outcome>, +dirs: Set(), +rules: List<&2, Folder.Scope>, eo: {Export.outcome.path(o) == path : String}, h1: {Arrange.has(dirs, path) == False{} : Bool}, h2: {Bool.or(String.eq(path, "history"), String.starts_with(path, "history/")) == False{} : Bool}, h3: {Folder.skips(rules, path) == False{} : Bool}, ih: {Export.puts.clear(Export.puts(rest), dirs, rules) == True{} : Bool}) -> {Export.puts.clear(Export.puts(o <> rest), dirs, rules) == True{} : Bool}:
-  match o:
-    case Export.Outcome.Refused{p, b}:
-      ih
-    case Export.Outcome.Laid{+put}:
-      %Equal.sym(String, Export.put.path(put), path, eo) : {Bool.and(Export.path.clear(_, dirs, rules), Export.puts.clear(Export.puts(rest), dirs, rules)) == True{} : Bool}
-      %Equal.sym(Bool, Arrange.has(dirs, path), False{}, h1) : {Bool.and(Bool.and(Bool.not(_), Bool.and(Bool.not(Bool.or(String.eq(path, "history"), String.starts_with(path, "history/"))), Bool.not(Folder.skips(rules, path)))), Export.puts.clear(Export.puts(rest), dirs, rules)) == True{} : Bool}
-      %Equal.sym(Bool, Bool.or(String.eq(path, "history"), String.starts_with(path, "history/")), False{}, h2) : {Bool.and(Bool.and(True{}, Bool.and(Bool.not(_), Bool.not(Folder.skips(rules, path)))), Export.puts.clear(Export.puts(rest), dirs, rules)) == True{} : Bool}
-      %Equal.sym(Bool, Folder.skips(rules, path), False{}, h3) : {Bool.and(Bool.and(True{}, Bool.and(True{}, Bool.not(_))), Export.puts.clear(Export.puts(rest), dirs, rules)) == True{} : Bool}
-      ih
-
-# Where nothing the tree places is refused, every file laid out is at a
-# path a folder may be given.
-def tree_clear(ps: List<&2, Export.Placed>, +t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>, +bs: List<&2, Prune.Body>, +dirs: Set(), +rules: List<&2, Folder.Scope>, +e: {Export.refused.tree(ps, dirs, rules) == Nil{} : List<&2, T.Split>}) -> {Export.puts.clear(Export.puts(Export.lay(ps, t, fs, ds, id, pays, bs)), dirs, rules) == True{} : Bool}:
-  match ps:
-    case Nil{}:
-      {==}
-    case Export.Placed{+path, +es} <> +rest:
-      +m1 : String = "it is also a directory of another file here, and a folder cannot hold both"
-      +m2 : String = "it would write a working file into the store"
-      +m3 : String = "a `skip` rule in history/skipped.txt covers it, so the walk could never offer it back"
-      +r3 = Export.refused.tree(rest, dirs, rules)
-      +r2 = Export.refuse.if(Folder.skips(rules, path), path, m3, r3)
-      +r1 = Export.refuse.if(Bool.or(String.eq(path, "history"), String.starts_with(path, "history/")), path, m2, r2)
-      +e1 = keep_nil_r(Arrange.has(dirs, path), T.Split{path, m1}, r1, e)
-      +e2 = keep_nil_r(Bool.or(String.eq(path, "history"), String.starts_with(path, "history/")), T.Split{path, m2}, r2, e1)
-      head_clear(Export.lay.one(Export.Placed{path, es}, t, fs, ds, id, pays, bs), path, Export.lay(rest, t, fs, ds, id, pays, bs), dirs, rules,
-        one_path(Export.Placed{path, es}, t, fs, ds, id, pays, bs),
-        keep_nil_b(Arrange.has(dirs, path), T.Split{path, m1}, r1, e),
-        keep_nil_b(Bool.or(String.eq(path, "history"), String.starts_with(path, "history/")), T.Split{path, m2}, r2, e1),
-        keep_nil_b(Folder.skips(rules, path), T.Split{path, m3}, r3, e2),
-        tree_clear(rest, t, fs, ds, id, pays, bs, dirs, rules, keep_nil_r(Folder.skips(rules, path), T.Split{path, m3}, r3, e2)))
-
-def laid_step(refused: List<&2, T.Split>, +t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>, +bs: List<&2, Prune.Body>, +rules: List<&2, Folder.Scope>, er: {List.append(&2, T.Split, Export.refused.tree(Export.placed(t), Set.from_list(Export.directories(Export.placed(t))), rules), Export.refused.laid(Export.lay(Export.placed(t), t, fs, ds, id, pays, bs))) == refused : List<&2, T.Split>}) -> {Export.folder.clear(t, rules, Export.laid.r(Export.lay(Export.placed(t), t, fs, ds, id, pays, bs), refused)) == True{} : Bool}:
-  match refused:
-    case Nil{}:
-      tree_clear(Export.placed(t), t, fs, ds, id, pays, bs, Set.from_list(Export.directories(Export.placed(t))), rules,
-        app_nil(T.Split, Export.refused.tree(Export.placed(t), Set.from_list(Export.directories(Export.placed(t))), rules), Export.refused.laid(Export.lay(Export.placed(t), t, fs, ds, id, pays, bs)), er))
-    case x <> more:
-      {==}
-
-# Every file an export lays out sits at a path a folder may be given.
-def folder_clear(+t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>, +bs: List<&2, Prune.Body>, +rules: List<&2, Folder.Scope>) -> {Export.folder.clear(t, rules, Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}:
-  laid_step(List.append(&2, T.Split, Export.refused.tree(Export.placed(t), Set.from_list(Export.directories(Export.placed(t))), rules), Export.refused.laid(Export.lay(Export.placed(t), t, fs, ds, id, pays, bs))), t, fs, ds, id, pays, bs, rules, {==})
