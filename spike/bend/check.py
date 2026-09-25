@@ -3796,6 +3796,27 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "encode keeps five bits of a three-byte character's middle byte",
+            "(224 .|. (c >> 12n) : U32) <> (128 .|. ((c >> 6n) .&. 63) : U32) <> (128 .|. (c .&. 63) : U32) <> rest",
+            "(224 .|. (c >> 12n) : U32) <> (128 .|. ((c >> 6n) .&. 31) : U32) <> (128 .|. (c .&. 63) : U32) <> rest",
+            "utf8_lemmas.three.leaf",
+            "utf8.bend",
+        ),
+        (
+            "decode reads a three-byte lead as a two-byte one",
+            "Some{decode.lead(b, rest, U32.is_lt(b, 128), U32.is_lt(b, 224), U32.is_lt(b, 240))}",
+            "Some{decode.lead(b, rest, U32.is_lt(b, 128), U32.is_lt(b, 240), U32.is_lt(b, 240))}",
+            "utf8_lemmas.three.leaf",
+            "utf8.bend",
+        ),
+        (
+            "decode takes the first character past the surrogates for one",
+            "Bool.and(U32.is_ge(x, 55296), U32.is_le(x, 57343))",
+            "Bool.and(U32.is_ge(x, 55296), U32.is_le(x, 57344))",
+            "utf8_lemmas.chr_ok",
+            "utf8.bend",
+        ),
+        (
             "skip's rule equality ignores privacy",
             "      Bool.and(scope.eq(x, y), Bool.not(Bool.xor(p, q)))",
             "      scope.eq(x, y)",
