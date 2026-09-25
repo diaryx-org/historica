@@ -508,6 +508,28 @@ def lay.met(ls: List<&2, Laid>) -> Nat:
     case Laid{a, m} <> rest:
       Nat.add(Bool.pick(Nat, m, 1n, 0n), lay.met(rest))
 
+# How many files of the merged tree hold work that met, as
+# `LAWS.merge_counts_the_files_that_met` counts them from the store: a file
+# of lines whose walk of the heads met, and a file of bytes no side's
+# payload wins.
+def met.of(r: Result<&2, &2, String, Conflict.Joined>) -> Bool:
+  match r:
+    case Done{+j}:
+      Conflict.met(j)
+    case Fail{e}:
+      False{}
+
+def met.count(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, es: List<&2, Tree.Entry>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case Tree.Entry{+f, p, Tree.Lines{}, y, g, m} <> rest:
+      Nat.add(Bool.pick(Nat, met.of(Main.joined(fs, ds, heads, f)), 1n, 0n), met.count(fs, ds, heads, rest))
+    case Tree.Entry{f, p, Tree.Whole{}, y, g, m} <> rest:
+      Nat.add(Bool.pick(Nat, Maybe.is_none(&2, String, y), 1n, 0n), met.count(fs, ds, heads, rest))
+    case Tree.Entry{f, p, Tree.Link{}, y, g, m} <> rest:
+      met.count(fs, ds, heads, rest)
+
 # Where the folder already holds the merge
 # ----------------------------------------
 #

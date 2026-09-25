@@ -2292,6 +2292,25 @@ law merge_rewrites_nothing_merged:
   for +h: {Merging.already(fs, ds, heads, t, dg, ls, es) == True{} : Bool}
   {Merging.rewrites.same(dg, Merging.lay.acts(Merging.lay.all(t, Nil{}, located, Merging.places(fs, ds, heads, Nil{}, dg, ls, texts, es)))) == True{} : Bool}
 
+# The number of files `merge` says hold work that met is the number of
+# files of the merged tree where concurrent work met, counted from the
+# store: each file of lines whose walk of the heads met — a region, or a
+# line but the last without its newline — and each file of bytes no side's
+# payload wins. A link is never counted, and no file twice.
+law merge_counts_the_files_that_met:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +heads: List<&2, String>
+  for +bs: List<&2, T.Split>
+  for +t: Tree.Tree()
+  for +dg: Map<&2, String>
+  for +texts: Map<&2, String>
+  for +ls: Map<&2, String>
+  for +cs: List<&2, Tree.Contest>
+  for +located: Map<&2, String>
+  for es: List<&2, Tree.Entry>
+  {Merging.lay.met(Merging.lay.all(t, cs, located, Merging.places(fs, ds, heads, bs, dg, ls, texts, es))) == Merging.met.count(fs, ds, heads, es) : Nat}
+
 # The markers `merge` writes are the ones `status` counts and `record
 # --merge` refuses to find standing: both read a file of lines through
 # `status.marked.of`, the marker search scoped to one merge. In the file
