@@ -46,6 +46,7 @@ import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
 import ./manifest_lemmas.bend as ManL
 import ./fetchplan_lemmas.bend as FPlanL
+import ./escape_lemmas.bend as EscL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2978,3 +2979,26 @@ law fetch_says_what_it_took:
   for +des: Nat
   for +re: Nat
   {Main.fields.ok(rs, Fetch.said.done(True{}, Fetch.Tally{rs, ds, ps, rus, res, ns, k, dec, des, re})) == True{} : Bool}
+
+# `fetch` asks for a manifest's path by its bytes, as the Rust tool spells
+# them: whatever the bytes, what it asks for decodes — each escape read as
+# RFC 3986 asks a producer to spell one, `%` and two uppercase hex digits
+# — back to exactly those bytes.
+law fetch_asks_for_a_path_by_its_bytes:
+  for +bs: List<&2, U32>
+  for +h: {List.all(~&2, ~U32, ~(b => U32.is_lt(b, 256)), bs) == True{} : Bool}
+  {EscL.unescaped(Fetch.escaped.bytes(bs)) == Some{bs} : Maybe<&2, List<&2, U32>>}
+
+# And what it asks for holds nothing a URL's path may not hold as it is:
+# every character is one RFC 3986 leaves unreserved, `/`, or the `%` that
+# opens an escape.
+law fetch_asks_in_characters_a_url_may_hold:
+  for +bs: List<&2, U32>
+  for +h: {List.all(~&2, ~U32, ~(b => U32.is_lt(b, 256)), bs) == True{} : Bool}
+  {T.all_chars(~(c => EscL.url_char(c)), Fetch.escaped.bytes(bs)) == True{} : Bool}
+
+# And it escapes nothing it need not: each character RFC 3986 leaves
+# unreserved, and `/`, is asked for as itself. With the two laws above,
+# that is the whole of how a byte of a path is spelled.
+law fetch_asks_for_what_is_unreserved_as_itself:
+  {List.all(~&2, ~Char, ~(c => String.eq(Fetch.escaped.byte(Char.to_u32(c)), SCon{c, SNil{}})), String.to_list("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/")) == True{} : Bool}

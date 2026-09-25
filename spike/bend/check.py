@@ -4218,6 +4218,27 @@ def check_mutations(temporary):
             "fetch.bend",
         ),
         (
+            "fetch escapes a byte in lowercase hex",
+            "Chr{U32.add(n, 48)}, Chr{U32.add(n, 55)})",
+            "Chr{U32.add(n, 48)}, Chr{U32.add(n, 87)})",
+            "escape_lemmas.dec.leaf",
+            "fetch.bend",
+        ),
+        (
+            "fetch asks for a space in a path as it is",
+            "Bool.or(U32.is_eq(b, 126), U32.is_eq(b, 47))",
+            "Bool.or(U32.is_eq(b, 126), Bool.or(U32.is_eq(b, 32), U32.is_eq(b, 47)))",
+            "escape_lemmas.url.leaf",
+            "fetch.bend",
+        ),
+        (
+            "fetch escapes a `~` it need not",
+            "Bool.or(U32.is_eq(b, 95), Bool.or(U32.is_eq(b, 126), U32.is_eq(b, 47)))",
+            "Bool.or(U32.is_eq(b, 95), U32.is_eq(b, 47))",
+            "escape_lemmas.kept_as_itself",
+            "fetch.bend",
+        ),
+        (
             "fetch takes a second URL over the first",
             "              Fail{Main.Refused{2, \"`fetch` wants one URL, not `\" ++ w ++ \"`\"}}",
             "              args.go(rest, fword.of(rest), join, fields, Some{w})",
