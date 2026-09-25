@@ -21,6 +21,8 @@ import ./receive_lemmas.bend as ReceiveL
 import ./prune_lemmas.bend as PruneL
 import ./blamed_lemmas.bend as B
 import ./equality_lemmas.bend as Eq
+import ./arrange.bend as Arrange
+import ./naming.bend as Naming
 
 # Landings
 # --------
@@ -678,22 +680,109 @@ def addressed_ok(+url: String, -r: String, -m: String, e: {Fetch.addressed.r(url
 # A bookmark once a pass
 # ----------------------
 
-# Whether a landing writes a bookmark.
-def writes_a_bookmark(l: Fetch.Land) -> Bool:
+# What a host answers for one step of a pass: what it sent for the step's
+# file, whether a file it staged moved in rather than being kept, and how
+# many originals complying destroyed.
+type Answer is Data:
+  Answer{got: Fetch.Got, landed: Bool, gone: Nat}
+
+def answer.got(a: Answer) -> Fetch.Got:
+  match a:
+    case Answer{g, b, k}:
+      g
+
+# The state a step leaves, as `steps.io` leaves it: complying's, or the
+# landing's as `land.io` acts on it.
+def pass.next(+root: String, s: Fetch.Step, a: Answer, +st: Fetch.State) -> Fetch.State:
+  match s a:
+    case Fetch.Step.Comply{} Answer{g, b, +k}:
+      Fetch.comply.after(k, st)
+    case Fetch.Step.Pay{+o} Answer{g, +b, k}:
+      Fetch.land.after(o, Fetch.step.land(root, Fetch.Step.Pay{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b)
+    case Fetch.Step.Carry{+o} Answer{g, +b, k}:
+      Fetch.land.after(o, Fetch.step.land(root, Fetch.Step.Carry{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b)
+    case Fetch.Step.Text{+o} Answer{g, +b, k}:
+      Fetch.land.after(o, Fetch.step.land(root, Fetch.Step.Text{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b)
+
+# What each step of a pass lands, one host answer to a step, the state
+# each leaves threaded into the next, and no step taken once a path has
+# been found gone (`step.if`).
+def pass.lands(+root: String, ss: List<&2, Fetch.Step>, as: List<&2, Answer>, +st: Fetch.State) -> List<&2, Fetch.Land>:
+  match ss as:
+    case Nil{} _:
+      Nil{}
+    case s <> rest Nil{}:
+      Nil{}
+    case +s <> rest +a <> ar:
+      Bool.pick(List<&2, Fetch.Land>, Maybe.is_some(&2, String, Fetch.state.moved(st)), Nil{}, Fetch.step.land(root, s, Fetch.state.held(st), answer.got(a)) <> pass.lands(root, rest, ar, pass.next(root, s, a, st)))
+
+# Whether a landing writes bookmark `n`.
+def writes(l: Fetch.Land, +n: String) -> Bool:
   match l:
-    case Fetch.Land.Name{n, a, t}:
-      True{}
+    case Fetch.Land.Name{m, at, t}:
+      String.eq(n, m)
     case _:
       False{}
 
-def wb_filed(+p: String, fault: Maybe<&2, String>, +at: String, +t: String) -> {writes_a_bookmark(Fetch.filed.if(p, fault, at, t)) == False{} : Bool}:
+def writes.any(ls: List<&2, Fetch.Land>, +n: String) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case l <> rest:
+      Bool.or(writes(l, n), writes.any(rest, n))
+
+# No bookmark written twice: after a landing that writes `n`, none that
+# follows writes it.
+def once.head(l: Fetch.Land, rest: List<&2, Fetch.Land>) -> Bool:
+  match l:
+    case Fetch.Land.Name{+m, at, t}:
+      Bool.not(writes.any(rest, m))
+    case _:
+      True{}
+
+def once(ls: List<&2, Fetch.Land>) -> Bool:
+  match ls:
+    case Nil{}:
+      True{}
+    case l <> +rest:
+      Bool.and(once.head(l, rest), once(rest))
+
+# Whether a landing writes a bookmark among `held`.
+def holds(l: Fetch.Land, +held: List<&2, String>) -> Bool:
+  match l:
+    case Fetch.Land.Name{m, at, t}:
+      Rev.member(held, m)
+    case _:
+      False{}
+
+def holds_pick(c: Bool, -a: Fetch.Land, -b: Fetch.Land, +held: List<&2, String>, ha: {holds(a, held) == False{} : Bool}, hb: {holds(b, held) == False{} : Bool}) -> {holds(Bool.pick(Fetch.Land, c, a, b), held) == False{} : Bool}:
+  match c:
+    case True{}:
+      ha
+    case False{}:
+      hb
+
+def pull_unheld(+folder: String, +name: String, +o: Offer.Offered, g: Fetch.Got, +held: List<&2, String>) -> {holds(Fetch.got.pull(folder, name, o, g), held) == False{} : Bool}:
+  match g:
+    case Fetch.Got.Failed{m}:
+      {==}
+    case Fetch.Got.Status{+c}:
+      holds_pick(Fetch.gone(c), Fetch.Land.Gone{}, Fetch.Land.Refuse{Fetch.unreachable(Fetch.entry.path(o), "the server answered " ++ c)}, held, {==}, {==})
+    case Fetch.Got.Pulled{+found}:
+      holds_pick(String.eq(found, Fetch.entry.digest(o)), Fetch.Land.Move{folder, Fetch.staged(name), name}, Fetch.Land.Discard{folder, Fetch.staged(name), Fetch.TAMPERED(Fetch.entry.path(o), Fetch.entry.digest(o), found)}, held, {==}, {==})
+    case Fetch.Got.Text{t}:
+      {==}
+    case Fetch.Got.Bytes{d}:
+      {==}
+
+def filed_unheld(+p: String, fault: Maybe<&2, String>, +at: String, +t: String, +held: List<&2, String>) -> {holds(Fetch.filed.if(p, fault, at, t), held) == False{} : Bool}:
   match fault:
     case Some{e}:
       {==}
     case None{}:
       {==}
 
-def wb_rule(+p: String, +t: String, st: Folder.Stated) -> {writes_a_bookmark(Fetch.rule.of(p, t, st)) == False{} : Bool}:
+def rule_unheld(+p: String, +t: String, st: Folder.Stated, +held: List<&2, String>) -> {holds(Fetch.rule.of(p, t, st), held) == False{} : Bool}:
   match st:
     case Folder.Stated.Wrong{e}:
       {==}
@@ -702,68 +791,250 @@ def wb_rule(+p: String, +t: String, st: Folder.Stated) -> {writes_a_bookmark(Fet
     case Folder.Stated.One{sc}:
       {==}
 
-def wb_bytes(o: Offer.Offered) -> {writes_a_bookmark(Fetch.bytes.land(o)) == False{} : Bool}:
+def usable_unheld(+root: String, +n: String, r: Result<&2, &2, Main.Refused, Unit>, st: Bm.Stated, +held: List<&2, String>, hn: {Rev.member(held, n) == False{} : Bool}) -> {holds(Fetch.name.usable(root, n, r, st), held) == False{} : Bool}:
+  match r:
+    case Fail{Main.Refused{c, m}}:
+      {==}
+    case Done{u}:
+      hn
+
+def nameof_unheld(+root: String, +p: String, +n: String, parsed: Result<&2, &2, String, Bm.Stated>, +held: List<&2, String>, hn: {Rev.member(held, n) == False{} : Bool}) -> {holds(Fetch.name.of(root, p, n, parsed), held) == False{} : Bool}:
+  match parsed:
+    case Fail{e}:
+      {==}
+    case Done{+st}:
+      usable_unheld(root, n, Main.name.checked.r(n), st, held, hn)
+
+def name_pick(b: Bool, +root: String, +p: String, +n: String, +held: List<&2, String>, +t: String, eb: {Rev.member(held, n) == b : Bool}) -> {holds(Bool.pick(Fetch.Land, b, Fetch.Land.Skip{}, Fetch.name.of(root, p, n, Bm.parse(t))), held) == False{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      nameof_unheld(root, p, n, Bm.parse(t), held, eb)
+
+# A line naming a bookmark lands as one only where the pass does not hold
+# its name.
+def name_unheld(+root: String, +p: String, +held: List<&2, String>, m: Maybe<&2, String>, +t: String) -> {holds(Fetch.name.land(root, p, held, m, t), held) == False{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{+n}:
+      name_pick(Rev.member(held, n), root, p, n, held, t, {==})
+
+def text_unheld(+root: String, +held: List<&2, String>, o: Offer.Offered, +t: String) -> {holds(Fetch.text.land(root, held, o, t), held) == False{} : Bool}:
+  match o:
+    case Offer.Offered{+k, +d, f, +p}:
+      holds_pick(String.eq(k, "operation"), Fetch.filed.if(p, Fetch.op.fault(t), root ++ "/operations/" ++ d ++ ".ops.txt", t), Bool.pick(Fetch.Land, String.eq(k, "revision"), Fetch.filed.if(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t), Bool.pick(Fetch.Land, String.eq(k, "rule"), Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, held, Fetch.named_by(p), t))), held,
+        filed_unheld(p, Fetch.op.fault(t), root ++ "/operations/" ++ d ++ ".ops.txt", t, held),
+        holds_pick(String.eq(k, "revision"), Fetch.filed.if(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t), Bool.pick(Fetch.Land, String.eq(k, "rule"), Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, held, Fetch.named_by(p), t)), held,
+          filed_unheld(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t, held),
+          holds_pick(String.eq(k, "rule"), Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, held, Fetch.named_by(p), t), held,
+            rule_unheld(p, t, Folder.rule_in(t), held),
+            name_unheld(root, p, held, Fetch.named_by(p), t))))
+
+def bytes_unheld(o: Offer.Offered, +held: List<&2, String>) -> {holds(Fetch.bytes.land(o), held) == False{} : Bool}:
   match o:
     case Offer.Offered{+k, d, f, +p}:
       {==}
+
+def gottext_unheld(+root: String, +held: List<&2, String>, +o: Offer.Offered, g: Fetch.Got) -> {holds(Fetch.got.text(root, held, o, g), held) == False{} : Bool}:
+  match g:
+    case Fetch.Got.Failed{m}:
+      {==}
+    case Fetch.Got.Status{+c}:
+      holds_pick(Fetch.gone(c), Fetch.Land.Gone{}, Fetch.Land.Refuse{Fetch.unreachable(Fetch.entry.path(o), "the server answered " ++ c)}, held, {==}, {==})
+    case Fetch.Got.Bytes{+found}:
+      holds_pick(String.eq(found, Fetch.entry.digest(o)), Fetch.bytes.land(o), Fetch.Land.Refuse{Fetch.TAMPERED(Fetch.entry.path(o), Fetch.entry.digest(o), found)}, held, bytes_unheld(o, held), {==})
+    case Fetch.Got.Text{+t}:
+      holds_pick(String.eq(Fetch.text.digest(t), Fetch.entry.digest(o)), Fetch.text.land(root, held, o, t), Fetch.Land.Refuse{Fetch.TAMPERED(Fetch.entry.path(o), Fetch.entry.digest(o), Fetch.text.digest(t))}, held, text_unheld(root, held, o, t), {==})
+    case Fetch.Got.Pulled{d}:
+      {==}
+
+# Whatever the host answers, no step lands a bookmark the pass holds.
+def step_unheld(+root: String, s: Fetch.Step, +held: List<&2, String>, g: Fetch.Got) -> {holds(Fetch.step.land(root, s, held, g), held) == False{} : Bool}:
+  match s:
+    case Fetch.Step.Pay{+o}:
+      pull_unheld(root ++ "/operations", Fetch.entry.digest(o), o, g, held)
+    case Fetch.Step.Carry{+o}:
+      pull_unheld(root ++ "/" ++ Arrange.parent_of(Maybe.default(&2, String, Fetch.reserved.label(o), SNil{})), Naming.last(Maybe.default(&2, String, Fetch.reserved.label(o), SNil{})), o, g, held)
+    case Fetch.Step.Text{+o}:
+      gottext_unheld(root, held, o, g)
+    case Fetch.Step.Comply{}:
+      {==}
+
+def orf_l(a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.true_false(e))
+    case False{}:
+      {==}
+
+def orf_r(a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({b == False{} : Bool}, S.true_false(e))
+    case False{}:
+      e
+
+def orf(a: Bool, -b: Bool, ea: {a == False{} : Bool}, eb: {b == False{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
+  %Equal.sym(Bool, a, False{}, ea) : {Bool.or(_, b) == False{} : Bool}
+  eb
+
+def ort(a: Bool, -b: Bool, eb: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      eb
+
+# A name among `xs` and one not among them are not one name.
+def mem_ne.at(c: Bool, +x: String, +r: List<&2, String>, +a: String, +b: String, ec: {String.eq(x, a) == c : Bool}, ha: {Bool.or(String.eq(x, a), Rev.member(r, a)) == True{} : Bool}, +hb: {Bool.or(String.eq(x, b), Rev.member(r, b)) == False{} : Bool}, ih: {Rev.member(r, a) == True{} : Bool} -> {Rev.member(r, b) == False{} : Bool} -> {String.eq(a, b) == False{} : Bool}) -> {String.eq(a, b) == False{} : Bool}:
+  match c:
+    case True{}:
+      +xa = S.eq_true(x, a, ec)
+      Equal.trans(Bool, String.eq(a, b), String.eq(x, b), False{}, Equal.cong(String, Bool, y => String.eq(y, b), a, x, Equal.sym(String, x, a, xa)), orf_l(String.eq(x, b), Rev.member(r, b), hb))
+    case False{}:
+      +ra = Equal.trans(Bool, Rev.member(r, a), Bool.or(String.eq(x, a), Rev.member(r, a)), True{}, Equal.cong(Bool, Bool, z => Bool.or(z, Rev.member(r, a)), False{}, String.eq(x, a), Equal.sym(Bool, String.eq(x, a), False{}, ec)), ha)
+      ih(ra, orf_r(String.eq(x, b), Rev.member(r, b), hb))
+
+def mem_ne(xs: List<&2, String>, +a: String, +b: String, ha: {Rev.member(xs, a) == True{} : Bool}, hb: {Rev.member(xs, b) == False{} : Bool}) -> {String.eq(a, b) == False{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({String.eq(a, b) == False{} : Bool}, S.false_true(ha))
+    case +x <> +r:
+      mem_ne.at(String.eq(x, a), x, r, a, b, {==}, ha, hb, h1 => h2 => mem_ne(r, a, b, h1, h2))
+
+# A landing that writes no bookmark the pass holds writes none of its names.
+def written_not(l: Fetch.Land, +held: List<&2, String>, +n: String, hn: {Rev.member(held, n) == True{} : Bool}, hl: {holds(l, held) == False{} : Bool}) -> {writes(l, n) == False{} : Bool}:
+  match l:
+    case Fetch.Land.Name{+m, at, t}:
+      mem_ne(held, n, m, hn, hl)
+    case Fetch.Land.Gone{}:
+      {==}
+    case Fetch.Land.Refuse{e}:
+      {==}
+    case Fetch.Land.File{at, t}:
+      {==}
+    case Fetch.Land.Rule{r}:
+      {==}
+    case Fetch.Land.Skip{}:
+      {==}
+    case Fetch.Land.Move{f, a, b}:
+      {==}
+    case Fetch.Land.Discard{f, a, e}:
+      {==}
+
+# What the pass holds it goes on holding, and a bookmark it writes it holds
+# from then on.
+def held_grows(+o: Offer.Offered, l: Fetch.Land, +t: Fetch.Tally, +rules: List<&2, Receive.Ruled>, +held: List<&2, String>, +moved: Maybe<&2, String>, +landed: Bool, +n: String, hn: {Rev.member(held, n) == True{} : Bool}) -> {Rev.member(Fetch.state.held(Fetch.land.after(o, l, t, rules, held, moved, landed)), n) == True{} : Bool}:
+  match l:
+    case Fetch.Land.Name{+m, at, tx}:
+      ort(String.eq(m, n), Rev.member(held, n), hn)
+    case Fetch.Land.Gone{}:
+      hn
+    case Fetch.Land.Refuse{e}:
+      hn
+    case Fetch.Land.File{at, tx}:
+      hn
+    case Fetch.Land.Rule{r}:
+      hn
+    case Fetch.Land.Skip{}:
+      hn
+    case Fetch.Land.Move{f, a, b}:
+      hn
+    case Fetch.Land.Discard{f, a, e}:
+      hn
+
+def comply_held(+k: Nat, st: Fetch.State) -> {Fetch.state.held(Fetch.comply.after(k, st)) == Fetch.state.held(st) : List<&2, String>}:
+  match st:
+    case Fetch.State{t, r, h, m}:
+      {==}
+
+def next_grows(+root: String, s: Fetch.Step, a: Answer, +st: Fetch.State, +n: String, hn: {Rev.member(Fetch.state.held(st), n) == True{} : Bool}) -> {Rev.member(Fetch.state.held(pass.next(root, s, a, st)), n) == True{} : Bool}:
+  match s a:
+    case Fetch.Step.Comply{} Answer{g, b, +k}:
+      %Equal.sym(List<&2, String>, Fetch.state.held(Fetch.comply.after(k, st)), Fetch.state.held(st), comply_held(k, st)) : {Rev.member(_, n) == True{} : Bool}
+      hn
+    case Fetch.Step.Pay{+o} Answer{g, +b, k}:
+      held_grows(o, Fetch.step.land(root, Fetch.Step.Pay{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b, n, hn)
+    case Fetch.Step.Carry{+o} Answer{g, +b, k}:
+      held_grows(o, Fetch.step.land(root, Fetch.Step.Carry{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b, n, hn)
+    case Fetch.Step.Text{+o} Answer{g, +b, k}:
+      held_grows(o, Fetch.step.land(root, Fetch.Step.Text{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b, n, hn)
+
+def unwritten.at(c: Bool, +root: String, +s: Fetch.Step, +rest: List<&2, Fetch.Step>, +a: Answer, +ar: List<&2, Answer>, +st: Fetch.State, +n: String, hn: {Rev.member(Fetch.state.held(st), n) == True{} : Bool}, ih: {writes.any(pass.lands(root, rest, ar, pass.next(root, s, a, st)), n) == False{} : Bool}) -> {writes.any(Bool.pick(List<&2, Fetch.Land>, c, Nil{}, Fetch.step.land(root, s, Fetch.state.held(st), answer.got(a)) <> pass.lands(root, rest, ar, pass.next(root, s, a, st))), n) == False{} : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      orf(writes(Fetch.step.land(root, s, Fetch.state.held(st), answer.got(a)), n), writes.any(pass.lands(root, rest, ar, pass.next(root, s, a, st)), n),
+        written_not(Fetch.step.land(root, s, Fetch.state.held(st), answer.got(a)), Fetch.state.held(st), n, hn, step_unheld(root, s, Fetch.state.held(st), answer.got(a))),
+        ih)
+
+# Once the pass holds `n`, no step that follows writes it.
+def unwritten(+root: String, ss: List<&2, Fetch.Step>, as: List<&2, Answer>, +st: Fetch.State, +n: String, +hn: {Rev.member(Fetch.state.held(st), n) == True{} : Bool}) -> {writes.any(pass.lands(root, ss, as, st), n) == False{} : Bool}:
+  match ss as:
+    case Nil{} _:
+      {==}
+    case s <> rest Nil{}:
+      {==}
+    case +s <> +rest +a <> +ar:
+      unwritten.at(Maybe.is_some(&2, String, Fetch.state.moved(st)), root, s, rest, a, ar, st, n, hn, unwritten(root, rest, ar, pass.next(root, s, a, st), n, next_grows(root, s, a, st, n, hn)))
 
 def mem_head(+x: String, +rest: List<&2, String>) -> {Rev.member(x <> rest, x) == True{} : Bool}:
   %Equal.sym(Bool, String.eq(x, x), True{}, S.eq_refl(x)) : {Bool.or(_, Rev.member(rest, x)) == True{} : Bool}
   {==}
 
-# A line naming a bookmark the pass holds lands as nothing.
-def wb_name(+root: String, +p: String, +n: String, +held: List<&2, String>, +t: String) -> {writes_a_bookmark(Fetch.name.land(root, p, n <> held, Some{n}, t)) == False{} : Bool}:
-  %Equal.sym(Bool, Rev.member(n <> held, n), True{}, mem_head(n, held)) : {writes_a_bookmark(Bool.pick(Fetch.Land, _, Fetch.Land.Skip{}, Fetch.name.of(root, p, n, Bm.parse(t)))) == False{} : Bool}
-  {==}
+# A landing that writes `m` leaves the pass holding `m`, so nothing that
+# follows it writes `m` again.
+def head_land(+o: Offer.Offered, l: Fetch.Land, +t: Fetch.Tally, +rules: List<&2, Receive.Ruled>, +held: List<&2, String>, +moved: Maybe<&2, String>, +landed: Bool, +root: String, +rest: List<&2, Fetch.Step>, +ar: List<&2, Answer>) -> {once.head(l, pass.lands(root, rest, ar, Fetch.land.after(o, l, t, rules, held, moved, landed))) == True{} : Bool}:
+  match l:
+    case Fetch.Land.Name{+m, +at, +tx}:
+      %Equal.sym(Bool, writes.any(pass.lands(root, rest, ar, Fetch.land.after(o, Fetch.Land.Name{m, at, tx}, t, rules, held, moved, landed)), m), False{}, unwritten(root, rest, ar, Fetch.land.after(o, Fetch.Land.Name{m, at, tx}, t, rules, held, moved, landed), m, mem_head(m, held))) : {Bool.not(_) == True{} : Bool}
+      {==}
+    case Fetch.Land.Gone{}:
+      {==}
+    case Fetch.Land.Refuse{e}:
+      {==}
+    case Fetch.Land.File{a, x}:
+      {==}
+    case Fetch.Land.Rule{r}:
+      {==}
+    case Fetch.Land.Skip{}:
+      {==}
+    case Fetch.Land.Move{f, a, b}:
+      {==}
+    case Fetch.Land.Discard{f, a, e}:
+      {==}
 
-def wb_text.c(c3: Bool, +root: String, +n: String, +held: List<&2, String>, +p: String, +t: String) -> {writes_a_bookmark(Bool.pick(Fetch.Land, c3, Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, n <> held, Some{n}, t))) == False{} : Bool}:
-  match c3:
-    case True{}:
-      wb_rule(p, t, Folder.rule_in(t))
-    case False{}:
-      wb_name(root, p, n, held, t)
+def head_ok(+root: String, s: Fetch.Step, a: Answer, +st: Fetch.State, +rest: List<&2, Fetch.Step>, +ar: List<&2, Answer>) -> {once.head(Fetch.step.land(root, s, Fetch.state.held(st), answer.got(a)), pass.lands(root, rest, ar, pass.next(root, s, a, st))) == True{} : Bool}:
+  match s a:
+    case Fetch.Step.Comply{} Answer{g, b, k}:
+      {==}
+    case Fetch.Step.Pay{+o} Answer{g, +b, k}:
+      head_land(o, Fetch.step.land(root, Fetch.Step.Pay{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b, root, rest, ar)
+    case Fetch.Step.Carry{+o} Answer{g, +b, k}:
+      head_land(o, Fetch.step.land(root, Fetch.Step.Carry{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b, root, rest, ar)
+    case Fetch.Step.Text{+o} Answer{g, +b, k}:
+      head_land(o, Fetch.step.land(root, Fetch.Step.Text{o}, Fetch.state.held(st), g), Fetch.state.tally(st), Fetch.state.rules(st), Fetch.state.held(st), Fetch.state.moved(st), b, root, rest, ar)
 
-def wb_text.b(c2: Bool, c3: Bool, +root: String, +n: String, +held: List<&2, String>, +d: String, +p: String, +t: String) -> {writes_a_bookmark(Bool.pick(Fetch.Land, c2, Fetch.filed.if(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t), Bool.pick(Fetch.Land, c3, Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, n <> held, Some{n}, t)))) == False{} : Bool}:
-  match c2:
-    case True{}:
-      wb_filed(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t)
-    case False{}:
-      wb_text.c(c3, root, n, held, p, t)
+def andt(a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, ea) : {Bool.and(_, b) == True{} : Bool}
+  eb
 
-def wb_text.a(c1: Bool, c2: Bool, c3: Bool, +root: String, +n: String, +held: List<&2, String>, +d: String, +p: String, +t: String) -> {writes_a_bookmark(Bool.pick(Fetch.Land, c1, Fetch.filed.if(p, Fetch.op.fault(t), root ++ "/operations/" ++ d ++ ".ops.txt", t), Bool.pick(Fetch.Land, c2, Fetch.filed.if(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t), Bool.pick(Fetch.Land, c3, Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, n <> held, Some{n}, t))))) == False{} : Bool}:
-  match c1:
-    case True{}:
-      wb_filed(p, Fetch.op.fault(t), root ++ "/operations/" ++ d ++ ".ops.txt", t)
-    case False{}:
-      wb_text.b(c2, c3, root, n, held, d, p, t)
-
-# Whatever its kind, a document whose path names a bookmark the pass holds
-# writes no bookmark.
-def wb_text(+root: String, +n: String, +held: List<&2, String>, o: Offer.Offered, +t: String, h: {Fetch.named_by(Offer.offered.path(o)) == Some{n} : Maybe<&2, String>}) -> {writes_a_bookmark(Fetch.text.land(root, n <> held, o, t)) == False{} : Bool}:
-  match o:
-    case Offer.Offered{+k, +d, f, +p}:
-      %Equal.sym(Maybe<&2, String>, Fetch.named_by(p), Some{n}, h) : {writes_a_bookmark(Bool.pick(Fetch.Land, String.eq(k, "operation"), Fetch.filed.if(p, Fetch.op.fault(t), root ++ "/operations/" ++ d ++ ".ops.txt", t), Bool.pick(Fetch.Land, String.eq(k, "revision"), Fetch.filed.if(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t), Bool.pick(Fetch.Land, String.eq(k, "rule"), Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, n <> held, _, t))))) == False{} : Bool}
-      wb_text.a(String.eq(k, "operation"), String.eq(k, "revision"), String.eq(k, "rule"), root, n, held, d, p, t)
-
-def wb_pick(c: Bool, -a: Fetch.Land, -b: Fetch.Land, ha: {writes_a_bookmark(a) == False{} : Bool}, hb: {writes_a_bookmark(b) == False{} : Bool}) -> {writes_a_bookmark(Bool.pick(Fetch.Land, c, a, b)) == False{} : Bool}:
+def once.at(c: Bool, +root: String, +s: Fetch.Step, +rest: List<&2, Fetch.Step>, +a: Answer, +ar: List<&2, Answer>, +st: Fetch.State, ih: {once(pass.lands(root, rest, ar, pass.next(root, s, a, st))) == True{} : Bool}) -> {once(Bool.pick(List<&2, Fetch.Land>, c, Nil{}, Fetch.step.land(root, s, Fetch.state.held(st), answer.got(a)) <> pass.lands(root, rest, ar, pass.next(root, s, a, st)))) == True{} : Bool}:
   match c:
     case True{}:
-      ha
+      {==}
     case False{}:
-      hb
+      andt(once.head(Fetch.step.land(root, s, Fetch.state.held(st), answer.got(a)), pass.lands(root, rest, ar, pass.next(root, s, a, st))), once(pass.lands(root, rest, ar, pass.next(root, s, a, st))), head_ok(root, s, a, st, rest, ar), ih)
 
-# In one pass, a bookmark is written once: once a pass has written `n`,
-# whatever the host answers for a later line naming `n`, no bookmark is
-# written for it.
-def once_a_pass(+o: Offer.Offered, +n: String, +at: String, +text: String, +t: Fetch.Tally, +rules: List<&2, Receive.Ruled>, +held: List<&2, String>, +moved: Maybe<&2, String>, +landed: Bool, +root: String, +o2: Offer.Offered, g: Fetch.Got, +h: {Fetch.named_by(Offer.offered.path(o2)) == Some{n} : Maybe<&2, String>}) -> {writes_a_bookmark(Fetch.got.text(root, Fetch.state.held(Fetch.land.after(o, Fetch.Land.Name{n, at, text}, t, rules, held, moved, landed)), o2, g)) == False{} : Bool}:
-  match g:
-    case Fetch.Got.Failed{m}:
+# In one pass, whatever the host answers, a bookmark is written once.
+def once_a_pass(+root: String, ss: List<&2, Fetch.Step>, as: List<&2, Answer>, +st: Fetch.State) -> {once(pass.lands(root, ss, as, st)) == True{} : Bool}:
+  match ss as:
+    case Nil{} _:
       {==}
-    case Fetch.Got.Status{+c}:
-      wb_pick(Fetch.gone(c), Fetch.Land.Gone{}, Fetch.Land.Refuse{Fetch.unreachable(Fetch.entry.path(o2), "the server answered " ++ c)}, {==}, {==})
-    case Fetch.Got.Bytes{+found}:
-      wb_pick(String.eq(found, Fetch.entry.digest(o2)), Fetch.bytes.land(o2), Fetch.Land.Refuse{Fetch.TAMPERED(Fetch.entry.path(o2), Fetch.entry.digest(o2), found)}, wb_bytes(o2), {==})
-    case Fetch.Got.Text{+t2}:
-      wb_pick(String.eq(Fetch.text.digest(t2), Fetch.entry.digest(o2)), Fetch.text.land(root, n <> held, o2, t2), Fetch.Land.Refuse{Fetch.TAMPERED(Fetch.entry.path(o2), Fetch.entry.digest(o2), Fetch.text.digest(t2))}, wb_text(root, n, held, o2, t2, h), {==})
-    case Fetch.Got.Pulled{d}:
+    case s <> rest Nil{}:
       {==}
+    case +s <> +rest +a <> +ar:
+      once.at(Maybe.is_some(&2, String, Fetch.state.moved(st)), root, s, rest, a, ar, st, once_a_pass(root, rest, ar, pass.next(root, s, a, st)))
