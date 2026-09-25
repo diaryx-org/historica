@@ -677,3 +677,6 @@ def Laws.record_states_the_folder(befores, t, hs, dg, reads, ks, moves, obs, ls,
 
 def Laws.record_names_what_it_writes(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
   RecordL.planned_named(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)
+
+def Laws.record_writes_only_what_is_settled(looked, pl, accepted, pl2, e):
+  RecordL.settled_ok(looked, pl, accepted, pl2, e)

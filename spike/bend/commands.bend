@@ -7214,6 +7214,16 @@ def planned.r(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>)
         Fail{Refused{1, these(needless, "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ accept.lines(needless)}},
         Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))))
 
+# What `record` goes on to write is a plan the survey settled: no path
+# several files claim, nothing the format cannot record, nothing a merge
+# would leave empty, no fault, and the attachments accepted exactly the
+# ones concurrent work contests. `LAWS.record_writes_only_what_is_settled`.
+def planned.settled(pl: Sv.Planned, +accepted: List<&2, String>) -> Bool:
+  match pl:
+    case Sv.Planned{facts, refused, claimed, +accept, emptied, fault, obs, links}:
+      Bool.and(List.is_empty(&2, T.Split, claimed), Bool.and(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, emptied),
+        Bool.and(Maybe.is_none(&2, String, fault), Bool.and(List.is_empty(&2, String, minus(accept, accepted)), List.is_empty(&2, String, minus(accepted, accept)))))))
+
 def record.print(fs: List<&2, T.Split>) -> IO(Unit):
   match fs:
     case Nil{}:
