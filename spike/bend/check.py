@@ -3698,6 +3698,27 @@ def check_mutations(temporary):
             "shell.bend",
         ),
         (
+            "dispatch lets `[` into the alphabet",
+            "Bool.and(U32.is_ge(x, 65), U32.is_le(x, 90))",
+            "Bool.and(U32.is_ge(x, 65), U32.is_le(x, 91))",
+            "shell_lemmas.spelling_is",
+            "shell.bend",
+        ),
+        (
+            "an empty editor is run",
+            "  Bool.pick(Maybe<&2, String>, String.is_empty(v), None{}, Some{v})",
+            "  Some{v}",
+            "editor_lemmas.chosen_done",
+            "editor.bend",
+        ),
+        (
+            "an editor ended by a signal saved",
+            'String.eq(answer, "0")',
+            'Bool.or(String.eq(answer, "0"), String.eq(answer, "signal"))',
+            "editor_lemmas.saves",
+            "editor.bend",
+        ),
+        (
             "a note under the header reads as a layout",
             "      +found = line.cut(rest)",
             "      +found = rest",
