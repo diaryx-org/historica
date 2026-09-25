@@ -161,37 +161,291 @@ def facts_ok(+s: Set(), +os: List<&2, Sv.Obs>, +links: List<&2, String>) -> {Sv.
 # A link left dangling
 # --------------------
 
-# Where the link names a file going, `record` refuses; where it names
-# anything else, it goes on to the next.
-def gone_pick(h: Bool, -msg: String, -later: Maybe<&2, String>, -rest: Bool, ih: {Maybe.is_none(&2, String, later) == rest : Bool}) -> {Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, h, Some{msg}, later)) == Bool.and(Bool.not(h), rest) : Bool}:
-  match h:
+def or_f(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
+  match b:
     case True{}:
       {==}
     case False{}:
-      ih
+      {==}
 
-def target_ok(+link: String, g: Maybe<&2, Tree.Target>, +gone: Set(), +os: List<&2, Sv.Obs>, -later: Maybe<&2, String>, -rest: Bool, ih: {Maybe.is_none(&2, String, later) == rest : Bool}) -> {Maybe.is_none(&2, String, Sv.dangle.target(link, g, gone, os, later)) == Bool.and(Bool.not(Sv.names_gone(g, gone)), rest) : Bool}:
-  match g:
-    case None{}:
-      ih
-    case Some{Tree.Reference{+named}}:
-      gone_pick(Sv.has(gone, named), "`" ++ Sv.dropped_at(os, named) ++ "` is going, and `" ++ link ++ "` is a link to it that this record is not looking at; name `" ++ link ++ "` too, so its target can be written down as the string it will be", later, rest, ih)
-    case Some{Tree.Verbatim{s}}:
-      ih
-
-def dangle_pick(c: Bool, +link: String, g: Maybe<&2, Tree.Target>, +gone: Set(), +os: List<&2, Sv.Obs>, -later: Maybe<&2, String>, -rest: Bool, ih: {Maybe.is_none(&2, String, later) == rest : Bool}) -> {Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, c, later, Sv.dangle.target(link, g, gone, os, later))) == Bool.and(Bool.or(c, Bool.not(Sv.names_gone(g, gone))), rest) : Bool}:
+# Where the plan goes on, each link of the position was asked about and
+# not refused.
+def gone_later(c: Bool, -msg: String, -later: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, c, Some{msg}, later) == None{} : Maybe<&2, String>}) -> {later == None{} : Maybe<&2, String>}:
   match c:
     case True{}:
-      ih
+      Empty.absurd({later == None{} : Maybe<&2, String>}, NameL.some_none(msg, e))
     case False{}:
-      target_ok(link, g, gone, os, later, rest, ih)
+      e
 
-def dangle_ok(t: Tree.Tree(), +gone: Set(), +pointing: Set(), +os: List<&2, Sv.Obs>) -> {Maybe.is_none(&2, String, Sv.dangle(t, gone, pointing, os)) == Sv.anchored(t, gone, pointing) : Bool}:
+def target_later(+link: String, g: Maybe<&2, Tree.Target>, +gone: Set(), +os: List<&2, Sv.Obs>, -later: Maybe<&2, String>, e: {Sv.dangle.target(link, g, gone, os, later) == None{} : Maybe<&2, String>}) -> {later == None{} : Maybe<&2, String>}:
+  match g:
+    case None{}:
+      e
+    case Some{Tree.Reference{+named}}:
+      gone_later(Sv.has(gone, named), "`" ++ Sv.dropped_at(os, named) ++ "` is going, and `" ++ link ++ "` is a link to it that this record is not looking at; name `" ++ link ++ "` too, so its target can be written down as the string it will be", later, e)
+    case Some{Tree.Verbatim{v}}:
+      e
+
+def dangle_later(c: Bool, +link: String, g: Maybe<&2, Tree.Target>, +gone: Set(), +os: List<&2, Sv.Obs>, -later: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, c, later, Sv.dangle.target(link, g, gone, os, later)) == None{} : Maybe<&2, String>}) -> {later == None{} : Maybe<&2, String>}:
+  match c:
+    case True{}:
+      e
+    case False{}:
+      target_later(link, g, gone, os, later, e)
+
+def dangle_suffix(pre: Tree.Tree(), +x: Tree.Entry, +post: Tree.Tree(), +gone: Set(), +pointing: List<&2, String>, +os: List<&2, Sv.Obs>, e: {Sv.dangle(List.append(&2, Tree.Entry, pre, x <> post), gone, pointing, os) == None{} : Maybe<&2, String>}) -> {Sv.dangle(x <> post, gone, pointing, os) == None{} : Maybe<&2, String>}:
+  match pre:
+    case Nil{}:
+      e
+    case Tree.Entry{+f, +p, k, y, g, m} <> rest:
+      dangle_suffix(rest, x, post, gone, pointing, os, dangle_later(Bool.or(Sv.has(gone, f), Rev.member(pointing, p)), p, g, gone, os, Sv.dangle(List.append(&2, Tree.Entry, rest, x <> post), gone, pointing, os), e))
+
+# A link the record keeps, naming a file it drops, goes on only where the
+# folder's link at its path is observed.
+def head_pick(a: Bool, c: Bool, h: Bool, -msg: String, -later: Maybe<&2, String>, ea: {a == False{} : Bool}, eh: {h == True{} : Bool}, e: {Bool.pick(Maybe<&2, String>, Bool.or(a, c), later, Bool.pick(Maybe<&2, String>, h, Some{msg}, later)) == None{} : Maybe<&2, String>}) -> {c == True{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({c == True{} : Bool}, S.true_false(ea))
+    case False{}:
+      match c:
+        case True{}:
+          {==}
+        case False{}:
+          match h:
+            case True{}:
+              Empty.absurd({False{} == True{} : Bool}, NameL.some_none(msg, e))
+            case False{}:
+              Empty.absurd({False{} == True{} : Bool}, S.false_true(eh))
+
+def dangle_head(+f: String, +p: String, -k: Tree.FileKind, -y: Maybe<&2, String>, +named: String, -m: Tree.Mode, +post: Tree.Tree(), +gone: Set(), +pointing: List<&2, String>, +os: List<&2, Sv.Obs>, e: {Sv.dangle(Tree.Entry{f, p, k, y, Some{Tree.Reference{named}}, m} <> post, gone, pointing, os) == None{} : Maybe<&2, String>}, hn: {Sv.has(gone, named) == True{} : Bool}, hf: {Sv.has(gone, f) == False{} : Bool}) -> {Rev.member(pointing, p) == True{} : Bool}:
+  head_pick(Sv.has(gone, f), Rev.member(pointing, p), Sv.has(gone, named), "`" ++ Sv.dropped_at(os, named) ++ "` is going, and `" ++ p ++ "` is a link to it that this record is not looking at; name `" ++ p ++ "` too, so its target can be written down as the string it will be", Sv.dangle(post, gone, pointing, os), hf, hn, e)
+
+# The folder's links the survey observes are the links it holds that this
+# format can hold, each at its own path.
+def member_app(xs: List<&2, String>, +ys: List<&2, String>, +p: String) -> {Rev.member(List.append(&2, String, xs, ys), p) == Bool.or(Rev.member(xs, p), Rev.member(ys, p)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, rest, ys), p), Bool.or(Rev.member(rest, p), Rev.member(ys, p)), member_app(rest, ys, p)) : {Bool.or(String.eq(x, p), _) == Bool.or(Bool.or(String.eq(x, p), Rev.member(rest, p)), Rev.member(ys, p)) : Bool}
+      AL.or_assoc(String.eq(x, p), Rev.member(rest, p), Rev.member(ys, p))
+
+def pointed_app(xs: List<&2, Sv.Obs>, +ys: List<&2, Sv.Obs>) -> {Sv.pointed(List.append(&2, Sv.Obs, xs, ys)) == List.append(&2, String, Sv.pointed(xs), Sv.pointed(ys)) : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Sv.Obs.Points{+p, g, h, s} <> rest:
+      %pointed_app(rest, ys) : {p <> Sv.pointed(List.append(&2, Sv.Obs, rest, ys)) == p <> _ : List<&2, String>}
+      {==}
+    case Sv.Obs.Added{p} <> rest:
+      pointed_app(rest, ys)
+    case Sv.Obs.Dropped{f, p, c} <> rest:
+      pointed_app(rest, ys)
+    case Sv.Obs.Edited{p} <> rest:
+      pointed_app(rest, ys)
+    case Sv.Obs.Mode{p} <> rest:
+      pointed_app(rest, ys)
+    case Sv.Obs.Accept{p} <> rest:
+      pointed_app(rest, ys)
+    case Sv.Obs.Refused{p, why} <> rest:
+      pointed_app(rest, ys)
+    case Sv.Obs.Arrived{p, d} <> rest:
+      pointed_app(rest, ys)
+    case Sv.Obs.Emptied{p} <> rest:
+      pointed_app(rest, ys)
+
+def drop_unpointed(+path: String, e: Tree.Entry, +before: Maybe<&2, String>, -xs: List<&2, Sv.Obs>) -> {Sv.pointed(Sv.dropped(path, e, before) <> xs) == Sv.pointed(xs) : List<&2, String>}:
+  match e:
+    case Tree.Entry{f, p, Tree.Link{}, y, g, m}:
+      {==}
+    case Tree.Entry{f, p, Tree.Whole{}, y, g, m}:
+      {==}
+    case Tree.Entry{f, p, Tree.Lines{}, y, g, m}:
+      {==}
+
+def claimed_ptpick(c: Bool, +path: String, +e: Tree.Entry, +later: List<&2, Sv.Obs>, ih: {Sv.pointed(later) == Nil{} : List<&2, String>}) -> {Sv.pointed(Bool.pick(List<&2, Sv.Obs>, c, Sv.dropped(path, e, None{}) <> later, later)) == Nil{} : List<&2, String>}:
+  match c:
+    case True{}:
+      Equal.trans(List<&2, String>, Sv.pointed(Sv.dropped(path, e, None{}) <> later), Sv.pointed(later), Nil{}, drop_unpointed(path, e, None{}, later), ih)
+    case False{}:
+      ih
+
+def claimed_unpointed(t: Tree.Tree(), +cs: List<&2, T.Split>, +held: Set()) -> {Sv.pointed(Sv.claimed_drops(t, cs, held)) == Nil{} : List<&2, String>}:
   match t:
     case Nil{}:
       {==}
-    case Tree.Entry{+f, +p, k, y, g, m} <> rest:
-      dangle_pick(Bool.or(Sv.has(gone, f), Sv.has(pointing, p)), p, g, gone, os, Sv.dangle(rest, gone, pointing, os), Sv.anchored(rest, gone, pointing), dangle_ok(rest, gone, pointing, os))
+    case +e <> +rest:
+      claimed_ptpick(Bool.and(Sv.claimed.has(cs, Tree.entry_path(e)), Bool.not(Sv.has(held, Tree.entry_path(e)))), Tree.entry_path(e), e, Sv.claimed_drops(rest, cs, held), claimed_unpointed(rest, cs, held))
+
+def pt_mode(+path: String, c: Bool, -xs: List<&2, Sv.Obs>, h: {Sv.pointed(xs) == Nil{} : List<&2, String>}) -> {Sv.pointed(List.append(&2, Sv.Obs, Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Mode{path}]), xs)) == Nil{} : List<&2, String>}:
+  match c:
+    case True{}:
+      h
+    case False{}:
+      h
+
+def pt_mode1(+path: String, c: Bool) -> {Sv.pointed(Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Mode{path}])) == Nil{} : List<&2, String>}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pt_edited(+path: String, c: Bool) -> {Sv.pointed(Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Edited{path}])) == Nil{} : List<&2, String>}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pt_whole(+path: String, +e: Tree.Entry, +digest: String, +runs: Bool, payload: Maybe<&2, String>) -> {Sv.pointed(Sv.whole(path, e, digest, runs, payload)) == Nil{} : List<&2, String>}:
+  match payload:
+    case None{}:
+      pt_mode(path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Accept{path}, Sv.Obs.Edited{path}], {==})
+    case Some{+p}:
+      pt_mode(path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), Bool.pick(List<&2, Sv.Obs>, String.eq(p, digest), Nil{}, [Sv.Obs.Edited{path}]), pt_edited(path, String.eq(p, digest)))
+
+def pt_changed(+path: String, +e: Tree.Entry, +runs: Bool, text: Bool) -> {Sv.pointed(Sv.lines.changed(path, e, runs, text)) == Nil{} : List<&2, String>}:
+  match text:
+    case True{}:
+      pt_mode(path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Edited{path}], {==})
+    case False{}:
+      {==}
+
+def pt_agreed(+path: String, +e: Tree.Entry, +runs: Bool, +text: Bool, c: Bool) -> {Sv.pointed(Bool.pick(List<&2, Sv.Obs>, c, Sv.mode(path, e, runs), Sv.lines.changed(path, e, runs, text))) == Nil{} : List<&2, String>}:
+  match c:
+    case True{}:
+      pt_mode1(path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})))
+    case False{}:
+      pt_changed(path, e, runs, text)
+
+def pt_emptied(+path: String, +e: Tree.Entry, +runs: Bool, empty: Bool) -> {Sv.pointed(Bool.pick(List<&2, Sv.Obs>, empty, List.append(&2, Sv.Obs, Sv.mode(path, e, runs), [Sv.Obs.Emptied{path}]), Sv.lines.changed(path, e, runs, True{}))) == Nil{} : List<&2, String>}:
+  match empty:
+    case True{}:
+      pt_mode(path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Emptied{path}], {==})
+    case False{}:
+      pt_changed(path, e, runs, True{})
+
+def pt_lines(+path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, proposed: Bool, +text: Bool, empty: Bool) -> {Sv.pointed(Sv.lines(path, e, digest, before, runs, text, proposed, empty)) == Nil{} : List<&2, String>}:
+  match proposed:
+    case True{}:
+      match text:
+        case False{}:
+          pt_changed(path, e, runs, False{})
+        case True{}:
+          pt_emptied(path, e, runs, empty)
+    case False{}:
+      pt_agreed(path, e, runs, text, Sv.same(before, digest))
+
+def pt_held_file(+path: String, e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, +text: Bool, proposed: Bool, empty: Bool) -> {Sv.pointed(Sv.held_file(path, e, digest, before, runs, text, proposed, empty)) == Nil{} : List<&2, String>}:
+  match e:
+    case Tree.Entry{+f, +p, Tree.Link{}, +y, +g, +m}:
+      {==}
+    case Tree.Entry{+f, +p, Tree.Whole{}, +y, +g, +m}:
+      pt_whole(path, Tree.Entry{f, p, Tree.Whole{}, y, g, m}, digest, runs, y)
+    case Tree.Entry{+f, +p, Tree.Lines{}, +y, +g, +m}:
+      pt_lines(path, Tree.Entry{f, p, Tree.Lines{}, y, g, m}, digest, before, runs, proposed, text, empty)
+
+# A link checked is observed where its target is one this format can hold.
+def pt_checked(fault: Maybe<&2, String>, +path: String, +target: String, held: Maybe<&2, Tree.Entry>, shown: Maybe<&2, String>, fresh: Bool, -q: String, ef: {Sv.link_fault(target) == fault : Maybe<&2, String>}) -> {Sv.pointed(Sv.link.checked(path, target, held, shown, fresh, fault)) == Bool.pick(List<&2, String>, Sv.link_at(Some{F.Found.Link{q, target}}), [path], Nil{}) : List<&2, String>}:
+  match fault:
+    case Some{because}:
+      %Equal.sym(Maybe<&2, String>, Sv.link_fault(target), Some{because}, ef) : {Nil{} == Bool.pick(List<&2, String>, Maybe.is_none(&2, String, _), [path], Nil{}) : List<&2, String>}
+      {==}
+    case None{}:
+      match fresh:
+        case True{}:
+          %Equal.sym(Maybe<&2, String>, Sv.link_fault(target), None{}, ef) : {Sv.pointed(Sv.link.checked(path, target, held, shown, True{}, None{})) == Bool.pick(List<&2, String>, Maybe.is_none(&2, String, _), [path], Nil{}) : List<&2, String>}
+          {==}
+        case False{}:
+          %Equal.sym(Maybe<&2, String>, Sv.link_fault(target), None{}, ef) : {Sv.pointed(Sv.link.checked(path, target, held, shown, False{}, None{})) == Bool.pick(List<&2, String>, Maybe.is_none(&2, String, _), [path], Nil{}) : List<&2, String>}
+          {==}
+
+def pt_held_link(+path: String, +q: String, +target: String, e: Tree.Entry, +sh: Maybe<&2, String>, +before: Maybe<&2, String>) -> {Sv.pointed(Sv.held_link(path, target, e, sh, before)) == Bool.pick(List<&2, String>, Sv.link_at(Some{F.Found.Link{q, target}}), [path], Nil{}) : List<&2, String>}:
+  match e:
+    case Tree.Entry{+f, +p, Tree.Link{}, +y, +g, +m}:
+      pt_checked(Sv.link_fault(target), path, target, Some{Tree.Entry{f, p, Tree.Link{}, y, g, m}}, sh, False{}, q, {==})
+    case Tree.Entry{+f, +p, Tree.Whole{}, +y, +g, +m}:
+      pt_checked(Sv.link_fault(target), path, target, None{}, None{}, True{}, q, {==})
+    case Tree.Entry{+f, +p, Tree.Lines{}, +y, +g, +m}:
+      pt_checked(Sv.link_fault(target), path, target, None{}, None{}, True{}, q, {==})
+
+def seen_link(s: Sv.Seen) -> List<&2, String>:
+  match s:
+    case Sv.Seen{+path, e, found, d, b, x, sh, pr}:
+      Bool.pick(List<&2, String>, Sv.link_at(found), [path], Nil{})
+
+def seen_points(s: Sv.Seen) -> {Sv.pointed(Sv.seen(s)) == seen_link(s) : List<&2, String>}:
+  match s:
+    case Sv.Seen{+path, Some{+e}, None{}, +d, +before, +x, +sh, +pr}:
+      drop_unpointed(path, e, before, Nil{})
+    case Sv.Seen{+path, None{}, Some{F.Found.Link{+q, +target}}, +d, +before, +x, +sh, +pr}:
+      pt_checked(Sv.link_fault(target), path, target, None{}, None{}, True{}, q, {==})
+    case Sv.Seen{+path, None{}, Some{F.Found.File{+q, +runs, +n}}, +d, +before, +x, +sh, +pr}:
+      {==}
+    case Sv.Seen{+path, Some{+e}, Some{F.Found.Link{+q, +target}}, +d, +before, +x, +sh, +pr}:
+      pt_held_link(path, q, target, e, sh, before)
+    case Sv.Seen{+path, Some{+e}, Some{F.Found.File{+q, +runs, +n}}, +d, +before, +x, +sh, +pr}:
+      pt_held_file(path, e, d, before, runs, x, pr, Nat.is_eq(n, 0n))
+    case Sv.Seen{+path, None{}, None{}, +d, +before, +x, +sh, +pr}:
+      {==}
+
+def link_member(c: Bool, +path: String, +p: String, h: {Rev.member(Bool.pick(List<&2, String>, c, [path], Nil{}), p) == True{} : Bool}) -> {Bool.and(c, String.eq(path, p)) == True{} : Bool}:
+  match c:
+    case True{}:
+      Equal.trans(Bool, String.eq(path, p), Bool.or(String.eq(path, p), False{}), True{}, Equal.sym(Bool, Bool.or(String.eq(path, p), False{}), String.eq(path, p), or_f(String.eq(path, p))), h)
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+
+def seen_found_link(s: Sv.Seen, +rest: List<&2, Sv.Seen>, +p: String, h: {Rev.member(seen_link(s), p) == True{} : Bool}) -> {Sv.link_found(s <> rest, p) == True{} : Bool}:
+  match s:
+    case Sv.Seen{+path, +e, +found, +d, +b, +x, +sh, +pr}:
+      AL.or_left(Bool.and(Sv.link_at(found), String.eq(path, p)), Sv.link_found(rest, p), link_member(Sv.link_at(found), path, p, h))
+
+def found_link_weaken(+s: Sv.Seen, +rest: List<&2, Sv.Seen>, +p: String, h: {Sv.link_found(rest, p) == True{} : Bool}) -> {Sv.link_found(s <> rest, p) == True{} : Bool}:
+  match s:
+    case Sv.Seen{+path, +e, +found, +d, +b, +x, +sh, +pr}:
+      AL.or_right(Bool.and(Sv.link_at(found), String.eq(path, p)), Sv.link_found(rest, p), h)
+
+def seens_link(ss: List<&2, Sv.Seen>, +p: String, h: {Rev.member(Sv.pointed(Sv.seens(ss)), p) == True{} : Bool}) -> {Sv.link_found(ss, p) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+    case +s <> +rest:
+      +h2 = Equal.trans(Bool, Bool.or(Rev.member(seen_link(s), p), Rev.member(Sv.pointed(Sv.seens(rest)), p)), Rev.member(Sv.pointed(Sv.seens(s <> rest)), p), True{},
+        Equal.sym(Bool, Rev.member(Sv.pointed(Sv.seens(s <> rest)), p), Bool.or(Rev.member(seen_link(s), p), Rev.member(Sv.pointed(Sv.seens(rest)), p)),
+          Equal.trans(Bool, Rev.member(Sv.pointed(Sv.seens(s <> rest)), p), Rev.member(List.append(&2, String, seen_link(s), Sv.pointed(Sv.seens(rest))), p), Bool.or(Rev.member(seen_link(s), p), Rev.member(Sv.pointed(Sv.seens(rest)), p)),
+            Equal.cong(List<&2, String>, Bool, xs => Rev.member(xs, p), Sv.pointed(Sv.seens(s <> rest)), List.append(&2, String, seen_link(s), Sv.pointed(Sv.seens(rest))),
+              Equal.trans(List<&2, String>, Sv.pointed(List.append(&2, Sv.Obs, Sv.seen(s), Sv.seens(rest))), List.append(&2, String, Sv.pointed(Sv.seen(s)), Sv.pointed(Sv.seens(rest))), List.append(&2, String, seen_link(s), Sv.pointed(Sv.seens(rest))),
+                pointed_app(Sv.seen(s), Sv.seens(rest)),
+                Equal.cong(List<&2, String>, List<&2, String>, xs => List.append(&2, String, xs, Sv.pointed(Sv.seens(rest))), Sv.pointed(Sv.seen(s)), seen_link(s), seen_points(s)))),
+            member_app(seen_link(s), Sv.pointed(Sv.seens(rest)), p))),
+        h)
+      AL.or_cases({Sv.link_found(s <> rest, p) == True{} : Bool}, Rev.member(seen_link(s), p), Rev.member(Sv.pointed(Sv.seens(rest)), p), h2,
+        hl => seen_found_link(s, rest, p, hl),
+        hr => found_link_weaken(s, rest, p, seens_link(rest, p, hr)))
+
+# So where the plan goes on, a link of the position it keeps, naming a file
+# it drops, sits where the folder holds a link this format can hold.
+def dangle_found(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), -walked: List<&2, T.Split>, +ss: List<&2, Sv.Seen>, -moves: List<&2, T.Split>, hd: {Sv.planned.dangles(Sv.planned(t, looked, held, walked, ss, moves)) == None{} : Maybe<&2, String>}, +pre: Tree.Tree(), +post: Tree.Tree(), +f: String, +p: String, +k: Tree.FileKind, +y: Maybe<&2, String>, +named: String, +m: Tree.Mode, ht: {t == List.append(&2, Tree.Entry, pre, Tree.Entry{f, p, k, y, Some{Tree.Reference{named}}, m} <> post) : Tree.Tree()}, hn: {Sv.has(Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), named) == True{} : Bool}, hf: {Sv.has(Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), f) == False{} : Bool}) -> {Sv.link_found(ss, p) == True{} : Bool}:
+  +os = List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held))
+  +gone = Set.from_list(Sv.dropped_files(os))
+  +hm = dangle_head(f, p, k, y, named, m, post, gone, Sv.pointed(os), os,
+    dangle_suffix(pre, Tree.Entry{f, p, k, y, Some{Tree.Reference{named}}, m}, post, gone, Sv.pointed(os), os,
+      Equal.trans(Maybe<&2, String>, Sv.dangle(List.append(&2, Tree.Entry, pre, Tree.Entry{f, p, k, y, Some{Tree.Reference{named}}, m} <> post), gone, Sv.pointed(os), os), Sv.dangle(t, gone, Sv.pointed(os), os), None{},
+        Equal.cong(Tree.Tree(), Maybe<&2, String>, x => Sv.dangle(x, gone, Sv.pointed(os), os), List.append(&2, Tree.Entry, pre, Tree.Entry{f, p, k, y, Some{Tree.Reference{named}}, m} <> post), t, Equal.sym(Tree.Tree(), t, List.append(&2, Tree.Entry, pre, Tree.Entry{f, p, k, y, Some{Tree.Reference{named}}, m} <> post), ht)),
+        hd)),
+    hn, hf)
+  seens_link(ss, p,
+    Equal.trans(Bool, Rev.member(Sv.pointed(Sv.seens(ss)), p), Rev.member(Sv.pointed(os), p), True{},
+      Equal.sym(Bool, Rev.member(Sv.pointed(os), p), Rev.member(Sv.pointed(Sv.seens(ss)), p),
+        Equal.cong(List<&2, String>, Bool, xs => Rev.member(xs, p), Sv.pointed(os), Sv.pointed(Sv.seens(ss)),
+          Equal.trans(List<&2, String>, Sv.pointed(os), List.append(&2, String, Sv.pointed(Sv.seens(ss)), Sv.pointed(Sv.claimed_drops(looked, Sv.claims(looked), held))), Sv.pointed(Sv.seens(ss)),
+            pointed_app(Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)),
+            Equal.trans(List<&2, String>, List.append(&2, String, Sv.pointed(Sv.seens(ss)), Sv.pointed(Sv.claimed_drops(looked, Sv.claims(looked), held))), List.append(&2, String, Sv.pointed(Sv.seens(ss)), Nil{}), Sv.pointed(Sv.seens(ss)),
+              Equal.cong(List<&2, String>, List<&2, String>, xs => List.append(&2, String, Sv.pointed(Sv.seens(ss)), xs), Sv.pointed(Sv.claimed_drops(looked, Sv.claims(looked), held)), Nil{}, claimed_unpointed(looked, Sv.claims(looked), held)),
+              SortL.lapp_nil(String, Sv.pointed(Sv.seens(ss))))))),
+      hm))
 
 # What `status` refuses
 # ---------------------
@@ -220,56 +474,41 @@ def refusals_app(xs: List<&2, Sv.Obs>, +ys: List<&2, Sv.Obs>) -> {Sv.refusals(Li
     case Sv.Obs.Emptied{p} <> rest:
       refusals_app(rest, ys)
 
-# Every refusal names a path some surveyed path found in the folder.
-def found_all(+ss: List<&2, Sv.Seen>, rs: List<&2, T.Split>) -> Bool:
-  match rs:
-    case Nil{}:
-      True{}
-    case T.Split{+p, b} <> rest:
-      Bool.and(Sv.found_at(ss, p), found_all(ss, rest))
-
-def found_app(+ss: List<&2, Sv.Seen>, xs: List<&2, T.Split>, +ys: List<&2, T.Split>, +hx: {found_all(ss, xs) == True{} : Bool}, hy: {found_all(ss, ys) == True{} : Bool}) -> {found_all(ss, List.append(&2, T.Split, xs, ys)) == True{} : Bool}:
+# Each refusal is one some surveyed path gives, for its own reason.
+def each_app(+ss: List<&2, Sv.Seen>, xs: List<&2, T.Split>, +ys: List<&2, T.Split>, +hx: {Sv.each_refused(ss, xs) == True{} : Bool}, hy: {Sv.each_refused(ss, ys) == True{} : Bool}) -> {Sv.each_refused(ss, List.append(&2, T.Split, xs, ys)) == True{} : Bool}:
   match xs:
     case Nil{}:
       hy
-    case T.Split{+p, b} <> rest:
-      AL.and_intro(Sv.found_at(ss, p), found_all(ss, List.append(&2, T.Split, rest, ys)),
-        Comp.and_left(Sv.found_at(ss, p), found_all(ss, rest), hx),
-        found_app(ss, rest, ys, Comp.and_right(Sv.found_at(ss, p), found_all(ss, rest), hx), hy))
+    case T.Split{+p, +b} <> rest:
+      AL.and_intro(Sv.refused_by(ss, p, b), Sv.each_refused(ss, List.append(&2, T.Split, rest, ys)),
+        Comp.and_left(Sv.refused_by(ss, p, b), Sv.each_refused(ss, rest), hx),
+        each_app(ss, rest, ys, Comp.and_right(Sv.refused_by(ss, p, b), Sv.each_refused(ss, rest), hx), hy))
 
-def found_weaken(rs: List<&2, T.Split>, +s: Sv.Seen, +rest: List<&2, Sv.Seen>, +h: {found_all(rest, rs) == True{} : Bool}) -> {found_all(s <> rest, rs) == True{} : Bool}:
+def each_weaken(rs: List<&2, T.Split>, +s: Sv.Seen, +rest: List<&2, Sv.Seen>, +h: {Sv.each_refused(rest, rs) == True{} : Bool}) -> {Sv.each_refused(s <> rest, rs) == True{} : Bool}:
   match rs:
     case Nil{}:
       {==}
-    case T.Split{+p, b} <> more:
+    case T.Split{+p, +b} <> more:
       match s:
         case Sv.Seen{+path, +e, +found, +d, +before, +x, +sh, +pr}:
-          AL.and_intro(Sv.found_at(Sv.Seen{path, e, found, d, before, x, sh, pr} <> rest, p), found_all(Sv.Seen{path, e, found, d, before, x, sh, pr} <> rest, more),
-            AL.or_right(Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), Sv.found_at(rest, p), Comp.and_left(Sv.found_at(rest, p), found_all(rest, more), h)),
-            found_weaken(more, Sv.Seen{path, e, found, d, before, x, sh, pr}, rest, Comp.and_right(Sv.found_at(rest, p), found_all(rest, more), h)))
+          AL.and_intro(Sv.refused_by(Sv.Seen{path, e, found, d, before, x, sh, pr} <> rest, p, b), Sv.each_refused(Sv.Seen{path, e, found, d, before, x, sh, pr} <> rest, more),
+            AL.or_right(Bool.and(String.eq(path, p), Sv.refused_as(e, found, x, b)), Sv.refused_by(rest, p, b), Comp.and_left(Sv.refused_by(rest, p, b), Sv.each_refused(rest, more), h)),
+            each_weaken(more, Sv.Seen{path, e, found, d, before, x, sh, pr}, rest, Comp.and_right(Sv.refused_by(rest, p, b), Sv.each_refused(rest, more), h)))
 
-# A surveyed path the folder found something at is one a refusal of it may
-# name.
-def here(+path: String, -e: Maybe<&2, Tree.Entry>, -f: F.Found, -d: String, -b: Maybe<&2, String>, -x: Bool, -sh: Maybe<&2, String>, -pr: Bool, -rest: List<&2, Sv.Seen>) -> {Sv.found_at(Sv.Seen{path, e, Some{f}, d, b, x, sh, pr} <> rest, path) == True{} : Bool}:
-  %Equal.sym(Bool, String.eq(path, path), True{}, S.eq_refl(path)) : {Bool.or(Bool.and(_, True{}), Sv.found_at(rest, path)) == True{} : Bool}
-  {==}
+# A surveyed path refused for its own reason.
+def own(+path: String, +e: Maybe<&2, Tree.Entry>, +found: Maybe<&2, F.Found>, -d: String, -before: Maybe<&2, String>, +x: Bool, -sh: Maybe<&2, String>, -pr: Bool, +rest: List<&2, Sv.Seen>, +why: String, h: {Sv.refused_as(e, found, x, why) == True{} : Bool}) -> {Sv.each_refused(Sv.Seen{path, e, found, d, before, x, sh, pr} <> rest, [T.Split{path, why}]) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(path, path), True{}, S.eq_refl(path)) : {Bool.and(Bool.or(Bool.and(_, Sv.refused_as(e, found, x, why)), Sv.refused_by(rest, path, why)), True{}) == True{} : Bool}
+  AL.and_intro(Bool.or(Sv.refused_as(e, found, x, why), Sv.refused_by(rest, path, why)), True{}, AL.or_left(Sv.refused_as(e, found, x, why), Sv.refused_by(rest, path, why), h), {==})
 
-def found_refused(+ss: List<&2, Sv.Seen>, +path: String, -why: String, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, [T.Split{path, why}]) == True{} : Bool}:
-  AL.and_intro(Sv.found_at(ss, path), True{}, hp, {==})
+# A link is refused for its target's fault, and says so.
+def link_reason(+target: String, +because: String, ef: {Sv.link_fault(target) == Some{because} : Maybe<&2, String>}) -> {Sv.link_refused(Sv.link_fault(target), "it points at a target this format cannot hold: " ++ because) == True{} : Bool}:
+  %Equal.sym(Maybe<&2, String>, Sv.link_fault(target), Some{because}, ef) : {Sv.link_refused(_, "it points at a target this format cannot hold: " ++ because) == True{} : Bool}
+  S.eq_refl("it points at a target this format cannot hold: " ++ because)
 
-def found_dropped(+ss: List<&2, Sv.Seen>, +path: String, e: Tree.Entry, +before: Maybe<&2, String>, -xs: List<&2, Sv.Obs>, h: {found_all(ss, Sv.refusals(xs)) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.dropped(path, e, before) <> xs)) == True{} : Bool}:
-  match e:
-    case Tree.Entry{f, p, Tree.Link{}, y, g, m}:
-      h
-    case Tree.Entry{f, p, Tree.Whole{}, y, g, m}:
-      h
-    case Tree.Entry{f, p, Tree.Lines{}, y, g, m}:
-      h
-
-def found_link(+ss: List<&2, Sv.Seen>, +path: String, +target: String, held: Maybe<&2, Tree.Entry>, shown: Maybe<&2, String>, fault: Maybe<&2, String>, fresh: Bool, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.link.checked(path, target, held, shown, fresh, fault))) == True{} : Bool}:
+def link_own(fault: Maybe<&2, String>, +path: String, +q: String, +target: String, +e: Maybe<&2, Tree.Entry>, -d: String, -before: Maybe<&2, String>, +x: Bool, -sh: Maybe<&2, String>, -pr: Bool, +rest: List<&2, Sv.Seen>, held: Maybe<&2, Tree.Entry>, shown: Maybe<&2, String>, fresh: Bool, ef: {Sv.link_fault(target) == fault : Maybe<&2, String>}) -> {Sv.each_refused(Sv.Seen{path, e, Some{F.Found.Link{q, target}}, d, before, x, sh, pr} <> rest, Sv.refusals(Sv.link.checked(path, target, held, shown, fresh, fault))) == True{} : Bool}:
   match fault:
-    case Some{because}:
-      found_refused(ss, path, "it points at a target this format cannot hold: " ++ because, hp)
+    case Some{+because}:
+      own(path, e, Some{F.Found.Link{q, target}}, d, before, x, sh, pr, rest, "it points at a target this format cannot hold: " ++ because, link_reason(target, because, ef))
     case None{}:
       match fresh:
         case True{}:
@@ -277,109 +516,171 @@ def found_link(+ss: List<&2, Sv.Seen>, +path: String, +target: String, held: May
         case False{}:
           {==}
 
-def found_mode(+ss: List<&2, Sv.Seen>, +path: String, c: Bool, -xs: List<&2, Sv.Obs>, h: {found_all(ss, Sv.refusals(xs)) == True{} : Bool}) -> {found_all(ss, Sv.refusals(List.append(&2, Sv.Obs, Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Mode{path}]), xs))) == True{} : Bool}:
+# A file of lines refused is one the folder holds that is no longer text.
+def lines_own(+path: String, +f: String, +p: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, +q: String, +runs: Bool, +n: Nat, -d: String, -before: Maybe<&2, String>, x: Bool, -sh: Maybe<&2, String>, -pr: Bool, +rest: List<&2, Sv.Seen>) -> {Bool.or(x, Sv.each_refused(Sv.Seen{path, Some{Tree.Entry{f, p, Tree.Lines{}, y, g, m}}, Some{F.Found.File{q, runs, n}}, d, before, x, sh, pr} <> rest, [T.Split{path, "recorded as lines and no longer UTF-8 text; drop it and add it again"}])) == True{} : Bool}:
+  match x:
+    case True{}:
+      {==}
+    case False{}:
+      own(path, Some{Tree.Entry{f, p, Tree.Lines{}, y, g, m}}, Some{F.Found.File{q, runs, n}}, d, before, False{}, sh, pr, rest, "recorded as lines and no longer UTF-8 text; drop it and add it again", S.eq_refl("recorded as lines and no longer UTF-8 text; drop it and add it again"))
+
+def each_mode(+ss: List<&2, Sv.Seen>, +path: String, c: Bool, -xs: List<&2, Sv.Obs>, h: {Sv.each_refused(ss, Sv.refusals(xs)) == True{} : Bool}) -> {Sv.each_refused(ss, Sv.refusals(List.append(&2, Sv.Obs, Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Mode{path}]), xs))) == True{} : Bool}:
   match c:
     case True{}:
       h
     case False{}:
       h
 
-def found_mode1(+ss: List<&2, Sv.Seen>, +path: String, c: Bool) -> {found_all(ss, Sv.refusals(Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Mode{path}]))) == True{} : Bool}:
+def each_mode1(+ss: List<&2, Sv.Seen>, +path: String, c: Bool) -> {Sv.each_refused(ss, Sv.refusals(Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Mode{path}]))) == True{} : Bool}:
   match c:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def found_edited(+ss: List<&2, Sv.Seen>, +path: String, c: Bool) -> {found_all(ss, Sv.refusals(Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Edited{path}]))) == True{} : Bool}:
+def each_edited(+ss: List<&2, Sv.Seen>, +path: String, c: Bool) -> {Sv.each_refused(ss, Sv.refusals(Bool.pick(List<&2, Sv.Obs>, c, Nil{}, [Sv.Obs.Edited{path}]))) == True{} : Bool}:
   match c:
     case True{}:
       {==}
     case False{}:
       {==}
 
-def found_whole(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +digest: String, +runs: Bool, payload: Maybe<&2, String>) -> {found_all(ss, Sv.refusals(Sv.whole(path, e, digest, runs, payload))) == True{} : Bool}:
+def each_whole(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +digest: String, +runs: Bool, payload: Maybe<&2, String>) -> {Sv.each_refused(ss, Sv.refusals(Sv.whole(path, e, digest, runs, payload))) == True{} : Bool}:
   match payload:
     case None{}:
-      found_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Accept{path}, Sv.Obs.Edited{path}], {==})
+      each_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Accept{path}, Sv.Obs.Edited{path}], {==})
     case Some{+p}:
-      found_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), Bool.pick(List<&2, Sv.Obs>, String.eq(p, digest), Nil{}, [Sv.Obs.Edited{path}]), found_edited(ss, path, String.eq(p, digest)))
+      each_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), Bool.pick(List<&2, Sv.Obs>, String.eq(p, digest), Nil{}, [Sv.Obs.Edited{path}]), each_edited(ss, path, String.eq(p, digest)))
 
-def found_changed(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +runs: Bool, text: Bool, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.lines.changed(path, e, runs, text))) == True{} : Bool}:
+def each_changed(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +runs: Bool, text: Bool, +hp: {Bool.or(text, Sv.each_refused(ss, [T.Split{path, "recorded as lines and no longer UTF-8 text; drop it and add it again"}])) == True{} : Bool}) -> {Sv.each_refused(ss, Sv.refusals(Sv.lines.changed(path, e, runs, text))) == True{} : Bool}:
   match text:
     case True{}:
-      found_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Edited{path}], {==})
+      each_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Edited{path}], {==})
     case False{}:
-      found_refused(ss, path, "recorded as lines and no longer UTF-8 text; drop it and add it again", hp)
+      hp
 
-def found_agreed(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +runs: Bool, +text: Bool, c: Bool, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Bool.pick(List<&2, Sv.Obs>, c, Sv.mode(path, e, runs), Sv.lines.changed(path, e, runs, text)))) == True{} : Bool}:
+def each_agreed(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +runs: Bool, +text: Bool, c: Bool, +hp: {Bool.or(text, Sv.each_refused(ss, [T.Split{path, "recorded as lines and no longer UTF-8 text; drop it and add it again"}])) == True{} : Bool}) -> {Sv.each_refused(ss, Sv.refusals(Bool.pick(List<&2, Sv.Obs>, c, Sv.mode(path, e, runs), Sv.lines.changed(path, e, runs, text)))) == True{} : Bool}:
   match c:
     case True{}:
-      found_mode1(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})))
+      each_mode1(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})))
     case False{}:
-      found_changed(ss, path, e, runs, text, hp)
+      each_changed(ss, path, e, runs, text, hp)
 
-def found_emptied(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +runs: Bool, empty: Bool, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Bool.pick(List<&2, Sv.Obs>, empty, List.append(&2, Sv.Obs, Sv.mode(path, e, runs), [Sv.Obs.Emptied{path}]), Sv.lines.changed(path, e, runs, True{})))) == True{} : Bool}:
+def each_emptied(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +runs: Bool, empty: Bool) -> {Sv.each_refused(ss, Sv.refusals(Bool.pick(List<&2, Sv.Obs>, empty, List.append(&2, Sv.Obs, Sv.mode(path, e, runs), [Sv.Obs.Emptied{path}]), Sv.lines.changed(path, e, runs, True{})))) == True{} : Bool}:
   match empty:
     case True{}:
-      found_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Emptied{path}], {==})
+      each_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Emptied{path}], {==})
     case False{}:
-      found_changed(ss, path, e, runs, True{}, hp)
+      each_changed(ss, path, e, runs, True{}, {==})
 
-def found_lines(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, proposed: Bool, +text: Bool, empty: Bool, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.lines(path, e, digest, before, runs, text, proposed, empty))) == True{} : Bool}:
+def each_lines(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, proposed: Bool, +text: Bool, empty: Bool, +hp: {Bool.or(text, Sv.each_refused(ss, [T.Split{path, "recorded as lines and no longer UTF-8 text; drop it and add it again"}])) == True{} : Bool}) -> {Sv.each_refused(ss, Sv.refusals(Sv.lines(path, e, digest, before, runs, text, proposed, empty))) == True{} : Bool}:
   match proposed:
     case True{}:
       match text:
         case False{}:
-          found_changed(ss, path, e, runs, False{}, hp)
+          each_changed(ss, path, e, runs, False{}, hp)
         case True{}:
-          found_emptied(ss, path, e, runs, empty, hp)
+          each_emptied(ss, path, e, runs, empty)
     case False{}:
-      found_agreed(ss, path, e, runs, text, Sv.same(before, digest), hp)
+      each_agreed(ss, path, e, runs, text, Sv.same(before, digest), hp)
 
-def found_held_file(+ss: List<&2, Sv.Seen>, +path: String, e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, text: Bool, proposed: Bool, empty: Bool, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.held_file(path, e, digest, before, runs, text, proposed, empty))) == True{} : Bool}:
+def each_held_file(+path: String, e: Tree.Entry, +q: String, +runs: Bool, +n: Nat, +digest: String, +before: Maybe<&2, String>, +x: Bool, +sh: Maybe<&2, String>, +pr: Bool, +rest: List<&2, Sv.Seen>) -> {Sv.each_refused(Sv.Seen{path, Some{e}, Some{F.Found.File{q, runs, n}}, digest, before, x, sh, pr} <> rest, Sv.refusals(Sv.held_file(path, e, digest, before, runs, x, pr, Nat.is_eq(n, 0n)))) == True{} : Bool}:
   match e:
     case Tree.Entry{+f, +p, Tree.Link{}, +y, +g, +m}:
       {==}
     case Tree.Entry{+f, +p, Tree.Whole{}, +y, +g, +m}:
-      found_whole(ss, path, Tree.Entry{f, p, Tree.Whole{}, y, g, m}, digest, runs, y)
+      each_whole(Sv.Seen{path, Some{Tree.Entry{f, p, Tree.Whole{}, y, g, m}}, Some{F.Found.File{q, runs, n}}, digest, before, x, sh, pr} <> rest, path, Tree.Entry{f, p, Tree.Whole{}, y, g, m}, digest, runs, y)
     case Tree.Entry{+f, +p, Tree.Lines{}, +y, +g, +m}:
-      found_lines(ss, path, Tree.Entry{f, p, Tree.Lines{}, y, g, m}, digest, before, runs, proposed, text, empty, hp)
+      each_lines(Sv.Seen{path, Some{Tree.Entry{f, p, Tree.Lines{}, y, g, m}}, Some{F.Found.File{q, runs, n}}, digest, before, x, sh, pr} <> rest, path, Tree.Entry{f, p, Tree.Lines{}, y, g, m}, digest, before, runs, pr, x, Nat.is_eq(n, 0n),
+        lines_own(path, f, p, y, g, m, q, runs, n, digest, before, x, sh, pr, rest))
 
-def found_held_link(+ss: List<&2, Sv.Seen>, +path: String, +target: String, e: Tree.Entry, shown: Maybe<&2, String>, +before: Maybe<&2, String>, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.held_link(path, target, e, shown, before))) == True{} : Bool}:
+def each_held_link(+path: String, +q: String, +target: String, e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +x: Bool, +sh: Maybe<&2, String>, +pr: Bool, +rest: List<&2, Sv.Seen>) -> {Sv.each_refused(Sv.Seen{path, Some{e}, Some{F.Found.Link{q, target}}, digest, before, x, sh, pr} <> rest, Sv.refusals(Sv.held_link(path, target, e, sh, before))) == True{} : Bool}:
   match e:
     case Tree.Entry{+f, +p, Tree.Link{}, +y, +g, +m}:
-      found_link(ss, path, target, Some{Tree.Entry{f, p, Tree.Link{}, y, g, m}}, shown, Sv.link_fault(target), False{}, hp)
+      link_own(Sv.link_fault(target), path, q, target, Some{Tree.Entry{f, p, Tree.Link{}, y, g, m}}, digest, before, x, sh, pr, rest, Some{Tree.Entry{f, p, Tree.Link{}, y, g, m}}, sh, False{}, {==})
     case Tree.Entry{+f, +p, Tree.Whole{}, +y, +g, +m}:
-      found_dropped(ss, path, Tree.Entry{f, p, Tree.Whole{}, y, g, m}, before, Sv.link(path, target, None{}, None{}, True{}), found_link(ss, path, target, None{}, None{}, Sv.link_fault(target), True{}, hp))
+      link_own(Sv.link_fault(target), path, q, target, Some{Tree.Entry{f, p, Tree.Whole{}, y, g, m}}, digest, before, x, sh, pr, rest, None{}, None{}, True{}, {==})
     case Tree.Entry{+f, +p, Tree.Lines{}, +y, +g, +m}:
-      found_dropped(ss, path, Tree.Entry{f, p, Tree.Lines{}, y, g, m}, before, Sv.link(path, target, None{}, None{}, True{}), found_link(ss, path, target, None{}, None{}, Sv.link_fault(target), True{}, hp))
+      link_own(Sv.link_fault(target), path, q, target, Some{Tree.Entry{f, p, Tree.Lines{}, y, g, m}}, digest, before, x, sh, pr, rest, None{}, None{}, True{}, {==})
 
-def seen_found(s: Sv.Seen, +rest: List<&2, Sv.Seen>) -> {found_all(s <> rest, Sv.refusals(Sv.seen(s))) == True{} : Bool}:
+def drop_none(+ss: List<&2, Sv.Seen>, +path: String, e: Tree.Entry, +before: Maybe<&2, String>) -> {Sv.each_refused(ss, Sv.refusals([Sv.dropped(path, e, before)])) == True{} : Bool}:
+  match e:
+    case Tree.Entry{f, p, Tree.Link{}, y, g, m}:
+      {==}
+    case Tree.Entry{f, p, Tree.Whole{}, y, g, m}:
+      {==}
+    case Tree.Entry{f, p, Tree.Lines{}, y, g, m}:
+      {==}
+
+def seen_refused(s: Sv.Seen, +rest: List<&2, Sv.Seen>) -> {Sv.each_refused(s <> rest, Sv.refusals(Sv.seen(s))) == True{} : Bool}:
   match s:
     case Sv.Seen{+path, Some{+e}, None{}, +d, +before, +x, +sh, +pr}:
-      found_dropped(Sv.Seen{path, Some{e}, None{}, d, before, x, sh, pr} <> rest, path, e, before, Nil{}, {==})
+      drop_none(Sv.Seen{path, Some{e}, None{}, d, before, x, sh, pr} <> rest, path, e, before)
     case Sv.Seen{+path, None{}, Some{F.Found.Link{+q, +target}}, +d, +before, +x, +sh, +pr}:
-      found_link(Sv.Seen{path, None{}, Some{F.Found.Link{q, target}}, d, before, x, sh, pr} <> rest, path, target, None{}, None{}, Sv.link_fault(target), True{},
-        here(path, None{}, F.Found.Link{q, target}, d, before, x, sh, pr, rest))
+      link_own(Sv.link_fault(target), path, q, target, None{}, d, before, x, sh, pr, rest, None{}, None{}, True{}, {==})
     case Sv.Seen{+path, None{}, Some{F.Found.File{+q, +runs, +n}}, +d, +before, +x, +sh, +pr}:
       {==}
     case Sv.Seen{+path, Some{+e}, Some{F.Found.Link{+q, +target}}, +d, +before, +x, +sh, +pr}:
-      found_held_link(Sv.Seen{path, Some{e}, Some{F.Found.Link{q, target}}, d, before, x, sh, pr} <> rest, path, target, e, sh, before,
-        here(path, Some{e}, F.Found.Link{q, target}, d, before, x, sh, pr, rest))
+      each_held_link(path, q, target, e, d, before, x, sh, pr, rest)
     case Sv.Seen{+path, Some{+e}, Some{F.Found.File{+q, +runs, +n}}, +d, +before, +x, +sh, +pr}:
-      found_held_file(Sv.Seen{path, Some{e}, Some{F.Found.File{q, runs, n}}, d, before, x, sh, pr} <> rest, path, e, d, before, runs, x, pr, Nat.is_eq(n, 0n),
-        here(path, Some{e}, F.Found.File{q, runs, n}, d, before, x, sh, pr, rest))
+      each_held_file(path, e, q, runs, n, d, before, x, sh, pr, rest)
     case Sv.Seen{+path, None{}, None{}, +d, +before, +x, +sh, +pr}:
       {==}
 
-def seens_found(ss: List<&2, Sv.Seen>) -> {found_all(ss, Sv.refusals(Sv.seens(ss))) == True{} : Bool}:
+def seens_refused(ss: List<&2, Sv.Seen>) -> {Sv.each_refused(ss, Sv.refusals(Sv.seens(ss))) == True{} : Bool}:
   match ss:
     case Nil{}:
       {==}
     case +s <> +rest:
-      %Equal.sym(List<&2, T.Split>, Sv.refusals(List.append(&2, Sv.Obs, Sv.seen(s), Sv.seens(rest))), List.append(&2, T.Split, Sv.refusals(Sv.seen(s)), Sv.refusals(Sv.seens(rest))), refusals_app(Sv.seen(s), Sv.seens(rest))) : {found_all(s <> rest, _) == True{} : Bool}
-      found_app(s <> rest, Sv.refusals(Sv.seen(s)), Sv.refusals(Sv.seens(rest)), seen_found(s, rest), found_weaken(Sv.refusals(Sv.seens(rest)), s, rest, seens_found(rest)))
+      %Equal.sym(List<&2, T.Split>, Sv.refusals(List.append(&2, Sv.Obs, Sv.seen(s), Sv.seens(rest))), List.append(&2, T.Split, Sv.refusals(Sv.seen(s)), Sv.refusals(Sv.seens(rest))), refusals_app(Sv.seen(s), Sv.seens(rest))) : {Sv.each_refused(s <> rest, _) == True{} : Bool}
+      each_app(s <> rest, Sv.refusals(Sv.seen(s)), Sv.refusals(Sv.seens(rest)), seen_refused(s, rest), each_weaken(Sv.refusals(Sv.seens(rest)), s, rest, seens_refused(rest)))
+
+# A path refused for its own reason is one the folder found something at,
+# which is what a restricted record's refusals are held to.
+def found_at(ss: List<&2, Sv.Seen>, +p: String) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case Sv.Seen{path, e, found, d, b, x, sh, pr} <> rest:
+      Bool.or(Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), found_at(rest, p))
+
+def found_all(+ss: List<&2, Sv.Seen>, rs: List<&2, T.Split>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case T.Split{+p, b} <> rest:
+      Bool.and(found_at(ss, p), found_all(ss, rest))
+
+def as_found(-e: Maybe<&2, Tree.Entry>, found: Maybe<&2, F.Found>, -x: Bool, -b: String, h: {Sv.refused_as(e, found, x, b) == True{} : Bool}) -> {Maybe.is_some(&2, F.Found, found) == True{} : Bool}:
+  match found:
+    case None{}:
+      h
+    case Some{f}:
+      {==}
+
+def and_weaken(a: Bool, -b: Bool, +c: Bool, h: {Bool.and(a, b) == True{} : Bool}, k: {b == True{} : Bool} -> {c == True{} : Bool}) -> {Bool.and(a, c) == True{} : Bool}:
+  match a:
+    case True{}:
+      k(h)
+    case False{}:
+      h
+
+def by_found(ss: List<&2, Sv.Seen>, +p: String, +b: String, h: {Sv.refused_by(ss, p, b) == True{} : Bool}) -> {found_at(ss, p) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      h
+    case Sv.Seen{+path, +e, +found, +d, +bf, +x, +sh, +pr} <> +rest:
+      AL.or_cases({found_at(Sv.Seen{path, e, found, d, bf, x, sh, pr} <> rest, p) == True{} : Bool}, Bool.and(String.eq(path, p), Sv.refused_as(e, found, x, b)), Sv.refused_by(rest, p, b), h,
+        hl => AL.or_left(Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), found_at(rest, p), and_weaken(String.eq(path, p), Sv.refused_as(e, found, x, b), Maybe.is_some(&2, F.Found, found), hl, k => as_found(e, found, x, b, k))),
+        hr => AL.or_right(Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), found_at(rest, p), by_found(rest, p, b, hr)))
+
+def each_found(+ss: List<&2, Sv.Seen>, rs: List<&2, T.Split>, +h: {Sv.each_refused(ss, rs) == True{} : Bool}) -> {found_all(ss, rs) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case T.Split{+p, +b} <> rest:
+      AL.and_intro(found_at(ss, p), found_all(ss, rest), by_found(ss, p, b, Comp.and_left(Sv.refused_by(ss, p, b), Sv.each_refused(ss, rest), h)),
+        each_found(ss, rest, Comp.and_right(Sv.refused_by(ss, p, b), Sv.each_refused(ss, rest), h)))
 
 # The drops of a path several files claim refuse nothing.
 def dropped_none(+path: String, e: Tree.Entry, +before: Maybe<&2, String>, -xs: List<&2, Sv.Obs>) -> {Sv.refusals(Sv.dropped(path, e, before) <> xs) == Sv.refusals(xs) : List<&2, T.Split>}:
@@ -405,94 +706,106 @@ def claimed_none(t: Tree.Tree(), +cs: List<&2, T.Split>, +held: Set()) -> {Sv.re
     case +e <> +rest:
       claimed_pick(Bool.and(Sv.claimed.has(cs, Tree.entry_path(e)), Bool.not(Sv.has(held, Tree.entry_path(e)))), Tree.entry_path(e), e, Sv.claimed_drops(rest, cs, held), claimed_none(rest, cs, held))
 
+def obs_refused(+t: Tree.Tree(), +cs: List<&2, T.Split>, +held: Set(), +ss: List<&2, Sv.Seen>) -> {Sv.each_refused(ss, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, cs, held)))) == True{} : Bool}:
+  %Equal.sym(List<&2, T.Split>, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, cs, held))), List.append(&2, T.Split, Sv.refusals(Sv.seens(ss)), Sv.refusals(Sv.claimed_drops(t, cs, held))), refusals_app(Sv.seens(ss), Sv.claimed_drops(t, cs, held))) : {Sv.each_refused(ss, _) == True{} : Bool}
+  %Equal.sym(List<&2, T.Split>, Sv.refusals(Sv.claimed_drops(t, cs, held)), Nil{}, claimed_none(t, cs, held)) : {Sv.each_refused(ss, List.append(&2, T.Split, Sv.refusals(Sv.seens(ss)), _)) == True{} : Bool}
+  each_app(ss, Sv.refusals(Sv.seens(ss)), Nil{}, seens_refused(ss), {==})
+
 def obs_found(+t: Tree.Tree(), +cs: List<&2, T.Split>, +held: Set(), +ss: List<&2, Sv.Seen>) -> {found_all(ss, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, cs, held)))) == True{} : Bool}:
-  %Equal.sym(List<&2, T.Split>, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, cs, held))), List.append(&2, T.Split, Sv.refusals(Sv.seens(ss)), Sv.refusals(Sv.claimed_drops(t, cs, held))), refusals_app(Sv.seens(ss), Sv.claimed_drops(t, cs, held))) : {found_all(ss, _) == True{} : Bool}
-  %Equal.sym(List<&2, T.Split>, Sv.refusals(Sv.claimed_drops(t, cs, held)), Nil{}, claimed_none(t, cs, held)) : {found_all(ss, List.append(&2, T.Split, Sv.refusals(Sv.seens(ss)), _)) == True{} : Bool}
-  found_app(ss, Sv.refusals(Sv.seens(ss)), Nil{}, seens_found(ss), {==})
+  each_found(ss, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, cs, held))), obs_refused(t, cs, held, ss))
 
-# And each of the walk's own refusals is one the walk refused.
-def refuses_app(+walked: List<&2, T.Split>, +ss: List<&2, Sv.Seen>, xs: List<&2, T.Split>, +ys: List<&2, T.Split>, +hx: {Sv.refuses_found(walked, ss, xs) == True{} : Bool}, hy: {Sv.refuses_found(walked, ss, ys) == True{} : Bool}) -> {Sv.refuses_found(walked, ss, List.append(&2, T.Split, xs, ys)) == True{} : Bool}:
-  match xs:
-    case Nil{}:
-      hy
-    case T.Split{+p, b} <> rest:
-      AL.and_intro(Bool.or(Sv.walked_at(walked, p), Sv.found_at(ss, p)), Sv.refuses_found(walked, ss, List.append(&2, T.Split, rest, ys)),
-        Comp.and_left(Bool.or(Sv.walked_at(walked, p), Sv.found_at(ss, p)), Sv.refuses_found(walked, ss, rest), hx),
-        refuses_app(walked, ss, rest, ys, Comp.and_right(Bool.or(Sv.walked_at(walked, p), Sv.found_at(ss, p)), Sv.refuses_found(walked, ss, rest), hx), hy))
+# And the walk's own refusals come first, as the walk found them.
+def split_refl(x: T.Split) -> {Sv.split_eq(x, x) == True{} : Bool}:
+  match x:
+    case T.Split{+p, +b}:
+      %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.and(_, String.eq(b, b)) == True{} : Bool}
+      S.eq_refl(b)
 
-def found_refuses(+walked: List<&2, T.Split>, +ss: List<&2, Sv.Seen>, rs: List<&2, T.Split>, +h: {found_all(ss, rs) == True{} : Bool}) -> {Sv.refuses_found(walked, ss, rs) == True{} : Bool}:
-  match rs:
-    case Nil{}:
-      {==}
-    case T.Split{+p, b} <> rest:
-      AL.and_intro(Bool.or(Sv.walked_at(walked, p), Sv.found_at(ss, p)), Sv.refuses_found(walked, ss, rest),
-        AL.or_right(Sv.walked_at(walked, p), Sv.found_at(ss, p), Comp.and_left(Sv.found_at(ss, p), found_all(ss, rest), h)),
-        found_refuses(walked, ss, rest, Comp.and_right(Sv.found_at(ss, p), found_all(ss, rest), h)))
-
-def walked_or(+q: String, +w: Bool, +f: Bool, +p: String, h: {Bool.or(w, f) == True{} : Bool}) -> {Bool.or(Bool.or(String.eq(q, p), w), f) == True{} : Bool}:
-  AL.or_cases({Bool.or(Bool.or(String.eq(q, p), w), f) == True{} : Bool}, w, f, h,
-    hw => AL.or_left(Bool.or(String.eq(q, p), w), f, AL.or_right(String.eq(q, p), w, hw)),
-    hf => AL.or_right(Bool.or(String.eq(q, p), w), f, hf))
-
-def walked_weaken(rs: List<&2, T.Split>, +x: T.Split, +rest: List<&2, T.Split>, +ss: List<&2, Sv.Seen>, +h: {Sv.refuses_found(rest, ss, rs) == True{} : Bool}) -> {Sv.refuses_found(x <> rest, ss, rs) == True{} : Bool}:
-  match rs:
-    case Nil{}:
-      {==}
-    case T.Split{+p, b} <> more:
-      match x:
-        case T.Split{+q, +c}:
-          AL.and_intro(Bool.or(Sv.walked_at(T.Split{q, c} <> rest, p), Sv.found_at(ss, p)), Sv.refuses_found(T.Split{q, c} <> rest, ss, more),
-            walked_or(q, Sv.walked_at(rest, p), Sv.found_at(ss, p), p, Comp.and_left(Bool.or(Sv.walked_at(rest, p), Sv.found_at(ss, p)), Sv.refuses_found(rest, ss, more), h)),
-            walked_weaken(more, T.Split{q, c}, rest, ss, Comp.and_right(Bool.or(Sv.walked_at(rest, p), Sv.found_at(ss, p)), Sv.refuses_found(rest, ss, more), h)))
-
-def walked_head(+q: String, -c: String, -rest: List<&2, T.Split>, -ss: List<&2, Sv.Seen>) -> {Bool.or(Sv.walked_at(T.Split{q, c} <> rest, q), Sv.found_at(ss, q)) == True{} : Bool}:
-  %Equal.sym(Bool, String.eq(q, q), True{}, S.eq_refl(q)) : {Bool.or(Bool.or(_, Sv.walked_at(rest, q)), Sv.found_at(ss, q)) == True{} : Bool}
-  {==}
-
-def walked_self(ws: List<&2, T.Split>, +ss: List<&2, Sv.Seen>) -> {Sv.refuses_found(ws, ss, ws) == True{} : Bool}:
+def after_walked(ws: List<&2, T.Split>, +ss: List<&2, Sv.Seen>, +rs: List<&2, T.Split>, +h: {Sv.each_refused(ss, rs) == True{} : Bool}) -> {Sv.refused_after(ws, ss, List.append(&2, T.Split, ws, rs)) == True{} : Bool}:
   match ws:
     case Nil{}:
-      {==}
-    case T.Split{+q, +c} <> +rest:
-      AL.and_intro(Bool.or(Sv.walked_at(T.Split{q, c} <> rest, q), Sv.found_at(ss, q)), Sv.refuses_found(T.Split{q, c} <> rest, ss, rest),
-        walked_head(q, c, rest, ss),
-        walked_weaken(rest, T.Split{q, c}, rest, ss, walked_self(rest, ss)))
+      h
+    case +w <> rest:
+      AL.and_intro(Sv.split_eq(w, w), Sv.refused_after(rest, ss, List.append(&2, T.Split, rest, rs)), split_refl(w), after_walked(rest, ss, rs, h))
 
-def refused_ok(+t: Tree.Tree(), +held: Set(), +walked: List<&2, T.Split>, +ss: List<&2, Sv.Seen>) -> {Sv.refuses_found(walked, ss, Sv.survey.refused(Sv.survey(t, held, walked, ss))) == True{} : Bool}:
-  refuses_app(walked, ss, walked, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))),
-    walked_self(walked, ss),
-    found_refuses(walked, ss, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), obs_found(t, Sv.claims(t), held, ss)))
+def refused_ok(+t: Tree.Tree(), +held: Set(), +walked: List<&2, T.Split>, +ss: List<&2, Sv.Seen>) -> {Sv.refused_after(walked, ss, Sv.survey.refused(Sv.survey(t, held, walked, ss))) == True{} : Bool}:
+  after_walked(walked, ss, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), obs_refused(t, Sv.claims(t), held, ss))
 
 # A kind stated
 # -------------
 
-def fixed_pick(c: Bool, -msg: String, +f: String, -xs: List<&2, String>, -later: Maybe<&2, String>, -rest: Bool, ih: {Maybe.is_none(&2, String, later) == Bool.and(List.is_empty(&2, String, xs), rest) : Bool}) -> {Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, c, Some{msg}, later)) == Bool.and(List.is_empty(&2, String, Rev.keep(c, f, xs)), rest) : Bool}:
+def fixed_later_pick(c: Bool, +p: String, -msg: String, -rest: Tree.Tree(), -later: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, c, Some{msg}, Sv.kind_fixed(p, rest, later)) == None{} : Maybe<&2, String>}, ih: {Sv.kind_fixed(p, rest, later) == None{} : Maybe<&2, String>} -> {later == None{} : Maybe<&2, String>}) -> {later == None{} : Maybe<&2, String>}:
   match c:
     case True{}:
-      {==}
+      Empty.absurd({later == None{} : Maybe<&2, String>}, NameL.some_none(msg, e))
     case False{}:
-      ih
+      ih(e)
 
-def fixed_ok(+p: String, t: Tree.Tree(), -later: Maybe<&2, String>, -rest: Bool, +ih: {Maybe.is_none(&2, String, later) == rest : Bool}) -> {Maybe.is_none(&2, String, Sv.kind_fixed(p, t, later)) == Bool.and(List.is_empty(&2, String, Tree.at(t, p)), rest) : Bool}:
+def fixed_path_pick(c: Bool, d: Bool, +p: String, +q: String, +g: String, -msg: String, -en: Tree.Entry, -rest: Tree.Tree(), -later: Maybe<&2, String>, +ec: {String.eq(q, p) == c : Bool}, ed: {Tree.entry_path(en) == q : String}, e: {Bool.pick(Maybe<&2, String>, c, Some{msg}, Sv.kind_fixed(p, rest, later)) == None{} : Maybe<&2, String>}, ih: {Sv.kind_fixed(p, rest, later) == None{} : Maybe<&2, String>} -> {Sv.maybe_eq(Tree.path(rest, g), Some{p}) == False{} : Bool}) -> {Sv.maybe_eq(Maybe.map(&2, Tree.Entry, String, x => Tree.entry_path(x), Bool.pick(Maybe<&2, Tree.Entry>, d, Some{en}, Tree.lookup(rest, g))), Some{p}) == False{} : Bool}:
+  match c:
+    case True{}:
+      Empty.absurd({Sv.maybe_eq(Maybe.map(&2, Tree.Entry, String, x => Tree.entry_path(x), Bool.pick(Maybe<&2, Tree.Entry>, d, Some{en}, Tree.lookup(rest, g))), Some{p}) == False{} : Bool}, NameL.some_none(msg, e))
+    case False{}:
+      match d:
+        case True{}:
+          %Equal.sym(String, Tree.entry_path(en), q, ed) : {Sv.maybe_eq(Some{_}, Some{p}) == False{} : Bool}
+          ec
+        case False{}:
+          ih(e)
+
+# A kind stated and not refused leaves the rest to be asked.
+def fixed_later(+p: String, t: Tree.Tree(), -later: Maybe<&2, String>, e: {Sv.kind_fixed(p, t, later) == None{} : Maybe<&2, String>}) -> {later == None{} : Maybe<&2, String>}:
   match t:
     case Nil{}:
-      ih
-    case Tree.Entry{+f, +q, +k, +y, +g, +m} <> more:
-      fixed_pick(String.eq(q, p), "`" ++ p ++ "` is already recorded as " ++ Tree.kind_show(k) ++ ", and decision 0017 fixes that when a file is added; a file that has to change kind is a `drop` and an `add`, which is a new file with a new identity", f, Tree.at(more, p), Sv.kind_fixed(p, more, later), rest, fixed_ok(p, more, later, rest, ih))
+      e
+    case Tree.Entry{+f, +q, +k, +y, +g, +m} <> rest:
+      fixed_later_pick(String.eq(q, p), p, "`" ++ p ++ "` is already recorded as " ++ Tree.kind_show(k) ++ ", and decision 0017 fixes that when a file is added; a file that has to change kind is a `drop` and an `add`, which is a new file with a new identity", rest, later, e, h => fixed_later(p, rest, later, h))
 
-def fault_pick(c: Bool, +p: String, +t: Tree.Tree(), -msg: String, -later: Maybe<&2, String>, -rest: Bool, +ih: {Maybe.is_none(&2, String, later) == rest : Bool}) -> {Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, c, Sv.kind_fixed(p, t, later), Some{msg})) == Bool.and(Bool.and(c, List.is_empty(&2, String, Tree.at(t, p))), rest) : Bool}:
+def fault_later(c: Bool, +p: String, +t: Tree.Tree(), -msg: String, -later: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, c, Sv.kind_fixed(p, t, later), Some{msg}) == None{} : Maybe<&2, String>}) -> {later == None{} : Maybe<&2, String>}:
   match c:
     case True{}:
-      fixed_ok(p, t, later, rest, ih)
+      fixed_later(p, t, later, e)
     case False{}:
-      {==}
+      Empty.absurd({later == None{} : Maybe<&2, String>}, NameL.some_none(msg, e))
 
-def kinds_ok(+only: List<&2, String>, +t: Tree.Tree(), ks: List<&2, T.Split>) -> {Maybe.is_none(&2, String, Sv.kind_fault(only, t, ks)) == Sv.kinds_fresh(only, t, ks) : Bool}:
-  match ks:
+def fault_covers(c: Bool, +p: String, +t: Tree.Tree(), -msg: String, -later: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, c, Sv.kind_fixed(p, t, later), Some{msg}) == None{} : Maybe<&2, String>}) -> {c == True{} : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, NameL.some_none(msg, e))
+
+def fault_fixed(c: Bool, +p: String, +t: Tree.Tree(), -msg: String, -later: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, c, Sv.kind_fixed(p, t, later), Some{msg}) == None{} : Maybe<&2, String>}) -> {Sv.kind_fixed(p, t, later) == None{} : Maybe<&2, String>}:
+  match c:
+    case True{}:
+      e
+    case False{}:
+      Empty.absurd({Sv.kind_fixed(p, t, later) == None{} : Maybe<&2, String>}, NameL.some_none(msg, e))
+
+# The kinds stated before one, not refused, leave that one to be asked.
+def kinds_tail(+only: List<&2, String>, +t: Tree.Tree(), pre: List<&2, T.Split>, +rest: List<&2, T.Split>, e: {Sv.kind_fault(only, t, List.append(&2, T.Split, pre, rest)) == None{} : Maybe<&2, String>}) -> {Sv.kind_fault(only, t, rest) == None{} : Maybe<&2, String>}:
+  match pre:
+    case Nil{}:
+      e
+    case T.Split{+q, k} <> more:
+      kinds_tail(only, t, more, rest, fault_later(Sv.covers(only, q), q, t, "`" ++ q ++ "` is not one of the paths this is recording, so saying which kind it is would state nothing; name it as a path too, or drop the restriction", Sv.kind_fault(only, t, List.append(&2, T.Split, more, rest)), e))
+
+# Where no file of the position stands at a path, none is found there.
+def fixed_path(+p: String, t: Tree.Tree(), -later: Maybe<&2, String>, +g: String, e: {Sv.kind_fixed(p, t, later) == None{} : Maybe<&2, String>}) -> {Sv.maybe_eq(Tree.path(t, g), Some{p}) == False{} : Bool}:
+  match t:
     case Nil{}:
       {==}
-    case T.Split{+p, k} <> rest:
-      fault_pick(Sv.covers(only, p), p, t, "`" ++ p ++ "` is not one of the paths this is recording, so saying which kind it is would state nothing; name it as a path too, or drop the restriction", Sv.kind_fault(only, t, rest), Sv.kinds_fresh(only, t, rest), kinds_ok(only, t, rest))
+    case Tree.Entry{+f, +q, +k, +y, +gt, +m} <> +rest:
+      fixed_path_pick(String.eq(q, p), String.eq(f, g), p, q, g, "`" ++ p ++ "` is already recorded as " ++ Tree.kind_show(k) ++ ", and decision 0017 fixes that when a file is added; a file that has to change kind is a `drop` and an `add`, which is a new file with a new identity", Tree.Entry{f, q, k, y, gt, m}, rest, later, {==}, {==}, e, h => fixed_path(p, rest, later, g, h))
+
+# So each kind stated, wherever it stands among them, is for a path the
+# record looks at, and no file of the position stands there.
+def kind_arrival(+only: List<&2, String>, +t: Tree.Tree(), pre: List<&2, T.Split>, +p: String, k: String, +post: List<&2, T.Split>, e: {Sv.kind_fault(only, t, List.append(&2, T.Split, pre, T.Split{p, k} <> post)) == None{} : Maybe<&2, String>}, +g: String) -> {Bool.and(Sv.covers(only, p), Bool.not(Sv.maybe_eq(Tree.path(t, g), Some{p}))) == True{} : Bool}:
+  +msg = "`" ++ p ++ "` is not one of the paths this is recording, so saying which kind it is would state nothing; name it as a path too, or drop the restriction"
+  +h = kinds_tail(only, t, pre, T.Split{p, k} <> post, e)
+  AL.and_intro(Sv.covers(only, p), Bool.not(Sv.maybe_eq(Tree.path(t, g), Some{p})),
+    fault_covers(Sv.covers(only, p), p, t, msg, Sv.kind_fault(only, t, post), h),
+    AL.not_true(Sv.maybe_eq(Tree.path(t, g), Some{p}), fixed_path(p, t, Sv.kind_fault(only, t, post), g, fault_fixed(Sv.covers(only, p), p, t, msg, Sv.kind_fault(only, t, post), h))))
 
 # The `move` lines
 # ----------------
@@ -506,128 +819,101 @@ def later_none(ms: List<&2, T.Split>, +f: String, +h: {Sv.moved.later(ms, f) == 
       %Equal.sym(Bool, String.eq(g, f), False{}, AL.or_false_l(String.eq(g, f), Sv.moved.later(rest, f), h)) : {Maybe.or(&2, String, None{}, Bool.pick(Maybe<&2, String>, _, Some{to}, None{})) == None{} : Maybe<&2, String>}
       {==}
 
-def final_pick(c: Bool, +g: String, +to: String, +later: List<&2, T.Split>, +f: String, heq: {String.eq(g, f) == False{} : Bool}, ih: {Sv.moved.later(later, f) == False{} : Bool}) -> {Sv.moved.later(Bool.pick(List<&2, T.Split>, c, later, T.Split{g, to} <> later), f) == False{} : Bool}:
+def or_none(m: Maybe<&2, String>) -> {Maybe.or(&2, String, m, None{}) == m : Maybe<&2, String>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+def or_some(m: Maybe<&2, String>, -n: Maybe<&2, String>, h: {Maybe.is_some(&2, String, m) == True{} : Bool}) -> {Maybe.or(&2, String, m, n) == m : Maybe<&2, String>}:
+  match m:
+    case None{}:
+      Empty.absurd({Maybe.or(&2, String, None{}, n) == None{} : Maybe<&2, String>}, S.false_true(h))
+    case Some{x}:
+      {==}
+
+def some_left(m: Maybe<&2, String>, -n: Maybe<&2, String>, h: {Maybe.is_some(&2, String, m) == True{} : Bool}) -> {Maybe.is_some(&2, String, Maybe.or(&2, String, m, n)) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Maybe.is_some(&2, String, n) == True{} : Bool}, S.false_true(h))
+    case Some{x}:
+      {==}
+
+def some_right(m: Maybe<&2, String>, -x: String) -> {Maybe.is_some(&2, String, Maybe.or(&2, String, m, Some{x})) == True{} : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{y}:
+      {==}
+
+# A file a later rename moves has a last place.
+def later_some(ms: List<&2, T.Split>, +f: String, +h: {Sv.moved.later(ms, f) == True{} : Bool}) -> {Maybe.is_some(&2, String, Sv.last_move(ms, f)) == True{} : Bool}:
+  match ms:
+    case Nil{}:
+      Empty.absurd({Maybe.is_some(&2, String, None{}) == True{} : Bool}, S.false_true(h))
+    case T.Split{+g, +to} <> +rest:
+      AL.or_cases({Maybe.is_some(&2, String, Maybe.or(&2, String, Sv.last_move(rest, f), Bool.pick(Maybe<&2, String>, String.eq(g, f), Some{to}, None{}))) == True{} : Bool}, String.eq(g, f), Sv.moved.later(rest, f), h,
+        hg => %Equal.sym(Bool, String.eq(g, f), True{}, hg) : {Maybe.is_some(&2, String, Maybe.or(&2, String, Sv.last_move(rest, f), Bool.pick(Maybe<&2, String>, _, Some{to}, None{}))) == True{} : Bool}
+          some_right(Sv.last_move(rest, f), to),
+        hl => some_left(Sv.last_move(rest, f), Bool.pick(Maybe<&2, String>, String.eq(g, f), Some{to}, None{}), later_some(rest, f, hl)))
+
+def nil_pick(b: Bool) -> {Nil{} == Bool.pick(List<&2, String>, b, Nil{}, Nil{}) : List<&2, String>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# A rename of another file says nothing of this one.
+def other_step(c: Bool, +g: String, +to: String, +xs: List<&2, T.Split>, +f: String, +hn: {String.eq(g, f) == False{} : Bool}) -> {Sv.moves_of(Bool.pick(List<&2, T.Split>, c, xs, T.Split{g, to} <> xs), f) == Sv.moves_of(xs, f) : List<&2, String>}:
   match c:
+    case True{}:
+      {==}
+    case False{}:
+      %Equal.sym(Bool, String.eq(g, f), False{}, hn) : {Bool.pick(List<&2, String>, _, to <> Sv.moves_of(xs, f), Sv.moves_of(xs, f)) == Sv.moves_of(xs, f) : List<&2, String>}
+      {==}
+
+# A rename of this file: no line where it is going, the later one's place
+# where a later rename moves it, and this one's otherwise.
+def same_step(s: Bool, l: Bool, +to: String, +xs: List<&2, T.Split>, +f: String, +lm: Maybe<&2, String>, ih: {Sv.moves_of(xs, f) == Bool.pick(List<&2, String>, s, Nil{}, Sv.maybe_list(lm)) : List<&2, String>}, ht: {l == True{} : Bool} -> {Maybe.is_some(&2, String, lm) == True{} : Bool}, hf: {l == False{} : Bool} -> {lm == None{} : Maybe<&2, String>}) -> {Sv.moves_of(Bool.pick(List<&2, T.Split>, Bool.or(s, l), xs, T.Split{f, to} <> xs), f) == Bool.pick(List<&2, String>, s, Nil{}, Sv.maybe_list(Maybe.or(&2, String, lm, Some{to}))) : List<&2, String>}:
+  match s:
     case True{}:
       ih
     case False{}:
-      AL.or_false(String.eq(g, f), Sv.moved.later(later, f), heq, ih)
+      match l:
+        case True{}:
+          %Equal.sym(Maybe<&2, String>, Maybe.or(&2, String, lm, Some{to}), lm, or_some(lm, Some{to}, ht({==}))) : {Sv.moves_of(xs, f) == Sv.maybe_list(_) : List<&2, String>}
+          ih
+        case False{}:
+          +hn = hf({==})
+          %Equal.sym(Maybe<&2, String>, lm, None{}, hn) : {Sv.moves_of(T.Split{f, to} <> xs, f) == Sv.maybe_list(Maybe.or(&2, String, _, Some{to})) : List<&2, String>}
+          %Equal.sym(Bool, String.eq(f, f), True{}, S.eq_refl(f)) : {Bool.pick(List<&2, String>, _, to <> Sv.moves_of(xs, f), Sv.moves_of(xs, f)) == [to] : List<&2, String>}
+          %Equal.sym(List<&2, String>, Sv.moves_of(xs, f), Sv.maybe_list(lm), ih) : {to <> _ == [to] : List<&2, String>}
+          %Equal.sym(Maybe<&2, String>, lm, None{}, hn) : {to <> Sv.maybe_list(_) == [to] : List<&2, String>}
+          {==}
 
-def final_later(ms: List<&2, T.Split>, +gone: Set(), +f: String, +h: {Sv.moved.later(ms, f) == False{} : Bool}) -> {Sv.moved.later(Sv.moved.final(ms, gone), f) == False{} : Bool}:
-  match ms:
-    case Nil{}:
-      {==}
-    case T.Split{+g, +to} <> +rest:
-      final_pick(Bool.or(Sv.has(gone, g), Sv.moved.later(rest, g)), g, to, Sv.moved.final(rest, gone), f,
-        AL.or_false_l(String.eq(g, f), Sv.moved.later(rest, f), h),
-        final_later(rest, gone, f, AL.or_false_r(String.eq(g, f), Sv.moved.later(rest, f), h)))
-
-def or_keep(m: Maybe<&2, String>, -n: Maybe<&2, String>, +to: String, h: {Sv.maybe_eq(m, Some{to}) == True{} : Bool}) -> {Sv.maybe_eq(Maybe.or(&2, String, m, n), Some{to}) == True{} : Bool}:
-  match m:
-    case None{}:
-      Empty.absurd({Sv.maybe_eq(n, Some{to}) == True{} : Bool}, S.false_true(h))
-    case Some{y}:
-      h
-
-def moves_weaken(out: List<&2, T.Split>, +x: T.Split, +ms: List<&2, T.Split>, +gone: Set(), +h: {Sv.moves_ok(ms, gone, out) == True{} : Bool}) -> {Sv.moves_ok(x <> ms, gone, out) == True{} : Bool}:
-  match out:
-    case Nil{}:
-      {==}
-    case T.Split{+f, +to} <> +rest:
-      match x:
-        case T.Split{+g, +gt}:
-          AL.and_intro(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(T.Split{g, gt} <> ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(T.Split{g, gt} <> ms, gone, rest)),
-            AL.and_intro(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(T.Split{g, gt} <> ms, f), Some{to}),
-              Comp.and_left(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to}), Comp.and_left(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest)), h)),
-              or_keep(Sv.last_move(ms, f), Bool.pick(Maybe<&2, String>, String.eq(g, f), Some{gt}, None{}), to, Comp.and_right(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to}), Comp.and_left(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest)), h)))),
-            AL.and_intro(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(T.Split{g, gt} <> ms, gone, rest),
-              Comp.and_left(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest), Comp.and_right(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest)), h)),
-              moves_weaken(rest, T.Split{g, gt}, ms, gone, Comp.and_right(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest), Comp.and_right(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(ms, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(rest, f)), Sv.moves_ok(ms, gone, rest)), h)))))
-
-# The head's own line: the last place it went, since nothing after moves it.
-def moved_here(+f: String, +to: String, +rest: List<&2, T.Split>, +h: {Sv.moved.later(rest, f) == False{} : Bool}) -> {Sv.maybe_eq(Sv.last_move(T.Split{f, to} <> rest, f), Some{to}) == True{} : Bool}:
-  %Equal.sym(Maybe<&2, String>, Sv.last_move(rest, f), None{}, later_none(rest, f, h)) : {Sv.maybe_eq(Maybe.or(&2, String, _, Bool.pick(Maybe<&2, String>, String.eq(f, f), Some{to}, None{})), Some{to}) == True{} : Bool}
-  %Equal.sym(Bool, String.eq(f, f), True{}, S.eq_refl(f)) : {Sv.maybe_eq(Maybe.or(&2, String, None{}, Bool.pick(Maybe<&2, String>, _, Some{to}, None{})), Some{to}) == True{} : Bool}
-  S.eq_refl(to)
-
-def moves_pick(c: Bool, +f: String, +to: String, +rest: List<&2, T.Split>, +gone: Set(), +ec: {Bool.or(Sv.has(gone, f), Sv.moved.later(rest, f)) == c : Bool}, +ih: {Sv.moves_ok(rest, gone, Sv.moved.final(rest, gone)) == True{} : Bool}) -> {Sv.moves_ok(T.Split{f, to} <> rest, gone, Bool.pick(List<&2, T.Split>, c, Sv.moved.final(rest, gone), T.Split{f, to} <> Sv.moved.final(rest, gone))) == True{} : Bool}:
-  match c:
-    case True{}:
-      moves_weaken(Sv.moved.final(rest, gone), T.Split{f, to}, rest, gone, ih)
+def final_step(d: Bool, +g: String, +to: String, +rest: List<&2, T.Split>, +gone: Set(), +f: String, +ed: {String.eq(g, f) == d : Bool}, +ih: {Sv.moves_of(Sv.moved.final(rest, gone), f) == Bool.pick(List<&2, String>, Sv.has(gone, f), Nil{}, Sv.maybe_list(Sv.last_move(rest, f))) : List<&2, String>}) -> {Sv.moves_of(Bool.pick(List<&2, T.Split>, Bool.or(Sv.has(gone, g), Sv.moved.later(rest, g)), Sv.moved.final(rest, gone), T.Split{g, to} <> Sv.moved.final(rest, gone)), f) == Bool.pick(List<&2, String>, Sv.has(gone, f), Nil{}, Sv.maybe_list(Maybe.or(&2, String, Sv.last_move(rest, f), Bool.pick(Maybe<&2, String>, d, Some{to}, None{})))) : List<&2, String>}:
+  match d:
     case False{}:
-      AL.and_intro(Bool.and(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(T.Split{f, to} <> rest, f), Some{to})), Bool.and(Bool.not(Sv.moved.later(Sv.moved.final(rest, gone), f)), Sv.moves_ok(T.Split{f, to} <> rest, gone, Sv.moved.final(rest, gone))),
-        AL.and_intro(Bool.not(Sv.has(gone, f)), Sv.maybe_eq(Sv.last_move(T.Split{f, to} <> rest, f), Some{to}),
-          AL.not_true(Sv.has(gone, f), AL.or_false_l(Sv.has(gone, f), Sv.moved.later(rest, f), ec)),
-          moved_here(f, to, rest, AL.or_false_r(Sv.has(gone, f), Sv.moved.later(rest, f), ec))),
-        AL.and_intro(Bool.not(Sv.moved.later(Sv.moved.final(rest, gone), f)), Sv.moves_ok(T.Split{f, to} <> rest, gone, Sv.moved.final(rest, gone)),
-          AL.not_true(Sv.moved.later(Sv.moved.final(rest, gone), f), final_later(rest, gone, f, AL.or_false_r(Sv.has(gone, f), Sv.moved.later(rest, f), ec))),
-          moves_weaken(Sv.moved.final(rest, gone), T.Split{f, to}, rest, gone, ih)))
+      %Equal.sym(Maybe<&2, String>, Maybe.or(&2, String, Sv.last_move(rest, f), None{}), Sv.last_move(rest, f), or_none(Sv.last_move(rest, f))) : {Sv.moves_of(Bool.pick(List<&2, T.Split>, Bool.or(Sv.has(gone, g), Sv.moved.later(rest, g)), Sv.moved.final(rest, gone), T.Split{g, to} <> Sv.moved.final(rest, gone)), f) == Bool.pick(List<&2, String>, Sv.has(gone, f), Nil{}, Sv.maybe_list(_)) : List<&2, String>}
+      Equal.trans(List<&2, String>, Sv.moves_of(Bool.pick(List<&2, T.Split>, Bool.or(Sv.has(gone, g), Sv.moved.later(rest, g)), Sv.moved.final(rest, gone), T.Split{g, to} <> Sv.moved.final(rest, gone)), f), Sv.moves_of(Sv.moved.final(rest, gone), f), Bool.pick(List<&2, String>, Sv.has(gone, f), Nil{}, Sv.maybe_list(Sv.last_move(rest, f))),
+        other_step(Bool.or(Sv.has(gone, g), Sv.moved.later(rest, g)), g, to, Sv.moved.final(rest, gone), f, ed), ih)
+    case True{}:
+      %Equal.sym(String, g, f, S.eq_true(g, f, ed)) : {Sv.moves_of(Bool.pick(List<&2, T.Split>, Bool.or(Sv.has(gone, _), Sv.moved.later(rest, _)), Sv.moved.final(rest, gone), T.Split{_, to} <> Sv.moved.final(rest, gone)), f) == Bool.pick(List<&2, String>, Sv.has(gone, f), Nil{}, Sv.maybe_list(Maybe.or(&2, String, Sv.last_move(rest, f), Some{to}))) : List<&2, String>}
+      same_step(Sv.has(gone, f), Sv.moved.later(rest, f), to, Sv.moved.final(rest, gone), f, Sv.last_move(rest, f), ih, h => later_some(rest, f, h), h => later_none(rest, f, h))
 
-def moves_final_ok(ms: List<&2, T.Split>, +gone: Set()) -> {Sv.moves_ok(ms, gone, Sv.moved.final(ms, gone)) == True{} : Bool}:
+# The lines give a file the renames moved and the record keeps the last
+# place they put it, and any other file none.
+def final_moves(ms: List<&2, T.Split>, +gone: Set(), +f: String) -> {Sv.moves_of(Sv.moved.final(ms, gone), f) == Bool.pick(List<&2, String>, Sv.has(gone, f), Nil{}, Sv.maybe_list(Sv.last_move(ms, f))) : List<&2, String>}:
   match ms:
     case Nil{}:
-      {==}
-    case T.Split{+f, +to} <> +rest:
-      moves_pick(Bool.or(Sv.has(gone, f), Sv.moved.later(rest, f)), f, to, rest, gone, {==}, moves_final_ok(rest, gone))
+      nil_pick(Sv.has(gone, f))
+    case T.Split{+g, +to} <> +rest:
+      final_step(String.eq(g, f), g, to, rest, gone, f, {==}, final_moves(rest, gone, f))
 
 # The paths a person names
 # ------------------------
-
-def ldisc(xs: List<&2, String>) -> Type:
-  match xs:
-    case Nil{}:
-      Empty
-    case x <> rest:
-      Unit
-
-def cons_nil(-x: String, -rest: List<&2, String>, e: {x <> rest == Nil{} : List<&2, String>}) -> Empty:
-  %e : {ldisc(_) : Type}
-  Unit{}
-
-# A path a rule keeps out is refused as kept out, and any other as absent,
-# so where neither refusal names one, nothing is unknown.
-def kept_pick(s: Bool, -n: String, -one: List<&2, String>, -other: List<&2, String>, e1: {List.is_empty(&2, String, Bool.pick(List<&2, String>, Bool.xor(s, False{}), n <> one, one)) == True{} : Bool}, e2: {List.is_empty(&2, String, Bool.pick(List<&2, String>, Bool.xor(s, True{}), n <> other, other)) == True{} : Bool}) -> Empty:
-  match s:
-    case True{}:
-      S.false_true(e1)
-    case False{}:
-      S.false_true(e2)
-
-def kept_nil(+rules: List<&2, F.Scope>, u: List<&2, String>, e1: {List.is_empty(&2, String, Sv.kept_out(rules, u, True{})) == True{} : Bool}, e2: {List.is_empty(&2, String, Sv.kept_out(rules, u, False{})) == True{} : Bool}) -> {u == Nil{} : List<&2, String>}:
-  match u:
-    case Nil{}:
-      {==}
-    case +n <> +rest:
-      Empty.absurd({n <> rest == Nil{} : List<&2, String>}, kept_pick(Bool.or(F.skips(rules, n), F.skips_directory(rules, n)), n, Sv.kept_out(rules, rest, True{}), Sv.kept_out(rules, rest, False{}), e1, e2))
-
-def unknown_pick(c: Bool, +n: String, -later: List<&2, String>, -rest: Bool, e: {Bool.pick(List<&2, String>, c, later, n <> later) == Nil{} : List<&2, String>}, ih: {later == Nil{} : List<&2, String>} -> {rest == True{} : Bool}) -> {Bool.and(c, rest) == True{} : Bool}:
-  match c:
-    case True{}:
-      ih(e)
-    case False{}:
-      Empty.absurd({False{} == True{} : Bool}, cons_nil(n, later, e))
-
-def unknown_nil(ns: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>, e: {Sv.unknown(ns, folder, was, placed) == Nil{} : List<&2, String>}) -> {Sv.answered(ns, folder, was, placed) == True{} : Bool}:
-  match ns:
-    case Nil{}:
-      {==}
-    case +n <> +rest:
-      unknown_pick(Bool.or(Sv.any_beneath(n, folder), Bool.or(Sv.any_beneath(n, was), Sv.any_beneath(n, placed))), n, Sv.unknown(rest, folder, was, placed), Sv.answered(rest, folder, was, placed), e,
-        h => unknown_nil(rest, folder, was, placed, h))
-
-def refuse_cond(c: Bool, -r: Main.Refused, -rest: Result<&2, &2, Main.Refused, Unit>, e: {Bool.pick(Result<&2, &2, Main.Refused, Unit>, c, Fail{r}, rest) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}) -> {c == False{} : Bool}:
-  match c:
-    case True{}:
-      Empty.absurd({True{} == False{} : Bool}, Blamed.fail_done(Unit, r, Unit{}, e))
-    case False{}:
-      {==}
-
-def refuse_rest(c: Bool, -r: Main.Refused, -rest: Result<&2, &2, Main.Refused, Unit>, e: {Bool.pick(Result<&2, &2, Main.Refused, Unit>, c, Fail{r}, rest) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}) -> {rest == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}:
-  match c:
-    case True{}:
-      Empty.absurd({rest == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}, Blamed.fail_done(Unit, r, Unit{}, e))
-    case False{}:
-      e
 
 def not_false(b: Bool, e: {Bool.not(b) == False{} : Bool}) -> {b == True{} : Bool}:
   match b:
@@ -636,26 +922,86 @@ def not_false(b: Bool, e: {Bool.not(b) == False{} : Bool}) -> {b == True{} : Boo
     case False{}:
       Empty.absurd({False{} == True{} : Bool}, S.true_false(e))
 
-def named_ok(+rules: List<&2, F.Scope>, +named: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>, +e: {Main.named.r(rules, named, folder, was, placed) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}) -> {Sv.answered(named, folder, was, placed) == True{} : Bool}:
-  unknown_nil(named, folder, was, placed,
-    kept_nil(rules, Sv.unknown(named, folder, was, placed),
-      not_false(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{})),
-        refuse_cond(Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))),
-          Main.Refused{1, "`history/skipped/` says history does not take " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "this", "these") ++ ", and naming " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " here does not make " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " an exception; remove the rule if " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it is", "they are") ++ " to be recorded:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))},
-          Bool.pick(Result<&2, &2, Main.Refused, Unit>, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))),
-            Fail{Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))}},
-            Done{Unit{}}),
-          e)),
-      not_false(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{})),
-        refuse_cond(Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))),
-          Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))},
-          Done{Unit{}},
-          refuse_rest(Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))),
-            Main.Refused{1, "`history/skipped/` says history does not take " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "this", "these") ++ ", and naming " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " here does not make " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " an exception; remove the rule if " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it is", "they are") ++ " to be recorded:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))},
-            Bool.pick(Result<&2, &2, Main.Refused, Unit>, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))),
-              Fail{Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))}},
-              Done{Unit{}}),
-            e)))))
+# A path covers what a restriction to it alone covers: itself, and what
+# lies beneath it as a directory.
+def any_covers(+n: String, ps: List<&2, String>) -> {Sv.covers_some(n, ps) == Sv.any_beneath(n, ps) : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> rest:
+      %Equal.sym(Bool, Bool.or(Sv.beneath(n, p), False{}), Sv.beneath(n, p), or_f(Sv.beneath(n, p))) : {Bool.or(_, Sv.covers_some(n, rest)) == Bool.or(Sv.beneath(n, p), Sv.any_beneath(n, rest)) : Bool}
+      %Equal.sym(Bool, Sv.covers_some(n, rest), Sv.any_beneath(n, rest), any_covers(n, rest)) : {Bool.or(Sv.beneath(n, p), _) == Bool.or(Sv.beneath(n, p), Sv.any_beneath(n, rest)) : Bool}
+      {==}
+
+def covers_app(+n: String, xs: List<&2, String>, +ys: List<&2, String>) -> {Sv.covers_some(n, List.append(&2, String, xs, ys)) == Bool.or(Sv.any_beneath(n, xs), Sv.covers_some(n, ys)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +p <> rest:
+      %Equal.sym(Bool, Bool.or(Sv.beneath(n, p), False{}), Sv.beneath(n, p), or_f(Sv.beneath(n, p))) : {Bool.or(_, Sv.covers_some(n, List.append(&2, String, rest, ys))) == Bool.or(Bool.or(Sv.beneath(n, p), Sv.any_beneath(n, rest)), Sv.covers_some(n, ys)) : Bool}
+      %Equal.sym(Bool, Sv.covers_some(n, List.append(&2, String, rest, ys)), Bool.or(Sv.any_beneath(n, rest), Sv.covers_some(n, ys)), covers_app(n, rest, ys)) : {Bool.or(Sv.beneath(n, p), _) == Bool.or(Bool.or(Sv.beneath(n, p), Sv.any_beneath(n, rest)), Sv.covers_some(n, ys)) : Bool}
+      AL.or_assoc(Sv.beneath(n, p), Sv.any_beneath(n, rest), Sv.covers_some(n, ys))
+
+# What answers to a path named: the folder, the position, or the renames.
+def answers(+n: String, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>) -> {Bool.or(Sv.any_beneath(n, folder), Bool.or(Sv.any_beneath(n, was), Sv.any_beneath(n, placed))) == Sv.covers_some(n, List.append(&2, String, folder, List.append(&2, String, was, placed))) : Bool}:
+  %Equal.sym(Bool, Sv.covers_some(n, List.append(&2, String, folder, List.append(&2, String, was, placed))), Bool.or(Sv.any_beneath(n, folder), Sv.covers_some(n, List.append(&2, String, was, placed))), covers_app(n, folder, List.append(&2, String, was, placed))) : {Bool.or(Sv.any_beneath(n, folder), Bool.or(Sv.any_beneath(n, was), Sv.any_beneath(n, placed))) == _ : Bool}
+  %Equal.sym(Bool, Sv.covers_some(n, List.append(&2, String, was, placed)), Bool.or(Sv.any_beneath(n, was), Sv.covers_some(n, placed)), covers_app(n, was, placed)) : {Bool.or(Sv.any_beneath(n, folder), Bool.or(Sv.any_beneath(n, was), Sv.any_beneath(n, placed))) == Bool.or(Sv.any_beneath(n, folder), _) : Bool}
+  %Equal.sym(Bool, Sv.covers_some(n, placed), Sv.any_beneath(n, placed), any_covers(n, placed)) : {Bool.or(Sv.any_beneath(n, folder), Bool.or(Sv.any_beneath(n, was), Sv.any_beneath(n, placed))) == Bool.or(Sv.any_beneath(n, folder), Bool.or(Sv.any_beneath(n, was), _)) : Bool}
+  {==}
+
+def unknown_pick(c: Bool, -n: String, -later: List<&2, String>, -rest: Bool, ih: {List.is_empty(&2, String, later) == rest : Bool}) -> {List.is_empty(&2, String, Bool.pick(List<&2, String>, c, later, n <> later)) == Bool.and(c, rest) : Bool}:
+  match c:
+    case True{}:
+      ih
+    case False{}:
+      {==}
+
+# Nothing is unknown exactly where each path named covers something.
+def unknown_empty(ns: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>) -> {List.is_empty(&2, String, Sv.unknown(ns, folder, was, placed)) == Sv.each_covers(ns, List.append(&2, String, folder, List.append(&2, String, was, placed))) : Bool}:
+  match ns:
+    case Nil{}:
+      {==}
+    case +n <> rest:
+      %answers(n, folder, was, placed) : {List.is_empty(&2, String, Sv.unknown(n <> rest, folder, was, placed)) == Bool.and(_, Sv.each_covers(rest, List.append(&2, String, folder, List.append(&2, String, was, placed)))) : Bool}
+      unknown_pick(Bool.or(Sv.any_beneath(n, folder), Bool.or(Sv.any_beneath(n, was), Sv.any_beneath(n, placed))), n, Sv.unknown(rest, folder, was, placed), Sv.each_covers(rest, List.append(&2, String, folder, List.append(&2, String, was, placed))), unknown_empty(rest, folder, was, placed))
+
+# A path nothing answers to is refused as kept out or as absent, never
+# both and never neither.
+def kept_pick(s: Bool, -n: String, one: List<&2, String>, -other: List<&2, String>) -> {Bool.and(List.is_empty(&2, String, Bool.pick(List<&2, String>, Bool.xor(s, False{}), n <> one, one)), List.is_empty(&2, String, Bool.pick(List<&2, String>, Bool.xor(s, True{}), n <> other, other))) == False{} : Bool}:
+  match s:
+    case True{}:
+      {==}
+    case False{}:
+      AL.and_false_r(List.is_empty(&2, String, one))
+
+def kept_split(+rules: List<&2, F.Scope>, u: List<&2, String>) -> {Bool.and(List.is_empty(&2, String, Sv.kept_out(rules, u, True{})), List.is_empty(&2, String, Sv.kept_out(rules, u, False{}))) == List.is_empty(&2, String, u) : Bool}:
+  match u:
+    case Nil{}:
+      {==}
+    case +n <> +rest:
+      kept_pick(Bool.or(F.skips(rules, n), F.skips_directory(rules, n)), n, Sv.kept_out(rules, rest, True{}), Sv.kept_out(rules, rest, False{}))
+
+def done_pick(a: Bool, b: Bool, -r1: Main.Refused, -r2: Main.Refused) -> {Result.is_done(&2, &2, Main.Refused, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, Bool.not(a), Fail{r1}, Bool.pick(Result<&2, &2, Main.Refused, Unit>, Bool.not(b), Fail{r2}, Done{Unit{}}))) == Bool.and(a, b) : Bool}:
+  match a:
+    case True{}:
+      match b:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case False{}:
+      {==}
+
+# So `record` goes on exactly where each path named covers something the
+# folder, the position or the renames hold, whatever the rules say.
+def named_done(+rules: List<&2, F.Scope>, +named: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>) -> {Result.is_done(&2, &2, Main.Refused, Unit, Main.named.r(rules, named, folder, was, placed)) == Sv.each_covers(named, List.append(&2, String, folder, List.append(&2, String, was, placed))) : Bool}:
+  Equal.trans(Bool, Result.is_done(&2, &2, Main.Refused, Unit, Main.named.r(rules, named, folder, was, placed)), List.is_empty(&2, String, Sv.unknown(named, folder, was, placed)), Sv.each_covers(named, List.append(&2, String, folder, List.append(&2, String, was, placed))),
+    Equal.trans(Bool, Result.is_done(&2, &2, Main.Refused, Unit, Main.named.r(rules, named, folder, was, placed)), Bool.and(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{})), List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))), List.is_empty(&2, String, Sv.unknown(named, folder, was, placed)),
+      done_pick(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{})), List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{})),
+        Main.Refused{1, "`history/skipped/` says history does not take " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "this", "these") ++ ", and naming " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " here does not make " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " an exception; remove the rule if " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it is", "they are") ++ " to be recorded:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))},
+        Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))}),
+      kept_split(rules, Sv.unknown(named, folder, was, placed))),
+    unknown_empty(named, folder, was, placed))
 
 # Where the stated renames put things
 # -----------------------------------
@@ -673,6 +1019,30 @@ def pl_moved(r: Result<&2, &2, Main.Refused, Main.Placed>) -> List<&2, T.Split>:
       Nil{}
     case Done{Main.Placed{t, m}}:
       m
+
+# With no `--move`, the renames `record` goes on with are the `--at`s, as
+# a person stated them.
+def at_ats(ats: List<&2, T.Split>, +t: Tree.Tree(), +acc: List<&2, T.Split>, held: Bool, -t2: Tree.Tree(), -m2: List<&2, T.Split>, +e: {Main.placed.at.r(ats, t, acc, held) == Done{Main.Placed{t2, m2}} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {m2 == List.append(&2, T.Split, acc, ats) : List<&2, T.Split>}:
+  match ats held:
+    case Nil{} _:
+      %Equal.cong(Result<&2, &2, Main.Refused, Main.Placed>, List<&2, T.Split>, r => pl_moved(r), Done{Main.Placed{t, acc}}, Done{Main.Placed{t2, m2}}, e) : {_ == List.append(&2, T.Split, acc, Nil{}) : List<&2, T.Split>}
+      Equal.sym(List<&2, T.Split>, List.append(&2, T.Split, acc, Nil{}), acc, SortL.lapp_nil(T.Split, acc))
+    case T.Split{f, to} <> rest False{}:
+      Empty.absurd({m2 == List.append(&2, T.Split, acc, T.Split{f, to} <> rest) : List<&2, T.Split>}, Blamed.fail_done(Main.Placed, Main.Refused{1, "`" ++ f ++ "` is not a file this history holds, so nothing can be moved from it"}, Main.Placed{t2, m2}, e))
+    case T.Split{+f, +to} <> +rest True{}:
+      Equal.trans(List<&2, T.Split>, m2, List.append(&2, T.Split, List.append(&2, T.Split, acc, [T.Split{f, to}]), rest), List.append(&2, T.Split, acc, T.Split{f, to} <> rest),
+        at_ats(rest, Sv.relocated(t, f, to), List.append(&2, T.Split, acc, [T.Split{f, to}]), Main.placed.holds(Sv.relocated(t, f, to), rest), t2, m2, e),
+        SortL.app_assoc(T.Split, acc, [T.Split{f, to}], rest))
+
+def ats_bind(+t: Tree.Tree(), +ats: List<&2, T.Split>, r: Result<&2, &2, Main.Refused, Main.Placed>, +er: {Main.placed.at.r(ats, t, Nil{}, Main.placed.holds(t, ats)) == r : Result<&2, &2, Main.Refused, Main.Placed>}, -t2: Tree.Tree(), -m2: List<&2, T.Split>, +e: {Result.bind(&2, &2, Main.Refused, Main.Placed, Main.Placed, r, p => Main.placed.of.r(p, Nil{})) == Done{Main.Placed{t2, m2}} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {m2 == ats : List<&2, T.Split>}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({m2 == ats : List<&2, T.Split>}, Blamed.fail_done(Main.Placed, x, Main.Placed{t2, m2}, e))
+    case Done{p}:
+      match p:
+        case Main.Placed{+t1, +m1}:
+          %Equal.cong(Result<&2, &2, Main.Refused, Main.Placed>, List<&2, T.Split>, r => pl_moved(r), Done{Main.Placed{t1, m1}}, Done{Main.Placed{t2, m2}}, e) : {_ == ats : List<&2, T.Split>}
+          at_ats(ats, t, Nil{}, Main.placed.holds(t, ats), t1, m1, er)
 
 def placed_end(-t: Tree.Tree(), -moved: List<&2, T.Split>, -t2: Tree.Tree(), -m2: List<&2, T.Split>, -t0: Tree.Tree(), inv: {t == Sv.moved_all(moved, t0) : Tree.Tree()}, +e: {Done{Main.Placed{t, moved}} == Done{Main.Placed{t2, m2}} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {t2 == Sv.moved_all(m2, t0) : Tree.Tree()}:
   %Equal.cong(Result<&2, &2, Main.Refused, Main.Placed>, Tree.Tree(), r => pl_tree(r), Done{Main.Placed{t, moved}}, Done{Main.Placed{t2, m2}}, e) : {_ == Sv.moved_all(m2, t0) : Tree.Tree()}
@@ -840,6 +1210,18 @@ def path_moved(ms: List<&2, T.Split>, +t: Tree.Tree(), +g: String, +hh: {Tree.ho
         path_moved(rest, Sv.relocated(t, f, to), g, Equal.trans(Bool, Tree.holds(Sv.relocated(t, f, to), g), Tree.holds(t, g), True{}, holds_relocated(t, f, to, g), hh)),
         moved_or(Sv.last_move(rest, g), Tree.path(Sv.relocated(t, f, to), g), Bool.pick(Maybe<&2, String>, String.eq(f, g), Some{to}, None{}), Tree.path(t, g), moved_pick(String.eq(f, g), t, f, to, g, {==}, hh)))
 
+def ats_only(+t: Tree.Tree(), +ats: List<&2, T.Split>, -t2: Tree.Tree(), -m2: List<&2, T.Split>, +e: {Main.placed.r(t, ats, Nil{}) == Done{Main.Placed{t2, m2}} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {m2 == ats : List<&2, T.Split>}:
+  ats_bind(t, ats, Main.placed.at.r(ats, t, Nil{}, Main.placed.holds(t, ats)), {==}, t2, m2, e)
+
+# So `--at` alone leaves each file at the last place one naming it put it,
+# and every other where it was.
+def at_placed(+t: Tree.Tree(), +ats: List<&2, T.Split>, +t2: Tree.Tree(), +moved: List<&2, T.Split>, +e: {Main.placed.r(t, ats, Nil{}) == Done{Main.Placed{t2, moved}} : Result<&2, &2, Main.Refused, Main.Placed>}, +g: String, +hg: {Tree.holds(t, g) == True{} : Bool}) -> {Tree.path(t2, g) == Maybe.or(&2, String, Sv.last_move(ats, g), Tree.path(t, g)) : Maybe<&2, String>}:
+  Equal.trans(Maybe<&2, String>, Tree.path(t2, g), Tree.path(Sv.moved_all(ats, t), g), Maybe.or(&2, String, Sv.last_move(ats, g), Tree.path(t, g)),
+    Equal.cong(Tree.Tree(), Maybe<&2, String>, x => Tree.path(x, g), t2, Sv.moved_all(ats, t),
+      Equal.trans(Tree.Tree(), t2, Sv.moved_all(moved, t), Sv.moved_all(ats, t), placed_moved(t, ats, Nil{}, t2, moved, e),
+        Equal.cong(List<&2, T.Split>, Tree.Tree(), m => Sv.moved_all(m, t), moved, ats, ats_only(t, ats, t2, moved, e)))),
+    path_moved(ats, t, g, hg))
+
 # What a restricted record looks at
 # ---------------------------------
 
@@ -877,12 +1259,12 @@ def here_covered(+only: List<&2, String>, +path: String, +p: String, heq: {Strin
   %S.eq_true(path, p, heq) : {Sv.covers(only, _) == True{} : Bool}
   hc
 
-def at_covered(ss: List<&2, Sv.Seen>, +only: List<&2, String>, +p: String, +hs: {seens_covered(only, ss) == True{} : Bool}, hf: {Sv.found_at(ss, p) == True{} : Bool}) -> {Sv.covers(only, p) == True{} : Bool}:
+def at_covered(ss: List<&2, Sv.Seen>, +only: List<&2, String>, +p: String, +hs: {seens_covered(only, ss) == True{} : Bool}, hf: {found_at(ss, p) == True{} : Bool}) -> {Sv.covers(only, p) == True{} : Bool}:
   match ss:
     case Nil{}:
       Empty.absurd({Sv.covers(only, p) == True{} : Bool}, S.false_true(hf))
     case Sv.Seen{+path, +e, +found, +d, +b, +x, +sh, +pr} <> +rest:
-      AL.or_cases({Sv.covers(only, p) == True{} : Bool}, Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), Sv.found_at(rest, p), hf,
+      AL.or_cases({Sv.covers(only, p) == True{} : Bool}, Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), found_at(rest, p), hf,
         hl => here_covered(only, path, p, Comp.and_left(String.eq(path, p), Maybe.is_some(&2, F.Found, found), hl), Comp.and_left(Sv.covers(only, path), seens_covered(only, rest), hs)),
         hr => at_covered(rest, only, p, Comp.and_right(Sv.covers(only, path), seens_covered(only, rest), hs), hr))
 
@@ -891,8 +1273,8 @@ def found_covered(+only: List<&2, String>, +ss: List<&2, Sv.Seen>, rs: List<&2, 
     case Nil{}:
       {==}
     case T.Split{+p, b} <> rest:
-      AL.and_intro(Sv.covers(only, p), Sv.all_covered(only, rest), at_covered(ss, only, p, hs, Comp.and_left(Sv.found_at(ss, p), found_all(ss, rest), hf)),
-        found_covered(only, ss, rest, hs, Comp.and_right(Sv.found_at(ss, p), found_all(ss, rest), hf)))
+      AL.and_intro(Sv.covers(only, p), Sv.all_covered(only, rest), at_covered(ss, only, p, hs, Comp.and_left(found_at(ss, p), found_all(ss, rest), hf)),
+        found_covered(only, ss, rest, hs, Comp.and_right(found_at(ss, p), found_all(ss, rest), hf)))
 
 # What the survey pairs is what the restriction kept.
 def heres_covered(+only: List<&2, String>, hs: List<&2, Main.Here>) -> Bool:
@@ -1218,42 +1600,100 @@ def by_file_keeps(+t: Tree.Tree(), +f: String) -> {Main.entries.at(f, Sv.by_file
 # A link written as a reference
 # -----------------------------
 
-def head_r(s: String) -> Bool:
+def strip_nil(s: String) -> {T.strip_prefix(s, SNil{}) == Some{s} : Maybe<&2, String>}:
   match s:
     case SNil{}:
-      False{}
+      {==}
     case SCon{c, rest}:
-      Char.is_eq(c, 'r')
+      {==}
 
-def r_not_v(-x: String, -y: String, e: {SCon{'v', x} == SCon{'r', y} : String}) -> Empty:
-  S.false_true(Equal.cong(String, Bool, s => head_r(s), SCon{'v', x}, SCon{'r', y}, e))
-
-def tail_of(s: String) -> String:
+def sdrop_zero(s: String) -> {String.drop(s, 0n) == s : String}:
   match s:
     case SNil{}:
-      SNil{}
+      {==}
     case SCon{c, rest}:
-      rest
+      {==}
 
-def stated_pick(c: Bool, +t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +a: String, +at: String, +er: {Sv.resolution(path, target) == Some{a} : Maybe<&2, String>}, +ec: {Sv.stated(t, gone, arriving, a) == c : Bool}, e: {Bool.pick(String, c, SCon{'r', a}, SCon{'v', target}) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
+def starts_nil(s: String) -> {String.starts_with(s, SNil{}) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{c, rest}:
+      {==}
+
+# `file:` and a name spell that name alone.
+def file_inj(+x: String, +y: String, e: {"file:" ++ x == "file:" ++ y : String}) -> {x == y : String}:
+  Equal.trans(String, x, String.drop(x, 0n), y, Equal.sym(String, String.drop(x, 0n), x, sdrop_zero(x)),
+    Equal.trans(String, String.drop(x, 0n), String.drop(y, 0n), y, Equal.cong(String, String, s => String.drop(s, 5n), "file:" ++ x, "file:" ++ y, e), sdrop_zero(y)))
+
+def eq_of(+g: String, +f: String, h: {g == f : String}) -> {String.eq(g, f) == True{} : Bool}:
+  %h : {String.eq(g, _) == True{} : Bool}
+  S.eq_refl(g)
+
+# A target this format can hold does not begin with `file:`.
+def fault_file(a: Bool, b: Bool, -m1: String, -m2: String, -rest: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, a, Some{m1}, Bool.pick(Maybe<&2, String>, b, Some{m2}, rest)) == None{} : Maybe<&2, String>}) -> {b == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({b == False{} : Bool}, NameL.some_none(m1, e))
+    case False{}:
+      match b:
+        case True{}:
+          Empty.absurd({True{} == False{} : Bool}, NameL.some_none(m2, e))
+        case False{}:
+          {==}
+
+def or_false_left(a: Bool, -b: Bool, ha: {a == False{} : Bool}, h: {Bool.or(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({b == True{} : Bool}, S.true_false(ha))
+    case False{}:
+      h
+
+# Where no arrival is minted at the path, the one file of the position
+# there that the record keeps.
+def held_ref(xs: List<&2, String>, +gone: Set(), +at: String, +f: String, hk: {Sv.any_kept(xs, gone) == True{} : Bool}, ho: {Tree.at_most_one(xs) == True{} : Bool}, e: {Main.link.resolved(at, Main.file_at.held(xs)) == "file:" ++ f : String}) -> {Bool.and(Rev.member(xs, f), Bool.not(Sv.has(gone, f))) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Bool.and(Rev.member(Nil{}, f), Bool.not(Sv.has(gone, f))) == True{} : Bool}, S.false_true(hk))
+    case +x <> Nil{}:
+      %file_inj(x, f, e) : {Bool.and(Rev.member([x], _), Bool.not(Sv.has(gone, _))) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(x, x), True{}, S.eq_refl(x)) : {Bool.and(Bool.or(_, False{}), Bool.not(Sv.has(gone, x))) == True{} : Bool}
+      Equal.trans(Bool, Bool.not(Sv.has(gone, x)), Bool.or(Bool.not(Sv.has(gone, x)), False{}), True{}, Equal.sym(Bool, Bool.or(Bool.not(Sv.has(gone, x)), False{}), Bool.not(Sv.has(gone, x)), or_f(Bool.not(Sv.has(gone, x)))), hk)
+    case x <> y <> rest:
+      Empty.absurd({Bool.and(Rev.member(x <> y <> rest, f), Bool.not(Sv.has(gone, f))) == True{} : Bool}, S.false_true(ho))
+
+def mint_ref(m: Maybe<&2, String>, +t: Tree.Tree(), +arriving: Set(), +gone: Set(), +at: String, +f: String, hm: {Bool.or(Bool.not(Sv.has(arriving, at)), Maybe.is_some(&2, String, m)) == True{} : Bool}, hs: {Sv.stated(t, gone, arriving, at) == True{} : Bool}, ho: {Tree.at_most_one(Tree.at(t, at)) == True{} : Bool}, e: {Main.link.resolved(at, Maybe.or(&2, String, m, Main.file_at.held(Tree.at(t, at)))) == "file:" ++ f : String}) -> {Bool.or(Sv.maybe_eq(m, Some{f}), Bool.and(Rev.member(Tree.at(t, at), f), Bool.not(Sv.has(gone, f)))) == True{} : Bool}:
+  match m:
+    case Some{+g}:
+      AL.or_left(Sv.maybe_eq(Some{g}, Some{f}), Bool.and(Rev.member(Tree.at(t, at), f), Bool.not(Sv.has(gone, f))), eq_of(g, f, file_inj(g, f, e)))
+    case None{}:
+      held_ref(Tree.at(t, at), gone, at, f,
+        or_false_left(Sv.has(arriving, at), Sv.any_kept(Tree.at(t, at), gone), AL.not_of_true(Sv.has(arriving, at), Equal.trans(Bool, Bool.not(Sv.has(arriving, at)), Bool.or(Bool.not(Sv.has(arriving, at)), False{}), True{}, Equal.sym(Bool, Bool.or(Bool.not(Sv.has(arriving, at)), False{}), Bool.not(Sv.has(arriving, at)), or_f(Bool.not(Sv.has(arriving, at)))), hm)), hs),
+        ho, e)
+
+def spelled_ref(c: Bool, +mint: List<&2, T.Split>, +t: Tree.Tree(), +gone: Set(), +arriving: Set(), +target: String, +at: String, +f: String, hc: {Sv.stated(t, gone, arriving, at) == c : Bool}, hfile: {String.starts_with(target, "file:") == False{} : Bool}, ho: {Tree.at_most_one(Tree.at(t, at)) == True{} : Bool}, hm: {Bool.or(Bool.not(Sv.has(arriving, at)), Maybe.is_some(&2, String, Main.lookup(mint, at))) == True{} : Bool}, e: {Main.link.spelled(mint, t, Bool.pick(String, c, "r" ++ at, "v" ++ target)) == "file:" ++ f : String}) -> {Bool.or(Sv.maybe_eq(Main.lookup(mint, at), Some{f}), Bool.and(Rev.member(Tree.at(t, at), f), Bool.not(Sv.has(gone, f)))) == True{} : Bool}:
   match c:
     case True{}:
-      %Equal.cong(String, String, s => tail_of(s), SCon{'r', a}, SCon{'r', at}, e) : {Sv.lands_on(t, gone, arriving, path, target, _) == True{} : Bool}
-      %Equal.sym(Maybe<&2, String>, Sv.resolution(path, target), Some{a}, er) : {Bool.and(Sv.maybe_eq(_, Some{a}), Sv.stated(t, gone, arriving, a)) == True{} : Bool}
-      %Equal.sym(Bool, String.eq(a, a), True{}, S.eq_refl(a)) : {Bool.and(_, Sv.stated(t, gone, arriving, a)) == True{} : Bool}
-      ec
+      mint_ref(Main.lookup(mint, at), t, arriving, gone, at, f, hm, hc, ho,
+        Equal.trans(String, Main.link.spelled.of(mint, t, "r" ++ at, Some{at}), Main.link.spelled(mint, t, "r" ++ at), "file:" ++ f,
+          Equal.cong(Maybe<&2, String>, String, r => Main.link.spelled.of(mint, t, "r" ++ at, r), Some{at}, T.strip_prefix(at, SNil{}), Equal.sym(Maybe<&2, String>, T.strip_prefix(at, SNil{}), Some{at}, strip_nil(at))),
+          e))
     case False{}:
-      Empty.absurd({Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}, r_not_v(target, at, e))
+      Empty.absurd({Bool.or(Sv.maybe_eq(Main.lookup(mint, at), Some{f}), Bool.and(Rev.member(Tree.at(t, at), f), Bool.not(Sv.has(gone, f)))) == True{} : Bool},
+        S.true_false(Equal.trans(Bool, True{}, String.starts_with("file:" ++ f, "file:"), False{}, Equal.sym(Bool, String.starts_with(f, SNil{}), True{}, starts_nil(f)),
+          Equal.trans(Bool, String.starts_with("file:" ++ f, "file:"), String.starts_with(target, "file:"), False{},
+            Equal.cong(String, Bool, x => String.starts_with(x, "file:"), "file:" ++ f, target, Equal.sym(String, target, "file:" ++ f, Equal.trans(String, target, String.drop(target, 0n), "file:" ++ f, Equal.sym(String, String.drop(target, 0n), target, sdrop_zero(target)), e))),
+            hfile))))
 
-def observed_of(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, r: Maybe<&2, String>, +er: {Sv.resolution(path, target) == r : Maybe<&2, String>}, +at: String, e: {Sv.observed.of(t, gone, arriving, target, r) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
-  match r:
-    case None{}:
-      Empty.absurd({Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}, r_not_v(target, at, e))
-    case Some{+a}:
-      stated_pick(Sv.stated(t, gone, arriving, a), t, gone, arriving, path, target, a, at, er, {==}, e)
-
-def observed_ok(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +at: String, e: {Sv.observed(t, gone, arriving, path, target) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
-  observed_of(t, gone, arriving, path, target, Sv.resolution(path, target), {==}, at, e)
+# So a link `record` writes as `file:` and an identifier names the file
+# the revision holds where its target lands.
+def ref_held(+mint: List<&2, T.Split>, +t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +at: String, +f: String, hr: {Sv.resolution(path, target) == Some{at} : Maybe<&2, String>}, hl: {Sv.link_fault(target) == None{} : Maybe<&2, String>}, ho: {Tree.at_most_one(Tree.at(t, at)) == True{} : Bool}, hm: {Bool.or(Bool.not(Sv.has(arriving, at)), Maybe.is_some(&2, String, Main.lookup(mint, at))) == True{} : Bool}, e: {Main.link.spelled(mint, t, Sv.observed(t, gone, arriving, path, target)) == "file:" ++ f : String}) -> {Bool.or(Sv.maybe_eq(Main.lookup(mint, at), Some{f}), Bool.and(Rev.member(Tree.at(t, at), f), Bool.not(Sv.has(gone, f)))) == True{} : Bool}:
+  spelled_ref(Sv.stated(t, gone, arriving, at), mint, t, gone, arriving, target, at, f, {==},
+    fault_file(String.is_empty(target), String.starts_with(target, "file:"), "it is empty, and a link with no target is not a link", "it begins with `file:`, which is how this format spells a link to a file it holds; rename it, or point it somewhere else", Bool.pick(Maybe<&2, String>, Bool.or(String.starts_with(target, " "), String.ends_with(target, " ")), Some{"it has leading or trailing space, which a header value cannot keep"}, Bool.pick(Maybe<&2, String>, List.any(~&2, ~Char, ~F.is_control, String.to_list(target)), Some{"it holds a control character, and a header is one line"}, None{})), hl),
+    ho, hm,
+    Equal.trans(String, Main.link.spelled(mint, t, Sv.observed.of(t, gone, arriving, target, Some{at})), Main.link.spelled(mint, t, Sv.observed(t, gone, arriving, path, target)), "file:" ++ f,
+      Equal.cong(Maybe<&2, String>, String, r => Main.link.spelled(mint, t, Sv.observed.of(t, gone, arriving, target, r)), Some{at}, Sv.resolution(path, target), Equal.sym(Maybe<&2, String>, Sv.resolution(path, target), Some{at}, hr)),
+      e))
 
 # A path claimed once
 # -------------------

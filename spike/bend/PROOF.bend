@@ -738,17 +738,17 @@ def Laws.status_believes_what_is_stated(older, ds, left, eds, os, hs, m, e, h):
 
 def Laws.status_joins_what_it_reads(hs, fs, ds, ps, m, e, h):
   StatusL.joined_fails(hs, fs, ds, ps, m, e, h)
-def Laws.record_refuses_a_dangling_link(t, looked, held, walked, ss, moves):
-  SurveyL.dangle_ok(t, Set.from_list(Sv.dropped_files(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))), Set.from_list(Sv.pointed(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))), List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))
+def Laws.record_refuses_a_dangling_link(t, looked, held, walked, ss, moves, hd, pre, post, f, p, k, y, named, m, ht, hn, hf):
+  SurveyL.dangle_found(t, looked, held, walked, ss, moves, hd, pre, post, f, p, k, y, named, m, ht, hn, hf)
 
 def Laws.status_refuses_what_the_folder_holds(t, held, walked, ss):
   SurveyL.refused_ok(t, held, walked, ss)
 
-def Laws.record_states_a_kind_only_for_an_arrival(only, t, ks):
-  SurveyL.kinds_ok(only, t, ks)
+def Laws.record_states_a_kind_only_for_an_arrival(only, t, pre, p, k, post, e, g):
+  SurveyL.kind_arrival(only, t, pre, p, k, post, e, g)
 
-def Laws.record_moves_each_file_once(ms, gone):
-  SurveyL.moves_final_ok(ms, gone)
+def Laws.record_moves_each_file_once(ms, gone, f):
+  SurveyL.final_moves(ms, gone, f)
 
 def Laws.a_revision_is_filed_under_its_month(when, message, change, id, ns, hw, hc, hi):
   NamingL.stem_ok(when, message, change, id, ns, hw, hc, hi)
@@ -770,16 +770,15 @@ def Laws.abandon_takes_a_reason_that_says_something(m):
   %NamingL.blank(m) : {Result.is_done(&2, &2, Main.Refused, Unit, Main.reason.r(m)) == Bool.not(_) : Bool}
   reason_pick(String.is_empty(Naming.trim_space(m)), Main.Refused{1, "abandoning removes this work from what the history means, and the reason is the only thing the tombstone carries; say why with -m"})
 
-def Laws.record_names_only_what_is_there(rules, named, folder, was, placed, e):
-  SurveyL.named_ok(rules, named, folder, was, placed, e)
+def Laws.record_names_only_what_is_there(rules, named, folder, was, placed):
+  SurveyL.named_done(rules, named, folder, was, placed)
 
 def Laws.a_rename_keeps_each_file_once(t, ats, ms, t2, moved, e):
   %Equal.sym(Tree.Tree(), t2, Sv.moved_all(moved, t), SurveyL.placed_moved(t, ats, ms, t2, moved, e)) : {Sv.files(_) == Sv.files(t) : List<&2, String>}
   SurveyL.files_moved(moved, t)
 
-def Laws.a_rename_puts_each_file_where_it_was_said(t, ats, ms, t2, moved, e, g, hg):
-  %Equal.sym(Tree.Tree(), t2, Sv.moved_all(moved, t), SurveyL.placed_moved(t, ats, ms, t2, moved, e)) : {Tree.path(_, g) == Maybe.or(&2, String, Sv.last_move(moved, g), Tree.path(t, g)) : Maybe<&2, String>}
-  SurveyL.path_moved(moved, t, g, hg)
+def Laws.a_rename_puts_each_file_where_it_was_said(t, ats, t2, moved, e, g, hg):
+  SurveyL.at_placed(t, ats, t2, moved, e, g, hg)
 
 def Laws.record_refuses_only_what_it_looks_at(only, t, t0, found, walked, held, dg, bf, reads, moves):
   SurveyL.restricted_ok(only, t, t0, found, walked, held, dg, bf, reads, moves)
@@ -799,8 +798,8 @@ def Laws.record_plans_in_file_order(t):
 def Laws.record_plans_every_file(t, f):
   SurveyL.by_file_keeps(t, f)
 
-def Laws.a_link_refers_only_to_what_the_revision_states(t, gone, arriving, path, target, at, e):
-  SurveyL.observed_ok(t, gone, arriving, path, target, at, e)
+def Laws.a_link_refers_only_to_what_the_revision_states(mint, t, gone, arriving, path, target, at, f, hr, hl, ho, hm, e):
+  SurveyL.ref_held(mint, t, gone, arriving, path, target, at, f, hr, hl, ho, hm, e)
 
 def Laws.record_goes_on_where_each_path_holds_one_file(t, looked, held, walked, ss, moves, accepted, done, e, p):
   SurveyL.path_once(looked, p, SurveyL.planned_claims(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted, done, e))
