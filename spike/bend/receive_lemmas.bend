@@ -671,3 +671,183 @@ def revisions(+here: Receive.Side, +there: Receive.Side, +join: Bool, +p: Receiv
   B.and_tt(Bool.not(Rev.member(doc_ids(rh), id)), holds(rt, id, text),
     here_lacks(Rev.member(doc_ids(rh), id), rh, id, {==}, sound_parse(Receive.stored.of(here), hs), hne, ArrangeL.has_false(Main.ids(Receive.side.fulls(here)), id, hf)),
     parsing_holds(rt, id, text, distinct_holds(Receive.docs.parsing(rt), id, text, hl)))
+
+# Related histories
+# -----------------
+
+# Whether some string of `xs` is among `ys`.
+def any_member(xs: List<&2, String>, +ys: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case +x <> rest:
+      Bool.or(Rev.member(ys, x), any_member(rest, ys))
+
+# Whether some revision of `fs` names one of `ys` as a parent, or as what
+# it supersedes.
+def names_one(+ys: List<&2, String>, fs: List<&2, Main.Full>) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Main.Full{i, c, +parents, +supersedes, a, w, rb, rv, fa, m} <> rest:
+      Bool.or(Bool.or(any_member(parents, ys), any_member(supersedes, ys)), names_one(ys, rest))
+
+# Decision 0029's evidence that two histories are one, read from the
+# revisions themselves: one side is empty; or they share a revision; or a
+# revision of either names one of the other's as a parent or as what it
+# supersedes.
+def related(+ours: List<&2, Main.Full>, +theirs: List<&2, Main.Full>) -> Bool:
+  Bool.or(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)),
+    Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours))))
+
+def any_in_is(xs: List<&2, String>, +ys: List<&2, String>) -> {Receive.any_in(xs, Set.from_list(ys)) == any_member(xs, ys) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(Bool, Arrange.has(Set.from_list(ys), x), Rev.member(ys, x), ArrangeL.has_list(ys, x)) : {Bool.or(_, Receive.any_in(rest, Set.from_list(ys))) == Bool.or(Rev.member(ys, x), any_member(rest, ys)) : Bool}
+      Equal.cong(Bool, Bool, z => Bool.or(Rev.member(ys, x), z), Receive.any_in(rest, Set.from_list(ys)), any_member(rest, ys), any_in_is(rest, ys))
+
+def am_app(xs: List<&2, String>, +zs: List<&2, String>, +ys: List<&2, String>) -> {any_member(List.append(&2, String, xs, zs), ys) == Bool.or(any_member(xs, ys), any_member(zs, ys)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(Bool, any_member(List.append(&2, String, rest, zs), ys), Bool.or(any_member(rest, ys), any_member(zs, ys)), am_app(rest, zs, ys)) : {Bool.or(Rev.member(ys, x), _) == Bool.or(any_member(x <> rest, ys), any_member(zs, ys)) : Bool}
+      ArrangeL.or_assoc(Rev.member(ys, x), any_member(rest, ys), any_member(zs, ys))
+
+def edges_is(fs: List<&2, Main.Full>, +ys: List<&2, String>) -> {any_member(Receive.edges(fs), ys) == names_one(ys, fs) : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case Main.Full{+i, +c, +parents, +supersedes, +a, +w, +rb, +rv, +fa, +m} <> +rest:
+      %Equal.sym(Bool, any_member(List.append(&2, String, List.append(&2, String, parents, supersedes), Receive.edges(rest)), ys), Bool.or(any_member(List.append(&2, String, parents, supersedes), ys), any_member(Receive.edges(rest), ys)), am_app(List.append(&2, String, parents, supersedes), Receive.edges(rest), ys)) : {_ == names_one(ys, Main.Full{i, c, parents, supersedes, a, w, rb, rv, fa, m} <> rest) : Bool}
+      %Equal.sym(Bool, any_member(List.append(&2, String, parents, supersedes), ys), Bool.or(any_member(parents, ys), any_member(supersedes, ys)), am_app(parents, supersedes, ys)) : {Bool.or(_, any_member(Receive.edges(rest), ys)) == names_one(ys, Main.Full{i, c, parents, supersedes, a, w, rb, rv, fa, m} <> rest) : Bool}
+      Equal.cong(Bool, Bool, z => Bool.or(Bool.or(any_member(parents, ys), any_member(supersedes, ys)), z), any_member(Receive.edges(rest), ys), names_one(ys, rest), edges_is(rest, ys))
+
+def related_is(+ours: List<&2, Main.Full>, +theirs: List<&2, Main.Full>) -> {Receive.related(ours, theirs) == related(ours, theirs) : Bool}:
+  %Equal.sym(Bool, Receive.any_in(Main.ids(theirs), Set.from_list(Main.ids(ours))), any_member(Main.ids(theirs), Main.ids(ours)), any_in_is(Main.ids(theirs), Main.ids(ours))) : {Bool.or(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)), Bool.or(_, Bool.or(Receive.any_in(Receive.edges(theirs), Set.from_list(Main.ids(ours))), Receive.any_in(Receive.edges(ours), Set.from_list(Main.ids(theirs)))))) == related(ours, theirs) : Bool}
+  %Equal.sym(Bool, Receive.any_in(Receive.edges(theirs), Set.from_list(Main.ids(ours))), any_member(Receive.edges(theirs), Main.ids(ours)), any_in_is(Receive.edges(theirs), Main.ids(ours))) : {Bool.or(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)), Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(_, Receive.any_in(Receive.edges(ours), Set.from_list(Main.ids(theirs)))))) == related(ours, theirs) : Bool}
+  %Equal.sym(Bool, Receive.any_in(Receive.edges(ours), Set.from_list(Main.ids(theirs))), any_member(Receive.edges(ours), Main.ids(theirs)), any_in_is(Receive.edges(ours), Main.ids(theirs))) : {Bool.or(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)), Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(any_member(Receive.edges(theirs), Main.ids(ours)), _))) == related(ours, theirs) : Bool}
+  %Equal.sym(Bool, any_member(Receive.edges(theirs), Main.ids(ours)), names_one(Main.ids(ours), theirs), edges_is(theirs, Main.ids(ours))) : {Bool.or(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)), Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(_, any_member(Receive.edges(ours), Main.ids(theirs))))) == related(ours, theirs) : Bool}
+  %Equal.sym(Bool, any_member(Receive.edges(ours), Main.ids(theirs)), names_one(Main.ids(theirs), ours), edges_is(ours, Main.ids(theirs))) : {Bool.or(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)), Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), _))) == related(ours, theirs) : Bool}
+  {==}
+
+def related_done.of(c: Bool, +here: Receive.Side, +there: Receive.Side) -> {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.related(c, here, there)) == c : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# Between two stores the check passes, `receive` plans exactly where the
+# histories are related or it was asked to join them.
+def joins(+here: Receive.Side, +there: Receive.Side, +join: Bool, hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}, ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, join)) == Bool.or(join, related(Receive.side.fulls(here), Receive.side.fulls(there))) : Bool}:
+  %Equal.sym(Bool, Prune.sound(Receive.stored.of(here)), True{}, hh) : {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.here(_, here, there, join)) == Bool.or(join, related(Receive.side.fulls(here), Receive.side.fulls(there))) : Bool}
+  %Equal.sym(Bool, Prune.sound(Receive.stored.of(there)), True{}, ht) : {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.source(_, here, there, join)) == Bool.or(join, related(Receive.side.fulls(here), Receive.side.fulls(there))) : Bool}
+  %related_is(Receive.side.fulls(here), Receive.side.fulls(there)) : {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.source(True{}, here, there, join)) == Bool.or(join, _) : Bool}
+  related_done.of(Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))), here, there)
+
+# Bookmarks, said of the stores' own
+# ----------------------------------
+
+# Whether one of these bookmarks has this name.
+def named(bs: List<&2, Bm.Bookmark>, +n: String) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case Bm.Bookmark{+bn, bt, bp} <> rest:
+      Bool.or(String.eq(bn, n), named(rest, n))
+
+# Whether one of these bookmarks has this name and points where `at`
+# spells a target.
+def marks_at(bs: List<&2, Bm.Bookmark>, +n: String, +at: String) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case Bm.Bookmark{+bn, +bt, bp} <> rest:
+      Bool.or(Bool.and(String.eq(bn, n), String.eq(Bm.show_target(bt), at)), marks_at(rest, n, at))
+
+def mb_none(m: Maybe<&2, Bm.Bookmark>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      Empty
+
+def none_some(-x: Bm.Bookmark, e: {None{} == Some{x} : Maybe<&2, Bm.Bookmark>}) -> Empty:
+  %e : {mb_none(_) : Type}
+  Unit{}
+
+def mtarget(m: Maybe<&2, Bm.Bookmark>, +d: Bm.Target) -> Bm.Target:
+  match m:
+    case None{}:
+      d
+    case Some{Bm.Bookmark{n, t, p}}:
+      t
+
+def found_none.of(c: Bool, +bn: String, +bt: Bm.Target, +bp: Bool, +rest: List<&2, Bm.Bookmark>, +n: String, e: {Bool.pick(Maybe<&2, Bm.Bookmark>, c, Some{Bm.Bookmark{bn, bt, bp}}, Main.found_of(rest, n)) == None{} : Maybe<&2, Bm.Bookmark>}, ih: {Main.found_of(rest, n) == None{} : Maybe<&2, Bm.Bookmark>} -> {named(rest, n) == False{} : Bool}) -> {Bool.or(c, named(rest, n)) == False{} : Bool}:
+  match c:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, none_some(Bm.Bookmark{bn, bt, bp}, Equal.sym(Maybe<&2, Bm.Bookmark>, Some{Bm.Bookmark{bn, bt, bp}}, None{}, e)))
+    case False{}:
+      ih(e)
+
+# Where the store's lookup finds no bookmark of a name, it has none.
+def found_none(hm: List<&2, Bm.Bookmark>, +n: String, e: {Main.found_of(hm, n) == None{} : Maybe<&2, Bm.Bookmark>}) -> {named(hm, n) == False{} : Bool}:
+  match hm:
+    case Nil{}:
+      {==}
+    case Bm.Bookmark{+bn, +bt, +bp} <> +rest:
+      found_none.of(String.eq(bn, n), bn, bt, bp, rest, n, e, h => found_none(rest, n, h))
+
+def found_marks.of(c: Bool, +bn: String, +bt: Bm.Target, +bp: Bool, +rest: List<&2, Bm.Bookmark>, +n: String, +hn: String, +ht: Bm.Target, +hp: Bool, +ec: {String.eq(bn, n) == c : Bool}, e: {Bool.pick(Maybe<&2, Bm.Bookmark>, c, Some{Bm.Bookmark{bn, bt, bp}}, Main.found_of(rest, n)) == Some{Bm.Bookmark{hn, ht, hp}} : Maybe<&2, Bm.Bookmark>}, ih: {Main.found_of(rest, n) == Some{Bm.Bookmark{hn, ht, hp}} : Maybe<&2, Bm.Bookmark>} -> {marks_at(rest, n, Bm.show_target(ht)) == True{} : Bool}) -> {Bool.or(Bool.and(c, String.eq(Bm.show_target(bt), Bm.show_target(ht))), marks_at(rest, n, Bm.show_target(ht))) == True{} : Bool}:
+  match c:
+    case True{}:
+      +et = Equal.cong(Maybe<&2, Bm.Bookmark>, Bm.Target, m => mtarget(m, bt), Some{Bm.Bookmark{bn, bt, bp}}, Some{Bm.Bookmark{hn, ht, hp}}, e)
+      %et : {Bool.or(String.eq(Bm.show_target(bt), Bm.show_target(_)), marks_at(rest, n, Bm.show_target(_))) == True{} : Bool}
+      PruneL.or_lt(String.eq(Bm.show_target(bt), Bm.show_target(bt)), marks_at(rest, n, Bm.show_target(bt)), S.eq_refl(Bm.show_target(bt)))
+    case False{}:
+      PruneL.or_rt(False{}, marks_at(rest, n, Bm.show_target(ht)), ih(e))
+
+# The bookmark the store's lookup finds is one it has, by that name.
+def found_marks(hm: List<&2, Bm.Bookmark>, +n: String, +hn: String, +ht: Bm.Target, +hp: Bool, e: {Main.found_of(hm, n) == Some{Bm.Bookmark{hn, ht, hp}} : Maybe<&2, Bm.Bookmark>}) -> {marks_at(hm, n, Bm.show_target(ht)) == True{} : Bool}:
+  match hm:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, none_some(Bm.Bookmark{hn, ht, hp}, e))
+    case Bm.Bookmark{+bn, +bt, +bp} <> +rest:
+      found_marks.of(String.eq(bn, n), bn, bt, bp, rest, n, hn, ht, hp, {==}, e, h => found_marks(rest, n, hn, ht, hp, h))
+
+def keeps_spec(found: Maybe<&2, Bm.Bookmark>, +hm: List<&2, Bm.Bookmark>, +n: String, +t: Bm.Target, +ef: {Main.found_of(hm, n) == found : Maybe<&2, Bm.Bookmark>}, h: {Receive.keeps.of(t, found) == True{} : Bool}) -> {Bool.or(Bool.not(named(hm, n)), marks_at(hm, n, Bm.show_target(t))) == True{} : Bool}:
+  match found:
+    case None{}:
+      %Equal.sym(Bool, named(hm, n), False{}, found_none(hm, n, ef)) : {Bool.or(Bool.not(_), marks_at(hm, n, Bm.show_target(t))) == True{} : Bool}
+      {==}
+    case Some{Bm.Bookmark{+hn, +ht, +hp}}:
+      +es = S.eq_true(Bm.show_target(ht), Bm.show_target(t), h)
+      PruneL.or_rt(Bool.not(named(hm, n)), marks_at(hm, n, Bm.show_target(t)), (%es : {marks_at(hm, n, _) == True{} : Bool}; found_marks(hm, n, hn, ht, hp, ef)))
+
+def kept_hit(c: Bool, +bn: String, +bt: Bm.Target, +bp: Bool, +rest: List<&2, Bm.Bookmark>, +hm: List<&2, Bm.Bookmark>, +n: String, +at: String, +ec: {Bool.and(String.eq(bn, n), String.eq(Bm.show_target(bt), at)) == c : Bool}, +hk: {Receive.keeps(hm, Bm.Bookmark{bn, bt, bp}) == True{} : Bool}, h: {Bool.or(c, marks_at(rest, n, at)) == True{} : Bool}, ih: {marks_at(rest, n, at) == True{} : Bool} -> {Bool.or(Bool.not(named(hm, n)), marks_at(hm, n, at)) == True{} : Bool}) -> {Bool.or(Bool.not(named(hm, n)), marks_at(hm, n, at)) == True{} : Bool}:
+  match c:
+    case True{}:
+      %S.eq_true(bn, n, ArrangeL.and_tl(String.eq(bn, n), String.eq(Bm.show_target(bt), at), ec)) : {Bool.or(Bool.not(named(hm, _)), marks_at(hm, _, at)) == True{} : Bool}
+      %S.eq_true(Bm.show_target(bt), at, ArrangeL.and_tr(String.eq(bn, n), String.eq(Bm.show_target(bt), at), ec)) : {Bool.or(Bool.not(named(hm, bn)), marks_at(hm, bn, _)) == True{} : Bool}
+      keeps_spec(Main.found_of(hm, bn), hm, bn, bt, {==}, hk)
+    case False{}:
+      ih(h)
+
+# Of bookmarks each of which leaves this store's pointing where it did:
+# each names none of this store's, or one of this store's at its target.
+def kept_marks(bs: List<&2, Bm.Bookmark>, +hm: List<&2, Bm.Bookmark>, +n: String, +at: String, +hk: {Receive.names_kept(bs, hm) == True{} : Bool}, h: {marks_at(bs, n, at) == True{} : Bool}) -> {Bool.or(Bool.not(named(hm, n)), marks_at(hm, n, at)) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      Empty.absurd({Bool.or(Bool.not(named(hm, n)), marks_at(hm, n, at)) == True{} : Bool}, S.false_true(h))
+    case Bm.Bookmark{+bn, +bt, +bp} <> +rest:
+      kept_hit(Bool.and(String.eq(bn, n), String.eq(Bm.show_target(bt), at)), bn, bt, bp, rest, hm, n, at, {==},
+        ArrangeL.and_tl(Receive.keeps(hm, Bm.Bookmark{bn, bt, bp}), Receive.names_kept(rest, hm), hk), h,
+        hr => kept_marks(rest, hm, n, at, ArrangeL.and_tr(Receive.keeps(hm, Bm.Bookmark{bn, bt, bp}), Receive.names_kept(rest, hm), hk), hr))
+
+# `receive` moves no bookmark this store has: every one it writes is one
+# this store has none of by that name, or has at that very target.
+def moves_none(+here: Receive.Side, +there: Receive.Side, +n: String, +at: String, h: {marks_at(Receive.rplan.names(Receive.plan.of(here, there)), n, at) == True{} : Bool}) -> {Bool.or(Bool.not(named(Receive.side.marks(here), n)), marks_at(Receive.side.marks(here), n, at)) == True{} : Bool}:
+  kept_marks(Receive.rplan.names(Receive.plan.of(here, there)), Receive.side.marks(here), n, at, names(here, there), h)

@@ -1015,11 +1015,17 @@ def Laws.receive_takes_only_documents_it_lacks(here, there, id, text, h):
 def Laws.receive_takes_only_payloads_it_lacks(here, there, path, d, h):
   ReceiveL.payloads(here, there, path, d, h)
 
-def Laws.receive_moves_no_bookmark(here, there):
-  ReceiveL.names(here, there)
+def Laws.receive_joins_only_related_histories(here, there, join, hh, ht):
+  ReceiveL.joins(here, there, join, hh, ht)
+
+def Laws.receive_moves_no_bookmark(here, there, n, at, h):
+  ReceiveL.moves_none(here, there, n, at, h)
 
 def Laws.receive_destroys_only_what_is_forgotten(here, there, d, h):
   ReceiveL.destroyed(here, there, d, h)
+
+def Laws.offer_lists_forgetting_as_prune_reads_it(path, id, text):
+  OfferL.catalogue(path, id, text)
 
 def Laws.offer_names_no_private_bookmark(prefix, s, bs, claims, rids, nids):
   OfferL.bookmarks(prefix, s, bs, claims, rids, nids)
