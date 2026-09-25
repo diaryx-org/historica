@@ -4,6 +4,11 @@
 import Base
 import ./check.bend as Check
 import ./string_lemmas.bend as S
+import ./commands.bend as Main
+import ./revision.bend as Rev
+import ./bookmark.bend as Bm
+import ./bookmark_lemmas.bend as BmL
+import ./text.bend as T
 
 # The report
 # ----------
@@ -199,4 +204,128 @@ def any_heads(fs: List<&2, Check.Finding>) -> {Bool.not(Nat.is_eq(Check.heads.of
 def fails_is(+fs: List<&2, Check.Finding>, complete: Bool) -> {Check.fails(fs, complete) == Bool.or(List.any(~&2, ~Check.Finding, ~(f => Check.is_error(f)), fs), Bool.and(complete, List.any(~&2, ~Check.Finding, ~(f => Check.is_head(f)), fs))) : Bool}:
   %any_errors(fs) : {Check.fails(fs, complete) == Bool.or(_, Bool.and(complete, List.any(~&2, ~Check.Finding, ~(f => Check.is_head(f)), fs))) : Bool}
   %any_heads(fs) : {Check.fails(fs, complete) == Bool.or(Bool.not(Nat.is_eq(Check.count.of(fs, True{}), 0n)), Bool.and(complete, _)) : Bool}
+  {==}
+
+# Bookmarks
+# ---------
+
+# Whether a key is one of the facts a revision states about a file.
+def keyed(ks: List<&2, String>, +k: String) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case +x <> rest:
+      Bool.or(String.eq(k, x), keyed(rest, k))
+
+def fact_key(+k: String) -> Bool:
+  keyed(["add", "move", "drop", "edit", "text", "bytes"], k)
+
+# Whether a revision's headers state a fact about the file: a fact's key,
+# and the file's identifier its first word.
+def speaks(hs: List<&2, Rev.Header>, +f: String) -> Bool:
+  match hs:
+    case Nil{}:
+      False{}
+    case Rev.Header{+k, +v} <> rest:
+      Bool.or(Bool.and(fact_key(k), String.eq(T.word(v), f)), speaks(rest, f))
+
+def speaks.any(ds: List<&2, Main.Full>, +f: String) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case d <> rest:
+      Bool.or(speaks(Check.facts(d), f), speaks.any(rest, f))
+
+# Whether what a bookmark points at is here (decision 0024): the revision
+# by its digest, a revision of the change, or a revision stating a fact
+# about the file.
+def here(+docs: List<&2, Main.Full>, t: Bm.Target) -> Bool:
+  match t:
+    case Bm.Target.Change{c}:
+      Rev.member(T.map(~Main.Full, ~String, ~(d => Main.change_of(d)), docs), c)
+    case Bm.Target.Revision{r}:
+      Rev.member(T.map(~Main.Full, ~String, ~(d => Main.id_of(d)), docs), r)
+    case Bm.Target.File{f}:
+      speaks.any(docs, f)
+
+def six_or(a: Bool, b: Bool, c: Bool, d: Bool, e: Bool, f: Bool) -> {Bool.or(Bool.or(a, b), Bool.or(Bool.or(c, d), Bool.or(e, f))) == Bool.or(a, Bool.or(b, Bool.or(c, Bool.or(d, Bool.or(e, Bool.or(f, False{})))))) : Bool}:
+  match a b c d e:
+    case True{} _ _ _ _:
+      {==}
+    case False{} True{} _ _ _:
+      {==}
+    case False{} False{} True{} _ _:
+      {==}
+    case False{} False{} False{} True{} _:
+      {==}
+    case False{} False{} False{} False{} True{}:
+      {==}
+    case False{} False{} False{} False{} False{}:
+      match f:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+
+def speaks.at(c: Bool, +x: String, +more: List<&2, String>, +f: String, -rest: Bool, ih: {Rev.member(more, f) == rest : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, c, x <> more, more), f) == Bool.or(Bool.and(c, String.eq(x, f)), rest) : Bool}:
+  match c:
+    case True{}:
+      Equal.cong(Bool, Bool, b => Bool.or(String.eq(x, f), b), Rev.member(more, f), rest, ih)
+    case False{}:
+      ih
+
+# The files a revision's facts name, as `check` gathers them, hold the file
+# exactly where its headers state a fact about it.
+def files_speak(hs: List<&2, Rev.Header>, +f: String) -> {Rev.member(Check.facts.files(hs), f) == speaks(hs, f) : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case Rev.Header{+k, +v} <> +rest:
+      %six_or(String.eq(k, "add"), String.eq(k, "move"), String.eq(k, "drop"), String.eq(k, "edit"), String.eq(k, "text"), String.eq(k, "bytes")) : {Rev.member(Check.facts.files(Rev.Header{k, v} <> rest), f) == Bool.or(Bool.and(_, String.eq(T.word(v), f)), speaks(rest, f)) : Bool}
+      speaks.at(Bool.or(Bool.or(String.eq(k, "add"), String.eq(k, "move")), Bool.or(Bool.or(String.eq(k, "drop"), String.eq(k, "edit")), Bool.or(String.eq(k, "text"), String.eq(k, "bytes")))), T.word(v), Check.facts.files(rest), f, speaks(rest, f), files_speak(rest, f))
+
+def pointed_file(ds: List<&2, Main.Full>, +f: String) -> {Check.pointed(ds, Bm.Target.File{f}) == speaks.any(ds, f) : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case +d <> +rest:
+      %Equal.sym(Bool, Rev.member(Check.facts.files(Check.facts(d)), f), speaks(Check.facts(d), f), files_speak(Check.facts(d), f)) : {Bool.or(_, Check.pointed(rest, Bm.Target.File{f})) == Bool.or(speaks(Check.facts(d), f), speaks.any(rest, f)) : Bool}
+      Equal.cong(Bool, Bool, b => Bool.or(speaks(Check.facts(d), f), b), Check.pointed(rest, Bm.Target.File{f}), speaks.any(rest, f), pointed_file(rest, f))
+
+def pointed_revision(ds: List<&2, Main.Full>, +r: String) -> {Check.pointed(ds, Bm.Target.Revision{r}) == Rev.member(T.map(~Main.Full, ~String, ~(d => Main.id_of(d)), ds), r) : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case +d <> +rest:
+      Equal.cong(Bool, Bool, b => Bool.or(String.eq(Main.id_of(d), r), b), Check.pointed(rest, Bm.Target.Revision{r}), Rev.member(T.map(~Main.Full, ~String, ~(d => Main.id_of(d)), rest), r), pointed_revision(rest, r))
+
+def change_same(d: Main.Full) -> {Check.change.of(d) == Main.change_of(d) : String}:
+  match d:
+    case Main.Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
+      {==}
+
+def pointed_change(ds: List<&2, Main.Full>, +c: String) -> {Check.pointed(ds, Bm.Target.Change{c}) == Rev.member(T.map(~Main.Full, ~String, ~(d => Main.change_of(d)), ds), c) : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case +d <> +rest:
+      %Equal.sym(String, Check.change.of(d), Main.change_of(d), change_same(d)) : {Bool.or(String.eq(_, c), Check.pointed(rest, Bm.Target.Change{c})) == Rev.member(T.map(~Main.Full, ~String, ~(d => Main.change_of(d)), d <> rest), c) : Bool}
+      Equal.cong(Bool, Bool, b => Bool.or(String.eq(Main.change_of(d), c), b), Check.pointed(rest, Bm.Target.Change{c}), Rev.member(T.map(~Main.Full, ~String, ~(d => Main.change_of(d)), rest), c), pointed_change(rest, c))
+
+# A bookmark points at something here exactly where `here` says.
+def pointed_here(+ds: List<&2, Main.Full>, t: Bm.Target) -> {Check.pointed(ds, t) == here(ds, t) : Bool}:
+  match t:
+    case Bm.Target.Change{+c}:
+      pointed_change(ds, c)
+    case Bm.Target.Revision{+r}:
+      pointed_revision(ds, r)
+    case Bm.Target.File{+f}:
+      pointed_file(ds, f)
+
+# What `check` finds in a bookmark file `name` wrote for a well-formed
+# target: nothing where what it points at is here, and otherwise a note,
+# and only a note, that it is not here yet.
+def name_read(+docs: List<&2, Main.Full>, +path: String, +n: String, +t: Bm.Target, +p: Bool, +h: {Bm.target_ok(t) == True{} : Bool}) -> {Check.name.text(docs, path, n, Done{Bm.write(Bm.Stated{t, p})}) == Bool.pick(List<&2, Check.Finding>, here(docs, t), Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) : List<&2, Check.Finding>}:
+  %Equal.sym(Result<&2, &2, String, Bm.Stated>, Bm.parse(Bm.write(Bm.Stated{t, p})), Done{Bm.Stated{t, p}}, BmL.reads_back(t, p, h)) : {Check.bookmark.finding(docs, path, n, _) == Bool.pick(List<&2, Check.Finding>, here(docs, t), Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) : List<&2, Check.Finding>}
+  %Equal.sym(Bool, Check.pointed(docs, t), here(docs, t), pointed_here(docs, t)) : {Bool.pick(List<&2, Check.Finding>, _, Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) == Bool.pick(List<&2, Check.Finding>, here(docs, t), Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) : List<&2, Check.Finding>}
   {==}
