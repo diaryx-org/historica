@@ -1268,6 +1268,27 @@ law update_spares_the_unrecorded:
   for +e: {Upd.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
   {Upd.touches.recorded(fs, List.append(&2, Store.Doc, ds, more), p) == True{} : Bool}
 
+# `update` run again from what it left keeps every path it stepped
+# through: where it decides a path anything but a refusal, the path, once
+# that step is done, is one the same want keeps — whatever history is said
+# to record there the second time. A second update of the same target
+# writes nothing, points no link again and sets no mode.
+law update_again_keeps:
+  for +w: Upd.Wants
+  for +h: Upd.Held
+  for +rs: List<&2, String>
+  for +rs2: List<&2, String>
+  for e: {Upd.refuses(Upd.decide(w, h, rs)) == False{} : Bool}
+  {Upd.decide(w, Upd.after(w, h, Upd.decide(w, h, rs)), rs2) == Upd.Step.Keep{} : Upd.Step}
+
+# `update` says the folder already holds the target, and carries nothing
+# out, only where carrying its plan out would change nothing: every path it
+# steps through would hold what it held, and nothing would be taken away.
+law update_settles_only_what_stays:
+  for p: Upd.Plan
+  for +e: {Upd.settled(p) == True{} : Bool}
+  {Upd.unchanged(p) == True{} : Bool}
+
 # Decision 0032's promise: the resolution `record --merge` writes for a
 # file of lines, assembled as `cat` assembles one, is exactly the file the
 # person left in the folder — every line they kept named back from the
@@ -1802,6 +1823,15 @@ law merge_spares_the_unrecorded:
   for +located: Map<&2, String>
   for es: List<&2, Tree.Entry>
   {Merging.laid.every(fs, ds, heads, bs, t, dg, texts, es, Merging.lay.acts(Merging.lay.all(t, cs, located, Merging.places(fs, ds, heads, bs, dg, ls, texts, es)))) == True{} : Bool}
+
+# Decision 0008 forbids the format inventing a name, so `merge` keeps a
+# path several files claim for the first of them and writes each other
+# beside it. The files it writes beside a path are exactly those: each is
+# one a contest names after the first, and each one a contest names after
+# the first is written beside.
+law merge_sets_aside_the_claims:
+  for +cs: List<&2, Tree.Contest>
+  {Bool.and(Merging.besides.claimed(cs, Merging.typed.ids(Merging.beside(cs))), Merging.contests.written(cs, Merging.typed.ids(Merging.beside(cs)))) == True{} : Bool}
 
 # `record` reads its words as their plain reading says: the word after a
 # flag that takes a value is that value, whatever it is; the last `-m` and

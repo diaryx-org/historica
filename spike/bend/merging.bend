@@ -194,6 +194,58 @@ def contests.said(cs: List<&2, Tree.Contest>) -> List<&2, String>:
     case c <> rest:
       Main.contest.push(contest.said(c), contests.said(rest))
 
+# Which files `merge` writes beside a path, as `LAWS.merge_sets_aside_the_claims`
+# reads a contest: every file a contest says claims a path, after the
+# first, which keeps it — and no other.
+def claims.after(fs: List<&2, String>, +f: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Rev.member(rest, f)
+
+def contest.beside(c: Tree.Contest, +f: String) -> Bool:
+  match c:
+    case Tree.Path{p, fs}:
+      claims.after(fs, f)
+    case _:
+      False{}
+
+def contests.beside(cs: List<&2, Tree.Contest>, +f: String) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case c <> rest:
+      Bool.or(contest.beside(c, f), contests.beside(rest, f))
+
+def besides.claimed(+cs: List<&2, Tree.Contest>, ks: List<&2, String>) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case +k <> rest:
+      Bool.and(contests.beside(cs, k), besides.claimed(cs, rest))
+
+def claims.written(fs: List<&2, String>, +ks: List<&2, String>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Main.all_held(ks, rest)
+
+def contest.written(c: Tree.Contest, +ks: List<&2, String>) -> Bool:
+  match c:
+    case Tree.Path{p, fs}:
+      claims.written(fs, ks)
+    case _:
+      True{}
+
+def contests.written(cs: List<&2, Tree.Contest>, +ks: List<&2, String>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case c <> rest:
+      Bool.and(contest.written(c, ks), contests.written(rest, ks))
+
 # What each file comes to
 # -----------------------
 

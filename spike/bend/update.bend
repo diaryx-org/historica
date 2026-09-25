@@ -1283,6 +1283,54 @@ def touches.recorded(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, p: Plan
     case Plan{steps, gone}:
       Bool.and(touched.steps(fs, ds, steps), touched.gone(fs, ds, gone))
 
+# Whether a step refuses the whole update.
+def refuses(s: Step) -> Bool:
+  match s:
+    case Step.Refuse{b}:
+      True{}
+    case _:
+      False{}
+
+# Whether a path holds the same thing as another reading of it.
+def held.same(a: Held, b: Held) -> Bool:
+  match a b:
+    case Held.File{+d, +r} Held.File{+e, +x}:
+      Bool.and(String.eq(d, e), Bool.not(Bool.xor(r, x)))
+    case Held.Link{+s} Held.Link{+t}:
+      String.eq(s, t)
+    case Held.Dir{} Held.Dir{}:
+      True{}
+    case Held.Unread{} Held.Unread{}:
+      True{}
+    case Held.Other{} Held.Other{}:
+      True{}
+    case Held.Nothing{} Held.Nothing{}:
+      True{}
+    case _ _:
+      False{}
+
+# Carrying a plan out would change nothing: every path it steps through
+# would hold, after its step, what it held before, and nothing would be
+# taken away.
+def unchanged.steps(ds: List<&2, Decided>) -> Bool:
+  match ds:
+    case Nil{}:
+      True{}
+    case Decided{p, +w, +h, rs, s} <> rest:
+      Bool.and(held.same(after(w, h, s), h), unchanged.steps(rest))
+
+def unchanged.gone(ws: List<&2, Went>) -> Bool:
+  match ws:
+    case Nil{}:
+      True{}
+    case Went{p, h, rs, l} <> rest:
+      Bool.and(Bool.not(leaving.remove(l)), unchanged.gone(rest))
+
+def unchanged(p: Plan) -> Bool:
+  match p:
+    case Plan{steps, gone}:
+      Bool.and(unchanged.steps(steps), unchanged.gone(gone))
+
 # What one path the tree holds with one file wants, and what the folder
 # holds there, before it is known whether the digests some revision records
 # are needed to decide it.

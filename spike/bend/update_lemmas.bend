@@ -128,15 +128,8 @@ def args_said(+ws: List<&2, String>, +c: U.UpdateCmd, e: {U.args.r(ws) == Done{c
 
 # A step that is not a refusal leaves the path holding what the target
 # records: stated for one path, as a Bool, so that a refusal counts too.
-def refused(s: U.Step) -> Bool:
-  match s:
-    case U.Step.Refuse{b}:
-      True{}
-    case _:
-      False{}
-
 def sound(+w: U.Wants, +h: U.Held, +s: U.Step) -> Bool:
-  Bool.or(refused(s), U.lands(w, U.after(w, h, s)))
+  Bool.or(U.refuses(s), U.lands(w, U.after(w, h, s)))
 
 def xor_self(x: Bool) -> {Bool.not(Bool.xor(x, x)) == True{} : Bool}:
   match x:
@@ -664,3 +657,139 @@ def touched_gone(gp: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, S
 def plan_touches(+fs: List<&2, Main.Full>, +id: String, +t: Tree.Tree(), +rs: List<&2, Folder.Scope>, +walked: List<&2, T.Split>, +found: List<&2, Folder.Found>, +dg: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, +ds: List<&2, Store.Doc>, +more: List<&2, Store.Doc>, -p: U.Plan, +e: {U.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, U.Plan>}) -> {U.touches.recorded(fs, List.append(&2, Store.Doc, ds, more), p) == True{} : Bool}:
   %plan_done(U.refuse.tree(Set.from_list(U.dirs(U.placings(t))), rs, walked, U.placings(t)), U.looks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t))), U.recorded.list(List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t))))), fs, List.reverse(&2, Main.Full, Main.presentation(fs)), List.append(&2, Store.Doc, ds, more))), U.gones(U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))), U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), U.recorded.list(List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t))))), fs, List.reverse(&2, Main.Full, Main.presentation(fs)), List.append(&2, Store.Doc, ds, more)), U.spelled.map(U.gone.links(U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))), U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>))), fs, Map.new(&2, List<&2, String>)), Set.from_list(U.tracked(fs, U.heads.sorted(fs)))), p, e) : {U.touches.recorded(fs, List.append(&2, Store.Doc, ds, more), _) == True{} : Bool}
   AL.and_intro(U.touched.steps(fs, List.append(&2, Store.Doc, ds, more), U.decided(U.looks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t))), U.recorded.list(List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t))))), fs, List.reverse(&2, Main.Full, Main.presentation(fs)), List.append(&2, Store.Doc, ds, more))))), U.touched.gone(fs, List.append(&2, Store.Doc, ds, more), U.went(U.gones(U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))), U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), U.recorded.list(List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t))))), fs, List.reverse(&2, Main.Full, Main.presentation(fs)), List.append(&2, Store.Doc, ds, more)), U.spelled.map(U.gone.links(U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))), U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>))), fs, Map.new(&2, List<&2, String>)), Set.from_list(U.tracked(fs, U.heads.sorted(fs)))))), touched_steps(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t))), fs, List.append(&2, Store.Doc, ds, more), List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))))), touched_gone(U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))), fs, List.append(&2, Store.Doc, ds, more), U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t))))), U.spelled.map(U.gone.links(U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))), U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>))), fs, Map.new(&2, List<&2, String>)), Set.from_list(U.tracked(fs, U.heads.sorted(fs)))))
+
+# Run again, it keeps what it left
+# --------------------------------
+
+def not_true(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, Comp.false_true(h))
+
+def or_false(a: Bool, -b: Bool, ea: {a == False{} : Bool}, h: {Bool.or(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case False{}:
+      h
+    case True{}:
+      Empty.absurd({b == True{} : Bool}, Comp.false_true(Equal.sym(Bool, True{}, False{}, ea)))
+
+# A path holding the bytes and the bit wanted is kept.
+def kept_file(+dg: String, +m: Tree.Mode, h: U.Held, +rs: List<&2, String>, +hl: {U.lands.file(dg, U.runs(m), h) == True{} : Bool}) -> {U.decide.file(dg, m, h, rs) == U.Step.Keep{} : U.Step}:
+  match h:
+    case U.Held.File{+d, +x}:
+      %Equal.sym(Bool, String.eq(d, dg), True{}, Comp.and_left(String.eq(d, dg), Bool.not(Bool.xor(x, U.runs(m))), hl)) : {Bool.pick(U.Step, _, Bool.pick(U.Step, Bool.xor(x, U.runs(m)), U.Step.Mode{}, U.Step.Keep{}), Bool.pick(U.Step, Rev.member(rs, d), U.Step.Write{}, U.Step.Refuse{U.UNRECORDED()})) == U.Step.Keep{} : U.Step}
+      %Equal.sym(Bool, Bool.xor(x, U.runs(m)), False{}, not_true(Bool.xor(x, U.runs(m)), Comp.and_right(String.eq(d, dg), Bool.not(Bool.xor(x, U.runs(m))), hl))) : {Bool.pick(U.Step, _, U.Step.Mode{}, U.Step.Keep{}) == U.Step.Keep{} : U.Step}
+      {==}
+    case U.Held.Link{t}:
+      Empty.absurd({U.decide.file(dg, m, U.Held.Link{t}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+    case U.Held.Unread{}:
+      Empty.absurd({U.decide.file(dg, m, U.Held.Unread{}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+    case U.Held.Dir{}:
+      Empty.absurd({U.decide.file(dg, m, U.Held.Dir{}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+    case U.Held.Other{}:
+      Empty.absurd({U.decide.file(dg, m, U.Held.Other{}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+    case U.Held.Nothing{}:
+      Empty.absurd({U.decide.file(dg, m, U.Held.Nothing{}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+
+# A link pointing where it is wanted is kept.
+def kept_link(+t: String, h: U.Held, +rs: List<&2, String>, hl: {U.lands.link(t, h) == True{} : Bool}) -> {U.decide.link(t, h, rs) == U.Step.Keep{} : U.Step}:
+  match h:
+    case U.Held.Link{+x}:
+      %Equal.sym(Bool, String.eq(x, t), True{}, hl) : {Bool.pick(U.Step, _, U.Step.Keep{}, U.Step.Link{}) == U.Step.Keep{} : U.Step}
+      {==}
+    case U.Held.File{d, x}:
+      Empty.absurd({U.decide.link(t, U.Held.File{d, x}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+    case U.Held.Unread{}:
+      Empty.absurd({U.decide.link(t, U.Held.Unread{}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+    case U.Held.Dir{}:
+      Empty.absurd({U.decide.link(t, U.Held.Dir{}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+    case U.Held.Other{}:
+      Empty.absurd({U.decide.link(t, U.Held.Other{}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+    case U.Held.Nothing{}:
+      Empty.absurd({U.decide.link(t, U.Held.Nothing{}, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+
+def kept(w: U.Wants, h: U.Held, +rs: List<&2, String>, hl: {U.lands(w, h) == True{} : Bool}) -> {U.decide(w, h, rs) == U.Step.Keep{} : U.Step}:
+  match w:
+    case U.Wants.Lines{+text, +m}:
+      kept_file(U.text_digest(text), m, h, rs, hl)
+    case U.Wants.Whole{+p, at, +m}:
+      kept_file(p, m, h, rs, hl)
+    case U.Wants.Link{+t}:
+      kept_link(t, h, rs, hl)
+    case U.Wants.No{b}:
+      Empty.absurd({U.decide(U.Wants.No{b}, h, rs) == U.Step.Keep{} : U.Step}, Comp.false_true(hl))
+
+# `update` run again from what it left keeps every path it stepped through.
+def again_keeps(+w: U.Wants, +h: U.Held, +rs: List<&2, String>, +rs2: List<&2, String>, e: {U.refuses(U.decide(w, h, rs)) == False{} : Bool}) -> {U.decide(w, U.after(w, h, U.decide(w, h, rs)), rs2) == U.Step.Keep{} : U.Step}:
+  kept(w, U.after(w, h, U.decide(w, h, rs)), rs2, or_false(U.refuses(U.decide(w, h, rs)), U.lands(w, U.after(w, h, U.decide(w, h, rs))), e, decide_sound(w, h, rs)))
+
+# What it says is settled
+# -----------------------
+
+def same_held(h: U.Held) -> {U.held.same(h, h) == True{} : Bool}:
+  match h:
+    case U.Held.File{+d, +x}:
+      written(d, x)
+    case U.Held.Link{+t}:
+      SL.eq_refl(t)
+    case U.Held.Dir{}:
+      {==}
+    case U.Held.Unread{}:
+      {==}
+    case U.Held.Other{}:
+      {==}
+    case U.Held.Nothing{}:
+      {==}
+
+def cons_empty(-A: Data, -x: A, -xs: List<&2, A>, e: {List.is_empty(&2, A, x <> xs) == True{} : Bool}) -> Empty:
+  Comp.false_true(e)
+
+# A step that neither writes, sets a mode nor points a link leaves the path
+# as it was.
+def step_same(s: U.Step, +w: U.Wants, +h: U.Held, +p: String, +rs: List<&2, String>, +rest: List<&2, U.Decided>, hw: {List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.write(s), U.Decided{p, w, h, rs, s}, U.writes(rest))) == True{} : Bool}, hm: {List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.mode(s), U.Decided{p, w, h, rs, s}, U.modes(rest))) == True{} : Bool}, hl: {List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.link(s), U.Decided{p, w, h, rs, s}, U.links(rest))) == True{} : Bool}, ih: {List.is_empty(&2, U.Decided, U.writes(rest)) == True{} : Bool} -> {List.is_empty(&2, U.Decided, U.modes(rest)) == True{} : Bool} -> {List.is_empty(&2, U.Decided, U.links(rest)) == True{} : Bool} -> {U.unchanged.steps(rest) == True{} : Bool}) -> {Bool.and(U.held.same(U.after(w, h, s), h), U.unchanged.steps(rest)) == True{} : Bool}:
+  match s:
+    case U.Step.Refuse{b}:
+      AL.and_intro(U.held.same(h, h), U.unchanged.steps(rest), same_held(h), ih(hw, hm, hl))
+    case U.Step.Keep{}:
+      AL.and_intro(U.held.same(h, h), U.unchanged.steps(rest), same_held(h), ih(hw, hm, hl))
+    case U.Step.Write{}:
+      Empty.absurd({Bool.and(U.held.same(U.after(w, h, U.Step.Write{}), h), U.unchanged.steps(rest)) == True{} : Bool}, cons_empty(U.Decided, U.Decided{p, w, h, rs, U.Step.Write{}}, U.writes(rest), hw))
+    case U.Step.Mode{}:
+      Empty.absurd({Bool.and(U.held.same(U.after(w, h, U.Step.Mode{}), h), U.unchanged.steps(rest)) == True{} : Bool}, cons_empty(U.Decided, U.Decided{p, w, h, rs, U.Step.Mode{}}, U.modes(rest), hm))
+    case U.Step.Link{}:
+      Empty.absurd({Bool.and(U.held.same(U.after(w, h, U.Step.Link{}), h), U.unchanged.steps(rest)) == True{} : Bool}, cons_empty(U.Decided, U.Decided{p, w, h, rs, U.Step.Link{}}, U.links(rest), hl))
+
+def steps_same(ds: List<&2, U.Decided>, hw: {List.is_empty(&2, U.Decided, U.writes(ds)) == True{} : Bool}, hm: {List.is_empty(&2, U.Decided, U.modes(ds)) == True{} : Bool}, hl: {List.is_empty(&2, U.Decided, U.links(ds)) == True{} : Bool}) -> {U.unchanged.steps(ds) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case U.Decided{+p, +w, +h, +rs, +s} <> +rest:
+      step_same(s, w, h, p, rs, rest, hw, hm, hl, a => b => c => steps_same(rest, a, b, c))
+
+def gone_pick(b: Bool, +p: String, +rest: List<&2, U.Went>, hr: {List.is_empty(&2, String, Rev.keep(b, p, U.removes(rest))) == True{} : Bool}, ih: {List.is_empty(&2, String, U.removes(rest)) == True{} : Bool} -> {U.unchanged.gone(rest) == True{} : Bool}) -> {Bool.and(Bool.not(b), U.unchanged.gone(rest)) == True{} : Bool}:
+  match b:
+    case True{}:
+      Empty.absurd({Bool.and(False{}, U.unchanged.gone(rest)) == True{} : Bool}, cons_empty(String, p, U.removes(rest), hr))
+    case False{}:
+      ih(hr)
+
+def gone_same(ws: List<&2, U.Went>, hr: {List.is_empty(&2, String, U.removes(ws)) == True{} : Bool}) -> {U.unchanged.gone(ws) == True{} : Bool}:
+  match ws:
+    case Nil{}:
+      {==}
+    case U.Went{+p, h, rs, +l} <> +rest:
+      gone_pick(U.leaving.remove(l), p, rest, hr, h2 => gone_same(rest, h2))
+
+# Where `update` says the folder already holds the target, carrying out its
+# plan would change nothing.
+def settled_same(p: U.Plan, +e: {U.settled(p) == True{} : Bool}) -> {U.unchanged(p) == True{} : Bool}:
+  match p:
+    case U.Plan{+ds, +ws}:
+      AL.and_intro(U.unchanged.steps(ds), U.unchanged.gone(ws),
+        steps_same(ds,
+          Comp.and_left(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws)), Comp.and_left(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)),
+          Comp.and_left(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)), Comp.and_right(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)),
+          Comp.and_right(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)), Comp.and_right(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e))),
+        gone_same(ws, Comp.and_right(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws)), Comp.and_left(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e))))
