@@ -1081,6 +1081,15 @@ law diff_asks_every_payload_it_shows:
   for +cs: List<&2, Main.Compared>
   {FetchL.payloads.each(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.payloads_of(cs))), cs) == True{} : Bool}
 
+# And it asks the stat of a payload only at the path the host located that
+# payload at — never of one the host could not find, which it answers `-`
+# for — so that each size it then believes is looked for where it is.
+law diff_stats_where_each_payload_was_found:
+  for +root: String
+  for +ds: List<&2, String>
+  for +at: List<&2, String>
+  {FetchL.located.each(ds, at, Main.sizes.of(root, ds, at)) == True{} : Bool}
+
 # What a resolution keeps is fetched too. After the documents a reading
 # command asks for, it asks for every document a resolution among them
 # keeps lines of, which assembling the resolution reads.

@@ -75,6 +75,24 @@ def payloads.each(+docs: List<&2, String>, cs: List<&2, Main.Compared>) -> Bool:
     case Main.Compared{f, t, b, a, m, g} <> rest:
       Bool.and(Bool.and(Main.all_held(docs, side.bytes(b)), Main.all_held(docs, side.bytes(a))), payloads.each(docs, rest))
 
+# Whether the host located payload `d` at path `p`: the answer for it,
+# among those the host gave for the payloads asked about, in order.
+def located.at(ds: List<&2, String>, at: List<&2, String>, +d: String, +p: String) -> Bool:
+  match ds at:
+    case +x <> xr +y <> yr:
+      Bool.or(Bool.and(String.eq(x, d), String.eq(y, p)), located.at(xr, yr, d, p))
+    case _ _:
+      False{}
+
+# Every payload asked the stat of is paired with a path the host located it
+# at, and none with `-`, the answer for a payload it could not find.
+def located.each(+ds: List<&2, String>, +at: List<&2, String>, found: List<&2, T.Split>) -> Bool:
+  match found:
+    case Nil{}:
+      True{}
+    case T.Split{+d, +p} <> rest:
+      Bool.and(Bool.and(located.at(ds, at, d, p), Bool.not(String.eq(p, "-"))), located.each(ds, at, rest))
+
 # What is asked for
 # -----------------
 
@@ -292,3 +310,41 @@ def payloads_ok(+docs: List<&2, String>, cs: List<&2, Main.Compared>, +e: {Main.
 # `diff` asks the host about the payload of every file of bytes it shows.
 def payloads_asked(+cs: List<&2, Main.Compared>) -> {payloads.each(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.payloads_of(cs))), cs) == True{} : Bool}:
   payloads_ok(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.payloads_of(cs))), cs, ah_ds(Main.payloads_of(cs), Main.payloads_of(cs), ah_refl(Main.payloads_of(cs))))
+
+# The paths asked about
+# ---------------------
+
+def located_weak(+x: String, +y: String, +xr: List<&2, String>, +yr: List<&2, String>, found: List<&2, T.Split>, +h: {located.each(xr, yr, found) == True{} : Bool}) -> {located.each(x <> xr, y <> yr, found) == True{} : Bool}:
+  match found:
+    case Nil{}:
+      {==}
+    case T.Split{+d, +p} <> +rest:
+      +hd = Comp.and_left(Bool.and(located.at(xr, yr, d, p), Bool.not(String.eq(p, "-"))), located.each(xr, yr, rest), h)
+      AL.and_intro(Bool.and(located.at(x <> xr, y <> yr, d, p), Bool.not(String.eq(p, "-"))), located.each(x <> xr, y <> yr, rest),
+        AL.and_intro(located.at(x <> xr, y <> yr, d, p), Bool.not(String.eq(p, "-")),
+          AL.or_right(Bool.and(String.eq(x, d), String.eq(y, p)), located.at(xr, yr, d, p), Comp.and_left(located.at(xr, yr, d, p), Bool.not(String.eq(p, "-")), hd)),
+          Comp.and_right(located.at(xr, yr, d, p), Bool.not(String.eq(p, "-")), hd)),
+        located_weak(x, y, xr, yr, rest, Comp.and_right(Bool.and(located.at(xr, yr, d, p), Bool.not(String.eq(p, "-"))), located.each(xr, yr, rest), h)))
+
+def keep_located(missing: Bool, +d: String, +p: String, +rest: List<&2, String>, +more: List<&2, String>, +found: List<&2, T.Split>, +em: {String.eq(p, "-") == missing : Bool}, +h: {located.each(rest, more, found) == True{} : Bool}) -> {located.each(d <> rest, p <> more, Main.sizes.keep(d, p, found, missing)) == True{} : Bool}:
+  match missing:
+    case True{}:
+      located_weak(d, p, rest, more, found, h)
+    case False{}:
+      AL.and_intro(Bool.and(located.at(d <> rest, p <> more, d, p), Bool.not(String.eq(p, "-"))), located.each(d <> rest, p <> more, found),
+        AL.and_intro(located.at(d <> rest, p <> more, d, p), Bool.not(String.eq(p, "-")),
+          AL.or_left(Bool.and(String.eq(d, d), String.eq(p, p)), located.at(rest, more, d, p), AL.and_intro(String.eq(d, d), String.eq(p, p), S.eq_refl(d), S.eq_refl(p))),
+          (%Equal.sym(Bool, String.eq(p, "-"), False{}, em) : {Bool.not(_) == True{} : Bool}; {==})),
+        located_weak(d, p, rest, more, found, h))
+
+# `diff` asks the stat only of paths the host located a payload at, each
+# with the payload it located there, and never of a payload it could not
+# find.
+def sizes_located(+root: String, ds: List<&2, String>, at: List<&2, String>) -> {located.each(ds, at, Main.sizes.of(root, ds, at)) == True{} : Bool}:
+  match ds at:
+    case +d <> +rest +p <> +more:
+      keep_located(String.eq(p, "-"), d, p, rest, more, Main.sizes.of(root, rest, more), {==}, sizes_located(root, rest, more))
+    case Nil{} y:
+      {==}
+    case x <> xr Nil{}:
+      {==}
