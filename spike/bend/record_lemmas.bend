@@ -20,6 +20,7 @@ import ./survey.bend as Sv
 import ./naming.bend as Naming
 import ./bookmark.bend as Bm
 import ./sha256.bend as Sha
+import ./status_lemmas.bend as StatusL
 
 # Its words
 # ---------
@@ -462,3 +463,139 @@ def settled_ok(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>
       Empty.absurd({Main.planned.settled(pl2, accepted) == True{} : Bool}, B.fail_done(Sv.Planned, Main.Refused{1, m}, pl2, e))
     case Sv.Planned{+facts, +refused, +claimed, +accept, +emptied, None{}, +obs, +links}:
       settled_of(looked, facts, refused, claimed, accept, emptied, obs, links, accepted, pl2, e)
+
+# It moves only files the position holds
+# ---------------------------------------
+
+def reloc_files(t: Tree.Tree(), +file: String, +to: String) -> {T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), Sv.relocated(t, file, to)) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t) : List<&2, String>}:
+  match t:
+    case Nil{}:
+      {==}
+    case Tree.Entry{+f, p, k, y, g, m} <> rest:
+      Equal.cong(List<&2, String>, List<&2, String>, l => f <> l, T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), Sv.relocated(rest, file, to)), T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), rest), reloc_files(rest, file, to))
+
+def mem_head(+f: String, +rest: List<&2, String>) -> {Rev.member(f <> rest, f) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(f, f), True{}, S.eq_refl(f)) : {Bool.or(_, Rev.member(rest, f)) == True{} : Bool}
+  {==}
+
+def or_true(a: Bool, -b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def holds_step(b: Bool, +f: String, +e: Tree.Entry, +rest: Tree.Tree(), +g: String, eb: {String.eq(f, g) == b : Bool}, h: {Maybe.is_some(&2, Tree.Entry, Bool.pick(Maybe<&2, Tree.Entry>, b, Some{e}, Tree.lookup(rest, g))) == True{} : Bool}, ih: {Tree.holds(rest, g) == True{} : Bool} -> {Rev.member(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), rest), g) == True{} : Bool}) -> {Bool.or(b, Rev.member(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), rest), g)) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih(h)
+
+# A file the tree holds is one of its files.
+def holds_mem(t: Tree.Tree(), +g: String, h: {Tree.holds(t, g) == True{} : Bool}) -> {Rev.member(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), g) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      Empty.absurd({Rev.member(Nil{}, g) == True{} : Bool}, S.false_true(h))
+    case Tree.Entry{+f, +p, +k, +y, +gg, +m} <> +rest:
+      holds_step(String.eq(f, g), f, Tree.Entry{f, p, k, y, gg, m}, rest, g, {==}, h, hr => holds_mem(rest, g, hr))
+
+def keep_held(b: Bool, +f: String, +fs: List<&2, String>, +xs: List<&2, String>, +h: {Main.all_held(fs, xs) == True{} : Bool}) -> {Main.all_held(f <> fs, Rev.keep(b, f, xs)) == True{} : Bool}:
+  match b:
+    case True{}:
+      B.and_tt(Rev.member(f <> fs, f), Main.all_held(f <> fs, xs), mem_head(f, fs), StatusL.ah_weak(f, fs, xs, h))
+    case False{}:
+      StatusL.ah_weak(f, fs, xs, h)
+
+# Every file the tree has at a path is one of its files.
+def at_mem(t: Tree.Tree(), +p: String) -> {Main.all_held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Tree.at(t, p)) == True{} : Bool}:
+  match t:
+    case Nil{}:
+      {==}
+    case Tree.Entry{+f, +q, k, y, g, m} <> +rest:
+      keep_held(String.eq(q, p), f, T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), rest), Tree.at(rest, p), at_mem(rest, p))
+
+def files_at_mem(+t: Tree.Tree(), +p: String) -> {Main.all_held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.files_at(t, p)) == True{} : Bool}:
+  StatusL.ah_sort(~(a => b => String.is_le(a, b)), T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Tree.at(t, p), at_mem(t, p))
+
+def mh_app(+files: List<&2, String>, xs: List<&2, T.Split>, +f: String, +to: String, +hx: {Main.moved.held(files, xs) == True{} : Bool}, hf: {Rev.member(files, f) == True{} : Bool}) -> {Main.moved.held(files, List.append(&2, T.Split, xs, [T.Split{f, to}])) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      B.and_tt(Rev.member(files, f), True{}, hf, {==})
+    case T.Split{+g, +w} <> +rest:
+      B.and_tt(Rev.member(files, g), Main.moved.held(files, List.append(&2, T.Split, rest, [T.Split{f, to}])), SortL.band_l(Rev.member(files, g), Main.moved.held(files, rest), hx),
+        mh_app(files, rest, f, to, SortL.band_r(Rev.member(files, g), Main.moved.held(files, rest), hx), hf))
+
+def mem_moved(+t0: Tree.Tree(), +t: Tree.Tree(), +f: String, +ef: {T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0) : List<&2, String>}, h: {Rev.member(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), f) == True{} : Bool}) -> {Rev.member(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), f) == True{} : Bool}:
+  %ef : {Rev.member(_, f) == True{} : Bool}
+  h
+
+def placed_tree(p: Main.Placed) -> Tree.Tree():
+  match p:
+    case Main.Placed{t, m}:
+      t
+
+# `--at` moves files the position holds, and keeps its files.
+def at_held(ats: List<&2, T.Split>, held: Bool, +t0: Tree.Tree(), +t: Tree.Tree(), +moved: List<&2, T.Split>, eh: {Main.placed.holds(t, ats) == held : Bool}, +ef: {T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0) : List<&2, String>}, +hm: {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), moved) == True{} : Bool}, -p: Main.Placed, e: {Main.placed.at.r(ats, t, moved, held) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(p)) == True{} : Bool}:
+  match ats held:
+    case Nil{} _:
+      %B.done_eq(Main.Placed, Main.Placed{t, moved}, p, e) : {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(_)) == True{} : Bool}
+      hm
+    case T.Split{+f, to} <> rest False{}:
+      Empty.absurd({Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(p)) == True{} : Bool}, B.fail_done(Main.Placed, Main.Refused{1, "`" ++ f ++ "` is not a file this history holds, so nothing can be moved from it"}, p, e))
+    case T.Split{+f, +to} <> +rest True{}:
+      +m0 = mem_moved(t0, t, f, ef, holds_mem(t, f, eh))
+      at_held(rest, Main.placed.holds(Sv.relocated(t, f, to), rest), t0, Sv.relocated(t, f, to), List.append(&2, T.Split, moved, [T.Split{f, to}]), {==},
+        Equal.trans(List<&2, String>, T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), Sv.relocated(t, f, to)), T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), reloc_files(t, f, to), ef), mh_app(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), moved, f, to, hm, m0), p, e)
+
+def at_files(ats: List<&2, T.Split>, held: Bool, +t0: Tree.Tree(), +t: Tree.Tree(), +moved: List<&2, T.Split>, +ef: {T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0) : List<&2, String>}, -p: Main.Placed, e: {Main.placed.at.r(ats, t, moved, held) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), placed_tree(p)) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0) : List<&2, String>}:
+  match ats held:
+    case Nil{} _:
+      %B.done_eq(Main.Placed, Main.Placed{t, moved}, p, e) : {T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), placed_tree(_)) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0) : List<&2, String>}
+      ef
+    case T.Split{+f, to} <> rest False{}:
+      Empty.absurd({T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), placed_tree(p)) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0) : List<&2, String>}, B.fail_done(Main.Placed, Main.Refused{1, "`" ++ f ++ "` is not a file this history holds, so nothing can be moved from it"}, p, e))
+    case T.Split{+f, +to} <> +rest True{}:
+      at_files(rest, Main.placed.holds(Sv.relocated(t, f, to), rest), t0, Sv.relocated(t, f, to), List.append(&2, T.Split, moved, [T.Split{f, to}]),
+        Equal.trans(List<&2, String>, T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), Sv.relocated(t, f, to)), T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), reloc_files(t, f, to), ef), p, e)
+
+def one_held(+fs: List<&2, String>, +f: String, h: {Main.all_held(fs, [f]) == True{} : Bool}) -> {Rev.member(fs, f) == True{} : Bool}:
+  SortL.band_l(Rev.member(fs, f), True{}, h)
+
+# `--move` moves files the position holds.
+def move_held(ms: List<&2, T.Split>, at: List<&2, String>, fault: Maybe<&2, String>, +t0: Tree.Tree(), +t: Tree.Tree(), +moved: List<&2, T.Split>, +eat: {Main.placed.head(t, ms) == at : List<&2, String>}, +ef: {T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0) : List<&2, String>}, +hm: {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), moved) == True{} : Bool}, -p: Main.Placed, e: {Main.placed.move.r(ms, t, moved, at, fault) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(p)) == True{} : Bool}:
+  match ms at fault:
+    case Nil{} _ _:
+      %B.done_eq(Main.Placed, Main.Placed{t, moved}, p, e) : {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(_)) == True{} : Bool}
+      hm
+    case T.Split{+from, to} <> rest Nil{} _:
+      Empty.absurd({Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(p)) == True{} : Bool}, B.fail_done(Main.Placed, Main.Refused{1, "`" ++ from ++ "` is not a file this history holds, so nothing can be moved from it"}, p, e))
+    case T.Split{+from, +to} <> +rest +f <> Nil{} None{}:
+      +hall = Equal.trans(Bool, Main.all_held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), [f]), Main.all_held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.files_at(t, from)), True{},
+        Equal.cong(List<&2, String>, Bool, l => Main.all_held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), l), [f], Main.files_at(t, from), Equal.sym(List<&2, String>, Main.files_at(t, from), [f], eat)),
+        files_at_mem(t, from))
+      +m0 = mem_moved(t0, t, f, ef, one_held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), f, hall))
+      move_held(rest, Main.placed.head(Sv.relocated(t, f, to), rest), Main.placed.fault(rest), t0, Sv.relocated(t, f, to), List.append(&2, T.Split, moved, [T.Split{f, to}]), {==},
+        Equal.trans(List<&2, String>, T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), Sv.relocated(t, f, to)), T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), reloc_files(t, f, to), ef), mh_app(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), moved, f, to, hm, m0), p, e)
+    case T.Split{from, +to} <> rest f <> Nil{} Some{+because}:
+      Empty.absurd({Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(p)) == True{} : Bool}, B.fail_done(Main.Placed, Main.Refused{1, "`" ++ to ++ "` cannot be a path here: " ++ because}, p, e))
+    case T.Split{+from, to} <> rest +f <> +g <> +r None{}:
+      Empty.absurd({Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(p)) == True{} : Bool}, B.fail_done(Main.Placed, Main.Refused{1, Main.contested.msg(from, f <> g <> r)}, p, e))
+    case T.Split{+from, to} <> rest +f <> +g <> +r Some{x}:
+      Empty.absurd({Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t0), Main.placed.moved(p)) == True{} : Bool}, B.fail_done(Main.Placed, Main.Refused{1, Main.contested.msg(from, f <> g <> r)}, p, e))
+
+def placed2(p1: Main.Placed, +t: Tree.Tree(), +ms: List<&2, T.Split>, +hm: {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p1)) == True{} : Bool}, +ef: {T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), placed_tree(p1)) == T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t) : List<&2, String>}, -p: Main.Placed, e: {Main.placed.of.r(p1, ms) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}:
+  match p1:
+    case Main.Placed{+t1, +moved1}:
+      move_held(ms, Main.placed.head(t1, ms), Main.placed.fault(ms), t, t1, moved1, {==}, ef, hm, p, e)
+
+def placed1(+t: Tree.Tree(), +ats: List<&2, T.Split>, +ms: List<&2, T.Split>, r: Result<&2, &2, Main.Refused, Main.Placed>, +er: {Main.placed.at.r(ats, t, Nil{}, Main.placed.holds(t, ats)) == r : Result<&2, &2, Main.Refused, Main.Placed>}, -p: Main.Placed, e: {Result.bind(&2, &2, Main.Refused, Main.Placed, Main.Placed, r, p1 => Main.placed.of.r(p1, ms)) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}, B.fail_done(Main.Placed, x, p, e))
+    case Done{+p1}:
+      placed2(p1, t, ms, at_held(ats, Main.placed.holds(t, ats), t, t, Nil{}, {==}, {==}, {==}, p1, er), at_files(ats, Main.placed.holds(t, ats), t, t, Nil{}, {==}, p1, er), p, e)
+
+# Every file `record` moves by a stated rename is one the position holds.
+def placed_held(+t: Tree.Tree(), +ats: List<&2, T.Split>, +ms: List<&2, T.Split>, -p: Main.Placed, e: {Main.placed.r(t, ats, ms) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}:
+  placed1(t, ats, ms, Main.placed.at.r(ats, t, Nil{}, Main.placed.holds(t, ats)), {==}, p, e)

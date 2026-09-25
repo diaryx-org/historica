@@ -2224,6 +2224,13 @@ def check_mutations(temporary):
             "rewrite_lemmas.carry_held",
             "commands.bend",
         ),
+        (
+            "record moves the path named rather than the file at it",
+            "      placed.move.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{f, to}]), placed.head(t2, rest), placed.fault(rest))",
+            "      placed.move.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{from, to}]), placed.head(t2, rest), placed.fault(rest))",
+            "record_lemmas.move_held",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
