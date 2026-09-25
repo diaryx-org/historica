@@ -1435,9 +1435,44 @@ def fresh.fulls(fs: List<&2, Main.Full>, +gone: Set()) -> List<&2, Main.Full>:
 def onto.gone(+o: Onto) -> Set():
   Set.from_list(List.append(&2, String, onto.holds(o), onto.forgotten(o)))
 
-def onto.counts(+p: Plan, +o: Onto) -> Counts:
+# What an update writes into the copy's store: every revision, document,
+# forgetting document and payload of the set that the copy does not hold
+# and neither side forgets — and so what it counts, as the Rust tool's
+# `plan.writes` does.
+type Writes is Data:
+  Writes{revisions: List<&2, Main.Full>, documents: List<&2, Store.Doc>, forgetting: List<&2, Store.Doc>, payloads: List<&2, T.Split>}
+
+def onto.writes(+p: Plan, +o: Onto) -> Writes:
   +gone = onto.gone(o)
-  Counts{List.length(&2, Main.Full, fresh.fulls(plan.revisions(p), gone)), List.length(&2, Store.Doc, fresh.docs(plan.documents(p), gone)), List.length(&2, T.Split, fresh.splits(plan.payloads(p), gone)), List.length(&2, Store.Doc, fresh.docs(plan.forgetting(p), gone))}
+  Writes{fresh.fulls(plan.revisions(p), gone), fresh.docs(plan.documents(p), gone), fresh.docs(plan.forgetting(p), gone), fresh.splits(plan.payloads(p), gone)}
+
+def writes.revisions(w: Writes) -> List<&2, Main.Full>:
+  match w:
+    case Writes{r, d, f, y}:
+      r
+
+def writes.documents(w: Writes) -> List<&2, Store.Doc>:
+  match w:
+    case Writes{r, d, f, y}:
+      d
+
+def writes.forgetting(w: Writes) -> List<&2, Store.Doc>:
+  match w:
+    case Writes{r, d, f, y}:
+      f
+
+def writes.payloads(w: Writes) -> List<&2, T.Split>:
+  match w:
+    case Writes{r, d, f, y}:
+      y
+
+def writes.counts(w: Writes) -> Counts:
+  match w:
+    case Writes{r, d, f, y}:
+      Counts{List.length(&2, Main.Full, r), List.length(&2, Store.Doc, d), List.length(&2, T.Split, y), List.length(&2, Store.Doc, f)}
+
+def onto.counts(+p: Plan, +o: Onto) -> Counts:
+  writes.counts(onto.writes(p, o))
 
 # `stems_around`: a revision the copy holds keeps the stem it was written
 # under, and a newcomer — in digest order — takes the name `record` would
@@ -2054,6 +2089,39 @@ def heard.all(cfs: List<&2, Main.Full>, +fs: List<&2, Main.Full>) -> Bool:
       True{}
     case +f <> rest:
       Bool.and(Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), named.edge(fs, Main.id_of(f))), heard.all(rest, fs))
+
+# Whether a file of the store listed holds this digest.
+def split.has(ss: List<&2, T.Split>, +d: String) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case T.Split{p, +x} <> rest:
+      Bool.or(String.eq(x, d), split.has(rest, d))
+
+def body.has(bs: List<&2, Prune.Body>, +d: String) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case Prune.Body{p, +i, ok, f} <> rest:
+      Bool.or(String.eq(i, d), body.has(rest, d))
+
+# Whether the copy's store holds a file hashing to this digest: a revision,
+# a document, or a payload.
+def copy.has(+cst: Prune.Stored, +d: String) -> Bool:
+  Bool.or(split.has(stored.revs(cst), d), Bool.or(body.has(Receive.stored.bodies(cst), d), split.has(Receive.stored.payloads(cst), d)))
+
+# Whether an update writes a file hashing to this digest into the copy.
+def writes.has(w: Writes, +d: String) -> Bool:
+  match w:
+    case Writes{rs, ds, fs, ys}:
+      Bool.or(Rev.member(Main.ids(rs), d), Bool.or(doc.has(ds, d), Bool.or(doc.has(fs, d), split.has(ys, d))))
+
+# Every digest the set names: its revisions, documents, forgetting
+# documents and payloads.
+def set.named(p: Plan) -> List<&2, String>:
+  match p:
+    case Plan{r, d, y, f, paths, rs, w, n, res}:
+      List.concat(&2, String, [Main.ids(r), doc.ids(d), doc.ids(f), split.digests(y)])
 
 # What `cat` prints of a file at a revision.
 def cat.of(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Maybe<&2, String>:
@@ -2684,7 +2752,7 @@ def export.update(+r: String, +into: String, +st: Prune.Stored, +fs: List<&2, Ma
   +all = onto.all(o)
   +taking = Bool.not(Bool.and(List.is_empty(&2, String, all), List.is_empty(&2, String, onto.destroys(o))))
   +stems = stems.around(held, onto.stems(o), T.map(~Main.Full, ~Naming.Named, ~(f => named.of(f)), cfs))
-  +gone = onto.gone(o)
+  +w = onto.writes(p, o)
   +rules = scopes(Receive.stored.rules(st), True{})
   do IO<Unit>:
     whole : Bool <- undisturbed(taking, into, cr, cst, cfs, scopes(Receive.stored.rules(cst), False{}))
@@ -2696,13 +2764,13 @@ def export.update(+r: String, +into: String, +st: Prune.Stored, +fs: List<&2, Ma
     Receive.written.names(cr, travel.names(plan.names(p)))
     filed : List<&2, T.Split> <- Main.refused.io(List<&2, T.Split>, Arrange.operation_names(held, stems))
     +fl : List<&2, T.Split> = filed
-    copied.payloads(r, cr, fl, fresh.splits(plan.payloads(p), gone))
-    filed.docs(cr, fl, fresh.docs(plan.documents(p), gone))
-    filed.docs(cr, fl, fresh.docs(plan.forgetting(p), gone))
+    copied.payloads(r, cr, fl, writes.payloads(w))
+    filed.docs(cr, fl, writes.documents(w))
+    filed.docs(cr, fl, writes.forgetting(w))
     +destroyed : List<&2, String> = Receive.destroyed(Receive.stored.bodies(cst), Receive.stored.payloads(cst), onto.destroys(o))
     Prune.removed(cr, destroyed)
     so : Result<&1, &1, U32 & String, String> <- Store.swept(cr ++ "/operations")
-    filed.revisions(cr, stems, Receive.stored.docs(st), fresh.fulls(held, gone))
+    filed.revisions(cr, stems, Receive.stored.docs(st), writes.revisions(w))
     n : Nat <- carried(r, cr, claims.fresh(plan.reserved(p), Set.from_list(split.labels(Receive.side.claims(c)))))
     l : Looked <- folder.look(into, rules)
     +l2 : Looked = l

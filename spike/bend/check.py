@@ -4183,6 +4183,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export writes into a copy only the revisions it already holds",
+            "      Tree.keep(~Main.Full, Bool.not(Arrange.has(gone, Main.id_of(f))), f, fresh.fulls(rest, gone))",
+            "      Tree.keep(~Main.Full, Arrange.has(gone, Main.id_of(f)), f, fresh.fulls(rest, gone))",
+            "onto_lemmas.fulls_cover",
+            "export.bend",
+        ),
+        (
             "export -n names a path twice where two files claim it",
             "Main.sorted_distinct(entry.paths(t)), rules.shared(rs), rules.withheld(rs)",
             "List.sort(~String, ~(a => b => String.is_le(a, b)), entry.paths(t)), rules.shared(rs), rules.withheld(rs)",

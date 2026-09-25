@@ -2789,6 +2789,21 @@ law export_updates_only_a_copy_it_could_have_made:
   for +cfs: List<&2, Main.Full>
   {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == Bool.and(Receive.related(fs, cfs), Export.heard.all(cfs, fs)) : Bool}
 
+# Bringing a copy up to date leaves it holding the whole set a fresh
+# export of the target gives (decision 0052): every revision, document,
+# forgetting document and payload the set names is one the copy's store
+# already holds a file of, one the update writes into it, or one a
+# forgetting document of this store or of the copy says is gone — which is
+# never handed back (decision 0014).
+law export_update_leaves_the_copy_the_whole_set:
+  for +p: Export.Plan
+  for +here: List<&2, Prune.Body>
+  for +cst: Prune.Stored
+  for +marks: List<&2, Bm.Bookmark>
+  for +d: String
+  for h: {Rev.member(Export.set.named(p), d) == True{} : Bool}
+  {Bool.or(Export.copy.has(cst, d), Bool.or(Export.writes.has(Export.onto.writes(p, Export.onto.of(p, here, cst, marks)), d), Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)))) == True{} : Bool}
+
 # Bringing a copy up to date gives it no private rule either (decision
 # 0051): every rule file an update adds to the copy states a shared rule,
 # whatever the copy already states and whatever label each is filed under.
