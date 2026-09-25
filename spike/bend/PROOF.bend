@@ -76,6 +76,7 @@ import ./shell_lemmas.bend as ShellL
 import ./opening_lemmas.bend as OpeningL
 import ./identity_lemmas.bend as IdentityL
 import ./editor_lemmas.bend as EditorL
+import ./forgetting_lemmas.bend as ForgettingL
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
 import ./receive_lemmas.bend as ReceiveL
@@ -681,6 +682,21 @@ def Laws.forget_reads_its_words(ws, t, p, sp, d, f, e):
 
 def Laws.forget_clears_only_copies(ps, p, e):
   ForgetL.clears(ps, p, e)
+
+def Laws.forget_states_what_it_made_unreadable(p, ds, lines, dry):
+  ForgettingL.says_gone(p, ds, lines, dry)
+
+def Laws.forget_says_what_it_destroys(p, ds, lines, dry):
+  ForgettingL.says_destroyed(p, ds, lines, dry)
+
+def Laws.forget_files_documents_where_nothing_is(fs, ds, w):
+  ForgettingL.files_where(fs, ds, w)
+
+def Laws.forget_takes_no_file_of_lines_whole(fs, ds, id, file):
+  ForgettingL.no_span(fs, ds, id, file)
+
+def Laws.forget_sweeps_only_what_lists_empty(dir, r, found, p, h):
+  ForgettingL.sweeps(dir, r, found, p, h)
 
 def Laws.standin_replays_like_what_it_stands_in_for(st1, st2, f, r, ops1, f2, ops2, hs, hops):
   ForgetL.replays_like(st1, st2, f, r, ops1, f2, ops2, hs, hops)
