@@ -7077,11 +7077,6 @@ def kinds.clash.r(ks: List<&2, T.Split>, +seen: List<&2, T.Split>) -> Result<&2,
         Fail{Refused{2, "`" ++ p ++ "` is stated as both bytes and lines, and it is one or the other"}},
         kinds.clash.r(rest, T.Split{p, k} <> seen))
 
-def split_le(a: T.Split, b: T.Split) -> Bool:
-  match a b:
-    case T.Split{x, i} T.Split{y, j}:
-      String.is_le(x, y)
-
 def split_key(s: T.Split) -> String:
   match s:
     case T.Split{k, v}:
@@ -7097,7 +7092,7 @@ def kinds.distinct(ks: List<&2, T.Split>) -> List<&2, T.Split>:
 
 # What each kind is stated for, a path once, in path order.
 def kinds.of(ks: List<&2, T.Split>) -> List<&2, T.Split>:
-  kinds.distinct(List.sort(~T.Split, ~(a => b => split_le(a, b)), ks))
+  kinds.distinct(List.sort(~T.Split, ~(a => b => String.is_le(split_key(a), split_key(b))), ks))
 
 def lines.stated(ks: List<&2, T.Split>, +p: String) -> Bool:
   match ks:
@@ -7114,15 +7109,6 @@ def kinds.unheld.r(ks: List<&2, T.Split>, +found: Set()) -> Result<&2, &2, Refus
     case T.Split{+p, k} <> rest:
       Bool.pick(Result<&2, &2, Refused, Unit>, Sv.has(found, p), kinds.unheld.r(rest, found),
         Fail{Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}})
-
-# Every path given a kind is a file the folder holds.
-# `LAWS.record_gives_kinds_only_to_files`.
-def kinds.found(ks: List<&2, T.Split>, +found: Set()) -> Bool:
-  match ks:
-    case Nil{}:
-      True{}
-    case T.Split{+p, k} <> rest:
-      Bool.and(Sv.has(found, p), kinds.found(rest, found))
 
 # `--at`'s file, by a file bookmark or an identifier: `target::file_by_name`.
 def at.file.of(+s: String, found: Maybe<&2, Bm.Target>) -> Result<&2, &2, Refused, String>:
@@ -7159,19 +7145,6 @@ def restricted.r(+named: List<&2, String>, +ps: List<&2, String>, moves: List<&2
   Bool.pick(Result<&2, &2, Refused, Unit>, Nat.is_gt(List.length(&2, String, ps), 1n),
     Fail{Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ skips_held.lines(named)}},
     restricted.half.r(named, moves)))
-
-# A record restricted to some paths is no merge, and every rename it
-# states is among those paths at both its ends.
-# `LAWS.record_restricts_no_merge_and_no_half_rename`.
-def renames.covered(+named: List<&2, String>, moves: List<&2, T.Split>) -> Bool:
-  match moves:
-    case Nil{}:
-      True{}
-    case T.Split{+from, +to} <> rest:
-      Bool.and(Bool.and(Sv.covers(named, from), Sv.covers(named, to)), renames.covered(named, rest))
-
-def restriction.whole(+named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>) -> Bool:
-  Bool.or(List.is_empty(&2, String, named), Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), renames.covered(named, moves)))
 
 # `--fields`'s header, and a refusal that owes it first: `historica-wrote-1`
 # goes out before any refusal but a usage error, wherever the command stops.
@@ -7353,15 +7326,6 @@ def not_lines(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&
     case h <> rest:
       not_lines(ks, reads, rest)
 
-# Every file `record` reads because a person said it is lines is text
-# where recording goes on. `LAWS.record_reads_lines_as_text`.
-def utf8.all(+reads: Map<&2, List<&2, U32>>, ps: List<&2, String>) -> Bool:
-  match ps:
-    case Nil{}:
-      True{}
-    case +p <> rest:
-      Bool.and(Folder.is_utf8(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), utf8.all(reads, rest))
-
 # What recording refuses that `status` only describes, in the order the
 # Rust tool asks: a link left dangling, a path several files claim, what
 # nothing here can take, what a merge would empty, and contested bytes
@@ -7413,16 +7377,6 @@ def planned.r(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>)
       Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, needless)),
         Fail{Refused{1, these(needless, "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ accept.lines(needless)}},
         Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))))
-
-# What `record` goes on to write is a plan the survey settled: no path
-# several files claim, nothing the format cannot record, nothing a merge
-# would leave empty, no fault, and the attachments accepted exactly the
-# ones concurrent work contests. `LAWS.record_writes_only_what_is_settled`.
-def planned.settled(pl: Sv.Planned, +accepted: List<&2, String>) -> Bool:
-  match pl:
-    case Sv.Planned{facts, refused, claimed, +accept, emptied, fault, obs, links}:
-      Bool.and(List.is_empty(&2, T.Split, claimed), Bool.and(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, emptied),
-        Bool.and(Maybe.is_none(&2, String, fault), Bool.and(List.is_empty(&2, String, minus(accept, accepted)), List.is_empty(&2, String, minus(accepted, accept)))))))
 
 def record.print.lines(fs: List<&2, T.Split>) -> List<&2, String>:
   match fs:
