@@ -2379,13 +2379,14 @@ law init_keeps_a_dot:
   for f: {String.ends_with(base, "/") == False{} : Bool}
   {Main.init.root(base, Some{"."}) == base ++ "/./history" : String}
 
-# What the port writes as bytes reads back as what it wrote: a string of
-# Unicode scalar values, encoded as UTF-8 and decoded again, is itself —
-# every character, at every one of its four widths.
+# What the port writes as bytes the store reads back as what it wrote: a
+# string of Unicode scalar values, encoded as UTF-8 and read as the store
+# reads a file as text — `read_to_string`, which refuses bytes that are not
+# UTF-8 — is itself, every character at every one of its four widths.
 law utf8_reads_back:
   for +s: String
-  for h: {Utf8L.scalars(s) == True{} : Bool}
-  {Utf8.decode(Utf8.encode(s)) == s : String}
+  for +h: {Utf8L.scalars(s) == True{} : Bool}
+  {Store.utf8.of(Utf8.encode(s)) == Done{s} : Result<&2, &2, String, String>}
 
 # `skip`'s rules are equal only when they are one rule, and each is equal
 # to itself: what `held` asks is membership.
