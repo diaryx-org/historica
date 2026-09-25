@@ -569,6 +569,9 @@ def Laws.diff_folder_fetches_the_edits_it_believes(os, hs):
 def Laws.diff_asks_every_payload_it_shows(cs):
   FetchL.payloads_asked(cs)
 
+def Laws.diff_stats_where_each_payload_was_found(root, ds, at):
+  FetchL.sizes_located(root, ds, at)
+
 def Laws.reading_fetches_what_resolutions_keep(ds):
   FetchL.kept_fetched(ds)
 

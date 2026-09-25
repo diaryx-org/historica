@@ -2238,6 +2238,13 @@ def check_mutations(temporary):
             "fetch_lemmas.payload_side",
             "commands.bend",
         ),
+        (
+            "a payload the host could not find asked the stat of",
+            "      sizes.keep(d, p, sizes.of(root, rest, more), String.eq(p, \"-\"))",
+            "      sizes.keep(d, p, sizes.of(root, rest, more), False{})",
+            "fetch_lemmas.sizes_located",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
