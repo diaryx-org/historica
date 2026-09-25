@@ -1066,6 +1066,21 @@ law diff_folder_fetches_what_it_replays:
   for +hs: List<&2, Main.Here>
   {FetchL.fetched.files(fs, Main.wanted_all(fs, Main.planned.replayed(Main.plans(dg, os, eds, hs))), Main.unsettled.files(dg, os, eds, hs)) == True{} : Bool}
 
+# And before any of it, `diff` over the folder asks for the `edit`
+# document of every file of lines its folder holds a regular file for,
+# where the file's nearest statement is an `edit`: the result that document
+# states is the digest that can settle the file.
+law diff_folder_fetches_the_edits_it_believes:
+  for +os: Map<&2, T.Split>
+  for +hs: List<&2, Main.Here>
+  {FetchL.edits.each(os, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.edits_of(os, hs))), hs) == True{} : Bool}
+
+# `diff` asks the host about the payload of every file of bytes it shows,
+# each once, so that each can be shown with its size.
+law diff_asks_every_payload_it_shows:
+  for +cs: List<&2, Main.Compared>
+  {FetchL.payloads.each(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.payloads_of(cs))), cs) == True{} : Bool}
+
 # What a resolution keeps is fetched too. After the documents a reading
 # command asks for, it asks for every document a resolution among them
 # keeps lines of, which assembling the resolution reads.
