@@ -1455,18 +1455,19 @@ law names_resolves_to_held:
   for t: Bm.Target
   {Main.names.held(fs, t, Main.names.resolution(Main.history(fs), Main.ids(fs), here, t)) == True{} : Bool}
 
-# `log --fields` names exactly what it lists: its header, and then a line
-# for each revision it keeps — those every filter admits, as
-# `log_lists_what_it_asks` says, in the order the walk presents them and
-# as far as the limit — beginning with that revision's digest, whole.
+# `log --fields` lists only what it was asked for: its first line is its
+# header, `historica-log-1`, and each line after it begins with the whole
+# digest, and a space, of a revision the span shows that every filter
+# admits — never more of them than `--limit` allows. The walk that orders
+# them never lists a revision it was not shown.
 law log_fields_lists_what_it_keeps:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
   for +sp: Main.Span
   for +shown: List<&2, Main.Full>
   for +fl: Main.Filter
-  for limit: Maybe<&2, Nat>
-  {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}
+  for +limit: Maybe<&2, Nat>
+  {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.log.admitted(fl, shown), limit) == True{} : Bool}
 
 # A log entry counts what its revision did to the file set as the revision
 # states it: the files added, moved, dropped and edited are how many `add`,

@@ -1607,23 +1607,43 @@ def log.shown.lines(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, 
     log.listed.lines(fs, limited(kept(fl, presentation(shown)), limit), fields, selects(fl)))
 
 # What `LAWS.log_fields_lists_what_it_keeps` reads in `--fields`: the
-# header, and a line for each revision listed, in order, beginning with its
-# digest and a space.
-def log.fields.each(ls: List<&2, String>, fs: List<&2, Full>) -> Bool:
-  match ls fs:
-    case Nil{} Nil{}:
-      True{}
-    case l <> lr f <> fr:
-      Bool.and(String.starts_with(l, id_of(f) ++ " "), log.fields.each(lr, fr))
-    case _ _:
+# header, and then lines each beginning with one of these digests and a
+# space, no more of them than the limit; and the digests of the revisions
+# every filter admits.
+def log.fields.from(ids: List<&2, String>, +l: String) -> Bool:
+  match ids:
+    case Nil{}:
       False{}
+    case +i <> rest:
+      Bool.or(String.starts_with(l, i ++ " "), log.fields.from(rest, l))
 
-def log.fields.ok(ls: List<&2, String>, fs: List<&2, Full>) -> Bool:
+def log.fields.each(ls: List<&2, String>, +ids: List<&2, String>) -> Bool:
+  match ls:
+    case Nil{}:
+      True{}
+    case +l <> rest:
+      Bool.and(log.fields.from(ids, l), log.fields.each(rest, ids))
+
+def log.fields.within(ls: List<&2, String>, limit: Maybe<&2, Nat>) -> Bool:
+  match limit:
+    case None{}:
+      True{}
+    case Some{n}:
+      Nat.is_le(List.length(&2, String, ls), n)
+
+def log.fields.ok(ls: List<&2, String>, +ids: List<&2, String>, +limit: Maybe<&2, Nat>) -> Bool:
   match ls:
     case Nil{}:
       False{}
-    case l <> rest:
-      Bool.and(String.eq(l, "historica-log-1"), log.fields.each(rest, fs))
+    case l <> +rest:
+      Bool.and(String.eq(l, "historica-log-1"), Bool.and(log.fields.each(rest, ids), log.fields.within(rest, limit)))
+
+def log.admitted(+fl: Filter, fs: List<&2, Full>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case +f <> rest:
+      Rev.keep(keeps(fl, f), id_of(f), log.admitted(fl, rest))
 
 def log.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: Asked) -> IO(Unit):
   match a:

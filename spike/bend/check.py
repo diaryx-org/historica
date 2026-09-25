@@ -2347,6 +2347,20 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "log lists the whole store, not the span it was shown",
+            "    log.listed.lines(fs, limited(kept(fl, presentation(shown)), limit), fields, selects(fl)))",
+            "    log.listed.lines(fs, limited(kept(fl, presentation(fs)), limit), fields, selects(fl)))",
+            "listing_lemmas.fields_listed",
+            "commands.bend",
+        ),
+        (
+            "log --limit lists one more than asked",
+            "      List.take(&2, Full, fs, n)",
+            "      List.take(&2, Full, fs, 1n+n)",
+            "listing_lemmas.within_ok",
+            "commands.bend",
+        ),
+        (
             "log counts facts of every kind",
             "    case False{}:\n      0n\n    case True{}:\n      count_facts.excl(added, v, exclude)",
             "    case False{}:\n      1n\n    case True{}:\n      count_facts.excl(added, v, exclude)",

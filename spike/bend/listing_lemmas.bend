@@ -2,11 +2,14 @@
 # by path and file — each no smaller than the one before, and under each
 # path and file the entries the tree holds there — one line each, ending
 # with the entry's file identifier. `names` reads the bookmarks in name
-# order and prints a line for each, beginning with its name, and says a
-# revision pin or a change resolves to an abbreviation of a revision the
-# store holds, or why there is none. `log --fields` prints its header and
-# a line for each revision it keeps, beginning with its digest; and a log
-# entry counts each `add`, `move`, `drop` and `edit` fact once.
+# order, none dropped or repeated, and prints a line for each, beginning
+# with its name and two spaces and ending with where it resolves: a pin or
+# a change's one current revision as an abbreviation of its digest that no
+# other held digest of its length begins with, or else why there is none.
+# `log --fields` prints its header and then lines each beginning with the
+# digest of a revision the span shows that every filter admits, no more
+# than the limit; and a log entry's figures are what its revision's facts
+# state.
 import Base
 import ./commands.bend as Main
 import ./tree.bend as Tree
@@ -19,6 +22,7 @@ import ./string_lemmas.bend as S
 import ./graph_lemmas.bend as GL
 import ./anchor_lemmas.bend as AL
 import ./composition_lemmas.bend as Comp
+import ./presentation_lemmas.bend as PL
 import ./abbrev_lemmas.bend as Abbrev
 import ./target_lemmas.bend as TG
 import ./diff_lemmas.bend as Diff
@@ -224,21 +228,137 @@ def resolution_ok(+fs: List<&2, Main.Full>, +here: Maybe<&2, Tree.Tree()>, t: Bm
 # `log`
 # -----
 
-def fields_each(fs: List<&2, Main.Full>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> {Main.log.fields.each(Main.fields.lines(fs, heads, gone, h), fs) == True{} : Bool}:
+def from_at(held: List<&2, String>, +l: String, +i: String, m: {Rev.member(held, i) == True{} : Bool}, +h: {String.starts_with(l, i ++ " ") == True{} : Bool}) -> {Main.log.fields.from(held, l) == True{} : Bool}:
+  match held:
+    case Nil{}:
+      Empty.absurd({Main.log.fields.from(Nil{}, l) == True{} : Bool}, S.false_true(m))
+    case +y <> +rest:
+      GL.member_cons({Main.log.fields.from(y <> rest, l) == True{} : Bool}, y, rest, i, m,
+        yi => (%Equal.sym(String, y, i, yi) : {Bool.or(String.starts_with(l, _ ++ " "), Main.log.fields.from(rest, l)) == True{} : Bool}
+          AL.or_left(String.starts_with(l, i ++ " "), Main.log.fields.from(rest, l), h)),
+        mr => AL.or_right(String.starts_with(l, y ++ " "), Main.log.fields.from(rest, l), from_at(rest, l, i, mr, h)))
+
+# Every revision here has its digest among these.
+def ins(+L: List<&2, String>, fs: List<&2, Main.Full>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      Bool.and(Rev.member(L, Main.id_of(f)), ins(L, rest))
+
+# A line for each revision listed, beginning with its digest and a space.
+def fields_each(fs: List<&2, Main.Full>, +L: List<&2, String>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History(), +hi: {ins(L, fs) == True{} : Bool}) -> {Main.log.fields.each(Main.fields.lines(fs, heads, gone, h), L) == True{} : Bool}:
   match fs:
     case Nil{}:
       {==}
     case Main.Full{+id, +change, +parents, +supersedes, +author, +when, +revised_by, +revised, +facts, +message} <> +rest:
-      B.and_tt(String.starts_with(Main.fields_line(Main.Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}, heads, gone, h), id ++ " "), Main.log.fields.each(Main.fields.lines(rest, heads, gone, h), rest),
-        sw_prefix(id, " " ++ (change ++ " " ++ when ++ " " ++ Main.found(id, change, heads, gone, h) ++ String.concat(T.map(~String, ~String, ~(p => " " ++ p), parents))), " ",
-          B.sw_nil(change ++ " " ++ when ++ " " ++ Main.found(id, change, heads, gone, h) ++ String.concat(T.map(~String, ~String, ~(p => " " ++ p), parents)))),
-        fields_each(rest, heads, gone, h))
+      B.and_tt(Main.log.fields.from(L, Main.fields_line(Main.Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}, heads, gone, h)), Main.log.fields.each(Main.fields.lines(rest, heads, gone, h), L),
+        from_at(L, Main.fields_line(Main.Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}, heads, gone, h), id, Comp.and_left(Rev.member(L, id), ins(L, rest), hi),
+          sw_prefix(id, " " ++ (change ++ " " ++ when ++ " " ++ Main.found(id, change, heads, gone, h) ++ String.concat(T.map(~String, ~String, ~(p => " " ++ p), parents))), " ",
+            B.sw_nil(change ++ " " ++ when ++ " " ++ Main.found(id, change, heads, gone, h) ++ String.concat(T.map(~String, ~String, ~(p => " " ++ p), parents))))),
+        fields_each(rest, L, heads, gone, h, Comp.and_right(Rev.member(L, id), ins(L, rest), hi)))
+
+def lines_len(fs: List<&2, Main.Full>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> {List.length(&2, String, Main.fields.lines(fs, heads, gone, h)) == List.length(&2, Main.Full, fs) : Nat}:
+  match fs:
+    case Nil{}:
+      {==}
+    case f <> rest:
+      Equal.cong(Nat, Nat, n => 1n+n, List.length(&2, String, Main.fields.lines(rest, heads, gone, h)), List.length(&2, Main.Full, rest), lines_len(rest, heads, gone, h))
+
+def take_le(xs: List<&2, Main.Full>, n: Nat) -> {Nat.is_le(List.length(&2, Main.Full, List.take(&2, Main.Full, xs, n)), n) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      match n:
+        case 0n:
+          {==}
+        case 1n+p:
+          {==}
+    case x <> t:
+      match n:
+        case 0n:
+          {==}
+        case 1n+p:
+          take_le(t, p)
+
+# No more lines than the limit allows.
+def within_ok(+xs: List<&2, Main.Full>, limit: Maybe<&2, Nat>, +heads: List<&2, String>, +gone: List<&2, String>, +h: Rev.History()) -> {Main.log.fields.within(Main.fields.lines(Main.limited(xs, limit), heads, gone, h), limit) == True{} : Bool}:
+  match limit:
+    case None{}:
+      {==}
+    case Some{+n}:
+      %Equal.sym(Nat, List.length(&2, String, Main.fields.lines(List.take(&2, Main.Full, xs, n), heads, gone, h)), List.length(&2, Main.Full, List.take(&2, Main.Full, xs, n)), lines_len(List.take(&2, Main.Full, xs, n), heads, gone, h)) : {Nat.is_le(_, n) == True{} : Bool}
+      take_le(xs, n)
+
+def kept_one(+L: List<&2, String>, b: Bool, +f: Main.Full, +rest: List<&2, Main.Full>, ho: {Bool.or(Bool.not(b), Rev.member(L, Main.id_of(f))) == True{} : Bool}, +hr: {ins(L, rest) == True{} : Bool}) -> {ins(L, Main.keep_full(b, f, rest)) == True{} : Bool}:
+  match b:
+    case True{}:
+      AL.and_intro(Rev.member(L, Main.id_of(f)), ins(L, rest), ho, hr)
+    case False{}:
+      hr
+
+# What every filter keeps of what the walk presents has its digest among
+# these, where what it was shown does.
+def kept_in(+fl: Main.Filter, +L: List<&2, String>, fs: List<&2, Main.Full>, +h: {PL.every(fl, L, fs) == True{} : Bool}) -> {ins(L, Main.kept(fl, fs)) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      kept_one(L, Main.keeps(fl, f), f, Main.kept(fl, rest), Comp.and_left(PL.ok(fl, L, f), PL.every(fl, L, rest), h), kept_in(fl, L, rest, Comp.and_right(PL.ok(fl, L, f), PL.every(fl, L, rest), h)))
+
+def take_in(+L: List<&2, String>, xs: List<&2, Main.Full>, n: Nat, +h: {ins(L, xs) == True{} : Bool}) -> {ins(L, List.take(&2, Main.Full, xs, n)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +t:
+      match n:
+        case 0n:
+          {==}
+        case 1n+p:
+          AL.and_intro(Rev.member(L, Main.id_of(x)), ins(L, List.take(&2, Main.Full, t, p)), Comp.and_left(Rev.member(L, Main.id_of(x)), ins(L, t), h), take_in(L, t, p, Comp.and_right(Rev.member(L, Main.id_of(x)), ins(L, t), h)))
+
+def limited_in(+L: List<&2, String>, +xs: List<&2, Main.Full>, limit: Maybe<&2, Nat>, +h: {ins(L, xs) == True{} : Bool}) -> {ins(L, Main.limited(xs, limit)) == True{} : Bool}:
+  match limit:
+    case None{}:
+      h
+    case Some{n}:
+      take_in(L, xs, n, h)
+
+def head_ok(b: Bool, +x: String, +R: List<&2, String>, +L: List<&2, String>, +h: {Tree.subset_ids(Rev.keep(b, x, R), L) == True{} : Bool}) -> {Bool.or(Bool.not(b), Rev.member(L, x)) == True{} : Bool}:
+  match b:
+    case True{}:
+      Comp.and_left(Rev.member(L, x), Tree.subset_ids(R, L), h)
+    case False{}:
+      {==}
+
+def rest_sub(b: Bool, +x: String, +R: List<&2, String>, +L: List<&2, String>, +h: {Tree.subset_ids(Rev.keep(b, x, R), L) == True{} : Bool}) -> {Tree.subset_ids(R, L) == True{} : Bool}:
+  match b:
+    case True{}:
+      Comp.and_right(Rev.member(L, x), Tree.subset_ids(R, L), h)
+    case False{}:
+      h
+
+# Each revision shown that a filter admits has its digest among those of
+# the revisions shown that every filter admits.
+def admitted_every(+fl: Main.Filter, xs: List<&2, Main.Full>, +L: List<&2, String>, +hs: {Tree.subset_ids(Main.log.admitted(fl, xs), L) == True{} : Bool}) -> {PL.every(fl, L, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      AL.and_intro(PL.ok(fl, L, f), PL.every(fl, L, rest),
+        head_ok(Main.keeps(fl, f), Main.id_of(f), Main.log.admitted(fl, rest), L, hs),
+        admitted_every(fl, rest, L, rest_sub(Main.keeps(fl, f), Main.id_of(f), Main.log.admitted(fl, rest), L, hs)))
 
 # `log --fields` prints its header, and then a line for each revision it
-# lists, in order, beginning with that revision's digest.
-def fields_listed(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: Main.Span, +shown: List<&2, Main.Full>, +fl: Main.Filter, limit: Maybe<&2, Nat>) -> {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}:
-  %Equal.sym(Bool, Bool.and(List.is_empty(&2, Main.Full, shown), False{}), False{}, AL.and_false_r(List.is_empty(&2, Main.Full, shown))) : {Main.log.fields.ok(Bool.pick(List<&2, String>, _, [Main.log.empty(fs, bs, sp)], Main.log.listed.lines(fs, Main.limited(Main.kept(fl, Main.presentation(shown)), limit), True{}, Main.selects(fl))), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}
-  fields_each(Main.limited(Main.kept(fl, Main.presentation(shown)), limit), Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), Main.history(fs))
+# lists, each beginning with the digest of a revision it was shown that
+# every filter admits, no more of them than the limit.
+def fields_listed(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: Main.Span, +shown: List<&2, Main.Full>, +fl: Main.Filter, +limit: Maybe<&2, Nat>) -> {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.log.admitted(fl, shown), limit) == True{} : Bool}:
+  %Equal.sym(Bool, Bool.and(List.is_empty(&2, Main.Full, shown), False{}), False{}, AL.and_false_r(List.is_empty(&2, Main.Full, shown))) : {Main.log.fields.ok(Bool.pick(List<&2, String>, _, [Main.log.empty(fs, bs, sp)], Main.log.listed.lines(fs, Main.limited(Main.kept(fl, Main.presentation(shown)), limit), True{}, Main.selects(fl))), Main.log.admitted(fl, shown), limit) == True{} : Bool}
+  B.and_tt(Main.log.fields.each(Main.fields.lines(Main.limited(Main.kept(fl, Main.presentation(shown)), limit), Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), Main.history(fs)), Main.log.admitted(fl, shown)), Main.log.fields.within(Main.fields.lines(Main.limited(Main.kept(fl, Main.presentation(shown)), limit), Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), Main.history(fs)), limit),
+    fields_each(Main.limited(Main.kept(fl, Main.presentation(shown)), limit), Main.log.admitted(fl, shown), Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), Main.history(fs),
+      limited_in(Main.log.admitted(fl, shown), Main.kept(fl, Main.presentation(shown)), limit,
+        kept_in(fl, Main.log.admitted(fl, shown), Main.presentation(shown),
+          PL.presentation_ok(fl, Main.log.admitted(fl, shown), shown, admitted_every(fl, shown, Main.log.admitted(fl, shown), GL.subset_refl(Main.log.admitted(fl, shown))))))),
+    within_ok(Main.kept(fl, Main.presentation(shown)), limit, Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), Main.history(fs)))
 
 def keep_len(b: Bool, -x: String, rest: List<&2, String>) -> {List.length(&2, String, Rev.keep(b, x, rest)) == Nat.add(Bool.pick(Nat, b, 1n, 0n), List.length(&2, String, rest)) : Nat}:
   match b:
