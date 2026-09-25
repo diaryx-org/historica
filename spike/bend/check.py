@@ -3945,6 +3945,20 @@ def check_mutations(temporary):
             "arrange.bend",
         ),
         (
+            "arrange takes a path the store lists for a free name",
+            "  Set.from_list(List.append(&2, String, ls, List.concat(&2, String, T.map(~String, ~List<&2, String>, ~(n => Naming.prefixes(n)), ls))))",
+            "  Set.from_list(List.concat(&2, String, T.map(~String, ~List<&2, String>, ~(n => Naming.prefixes(n)), ls)))",
+            "arrange_lemmas.taken_list",
+            "arrange.bend",
+        ),
+        (
+            "arrange carries each rename out backwards",
+            "      T.Split{f, t} <> done.renamed(rest)",
+            "      T.Split{t, f} <> done.renamed(rest)",
+            "arrange_lemmas.renamed_safe",
+            "arrange.bend",
+        ),
+        (
             "prune lets go of a revision work still stands on",
             "  Bool.and(superseded(kept, Main.id_of(f)), Bool.and(Bool.not(stood_on(kept, Main.id_of(f))), Bool.not(evidence(supersedes_of(f), Main.ids(kept)))))",
             "  Bool.and(superseded(kept, Main.id_of(f)), Bool.and(True{}, Bool.not(evidence(supersedes_of(f), Main.ids(kept)))))",

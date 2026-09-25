@@ -975,8 +975,8 @@ def Laws.merge_sets_aside_the_claims(cs):
 def Laws.arrange_reads_its_words(ws):
   WordsL.arrange_words(ws)
 
-def Laws.arrange_plans_no_overwrite(refile, fs, revs, ops, ls, a, e):
-  ArrangeL.plan_safe(refile, fs, revs, ops, ls, a, e)
+def Laws.arrange_plans_no_overwrite(refile, fs, revs, ops, ls, a, e, from, to, h):
+  ArrangeL.no_overwrite(refile, fs, revs, ops, ls, a, e, from, to, h)
 
 def Laws.arrange_keeps_a_revision_where_it_sits(fs, revs, ops, ls, a, e):
   ArrangeL.kept(fs, revs, ops, ls, a, e)
@@ -986,6 +986,9 @@ def Laws.arrange_opens_what_parses(pre, path, id, size, text, post, msg, hp, hf)
 
 def Laws.arrange_counts_every_file(refile, fs, revs, ops, ls, a, e):
   ArrangeL.counts(refile, fs, revs, ops, ls, a, e)
+
+def Laws.arrange_moves_each_file_once(refile, fs, revs, ops, ls, a, e, x):
+  ArrangeL.once(refile, fs, revs, ops, ls, a, e, x)
 
 def Laws.prune_reads_its_words(ws):
   WordsL.prune_words(ws)
