@@ -659,6 +659,12 @@ def Laws.update_lands(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p
 def Laws.update_spares_the_unrecorded(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
   UpdL.plan_touches(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
 
+def Laws.update_again_keeps(w, h, rs, rs2, e):
+  UpdL.again_keeps(w, h, rs, rs2, e)
+
+def Laws.update_settles_only_what_stays(p, e):
+  UpdL.settled_same(p, e)
+
 def Laws.merge_resolution_reads_back(ds, j, s, hm, doc, e):
   ConflictL.resolved(ds, j, s, hm, doc, e)
 
@@ -801,6 +807,9 @@ def Laws.merge_joins_every_head(fs, bs, ss, xs, e):
 
 def Laws.merge_spares_the_unrecorded(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
   MergingL.spares(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
+
+def Laws.merge_sets_aside_the_claims(cs):
+  MergingL.aside(cs)
 
 def Laws.record_reads_its_words(args, cmd, e):
   RecordL.args_said(args, cmd, e)

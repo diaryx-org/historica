@@ -2487,6 +2487,13 @@ def check_mutations(temporary):
             "update.bend",
         ),
         (
+            "update says the folder holds the target while a link is still to point",
+            "Bool.and(List.is_empty(&2, Decided, modes(ds)), List.is_empty(&2, Decided, links(ds))))",
+            "List.is_empty(&2, Decided, modes(ds)))",
+            "update_lemmas.settled_same",
+            "update.bend",
+        ),
+        (
             "a resolution runs a name into a keep it does not continue",
             "Bool.and(String.eq(d, e), Nat.is_eq(1n+m, first))",
             "Bool.and(String.eq(d, e), Nat.is_eq(m, first))",
@@ -2575,6 +2582,13 @@ def check_mutations(temporary):
             "[Act.Lines{at, rendered, m}]",
             "[Act.Lines{at, rendered, Tree.Plain{}}]",
             "merging_lemmas.lines_each",
+            "merging.bend",
+        ),
+        (
+            "merge writes beside a path the file that keeps it too",
+            "      beside.files(p, rest)",
+            "      beside.files(p, f <> rest)",
+            "merging_lemmas.contest_written",
             "merging.bend",
         ),
         (

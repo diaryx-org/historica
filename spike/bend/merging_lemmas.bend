@@ -539,3 +539,179 @@ def spares(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, 
       every_app(fs, ds, heads, bs, t, dg, texts, e <> rest, M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, e))), M.lay.acts(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest))),
         each_every(fs, ds, heads, bs, t, dg, texts, e, rest, M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, e))), lay_each(fs, ds, heads, bs, t, dg, texts, ls, cs, located, e)),
         every_weaken(fs, ds, heads, bs, t, dg, texts, e, rest, M.lay.acts(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest))), spares(fs, ds, heads, bs, t, dg, texts, ls, cs, located, rest)))
+
+# What is set aside
+# -----------------
+
+def files_ids(+p: String, zs: List<&2, String>) -> {M.typed.ids(M.beside.files(p, zs)) == zs : List<&2, String>}:
+  match zs:
+    case Nil{}:
+      {==}
+    case +z <> +zr:
+      %Equal.sym(List<&2, String>, M.typed.ids(M.beside.files(p, zr)), zr, files_ids(p, zr)) : {z <> _ == z <> zr : List<&2, String>}
+      {==}
+
+def mem_left(xs: List<&2, String>, +ys: List<&2, String>, +x: String, h: {Rev.member(xs, x) == True{} : Bool}) -> {Rev.member(List.append(&2, String, xs, ys), x) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Rev.member(ys, x) == True{} : Bool}, Comp.false_true(h))
+    case +a <> +rest:
+      AL.or_cases({Rev.member(List.append(&2, String, a <> rest, ys), x) == True{} : Bool}, String.eq(a, x), Rev.member(rest, x), h,
+        l => AL.or_left(String.eq(a, x), Rev.member(List.append(&2, String, rest, ys), x), l),
+        r => AL.or_right(String.eq(a, x), Rev.member(List.append(&2, String, rest, ys), x), mem_left(rest, ys, x, r)))
+
+def mem_right(xs: List<&2, String>, +ys: List<&2, String>, +x: String, +h: {Rev.member(ys, x) == True{} : Bool}) -> {Rev.member(List.append(&2, String, xs, ys), x) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case +a <> +rest:
+      AL.or_right(String.eq(a, x), Rev.member(List.append(&2, String, rest, ys), x), mem_right(rest, ys, x, h))
+
+def held_left(+xs: List<&2, String>, +ys: List<&2, String>, ps: List<&2, String>, +h: {Main.all_held(xs, ps) == True{} : Bool}) -> {Main.all_held(List.append(&2, String, xs, ys), ps) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +q <> +rest:
+      AL.and_intro(Rev.member(List.append(&2, String, xs, ys), q), Main.all_held(List.append(&2, String, xs, ys), rest),
+        mem_left(xs, ys, q, Comp.and_left(Rev.member(xs, q), Main.all_held(xs, rest), h)),
+        held_left(xs, ys, rest, Comp.and_right(Rev.member(xs, q), Main.all_held(xs, rest), h)))
+
+def held_right(+xs: List<&2, String>, +ys: List<&2, String>, ps: List<&2, String>, +h: {Main.all_held(ys, ps) == True{} : Bool}) -> {Main.all_held(List.append(&2, String, xs, ys), ps) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +q <> +rest:
+      AL.and_intro(Rev.member(List.append(&2, String, xs, ys), q), Main.all_held(List.append(&2, String, xs, ys), rest),
+        mem_right(xs, ys, q, Comp.and_left(Rev.member(ys, q), Main.all_held(ys, rest), h)),
+        held_right(xs, ys, rest, Comp.and_right(Rev.member(ys, q), Main.all_held(ys, rest), h)))
+
+# Every file after the first a contest names is written beside its path.
+def claims_right(fs: List<&2, String>, +xs: List<&2, String>, +ys: List<&2, String>, h: {M.claims.written(fs, ys) == True{} : Bool}) -> {M.claims.written(fs, List.append(&2, String, xs, ys)) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case x <> +rest:
+      held_right(xs, ys, rest, h)
+
+def contest_right(c: Tree.Contest, +xs: List<&2, String>, +ys: List<&2, String>, h: {M.contest.written(c, ys) == True{} : Bool}) -> {M.contest.written(c, List.append(&2, String, xs, ys)) == True{} : Bool}:
+  match c:
+    case Tree.Path{p, +fs}:
+      claims_right(fs, xs, ys, h)
+    case Tree.Dropped{f, b}:
+      {==}
+    case Tree.Moved{f, b}:
+      {==}
+    case Tree.Content{f, b}:
+      {==}
+    case Tree.ModeOf{f, b}:
+      {==}
+    case Tree.TargetOf{f, b}:
+      {==}
+    case Tree.Referenced{f, b, l}:
+      {==}
+
+def written_right(cs: List<&2, Tree.Contest>, +xs: List<&2, String>, +ys: List<&2, String>, +h: {M.contests.written(cs, ys) == True{} : Bool}) -> {M.contests.written(cs, List.append(&2, String, xs, ys)) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +c <> +rest:
+      AL.and_intro(M.contest.written(c, List.append(&2, String, xs, ys)), M.contests.written(rest, List.append(&2, String, xs, ys)),
+        contest_right(c, xs, ys, Comp.and_left(M.contest.written(c, ys), M.contests.written(rest, ys), h)),
+        written_right(rest, xs, ys, Comp.and_right(M.contest.written(c, ys), M.contests.written(rest, ys), h)))
+
+def contest_written(c: Tree.Contest, +more: List<&2, Tree.Contest>) -> {M.contest.written(c, M.typed.ids(List.append(&2, T.Split, M.beside.of(c), M.beside(more)))) == True{} : Bool}:
+  match c:
+    case Tree.Path{+p, fs}:
+      match fs:
+        case Nil{}:
+          {==}
+        case +x <> +rest:
+          %Equal.sym(List<&2, String>, M.typed.ids(List.append(&2, T.Split, M.beside.files(p, rest), M.beside(more))), List.append(&2, String, M.typed.ids(M.beside.files(p, rest)), M.typed.ids(M.beside(more))), ids_app(M.beside.files(p, rest), M.beside(more))) : {Main.all_held(_, rest) == True{} : Bool}
+          %Equal.sym(List<&2, String>, M.typed.ids(M.beside.files(p, rest)), rest, files_ids(p, rest)) : {Main.all_held(List.append(&2, String, _, M.typed.ids(M.beside(more))), rest) == True{} : Bool}
+          held_left(rest, M.typed.ids(M.beside(more)), rest, held_self(rest))
+    case Tree.Dropped{f, b}:
+      {==}
+    case Tree.Moved{f, b}:
+      {==}
+    case Tree.Content{f, b}:
+      {==}
+    case Tree.ModeOf{f, b}:
+      {==}
+    case Tree.TargetOf{f, b}:
+      {==}
+    case Tree.Referenced{f, b, l}:
+      {==}
+
+def written_all(cs: List<&2, Tree.Contest>) -> {M.contests.written(cs, M.typed.ids(M.beside(cs))) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +c <> +more:
+      AL.and_intro(M.contest.written(c, M.typed.ids(List.append(&2, T.Split, M.beside.of(c), M.beside(more)))), M.contests.written(more, M.typed.ids(List.append(&2, T.Split, M.beside.of(c), M.beside(more)))),
+        contest_written(c, more),
+        (%Equal.sym(List<&2, String>, M.typed.ids(List.append(&2, T.Split, M.beside.of(c), M.beside(more))), List.append(&2, String, M.typed.ids(M.beside.of(c)), M.typed.ids(M.beside(more))), ids_app(M.beside.of(c), M.beside(more))) : {M.contests.written(more, _) == True{} : Bool}
+          written_right(more, M.typed.ids(M.beside.of(c)), M.typed.ids(M.beside(more)), written_all(more))))
+
+# And every file written beside a path is one a contest names after the
+# first.
+def claimed_app(+cs: List<&2, Tree.Contest>, xs: List<&2, String>, +ys: List<&2, String>, +hx: {M.besides.claimed(cs, xs) == True{} : Bool}, +hy: {M.besides.claimed(cs, ys) == True{} : Bool}) -> {M.besides.claimed(cs, List.append(&2, String, xs, ys)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      hy
+    case +k <> +rest:
+      AL.and_intro(M.contests.beside(cs, k), M.besides.claimed(cs, List.append(&2, String, rest, ys)),
+        Comp.and_left(M.contests.beside(cs, k), M.besides.claimed(cs, rest), hx),
+        claimed_app(cs, rest, ys, Comp.and_right(M.contests.beside(cs, k), M.besides.claimed(cs, rest), hx), hy))
+
+def claimed_weaken(+c: Tree.Contest, +cs: List<&2, Tree.Contest>, ks: List<&2, String>, +h: {M.besides.claimed(cs, ks) == True{} : Bool}) -> {M.besides.claimed(c <> cs, ks) == True{} : Bool}:
+  match ks:
+    case Nil{}:
+      {==}
+    case +k <> +rest:
+      AL.and_intro(M.contests.beside(c <> cs, k), M.besides.claimed(c <> cs, rest),
+        AL.or_right(M.contest.beside(c, k), M.contests.beside(cs, k), Comp.and_left(M.contests.beside(cs, k), M.besides.claimed(cs, rest), h)),
+        claimed_weaken(c, cs, rest, Comp.and_right(M.contests.beside(cs, k), M.besides.claimed(cs, rest), h)))
+
+def claimed_tail(+p: String, +x: String, +rest: List<&2, String>, +more: List<&2, Tree.Contest>, zs: List<&2, String>, +h: {Main.all_held(rest, zs) == True{} : Bool}) -> {M.besides.claimed(Tree.Path{p, x <> rest} <> more, zs) == True{} : Bool}:
+  match zs:
+    case Nil{}:
+      {==}
+    case +z <> +zr:
+      AL.and_intro(M.contests.beside(Tree.Path{p, x <> rest} <> more, z), M.besides.claimed(Tree.Path{p, x <> rest} <> more, zr),
+        AL.or_left(Rev.member(rest, z), M.contests.beside(more, z), Comp.and_left(Rev.member(rest, z), Main.all_held(rest, zr), h)),
+        claimed_tail(p, x, rest, more, zr, Comp.and_right(Rev.member(rest, z), Main.all_held(rest, zr), h)))
+
+def claimed_of(c: Tree.Contest, +more: List<&2, Tree.Contest>) -> {M.besides.claimed(c <> more, M.typed.ids(M.beside.of(c))) == True{} : Bool}:
+  match c:
+    case Tree.Path{+p, fs}:
+      match fs:
+        case Nil{}:
+          {==}
+        case +x <> +rest:
+          %Equal.sym(List<&2, String>, M.typed.ids(M.beside.files(p, rest)), rest, files_ids(p, rest)) : {M.besides.claimed(Tree.Path{p, x <> rest} <> more, _) == True{} : Bool}
+          claimed_tail(p, x, rest, more, rest, held_self(rest))
+    case Tree.Dropped{f, b}:
+      {==}
+    case Tree.Moved{f, b}:
+      {==}
+    case Tree.Content{f, b}:
+      {==}
+    case Tree.ModeOf{f, b}:
+      {==}
+    case Tree.TargetOf{f, b}:
+      {==}
+    case Tree.Referenced{f, b, l}:
+      {==}
+
+def claimed_all(cs: List<&2, Tree.Contest>) -> {M.besides.claimed(cs, M.typed.ids(M.beside(cs))) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +c <> +more:
+      %Equal.sym(List<&2, String>, M.typed.ids(List.append(&2, T.Split, M.beside.of(c), M.beside(more))), List.append(&2, String, M.typed.ids(M.beside.of(c)), M.typed.ids(M.beside(more))), ids_app(M.beside.of(c), M.beside(more))) : {M.besides.claimed(c <> more, _) == True{} : Bool}
+      claimed_app(c <> more, M.typed.ids(M.beside.of(c)), M.typed.ids(M.beside(more)), claimed_of(c, more), claimed_weaken(c, more, M.typed.ids(M.beside(more)), claimed_all(more)))
+
+# The files `merge` writes beside a path are exactly those a contest names
+# after the first.
+def aside(+cs: List<&2, Tree.Contest>) -> {Bool.and(M.besides.claimed(cs, M.typed.ids(M.beside(cs))), M.contests.written(cs, M.typed.ids(M.beside(cs)))) == True{} : Bool}:
+  AL.and_intro(M.besides.claimed(cs, M.typed.ids(M.beside(cs))), M.contests.written(cs, M.typed.ids(M.beside(cs))), claimed_all(cs), written_all(cs))
