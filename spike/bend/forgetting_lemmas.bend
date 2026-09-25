@@ -14,6 +14,9 @@ import ./utf8.bend as Utf8
 import ./composition_lemmas.bend as Comp
 import ./anchor_lemmas.bend as AL
 import ./string_lemmas.bend as S
+import ./graph_lemmas.bend as GL
+import ./fetch_lemmas.bend as FetchL
+import ./forget_lemmas.bend as ForgetL
 
 def sw_nil(str: String) -> {String.starts_with(str, SNil{}) == True{} : Bool}:
   match str:
@@ -30,9 +33,7 @@ def drop_zero(str: String) -> {String.drop(str, 0n) == str : String}:
       {==}
 
 def plan.targets(p: Fg.FgPlan) -> List<&2, String>:
-  match p:
-    case Fg.Fg.Plan{ts, ws, a, n}:
-      ts
+  ForgetL.plan.targets(p)
 
 # What is said
 # ------------
@@ -290,3 +291,179 @@ def sweeps(+dir: String, r: Result<&1, &1, U32 & String, String>, +found: List<&
       kept_in(Bool.and(Bool.not(String.is_empty(dir)), String.is_empty(t)), dir, found, p, h)
     case Fail{e}:
       kept_in(Bool.and(Bool.not(String.is_empty(dir)), String.is_empty("u")), dir, found, p, h)
+
+# Every document quoting the span
+# -------------------------------
+
+# Whether a document found is `d`.
+def found.is(m: Maybe<&2, String>, +d: String) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{x}:
+      String.eq(x, d)
+
+# Whether `d` is the document one of these deletes' revisions names for
+# the file.
+def deleted.in(dl: List<&2, Fg.FgQuote>, +ns: List<&2, Fg.FgNamed>, +d: String) -> Bool:
+  match dl:
+    case Nil{}:
+      False{}
+    case Fg.Fg.Quote{+by, op, item} <> rest:
+      Bool.or(found.is(Fg.named.find(ns, by), d), deleted.in(rest, ns, d))
+
+# Whether `d` quotes the element: the document the revision that wrote it
+# names for the file, or one a revision whose delete quotes it names.
+def quotes(q: Fg.FgQuoted, +ns: List<&2, Fg.FgNamed>, +d: String) -> Bool:
+  match q:
+    case Fg.Fg.Quoted{+by, op, item, t, dl, dr, f, v}:
+      Bool.or(found.is(Fg.named.find(ns, by), d), deleted.in(dl, ns, d))
+
+def mem_app_l(xs: List<&2, String>, +ys: List<&2, String>, +d: String, h: {Rev.member(xs, d) == True{} : Bool}) -> {Rev.member(List.append(&2, String, xs, ys), d) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Rev.member(ys, d) == True{} : Bool}, S.false_true(h))
+    case +x <> +rest:
+      GL.member_cons({Rev.member(x <> List.append(&2, String, rest, ys), d) == True{} : Bool}, x, rest, d, h,
+        e => (%Equal.sym(String, x, d, e) : {Rev.member(_ <> List.append(&2, String, rest, ys), d) == True{} : Bool}; GL.member_head(d, List.append(&2, String, rest, ys))),
+        t => GL.member_tail(x, List.append(&2, String, rest, ys), d, mem_app_l(rest, ys, d, t)))
+
+def mem_app_r(xs: List<&2, String>, +ys: List<&2, String>, +d: String, h: {Rev.member(ys, d) == True{} : Bool}) -> {Rev.member(List.append(&2, String, xs, ys), d) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case +x <> +rest:
+      GL.member_tail(x, List.append(&2, String, rest, ys), d, mem_app_r(rest, ys, d, h))
+
+def pick_found(m: Maybe<&2, String>, +op: Nat, +item: Nat, +rest: List<&2, Fg.FgPick>, +d: String, h: {found.is(m, d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(Fg.pick.if(m, op, item, rest)), d) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Rev.member(Fg.targets.of(rest), d) == True{} : Bool}, S.false_true(h))
+    case Some{+x}:
+      %Equal.sym(String, x, d, S.eq_true(x, d, h)) : {Rev.member(_ <> Fg.targets.of(rest), d) == True{} : Bool}
+      GL.member_head(d, Fg.targets.of(rest))
+
+def pick_rest(m: Maybe<&2, String>, +op: Nat, +item: Nat, +rest: List<&2, Fg.FgPick>, +d: String, h: {Rev.member(Fg.targets.of(rest), d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(Fg.pick.if(m, op, item, rest)), d) == True{} : Bool}:
+  match m:
+    case None{}:
+      h
+    case Some{+x}:
+      GL.member_tail(x, Fg.targets.of(rest), d, h)
+
+# A delete quoting the element puts its document among the picks.
+def deletes_picked(dl: List<&2, Fg.FgQuote>, +ns: List<&2, Fg.FgNamed>, +d: String, h: {deleted.in(dl, ns, d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(Fg.picks.deletes(dl, ns)), d) == True{} : Bool}:
+  match dl:
+    case Nil{}:
+      Empty.absurd({Rev.member(Nil{}, d) == True{} : Bool}, S.false_true(h))
+    case Fg.Fg.Quote{+by, +op, +item} <> +rest:
+      AL.or_cases({Rev.member(Fg.targets.of(Fg.pick.if(Fg.named.find(ns, by), op, item, Fg.picks.deletes(rest, ns))), d) == True{} : Bool}, found.is(Fg.named.find(ns, by), d), deleted.in(rest, ns, d), h,
+        l => pick_found(Fg.named.find(ns, by), op, item, Fg.picks.deletes(rest, ns), d, l),
+        r => pick_rest(Fg.named.find(ns, by), op, item, Fg.picks.deletes(rest, ns), d, deletes_picked(rest, ns, d, r)))
+
+# An element taken puts every document quoting it among the picks.
+def taken_picked(+ns: List<&2, Fg.FgNamed>, q: Fg.FgQuoted, +d: String, h: {quotes(q, ns, d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(Fg.picks.of(ns, True{}, q)), d) == True{} : Bool}:
+  match q:
+    case Fg.Fg.Quoted{+by, +op, +item, t, +dl, dr, f, v}:
+      AL.or_cases({Rev.member(Fg.targets.of(Fg.pick.if(Fg.named.find(ns, by), op, item, Fg.picks.deletes(dl, ns))), d) == True{} : Bool}, found.is(Fg.named.find(ns, by), d), deleted.in(dl, ns, d), h,
+        l => pick_found(Fg.named.find(ns, by), op, item, Fg.picks.deletes(dl, ns), d, l),
+        r => pick_rest(Fg.named.find(ns, by), op, item, Fg.picks.deletes(dl, ns), d, deletes_picked(dl, ns, d, r)))
+
+def join_here(+taken: Bool, +forgot: Bool, +here: List<&2, Fg.FgPick>, r: Fg.FgPicked, +d: String, h: {Rev.member(Fg.targets.of(here), d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked.join(taken, forgot, here, r))), d) == True{} : Bool}:
+  match r:
+    case Fg.Fg.Picked{+ps, n}:
+      %Equal.sym(List<&2, String>, Fg.targets.of(List.append(&2, Fg.FgPick, here, ps)), List.append(&2, String, Fg.targets.of(here), Fg.targets.of(ps)), ForgetL.targets_app(here, ps)) : {Rev.member(_, d) == True{} : Bool}
+      mem_app_l(Fg.targets.of(here), Fg.targets.of(ps), d, h)
+
+def join_rest(+taken: Bool, +forgot: Bool, +here: List<&2, Fg.FgPick>, r: Fg.FgPicked, +d: String, h: {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(r)), d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked.join(taken, forgot, here, r))), d) == True{} : Bool}:
+  match r:
+    case Fg.Fg.Picked{+ps, n}:
+      %Equal.sym(List<&2, String>, Fg.targets.of(List.append(&2, Fg.FgPick, here, ps)), List.append(&2, String, Fg.targets.of(here), Fg.targets.of(ps)), ForgetL.targets_app(here, ps)) : {Rev.member(_, d) == True{} : Bool}
+      mem_app_r(Fg.targets.of(here), Fg.targets.of(ps), d, h)
+
+# Every element of the walk whose key the span holds puts each document
+# quoting it among the picks.
+def picked_mem(qs: List<&2, Fg.FgQuoted>, +span: List<&2, String>, +ns: List<&2, Fg.FgNamed>, i: Nat, +q: Fg.FgQuoted, +d: String, hq: {List.get(&2, Fg.FgQuoted, qs, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}, +hs: {Rev.member(span, Fg.quoted.key(q)) == True{} : Bool}, +hd: {quotes(q, ns, d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked(qs, span, ns))), d) == True{} : Bool}:
+  match qs i:
+    case Nil{} _:
+      Empty.absurd({Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked(Nil{}, span, ns))), d) == True{} : Bool}, Comp.false_true(Equal.cong(Maybe<&2, Fg.FgQuoted>, Bool, m => Maybe.is_some(&2, Fg.FgQuoted, m), None{}, Some{q}, hq)))
+    case +q0 <> +rest 0n:
+      +same = Equal.cong(Maybe<&2, Fg.FgQuoted>, Fg.FgQuoted, m => Maybe.default(&2, Fg.FgQuoted, m, q), Some{q0}, Some{q}, hq)
+      %Equal.sym(Fg.FgQuoted, q0, q, same) : {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked(_ <> rest, span, ns))), d) == True{} : Bool}
+      %Equal.sym(Bool, Rev.member(span, Fg.quoted.key(q)), True{}, hs) : {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked.join(_, Fg.quoted.forgot(q), Fg.picks.of(ns, _, q), Fg.picked(rest, span, ns)))), d) == True{} : Bool}
+      join_here(True{}, Fg.quoted.forgot(q), Fg.picks.of(ns, True{}, q), Fg.picked(rest, span, ns), d, taken_picked(ns, q, d, hd))
+    case +q0 <> +rest 1n+j:
+      join_rest(Rev.member(span, Fg.quoted.key(q0)), Fg.quoted.forgot(q0), Fg.picks.of(ns, Rev.member(span, Fg.quoted.key(q0)), q0), Fg.picked(rest, span, ns), d, picked_mem(rest, span, ns, j, q, d, hq, hs, hd))
+
+def keep_pick(b: Bool, +span: List<&2, String>, +m: String, +k: String, h: {Rev.member(span, k) == True{} : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, b, span, List.append(&2, String, span, [m])), k) == True{} : Bool}:
+  match b:
+    case True{}:
+      h
+    case False{}:
+      mem_app_l(span, [m], k, h)
+
+def grown_keeps(more: List<&2, String>, +span: List<&2, String>, +k: String, h: {Rev.member(span, k) == True{} : Bool}) -> {Rev.member(Fg.copies.grown(more, span), k) == True{} : Bool}:
+  match more:
+    case Nil{}:
+      h
+    case +m <> rest:
+      grown_keeps(rest, Bool.pick(List<&2, String>, Rev.member(span, m), span, List.append(&2, String, span, [m])), k, keep_pick(Rev.member(span, m), span, m, k, h))
+
+def pick_keeps(b: Bool, -span: List<&2, String>, -x: List<&2, String>, -k: String, h: {Rev.member(span, k) == True{} : Bool}, hx: {Rev.member(x, k) == True{} : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, b, span, x), k) == True{} : Bool}:
+  match b:
+    case True{}:
+      h
+    case False{}:
+      hx
+
+def go_grows(fuel: Nat, +every: List<&2, Fg.FgQuoted>, +span: List<&2, String>, +k: String, +h: {Rev.member(span, k) == True{} : Bool}) -> {Rev.member(Fg.copies.go(fuel, every, span), k) == True{} : Bool}:
+  match fuel:
+    case 0n:
+      h
+    case 1n+p:
+      +next = Fg.copies.grown(Fg.copies.step(every, every, span), span)
+      pick_keeps(Nat.is_eq(List.length(&2, String, next), List.length(&2, String, span)), span, Fg.copies.go(p, every, next), k, h, go_grows(p, every, next, k, grown_keeps(Fg.copies.step(every, every, span), span, k, h)))
+
+# What a resolution copied only adds to the span: every element it named
+# is still in it.
+def copies_grows(+every: List<&2, Fg.FgQuoted>, +span: List<&2, String>, +k: String, +h: {Rev.member(span, k) == True{} : Bool}) -> {Rev.member(Fg.copies(every, span), k) == True{} : Bool}:
+  go_grows(1n+List.length(&2, Fg.FgQuoted, every), every, span, k, h)
+
+# Every document quoting an element of the span is among those the plan
+# rewrites.
+def rewrites_every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +span: List<&2, String>, +every: List<&2, Fg.FgQuoted>, +plan: Fg.FgPlan, +e: {Fg.lines.every(fs, ds, file, span, Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +i: Nat, +q: Fg.FgQuoted, +hq: {List.get(&2, Fg.FgQuoted, every, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}, +hs: {Rev.member(span, Fg.quoted.key(q)) == True{} : Bool}, +d: String, +hd: {quotes(q, Fg.named(fs, file), d) == True{} : Bool}) -> {Rev.member(plan.targets(plan), d) == True{} : Bool}:
+  +ns = Fg.named(fs, file)
+  +pk = Fg.picked(every, Fg.copies(every, span), ns)
+  +ps = ForgetL.picks.of.picked(pk)
+  +m1 = picked_mem(every, Fg.copies(every, span), ns, i, q, d, hq, copies_grows(every, span, Fg.quoted.key(q), hs), hd)
+  %ForgetL.lines_of(ds, pk, plan, e) : {Rev.member(_, d) == True{} : Bool}
+  FetchL.distinct_mem(List.sort(~String, ~(a => b => String.is_le(a, b)), Fg.targets.of(ps)), d, FetchL.sort_mem(Fg.targets.of(ps), d, m1))
+
+def fail_done(-x: Main.Refused, -plan: Fg.FgPlan, e: {Fail{x} == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> Empty:
+  Comp.false_true(Equal.cong(Result<&2, &2, Main.Refused, Fg.FgPlan>, Bool, r => Result.is_done(&2, &2, Main.Refused, Fg.FgPlan, r), Fail{x}, Done{plan}, e))
+
+def within_every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +visible: List<&2, Fg.FgQuoted>, ok: Result<&2, &2, Main.Refused, Unit>, +plan: Fg.FgPlan, e: {Fg.lines.within(fs, ds, id, file, first, last, visible, ok) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +every: List<&2, Fg.FgQuoted>, +ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}) -> {Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}:
+  match ok:
+    case Fail{x}:
+      Empty.absurd({Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, fail_done(x, plan, e))
+    case Done{u}:
+      Equal.trans(Result<&2, &2, Main.Refused, Fg.FgPlan>, Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Done{every}), Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Fg.refused.of(List<&2, Fg.FgQuoted>, Fg.quotes(Fg.by_digest(fs), ds, id, file))), Done{plan},
+        Equal.cong(Result<&2, &2, String, List<&2, Fg.FgQuoted>>, Result<&2, &2, Main.Refused, Fg.FgPlan>, r => Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Fg.refused.of(List<&2, Fg.FgQuoted>, r)), Done{every}, Fg.quotes(Fg.by_digest(fs), ds, id, file), Equal.sym(Result<&2, &2, String, List<&2, Fg.FgQuoted>>, Fg.quotes(Fg.by_digest(fs), ds, id, file), Done{every}, ev)),
+        e)
+
+def checked_every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, ok: Result<&2, &2, Main.Refused, Unit>, +plan: Fg.FgPlan, e: {Fg.lines.checked(fs, ds, id, file, first, last, ok) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +at: List<&2, Fg.FgQuoted>, +ea: {Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file) == Done{at} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}, +every: List<&2, Fg.FgQuoted>, +ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}) -> {Fg.lines.every(fs, ds, file, Fg.span.keys(Fg.quoted.visible(at), first, last), Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}:
+  match ok:
+    case Fail{x}:
+      Empty.absurd({Fg.lines.every(fs, ds, file, Fg.span.keys(Fg.quoted.visible(at), first, last), Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, fail_done(x, plan, e))
+    case Done{u}:
+      +visible = Fg.quoted.visible(at)
+      +e2 = Equal.trans(Result<&2, &2, Main.Refused, Fg.FgPlan>, Fg.lines.at(fs, ds, id, file, first, last, Done{at}), Fg.lines.at(fs, ds, id, file, first, last, Fg.refused.of(List<&2, Fg.FgQuoted>, Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file))), Done{plan},
+        Equal.cong(Result<&2, &2, String, List<&2, Fg.FgQuoted>>, Result<&2, &2, Main.Refused, Fg.FgPlan>, r => Fg.lines.at(fs, ds, id, file, first, last, Fg.refused.of(List<&2, Fg.FgQuoted>, r)), Done{at}, Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file), Equal.sym(Result<&2, &2, String, List<&2, Fg.FgQuoted>>, Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file), Done{at}, ea)),
+        e)
+      within_every(fs, ds, id, file, first, last, visible, Fg.span.within.r(last, List.length(&2, Fg.FgQuoted, visible)), plan, e2, every, ev)
+
+# Forgetting lines `first..last` of a file rewrites every document that
+# quotes them: for each element the history ever wrote to the file whose
+# key is among the lines the span names at the revision, the document its
+# author names for the file and each one whose delete quotes it.
+def rewrites_quoting(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +plan: Fg.FgPlan, +e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +at: List<&2, Fg.FgQuoted>, +ea: {Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file) == Done{at} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}, +every: List<&2, Fg.FgQuoted>, +ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}, +i: Nat, +q: Fg.FgQuoted, +hq: {List.get(&2, Fg.FgQuoted, every, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}, +hs: {Rev.member(Fg.span.keys(Fg.quoted.visible(at), first, last), Fg.quoted.key(q)) == True{} : Bool}, +d: String, +hd: {quotes(q, Fg.named(fs, file), d) == True{} : Bool}) -> {Rev.member(plan.targets(plan), d) == True{} : Bool}:
+  rewrites_every(fs, ds, file, Fg.span.keys(Fg.quoted.visible(at), first, last), every, plan, checked_every(fs, ds, id, file, first, last, Fg.span.checked.r(first, last), plan, e, at, ea, every, ev), i, q, hq, hs, d, hd)

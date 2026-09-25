@@ -1267,6 +1267,34 @@ law forget_rewrites_only_the_files_documents:
   for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
   {Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts) == True{} : Bool}
 
+# And it rewrites every document that quotes them. For each element the
+# file's history ever wrote, as the walk of the whole history reads it,
+# whose key is among lines `first..last` of the file at the revision, as
+# the walk of its ancestry reads them, the document the revision that wrote
+# it names for the file, and each one a revision whose delete quotes it
+# names, is among the digests the plan destroys and stands in for: no
+# document that states or deletes a forgotten line keeps it legible.
+law forget_rewrites_every_document_quoting_the_span:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +file: String
+  for +first: String
+  for +last: String
+  for +plan: Fg.FgPlan
+  for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
+  for +at: List<&2, Fg.FgQuoted>
+  for ea: {Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file) == Done{at} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}
+  for +every: List<&2, Fg.FgQuoted>
+  for ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}
+  for +i: Nat
+  for +q: Fg.FgQuoted
+  for hq: {List.get(&2, Fg.FgQuoted, every, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}
+  for hs: {Rev.member(Fg.span.keys(Fg.quoted.visible(at), first, last), Fg.quoted.key(q)) == True{} : Bool}
+  for +d: String
+  for hd: {ForgettingL.quotes(q, Fg.named(fs, file), d) == True{} : Bool}
+  {Rev.member(ForgettingL.plan.targets(plan), d) == True{} : Bool}
+
 # Forgetting a file of bytes forgets the payload its tree holds for it at
 # the revision named, or nothing: another version of the file is another
 # payload (decision 0066), counted and left alone.

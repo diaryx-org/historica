@@ -4547,6 +4547,13 @@ def check_mutations(temporary):
             "forget.bend",
         ),
         (
+            "a resolution's copy replaces the span rather than joining it",
+            "copies.grown(rest, Bool.pick(List<&2, String>, Rev.member(span, k), span, List.append(&2, String, span, [k])))",
+            "copies.grown(rest, Bool.pick(List<&2, String>, Rev.member(span, k), span, [k]))",
+            "forgetting_lemmas.grown_keeps",
+            "forget.bend",
+        ),
+        (
             "a stand-in beside the original rewrites a line it does not forget",
             "      Ops.Item{t, n, f}\n",
             "      Ops.Item{t2, n, f}\n",

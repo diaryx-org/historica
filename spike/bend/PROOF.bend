@@ -668,6 +668,9 @@ def Laws.forgetting_a_resolution_keeps_shape(pieces, ps, t, i):
 def Laws.forget_rewrites_only_the_files_documents(fs, ds, id, file, first, last, ts, ws, a, n, e):
   ForgetL.rewrites(fs, ds, id, file, first, last, ts, ws, a, n, e)
 
+def Laws.forget_rewrites_every_document_quoting_the_span(fs, ds, id, file, first, last, plan, e, at, ea, every, ev, i, q, hq, hs, d, hd):
+  ForgettingL.rewrites_quoting(fs, ds, id, file, first, last, plan, e, at, ea, every, ev, i, q, hq, hs, d, hd)
+
 def Laws.forget_whole_takes_one_payload(file, payload, files, stood, n, ts, ws, a, m, e):
   ForgetL.takes_one(file, payload, files, stood, n, Fg.Fg.Plan{ts, ws, a, m}, e)
 
