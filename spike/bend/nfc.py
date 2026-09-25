@@ -63,6 +63,36 @@ def numbers(values, indent="    "):
     return lines
 
 
+def entries(items, indent="   "):
+    lines, line = [], indent
+    for i, item in enumerate(items):
+        piece = " " + item + ("," if i + 1 < len(items) else "")
+        if len(line) + len(piece) > 100:
+            lines.append(line)
+            line = indent
+        line += piece
+    return lines + [line]
+
+
+# A list literal is as deep as it is long in the JavaScript Bend emits, and
+# the JavaScript engine gives up on one past a couple of thousand; so a
+# table is written in parts of at most this many elements, joined by
+# `List.append` when it is read.
+PART = 900
+
+
+def table(name, kind, element, items, render):
+    """`def name() -> kind`, from parts no longer than `PART` elements."""
+    parts = [items[i:i + PART] for i in range(0, len(items), PART)]
+    out = []
+    for k, part in enumerate(parts):
+        out += [f"def {name}.{k}() -> {kind}:", "  [", *render(part), "  ]", ""]
+    joined = f"{name}.{len(parts) - 1}()"
+    for k in reversed(range(len(parts) - 1)):
+        joined = f"List.append(&2, {element}, {name}.{k}(), {joined})"
+    return out + [f"def {name}() -> {kind}:", f"  {joined}"]
+
+
 def main():
     classes, decompositions, pairs, version = dump()
     full = lambda c: decompositions.get(c, [c])
@@ -111,32 +141,16 @@ def main():
         "",
         "# Each run of consecutive code points with one canonical combining class",
         "# other than 0 — first, last, class — in order.",
-        "def classes() -> List<&2, U32>:",
-        "  [",
-        *numbers(v for r in runs(classes) for v in r),
-        "  ]",
+        *table("classes", "List<&2, U32>", "U32", [v for r in runs(classes) for v in r], numbers),
         "",
         "# Each character whose full canonical decomposition is not itself, and",
         "# what it decomposes to: the character first, in order of it.",
-        "def decompositions() -> List<&2, List<&2, U32>>:",
-        "  [",
-    ]
-    entries = [f"[{c}, {', '.join(str(d) for d in ds)}]" for c, ds in sorted(decompositions.items())]
-    line = "   "
-    for i, entry in enumerate(entries):
-        piece = " " + entry + ("," if i + 1 < len(entries) else "")
-        if len(line) + len(piece) > 100:
-            out.append(line)
-            line = "   "
-        line += piece
-    out += [line, "  ]", ""]
-    out += [
+        *table("decompositions", "List<&2, List<&2, U32>>", "List<&2, U32>",
+               [f"[{c}, {', '.join(str(d) for d in ds)}]" for c, ds in sorted(decompositions.items())], entries),
+        "",
         "# Each pair canonical composition joins — first, second, and what they",
         "# make — in order of the first and then the second.",
-        "def pairs() -> List<&2, U32>:",
-        "  [",
-        *numbers(v for p in pairs for v in p),
-        "  ]",
+        *table("pairs", "List<&2, U32>", "U32", [v for p in pairs for v in p], numbers),
     ]
     (ROOT / "nfc_tables.bend").write_text("\n".join(out) + "\n")
     print(f"nfc_tables.bend: Unicode {version}, {len(runs(classes))} class runs, {len(decompositions)} decompositions, {len(pairs)} pairs")

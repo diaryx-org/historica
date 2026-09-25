@@ -82,7 +82,15 @@ def components(cs: List<&2, String>, +e: {Sv.component_fault(cs) == None{} : May
 # The path rules, past the two a climbing name would meet.
 def after_trailing(+p: String) -> Maybe<&2, String>:
   Bool.pick(Maybe<&2, String>, List.any(~&2, ~Char, ~Folder.is_control, String.to_list(p)), Some{"it holds a control character"},
-    Sv.component_fault(String.split(p, '/')))
+    Sv.normal_fault(Sv.component_fault(String.split(p, '/')), p))
+
+# The last rule, normal form C, is asked only of a path the others passed.
+def normal_none(f: Maybe<&2, String>, +p: String, e: {Sv.normal_fault(f, p) == None{} : Maybe<&2, String>}) -> {f == None{} : Maybe<&2, String>}:
+  match f:
+    case Some{b}:
+      Empty.absurd({Some{b} == None{} : Maybe<&2, String>}, some_none(b, e))
+    case None{}:
+      {==}
 
 def after_ends(+p: String) -> Maybe<&2, String>:
   Bool.pick(Maybe<&2, String>, Bool.or(String.starts_with(p, " "), String.ends_with(p, " ")), Some{"it has leading or trailing space"}, after_trailing(p))
@@ -94,11 +102,12 @@ def after_first(+p: String) -> Maybe<&2, String>:
   Bool.pick(Maybe<&2, String>, String.starts_with(p, "/"), Some{"it begins with `/`, and a path is relative to the repository root"}, after_root(p))
 
 def path_parts(+p: String, +e: {Sv.path_check(p) == None{} : Maybe<&2, String>}) -> {Sv.component_fault(String.split(p, '/')) == None{} : Maybe<&2, String>}:
-  pick_rest(List.any(~&2, ~Char, ~Folder.is_control, String.to_list(p)), "it holds a control character", Sv.component_fault(String.split(p, '/')),
-    pick_rest(Bool.or(String.starts_with(p, " "), String.ends_with(p, " ")), "it has leading or trailing space", after_trailing(p),
-      pick_rest(String.ends_with(p, "/"), "it ends with `/`, and a path names a file rather than a directory", after_ends(p),
-        pick_rest(String.starts_with(p, "/"), "it begins with `/`, and a path is relative to the repository root", after_root(p),
-          pick_rest(String.is_empty(p), "it is empty", after_first(p), e)))))
+  normal_none(Sv.component_fault(String.split(p, '/')), p,
+    pick_rest(List.any(~&2, ~Char, ~Folder.is_control, String.to_list(p)), "it holds a control character", Sv.normal_fault(Sv.component_fault(String.split(p, '/')), p),
+      pick_rest(Bool.or(String.starts_with(p, " "), String.ends_with(p, " ")), "it has leading or trailing space", after_trailing(p),
+        pick_rest(String.ends_with(p, "/"), "it ends with `/`, and a path names a file rather than a directory", after_ends(p),
+          pick_rest(String.starts_with(p, "/"), "it begins with `/`, and a path is relative to the repository root", after_root(p),
+            pick_rest(String.is_empty(p), "it is empty", after_first(p), e))))))
 
 def path_rooted(+p: String, +e: {Sv.path_check(p) == None{} : Maybe<&2, String>}) -> {String.starts_with(p, "/") == False{} : Bool}:
   pick_cond(String.starts_with(p, "/"), "it begins with `/`, and a path is relative to the repository root", after_root(p),

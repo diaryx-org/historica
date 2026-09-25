@@ -1235,17 +1235,17 @@ def tail_of(s: String) -> String:
     case SCon{c, rest}:
       rest
 
-def stated_pick(c: Bool, +t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +a: String, +at: String, +er: {Sv.resolution(path, target) == Some{a} : Maybe<&2, String>}, +ec: {Sv.stated(t, gone, arriving, a) == c : Bool}, e: {Bool.pick(String, c, SCon{'r', a}, SCon{'v', target}) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
+def stated_pick(c: Bool, +t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +a: String, +at: String, +er: {Sv.resolved(path, target) == Some{a} : Maybe<&2, String>}, +ec: {Sv.stated(t, gone, arriving, a) == c : Bool}, e: {Bool.pick(String, c, SCon{'r', a}, SCon{'v', target}) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
   match c:
     case True{}:
       %Equal.cong(String, String, s => tail_of(s), SCon{'r', a}, SCon{'r', at}, e) : {Sv.lands_on(t, gone, arriving, path, target, _) == True{} : Bool}
-      %Equal.sym(Maybe<&2, String>, Sv.resolution(path, target), Some{a}, er) : {Bool.and(Sv.maybe_eq(_, Some{a}), Sv.stated(t, gone, arriving, a)) == True{} : Bool}
+      %Equal.sym(Maybe<&2, String>, Sv.resolved(path, target), Some{a}, er) : {Bool.and(Sv.maybe_eq(_, Some{a}), Sv.stated(t, gone, arriving, a)) == True{} : Bool}
       %Equal.sym(Bool, String.eq(a, a), True{}, S.eq_refl(a)) : {Bool.and(_, Sv.stated(t, gone, arriving, a)) == True{} : Bool}
       ec
     case False{}:
       Empty.absurd({Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}, r_not_v(target, at, e))
 
-def observed_of(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, r: Maybe<&2, String>, +er: {Sv.resolution(path, target) == r : Maybe<&2, String>}, +at: String, e: {Sv.observed.of(t, gone, arriving, target, r) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
+def observed_of(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, r: Maybe<&2, String>, +er: {Sv.resolved(path, target) == r : Maybe<&2, String>}, +at: String, e: {Sv.observed.of(t, gone, arriving, target, r) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
   match r:
     case None{}:
       Empty.absurd({Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}, r_not_v(target, at, e))
@@ -1253,7 +1253,7 @@ def observed_of(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, 
       stated_pick(Sv.stated(t, gone, arriving, a), t, gone, arriving, path, target, a, at, er, {==}, e)
 
 def observed_ok(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +at: String, e: {Sv.observed(t, gone, arriving, path, target) == SCon{'r', at} : String}) -> {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}:
-  observed_of(t, gone, arriving, path, target, Sv.resolution(path, target), {==}, at, e)
+  observed_of(t, gone, arriving, path, target, Sv.resolved(path, target), {==}, at, e)
 
 # A path claimed once
 # -------------------

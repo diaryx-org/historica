@@ -20,6 +20,7 @@ import ./resolution.bend as Res
 import ./merge.bend as Merge
 import ./similar.bend as Sim
 import ./folder.bend as Folder
+import ./nfc.bend as Nfc
 import ./unicode.bend as Uni
 import ./survey.bend as Sv
 import ./notes.bend as Notes
@@ -958,12 +959,18 @@ def file_named.r(+id: String, +bs: List<&2, Bm.Bookmark>, spelling: String, +t: 
     case +s:
       file_named.found.r(id, s, t, Bm.find(bs, s))
 
+# A path as a person spelled it: after `path:`, where they wrote one, and
+# in normal form C, decision 0033's one spelling of a path, which their
+# keyboard, shell and tab completion need not have used.
+def path.spelled(+sp: String) -> String:
+  Nfc.nfc(Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp))
+
 def file_in.spelled.r(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree(), named: Maybe<&2, String>) -> Result<&2, &2, Refused, String>:
   match named:
     case Some{n}:
       file_named.r(id, bs, n, t)
     case None{}:
-      +p = Maybe.default(&2, String, T.strip_prefix(path, "path:"), path)
+      +p = path.spelled(path)
       file_in.of.r(id, p, Tree.at(t, p))
 
 # The file one argument names at one revision: a path, `path:` and a path
@@ -3885,7 +3892,7 @@ def diff.limit.spelled(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: 
     case True{}:
       diff.limit.file.r(fs, bs, right, sp)
     case False{}:
-      Done{Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}}
+      Done{Limit.Path{path.spelled(sp)}}
 
 def diff.limit.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, only: Maybe<&2, String>) -> Result<&2, &2, Refused, Limit>:
   match only:
@@ -4570,15 +4577,28 @@ def wanted_all(+fs: List<&2, Full>, files: List<&2, String>) -> List<&2, String>
     case f <> rest:
       List.append(&2, String, wanted(fs, f), wanted_all(fs, rest))
 
-# The folder's files that have to be read, by path.
-def read_all(+repo: String, paths: List<&2, String>, m: Map<&2, List<&2, U32>>) -> IO(Map<&2, List<&2, U32>>):
-  match paths:
-    case Nil{}:
-      IO.pure(Map<&2, List<&2, U32>>, m)
-    case +p <> rest:
+def read_each(+repo: String, paths: List<&2, String>, disk: List<&2, String>, m: Map<&2, List<&2, U32>>) -> IO(Map<&2, List<&2, U32>>):
+  match paths disk:
+    case +p <> rest d <> more:
       do IO<Map<&2, List<&2, U32>>>:
-        bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ p)
-        read_all(repo, rest, Map.set(&2, List<&2, U32>, m, p, bs))
+        bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ d)
+        read_each(repo, rest, more, Map.set(&2, List<&2, U32>, m, p, bs))
+    case _ _:
+      IO.pure(Map<&2, List<&2, U32>>, m)
+
+# The folder's files that have to be read, by path, each opened where the
+# folder spells it.
+def read_all(+repo: String, +paths: List<&2, String>, m: Map<&2, List<&2, U32>>) -> IO(Map<&2, List<&2, U32>>):
+  do IO<Map<&2, List<&2, U32>>>:
+    disk : List<&2, String> <- Folder.on_disk.all(repo, paths)
+    read_each(repo, paths, disk, m)
+
+# What the host says each of the folder's files holds, asked where the
+# folder spells it.
+def folder.stats(+repo: String, +paths: List<&2, String>) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    disk : List<&2, String> <- Folder.on_disk.all(repo, paths)
+    Store.stats(repo, disk)
 
 def bytes_of(+path: String, r: Map<&2, List<&2, U32>> & List<&2, U32>) -> List<&2, U32>:
   (m, bs) = r
@@ -4701,7 +4721,7 @@ def wc.limit.spelled(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +left: May
     case True{}:
       wc.limit.file.r(fs, bs, sp, left)
     case False{}:
-      Done{Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}}
+      Done{Limit.Path{path.spelled(sp)}}
 
 def wc.limit.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, String>, only: Maybe<&2, String>) -> Result<&2, &2, Refused, Limit>:
   match only:
@@ -4777,7 +4797,7 @@ def diff.folder(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, 
     +os : Map<&2, T.Split> = origins.map(chain(fs, l), Map.new(&2, T.Split))
     eds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), edits_of(os, hs))))
     +paths : List<&2, String> = regular_paths(hs)
-    stats : List<&2, String> <- Store.stats(repo, paths)
+    stats : List<&2, String> <- folder.stats(repo, paths)
     +ps : List<&2, Planned> = plans(stats.map(paths, stats, Map.new(&2, String)), os, eds, hs)
     ds : List<&2, Store.Doc> <- Store.fetch(root, wanted_all(fs, planned.replayed(ps)))
     +ds2 : List<&2, Store.Doc> = ds
@@ -5614,7 +5634,7 @@ def wcf.spelled.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +lef
     case True{}:
       wcf.file.r(bs, t, sp, left)
     case False{}:
-      +p = Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)
+      +p = path.spelled(sp)
       wcf.path.r(bs, t, p, left, Tree.at(t, p))
 
 def wcf.held.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: Maybe<&2, String>) -> Result<&2, &2, Refused, Held>:
@@ -5744,7 +5764,8 @@ def blame.held(+root: String, +fs: List<&2, Full>, +repo: String, +t: Tree.Tree(
       do IO<Unit>:
         k : Maybe<&2, Tree.FileKind> <- refused.io(Maybe<&2, Tree.FileKind>, wcf.checked.r(path, t, file, found))
         +k2 : Maybe<&2, Tree.FileKind> = k
-        bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ path)
+        disk : String <- Folder.on_disk(repo, path)
+        bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ disk)
         +bs2 : List<&2, U32> = bs
         refused.io(Unit, wcf.kind.r(path, k2, bs2))
         rows : List<&2, Row> <- wcf.origins(root, fs, l, file)
@@ -6598,7 +6619,7 @@ def status.surveyed(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmar
     +cs : List<&2, T.Split> = Sv.claims(t2)
     +hs : List<&2, Here> = heres(Sv.unclaimed(t2, cs), Sv.unclaimed_found(Folder.walked.found(w2), cs), Limit.None{})
     +paths : List<&2, String> = regular_paths(hs)
-    stats : List<&2, String> <- Store.stats(repo, paths)
+    stats : List<&2, String> <- folder.stats(repo, paths)
     +dg : Map<&2, String> = stats.map(paths, stats, Map.new(&2, String))
     bf : Map<&2, String> <- status.befores.io(root, fs, ps, hs)
     +bf2 : Map<&2, String> = bf
@@ -6733,6 +6754,19 @@ def record.split.of(+msg: String, parts: List<&2, String>) -> Result<&2, &2, Ref
 def record.split(+v: String, +msg: String) -> Result<&2, &2, Refused, T.Split>:
   record.split.of(msg, String.split(v, '='))
 
+# Decision 0033: the paths `--at` and `--move` name, in normal form C, as
+# `record` reads them — the file `--at` names is a bookmark or an
+# identifier, and is read as it is.
+def typed.at(s: T.Split) -> T.Split:
+  match s:
+    case T.Split{file, path}:
+      T.Split{file, Nfc.nfc(path)}
+
+def typed.move(s: T.Split) -> T.Split:
+  match s:
+    case T.Split{from, to}:
+      T.Split{Nfc.nfc(from), Nfc.nfc(to)}
+
 # A path, with the slashes a shell leaves on a directory taken off.
 def heads_slash(s: String) -> Bool:
   match s:
@@ -6780,21 +6814,21 @@ def record.args.go(args: List<&2, String>, c: RecordCmd, k: RWord) -> Result<&2,
     case w <> +v <> +rest RWord.At{}:
       do Result<&2, &2, Refused, RecordCmd>:
         s : T.Split <- record.split(v, "`--at` is spelled `--at <file>=<path>`")
-        record.args.go(rest, rc.at(c, s), rword(rest))
+        record.args.go(rest, rc.at(c, typed.at(s)), rword(rest))
     case w <> Nil{} RWord.Move{}:
       Fail{Refused{2, "`--move` wants a value"}}
     case w <> +v <> +rest RWord.Move{}:
       do Result<&2, &2, Refused, RecordCmd>:
         s : T.Split <- record.split(v, "`--move` is spelled `--move <old>=<new>`")
-        record.args.go(rest, rc.move(c, s), rword(rest))
+        record.args.go(rest, rc.move(c, typed.move(s)), rword(rest))
     case w <> Nil{} RWord.Bytes{}:
       Fail{Refused{2, "`--bytes` wants a value"}}
     case w <> v <> +rest RWord.Bytes{}:
-      record.args.go(rest, rc.kind(c, T.Split{v, "bytes"}), rword(rest))
+      record.args.go(rest, rc.kind(c, T.Split{Nfc.nfc(v), "bytes"}), rword(rest))
     case w <> Nil{} RWord.Lines{}:
       Fail{Refused{2, "`--lines` wants a value"}}
     case w <> v <> +rest RWord.Lines{}:
-      record.args.go(rest, rc.kind(c, T.Split{v, "lines"}), rword(rest))
+      record.args.go(rest, rc.kind(c, T.Split{Nfc.nfc(v), "lines"}), rword(rest))
     case w <> +rest RWord.Dry{}:
       record.args.go(rest, rc.dry(c), rword(rest))
     case w <> +rest RWord.Fields{}:
@@ -6803,7 +6837,7 @@ def record.args.go(args: List<&2, String>, c: RecordCmd, k: RWord) -> Result<&2,
       Fail{Refused{2, "`" ++ w ++ "` is not an argument `record` takes"}}
     case +w <> +rest RWord.Path{}:
       do Result<&2, &2, Refused, RecordCmd>:
-        more : RecordCmd <- record.path(c, trimmed(w))
+        more : RecordCmd <- record.path(c, Nfc.nfc(trimmed(w)))
         record.args.go(rest, more, rword(rest))
 
 def record.args.r(+args: List<&2, String>) -> Result<&2, &2, Refused, RecordCmd>:
@@ -7531,7 +7565,9 @@ def filed.one(+repo: String, +name: String, c: Content) -> IO(Result<&1, &1, U32
     case Content.Text{f, p, bs}:
       Store.filed(name ++ "\n" ++ Utf8.decode(bs))
     case Content.Whole{f, p, d}:
-      Store.copied(repo ++ "/" ++ p ++ "\n" ++ name ++ "\n" ++ d)
+      do IO<Result<&1, &1, U32 & String, String>>:
+        disk : String <- Folder.on_disk(repo, p)
+        Store.copied(repo ++ "/" ++ disk ++ "\n" ++ name ++ "\n" ++ d)
 
 # Each file of content filed under the revision's stem, unless the store
 # already holds its digest anywhere: then it is there, and stays where it is.
@@ -8984,7 +9020,7 @@ def record.surveyed(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>
         stated.io(Unit, st, skips_held.r(skipped_held(rules, t)))
         stated.io(Unit, st, named.r(rules, only, folder, Sv.paths(t0), Sv.paths(t)))
         stated.io(Unit, st, record.fault.r(Sv.kind_fault(only, t, kinds)))
-        stats : List<&2, String> <- Store.stats(repo, paths)
+        stats : List<&2, String> <- folder.stats(repo, paths)
         +dg : Map<&2, String> = stats.map(paths, stats, Map.new(&2, String))
         bf : Map<&2, String> <- status.befores.io(root, fs, ps, hs)
         +bf2 : Map<&2, String> = bf
@@ -9226,7 +9262,7 @@ def rw.args.go(+cmd: String, args: List<&2, String>, c: RwCmd, k: WWord) -> Resu
     case w <> +v <> +rest WWord.Move{}:
       do Result<&2, &2, Refused, RwCmd>:
         s : T.Split <- record.split(v, "`--move` is spelled `--move <old>=<new>`")
-        rw.args.go(cmd, rest, rw.move(c, s), wword(cmd, rest))
+        rw.args.go(cmd, rest, rw.move(c, typed.move(s)), wword(cmd, rest))
     case w <> Nil{} WWord.Onto{}:
       Fail{Refused{2, "`--onto` wants a value"}}
     case w <> v <> +rest WWord.Onto{}:
