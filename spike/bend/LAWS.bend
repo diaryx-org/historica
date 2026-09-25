@@ -1166,3 +1166,43 @@ law forget_clears_only_copies:
   for +p: String
   for e: {Rev.member(Fg.cached(ps), p) == True{} : Bool}
   {T.is_digest(String.drop(p, 6n)) == True{} : Bool}
+
+# Decision 0014: replay does not consult payload. A document whose every
+# item is the one written or that item forgotten — a stand-in, which states
+# no result — applied to a file whose every line is the original parent's
+# or that line forgotten, makes a file wherever the original makes one, and
+# each of its lines is the original's line or that line forgotten. A
+# forgotten item agrees with whatever its terminator allows, and nothing
+# else the walk does reads text.
+law standin_replays_like_what_it_stands_in_for:
+  for +st1: List<&2, Ops.Item>
+  for +st2: List<&2, Ops.Item>
+  for f: Maybe<&2, String>
+  for +r: Maybe<&2, String>
+  for +ops1: List<&2, Ops.Op>
+  for f2: Maybe<&2, String>
+  for +ops2: List<&2, Ops.Op>
+  for +hs: {Stand.items.like(st1, st2) == True{} : Bool}
+  for +hops: {Stand.ops.like(ops1, ops2) == True{} : Bool}
+  {Stand.result.like(Ops.apply(st1, Ops.Doc{f, r, ops1}), Ops.apply(st2, Ops.Doc{f2, None{}, ops2})) == True{} : Bool}
+
+# So a file's history replayed through stand-ins — any of its documents
+# forgotten, in any part — reads the forgotten lines as forgotten items and
+# every other line as it was, wherever the history replays.
+law chain_replays_like_through_standins:
+  for ds1: List<&2, List<&2, Ops.Op>>
+  for ds2: List<&2, List<&2, Ops.Op>>
+  for r1: Result<&2, &2, String, List<&2, Ops.Item>>
+  for r2: Result<&2, &2, String, List<&2, Ops.Item>>
+  for +hd: {Stand.docs.like(ds1, ds2) == True{} : Bool}
+  for +hr: {Stand.result.like(r1, r2) == True{} : Bool}
+  {Stand.result.like(Merge.replay(ds1, r1), Merge.replay(ds2, r2)) == True{} : Bool}
+
+# And what `forget` writes is such a stand-in: the document it stands in
+# for, with the text of the items picked destroyed and nothing else.
+law forgetting_destroys_only_text:
+  for ops: List<&2, Ops.Op>
+  for +ps: List<&2, Fg.FgPick>
+  for +t: String
+  for +i: Nat
+  {Stand.ops.like(ops, Fg.forget.ops(ops, ps, t, i)) == True{} : Bool}

@@ -410,3 +410,56 @@ def made_of(ds: List<&2, Store.Doc>, +d: String, +text: String) -> Bool:
       String.is_empty(text)
     case Store.Doc{p, i, n, +t} <> +rest:
       Bool.or(Bool.and(Bool.and(Store.stands_for(t, [d]), String.starts_with(text, t)), made_of(rest, d, String.drop(text, String.length(t)))), made_of(rest, d, text))
+
+# Reading through a stand-in
+# --------------------------
+
+# An item as a reader meets it where a stand-in may have destroyed it: the
+# item itself, or the same item forgotten — its text gone, its terminator
+# kept. `LAWS.standin_replays_like_what_it_stands_in_for` is stated over it.
+def item.like(a: Ops.Item, b: Ops.Item) -> Bool:
+  match a b:
+    case Ops.Item{t1, n1, f1} Ops.Item{t2, n2, True{}}:
+      Bool.not(Bool.xor(n1, n2))
+    case Ops.Item{t1, n1, f1} Ops.Item{t2, n2, False{}}:
+      Bool.and(Bool.not(f1), Bool.and(T.same(t1, t2), Bool.not(Bool.xor(n1, n2))))
+
+def items.like(a: List<&2, Ops.Item>, b: List<&2, Ops.Item>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case x <> xs y <> ys:
+      Bool.and(item.like(x, y), items.like(xs, ys))
+    case _ _:
+      False{}
+
+# Two documents alike but for what a forgetting destroyed: the same
+# operations at the same positions, each item as it was or forgotten.
+def ops.like(a: List<&2, Ops.Op>, b: List<&2, Ops.Op>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case Ops.Op{k1, +at1, i1} <> ra Ops.Op{k2, +at2, i2} <> rb:
+      Bool.and(Ops.verb_is(k1, k2), Bool.and(Nat.is_eq(at1, at2), Bool.and(items.like(i1, i2), ops.like(ra, rb))))
+    case _ _:
+      False{}
+
+# Where the first replay makes a file, the second makes one alike.
+def result.like(a: Result<&2, &2, String, List<&2, Ops.Item>>, b: Result<&2, &2, String, List<&2, Ops.Item>>) -> Bool:
+  match a b:
+    case Fail{e} _:
+      True{}
+    case Done{x} Done{y}:
+      items.like(x, y)
+    case Done{x} Fail{e}:
+      False{}
+
+# A chain of documents alike, one by one.
+def docs.like(a: List<&2, List<&2, Ops.Op>>, b: List<&2, List<&2, Ops.Op>>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case x <> xs y <> ys:
+      Bool.and(ops.like(x, y), docs.like(xs, ys))
+    case _ _:
+      False{}

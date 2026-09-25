@@ -2193,6 +2193,13 @@ def check_mutations(temporary):
             "forget.bend",
         ),
         (
+            "forget writes an empty line where the text was rather than the marker",
+            "      Ops.Item{SNil{}, n, True{}}",
+            "      Ops.Item{SNil{}, n, False{}}",
+            "forget_lemmas.item_forgot",
+            "forget.bend",
+        ),
+        (
             "forget picks the revision that wrote an item rather than the document it names",
             "      pick.if(named.find(ns, by), op, item, picks.deletes(dl, ns))",
             "      pick.if(Some{by}, op, item, picks.deletes(dl, ns))",
