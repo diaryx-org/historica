@@ -3285,15 +3285,26 @@ law export_lays_out_every_path:
   for +h: {Export.folder.r(t, fs, ds, id, pays, bs, rules) == Done{qs} : Result<&2, &2, Main.Refused, List<&2, Export.Put>>}
   {Bool.and(Main.rising(Export.put.paths(qs)), Export.bool.same(Rev.member(Export.put.paths(qs), x), Export.tree.holds(t, x))) == True{} : Bool}
 
-# The bookmarks a copy is given are exactly the shared ones, as `offer`
-# lists them, that find in the copy what they name (decision 0062), each as
-# the store holds it and in the store's order: an export never discloses a
-# private name, never manufactures a dangling bookmark the origin did not
-# have, and leaves behind no shared bookmark that would find its target.
+# The bookmarks an export's plan gives the copy are exactly the shared
+# ones, as `offer` lists them, that find something among the revisions the
+# copy is given (decision 0062), each as the store holds it and in the
+# store's order. What finds is said from the revisions themselves: a
+# revision bookmark finds its revision, a change bookmark a revision of
+# the change, and a file bookmark a revision whose facts add, move, drop,
+# edit, or state the text or bytes of the file (decision 0024). So an
+# export never discloses a private name, never manufactures a bookmark
+# that finds nothing in the copy, and leaves behind no shared bookmark that
+# would find its target there.
 law export_names_only_what_travels:
+  for +held: List<&2, Main.Full>
+  for +t: Tree.Tree()
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, T.Split>
+  for +bodies: List<&2, Prune.Body>
+  for +rs: List<&2, Receive.Ruled>
   for +bs: List<&2, Bm.Bookmark>
-  for +pt: Export.Pointed
-  {Export.travel.names(Export.travel.of(bs, pt)) == Export.marks.found(Offer.shared(bs), pt) : List<&2, Bm.Bookmark>}
+  for +claims: List<&2, T.Split>
+  {Export.travel.names(Export.plan.names(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims))) == Export.marks.found(Offer.shared(bs), held) : List<&2, Bm.Bookmark>}
 
 # Every rule file a copy is given states a shared rule (decision 0051),
 # whatever label it is filed under.

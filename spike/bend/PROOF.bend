@@ -1089,8 +1089,8 @@ def Laws.offer_names_no_private_rule(prefix, s, bs, claims, rids, nids):
 def Laws.export_lays_out_every_path(t, fs, ds, id, pays, bs, rules, qs, x, h):
   PlacedL.laid_out(t, fs, ds, id, pays, bs, rules, qs, x, h)
 
-def Laws.export_names_only_what_travels(bs, pt):
-  ExportL.names(bs, pt)
+def Laws.export_names_only_what_travels(held, t, ds, ps, bodies, rs, bs, claims):
+  ExportL.names(bs, held)
 
 def Laws.export_states_no_private_rule(rs):
   ExportL.rules(rs)

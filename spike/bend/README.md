@@ -317,7 +317,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `offer.bend` | `offer`: the published copy's store read as `prune` reads it and opened as the Rust tool opens a store, and its manifest written to standard output — the header, every head of the graph, then payloads, documents, revisions, rules, the other tool's files and bookmarks, each group by path and each path under the copy's own name — with no private rule or bookmark named | `store::offer`, decisions 0048, 0052, 0056 |
 | `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have; `offer_names_each_file_by_its_digest`: every line names a file by the digest the store's listing gives it; `offer_lists_forgetting_as_prune_reads_it`: what the manifest says a document forgets is what `prune`, `receive` and `export` read it as forgetting, save a resolution the Rust tool's catalogue does not parse; `offer_lines_read_back`: `fetch`'s line reader reads each line it writes back as the file it names, whatever spaces the path holds | `offer` |
 | `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; a copy it made brought up to date, the folder caught up; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0052, 0053, 0062 |
-| `export_lemmas.bend` | `export_names_only_what_travels`: the bookmarks a copy is given are exactly the shared ones, as `offer` lists them, whose target the copy holds, in the store's order; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_carries_only_this_stores_files`: every document and forgetting document a copy carries is, whole, one of this store's documents, and every payload a file of this store holding it; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
+| `export_lemmas.bend` | `export_names_only_what_travels`: the bookmarks an export's plan gives a copy are exactly the shared ones, as `offer` lists them, that find something among the revisions it is given — the revision, a revision of the change, or one whose facts say anything of the file — in the store's order; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_carries_only_this_stores_files`: every document and forgetting document a copy carries is, whole, one of this store's documents, and every payload a file of this store holding it; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
 | `catchup_lemmas.bend` | `export_catches_up_to_a_fresh_copy`: once the steps of a copy's folder plan are taken, every path of the folder a fresh export lays out for the same target holds that file — by digest and mode, or by where its link points — one step a file, and nothing removed is one of those paths; `export_settles_only_on_what_it_laid_out`: a folder the plan calls settled already holds all that; `export_spares_the_unrecorded`: every file the plan writes or links over, and every file it removes, holds bytes `cat` of some revision of the copy reads for some file of its tree, or a payload that tree names — `update`'s promise, met at `update_lemmas.lookup_rec` | `export` onto a copy |
 | `onto_lemmas.bend` | `export_updates_only_a_copy_it_could_have_made`: an update is refused wherever the copy holds a revision this store neither holds nor names as a parent or as superseded; `export_updates_a_copy_it_could_have_made`: and goes on into a copy sharing a revision with this store, every revision of which it holds or names; `export_update_leaves_the_copy_the_whole_set`: every revision, document, forgetting document and payload the set names is one the copy holds, one the update writes, or one a forgetting document of either side says is gone; `export_update_gives_up_only_what_the_set_no_longer_names`: every file an update withdraws or retires is a revision, document or payload file the set does not carry, a rule file of a rule the origin does not share, or a bookmark file of one that does not travel; `export_update_carries_only_the_claims_a_copy_lacks`: a file of `claims/` travels exactly where the copy has none of that name; `export_update_states_no_private_rule`: every rule file an update adds states a shared rule | `export` onto a copy |
 | `dryrun_lemmas.bend` | `export_dry_run_names_what_it_would_write`: read back, `export -n`'s `would withdraw` lines are the files a copy gives up, in order, and its `write` lines every path the tree places, once each and in path order; `export_files_only_dry_run_names_what_it_lays_out`: read back, `--files-only -n`'s `write` lines are every path where the tree holds a file that is no link, once each and in path order, and the real run's `wrote` lines are the same | `export -n` |
@@ -1220,9 +1220,11 @@ copied from a file of this store holding it
 (`export_carries_only_this_stores_files`); the shared rules, filed under
 `Rule::label`'s names
 (`export_states_no_private_rule`); exactly the shared bookmarks, as
-`offer` lists them, whose target the copy holds, in the store's order
-(`export_names_only_what_travels`), the rest counted as held back or as
-pointing past the target; and the files of `claims/`, whole.
+`offer` lists them, that find something among the revisions the copy is
+given — the revision itself, a revision of the change, a revision adding,
+moving, dropping, editing, or stating the text or bytes of the file — in
+the store's order (`export_names_only_what_travels`), the rest counted as
+held back or as pointing past the target; and the files of `claims/`, whole.
 The copy's files are named as `arrange` names them, over what travels. The
 folder is laid out path by path, and a folder laid out holds a file at
 every path the tree places and at no other, each once and in path order
@@ -2270,7 +2272,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Four hundred and sixty-two mutations cover the primitive helpers, lost inserts, a lost trailing
+Four hundred and sixty-five mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2447,10 +2449,12 @@ the source has it, an original destroyed that nothing forgets, and every
 payload file this store holds removed with it; and four offer
 breaks: a private bookmark named, a private rule named, a payload's
 stand-in read as an operation document, and nothing written where a line
-forgets nothing; and four
+forgets nothing; and seven
 export breaks: a link laid somewhere other than where it sits, a
 private bookmark given to the copy, a bookmark pointing past the target
-given to it, and a private rule written into it; and two breaks of an
+given to it, a file bookmark held without the drop that names the file, a
+change bookmark held to the revision IDs, bookmarks tested against no
+revision at all, and a private rule written into it; and two breaks of an
 export onto its copy: a file nothing recorded written over, and a stray
 file removed; and eleven more export breaks: a word it does not know taken, a directory holding no
 store updated, a file of lines laid out plain whatever its mode, a payload
