@@ -2252,6 +2252,13 @@ def check_mutations(temporary):
             "record_lemmas.recorded_once",
             "survey.bend",
         ),
+        (
+            "--fields names a revision it wrote in the carry twice",
+            "WROTE() <> said.lines(\"revision \", SNil{}, sorted_distinct(carried.ids(steps))),",
+            "WROTE() <> said.lines(\"revision \", SNil{}, List.sort(~String, ~(a => b => String.is_le(a, b)), carried.ids(steps))),",
+            "rewrite_lemmas.writes_fields",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

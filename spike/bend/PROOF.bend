@@ -698,3 +698,6 @@ def Laws.record_restricts_no_merge_and_no_half_rename(named, ps, moves, u, e):
 
 def Laws.record_says_an_arrival_once(t, looked, held, walked, ss, moves):
   RecordL.planned_once(t, looked, held, walked, ss, moves)
+
+def Laws.writes_say_what_they_wrote(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry):
+  RewriteL.writes_fields(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry)

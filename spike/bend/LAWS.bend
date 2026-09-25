@@ -1486,3 +1486,23 @@ law record_says_an_arrival_once:
   for +ss: List<&2, Sv.Seen>
   for +moves: List<&2, T.Split>
   {Main.recorded.once(Set.from_list(Sv.added(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves)))), Main.planned.facts(Sv.planned(t, looked, held, walked, ss, moves))) == True{} : Bool}
+
+# Asked for `--fields`, what `record`, `amend`, `abandon` and `carry` say
+# of what they wrote is decision 0074's: `historica-wrote-1` first, and
+# then a `revision` line for each revision the act wrote — each named
+# once, in digest order, and none named that it did not write.
+law writes_say_what_they_wrote:
+  for +a: String
+  for +when: String
+  for +m: String
+  for +facts: List<&2, T.Split>
+  for +change: String
+  for +id: String
+  for +names: List<&2, String>
+  for +ps: List<&2, String>
+  for +prev: String
+  for +carrying: List<&2, String>
+  for +steps: List<&2, Main.Step>
+  for +run: List<&2, String>
+  for +dry: Bool
+  {Bool.and(Main.fields.ok([id], Main.record.said.lines(Main.Writing{a, when, m, True{}}, facts, change, id, names, ps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.amend.said.lines(True{}, False{}, facts, prev, change, id, carrying, steps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps))))) == True{} : Bool}

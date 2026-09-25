@@ -14,6 +14,8 @@ import ./utf8.bend as Utf8
 import ./string_lemmas.bend as S
 import ./blamed_lemmas.bend as B
 import ./bookmark.bend as Bm
+import ./sort_lemmas.bend as SortL
+import ./status_lemmas.bend as StatusL
 
 def rdisc_s(-A: Data, r: Result<&2, &2, String, A>) -> Type:
   match r:
@@ -364,3 +366,170 @@ def carry_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, named: Mayb
       Empty.absurd({Rev.member(Main.ids(fs), id) == True{} : Bool}, none_some(id, e))
     case Some{+s}:
       carried_held(fs, bs, s, Main.resolved.r(fs, bs, s), id, {==}, e)
+
+# What `--fields` says they wrote
+# -------------------------------
+
+def strip_nil(x: String) -> {T.strip_prefix(x, SNil{}) == Some{x} : Maybe<&2, String>}:
+  match x:
+    case SNil{}:
+      {==}
+    case SCon{c, t}:
+      {==}
+
+def str_app_nil(x: String) -> {String.append(x, SNil{}) == x : String}:
+  match x:
+    case SNil{}:
+      {==}
+    case SCon{+c, t}:
+      Equal.cong(String, String, y => SCon{c, y}, String.append(t, SNil{}), t, str_app_nil(t))
+
+# A `revision` line says the revision it names.
+def revs_said(xs: List<&2, String>) -> {Main.fields.revisions(Main.said.lines("revision ", SNil{}, xs)) == xs : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(Maybe<&2, String>, T.strip_prefix(String.append(x, SNil{}), SNil{}), Some{String.append(x, SNil{})}, strip_nil(String.append(x, SNil{}))) : {Main.fields.revision(_, Main.fields.revisions(Main.said.lines("revision ", SNil{}, rest))) == x <> rest : List<&2, String>}
+      %Equal.sym(String, String.append(x, SNil{}), x, str_app_nil(x)) : {_ <> Main.fields.revisions(Main.said.lines("revision ", SNil{}, rest)) == x <> rest : List<&2, String>}
+      Equal.cong(List<&2, String>, List<&2, String>, l => x <> l, Main.fields.revisions(Main.said.lines("revision ", SNil{}, rest)), rest, revs_said(rest))
+
+# A `name` line names no revision.
+def names_said(ys: List<&2, String>) -> {Main.fields.revisions(Main.said.lines("name ", SNil{}, ys)) == Nil{} : List<&2, String>}:
+  match ys:
+    case Nil{}:
+      {==}
+    case y <> rest:
+      names_said(rest)
+
+def revision_app(r: Maybe<&2, String>, +a: List<&2, String>, +b: List<&2, String>) -> {Main.fields.revision(r, List.append(&2, String, a, b)) == List.append(&2, String, Main.fields.revision(r, a), b) : List<&2, String>}:
+  match r:
+    case Some{x}:
+      {==}
+    case None{}:
+      {==}
+
+def revs_app(xs: List<&2, String>, +ys: List<&2, String>) -> {Main.fields.revisions(List.append(&2, String, xs, ys)) == List.append(&2, String, Main.fields.revisions(xs), Main.fields.revisions(ys)) : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +l <> +rest:
+      %Equal.sym(List<&2, String>, Main.fields.revisions(List.append(&2, String, rest, ys)), List.append(&2, String, Main.fields.revisions(rest), Main.fields.revisions(ys)), revs_app(rest, ys)) : {Main.fields.revision(T.strip_prefix(l, "revision "), _) == List.append(&2, String, Main.fields.revision(T.strip_prefix(l, "revision "), Main.fields.revisions(rest)), Main.fields.revisions(ys)) : List<&2, String>}
+      revision_app(T.strip_prefix(l, "revision "), Main.fields.revisions(rest), Main.fields.revisions(ys))
+
+def mem_head(+f: String, +rest: List<&2, String>) -> {Rev.member(f <> rest, f) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(f, f), True{}, S.eq_refl(f)) : {Bool.or(_, Rev.member(rest, f)) == True{} : Bool}
+  {==}
+
+# Every list names each of its own members.
+def held_refl(xs: List<&2, String>) -> {Main.all_held(xs, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      B.and_tt(Rev.member(x <> rest, x), Main.all_held(x <> rest, rest), mem_head(x, rest), StatusL.ah_weak(x, rest, rest, held_refl(rest)))
+
+def dist_held(+xs: List<&2, String>) -> {Main.all_held(xs, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))) == True{} : Bool}:
+  StatusL.ah_distinct(xs, List.sort(~String, ~(a => b => String.is_le(a, b)), xs), StatusL.ah_sort(~(a => b => String.is_le(a, b)), xs, xs, held_refl(xs)))
+
+def dh_keep(e: Bool, +a: String, +b: String, +rest: List<&2, String>, ee: {String.eq(a, b) == e : Bool}, ih: {List.head(&2, String, Main.distinct(b <> rest)) == Some{b} : Maybe<&2, String>}) -> {List.head(&2, String, Main.distinct.keep(a, Main.distinct(b <> rest), e)) == Some{a} : Maybe<&2, String>}:
+  match e:
+    case True{}:
+      Equal.trans(Maybe<&2, String>, List.head(&2, String, Main.distinct(b <> rest)), Some{b}, Some{a}, ih,
+        Equal.cong(String, Maybe<&2, String>, x => Some{x}, b, a, Equal.sym(String, a, b, S.eq_true(a, b, ee))))
+    case False{}:
+      {==}
+
+# What `distinct` keeps first is what it was given first.
+def dist_head(ys: List<&2, String>) -> {List.head(&2, String, Main.distinct(ys)) == List.head(&2, String, ys) : Maybe<&2, String>}:
+  match ys:
+    case Nil{}:
+      {==}
+    case a <> Nil{}:
+      {==}
+    case +a <> +b <> +rest:
+      dh_keep(String.eq(a, b), a, b, rest, {==}, dist_head(b <> rest))
+
+def msome_eq(-a: String, -b: String, h: {Some{a} == Some{b} : Maybe<&2, String>}) -> {a == b : String}:
+  Equal.cong(Maybe<&2, String>, String, m => Maybe.default(&2, String, m, a), Some{a}, Some{b}, h)
+
+def mnone(m: Maybe<&2, String>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      Empty
+
+def none_some_m(-b: String, h: {None{} == Some{b} : Maybe<&2, String>}) -> Empty:
+  %h : {mnone(_) : Type}
+  Unit{}
+
+def from_head(ds: List<&2, String>, +a: String, +b: String, hab: {String.is_le(a, b) == True{} : Bool}, ee: {String.eq(a, b) == False{} : Bool}, hh: {List.head(&2, String, ds) == Some{b} : Maybe<&2, String>}, ih: {Main.rising(ds) == True{} : Bool}) -> {Main.rising.from(ds, a) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      Empty.absurd({Main.rising.from(Nil{}, a) == True{} : Bool}, none_some_m(b, hh))
+    case +d <> rest:
+      %Equal.sym(String, d, b, msome_eq(d, b, hh)) : {Bool.and(Bool.and(String.is_le(a, _), Bool.not(String.eq(a, _))), Main.rising.from(rest, d)) == True{} : Bool}
+      B.and_tt(Bool.and(String.is_le(a, b), Bool.not(String.eq(a, b))), Main.rising.from(rest, d), B.and_tt(String.is_le(a, b), Bool.not(String.eq(a, b)), hab, not_false(String.eq(a, b), ee)), ih)
+
+def dr_keep(e: Bool, +a: String, +b: String, +rest: List<&2, String>, ee: {String.eq(a, b) == e : Bool}, hab: {String.is_le(a, b) == True{} : Bool}, ih: {Main.rising(Main.distinct(b <> rest)) == True{} : Bool}) -> {Main.rising(Main.distinct.keep(a, Main.distinct(b <> rest), e)) == True{} : Bool}:
+  match e:
+    case True{}:
+      ih
+    case False{}:
+      from_head(Main.distinct(b <> rest), a, b, hab, ee, dist_head(b <> rest), ih)
+
+# What `distinct` keeps of a sorted list rises: each string once, in order.
+def dist_rising(ys: List<&2, String>, +k: String, h: {SortL.sorted.from(~String, ~(x => x), ys, k) == True{} : Bool}) -> {Main.rising(Main.distinct(ys)) == True{} : Bool}:
+  match ys:
+    case Nil{}:
+      {==}
+    case a <> Nil{}:
+      {==}
+    case +a <> +b <> +rest:
+      +hr = SortL.band_r(String.is_le(k, a), SortL.sorted.from(~String, ~(x => x), b <> rest, a), h)
+      dr_keep(String.eq(a, b), a, b, rest, {==}, SortL.band_l(String.is_le(a, b), SortL.sorted.from(~String, ~(x => x), rest, b), hr), dist_rising(b <> rest, a, hr))
+
+
+def sd_rising(+xs: List<&2, String>) -> {Main.rising(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))) == True{} : Bool}:
+  dist_rising(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), SNil{}, SortL.sort_sorted(~String, ~(x => x), xs))
+
+# What `--fields` says opens with the header, and names the revisions it
+# is handed.
+def ok_of(+written: List<&2, String>, +revs: List<&2, String>, +rest: List<&2, String>, hr: {Main.fields.revisions(rest) == revs : List<&2, String>}, hrise: {Main.rising(revs) == True{} : Bool}, hheld: {Main.all_held(written, revs) == True{} : Bool}) -> {Main.fields.ok(written, Main.WROTE() <> rest) == True{} : Bool}:
+  %Equal.sym(List<&2, String>, Main.fields.revisions(rest), revs, hr) : {Bool.and(String.eq(Main.WROTE(), Main.WROTE()), Bool.and(Main.rising(_), Main.all_held(written, _))) == True{} : Bool}
+  B.and_tt(String.eq(Main.WROTE(), Main.WROTE()), Bool.and(Main.rising(revs), Main.all_held(written, revs)), S.eq_refl(Main.WROTE()), B.and_tt(Main.rising(revs), Main.all_held(written, revs), hrise, hheld))
+
+def record_fields(+id: String, +names: List<&2, String>) -> {Main.fields.ok([id], Main.WROTE() <> ("revision " ++ id) <> Main.said.lines("name ", SNil{}, names)) == True{} : Bool}:
+  ok_of([id], [id], ("revision " ++ id) <> Main.said.lines("name ", SNil{}, names),
+    Equal.trans(List<&2, String>, Main.fields.revisions(("revision " ++ id) <> Main.said.lines("name ", SNil{}, names)), Main.fields.revision(Some{id}, Main.fields.revisions(Main.said.lines("name ", SNil{}, names))), [id],
+      Equal.cong(Maybe<&2, String>, List<&2, String>, r => Main.fields.revision(r, Main.fields.revisions(Main.said.lines("name ", SNil{}, names))), T.strip_prefix(id, SNil{}), Some{id}, strip_nil(id)),
+      Equal.cong(List<&2, String>, List<&2, String>, l => id <> l, Main.fields.revisions(Main.said.lines("name ", SNil{}, names)), Nil{}, names_said(names))),
+    {==}, B.and_tt(Rev.member([id], id), True{}, mem_head(id, Nil{}), {==}))
+
+def revs_fields(+xs: List<&2, String>) -> {Main.fields.ok(xs, Main.WROTE() <> Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)))) == True{} : Bool}:
+  ok_of(xs, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))), revs_said(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))), sd_rising(xs), dist_held(xs))
+
+def abandon_fields(+xs: List<&2, String>, +names: List<&2, String>) -> {Main.fields.ok(xs, Main.WROTE() <> List.append(&2, String, Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))), Main.said.lines("name ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), names))))) == True{} : Bool}:
+  +R = Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)))
+  +N = Main.said.lines("name ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), names)))
+  ok_of(xs, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), List.append(&2, String, R, N),
+    Equal.trans(List<&2, String>, Main.fields.revisions(List.append(&2, String, R, N)), List.append(&2, String, Main.fields.revisions(R), Main.fields.revisions(N)), Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), revs_app(R, N),
+      Equal.trans(List<&2, String>, List.append(&2, String, Main.fields.revisions(R), Main.fields.revisions(N)), List.append(&2, String, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), Nil{}), Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)),
+        Equal.trans(List<&2, String>, List.append(&2, String, Main.fields.revisions(R), Main.fields.revisions(N)), List.append(&2, String, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), Main.fields.revisions(N)), List.append(&2, String, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), Nil{}),
+          Equal.cong(List<&2, String>, List<&2, String>, l => List.append(&2, String, l, Main.fields.revisions(N)), Main.fields.revisions(R), Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), revs_said(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)))),
+          Equal.cong(List<&2, String>, List<&2, String>, l => List.append(&2, String, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), l), Main.fields.revisions(N), Nil{}, names_said(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), names))))),
+        SortL.lapp_nil(String, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))))),
+    sd_rising(xs), dist_held(xs))
+
+# Asked for `--fields`, what the writing commands say of what they wrote
+# is decision 0074's.
+def writes_fields(+a: String, +when: String, +m: String, +facts: List<&2, T.Split>, +change: String, +id: String, +names: List<&2, String>, +ps: List<&2, String>, +prev: String, +carrying: List<&2, String>, +steps: List<&2, Main.Step>, +run: List<&2, String>, +dry: Bool) -> {Bool.and(Main.fields.ok([id], Main.record.said.lines(Main.Writing{a, when, m, True{}}, facts, change, id, names, ps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.amend.said.lines(True{}, False{}, facts, prev, change, id, carrying, steps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps))))) == True{} : Bool}:
+  B.and_tt(Main.fields.ok([id], Main.record.said.lines(Main.Writing{a, when, m, True{}}, facts, change, id, names, ps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.amend.said.lines(True{}, False{}, facts, prev, change, id, carrying, steps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps)))),
+    record_fields(id, names),
+    B.and_tt(Main.fields.ok(id <> Main.carried.ids(steps), Main.amend.said.lines(True{}, False{}, facts, prev, change, id, carrying, steps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps))),
+      revs_fields(id <> Main.carried.ids(steps)),
+      B.and_tt(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps)),
+        abandon_fields(id <> Main.carried.ids(steps), names),
+        revs_fields(Main.carried.ids(steps)))))
+
