@@ -354,3 +354,122 @@ def fresh_named(cs: List<&2, T.Split>, +cc: List<&2, T.Split>, +l: String) -> {E
       {==}
     case T.Split{+x, +d} <> +rest:
       fresh_step(Bool.not(Arrange.has(Set.from_list(Export.split.labels(cc)), x)), x, d, rest, cc, l, {==}, fresh_named(rest, cc, l))
+
+# What an update gives up
+# -----------------------
+
+def not_has(+xs: List<&2, String>, +k: String, h: {Bool.not(Arrange.has(Set.from_list(xs), k)) == True{} : Bool}) -> {Bool.not(Rev.member(xs, k)) == True{} : Bool}:
+  %CatchL.has_member(xs, k) : {Bool.not(_) == True{} : Bool}
+  h
+
+def not_or_r(a: Bool, -b: Bool, h: {Bool.not(Bool.or(a, b)) == True{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({Bool.not(b) == True{} : Bool}, Comp.false_true(h))
+    case False{}:
+      h
+
+def not_or_l(a: Bool, -b: Bool, h: {Bool.not(Bool.or(a, b)) == True{} : Bool}) -> {Bool.not(a) == True{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(h))
+    case False{}:
+      {==}
+
+# A path kept by one of these filters, at a file whose test `ok` passed.
+def gone_step(c: Bool, +p: String, +rest: List<&2, String>, +w: String, +ok: Bool, +later: Bool, ec: {c == True{} : Bool} -> {ok == True{} : Bool}, h: {Rev.member(Tree.keep(~String, c, p, rest), w) == True{} : Bool}, ih: {Rev.member(rest, w) == True{} : Bool} -> {later == True{} : Bool}) -> {Bool.or(Bool.and(String.eq(p, w), ok), later) == True{} : Bool}:
+  match c:
+    case True{}:
+      AL.or_cases({Bool.or(Bool.and(String.eq(p, w), ok), later) == True{} : Bool}, String.eq(p, w), Rev.member(rest, w), h,
+        l => AL.or_left(Bool.and(String.eq(p, w), ok), later, ExportL.and_tt(String.eq(p, w), ok, l, ec({==}))),
+        r => AL.or_right(Bool.and(String.eq(p, w), ok), later, ih(r)))
+    case False{}:
+      AL.or_right(Bool.and(String.eq(p, w), ok), later, ih(h))
+
+def revs_gone(ss: List<&2, T.Split>, +names: List<&2, String>, +w: String, h: {Rev.member(Export.revs.gone(ss, Set.from_list(names)), w) == True{} : Bool}) -> {Export.split.gone(ss, w, names) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(h))
+    case T.Split{+p, +d} <> +rest:
+      gone_step(Bool.not(Arrange.has(Set.from_list(names), d)), p, Export.revs.gone(rest, Set.from_list(names)), w, Bool.not(Rev.member(names, d)), Export.split.gone(rest, w, names),
+        e => not_has(names, d, e), h, x => revs_gone(rest, names, w, x))
+
+def pays_gone(ss: List<&2, T.Split>, +fset: Set(), +names: List<&2, String>, +w: String, h: {Rev.member(Export.pays.gone(ss, fset, Set.from_list(names)), w) == True{} : Bool}) -> {Export.split.gone(ss, w, names) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(h))
+    case T.Split{+p, +d} <> +rest:
+      gone_step(Bool.not(Bool.or(Arrange.has(fset, d), Arrange.has(Set.from_list(names), d))), p, Export.pays.gone(rest, fset, Set.from_list(names)), w, Bool.not(Rev.member(names, d)), Export.split.gone(rest, w, names),
+        e => not_has(names, d, not_or_r(Arrange.has(fset, d), Arrange.has(Set.from_list(names), d), e)), h, x => pays_gone(rest, fset, names, w, x))
+
+def bodies_gone(bs: List<&2, Prune.Body>, +fset: Set(), +names: List<&2, String>, +content: Set(), +w: String, h: {Rev.member(Export.bodies.gone(bs, fset, Set.from_list(names), content), w) == True{} : Bool}) -> {Export.body.gone(bs, w, names) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(h))
+    case Prune.Body{+p, +id, +ok, +f} <> +rest:
+      gone_step(Bool.not(Bool.or(Arrange.has(fset, id), Export.body.kept(id, f, Set.from_list(names), content))), p, Export.bodies.gone(rest, fset, Set.from_list(names), content), w, Bool.not(Rev.member(names, id)), Export.body.gone(rest, w, names),
+        e => not_has(names, id, not_or_l(Arrange.has(Set.from_list(names), id), Export.stands.in(f, content), not_or_r(Arrange.has(fset, id), Export.body.kept(id, f, Set.from_list(names), content), e))), h, x => bodies_gone(rest, fset, names, content, w, x))
+
+def lines_states(rs: List<&2, Receive.Ruled>, +line: String) -> {Rev.member(Export.rules.lines(rs), line) == Export.rule.states(rs, line) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case Receive.Ruled{f, +x, l} <> +rest:
+      %Equal.sym(Bool, Rev.member(Export.rules.lines(rest), line), Export.rule.states(rest, line), lines_states(rest, line)) : {Bool.or(String.eq(x, line), _) == Bool.or(String.eq(x, line), Export.rule.states(rest, line)) : Bool}
+      {==}
+
+def retired_gone(rs: List<&2, Receive.Ruled>, +shared: List<&2, Receive.Ruled>, +w: String, h: {Rev.member(Export.rules.retired(rs, Set.from_list(Export.rules.lines(shared))), w) == True{} : Bool}) -> {Export.rule.gone(rs, w, shared) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(h))
+    case Receive.Ruled{+f, +line, +l} <> +rest:
+      gone_step(Bool.not(Arrange.has(Set.from_list(Export.rules.lines(shared)), line)), "skipped/" ++ f, Export.rules.retired(rest, Set.from_list(Export.rules.lines(shared))), w, Bool.not(Export.rule.states(shared, line)), Export.rule.gone(rest, w, shared),
+        e => (%lines_states(shared, line) : {Bool.not(_) == True{} : Bool}
+          not_has(Export.rules.lines(shared), line, e)), h, x => retired_gone(rest, shared, w, x))
+
+def marks_named(bs: List<&2, Bm.Bookmark>, +n: String) -> {Rev.member(Export.marks.names(bs), n) == Export.mark.named(bs, n) : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Bm.Bookmark{+x, t, pv} <> +rest:
+      %Equal.sym(Bool, Rev.member(Export.marks.names(rest), n), Export.mark.named(rest, n), marks_named(rest, n)) : {Bool.or(String.eq(x, n), _) == Bool.or(String.eq(x, n), Export.mark.named(rest, n)) : Bool}
+      {==}
+
+def names_step(c: Bool, +n: String, +rest: List<&2, String>, +w: String, +ok: Bool, +later: Bool, ec: {c == True{} : Bool} -> {ok == True{} : Bool}, h: {Rev.member(Export.names.files(Tree.keep(~String, c, n, rest)), w) == True{} : Bool}, ih: {Rev.member(Export.names.files(rest), w) == True{} : Bool} -> {later == True{} : Bool}) -> {Bool.or(Bool.and(String.eq("names/" ++ n ++ ".txt", w), ok), later) == True{} : Bool}:
+  match c:
+    case True{}:
+      AL.or_cases({Bool.or(Bool.and(String.eq("names/" ++ n ++ ".txt", w), ok), later) == True{} : Bool}, String.eq("names/" ++ n ++ ".txt", w), Rev.member(Export.names.files(rest), w), h,
+        l => AL.or_left(Bool.and(String.eq("names/" ++ n ++ ".txt", w), ok), later, ExportL.and_tt(String.eq("names/" ++ n ++ ".txt", w), ok, l, ec({==}))),
+        r => AL.or_right(Bool.and(String.eq("names/" ++ n ++ ".txt", w), ok), later, ih(r)))
+    case False{}:
+      AL.or_right(Bool.and(String.eq("names/" ++ n ++ ".txt", w), ok), later, ih(h))
+
+def names_gone(bs: List<&2, Bm.Bookmark>, +kept: List<&2, Bm.Bookmark>, +w: String, h: {Rev.member(Export.names.files(Export.names.retired(bs, Set.from_list(Export.marks.names(kept)))), w) == True{} : Bool}) -> {Export.name.gone(bs, w, kept) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(h))
+    case Bm.Bookmark{+n, +t, +pv} <> +rest:
+      names_step(Bool.not(Arrange.has(Set.from_list(Export.marks.names(kept)), n)), n, Export.names.retired(rest, Set.from_list(Export.marks.names(kept))), w, Bool.not(Export.mark.named(kept, n)), Export.name.gone(rest, w, kept),
+        e => (%marks_named(kept, n) : {Bool.not(_) == True{} : Bool}
+          not_has(Export.marks.names(kept), n, e)), h, x => names_gone(rest, kept, w, x))
+
+# Everything an update gives up — the store files it withdraws, the rule
+# files and the bookmark files it retires — is something the set no longer
+# names.
+def given_all(p: Export.Plan, +here: List<&2, Prune.Body>, +cst: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +w: String, h: {Rev.member(Export.onto.all(Export.onto.of(p, here, cst, marks)), w) == True{} : Bool}) -> {Export.given.up(p, cst, marks, w) == True{} : Bool}:
+  match p:
+    case Export.Plan{+r, +d, +y, +f, +paths, +rs, +wh, +n, +res}:
+      +pl : Export.Plan = Export.Plan{r, d, y, f, paths, rs, wh, n, res}
+      AL.or_cases({Bool.or(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))))) == True{} : Bool}, Rev.member(List.append(&2, String, Export.revs.gone(Export.stored.revs(cst), Set.from_list(Main.ids(r))), List.append(&2, String, Export.bodies.gone(Receive.stored.bodies(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Set.from_list(List.concat(&2, String, [Export.doc.ids(d), Export.doc.ids(f), Export.split.digests(y)]))), List.append(&2, String, Export.pays.gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(Export.split.digests(y))), Nil{}))), w), Rev.member(List.append(&2, String, Export.rules.retired(Receive.ruled(Receive.stored.rules(cst)), Set.from_list(Export.rules.lines(rs))), List.append(&2, String, Export.names.files(Export.names.retired(marks, Set.from_list(Export.marks.names(Export.travel.names(n))))), Nil{})), w), GL.append_mem(List.append(&2, String, Export.revs.gone(Export.stored.revs(cst), Set.from_list(Main.ids(r))), List.append(&2, String, Export.bodies.gone(Receive.stored.bodies(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Set.from_list(List.concat(&2, String, [Export.doc.ids(d), Export.doc.ids(f), Export.split.digests(y)]))), List.append(&2, String, Export.pays.gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(Export.split.digests(y))), Nil{}))), List.append(&2, String, Export.rules.retired(Receive.ruled(Receive.stored.rules(cst)), Set.from_list(Export.rules.lines(rs))), List.append(&2, String, Export.names.files(Export.names.retired(marks, Set.from_list(Export.marks.names(Export.travel.names(n))))), Nil{})), w, h),
+        x => AL.or_cases({Bool.or(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))))) == True{} : Bool}, Rev.member(Export.revs.gone(Export.stored.revs(cst), Set.from_list(Main.ids(r))), w), Rev.member(List.append(&2, String, Export.bodies.gone(Receive.stored.bodies(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Set.from_list(List.concat(&2, String, [Export.doc.ids(d), Export.doc.ids(f), Export.split.digests(y)]))), List.append(&2, String, Export.pays.gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(Export.split.digests(y))), Nil{})), w), GL.append_mem(Export.revs.gone(Export.stored.revs(cst), Set.from_list(Main.ids(r))), List.append(&2, String, Export.bodies.gone(Receive.stored.bodies(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Set.from_list(List.concat(&2, String, [Export.doc.ids(d), Export.doc.ids(f), Export.split.digests(y)]))), List.append(&2, String, Export.pays.gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(Export.split.digests(y))), Nil{})), w, x),
+          a => AL.or_left(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n))))), revs_gone(Export.stored.revs(cst), Main.ids(r), w, a)),
+          x2 => AL.or_cases({Bool.or(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))))) == True{} : Bool}, Rev.member(Export.bodies.gone(Receive.stored.bodies(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Set.from_list(List.concat(&2, String, [Export.doc.ids(d), Export.doc.ids(f), Export.split.digests(y)]))), w), Rev.member(List.append(&2, String, Export.pays.gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(Export.split.digests(y))), Nil{}), w), GL.append_mem(Export.bodies.gone(Receive.stored.bodies(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Set.from_list(List.concat(&2, String, [Export.doc.ids(d), Export.doc.ids(f), Export.split.digests(y)]))), List.append(&2, String, Export.pays.gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(Export.split.digests(y))), Nil{}), w, x2),
+            b => AL.or_right(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n))))), AL.or_left(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))), bodies_gone(Receive.stored.bodies(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f)), Set.from_list(List.concat(&2, String, [Export.doc.ids(d), Export.doc.ids(f), Export.split.digests(y)])), w, b))),
+            x3 => AL.or_cases({Bool.or(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))))) == True{} : Bool}, Rev.member(Export.pays.gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(Export.split.digests(y))), w), Rev.member(Nil{}, w), GL.append_mem(Export.pays.gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Set.from_list(Export.split.digests(y))), Nil{}, w, x3),
+              c => AL.or_right(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n))))), AL.or_right(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))), AL.or_left(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n))), pays_gone(Receive.stored.payloads(cst), Set.from_list(Export.onto.forgotten.of(pl, here, cst)), Export.split.digests(y), w, c)))),
+              z => Empty.absurd({Bool.or(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))))) == True{} : Bool}, Comp.false_true(z))))),
+        x => AL.or_cases({Bool.or(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))))) == True{} : Bool}, Rev.member(Export.rules.retired(Receive.ruled(Receive.stored.rules(cst)), Set.from_list(Export.rules.lines(rs))), w), Rev.member(List.append(&2, String, Export.names.files(Export.names.retired(marks, Set.from_list(Export.marks.names(Export.travel.names(n))))), Nil{}), w), GL.append_mem(Export.rules.retired(Receive.ruled(Receive.stored.rules(cst)), Set.from_list(Export.rules.lines(rs))), List.append(&2, String, Export.names.files(Export.names.retired(marks, Set.from_list(Export.marks.names(Export.travel.names(n))))), Nil{}), w, x),
+          rr => AL.or_right(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n))))), AL.or_right(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))), AL.or_right(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n))), AL.or_left(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)), retired_gone(Receive.ruled(Receive.stored.rules(cst)), rs, w, rr))))),
+          x2 => AL.or_cases({Bool.or(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))))) == True{} : Bool}, Rev.member(Export.names.files(Export.names.retired(marks, Set.from_list(Export.marks.names(Export.travel.names(n))))), w), Rev.member(Nil{}, w), GL.append_mem(Export.names.files(Export.names.retired(marks, Set.from_list(Export.marks.names(Export.travel.names(n))))), Nil{}, w, x2),
+            nn => AL.or_right(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n))))), AL.or_right(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))), AL.or_right(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n))), AL.or_right(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)), names_gone(marks, Export.travel.names(n), w, nn))))),
+            z => Empty.absurd({Bool.or(Export.split.gone(Export.stored.revs(cst), w, Main.ids(r)), Bool.or(Export.body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, Export.doc.ids(d), Export.doc.ids(f))), Bool.or(Export.split.gone(Receive.stored.payloads(cst), w, Export.split.digests(y)), Bool.or(Export.rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), Export.name.gone(marks, w, Export.travel.names(n)))))) == True{} : Bool}, Comp.false_true(z)))))

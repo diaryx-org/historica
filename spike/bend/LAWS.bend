@@ -2838,6 +2838,21 @@ law export_update_leaves_the_copy_the_whole_set:
   for h: {Rev.member(Export.set.named(p), d) == True{} : Bool}
   {Bool.or(Export.copy.has(cst, d), Bool.or(Export.writes.has(Export.onto.writes(p, Export.onto.of(p, here, cst, marks)), d), Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)))) == True{} : Bool}
 
+# And it gives up only what the set no longer names (decisions 0052, 0051
+# and 0062): every file an update withdraws from a copy, or retires, is a
+# revision file of a revision the target's history does not hold, a
+# document or payload file of one the set does not carry, a rule file
+# stating a rule the origin does not share, or a bookmark file of a
+# bookmark that does not travel.
+law export_update_gives_up_only_what_the_set_no_longer_names:
+  for +p: Export.Plan
+  for +here: List<&2, Prune.Body>
+  for +cst: Prune.Stored
+  for +marks: List<&2, Bm.Bookmark>
+  for +w: String
+  for h: {Rev.member(Export.onto.all(Export.onto.of(p, here, cst, marks)), w) == True{} : Bool}
+  {Export.given.up(p, cst, marks, w) == True{} : Bool}
+
 # Bringing a copy up to date carries into it the files of `claims/` it
 # lacks, and no others (decisions 0053 and 0054): a file travels exactly
 # where the origin has it and the copy has none of that name, so what the
