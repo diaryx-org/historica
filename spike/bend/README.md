@@ -294,7 +294,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `forget.bend` | `forget`: its arguments; the documents that quote a span — the edit that wrote each line, every delete of it, every resolution that copied it, followed through the walk — and the stand-in written for each; the originals found by their bytes and destroyed, and their copies in `cache/` with them; and every message and refusal | `store::forget`, `cli`'s `forget`, `Store::clear_cache` |
 | `forget_lemmas.bend` | what `forget` writes keeps its original's shape and destroys only text, and a replay through it reads the forgotten lines as forgotten and every other line as it was; what it rewrites is the file's own documents, one payload for a file of bytes, and the versions it counts are the others; what it destroys is only what it forgets, in `operations/` and in `cache/`; and it reads its words as their plain reading says | `cli/tests/forget.rs`, `cli/tests/cache.rs` |
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `names`, `diff`, `blame`, `status`, `record` — `record --merge` included — `amend`, `abandon`, `carry` and `name` over the store it finds, reading what stands in for a forgotten document wherever it reads one, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and six claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | two hundred and eight claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -341,7 +341,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `logargs_lemmas.bend` | `log_reads_its_words`: `log` reads its arguments as their plain reading says — the word after a flag that takes a value is its value, the last counting, `--limit`, `--since` and `--until` read as a count and bounds, `--fields` asked for if it is there, and the other word the target | `log`'s arguments |
 | `check_lemmas.bend` | `check_pairs_each_payload`: `check` reports each payload with the digest asked for it — one per payload in the order found, none taken by an operation document; `check_walks_causally`: the order it walks a merged file's events in places each after every event its author had seen; `check_finds_nothing_in_a_new_store`: what `check` gathers from the store `init` makes — the header under its note, `skipped/` holding only its note — it finds nothing wrong with | `check` |
 | `skip_lemmas.bend` | `skip_path_rule_reads_back`, `skip_name_rule_reads_back`: the file `skip` writes for a path or a name it accepts is read back by the reader of `skipped/` as exactly the rule meant, private or not — a line the reader splits, trims and keys as `Skipped::rule_in` does; `skip_path_rule_skips_under_its_path`: that rule skips the file, or the directory and a file in it, and nothing whose path does not start with the one named; `skip_lists_each_rule_once`: the listing names every rule the files state and none twice; `skip_writes_what_is_new`: what `skip` writes is no rule the store states and none twice, and every rule asked is written or already there; `skip_rules_equal_only_when_equal`, `skip_rule_equals_itself`: rule equality is equality, so "held" is membership | `cli::skip`, `working::Skipped` |
-| `argv_lemmas.bend` | `argv_reads_its_words`: `-C <dir>` is read as often as it is given, the last counting, and the command word and every word after it — a `-C` among them — are the command's, as written | `cli::run` |
+| `argv_lemmas.bend` | `argv_reads_its_words`: `-C <dir>` is read as often as it is given, the last counting, and the command word and every word after it — a `-C` among them — are the command's, as written; `argv_reads_the_version`, `argv_reads_help`: `-V` and `--version` read as the version, and `help`, `-h` and `--help` as the usage, whatever `-C`s come before them and whatever follows | `cli::run` |
 | `shell_lemmas.bend` | `dispatch_runs_no_path`: the program a word is dispatched to holds no `/`, so it is looked up on `PATH` rather than run from where a path would put it | decision 0072 |
 | `opening_lemmas.bend` | `header_opens_under_a_note`: a store's header opens whatever its note says, once a blank line sets the note apart — the one `init` writes among them | `Store::open`, decision 0069 |
 | `identity_lemmas.bend` | `identity_reads_back`: the file `identity` writes reads back as its author for work in any directory, wherever that author is one a revision can hold | `identity` |
@@ -1595,7 +1595,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-A hundred and ninety-seven mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and ninety-nine mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1728,8 +1728,9 @@ rendering breaks: a run nothing met labelled, and a region meeting at a
 file's end left uncounted; and four merge breaks: the current heads nobody
 named left out, a head joined by its spelling rather than the revision it
 names, text nobody recorded written over, and a payload laid over work
-nobody recorded; and one command-line
-break: `-C` counting the first directory rather than the last; and one
+nobody recorded; and three command-line
+breaks: `-C` counting the first directory rather than the last, `-V`
+not read as the version, and `-h` not read as help; and one
 dispatch break: any word looked up on `PATH`; and one header break: a note
 under the format line read as a layout; and one identity break: the
 default author forgotten; and one `check` break: a new store's note read

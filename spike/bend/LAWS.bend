@@ -1230,6 +1230,23 @@ law argv_reads_its_words:
   for e: {Argv.lead.of(w) == Argv.Lead.Word{} : Argv.Lead}
   {Argv.read(Argv.spelled(ds, w, rest)) == Argv.Asked.Command{Argv.last(ds, None{}), w, rest} : Argv.Asked}
 
+# `-V` and `--version` read as the version asked for, and `help`, `-h` and
+# `--help` as the usage, wherever the `-C`s before them point and whatever
+# follows them.
+law argv_reads_the_version:
+  for ds: List<&2, String>
+  for +v: String
+  for +rest: List<&2, String>
+  for h: {Bool.or(String.eq(v, "-V"), String.eq(v, "--version")) == True{} : Bool}
+  {Argv.read(Argv.spelled(ds, v, rest)) == Argv.Asked.Version{} : Argv.Asked}
+
+law argv_reads_help:
+  for ds: List<&2, String>
+  for +v: String
+  for +rest: List<&2, String>
+  for h: {Bool.or(String.eq(v, "help"), Bool.or(String.eq(v, "-h"), String.eq(v, "--help"))) == True{} : Bool}
+  {Argv.read(Argv.spelled(ds, v, rest)) == Argv.Asked.Usage{} : Argv.Asked}
+
 # Decision 0072: the program a word no command here has is dispatched to
 # holds no `/`, so it is looked up on `PATH` and never run from where a
 # path would put it.
