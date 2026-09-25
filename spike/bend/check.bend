@@ -657,7 +657,7 @@ def is_forgotten(+text: String) -> Bool:
   forgotten.lines(Folder.lines.trimmed(String.split(text, '\n')))
 
 def crlf() -> String:
-  "carriage returns change a revision's identity; save this file with LF endings"
+  "a carriage return in the format's own line changes this document's identity; delete it — a `-` or `+` line may hold one, because that is content"
 
 # `ForgottenPayload::parse`: `forgets` and a digest, `length` and a count,
 # and nothing else.

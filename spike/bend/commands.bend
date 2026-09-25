@@ -94,6 +94,53 @@ def fulls(+root: String, ds: List<&2, Store.Doc>) -> List<&2, Full>:
     case Store.Doc{+path, +id, size, +text} <> rest:
       push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full(id, Rev.parse(text)), None{}), fulls(root, rest))
 
+# A revision opening accepts and its whole reading refuses is in the
+# graph, as the Rust tool's store holds it (decision 0061), carrying why
+# where its facts would be: every command that asks what it did is refused
+# in the whole reading's words, naming the file (`unread`). `fulls` keeps
+# only what reads whole (`LAWS.revisions_read_are_their_documents`); the
+# commands open the store with `opened.fulls`, which is that and these.
+def full.unread(+id: String, +why: String, r: Maybe<&2, Rev.Rev>) -> Maybe<&2, Full>:
+  match r:
+    case None{}:
+      None{}
+    case Some{Rev.Rev{change, parents, supersedes, author, when, revised_by, revised, facts, message}}:
+      Some{Full{id, change, parents, supersedes, author, when, revised_by, revised, [Rev.Header{SNil{}, why}], message}}
+
+def full.opened(+id: String, +path: String, +text: String, parsed: Result<&2, &2, String, Rev.Rev>) -> Maybe<&2, Full>:
+  match parsed:
+    case Done{r}:
+      full(id, Done{r})
+    case Fail{e}:
+      full.unread(id, path ++ ": " ++ e, Rev.opening.read(text))
+
+def opened.fulls(+root: String, ds: List<&2, Store.Doc>) -> List<&2, Full>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case Store.Doc{+path, +id, size, +text} <> rest:
+      push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full.opened(id, path, text, Rev.parse(text)), None{}), opened.fulls(root, rest))
+
+def unread.facts(hs: List<&2, Rev.Header>) -> Maybe<&2, String>:
+  match hs:
+    case Rev.Header{+k, +v} <> Nil{}:
+      Bool.pick(Maybe<&2, String>, String.is_empty(k), Some{v}, None{})
+    case _:
+      None{}
+
+# Why a revision's document does not read whole, where it does not.
+def unread(f: Full) -> Maybe<&2, String>:
+  match f:
+    case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
+      unread.facts(facts)
+
+def unread.first(fs: List<&2, Full>) -> Maybe<&2, String>:
+  match fs:
+    case Nil{}:
+      None{}
+    case f <> rest:
+      Maybe.or(&2, String, unread(f), unread.first(rest))
+
 def id_of(f: Full) -> String:
   match f:
     case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
@@ -344,12 +391,14 @@ def summary_line(+m: String) -> String:
   +first = first_line.of(String.split(m, '\n'))
   Bool.pick(String, String.is_empty(first), SNil{}, "\n      " ++ first)
 
+# A head whose document does not read whole is listed by what opening read
+# of it: its digest and its change.
 def describe(+id: String, names: String, found: Maybe<&2, Full>) -> String:
   match found:
     case None{}:
       "\n  " ++ String.take(id, 12n) ++ names
-    case Some{Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}}:
-      "\n  " ++ String.take(id, 12n) ++ "  " ++ change ++ names ++ "\n      " ++ author ++ "  " ++ when ++ summary_line(message)
+    case Some{Full{i, +change, parents, supersedes, author, when, revised_by, revised, +facts, message}}:
+      "\n  " ++ String.take(id, 12n) ++ "  " ++ change ++ names ++ Bool.pick(String, Maybe.is_some(&2, String, unread.facts(facts)), SNil{}, "\n      " ++ author ++ "  " ++ when ++ summary_line(message))
 
 def described(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, heads: List<&2, String>) -> String:
   match heads:
@@ -891,8 +940,33 @@ def tree.of.r(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> R
 def tree.r(+fs: List<&2, Full>, +id: String) -> Result<&2, &2, Refused, Tree.Tree()>:
   tree.of.r(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
 
+# Where a command asks what the revisions behind `ids` did: the first of
+# them, by digest, whose document does not read whole stops it
+# (`MaterialiseError::UnreadableOperations`).
+def by_id(+fs: List<&2, Full>) -> List<&2, Full>:
+  List.sort(~Full, ~(a => b => String.is_le(id_of(a), id_of(b))), fs)
+
+def unread.io(+prefix: String, m: Maybe<&2, String>) -> IO(Unit):
+  match m:
+    case None{}:
+      IO.pure(Unit, Unit{})
+    case Some{e}:
+      die(Unit, 1, prefix ++ e)
+
+def ancestries(+fs: List<&2, Full>, ids: List<&2, String>) -> List<&2, Full>:
+  match ids:
+    case Nil{}:
+      Nil{}
+    case +i <> rest:
+      List.append(&2, Full, ancestry(fs, i), ancestries(fs, rest))
+
+def readable(+fs: List<&2, Full>, +ids: List<&2, String>) -> IO(Unit):
+  unread.io("what the revisions did could not be read: ", unread.first(by_id(ancestries(fs, ids))))
+
 def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
-  refused.io(Tree.Tree(), tree.r(fs, id))
+  do IO<Tree.Tree()>:
+    readable(fs, [id])
+    refused.io(Tree.Tree(), tree.r(fs, id))
 
 def file_in.of.r(+id: String, +path: String, found: List<&2, String>) -> Result<&2, &2, Refused, String>:
   match found:
@@ -1601,6 +1675,7 @@ def log.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: Asked) -> IO(Unit
         sp : Span <- span(fs, bs, target)
         +sp2 : Span = sp
         file : Maybe<&2, String> <- followed(fs, bs, sp2, path)
+        unread.io(SNil{}, unread.first(by_id(span.shown(fs, sp2))))
         print_lines(log.shown.lines(fs, bs, sp2, span.shown(fs, sp2), Filter{author, grep, since, until, file}, fields, limit))
 
 def log(+args: List<&2, String>) -> IO(Unit):
@@ -1610,7 +1685,7 @@ def log(+args: List<&2, String>) -> IO(Unit):
     rs : List<&2, Store.Doc> <- Store.revisions(r)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     a : Asked <- asked.io(asked(args))
-    log.of(fulls(r, rs), bs, a)
+    log.of(opened.fulls(r, rs), bs, a)
 
 # The file set at a revision
 # --------------------------
@@ -1674,7 +1749,7 @@ def files(+target: String) -> IO(Unit):
     root : String <- Store.root()
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
-    +fs : List<&2, Full> = fulls(r, rs)
+    +fs : List<&2, Full> = opened.fulls(r, rs)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     f : Full <- resolved(fs, bs, target)
     t : Tree.Tree() <- tree(fs, id_of(f))
@@ -1786,7 +1861,7 @@ def names() -> IO(Unit):
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
-    names.of(fulls(r, rs), bs)
+    names.of(opened.fulls(r, rs), bs)
 
 # One file's content
 # ------------------
@@ -1857,6 +1932,70 @@ def held(+id: String, +digest: String, doc: Maybe<&2, String>) -> Result<&2, &2,
       Fail{String.take(id, 12n) ++ " names the content document " ++ digest ++ ", which this store does not hold yet"}
     case Some{text}:
       Done{text}
+
+# The document an `edit` names, found by its digest.
+def doc_found(ds: List<&2, Store.Doc>, +id: String) -> Maybe<&2, Store.Doc>:
+  match ds:
+    case Nil{}:
+      None{}
+    case Store.Doc{+path, +i, +size, +text} <> rest:
+      Bool.pick(Maybe<&2, Store.Doc>, String.starts_with(i, id), Some{Store.Doc{path, i, size, text}}, doc_found(rest, id))
+
+def failed.ops(r: Result<&2, &2, String, Ops.Doc>) -> Maybe<&2, String>:
+  match r:
+    case Fail{e}:
+      Some{e}
+    case Done{d}:
+      None{}
+
+def failed.res(r: Result<&2, &2, String, Res.Doc>) -> Maybe<&2, String>:
+  match r:
+    case Fail{e}:
+      Some{e}
+    case Done{d}:
+      None{}
+
+# Why a document an `edit` names does not read, in its own grammar, naming
+# the file as the Rust tool's `StoreError::Unparsable` does.
+def unparsable(+path: String, +text: String) -> Maybe<&2, String>:
+  Maybe.map(&2, String, String, e => path ++ ": " ++ e, Bool.pick(Maybe<&2, String>, Res.is_resolution(text), failed.res(Res.parse(text)), failed.ops(Ops.parse(text))))
+
+def unparsed.first(ds: List<&2, Store.Doc>) -> Maybe<&2, String>:
+  match ds:
+    case Nil{}:
+      None{}
+    case Store.Doc{+path, i, size, +text} <> rest:
+      Maybe.or(&2, String, unparsable(path, text), unparsed.first(rest))
+
+def unparsable.found(found: Maybe<&2, Store.Doc>) -> Maybe<&2, String>:
+  match found:
+    case None{}:
+      None{}
+    case Some{Store.Doc{+path, i, size, +text}}:
+      unparsable(path, text)
+
+def unparsed.named(+ds: List<&2, Store.Doc>, digests: List<&2, String>) -> Maybe<&2, String>:
+  match digests:
+    case Nil{}:
+      None{}
+    case +d <> rest:
+      Maybe.or(&2, String, unparsable.found(doc_found(ds, d)), unparsed.named(ds, rest))
+
+# The documents the nearest statements name, read as the Rust tool reads
+# them for their `result`, file by file in path order: one that does not
+# parse stops the command.
+def readable.docs(+ds: List<&2, Store.Doc>, digests: List<&2, String>) -> IO(Unit):
+  unread.io("what the revisions did could not be read: ", unparsed.named(ds, digests))
+
+# The document an `edit` names, held and readable: one that does not parse
+# stops the reading of what the revisions did, the first time something
+# asks what it says (`MaterialiseError::UnreadableOperations`).
+def held.read(+id: String, +digest: String, found: Maybe<&2, Store.Doc>) -> Result<&2, &2, String, String>:
+  match found:
+    case None{}:
+      held(id, digest, None{})
+    case Some{Store.Doc{+path, i, size, +text}}:
+      Maybe.default(&2, Result<&2, &2, String, String>, Maybe.map(&2, String, Result<&2, &2, String, String>, e => Fail{"what the revisions did could not be read: " ++ e}, unparsable(path, text)), Done{text})
 
 # The file's content at every revision that holds it, oldest first as the
 # trees are, by decision 0032's rule. A revision that says nothing holds
@@ -2114,7 +2253,7 @@ def contents.said(+ds: List<&2, Store.Doc>, +id: String, +file: String, inherite
     case Whole{+d}:
       Some{Result.map(&2, &2, String, String, Rule, t => Known{Ops.from_text(t)}, held(id, d, doc_by_id(ds, d)))}
     case Edited{+d}:
-      Some{edited.doc(ds, id, file, d, inherited, held(id, d, doc_by_id(ds, d)))}
+      Some{edited.doc(ds, id, file, d, inherited, held.read(id, d, doc_found(ds, d)))}
     case Nothing{}:
       inherited
 
@@ -2274,7 +2413,7 @@ def walked.said(+ds: List<&2, Store.Doc>, +digests: List<&2, String>, +id: Strin
     case Whole{+d}:
       walked.whole(text, held(id, d, doc_by_id(ds, d)))
     case Edited{+d}:
-      walked.edited(digests, held(id, d, doc_by_id(ds, d)))
+      walked.edited(digests, held.read(id, d, doc_found(ds, d)))
 
 def walked.rev(+names: List<&2, String>, +digests: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +file: String, f: Full) -> Result<&2, &2, String, Merge.Rev>:
   match f:
@@ -2564,9 +2703,12 @@ def cat(+target: String, +path: String) -> IO(Unit):
     root : String <- Store.root()
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
-    +fs : List<&2, Full> = fulls(r, rs)
+    +fs : List<&2, Full> = opened.fulls(r, rs)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
-    p : Picked <- refused.io(Picked, cat.picked.r(fs, bs, target, path))
+    +bs2 : List<&2, Bm.Bookmark> = bs
+    f : Full <- resolved(fs, bs2, target)
+    readable(fs, [id_of(f)])
+    p : Picked <- refused.io(Picked, cat.picked.r(fs, bs2, target, path))
     cat.fetched(r, fs, p)
 
 # show
@@ -2579,6 +2721,18 @@ def show.doc.r(+id: String, +digest: String, doc: Maybe<&2, String>) -> Result<&
     case Some{text}:
       Done{text}
 
+def unparsable.of(ds: List<&2, Store.Doc>, +d: String) -> Maybe<&2, String>:
+  unparsable.found(doc_found(ds, d))
+
+# `show` prints a document it has read, so one that does not parse is
+# refused, naming the file.
+def show.read(bad: Maybe<&2, String>, r: Result<&2, &2, Refused, String>) -> Result<&2, &2, Refused, String>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+text}:
+      Maybe.default(&2, Result<&2, &2, Refused, String>, Maybe.map(&2, String, Result<&2, &2, Refused, String>, e => Fail{Refused{1, e}}, bad), Done{text})
+
 def show.said.r(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Said) -> Result<&2, &2, Refused, String>:
   match s:
     case Nothing{}:
@@ -2586,7 +2740,7 @@ def show.said.r(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Said) -
     case Whole{+d}:
       show.doc.r(id, d, doc_by_id(ds, d))
     case Edited{+d}:
-      show.doc.r(id, d, doc_by_id(ds, d))
+      show.read(unparsable.of(ds, d), show.doc.r(id, d, doc_by_id(ds, d)))
 
 # The file `show <target> <path>` names at the target.
 def show.file.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +p: String) -> Result<&2, &2, Refused, String>:
@@ -2618,26 +2772,56 @@ def show.write(r: Result<&2, &2, Refused, String>) -> IO(Unit):
     text : String <- refused.io(String, r)
     IO.write(text)
 
+# An `edit` names an operation document, and a payload that happens to have
+# its digest is not one.
+def ops.only(ds: List<&2, Store.Doc>) -> List<&2, Store.Doc>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case Store.Doc{+path, +i, +size, +text} <> rest:
+      +more = ops.only(rest)
+      Bool.pick(List<&2, Store.Doc>, String.ends_with(path, ".ops.txt"), Store.Doc{path, i, size, text} <> more, more)
+
+def show.docs(s: Said, +ds: List<&2, Store.Doc>) -> List<&2, Store.Doc>:
+  match s:
+    case Edited{d}:
+      ops.only(ds)
+    case _:
+      ds
+
+# A revision that said nothing about the file asked after is said so in the
+# words the person used for it.
+def show.nothing(+id: String, +p: String, s: Said) -> IO(Unit):
+  match s:
+    case Nothing{}:
+      die(Unit, 1, String.take(id, 12n) ++ " said nothing about " ++ p ++ "; `show " ++ String.take(id, 12n) ++ "` lists what it did")
+    case _:
+      IO.pure(Unit, Unit{})
+
 def show.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +root: String, +f: Full, path: Maybe<&2, String>) -> IO(Unit):
   match path:
     case None{}:
       do IO<Unit>:
+        unread.io(SNil{}, unread(f))
         ds : List<&2, Store.Doc> <- Store.fetch(root, [id_of(f)])
         show.write(show.doc.r(id_of(f), id_of(f), doc_by_id(ds, id_of(f))))
     case Some{+p}:
       do IO<Unit>:
+        unread.io(SNil{}, unread(f))
+        readable(fs, [id_of(f)])
         file : String <- refused.io(String, show.file.r(fs, bs, id_of(f), p))
         +file2 : String = file
         +s : Said = said(facts_of(f), file2)
+        show.nothing(id_of(f), p, s)
         ds : List<&2, Store.Doc> <- Store.fetch(root, said_digests(s))
-        show.write(show.said.r(id_of(f), file2, ds, s))
+        show.write(show.said.r(id_of(f), file2, show.docs(s, ds), s))
 
 def show(+target: String, path: Maybe<&2, String>) -> IO(Unit):
   do IO<Unit>:
     root : String <- Store.root()
     +r : String = root
     rs : List<&2, Store.Doc> <- Store.revisions(r)
-    +fs : List<&2, Full> = fulls(r, rs)
+    +fs : List<&2, Full> = opened.fulls(r, rs)
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     +bs2 : List<&2, Bm.Bookmark> = bs
     f : Full <- resolved(fs, bs2, target)
@@ -4755,9 +4939,11 @@ def diff.folder(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, 
     +hs : List<&2, Here> = heres(t2, found, lim)
     +os : Map<&2, T.Split> = origins.map(chain(fs, l), Map.new(&2, T.Split))
     eds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), edits_of(os, hs))))
+    +eds2 : List<&2, Store.Doc> = eds
+    readable.docs(eds2, edits_of(os, hs))
     +paths : List<&2, String> = regular_paths(hs)
     stats : List<&2, String> <- Store.stats(repo, paths)
-    +ps : List<&2, Planned> = plans(stats.map(paths, stats, Map.new(&2, String)), os, eds, hs)
+    +ps : List<&2, Planned> = plans(stats.map(paths, stats, Map.new(&2, String)), os, eds2, hs)
     ds : List<&2, Store.Doc> <- Store.fetch(root, wanted_all(fs, planned.replayed(ps)))
     +ds2 : List<&2, Store.Doc> = ds
     more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
@@ -4920,7 +5106,7 @@ def diff(+args: List<&2, String>) -> IO(Unit):
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     +bs2 : List<&2, Bm.Bookmark> = bs
     a : DiffCmd <- refused.io(DiffCmd, diff.args.r(bs2, args))
-    diff.of(r, fulls(r, rs), bs2, a)
+    diff.of(r, opened.fulls(r, rs), bs2, a)
 
 # blame
 # -----
@@ -5541,6 +5727,8 @@ def blame.fetched(+root: String, +fs: List<&2, Full>, span: Maybe<&2, Wanted>, p
 # Who wrote each line of the file as a revision left it.
 def blame.recorded(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +spelling: String, span: Maybe<&2, Wanted>) -> IO(Unit):
   do IO<Unit>:
+    f : Full <- resolved(fs, bs, target)
+    readable(fs, [id_of(f)])
     p : Picked <- refused.io(Picked, blame.picked.r(fs, bs, target, spelling))
     blame.fetched(root, fs, span, p)
 
@@ -5802,7 +5990,7 @@ def blame(+args: List<&2, String>) -> IO(Unit):
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     +bs2 : List<&2, Bm.Bookmark> = bs
     a : Blame <- refused.io(Blame, blame.args.r(bs2, args))
-    blame.of(r, fulls(r, rs), bs2, a)
+    blame.of(r, opened.fulls(r, rs), bs2, a)
 
 # replay
 # ------
@@ -6224,6 +6412,7 @@ def status.befores.one(+root: String, +fs: List<&2, Full>, +left: String, +hs: L
     +os : Map<&2, T.Split> = origins.map(chain(fs, l), Map.new(&2, T.Split))
     eds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), status.edits(os, hs))))
     +eds2 : List<&2, Store.Doc> = eds
+    readable.docs(eds2, status.edits(os, hs))
     ds : List<&2, Store.Doc> <- Store.fetch(root, wanted_all(fs, status.unknown(eds2, os, hs)))
     +ds2 : List<&2, Store.Doc> = ds
     more : List<&2, Store.Doc> <- Store.fetch(root, kept_digests(ds2))
@@ -6590,7 +6779,9 @@ def status.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a:
     case StatusCmd{+onto, +ms}:
       do IO<Unit>:
         ps : List<&2, String> <- refused.io(List<&2, String>, status.parents.r(fs, bs, onto, ms))
-        status.surveyed(root, fs, bs, ps)
+        +ps2 : List<&2, String> = ps
+        readable(fs, ps2)
+        status.surveyed(root, fs, bs, ps2)
 
 def status(+args: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
@@ -6600,7 +6791,7 @@ def status(+args: List<&2, String>) -> IO(Unit):
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     +bs2 : List<&2, Bm.Bookmark> = bs
     a : StatusCmd <- refused.io(StatusCmd, status.args.r(args))
-    status.of(r, fulls(r, rs), bs2, a)
+    status.of(r, opened.fulls(r, rs), bs2, a)
 
 # record
 # ------
