@@ -13,6 +13,7 @@ import ./sha256.bend as Sha
 import ./utf8.bend as Utf8
 import ./string_lemmas.bend as S
 import ./blamed_lemmas.bend as B
+import ./bookmark.bend as Bm
 
 def rdisc_s(-A: Data, r: Result<&2, &2, String, A>) -> Type:
   match r:
@@ -308,3 +309,58 @@ def reword_ok(+fs: List<&2, Main.Full>, prev: Main.Full, +standing: List<&2, Str
   match prev:
     case Main.Full{+id, +change, +parents, +ss, +author, +when, +rb, +rv, +facts, +message}:
       reword1(fs, standing, m, id, change, parents, ss, author, when, rb, rv, facts, message, reviser, revised, Main.already.r(fs, id), doc, e)
+
+# What is rewritten is held
+# -------------------------
+
+def head_held(+fs: List<&2, Main.Full>, h: Maybe<&2, String>, +f: Main.Full, e: {Main.amend.head.r(fs, h) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
+  match h:
+    case None{}:
+      Empty.absurd({Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, B.fail_done(Main.Full, Main.Refused{1, "this store holds no revisions yet, so there is nothing to rewrite"}, f, e))
+    case Some{+id}:
+      B.found_mem(fs, id, Main.find(fs, id), {==}, f, e)
+
+def the_head_held(+fs: List<&2, Main.Full>, r: Result<&2, &2, Main.Refused, Maybe<&2, String>>, +f: Main.Full, e: {Result.bind(&2, &2, Main.Refused, Maybe<&2, String>, Main.Full, r, h => Main.amend.head.r(fs, h)) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, B.fail_done(Main.Full, x, f, e))
+    case Done{h}:
+      head_held(fs, h, f, e)
+
+# What `amend` rewrites is a revision the store holds.
+def amend_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>, +f: Main.Full, e: {Main.amend.target.r(fs, bs, named) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
+  match named:
+    case Some{+s}:
+      B.resolved_mem(fs, bs, s, f, e)
+    case None{}:
+      the_head_held(fs, Main.the_head.r(fs, bs, Main.current_heads(Main.history(fs))), f, e)
+
+def nonedisc(r: Result<&2, &2, Main.Refused, Maybe<&2, String>>) -> Type:
+  match r:
+    case Done{None{}}:
+      Unit
+    case _:
+      Empty
+
+def none_some(-id: String, h: {Done{None{}} == Done{Some{id}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> Empty:
+  %h : {nonedisc(_) : Type}
+  Unit{}
+
+def some_eq(-a: String, -b: String, h: {Done{Some{a}} == Done{Some{b}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {a == b : String}:
+  Equal.cong(Result<&2, &2, Main.Refused, Maybe<&2, String>>, String, r => Maybe.default(&2, String, Result.default(&2, &2, Main.Refused, Maybe<&2, String>, r, None{}), a), Done{Some{a}}, Done{Some{b}}, h)
+
+def carried_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +s: String, r: Result<&2, &2, Main.Refused, Main.Full>, +id: String, er: {Main.resolved.r(fs, bs, s) == r : Result<&2, &2, Main.Refused, Main.Full>}, e: {Result.map(&2, &2, Main.Refused, Main.Full, Maybe<&2, String>, f => Some{Main.id_of(f)}, r) == Done{Some{id}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Rev.member(Main.ids(fs), id) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Rev.member(Main.ids(fs), id) == True{} : Bool}, B.fail_done(Maybe<&2, String>, x, Some{id}, e))
+    case Done{+f}:
+      %some_eq(Main.id_of(f), id, e) : {Rev.member(Main.ids(fs), _) == True{} : Bool}
+      B.resolved_mem(fs, bs, s, f, er)
+
+# What `carry` is asked to carry is a revision the store holds.
+def carry_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>, +id: String, e: {Main.carry.target.r(fs, bs, named) == Done{Some{id}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}) -> {Rev.member(Main.ids(fs), id) == True{} : Bool}:
+  match named:
+    case None{}:
+      Empty.absurd({Rev.member(Main.ids(fs), id) == True{} : Bool}, none_some(id, e))
+    case Some{+s}:
+      carried_held(fs, bs, s, Main.resolved.r(fs, bs, s), id, {==}, e)

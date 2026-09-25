@@ -680,3 +680,9 @@ def Laws.record_names_what_it_writes(w, hex, befores, fs, bs, ps, t, hs, dg, rea
 
 def Laws.record_writes_only_what_is_settled(looked, pl, accepted, pl2, e):
   RecordL.settled_ok(looked, pl, accepted, pl2, e)
+
+def Laws.amend_rewrites_a_held_revision(fs, bs, named, f, e):
+  RewriteL.amend_held(fs, bs, named, f, e)
+
+def Laws.carry_carries_a_held_revision(fs, bs, named, id, e):
+  RewriteL.carry_held(fs, bs, named, id, e)
