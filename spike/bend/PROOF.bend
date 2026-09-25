@@ -70,6 +70,11 @@ import ./rewrite_lemmas.bend as RewriteL
 import ./update_lemmas.bend as UpdL
 import ./conflict_lemmas.bend as ConflictL
 import ./merging_lemmas.bend as MergingL
+import ./skip_lemmas.bend as SkipL
+import ./argv_lemmas.bend as ArgvL
+import ./shell_lemmas.bend as ShellL
+import ./opening_lemmas.bend as OpeningL
+import ./identity_lemmas.bend as IdentityL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -596,12 +601,6 @@ def Laws.log_lists_its_span(fs, sp):
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
 
-def Laws.check_pairs_each_payload(ls, stats, h):
-  CheckL.pairs_ok(ls, stats, h)
-
-def Laws.check_refuses_what_does_not_parse(d, rev):
-  CheckL.doc_line(d, rev)
-
 def Laws.cat_reads_a_held_file(fs, bs, target, path, p, e):
   ShowL.cat_ok(fs, bs, target, path, p, e)
 
@@ -904,3 +903,54 @@ def Laws.merge_joins_every_head(fs, bs, ss, xs, e):
 
 def Laws.merge_spares_the_unrecorded(t, cs, located, p):
   MergingL.spares(t, cs, located, p)
+
+def Laws.check_pairs_each_payload(fs, stats, h):
+  CheckL.pairs_ok(fs, stats, h)
+
+def Laws.check_walks_causally(fuel, g, ixs):
+  CheckL.kahn_causal(fuel, g, ixs, Nil{}, {==})
+
+def Laws.argv_reads_its_words(ds, w, rest, e):
+  ArgvL.reads(ds, w, rest, e)
+
+def Laws.argv_reads_the_version(ds, v, rest, h):
+  ArgvL.reads_version(ds, v, rest, h)
+
+def Laws.argv_reads_help(ds, v, rest, h):
+  ArgvL.reads_help(ds, v, rest, h)
+
+def Laws.dispatch_runs_no_path(base, w, args, d, p, as, e):
+  ShellL.runs(base, w, args, d, p, as, e)
+
+def Laws.header_opens_under_a_note(note):
+  OpeningL.noted(note)
+
+def Laws.identity_reads_back(file, a, directory, home, h):
+  IdentityL.reads_back(file, a, directory, home, h)
+
+def Laws.check_reads_its_words(ws):
+  CheckL.reads_words(ws)
+
+def Laws.check_finds_nothing_in_a_new_store(root):
+  CheckL.fresh(root)
+
+def Laws.skip_rules_equal_only_when_equal(a, b, e):
+  SkipL.rule_eq_sound(a, b, e)
+
+def Laws.skip_rule_equals_itself(a):
+  SkipL.rule_eq_refl(a)
+
+def Laws.skip_path_rule_reads_back(file, v, directory, private, sc, e, h):
+  SkipL.scoped_reads(file, v, directory, private, sc, e, h)
+
+def Laws.skip_name_rule_reads_back(file, n, private, sc, e):
+  SkipL.named_reads(file, n, private, sc, e)
+
+def Laws.skip_path_rule_skips_under_its_path(v, directory, sc, e, x, q):
+  SkipL.scoped_skips(v, directory, sc, e, x, q)
+
+def Laws.skip_lists_each_rule_once(ss):
+  SkipL.lists_once(ss)
+
+def Laws.skip_writes_what_is_new(rs, had):
+  SkipL.writes_new(rs, had)

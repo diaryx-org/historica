@@ -968,10 +968,19 @@ def no_cr(+s: String, c: Bool, +x: Rev.Rev, e: {Bool.pick(Result<&2, &2, String,
     case False{}:
       e
 
+# `Rev.parse` only rewords a refusal: what it accepts, the parser under it
+# accepted.
+def worded_done(+s: String, r: Result<&2, &2, String, Rev.Rev>, -x: Rev.Rev, e: {Rev.worded(s, r) == Done{x} : Result<&2, &2, String, Rev.Rev>}) -> {r == Done{x} : Result<&2, &2, String, Rev.Rev>}:
+  match r:
+    case Done{y}:
+      e
+    case Fail{m}:
+      Empty.absurd({Fail{m} == Done{x} : Result<&2, &2, String, Rev.Rev>}, fail_done(Maybe.default(&2, String, Rev.refusal(s), m), x, e))
+
 # The theorem: what the parser accepts, the writer spells back byte for byte.
 def write_parse(+s: String, +x: Rev.Rev, e: {Rev.parse(s) == Done{x} : Result<&2, &2, String, Rev.Rev>}) -> {Rev.write(x) == s : String}:
   Equal.trans(String, Rev.write(x), Rev.unlines(T.lines(s)), s,
-    preamble_sp(T.lines(s), lines_wf(s), x, no_cr(s, T.has_char(s, '\r'), x, e)),
+    preamble_sp(T.lines(s), lines_wf(s), x, no_cr(s, T.has_char(s, '\r'), x, worded_done(s, Bool.pick(Result<&2, &2, String, Rev.Rev>, T.has_char(s, '\r'), Fail{"a carriage return"}, Rev.parse.preamble(T.lines(s))), x, e))),
     Equal.trans(String, Rev.unlines(T.lines(s)), Spell.unlines(T.lines(s)), s, unlines_same(T.lines(s)), Spell.unlines_lines(s)))
 
 def main() -> Unit:

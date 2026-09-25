@@ -1,8 +1,11 @@
 # historica, in Bend: the readable core of the format, over the store it finds.
 #
-# The reading commands `historica` has, in the shape it has them: the store is
-# the `history` directory here or above, and a target is `head`, a change ID
-# or a revision digest, either abbreviated to any unambiguous prefix.
+# The commands `historica` has, in the shape it has them: the store is the
+# `history` directory here or above — here being `-C`'s directory where the
+# command line names one — and a target is `head`, a change ID or a revision
+# digest, either abbreviated to any unambiguous prefix. `help` prints the
+# usage the Rust tool prints, and a word that is no command here is looked
+# for on `PATH` as `historica-<word>` (decision 0072; `shell.bend`).
 #
 #   bend main.bend -- log [<target>|<from>..<to>] [--limit <n>] [--author <text>]
 #                         [--grep <text>] [--since <when>] [--until <when>]
@@ -42,31 +45,47 @@
 
 import Base
 import ./commands.bend as C
+import ./argv.bend as Argv
+import ./shell.bend as Shell
+import ./identity.bend as Identity
+import ./skip.bend as Skip
+import ./check.bend as Check
 import ./update.bend as U
 import ./merging.bend as M
 import ./forget.bend as F
 
-def usage() -> IO(Unit):
-  C.die(Unit, 2, "usage: init [<dir>] | log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | update [<target>] [--dry-run] | merge [<target>..] | forget <target> <path> [--lines <first>..<last>] [--dry-run] [--fields] | replay <ops docs..> | opdiff <parent> <child>")
-
-def dispatch(args: List<&2, String>) -> IO(Unit):
-  match args:
+def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
+  match all:
     case "log" <> args:
       C.log(args)
     case "show" <> t <> Nil{}:
       C.show(t, None{})
     case "show" <> t <> p <> Nil{}:
       C.show(t, Some{p})
+    case "show" <> Nil{}:
+      Shell.refused.opened("`show` wants a target")
+    case "show" <> t <> p <> extra <> more:
+      Shell.refused.opened("`show` takes a target and one path, and `" ++ extra ++ "` is a third argument")
     case "files" <> t <> Nil{}:
       C.files(t)
+    case "files" <> Nil{}:
+      Shell.refused.opened("`files` wants a target")
+    case "files" <> t <> extra <> more:
+      Shell.refused.opened("`files` takes one target, and `" ++ extra ++ "` is a second")
     case "cat" <> t <> p <> Nil{}:
       C.cat(t, p)
-    case "check" <> Nil{}:
-      C.check()
+    case "cat" <> Nil{}:
+      Shell.refused.opened("`cat` wants a target")
+    case "cat" <> t <> Nil{}:
+      Shell.refused.opened("`cat` wants a path")
+    case "cat" <> t <> p <> extra <> more:
+      Shell.refused.opened("`cat` takes a target and a path, and `" ++ extra ++ "` is a third argument")
+    case "check" <> args:
+      Check.check(args)
     case "names" <> Nil{}:
       C.names()
     case "names" <> extra <> rest:
-      C.die(Unit, 2, "`names` takes no arguments, and `" ++ extra ++ "` is one")
+      Shell.refused.opened("`names` takes no arguments, and `" ++ extra ++ "` is one")
     case "replay" <> paths:
       C.replay(paths)
     case "diff" <> args:
@@ -87,6 +106,10 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       C.carry(args)
     case "init" <> args:
       C.init(args)
+    case "skip" <> args:
+      Skip.skip(args)
+    case "identity" <> args:
+      Identity.set(args)
     case "update" <> args:
       U.update(args)
     case "merge" <> args:
@@ -95,17 +118,23 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       F.forget(args)
     case "opdiff" <> parent <> child <> Nil{}:
       C.opdiff(parent, child)
-    case _:
-      usage()
-
-def reusable(xs: List<&1, String>) -> List<&2, String>:
-  match xs:
+    case word <> args:
+      Shell.elsewhere(base, word, args)
     case Nil{}:
-      Nil{}
-    case h <> t:
-      h <> reusable(t)
+      Shell.usage()
+
+def asked(a: Argv.Asked) -> IO(Unit):
+  match a:
+    case Argv.Asked.Usage{}:
+      Shell.usage()
+    case Argv.Asked.Version{}:
+      Shell.version()
+    case Argv.Asked.Wrong{msg}:
+      C.die(Unit, 2, msg)
+    case Argv.Asked.Command{base, word, rest}:
+      dispatch(Maybe.default(&2, String, base, "."), word <> rest)
 
 def main() -> IO(Unit):
   do IO<Unit>:
-    args : List<String> <- IO.args()
-    dispatch(reusable(args))
+    args : List<&2, String> <- Argv.args()
+    asked(Argv.read(args))

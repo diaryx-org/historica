@@ -516,8 +516,21 @@ def le_zero(n: Nat) -> {Nat.is_le(0n, n) == True{} : Bool}:
       {==}
 
 # Every document the parser accepts is ordered from the start.
-def parse_ordered(s: String, -f: Maybe<&2, String>, -r: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse(s) == Done{Ops.Doc{f, r, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {Block.ordered(ops, 0n) == True{} : Bool}:
-  parser_ordered(ops, 0n, None{}, None{}, preamble_ordered(T.lines(s), f, r, ops, e), le_zero(first_at(ops, 0n)))
+def doc_fail(-msg: String, -d: Ops.Doc, e: {Fail{msg} == Done{d} : Result<&2, &2, String, Ops.Doc>}) -> Empty:
+  %e : {ddisc(_) : Type}
+  Unit{}
+
+# `Ops.parse` only rewords a refusal: what it accepts, the parser under it
+# accepted.
+def worded_done(+s: String, r: Result<&2, &2, String, Ops.Doc>, -d: Ops.Doc, e: {Ops.worded(s, r) == Done{d} : Result<&2, &2, String, Ops.Doc>}) -> {r == Done{d} : Result<&2, &2, String, Ops.Doc>}:
+  match r:
+    case Done{x}:
+      e
+    case Fail{m}:
+      Empty.absurd({Fail{m} == Done{d} : Result<&2, &2, String, Ops.Doc>}, doc_fail(Maybe.default(&2, String, Ops.refusal(s), m), d, e))
+
+def parse_ordered(+s: String, -f: Maybe<&2, String>, -r: Maybe<&2, String>, +ops: List<&2, Ops.Op>, e: {Ops.parse(s) == Done{Ops.Doc{f, r, ops}} : Result<&2, &2, String, Ops.Doc>}) -> {Block.ordered(ops, 0n) == True{} : Bool}:
+  parser_ordered(ops, 0n, None{}, None{}, preamble_ordered(T.lines(s), f, r, ops, worded_done(s, Ops.parse.preamble(T.lines(s)), Ops.Doc{f, r, ops}, e)), le_zero(first_at(ops, 0n)))
 
 def main() -> Unit:
   Unit{}

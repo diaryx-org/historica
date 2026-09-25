@@ -22,7 +22,6 @@ use std::slice;
 use sha2::{Digest, Sha256};
 
 const STORE_DIR: &str = "history";
-const HEADER_FILE: &str = "historica.txt";
 
 /// The directories whose files are documents: everything under them is
 /// named by its own digest, and nothing else in a store is.
@@ -47,8 +46,12 @@ const EIO: i32 = 5;
 const EINVAL: i32 = 22;
 const ENOENT: i32 = 2;
 
-/// Where the store is: the `history` directory holding a `historica.txt`,
-/// here or in an ancestor of `from`. Empty `from` means the current directory.
+/// Where the store is: the `history` directory in `from` or in the nearest
+/// ancestor that has one, as the Rust tool's `locate` finds it. Whether it
+/// holds a `historica.txt` is the Bend side's question, asked when a command
+/// opens the store: the nearest `history` stops the walk either way. `from`
+/// is the directory as the command line gave it — `.` for here — and an
+/// empty one is a path that is not there, as it is to the Rust tool.
 ///
 /// # Safety
 ///
@@ -63,7 +66,6 @@ pub unsafe extern "C" fn hist_store_locate(
 ) -> i32 {
     answer(out, out_len, || {
         let from = text(from, from_len)?;
-        let from = if from.is_empty() { "." } else { from };
         locate(Path::new(from)).map(|root| root.to_string_lossy().into_owned())
     })
 }
@@ -301,6 +303,46 @@ pub unsafe extern "C" fn hist_stdout_terminal(
 
     let _ = (query, query_len);
     answer(out, out_len, || Ok(if std::io::stdout().is_terminal() { "1" } else { "0" }.to_owned()))
+}
+
+/// A program run to its end, in a directory, with this process's standard
+/// streams: decision 0072's `historica-<word>`, and the editor a person
+/// chose for a message they did not give with `-m`.
+///
+/// The argument is the directory, the program and each argument, separated
+/// by NUL — the one character no argument can hold, so none needs escaping.
+/// The directory is the one the command line named, `.` for here. The answer
+/// is the code the program exited with, or `signal` where one ended it; a
+/// program that could not be started is refused with the system's code and
+/// Rust's words for it, and which of those means "no such command" is the
+/// Bend side's to say.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_process_run(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let mut parts = text(query, query_len)?.split('\0');
+        let directory = parts.next().unwrap_or_default();
+        let program = parts
+            .next()
+            .ok_or_else(|| (EINVAL, "a run is a directory, then a program".to_owned()))?;
+        let status = std::process::Command::new(program)
+            .args(parts)
+            .current_dir(directory)
+            .status()
+            .map_err(|error| (code(&error), error.to_string()))?;
+        Ok(match status.code() {
+            Some(code) => code.to_string(),
+            None => "signal".to_owned(),
+        })
+    })
 }
 
 /// A rename a person stated, done in the folder: `record --move`'s one write
@@ -901,7 +943,7 @@ fn locate(from: &Path) -> Result<PathBuf, (i32, String)> {
         .map_err(|error| (code(&error), format!("{}: {error}", from.display())))?;
     for directory in start.ancestors() {
         let candidate = directory.join(STORE_DIR);
-        if candidate.join(HEADER_FILE).is_file() {
+        if candidate.is_dir() {
             return Ok(candidate);
         }
     }
@@ -1199,10 +1241,17 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_called_history_without_the_header_is_not_a_store() {
+    fn the_nearest_history_directory_stops_the_walk_header_or_not() {
         let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("history")).unwrap();
-        let (code, text) = call(hist_store_locate, dir.path().to_str().unwrap().as_bytes());
+        store(dir.path());
+        let inner = dir.path().join("inner");
+        fs::create_dir_all(inner.join("history")).unwrap();
+        let (code, text) = call(hist_store_locate, inner.to_str().unwrap().as_bytes());
+        assert_eq!(code, 0, "{text}");
+        assert_eq!(Path::new(&text), inner.canonicalize().unwrap().join("history"));
+
+        let bare = tempfile::tempdir().unwrap();
+        let (code, text) = call(hist_store_locate, bare.path().to_str().unwrap().as_bytes());
         assert_eq!(code, ENOENT);
         assert!(
             text.starts_with("no `history` directory here or above"),
@@ -1212,12 +1261,40 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_start_is_not_here() {
+        let (code, text) = call(hist_store_locate, b"");
+        assert_eq!(code, ENOENT);
+        assert_eq!(text, ": No such file or directory (os error 2)");
+    }
+
+    #[test]
     fn a_missing_start_is_the_os_error() {
         let dir = tempfile::tempdir().unwrap();
         let gone = dir.path().join("gone");
         let (code, text) = call(hist_store_locate, gone.to_str().unwrap().as_bytes());
         assert_eq!(code, ENOENT);
         assert!(text.starts_with(gone.to_str().unwrap()), "{text}");
+    }
+
+    #[test]
+    fn a_program_runs_where_it_is_told_and_answers_its_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let place = dir.path().to_str().unwrap();
+        let query = format!("{place}\0sh\0-c\0test \"$(pwd -P)\" = \"$1\" && exit 7\0sh\0{}", dir.path().canonicalize().unwrap().display());
+        let (code, answer) = call(hist_process_run, query.as_bytes());
+        assert_eq!((code, answer.as_str()), (0, "7"));
+
+        let (code, answer) = call(hist_process_run, format!("{place}\0sh\0-c\0kill -9 $$").as_bytes());
+        assert_eq!((code, answer.as_str()), (0, "signal"));
+
+        let (code, answer) = call(hist_process_run, format!("{place}\0historica-no-such-tool").as_bytes());
+        assert_eq!((code, answer.as_str()), (ENOENT, "No such file or directory (os error 2)"));
+
+        let (code, _) = call(hist_process_run, format!("{place}/gone\0sh").as_bytes());
+        assert_eq!(code, ENOENT);
+
+        let (code, answer) = call(hist_process_run, b"only a directory");
+        assert_eq!((code, answer.as_str()), (EINVAL, "a run is a directory, then a program"));
     }
 
     #[test]
@@ -1238,10 +1315,10 @@ mod tests {
 
         let mut out: *mut c_char = std::ptr::null_mut();
         let mut len = 0usize;
-        // A null argument of length zero is the current directory, which
-        // exists, so this either finds a store or says there is none.
+        // A null argument of length zero is the empty path, which is not
+        // there; the answer says so rather than reading through the null.
         let code = unsafe { hist_store_locate(std::ptr::null(), 0, &mut out, &mut len) };
-        assert!(code == 0 || code == ENOENT);
+        assert_eq!(code, ENOENT);
         unsafe { hist_free(out, len) };
         // Freeing nothing is allowed, as C's `free` allows it.
         unsafe { hist_free(std::ptr::null_mut(), 0) };
