@@ -102,6 +102,7 @@ import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
 import ./standing_lemmas.bend as StandingL
+import ./cleared_lemmas.bend as ClearedL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1001,9 +1002,6 @@ def Laws.arrange_keeps_a_revision_where_it_sits(fs, revs, ops, ls, a, e):
 def Laws.arrange_opens_what_parses(pre, path, id, size, text, post, msg, hp, hf):
   ArrangeL.opens(pre, path, id, size, text, post, msg, hp, hf)
 
-def Laws.arrange_counts_every_file(refile, fs, revs, ops, ls, a, e):
-  ArrangeL.counts(refile, fs, revs, ops, ls, a, e)
-
 def Laws.arrange_moves_each_file_once(refile, fs, revs, ops, ls, a, e, x):
   ArrangeL.once(refile, fs, revs, ops, ls, a, e, x)
 
@@ -1016,12 +1014,6 @@ def Laws.prune_keeps_what_work_stands_on(fs, id, hf, hk):
 def Laws.prune_lets_go_only_what_is_superseded(fs, id, hf, hk):
   PruneL.superseded_gone(fs, id, hf, hk)
 
-def Laws.prune_dry_run_names_what_prune_removes(s):
-  PruneL.dry_run(Prune.stored.plan(s))
-
-def Laws.prune_clears_only_derived_files(ls, x, h):
-  PruneL.cached(ls, x, h)
-
 def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps, d, h):
   PruneL.removes(fs, revs, bs, ps, d, h)
 
@@ -1033,9 +1025,6 @@ def Laws.receive_takes_only_documents_it_lacks(here, there, id, text, h):
 
 def Laws.receive_takes_only_payloads_it_lacks(here, there, path, d, h):
   ReceiveL.payloads(here, there, path, d, h)
-
-def Laws.receive_joins_only_related_histories(here, there, join, hh, ht):
-  ReceiveL.joins(here, there, join, hh, ht)
 
 def Laws.receive_moves_no_bookmark(here, there, n, at, h):
   ReceiveL.moves_none(here, there, n, at, h)
@@ -1495,3 +1484,24 @@ def Laws.merge_writes_in_place_or_marked_aside(fs, ds, heads, t, dg, texts, ls, 
 
 def Laws.record_resolves_as_the_walk_proposes(ds, reads, dg, t, hs, ks, moves, obs, ls, mint, bs, hm):
   RecordL.drafted_resolves(ds, reads, dg, t, hs, ks, moves, obs, ls, mint, bs, hm)
+
+def Laws.arrange_counts_every_file(refile, fs, revs, ops, ls, a, e, ro, oo, h1, h2):
+  ArrangeL.counts(refile, fs, revs, ops, ls, a, e, ro, oo, h1, h2)
+
+def Laws.prune_dry_run_names_what_prune_removes(p, x):
+  PruneL.dry_run(p, x)
+
+def Laws.prune_removes_only_files_that_may_go(fs, revs, bs, ps, x, h):
+  PruneL.may_go(fs, revs, bs, ps, x, h)
+
+def Laws.prune_clears_only_derived_files(es, h):
+  ClearedL.cleared(es, h)
+
+def Laws.receive_joins_histories_that_meet(here, there, hh, ht, id, hi, hm):
+  ReceiveL.meets(here, there, hh, ht, id, hi, hm)
+
+def Laws.receive_refuses_unrelated_histories(here, there, hh, ht, nh, nt, hs, eh, et):
+  ReceiveL.refuses(here, there, hh, ht, nh, nt, hs, eh, et)
+
+def Laws.receive_answers_the_same_either_way(here, there, join, hh, ht):
+  ReceiveL.either_way(here, there, join, hh, ht)

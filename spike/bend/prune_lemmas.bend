@@ -13,6 +13,8 @@ import ./blamed_lemmas.bend as B
 import ./name_lemmas.bend as NameL
 import ./string_lemmas.bend as S
 import ./arrange_lemmas.bend as ArrangeL
+import ./graph_lemmas.bend as GL
+import ./span_lemmas.bend as SpanL
 
 # Booleans
 # --------
@@ -523,15 +525,6 @@ def superseded_gone(+fs: List<&2, Main.Full>, +id: String, +hf: {Rev.member(Main
 # What a run says
 # ---------------
 
-# What a run of `prune` says of the files it removes: the lines it gives,
-# or, where it removes nothing, that nothing is prunable.
-def report(fs: List<&2, String>, +lines: List<&2, String>) -> List<&2, String>:
-  match fs:
-    case Nil{}:
-      ["nothing here is prunable: nothing superseded is unreferenced"]
-    case f <> rest:
-      lines
-
 def files_dry(fs: List<&2, String>) -> {Prune.said.files(fs, "would remove") == T.map(~String, ~String, ~(f => "would remove history/" ++ f), fs) : List<&2, String>}:
   match fs:
     case Nil{}:
@@ -546,44 +539,214 @@ def files_run(fs: List<&2, String>) -> {Prune.said.files(fs, "removed") == T.map
     case +f <> +rest:
       Equal.cong(List<&2, String>, List<&2, String>, l => ("removed history/" ++ f) <> l, Prune.said.files(rest, "removed"), T.map(~String, ~String, ~(f => "removed history/" ++ f), rest), files_run(rest))
 
-def dry_of(fs: List<&2, String>) -> {(Prune.said.listed(fs, "would remove"), (Prune.said.listed(fs, "removed"), Nil{})) == (report(fs, T.map(~String, ~String, ~(f => "would remove history/" ++ f), fs)), (report(fs, T.map(~String, ~String, ~(f => "removed history/" ++ f), fs)), Nil{})) : List<&2, String> & (List<&2, String> & List<&2, String>)}:
+def tail(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{c, t}:
+      t
+
+def strip(n: Nat, s: String) -> String:
+  match n:
+    case 0n:
+      s
+    case 1n+k:
+      strip(k, tail(s))
+
+def first_char(s: String) -> Char:
+  match s:
+    case SNil{}:
+      ' '
+    case SCon{c, t}:
+      c
+
+# What follows a prefix is what is left once as many characters as the
+# prefix has are taken off.
+def strip_pre(pre: String, +z: String) -> {strip(String.length(pre), pre ++ z) == z : String}:
+  match pre:
+    case SNil{}:
+      {==}
+    case SCon{c, +t}:
+      strip_pre(t, z)
+
+def eq_pre.no(q: Bool, +pre: String, +f: String, +x: String, +eq: {String.eq(pre ++ f, pre ++ x) == q : Bool}, ee: {String.eq(f, x) == False{} : Bool}) -> {q == False{} : Bool}:
+  match q:
+    case False{}:
+      {==}
+    case True{}:
+      +same = Equal.trans(String, f, strip(String.length(pre), pre ++ f), x, Equal.sym(String, strip(String.length(pre), pre ++ f), f, strip_pre(pre, f)), Equal.trans(String, strip(String.length(pre), pre ++ f), strip(String.length(pre), pre ++ x), x, Equal.cong(String, String, z => strip(String.length(pre), z), pre ++ f, pre ++ x, S.eq_true(pre ++ f, pre ++ x, eq)), strip_pre(pre, x)))
+      Empty.absurd({True{} == False{} : Bool}, S.true_false(Equal.trans(Bool, True{}, String.eq(f, x), False{}, Equal.sym(Bool, String.eq(f, x), True{}, (%same : {String.eq(f, _) == True{} : Bool}
+        S.eq_refl(f))), ee)))
+
+# Two lines of one prefix are the same line exactly where what follows the
+# prefix is the same.
+def eq_pre(e: Bool, +pre: String, +f: String, +x: String, ee: {String.eq(f, x) == e : Bool}) -> {String.eq(pre ++ f, pre ++ x) == e : Bool}:
+  match e:
+    case True{}:
+      %Equal.sym(String, f, x, S.eq_true(f, x, ee)) : {String.eq(pre ++ _, pre ++ x) == True{} : Bool}
+      S.eq_refl(pre ++ x)
+    case False{}:
+      eq_pre.no(String.eq(pre ++ f, pre ++ x), pre, f, x, {==}, ee)
+
+# A line of a prefix is among lines of that prefix exactly where what
+# follows it is among what follows theirs.
+def member_pre(fs: List<&2, String>, +pre: String, +x: String) -> {Rev.member(T.map(~String, ~String, ~(f => pre ++ f), fs), pre ++ x) == Rev.member(fs, x) : Bool}:
   match fs:
     case Nil{}:
       {==}
     case +f <> +rest:
-      %Equal.sym(List<&2, String>, Prune.said.files(f <> rest, "would remove"), T.map(~String, ~String, ~(f => "would remove history/" ++ f), f <> rest), files_dry(f <> rest)) : {(_, (Prune.said.files(f <> rest, "removed"), Nil{})) == (T.map(~String, ~String, ~(f => "would remove history/" ++ f), f <> rest), (T.map(~String, ~String, ~(f => "removed history/" ++ f), f <> rest), Nil{})) : List<&2, String> & (List<&2, String> & List<&2, String>)}
-      %Equal.sym(List<&2, String>, Prune.said.files(f <> rest, "removed"), T.map(~String, ~String, ~(f => "removed history/" ++ f), f <> rest), files_run(f <> rest)) : {(T.map(~String, ~String, ~(f => "would remove history/" ++ f), f <> rest), (_, Nil{})) == (T.map(~String, ~String, ~(f => "would remove history/" ++ f), f <> rest), (T.map(~String, ~String, ~(f => "removed history/" ++ f), f <> rest), Nil{})) : List<&2, String> & (List<&2, String> & List<&2, String>)}
-      {==}
+      %Equal.sym(Bool, String.eq(pre ++ f, pre ++ x), String.eq(f, x), eq_pre(String.eq(f, x), pre, f, x, {==})) : {Bool.or(_, Rev.member(T.map(~String, ~String, ~(f => pre ++ f), rest), pre ++ x)) == Rev.member(f <> rest, x) : Bool}
+      Equal.cong(Bool, Bool, z => Bool.or(String.eq(f, x), z), Rev.member(T.map(~String, ~String, ~(f => pre ++ f), rest), pre ++ x), Rev.member(rest, x), member_pre(rest, pre, x))
 
-# A dry run removes nothing, and names, one line each and in order, the
-# files the real run removes; the real run names the same files.
-def dry_run(p: Prune.Pruned) -> {(Prune.act.says(Prune.act.of(True{}, False{}, p)), (Prune.act.says(Prune.act.of(False{}, False{}, p)), Prune.act.removes(Prune.act.of(True{}, False{}, p)))) == (report(Prune.act.removes(Prune.act.of(False{}, False{}, p)), T.map(~String, ~String, ~(f => "would remove history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, p)))), (report(Prune.act.removes(Prune.act.of(False{}, False{}, p)), T.map(~String, ~String, ~(f => "removed history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, p)))), Nil{})) : List<&2, String> & (List<&2, String> & List<&2, String>)}:
+def NOTHING() -> String:
+  "nothing here is prunable: nothing superseded is unreferenced"
+
+def msg_no(q: Bool, +pre: String, +x: String, +eq: {String.eq(NOTHING(), pre ++ x) == q : Bool}, hc: {Char.is_eq('n', first_char(pre ++ x)) == False{} : Bool}) -> {q == False{} : Bool}:
+  match q:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.true_false(Equal.trans(Bool, True{}, Char.is_eq('n', first_char(pre ++ x)), False{},
+        Equal.cong(String, Bool, z => Char.is_eq('n', first_char(z)), NOTHING(), pre ++ x, S.eq_true(NOTHING(), pre ++ x, eq)), hc)))
+
+# What `prune` prints names a file, a line of the prefix each, exactly
+# where the file is among those it removes; where it removes none, its
+# one line names none.
+def listed_pre(fs: List<&2, String>, +pre: String, +x: String, +hc: {Char.is_eq('n', first_char(pre ++ x)) == False{} : Bool}, +verb: String, +hv: {Prune.said.files(fs, verb) == T.map(~String, ~String, ~(f => pre ++ f), fs) : List<&2, String>}) -> {Rev.member(Prune.said.listed(fs, verb), pre ++ x) == Rev.member(fs, x) : Bool}:
+  match fs:
+    case Nil{}:
+      %Equal.sym(Bool, String.eq(NOTHING(), pre ++ x), False{}, msg_no(String.eq(NOTHING(), pre ++ x), pre, x, {==}, hc)) : {Bool.or(_, False{}) == False{} : Bool}
+      {==}
+    case +f <> +rest:
+      %Equal.sym(List<&2, String>, Prune.said.files(f <> rest, verb), T.map(~String, ~String, ~(f => pre ++ f), f <> rest), hv) : {Rev.member(_, pre ++ x) == Rev.member(f <> rest, x) : Bool}
+      member_pre(f <> rest, pre, x)
+
+# The dry run names a file exactly where the real run removes it, and the
+# real run names it too.
+def dry_run(p: Prune.Pruned, +x: String) -> {(Rev.member(Prune.act.says(Prune.act.of(True{}, False{}, p)), "would remove history/" ++ x), Rev.member(Prune.act.says(Prune.act.of(False{}, False{}, p)), "removed history/" ++ x)) == (Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, p)), x), Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, p)), x)) : Bool & Bool}:
   match p:
     case Prune.Pruned{+r, +o, +y, +fs}:
-      dry_of(fs)
+      %Equal.sym(Bool, Rev.member(Prune.said.listed(fs, "would remove"), "would remove history/" ++ x), Rev.member(fs, x), listed_pre(fs, "would remove history/", x, {==}, "would remove", files_dry(fs))) : {(_, Rev.member(Prune.said.listed(fs, "removed"), "removed history/" ++ x)) == (Rev.member(fs, x), Rev.member(fs, x)) : Bool & Bool}
+      %Equal.sym(Bool, Rev.member(Prune.said.listed(fs, "removed"), "removed history/" ++ x), Rev.member(fs, x), listed_pre(fs, "removed history/", x, {==}, "removed", files_run(fs))) : {(Rev.member(fs, x), _) == (Rev.member(fs, x), Rev.member(fs, x)) : Bool & Bool}
+      {==}
 
-# Clearing `cache/`
+# What files may go
 # -----------------
 
-def cached_hit(e: Bool, +n: String, +r: List<&2, String>, +x: String, +ee: {String.eq(n, x) == e : Bool}, +hn: {T.is_digest(n) == True{} : Bool}, h: {Bool.or(e, Rev.member(r, x)) == True{} : Bool}, ih: {Rev.member(r, x) == True{} : Bool} -> {T.is_digest(x) == True{} : Bool}) -> {T.is_digest(x) == True{} : Bool}:
+# Whether pruning lets a revision go: it is one of the store's (`fs`) and
+# not one pruning keeps, a revision of the store says it supersedes it,
+# and nothing pruning keeps names it as a parent.
+def lets_go(+fs: List<&2, Main.Full>, +id: String) -> Bool:
+  Bool.and(Rev.member(Main.ids(fs), id), Bool.and(Bool.not(Rev.member(Main.ids(Prune.kept(fs)), id)), Bool.and(supersedes_any(fs, id), Bool.not(Prune.stood_on(Prune.kept(fs), id)))))
+
+# Whether a revision document among these, at `x`, holds a revision
+# pruning lets go.
+def rev_goes(revs: List<&2, T.Split>, +fs: List<&2, Main.Full>, +x: String) -> Bool:
+  match revs:
+    case Nil{}:
+      False{}
+    case T.Split{+p, +id} <> rest:
+      Bool.or(Bool.and(String.eq(p, x), lets_go(fs, id)), rev_goes(rest, fs, x))
+
+# Whether a file of content among these, at `x`, holds a digest no revision
+# pruning keeps names by its own facts, and no forgetting document among
+# `bs` standing in for content one of them names is filed under.
+def content_goes(ds: List<&2, T.Split>, +fs: List<&2, Main.Full>, +bs: List<&2, Prune.Body>, +x: String) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case T.Split{+p, +id} <> rest:
+      Bool.or(Bool.and(String.eq(p, x), Bool.not(Bool.or(named(Prune.kept(fs), id), stands_in(bs, Prune.kept(fs), id)))), content_goes(rest, fs, bs, x))
+
+def hit(e: Bool, +a: Bool, -r: Bool, -m: Bool, +x: String, +p: String, ee: {String.eq(p, x) == e : Bool}, ha: {a == True{} : Bool}, h: {Bool.or(e, m) == True{} : Bool}, ih: {m == True{} : Bool} -> {r == True{} : Bool}) -> {Bool.or(Bool.and(e, a), r) == True{} : Bool}:
   match e:
     case True{}:
-      %S.eq_true(n, x, ee) : {T.is_digest(_) == True{} : Bool}
-      hn
+      or_lt(Bool.and(True{}, a), r, ha)
     case False{}:
-      ih(h)
+      or_rt(Bool.and(False{}, a), r, ih(h))
 
-def cached_of(b: Bool, +sw: Bool, +n: String, +r: List<&2, String>, +x: String, +eb: {Bool.and(sw, T.is_digest(n)) == b : Bool}, h: {Rev.member(Rev.keep(b, n, r), x) == True{} : Bool}, ih: {Rev.member(r, x) == True{} : Bool} -> {T.is_digest(x) == True{} : Bool}) -> {T.is_digest(x) == True{} : Bool}:
-  match b:
+def dead_goes(+fs: List<&2, Main.Full>, +id: String, h: {Arrange.has(Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))), id) == True{} : Bool}) -> {lets_go(fs, id) == True{} : Bool}:
+  +mw = Equal.trans(Bool, Rev.member(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs))), id), Arrange.has(Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))), id), True{}, Equal.sym(Bool, Arrange.has(Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))), id), Rev.member(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs))), id), ArrangeL.has_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs))), id)), h)
+  +hf = GL.without_sub(Main.ids(fs), Main.ids(Prune.kept(fs)), id, mw)
+  +hk = SpanL.without_out(Main.ids(fs), Main.ids(Prune.kept(fs)), id, mw)
+  +hs = B.and_tt(supersedes_any(fs, id), Bool.not(Prune.stood_on(Prune.kept(fs), id)), superseded_gone(fs, id, hf, hk), ArrangeL.not_ff(Prune.stood_on(Prune.kept(fs), id), stands(fs, id, hf, hk)))
+  B.and_tt(Rev.member(Main.ids(fs), id), Bool.and(Bool.not(Rev.member(Main.ids(Prune.kept(fs)), id)), Bool.and(supersedes_any(fs, id), Bool.not(Prune.stood_on(Prune.kept(fs), id)))), hf,
+    B.and_tt(Bool.not(Rev.member(Main.ids(Prune.kept(fs)), id)), Bool.and(supersedes_any(fs, id), Bool.not(Prune.stood_on(Prune.kept(fs), id))), ArrangeL.not_ff(Rev.member(Main.ids(Prune.kept(fs)), id), hk), hs))
+
+def revs_step(c: Bool, +p: String, +id: String, +rest: List<&2, T.Split>, +fs: List<&2, Main.Full>, +x: String, +ec: {Arrange.has(Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))), id) == c : Bool}, h: {Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), Tree.keep(~T.Split, c, T.Split{p, id}, Prune.gone.revs(rest, Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs))))))), x) == True{} : Bool}, ih: {Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), Prune.gone.revs(rest, Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))))), x) == True{} : Bool} -> {rev_goes(rest, fs, x) == True{} : Bool}) -> {Bool.or(Bool.and(String.eq(p, x), lets_go(fs, id)), rev_goes(rest, fs, x)) == True{} : Bool}:
+  match c:
     case True{}:
-      cached_hit(String.eq(n, x), n, r, x, {==}, ArrangeL.and_tr(sw, T.is_digest(n), eb), h, ih)
+      hit(String.eq(p, x), lets_go(fs, id), rev_goes(rest, fs, x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), Prune.gone.revs(rest, Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))))), x), x, p, {==}, dead_goes(fs, id, ec), h, ih)
     case False{}:
-      ih(h)
+      or_rt(Bool.and(String.eq(p, x), lets_go(fs, id)), rev_goes(rest, fs, x), ih(h))
 
-# Every name `prune` clears from `cache/` is a digest.
-def cached(ls: List<&2, String>, +x: String, h: {Rev.member(Prune.cached(ls), x) == True{} : Bool}) -> {T.is_digest(x) == True{} : Bool}:
-  match ls:
+# Every revision document `prune` removes holds a revision it lets go.
+def revs_go(ds: List<&2, T.Split>, +fs: List<&2, Main.Full>, +x: String, h: {Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), Prune.gone.revs(ds, Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))))), x) == True{} : Bool}) -> {rev_goes(ds, fs, x) == True{} : Bool}:
+  match ds:
     case Nil{}:
-      Empty.absurd({T.is_digest(x) == True{} : Bool}, S.false_true(h))
-    case +l <> +rest:
-      cached_of(Bool.and(String.starts_with(l, "f "), T.is_digest(Prune.entry_name(l))), String.starts_with(l, "f "), Prune.entry_name(l), Prune.cached(rest), x, {==}, h, hr => cached(rest, x, hr))
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+    case T.Split{+p, +id} <> +rest:
+      revs_step(Arrange.has(Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))), id), p, id, rest, fs, x, {==}, h, hr => revs_go(rest, fs, x, hr))
+
+# A digest what is kept does not need is one no revision kept names and no
+# forgetting document standing in for named content is filed under.
+def unneeded_spec(+fs: List<&2, Main.Full>, +bs: List<&2, Prune.Body>, +d: String, h: {Arrange.has(Prune.referenced(Prune.kept(fs), bs), d) == False{} : Bool}) -> {Bool.or(named(Prune.kept(fs), d), stands_in(bs, Prune.kept(fs), d)) == False{} : Bool}:
+  +nm = Prune.named_all(Prune.kept(fs))
+  +forgot = Prune.forgetting(bs, Set.from_list(nm))
+  +hl = ArrangeL.app_false(nm, forgot, d, ArrangeL.has_false(List.append(&2, String, nm, forgot), d, h))
+  ArrangeL.or_ff(named(Prune.kept(fs), d), stands_in(bs, Prune.kept(fs), d),
+    named_false(Prune.kept(fs), d, ArrangeL.or_ff_l(Rev.member(nm, d), Rev.member(forgot, d), hl)),
+    stands_false(bs, Prune.kept(fs), d, ArrangeL.or_ff_r(Rev.member(nm, d), Rev.member(forgot, d), hl)))
+
+def content_step(c: Bool, +p: String, +id: String, +rest: List<&2, T.Split>, +fs: List<&2, Main.Full>, +bs: List<&2, Prune.Body>, +x: String, +ec: {Bool.not(Arrange.has(Prune.referenced(Prune.kept(fs), bs), id)) == c : Bool}, h: {Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), Tree.keep(~T.Split, c, T.Split{p, id}, Prune.gone.of(rest, Prune.referenced(Prune.kept(fs), bs)))), x) == True{} : Bool}, ih: {Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), Prune.gone.of(rest, Prune.referenced(Prune.kept(fs), bs))), x) == True{} : Bool} -> {content_goes(rest, fs, bs, x) == True{} : Bool}) -> {Bool.or(Bool.and(String.eq(p, x), Bool.not(Bool.or(named(Prune.kept(fs), id), stands_in(bs, Prune.kept(fs), id)))), content_goes(rest, fs, bs, x)) == True{} : Bool}:
+  match c:
+    case True{}:
+      hit(String.eq(p, x), Bool.not(Bool.or(named(Prune.kept(fs), id), stands_in(bs, Prune.kept(fs), id))), content_goes(rest, fs, bs, x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), Prune.gone.of(rest, Prune.referenced(Prune.kept(fs), bs))), x), x, p, {==},
+        ArrangeL.not_ff(Bool.or(named(Prune.kept(fs), id), stands_in(bs, Prune.kept(fs), id)), unneeded_spec(fs, bs, id, ArrangeL.not_tt(Arrange.has(Prune.referenced(Prune.kept(fs), bs), id), ec))), h, ih)
+    case False{}:
+      or_rt(Bool.and(String.eq(p, x), Bool.not(Bool.or(named(Prune.kept(fs), id), stands_in(bs, Prune.kept(fs), id)))), content_goes(rest, fs, bs, x), ih(h))
+
+# Every file of content `prune` removes holds a digest nothing kept needs.
+def content_go(ds: List<&2, T.Split>, +fs: List<&2, Main.Full>, +bs: List<&2, Prune.Body>, +x: String, h: {Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), Prune.gone.of(ds, Prune.referenced(Prune.kept(fs), bs))), x) == True{} : Bool}) -> {content_goes(ds, fs, bs, x) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+    case T.Split{+p, +id} <> +rest:
+      content_step(Bool.not(Arrange.has(Prune.referenced(Prune.kept(fs), bs), id)), p, id, rest, fs, bs, x, {==}, h, hr => content_go(rest, fs, bs, x, hr))
+
+def paths_app(xs: List<&2, T.Split>, +ys: List<&2, T.Split>) -> {T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, xs, ys)) == List.append(&2, String, T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), xs), T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), ys)) : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +q <> +rest:
+      Equal.cong(List<&2, String>, List<&2, String>, l => Prune.split.path(q) <> l, T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, rest, ys)), List.append(&2, String, T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), rest), T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), ys)), paths_app(rest, ys))
+
+def member_paths(+xs: List<&2, T.Split>, +ys: List<&2, T.Split>, +x: String) -> {Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, xs, ys)), x) == Bool.or(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), xs), x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), ys), x)) : Bool}:
+  %Equal.sym(List<&2, String>, T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, xs, ys)), List.append(&2, String, T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), xs), T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), ys)), paths_app(xs, ys)) : {Rev.member(_, x) == Bool.or(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), xs), x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), ys), x)) : Bool}
+  ArrangeL.member_app(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), xs), T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), ys), x)
+
+def or3(a: Bool, b: Bool, -c: Bool, +A: Bool, +B2: Bool, -C: Bool, h: {Bool.or(a, Bool.or(b, c)) == True{} : Bool}, ha: {a == True{} : Bool} -> {A == True{} : Bool}, hb: {b == True{} : Bool} -> {B2 == True{} : Bool}, hc: {c == True{} : Bool} -> {C == True{} : Bool}) -> {Bool.or(A, Bool.or(B2, C)) == True{} : Bool}:
+  match a:
+    case True{}:
+      or_lt(A, Bool.or(B2, C), ha({==}))
+    case False{}:
+      match b:
+        case True{}:
+          or_rt(A, Bool.or(B2, C), or_lt(B2, C, hb({==})))
+        case False{}:
+          or_rt(A, Bool.or(B2, C), or_rt(B2, C, hc(h)))
+
+# Every file `prune` removes is one that may go: a revision document
+# holding a revision it lets go, or a document or payload holding a digest
+# nothing it keeps needs.
+def may_go(+fs: List<&2, Main.Full>, +revs: List<&2, T.Split>, +bs: List<&2, Prune.Body>, +ps: List<&2, T.Split>, +x: String, h: {Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.plan(fs, revs, bs, ps))), x) == True{} : Bool}) -> {Bool.or(rev_goes(revs, fs, x), Bool.or(content_goes(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), fs, bs, x), content_goes(ps, fs, bs, x))) == True{} : Bool}:
+  +R = Prune.gone.revs(revs, Set.from_list(Rev.without(Main.ids(fs), Main.ids(Prune.kept(fs)))))
+  +O = Prune.gone.of(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), Prune.referenced(Prune.kept(fs), bs))
+  +P = Prune.gone.of(ps, Prune.referenced(Prune.kept(fs), bs))
+  +h2 = Equal.trans(Bool, Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, O, P)), x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, O, P)), x), Bool.or(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), O), x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), P), x)), {==}, member_paths(O, P, x))
+  +h1 = Equal.trans(Bool, Bool.or(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), R), x), Bool.or(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), O), x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), P), x))), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, R, List.append(&2, T.Split, O, P))), x), True{},
+    Equal.sym(Bool, Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, R, List.append(&2, T.Split, O, P))), x), Bool.or(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), R), x), Bool.or(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), O), x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), P), x))),
+      (%h2 : {Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), List.append(&2, T.Split, R, List.append(&2, T.Split, O, P))), x) == Bool.or(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), R), x), _) : Bool}
+        member_paths(R, List.append(&2, T.Split, O, P), x))), h)
+  or3(Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), R), x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), O), x), Rev.member(T.map(~T.Split, ~String, ~(q => Prune.split.path(q)), P), x), rev_goes(revs, fs, x), content_goes(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), fs, bs, x), content_goes(ps, fs, bs, x), h1,
+    ha => revs_go(revs, fs, x, ha), hb => content_go(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), fs, bs, x, hb), hc => content_go(ps, fs, bs, x, hc))
