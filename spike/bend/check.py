@@ -2541,14 +2541,21 @@ def check_mutations(temporary):
             "diff replays a file of lines its stated digest settles",
             "Planned{h, digest, Bool.and(lines, Bool.not(Bool.and(regular, same))), ",
             "Planned{h, digest, lines, ",
-            "plan_lemmas.replayed_unsettled",
+            "plan_lemmas.like_one",
             "commands.bend",
         ),
         (
             "diff reads a folder file the position holds as bytes",
             "Bool.and(regular, Bool.or(Bool.not(here.held(h)), Bool.and(lines, Bool.not(same))))}",
             "regular}",
-            "plan_lemmas.read_unsettled",
+            "plan_lemmas.like_one",
+            "commands.bend",
+        ),
+        (
+            "diff looks up a file's statement by its path",
+            "  maybe_eq(stated_digest(eds, origin(os, here.file(h))), Some{digest})",
+            "  maybe_eq(stated_digest(eds, origin(os, here.path(h))), Some{digest})",
+            "plan_lemmas.believed",
             "commands.bend",
         ),
         (

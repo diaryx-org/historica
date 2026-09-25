@@ -1014,29 +1014,51 @@ law diff_colour_changes_no_character:
   for +cs: List<&2, Main.Compared>
   {T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(True{}, cs)) == T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(False{}, cs)) : List<&2, String>}
 
-# `diff` over the folder believes the digest a statement gives a file of
-# lines. It replays at the position exactly the files of lines whose digest
-# no statement settles — not one the folder holds, as a regular file, with
-# the digest the file's nearest statement leaves — and never a file of
-# bytes or a link.
-law diff_folder_replays_what_is_unsettled:
+# `diff` over the folder compares like with like. For each path it plans,
+# what it replays at the position and what it reads from the folder follow
+# from what each side holds there. A file the position does not hold is
+# read where the folder holds a regular file, and nothing is replayed; a
+# file of bytes or a link the position holds is neither replayed nor read,
+# its digest or target compared instead; a file of lines the folder does
+# not hold as a regular file is replayed and nothing read; and a file of
+# lines the folder does hold as one is replayed exactly where the folder's
+# file is read — so the stand-in either side is given when it is not is
+# only ever compared with the other side's.
+law diff_folder_compares_like_with_like:
   for +dg: Map<&2, String>
   for +os: Map<&2, T.Split>
   for +eds: List<&2, Store.Doc>
   for +hs: List<&2, Main.Here>
-  {Main.planned.replayed(Main.plans(dg, os, eds, hs)) == Main.unsettled.files(dg, os, eds, hs) : List<&2, String>}
+  {Main.plans.like(Main.plans(dg, os, eds, hs)) == True{} : Bool}
 
-# And it reads from the folder exactly the regular files nothing at the
-# position settles: a path the position does not hold, or holds as a file
-# of lines whose stated digest is not the folder's — never one the position
-# holds as a file of bytes or a link, whose digest or target is compared
-# instead.
-law diff_folder_reads_what_is_unsettled:
+# And it believes the digest a statement gives a file of lines. Where the
+# file's nearest statement is `text` and a digest, and the host answered,
+# for the regular file the folder holds at its path, a word with no space
+# in it, a space and more, the folder's digest is that word; and the file
+# is replayed at the position and read from the folder exactly where that
+# word is not the digest the statement gives.
+law diff_folder_believes_a_stated_digest:
   for +dg: Map<&2, String>
   for +os: Map<&2, T.Split>
   for +eds: List<&2, Store.Doc>
-  for +hs: List<&2, Main.Here>
-  {Main.planned.read(Main.plans(dg, os, eds, hs)) == Main.unsettled.paths(dg, os, eds, hs) : List<&2, String>}
+  for +path: String
+  for +file: String
+  for +at: String
+  for +y: Maybe<&2, String>
+  for +g: Maybe<&2, Tree.Target>
+  for +m: Tree.Mode
+  for +fp: String
+  for +runs: Bool
+  for +size: Nat
+  for +d: String
+  for +os2: Map<&2, T.Split>
+  for ho: {Map.get(T.Split, T.Split{SNil{}, SNil{}}, os, file) == (os2, T.Split{"text", d}) : Map<&2, T.Split> & T.Split}
+  for +w: String
+  for hw: {T.all_chars(~(c => Bool.not(Char.is_eq(c, ' '))), w) == True{} : Bool}
+  for +more: String
+  for +dg2: Map<&2, String>
+  for hd: {Map.get(String, SNil{}, dg, path) == (dg2, w ++ (" " ++ more)) : Map<&2, String> & String}
+  {Main.plan(dg, os, eds, Main.Here{path, Some{Tree.Entry{file, at, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{fp, runs, size}}}) == Main.Planned{Main.Here{path, Some{Tree.Entry{file, at, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{fp, runs, size}}}, w, Bool.not(String.eq(d, w)), Bool.not(String.eq(d, w))} : Main.Planned}
 
 # `diff` gives a file of bytes the size the host stated for its payload, and
 # nothing else. Sizing what it compares changes no side but one whose size
