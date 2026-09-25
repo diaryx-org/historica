@@ -1975,32 +1975,37 @@ law reword_changes_only_the_message:
   for e: {Main.reword.r(fs, prev, standing, m, reviser, revised) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}
   {Main.reword.ok(prev, m, doc) == True{} : Bool}
 
-# What `record` states a file holds is what the folder holds there. Of
-# each file it drafts content for, an edit is the written form of the
-# document that replays the position's lines of that file to the lines
-# the folder holds — `befores` being the position's — text is the bytes
-# the folder holds, and a payload is named by the digest of the folder's.
+# What `record` states a file holds is what the folder holds there. Where
+# it reads what it edits of the position, of each file it drafts content
+# for, an edit applied to the store's replay of that file at the position
+# gives the lines the folder holds, text is the bytes the folder holds,
+# and a payload is named by the digest the folder's walk gave its path.
 law record_states_the_folder:
-  for +befores: List<&2, Main.Before>
-  for +t: Tree.Tree()
-  for +hs: List<&2, Main.Here>
+  for +older: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +left: String
   for +dg: Map<&2, String>
   for +reads: Map<&2, List<&2, U32>>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
   for +ks: List<&2, T.Split>
   for +moves: List<&2, T.Split>
   for +obs: List<&2, Sv.Obs>
   for +ls: List<&2, String>
   for +mint: List<&2, T.Split>
-  {Main.contents.state(befores, dg, reads, Main.drafted.contents(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
+  for +bs: List<&2, Main.Before>
+  for +e: {Main.befores.r(older, ds, left, Main.edited.lines(Sv.edited(obs), hs)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
+  {Main.contents.state(older, ds, left, dg, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
 
-# What `record` writes is named as it says. Each file arriving is added
-# under the identifier minted for it, in path order; the revision is named
-# by the digest of its own text, and filed under the name decision 0019
-# composes from its moment, its message and its change, extended only
-# where the store already holds a revision of that name; and each
-# bookmark it moves names the change of one of its parents.
+# What `record` writes is named as it says. The revision is filed under
+# the name decision 0019 composes from its moment, its message and its
+# change, or a longer one beginning with it, and under that name exactly
+# where no revision the store holds has it.
 law record_names_what_it_writes:
-  for w: Main.Writing
+  for +a: String
+  for +when: String
+  for +message: String
+  for +fl: Bool
   for +hex: String
   for +befores: List<&2, Main.Before>
   for +fs: List<&2, Main.Full>
@@ -2014,7 +2019,64 @@ law record_names_what_it_writes:
   for +moves: List<&2, T.Split>
   for +obs: List<&2, Sv.Obs>
   for +ls: List<&2, String>
-  {Main.record.named(w, Sv.sorted(Sv.added(obs)), Main.parents.changes(fs, ps), Main.record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)) == True{} : Bool}
+  {(String.starts_with(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))), String.eq(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))))) == (True{}, Bool.not(Rev.member(T.map(~Main.Full, ~String, ~(f => Naming.base_of(Main.full.named(f))), fs), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))))) : Bool & Bool}
+
+# Every bookmark on the change of a revision `record` records onto moves
+# with the work: of the bookmarks the store holds, one that names the
+# change of one of its parents is among those it moves.
+law record_moves_the_bookmarks_on_its_parents:
+  for +a: String
+  for +when: String
+  for +message: String
+  for +fl: Bool
+  for +hex: String
+  for +befores: List<&2, Main.Before>
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ps: List<&2, String>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +dg: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  for +i: Nat
+  for +n: String
+  for +c: String
+  for +pr: Bool
+  for hi: {List.get(&2, Bm.Bookmark, bs, i) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}
+  for +hc: {Rev.member(Main.parents.changes(fs, ps), c) == True{} : Bool}
+  exs j: Nat
+  {List.get(&2, Bm.Bookmark, Main.recorded.moving(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), j) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}
+
+# And no other moves: each bookmark `record` moves is one the store holds,
+# and names the change of one of its parents.
+law record_moves_only_the_bookmarks_on_its_parents:
+  for +a: String
+  for +when: String
+  for +message: String
+  for +fl: Bool
+  for +hex: String
+  for +befores: List<&2, Main.Before>
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ps: List<&2, String>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +dg: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  for +j: Nat
+  for b: Bm.Bookmark
+  for hj: {List.get(&2, Bm.Bookmark, Main.recorded.moving(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), j) == Some{b} : Maybe<&2, Bm.Bookmark>}
+  exs i: Nat
+  exs c: String
+  {(List.get(&2, Bm.Bookmark, bs, i), (Bm.target_of(b), Rev.member(Main.parents.changes(fs, ps), c))) == (Some{b}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}
 
 # What `record` goes on to write is the plan the survey made, as the
 # survey made it, and only one the survey settled: where the plan is not
@@ -2130,18 +2192,6 @@ law record_reads_lines_as_text:
   for +j: Nat
   for hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, "lines"}} : Maybe<&2, T.Split>}
   {Bool.and(Rev.member(Main.lined_added(ks, hs), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}
-
-# What `record` reads of the position, to state an edit against it, is
-# the store's replay of each file of lines it edits: one reading of each
-# file, in the order asked, where every replay succeeds.
-law record_reads_the_position:
-  for +older: List<&2, Main.Full>
-  for +ds: List<&2, Store.Doc>
-  for +left: String
-  for files: List<&2, String>
-  for bs: List<&2, Main.Before>
-  for e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
-  {Main.befores.read(older, ds, left, files, bs) == True{} : Bool}
 
 # An amendment keeps the identifiers it minted. Of the files arriving
 # against the amended revision's parents, each is given an identifier, in

@@ -7462,14 +7462,14 @@ def file_at(+mint: List<&2, T.Split>, +t: Tree.Tree(), +path: String) -> Maybe<&
 # What a record says a file holds now: an operation document, the text of
 # a file arriving, or a payload of bytes the folder still has.
 type Content is Data:
-  Content.Ops{file: String, path: String, doc: String}
+  Content.Ops{file: String, path: String, doc: Ops.Doc}
   Content.Text{file: String, path: String, bytes: List<&2, U32>}
   Content.Whole{file: String, path: String, digest: String}
 
 def content.held(c: Content) -> String:
   match c:
     case Content.Ops{f, p, doc}:
-      Sha.digest(Utf8.encode(doc))
+      Sha.digest(Utf8.encode(Ops.write(doc)))
     case Content.Text{f, p, bs}:
       Sha.digest(bs)
     case Content.Whole{f, p, d}:
@@ -7605,7 +7605,7 @@ def edited.content(+f: String, +p: String, d: Maybe<&2, Ops.Doc>) -> List<&2, Co
     case None{}:
       Nil{}
     case Some{doc}:
-      [Content.Ops{f, p, Ops.write(doc)}]
+      [Content.Ops{f, p, doc}]
 
 def stating.held(+edited: List<&2, String>, +befores: List<&2, Before>, +p: String, e: Maybe<&2, Tree.Entry>, +digest: String, +bs: List<&2, U32>) -> Stating:
   match e:
@@ -7789,7 +7789,7 @@ def advance(+st: Bool, +root: String, +change: String, bs: List<&2, Bm.Bookmark>
 def filed.one(+repo: String, +name: String, c: Content) -> IO(Result<&1, &1, U32 & String, String>):
   match c:
     case Content.Ops{f, p, doc}:
-      Store.filed(name ++ "\n" ++ doc)
+      Store.filed(name ++ "\n" ++ Ops.write(doc))
     case Content.Text{f, p, bs}:
       Store.filed(name ++ "\n" ++ Utf8.decode(bs))
     case Content.Whole{f, p, d}:
@@ -7875,23 +7875,16 @@ def drafted(+st: Bool, +root: String, +fs: List<&2, Full>, +ps: List<&2, String>
     return drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint)
 
 # What `record` states a file holds is what the folder holds there: an
-# edit is the written form of the document that replays the position's
-# lines of the file to the folder's, text is the folder's bytes, and a
-# payload is named by the digest of the folder's. `befores` is the
-# position's content of each file of lines. `LAWS.record_states_the_folder`.
+# edit, applied to the store's replay of the file at the position, gives
+# the lines the folder holds; text is the folder's bytes; and a payload is
+# named by the digest the folder's walk gave its path.
+# `LAWS.record_states_the_folder`.
 def content.applied(r: Result<&2, &2, String, List<&2, Ops.Item>>, +after: List<&2, Ops.Item>) -> Bool:
   match r:
     case Done{xs}:
       items_eq(xs, after)
     case Fail{e}:
       False{}
-
-def content.replays(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +doc: String, d: Maybe<&2, Ops.Doc>) -> Bool:
-  match d:
-    case None{}:
-      False{}
-    case Some{+x}:
-      Bool.and(String.eq(Ops.write(x), doc), content.applied(Ops.apply(before, x), after))
 
 def bytes.same(a: List<&2, U32>, b: List<&2, U32>) -> Bool:
   match a b:
@@ -7902,35 +7895,21 @@ def bytes.same(a: List<&2, U32>, b: List<&2, U32>) -> Bool:
     case _ _:
       False{}
 
-def content.states(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, c: Content) -> Bool:
+def content.states(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, c: Content) -> Bool:
   match c:
     case Content.Ops{+f, +p, +doc}:
-      +before = before_of(befores, f)
-      +after = Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))
-      content.replays(before, after, doc, Ops.diff(before, after))
+      content.applied(Result.bind(&2, &2, String, List<&2, Ops.Item>, List<&2, Ops.Item>, content.in(older, ds, left, f), before => Ops.apply(before, doc)), Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))))
     case Content.Text{f, +p, bs}:
       bytes.same(bs, bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))
     case Content.Whole{f, +p, d}:
       String.eq(d, status.folder_digest(dg, p))
 
-def contents.state(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
+def contents.state(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
   match cs:
     case Nil{}:
       True{}
     case c <> rest:
-      Bool.and(content.states(befores, dg, reads, c), contents.state(befores, dg, reads, rest))
-
-# The position's content `record` reads for the files it edits: one
-# reading of each file asked about, in order, and each the store's replay
-# of that file at the position. `LAWS.record_reads_the_position`.
-def befores.read(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>, bs: List<&2, Before>) -> Bool:
-  match files bs:
-    case +f <> rest Before{+g, +items} <> more:
-      Bool.and(String.eq(g, f), Bool.and(content.applied(content.in(older, ds, left, f), items), befores.read(older, ds, left, rest, more)))
-    case Nil{} Nil{}:
-      True{}
-    case _ _:
-      False{}
+      Bool.and(content.states(older, ds, left, dg, reads, c), contents.state(older, ds, left, dg, reads, rest))
 
 def drafted.contents(d: Drafted) -> List<&2, Content>:
   match d:
@@ -8002,11 +7981,28 @@ def record.write(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>, +
         befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(Sv.edited(obs), hs))
         record.written(st, root, repo, w, facts, ps, record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))
 
-# What a record writes is named as it says: each file arriving is added
-# under the identifier minted for it, in path order; the revision is named
-# by the digest of its text, and filed under the name its moment, message
-# and change compose; and each bookmark it moves names the change of one
-# of its parents. `LAWS.record_names_what_it_writes`.
+# What a record writes, read back: its change, the stem it is filed
+# under, and the bookmarks that follow the work.
+def recorded.change(r: Recorded) -> String:
+  match r:
+    case Recorded{mint, change, cs, doc, id, stem, moving}:
+      change
+
+def recorded.stem(r: Recorded) -> String:
+  match r:
+    case Recorded{mint, change, cs, doc, id, stem, moving}:
+      stem
+
+def recorded.id(r: Recorded) -> String:
+  match r:
+    case Recorded{mint, change, cs, doc, id, stem, moving}:
+      id
+
+def recorded.moving(r: Recorded) -> List<&2, Bm.Bookmark>:
+  match r:
+    case Recorded{mint, change, cs, doc, id, stem, moving}:
+      moving
+
 def strings.same(a: List<&2, String>, b: List<&2, String>) -> Bool:
   match a b:
     case x <> xs y <> ys:
@@ -8015,21 +8011,6 @@ def strings.same(a: List<&2, String>, b: List<&2, String>) -> Bool:
       True{}
     case _ _:
       False{}
-
-def follows(+changes: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> Bool:
-  match bs:
-    case Nil{}:
-      True{}
-    case Bm.Bookmark{n, Bm.Target.Change{+c}, p} <> rest:
-      Bool.and(Rev.member(changes, c), follows(changes, rest))
-    case b <> rest:
-      False{}
-
-def record.named(w: Writing, +arriving: List<&2, String>, +changes: List<&2, String>, r: Recorded) -> Bool:
-  match w r:
-    case Writing{a, +when, +message, f} Recorded{mint, +change, cs, +doc, +id, +stem, moving}:
-      Bool.and(strings.same(T.map(~T.Split, ~String, ~(s => split.head(s)), mint), arriving), Bool.and(String.eq(id, Sha.digest(Utf8.encode(Rev.write(doc)))),
-        Bool.and(String.starts_with(stem, Naming.compose(when, message, change)), follows(changes, moving))))
 
 def sorted_distinct(xs: List<&2, String>) -> List<&2, String>:
   distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))
