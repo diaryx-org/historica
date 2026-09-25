@@ -1,9 +1,9 @@
-# What `amend`, `abandon` and `carry` decide before they write.
+# What `amend`, `abandon` and `carry` decide before they write, and what
+# they say of it.
 #
-# A carry restates work without changing whose it is or when it was done:
-# each revision a plan writes keeps the change, author, moment and message
-# of the one it supersedes, supersedes that one alone, and is named by the
-# digest of its own text.
+# A carry reports each revision it writes by the name the store will read
+# it back under: the digest of the bytes it files, which `step.made` names
+# it by and `carry.write` files.
 import Base
 import ./commands.bend as Main
 import ./text.bend as T
@@ -16,8 +16,10 @@ import ./blamed_lemmas.bend as B
 import ./bookmark.bend as Bm
 import ./sort_lemmas.bend as SortL
 import ./status_lemmas.bend as StatusL
-import ./naming.bend as Naming
 import ./survey.bend as Sv
+import ./fetch_lemmas.bend as FetchL
+import ./chain_lemmas.bend as ChainL
+import ./diff_lemmas.bend as Diff
 
 def rdisc_s(-A: Data, r: Result<&2, &2, String, A>) -> Type:
   match r:
@@ -29,110 +31,118 @@ def rdisc_s(-A: Data, r: Result<&2, &2, String, A>) -> Type:
 def done_eq_str(-A: Data, -a: A, -b: A, h: {Done{a} == Done{b} : Result<&2, &2, String, A>}) -> {a == b : A}:
   Equal.cong(Result<&2, &2, String, A>, A, r => Result.default(&2, &2, String, A, r, a), Done{a}, Done{b}, h)
 
-# Carrying keeps what it restates
-# -------------------------------
+# What carrying says it files
+# ---------------------------
 
-def made_kept(+fs: List<&2, Main.Full>, +id: String, +i: String, +change: String, +ps: List<&2, String>, +ss: List<&2, String>, +author: String, +when: String, +rb: Maybe<&2, String>, +rv: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, w: Main.Worked, hf: {Main.find(fs, id) == Some{Main.Full{i, change, ps, ss, author, when, rb, rv, facts, message}} : Maybe<&2, Main.Full>}) -> {Main.step.kept(fs, Main.step.made(id, change, author, when, message, w)) == True{} : Bool}:
+# The store's name for a document is the digest of its bytes, wherever it
+# is filed.
+def named_by_digest(+path: String, bs: List<&2, U32>) -> {Store.id_of(Store.doc_of(path, bs)) == Sha.digest(bs) : String}:
+  {==}
+
+# A step reports as its identifier what the store will call its text.
+def made_filed(+path: String, +id: String, +change: String, +author: String, +when: String, +message: String, w: Main.Worked) -> {Main.step.id(Main.step.made(id, change, author, when, message, w)) == Main.step.filed(path, Main.step.made(id, change, author, when, message, w)) : String}:
   match w:
     case Main.Worked{+parents, +nf, +stamp, onto, restated, writes, moving}:
-      +doc = {Rev.Rev{change, parents, [id], author, when, Main.revised_by(Main.split.rest(stamp), author), Some{Main.split.head(stamp)}, nf, message} : Rev.Rev}
-      %Equal.sym(Maybe<&2, Main.Full>, Main.find(fs, id), Some{Main.Full{i, change, ps, ss, author, when, rb, rv, facts, message}}, hf) : {Bool.and(String.eq(Sha.digest(Utf8.encode(Rev.write(doc))), Sha.digest(Utf8.encode(Rev.write(doc)))), Main.rev.kept(id, _, doc)) == True{} : Bool}
-      B.and_tt(String.eq(Sha.digest(Utf8.encode(Rev.write(doc))), Sha.digest(Utf8.encode(Rev.write(doc)))), Main.rev.kept(id, Some{Main.Full{i, change, ps, ss, author, when, rb, rv, facts, message}}, doc), S.eq_refl(Sha.digest(Utf8.encode(Rev.write(doc)))),
-        B.and_tt(String.eq(change, change), Bool.and(String.eq(author, author), Bool.and(String.eq(when, when), Bool.and(String.eq(message, message), String.eq(id, id)))), S.eq_refl(change),
-        B.and_tt(String.eq(author, author), Bool.and(String.eq(when, when), Bool.and(String.eq(message, message), String.eq(id, id))), S.eq_refl(author),
-        B.and_tt(String.eq(when, when), Bool.and(String.eq(message, message), String.eq(id, id)), S.eq_refl(when),
-        B.and_tt(String.eq(message, message), String.eq(id, id), S.eq_refl(message), S.eq_refl(id))))))
+      +text = Rev.write(Rev.Rev{change, parents, [id], author, when, Main.revised_by(Main.split.rest(stamp), author), Some{Main.split.head(stamp)}, nf, message})
+      Equal.sym(String, Store.id_of(Store.doc_of(path, Utf8.encode(text))), Sha.digest(Utf8.encode(text)), named_by_digest(path, Utf8.encode(text)))
 
-def mapped_kept(+fs: List<&2, Main.Full>, +id: String, +i: String, +change: String, +ps: List<&2, String>, +ss: List<&2, String>, +author: String, +when: String, +rb: Maybe<&2, String>, +rv: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, r: Result<&2, &2, String, Main.Worked>, +s: Main.Step, hf: {Main.find(fs, id) == Some{Main.Full{i, change, ps, ss, author, when, rb, rv, facts, message}} : Maybe<&2, Main.Full>}, e: {Result.map(&2, &2, String, Main.Worked, Main.Step, w => Main.step.made(id, change, author, when, message, w), r) == Done{s} : Result<&2, &2, String, Main.Step>}) -> {Main.step.kept(fs, s) == True{} : Bool}:
+def mapped_filed(+path: String, +id: String, +change: String, +author: String, +when: String, +message: String, r: Result<&2, &2, String, Main.Worked>, +s: Main.Step, e: {Result.map(&2, &2, String, Main.Worked, Main.Step, w => Main.step.made(id, change, author, when, message, w), r) == Done{s} : Result<&2, &2, String, Main.Step>}) -> {Main.step.id(s) == Main.step.filed(path, s) : String}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.step.kept(fs, s) == True{} : Bool}, B.fail_done_s(Main.Step, x, s, e))
+      Empty.absurd({Main.step.id(s) == Main.step.filed(path, s) : String}, B.fail_done_s(Main.Step, x, s, e))
     case Done{+w}:
-      %done_eq_str(Main.Step, Main.step.made(id, change, author, when, message, w), s, e) : {Main.step.kept(fs, _) == True{} : Bool}
-      made_kept(fs, id, i, change, ps, ss, author, when, rb, rv, facts, message, w, hf)
+      %done_eq_str(Main.Step, Main.step.made(id, change, author, when, message, w), s, e) : {Main.step.id(_) == Main.step.filed(path, _) : String}
+      made_filed(path, id, change, author, when, message, w)
 
-# The step `step.of` works out for a revision the store holds keeps it.
-def step_kept(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +docs: List<&2, Main.Full>, +id: String, prev: Main.Full, +mapped: List<&2, Main.Mapped>, +authored: Maybe<&2, T.Split>, +s: Main.Step, hf: {Main.find(fs, id) == Some{prev} : Maybe<&2, Main.Full>}, e: {Main.step.of(fs, ds, docs, id, prev, mapped, authored) == Done{s} : Result<&2, &2, String, Main.Step>}) -> {Main.step.kept(fs, s) == True{} : Bool}:
+# The step `step.of` works out reports what the store will call its text.
+def step_filed(+path: String, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +docs: List<&2, Main.Full>, +id: String, prev: Main.Full, +mapped: List<&2, Main.Mapped>, +authored: Maybe<&2, T.Split>, +s: Main.Step, e: {Main.step.of(fs, ds, docs, id, prev, mapped, authored) == Done{s} : Result<&2, &2, String, Main.Step>}) -> {Main.step.id(s) == Main.step.filed(path, s) : String}:
   match prev:
     case Main.Full{+i, +change, +ps, +ss, +author, +when, +rb, +rv, +facts, +message}:
-      mapped_kept(fs, id, i, change, ps, ss, author, when, rb, rv, facts, message, Main.step.worked(fs, ds, docs, id, ps, facts, mapped, authored), s, hf, e)
+      mapped_filed(path, id, change, author, when, message, Main.step.worked(fs, ds, docs, id, ps, facts, mapped, authored), s, e)
 
-def kept_cons(+fs: List<&2, Main.Full>, +s: Main.Step, +more: List<&2, Main.Step>, -steps: List<&2, Main.Step>, e: {Done{s <> more} == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, hs: {Main.step.kept(fs, s) == True{} : Bool}, hm: {Main.steps.kept(fs, more) == True{} : Bool}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
-  %done_eq_str(List<&2, Main.Step>, s <> more, steps, e) : {Main.steps.kept(fs, _) == True{} : Bool}
-  B.and_tt(Main.step.kept(fs, s), Main.steps.kept(fs, more), hs, hm)
+def filed_one(+path: String, s: Main.Step, +more: List<&2, Main.Step>, hs: {Main.step.id(s) == Main.step.filed(path, s) : String}, hm: {Main.carried.ids(more) == Main.steps.filed(path, more) : List<&2, String>}) -> {Main.carried.ids(s <> more) == Main.steps.filed(path, s <> more) : List<&2, String>}:
+  match s:
+    case Main.Step{+p, +id, +o, +d, +r, +w, +m}:
+      Equal.trans(List<&2, String>, id <> Main.carried.ids(more), Main.step.filed(path, Main.Step{p, id, o, d, r, w, m}) <> Main.carried.ids(more), Main.step.filed(path, Main.Step{p, id, o, d, r, w, m}) <> Main.steps.filed(path, more),
+        Equal.cong(String, List<&2, String>, x => x <> Main.carried.ids(more), id, Main.step.filed(path, Main.Step{p, id, o, d, r, w, m}), hs),
+        Equal.cong(List<&2, String>, List<&2, String>, l => Main.step.filed(path, Main.Step{p, id, o, d, r, w, m}) <> l, Main.carried.ids(more), Main.steps.filed(path, more), hm))
 
-def go4(+fs: List<&2, Main.Full>, +s: Main.Step, r: Result<&2, &2, String, List<&2, Main.Step>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, List<&2, Main.Step>, List<&2, Main.Step>, r, more => Done{s <> more}) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, hs: {Main.step.kept(fs, s) == True{} : Bool}, ih: @more: List<&2, Main.Step> -> {r == Done{more} : Result<&2, &2, String, List<&2, Main.Step>>} -> {Main.steps.kept(fs, more) == True{} : Bool}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+def filed_cons(+path: String, +s: Main.Step, +more: List<&2, Main.Step>, -steps: List<&2, Main.Step>, e: {Done{s <> more} == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, hs: {Main.step.id(s) == Main.step.filed(path, s) : String}, hm: {Main.carried.ids(more) == Main.steps.filed(path, more) : List<&2, String>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
+  %done_eq_str(List<&2, Main.Step>, s <> more, steps, e) : {Main.carried.ids(_) == Main.steps.filed(path, _) : List<&2, String>}
+  filed_one(path, s, more, hs, hm)
+
+def fgo4(+path: String, +s: Main.Step, r: Result<&2, &2, String, List<&2, Main.Step>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, List<&2, Main.Step>, List<&2, Main.Step>, r, more => Done{s <> more}) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, hs: {Main.step.id(s) == Main.step.filed(path, s) : String}, ih: @more: List<&2, Main.Step> -> {r == Done{more} : Result<&2, &2, String, List<&2, Main.Step>>} -> {Main.carried.ids(more) == Main.steps.filed(path, more) : List<&2, String>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.steps.kept(fs, steps) == True{} : Bool}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
+      Empty.absurd({Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
     case Done{+more}:
-      kept_cons(fs, s, more, steps, e, hs, ih(more, {==}))
+      filed_cons(path, s, more, steps, e, hs, ih(more, {==}))
 
-def go3(+rest: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +mv: Maybe<&2, Main.Moved>, +stamp: Maybe<&2, T.Split>, +docs: List<&2, Main.Full>, +planned: List<&2, T.Split>, +handed: List<&2, Main.Handed>, +id: String, prev: Main.Full, +mapped: List<&2, Main.Mapped>, r: Result<&2, &2, String, Main.Step>, -steps: List<&2, Main.Step>, er: {Main.step.of(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp)) == r : Result<&2, &2, String, Main.Step>}, hf: {Main.find(fs, id) == Some{prev} : Maybe<&2, Main.Full>}, e: {Result.bind(&2, &2, String, Main.Step, List<&2, Main.Step>, r, step => Result.bind(&2, &2, String, List<&2, Main.Step>, List<&2, Main.Step>, Main.steps.go(rest, fs, ds, mv, stamp, Main.step.full(step) <> docs, T.Split{id, Main.step.id(step)} <> planned, Main.step.handed(step) <> handed), more => Done{step <> more})) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, ih: @docs2: List<&2, Main.Full> -> @planned2: List<&2, T.Split> -> @handed2: List<&2, Main.Handed> -> @more: List<&2, Main.Step> -> {Main.steps.go(rest, fs, ds, mv, stamp, docs2, planned2, handed2) == Done{more} : Result<&2, &2, String, List<&2, Main.Step>>} -> {Main.steps.kept(fs, more) == True{} : Bool}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+def fgo3(+path: String, +rest: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +mv: Maybe<&2, Main.Moved>, +stamp: Maybe<&2, T.Split>, +docs: List<&2, Main.Full>, +planned: List<&2, T.Split>, +handed: List<&2, Main.Handed>, +id: String, prev: Main.Full, +mapped: List<&2, Main.Mapped>, r: Result<&2, &2, String, Main.Step>, -steps: List<&2, Main.Step>, er: {Main.step.of(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp)) == r : Result<&2, &2, String, Main.Step>}, e: {Result.bind(&2, &2, String, Main.Step, List<&2, Main.Step>, r, step => Result.bind(&2, &2, String, List<&2, Main.Step>, List<&2, Main.Step>, Main.steps.go(rest, fs, ds, mv, stamp, Main.step.full(step) <> docs, T.Split{id, Main.step.id(step)} <> planned, Main.step.handed(step) <> handed), more => Done{step <> more})) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, ih: @docs2: List<&2, Main.Full> -> @planned2: List<&2, T.Split> -> @handed2: List<&2, Main.Handed> -> @more: List<&2, Main.Step> -> {Main.steps.go(rest, fs, ds, mv, stamp, docs2, planned2, handed2) == Done{more} : Result<&2, &2, String, List<&2, Main.Step>>} -> {Main.carried.ids(more) == Main.steps.filed(path, more) : List<&2, String>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.steps.kept(fs, steps) == True{} : Bool}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
+      Empty.absurd({Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
     case Done{+s}:
-      go4(fs, s, Main.steps.go(rest, fs, ds, mv, stamp, Main.step.full(s) <> docs, T.Split{id, Main.step.id(s)} <> planned, Main.step.handed(s) <> handed), steps, e,
-        step_kept(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp), s, hf, er),
+      fgo4(path, s, Main.steps.go(rest, fs, ds, mv, stamp, Main.step.full(s) <> docs, T.Split{id, Main.step.id(s)} <> planned, Main.step.handed(s) <> handed), steps, e,
+        step_filed(path, fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp), s, er),
         more => h => ih(Main.step.full(s) <> docs, T.Split{id, Main.step.id(s)} <> planned, Main.step.handed(s) <> handed, more, h))
 
-def go2(+rest: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +mv: Maybe<&2, Main.Moved>, +stamp: Maybe<&2, T.Split>, +docs: List<&2, Main.Full>, +planned: List<&2, T.Split>, +handed: List<&2, Main.Handed>, +id: String, +prev: Main.Full, r: Result<&2, &2, String, List<&2, Main.Mapped>>, -steps: List<&2, Main.Step>, hf: {Main.find(fs, id) == Some{prev} : Maybe<&2, Main.Full>}, e: {Result.bind(&2, &2, String, List<&2, Main.Mapped>, List<&2, Main.Step>, r, mapped => Result.bind(&2, &2, String, Main.Step, List<&2, Main.Step>, Main.step.of(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp)), step => Result.bind(&2, &2, String, List<&2, Main.Step>, List<&2, Main.Step>, Main.steps.go(rest, fs, ds, mv, stamp, Main.step.full(step) <> docs, T.Split{id, Main.step.id(step)} <> planned, Main.step.handed(step) <> handed), more => Done{step <> more}))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, ih: @docs2: List<&2, Main.Full> -> @planned2: List<&2, T.Split> -> @handed2: List<&2, Main.Handed> -> @more: List<&2, Main.Step> -> {Main.steps.go(rest, fs, ds, mv, stamp, docs2, planned2, handed2) == Done{more} : Result<&2, &2, String, List<&2, Main.Step>>} -> {Main.steps.kept(fs, more) == True{} : Bool}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+def fgo2(+path: String, +rest: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +mv: Maybe<&2, Main.Moved>, +stamp: Maybe<&2, T.Split>, +docs: List<&2, Main.Full>, +planned: List<&2, T.Split>, +handed: List<&2, Main.Handed>, +id: String, +prev: Main.Full, r: Result<&2, &2, String, List<&2, Main.Mapped>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, List<&2, Main.Mapped>, List<&2, Main.Step>, r, mapped => Result.bind(&2, &2, String, Main.Step, List<&2, Main.Step>, Main.step.of(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp)), step => Result.bind(&2, &2, String, List<&2, Main.Step>, List<&2, Main.Step>, Main.steps.go(rest, fs, ds, mv, stamp, Main.step.full(step) <> docs, T.Split{id, Main.step.id(step)} <> planned, Main.step.handed(step) <> handed), more => Done{step <> more}))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, ih: @docs2: List<&2, Main.Full> -> @planned2: List<&2, T.Split> -> @handed2: List<&2, Main.Handed> -> @more: List<&2, Main.Step> -> {Main.steps.go(rest, fs, ds, mv, stamp, docs2, planned2, handed2) == Done{more} : Result<&2, &2, String, List<&2, Main.Step>>} -> {Main.carried.ids(more) == Main.steps.filed(path, more) : List<&2, String>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.steps.kept(fs, steps) == True{} : Bool}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
+      Empty.absurd({Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
     case Done{+mapped}:
-      go3(rest, fs, ds, mv, stamp, docs, planned, handed, id, prev, mapped, Main.step.of(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp)), steps, {==}, hf, e, ih)
+      fgo3(path, rest, fs, ds, mv, stamp, docs, planned, handed, id, prev, mapped, Main.step.of(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp)), steps, {==}, e, ih)
 
-def go1(+rest: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +mv: Maybe<&2, Main.Moved>, +stamp: Maybe<&2, T.Split>, +docs: List<&2, Main.Full>, +planned: List<&2, T.Split>, +handed: List<&2, Main.Handed>, +id: String, f: Maybe<&2, Main.Full>, -steps: List<&2, Main.Step>, hf: {Main.find(fs, id) == f : Maybe<&2, Main.Full>}, e: {Result.bind(&2, &2, String, Main.Full, List<&2, Main.Step>, Main.held.r(f), prev => Result.bind(&2, &2, String, List<&2, Main.Mapped>, List<&2, Main.Step>, Main.mapped.all(fs, ds, planned, handed, id, mv, Main.sorted(Main.parents_of(prev))), mapped => Result.bind(&2, &2, String, Main.Step, List<&2, Main.Step>, Main.step.of(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp)), step => Result.bind(&2, &2, String, List<&2, Main.Step>, List<&2, Main.Step>, Main.steps.go(rest, fs, ds, mv, stamp, Main.step.full(step) <> docs, T.Split{id, Main.step.id(step)} <> planned, Main.step.handed(step) <> handed), more => Done{step <> more})))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, ih: @docs2: List<&2, Main.Full> -> @planned2: List<&2, T.Split> -> @handed2: List<&2, Main.Handed> -> @more: List<&2, Main.Step> -> {Main.steps.go(rest, fs, ds, mv, stamp, docs2, planned2, handed2) == Done{more} : Result<&2, &2, String, List<&2, Main.Step>>} -> {Main.steps.kept(fs, more) == True{} : Bool}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+def fgo1(+path: String, +rest: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +mv: Maybe<&2, Main.Moved>, +stamp: Maybe<&2, T.Split>, +docs: List<&2, Main.Full>, +planned: List<&2, T.Split>, +handed: List<&2, Main.Handed>, +id: String, f: Maybe<&2, Main.Full>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, Main.Full, List<&2, Main.Step>, Main.held.r(f), prev => Result.bind(&2, &2, String, List<&2, Main.Mapped>, List<&2, Main.Step>, Main.mapped.all(fs, ds, planned, handed, id, mv, Main.sorted(Main.parents_of(prev))), mapped => Result.bind(&2, &2, String, Main.Step, List<&2, Main.Step>, Main.step.of(fs, ds, docs, id, prev, mapped, Main.authored.of(id, mv, stamp)), step => Result.bind(&2, &2, String, List<&2, Main.Step>, List<&2, Main.Step>, Main.steps.go(rest, fs, ds, mv, stamp, Main.step.full(step) <> docs, T.Split{id, Main.step.id(step)} <> planned, Main.step.handed(step) <> handed), more => Done{step <> more})))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}, ih: @docs2: List<&2, Main.Full> -> @planned2: List<&2, T.Split> -> @handed2: List<&2, Main.Handed> -> @more: List<&2, Main.Step> -> {Main.steps.go(rest, fs, ds, mv, stamp, docs2, planned2, handed2) == Done{more} : Result<&2, &2, String, List<&2, Main.Step>>} -> {Main.carried.ids(more) == Main.steps.filed(path, more) : List<&2, String>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match f:
     case None{}:
-      Empty.absurd({Main.steps.kept(fs, steps) == True{} : Bool}, B.fail_done_s(List<&2, Main.Step>, "a member of the plan is not held", steps, e))
+      Empty.absurd({Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}, B.fail_done_s(List<&2, Main.Step>, "a member of the plan is not held", steps, e))
     case Some{+prev}:
-      go2(rest, fs, ds, mv, stamp, docs, planned, handed, id, prev, Main.mapped.all(fs, ds, planned, handed, id, mv, Main.sorted(Main.parents_of(prev))), steps, hf, e, ih)
+      fgo2(path, rest, fs, ds, mv, stamp, docs, planned, handed, id, prev, Main.mapped.all(fs, ds, planned, handed, id, mv, Main.sorted(Main.parents_of(prev))), steps, e, ih)
 
-# Every step a plan works out keeps what it restates, whatever order it
-# is handed and whatever the steps before it wrote.
-def steps_kept(order: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +mv: Maybe<&2, Main.Moved>, +stamp: Maybe<&2, T.Split>, +docs: List<&2, Main.Full>, +planned: List<&2, T.Split>, +handed: List<&2, Main.Handed>, -steps: List<&2, Main.Step>, e: {Main.steps.go(order, fs, ds, mv, stamp, docs, planned, handed) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+# Every step a plan works out reports what the store will call its text,
+# whatever order it is handed and whatever the steps before it wrote.
+def steps_filed(+path: String, order: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +mv: Maybe<&2, Main.Moved>, +stamp: Maybe<&2, T.Split>, +docs: List<&2, Main.Full>, +planned: List<&2, T.Split>, +handed: List<&2, Main.Handed>, -steps: List<&2, Main.Step>, e: {Main.steps.go(order, fs, ds, mv, stamp, docs, planned, handed) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match order:
     case Nil{}:
-      %done_eq_str(List<&2, Main.Step>, Nil{}, steps, e) : {Main.steps.kept(fs, _) == True{} : Bool}
+      %done_eq_str(List<&2, Main.Step>, Nil{}, steps, e) : {Main.carried.ids(_) == Main.steps.filed(path, _) : List<&2, String>}
       {==}
     case +id <> +rest:
-      go1(rest, fs, ds, mv, stamp, docs, planned, handed, id, Main.find(fs, id), steps, {==}, e,
-        docs2 => planned2 => handed2 => more => h => steps_kept(rest, fs, ds, mv, stamp, docs2, planned2, handed2, more, h))
+      fgo1(path, rest, fs, ds, mv, stamp, docs, planned, handed, id, Main.find(fs, id), steps, e,
+        docs2 => planned2 => handed2 => more => h => steps_filed(path, rest, fs, ds, mv, stamp, docs2, planned2, handed2, more, h))
 
-def plan4(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +fuel: Nat, +mv: Maybe<&2, Main.Moved>, r: Result<&2, &2, String, List<&2, Main.Dep>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, List<&2, Main.Dep>, List<&2, Main.Step>, r, ds2 => Main.steps.go(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{})) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+def fplan4(+path: String, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +fuel: Nat, +mv: Maybe<&2, Main.Moved>, r: Result<&2, &2, String, List<&2, Main.Dep>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, List<&2, Main.Dep>, List<&2, Main.Step>, r, ds2 => Main.steps.go(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{})) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.steps.kept(fs, steps) == True{} : Bool}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
+      Empty.absurd({Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
     case Done{+ds2}:
-      steps_kept(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{}, steps, e)
+      steps_filed(path, Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{}, steps, e)
 
-def plan3(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +fuel: Nat, +mv: Maybe<&2, Main.Moved>, +set: List<&2, String>, r: Result<&2, &2, String, Unit>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, Unit, List<&2, Main.Step>, r, i => Result.bind(&2, &2, String, List<&2, Main.Dep>, List<&2, Main.Step>, Main.deps.r(fs, set, set), ds2 => Main.steps.go(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{}))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+def fplan3(+path: String, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +fuel: Nat, +mv: Maybe<&2, Main.Moved>, +set: List<&2, String>, r: Result<&2, &2, String, Unit>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, Unit, List<&2, Main.Step>, r, i => Result.bind(&2, &2, String, List<&2, Main.Dep>, List<&2, Main.Step>, Main.deps.r(fs, set, set), ds2 => Main.steps.go(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{}))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.steps.kept(fs, steps) == True{} : Bool}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
+      Empty.absurd({Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
     case Done{i}:
-      plan4(fs, ds, c, fuel, mv, Main.deps.r(fs, set, set), steps, e)
+      fplan4(path, fs, ds, c, fuel, mv, Main.deps.r(fs, set, set), steps, e)
 
-def plan2(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +fuel: Nat, +mv: Maybe<&2, Main.Moved>, r: Result<&2, &2, String, List<&2, String>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, List<&2, String>, List<&2, Main.Step>, r, start => Result.bind(&2, &2, String, Unit, List<&2, Main.Step>, Main.onto.inside(Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), mv), i => Result.bind(&2, &2, String, List<&2, Main.Dep>, List<&2, Main.Step>, Main.deps.r(fs, Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), Main.sorted(Main.closure(fuel, fs, Main.sorted(start)))), ds2 => Main.steps.go(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{})))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+def fplan2(+path: String, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +fuel: Nat, +mv: Maybe<&2, Main.Moved>, r: Result<&2, &2, String, List<&2, String>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, List<&2, String>, List<&2, Main.Step>, r, start => Result.bind(&2, &2, String, Unit, List<&2, Main.Step>, Main.onto.inside(Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), mv), i => Result.bind(&2, &2, String, List<&2, Main.Dep>, List<&2, Main.Step>, Main.deps.r(fs, Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), Main.sorted(Main.closure(fuel, fs, Main.sorted(start)))), ds2 => Main.steps.go(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{})))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.steps.kept(fs, steps) == True{} : Bool}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
+      Empty.absurd({Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
     case Done{+start}:
-      plan3(fs, ds, c, fuel, mv, Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), Main.onto.inside(Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), mv), steps, e)
+      fplan3(path, fs, ds, c, fuel, mv, Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), Main.onto.inside(Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), mv), steps, e)
 
-def plan1(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +fuel: Nat, r: Result<&2, &2, String, Maybe<&2, Main.Moved>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, Maybe<&2, Main.Moved>, List<&2, Main.Step>, r, mv => Result.bind(&2, &2, String, List<&2, String>, List<&2, Main.Step>, Main.carrying.start(fs, c), start => Result.bind(&2, &2, String, Unit, List<&2, Main.Step>, Main.onto.inside(Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), mv), i => Result.bind(&2, &2, String, List<&2, Main.Dep>, List<&2, Main.Step>, Main.deps.r(fs, Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), Main.sorted(Main.closure(fuel, fs, Main.sorted(start)))), ds2 => Main.steps.go(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{}))))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
+def fplan1(+path: String, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +fuel: Nat, r: Result<&2, &2, String, Maybe<&2, Main.Moved>>, -steps: List<&2, Main.Step>, e: {Result.bind(&2, &2, String, Maybe<&2, Main.Moved>, List<&2, Main.Step>, r, mv => Result.bind(&2, &2, String, List<&2, String>, List<&2, Main.Step>, Main.carrying.start(fs, c), start => Result.bind(&2, &2, String, Unit, List<&2, Main.Step>, Main.onto.inside(Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), mv), i => Result.bind(&2, &2, String, List<&2, Main.Dep>, List<&2, Main.Step>, Main.deps.r(fs, Main.sorted(Main.closure(fuel, fs, Main.sorted(start))), Main.sorted(Main.closure(fuel, fs, Main.sorted(start)))), ds2 => Main.steps.go(Main.order.go(fuel, ds2, Nil{}), fs, ds, mv, Main.carrying.stamp(c), Nil{}, Nil{}, Nil{}))))) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.steps.kept(fs, steps) == True{} : Bool}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
+      Empty.absurd({Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}, B.fail_done_s(List<&2, Main.Step>, x, steps, e))
     case Done{+mv}:
-      plan2(fs, ds, c, fuel, mv, Main.carrying.start(fs, c), steps, e)
+      fplan2(path, fs, ds, c, fuel, mv, Main.carrying.start(fs, c), steps, e)
 
-# Every revision a carry plans keeps what it restates.
-def plan_kept(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, -steps: List<&2, Main.Step>, e: {Main.carry.plan(fs, ds, c) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
-  plan1(fs, ds, c, Nat.add(List.length(&2, Main.Full, fs), 1n), Main.carrying.move(fs, c), steps, e)
+# Every revision a carry plans reports what the store will call its text.
+def plan_filed(+path: String, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, -steps: List<&2, Main.Step>, e: {Main.carry.plan(fs, ds, c) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.carried.ids(steps) == Main.steps.filed(path, steps) : List<&2, String>}:
+  fplan1(path, fs, ds, c, Nat.add(List.length(&2, Main.Full, fs), 1n), Main.carrying.move(fs, c), steps, e)
 
 # Abandoning takes a line
 # -----------------------
@@ -314,30 +324,48 @@ def reword_ok(+fs: List<&2, Main.Full>, prev: Main.Full, +standing: List<&2, Str
     case Main.Full{+id, +change, +parents, +ss, +author, +when, +rb, +rv, +facts, +message}:
       reword1(fs, standing, m, id, change, parents, ss, author, when, rb, rv, facts, message, reviser, revised, Main.already.r(fs, id), doc, e)
 
-# What is rewritten is held
-# -------------------------
+# What is rewritten is what was asked for
+# ----------------------------------------
 
-def head_held(+fs: List<&2, Main.Full>, h: Maybe<&2, String>, +f: Main.Full, e: {Main.amend.head.r(fs, h) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
-  match h:
+# A result that is not `Done` is not the one a command went on with.
+def not_done(-A: Data, -r: Result<&2, &2, Main.Refused, A>, -x: A, e: {r == Done{x} : Result<&2, &2, Main.Refused, A>}, u: B.rdisc(A, r)) -> Empty:
+  %e : {B.rdisc(A, _) : Type}
+  u
+
+# What `find` finds under an identifier is filed under it.
+def found_is(+fs: List<&2, Main.Full>, +id: String, m: Maybe<&2, Main.Full>, em: {Main.find(fs, id) == m : Maybe<&2, Main.Full>}, -f: Main.Full, e: {Main.resolved.found.r(id, m) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {id == Main.id_of(f) : String}:
+  match m:
     case None{}:
-      Empty.absurd({Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, B.fail_done(Main.Full, Main.Refused{1, "this store holds no revisions yet, so there is nothing to rewrite"}, f, e))
-    case Some{+id}:
-      B.found_mem(fs, id, Main.find(fs, id), {==}, f, e)
+      Empty.absurd({id == Main.id_of(f) : String}, not_done(Main.Full, Main.resolved.found.r(id, None{}), f, e, Unit{}))
+    case Some{+g}:
+      %B.done_eq(Main.Full, g, f, e) : {id == Main.id_of(_) : String}
+      S.eq_true(id, Main.id_of(g), ChainL.find_id(fs, id, g, em))
 
-def the_head_held(+fs: List<&2, Main.Full>, r: Result<&2, &2, Main.Refused, Maybe<&2, String>>, +f: Main.Full, e: {Result.bind(&2, &2, Main.Refused, Maybe<&2, String>, Main.Full, r, h => Main.amend.head.r(fs, h)) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
+def named_is(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +s: String, r: Result<&2, &2, String, String>, er: {Main.resolve(fs, bs, s) == r : Result<&2, &2, String, String>}, -f: Main.Full, e: {Main.resolved.of.r(fs, r) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Main.resolve(fs, bs, s) == Done{Main.id_of(f)} : Result<&2, &2, String, String>}:
   match r:
     case Fail{x}:
-      Empty.absurd({Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, B.fail_done(Main.Full, x, f, e))
-    case Done{h}:
-      head_held(fs, h, f, e)
+      Empty.absurd({Main.resolve(fs, bs, s) == Done{Main.id_of(f)} : Result<&2, &2, String, String>}, not_done(Main.Full, Main.resolved.of.r(fs, Fail{x}), f, e, Unit{}))
+    case Done{+id}:
+      Equal.trans(Result<&2, &2, String, String>, Main.resolve(fs, bs, s), Done{id}, Done{Main.id_of(f)}, er,
+        Equal.cong(String, Result<&2, &2, String, String>, y => Done{y}, id, Main.id_of(f), found_is(fs, id, Main.find(fs, id), {==}, f, e)))
 
-# What `amend` rewrites is a revision the store holds.
-def amend_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>, +f: Main.Full, e: {Main.amend.target.r(fs, bs, named) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}:
-  match named:
-    case Some{+s}:
-      B.resolved_mem(fs, bs, s, f, e)
-    case None{}:
-      the_head_held(fs, Main.the_head.r(fs, bs, Main.current_heads(Main.history(fs))), f, e)
+# What `amend` rewrites, where a target is named, is the revision that
+# target resolves to.
+def amend_named(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +s: String, -f: Main.Full, e: {Main.amend.target.r(fs, bs, Some{s}) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Main.resolve(fs, bs, s) == Done{Main.id_of(f)} : Result<&2, &2, String, String>}:
+  named_is(fs, bs, s, Main.resolve(fs, bs, s), {==}, f, e)
+
+def one_head(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, heads: List<&2, String>, -f: Main.Full, e: {Result.bind(&2, &2, Main.Refused, Maybe<&2, String>, Main.Full, Main.the_head.r(fs, bs, heads), h => Main.amend.head.r(fs, h)) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {heads == [Main.id_of(f)] : List<&2, String>}:
+  match heads:
+    case Nil{}:
+      Empty.absurd({Nil{} == [Main.id_of(f)] : List<&2, String>}, not_done(Main.Full, Main.amend.head.r(fs, None{}), f, e, Unit{}))
+    case +x <> Nil{}:
+      Equal.cong(String, List<&2, String>, y => [y], x, Main.id_of(f), found_is(fs, x, Main.find(fs, x), {==}, f, e))
+    case +x <> +y <> +rest:
+      Empty.absurd({x <> y <> rest == [Main.id_of(f)] : List<&2, String>}, not_done(Main.Full, Result.bind(&2, &2, Main.Refused, Maybe<&2, String>, Main.Full, Main.the_head.r(fs, bs, x <> y <> rest), h => Main.amend.head.r(fs, h)), f, e, Unit{}))
+
+# With no target named, what `amend` rewrites is the one current head.
+def amend_head(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, -f: Main.Full, e: {Main.amend.target.r(fs, bs, None{}) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Main.current_heads(Main.history(fs)) == [Main.id_of(f)] : List<&2, String>}:
+  one_head(fs, bs, Main.current_heads(Main.history(fs)), f, e)
 
 def nonedisc(r: Result<&2, &2, Main.Refused, Maybe<&2, String>>) -> Type:
   match r:
@@ -496,21 +524,27 @@ def dist_rising(ys: List<&2, String>, +k: String, h: {SortL.sorted.from(~String,
 def sd_rising(+xs: List<&2, String>) -> {Main.rising(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))) == True{} : Bool}:
   dist_rising(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), SNil{}, SortL.sort_sorted(~String, ~(x => x), xs))
 
+# Every string of a list is among what `distinct` keeps of it sorted.
+def sd_all(+xs: List<&2, String>) -> {Main.all_held(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), xs) == True{} : Bool}:
+  FetchL.ah_ds(xs, xs, FetchL.ah_refl(xs))
+
 # What `--fields` says opens with the header, and names the revisions it
-# is handed.
-def ok_of(+written: List<&2, String>, +revs: List<&2, String>, +rest: List<&2, String>, hr: {Main.fields.revisions(rest) == revs : List<&2, String>}, hrise: {Main.rising(revs) == True{} : Bool}, hheld: {Main.all_held(written, revs) == True{} : Bool}) -> {Main.fields.ok(written, Main.WROTE() <> rest) == True{} : Bool}:
-  %Equal.sym(List<&2, String>, Main.fields.revisions(rest), revs, hr) : {Bool.and(String.eq(Main.WROTE(), Main.WROTE()), Bool.and(Main.rising(_), Main.all_held(written, _))) == True{} : Bool}
-  B.and_tt(String.eq(Main.WROTE(), Main.WROTE()), Bool.and(Main.rising(revs), Main.all_held(written, revs)), S.eq_refl(Main.WROTE()), B.and_tt(Main.rising(revs), Main.all_held(written, revs), hrise, hheld))
+# is handed: each once, in order, every one of them and nothing else.
+def ok_of(+written: List<&2, String>, +revs: List<&2, String>, +rest: List<&2, String>, hr: {Main.fields.revisions(rest) == revs : List<&2, String>}, hrise: {Main.rising(revs) == True{} : Bool}, hheld: {Main.all_held(written, revs) == True{} : Bool}, hall: {Main.all_held(revs, written) == True{} : Bool}) -> {Main.fields.ok(written, Main.WROTE() <> rest) == True{} : Bool}:
+  %Equal.sym(List<&2, String>, Main.fields.revisions(rest), revs, hr) : {Bool.and(String.eq(Main.WROTE(), Main.WROTE()), Bool.and(Main.rising(_), Bool.and(Main.all_held(written, _), Main.all_held(_, written)))) == True{} : Bool}
+  B.and_tt(String.eq(Main.WROTE(), Main.WROTE()), Bool.and(Main.rising(revs), Bool.and(Main.all_held(written, revs), Main.all_held(revs, written))), S.eq_refl(Main.WROTE()),
+    B.and_tt(Main.rising(revs), Bool.and(Main.all_held(written, revs), Main.all_held(revs, written)), hrise,
+      B.and_tt(Main.all_held(written, revs), Main.all_held(revs, written), hheld, hall)))
 
 def record_fields(+id: String, +names: List<&2, String>) -> {Main.fields.ok([id], Main.WROTE() <> ("revision " ++ id) <> Main.said.lines("name ", SNil{}, names)) == True{} : Bool}:
   ok_of([id], [id], ("revision " ++ id) <> Main.said.lines("name ", SNil{}, names),
     Equal.trans(List<&2, String>, Main.fields.revisions(("revision " ++ id) <> Main.said.lines("name ", SNil{}, names)), Main.fields.revision(Some{id}, Main.fields.revisions(Main.said.lines("name ", SNil{}, names))), [id],
       Equal.cong(Maybe<&2, String>, List<&2, String>, r => Main.fields.revision(r, Main.fields.revisions(Main.said.lines("name ", SNil{}, names))), T.strip_prefix(id, SNil{}), Some{id}, strip_nil(id)),
       Equal.cong(List<&2, String>, List<&2, String>, l => id <> l, Main.fields.revisions(Main.said.lines("name ", SNil{}, names)), Nil{}, names_said(names))),
-    {==}, B.and_tt(Rev.member([id], id), True{}, mem_head(id, Nil{}), {==}))
+    {==}, B.and_tt(Rev.member([id], id), True{}, mem_head(id, Nil{}), {==}), B.and_tt(Rev.member([id], id), True{}, mem_head(id, Nil{}), {==}))
 
 def revs_fields(+xs: List<&2, String>) -> {Main.fields.ok(xs, Main.WROTE() <> Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)))) == True{} : Bool}:
-  ok_of(xs, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))), revs_said(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))), sd_rising(xs), dist_held(xs))
+  ok_of(xs, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))), revs_said(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))), sd_rising(xs), dist_held(xs), sd_all(xs))
 
 def abandon_fields(+xs: List<&2, String>, +names: List<&2, String>) -> {Main.fields.ok(xs, Main.WROTE() <> List.append(&2, String, Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))), Main.said.lines("name ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), names))))) == True{} : Bool}:
   +R = Main.said.lines("revision ", SNil{}, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)))
@@ -522,7 +556,7 @@ def abandon_fields(+xs: List<&2, String>, +names: List<&2, String>) -> {Main.fie
           Equal.cong(List<&2, String>, List<&2, String>, l => List.append(&2, String, l, Main.fields.revisions(N)), Main.fields.revisions(R), Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), revs_said(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)))),
           Equal.cong(List<&2, String>, List<&2, String>, l => List.append(&2, String, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs)), l), Main.fields.revisions(N), Nil{}, names_said(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), names))))),
         SortL.lapp_nil(String, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))))),
-    sd_rising(xs), dist_held(xs))
+    sd_rising(xs), dist_held(xs), sd_all(xs))
 
 # Asked for `--fields`, what the writing commands say of what they wrote
 # is decision 0074's.
@@ -535,6 +569,12 @@ def writes_fields(+a: String, +when: String, +m: String, +facts: List<&2, T.Spli
         abandon_fields(id <> Main.carried.ids(steps), names),
         revs_fields(Main.carried.ids(steps)))))
 
+
+# With `--fields`, a carry names exactly what it files, as the store will
+# name it.
+def carry_fields(+path: String, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, +steps: List<&2, Main.Step>, e: {Main.carry.plan(fs, ds, c) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.fields.ok(Main.steps.filed(path, steps), Main.carry.said.lines(True{}, False{}, steps)) == True{} : Bool}:
+  %plan_filed(path, fs, ds, c, steps, e) : {Main.fields.ok(_, Main.carry.said.lines(True{}, False{}, steps)) == True{} : Bool}
+  revs_fields(Main.carried.ids(steps))
 
 # An amendment keeps what it added
 # --------------------------------
@@ -609,47 +649,336 @@ def amend_minted_ok(+arriving: List<&2, String>, +kept: List<&2, T.Split>, +hex:
   +m = Main.amend.mint(arriving, Main.lookups(arriving, kept), ids)
   B.and_tt(Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), m), arriving), Main.minted.keeps(kept, m), am_heads(arriving, kept, hex), am_keeps(arriving, kept, ids))
 
-# Abandoning asks for a revision and a reason
-# -------------------------------------------
+# Abandoning asks for a revision
+# ------------------------------
 
-def named_some(n: Maybe<&2, String>, -u: Unit, e: {Main.abandon.named.r(n) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Maybe.is_some(&2, String, n) == True{} : Bool}:
-  match n:
-    case Some{x}:
+# A word read as anything but a target is not read as one.
+def wdisc(k: Main.WWord) -> Type:
+  match k:
+    case Main.WWord.Word{}:
+      Empty
+    case _:
+      Unit
+
+def not_word(-x: Main.WWord, h: {x == Main.WWord.Word{} : Main.WWord}, u: wdisc(x)) -> Empty:
+  %h : {wdisc(_) : Type}
+  u
+
+def ww_skip(b: Bool, -x: Main.WWord, -y: Main.WWord, hx: {x == Main.WWord.Word{} : Main.WWord} -> Empty, e: {Bool.pick(Main.WWord, b, x, y) == Main.WWord.Word{} : Main.WWord}) -> {y == Main.WWord.Word{} : Main.WWord}:
+  match b:
+    case True{}:
+      Empty.absurd({y == Main.WWord.Word{} : Main.WWord}, hx(e))
+    case False{}:
+      e
+
+def ww_last(b: Bool, e: {Bool.pick(Main.WWord, b, Main.WWord.Flag{}, Main.WWord.Word{}) == Main.WWord.Word{} : Main.WWord}) -> {b == False{} : Bool}:
+  match b:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, not_word(Main.WWord.Flag{}, e, Unit{}))
+    case False{}:
       {==}
-    case None{}:
-      Empty.absurd({Maybe.is_some(&2, String, None{}) == True{} : Bool}, B.fail_done(Unit, Main.Refused{2, "`abandon` wants the revision to abandon; it and everything standing on it go"}, u, e))
 
-# Where `abandon` goes on, it was asked for a revision and a reason.
-def asked_ok(c: Main.RwCmd, +m: String, -u1: Unit, -u2: Unit, -u3: Unit, e1: {Main.abandon.named.r(Main.rw.named(c)) == Done{u1} : Result<&2, &2, Main.Refused, Unit>}, e2: {Main.rw.plan.r("abandon", Main.rw.dry_of(c), Main.rw.fields_of(c)) == Done{u2} : Result<&2, &2, Main.Refused, Unit>}, e3: {Main.reason.r(m) == Done{u3} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.abandon.asked(c, m) == True{} : Bool}:
-  match c:
-    case Main.RwCmd{mg, mv, o, +n, +d, +f, y}:
-      B.and_tt(Maybe.is_some(&2, String, n), Bool.and(Bool.not(Bool.and(d, f)), Bool.not(String.is_empty(Naming.trim_space(m)))), named_some(n, u1, e1),
-        B.and_tt(Bool.not(Bool.and(d, f)), Bool.not(String.is_empty(Naming.trim_space(m))),
-          not_false(Bool.and(d, f), pick_false(Unit, Bool.and(d, f), Main.Refused{2, "`abandon --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}, Unit{}, u2, e2)),
-          not_false(String.is_empty(Naming.trim_space(m)), pick_false(Unit, String.is_empty(Naming.trim_space(m)), Main.Refused{1, "abandoning removes this work from what the history means, and the reason is the only thing the tombstone carries; say why with -m"}, Unit{}, u3, e3))))
+# A word read as the target does not begin with `-`.
+def word_plain(+cmd: String, +w: String, ek: {Main.wword.of(cmd, w) == Main.WWord.Word{} : Main.WWord}) -> {String.starts_with(w, "-") == False{} : Bool}:
+  ww_last(String.starts_with(w, "-"), ww_skip(String.eq(w, "--fields"), Main.WWord.Fields{}, Bool.pick(Main.WWord, String.starts_with(w, "-"), Main.WWord.Flag{}, Main.WWord.Word{}), h => not_word(Main.WWord.Fields{}, h, Unit{}), ww_skip(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), Main.WWord.Dry{}, Bool.pick(Main.WWord, String.eq(w, "--fields"), Main.WWord.Fields{}, Bool.pick(Main.WWord, String.starts_with(w, "-"), Main.WWord.Flag{}, Main.WWord.Word{})), h => not_word(Main.WWord.Dry{}, h, Unit{}), ww_skip(Bool.and(String.eq(cmd, "abandon"), String.eq(w, "--only")), Main.WWord.Only{}, Bool.pick(Main.WWord, Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), Main.WWord.Dry{}, Bool.pick(Main.WWord, String.eq(w, "--fields"), Main.WWord.Fields{}, Bool.pick(Main.WWord, String.starts_with(w, "-"), Main.WWord.Flag{}, Main.WWord.Word{}))), h => not_word(Main.WWord.Only{}, h, Unit{}), ww_skip(Bool.and(String.eq(cmd, "carry"), String.eq(w, "--onto")), Main.WWord.Onto{}, Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "abandon"), String.eq(w, "--only")), Main.WWord.Only{}, Bool.pick(Main.WWord, Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), Main.WWord.Dry{}, Bool.pick(Main.WWord, String.eq(w, "--fields"), Main.WWord.Fields{}, Bool.pick(Main.WWord, String.starts_with(w, "-"), Main.WWord.Flag{}, Main.WWord.Word{})))), h => not_word(Main.WWord.Onto{}, h, Unit{}), ww_skip(Bool.and(String.eq(cmd, "amend"), String.eq(w, "--move")), Main.WWord.Move{}, Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "carry"), String.eq(w, "--onto")), Main.WWord.Onto{}, Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "abandon"), String.eq(w, "--only")), Main.WWord.Only{}, Bool.pick(Main.WWord, Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), Main.WWord.Dry{}, Bool.pick(Main.WWord, String.eq(w, "--fields"), Main.WWord.Fields{}, Bool.pick(Main.WWord, String.starts_with(w, "-"), Main.WWord.Flag{}, Main.WWord.Word{}))))), h => not_word(Main.WWord.Move{}, h, Unit{}), ww_skip(Bool.and(Bool.not(String.eq(cmd, "carry")), Bool.or(String.eq(w, "-m"), String.eq(w, "--message"))), Main.WWord.Message{}, Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "amend"), String.eq(w, "--move")), Main.WWord.Move{}, Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "carry"), String.eq(w, "--onto")), Main.WWord.Onto{}, Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "abandon"), String.eq(w, "--only")), Main.WWord.Only{}, Bool.pick(Main.WWord, Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), Main.WWord.Dry{}, Bool.pick(Main.WWord, String.eq(w, "--fields"), Main.WWord.Fields{}, Bool.pick(Main.WWord, String.starts_with(w, "-"), Main.WWord.Flag{}, Main.WWord.Word{})))))), h => not_word(Main.WWord.Message{}, h, Unit{}), ek)))))))
 
+def move_app(+cmd: String, +rest: List<&2, String>, +ys: List<&2, String>, +c: Main.RwCmd, -c2: Main.RwCmd, r: Result<&2, &2, Main.Refused, T.Split>, e: {Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, r, s => Main.rw.args.go(cmd, rest, Main.rw.move(c, s), Main.wword(cmd, rest))) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}, ih: @s: T.Split -> {Main.rw.args.go(cmd, rest, Main.rw.move(c, s), Main.wword(cmd, rest)) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>} -> {Main.rw.args.go(cmd, List.append(&2, String, rest, ys), Main.rw.move(c, s), Main.wword(cmd, List.append(&2, String, rest, ys))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, r, s => Main.rw.args.go(cmd, List.append(&2, String, rest, ys), Main.rw.move(c, s), Main.wword(cmd, List.append(&2, String, rest, ys)))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, Fail{x}, s => Main.rw.args.go(cmd, List.append(&2, String, rest, ys), Main.rw.move(c, s), Main.wword(cmd, List.append(&2, String, rest, ys)))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, not_done(Main.RwCmd, Fail{x}, c2, e, Unit{}))
+    case Done{+s}:
+      ih(s, e)
 
+def word_app(+cmd: String, +rest: List<&2, String>, +ys: List<&2, String>, -c2: Main.RwCmd, r: Result<&2, &2, Main.Refused, Main.RwCmd>, e: {Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, r, more => Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest))) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}, ih: @more: Main.RwCmd -> {Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest)) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>} -> {Main.rw.args.go(cmd, List.append(&2, String, rest, ys), more, Main.wword(cmd, List.append(&2, String, rest, ys))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, r, more => Main.rw.args.go(cmd, List.append(&2, String, rest, ys), more, Main.wword(cmd, List.append(&2, String, rest, ys)))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Fail{x}, more => Main.rw.args.go(cmd, List.append(&2, String, rest, ys), more, Main.wword(cmd, List.append(&2, String, rest, ys)))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, not_done(Main.RwCmd, Fail{x}, c2, e, Unit{}))
+    case Done{+more}:
+      ih(more, e)
 
-# A dry run of abandoning names the run
-# -------------------------------------
-
-def first_nil(ls: List<&2, String>) -> {Main.said.first(Nil{}, ls, "would abandon ") == True{} : Bool}:
-  match ls:
+# A flag that takes no value is read the same whatever follows it.
+def step_only(+cmd: String, +w: String, zs: List<&2, String>, +c: Main.RwCmd) -> {Main.rw.args.go(cmd, w <> zs, c, Main.WWord.Only{}) == Main.rw.args.go(cmd, zs, Main.rw.only(c), Main.wword(cmd, zs)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match zs:
     case Nil{}:
       {==}
-    case l <> more:
+    case z <> more:
       {==}
 
-def first_said(xs: List<&2, String>, +bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +rest: List<&2, String>) -> {Main.said.first(xs, List.append(&2, String, Main.each.lines("would abandon ", Main.spelled_all(bs, h, xs)), rest), "would abandon ") == True{} : Bool}:
+def step_dry(+cmd: String, +w: String, zs: List<&2, String>, +c: Main.RwCmd) -> {Main.rw.args.go(cmd, w <> zs, c, Main.WWord.Dry{}) == Main.rw.args.go(cmd, zs, Main.rw.dry(c), Main.wword(cmd, zs)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match zs:
+    case Nil{}:
+      {==}
+    case z <> more:
+      {==}
+
+def step_fields(+cmd: String, +w: String, zs: List<&2, String>, +c: Main.RwCmd) -> {Main.rw.args.go(cmd, w <> zs, c, Main.WWord.Fields{}) == Main.rw.args.go(cmd, zs, Main.rw.fields(c), Main.wword(cmd, zs)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match zs:
+    case Nil{}:
+      {==}
+    case z <> more:
+      {==}
+
+def step_word(+cmd: String, +w: String, zs: List<&2, String>, +c: Main.RwCmd) -> {Main.rw.args.go(cmd, w <> zs, c, Main.WWord.Word{}) == Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), more => Main.rw.args.go(cmd, zs, more, Main.wword(cmd, zs))) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match zs:
+    case Nil{}:
+      {==}
+    case z <> more:
+      {==}
+
+def flag_fail(+cmd: String, +w: String, zs: List<&2, String>, +c: Main.RwCmd, -c2: Main.RwCmd, e: {Main.rw.args.go(cmd, w <> zs, c, Main.WWord.Flag{}) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> Empty:
+  match zs:
+    case Nil{}:
+      not_done(Main.RwCmd, Main.rw.args.go(cmd, [w], c, Main.WWord.Flag{}), c2, e, Unit{})
+    case +z <> +more:
+      not_done(Main.RwCmd, Main.rw.args.go(cmd, w <> z <> more, c, Main.WWord.Flag{}), c2, e, Unit{})
+
+# Words read, and more after them, are read on from where the first left
+# off.
+def go_app(+cmd: String, args: List<&2, String>, +c: Main.RwCmd, k: Main.WWord, +ys: List<&2, String>, -c2: Main.RwCmd, ek: {Main.wword(cmd, args) == k : Main.WWord}, e: {Main.rw.args.go(cmd, args, c, k) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.rw.args.go(cmd, List.append(&2, String, args, ys), c, Main.wword(cmd, List.append(&2, String, args, ys))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match args k:
+    case Nil{} _:
+      Equal.cong(Main.RwCmd, Result<&2, &2, Main.Refused, Main.RwCmd>, x => Main.rw.args.go(cmd, ys, x, Main.wword(cmd, ys)), c, c2, B.done_eq(Main.RwCmd, c, c2, e))
+    case +w <> Nil{} Main.WWord.Message{}:
+      Empty.absurd({Main.rw.args.go(cmd, List.append(&2, String, w <> Nil{}, ys), c, Main.wword(cmd, List.append(&2, String, w <> Nil{}, ys))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, not_done(Main.RwCmd, Main.rw.args.go(cmd, w <> Nil{}, c, Main.WWord.Message{}), c2, e, Unit{}))
+    case +w <> +v <> +rest Main.WWord.Message{}:
+      %Equal.sym(Main.WWord, Main.wword(cmd, w <> v <> rest), Main.WWord.Message{}, ek) : {Main.rw.args.go(cmd, List.append(&2, String, w <> v <> rest, ys), c, _) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
+      go_app(cmd, rest, Main.rw.message(c, v), Main.wword(cmd, rest), ys, c2, {==}, e)
+    case +w <> Nil{} Main.WWord.Onto{}:
+      Empty.absurd({Main.rw.args.go(cmd, List.append(&2, String, w <> Nil{}, ys), c, Main.wword(cmd, List.append(&2, String, w <> Nil{}, ys))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, not_done(Main.RwCmd, Main.rw.args.go(cmd, w <> Nil{}, c, Main.WWord.Onto{}), c2, e, Unit{}))
+    case +w <> +v <> +rest Main.WWord.Onto{}:
+      %Equal.sym(Main.WWord, Main.wword(cmd, w <> v <> rest), Main.WWord.Onto{}, ek) : {Main.rw.args.go(cmd, List.append(&2, String, w <> v <> rest, ys), c, _) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
+      go_app(cmd, rest, Main.rw.onto(c, v), Main.wword(cmd, rest), ys, c2, {==}, e)
+    case +w <> Nil{} Main.WWord.Move{}:
+      Empty.absurd({Main.rw.args.go(cmd, List.append(&2, String, w <> Nil{}, ys), c, Main.wword(cmd, List.append(&2, String, w <> Nil{}, ys))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, not_done(Main.RwCmd, Main.rw.args.go(cmd, w <> Nil{}, c, Main.WWord.Move{}), c2, e, Unit{}))
+    case +w <> +v <> +rest Main.WWord.Move{}:
+      %Equal.sym(Main.WWord, Main.wword(cmd, w <> v <> rest), Main.WWord.Move{}, ek) : {Main.rw.args.go(cmd, List.append(&2, String, w <> v <> rest, ys), c, _) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
+      move_app(cmd, rest, ys, c, c2, Main.record.split(v, "`--move` is spelled `--move <old>=<new>`"), e, s => h => go_app(cmd, rest, Main.rw.move(c, s), Main.wword(cmd, rest), ys, c2, {==}, h))
+    case +w <> +rest Main.WWord.Only{}:
+      %Equal.sym(Main.WWord, Main.wword(cmd, w <> rest), Main.WWord.Only{}, ek) : {Main.rw.args.go(cmd, List.append(&2, String, w <> rest, ys), c, _) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> List.append(&2, String, rest, ys), c, Main.WWord.Only{}), Main.rw.args.go(cmd, List.append(&2, String, rest, ys), Main.rw.only(c), Main.wword(cmd, List.append(&2, String, rest, ys))), Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)),
+        step_only(cmd, w, List.append(&2, String, rest, ys), c),
+        go_app(cmd, rest, Main.rw.only(c), Main.wword(cmd, rest), ys, c2, {==}, Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, rest, Main.rw.only(c), Main.wword(cmd, rest)), Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Only{}), Done{c2}, Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Only{}), Main.rw.args.go(cmd, rest, Main.rw.only(c), Main.wword(cmd, rest)), step_only(cmd, w, rest, c)), e)))
+    case +w <> +rest Main.WWord.Dry{}:
+      %Equal.sym(Main.WWord, Main.wword(cmd, w <> rest), Main.WWord.Dry{}, ek) : {Main.rw.args.go(cmd, List.append(&2, String, w <> rest, ys), c, _) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> List.append(&2, String, rest, ys), c, Main.WWord.Dry{}), Main.rw.args.go(cmd, List.append(&2, String, rest, ys), Main.rw.dry(c), Main.wword(cmd, List.append(&2, String, rest, ys))), Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)),
+        step_dry(cmd, w, List.append(&2, String, rest, ys), c),
+        go_app(cmd, rest, Main.rw.dry(c), Main.wword(cmd, rest), ys, c2, {==}, Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, rest, Main.rw.dry(c), Main.wword(cmd, rest)), Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Dry{}), Done{c2}, Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Dry{}), Main.rw.args.go(cmd, rest, Main.rw.dry(c), Main.wword(cmd, rest)), step_dry(cmd, w, rest, c)), e)))
+    case +w <> +rest Main.WWord.Fields{}:
+      %Equal.sym(Main.WWord, Main.wword(cmd, w <> rest), Main.WWord.Fields{}, ek) : {Main.rw.args.go(cmd, List.append(&2, String, w <> rest, ys), c, _) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> List.append(&2, String, rest, ys), c, Main.WWord.Fields{}), Main.rw.args.go(cmd, List.append(&2, String, rest, ys), Main.rw.fields(c), Main.wword(cmd, List.append(&2, String, rest, ys))), Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)),
+        step_fields(cmd, w, List.append(&2, String, rest, ys), c),
+        go_app(cmd, rest, Main.rw.fields(c), Main.wword(cmd, rest), ys, c2, {==}, Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, rest, Main.rw.fields(c), Main.wword(cmd, rest)), Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Fields{}), Done{c2}, Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Fields{}), Main.rw.args.go(cmd, rest, Main.rw.fields(c), Main.wword(cmd, rest)), step_fields(cmd, w, rest, c)), e)))
+    case +w <> +rest Main.WWord.Flag{}:
+      Empty.absurd({Main.rw.args.go(cmd, List.append(&2, String, w <> rest, ys), c, Main.wword(cmd, List.append(&2, String, w <> rest, ys))) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, flag_fail(cmd, w, rest, c, c2, e))
+    case +w <> +rest Main.WWord.Word{}:
+      %Equal.sym(Main.WWord, Main.wword(cmd, w <> rest), Main.WWord.Word{}, ek) : {Main.rw.args.go(cmd, List.append(&2, String, w <> rest, ys), c, _) == Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> List.append(&2, String, rest, ys), c, Main.WWord.Word{}), Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), more => Main.rw.args.go(cmd, List.append(&2, String, rest, ys), more, Main.wword(cmd, List.append(&2, String, rest, ys)))), Main.rw.args.go(cmd, ys, c2, Main.wword(cmd, ys)),
+        step_word(cmd, w, List.append(&2, String, rest, ys), c),
+        word_app(cmd, rest, ys, c2, Main.rw.word(cmd, c, w), Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), more => Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest))), Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Word{}), Done{c2}, Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Word{}), Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), more => Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest))), step_word(cmd, w, rest, c)), e), more => h => go_app(cmd, rest, more, Main.wword(cmd, rest), ys, c2, {==}, h)))
+
+# The target, where one is read, is one of the words and not a flag.
+def target.in(+orig: List<&2, String>, n: Maybe<&2, String>) -> Bool:
+  match n:
+    case Some{+t}:
+      Bool.and(Rev.member(orig, t), Bool.not(String.starts_with(t, "-")))
+    case None{}:
+      True{}
+
+def keep_in(+orig: List<&2, String>, -c: Main.RwCmd, -c3: Main.RwCmd, eq: {Main.rw.named(c3) == Main.rw.named(c) : Maybe<&2, String>}, hc: {target.in(orig, Main.rw.named(c)) == True{} : Bool}) -> {target.in(orig, Main.rw.named(c3)) == True{} : Bool}:
+  %Equal.sym(Maybe<&2, String>, Main.rw.named(c3), Main.rw.named(c), eq) : {target.in(orig, _) == True{} : Bool}
+  hc
+
+def nm_message(c: Main.RwCmd, -v: String) -> {Main.rw.named(Main.rw.message(c, v)) == Main.rw.named(c) : Maybe<&2, String>}:
+  match c:
+    case Main.RwCmd{m, mv, o, n, d, f, y}:
+      {==}
+
+def nm_move(c: Main.RwCmd, -v: T.Split) -> {Main.rw.named(Main.rw.move(c, v)) == Main.rw.named(c) : Maybe<&2, String>}:
+  match c:
+    case Main.RwCmd{m, mv, o, n, d, f, y}:
+      {==}
+
+def nm_onto(c: Main.RwCmd, -v: String) -> {Main.rw.named(Main.rw.onto(c, v)) == Main.rw.named(c) : Maybe<&2, String>}:
+  match c:
+    case Main.RwCmd{m, mv, o, n, d, f, y}:
+      {==}
+
+def nm_only(c: Main.RwCmd) -> {Main.rw.named(Main.rw.only(c)) == Main.rw.named(c) : Maybe<&2, String>}:
+  match c:
+    case Main.RwCmd{m, mv, o, n, d, f, y}:
+      {==}
+
+def nm_dry(c: Main.RwCmd) -> {Main.rw.named(Main.rw.dry(c)) == Main.rw.named(c) : Maybe<&2, String>}:
+  match c:
+    case Main.RwCmd{m, mv, o, n, d, f, y}:
+      {==}
+
+def nm_fields(c: Main.RwCmd) -> {Main.rw.named(Main.rw.fields(c)) == Main.rw.named(c) : Maybe<&2, String>}:
+  match c:
+    case Main.RwCmd{m, mv, o, n, d, f, y}:
+      {==}
+
+def drop1(+orig: List<&2, String>, +w: String, +rest: List<&2, String>, hs: {Main.all_held(orig, w <> rest) == True{} : Bool}) -> {Main.all_held(orig, rest) == True{} : Bool}:
+  SortL.band_r(Rev.member(orig, w), Main.all_held(orig, rest), hs)
+
+def move_target(+cmd: String, +orig: List<&2, String>, +rest: List<&2, String>, +c: Main.RwCmd, -c2: Main.RwCmd, hc: {target.in(orig, Main.rw.named(c)) == True{} : Bool}, r: Result<&2, &2, Main.Refused, T.Split>, e: {Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, r, s => Main.rw.args.go(cmd, rest, Main.rw.move(c, s), Main.wword(cmd, rest))) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}, ih: @s: T.Split -> {target.in(orig, Main.rw.named(Main.rw.move(c, s))) == True{} : Bool} -> {Main.rw.args.go(cmd, rest, Main.rw.move(c, s), Main.wword(cmd, rest)) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>} -> {target.in(orig, Main.rw.named(c2)) == True{} : Bool}) -> {target.in(orig, Main.rw.named(c2)) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({target.in(orig, Main.rw.named(c2)) == True{} : Bool}, not_done(Main.RwCmd, Fail{x}, c2, e, Unit{}))
+    case Done{+s}:
+      ih(s, keep_in(orig, c, Main.rw.move(c, s), nm_move(c, s), hc), e)
+
+def word_target(+cmd: String, +orig: List<&2, String>, +w: String, +rest: List<&2, String>, c: Main.RwCmd, -c2: Main.RwCmd, hw: {target.in(orig, Some{w}) == True{} : Bool}, e: {Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), more => Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest))) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}, ih: @more: Main.RwCmd -> {target.in(orig, Main.rw.named(more)) == True{} : Bool} -> {Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest)) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>} -> {target.in(orig, Main.rw.named(c2)) == True{} : Bool}) -> {target.in(orig, Main.rw.named(c2)) == True{} : Bool}:
+  match c:
+    case Main.RwCmd{+m, +mv, +o, None{}, +d, +f, +y}:
+      ih(Main.RwCmd{m, mv, o, Some{w}, d, f, y}, hw, e)
+    case Main.RwCmd{m, mv, o, Some{n}, d, f, y}:
+      Empty.absurd({target.in(orig, Main.rw.named(c2)) == True{} : Bool}, not_done(Main.RwCmd, Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, Main.RwCmd{m, mv, o, Some{n}, d, f, y}, w), more => Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest))), c2, e, Unit{}))
+
+# Whatever the words, the target read is one of them and not a flag.
+def go_target(+cmd: String, +orig: List<&2, String>, args: List<&2, String>, +c: Main.RwCmd, k: Main.WWord, -c2: Main.RwCmd, ek: {Main.wword(cmd, args) == k : Main.WWord}, +hs: {Main.all_held(orig, args) == True{} : Bool}, hc: {target.in(orig, Main.rw.named(c)) == True{} : Bool}, e: {Main.rw.args.go(cmd, args, c, k) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {target.in(orig, Main.rw.named(c2)) == True{} : Bool}:
+  match args k:
+    case Nil{} _:
+      %B.done_eq(Main.RwCmd, c, c2, e) : {target.in(orig, Main.rw.named(_)) == True{} : Bool}
+      hc
+    case +w <> Nil{} Main.WWord.Message{}:
+      Empty.absurd({target.in(orig, Main.rw.named(c2)) == True{} : Bool}, not_done(Main.RwCmd, Main.rw.args.go(cmd, w <> Nil{}, c, Main.WWord.Message{}), c2, e, Unit{}))
+    case +w <> +v <> +rest Main.WWord.Message{}:
+      go_target(cmd, orig, rest, Main.rw.message(c, v), Main.wword(cmd, rest), c2, {==}, drop1(orig, v, rest, drop1(orig, w, v <> rest, hs)), keep_in(orig, c, Main.rw.message(c, v), nm_message(c, v), hc), e)
+    case +w <> Nil{} Main.WWord.Onto{}:
+      Empty.absurd({target.in(orig, Main.rw.named(c2)) == True{} : Bool}, not_done(Main.RwCmd, Main.rw.args.go(cmd, w <> Nil{}, c, Main.WWord.Onto{}), c2, e, Unit{}))
+    case +w <> +v <> +rest Main.WWord.Onto{}:
+      go_target(cmd, orig, rest, Main.rw.onto(c, v), Main.wword(cmd, rest), c2, {==}, drop1(orig, v, rest, drop1(orig, w, v <> rest, hs)), keep_in(orig, c, Main.rw.onto(c, v), nm_onto(c, v), hc), e)
+    case +w <> Nil{} Main.WWord.Move{}:
+      Empty.absurd({target.in(orig, Main.rw.named(c2)) == True{} : Bool}, not_done(Main.RwCmd, Main.rw.args.go(cmd, w <> Nil{}, c, Main.WWord.Move{}), c2, e, Unit{}))
+    case +w <> +v <> +rest Main.WWord.Move{}:
+      move_target(cmd, orig, rest, c, c2, hc, Main.record.split(v, "`--move` is spelled `--move <old>=<new>`"), e, s => hm => h => go_target(cmd, orig, rest, Main.rw.move(c, s), Main.wword(cmd, rest), c2, {==}, drop1(orig, v, rest, drop1(orig, w, v <> rest, hs)), hm, h))
+    case +w <> +rest Main.WWord.Only{}:
+      go_target(cmd, orig, rest, Main.rw.only(c), Main.wword(cmd, rest), c2, {==}, drop1(orig, w, rest, hs), keep_in(orig, c, Main.rw.only(c), nm_only(c), hc), Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, rest, Main.rw.only(c), Main.wword(cmd, rest)), Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Only{}), Done{c2}, Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Only{}), Main.rw.args.go(cmd, rest, Main.rw.only(c), Main.wword(cmd, rest)), step_only(cmd, w, rest, c)), e))
+    case +w <> +rest Main.WWord.Dry{}:
+      go_target(cmd, orig, rest, Main.rw.dry(c), Main.wword(cmd, rest), c2, {==}, drop1(orig, w, rest, hs), keep_in(orig, c, Main.rw.dry(c), nm_dry(c), hc), Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, rest, Main.rw.dry(c), Main.wword(cmd, rest)), Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Dry{}), Done{c2}, Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Dry{}), Main.rw.args.go(cmd, rest, Main.rw.dry(c), Main.wword(cmd, rest)), step_dry(cmd, w, rest, c)), e))
+    case +w <> +rest Main.WWord.Fields{}:
+      go_target(cmd, orig, rest, Main.rw.fields(c), Main.wword(cmd, rest), c2, {==}, drop1(orig, w, rest, hs), keep_in(orig, c, Main.rw.fields(c), nm_fields(c), hc), Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, rest, Main.rw.fields(c), Main.wword(cmd, rest)), Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Fields{}), Done{c2}, Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Fields{}), Main.rw.args.go(cmd, rest, Main.rw.fields(c), Main.wword(cmd, rest)), step_fields(cmd, w, rest, c)), e))
+    case +w <> +rest Main.WWord.Flag{}:
+      Empty.absurd({target.in(orig, Main.rw.named(c2)) == True{} : Bool}, flag_fail(cmd, w, rest, c, c2, e))
+    case +w <> +rest Main.WWord.Word{}:
+      word_target(cmd, orig, w, rest, c, c2, B.and_tt(Rev.member(orig, w), Bool.not(String.starts_with(w, "-")), SortL.band_l(Rev.member(orig, w), Main.all_held(orig, rest), hs), not_false(String.starts_with(w, "-"), word_plain(cmd, w, ek))), Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), more => Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest))), Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Word{}), Done{c2}, Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> rest, c, Main.WWord.Word{}), Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), more => Main.rw.args.go(cmd, rest, more, Main.wword(cmd, rest))), step_word(cmd, w, rest, c)), e), more => hm => h => go_target(cmd, orig, rest, more, Main.wword(cmd, rest), c2, {==}, drop1(orig, w, rest, hs), hm, h))
+
+def asks_df(+args: List<&2, String>, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, +t: String, d: Bool, f: Bool, +y: Bool, -c: Main.RwCmd, hin: {target.in(args, Some{t}) == True{} : Bool}, e: {Main.abandon.asks.r(Main.RwCmd{m, mv, o, Some{t}, d, f, y}) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}:
+  match d f:
+    case True{} True{}:
+      Empty.absurd({Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}, not_done(Main.RwCmd, Main.abandon.asks.r(Main.RwCmd{m, mv, o, Some{t}, True{}, True{}, y}), c, e, Unit{}))
+    case True{} False{}:
+      %B.done_eq(Main.RwCmd, Main.RwCmd{m, mv, o, Some{t}, True{}, False{}, y}, c, e) : {Main.abandon.target.ok(args, Main.rw.named(_)) == True{} : Bool}
+      hin
+    case False{} True{}:
+      %B.done_eq(Main.RwCmd, Main.RwCmd{m, mv, o, Some{t}, False{}, True{}, y}, c, e) : {Main.abandon.target.ok(args, Main.rw.named(_)) == True{} : Bool}
+      hin
+    case False{} False{}:
+      %B.done_eq(Main.RwCmd, Main.RwCmd{m, mv, o, Some{t}, False{}, False{}, y}, c, e) : {Main.abandon.target.ok(args, Main.rw.named(_)) == True{} : Bool}
+      hin
+
+def asks_n(+args: List<&2, String>, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, n: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, -c: Main.RwCmd, hin: {target.in(args, n) == True{} : Bool}, e: {Main.abandon.asks.r(Main.RwCmd{m, mv, o, n, d, f, y}) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}:
+  match n:
+    case None{}:
+      Empty.absurd({Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}, not_done(Main.RwCmd, Main.abandon.asks.r(Main.RwCmd{m, mv, o, None{}, d, f, y}), c, e, Unit{}))
+    case Some{+t}:
+      asks_df(args, m, mv, o, t, d, f, y, c, hin, e)
+
+def asks_c(+args: List<&2, String>, c1: Main.RwCmd, -c: Main.RwCmd, hin: {target.in(args, Main.rw.named(c1)) == True{} : Bool}, e: {Main.abandon.asks.r(c1) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}:
+  match c1:
+    case Main.RwCmd{+m, +mv, +o, n, +d, +f, +y}:
+      asks_n(args, m, mv, o, n, d, f, y, c, hin, e)
+
+def words1(+args: List<&2, String>, r: Result<&2, &2, Main.Refused, Main.RwCmd>, er: {Main.rw.args.r("abandon", args) == r : Result<&2, &2, Main.Refused, Main.RwCmd>}, -c: Main.RwCmd, e: {Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, r, x => Main.abandon.asks.r(x)) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}, not_done(Main.RwCmd, Fail{x}, c, e, Unit{}))
+    case Done{+c1}:
+      asks_c(args, c1, c, go_target("abandon", args, args, Main.RwCmd{None{}, Nil{}, None{}, None{}, False{}, False{}, False{}}, Main.wword("abandon", args), c1, {==}, held_refl(args), {==}, er), e)
+
+# What `abandon` goes on with is a target it was given among its words.
+def target_words(+args: List<&2, String>, -c: Main.RwCmd, e: {Main.abandon.words.r(args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}:
+  words1(args, Main.rw.args.r("abandon", args), {==}, c, e)
+
+def named_code(n: Maybe<&2, String>, -m: Maybe<&2, String>, -mv: List<&2, T.Split>, -o: Maybe<&2, String>, -y: Bool) -> {Main.refused.code(Main.RwCmd, Main.abandon.asks.r(Main.RwCmd{m, mv, o, n, True{}, True{}, y})) == 2 : U32}:
+  match n:
+    case None{}:
+      {==}
+    case Some{t}:
+      {==}
+
+def dry_fields_code(c: Main.RwCmd) -> {Main.refused.code(Main.RwCmd, Main.abandon.asks.r(Main.rw.fields(Main.rw.dry(c)))) == 2 : U32}:
+  match c:
+    case Main.RwCmd{m, mv, o, n, d, f, y}:
+      named_code(n, m, mv, o, y)
+
+# Whatever words `abandon` reads, `--dry-run --fields` after them is
+# refused as a usage error.
+def dry_fields(+args: List<&2, String>, c: Main.RwCmd, e: {Main.rw.args.r("abandon", args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.refused.code(Main.RwCmd, Main.abandon.words.r(List.append(&2, String, args, ["--dry-run", "--fields"]))) == 2 : U32}:
+  %Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go("abandon", List.append(&2, String, args, ["--dry-run", "--fields"]), Main.RwCmd{None{}, Nil{}, None{}, None{}, False{}, False{}, False{}}, Main.wword("abandon", List.append(&2, String, args, ["--dry-run", "--fields"]))), Main.rw.args.go("abandon", ["--dry-run", "--fields"], c, Main.wword("abandon", ["--dry-run", "--fields"])), go_app("abandon", args, Main.RwCmd{None{}, Nil{}, None{}, None{}, False{}, False{}, False{}}, Main.wword("abandon", args), ["--dry-run", "--fields"], c, {==}, e)) : {Main.refused.code(Main.RwCmd, Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, _, x => Main.abandon.asks.r(x))) == 2 : U32}
+  dry_fields_code(c)
+
+# A dry run of abandoning says the run
+# ------------------------------------
+
+# Stripping a prefix from what begins with it leaves the rest.
+def strip_app(p: String, +r: String) -> {T.strip_prefix(String.append(p, r), p) == Some{r} : Maybe<&2, String>}:
+  match p:
+    case SNil{}:
+      strip_nil(r)
+    case SCon{+c, t}:
+      %Equal.sym(Bool, Char.is_eq(c, c), True{}, Diff.char_eq_refl(c)) : {Bool.pick(Maybe<&2, String>, _, T.strip_prefix(String.append(t, r), t), None{}) == Some{r} : Maybe<&2, String>}
+      strip_app(t, r)
+
+def names_pick(b: Bool, +n: String, +rest: String, ih: {Main.dry.rest(Some{rest}) == True{} : Bool}) -> {Main.dry.rest(Some{Bool.pick(String, b, "  " ++ n, SNil{}) ++ rest}) == True{} : Bool}:
+  match b:
+    case True{}:
+      B.sw_ext("  " ++ n, "  ", rest, B.sw_ext("  ", "  ", n, B.sw_refl("  ")))
+    case False{}:
+      ih
+
+# What follows a revision on its line, if anything, begins with two spaces:
+# the bookmarks there.
+def names_two(bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +x: String) -> {Main.dry.rest(Some{Main.names_at(bs, h, x)}) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Bm.Bookmark{+n, +t, p} <> +rest:
+      names_pick(Main.names_at.one(h, x, t), n, Main.names_at(rest, h, x), names_two(rest, h, x))
+
+# A revision's line names it by its first twelve letters.
+def names_line(+bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +x: String) -> {Main.dry.names(x, "would abandon " ++ (Main.ab12(x) ++ Main.names_at(bs, h, x))) == True{} : Bool}:
+  Equal.trans(Bool, Main.dry.rest(T.strip_prefix(String.append("would abandon " ++ String.take(x, 12n), Main.names_at(bs, h, x)), "would abandon " ++ String.take(x, 12n))), Main.dry.rest(Some{Main.names_at(bs, h, x)}), True{},
+    Equal.cong(Maybe<&2, String>, Bool, m => Main.dry.rest(m), T.strip_prefix(String.append("would abandon " ++ String.take(x, 12n), Main.names_at(bs, h, x)), "would abandon " ++ String.take(x, 12n)), Some{Main.names_at(bs, h, x)}, strip_app("would abandon " ++ String.take(x, 12n), Main.names_at(bs, h, x))),
+    names_two(bs, h, x))
+
+def carry_start(ys: List<&2, String>, +rest: List<&2, String>, hr: {Main.lines.start(rest, "would carry ") == True{} : Bool}) -> {Main.lines.start(List.append(&2, String, Main.each.lines("would carry ", ys), rest), "would carry ") == True{} : Bool}:
+  match ys:
+    case Nil{}:
+      hr
+    case +y <> more:
+      B.and_tt(String.starts_with("would carry " ++ y, "would carry "), Main.lines.start(List.append(&2, String, Main.each.lines("would carry ", more), rest), "would carry "),
+        B.sw_ext("would carry ", "would carry ", y, B.sw_refl("would carry ")),
+        carry_start(more, rest, hr))
+
+# Each revision of the run gets its line, in order.
+def said_run(xs: List<&2, String>, +bs: List<&2, Bm.Bookmark>, +h: Rev.History(), +rest: List<&2, String>, hr: {Main.dry.said(Nil{}, rest) == True{} : Bool}) -> {Main.dry.said(xs, List.append(&2, String, Main.each.lines("would abandon ", Main.spelled_all(bs, h, xs)), rest)) == True{} : Bool}:
   match xs:
     case Nil{}:
-      first_nil(rest)
+      hr
     case +x <> +more:
-      B.and_tt(String.starts_with("would abandon " ++ (Main.ab12(x) ++ Main.names_at(bs, h, x)), "would abandon " ++ Main.ab12(x)), Main.said.first(more, List.append(&2, String, Main.each.lines("would abandon ", Main.spelled_all(bs, h, more)), rest), "would abandon "),
-        B.sw_ext(Main.ab12(x), Main.ab12(x), Main.names_at(bs, h, x), B.sw_refl(Main.ab12(x))),
-        first_said(more, bs, h, rest))
+      B.and_tt(Main.dry.names(x, "would abandon " ++ (Main.ab12(x) ++ Main.names_at(bs, h, x))), Main.dry.said(more, List.append(&2, String, Main.each.lines("would abandon ", Main.spelled_all(bs, h, more)), rest)),
+        names_line(bs, h, x),
+        said_run(more, bs, h, rest, hr))
 
-# What `abandon --dry-run` says begins with each revision of the run.
-def dry_names(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> {Main.said.first(run, Main.abandon.dry.lines(fs, bs, id, only, run), "would abandon ") == True{} : Bool}:
+# What `abandon --dry-run` says: each revision of the run, the tombstone,
+# and what it would carry.
+def dry_names(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> {Main.dry.said(run, Main.abandon.dry.lines(fs, bs, id, only, run)) == True{} : Bool}:
   +n = List.length(&2, String, run)
-  first_said(run, bs, Main.history(fs), List.concat(&2, String, [["a tombstone would supersede " ++ Bool.pick(String, Nat.is_eq(n, 1n), "this revision", "these " ++ Nat.show(n) ++ " revisions") ++ ", and its message is required"], Main.each.lines("would carry ", Main.map12(Bool.pick(List<&2, String>, only, Main.would_carry(fs, id, Main.standing_on(fs, id)), Nil{})))]))
+  +said = Bool.pick(String, Nat.is_eq(n, 1n), "this revision", "these " ++ Nat.show(n) ++ " revisions") ++ ", and its message is required"
+  +carried = Main.each.lines("would carry ", Main.map12(Bool.pick(List<&2, String>, only, Main.would_carry(fs, id, Main.standing_on(fs, id)), Nil{})))
+  said_run(run, bs, Main.history(fs), List.concat(&2, String, [["a tombstone would supersede " ++ said], carried]),
+    B.and_tt(String.starts_with("a tombstone would supersede " ++ said, "a tombstone would supersede "), Main.lines.start(List.append(&2, String, carried, Nil{}), "would carry "),
+      B.sw_ext("a tombstone would supersede ", "a tombstone would supersede ", said, B.sw_refl("a tombstone would supersede ")),
+      carry_start(Main.map12(Bool.pick(List<&2, String>, only, Main.would_carry(fs, id, Main.standing_on(fs, id)), Nil{})), Nil{}, {==})))

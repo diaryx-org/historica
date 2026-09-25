@@ -309,7 +309,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
 | `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
 | `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and sixty-three claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | two hundred and sixty-five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -338,7 +338,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet; `name_reads_its_words`: `name` reads its words as their plain reading says, a field at a time; `name_does_what_it_reads`: a deletion only where `--delete` was said, of the one other word, with nothing shaping a target, and otherwise a bookmark set of the other words in order, never a file pinned; `name_points_where_asked`: the bookmark set has the name given and points at a revision, a change or a file the store holds, as asked, as private as asked or as it was; `name_deletes_the_bookmark_named`: `--delete` is refused exactly where no bookmark has the name, and otherwise reports the store's bookmark of that name; `name_states_what_it_set`: `--fields` says its header once, early or late, and then `name` | `store::check_name`, `name` |
 | `listing_lemmas.bend` | `files_lists_in_path_order`, `files_lists_the_tree`: `files` prints the tree's entries sorted by path and file, under each the ones the tree holds, each line ending with its file identifier; `bookmarks_read_in_name_order`, `names_lists_each_bookmark`: the bookmarks are read in name order and `names` prints a line for each, beginning with its name; `names_resolves_to_held`: a revision pin or a change resolves to an abbreviation of a revision the store holds, or a reason in parentheses; `log_fields_lists_what_it_keeps`: `log --fields` prints its header and a line per revision it keeps, beginning with its digest; `log_counts_each_fact`: an entry counts each `add`, `move`, `drop` and `edit` fact once; `log_follows_a_held_file`: the file `--path` follows is one the tree holds where it is read | `files`, `names`, `log`'s printing |
 | `record_lemmas.bend` | `record_reads_its_words`, `record_reads_renames_and_paths`, `amend_reads_its_words`, `abandon_reads_its_words`, `carry_reads_its_words`: after any words a command has read, one word more does what its plain reading says, spelled out field by field and refusal by refusal — which flags each command takes, the last `-m` and `--onto` counting, `--merge`, `--at`, `--move`, `--bytes` and `--lines` adding after the ones before, a value cut at its first `=` and kept whole after it, a word not beginning with `-` a path or a target refused as a second, a trailing `/` changing nothing; `record_restricts_no_merge_and_no_half_rename`, `record_names_only_what_is_there`, `record_gives_kinds_only_to_files`, `record_moves_only_held_files`: the restriction check goes on exactly where no path is named, or where there is one parent at most and both ends of every `--move` are covered, a path named is refused exactly where it answers to nothing, every path `--bytes` or `--lines` named is a file the folder holds, and every file a stated rename moves is one the position holds; `record_writes_only_what_is_settled`, `record_says_an_arrival_once`, `record_reads_lines_as_text`: what it goes on to write is the survey's plan unchanged, neither the walk nor the survey having refused a path, no file still holding a line the renderer wrote and no contested file of lines observed empty, every link of the position anchored, and the paths accepted being exactly the contested ones, whose dry run names an arriving file — read against the list of what arrives — on its `added` line alone, and an arriving file `--lines` names is read and its bytes are UTF-8; `record_states_the_folder`: each edit, applied to the store's replay of that file at the position, gives the folder's lines, text is the folder's bytes and a payload is named by the digest the walk gave its path; `record_resolves_as_the_walk_proposes`: where the parents being joined leave a file differently, it states the resolution `Conflict.resolve` makes of the walk of those parents and the folder's lines; `record_names_what_it_writes`, `record_moves_the_bookmarks_on_its_parents`, `record_moves_only_the_bookmarks_on_its_parents`: the revision's stem begins with the name its moment, message and change compose and is that name exactly where no held revision has it, and the bookmarks moved are exactly the store's bookmarks on the change of the first revision it lists under a parent's identifier | `record`'s arguments, survey and writing |
-| `rewrite_lemmas.bend` | `carry_keeps_what_it_restates`: every revision a carry plans keeps the change, author, moment and message of the one it supersedes, supersedes that one alone, and is named by the digest of its text; `abandon_takes_a_line`, `abandon_asks_for_a_revision_and_a_reason`, `abandon_dry_run_names_the_run`: `abandon` takes a line of work nothing has rewritten, each revision after the first standing on the one before it alone, is asked for a target and a reason that is not blank, and a dry run begins by naming each revision of the run, in order; `reword_changes_only_the_message`: a reword's message is the one `-m` gave and not the old one, and with the old one put back it says what the revision said; `amend_rewrites_a_held_revision`, `carry_carries_a_held_revision`, `amend_keeps_what_it_added`: what `amend` and `carry` act on is a revision the store holds, and an amendment gives every arrival an identifier, each file it added keeping its own; `writes_say_what_they_wrote`: with `--fields` all four writing commands say `historica-wrote-1` and then each revision they wrote once, in digest order | `amend`, `abandon`, `carry`, decisions 0013, 0023, 0059 and 0074 |
+| `rewrite_lemmas.bend` | `carry_says_what_it_files`: with `--fields` a carry names exactly the revisions it files, each once, in digest order, each by the digest of the bytes it files, the name the store reads it back under; `abandon_takes_a_line`, `abandon_abandons_only_a_word_it_was_given`, `abandon_refuses_a_dry_run_with_fields`, `abandon_dry_run_names_the_run`: `abandon` takes a line of work nothing has rewritten, each revision after the first standing on the one before it alone, goes on only with a target that is one of its words and not a flag, refuses `--dry-run --fields` after any words it reads as a usage error, and a dry run says a line for each revision of the run, in order, by the first twelve letters of its digest and then only the bookmarks there, then that a tombstone would supersede them, then only what it would carry; `reword_changes_only_the_message`: a reword's message is the one `-m` gave and not the old one, and with the old one put back it says what the revision said; `amend_rewrites_the_revision_named`, `amend_rewrites_the_one_head`, `carry_carries_a_held_revision`, `amend_keeps_what_it_added`: what `amend` rewrites is the revision its target resolves to or, with none named, the store's one current head, what `carry` is asked to carry is a revision the store holds, and an amendment gives every arrival an identifier, each file it added keeping its own; `writes_say_what_they_wrote`: with `--fields` all four writing commands say `historica-wrote-1` and then, read back from their `revision` lines, exactly the revisions they wrote, each once, in digest order | `amend`, `abandon`, `carry`, decisions 0013, 0023, 0059 and 0074 |
 | `PROOF.bend` (`replay`) | `replay_keeps_a_refusal`: once a document in the chain is refused, nothing after it — a payload included — makes the chain a file; `opdiff_replays_to_the_child`: the document `opdiff` finds between two files, applied as `replay` applies one, makes the second | `replay`, `opdiff` |
 | `target_lemmas.bend` | `target_is_held`: every target — a bookmark, `head`, a digest prefix or a change prefix — resolves to a revision the store holds; setting a key in Base's `Map` never invents a value, so the history heads and changes are read from holds only the store's revisions | `target::resolve` |
 | `log_lemmas.bend` | `log_lists_what_it_asks`: every revision `log` lists satisfies every filter asked of it, whatever the limit | `log`'s filters |
@@ -727,11 +727,12 @@ refused exactly where it answers to nothing
 (`record_gives_kinds_only_to_files`), and every file a stated rename moves
 is one the position holds (`record_moves_only_held_files`). What it goes on
 to write is the survey's plan unchanged, and one the survey settled:
-neither the walk nor the survey refused a path it looked at, no contested
-file of lines was observed left empty, every link the position holds is
-anchored, naming no file the record drops unless it goes too or is
-restated, and the paths `--accept` names are exactly the ones the survey
-found contested (`record_writes_only_what_is_settled`),
+neither the walk nor the survey refused a path it looked at, no file
+still holds a line the renderer wrote, no contested file of lines was
+observed left empty, every link the position holds is anchored, naming no
+file the record drops unless it goes too or the folder holds a link at its
+path that this format can hold, and the paths `--accept` names are exactly
+the ones the survey found contested (`record_writes_only_what_is_settled`),
 whose dry run names an arriving file on its `added` line alone
 (`record_says_an_arrival_once`); an arriving file `--lines` names is read,
 and where `record` goes on its bytes are UTF-8
@@ -739,7 +740,10 @@ and where `record` goes on its bytes are UTF-8
 folder holds: each edit, applied to the store's replay of that file at the
 position, gives the folder's lines, text is the folder's bytes, and a
 payload is named by the digest the walk gave its path
-(`record_states_the_folder`). The revision is filed under a stem that
+(`record_states_the_folder`); where the parents being joined leave a file
+differently, the resolution it states is the one `Conflict.resolve` makes
+of the walk of those parents and the folder's lines
+(`record_resolves_as_the_walk_proposes`). The revision is filed under a stem that
 begins with the name its moment, message and change compose, and is that
 name exactly where no revision the store holds has it
 (`record_names_what_it_writes`), and the bookmarks it moves are exactly the
@@ -750,22 +754,35 @@ kept, and each bookmark that moves is one of those
 (`record_moves_the_bookmarks_on_its_parents`,
 `record_moves_only_the_bookmarks_on_its_parents`). Neither law reads the
 parents' changes through the lookup `record` makes; each states them from
-the parents named and the revisions the store holds. An amendment rewrites a
-revision the store holds (`amend_rewrites_a_held_revision`) and keeps the
-identifiers it minted (`amend_keeps_what_it_added`); a reword changes the
-message alone (`reword_changes_only_the_message`). `abandon` is asked for a
-target and a reason that is not blank
-(`abandon_asks_for_a_revision_and_a_reason`), and takes a line of work
-nothing has rewritten, each revision after the first standing on the one
-before it alone (`abandon_takes_a_line`), which a dry run begins by naming,
-in order (`abandon_dry_run_names_the_run`). A carry acts on a revision the
-store holds (`carry_carries_a_held_revision`) and keeps the change,
-author, moment and message of each revision it restates, superseding that
-one alone under the digest of its own text
-(`carry_keeps_what_it_restates`). With `--fields` all four say what they
-wrote in decision 0074's words, each revision once, in digest order
-(`writes_say_what_they_wrote`). What no law reaches is the order of their
-effects, and what the host draws and files.
+the parents named and the revisions the store holds. An amendment rewrites the revision
+its target resolves to, as every command resolves that spelling
+(`amend_rewrites_the_revision_named`), or with none named the store's one
+current head, refusing where there are several or none
+(`amend_rewrites_the_one_head`), and keeps the identifiers it minted
+(`amend_keeps_what_it_added`); a reword changes the message alone
+(`reword_changes_only_the_message`). `abandon` goes on only with a target,
+one of its words and not a flag, so nothing is abandoned by default
+(`abandon_abandons_only_a_word_it_was_given`); whatever words it reads,
+`--dry-run --fields` after them is a usage error
+(`abandon_refuses_a_dry_run_with_fields`); and it wants a reason that says
+something (`abandon_takes_a_reason_that_says_something`). It takes a line
+of work nothing has rewritten, each revision after the first standing on
+the one before it alone (`abandon_takes_a_line`), and a dry run says that
+line and nothing else: each revision in order by the first twelve letters
+of its digest and then only the bookmarks there, the tombstone, and what
+it would carry (`abandon_dry_run_names_the_run`). A carry acts on a
+revision the store holds (`carry_carries_a_held_revision`), and with
+`--fields` names exactly the revisions it files, each by the digest of the
+bytes it files, which is the name the store reads a document back under
+(`carry_says_what_it_files`). With `--fields` all four say what they wrote
+in decision 0074's words: read back from the `revision` lines, exactly the
+revisions they were handed as written — their own and the ones they
+carried — each once, in digest order (`writes_say_what_they_wrote`). What
+no law reaches is the order of their effects, what the host draws and
+files, and that a carry keeps whose work it restates and when it was done:
+that holds by construction, and saying it of what the store reads back
+would need the parser to read back what `Rev.write` writes, the direction
+`revision_write_parse` does not prove.
 
 `name` is the first command that writes the store. It points a bookmark
 at a change, which follows amend and rebase; at a revision with
@@ -2010,7 +2027,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and ninety-one mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and ninety-seven mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2118,12 +2135,12 @@ believed whatever digest the host's line names, and a payload the host
 could not find asked the stat of; and four fetch breaks: a file replayed
 with nothing fetched for it, what a resolution keeps left unfetched, an
 `edit` the folder's plan believes left unfetched, and a payload shown left
-unasked; and one span break: `a..b` read as `b..a`; and thirty-four writing breaks: `record` keeping the first `--onto`,
+unasked; and one span break: `a..b` read as `b..a`; and forty writing breaks: `record` keeping the first `--onto`,
 merging the last `--merge` first, cutting a rename's new path at a second
 `=` and keeping the slash a shell leaves after a directory, a rewrite
 keeping the first `-m` and taking a second target in place of the first, a
-carried revision authored by whoever carried it, a merge let onto an
-abandoned run, a reword that drops what the revision stated, an edited file
+carried revision reporting the identifier of the one it supersedes, a
+merge let onto an abandoned run, a reword that drops what the revision stated, an edited file
 diffed against nothing, the bookmarks on every change but a parent's moved,
 only the first bookmark on a parent's change moved, a parent's identifier
 read as its change, the bookmarks on the first parent's change alone moved,
@@ -2133,11 +2150,15 @@ refused written, a contested file of lines left empty written, `carry`
 taking a change for the revision named, a rename moving the path named rather than the file at it,
 every `--at` taken for nothing, a restriction taking one end of a rename, a merge of two restricted, a
 skipped name nothing answers to let through, a dry run giving an arriving
-file a `link` line, `carry --fields` naming a revision twice, a file with
-no NUL taken for text, only the first file `--lines` names read, the kind
+file a `link` line, `carry --fields` naming a revision twice, `amend
+--fields` leaving out what it carried, a file with no NUL taken for text, only the first file `--lines` names read, the kind
 of the last path named checked alone, the position read as empty, an
-amendment changing the identifier of a file it added, a reason of spaces,
-and an `abandon` dry run naming the run in reverse; and one stand-in
+amendment changing the identifier of a file it added, `amend` without a
+target taking a superseded head, `amend` rewriting the head whatever
+target is named, `abandon` going on with no target named, a flag taken for
+`abandon`'s target, a dry run let ask for `--fields`, a reason of spaces,
+and an `abandon` dry run naming the run in reverse or each revision by its
+whole digest; and one stand-in
 break: a document taken as standing in whatever its header forgets; and
 eight forgetting breaks: a stand-in that resets a forgotten item's
 terminator, one that writes an empty line where the marker goes, a line's
