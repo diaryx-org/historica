@@ -670,6 +670,8 @@ def Laws.header_opens_under_a_note(note):
 
 def Laws.identity_reads_back(file, a, directory, home, h):
   IdentityL.reads_back(file, a, directory, home, h)
+def Laws.check_reads_its_words(ws):
+  CheckL.reads_words(ws)
 def Laws.check_finds_nothing_in_a_new_store(root):
   CheckL.fresh(root)
 def Laws.skip_rules_equal_only_when_equal(a, b, e):

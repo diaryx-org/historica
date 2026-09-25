@@ -1278,6 +1278,12 @@ law identity_reads_back:
   for h: {Identity.unusable(a) == False{} : Bool}
   {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}
 
+# `check` reads `--complete` wherever it stands, and every other word, in
+# order, as a directory to check.
+law check_reads_its_words:
+  for +ws: List<&2, String>
+  {Check.asked(ws) == Check.Asked{Rev.member(ws, "--complete"), Check.words.other(ws)} : Check.Asked}
+
 # What `check` gathers from the store `init` makes — the header under its
 # note, `skipped/` holding only its note, and nothing else — it finds
 # nothing wrong with, wherever the store is.

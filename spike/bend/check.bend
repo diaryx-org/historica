@@ -2602,6 +2602,15 @@ def asked.go(args: List<&2, String>, complete: Bool, +words: List<&2, String>) -
       +flag = String.eq(w, "--complete")
       asked.go(rest, Bool.or(complete, flag), Bool.pick(List<&2, String>, flag, words, List.append(&2, String, words, [w])))
 
+# Every word but `--complete`, in order (`LAWS.check_reads_its_words`).
+def words.other(ws: List<&2, String>) -> List<&2, String>:
+  match ws:
+    case Nil{}:
+      Nil{}
+    case +w <> rest:
+      +more = words.other(rest)
+      Bool.pick(List<&2, String>, String.eq(w, "--complete"), more, w <> more)
+
 def asked(args: List<&2, String>) -> Asked:
   asked.go(args, False{}, Nil{})
 
