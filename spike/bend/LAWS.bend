@@ -2754,6 +2754,27 @@ law export_destroys_only_what_is_forgotten:
   for h: {Rev.member(Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)) == True{} : Bool}
 
+# `export` knows what a directory holds by reading the host's listing of
+# it (`Store.folder`), and reads it back as the host writes it: the names
+# it finds are the entries' own, one each and in the order listed, whatever
+# the entries are — a directory, a file of any mode and size, a link (whose
+# target, on the line after it, is no entry of its own), or anything else.
+law export_reads_a_directory_listing_back:
+  for +es: List<&2, Export.Listed>
+  for +h: {Export.listed.ok(es) == True{} : Bool}
+  {Export.dir.names(Export.listing(es)) == Export.listed.names(es) : List<&2, String>}
+
+# And so an export writes only into a directory holding nothing: it lays a
+# folder out alone (`--files-only`) exactly where the host's listing names
+# no entry, and makes a fresh copy exactly there too. A directory holding
+# anything is refused, or, holding a copy, brought up to date.
+law export_writes_only_into_nothing:
+  for +into: String
+  for +es: List<&2, Export.Listed>
+  for header: Result<&1, &1, U32 & String, String>
+  for +h: {Export.listed.ok(es) == True{} : Bool}
+  {Bool.and(Export.bool.same(Result.is_done(&2, &2, Main.Refused, Unit, Export.empty.r(into, Done{Export.listing(es)})), List.is_empty(&2, Export.Listed, es)), Export.bool.same(Export.dest.fresh(Export.dest.r(into, Done{Export.listing(es)}, header)), List.is_empty(&2, Export.Listed, es))) == True{} : Bool}
+
 # What `export -n` names, read back from its lines: a `would withdraw` line
 # for each file a copy being updated gives up, in the order they go, and a
 # `write` line for each path the target's tree places — every one of them,
@@ -2776,6 +2797,19 @@ law export_dry_run_names_what_it_would_write:
   for +into: String
   for +x: String
   {Bool.and(Main.strings.same(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "would withdraw history/"), ws), Bool.and(Main.rising(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "write   ")), Export.bool.same(Rev.member(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "write   "), x), Export.tree.holds(t, x)))) == True{} : Bool}
+
+# What `export --files-only -n` says it would do is what the real run then
+# says it did: read back, its `write` lines name, in order, exactly the
+# files the real run names as `wrote`, and its `link` lines exactly the
+# links, each with where it points, that the real run names as `linked` —
+# whatever modes it went on to set.
+law export_files_only_dry_run_names_what_it_lays_out:
+  for +ps: List<&2, Export.Put>
+  for +set: List<&2, String>
+  for +spelled: String
+  for +into: String
+  for +at: String
+  {Bool.and(Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "write   "), Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   ")), Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "link    "), Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  "))) == True{} : Bool}
 
 # An export updates a copy only where the copy is its own to update
 # (decision 0052): it goes on exactly where the copy is related to this

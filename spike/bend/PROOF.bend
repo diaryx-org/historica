@@ -83,6 +83,7 @@ import ./export_lemmas.bend as ExportL
 import ./catchup_lemmas.bend as CatchL
 import ./onto_lemmas.bend as OntoL
 import ./dryrun_lemmas.bend as DryL
+import ./filesonly_lemmas.bend as FilesL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
@@ -1059,8 +1060,17 @@ def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs,
 def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks, d, h):
   ExportL.destroyed(p, here, cst, marks, d, h)
 
+def Laws.export_reads_a_directory_listing_back(es, h):
+  FilesL.names_back(es, h)
+
+def Laws.export_writes_only_into_nothing(into, es, header, h):
+  FilesL.into_nothing(into, es, header, h)
+
 def Laws.export_dry_run_names_what_it_would_write(held, t, ds, ps, bodies, rs, bs, claims, c, ws, n, u, spelled, into, x):
   DryL.dry_names(held, t, ds, ps, bodies, rs, bs, claims, c, ws, n, u, spelled, into, x)
+
+def Laws.export_files_only_dry_run_names_what_it_lays_out(ps, set, spelled, into, at):
+  DryL.folder_said(ps, set, spelled, into, at)
 
 def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, cfs):
   OntoL.copy_done(into, fs, cfs)
