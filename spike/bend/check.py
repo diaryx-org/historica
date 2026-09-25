@@ -2189,6 +2189,13 @@ def check_mutations(temporary):
             "rewrite_lemmas.joins_ok",
             "commands.bend",
         ),
+        (
+            "a reword drops what the revision stated",
+            "Rev.Rev{change, parents, [id], author, when, revised_by(reviser, author), Some{revised}, facts, msg}",
+            "Rev.Rev{change, parents, [id], author, when, revised_by(reviser, author), Some{revised}, Nil{}, msg}",
+            "rewrite_lemmas.reword",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

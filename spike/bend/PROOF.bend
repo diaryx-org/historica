@@ -668,3 +668,6 @@ def Laws.carry_keeps_what_it_restates(fs, ds, c, steps, e):
 
 def Laws.abandon_takes_a_line(fs, id, only, run, e):
   RewriteL.plan_line(fs, id, only, run, e)
+
+def Laws.reword_changes_only_the_message(fs, prev, standing, m, reviser, revised, doc, e):
+  RewriteL.reword_ok(fs, prev, standing, m, reviser, revised, doc, e)

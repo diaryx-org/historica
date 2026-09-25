@@ -1347,3 +1347,18 @@ law abandon_takes_a_line:
   for run: List<&2, String>
   for e: {Main.abandon.plan.r(fs, id, only) == Done{run} : Result<&2, &2, Main.Refused, List<&2, String>>}
   {Main.abandon.line(fs, id, only, run) == True{} : Bool}
+
+# A reword changes the message alone. Where work stands on a revision,
+# `amend` may only reword it: the message it writes is the one `-m` gave
+# and not the one the revision had, it supersedes that revision alone, and
+# with the old message put back it says exactly what that revision said.
+law reword_changes_only_the_message:
+  for +fs: List<&2, Main.Full>
+  for prev: Main.Full
+  for +standing: List<&2, String>
+  for +m: Maybe<&2, String>
+  for +reviser: String
+  for +revised: String
+  for doc: Rev.Rev
+  for e: {Main.reword.r(fs, prev, standing, m, reviser, revised) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}
+  {Main.reword.ok(prev, m, doc) == True{} : Bool}
