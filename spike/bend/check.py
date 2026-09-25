@@ -4169,6 +4169,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export plans private rules to travel beside the shared",
+            "Main.sorted_distinct(entry.paths(t)), rules.shared(rs), rules.withheld(rs)",
+            "Main.sorted_distinct(entry.paths(t)), rs, rules.withheld(rs)",
+            "onto_lemmas.added_shared",
+            "export.bend",
+        ),
+        (
             "fetch files a document whose text is not the digest offered",
             "      Bool.pick(Land, String.eq(found, entry.digest(o)), text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",
             "      Bool.pick(Land, True{}, text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",
