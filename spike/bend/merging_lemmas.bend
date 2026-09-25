@@ -275,128 +275,6 @@ def joined_bind(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ss: List<
 def joined_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ss: List<&2, String>, +xs: List<&2, T.Split>, e: {M.joined.r(fs, bs, ss) == Done{xs} : Result<&2, &2, Main.Refused, List<&2, T.Split>>}) -> {Main.all_held(Main.ids(fs), M.typed.ids(xs)) == True{} : Bool}:
   joined_bind(fs, bs, ss, M.typed.named(fs, bs, ss, Nil{}), {==}, xs, e)
 
-# Where the folder already holds the merge
-# ----------------------------------------
-#
-# Where the merged trees contest nothing and the folder already holds, at
-# each file's path, what the merge reads there, every file `merge` writes
-# it writes with the bytes already there, and it points no link.
-
-def same_app(+dg: Map<&2, String>, xs: List<&2, M.Act>, +ys: List<&2, M.Act>, +hx: {M.rewrites.same(dg, xs) == True{} : Bool}, +hy: {M.rewrites.same(dg, ys) == True{} : Bool}) -> {M.rewrites.same(dg, List.append(&2, M.Act, xs, ys)) == True{} : Bool}:
-  match xs:
-    case Nil{}:
-      hy
-    case M.Act.Lines{+at, +text, m} <> +rest:
-      AL.and_intro(String.eq(Upd.text_digest(text), Main.status.folder_digest(dg, at)), M.rewrites.same(dg, List.append(&2, M.Act, rest, ys)),
-        Comp.and_left(String.eq(Upd.text_digest(text), Main.status.folder_digest(dg, at)), M.rewrites.same(dg, rest), hx),
-        same_app(dg, rest, ys, Comp.and_right(String.eq(Upd.text_digest(text), Main.status.folder_digest(dg, at)), M.rewrites.same(dg, rest), hx), hy))
-    case M.Act.Whole{+at, from, +q, m} <> +rest:
-      AL.and_intro(String.eq(q, Main.status.folder_digest(dg, at)), M.rewrites.same(dg, List.append(&2, M.Act, rest, ys)),
-        Comp.and_left(String.eq(q, Main.status.folder_digest(dg, at)), M.rewrites.same(dg, rest), hx),
-        same_app(dg, rest, ys, Comp.and_right(String.eq(q, Main.status.folder_digest(dg, at)), M.rewrites.same(dg, rest), hx), hy))
-    case M.Act.Link{at, target} <> rest:
-      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(hx))
-    case M.Act.Said{l} <> +rest:
-      same_app(dg, rest, ys, hx, hy)
-    case M.Act.Stop{e} <> +rest:
-      same_app(dg, rest, ys, hx, hy)
-
-def acts_cons(l: M.Laid, -rest: List<&2, M.Laid>) -> {M.lay.acts(l <> rest) == List.append(&2, M.Act, M.laid.acts(l), M.lay.acts(rest)) : List<&2, M.Act>}:
-  match l:
-    case M.Laid{a, m}:
-      {==}
-
-def lines_same.pick(c: Bool, +dg: Map<&2, String>, +p: String, +j: Conflict.Joined, +m: Tree.Mode, +hj: {String.eq(Upd.text_digest(Conflict.render(j)), Main.status.folder_digest(dg, p)) == True{} : Bool}) -> {M.rewrites.same(dg, Bool.pick(List<&2, M.Act>, c, [M.Act.Said{M.LEFT_UNRECORDED(p)}], [M.Act.Lines{p, Conflict.render(j), m}])) == True{} : Bool}:
-  match c:
-    case True{}:
-      {==}
-    case False{}:
-      AL.and_intro(String.eq(Upd.text_digest(Conflict.render(j)), Main.status.folder_digest(dg, p)), True{}, hj, {==})
-
-# A file of lines where nothing met is written as the walk reads it, which
-# is what the folder holds.
-def lines_same(r: Result<&2, &2, String, Conflict.Joined>, +dg: Map<&2, String>, +p: String, +hs: List<&2, String>, +x: Bool, +m: Tree.Mode, +h: {M.already.lines(dg, p, r) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay.lines(p, Main.status.folder_digest(dg, p), hs, x, m, r))) == True{} : Bool}:
-  match r:
-    case Fail{e}:
-      Empty.absurd({M.rewrites.same(dg, M.laid.acts(M.lay.lines(p, Main.status.folder_digest(dg, p), hs, x, m, Fail{e}))) == True{} : Bool}, Comp.false_true(h))
-    case Done{+j}:
-      lines_same.pick(Bool.and(x, M.unrecorded(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.render(j)) <> Upd.text_digest(Conflict.plain(j)) <> hs)), dg, p, j, m,
-        (%Equal.sym(String, Conflict.render(j), Conflict.plain(j), ConflictL.render_plain(j, UpdL.not_true(Conflict.met(j), Comp.and_left(Bool.not(Conflict.met(j)), String.eq(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.plain(j))), h)))) : {String.eq(Upd.text_digest(_), Main.status.folder_digest(dg, p)) == True{} : Bool}
-          %ML.eq_sym(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.plain(j))) : {_ == True{} : Bool}
-          Comp.and_right(Bool.not(Conflict.met(j)), String.eq(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.plain(j))), h)))
-
-def whole_same.pick(a: Bool, b: Bool, +dg: Map<&2, String>, +p: String, +from: String, +d: String, +m: Tree.Mode, +hd: {String.eq(d, Main.status.folder_digest(dg, p)) == True{} : Bool}) -> {M.rewrites.same(dg, Bool.pick(List<&2, M.Act>, a, [M.Act.Stop{"this store does not hold the content " ++ d}], Bool.pick(List<&2, M.Act>, b, [M.Act.Said{M.LEFT_UNRECORDED(p)}], [M.Act.Whole{p, from, d, m}]))) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      match b:
-        case True{}:
-          {==}
-        case False{}:
-          AL.and_intro(String.eq(d, Main.status.folder_digest(dg, p)), True{}, hd, {==})
-
-# A file of bytes holding the payload already has it laid again, and
-# nothing else.
-def whole_same(y: Maybe<&2, String>, +f: String, +located: Map<&2, String>, +dg: Map<&2, String>, +p: String, +hs: List<&2, String>, +m: Tree.Mode, h: {Upd.records.payload(Main.status.folder_digest(dg, p), y) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay.whole(p, f, Nil{}, located, Main.status.folder_digest(dg, p), hs, m, y))) == True{} : Bool}:
-  match y:
-    case None{}:
-      Empty.absurd({M.rewrites.same(dg, M.laid.acts(M.lay.whole(p, f, Nil{}, located, Main.status.folder_digest(dg, p), hs, m, None{}))) == True{} : Bool}, Comp.false_true(h))
-    case Some{+d}:
-      whole_same.pick(String.is_empty(Main.stat_of(d, Map.get(String, SNil{}, located, d))), M.unrecorded(Main.status.folder_digest(dg, p), d <> hs), dg, p, Main.stat_of(d, Map.get(String, SNil{}, located, d)), d, m, h)
-
-def lands_of(h: Upd.Held, +s: String, -S: String, eS: {S == s : String}, hy: {Upd.holds.link(h, S) == True{} : Bool}) -> {Upd.lands.link(s, h) == True{} : Bool}:
-  match h:
-    case Upd.Held.Link{w}:
-      %eS : {String.eq(w, _) == True{} : Bool}
-      hy
-    case Upd.Held.File{d, r}:
-      Empty.absurd({Upd.lands.link(s, Upd.Held.File{d, r}) == True{} : Bool}, Comp.false_true(hy))
-    case Upd.Held.Dir{}:
-      Empty.absurd({Upd.lands.link(s, Upd.Held.Dir{}) == True{} : Bool}, Comp.false_true(hy))
-    case Upd.Held.Unread{}:
-      Empty.absurd({Upd.lands.link(s, Upd.Held.Unread{}) == True{} : Bool}, Comp.false_true(hy))
-    case Upd.Held.Other{}:
-      Empty.absurd({Upd.lands.link(s, Upd.Held.Other{}) == True{} : Bool}, Comp.false_true(hy))
-    case Upd.Held.Nothing{}:
-      Empty.absurd({Upd.lands.link(s, Upd.Held.Nothing{}) == True{} : Bool}, Comp.false_true(hy))
-
-def link_same.some(mm: Maybe<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +p: String, +v: Tree.Target, +h: Upd.Held, +em: {Upd.materialise(t, p, v) == mm : Maybe<&2, String>}, hy: {Upd.holds.link(h, Main.materialise(t, p, v)) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay.link(p, h, mm))) == True{} : Bool}:
-  match mm:
-    case None{}:
-      {==}
-    case Some{+s}:
-      %Equal.sym(Bool, Upd.lands.link(s, h), True{}, lands_of(h, s, Main.materialise(t, p, v), UpdL.spelled_same(t, p, v, s, em), hy)) : {M.rewrites.same(dg, Bool.pick(List<&2, M.Act>, _, Nil{}, [M.Act.Link{p, s}])) == True{} : Bool}
-      {==}
-
-# A link already pointing where `cat` says is not pointed again.
-def link_same(g: Maybe<&2, Tree.Target>, +t: Tree.Tree(), +dg: Map<&2, String>, +p: String, +h: Upd.Held, hy: {Upd.holds.target(h, t, p, g) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay.link(p, h, Maybe.bind(&2, Tree.Target, String, g, x2 => Upd.materialise(t, p, x2))))) == True{} : Bool}:
-  match g:
-    case None{}:
-      Empty.absurd({M.rewrites.same(dg, M.laid.acts(M.lay.link(p, h, None{}))) == True{} : Bool}, Comp.false_true(hy))
-    case Some{+v}:
-      link_same.some(Upd.materialise(t, p, v), t, dg, p, v, h, {==}, hy)
-
-def merged_one(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, e: Tree.Entry, h: {M.already.one(fs, ds, heads, t, dg, ls, e) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e)))) == True{} : Bool}:
-  match e:
-    case Tree.Entry{+f, +p, Tree.Lines{}, y, g, +m}:
-      lines_same(Main.joined(fs, ds, heads, f), dg, p, M.head.lines(fs, ds, f, heads), M.text.at(texts, p), m, h)
-    case Tree.Entry{+f, +p, Tree.Whole{}, +y, g, +m}:
-      whole_same(y, f, located, dg, p, M.head.wholes(fs, f, heads), m, h)
-    case Tree.Entry{f, +p, Tree.Link{}, y, +g, m}:
-      link_same(g, t, dg, p, Upd.held.of(ls, p, None{}), h)
-
-# Over every file of the merged tree.
-def merged_all(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, es: List<&2, Tree.Entry>, +h: {M.already(fs, ds, heads, t, dg, ls, es) == True{} : Bool}) -> {M.rewrites.same(dg, M.lay.acts(M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, es)))) == True{} : Bool}:
-  match es:
-    case Nil{}:
-      {==}
-    case +e <> +rest:
-      %Equal.sym(List<&2, M.Act>, M.lay.acts(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e)) <> M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, rest))), List.append(&2, M.Act, M.laid.acts(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e))), M.lay.acts(M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, rest)))), acts_cons(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e)), M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, rest)))) : {M.rewrites.same(dg, _) == True{} : Bool}
-      same_app(dg, M.laid.acts(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e))), M.lay.acts(M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, rest))),
-        merged_one(fs, ds, heads, t, dg, texts, ls, located, e, Comp.and_left(M.already.one(fs, ds, heads, t, dg, ls, e), M.already(fs, ds, heads, t, dg, ls, rest), h)),
-        merged_all(fs, ds, heads, t, dg, texts, ls, located, rest, Comp.and_right(M.already.one(fs, ds, heads, t, dg, ls, e), M.already(fs, ds, heads, t, dg, ls, rest), h)))
-
 # What it writes over
 # -------------------
 
@@ -609,6 +487,108 @@ def whole_each(y: Maybe<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Sto
     case Some{+pay}:
       whole_found(String.is_empty(Main.stat_of(pay, Map.get(String, SNil{}, located, pay))), fs, ds, heads, bs, t, dg, texts, f, p, g, m, at, hat, pay, Main.stat_of(pay, Map.get(String, SNil{}, located, pay)))
 
+# Where the folder already holds the merge
+# ----------------------------------------
+#
+# Where the merged trees contest nothing and the folder already holds, at
+# each file's path, what the merge reads there, every file `merge` writes
+# it writes with the bytes already there, and it points no link.
+
+def same_app(+dg: Map<&2, String>, xs: List<&2, M.Act>, +ys: List<&2, M.Act>, +hx: {M.rewrites.same(dg, xs) == True{} : Bool}, +hy: {M.rewrites.same(dg, ys) == True{} : Bool}) -> {M.rewrites.same(dg, List.append(&2, M.Act, xs, ys)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      hy
+    case M.Act.Lines{+at, +text, m} <> +rest:
+      AL.and_intro(String.eq(Upd.text_digest(text), Main.status.folder_digest(dg, at)), M.rewrites.same(dg, List.append(&2, M.Act, rest, ys)),
+        Comp.and_left(String.eq(Upd.text_digest(text), Main.status.folder_digest(dg, at)), M.rewrites.same(dg, rest), hx),
+        same_app(dg, rest, ys, Comp.and_right(String.eq(Upd.text_digest(text), Main.status.folder_digest(dg, at)), M.rewrites.same(dg, rest), hx), hy))
+    case M.Act.Whole{+at, from, +q, m} <> +rest:
+      AL.and_intro(String.eq(q, Main.status.folder_digest(dg, at)), M.rewrites.same(dg, List.append(&2, M.Act, rest, ys)),
+        Comp.and_left(String.eq(q, Main.status.folder_digest(dg, at)), M.rewrites.same(dg, rest), hx),
+        same_app(dg, rest, ys, Comp.and_right(String.eq(q, Main.status.folder_digest(dg, at)), M.rewrites.same(dg, rest), hx), hy))
+    case M.Act.Link{at, target} <> rest:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(hx))
+    case M.Act.Said{l} <> +rest:
+      same_app(dg, rest, ys, hx, hy)
+    case M.Act.Stop{e} <> +rest:
+      same_app(dg, rest, ys, hx, hy)
+
+def acts_cons(l: M.Laid, -rest: List<&2, M.Laid>) -> {M.lay.acts(l <> rest) == List.append(&2, M.Act, M.laid.acts(l), M.lay.acts(rest)) : List<&2, M.Act>}:
+  match l:
+    case M.Laid{a, m}:
+      {==}
+
+def lines_same.pick(c: Bool, +dg: Map<&2, String>, +p: String, +j: Conflict.Joined, +m: Tree.Mode, +hj: {String.eq(Upd.text_digest(Conflict.render(j)), Main.status.folder_digest(dg, p)) == True{} : Bool}) -> {M.rewrites.same(dg, Bool.pick(List<&2, M.Act>, c, [M.Act.Said{M.LEFT_UNRECORDED(p)}], [M.Act.Lines{p, Conflict.render(j), m}])) == True{} : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      AL.and_intro(String.eq(Upd.text_digest(Conflict.render(j)), Main.status.folder_digest(dg, p)), True{}, hj, {==})
+
+# A file of lines where nothing met is written as the walk reads it, which
+# is what the folder holds.
+def lines_same(r: Result<&2, &2, String, Conflict.Joined>, +dg: Map<&2, String>, +p: String, +hs: List<&2, String>, +x: Bool, +m: Tree.Mode, +h: {M.already.lines(dg, p, r) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay.lines(p, Main.status.folder_digest(dg, p), hs, x, m, r))) == True{} : Bool}:
+  match r:
+    case Fail{e}:
+      Empty.absurd({M.rewrites.same(dg, M.laid.acts(M.lay.lines(p, Main.status.folder_digest(dg, p), hs, x, m, Fail{e}))) == True{} : Bool}, Comp.false_true(h))
+    case Done{+j}:
+      lines_same.pick(Bool.and(x, M.unrecorded(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.render(j)) <> Upd.text_digest(Conflict.plain(j)) <> hs)), dg, p, j, m,
+        (%Equal.sym(String, Conflict.render(j), Conflict.plain(j), ConflictL.render_plain(j, UpdL.not_true(Conflict.met(j), Comp.and_left(Bool.not(Conflict.met(j)), String.eq(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.plain(j))), h)))) : {String.eq(Upd.text_digest(_), Main.status.folder_digest(dg, p)) == True{} : Bool}
+          %ML.eq_sym(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.plain(j))) : {_ == True{} : Bool}
+          Comp.and_right(Bool.not(Conflict.met(j)), String.eq(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.plain(j))), h)))
+
+def whole_same.pick(a: Bool, b: Bool, +dg: Map<&2, String>, +p: String, +from: String, +d: String, +m: Tree.Mode, +hd: {String.eq(d, Main.status.folder_digest(dg, p)) == True{} : Bool}) -> {M.rewrites.same(dg, Bool.pick(List<&2, M.Act>, a, [M.Act.Stop{"this store does not hold the content " ++ d}], Bool.pick(List<&2, M.Act>, b, [M.Act.Said{M.LEFT_UNRECORDED(p)}], [M.Act.Whole{p, from, d, m}]))) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      match b:
+        case True{}:
+          {==}
+        case False{}:
+          AL.and_intro(String.eq(d, Main.status.folder_digest(dg, p)), True{}, hd, {==})
+
+# A file of bytes holding the payload already has it laid again, and
+# nothing else.
+def whole_same(y: Maybe<&2, String>, +f: String, +located: Map<&2, String>, +dg: Map<&2, String>, +p: String, +hs: List<&2, String>, +m: Tree.Mode, h: {Upd.records.payload(Main.status.folder_digest(dg, p), y) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay.whole(p, f, Nil{}, located, Main.status.folder_digest(dg, p), hs, m, y))) == True{} : Bool}:
+  match y:
+    case None{}:
+      Empty.absurd({M.rewrites.same(dg, M.laid.acts(M.lay.whole(p, f, Nil{}, located, Main.status.folder_digest(dg, p), hs, m, None{}))) == True{} : Bool}, Comp.false_true(h))
+    case Some{+d}:
+      whole_same.pick(String.is_empty(Main.stat_of(d, Map.get(String, SNil{}, located, d))), M.unrecorded(Main.status.folder_digest(dg, p), d <> hs), dg, p, Main.stat_of(d, Map.get(String, SNil{}, located, d)), d, m, h)
+
+def lands_of(h: Upd.Held, +s: String, -S: String, eS: {S == s : String}, hy: {Upd.holds.link(h, S) == True{} : Bool}) -> {Upd.lands.link(s, h) == True{} : Bool}:
+  match h:
+    case Upd.Held.Link{w}:
+      %eS : {String.eq(w, _) == True{} : Bool}
+      hy
+    case Upd.Held.File{d, r}:
+      Empty.absurd({Upd.lands.link(s, Upd.Held.File{d, r}) == True{} : Bool}, Comp.false_true(hy))
+    case Upd.Held.Dir{}:
+      Empty.absurd({Upd.lands.link(s, Upd.Held.Dir{}) == True{} : Bool}, Comp.false_true(hy))
+    case Upd.Held.Unread{}:
+      Empty.absurd({Upd.lands.link(s, Upd.Held.Unread{}) == True{} : Bool}, Comp.false_true(hy))
+    case Upd.Held.Other{}:
+      Empty.absurd({Upd.lands.link(s, Upd.Held.Other{}) == True{} : Bool}, Comp.false_true(hy))
+    case Upd.Held.Nothing{}:
+      Empty.absurd({Upd.lands.link(s, Upd.Held.Nothing{}) == True{} : Bool}, Comp.false_true(hy))
+
+def link_same.some(mm: Maybe<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +p: String, +v: Tree.Target, +h: Upd.Held, +em: {Upd.materialise(t, p, v) == mm : Maybe<&2, String>}, hy: {Upd.holds.link(h, Main.materialise(t, p, v)) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay.link(p, h, mm))) == True{} : Bool}:
+  match mm:
+    case None{}:
+      {==}
+    case Some{+s}:
+      %Equal.sym(Bool, Upd.lands.link(s, h), True{}, lands_of(h, s, Main.materialise(t, p, v), UpdL.spelled_same(t, p, v, s, em), hy)) : {M.rewrites.same(dg, Bool.pick(List<&2, M.Act>, _, Nil{}, [M.Act.Link{p, s}])) == True{} : Bool}
+      {==}
+
+# A link already pointing where `cat` says is not pointed again.
+def link_same(g: Maybe<&2, Tree.Target>, +t: Tree.Tree(), +dg: Map<&2, String>, +p: String, +h: Upd.Held, hy: {Upd.holds.target(h, t, p, g) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay.link(p, h, Maybe.bind(&2, Tree.Target, String, g, x2 => Upd.materialise(t, p, x2))))) == True{} : Bool}:
+  match g:
+    case None{}:
+      Empty.absurd({M.rewrites.same(dg, M.laid.acts(M.lay.link(p, h, None{}))) == True{} : Bool}, Comp.false_true(hy))
+    case Some{+v}:
+      link_same.some(Upd.materialise(t, p, v), t, dg, p, v, h, {==}, hy)
+
 # A link: pointed where `cat` says it points.
 def link_pick(c: Bool, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +f: String, +p: String, +y: Maybe<&2, String>, +v: Tree.Target, +m: Tree.Mode, +at: String, +hat: {M.at.is(bs, f, p, at) == True{} : Bool}, +s: String, +es: {Main.materialise(t, at, v) == s : String}) -> {M.laid.by(fs, ds, heads, bs, t, dg, texts, Tree.Entry{f, p, Tree.Link{}, y, Some{v}, m}, Bool.pick(List<&2, M.Act>, c, Nil{}, [M.Act.Link{at, s}])) == True{} : Bool}:
   match c:
@@ -659,6 +639,28 @@ def spares(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, 
       AL.and_intro(M.laid.by(fs, ds, heads, bs, t, dg, texts, e, M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, e)))), M.laid.files(fs, ds, heads, bs, t, dg, texts, rest, M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest))),
         lay_each(fs, ds, heads, bs, t, dg, texts, ls, cs, located, e),
         spares(fs, ds, heads, bs, t, dg, texts, ls, cs, located, rest))
+
+# Where the folder already holds the merge, over every file of the merged
+# tree.
+def merged_one(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, e: Tree.Entry, h: {M.already.one(fs, ds, heads, t, dg, ls, e) == True{} : Bool}) -> {M.rewrites.same(dg, M.laid.acts(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e)))) == True{} : Bool}:
+  match e:
+    case Tree.Entry{+f, +p, Tree.Lines{}, y, g, +m}:
+      lines_same(Main.joined(fs, ds, heads, f), dg, p, M.head.lines(fs, ds, f, heads), M.text.at(texts, p), m, h)
+    case Tree.Entry{+f, +p, Tree.Whole{}, +y, g, +m}:
+      whole_same(y, f, located, dg, p, M.head.wholes(fs, f, heads), m, h)
+    case Tree.Entry{f, +p, Tree.Link{}, y, +g, m}:
+      link_same(g, t, dg, p, Upd.held.of(ls, p, None{}), h)
+
+# Over every file of the merged tree.
+def merged_all(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, es: List<&2, Tree.Entry>, +h: {M.already(fs, ds, heads, t, dg, ls, es) == True{} : Bool}) -> {M.rewrites.same(dg, M.lay.acts(M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, es)))) == True{} : Bool}:
+  match es:
+    case Nil{}:
+      {==}
+    case +e <> +rest:
+      %Equal.sym(List<&2, M.Act>, M.lay.acts(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e)) <> M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, rest))), List.append(&2, M.Act, M.laid.acts(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e))), M.lay.acts(M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, rest)))), acts_cons(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e)), M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, rest)))) : {M.rewrites.same(dg, _) == True{} : Bool}
+      same_app(dg, M.laid.acts(M.lay(t, Nil{}, located, M.place(fs, ds, heads, Nil{}, dg, ls, texts, e))), M.lay.acts(M.lay.all(t, Nil{}, located, M.places(fs, ds, heads, Nil{}, dg, ls, texts, rest))),
+        merged_one(fs, ds, heads, t, dg, texts, ls, located, e, Comp.and_left(M.already.one(fs, ds, heads, t, dg, ls, e), M.already(fs, ds, heads, t, dg, ls, rest), h)),
+        merged_all(fs, ds, heads, t, dg, texts, ls, located, rest, Comp.and_right(M.already.one(fs, ds, heads, t, dg, ls, e), M.already(fs, ds, heads, t, dg, ls, rest), h)))
 
 # What is set aside
 # -----------------
