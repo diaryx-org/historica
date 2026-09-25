@@ -6,7 +6,9 @@
 # cutting all keep only characters that were there. A summary is sixty
 # characters at most and gives up a dot or a space at either end. And each
 # file of content is filed under its path, or a digest, with every control
-# character scrubbed.
+# character scrubbed. And `record` warns of a clock behind the store
+# exactly where a timestamp it is handed names a later instant, the one it
+# names being the latest, each timestamp read at the offset it spells.
 import Base
 import ./naming.bend as N
 import ./folder.bend as Folder

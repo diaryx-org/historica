@@ -1017,13 +1017,13 @@ law diff_colour_changes_no_character:
 # `diff` over the folder compares like with like. For each path it plans,
 # what it replays at the position and what it reads from the folder follow
 # from what each side holds there. A file the position does not hold is
-# read where the folder holds a regular file, and nothing is replayed; a
-# file of bytes or a link the position holds is neither replayed nor read,
-# its digest or target compared instead; a file of lines the folder does
-# not hold as a regular file is replayed and nothing read; and a file of
-# lines the folder does hold as one is replayed exactly where the folder's
-# file is read — so the stand-in either side is given when it is not is
-# only ever compared with the other side's.
+# read where the folder holds a regular file, and otherwise not, and
+# nothing is replayed; a file of bytes or a link the position holds is
+# neither replayed nor read, its digest or target compared instead; a file
+# of lines the folder does not hold as a regular file is replayed and
+# nothing read; and a file of lines the folder does hold as one is
+# replayed exactly where the folder's file is read — so where one side is
+# left an empty stand-in, so is the other.
 law diff_folder_compares_like_with_like:
   for +dg: Map<&2, String>
   for +os: Map<&2, T.Split>
@@ -1396,11 +1396,12 @@ law forgetting_destroys_only_text:
 # `name` reads its words as their plain reading says, whatever order they
 # come in. `--delete` and `--fields` are asked for where they are among the
 # words. The bookmark is pinned where the last of the `--revision` and
-# `--change` among them is `--revision`; it is private or shared as the
-# last of the `--private` and `--shared` says, and as it was where there is
-# neither. Those four flags are kept as they were typed, in order, for
-# `--delete` to refuse; and every word that is none of the six — one
-# beginning `-` too — is the bookmark, the target and the path, in order.
+# `--change` among them is `--revision`; it is asked to be private or
+# shared as the last of the `--private` and `--shared` among them says, and
+# neither where there is neither. Those four flags are kept as they were
+# typed, in order, for `--delete` to refuse; and every word that is none of
+# the six — one beginning `-` too — is kept, in order, for the bookmark,
+# the target and the path.
 law name_reads_its_words:
   for +ws: List<&2, String>
   {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.NameCmd{String.eq(Maybe.default(&2, String, List.last(&2, String, List.filter(~String, ~(w => Rev.member(["--revision", "--change"], w)), ws)), ""), "--revision"), Maybe.map(&2, String, Bool, x => String.eq(x, "--private"), List.last(&2, String, List.filter(~String, ~(w => Rev.member(["--private", "--shared"], w)), ws))), Rev.member(ws, "--delete"), Rev.member(ws, "--fields"), List.filter(~String, ~(w => Rev.member(["--revision", "--change", "--private", "--shared"], w)), ws), List.filter(~String, ~(w => Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))), ws)} : Main.NameCmd}
