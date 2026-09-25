@@ -9,6 +9,7 @@ import ./bookmark_lemmas.bend as BmL
 import ./anchor_lemmas.bend as AL
 import ./composition_lemmas.bend as Comp
 import ./editor_lemmas.bend as EditorL
+import ./editor.bend as Editor
 import ./string_lemmas.bend as S
 
 # Characters
@@ -154,6 +155,31 @@ def parent_file(+d: String, hd: {String.is_empty(d) == False{} : Bool}) -> {Iden
   %Equal.sym(String, String.reverse(Identity.parent.go(String.reverse(d ++ "/identity"))), d, above(d)) : {Bool.pick(String, Bool.and(String.is_empty(_), String.starts_with(d ++ "/identity", "/")), "/", _) == d : String}
   %Equal.sym(Bool, String.is_empty(d), False{}, hd) : {Bool.pick(String, Bool.and(_, String.starts_with(d ++ "/identity", "/")), "/", d) == d : String}
   {==}
+
+# The editor's file
+# -----------------
+
+def above_message(+d: String) -> {String.reverse(Identity.parent.go(String.reverse(d ++ "/historica-message"))) == d : String}:
+  %Equal.sym(String, String.reverse.go(d ++ "/historica-message", SNil{}), String.reverse.go("/historica-message", String.reverse.go(d, SNil{})), rev_go_app(d, "/historica-message", SNil{})) : {String.reverse(Identity.parent.go(_)) == d : String}
+  rev_rev(d)
+
+def parent_message(+d: String, hd: {String.is_empty(d) == False{} : Bool}) -> {Identity.parent(d ++ "/historica-message") == d : String}:
+  %Equal.sym(String, String.reverse(Identity.parent.go(String.reverse(d ++ "/historica-message"))), d, above_message(d)) : {Bool.pick(String, Bool.and(String.is_empty(_), String.starts_with(d ++ "/historica-message", "/")), "/", _) == d : String}
+  %Equal.sym(Bool, String.is_empty(d), False{}, hd) : {Bool.pick(String, Bool.and(_, String.starts_with(d ++ "/historica-message", "/")), "/", d) == d : String}
+  {==}
+
+def scratch_in(+t: String, +he: {String.is_empty(t) == False{} : Bool}, +hs: {String.ends_with(t, "/") == False{} : Bool}) -> {Identity.parent(Editor.scratch(Done{t})) == t : String}:
+  %Equal.sym(Bool, String.is_empty(t), False{}, he) : {Identity.parent(Bool.pick(String, Bool.or(_, String.ends_with(t, "/")), t ++ "historica-message", t ++ "/historica-message")) == t : String}
+  %Equal.sym(Bool, String.ends_with(t, "/"), False{}, hs) : {Identity.parent(Bool.pick(String, Bool.or(False{}, _), t ++ "historica-message", t ++ "/historica-message")) == t : String}
+  parent_message(t, he)
+
+# The file the editor is given sits directly in the temporary directory.
+def scratch_parent(r: Result<&1, &1, U32 & String, String>, +h: {EditorL.tmp_ok(r) == True{} : Bool}) -> {Identity.parent(Editor.scratch(r)) == EditorL.tmpdir(r) : String}:
+  match r:
+    case Done{+t}:
+      scratch_in(t, AL.not_of_true(String.is_empty(t), Comp.and_left(Bool.not(String.is_empty(t)), Bool.not(String.ends_with(t, "/")), h)), AL.not_of_true(String.ends_with(t, "/"), Comp.and_right(Bool.not(String.is_empty(t)), Bool.not(String.ends_with(t, "/")), h)))
+    case Fail{e}:
+      {==}
 
 def filled(b: String, +c: Char, -t: String) -> {String.is_empty(b ++ SCon{c, t}) == False{} : Bool}:
   match b:

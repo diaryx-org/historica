@@ -64,3 +64,21 @@ def saves(+editor: String, r: Result<&1, &1, U32 & String, String>) -> {Result.i
       {==}
     case Done{+a}:
       pick_done(String.eq(a, "0"), Unit{}, Editor.Stop{1, "the editor stopped without saving"})
+
+# The temporary directory, as `std::env::temp_dir` reads it: `$TMPDIR`,
+# or `/tmp` where it is not set.
+def tmpdir(r: Result<&1, &1, U32 & String, String>) -> String:
+  match r:
+    case Done{t}:
+      t
+    case Fail{e}:
+      "/tmp"
+
+# A temporary directory spelled as a directory is: not empty, and with no
+# trailing `/`.
+def tmp_ok(r: Result<&1, &1, U32 & String, String>) -> Bool:
+  match r:
+    case Done{+t}:
+      Bool.and(Bool.not(String.is_empty(t)), Bool.not(String.ends_with(t, "/")))
+    case Fail{e}:
+      True{}

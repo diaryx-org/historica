@@ -3719,6 +3719,13 @@ def check_mutations(temporary):
             "editor.bend",
         ),
         (
+            "the editor's file goes a directory down",
+            'Identity.joined(t, "historica-message")',
+            'Identity.joined(t, "history/historica-message")',
+            "identity_lemmas.scratch_in",
+            "editor.bend",
+        ),
+        (
             "a note under the header reads as a layout",
             "      +found = line.cut(rest)",
             "      +found = rest",
