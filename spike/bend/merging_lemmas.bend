@@ -1,7 +1,10 @@
 # What `merge` joins: every revision it joins is one the store holds, and
-# every current head is among them; and what it writes into the folder is
-# what the store says the merged tree holds, over nothing the store does
-# not account for.
+# every current head is among them. What it writes into the folder, file by
+# file, is what the store says that file of the merged tree holds, over
+# nothing the store does not account for; where the folder already holds
+# the merge it changes no byte. It counts exactly the files where work met,
+# the markers it writes are the ones `status` and `record --merge` count,
+# and the `record` line it prints is read by `record` as this merge.
 import Base
 import ./text.bend as T
 import ./revision.bend as Rev
