@@ -2436,5 +2436,636 @@ def set_from_list(+xs: List<&2, String>, +k: String) -> {hv(Unit, Set.has(Set.fr
   %Equal.sym(Bool, hv(Unit, Set.has(Set.from_list.go(xs, Set.new()), k)), Bool.or(listed(xs, k), False{}), from_list_go(xs, Set.new(), {==}, k)) : {_ == listed(xs, k) : Bool}
   or_false_id(listed(xs, k))
 
+# The same for `Set`, whose `add` is `Map.set` of `Unit{}`.
+def set_has_new(+k: String) -> {hv(Unit, Set.has(Set.new(), k)) == False{} : Bool}:
+  {==}
+
+def set_add_same(+s: Set(), +k: String) -> {hv(Unit, Set.has(Set.add(s, k), k)) == True{} : Bool}:
+  has_set_same(Unit, s, k, Unit{})
+
+def set_add_other(+s: Set(), +w: Wf.top(Unit, s), +k: String, +j: String, ejk: {String.eq(j, k) == False{} : Bool}) -> {hv(Unit, Set.has(Set.add(s, k), j)) == hv(Unit, Set.has(s, j)) : Bool}:
+  has_set_other(Unit, s, w, k, Unit{}, j, ejk)
+
+def set_wf_add(+s: Set(), +w: Wf.top(Unit, s), +k: String) -> Wf.top(Unit, Set.add(s, k)):
+  wf_set_map(Unit, s, w, k, Unit{})
+
+def set_wf_go(xs: List<&2, String>, +s: Set(), +w: Wf.top(Unit, s)) -> Wf.top(Unit, Set.from_list.go(xs, s)):
+  match xs:
+    case Nil{}:
+      w
+    case +h <> t:
+      set_wf_go(t, Set.add(s, h), set_wf_add(s, w, h))
+
+# A set built from a list is one `Set.add` goes on keeping.
+def set_wf_from_list(xs: List<&2, String>) -> Wf.top(Unit, Set.from_list(xs)):
+  set_wf_go(xs, Set.new(), {==})
+
+# `Map.from_list`
+# ---------------
+
+# The value a list of pairs gives a key: the one beside the last time the
+# key appears, or none.
+def last.or(-V: Data, r: Maybe<&2, V>, hit: Bool, +v: V) -> Maybe<&2, V>:
+  match r:
+    case None{}:
+      Bool.pick(Maybe<&2, V>, hit, Some{v}, None{})
+    case Some{a}:
+      Some{a}
+
+def last_value(-V: Data, kvs: List<&2, Sigma<&2, &2, String, _ => V>>, +k: String) -> Maybe<&2, V>:
+  match kvs:
+    case Nil{}:
+      None{}
+    case (j, v) <> t:
+      last.or(V, last_value(V, t, k), String.eq(j, k), v)
+
+def maybe_or(-V: Data, a: Maybe<&2, V>, b: Maybe<&2, V>) -> Maybe<&2, V>:
+  match a:
+    case None{}:
+      b
+    case Some{x}:
+      Some{x}
+
+def found_set(-V: Data, +m: Map<&2, V>, +w: Wf.top(V, m), +j: String, +v: V, +k: String, hit: Bool, +eh: {String.eq(j, k) == hit : Bool}) -> {found(V, Map.set(&2, V, m, j, v), k) == maybe_or(V, Bool.pick(Maybe<&2, V>, hit, Some{v}, None{}), found(V, m, k)) : Maybe<&2, V>}:
+  match hit:
+    case True{}:
+      %Equal.sym(Map<&2, V>, Map.set(&2, V, m, j, v), cset(V, m, j, v), set_is(V, m, j, v)) : {found(V, _, k) == Some{v} : Maybe<&2, V>}
+      +jk = Str.eq_true(j, k, eh)
+      %jk : {found(V, cset(V, m, j, v), _) == Some{v} : Maybe<&2, V>}
+      set_same(V, m, j, v)
+    case False{}:
+      %Equal.sym(Map<&2, V>, Map.set(&2, V, m, j, v), cset(V, m, j, v), set_is(V, m, j, v)) : {found(V, _, k) == found(V, m, k) : Maybe<&2, V>}
+      set_other_top(V, m, w, j, v, k, eq_flip(j, k, eh))
+
+def from_list_step(-V: Data, +m: Map<&2, V>, +w: Wf.top(V, m), +j: String, +v: V, +k: String, r: Maybe<&2, V>) -> {maybe_or(V, r, found(V, Map.set(&2, V, m, j, v), k)) == maybe_or(V, last.or(V, r, String.eq(j, k), v), found(V, m, k)) : Maybe<&2, V>}:
+  match r:
+    case None{}:
+      found_set(V, m, w, j, v, k, String.eq(j, k), {==})
+    case Some{a}:
+      {==}
+
+def from_list_found(-V: Data, kvs: List<&2, Sigma<&2, &2, String, _ => V>>, +m: Map<&2, V>, +w: Wf.top(V, m), +k: String) -> {found(V, Map.from_list.go(&2, V, kvs, m), k) == maybe_or(V, last_value(V, kvs, k), found(V, m, k)) : Maybe<&2, V>}:
+  match kvs:
+    case Nil{}:
+      {==}
+    case (+j, +v) <> +t:
+      %Equal.sym(Maybe<&2, V>, found(V, Map.from_list.go(&2, V, t, Map.set(&2, V, m, j, v)), k), maybe_or(V, last_value(V, t, k), found(V, Map.set(&2, V, m, j, v), k)), from_list_found(V, t, Map.set(&2, V, m, j, v), wf_set_map(V, m, w, j, v), k)) : {_ == maybe_or(V, last.or(V, last_value(V, t, k), String.eq(j, k), v), found(V, m, k)) : Maybe<&2, V>}
+      from_list_step(V, m, w, j, v, k, last_value(V, t, k))
+
+def maybe_or_none(-V: Data, a: Maybe<&2, V>) -> {maybe_or(V, a, None{}) == a : Maybe<&2, V>}:
+  match a:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+# A map built from a list of pairs gives each key the value beside the
+# last time the key appears, and the default where it never does.
+def get_from_list(-V: Data, +d: V, +kvs: List<&2, Sigma<&2, &2, String, _ => V>>, +k: String) -> {gv(V, Map.get(V, d, Map.from_list(&2, V, kvs), k)) == Maybe.default(&2, V, last_value(V, kvs, k), d) : V}:
+  %Equal.sym(V, gv(V, Map.get(V, d, Map.from_list(&2, V, kvs), k)), Maybe.default(&2, V, found(V, Map.from_list(&2, V, kvs), k), d), get_is(V, d, Map.from_list(&2, V, kvs), k)) : {_ == Maybe.default(&2, V, last_value(V, kvs, k), d) : V}
+  %Equal.sym(Maybe<&2, V>, found(V, Map.from_list.go(&2, V, kvs, MTip{}), k), maybe_or(V, last_value(V, kvs, k), None{}), from_list_found(V, kvs, MTip{}, {==}, k)) : {Maybe.default(&2, V, _, d) == Maybe.default(&2, V, last_value(V, kvs, k), d) : V}
+  %Equal.sym(Maybe<&2, V>, maybe_or(V, last_value(V, kvs, k), None{}), last_value(V, kvs, k), maybe_or_none(V, last_value(V, kvs, k))) : {Maybe.default(&2, V, _, d) == Maybe.default(&2, V, last_value(V, kvs, k), d) : V}
+  {==}
+
+def has_from_list(-V: Data, +kvs: List<&2, Sigma<&2, &2, String, _ => V>>, +k: String) -> {hv(V, Map.has(&2, V, Map.from_list(&2, V, kvs), k)) == Maybe.is_some(&2, V, last_value(V, kvs, k)) : Bool}:
+  %Equal.sym(Bool, hv(V, Map.has(&2, V, Map.from_list(&2, V, kvs), k)), Maybe.is_some(&2, V, found(V, Map.from_list(&2, V, kvs), k)), has_is(V, Map.from_list(&2, V, kvs), k)) : {_ == Maybe.is_some(&2, V, last_value(V, kvs, k)) : Bool}
+  %Equal.sym(Maybe<&2, V>, found(V, Map.from_list.go(&2, V, kvs, MTip{}), k), maybe_or(V, last_value(V, kvs, k), None{}), from_list_found(V, kvs, MTip{}, {==}, k)) : {Maybe.is_some(&2, V, _) == Maybe.is_some(&2, V, last_value(V, kvs, k)) : Bool}
+  %Equal.sym(Maybe<&2, V>, maybe_or(V, last_value(V, kvs, k), None{}), last_value(V, kvs, k), maybe_or_none(V, last_value(V, kvs, k))) : {Maybe.is_some(&2, V, _) == Maybe.is_some(&2, V, last_value(V, kvs, k)) : Bool}
+  {==}
+
+# `Map.keys`
+# ----------
+
+def eq_sym.go(+a: String, +b: String, s: Bool, +es: {String.eq(a, b) == s : Bool}) -> {String.eq(a, b) == String.eq(b, a) : Bool}:
+  match s:
+    case True{}:
+      +ab = Str.eq_true(a, b, es)
+      %ab : {String.eq(a, _) == String.eq(_, a) : Bool}
+      {==}
+    case False{}:
+      Equal.trans(Bool, String.eq(a, b), False{}, String.eq(b, a), es, Equal.sym(Bool, String.eq(b, a), False{}, eq_flip(a, b, es)))
+
+def eq_sym(+a: String, +b: String) -> {String.eq(a, b) == String.eq(b, a) : Bool}:
+  eq_sym.go(a, b, String.eq(a, b), {==})
+
+def keys_go(-V: Data, m: Map<&2, V>, +acc: List<&2, String>, +a: String) -> {listed(Map.keys.go(&2, V, m, acc), a) == Bool.or(mem(V, m, a), listed(acc, a)) : Bool}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k, v}:
+      %eq_sym(k, a) : {Bool.or(String.eq(k, a), listed(acc, a)) == Bool.or(_, listed(acc, a)) : Bool}
+      {==}
+    case MNode{p, +lo, +hi}:
+      %Equal.sym(Bool, listed(Map.keys.go(&2, V, lo, Map.keys.go(&2, V, hi, acc)), a), Bool.or(mem(V, lo, a), listed(Map.keys.go(&2, V, hi, acc), a)), keys_go(V, lo, Map.keys.go(&2, V, hi, acc), a)) : {_ == Bool.or(Bool.or(mem(V, lo, a), mem(V, hi, a)), listed(acc, a)) : Bool}
+      %Equal.sym(Bool, listed(Map.keys.go(&2, V, hi, acc), a), Bool.or(mem(V, hi, a), listed(acc, a)), keys_go(V, hi, acc, a)) : {Bool.or(mem(V, lo, a), _) == Bool.or(Bool.or(mem(V, lo, a), mem(V, hi, a)), listed(acc, a)) : Bool}
+      Equal.sym(Bool, Bool.or(Bool.or(mem(V, lo, a), mem(V, hi, a)), listed(acc, a)), Bool.or(mem(V, lo, a), Bool.or(mem(V, hi, a), listed(acc, a))), or_assoc(mem(V, lo, a), mem(V, hi, a), listed(acc, a)))
+
+# `Map.keys` lists every key at a leaf, and nothing else.
+def keys_mem(-V: Data, +m: Map<&2, V>, +a: String) -> {listed(Map.keys(&2, V, m), a) == mem(V, m, a) : Bool}:
+  Equal.trans(Bool, listed(Map.keys(&2, V, m), a), Bool.or(mem(V, m, a), False{}), mem(V, m, a), keys_go(V, m, Nil{}, a), or_false_id(mem(V, m, a)))
+
+def found_complete.node(-V: Data, +p: Nat, +lo: Map<&2, V>, +hi: Map<&2, V>, +w: {wf(V, MNode{p, lo, hi}) == True{} : Bool}, +a: String, ea: {Bool.or(mem(V, lo, a), mem(V, hi, a)) == True{} : Bool}, s: Bool, +es: {mem(V, lo, a) == s : Bool}, ilo: {mem(V, lo, a) == True{} : Bool} -> {Maybe.is_some(&2, V, found(V, lo, a)) == True{} : Bool}, ihi: {mem(V, hi, a) == True{} : Bool} -> {Maybe.is_some(&2, V, found(V, hi, a)) == True{} : Bool}) -> {Maybe.is_some(&2, V, Bool.pick(Maybe<&2, V>, bv(a, p), found(V, hi, a), found(V, lo, a))) == True{} : Bool}:
+  match s:
+    case True{}:
+      %Equal.sym(Bool, bv(a, p), False{}, sides_use(V, lo, p, False{}, wf_slo(V, p, lo, hi, w), a, es)) : {Maybe.is_some(&2, V, Bool.pick(Maybe<&2, V>, _, found(V, hi, a), found(V, lo, a))) == True{} : Bool}
+      ilo(es)
+    case False{}:
+      +eh = mem_or(V, lo, hi, a, False{}, es, ea)
+      %Equal.sym(Bool, bv(a, p), True{}, sides_use(V, hi, p, True{}, wf_shi(V, p, lo, hi, w), a, eh)) : {Maybe.is_some(&2, V, Bool.pick(Maybe<&2, V>, _, found(V, hi, a), found(V, lo, a))) == True{} : Bool}
+      ihi(eh)
+
+# In a trie, every key at a leaf finds something.
+def found_complete(-V: Data, m: Map<&2, V>, +w: {wf(V, m) == True{} : Bool}, +a: String, e: {mem(V, m, a) == True{} : Bool}) -> {Maybe.is_some(&2, V, found(V, m, a)) == True{} : Bool}:
+  match m:
+    case MTip{}:
+      Empty.absurd({False{} == True{} : Bool}, Str.false_true(w))
+    case MLeaf{+k, +v}:
+      %Equal.sym(Bool, String.eq(a, k), True{}, e) : {Maybe.is_some(&2, V, Bool.pick(Maybe<&2, V>, _, Some{v}, None{})) == True{} : Bool}
+      {==}
+    case MNode{+p, +lo, +hi}:
+      found_complete.node(V, p, lo, hi, w, a, e, mem(V, lo, a), {==}, x => found_complete(V, lo, wf_lo(V, p, lo, hi, w), a, x), x => found_complete(V, hi, wf_hi(V, p, lo, hi, w), a, x))
+
+def keys_has.go(-V: Data, +m: Map<&2, V>, +w: {wf(V, m) == True{} : Bool}, +a: String, s: Bool, +es: {mem(V, m, a) == s : Bool}) -> {mem(V, m, a) == Maybe.is_some(&2, V, found(V, m, a)) : Bool}:
+  match s:
+    case True{}:
+      Equal.trans(Bool, mem(V, m, a), True{}, Maybe.is_some(&2, V, found(V, m, a)), es, Equal.sym(Bool, Maybe.is_some(&2, V, found(V, m, a)), True{}, found_complete(V, m, w, a, es)))
+    case False{}:
+      %Equal.sym(Maybe<&2, V>, found(V, m, a), None{}, found_none(V, m, a, es)) : {mem(V, m, a) == Maybe.is_some(&2, V, _) : Bool}
+      es
+
+# In every map `Map.new` and `Map.set` build, `Map.keys` lists exactly the
+# keys `Map.has` holds.
+def keys_has(-V: Data, m: Map<&2, V>, +w: Wf.top(V, m), +a: String) -> {listed(Map.keys(&2, V, m), a) == hv(V, Map.has(&2, V, m, a)) : Bool}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k, +v}:
+      Equal.trans(Bool, listed(Map.keys(&2, V, MLeaf{k, v}), a), mem(V, MLeaf{k, v}, a), hv(V, Map.has(&2, V, MLeaf{k, v}, a)), keys_mem(V, MLeaf{k, v}, a), Equal.trans(Bool, mem(V, MLeaf{k, v}, a), Maybe.is_some(&2, V, found(V, MLeaf{k, v}, a)), hv(V, Map.has(&2, V, MLeaf{k, v}, a)), keys_has.go(V, MLeaf{k, v}, {==}, a, mem(V, MLeaf{k, v}, a), {==}), Equal.sym(Bool, hv(V, Map.has(&2, V, MLeaf{k, v}, a)), Maybe.is_some(&2, V, found(V, MLeaf{k, v}, a)), has_is(V, MLeaf{k, v}, a))))
+    case MNode{+p, +lo, +hi}:
+      Equal.trans(Bool, listed(Map.keys(&2, V, MNode{p, lo, hi}), a), mem(V, MNode{p, lo, hi}, a), hv(V, Map.has(&2, V, MNode{p, lo, hi}, a)), keys_mem(V, MNode{p, lo, hi}, a), Equal.trans(Bool, mem(V, MNode{p, lo, hi}, a), Maybe.is_some(&2, V, found(V, MNode{p, lo, hi}, a)), hv(V, Map.has(&2, V, MNode{p, lo, hi}, a)), keys_has.go(V, MNode{p, lo, hi}, w, a, mem(V, MNode{p, lo, hi}, a), {==}), Equal.sym(Bool, hv(V, Map.has(&2, V, MNode{p, lo, hi}, a)), Maybe.is_some(&2, V, found(V, MNode{p, lo, hi}, a)), has_is(V, MNode{p, lo, hi}, a))))
+
+# `Map.pop` and `Map.del`
+# -----------------------
+
+# A node whose low side emptied is its high side, and the other way round.
+def collapse_lo(-V: Data, +p: Nat, lo: Map<&2, V>, +hi: Map<&2, V>) -> Map<&2, V>:
+  match lo:
+    case MTip{}:
+      hi
+    case MLeaf{k, v}:
+      MNode{p, MLeaf{k, v}, hi}
+    case MNode{q, a, b}:
+      MNode{p, MNode{q, a, b}, hi}
+
+def collapse_hi(-V: Data, +p: Nat, +lo: Map<&2, V>, hi: Map<&2, V>) -> Map<&2, V>:
+  match hi:
+    case MTip{}:
+      lo
+    case MLeaf{k, v}:
+      MNode{p, lo, MLeaf{k, v}}
+    case MNode{q, a, b}:
+      MNode{p, lo, MNode{q, a, b}}
+
+# `Map.del`: the leaf the key's bits lead to taken away where its key is
+# the key, and a node left with one side replaced by that side.
+def cdel(-V: Data, m: Map<&2, V>, +k: String) -> Map<&2, V>:
+  match m:
+    case MTip{}:
+      MTip{}
+    case MLeaf{+k1, +v}:
+      Bool.pick(Map<&2, V>, String.eq(k, k1), MTip{}, MLeaf{k1, v})
+    case MNode{+p, +lo, +hi}:
+      Bool.pick(Map<&2, V>, bv(k, p), collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi))
+
+def pop_lo_is(-V: Data, +p: Nat, +hi: Map<&2, V>, x: Map<&2, V>, -r: Maybe<&2, V>) -> {Map.pop.lo(&2, V, p, hi, (x, r)) == (collapse_lo(V, p, x, hi), r) : Map<&2, V> & Maybe<&2, V>}:
+  match x:
+    case MTip{}:
+      {==}
+    case MLeaf{k, v}:
+      {==}
+    case MNode{q, a, b}:
+      {==}
+
+def pop_hi_is(-V: Data, +p: Nat, +lo: Map<&2, V>, x: Map<&2, V>, -r: Maybe<&2, V>) -> {Map.pop.hi(&2, V, p, lo, (x, r)) == (collapse_hi(V, p, lo, x), r) : Map<&2, V> & Maybe<&2, V>}:
+  match x:
+    case MTip{}:
+      {==}
+    case MLeaf{k, v}:
+      {==}
+    case MNode{q, a, b}:
+      {==}
+
+def pop_leaf(-V: Data, +v: V, +k: String, +k1: String, c: Cmp) -> {Map.pop.leaf(&2, V, v, ((k, k1), c)) == (Bool.pick(Map<&2, V>, Cmp.is_eq(c), MTip{}, MLeaf{k1, v}), Bool.pick(Maybe<&2, V>, Cmp.is_eq(c), Some{v}, None{})) : Map<&2, V> & Maybe<&2, V>}:
+  match c:
+    case LT{}:
+      {==}
+    case EQ{}:
+      {==}
+    case GT{}:
+      {==}
+
+def pop_node(-V: Data, +p: Nat, +lo: Map<&2, V>, +hi: Map<&2, V>, +k: String, b: Bool, +eb: {bv(k, p) == b : Bool}, ilo: {Map.pop(&2, V, lo, k) == (cdel(V, lo, k), found(V, lo, k)) : Map<&2, V> & Maybe<&2, V>}, ihi: {Map.pop(&2, V, hi, k) == (cdel(V, hi, k), found(V, hi, k)) : Map<&2, V> & Maybe<&2, V>}) -> {Map.pop.bit(&2, V, lo, hi, p, (k, bv(k, p))) == (Bool.pick(Map<&2, V>, bv(k, p), collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), Bool.pick(Maybe<&2, V>, bv(k, p), found(V, hi, k), found(V, lo, k))) : Map<&2, V> & Maybe<&2, V>}:
+  match b:
+    case True{}:
+      %Equal.sym(Bool, bv(k, p), True{}, eb) : {Map.pop.bit(&2, V, lo, hi, p, (k, _)) == (Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), Bool.pick(Maybe<&2, V>, _, found(V, hi, k), found(V, lo, k))) : Map<&2, V> & Maybe<&2, V>}
+      %Equal.sym(Map<&2, V> & Maybe<&2, V>, Map.pop(&2, V, hi, k), (cdel(V, hi, k), found(V, hi, k)), ihi) : {Map.pop.hi(&2, V, p, lo, _) == (collapse_hi(V, p, lo, cdel(V, hi, k)), found(V, hi, k)) : Map<&2, V> & Maybe<&2, V>}
+      pop_hi_is(V, p, lo, cdel(V, hi, k), found(V, hi, k))
+    case False{}:
+      %Equal.sym(Bool, bv(k, p), False{}, eb) : {Map.pop.bit(&2, V, lo, hi, p, (k, _)) == (Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), Bool.pick(Maybe<&2, V>, _, found(V, hi, k), found(V, lo, k))) : Map<&2, V> & Maybe<&2, V>}
+      %Equal.sym(Map<&2, V> & Maybe<&2, V>, Map.pop(&2, V, lo, k), (cdel(V, lo, k), found(V, lo, k)), ilo) : {Map.pop.lo(&2, V, p, hi, _) == (collapse_lo(V, p, cdel(V, lo, k), hi), found(V, lo, k)) : Map<&2, V> & Maybe<&2, V>}
+      pop_lo_is(V, p, hi, cdel(V, lo, k), found(V, lo, k))
+
+# `Map.pop` hands back `cdel` of the map and what the key found in it.
+def pop_is(-V: Data, m: Map<&2, V>, +k: String) -> {Map.pop(&2, V, m, k) == (cdel(V, m, k), found(V, m, k)) : Map<&2, V> & Maybe<&2, V>}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      %Equal.sym((String & String) & Cmp, String.cmp(k, k1), ((k, k1), String.order(k, k1)), cmp_back(k, k1)) : {Map.pop.leaf(&2, V, v, _) == (Bool.pick(Map<&2, V>, String.eq.fin(_), MTip{}, MLeaf{k1, v}), Bool.pick(Maybe<&2, V>, String.eq.fin(_), Some{v}, None{})) : Map<&2, V> & Maybe<&2, V>}
+      pop_leaf(V, v, k, k1, String.order(k, k1))
+    case MNode{+p, +lo, +hi}:
+      %Equal.sym(String & Bool, Map.bit(k, p), (k, bv(k, p)), bit_back(k, p)) : {Map.pop.bit(&2, V, lo, hi, p, _) == (cdel(V, MNode{p, lo, hi}, k), found(V, MNode{p, lo, hi}, k)) : Map<&2, V> & Maybe<&2, V>}
+      pop_node(V, p, lo, hi, k, bv(k, p), {==}, pop_is(V, lo, k), pop_is(V, hi, k))
+
+def pv(-V: Data, r: Map<&2, V> & Maybe<&2, V>) -> Maybe<&2, V>:
+  (m, x) = r
+  x
+
+# What `Map.pop` hands back is what the key finds, in any map at all.
+def pop_found(-V: Data, +m: Map<&2, V>, +k: String) -> {pv(V, Map.pop(&2, V, m, k)) == found(V, m, k) : Maybe<&2, V>}:
+  %Equal.sym(Map<&2, V> & Maybe<&2, V>, Map.pop(&2, V, m, k), (cdel(V, m, k), found(V, m, k)), pop_is(V, m, k)) : {pv(V, _) == found(V, m, k) : Maybe<&2, V>}
+  {==}
+
+def del_is(-V: Data, +m: Map<&2, V>, +k: String) -> {Map.del(&2, V, m, k) == cdel(V, m, k) : Map<&2, V>}:
+  %Equal.sym(Map<&2, V> & Maybe<&2, V>, Map.pop(&2, V, m, k), (cdel(V, m, k), found(V, m, k)), pop_is(V, m, k)) : {Map.del.fin(&2, V, _) == cdel(V, m, k) : Map<&2, V>}
+  {==}
+
+def side_none.go(-V: Data, +m: Map<&2, V>, +p: Nat, +b: Bool, +e: {sides(V, m, p, b) == True{} : Bool}, +j: String, ej: {bv(j, p) == Bool.not(b) : Bool}, +s: Bool, +es: {mem(V, m, j) == s : Bool}) -> {found(V, m, j) == None{} : Maybe<&2, V>}:
+  match s:
+    case False{}:
+      found_none(V, m, j, es)
+    case True{}:
+      Empty.absurd({found(V, m, j) == None{} : Maybe<&2, V>}, not_self(b, Equal.trans(Bool, b, bv(j, p), Bool.not(b), Equal.sym(Bool, bv(j, p), b, sides_use(V, m, p, b, e, j, es)), ej)))
+
+# A key a side's `Side` sets apart from `j` holds nothing `j` finds.
+def side_none(-V: Data, +m: Map<&2, V>, +p: Nat, +b: Bool, +e: {sides(V, m, p, b) == True{} : Bool}, +j: String, ej: {bv(j, p) == Bool.not(b) : Bool}) -> {found(V, m, j) == None{} : Maybe<&2, V>}:
+  side_none.go(V, m, p, b, e, j, ej, mem(V, m, j), {==})
+
+
+def del_leaf_same(-V: Data, +k: String, +k1: String, +v: V, e: Bool, +ee: {String.eq(k, k1) == e : Bool}) -> {found(V, Bool.pick(Map<&2, V>, String.eq(k, k1), MTip{}, MLeaf{k1, v}), k) == None{} : Maybe<&2, V>}:
+  match e:
+    case True{}:
+      %Equal.sym(Bool, String.eq(k, k1), True{}, ee) : {found(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v}), k) == None{} : Maybe<&2, V>}
+      {==}
+    case False{}:
+      %Equal.sym(Bool, String.eq(k, k1), False{}, ee) : {found(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v}), k) == None{} : Maybe<&2, V>}
+      found_leaf_other(V, k1, v, k, ee)
+
+def del_same.hi(-V: Data, +p: Nat, +lo: Map<&2, V>, x: Map<&2, V>, +k: String, +eb: {bv(k, p) == True{} : Bool}, +ih: {found(V, x, k) == None{} : Maybe<&2, V>}, +slo: {sides(V, lo, p, False{}) == True{} : Bool}) -> {found(V, collapse_hi(V, p, lo, x), k) == None{} : Maybe<&2, V>}:
+  match x:
+    case MTip{}:
+      side_none(V, lo, p, False{}, slo, k, eb)
+    case MLeaf{+a, +v}:
+      %Equal.sym(Bool, bv(k, p), True{}, eb) : {Bool.pick(Maybe<&2, V>, _, found(V, MLeaf{a, v}, k), found(V, lo, k)) == None{} : Maybe<&2, V>}
+      ih
+    case MNode{+q, +a, +b}:
+      %Equal.sym(Bool, bv(k, p), True{}, eb) : {Bool.pick(Maybe<&2, V>, _, found(V, MNode{q, a, b}, k), found(V, lo, k)) == None{} : Maybe<&2, V>}
+      ih
+
+def del_same.lo(-V: Data, +p: Nat, x: Map<&2, V>, +hi: Map<&2, V>, +k: String, +eb: {bv(k, p) == False{} : Bool}, +ih: {found(V, x, k) == None{} : Maybe<&2, V>}, +shi: {sides(V, hi, p, True{}) == True{} : Bool}) -> {found(V, collapse_lo(V, p, x, hi), k) == None{} : Maybe<&2, V>}:
+  match x:
+    case MTip{}:
+      side_none(V, hi, p, True{}, shi, k, eb)
+    case MLeaf{+a, +v}:
+      %Equal.sym(Bool, bv(k, p), False{}, eb) : {Bool.pick(Maybe<&2, V>, _, found(V, hi, k), found(V, MLeaf{a, v}, k)) == None{} : Maybe<&2, V>}
+      ih
+    case MNode{+q, +a, +b}:
+      %Equal.sym(Bool, bv(k, p), False{}, eb) : {Bool.pick(Maybe<&2, V>, _, found(V, hi, k), found(V, MNode{q, a, b}, k)) == None{} : Maybe<&2, V>}
+      ih
+
+def del_same.node(-V: Data, +p: Nat, +lo: Map<&2, V>, +hi: Map<&2, V>, +w: {wf(V, MNode{p, lo, hi}) == True{} : Bool}, +k: String, b: Bool, +eb: {bv(k, p) == b : Bool}, ilo: {found(V, cdel(V, lo, k), k) == None{} : Maybe<&2, V>}, ihi: {found(V, cdel(V, hi, k), k) == None{} : Maybe<&2, V>}) -> {found(V, Bool.pick(Map<&2, V>, bv(k, p), collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), k) == None{} : Maybe<&2, V>}:
+  match b:
+    case True{}:
+      %Equal.sym(Bool, bv(k, p), True{}, eb) : {found(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), k) == None{} : Maybe<&2, V>}
+      del_same.hi(V, p, lo, cdel(V, hi, k), k, eb, ihi, wf_slo(V, p, lo, hi, w))
+    case False{}:
+      %Equal.sym(Bool, bv(k, p), False{}, eb) : {found(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), k) == None{} : Maybe<&2, V>}
+      del_same.lo(V, p, cdel(V, lo, k), hi, k, eb, ilo, wf_shi(V, p, lo, hi, w))
+
+# In a trie, a key finds nothing once `cdel` took it away.
+def del_same(-V: Data, m: Map<&2, V>, +w: {wf(V, m) == True{} : Bool}, +k: String) -> {found(V, cdel(V, m, k), k) == None{} : Maybe<&2, V>}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      del_leaf_same(V, k, k1, v, String.eq(k, k1), {==})
+    case MNode{+p, +lo, +hi}:
+      del_same.node(V, p, lo, hi, w, k, bv(k, p), {==}, del_same(V, lo, wf_lo(V, p, lo, hi, w), k), del_same(V, hi, wf_hi(V, p, lo, hi, w), k))
+
+def del_leaf_other(-V: Data, +k: String, +k1: String, +v: V, +j: String, ejk: {String.eq(j, k) == False{} : Bool}, e: Bool, +ee: {String.eq(k, k1) == e : Bool}) -> {found(V, Bool.pick(Map<&2, V>, String.eq(k, k1), MTip{}, MLeaf{k1, v}), j) == found(V, MLeaf{k1, v}, j) : Maybe<&2, V>}:
+  match e:
+    case True{}:
+      %Equal.sym(Bool, String.eq(k, k1), True{}, ee) : {found(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v}), j) == found(V, MLeaf{k1, v}, j) : Maybe<&2, V>}
+      +kk1 = Str.eq_true(k, k1, ee)
+      %kk1 : {None{} == found(V, MLeaf{_, v}, j) : Maybe<&2, V>}
+      Equal.sym(Maybe<&2, V>, found(V, MLeaf{k, v}, j), None{}, found_leaf_other(V, k, v, j, ejk))
+    case False{}:
+      %Equal.sym(Bool, String.eq(k, k1), False{}, ee) : {found(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v}), j) == found(V, MLeaf{k1, v}, j) : Maybe<&2, V>}
+      {==}
+
+def del_other.hi(-V: Data, +p: Nat, +lo: Map<&2, V>, +hi: Map<&2, V>, x: Map<&2, V>, +j: String, c: Bool, +ec: {bv(j, p) == c : Bool}, +ih: {found(V, x, j) == found(V, hi, j) : Maybe<&2, V>}, +slo: {sides(V, lo, p, False{}) == True{} : Bool}) -> {found(V, collapse_hi(V, p, lo, x), j) == Bool.pick(Maybe<&2, V>, bv(j, p), found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}:
+  match x c:
+    case MTip{} True{}:
+      %Equal.sym(Bool, bv(j, p), True{}, ec) : {found(V, lo, j) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      Equal.trans(Maybe<&2, V>, found(V, lo, j), None{}, found(V, hi, j), side_none(V, lo, p, False{}, slo, j, ec), ih)
+    case MTip{} False{}:
+      %Equal.sym(Bool, bv(j, p), False{}, ec) : {found(V, lo, j) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      {==}
+    case MLeaf{+a, +v} True{}:
+      %Equal.sym(Bool, bv(j, p), True{}, ec) : {Bool.pick(Maybe<&2, V>, _, found(V, MLeaf{a, v}, j), found(V, lo, j)) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      ih
+    case MLeaf{+a, +v} False{}:
+      %Equal.sym(Bool, bv(j, p), False{}, ec) : {Bool.pick(Maybe<&2, V>, _, found(V, MLeaf{a, v}, j), found(V, lo, j)) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      {==}
+    case MNode{+q, +a, +b} True{}:
+      %Equal.sym(Bool, bv(j, p), True{}, ec) : {Bool.pick(Maybe<&2, V>, _, found(V, MNode{q, a, b}, j), found(V, lo, j)) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      ih
+    case MNode{+q, +a, +b} False{}:
+      %Equal.sym(Bool, bv(j, p), False{}, ec) : {Bool.pick(Maybe<&2, V>, _, found(V, MNode{q, a, b}, j), found(V, lo, j)) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      {==}
+
+def del_other.lo(-V: Data, +p: Nat, +lo: Map<&2, V>, x: Map<&2, V>, +hi: Map<&2, V>, +j: String, c: Bool, +ec: {bv(j, p) == c : Bool}, +ih: {found(V, x, j) == found(V, lo, j) : Maybe<&2, V>}, +shi: {sides(V, hi, p, True{}) == True{} : Bool}) -> {found(V, collapse_lo(V, p, x, hi), j) == Bool.pick(Maybe<&2, V>, bv(j, p), found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}:
+  match x c:
+    case MTip{} True{}:
+      %Equal.sym(Bool, bv(j, p), True{}, ec) : {found(V, hi, j) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      {==}
+    case MTip{} False{}:
+      %Equal.sym(Bool, bv(j, p), False{}, ec) : {found(V, hi, j) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      Equal.trans(Maybe<&2, V>, found(V, hi, j), None{}, found(V, lo, j), side_none(V, hi, p, True{}, shi, j, ec), ih)
+    case MLeaf{+a, +v} True{}:
+      %Equal.sym(Bool, bv(j, p), True{}, ec) : {Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, MLeaf{a, v}, j)) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      {==}
+    case MLeaf{+a, +v} False{}:
+      %Equal.sym(Bool, bv(j, p), False{}, ec) : {Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, MLeaf{a, v}, j)) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      ih
+    case MNode{+q, +a, +b} True{}:
+      %Equal.sym(Bool, bv(j, p), True{}, ec) : {Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, MNode{q, a, b}, j)) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      {==}
+    case MNode{+q, +a, +b} False{}:
+      %Equal.sym(Bool, bv(j, p), False{}, ec) : {Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, MNode{q, a, b}, j)) == Bool.pick(Maybe<&2, V>, _, found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      ih
+
+def del_other.node(-V: Data, +p: Nat, +lo: Map<&2, V>, +hi: Map<&2, V>, +w: {wf(V, MNode{p, lo, hi}) == True{} : Bool}, +k: String, +j: String, b: Bool, +eb: {bv(k, p) == b : Bool}, ilo: {found(V, cdel(V, lo, k), j) == found(V, lo, j) : Maybe<&2, V>}, ihi: {found(V, cdel(V, hi, k), j) == found(V, hi, j) : Maybe<&2, V>}) -> {found(V, Bool.pick(Map<&2, V>, bv(k, p), collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), j) == Bool.pick(Maybe<&2, V>, bv(j, p), found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}:
+  match b:
+    case True{}:
+      %Equal.sym(Bool, bv(k, p), True{}, eb) : {found(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), j) == Bool.pick(Maybe<&2, V>, bv(j, p), found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      del_other.hi(V, p, lo, hi, cdel(V, hi, k), j, bv(j, p), {==}, ihi, wf_slo(V, p, lo, hi, w))
+    case False{}:
+      %Equal.sym(Bool, bv(k, p), False{}, eb) : {found(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), j) == Bool.pick(Maybe<&2, V>, bv(j, p), found(V, hi, j), found(V, lo, j)) : Maybe<&2, V>}
+      del_other.lo(V, p, lo, cdel(V, lo, k), hi, j, bv(j, p), {==}, ilo, wf_shi(V, p, lo, hi, w))
+
+# In a trie, taking one key away changes nothing another key finds.
+def del_other(-V: Data, m: Map<&2, V>, +w: {wf(V, m) == True{} : Bool}, +k: String, +j: String, +ejk: {String.eq(j, k) == False{} : Bool}) -> {found(V, cdel(V, m, k), j) == found(V, m, j) : Maybe<&2, V>}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      del_leaf_other(V, k, k1, v, j, ejk, String.eq(k, k1), {==})
+    case MNode{+p, +lo, +hi}:
+      del_other.node(V, p, lo, hi, w, k, j, bv(k, p), {==}, del_other(V, lo, wf_lo(V, p, lo, hi, w), k, j, ejk), del_other(V, hi, wf_hi(V, p, lo, hi, w), k, j, ejk))
+
+# What `cdel` keeps of a subtree's keys, and of the invariant
+# ------------------------------------------------------------
+
+def sides_del.leaf(-V: Data, +k: String, +k1: String, +v: V, +s: Nat, +b: Bool, +e: {sides(V, MLeaf{k1, v}, s, b) == True{} : Bool}, c: Bool, +ec: {String.eq(k, k1) == c : Bool}) -> {sides(V, Bool.pick(Map<&2, V>, String.eq(k, k1), MTip{}, MLeaf{k1, v}), s, b) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, String.eq(k, k1), True{}, ec) : {sides(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v}), s, b) == True{} : Bool}
+      {==}
+    case False{}:
+      %Equal.sym(Bool, String.eq(k, k1), False{}, ec) : {sides(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v}), s, b) == True{} : Bool}
+      e
+
+def sides_del.hi(-V: Data, +p: Nat, +lo: Map<&2, V>, x: Map<&2, V>, +s: Nat, +b: Bool, +elo: {sides(V, lo, s, b) == True{} : Bool}, +ex: {sides(V, x, s, b) == True{} : Bool}) -> {sides(V, collapse_hi(V, p, lo, x), s, b) == True{} : Bool}:
+  match x:
+    case MTip{}:
+      elo
+    case MLeaf{+a, +v}:
+      and_t(sides(V, lo, s, b), sides(V, MLeaf{a, v}, s, b), elo, ex)
+    case MNode{+q, +a, +b2}:
+      and_t(sides(V, lo, s, b), sides(V, MNode{q, a, b2}, s, b), elo, ex)
+
+def sides_del.lo(-V: Data, +p: Nat, x: Map<&2, V>, +hi: Map<&2, V>, +s: Nat, +b: Bool, +ex: {sides(V, x, s, b) == True{} : Bool}, +ehi: {sides(V, hi, s, b) == True{} : Bool}) -> {sides(V, collapse_lo(V, p, x, hi), s, b) == True{} : Bool}:
+  match x:
+    case MTip{}:
+      ehi
+    case MLeaf{+a, +v}:
+      and_t(sides(V, MLeaf{a, v}, s, b), sides(V, hi, s, b), ex, ehi)
+    case MNode{+q, +a, +b2}:
+      and_t(sides(V, MNode{q, a, b2}, s, b), sides(V, hi, s, b), ex, ehi)
+
+def sides_del.node(-V: Data, +p: Nat, +lo: Map<&2, V>, +hi: Map<&2, V>, +k: String, +s: Nat, +b: Bool, +e: {sides(V, MNode{p, lo, hi}, s, b) == True{} : Bool}, c: Bool, +ec: {bv(k, p) == c : Bool}, ilo: {sides(V, cdel(V, lo, k), s, b) == True{} : Bool}, ihi: {sides(V, cdel(V, hi, k), s, b) == True{} : Bool}) -> {sides(V, Bool.pick(Map<&2, V>, bv(k, p), collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), s, b) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, bv(k, p), True{}, ec) : {sides(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), s, b) == True{} : Bool}
+      sides_del.hi(V, p, lo, cdel(V, hi, k), s, b, and_l(sides(V, lo, s, b), sides(V, hi, s, b), e), ihi)
+    case False{}:
+      %Equal.sym(Bool, bv(k, p), False{}, ec) : {sides(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), s, b) == True{} : Bool}
+      sides_del.lo(V, p, cdel(V, lo, k), hi, s, b, ilo, and_r(sides(V, lo, s, b), sides(V, hi, s, b), e))
+
+# Taking a key away keeps what `sides` says of every key.
+def sides_del(-V: Data, m: Map<&2, V>, +k: String, +s: Nat, +b: Bool, +e: {sides(V, m, s, b) == True{} : Bool}) -> {sides(V, cdel(V, m, k), s, b) == True{} : Bool}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      sides_del.leaf(V, k, k1, v, s, b, e, String.eq(k, k1), {==})
+    case MNode{+p, +lo, +hi}:
+      sides_del.node(V, p, lo, hi, k, s, b, e, bv(k, p), {==}, sides_del(V, lo, k, s, b, and_l(sides(V, lo, s, b), sides(V, hi, s, b), e)), sides_del(V, hi, k, s, b, and_r(sides(V, lo, s, b), sides(V, hi, s, b), e)))
+
+def agrees_del.leaf(-V: Data, +k: String, +k1: String, +v: V, +r: String, +s: Nat, +e: {agrees(V, MLeaf{k1, v}, r, s) == True{} : Bool}, c: Bool, +ec: {String.eq(k, k1) == c : Bool}) -> {agrees(V, Bool.pick(Map<&2, V>, String.eq(k, k1), MTip{}, MLeaf{k1, v}), r, s) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, String.eq(k, k1), True{}, ec) : {agrees(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v}), r, s) == True{} : Bool}
+      {==}
+    case False{}:
+      %Equal.sym(Bool, String.eq(k, k1), False{}, ec) : {agrees(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v}), r, s) == True{} : Bool}
+      e
+
+def agrees_del.hi(-V: Data, +p: Nat, +lo: Map<&2, V>, x: Map<&2, V>, +r: String, +s: Nat, +elo: {agrees(V, lo, r, s) == True{} : Bool}, +ex: {agrees(V, x, r, s) == True{} : Bool}) -> {agrees(V, collapse_hi(V, p, lo, x), r, s) == True{} : Bool}:
+  match x:
+    case MTip{}:
+      elo
+    case MLeaf{+a, +v}:
+      and_t(agrees(V, lo, r, s), agrees(V, MLeaf{a, v}, r, s), elo, ex)
+    case MNode{+q, +a, +b2}:
+      and_t(agrees(V, lo, r, s), agrees(V, MNode{q, a, b2}, r, s), elo, ex)
+
+def agrees_del.lo(-V: Data, +p: Nat, x: Map<&2, V>, +hi: Map<&2, V>, +r: String, +s: Nat, +ex: {agrees(V, x, r, s) == True{} : Bool}, +ehi: {agrees(V, hi, r, s) == True{} : Bool}) -> {agrees(V, collapse_lo(V, p, x, hi), r, s) == True{} : Bool}:
+  match x:
+    case MTip{}:
+      ehi
+    case MLeaf{+a, +v}:
+      and_t(agrees(V, MLeaf{a, v}, r, s), agrees(V, hi, r, s), ex, ehi)
+    case MNode{+q, +a, +b2}:
+      and_t(agrees(V, MNode{q, a, b2}, r, s), agrees(V, hi, r, s), ex, ehi)
+
+def agrees_del.node(-V: Data, +p: Nat, +lo: Map<&2, V>, +hi: Map<&2, V>, +k: String, +r: String, +s: Nat, +e: {agrees(V, MNode{p, lo, hi}, r, s) == True{} : Bool}, c: Bool, +ec: {bv(k, p) == c : Bool}, ilo: {agrees(V, cdel(V, lo, k), r, s) == True{} : Bool}, ihi: {agrees(V, cdel(V, hi, k), r, s) == True{} : Bool}) -> {agrees(V, Bool.pick(Map<&2, V>, bv(k, p), collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), r, s) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, bv(k, p), True{}, ec) : {agrees(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), r, s) == True{} : Bool}
+      agrees_del.hi(V, p, lo, cdel(V, hi, k), r, s, and_l(agrees(V, lo, r, s), agrees(V, hi, r, s), e), ihi)
+    case False{}:
+      %Equal.sym(Bool, bv(k, p), False{}, ec) : {agrees(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi)), r, s) == True{} : Bool}
+      agrees_del.lo(V, p, cdel(V, lo, k), hi, r, s, ilo, and_r(agrees(V, lo, r, s), agrees(V, hi, r, s), e))
+
+# Taking a key away keeps what `agrees` says of every key.
+def agrees_del(-V: Data, m: Map<&2, V>, +k: String, +r: String, +s: Nat, +e: {agrees(V, m, r, s) == True{} : Bool}) -> {agrees(V, cdel(V, m, k), r, s) == True{} : Bool}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      agrees_del.leaf(V, k, k1, v, r, s, e, String.eq(k, k1), {==})
+    case MNode{+p, +lo, +hi}:
+      agrees_del.node(V, p, lo, hi, k, r, s, e, bv(k, p), {==}, agrees_del(V, lo, k, r, s, and_l(agrees(V, lo, r, s), agrees(V, hi, r, s), e)), agrees_del(V, hi, k, r, s, and_r(agrees(V, lo, r, s), agrees(V, hi, r, s), e)))
+
+def wf_del.leaf(-V: Data, +k: String, +k1: String, +v: V, c: Bool, +ec: {String.eq(k, k1) == c : Bool}) -> {wft(V, Bool.pick(Map<&2, V>, String.eq(k, k1), MTip{}, MLeaf{k1, v})) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, String.eq(k, k1), True{}, ec) : {wft(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v})) == True{} : Bool}
+      {==}
+    case False{}:
+      %Equal.sym(Bool, String.eq(k, k1), False{}, ec) : {wft(V, Bool.pick(Map<&2, V>, _, MTip{}, MLeaf{k1, v})) == True{} : Bool}
+      {==}
+
+def wf_del.hi(-V: Data, +p: Nat, +lo: Map<&2, V>, x: Map<&2, V>, +wlo: {wf(V, lo) == True{} : Bool}, +slo: {sides(V, lo, p, False{}) == True{} : Bool}, +alo: {agrees(V, lo, rep(V, lo), p) == True{} : Bool}, wx: {wft(V, x) == True{} : Bool}, +sx: {sides(V, x, p, True{}) == True{} : Bool}, +ax: {agrees(V, x, rep(V, lo), p) == True{} : Bool}) -> {wft(V, collapse_hi(V, p, lo, x)) == True{} : Bool}:
+  match x:
+    case MTip{}:
+      wft_of(V, lo, wlo)
+    case MLeaf{+a, +v}:
+      and_t(wf(V, lo), Bool.and(True{}, Bool.and(sides(V, lo, p, False{}), Bool.and(sides(V, MLeaf{a, v}, p, True{}), agrees(V, MNode{p, lo, MLeaf{a, v}}, rep(V, lo), p)))), wlo, and_t(True{}, Bool.and(sides(V, lo, p, False{}), Bool.and(sides(V, MLeaf{a, v}, p, True{}), agrees(V, MNode{p, lo, MLeaf{a, v}}, rep(V, lo), p))), {==}, and_t(sides(V, lo, p, False{}), Bool.and(sides(V, MLeaf{a, v}, p, True{}), agrees(V, MNode{p, lo, MLeaf{a, v}}, rep(V, lo), p)), slo, and_t(sides(V, MLeaf{a, v}, p, True{}), agrees(V, MNode{p, lo, MLeaf{a, v}}, rep(V, lo), p), sx, and_t(agrees(V, lo, rep(V, lo), p), agrees(V, MLeaf{a, v}, rep(V, lo), p), alo, ax)))))
+    case MNode{+q, +a, +b}:
+      and_t(wf(V, lo), Bool.and(wf(V, MNode{q, a, b}), Bool.and(sides(V, lo, p, False{}), Bool.and(sides(V, MNode{q, a, b}, p, True{}), agrees(V, MNode{p, lo, MNode{q, a, b}}, rep(V, lo), p)))), wlo, and_t(wf(V, MNode{q, a, b}), Bool.and(sides(V, lo, p, False{}), Bool.and(sides(V, MNode{q, a, b}, p, True{}), agrees(V, MNode{p, lo, MNode{q, a, b}}, rep(V, lo), p))), wx, and_t(sides(V, lo, p, False{}), Bool.and(sides(V, MNode{q, a, b}, p, True{}), agrees(V, MNode{p, lo, MNode{q, a, b}}, rep(V, lo), p)), slo, and_t(sides(V, MNode{q, a, b}, p, True{}), agrees(V, MNode{p, lo, MNode{q, a, b}}, rep(V, lo), p), sx, and_t(agrees(V, lo, rep(V, lo), p), agrees(V, MNode{q, a, b}, rep(V, lo), p), alo, ax)))))
+
+def wf_del.lo(-V: Data, +p: Nat, x: Map<&2, V>, +hi: Map<&2, V>, +r: String, +wx: {wft(V, x) == True{} : Bool}, +sx: {sides(V, x, p, False{}) == True{} : Bool}, +ax: {agrees(V, x, r, p) == True{} : Bool}, +whi: {wf(V, hi) == True{} : Bool}, +shi: {sides(V, hi, p, True{}) == True{} : Bool}, +ahi: {agrees(V, hi, r, p) == True{} : Bool}) -> {wft(V, collapse_lo(V, p, x, hi)) == True{} : Bool}:
+  match x:
+    case MTip{}:
+      wft_of(V, hi, whi)
+    case MLeaf{+a, +v}:
+      +ag = agrees_switch(V, MNode{p, MLeaf{a, v}, hi}, r, a, p, and_t(agrees(V, MLeaf{a, v}, r, p), agrees(V, hi, r, p), ax, ahi), Equal.trans(Bool, Bool.or(String.eq(a, a), mem(V, hi, a)), Bool.or(True{}, mem(V, hi, a)), True{}, Equal.cong(Bool, Bool, z => Bool.or(z, mem(V, hi, a)), String.eq(a, a), True{}, Str.eq_refl(a)), {==}))
+      and_t(True{}, Bool.and(wf(V, hi), Bool.and(sides(V, MLeaf{a, v}, p, False{}), Bool.and(sides(V, hi, p, True{}), agrees(V, MNode{p, MLeaf{a, v}, hi}, a, p)))), {==}, and_t(wf(V, hi), Bool.and(sides(V, MLeaf{a, v}, p, False{}), Bool.and(sides(V, hi, p, True{}), agrees(V, MNode{p, MLeaf{a, v}, hi}, a, p))), whi, and_t(sides(V, MLeaf{a, v}, p, False{}), Bool.and(sides(V, hi, p, True{}), agrees(V, MNode{p, MLeaf{a, v}, hi}, a, p)), sx, and_t(sides(V, hi, p, True{}), agrees(V, MNode{p, MLeaf{a, v}, hi}, a, p), shi, ag))))
+    case MNode{+q, +a, +b}:
+      +ra = rep(V, a)
+      +ag = agrees_switch(V, MNode{p, MNode{q, a, b}, hi}, r, ra, p, and_t(agrees(V, MNode{q, a, b}, r, p), agrees(V, hi, r, p), ax, ahi), Equal.trans(Bool, Bool.or(mem(V, MNode{q, a, b}, ra), mem(V, hi, ra)), Bool.or(True{}, mem(V, hi, ra)), True{}, Equal.cong(Bool, Bool, z => Bool.or(z, mem(V, hi, ra)), mem(V, MNode{q, a, b}, ra), True{}, rep_mem(V, MNode{q, a, b}, wx)), {==}))
+      and_t(wf(V, MNode{q, a, b}), Bool.and(wf(V, hi), Bool.and(sides(V, MNode{q, a, b}, p, False{}), Bool.and(sides(V, hi, p, True{}), agrees(V, MNode{p, MNode{q, a, b}, hi}, ra, p)))), wx, and_t(wf(V, hi), Bool.and(sides(V, MNode{q, a, b}, p, False{}), Bool.and(sides(V, hi, p, True{}), agrees(V, MNode{p, MNode{q, a, b}, hi}, ra, p))), whi, and_t(sides(V, MNode{q, a, b}, p, False{}), Bool.and(sides(V, hi, p, True{}), agrees(V, MNode{p, MNode{q, a, b}, hi}, ra, p)), sx, and_t(sides(V, hi, p, True{}), agrees(V, MNode{p, MNode{q, a, b}, hi}, ra, p), shi, ag))))
+
+def wf_del.node(-V: Data, +p: Nat, +lo: Map<&2, V>, +hi: Map<&2, V>, +w: {wf(V, MNode{p, lo, hi}) == True{} : Bool}, +k: String, c: Bool, +ec: {bv(k, p) == c : Bool}, ilo: {wft(V, cdel(V, lo, k)) == True{} : Bool}, ihi: {wft(V, cdel(V, hi, k)) == True{} : Bool}) -> {wft(V, Bool.pick(Map<&2, V>, bv(k, p), collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi))) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, bv(k, p), True{}, ec) : {wft(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi))) == True{} : Bool}
+      +r = rep(V, lo)
+      +near = wf_near(V, p, lo, hi, w)
+      wf_del.hi(V, p, lo, cdel(V, hi, k), wf_lo(V, p, lo, hi, w), wf_slo(V, p, lo, hi, w), and_l(agrees(V, lo, r, p), agrees(V, hi, r, p), near), ihi, sides_del(V, hi, k, p, True{}, wf_shi(V, p, lo, hi, w)), agrees_del(V, hi, k, r, p, and_r(agrees(V, lo, r, p), agrees(V, hi, r, p), near)))
+    case False{}:
+      %Equal.sym(Bool, bv(k, p), False{}, ec) : {wft(V, Bool.pick(Map<&2, V>, _, collapse_hi(V, p, lo, cdel(V, hi, k)), collapse_lo(V, p, cdel(V, lo, k), hi))) == True{} : Bool}
+      +r = rep(V, lo)
+      +near = wf_near(V, p, lo, hi, w)
+      wf_del.lo(V, p, cdel(V, lo, k), hi, r, ilo, sides_del(V, lo, k, p, False{}, wf_slo(V, p, lo, hi, w)), agrees_del(V, lo, k, r, p, and_l(agrees(V, lo, r, p), agrees(V, hi, r, p), near)), wf_hi(V, p, lo, hi, w), wf_shi(V, p, lo, hi, w), and_r(agrees(V, lo, r, p), agrees(V, hi, r, p), near))
+
+# Taking a key away from a trie leaves a map `Map.new` and `Map.set` could
+# have built.
+def wf_del(-V: Data, m: Map<&2, V>, +w: {wf(V, m) == True{} : Bool}, +k: String) -> {wft(V, cdel(V, m, k)) == True{} : Bool}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      wf_del.leaf(V, k, k1, v, String.eq(k, k1), {==})
+    case MNode{+p, +lo, +hi}:
+      wf_del.node(V, p, lo, hi, w, k, bv(k, p), {==}, wf_del(V, lo, wf_lo(V, p, lo, hi, w), k), wf_del(V, hi, wf_hi(V, p, lo, hi, w), k))
+
+# `Map.del`, `Map.pop` and `Set.del`, as a caller asks
+# ----------------------------------------------------
+
+def wf_of_top(-V: Data, m: Map<&2, V>, +w: Wf.top(V, m), +k: String) -> {wft(V, cdel(V, m, k)) == True{} : Bool}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      wf_del(V, MLeaf{k1, v}, {==}, k)
+    case MNode{+p, +lo, +hi}:
+      wf_del(V, MNode{p, lo, hi}, w, k)
+
+def wf_del_map(-V: Data, +m: Map<&2, V>, +w: Wf.top(V, m), +k: String) -> Wf.top(V, Map.del(&2, V, m, k)):
+  %Equal.sym(Map<&2, V>, Map.del(&2, V, m, k), cdel(V, m, k), del_is(V, m, k)) : {wft(V, _) == True{} : Bool}
+  wf_of_top(V, m, w, k)
+
+def del_same_top(-V: Data, m: Map<&2, V>, +w: Wf.top(V, m), +k: String) -> {found(V, cdel(V, m, k), k) == None{} : Maybe<&2, V>}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      del_same(V, MLeaf{k1, v}, {==}, k)
+    case MNode{+p, +lo, +hi}:
+      del_same(V, MNode{p, lo, hi}, w, k)
+
+def del_other_top(-V: Data, m: Map<&2, V>, +w: Wf.top(V, m), +k: String, +j: String, +ejk: {String.eq(j, k) == False{} : Bool}) -> {found(V, cdel(V, m, k), j) == found(V, m, j) : Maybe<&2, V>}:
+  match m:
+    case MTip{}:
+      {==}
+    case MLeaf{+k1, +v}:
+      del_other(V, MLeaf{k1, v}, {==}, k, j, ejk)
+    case MNode{+p, +lo, +hi}:
+      del_other(V, MNode{p, lo, hi}, w, k, j, ejk)
+
+# After `Map.del` the key finds nothing, and every other key what it did.
+def get_del_same(-V: Data, +d: V, +m: Map<&2, V>, +w: Wf.top(V, m), +k: String) -> {gv(V, Map.get(V, d, Map.del(&2, V, m, k), k)) == d : V}:
+  %Equal.sym(V, gv(V, Map.get(V, d, Map.del(&2, V, m, k), k)), Maybe.default(&2, V, found(V, Map.del(&2, V, m, k), k), d), get_is(V, d, Map.del(&2, V, m, k), k)) : {_ == d : V}
+  %Equal.sym(Map<&2, V>, Map.del(&2, V, m, k), cdel(V, m, k), del_is(V, m, k)) : {Maybe.default(&2, V, found(V, _, k), d) == d : V}
+  %Equal.sym(Maybe<&2, V>, found(V, cdel(V, m, k), k), None{}, del_same_top(V, m, w, k)) : {Maybe.default(&2, V, _, d) == d : V}
+  {==}
+
+def has_del_same(-V: Data, +m: Map<&2, V>, +w: Wf.top(V, m), +k: String) -> {hv(V, Map.has(&2, V, Map.del(&2, V, m, k), k)) == False{} : Bool}:
+  %Equal.sym(Bool, hv(V, Map.has(&2, V, Map.del(&2, V, m, k), k)), Maybe.is_some(&2, V, found(V, Map.del(&2, V, m, k), k)), has_is(V, Map.del(&2, V, m, k), k)) : {_ == False{} : Bool}
+  %Equal.sym(Map<&2, V>, Map.del(&2, V, m, k), cdel(V, m, k), del_is(V, m, k)) : {Maybe.is_some(&2, V, found(V, _, k)) == False{} : Bool}
+  %Equal.sym(Maybe<&2, V>, found(V, cdel(V, m, k), k), None{}, del_same_top(V, m, w, k)) : {Maybe.is_some(&2, V, _) == False{} : Bool}
+  {==}
+
+def get_del_other(-V: Data, +d: V, +m: Map<&2, V>, +w: Wf.top(V, m), +k: String, +j: String, ejk: {String.eq(j, k) == False{} : Bool}) -> {gv(V, Map.get(V, d, Map.del(&2, V, m, k), j)) == gv(V, Map.get(V, d, m, j)) : V}:
+  %Equal.sym(V, gv(V, Map.get(V, d, Map.del(&2, V, m, k), j)), Maybe.default(&2, V, found(V, Map.del(&2, V, m, k), j), d), get_is(V, d, Map.del(&2, V, m, k), j)) : {_ == gv(V, Map.get(V, d, m, j)) : V}
+  %Equal.sym(V, gv(V, Map.get(V, d, m, j)), Maybe.default(&2, V, found(V, m, j), d), get_is(V, d, m, j)) : {Maybe.default(&2, V, found(V, Map.del(&2, V, m, k), j), d) == _ : V}
+  %Equal.sym(Map<&2, V>, Map.del(&2, V, m, k), cdel(V, m, k), del_is(V, m, k)) : {Maybe.default(&2, V, found(V, _, j), d) == Maybe.default(&2, V, found(V, m, j), d) : V}
+  %Equal.sym(Maybe<&2, V>, found(V, cdel(V, m, k), j), found(V, m, j), del_other_top(V, m, w, k, j, ejk)) : {Maybe.default(&2, V, _, d) == Maybe.default(&2, V, found(V, m, j), d) : V}
+  {==}
+
+def has_del_other(-V: Data, +m: Map<&2, V>, +w: Wf.top(V, m), +k: String, +j: String, ejk: {String.eq(j, k) == False{} : Bool}) -> {hv(V, Map.has(&2, V, Map.del(&2, V, m, k), j)) == hv(V, Map.has(&2, V, m, j)) : Bool}:
+  %Equal.sym(Bool, hv(V, Map.has(&2, V, Map.del(&2, V, m, k), j)), Maybe.is_some(&2, V, found(V, Map.del(&2, V, m, k), j)), has_is(V, Map.del(&2, V, m, k), j)) : {_ == hv(V, Map.has(&2, V, m, j)) : Bool}
+  %Equal.sym(Bool, hv(V, Map.has(&2, V, m, j)), Maybe.is_some(&2, V, found(V, m, j)), has_is(V, m, j)) : {Maybe.is_some(&2, V, found(V, Map.del(&2, V, m, k), j)) == _ : Bool}
+  %Equal.sym(Map<&2, V>, Map.del(&2, V, m, k), cdel(V, m, k), del_is(V, m, k)) : {Maybe.is_some(&2, V, found(V, _, j)) == Maybe.is_some(&2, V, found(V, m, j)) : Bool}
+  %Equal.sym(Maybe<&2, V>, found(V, cdel(V, m, k), j), found(V, m, j), del_other_top(V, m, w, k, j, ejk)) : {Maybe.is_some(&2, V, _) == Maybe.is_some(&2, V, found(V, m, j)) : Bool}
+  {==}
+
+# What `Map.pop` hands back beside the map is what `Map.get` finds, and the
+# map it hands back is `Map.del`'s.
+def pop_get(-V: Data, +d: V, +m: Map<&2, V>, +k: String) -> {Maybe.default(&2, V, pv(V, Map.pop(&2, V, m, k)), d) == gv(V, Map.get(V, d, m, k)) : V}:
+  %Equal.sym(Maybe<&2, V>, pv(V, Map.pop(&2, V, m, k)), found(V, m, k), pop_found(V, m, k)) : {Maybe.default(&2, V, _, d) == gv(V, Map.get(V, d, m, k)) : V}
+  Equal.sym(V, gv(V, Map.get(V, d, m, k)), Maybe.default(&2, V, found(V, m, k), d), get_is(V, d, m, k))
+
+def pm(-V: Data, r: Map<&2, V> & Maybe<&2, V>) -> Map<&2, V>:
+  (m, x) = r
+  m
+
+def pop_map(-V: Data, +m: Map<&2, V>, +k: String) -> {pm(V, Map.pop(&2, V, m, k)) == Map.del(&2, V, m, k) : Map<&2, V>}:
+  %Equal.sym(Map<&2, V> & Maybe<&2, V>, Map.pop(&2, V, m, k), (cdel(V, m, k), found(V, m, k)), pop_is(V, m, k)) : {pm(V, _) == Map.del.fin(&2, V, _) : Map<&2, V>}
+  {==}
+
+def set_del_same(+s: Set(), +w: Wf.top(Unit, s), +k: String) -> {hv(Unit, Set.has(Set.del(s, k), k)) == False{} : Bool}:
+  has_del_same(Unit, s, w, k)
+
+def set_del_other(+s: Set(), +w: Wf.top(Unit, s), +k: String, +j: String, ejk: {String.eq(j, k) == False{} : Bool}) -> {hv(Unit, Set.has(Set.del(s, k), j)) == hv(Unit, Set.has(s, j)) : Bool}:
+  has_del_other(Unit, s, w, k, j, ejk)
+
+def set_wf_del(+s: Set(), +w: Wf.top(Unit, s), +k: String) -> Wf.top(Unit, Set.del(s, k)):
+  wf_del_map(Unit, s, w, k)
+
 def main() -> IO(Unit):
   IO.print("ok")
