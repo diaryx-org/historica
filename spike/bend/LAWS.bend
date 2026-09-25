@@ -1135,6 +1135,15 @@ law forget_whole_takes_one_payload:
   for e: {Fg.whole.plan.r(file, payload, files, stood, n) == Done{Fg.Fg.Plan{ts, ws, a, m}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
   {Main.all_held(Fg.payload.list(payload), ts) == True{} : Bool}
 
+# And the versions it says the file holds "elsewhere in its history, each
+# forgotten on its own" are other payloads than the one it forgets: the
+# count never includes the content it has just destroyed.
+law forget_counts_only_other_versions:
+  for +fs: List<&2, Main.Full>
+  for +file: String
+  for +t: String
+  {Rev.member(Fg.others(fs, file, t), t) == False{} : Bool}
+
 # `forget` destroys a file only where its bytes are one of the digests it
 # forgets: found by content, as everything in a store is, and nothing else
 # under `operations/` touched.

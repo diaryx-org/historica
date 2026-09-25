@@ -918,3 +918,48 @@ def chain_like(ds1: List<&2, List<&2, Ops.Op>>, ds2: List<&2, List<&2, Ops.Op>>,
       chain_like(xs, ys, Ops.apply(f1, Ops.Doc{None{}, None{}, x}), Ops.apply(f2, Ops.Doc{None{}, None{}, y}),
         Comp.and_right(Stand.ops.like(x, y), Stand.docs.like(xs, ys), hd),
         replays_like(f1, f2, None{}, None{}, x, None{}, y, hr, Comp.and_left(Stand.ops.like(x, y), Stand.docs.like(xs, ys), hd)))
+
+# The other versions
+# ------------------
+
+def held_self(xs: List<&2, String>) -> {Main.all_held(xs, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(Rev.member(x <> rest, x), Main.all_held(x <> rest, rest), GL.member_head(x, rest), held_cons(rest, x, rest, held_self(rest)))
+
+def excl_step(e: Bool, +d: String, +x: List<&2, String>, +t: String, he: {String.eq(d, t) == e : Bool}, ih: {Rev.member(x, t) == False{} : Bool}) -> {Rev.member(Rev.keep(Bool.not(e), d, x), t) == False{} : Bool}:
+  match e:
+    case True{}:
+      ih
+    case False{}:
+      %Equal.sym(Bool, String.eq(d, t), False{}, he) : {Bool.or(_, Rev.member(x, t)) == False{} : Bool}
+      ih
+
+def excl(ds: List<&2, String>, +t: String) -> {Rev.member(Fg.others.of(ds, t), t) == False{} : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case +d <> +rest:
+      excl_step(String.eq(d, t), d, Fg.others.of(rest, t), t, {==}, excl(rest, t))
+
+def not_true(b: Bool, e: {b == False{} : Bool}, h: {b == True{} : Bool}) -> Empty:
+  S.false_true(Equal.trans(Bool, False{}, b, True{}, Equal.sym(Bool, b, False{}, e), h))
+
+def others_case(m: Bool, +fs: List<&2, Main.Full>, +file: String, +t: String, em: {Rev.member(Fg.others(fs, file, t), t) == m : Bool}) -> {m == False{} : Bool}:
+  match m:
+    case False{}:
+      {==}
+    case True{}:
+      +xs = Fg.others.of(Fg.bytes.of(fs, file), t)
+      +sorted = List.sort(~String, ~(a => b => String.is_le(a, b)), xs)
+      Empty.absurd({True{} == False{} : Bool},
+        not_true(Rev.member(xs, t), excl(Fg.bytes.of(fs, file), t),
+          held_member(xs, sorted, t, StatusL.ah_sort(~(a => b => String.is_le(a, b)), xs, xs, held_self(xs)),
+            held_member(sorted, Main.distinct(sorted), t, StatusL.ah_distinct(sorted, sorted, held_self(sorted)), em))))
+
+# The other versions `forget` counts of a file of bytes never include the
+# one it forgets.
+def others_exclude(+fs: List<&2, Main.Full>, +file: String, +t: String) -> {Rev.member(Fg.others(fs, file, t), t) == False{} : Bool}:
+  others_case(Rev.member(Fg.others(fs, file, t), t), fs, file, t, {==})

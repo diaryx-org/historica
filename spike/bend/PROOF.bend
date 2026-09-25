@@ -608,6 +608,9 @@ def Laws.forget_rewrites_only_the_files_documents(fs, ds, id, file, first, last,
 def Laws.forget_whole_takes_one_payload(file, payload, files, stood, n, ts, ws, a, m, e):
   ForgetL.takes_one(file, payload, files, stood, n, Fg.Fg.Plan{ts, ws, a, m}, e)
 
+def Laws.forget_counts_only_other_versions(fs, file, t):
+  ForgetL.others_exclude(fs, file, t)
+
 def Laws.forget_destroys_only_what_it_forgets(fs, ts, p, e):
   ForgetL.destroys(fs, ts, p, e)
 

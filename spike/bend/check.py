@@ -2234,6 +2234,13 @@ def check_mutations(temporary):
             "forget_lemmas.clears",
             "forget.bend",
         ),
+        (
+            "forget counts the version it forgets among the others",
+            "      Rev.keep(Bool.not(String.eq(d, target)), d, others.of(rest, target))",
+            "      Rev.keep(True{}, d, others.of(rest, target))",
+            "forget_lemmas.excl",
+            "forget.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
