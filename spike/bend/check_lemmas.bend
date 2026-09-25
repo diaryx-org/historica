@@ -9,6 +9,7 @@ import ./merge.bend as Merge
 import ./text.bend as T
 import ./composition_lemmas.bend as Comp
 import ./notes.bend as Notes
+import ./revision.bend as Rev
 
 def ndisc(n: Nat) -> Type:
   match n:
@@ -116,3 +117,60 @@ def kahn_causal(fuel: Nat, +g: List<&2, Merge.Rev>, +ixs: List<&2, Nat>, +placed
 # `skipped/`'s note, and nothing else anywhere — is nothing to report.
 def fresh(+root: String) -> {Check.found(Check.Gathered{root, Some{Notes.HEADER_NOTE()}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Texts{Nil{}, Nil{}}, False{}, Check.skipped.read(root ++ "/skipped/README.txt", Done{Notes.SKIPPED_NOTE()}), Check.Walked{Nil{}, Nil{}}, Nil{}}) == Nil{} : List<&2, Check.Finding>}:
   {==}
+
+# The words
+# ---------
+
+def ck_or_false(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def ck_or_assoc(a: Bool, -b: Bool, -c: Bool) -> {Bool.or(Bool.or(a, b), c) == Bool.or(a, Bool.or(b, c)) : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def ck_app_nil(xs: List<&2, String>) -> {List.append(&2, String, xs, Nil{}) == xs : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      Equal.cong(List<&2, String>, List<&2, String>, l => x <> l, List.append(&2, String, rest, Nil{}), rest, ck_app_nil(rest))
+
+def ck_app_assoc(xs: List<&2, String>, +ys: List<&2, String>, +zs: List<&2, String>) -> {List.append(&2, String, List.append(&2, String, xs, ys), zs) == List.append(&2, String, xs, List.append(&2, String, ys, zs)) : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      Equal.cong(List<&2, String>, List<&2, String>, l => x <> l, List.append(&2, String, List.append(&2, String, rest, ys), zs), List.append(&2, String, rest, List.append(&2, String, ys, zs)), ck_app_assoc(rest, ys, zs))
+
+def asked_go.at(+w: String, +rest: List<&2, String>, +c: Bool, +acc: List<&2, String>, f: Bool, ih: @c2: Bool -> @a2: List<&2, String> -> {Check.asked.go(rest, c2, a2) == Check.Asked{Bool.or(c2, Rev.member(rest, "--complete")), List.append(&2, String, a2, Check.words.other(rest))} : Check.Asked}) -> {Check.asked.go(rest, Bool.or(c, f), Bool.pick(List<&2, String>, f, acc, List.append(&2, String, acc, [w]))) == Check.Asked{Bool.or(c, Bool.or(f, Rev.member(rest, "--complete"))), List.append(&2, String, acc, Bool.pick(List<&2, String>, f, Check.words.other(rest), w <> Check.words.other(rest)))} : Check.Asked}:
+  match f:
+    case True{}:
+      %Equal.sym(Check.Asked, Check.asked.go(rest, Bool.or(c, True{}), acc), Check.Asked{Bool.or(Bool.or(c, True{}), Rev.member(rest, "--complete")), List.append(&2, String, acc, Check.words.other(rest))}, ih(Bool.or(c, True{}), acc)) : {_ == Check.Asked{Bool.or(c, Bool.or(True{}, Rev.member(rest, "--complete"))), List.append(&2, String, acc, Check.words.other(rest))} : Check.Asked}
+      %Equal.sym(Bool, Bool.or(Bool.or(c, True{}), Rev.member(rest, "--complete")), Bool.or(c, Bool.or(True{}, Rev.member(rest, "--complete"))), ck_or_assoc(c, True{}, Rev.member(rest, "--complete"))) : {Check.Asked{_, List.append(&2, String, acc, Check.words.other(rest))} == Check.Asked{Bool.or(c, Bool.or(True{}, Rev.member(rest, "--complete"))), List.append(&2, String, acc, Check.words.other(rest))} : Check.Asked}
+      {==}
+    case False{}:
+      %Equal.sym(Check.Asked, Check.asked.go(rest, Bool.or(c, False{}), List.append(&2, String, acc, [w])), Check.Asked{Bool.or(Bool.or(c, False{}), Rev.member(rest, "--complete")), List.append(&2, String, List.append(&2, String, acc, [w]), Check.words.other(rest))}, ih(Bool.or(c, False{}), List.append(&2, String, acc, [w]))) : {_ == Check.Asked{Bool.or(c, Bool.or(False{}, Rev.member(rest, "--complete"))), List.append(&2, String, acc, w <> Check.words.other(rest))} : Check.Asked}
+      %Equal.sym(Bool, Bool.or(Bool.or(c, False{}), Rev.member(rest, "--complete")), Bool.or(c, Bool.or(False{}, Rev.member(rest, "--complete"))), ck_or_assoc(c, False{}, Rev.member(rest, "--complete"))) : {Check.Asked{_, List.append(&2, String, List.append(&2, String, acc, [w]), Check.words.other(rest))} == Check.Asked{Bool.or(c, Bool.or(False{}, Rev.member(rest, "--complete"))), List.append(&2, String, acc, w <> Check.words.other(rest))} : Check.Asked}
+      %Equal.sym(List<&2, String>, List.append(&2, String, List.append(&2, String, acc, [w]), Check.words.other(rest)), List.append(&2, String, acc, List.append(&2, String, [w], Check.words.other(rest))), ck_app_assoc(acc, [w], Check.words.other(rest))) : {Check.Asked{Bool.or(c, Bool.or(False{}, Rev.member(rest, "--complete"))), _} == Check.Asked{Bool.or(c, Bool.or(False{}, Rev.member(rest, "--complete"))), List.append(&2, String, acc, w <> Check.words.other(rest))} : Check.Asked}
+      {==}
+
+def asked_go(ws: List<&2, String>, +c: Bool, +acc: List<&2, String>) -> {Check.asked.go(ws, c, acc) == Check.Asked{Bool.or(c, Rev.member(ws, "--complete")), List.append(&2, String, acc, Check.words.other(ws))} : Check.Asked}:
+  match ws:
+    case Nil{}:
+      %Equal.sym(Bool, Bool.or(c, False{}), c, ck_or_false(c)) : {Check.Asked{c, acc} == Check.Asked{_, List.append(&2, String, acc, Nil{})} : Check.Asked}
+      %Equal.sym(List<&2, String>, List.append(&2, String, acc, Nil{}), acc, ck_app_nil(acc)) : {Check.Asked{c, acc} == Check.Asked{c, _} : Check.Asked}
+      {==}
+    case +w <> +rest:
+      asked_go.at(w, rest, c, acc, String.eq(w, "--complete"), c2 => a2 => asked_go(rest, c2, a2))
+
+# `check` reads `--complete` wherever it stands, and every other word, in
+# order, as a directory.
+def reads_words(+ws: List<&2, String>) -> {Check.asked(ws) == Check.Asked{Rev.member(ws, "--complete"), Check.words.other(ws)} : Check.Asked}:
+  asked_go(ws, False{}, Nil{})

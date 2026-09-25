@@ -2831,6 +2831,13 @@ def check_mutations(temporary):
             "argv.bend",
         ),
         (
+            "check reads only the last word as asking for --complete",
+            "      asked.go(rest, Bool.or(complete, flag), Bool.pick(List<&2, String>, flag, words, List.append(&2, String, words, [w])))",
+            "      asked.go(rest, flag, Bool.pick(List<&2, String>, flag, words, List.append(&2, String, words, [w])))",
+            "check_lemmas.asked_go",
+            "check.bend",
+        ),
+        (
             "check reads the note under a new store's format line as a layout",
             "      +found = Store.line.cut(rest)",
             "      +found = rest",
