@@ -73,14 +73,27 @@ def ws_at(m: Maybe<&2, Char>) -> Bool:
 def untrimmed(+v: String) -> Bool:
   Bool.or(String.is_empty(v), Bool.or(ws_at(first_char(v)), ws_at(first_char(String.reverse(v)))))
 
-def trim_slashes(s: String) -> String:
+# Whether a string opens with a `/`, asked with `Char.is_eq` so a proof can
+# follow the walk below over a character it does not know.
+def slash_first(s: String) -> Bool:
   match s:
     case SNil{}:
-      SNil{}
-    case SCon{'/', t}:
-      trim_slashes(t)
+      False{}
     case SCon{c, t}:
+      Char.is_eq(c, '/')
+
+def trim.go(s: String, slash: Bool) -> String:
+  match s slash:
+    case SNil{} _:
+      SNil{}
+    case SCon{c, +t} True{}:
+      trim.go(t, slash_first(t))
+    case SCon{c, t} False{}:
       String.reverse(SCon{c, t})
+
+# The reversed string past its leading `/`s, turned back the right way.
+def trim_slashes(+s: String) -> String:
+  trim.go(s, slash_first(s))
 
 def all_stars(s: String) -> Bool:
   match s:
@@ -95,10 +108,8 @@ def has_slash(s: String) -> Bool:
   match s:
     case SNil{}:
       False{}
-    case SCon{'/', t}:
-      True{}
     case SCon{c, t}:
-      has_slash(t)
+      Bool.or(Char.is_eq(c, '/'), has_slash(t))
 
 def pattern(+v: String) -> Result<&2, &2, String, String>:
   Bool.pick(Result<&2, &2, String, String>, String.is_empty(v), Fail{"a pattern is not empty"},

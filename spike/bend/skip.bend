@@ -83,6 +83,11 @@ def show(r: Rule) -> String:
     case Rule{+sc, p}:
       key(named(sc), p) ++ " " ++ value(sc) ++ Bool.pick(String, under(sc), "/", SNil{})
 
+# What a rule's file holds: its line, and a newline
+# (`LAWS.skip_writes_a_rule_its_reader_reads_back`).
+def file.text(r: Rule) -> String:
+  show(r) ++ "\n"
+
 def scope.eq(a: Folder.Scope, b: Folder.Scope) -> Bool:
   match a b:
     case Folder.Scope.Path{x} Folder.Scope.Path{y}:
@@ -183,10 +188,8 @@ def has_break(s: String) -> Bool:
   match s:
     case SNil{}:
       False{}
-    case SCon{'\n', t}:
-      True{}
     case SCon{c, t}:
-      has_break(t)
+      Bool.or(Char.is_eq(c, '\n'), has_break(t))
 
 # `usable`: a value the file can hold.
 def usable.r(+v: String) -> Result<&2, &2, Main.Refused, String>:
@@ -205,11 +208,15 @@ def name.pattern.r(+n: String, +under: Bool, p: Result<&2, &2, String, String>) 
       Done{Bool.pick(Folder.Scope, under, Folder.Scope.NameUnder{v}, Folder.Scope.Name{v})}
 
 # `name_scope`: one trailing `/` parts a directory's name from a file's.
+def name.scope.of(+n: String, +under: Bool, r: Result<&2, &2, Main.Refused, String>) -> Result<&2, &2, Main.Refused, Folder.Scope>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+v}:
+      name.pattern.r(n, under, Folder.pattern(v))
+
 def name.scope.r(+n: String) -> Result<&2, &2, Main.Refused, Folder.Scope>:
-  +under = String.ends_with(n, "/")
-  do Result<&2, &2, Main.Refused, Folder.Scope>:
-    v : String <- usable.r(unslash_one(n))
-    name.pattern.r(n, under, Folder.pattern(v))
+  name.scope.of(n, String.ends_with(n, "/"), usable.r(unslash_one(n)))
 
 # Where a path a person typed sits, relative to the repository: the
 # components past the repository's own, as `strip_prefix` finds them, of
@@ -244,11 +251,15 @@ def settled(+full: String, r: Result<&1, &1, U32 & String, String>) -> String:
 def trim_slashes(+p: String) -> String:
   Folder.trim_slashes(String.reverse(p))
 
+def path.scoped.of(r: Result<&2, &2, Main.Refused, String>, +directory: Bool) -> Result<&2, &2, Main.Refused, Folder.Scope>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+v}:
+      Done{Bool.pick(Folder.Scope, directory, Folder.Scope.Under{v}, Folder.Scope.Path{v})}
+
 def path.scoped(+relative: String, +directory: Bool) -> Result<&2, &2, Main.Refused, Folder.Scope>:
-  do Result<&2, &2, Main.Refused, Folder.Scope>:
-    v : String <- usable.r(relative)
-    +v2 : String = v
-    return Bool.pick(Folder.Scope, directory, Folder.Scope.Under{v2}, Folder.Scope.Path{v2})
+  path.scoped.of(usable.r(relative), directory)
 
 def is_dir(r: Result<&1, &1, U32 & String, String>) -> Bool:
   match r:
@@ -387,23 +398,36 @@ def once(ss: List<&2, Stating>, +seen: List<&2, Rule>, dup: Bool) -> List<&2, St
     case Stating{+r, f} <> +rest False{}:
       Stating{r, f} <> once(rest, r <> seen, once.dup(rest, r <> seen))
 
-# Whether each rule is new against every rule before it, and against
-# `seen` (`LAWS.skip_lists_each_rule_once`).
-def fresh.stated(ss: List<&2, Stating>, +seen: List<&2, Rule>) -> Bool:
+# A list that names no rule twice (`LAWS.skip_lists_each_rule_once`,
+# `LAWS.skip_writes_what_is_new`).
+def nodup(xs: List<&2, Rule>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> +rest:
+      Bool.and(Bool.not(held(rest, x)), nodup(rest))
+
+# Whether `ys` holds every rule of `xs`, and whether it holds none.
+def all.held(xs: List<&2, Rule>, +ys: List<&2, Rule>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(held(ys, x), all.held(rest, ys))
+
+def none.held(xs: List<&2, Rule>, +ys: List<&2, Rule>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Bool.not(held(ys, x)), none.held(rest, ys))
+
+def stated.rules(ss: List<&2, Stating>) -> List<&2, Rule>:
   match ss:
     case Nil{}:
-      True{}
-    case Stating{+r, f} <> rest:
-      Bool.and(Bool.not(held(seen, r)), fresh.stated(rest, r <> seen))
-
-# Whether each rule is one neither `had` nor any rule before it states
-# (`LAWS.skip_writes_what_is_new`).
-def fresh.rules(rs: List<&2, Rule>, +had: List<&2, Rule>, +before: List<&2, Rule>) -> Bool:
-  match rs:
-    case Nil{}:
-      True{}
-    case +r <> rest:
-      Bool.and(Bool.not(Bool.or(held(had, r), held(before, r))), fresh.rules(rest, had, List.append(&2, Rule, before, [r])))
+      Nil{}
+    case Stating{r, f} <> rest:
+      r <> stated.rules(rest)
 
 def stated.go(+root: String, ps: List<&2, String>) -> IO(List<&2, Stating>):
   match ps:
@@ -516,7 +540,7 @@ def again.label(+r: Rule, w: Result<&1, &1, U32 & String, String>) -> IO(String)
 
 def again(+r: Rule, +root: String) -> IO(String):
   do IO<String>:
-    w : Result<&1, &1, U32 & String, String> <- Store.filed(root ++ "/skipped/" ++ digest_label(r) ++ "\n" ++ show(r) ++ "\n")
+    w : Result<&1, &1, U32 & String, String> <- Store.filed(root ++ "/skipped/" ++ digest_label(r) ++ "\n" ++ file.text(r))
     again.label(r, w)
 
 # A label another file already has — different bytes, which `Store.once`
@@ -537,7 +561,7 @@ def write.go(+root: String, rs: List<&2, Rule>) -> IO(String):
     case +r <> rest:
       +n = label(r)
       do IO<String>:
-        w : Result<&1, &1, U32 & String, String> <- Store.filed(root ++ "/skipped/" ++ n ++ "\n" ++ show(r) ++ "\n")
+        w : Result<&1, &1, U32 & String, String> <- Store.filed(root ++ "/skipped/" ++ n ++ "\n" ++ file.text(r))
         l : String <- written.label(r, n, root, w)
         more : String <- write.go(root, rest)
         return show(r) ++ "\n  history/skipped/" ++ l ++ "\n" ++ more
