@@ -45,6 +45,7 @@ import ./nfc_lemmas.bend as NfcL
 import ./shell_lemmas.bend as ShellL
 import ./editor_lemmas.bend as EditorL
 import ./identity_lemmas.bend as IdentityL
+import ./forgetting_lemmas.bend as ForgettingL
 import ./editor.bend as Editor
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
@@ -1322,6 +1323,59 @@ law forget_clears_only_copies:
   for +p: String
   for e: {Rev.member(Fg.cached(ps), p) == True{} : Bool}
   {T.is_digest(String.drop(p, 6n)) == True{} : Bool}
+
+# What `forget` prints reads back as what it does. Asked for `--fields`,
+# decision 0074's statement: a `gone` line for each digest the plan made
+# unreadable, in the plan's order, and no other line.
+law forget_states_what_it_made_unreadable:
+  for p: Fg.FgPlan
+  for ds: List<&2, String>
+  for lines: Bool
+  for dry: Bool
+  {ForgettingL.gone.read(Fg.said(p, True{}, ds, lines, dry)) == Some{ForgettingL.plan.targets(p)} : Maybe<&2, List<&2, String>>}
+
+# Otherwise its `destroyed history/` lines are the files it destroys, each
+# once and in the order it destroys them — `would destroy` under
+# `--dry-run`, which destroys nothing — and no other line it prints reads
+# as one: not the documents it wrote, the other versions it counted, nor
+# what forgetting cannot hide.
+law forget_says_what_it_destroys:
+  for p: Fg.FgPlan
+  for +ds: List<&2, String>
+  for +lines: Bool
+  for +dry: Bool
+  {ForgettingL.destroyed.read(Fg.said(p, False{}, ds, lines, dry), Bool.pick(String, dry, "would destroy", "destroyed")) == ds : List<&2, String>}
+
+# Every document `forget` writes is filed as one, its name ending
+# `.ops.txt`, and at the name its own bytes give it under `operations/` or
+# at one no file there has yet: a payload's stand-in goes where the payload
+# was (decision 0066) only where that name is free, and never over another
+# file.
+law forget_files_documents_where_nothing_is:
+  for +fs: List<&2, Fg.FgFiled>
+  for +ds: List<&2, String>
+  for w: Fg.FgWrite
+  {Bool.and(String.ends_with(Fg.filed.as(fs, ds, w), ".ops.txt"), Bool.or(String.eq(Fg.filed.as(fs, ds, w), ForgettingL.own(w)), Bool.not(Fg.filed.taken(fs, Fg.filed.as(fs, ds, w))))) == True{} : Bool}
+
+# A redaction is exact: given no span, `forget` plans nothing for a file of
+# lines, whatever the file holds — it is refused, and never forgotten whole.
+law forget_takes_no_file_of_lines_whole:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +file: String
+  {Result.is_done(&2, &2, Main.Refused, Fg.FgPlan, Fg.io.lines.plan.r(fs, ds, id, file, None{})) == False{} : Bool}
+
+# After a forgetting, the sweep of `operations/` removes a directory only
+# where it listed and listed nothing — one that will not list is kept —
+# and never `operations/` itself, the path of no name.
+law forget_sweeps_only_what_lists_empty:
+  for +dir: String
+  for r: Result<&1, &1, U32 & String, String>
+  for +found: List<&2, String>
+  for +p: String
+  for h: {Rev.member(Fg.swept.empty(dir, Fg.io.listed(r), found), p) == True{} : Bool}
+  {Bool.or(Rev.member(found, p), Bool.and(String.eq(dir, p), ForgettingL.emptied(dir, r))) == True{} : Bool}
 
 # Decision 0014: replay does not consult payload. A document whose every
 # item is the one written or that item forgotten — a stand-in, which states
