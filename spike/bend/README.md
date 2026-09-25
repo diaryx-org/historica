@@ -330,7 +330,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `manifest_lemmas.bend` | `fetch_reads_the_manifest_offer_writes`: the lines `offer` prints, each with a newline after it and answered by the host as the text at the manifest's URL, are read by `fetch` as the heads and files they were printed from, every kind, digest, forgotten digest and path as written | `offer`, `fetch` |
 | `fetchplan_lemmas.bend` | `fetch_refuses_only_what_shares_no_revision`: a refusal as unrelated is where no join was asked, each side holds a revision, and no revision the manifest lists is one this store holds or one a revision here names as a parent or as what it supersedes; `fetch_refuses_what_shares_no_revision`: and there it refuses, in the Rust tool's words; `fetch_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of this store, or a line of the manifest, says is forgotten; `fetch_asks_for_no_payload_held_or_forgotten`, `fetch_asks_for_no_document_held_or_forgotten` and `fetch_asks_for_no_revision_it_holds`: every payload and document it asks for is one this store holds nothing under the digest of and neither side forgets, and every revision one it does not hold; `fetch_says_what_it_took`: asked for `--fields`, it names each revision it took once, in digest order, and none it did not | `fetch` |
 | `escape_lemmas.bend` | `fetch_asks_for_a_path_by_its_bytes`: whatever the bytes of a path, what `fetch` asks for decodes, each escape read as `%` and two uppercase hex digits, back to exactly those bytes; `fetch_asks_in_characters_a_url_may_hold`: and holds only characters RFC 3986 leaves unreserved, `/` and `%`; `fetch_asks_for_what_is_unreserved_as_itself`: and each unreserved character, and `/`, is asked for as itself — every byte of the 256 shown to the checker, and with the three laws the whole of how a byte is spelled | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | three hundred and eighty claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | three hundred and eighty-six claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -2344,7 +2344,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Four hundred and seventy mutations cover the primitive helpers, lost inserts, a lost trailing
+Four hundred and ninety-eight mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2682,9 +2682,9 @@ or runs out of range, and forgotten quotes under a wrong digest.
 `check.py` runs the proofs and all three suites on both the default JS and
 native C backends, then verifies that deliberate replay mutations fail the
 proof gate. Corpus failures now exit nonzero. The runner prints and fixes
-the compiler path for each run. The full gate passes on Bend 2.0.25; emitting
-the C for `main.bend` takes about half a minute on the development machine,
-and compiling it ten seconds or so.
+the compiler path for each run. The full gate passes on Bend 2.0.27. Emitting the C for `main.bend` now
+takes minutes and some thirteen gigabytes at its peak, so `check.py` builds
+the native and JS programs one at a time.
 
 Every theorem the Verus spike states now has a Bend counterpart. What the
 merge laws are about is `merge.bend`, held to `merge.rs`'s tests, and it
@@ -2840,3 +2840,11 @@ everywhere:
   another module as `Fg.Fg.Plan{}`; and an effect declared in one module is
   called from another only through a def there, which is why `store.bend`
   has `operations` and `cached` beside `Store.list`.
+- **The native backend can disagree with the JS one.** Under 2.0.27,
+  `Bool.or(False{}, Maybe.default(&2, Bool, Some{Bool.not(b)}, False{}))`
+  with `b` false is `True{}` from `bend x.bend` and `False{}` from the
+  binary `bend x.bend -o x.c` emits, with one thread as with many; which
+  spellings go wrong depends on the rest of the program. `check` met it in
+  `differ.go`, which said a merge's parents agreed where they differed, and
+  reports a spurious error natively; it now asks with a plain `match`
+  (`differ.from`). It is why `check.py` holds both builds to the Rust tool.

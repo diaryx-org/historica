@@ -3542,7 +3542,7 @@ def check_mutations(temporary):
             "the walk takes a file without asking the rules",
             "  Bool.and(Bool.not(is_store(prefix, name)), Bool.and(Bool.not(skips(rules, path)), Bm.name_ok(path)))",
             "  Bool.and(Bool.not(is_store(prefix, name)), Bm.name_ok(path))",
-            "folder_lemmas.took_ok",
+            "listed_lemmas.tracked_full",
             "folder.bend",
         ),
         (
@@ -3587,7 +3587,7 @@ def check_mutations(temporary):
             "a name rule lets its pattern hold a slash",
             '    Bool.pick(Result<&2, &2, String, String>, has_slash(v), Fail{"a pattern is one path component and holds no `/`: a path is spelled with `skip`"},',
             '    Bool.pick(Result<&2, &2, String, String>, False{}, Fail{"a pattern is one path component and holds no `/`: a path is spelled with `skip`"},',
-            "folder_lemmas.pattern_ok",
+            "skip_lemmas.pattern_ok",
             "folder.bend",
         ),
         (
@@ -6185,7 +6185,7 @@ def check_mutations(temporary):
             "a rewrite takes a second target in place of the first",
             "    case RwCmd{m, mv, o, Some{n}, d, f, y}:\n      Fail{Refused{2, rw.second(cmd, w)}}",
             "    case RwCmd{m, mv, o, Some{n}, d, f, y}:\n      Done{RwCmd{m, mv, o, Some{w}, d, f, y}}",
-            "record_lemmas.word_n",
+            "rewrite_lemmas.word_target",
             "commands.bend",
         ),
         (
@@ -6340,7 +6340,7 @@ def check_mutations(temporary):
             "record checks only the first attachment accepted",
             "      Rev.keep(Bool.not(Rev.member(ys, x)), x, minus(rest, ys))",
             "      Rev.keep(Bool.not(Rev.member(ys, x)), x, Nil{})",
-            "record_lemmas.minus_nil",
+            "rewrite_lemmas.am_heads",
             "commands.bend",
         ),
         (
@@ -6508,10 +6508,7 @@ def check_mutations(temporary):
             "abandon takes a flag for its target",
             "  Bool.pick(WWord, String.starts_with(w, \"-\"), WWord.Flag{}, WWord.Word{})))))))",
             "  Bool.pick(WWord, String.starts_with(w, \"--\"), WWord.Flag{}, WWord.Word{})))))))",
-            # Written against `rewrite_lemmas.word_plain`; the checker stops
-            # first at `record_lemmas.wword_word`, which reads the same
-            # word as a flag.
-            "record_lemmas.wword_word",
+            "rewrite_lemmas.word_plain",
             "commands.bend",
         ),
         (

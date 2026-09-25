@@ -7,7 +7,7 @@ providing the filesystem and process services it needs.
 
 ## Current support
 
-Checked against `bend version` **2.0.25**, `bend guide`, and
+Checked against `bend version` **2.0.27**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
 `Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.put`, `Store.through`, `Store.lay`, `Store.tidy`, `Store.sweep`, `Store.link`, `Store.runs`, `Store.chmod`, `Store.get`, `Store.pull`, `Store.run` and `Store.exit`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
