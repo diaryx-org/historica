@@ -961,6 +961,18 @@ def Laws.skip_lists_each_rule_once(ss):
 def Laws.skip_writes_what_is_new(rs, had):
   SkipL.writes_new(rs, had)
 
+def Laws.skip_reads_its_words(ws):
+  SkipL.reads_words(ws)
+
+def Laws.skip_reads_flags_as_flags(ws):
+  SkipL.reads_flags(ws)
+
+def Laws.skip_private_wherever_it_stands(before, after, c, ss):
+  SkipL.writes_private(before, after, c, ss)
+
+def Laws.skip_shares_without_private(ws, h, ss):
+  SkipL.writes_shared(ws, h, ss)
+
 def Laws.check_reports_errors_then_notes(fs, shown, complete):
   FindL.report_is(fs, shown, complete)
 

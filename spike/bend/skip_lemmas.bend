@@ -12,6 +12,8 @@ import ./folder.bend as Folder
 import ./commands.bend as Main
 import ./string_lemmas.bend as S
 import ./equality_lemmas.bend as EqL
+import ./revision.bend as Rev
+import ./text.bend as T
 
 # Rule equality
 # -------------
@@ -888,3 +890,361 @@ def scoped_only(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v,
 def scoped_only_directory(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +p: String, s: {Folder.skips_directory([sc], p) == True{} : Bool}) -> {p == v : String}:
   +ea : {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope} = scoped_scope.at(v, Folder.untrimmed(v), Skip.has_break(v), d, sc, e)
   only_directory(v, d, p, (%Equal.sym(Folder.Scope, Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}), sc, ea) : {Folder.skips_directory([_], p) == True{} : Bool} s))
+
+# Reading the words
+# -----------------
+
+# The words an item stands for.
+def item.words(i: Skip.Item) -> List<&2, String>:
+  match i:
+    case Skip.Item.Private{}:
+      ["--private"]
+    case Skip.Item.Name{n}:
+      ["--name", n]
+    case Skip.Item.Path{w}:
+      [w]
+
+# The words a reading spells back: each item's, in order, and where it
+# stopped, the words from there on.
+def spelled(r: Skip.Words) -> List<&2, String>:
+  match r:
+    case Skip.Words.End{}:
+      Nil{}
+    case Skip.Words.Stop{ws, e}:
+      ws
+    case Skip.Words.Item{i, more}:
+      List.append(&2, String, item.words(i), spelled(more))
+
+# A word reading may stop at: a flag, not `--private`, and `--name` only
+# with nothing after it to name.
+def stops(ws: List<&2, String>) -> Bool:
+  match ws:
+    case Nil{}:
+      False{}
+    case +w <> rest:
+      Bool.and(String.starts_with(w, "--"), Bool.and(Bool.not(String.eq(w, "--private")), Bool.or(Bool.not(String.eq(w, "--name")), List.is_empty(&2, String, rest))))
+
+# What a reading takes each word for: no path it reads is a flag, and it
+# stops only where `stops` says it may.
+def plain(r: Skip.Words) -> Bool:
+  match r:
+    case Skip.Words.End{}:
+      True{}
+    case Skip.Words.Stop{ws, e}:
+      stops(ws)
+    case Skip.Words.Item{Skip.Item.Path{+w}, more}:
+      Bool.and(Bool.not(String.starts_with(w, "--")), plain(more))
+    case Skip.Words.Item{i, more}:
+      plain(more)
+
+def wk(k: Skip.Word) -> Nat:
+  match k:
+    case Skip.Word.Private{}:
+      0n
+    case Skip.Word.Name{}:
+      1n
+    case Skip.Word.Suffix{}:
+      2n
+    case Skip.Word.Flag{}:
+      3n
+    case Skip.Word.Path{}:
+      4n
+
+def nat_eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+k:
+      nat_eq_refl(k)
+
+# Two kinds of word `wk` numbers apart are two kinds.
+def wne(-x: Skip.Word, +y: Skip.Word, e: {x == y : Skip.Word}, f: {Nat.is_eq(wk(x), wk(y)) == False{} : Bool}) -> Empty:
+  +g : {Nat.is_eq(wk(x), wk(y)) == Nat.is_eq(wk(y), wk(y)) : Bool} = Equal.cong(Skip.Word, Bool, z => Nat.is_eq(wk(z), wk(y)), x, y, e)
+  S.false_true(Equal.trans(Bool, False{}, Nat.is_eq(wk(x), wk(y)), True{}, Equal.sym(Bool, Nat.is_eq(wk(x), wk(y)), False{}, f), Equal.trans(Bool, Nat.is_eq(wk(x), wk(y)), Nat.is_eq(wk(y), wk(y)), True{}, g, nat_eq_refl(wk(y)))))
+
+# How `word.of` reads a word, by what it asks of it in turn.
+def kind(a: Bool, b: Bool, c: Bool, d: Bool) -> Skip.Word:
+  Bool.pick(Skip.Word, a, Skip.Word.Private{}, Bool.pick(Skip.Word, b, Skip.Word.Name{}, Bool.pick(Skip.Word, c, Skip.Word.Suffix{}, Bool.pick(Skip.Word, d, Skip.Word.Flag{}, Skip.Word.Path{}))))
+
+def private_word.at(+w: String, a: Bool, ea: {String.eq(w, "--private") == a : Bool}, b: Bool, c: Bool, d: Bool, e: {kind(a, b, c, d) == Skip.Word.Private{} : Skip.Word}) -> {w == "--private" : String}:
+  match a b c d:
+    case True{} _ _ _:
+      S.eq_true(w, "--private", ea)
+    case False{} True{} _ _:
+      Empty.absurd({w == "--private" : String}, wne(Skip.Word.Name{}, Skip.Word.Private{}, e, {==}))
+    case False{} False{} True{} _:
+      Empty.absurd({w == "--private" : String}, wne(Skip.Word.Suffix{}, Skip.Word.Private{}, e, {==}))
+    case False{} False{} False{} True{}:
+      Empty.absurd({w == "--private" : String}, wne(Skip.Word.Flag{}, Skip.Word.Private{}, e, {==}))
+    case False{} False{} False{} False{}:
+      Empty.absurd({w == "--private" : String}, wne(Skip.Word.Path{}, Skip.Word.Private{}, e, {==}))
+
+# A word read as `--private` is `--private`.
+def private_word(+w: String, e: {Skip.word.of(w) == Skip.Word.Private{} : Skip.Word}) -> {w == "--private" : String}:
+  private_word.at(w, String.eq(w, "--private"), {==}, String.eq(w, "--name"), String.eq(w, "--suffix"), String.starts_with(w, "--"), e)
+
+def name_word.at(+w: String, a: Bool, b: Bool, eb: {String.eq(w, "--name") == b : Bool}, c: Bool, d: Bool, e: {kind(a, b, c, d) == Skip.Word.Name{} : Skip.Word}) -> {w == "--name" : String}:
+  match a b c d:
+    case True{} _ _ _:
+      Empty.absurd({w == "--name" : String}, wne(Skip.Word.Private{}, Skip.Word.Name{}, e, {==}))
+    case False{} True{} _ _:
+      S.eq_true(w, "--name", eb)
+    case False{} False{} True{} _:
+      Empty.absurd({w == "--name" : String}, wne(Skip.Word.Suffix{}, Skip.Word.Name{}, e, {==}))
+    case False{} False{} False{} True{}:
+      Empty.absurd({w == "--name" : String}, wne(Skip.Word.Flag{}, Skip.Word.Name{}, e, {==}))
+    case False{} False{} False{} False{}:
+      Empty.absurd({w == "--name" : String}, wne(Skip.Word.Path{}, Skip.Word.Name{}, e, {==}))
+
+# A word read as `--name` is `--name`.
+def name_word(+w: String, e: {Skip.word.of(w) == Skip.Word.Name{} : Skip.Word}) -> {w == "--name" : String}:
+  name_word.at(w, String.eq(w, "--private"), String.eq(w, "--name"), {==}, String.eq(w, "--suffix"), String.starts_with(w, "--"), e)
+
+def suffix_word.at(+w: String, a: Bool, b: Bool, c: Bool, ec: {String.eq(w, "--suffix") == c : Bool}, d: Bool, e: {kind(a, b, c, d) == Skip.Word.Suffix{} : Skip.Word}) -> {w == "--suffix" : String}:
+  match a b c d:
+    case True{} _ _ _:
+      Empty.absurd({w == "--suffix" : String}, wne(Skip.Word.Private{}, Skip.Word.Suffix{}, e, {==}))
+    case False{} True{} _ _:
+      Empty.absurd({w == "--suffix" : String}, wne(Skip.Word.Name{}, Skip.Word.Suffix{}, e, {==}))
+    case False{} False{} True{} _:
+      S.eq_true(w, "--suffix", ec)
+    case False{} False{} False{} True{}:
+      Empty.absurd({w == "--suffix" : String}, wne(Skip.Word.Flag{}, Skip.Word.Suffix{}, e, {==}))
+    case False{} False{} False{} False{}:
+      Empty.absurd({w == "--suffix" : String}, wne(Skip.Word.Path{}, Skip.Word.Suffix{}, e, {==}))
+
+# A word read as `--suffix` is `--suffix`.
+def suffix_word(+w: String, e: {Skip.word.of(w) == Skip.Word.Suffix{} : Skip.Word}) -> {w == "--suffix" : String}:
+  suffix_word.at(w, String.eq(w, "--private"), String.eq(w, "--name"), String.eq(w, "--suffix"), {==}, String.starts_with(w, "--"), e)
+
+def flag_word.at(+w: String, +rest: List<&2, String>, a: Bool, ea: {String.eq(w, "--private") == a : Bool}, b: Bool, eb: {String.eq(w, "--name") == b : Bool}, c: Bool, d: Bool, ed: {String.starts_with(w, "--") == d : Bool}, e: {kind(a, b, c, d) == Skip.Word.Flag{} : Skip.Word}) -> {stops(w <> rest) == True{} : Bool}:
+  match a b c d:
+    case True{} _ _ _:
+      Empty.absurd({stops(w <> rest) == True{} : Bool}, wne(Skip.Word.Private{}, Skip.Word.Flag{}, e, {==}))
+    case False{} True{} _ _:
+      Empty.absurd({stops(w <> rest) == True{} : Bool}, wne(Skip.Word.Name{}, Skip.Word.Flag{}, e, {==}))
+    case False{} False{} True{} _:
+      Empty.absurd({stops(w <> rest) == True{} : Bool}, wne(Skip.Word.Suffix{}, Skip.Word.Flag{}, e, {==}))
+    case False{} False{} False{} False{}:
+      Empty.absurd({stops(w <> rest) == True{} : Bool}, wne(Skip.Word.Path{}, Skip.Word.Flag{}, e, {==}))
+    case False{} False{} False{} True{}:
+      %Equal.sym(Bool, String.starts_with(w, "--"), True{}, ed) : {Bool.and(_, Bool.and(Bool.not(String.eq(w, "--private")), Bool.or(Bool.not(String.eq(w, "--name")), List.is_empty(&2, String, rest)))) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(w, "--private"), False{}, ea) : {Bool.and(True{}, Bool.and(Bool.not(_), Bool.or(Bool.not(String.eq(w, "--name")), List.is_empty(&2, String, rest)))) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(w, "--name"), False{}, eb) : {Bool.and(True{}, Bool.and(Bool.not(False{}), Bool.or(Bool.not(_), List.is_empty(&2, String, rest)))) == True{} : Bool}
+      {==}
+
+# Reading stops at a flag `skip` does not take only where it may.
+def flag_word(+w: String, +rest: List<&2, String>, e: {Skip.word.of(w) == Skip.Word.Flag{} : Skip.Word}) -> {stops(w <> rest) == True{} : Bool}:
+  flag_word.at(w, rest, String.eq(w, "--private"), {==}, String.eq(w, "--name"), {==}, String.eq(w, "--suffix"), String.starts_with(w, "--"), {==}, e)
+
+def path_word.at(+w: String, a: Bool, b: Bool, c: Bool, d: Bool, ed: {String.starts_with(w, "--") == d : Bool}, e: {kind(a, b, c, d) == Skip.Word.Path{} : Skip.Word}) -> {Bool.not(String.starts_with(w, "--")) == True{} : Bool}:
+  match a b c d:
+    case True{} _ _ _:
+      Empty.absurd({Bool.not(String.starts_with(w, "--")) == True{} : Bool}, wne(Skip.Word.Private{}, Skip.Word.Path{}, e, {==}))
+    case False{} True{} _ _:
+      Empty.absurd({Bool.not(String.starts_with(w, "--")) == True{} : Bool}, wne(Skip.Word.Name{}, Skip.Word.Path{}, e, {==}))
+    case False{} False{} True{} _:
+      Empty.absurd({Bool.not(String.starts_with(w, "--")) == True{} : Bool}, wne(Skip.Word.Suffix{}, Skip.Word.Path{}, e, {==}))
+    case False{} False{} False{} True{}:
+      Empty.absurd({Bool.not(String.starts_with(w, "--")) == True{} : Bool}, wne(Skip.Word.Flag{}, Skip.Word.Path{}, e, {==}))
+    case False{} False{} False{} False{}:
+      %Equal.sym(Bool, String.starts_with(w, "--"), False{}, ed) : {Bool.not(_) == True{} : Bool}
+      {==}
+
+# A word read as a path is no flag.
+def path_word(+w: String, e: {Skip.word.of(w) == Skip.Word.Path{} : Skip.Word}) -> {Bool.not(String.starts_with(w, "--")) == True{} : Bool}:
+  path_word.at(w, String.eq(w, "--private"), String.eq(w, "--name"), String.eq(w, "--suffix"), String.starts_with(w, "--"), {==}, e)
+
+def and_true(a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, ea) : {Bool.and(_, b) == True{} : Bool}
+  eb
+
+# No path `skip` reads is a flag, and it stops reading only at a flag it
+# does not take.
+def plain_go(args: List<&2, String>, k: Skip.Word, ek: {Skip.word(args) == k : Skip.Word}) -> {plain(Skip.read.go(args, k)) == True{} : Bool}:
+  match args k:
+    case Nil{} _:
+      {==}
+    case +w <> Nil{} Skip.Word.Private{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Private{}:
+      plain_go(n <> rest, Skip.word(n <> rest), {==})
+    case +w <> Nil{} Skip.Word.Name{}:
+      %Equal.sym(String, w, "--name", name_word(w, ek)) : {stops([_]) == True{} : Bool}
+      {==}
+    case +w <> +n <> +rest Skip.Word.Name{}:
+      plain_go(rest, Skip.word(rest), {==})
+    case +w <> Nil{} Skip.Word.Suffix{}:
+      %Equal.sym(String, w, "--suffix", suffix_word(w, ek)) : {stops([_]) == True{} : Bool}
+      {==}
+    case +w <> +n <> +rest Skip.Word.Suffix{}:
+      %Equal.sym(String, w, "--suffix", suffix_word(w, ek)) : {stops(_ <> n <> rest) == True{} : Bool}
+      {==}
+    case +w <> Nil{} Skip.Word.Flag{}:
+      flag_word(w, Nil{}, ek)
+    case +w <> +n <> +rest Skip.Word.Flag{}:
+      flag_word(w, n <> rest, ek)
+    case +w <> Nil{} Skip.Word.Path{}:
+      and_true(Bool.not(String.starts_with(w, "--")), True{}, path_word(w, ek), {==})
+    case +w <> +n <> +rest Skip.Word.Path{}:
+      and_true(Bool.not(String.starts_with(w, "--")), plain(Skip.read.go(n <> rest, Skip.word(n <> rest))), path_word(w, ek), plain_go(n <> rest, Skip.word(n <> rest), {==}))
+
+def reads_flags(+args: List<&2, String>) -> {plain(Skip.read(args)) == True{} : Bool}:
+  plain_go(args, Skip.word(args), {==})
+
+def cons_eq(-x: String, -y: String, +rest: List<&2, String>, -more: List<&2, String>, ex: {x == y : String}, e: {more == rest : List<&2, String>}) -> {x <> more == y <> rest : List<&2, String>}:
+  %ex : {x <> more == _ <> rest : List<&2, String>}
+  %e : {x <> more == x <> _ : List<&2, String>}
+  {==}
+
+# Spelled back, what `skip` read is the words it was given. The reading
+# asks whether a word follows a `--name`, so each case says which.
+def spelled_go(args: List<&2, String>, k: Skip.Word, ek: {Skip.word(args) == k : Skip.Word}) -> {spelled(Skip.read.go(args, k)) == args : List<&2, String>}:
+  match args k:
+    case Nil{} _:
+      {==}
+    case +w <> Nil{} Skip.Word.Private{}:
+      cons_eq("--private", w, Nil{}, Nil{}, Equal.sym(String, w, "--private", private_word(w, ek)), {==})
+    case +w <> +n <> +rest Skip.Word.Private{}:
+      cons_eq("--private", w, n <> rest, spelled(Skip.read.go(n <> rest, Skip.word(n <> rest))), Equal.sym(String, w, "--private", private_word(w, ek)), spelled_go(n <> rest, Skip.word(n <> rest), {==}))
+    case +w <> Nil{} Skip.Word.Name{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Name{}:
+      cons_eq("--name", w, n <> rest, n <> spelled(Skip.read.go(rest, Skip.word(rest))), Equal.sym(String, w, "--name", name_word(w, ek)), Equal.cong(List<&2, String>, List<&2, String>, l => n <> l, spelled(Skip.read.go(rest, Skip.word(rest))), rest, spelled_go(rest, Skip.word(rest), {==})))
+    case +w <> Nil{} Skip.Word.Suffix{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Suffix{}:
+      {==}
+    case +w <> Nil{} Skip.Word.Flag{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Flag{}:
+      {==}
+    case +w <> Nil{} Skip.Word.Path{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Path{}:
+      Equal.cong(List<&2, String>, List<&2, String>, l => w <> l, spelled(Skip.read.go(n <> rest, Skip.word(n <> rest))), n <> rest, spelled_go(n <> rest, Skip.word(n <> rest), {==}))
+
+def reads_words(+args: List<&2, String>) -> {spelled(Skip.read(args)) == args : List<&2, String>}:
+  spelled_go(args, Skip.word(args), {==})
+
+# `--private`
+# -----------
+
+# Whether reading got to the end without a refusal.
+def clean(r: Skip.Words) -> Bool:
+  match r:
+    case Skip.Words.End{}:
+      True{}
+    case Skip.Words.Stop{ws, e}:
+      False{}
+    case Skip.Words.Item{i, more}:
+      clean(more)
+
+def or_false_r(a: Bool, -b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
+  match a:
+    case False{}:
+      h
+    case True{}:
+      Empty.absurd({b == False{} : Bool}, S.true_false(h))
+
+def stop_clean(-A: Type, e: {False{} == True{} : Bool}) -> A:
+  Empty.absurd(A, S.false_true(e))
+
+def private_first(after: List<&2, String>) -> {Skip.private.of(Skip.read.go("--private" <> after, Skip.Word.Private{})) == True{} : Bool}:
+  match after:
+    case Nil{}:
+      {==}
+    case a <> more:
+      {==}
+
+# A `--private` after words read without a refusal is read as `--private`.
+def private_go(before: List<&2, String>, k: Skip.Word, ek: {Skip.word(before) == k : Skip.Word}, +after: List<&2, String>, c: {clean(Skip.read.go(before, k)) == True{} : Bool}) -> {Skip.private.of(Skip.read.go(List.append(&2, String, before, "--private" <> after), Skip.word(List.append(&2, String, before, "--private" <> after)))) == True{} : Bool}:
+  match before k:
+    case Nil{} _:
+      private_first(after)
+    case +w <> Nil{} Skip.Word.Private{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Private{}, ek) : {Skip.private.of(Skip.read.go(w <> "--private" <> after, _)) == True{} : Bool}
+      {==}
+    case +w <> +n <> +rest Skip.Word.Private{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Private{}, ek) : {Skip.private.of(Skip.read.go(w <> n <> List.append(&2, String, rest, "--private" <> after), _)) == True{} : Bool}
+      {==}
+    case +w <> Nil{} Skip.Word.Name{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, [w], "--private" <> after), Skip.word(List.append(&2, String, [w], "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> +n <> +rest Skip.Word.Name{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Name{}, ek) : {Skip.private.of(Skip.read.go(w <> n <> List.append(&2, String, rest, "--private" <> after), _)) == True{} : Bool}
+      private_go(rest, Skip.word(rest), {==}, after, c)
+    case +w <> Nil{} Skip.Word.Suffix{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, [w], "--private" <> after), Skip.word(List.append(&2, String, [w], "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> +n <> +rest Skip.Word.Suffix{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, w <> n <> rest, "--private" <> after), Skip.word(List.append(&2, String, w <> n <> rest, "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> Nil{} Skip.Word.Flag{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, [w], "--private" <> after), Skip.word(List.append(&2, String, [w], "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> +n <> +rest Skip.Word.Flag{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, w <> n <> rest, "--private" <> after), Skip.word(List.append(&2, String, w <> n <> rest, "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> Nil{} Skip.Word.Path{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Path{}, ek) : {Skip.private.of(Skip.read.go(w <> "--private" <> after, _)) == True{} : Bool}
+      private_first(after)
+    case +w <> +n <> +rest Skip.Word.Path{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Path{}, ek) : {Skip.private.of(Skip.read.go(w <> n <> List.append(&2, String, rest, "--private" <> after), _)) == True{} : Bool}
+      private_go(n <> rest, Skip.word(n <> rest), {==}, after, c)
+
+def private_anywhere(+before: List<&2, String>, +after: List<&2, String>, c: {clean(Skip.read(before)) == True{} : Bool}) -> {Skip.private.of(Skip.read(List.append(&2, String, before, "--private" <> after))) == True{} : Bool}:
+  private_go(before, Skip.word(before), {==}, after, c)
+
+def private_member(+w: String, +rest: List<&2, String>, e: {w == "--private" : String}, h: {Rev.member(w <> rest, "--private") == False{} : Bool}) -> Empty:
+  +h2 : {Rev.member("--private" <> rest, "--private") == False{} : Bool} = (%e : {Rev.member(_ <> rest, "--private") == False{} : Bool} h)
+  S.true_false(h2)
+
+# Where no word is `--private`, no rule `skip` reads is private.
+def shared_go(args: List<&2, String>, k: Skip.Word, ek: {Skip.word(args) == k : Skip.Word}, h: {Rev.member(args, "--private") == False{} : Bool}) -> {Skip.private.of(Skip.read.go(args, k)) == False{} : Bool}:
+  match args k:
+    case Nil{} _:
+      {==}
+    case +w <> Nil{} Skip.Word.Private{}:
+      Empty.absurd({Skip.private.of(Skip.read.go([w], Skip.Word.Private{})) == False{} : Bool}, private_member(w, Nil{}, private_word(w, ek), h))
+    case +w <> +n <> +rest Skip.Word.Private{}:
+      Empty.absurd({Skip.private.of(Skip.read.go(w <> n <> rest, Skip.Word.Private{})) == False{} : Bool}, private_member(w, n <> rest, private_word(w, ek), h))
+    case +w <> Nil{} Skip.Word.Name{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Name{}:
+      shared_go(rest, Skip.word(rest), {==}, or_false_r(String.eq(n, "--private"), Rev.member(rest, "--private"), or_false_r(String.eq(w, "--private"), Rev.member(n <> rest, "--private"), h)))
+    case +w <> Nil{} Skip.Word.Suffix{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Suffix{}:
+      {==}
+    case +w <> Nil{} Skip.Word.Flag{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Flag{}:
+      {==}
+    case +w <> Nil{} Skip.Word.Path{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Path{}:
+      shared_go(n <> rest, Skip.word(n <> rest), {==}, or_false_r(String.eq(w, "--private"), Rev.member(n <> rest, "--private"), h))
+
+def shared(+ws: List<&2, String>, h: {Rev.member(ws, "--private") == False{} : Bool}) -> {Skip.private.of(Skip.read(ws)) == False{} : Bool}:
+  shared_go(ws, Skip.word(ws), {==}, h)
+
+def rules_private(ss: List<&2, Folder.Scope>) -> {Skip.rules.of(ss, True{}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), ss) : List<&2, Skip.Rule>}:
+  match ss:
+    case Nil{}:
+      {==}
+    case sc <> +rest:
+      Equal.cong(List<&2, Skip.Rule>, List<&2, Skip.Rule>, l => Skip.Rule{sc, True{}} <> l, Skip.rules.of(rest, True{}), T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), rest), rules_private(rest))
+
+def rules_shared(ss: List<&2, Folder.Scope>) -> {Skip.rules.of(ss, False{}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}:
+  match ss:
+    case Nil{}:
+      {==}
+    case sc <> +rest:
+      Equal.cong(List<&2, Skip.Rule>, List<&2, Skip.Rule>, l => Skip.Rule{sc, False{}} <> l, Skip.rules.of(rest, False{}), T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), rest), rules_shared(rest))
+
+# `--private`, wherever it stands after words read without a refusal,
+# makes every rule `skip` writes private: each scope asked for, in order.
+def writes_private(+before: List<&2, String>, +after: List<&2, String>, c: {clean(Skip.read(before)) == True{} : Bool}, +ss: List<&2, Folder.Scope>) -> {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(List.append(&2, String, before, "--private" <> after)))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), ss) : List<&2, Skip.Rule>}:
+  %Equal.sym(Bool, Skip.private.of(Skip.read(List.append(&2, String, before, "--private" <> after))), True{}, private_anywhere(before, after, c)) : {Skip.wanted(Skip.Asked{ss, _}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), ss) : List<&2, Skip.Rule>}
+  rules_private(ss)
+
+# Where no word is `--private`, every rule it writes is shared.
+def writes_shared(+ws: List<&2, String>, h: {Rev.member(ws, "--private") == False{} : Bool}, +ss: List<&2, Folder.Scope>) -> {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(ws))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}:
+  %Equal.sym(Bool, Skip.private.of(Skip.read(ws)), False{}, shared(ws, h)) : {Skip.wanted(Skip.Asked{ss, _}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}
+  rules_shared(ss)
