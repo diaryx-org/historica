@@ -87,10 +87,18 @@ The boundary is where the cost is, so it is worth stating what crosses it.
 `names/` and `skipped/`: the graph is every revision document and a store's
 revisions are a megabyte or two, and a bookmark or a rule is a line.
 `Store.list` walks `names/` and `skipped/` only when asked for them by name,
-since nothing there is a document.
+since nothing there is a document, and `cache/` the same way, which only
+`forget` asks for.
 `cat` and `show` read that, then ask `Store.at` for the digests the revisions
 along the chain name for the one file asked about, and read those — a handful
 of operation documents, and a payload only where the file was written whole.
+Where `Store.at` finds nothing for a digest, it may have been forgotten
+(decision 0014), and what stands in for it is named by its own digest and
+by nothing else: so then, and only then, every command that fetches lists
+`operations/` and reads each operation document there, keeping those whose
+first header says they `forget` a digest it asked for. The Rust tool asks
+its catalogue in `cache/` first, and makes the same pass where the
+catalogue names none; the port reads no cache, and always makes it.
 `check` reports every file a store holds, so it lists them, reads and parses
 the ones with a grammar, and asks `Store.digests` for the digest and the size
 of each payload.
@@ -123,6 +131,25 @@ so a reader sees the old bookmark or the new one. `name --delete` asks
 to and not including `names/`. Which file, and what goes in it, is the
 Bend side's, and so is every refusal: a name that would leave `names/` is
 refused before either is asked.
+
+`forget` reads what `cat` reads of the one file, and the stand-ins for any
+of its documents already forgotten; then it lists `operations/` and asks
+`Store.digests` for the digest and size of every file there, since an
+original is destroyed wherever its bytes are, found by content as
+everything in a store is. That makes it a place a document's digest is
+computed outside Bend, alongside the three below: the answer decides only
+which files hold bytes already named by a digest Bend computed or read, and
+those are the files destroyed — nothing in them is parsed or believed. Of
+a file of bytes it asks `Store.at` where each other version is, to count
+those not yet forgotten. Unless `--dry-run`, it files each stand-in through
+`Store.once` where the store does not already hold its bytes — beside a
+destroyed payload, or under its own digest — and only then asks
+`Store.remove` to destroy each original, with `operations/` as the
+directory its tidying stops at; then it lists `cache/` and asks
+`Store.remove` for each entry named by a digest, with `cache/` as the
+boundary, which leaves the note and the catalogues. Which documents are
+rewritten, what each stand-in says, where it is filed, and what is
+destroyed are all decided in Bend first.
 
 `init` reads nothing of a store — there is none yet. It asks `Store.real`
 for the current directory, and whether `historica.txt` is already where
@@ -164,7 +191,7 @@ a bookmark an `abandon` moves goes through `Store.write`. Which revisions
 are carried, in what order, what each restates and what it is called are
 decided in Bend.
 
-Those three delegations are the only places a digest is computed outside Bend. They
+Those three delegations, and `forget`'s above, are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and
 the folder is the store's size again, all of which would have to be read into
 a list of bytes and packed before it was hashed — and a payload `record`
