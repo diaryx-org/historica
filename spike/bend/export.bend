@@ -2157,6 +2157,33 @@ def folder.clear(+t: Tree.Tree(), +rules: List<&2, Folder.Scope>, r: Result<&2, 
     case Done{ps}:
       puts.clear(ps, Set.from_list(directories(placed(t))), rules)
 
+# What a law says of what `export` prints
+# ---------------------------------------
+
+def said.keep(b: Bool, +l: String, +n: Nat, rest: List<&2, String>) -> List<&2, String>:
+  match b:
+    case True{}:
+      String.drop(l, n) <> rest
+    case False{}:
+      rest
+
+# The lines that begin with a prefix, each less the prefix: what the output
+# says of one kind of thing, read back.
+def said.after(ls: List<&2, String>, +prefix: String) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      said.keep(String.starts_with(l, prefix), l, String.length(prefix), said.after(rest, prefix))
+
+# Whether some file of a tree sits at a path.
+def tree.holds(t: Tree.Tree(), +path: String) -> Bool:
+  match t:
+    case Nil{}:
+      False{}
+    case +e <> rest:
+      Bool.or(String.eq(Tree.entry_path(e), path), tree.holds(rest, path))
+
 # What a law says of a folder caught up
 # -------------------------------------
 
