@@ -159,7 +159,7 @@ def spelled_ok(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.
     case Some{n}:
       named_ok(id, bs, n, t, f, e)
     case None{}:
-      files_holds(t, f, at_files(t, Maybe.default(&2, String, T.strip_prefix(path, "path:"), path), f, of_mem(id, Maybe.default(&2, String, T.strip_prefix(path, "path:"), path), Tree.at(t, Maybe.default(&2, String, T.strip_prefix(path, "path:"), path)), f, e)))
+      files_holds(t, f, at_files(t, Main.path.spelled(path), f, of_mem(id, Main.path.spelled(path), Tree.at(t, Main.path.spelled(path)), f, e)))
 
 # Whatever an argument is read as, the file it names is one the tree holds.
 def file_ok(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree(), +f: String, e: {Main.file_in.r(id, bs, path, t) == Done{f} : Result<&2, &2, Main.Refused, String>}) -> {Tree.holds(t, f) == True{} : Bool}:

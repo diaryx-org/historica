@@ -5,6 +5,7 @@
 import Base
 import ./text.bend as T
 import ./ident.bend as Id
+import ./nfc.bend as Nfc
 
 # The model
 # ---------
@@ -221,8 +222,8 @@ def is_timestamp(+s: String) -> Bool:
         Bool.and(within(s, 17n, 2n, 0n, 59n), Bool.and(Bool.and(within(s, 20n, 2n, 0n, 23n), within(s, 23n, 2n, 0n, 59n)), Bool.not(unknown_offset(s)))))))
 
 # A path is relative, with no empty component and no `.` or `..`, and no
-# leading or trailing space, and no backslash. (Unicode normal form C is not
-# checked here.)
+# leading or trailing space, and no backslash; and, decision 0033's rule,
+# in Unicode normal form C, the one spelling a store records.
 #
 # One walk decides it: `part` is what the component so far is — nothing, a
 # `.`, a `..`, or a name — and a component is closed at each `/` and at the
@@ -260,12 +261,15 @@ def is_path.go(p: String, part: Part, last: Bool) -> Bool:
     case SCon{+c, t}:
       is_path.go(t, part.next(part, c), Char.is_eq(c, ' '))
 
-def is_path(p: String) -> Bool:
+def is_path.shape(p: String) -> Bool:
   match p:
     case SCon{' ', t}:
       False{}
     case _:
       is_path.go(p, Part.Empty{}, False{})
+
+def is_path(+p: String) -> Bool:
+  Bool.and(is_path.shape(p), Nfc.is_nfc(p))
 
 # A value that is a file ID and one more thing, cut at the first space.
 def entry(v: String) -> Maybe<&2, T.Split>:

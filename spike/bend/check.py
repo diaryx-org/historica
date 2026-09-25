@@ -795,6 +795,39 @@ STORES = {
         ["record", "-n"],
         ["status", "--onto", "left", "--merge", "right"],
     ],
+    # Decision 0033: a folder whose names the filesystem hands back
+    # decomposed — a file, a directory, a file of bytes, and a link whose
+    # target is spelled so — recorded, then edited, renamed with `mv`, and
+    # joined by new ones, one of them beside the same name composed; a rule
+    # and a pattern stated decomposed; and every command given paths
+    # decomposed, `path:` and all. Each reads them in normal form C, as the
+    # Rust tool does, and opens each file where the folder spells it.
+    "normal": [
+        ["status"], ["status", "--onto", "first"],
+        ["diff"], ["diff", "cafe\u0301.md"], ["diff", "path:cafe\u0301.md"], ["diff", "caf\u00e9.md"],
+        ["diff", "head", "cafe\u0301.md"], ["diff", "--onto", "first", "re\u0301sume\u0301/cv.md"],
+        ["blame", "cafe\u0301.md"], ["blame", "head", "cafe\u0301.md"], ["blame", "twi\u0301n.md"], ["blame", "path:nai\u0308ve.md"],
+        ["cat", "head", "cafe\u0301.md"], ["cat", "first", "photo\u0301.bin"], ["cat", "head", "nope\u0301.md"],
+        ["show", "head", "cafe\u0301.md"], ["files", "head"], ["log", "--path", "cafe\u0301.md"],
+        ["name", "mark", "head", "cafe\u0301.md"], ["name", "cafe\u0301", "head"], ["name", "caf\u00e9", "head"],
+        ["record", "-n"], ["record", "-n", "cafe\u0301.md"], ["record", "-n", "re\u0301sume\u0301/"],
+        ["record", "-n", "--move", "notes.md=no\u0308tes.md"], ["record", "-n", "--move", "cafe\u0301.md=moved.md"],
+        ["record", "-n", "--bytes", "nai\u0308ve.md"], ["record", "-n", "--lines", "cafe\u0301.bin"],
+        ["record", "-n", "--move", "twi\u0301n.md=twin2.md"],
+        ["record", "-m", "second"], ["record", "-m", "only", "cafe\u0301.bin", "twi\u0301n.md"],
+        ["amend", "-n", "--move", "cafe\u0301.md=moved.md"],
+    ],
+    # Names that are not UTF-8, which the format cannot hold: beside the
+    # store and in a directory, one a directory itself, one sorting between
+    # two names the lossy spelling would put the other way round, and one
+    # under a directory spelled decomposed — among other refusals, which
+    # they are listed in the walk's order with. `status` and `record` refuse
+    # each in the Rust tool's words, naming where it is on disk, and a
+    # record that is not looking at them goes on.
+    "unspelled": [
+        ["status"], ["record", "-n"], ["record", "-n", "notes.md"], ["record", "-n", "sub"], ["record", "-n", "sub/ok.md"],
+        ["diff"], ["blame", "notes.md"], ["record", "-m", "refused"], ["record", "-m", "notes only", "notes.md"],
+    ],
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
     # resolution's, and insert their own — and a merge written here for each
@@ -1227,6 +1260,53 @@ def record(temporary, rust, corpus, pinned=None):
                     tombstone.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, tombstone)
             shutil.rmtree(elsewhere)
+    elif corpus == "normal":
+        # Spelled decomposed, as a filesystem that normalises to NFD hands
+        # names back: `e` and U+0301 rather than `é`.
+        (store / "cafe\u0301.md").write_text("one\ntwo\n")
+        (store / "notes.md").write_text("notes\n")
+        (store / "re\u0301sume\u0301").mkdir()
+        (store / "re\u0301sume\u0301" / "cv.md").write_text("cv\n")
+        (store / "photo\u0301.bin").write_bytes(b"\x00\x01")
+        os.symlink("cafe\u0301.md", store / "to-cafe")
+        historica("record", "-m", "one")
+        historica("name", "first", "head", "--revision")
+        (store / "cafe\u0301.md").write_text("one\ntwo\nthree\n")
+        historica("record", "-m", "two")
+        # And the folder moves on: an edit, a rename by `mv` to a name
+        # spelled decomposed, new files beside ones the store holds, and one
+        # name twice, decomposed and composed, which are one path.
+        (store / "cafe\u0301.md").write_text("one\n2\nthree\nfour\n")
+        (store / "notes.md").rename(store / "no\u0308tes.md")
+        (store / "nai\u0308ve.md").write_text("naive\n")
+        (store / "cafe\u0301.bin").write_bytes(b"\x00bytes")
+        (store / "re\u0301sume\u0301" / "new.md").write_text("new\n")
+        (store / "twi\u0301n.md").write_text("decomposed\n")
+        (store / "tw\u00edn.md").write_text("composed\n")
+        # A rule stated decomposed skips what the folder spells composed.
+        (store / "history" / "skipped" / "idea.txt").write_text("skip ide\u0301e.md\n")
+        (store / "history" / "skipped" / "drafts.txt").write_text("skip-name cafe\u0301-*\n")
+        (store / "id\u00e9e.md").write_text("skipped\n")
+        (store / "caf\u00e9-draft.txt").write_text("skipped by name\n")
+    elif corpus == "unspelled":
+        (store / "notes.md").write_text("one\n")
+        (store / "a.md").write_text("a\n")
+        historica("record", "-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "a\u00e9.md").write_text("after the byte 0x80, before 0xff\n")
+        (store / "bell\x07.md").write_text("a control character\n")
+        os.mkfifo(store / "pipe")
+        (store / "sub").mkdir()
+        (store / "sub" / "ok.md").write_text("ok\n")
+        (store / "d\u0301ir").mkdir()
+        (store / "d\u0301ir" / "fine.md").write_text("fine\n")
+        root = os.fsencode(store)
+        for name in (b"a\x80.md", b"bad\xff.md", b"sub/in\xff.md", b"sub/\xfe\xfe", b"d\xcc\x81ir/x\xff.md"):
+            with open(root + b"/" + name, "wb") as f:
+                f.write(b"cannot be named\n")
+        os.mkdir(root + b"/dir\xfe")
+        with open(root + b"/dir\xfe/inner.md", "wb") as f:
+            f.write(b"beneath a name that cannot be spelled\n")
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1358,7 +1438,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded")
+        recorded = corpus in ("normal", "unspelled", "unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:

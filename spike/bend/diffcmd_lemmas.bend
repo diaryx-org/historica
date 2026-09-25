@@ -229,7 +229,7 @@ def lim_spelled(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: Strin
     case True{}:
       lim_file(fs, bs, id, sp, lim, e)
     case False{}:
-      +d = B.done_eq(Main.Limit, Main.Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}, lim, e)
+      +d = B.done_eq(Main.Limit, Main.Limit.Path{Main.path.spelled(sp)}, lim, e)
       %d : {Main.limit.held(fs, _, Some{id}) == True{} : Bool}
       {==}
 
@@ -255,9 +255,9 @@ def wc_lim_spelled(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +left: 
     case True{}:
       wc_lim_file(fs, bs, sp, left, lim, e)
     case False{}:
-      +d = B.done_eq(Main.Limit, Main.Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}, lim, e)
+      +d = B.done_eq(Main.Limit, Main.Limit.Path{Main.path.spelled(sp)}, lim, e)
       %d : {Main.limit.held(fs, _, left) == True{} : Bool}
-      path_held(fs, Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp), left)
+      path_held(fs, Main.path.spelled(sp), left)
 
 # A file `diff` over the folder is limited to is one the position holds.
 def wc_limit_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, String>, only: Maybe<&2, String>, +lim: Main.Limit, e: {Main.wc.limit.r(fs, bs, left, only) == Done{lim} : Result<&2, &2, Main.Refused, Main.Limit>}) -> {Main.limit.held(fs, lim, left) == True{} : Bool}:

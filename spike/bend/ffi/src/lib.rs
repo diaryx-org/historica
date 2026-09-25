@@ -188,7 +188,9 @@ pub unsafe extern "C" fn hist_store_digests(
 ///   not followed;
 /// - `L <name>`: a link whose target is not UTF-8, or cannot be one line;
 /// - `o <name>`: anything else — a socket, a device;
-/// - `u`: a name that is not UTF-8, which cannot be spelled.
+/// - `u <name>`: a name that is not UTF-8, spelled as `to_string_lossy`
+///   spells it — data for the refusal the Bend side words, which names it
+///   so, and nothing to open by.
 ///
 /// A name holding a newline cannot be a line and is left out; the working
 /// copy refuses such a path anyway, so nothing it would have tracked is lost.
@@ -224,7 +226,10 @@ fn folder(dir: &Path) -> Result<String, (i32, String)> {
     let mut lines = Vec::new();
     for (path, kind) in entries {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-            lines.push("u".to_owned());
+            let lossy = path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default();
+            if !lossy.contains('\n') {
+                lines.push(format!("u {lossy}"));
+            }
             continue;
         };
         if name.contains('\n') {
@@ -876,6 +881,7 @@ mod tests {
 
     #[test]
     fn a_folder_is_listed_one_directory_at_a_time_without_following_links() {
+        use std::os::unix::ffi::OsStrExt as _;
         use std::os::unix::fs::PermissionsExt as _;
 
         let dir = tempfile::tempdir().unwrap();
@@ -887,10 +893,13 @@ mod tests {
         fs::set_permissions(root.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
         std::os::unix::fs::symlink("notes", root.join("a-link")).unwrap();
         fs::write(root.join("two\nlines"), "").unwrap();
+        // A name that is not UTF-8 is listed as its lossy spelling, in the
+        // order its bytes sort in: after `run.sh`, as 0xff is after `r`.
+        fs::write(root.join(std::ffi::OsStr::from_bytes(b"x\xff.md")), "").unwrap();
 
         let (code, listed) = call(hist_folder_list, root.to_str().unwrap().as_bytes());
         assert_eq!(code, 0, "{listed}");
-        assert_eq!(listed, "l a-link\nnotes\nf 0 4 b.txt\nd notes\nf 1 10 run.sh");
+        assert_eq!(listed, "l a-link\nnotes\nf 0 4 b.txt\nd notes\nf 1 10 run.sh\nu x\u{fffd}.md");
 
         let (code, message) = call(hist_folder_list, root.join("gone").to_str().unwrap().as_bytes());
         assert_eq!(code, ENOENT);
