@@ -19,6 +19,8 @@ import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
 import ./standin.bend as Stand
+import ./forget.bend as Fg
+import ./resolution.bend as Res
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1077,3 +1079,90 @@ law name_stays_in_names:
   for +n: String
   for e: {Main.name.checked.r(n) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
   {Main.escapes(n) == False{} : Bool}
+
+# A forgetting document states what it stands in for with only text
+# destroyed (decisions 0014 and 0050): every operation at its position with
+# its count and each item's terminator, every `keep` as it was and each
+# `insert` at its own length. So `standin.bend`'s union rule, which sets
+# aside a stand-in whose shape disagrees, folds in every one `forget`
+# writes.
+law forgetting_keeps_shape:
+  for ops: List<&2, Ops.Op>
+  for +ps: List<&2, Fg.FgPick>
+  for +t: String
+  for +i: Nat
+  {Stand.ops.shape(ops, Fg.forget.ops(ops, ps, t, i)) == True{} : Bool}
+
+law forgetting_a_resolution_keeps_shape:
+  for pieces: List<&2, Res.Piece>
+  for +ps: List<&2, Fg.FgPick>
+  for +t: String
+  for +i: Nat
+  {Stand.pieces.shape(pieces, Fg.forget.pieces(pieces, ps, t, i)) == True{} : Bool}
+
+# Every document `forget --lines` writes a stand-in for, and so every
+# digest whose bytes it destroys, is one a revision states for that file —
+# its `edit`'s, or the payload its `text` states: forgetting lines of one
+# file rewrites no other file's documents, however far the walk goes to
+# find a delete quoting them or a resolution's copy.
+law forget_rewrites_only_the_files_documents:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +file: String
+  for +first: String
+  for +last: String
+  for +ts: List<&2, String>
+  for +ws: List<&2, Fg.FgWrite>
+  for +a: Nat
+  for +n: Nat
+  for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
+  {Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts) == True{} : Bool}
+
+# Forgetting a file of bytes forgets the payload its tree holds for it at
+# the revision named, or nothing: another version of the file is another
+# payload (decision 0066), counted and left alone.
+law forget_whole_takes_one_payload:
+  for +file: String
+  for +payload: Maybe<&2, String>
+  for +files: List<&2, Fg.FgFiled>
+  for +stood: List<&2, Store.Doc>
+  for +n: Nat
+  for +ts: List<&2, String>
+  for +ws: List<&2, Fg.FgWrite>
+  for +a: Nat
+  for +m: Nat
+  for e: {Fg.whole.plan.r(file, payload, files, stood, n) == Done{Fg.Fg.Plan{ts, ws, a, m}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
+  {Main.all_held(Fg.payload.list(payload), ts) == True{} : Bool}
+
+# `forget` destroys a file only where its bytes are one of the digests it
+# forgets: found by content, as everything in a store is, and nothing else
+# under `operations/` touched.
+law forget_destroys_only_what_it_forgets:
+  for +fs: List<&2, Fg.FgFiled>
+  for +ts: List<&2, String>
+  for +p: String
+  for e: {Rev.member(Fg.destroyed(fs, ts), p) == True{} : Bool}
+  {Rev.member(Fg.holding(fs, ts), p) == True{} : Bool}
+
+# `forget` reads its arguments as their plain reading says: every flag it
+# knows set aside, and with `--lines` the word after it, whatever that word
+# is; what is left, in order, is the target and the path.
+law forget_reads_its_words:
+  for +ws: List<&2, String>
+  for +t: String
+  for +p: String
+  for +sp: Maybe<&2, Fg.FgSpan>
+  for +d: Bool
+  for +f: Bool
+  for e: {Fg.asked.r(ws) == Done{Fg.Fg.Asked{t, p, sp, d, f}} : Result<&2, &2, Main.Refused, Fg.FgAsked>}
+  {Fg.plain(ws, False{}) == [t, p] : List<&2, String>}
+
+# What `forget` removes from `cache/` is an entry named by a digest — a
+# copy of some file's content, which may be a copy of what went — and
+# nothing else there: the note `init` writes and the catalogues survive.
+law forget_clears_only_copies:
+  for ps: List<&2, String>
+  for +p: String
+  for e: {Rev.member(Fg.cached(ps), p) == True{} : Bool}
+  {T.is_digest(String.drop(p, 6n)) == True{} : Bool}

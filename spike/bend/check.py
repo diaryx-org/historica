@@ -2185,6 +2185,48 @@ def check_mutations(temporary):
             "show_lemmas.taken_says",
             "standin.bend",
         ),
+        (
+            "forget resets a forgotten item's terminator",
+            "      Ops.Item{SNil{}, n, True{}}",
+            "      Ops.Item{SNil{}, True{}, True{}}",
+            "forget_lemmas.item_shape",
+            "forget.bend",
+        ),
+        (
+            "forget picks the revision that wrote an item rather than the document it names",
+            "      pick.if(named.find(ns, by), op, item, picks.deletes(dl, ns))",
+            "      pick.if(Some{by}, op, item, picks.deletes(dl, ns))",
+            "forget_lemmas.picks_of",
+            "forget.bend",
+        ),
+        (
+            "forget of a payload names its length where its digest goes",
+            "      Done{Fg.Plan{[target], Bool.pick(",
+            "      Done{Fg.Plan{[n], Bool.pick(",
+            "forget_lemmas.whole_of",
+            "forget.bend",
+        ),
+        (
+            "forget destroys a file without asking whether its bytes are forgotten",
+            "      Rev.keep(Bool.and(Rev.member(targets, d), Bool.not(Bool.xor(filed.document(p), documents))), p, destroyed.of(rest, targets, documents))",
+            "      Rev.keep(Bool.and(True{}, Bool.not(Bool.xor(filed.document(p), documents))), p, destroyed.of(rest, targets, documents))",
+            "forget_lemmas.of_held",
+            "forget.bend",
+        ),
+        (
+            "forget takes the span after `--lines` as a word as well",
+            "      Done{Fg.Reading{Some{w}, d, f, ws, False{}}}",
+            "      Done{Fg.Reading{Some{w}, d, f, List.append(&2, String, ws, [w]), False{}}}",
+            "forget_lemmas.step_ok",
+            "forget.bend",
+        ),
+        (
+            "forget clears every file of `cache/` but its note",
+            "      Rev.keep(T.is_digest(String.drop(p, 6n)), p, cached(rest))",
+            "      Rev.keep(Bool.not(String.eq(p, \"cache/README.txt\")), p, cached(rest))",
+            "forget_lemmas.clears",
+            "forget.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

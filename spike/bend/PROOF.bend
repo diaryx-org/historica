@@ -53,6 +53,8 @@ import ./name_lemmas.bend as NameL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
+import ./forget_lemmas.bend as ForgetL
+import ./forget.bend as Fg
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -593,3 +595,24 @@ def Laws.status_joins_held_revisions(fs, bs, onto, ms, ps, e):
 
 def Laws.name_stays_in_names(n, e):
   NameL.stays(n, e)
+
+def Laws.forgetting_keeps_shape(ops, ps, t, i):
+  ForgetL.ops_shape(ops, ps, t, i)
+
+def Laws.forgetting_a_resolution_keeps_shape(pieces, ps, t, i):
+  ForgetL.pieces_shape(pieces, ps, t, i)
+
+def Laws.forget_rewrites_only_the_files_documents(fs, ds, id, file, first, last, ts, ws, a, n, e):
+  ForgetL.rewrites(fs, ds, id, file, first, last, ts, ws, a, n, e)
+
+def Laws.forget_whole_takes_one_payload(file, payload, files, stood, n, ts, ws, a, m, e):
+  ForgetL.takes_one(file, payload, files, stood, n, Fg.Fg.Plan{ts, ws, a, m}, e)
+
+def Laws.forget_destroys_only_what_it_forgets(fs, ts, p, e):
+  ForgetL.destroys(fs, ts, p, e)
+
+def Laws.forget_reads_its_words(ws, t, p, sp, d, f, e):
+  ForgetL.reads_words(ws, t, p, sp, d, f, e)
+
+def Laws.forget_clears_only_copies(ps, p, e):
+  ForgetL.clears(ps, p, e)

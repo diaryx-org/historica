@@ -130,6 +130,28 @@ def reading.go(ws: List<&2, String>, r: Result<&2, &2, Main.Refused, FgReading>)
     case +w <> rest:
       reading.go(rest, Result.bind(&2, &2, Main.Refused, FgReading, FgReading, r, x => reading.step(x, w)))
 
+# The words of a command line read plainly: every flag `forget` knows set
+# aside, and the word after `--lines`, whatever it is, with it; the rest in
+# order. `wants` is whether the word before was `--lines`.
+# `LAWS.forget_reads_its_words` holds `asked.r` to it.
+def plain.pick(wants: Bool, k: FgWord, +w: String, on: List<&2, String>, off: List<&2, String>) -> List<&2, String>:
+  match wants k:
+    case True{} _:
+      off
+    case False{} Fg.Lines{}:
+      on
+    case False{} Fg.Plain{}:
+      w <> off
+    case False{} _:
+      off
+
+def plain(ws: List<&2, String>, wants: Bool) -> List<&2, String>:
+  match ws:
+    case Nil{}:
+      Nil{}
+    case +w <> +rest:
+      plain.pick(wants, word(w), w, plain(rest, True{}), plain(rest, False{}))
+
 # What `forget` was asked: a revision, a path, the span if one was named,
 # a dry run, and `--fields`.
 type FgAsked is Data:
@@ -453,6 +475,15 @@ def named(fs: List<&2, Main.Full>, +file: String) -> List<&2, FgNamed>:
     case +f <> rest:
       named.of(Main.id_of(f), Main.said(Main.facts_of(f), file), Main.is_text(Main.facts_of(f), file), named(rest, file))
 
+# The documents themselves. `LAWS.forget_rewrites_only_the_files_documents`
+# holds the plan's targets to them.
+def named.docs(ns: List<&2, FgNamed>) -> List<&2, String>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case Fg.Named{b, d} <> rest:
+      d <> named.docs(rest)
+
 def named.find(ns: List<&2, FgNamed>, +by: String) -> Maybe<&2, String>:
   match ns:
     case Nil{}:
@@ -701,16 +732,40 @@ def lines.of(+ds: List<&2, Store.Doc>, p: FgPicked) -> Result<&2, &2, Main.Refus
 # `forget --lines` over a file of lines: the span checked; the elements it
 # names at the revision; every element the store's whole history wrote to
 # the file, to find each delete quoting them and each copy a resolution
-# made; and a stand-in for each document holding one.
+# made; and a stand-in for each document holding one. One def per stage,
+# each taking the last one's result, so that a proof opens it a stage at a
+# time.
+def lines.every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +span: List<&2, String>, r: Result<&2, &2, Main.Refused, List<&2, FgQuoted>>) -> Result<&2, &2, Main.Refused, FgPlan>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+every}:
+      lines.of(ds, picked(every, copies(every, span), named(fs, file)))
+
+def lines.within(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +visible: List<&2, FgQuoted>, ok: Result<&2, &2, Main.Refused, Unit>) -> Result<&2, &2, Main.Refused, FgPlan>:
+  match ok:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      lines.every(fs, ds, file, span.keys(visible, first, last), refused.of(List<&2, FgQuoted>, quotes(by_digest(fs), ds, id, file)))
+
+def lines.at(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, r: Result<&2, &2, Main.Refused, List<&2, FgQuoted>>) -> Result<&2, &2, Main.Refused, FgPlan>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{at}:
+      +visible = quoted.visible(at)
+      lines.within(fs, ds, id, file, first, last, visible, span.within.r(last, List.length(&2, FgQuoted, visible)))
+
+def lines.checked(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, ok: Result<&2, &2, Main.Refused, Unit>) -> Result<&2, &2, Main.Refused, FgPlan>:
+  match ok:
+    case Fail{e}:
+      Fail{e}
+    case Done{u}:
+      lines.at(fs, ds, id, file, first, last, refused.of(List<&2, FgQuoted>, quotes(Main.walked.ancestry(fs, id), ds, id, file)))
+
 def lines.plan.r(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String) -> Result<&2, &2, Main.Refused, FgPlan>:
-  do Result<&2, &2, Main.Refused, FgPlan>:
-    span.checked.r(first, last)
-    at : List<&2, FgQuoted> <- refused.of(List<&2, FgQuoted>, quotes(Main.walked.ancestry(fs, id), ds, id, file))
-    +visible : List<&2, FgQuoted> = quoted.visible(at)
-    span.within.r(last, List.length(&2, FgQuoted, visible))
-    +span : List<&2, String> = span.keys(visible, first, last)
-    +every : List<&2, FgQuoted> <- refused.of(List<&2, FgQuoted>, quotes(by_digest(fs), ds, id, file))
-    lines.of(ds, picked(every, copies(every, span), named(fs, file)))
+  lines.checked(fs, ds, id, file, first, last, span.checked.r(first, last))
 
 # A file of `operations/`, as the host hashed it: where, its digest, and how
 # many bytes.
@@ -764,6 +819,15 @@ def whole.of(+target: String, held: Maybe<&2, String>, +stood: Maybe<&2, Stand.S
     case Some{+n} _:
       +text = Stand.payload.write(Stand.Payload{target, n})
       Done{Fg.Plan{[target], Bool.pick(List<&2, FgWrite>, String.eq(stood.text(stood), text), Nil{}, [Fg.Write{target, text, True{}}]), 0n, elsewhere}}
+
+# The payload the tree holds, as a list of none or one.
+# `LAWS.forget_whole_takes_one_payload` holds the plan's targets to it.
+def payload.list(m: Maybe<&2, String>) -> List<&2, String>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{d}:
+      [d]
 
 # `forget` of a file of bytes: the payload the tree holds for it at the
 # revision, which concurrent revisions stating it two ways leave none of.
@@ -839,6 +903,15 @@ def destroyed.of(fs: List<&2, FgFiled>, +targets: List<&2, String>, +documents: 
       Nil{}
     case Fg.Filed{+p, +d, n} <> rest:
       Rev.keep(Bool.and(Rev.member(targets, d), Bool.not(Bool.xor(filed.document(p), documents))), p, destroyed.of(rest, targets, documents))
+
+# The files of `operations/` whose bytes are one of these digests.
+# `LAWS.forget_destroys_only_what_it_forgets` holds `destroyed` to it.
+def holding(fs: List<&2, FgFiled>, +ts: List<&2, String>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case Fg.Filed{+p, +d, n} <> rest:
+      Rev.keep(Rev.member(ts, d), p, holding(rest, ts))
 
 # Every file whose bytes are a destroyed digest, found by content as
 # everything in a store is: the documents first, then the payloads, each in
