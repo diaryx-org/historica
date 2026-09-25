@@ -1,7 +1,7 @@
-# What `forget` says, where it files what it writes, what it sweeps, and
-# which documents it rewrites: the output read back as a person or a script
-# would read it, the paths it writes to held apart from what the store
-# already has, and the documents a span's forgetting reaches.
+# What `forget` says, where it files what it writes, and what it sweeps:
+# the output read back as a person or a script would read it, the paths it
+# writes to held apart from what the store already has, and the empty
+# directories it removes.
 import Base
 import ./text.bend as T
 import ./revision.bend as Rev
@@ -17,6 +17,9 @@ import ./string_lemmas.bend as S
 import ./graph_lemmas.bend as GL
 import ./fetch_lemmas.bend as FetchL
 import ./forget_lemmas.bend as ForgetL
+import ./sort_lemmas.bend as SortL
+import ./status_lemmas.bend as StatusL
+import ./span_lemmas.bend as SpanL
 
 def sw_nil(str: String) -> {String.starts_with(str, SNil{}) == True{} : Bool}:
   match str:
@@ -243,6 +246,211 @@ def files_where(+fs: List<&2, Fg.FgFiled>, +ds: List<&2, String>, w: Fg.FgWrite)
     case Fg.Fg.Write{f, +text, payload}:
       written_where(fs, ds, text, payload)
 
+# The paths of the files of `operations/` the host listed.
+def paths(fs: List<&2, Fg.FgFiled>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case Fg.Fg.Filed{+q, d, n} <> rest:
+      q <> paths(rest)
+
+def taken_paths(fs: List<&2, Fg.FgFiled>, +p: String) -> {Fg.filed.taken(fs, p) == Rev.member(paths(fs), p) : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case Fg.Fg.Filed{+q, d, n} <> +rest:
+      %Equal.sym(Bool, Fg.filed.taken(rest, p), Rev.member(paths(rest), p), taken_paths(rest, p)) : {Bool.or(String.eq(q, p), _) == Bool.or(String.eq(q, p), Rev.member(paths(rest), p)) : Bool}
+      {==}
+
+def beside_free(b: Bool, +fs: List<&2, Fg.FgFiled>, +d: String, +named: String, eb: {Fg.filed.taken(fs, d ++ ".ops.txt") == b : Bool}, hf: {Rev.member(paths(fs), d ++ ".ops.txt") == False{} : Bool}) -> {Bool.pick(String, b, named, d ++ ".ops.txt") == d ++ ".ops.txt" : String}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({named == d ++ ".ops.txt" : String}, S.false_true(Equal.trans(Bool, False{}, Rev.member(paths(fs), d ++ ".ops.txt"), True{}, Equal.sym(Bool, Rev.member(paths(fs), d ++ ".ops.txt"), False{}, hf), Equal.trans(Bool, Rev.member(paths(fs), d ++ ".ops.txt"), Fg.filed.taken(fs, d ++ ".ops.txt"), True{}, Equal.sym(Bool, Fg.filed.taken(fs, d ++ ".ops.txt"), Rev.member(paths(fs), d ++ ".ops.txt"), taken_paths(fs, d ++ ".ops.txt")), eb))))
+
+# Where the payload was
+# ---------------------
+
+# Some document of `operations/` holds the bytes `t`.
+def holds.doc(fs: List<&2, Fg.FgFiled>, +t: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.or(Bool.and(String.ends_with(p, ".ops.txt"), String.eq(t, d)), holds.doc(rest, t))
+
+# Some file of `operations/` that is no document holds them: a payload.
+def holds.payload(fs: List<&2, Fg.FgFiled>, +t: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.or(Bool.and(Bool.not(String.ends_with(p, ".ops.txt")), String.eq(t, d)), holds.payload(rest, t))
+
+# Every payload holding `t` has its name with `.ops.txt` added free among
+# the files `all` lists.
+def free.beside(+all: List<&2, Fg.FgFiled>, fs: List<&2, Fg.FgFiled>, +t: String) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.and(Bool.or(Bool.not(Bool.and(Bool.not(String.ends_with(p, ".ops.txt")), String.eq(t, d))), Bool.not(Rev.member(paths(all), p ++ ".ops.txt"))), free.beside(all, rest, t))
+
+# `r` is the name of a payload holding `t`, with `.ops.txt` added.
+def payload.at(fs: List<&2, Fg.FgFiled>, +t: String, +r: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.or(Bool.and(Bool.not(String.ends_with(p, ".ops.txt")), Bool.and(String.eq(t, d), String.eq(r, p ++ ".ops.txt"))), payload.at(rest, t, r))
+
+def no_docs.step(c: Bool, k: Bool, +p: String, +rest: List<&2, Fg.FgFiled>, +t: String, h: {Bool.or(Bool.and(k, c), holds.doc(rest, t)) == False{} : Bool}, ih: {holds.doc(rest, t) == False{} : Bool} -> {Fg.destroyed.of(rest, [t], True{}) == Nil{} : List<&2, String>}) -> {Rev.keep(Bool.and(Bool.or(c, False{}), Bool.not(Bool.xor(k, True{}))), p, Fg.destroyed.of(rest, [t], True{})) == Nil{} : List<&2, String>}:
+  match c k:
+    case True{} True{}:
+      Empty.absurd({p <> Fg.destroyed.of(rest, [t], True{}) == Nil{} : List<&2, String>}, S.true_false(h))
+    case True{} False{}:
+      ih(h)
+    case False{} True{}:
+      ih(h)
+    case False{} False{}:
+      ih(h)
+
+# Where no document holds `t`, forgetting it destroys no document.
+def no_docs(fs: List<&2, Fg.FgFiled>, +t: String, h: {holds.doc(fs, t) == False{} : Bool}) -> {Fg.destroyed.of(fs, [t], True{}) == Nil{} : List<&2, String>}:
+  match fs:
+    case Nil{}:
+      {==}
+    case Fg.Fg.Filed{+p, +d, n} <> +rest:
+      no_docs.step(String.eq(t, d), String.ends_with(p, ".ops.txt"), p, rest, t, h, x => no_docs(rest, t, x))
+
+def some_payload.step(c: Bool, k: Bool, +p: String, +rest: List<&2, Fg.FgFiled>, +t: String, h: {Bool.or(Bool.and(Bool.not(k), c), holds.payload(rest, t)) == True{} : Bool}, ih: {holds.payload(rest, t) == True{} : Bool} -> {List.is_empty(&2, String, Fg.destroyed.of(rest, [t], False{})) == False{} : Bool}) -> {List.is_empty(&2, String, Rev.keep(Bool.and(Bool.or(c, False{}), Bool.not(Bool.xor(k, False{}))), p, Fg.destroyed.of(rest, [t], False{}))) == False{} : Bool}:
+  match c k:
+    case True{} False{}:
+      {==}
+    case True{} True{}:
+      ih(h)
+    case False{} True{}:
+      ih(h)
+    case False{} False{}:
+      ih(h)
+
+# Where a payload holds `t`, forgetting it destroys some payload.
+def some_payload(fs: List<&2, Fg.FgFiled>, +t: String, h: {holds.payload(fs, t) == True{} : Bool}) -> {List.is_empty(&2, String, Fg.destroyed.of(fs, [t], False{})) == False{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({List.is_empty(&2, String, Nil{}) == False{} : Bool}, S.false_true(h))
+    case Fg.Fg.Filed{+p, +d, n} <> +rest:
+      some_payload.step(String.eq(t, d), String.ends_with(p, ".ops.txt"), p, rest, t, h, x => some_payload(rest, t, x))
+
+# The name beside a payload, free.
+def beside.ok(+all: List<&2, Fg.FgFiled>, +t: String, +r: String) -> Bool:
+  Bool.and(payload.at(all, t, r), Bool.not(Rev.member(paths(all), r)))
+
+def listed_at.step(c: Bool, k: Bool, +all: List<&2, Fg.FgFiled>, +p: String, +d: String, +n: String, +rest: List<&2, Fg.FgFiled>, +t: String, +x: String, m: {Rev.member(Rev.keep(Bool.and(Bool.or(c, False{}), Bool.not(Bool.xor(k, False{}))), p, Fg.destroyed.of(rest, [t], False{})), x) == True{} : Bool}, +hf: {Bool.and(Bool.or(Bool.not(Bool.and(Bool.not(k), c)), Bool.not(Rev.member(paths(all), p ++ ".ops.txt"))), free.beside(all, rest, t)) == True{} : Bool}, ih: {Rev.member(Fg.destroyed.of(rest, [t], False{}), x) == True{} : Bool} -> {free.beside(all, rest, t) == True{} : Bool} -> {Bool.and(payload.at(rest, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}) -> {Bool.and(Bool.or(Bool.and(Bool.not(k), Bool.and(c, String.eq(x ++ ".ops.txt", p ++ ".ops.txt"))), payload.at(rest, t, x ++ ".ops.txt")), Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}:
+  match c k:
+    case True{} False{}:
+      GL.member_cons({Bool.and(Bool.or(Bool.and(True{}, Bool.and(True{}, String.eq(x ++ ".ops.txt", p ++ ".ops.txt"))), payload.at(rest, t, x ++ ".ops.txt")), Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}, p, Fg.destroyed.of(rest, [t], False{}), x, m,
+        e => (%e : {Bool.and(Bool.or(String.eq(_ ++ ".ops.txt", p ++ ".ops.txt"), payload.at(rest, t, _ ++ ".ops.txt")), Bool.not(Rev.member(paths(all), _ ++ ".ops.txt"))) == True{} : Bool};
+          %Equal.sym(Bool, String.eq(p ++ ".ops.txt", p ++ ".ops.txt"), True{}, S.eq_refl(p ++ ".ops.txt")) : {Bool.and(Bool.or(_, payload.at(rest, t, p ++ ".ops.txt")), Bool.not(Rev.member(paths(all), p ++ ".ops.txt"))) == True{} : Bool};
+          Comp.and_left(Bool.not(Rev.member(paths(all), p ++ ".ops.txt")), free.beside(all, rest, t), hf)),
+        tl => (+r = ih(tl, Comp.and_right(Bool.not(Rev.member(paths(all), p ++ ".ops.txt")), free.beside(all, rest, t), hf))
+          AL.and_intro(Bool.or(String.eq(x ++ ".ops.txt", p ++ ".ops.txt"), payload.at(rest, t, x ++ ".ops.txt")), Bool.not(Rev.member(paths(all), x ++ ".ops.txt")),
+            AL.or_right(String.eq(x ++ ".ops.txt", p ++ ".ops.txt"), payload.at(rest, t, x ++ ".ops.txt"), Comp.and_left(payload.at(rest, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(all), x ++ ".ops.txt")), r)),
+            Comp.and_right(payload.at(rest, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(all), x ++ ".ops.txt")), r))))
+    case True{} True{}:
+      ih(m, Comp.and_right(True{}, free.beside(all, rest, t), hf))
+    case False{} True{}:
+      ih(m, Comp.and_right(True{}, free.beside(all, rest, t), hf))
+    case False{} False{}:
+      ih(m, Comp.and_right(True{}, free.beside(all, rest, t), hf))
+
+# A payload forgetting `t` destroys is one holding `t`, and where every
+# such name is free, the name beside it is.
+def listed_at(+all: List<&2, Fg.FgFiled>, fs: List<&2, Fg.FgFiled>, +t: String, +x: String, m: {Rev.member(Fg.destroyed.of(fs, [t], False{}), x) == True{} : Bool}, hf: {free.beside(all, fs, t) == True{} : Bool}) -> {Bool.and(payload.at(fs, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({Bool.and(False{}, Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}, S.false_true(m))
+    case Fg.Fg.Filed{+p, +d, +n} <> +rest:
+      listed_at.step(String.eq(t, d), String.ends_with(p, ".ops.txt"), all, p, d, n, rest, t, x, m, hf, mm => ff => listed_at(all, rest, t, x, mm, ff))
+
+def beside_head(+fs: List<&2, Fg.FgFiled>, ds: List<&2, String>, +t: String, +named: String, hne: {List.is_empty(&2, String, ds) == False{} : Bool}, hh: {Main.all_held(Fg.destroyed.of(fs, [t], False{}), ds) == True{} : Bool}, hf: {free.beside(fs, fs, t) == True{} : Bool}) -> {beside.ok(fs, t, Fg.filed.beside(fs, ds, named)) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      Empty.absurd({beside.ok(fs, t, named) == True{} : Bool}, S.true_false(hne))
+    case +x <> rest:
+      +ok = listed_at(fs, fs, t, x, Comp.and_left(Rev.member(Fg.destroyed.of(fs, [t], False{}), x), Main.all_held(Fg.destroyed.of(fs, [t], False{}), rest), hh), hf)
+      +free = Comp.and_right(payload.at(fs, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(fs), x ++ ".ops.txt")), ok)
+      %Equal.sym(String, Bool.pick(String, Fg.filed.taken(fs, x ++ ".ops.txt"), named, x ++ ".ops.txt"), x ++ ".ops.txt", beside_free(Fg.filed.taken(fs, x ++ ".ops.txt"), fs, x, named, {==}, SortL.ne_not(Rev.member(paths(fs), x ++ ".ops.txt"), free))) : {beside.ok(fs, t, _) == True{} : Bool}
+      ok
+
+# Decision 0066: where no document holds the payload's bytes and a payload
+# does, its stand-in is filed beside a payload holding them, at a name no
+# file has, wherever every such name is free.
+def payload_beside(+fs: List<&2, Fg.FgFiled>, +t: String, +text: String, hd: {holds.doc(fs, t) == False{} : Bool}, hp: {holds.payload(fs, t) == True{} : Bool}, hf: {free.beside(fs, fs, t) == True{} : Bool}) -> {beside.ok(fs, t, Fg.filed.as(fs, Fg.destroyed(fs, [t]), Fg.Fg.Write{t, text, True{}})) == True{} : Bool}:
+  +D = Fg.destroyed.of(fs, [t], False{})
+  %Equal.sym(List<&2, String>, Fg.destroyed.of(fs, [t], True{}), Nil{}, no_docs(fs, t, hd)) : {beside.ok(fs, t, Fg.filed.beside(fs, List.append(&2, String, List.sort(~String, ~(a => b => Fg.path.le(a, b)), _), List.sort(~String, ~(a => b => Fg.path.le(a, b)), D)), "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt")) == True{} : Bool}
+  beside_head(fs, List.sort(~String, ~(a => b => Fg.path.le(a, b)), D), t, "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt",
+    SortL.ne_sort(~String, ~(a => b => Fg.path.le(a, b)), D, some_payload(fs, t, hp)),
+    StatusL.ah_sort(~(a => b => Fg.path.le(a, b)), D, D, SpanL.held_refl(D)),
+    hf)
+
+# Every payload holding `t` has its name with `.ops.txt` added taken by
+# a file `all` lists.
+def taken.beside(+all: List<&2, Fg.FgFiled>, fs: List<&2, Fg.FgFiled>, +t: String) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.and(Bool.or(Bool.not(Bool.and(Bool.not(String.ends_with(p, ".ops.txt")), String.eq(t, d))), Rev.member(paths(all), p ++ ".ops.txt")), taken.beside(all, rest, t))
+
+def listed_taken.step(c: Bool, k: Bool, +all: List<&2, Fg.FgFiled>, +p: String, +rest: List<&2, Fg.FgFiled>, +t: String, +x: String, m: {Rev.member(Rev.keep(Bool.and(Bool.or(c, False{}), Bool.not(Bool.xor(k, False{}))), p, Fg.destroyed.of(rest, [t], False{})), x) == True{} : Bool}, +hf: {Bool.and(Bool.or(Bool.not(Bool.and(Bool.not(k), c)), Rev.member(paths(all), p ++ ".ops.txt")), taken.beside(all, rest, t)) == True{} : Bool}, ih: {Rev.member(Fg.destroyed.of(rest, [t], False{}), x) == True{} : Bool} -> {taken.beside(all, rest, t) == True{} : Bool} -> {Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}) -> {Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}:
+  match c k:
+    case True{} False{}:
+      GL.member_cons({Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}, p, Fg.destroyed.of(rest, [t], False{}), x, m,
+        e => (%e : {Rev.member(paths(all), _ ++ ".ops.txt") == True{} : Bool};
+          Comp.and_left(Rev.member(paths(all), p ++ ".ops.txt"), taken.beside(all, rest, t), hf)),
+        tl => ih(tl, Comp.and_right(Rev.member(paths(all), p ++ ".ops.txt"), taken.beside(all, rest, t), hf)))
+    case True{} True{}:
+      ih(m, Comp.and_right(True{}, taken.beside(all, rest, t), hf))
+    case False{} True{}:
+      ih(m, Comp.and_right(True{}, taken.beside(all, rest, t), hf))
+    case False{} False{}:
+      ih(m, Comp.and_right(True{}, taken.beside(all, rest, t), hf))
+
+# Where every payload's name beside it is taken, so is the name beside
+# any payload forgetting `t` destroys.
+def listed_taken(+all: List<&2, Fg.FgFiled>, fs: List<&2, Fg.FgFiled>, +t: String, +x: String, m: {Rev.member(Fg.destroyed.of(fs, [t], False{}), x) == True{} : Bool}, hf: {taken.beside(all, fs, t) == True{} : Bool}) -> {Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}, S.false_true(m))
+    case Fg.Fg.Filed{+p, +d, n} <> +rest:
+      listed_taken.step(String.eq(t, d), String.ends_with(p, ".ops.txt"), all, p, rest, t, x, m, hf, mm => ff => listed_taken(all, rest, t, x, mm, ff))
+
+def taken_pick(b: Bool, +fs: List<&2, Fg.FgFiled>, +x: String, +named: String, eb: {Fg.filed.taken(fs, x ++ ".ops.txt") == b : Bool}, ht: {Rev.member(paths(fs), x ++ ".ops.txt") == True{} : Bool}) -> {Bool.pick(String, b, named, x ++ ".ops.txt") == named : String}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({x ++ ".ops.txt" == named : String}, S.false_true(Equal.trans(Bool, False{}, Fg.filed.taken(fs, x ++ ".ops.txt"), True{}, Equal.sym(Bool, Fg.filed.taken(fs, x ++ ".ops.txt"), False{}, eb), Equal.trans(Bool, Fg.filed.taken(fs, x ++ ".ops.txt"), Rev.member(paths(fs), x ++ ".ops.txt"), True{}, taken_paths(fs, x ++ ".ops.txt"), ht))))
+
+def taken_head(+fs: List<&2, Fg.FgFiled>, ds: List<&2, String>, +t: String, +named: String, hne: {List.is_empty(&2, String, ds) == False{} : Bool}, hh: {Main.all_held(Fg.destroyed.of(fs, [t], False{}), ds) == True{} : Bool}, hf: {taken.beside(fs, fs, t) == True{} : Bool}) -> {Fg.filed.beside(fs, ds, named) == named : String}:
+  match ds:
+    case Nil{}:
+      Empty.absurd({named == named : String}, S.true_false(hne))
+    case +x <> rest:
+      taken_pick(Fg.filed.taken(fs, x ++ ".ops.txt"), fs, x, named, {==}, listed_taken(fs, fs, t, x, Comp.and_left(Rev.member(Fg.destroyed.of(fs, [t], False{}), x), Main.all_held(Fg.destroyed.of(fs, [t], False{}), rest), hh), hf))
+
+# And where every such name is taken, it goes to the name its own bytes
+# give it.
+def payload_own(+fs: List<&2, Fg.FgFiled>, +t: String, +text: String, hd: {holds.doc(fs, t) == False{} : Bool}, hp: {holds.payload(fs, t) == True{} : Bool}, hf: {taken.beside(fs, fs, t) == True{} : Bool}) -> {Fg.filed.as(fs, Fg.destroyed(fs, [t]), Fg.Fg.Write{t, text, True{}}) == own(Fg.Fg.Write{t, text, True{}}) : String}:
+  +D = Fg.destroyed.of(fs, [t], False{})
+  %Equal.sym(List<&2, String>, Fg.destroyed.of(fs, [t], True{}), Nil{}, no_docs(fs, t, hd)) : {Fg.filed.beside(fs, List.append(&2, String, List.sort(~String, ~(a => b => Fg.path.le(a, b)), _), List.sort(~String, ~(a => b => Fg.path.le(a, b)), D)), "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt") == "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt" : String}
+  taken_head(fs, List.sort(~String, ~(a => b => Fg.path.le(a, b)), D), t, "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt",
+    SortL.ne_sort(~String, ~(a => b => Fg.path.le(a, b)), D, some_payload(fs, t, hp)),
+    StatusL.ah_sort(~(a => b => Fg.path.le(a, b)), D, D, SpanL.held_refl(D)),
+    hf)
+
 # A file of lines is never forgotten whole
 # ----------------------------------------
 
@@ -274,196 +482,84 @@ def listed.nothing(r: Result<&1, &1, U32 & String, String>) -> Bool:
 def emptied(+dir: String, r: Result<&1, &1, U32 & String, String>) -> Bool:
   Bool.and(Bool.not(String.is_empty(dir)), listed.nothing(r))
 
-def kept_in(b: Bool, +x: String, +xs: List<&2, String>, +p: String, h: {Rev.member(Rev.keep(b, x, xs), p) == True{} : Bool}) -> {Bool.or(Rev.member(xs, p), Bool.and(String.eq(x, p), b)) == True{} : Bool}:
-  match b:
-    case False{}:
-      AL.or_left(Rev.member(xs, p), Bool.and(String.eq(x, p), False{}), h)
-    case True{}:
-      AL.or_cases({Bool.or(Rev.member(xs, p), Bool.and(String.eq(x, p), True{})) == True{} : Bool}, String.eq(x, p), Rev.member(xs, p), h,
-        hx => AL.or_right(Rev.member(xs, p), Bool.and(String.eq(x, p), True{}), AL.and_intro(String.eq(x, p), True{}, hx, {==})),
-        hm => AL.or_left(Rev.member(xs, p), Bool.and(String.eq(x, p), True{}), hm))
+def bool_t(e: Bool, m: Bool) -> {Bool.or(e, m) == Bool.or(m, Bool.and(e, True{})) : Bool}:
+  match e m:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
 
-# The sweep keeps a directory to remove only where it listed nothing, and
-# never `operations/` itself.
-def sweeps(+dir: String, r: Result<&1, &1, U32 & String, String>, +found: List<&2, String>, +p: String, h: {Rev.member(Fg.swept.empty(dir, Fg.io.listed(r), found), p) == True{} : Bool}) -> {Bool.or(Rev.member(found, p), Bool.and(String.eq(dir, p), emptied(dir, r))) == True{} : Bool}:
+def bool_f(e: Bool, m: Bool) -> {m == Bool.or(m, Bool.and(e, False{})) : Bool}:
+  match e m:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def kept_iff(b: Bool, +x: String, +xs: List<&2, String>, +p: String) -> {Rev.member(Rev.keep(b, x, xs), p) == Bool.or(Rev.member(xs, p), Bool.and(String.eq(x, p), b)) : Bool}:
+  match b:
+    case True{}:
+      bool_t(String.eq(x, p), Rev.member(xs, p))
+    case False{}:
+      bool_f(String.eq(x, p), Rev.member(xs, p))
+
+# One step of the sweep adds to what it removes exactly the directory it
+# listed, where that listing was read and said nothing, and never
+# `operations/` itself.
+def sweeps(+dir: String, r: Result<&1, &1, U32 & String, String>, +found: List<&2, String>, +p: String) -> {Rev.member(Fg.swept.empty(dir, Fg.io.listed(r), found), p) == Bool.or(Rev.member(found, p), Bool.and(String.eq(dir, p), emptied(dir, r))) : Bool}:
   match r:
     case Done{+t}:
-      kept_in(Bool.and(Bool.not(String.is_empty(dir)), String.is_empty(t)), dir, found, p, h)
+      kept_iff(Bool.and(Bool.not(String.is_empty(dir)), String.is_empty(t)), dir, found, p)
     case Fail{e}:
-      kept_in(Bool.and(Bool.not(String.is_empty(dir)), String.is_empty("u")), dir, found, p, h)
+      kept_iff(Bool.and(Bool.not(String.is_empty(dir)), String.is_empty("u")), dir, found, p)
 
-# Every document quoting the span
-# -------------------------------
+# A link's line and the target line after it name no directory, whatever
+# the target says.
+def past_link(+dir: String, x: String, +t: String, +rest: List<&2, String>) -> {Fg.swept.dirs(dir, ("l " ++ x) <> t <> rest, False{}) == Fg.swept.dirs(dir, rest, False{}) : List<&2, String>}:
+  %Equal.sym(Bool, String.starts_with(x, SNil{}), True{}, sw_nil(x)) : {Rev.keep(False{}, Fg.swept.join(dir, String.drop("l " ++ x, 2n)), Fg.swept.dirs(dir, t <> rest, _)) == Fg.swept.dirs(dir, rest, False{}) : List<&2, String>}
+  {==}
 
-# Whether a document found is `d`.
-def found.is(m: Maybe<&2, String>, +d: String) -> Bool:
-  match m:
-    case None{}:
-      False{}
-    case Some{x}:
-      String.eq(x, d)
-
-# Whether `d` is the document one of these deletes' revisions names for
-# the file.
-def deleted.in(dl: List<&2, Fg.FgQuote>, +ns: List<&2, Fg.FgNamed>, +d: String) -> Bool:
-  match dl:
+# The directories a listing names on its `d ` lines, each under the
+# directory listed, read with no regard to links.
+def named_dirs(+dir: String, ls: List<&2, String>) -> List<&2, String>:
+  match ls:
     case Nil{}:
-      False{}
-    case Fg.Fg.Quote{+by, op, item} <> rest:
-      Bool.or(found.is(Fg.named.find(ns, by), d), deleted.in(rest, ns, d))
+      Nil{}
+    case +l <> rest:
+      Rev.keep(String.starts_with(l, "d "), Bool.pick(String, String.is_empty(dir), String.drop(l, 2n), dir ++ "/" ++ String.drop(l, 2n)), named_dirs(dir, rest))
 
-# Whether `d` quotes the element: the document the revision that wrote it
-# names for the file, or one a revision whose delete quotes it names.
-def quotes(q: Fg.FgQuoted, +ns: List<&2, Fg.FgNamed>, +d: String) -> Bool:
-  match q:
-    case Fg.Fg.Quoted{+by, op, item, t, dl, dr, f, v}:
-      Bool.or(found.is(Fg.named.find(ns, by), d), deleted.in(dl, ns, d))
-
-def mem_app_l(xs: List<&2, String>, +ys: List<&2, String>, +d: String, h: {Rev.member(xs, d) == True{} : Bool}) -> {Rev.member(List.append(&2, String, xs, ys), d) == True{} : Bool}:
-  match xs:
-    case Nil{}:
-      Empty.absurd({Rev.member(ys, d) == True{} : Bool}, S.false_true(h))
-    case +x <> +rest:
-      GL.member_cons({Rev.member(x <> List.append(&2, String, rest, ys), d) == True{} : Bool}, x, rest, d, h,
-        e => (%Equal.sym(String, x, d, e) : {Rev.member(_ <> List.append(&2, String, rest, ys), d) == True{} : Bool}; GL.member_head(d, List.append(&2, String, rest, ys))),
-        t => GL.member_tail(x, List.append(&2, String, rest, ys), d, mem_app_l(rest, ys, d, t)))
-
-def mem_app_r(xs: List<&2, String>, +ys: List<&2, String>, +d: String, h: {Rev.member(ys, d) == True{} : Bool}) -> {Rev.member(List.append(&2, String, xs, ys), d) == True{} : Bool}:
-  match xs:
-    case Nil{}:
-      h
-    case +x <> +rest:
-      GL.member_tail(x, List.append(&2, String, rest, ys), d, mem_app_r(rest, ys, d, h))
-
-def pick_found(m: Maybe<&2, String>, +op: Nat, +item: Nat, +rest: List<&2, Fg.FgPick>, +d: String, h: {found.is(m, d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(Fg.pick.if(m, op, item, rest)), d) == True{} : Bool}:
-  match m:
-    case None{}:
-      Empty.absurd({Rev.member(Fg.targets.of(rest), d) == True{} : Bool}, S.false_true(h))
-    case Some{+x}:
-      %Equal.sym(String, x, d, S.eq_true(x, d, h)) : {Rev.member(_ <> Fg.targets.of(rest), d) == True{} : Bool}
-      GL.member_head(d, Fg.targets.of(rest))
-
-def pick_rest(m: Maybe<&2, String>, +op: Nat, +item: Nat, +rest: List<&2, Fg.FgPick>, +d: String, h: {Rev.member(Fg.targets.of(rest), d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(Fg.pick.if(m, op, item, rest)), d) == True{} : Bool}:
-  match m:
-    case None{}:
-      h
-    case Some{+x}:
-      GL.member_tail(x, Fg.targets.of(rest), d, h)
-
-# A delete quoting the element puts its document among the picks.
-def deletes_picked(dl: List<&2, Fg.FgQuote>, +ns: List<&2, Fg.FgNamed>, +d: String, h: {deleted.in(dl, ns, d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(Fg.picks.deletes(dl, ns)), d) == True{} : Bool}:
-  match dl:
-    case Nil{}:
-      Empty.absurd({Rev.member(Nil{}, d) == True{} : Bool}, S.false_true(h))
-    case Fg.Fg.Quote{+by, +op, +item} <> +rest:
-      AL.or_cases({Rev.member(Fg.targets.of(Fg.pick.if(Fg.named.find(ns, by), op, item, Fg.picks.deletes(rest, ns))), d) == True{} : Bool}, found.is(Fg.named.find(ns, by), d), deleted.in(rest, ns, d), h,
-        l => pick_found(Fg.named.find(ns, by), op, item, Fg.picks.deletes(rest, ns), d, l),
-        r => pick_rest(Fg.named.find(ns, by), op, item, Fg.picks.deletes(rest, ns), d, deletes_picked(rest, ns, d, r)))
-
-# An element taken puts every document quoting it among the picks.
-def taken_picked(+ns: List<&2, Fg.FgNamed>, q: Fg.FgQuoted, +d: String, h: {quotes(q, ns, d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(Fg.picks.of(ns, True{}, q)), d) == True{} : Bool}:
-  match q:
-    case Fg.Fg.Quoted{+by, +op, +item, t, +dl, dr, f, v}:
-      AL.or_cases({Rev.member(Fg.targets.of(Fg.pick.if(Fg.named.find(ns, by), op, item, Fg.picks.deletes(dl, ns))), d) == True{} : Bool}, found.is(Fg.named.find(ns, by), d), deleted.in(dl, ns, d), h,
-        l => pick_found(Fg.named.find(ns, by), op, item, Fg.picks.deletes(dl, ns), d, l),
-        r => pick_rest(Fg.named.find(ns, by), op, item, Fg.picks.deletes(dl, ns), d, deletes_picked(dl, ns, d, r)))
-
-def join_here(+taken: Bool, +forgot: Bool, +here: List<&2, Fg.FgPick>, r: Fg.FgPicked, +d: String, h: {Rev.member(Fg.targets.of(here), d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked.join(taken, forgot, here, r))), d) == True{} : Bool}:
-  match r:
-    case Fg.Fg.Picked{+ps, n}:
-      %Equal.sym(List<&2, String>, Fg.targets.of(List.append(&2, Fg.FgPick, here, ps)), List.append(&2, String, Fg.targets.of(here), Fg.targets.of(ps)), ForgetL.targets_app(here, ps)) : {Rev.member(_, d) == True{} : Bool}
-      mem_app_l(Fg.targets.of(here), Fg.targets.of(ps), d, h)
-
-def join_rest(+taken: Bool, +forgot: Bool, +here: List<&2, Fg.FgPick>, r: Fg.FgPicked, +d: String, h: {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(r)), d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked.join(taken, forgot, here, r))), d) == True{} : Bool}:
-  match r:
-    case Fg.Fg.Picked{+ps, n}:
-      %Equal.sym(List<&2, String>, Fg.targets.of(List.append(&2, Fg.FgPick, here, ps)), List.append(&2, String, Fg.targets.of(here), Fg.targets.of(ps)), ForgetL.targets_app(here, ps)) : {Rev.member(_, d) == True{} : Bool}
-      mem_app_r(Fg.targets.of(here), Fg.targets.of(ps), d, h)
-
-# Every element of the walk whose key the span holds puts each document
-# quoting it among the picks.
-def picked_mem(qs: List<&2, Fg.FgQuoted>, +span: List<&2, String>, +ns: List<&2, Fg.FgNamed>, i: Nat, +q: Fg.FgQuoted, +d: String, hq: {List.get(&2, Fg.FgQuoted, qs, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}, +hs: {Rev.member(span, Fg.quoted.key(q)) == True{} : Bool}, +hd: {quotes(q, ns, d) == True{} : Bool}) -> {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked(qs, span, ns))), d) == True{} : Bool}:
-  match qs i:
-    case Nil{} _:
-      Empty.absurd({Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked(Nil{}, span, ns))), d) == True{} : Bool}, Comp.false_true(Equal.cong(Maybe<&2, Fg.FgQuoted>, Bool, m => Maybe.is_some(&2, Fg.FgQuoted, m), None{}, Some{q}, hq)))
-    case +q0 <> +rest 0n:
-      +same = Equal.cong(Maybe<&2, Fg.FgQuoted>, Fg.FgQuoted, m => Maybe.default(&2, Fg.FgQuoted, m, q), Some{q0}, Some{q}, hq)
-      %Equal.sym(Fg.FgQuoted, q0, q, same) : {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked(_ <> rest, span, ns))), d) == True{} : Bool}
-      %Equal.sym(Bool, Rev.member(span, Fg.quoted.key(q)), True{}, hs) : {Rev.member(Fg.targets.of(ForgetL.picks.of.picked(Fg.picked.join(_, Fg.quoted.forgot(q), Fg.picks.of(ns, _, q), Fg.picked(rest, span, ns)))), d) == True{} : Bool}
-      join_here(True{}, Fg.quoted.forgot(q), Fg.picks.of(ns, True{}, q), Fg.picked(rest, span, ns), d, taken_picked(ns, q, d, hd))
-    case +q0 <> +rest 1n+j:
-      join_rest(Rev.member(span, Fg.quoted.key(q0)), Fg.quoted.forgot(q0), Fg.picks.of(ns, Rev.member(span, Fg.quoted.key(q0)), q0), Fg.picked(rest, span, ns), d, picked_mem(rest, span, ns, j, q, d, hq, hs, hd))
-
-def keep_pick(b: Bool, +span: List<&2, String>, +m: String, +k: String, h: {Rev.member(span, k) == True{} : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, b, span, List.append(&2, String, span, [m])), k) == True{} : Bool}:
+def keep_sub(b: Bool, +y: String, +xs: List<&2, String>, +ys: List<&2, String>, +p: String, h: {Rev.member(Rev.keep(b, y, xs), p) == True{} : Bool}, sub: {Rev.member(xs, p) == True{} : Bool} -> {Rev.member(ys, p) == True{} : Bool}) -> {Rev.member(Rev.keep(b, y, ys), p) == True{} : Bool}:
   match b:
     case True{}:
-      h
+      GL.member_cons({Rev.member(y <> ys, p) == True{} : Bool}, y, xs, p, h,
+        e => (%Equal.sym(String, y, p, e) : {Rev.member(_ <> ys, p) == True{} : Bool}; GL.member_head(p, ys)),
+        t => GL.member_tail(y, ys, p, sub(t)))
     case False{}:
-      mem_app_l(span, [m], k, h)
+      sub(h)
 
-def grown_keeps(more: List<&2, String>, +span: List<&2, String>, +k: String, h: {Rev.member(span, k) == True{} : Bool}) -> {Rev.member(Fg.copies.grown(more, span), k) == True{} : Bool}:
-  match more:
-    case Nil{}:
-      h
-    case +m <> rest:
-      grown_keeps(rest, Bool.pick(List<&2, String>, Rev.member(span, m), span, List.append(&2, String, span, [m])), k, keep_pick(Rev.member(span, m), span, m, k, h))
-
-def pick_keeps(b: Bool, -span: List<&2, String>, -x: List<&2, String>, -k: String, h: {Rev.member(span, k) == True{} : Bool}, hx: {Rev.member(x, k) == True{} : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, b, span, x), k) == True{} : Bool}:
+def keep_more(b: Bool, +y: String, +ys: List<&2, String>, +p: String, h: {Rev.member(ys, p) == True{} : Bool}) -> {Rev.member(Rev.keep(b, y, ys), p) == True{} : Bool}:
   match b:
     case True{}:
-      h
+      GL.member_tail(y, ys, p, h)
     case False{}:
-      hx
-
-def go_grows(fuel: Nat, +every: List<&2, Fg.FgQuoted>, +span: List<&2, String>, +k: String, +h: {Rev.member(span, k) == True{} : Bool}) -> {Rev.member(Fg.copies.go(fuel, every, span), k) == True{} : Bool}:
-  match fuel:
-    case 0n:
       h
-    case 1n+p:
-      +next = Fg.copies.grown(Fg.copies.step(every, every, span), span)
-      pick_keeps(Nat.is_eq(List.length(&2, String, next), List.length(&2, String, span)), span, Fg.copies.go(p, every, next), k, h, go_grows(p, every, next, k, grown_keeps(Fg.copies.step(every, every, span), span, k, h)))
 
-# What a resolution copied only adds to the span: every element it named
-# is still in it.
-def copies_grows(+every: List<&2, Fg.FgQuoted>, +span: List<&2, String>, +k: String, +h: {Rev.member(span, k) == True{} : Bool}) -> {Rev.member(Fg.copies(every, span), k) == True{} : Bool}:
-  go_grows(1n+List.length(&2, Fg.FgQuoted, every), every, span, k, h)
-
-# Every document quoting an element of the span is among those the plan
-# rewrites.
-def rewrites_every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +span: List<&2, String>, +every: List<&2, Fg.FgQuoted>, +plan: Fg.FgPlan, +e: {Fg.lines.every(fs, ds, file, span, Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +i: Nat, +q: Fg.FgQuoted, +hq: {List.get(&2, Fg.FgQuoted, every, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}, +hs: {Rev.member(span, Fg.quoted.key(q)) == True{} : Bool}, +d: String, +hd: {quotes(q, Fg.named(fs, file), d) == True{} : Bool}) -> {Rev.member(plan.targets(plan), d) == True{} : Bool}:
-  +ns = Fg.named(fs, file)
-  +pk = Fg.picked(every, Fg.copies(every, span), ns)
-  +ps = ForgetL.picks.of.picked(pk)
-  +m1 = picked_mem(every, Fg.copies(every, span), ns, i, q, d, hq, copies_grows(every, span, Fg.quoted.key(q), hs), hd)
-  %ForgetL.lines_of(ds, pk, plan, e) : {Rev.member(_, d) == True{} : Bool}
-  FetchL.distinct_mem(List.sort(~String, ~(a => b => String.is_le(a, b)), Fg.targets.of(ps)), d, FetchL.sort_mem(Fg.targets.of(ps), d, m1))
-
-def fail_done(-x: Main.Refused, -plan: Fg.FgPlan, e: {Fail{x} == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> Empty:
-  Comp.false_true(Equal.cong(Result<&2, &2, Main.Refused, Fg.FgPlan>, Bool, r => Result.is_done(&2, &2, Main.Refused, Fg.FgPlan, r), Fail{x}, Done{plan}, e))
-
-def within_every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +visible: List<&2, Fg.FgQuoted>, ok: Result<&2, &2, Main.Refused, Unit>, +plan: Fg.FgPlan, e: {Fg.lines.within(fs, ds, id, file, first, last, visible, ok) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +every: List<&2, Fg.FgQuoted>, +ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}) -> {Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}:
-  match ok:
-    case Fail{x}:
-      Empty.absurd({Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, fail_done(x, plan, e))
-    case Done{u}:
-      Equal.trans(Result<&2, &2, Main.Refused, Fg.FgPlan>, Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Done{every}), Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Fg.refused.of(List<&2, Fg.FgQuoted>, Fg.quotes(Fg.by_digest(fs), ds, id, file))), Done{plan},
-        Equal.cong(Result<&2, &2, String, List<&2, Fg.FgQuoted>>, Result<&2, &2, Main.Refused, Fg.FgPlan>, r => Fg.lines.every(fs, ds, file, Fg.span.keys(visible, first, last), Fg.refused.of(List<&2, Fg.FgQuoted>, r)), Done{every}, Fg.quotes(Fg.by_digest(fs), ds, id, file), Equal.sym(Result<&2, &2, String, List<&2, Fg.FgQuoted>>, Fg.quotes(Fg.by_digest(fs), ds, id, file), Done{every}, ev)),
-        e)
-
-def checked_every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, ok: Result<&2, &2, Main.Refused, Unit>, +plan: Fg.FgPlan, e: {Fg.lines.checked(fs, ds, id, file, first, last, ok) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +at: List<&2, Fg.FgQuoted>, +ea: {Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file) == Done{at} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}, +every: List<&2, Fg.FgQuoted>, +ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}) -> {Fg.lines.every(fs, ds, file, Fg.span.keys(Fg.quoted.visible(at), first, last), Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}:
-  match ok:
-    case Fail{x}:
-      Empty.absurd({Fg.lines.every(fs, ds, file, Fg.span.keys(Fg.quoted.visible(at), first, last), Done{every}) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, fail_done(x, plan, e))
-    case Done{u}:
-      +visible = Fg.quoted.visible(at)
-      +e2 = Equal.trans(Result<&2, &2, Main.Refused, Fg.FgPlan>, Fg.lines.at(fs, ds, id, file, first, last, Done{at}), Fg.lines.at(fs, ds, id, file, first, last, Fg.refused.of(List<&2, Fg.FgQuoted>, Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file))), Done{plan},
-        Equal.cong(Result<&2, &2, String, List<&2, Fg.FgQuoted>>, Result<&2, &2, Main.Refused, Fg.FgPlan>, r => Fg.lines.at(fs, ds, id, file, first, last, Fg.refused.of(List<&2, Fg.FgQuoted>, r)), Done{at}, Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file), Equal.sym(Result<&2, &2, String, List<&2, Fg.FgQuoted>>, Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file), Done{at}, ea)),
-        e)
-      within_every(fs, ds, id, file, first, last, visible, Fg.span.within.r(last, List.length(&2, Fg.FgQuoted, visible)), plan, e2, every, ev)
-
-# Forgetting lines `first..last` of a file rewrites every document that
-# quotes them: for each element the history ever wrote to the file whose
-# key is among the lines the span names at the revision, the document its
-# author names for the file and each one whose delete quotes it.
-def rewrites_quoting(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +plan: Fg.FgPlan, +e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +at: List<&2, Fg.FgQuoted>, +ea: {Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file) == Done{at} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}, +every: List<&2, Fg.FgQuoted>, +ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}, +i: Nat, +q: Fg.FgQuoted, +hq: {List.get(&2, Fg.FgQuoted, every, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}, +hs: {Rev.member(Fg.span.keys(Fg.quoted.visible(at), first, last), Fg.quoted.key(q)) == True{} : Bool}, +d: String, +hd: {quotes(q, Fg.named(fs, file), d) == True{} : Bool}) -> {Rev.member(plan.targets(plan), d) == True{} : Bool}:
-  rewrites_every(fs, ds, file, Fg.span.keys(Fg.quoted.visible(at), first, last), every, plan, checked_every(fs, ds, id, file, first, last, Fg.span.checked.r(first, last), plan, e, at, ea, every, ev), i, q, hq, hs, d, hd)
+# Every directory the sweep goes on to list is one its parent's listing
+# names on a `d ` line.
+def dirs_named(+dir: String, ls: List<&2, String>, skip: Bool, +p: String, h: {Rev.member(Fg.swept.dirs(dir, ls, skip), p) == True{} : Bool}) -> {Rev.member(named_dirs(dir, ls), p) == True{} : Bool}:
+  match ls skip:
+    case Nil{} s:
+      Empty.absurd({Rev.member(Nil{}, p) == True{} : Bool}, S.false_true(h))
+    case +l <> +rest True{}:
+      keep_more(String.starts_with(l, "d "), Bool.pick(String, String.is_empty(dir), String.drop(l, 2n), dir ++ "/" ++ String.drop(l, 2n)), named_dirs(dir, rest), p, dirs_named(dir, rest, False{}, p, h))
+    case +l <> +rest False{}:
+      keep_sub(String.starts_with(l, "d "), Fg.swept.join(dir, String.drop(l, 2n)), Fg.swept.dirs(dir, rest, String.starts_with(l, "l ")), named_dirs(dir, rest), p, h,
+        t => dirs_named(dir, rest, String.starts_with(l, "l "), p, t))
