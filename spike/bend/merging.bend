@@ -194,6 +194,58 @@ def contests.said(cs: List<&2, Tree.Contest>) -> List<&2, String>:
     case c <> rest:
       Main.contest.push(contest.said(c), contests.said(rest))
 
+# Which files `merge` writes beside a path, as `LAWS.merge_sets_aside_the_claims`
+# reads a contest: every file a contest says claims a path, after the
+# first, which keeps it — and no other.
+def claims.after(fs: List<&2, String>, +f: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Rev.member(rest, f)
+
+def contest.beside(c: Tree.Contest, +f: String) -> Bool:
+  match c:
+    case Tree.Path{p, fs}:
+      claims.after(fs, f)
+    case _:
+      False{}
+
+def contests.beside(cs: List<&2, Tree.Contest>, +f: String) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case c <> rest:
+      Bool.or(contest.beside(c, f), contests.beside(rest, f))
+
+def besides.claimed(+cs: List<&2, Tree.Contest>, ks: List<&2, String>) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case +k <> rest:
+      Bool.and(contests.beside(cs, k), besides.claimed(cs, rest))
+
+def claims.written(fs: List<&2, String>, +ks: List<&2, String>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Main.all_held(ks, rest)
+
+def contest.written(c: Tree.Contest, +ks: List<&2, String>) -> Bool:
+  match c:
+    case Tree.Path{p, fs}:
+      claims.written(fs, ks)
+    case _:
+      True{}
+
+def contests.written(cs: List<&2, Tree.Contest>, +ks: List<&2, String>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case c <> rest:
+      Bool.and(contest.written(c, ks), contests.written(rest, ks))
+
 # What each file comes to
 # -----------------------
 
@@ -211,7 +263,7 @@ type Act is Data:
 type Laid is Data:
   Laid{acts: List<&2, Act>, met: Bool}
 
-def UNRECORDED(+at: String) -> String:
+def LEFT_UNRECORDED(+at: String) -> String:
   "left " ++ at ++ " alone: it holds work nothing has recorded"
 
 # A link: pointed where the tree says, unless it already points there.
@@ -254,7 +306,7 @@ def lay.whole(+at: String, +file: String, +cs: List<&2, Tree.Contest>, +located:
     case Some{+p}:
       +from = Main.stat_of(p, Map.get(String, SNil{}, located, p))
       Laid{Bool.pick(List<&2, Act>, String.is_empty(from), [Act.Stop{"this store does not hold the content " ++ p}],
-        Bool.pick(List<&2, Act>, unrecorded(held, p <> heads), [Act.Said{UNRECORDED(at)}], [Act.Whole{at, from, p, m}])), False{}}
+        Bool.pick(List<&2, Act>, unrecorded(held, p <> heads), [Act.Said{LEFT_UNRECORDED(at)}], [Act.Whole{at, from, p, m}])), False{}}
 
 # A file of lines: the walk's reading, fenced where what met, unless the
 # folder holds text that is neither that, nor the walk's reading unfenced,
@@ -266,7 +318,12 @@ def lay.lines(+at: String, +held: String, +heads: List<&2, String>, +text: Bool,
       Laid{[Act.Stop{e}], False{}}
     case Done{+j}:
       +rendered = Conflict.render(j)
-      Laid{Bool.pick(List<&2, Act>, Bool.and(text, unrecorded(held, Upd.text_digest(rendered) <> Upd.text_digest(Conflict.plain(j)) <> heads)), [Act.Said{UNRECORDED(at)}], [Act.Lines{at, rendered, m}]), Conflict.met(j)}
+      Laid{Bool.pick(List<&2, Act>, Bool.and(text, unrecorded(held, Upd.text_digest(rendered) <> Upd.text_digest(Conflict.plain(j)) <> heads)), [Act.Said{LEFT_UNRECORDED(at)}], [Act.Lines{at, rendered, m}]), Conflict.met(j)}
+
+# Whether the folder's reading says the file at a path is text: `0` where
+# it read bytes that are not UTF-8, and nothing where it did not look.
+def text.at(+texts: Map<&2, String>, +at: String) -> Bool:
+  Bool.not(String.eq(Main.stat_of(at, Map.get(String, SNil{}, texts, at)), "0"))
 
 # What the folder and the store say about one file's place, gathered
 # before anything is decided.
@@ -287,34 +344,129 @@ def laid.acts(l: Laid) -> List<&2, Act>:
     case Laid{a, m}:
       a
 
-# What `LAWS.merge_spares_the_unrecorded` asks of each thing `merge` does
-# at a place: it is done at that place's path; a file of lines written
-# there is the walk's rendering, and stands where the folder held nothing,
-# no text, what the merge writes, the walk's reading unfenced, or what one
-# of the heads being joined leaves the file as; a payload laid stands where
-# the folder held nothing, the payload, or what one of the heads leaves.
-def spared.lines(+held: String, +heads: List<&2, String>, text: Bool, +written: String, r: Result<&2, &2, String, Conflict.Joined>) -> Bool:
+# What `LAWS.merge_spares_the_unrecorded` asks of each thing `merge` does,
+# stated in what the store and the folder read rather than in what `merge`
+# gathered for itself. Each write is at the path a file of the merged tree
+# holds, or at a name `beside` gives the file, with the mode the tree
+# records; a file of lines written is what the walk of the heads joined
+# renders; a payload laid is the one the tree names; a link points where
+# `cat` says it points. And what stood in the folder at that path, as the
+# folder's walk read it, is nothing, bytes the folder says are not text,
+# what this merge writes, the walk's reading unfenced, or what one of the
+# heads reads for the file — its own ancestry walked, as the Rust tool
+# reads a head, or for a payload what the head's tree names.
+
+def split.has(xs: List<&2, T.Split>, +k: String, +v: String) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case T.Split{+a, +b} <> rest:
+      Bool.or(Bool.and(String.eq(a, k), String.eq(b, v)), split.has(rest, k, v))
+
+def at.is(+bs: List<&2, T.Split>, +f: String, +p: String, +at: String) -> Bool:
+  Bool.or(String.eq(at, p), split.has(bs, f, at))
+
+def same.mode(a: Tree.Mode, b: Tree.Mode) -> Bool:
+  match a b:
+    case Tree.Executable{} Tree.Executable{}:
+      True{}
+    case Tree.Plain{} Tree.Plain{}:
+      True{}
+    case _ _:
+      False{}
+
+# Whether one of the heads reads text with this digest for a file.
+def heads.read(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +d: String, hs: List<&2, String>) -> Bool:
+  match hs:
+    case Nil{}:
+      False{}
+    case +h <> rest:
+      Bool.or(Upd.records.lines(d, Main.walked(fs, ds, h, file)), heads.read(fs, ds, file, d, rest))
+
+# Whether one of the heads' trees names these bytes as the file's payload.
+def entry.names(+d: String, m: Maybe<&2, Tree.Entry>) -> Bool:
+  match m:
+    case Some{e}:
+      Upd.records.payload(d, Tree.entry_payload(e))
+    case None{}:
+      False{}
+
+def tree.names(+file: String, +d: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>) -> Bool:
   match r:
-    case Done{+j}:
-      Bool.and(String.eq(written, Conflict.render(j)), Bool.or(Bool.not(text), Bool.or(String.eq(held, "-"), Rev.member(Upd.text_digest(written) <> Upd.text_digest(Conflict.plain(j)) <> heads, held))))
+    case Done{t}:
+      entry.names(d, Tree.lookup(t, file))
     case Fail{e}:
       False{}
 
-def laid.ok(p: Place, a: Act) -> Bool:
-  match p a:
-    case Place{e, +at, +held, h, +heads, text, r} Act.Lines{+at2, +written, m}:
-      Bool.and(String.eq(at2, at), spared.lines(held, heads, text, written, r))
-    case Place{e, +at, +held, h, +heads, text, r} Act.Whole{+at2, from, +payload, m}:
-      Bool.and(String.eq(at2, at), Bool.or(String.eq(held, "-"), Rev.member(payload <> heads, held)))
-    case p2 a2:
-      True{}
+def heads.name(+fs: List<&2, Main.Full>, +file: String, +d: String, hs: List<&2, String>) -> Bool:
+  match hs:
+    case Nil{}:
+      False{}
+    case +h <> rest:
+      Bool.or(tree.names(file, d, Main.tree.r(fs, h)), heads.name(fs, file, d, rest))
 
-def laid.all(+p: Place, acts: List<&2, Act>) -> Bool:
+# A file of lines written, against the walk of the heads joined.
+def lines.over(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +file: String, +held: String, text: Bool, +written: String, r: Result<&2, &2, String, Conflict.Joined>) -> Bool:
+  match r:
+    case Done{+j}:
+      Bool.and(String.eq(written, Conflict.render(j)), Bool.or(Bool.not(text), Bool.or(String.eq(held, "-"), Bool.or(String.eq(Upd.text_digest(written), held), Bool.or(String.eq(Upd.text_digest(Conflict.plain(j)), held), heads.read(fs, ds, file, held, heads))))))
+    case Fail{e}:
+      False{}
+
+def lines.act(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +dg: Map<&2, String>, +texts: Map<&2, String>, +f: String, +p: String, +m: Tree.Mode, r: Result<&2, &2, String, Conflict.Joined>, a: Act) -> Bool:
+  match a:
+    case Act.Lines{+at, +written, m2}:
+      Bool.and(Bool.and(at.is(bs, f, p, at), same.mode(m, m2)), lines.over(fs, ds, heads, f, Main.status.folder_digest(dg, at), text.at(texts, at), written, r))
+    case Act.Said{l}:
+      True{}
+    case Act.Stop{e}:
+      True{}
+    case _:
+      False{}
+
+def whole.act(+fs: List<&2, Main.Full>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +dg: Map<&2, String>, +f: String, +p: String, +m: Tree.Mode, +y: Maybe<&2, String>, a: Act) -> Bool:
+  match a:
+    case Act.Whole{+at, from, +pay, m2}:
+      Bool.and(Bool.and(at.is(bs, f, p, at), same.mode(m, m2)), Bool.and(Upd.records.payload(pay, y), Bool.or(String.eq(Main.status.folder_digest(dg, at), "-"), Bool.or(String.eq(pay, Main.status.folder_digest(dg, at)), heads.name(fs, f, Main.status.folder_digest(dg, at), heads)))))
+    case Act.Said{l}:
+      True{}
+    case Act.Stop{e}:
+      True{}
+    case _:
+      False{}
+
+def link.act(+bs: List<&2, T.Split>, +t: Tree.Tree(), +f: String, +p: String, +g: Maybe<&2, Tree.Target>, a: Act) -> Bool:
+  match a:
+    case Act.Link{+at, +target}:
+      Bool.and(at.is(bs, f, p, at), Upd.holds.target(Upd.Held.Link{target}, t, at, g))
+    case Act.Said{l}:
+      True{}
+    case _:
+      False{}
+
+def laid.reads(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, e: Tree.Entry, +a: Act) -> Bool:
+  match e:
+    case Tree.Entry{+f, +p, Tree.Lines{}, y, g, +m}:
+      lines.act(fs, ds, heads, bs, dg, texts, f, p, m, Main.joined(fs, ds, heads, f), a)
+    case Tree.Entry{+f, +p, Tree.Whole{}, +y, g, +m}:
+      whole.act(fs, heads, bs, dg, f, p, m, y, a)
+    case Tree.Entry{+f, +p, Tree.Link{}, y, +g, m}:
+      link.act(bs, t, f, p, g, a)
+
+# Some file of the merged tree accounts for the act; and every act is so.
+def laid.some(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, es: List<&2, Tree.Entry>, +a: Act) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      Bool.or(laid.reads(fs, ds, heads, bs, t, dg, texts, e, a), laid.some(fs, ds, heads, bs, t, dg, texts, rest, a))
+
+def laid.every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +es: List<&2, Tree.Entry>, acts: List<&2, Act>) -> Bool:
   match acts:
     case Nil{}:
       True{}
-    case a <> rest:
-      Bool.and(laid.ok(p, a), laid.all(p, rest))
+    case +a <> rest:
+      Bool.and(laid.some(fs, ds, heads, bs, t, dg, texts, es, a), laid.every(fs, ds, heads, bs, t, dg, texts, es, rest))
 
 # Every file of the merged tree, in file order: the acts to perform, and
 # how many files hold work that met.
@@ -453,13 +605,16 @@ def heads.of(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2
 def joined.of(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +e: Tree.Entry) -> Result<&2, &2, String, Conflict.Joined>:
   Bool.pick(Result<&2, &2, String, Conflict.Joined>, is_lines(Tree.entry_kind(e)), Main.joined(fs, ds, heads, Tree.entry_file(e)), Fail{SNil{}})
 
+def place(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +dg: Map<&2, String>, +ls: Map<&2, String>, +texts: Map<&2, String>, +e: Tree.Entry) -> Place:
+  +at = at.of(bs, e)
+  Place{e, at, Main.status.folder_digest(dg, at), Upd.held.of(ls, at, None{}), heads.of(fs, ds, heads, e), text.at(texts, at), joined.of(fs, ds, heads, e)}
+
 def places(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +dg: Map<&2, String>, +ls: Map<&2, String>, +texts: Map<&2, String>, es: List<&2, Tree.Entry>) -> List<&2, Place>:
   match es:
     case Nil{}:
       Nil{}
     case +e <> rest:
-      +at = at.of(bs, e)
-      Place{e, at, Main.status.folder_digest(dg, at), Upd.held.of(ls, at, None{}), heads.of(fs, ds, heads, e), Bool.not(String.eq(Main.stat_of(at, Map.get(String, SNil{}, texts, at)), "0")), joined.of(fs, ds, heads, e)} <> places(fs, ds, heads, bs, dg, ls, texts, rest)
+      place(fs, ds, heads, bs, dg, ls, texts, e) <> places(fs, ds, heads, bs, dg, ls, texts, rest)
 
 # The files whose text decides whether they are left alone: bytes that
 # are none of the versions being joined.
