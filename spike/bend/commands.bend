@@ -9191,11 +9191,7 @@ def steps.go(order: List<&2, String>, +fs: List<&2, Full>, +ds: List<&2, Store.D
         more : List<&2, Step> <- steps.go(rest, fs, ds, mv, stamp, step.full(s) <> docs, T.Split{id, step.id(s)} <> planned, step.handed(s) <> handed)
         return s <> more
 
-# What a carry keeps of what it restates: each revision it writes has the
-# change, author, moment and message of the one the store holds under the
-# identifier it supersedes, supersedes that one alone, and is named by the
-# digest of its own text. `LAWS.carry_keeps_what_it_restates` holds every
-# plan to it.
+# Whether a list is the one string alone.
 def only.one(xs: List<&2, String>, +x: String) -> Bool:
   match xs:
     case y <> Nil{}:
@@ -9203,24 +9199,24 @@ def only.one(xs: List<&2, String>, +x: String) -> Bool:
     case _:
       False{}
 
-def rev.kept(+pred: String, f: Maybe<&2, Full>, doc: Rev.Rev) -> Bool:
-  match f doc:
-    case Some{Full{i, change, ps, ss, author, when, rb, rv, facts, message}} Rev.Rev{change2, ps2, ss2, author2, when2, rb2, rv2, facts2, message2}:
-      Bool.and(String.eq(change, change2), Bool.and(String.eq(author, author2), Bool.and(String.eq(when, when2), Bool.and(String.eq(message, message2), only.one(ss2, pred)))))
-    case None{} _:
-      False{}
-
-def step.kept(+fs: List<&2, Full>, s: Step) -> Bool:
+# The text `carry` files for a step: the revision it planned, written.
+def step.text(s: Step) -> String:
   match s:
-    case Step{+p, id, o, +doc, r, w, m}:
-      Bool.and(String.eq(id, Sha.digest(Utf8.encode(Rev.write(doc)))), rev.kept(p, find(fs, p), doc))
+    case Step{p, id, o, doc, r, w, m}:
+      Rev.write(doc)
 
-def steps.kept(+fs: List<&2, Full>, ss: List<&2, Step>) -> Bool:
+# What the store will call what `carry` files for each step: the digest of
+# its bytes, which is the only name the store gives a document it reads,
+# wherever the document is filed. `LAWS.carry_says_what_it_files`.
+def step.filed(+path: String, s: Step) -> String:
+  Store.id_of(Store.doc_of(path, Utf8.encode(step.text(s))))
+
+def steps.filed(+path: String, ss: List<&2, Step>) -> List<&2, String>:
   match ss:
     case Nil{}:
-      True{}
+      Nil{}
     case s <> rest:
-      Bool.and(step.kept(fs, s), steps.kept(fs, rest))
+      step.filed(path, s) <> steps.filed(path, rest)
 
 # The authored move's refusals, which belong to deciding rather than to
 # restating.
@@ -9352,7 +9348,7 @@ def carry.write(+st: Bool, +root: String, steps: List<&2, Step>, +ns: List<&2, N
               +stem = Naming.stem(when, message, change, id, ns)
               do IO<Unit>:
                 writes.filed(st, root, stem, Naming.filed(T.map(~Write, ~Naming.Filing, ~(x => write.filing(x)), ws)), ws)
-                revision.filed(st, root, stem, Rev.write(doc))
+                revision.filed(st, root, stem, step.text(s))
                 carry.write(st, root, rest, List.append(&2, Naming.Named, ns, [step.named(s)]))
 
 def carried.lines(+prefix: String, steps: List<&2, Step>) -> List<&2, String>:
@@ -9969,17 +9965,37 @@ def abandon.dry.lines(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: Stri
 def abandon.dry(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> IO(Unit):
   print_lines(abandon.dry.lines(fs, bs, id, only, run))
 
-# A dry run of `abandon` begins by naming, in order, each revision it
-# would abandon, by its digest's first twelve letters.
+# What a dry run of `abandon` says, and nothing else: a `would abandon`
+# line for each revision of the run, in order, naming it by the first
+# twelve letters of its digest, with nothing after them but what begins
+# with two spaces (the bookmarks there); then a line saying a tombstone
+# would supersede them; then only `would carry` lines.
 # `LAWS.abandon_dry_run_names_the_run`.
-def said.first(xs: List<&2, String>, ls: List<&2, String>, +prefix: String) -> Bool:
-  match xs ls:
-    case Nil{} _:
+def dry.rest(r: Maybe<&2, String>) -> Bool:
+  match r:
+    case Some{+rest}:
+      Bool.or(String.is_empty(rest), String.starts_with(rest, "  "))
+    case None{}:
+      False{}
+
+def dry.names(+x: String, +l: String) -> Bool:
+  dry.rest(T.strip_prefix(l, "would abandon " ++ String.take(x, 12n)))
+
+def lines.start(ls: List<&2, String>, +prefix: String) -> Bool:
+  match ls:
+    case Nil{}:
       True{}
-    case +x <> rest +l <> more:
-      Bool.and(String.starts_with(l, prefix ++ ab12(x)), said.first(rest, more, prefix))
+    case +l <> rest:
+      Bool.and(String.starts_with(l, prefix), lines.start(rest, prefix))
+
+def dry.said(xs: List<&2, String>, ls: List<&2, String>) -> Bool:
+  match xs ls:
     case _ Nil{}:
       False{}
+    case Nil{} +l <> more:
+      Bool.and(String.starts_with(l, "a tombstone would supersede "), lines.start(more, "would carry "))
+    case +x <> rest +l <> more:
+      Bool.and(dry.names(x, l), dry.said(rest, more))
 
 # What abandoning says it did: for a machine, decision 0074's header, each
 # revision written and each bookmark moved; for a person, what was
@@ -10058,14 +10074,6 @@ def abandon.named.r(n: Maybe<&2, String>) -> Result<&2, &2, Refused, Unit>:
     case None{}:
       Fail{Refused{2, "`abandon` wants the revision to abandon; it and everything standing on it go"}}
 
-# `abandon` is asked for a revision and a reason: where it goes on, a
-# target was named, a dry run did not also ask for `--fields`, and the
-# reason given is not blank. `LAWS.abandon_asks_for_a_revision_and_a_reason`.
-def abandon.asked(c: RwCmd, +m: String) -> Bool:
-  match c:
-    case RwCmd{mg, mv, o, n, d, f, y}:
-      Bool.and(Maybe.is_some(&2, String, n), Bool.and(Bool.not(Bool.and(d, f)), Bool.not(String.is_empty(Naming.trim_space(m)))))
-
 def rw.named(c: RwCmd) -> Maybe<&2, String>:
   match c:
     case RwCmd{m, mv, o, n, d, f, y}:
@@ -10081,6 +10089,35 @@ def rw.fields_of(c: RwCmd) -> Bool:
     case RwCmd{m, mv, o, n, d, f, y}:
       f
 
+# What `abandon` asks of its words before it reads any revision: a target,
+# and not both a dry run and `--fields`.
+def abandon.asks.r(+c: RwCmd) -> Result<&2, &2, Refused, RwCmd>:
+  do Result<&2, &2, Refused, RwCmd>:
+    n : Unit <- abandon.named.r(rw.named(c))
+    p : Unit <- rw.plan.r("abandon", rw.dry_of(c), rw.fields_of(c))
+    return c
+
+def abandon.words.r(+args: List<&2, String>) -> Result<&2, &2, Refused, RwCmd>:
+  Result.bind(&2, &2, Refused, RwCmd, RwCmd, rw.args.r("abandon", args), c => abandon.asks.r(c))
+
+# Whether the revision `abandon` goes on to abandon is one it was asked
+# for: one of its words, and not a flag.
+# `LAWS.abandon_abandons_only_a_word_it_was_given`.
+def abandon.target.ok(+args: List<&2, String>, n: Maybe<&2, String>) -> Bool:
+  match n:
+    case Some{+t}:
+      Bool.and(Rev.member(args, t), Bool.not(String.starts_with(t, "-")))
+    case None{}:
+      False{}
+
+# The exit code a refusal gives, and 0 where nothing is refused.
+def refused.code(-A: Data, r: Result<&2, &2, Refused, A>) -> U32:
+  match r:
+    case Fail{Refused{code, msg}}:
+      code
+    case Done{x}:
+      0
+
 # `abandon <target> [-m <message>] [--only] [--dry-run] [--fields]`.
 def abandon(+args: List<&2, String>) -> IO(Unit):
   +st = Rev.member(args, "--fields")
@@ -10088,11 +10125,8 @@ def abandon(+args: List<&2, String>) -> IO(Unit):
     found : Result<&1, &1, U32 & String, String> <- Store.root.found()
     root : String <- record.root(st, found)
     +r : String = root
-    c : RwCmd <- refused.io(RwCmd, rw.args.r("abandon", args))
-    +c2 : RwCmd = c
-    refused.io(Unit, abandon.named.r(rw.named(c2)))
-    refused.io(Unit, rw.plan.r("abandon", rw.dry_of(c2), rw.fields_of(c2)))
-    abandon.go(st, r, c2)
+    c : RwCmd <- refused.io(RwCmd, abandon.words.r(args))
+    abandon.go(st, r, c)
 
 # amend
 # -----
@@ -10280,8 +10314,9 @@ def carry.said(+fields: Bool, +dry: Bool, +steps: List<&2, Step>) -> IO(Unit):
   print_lines(carry.said.lines(fields, dry, steps))
 
 # What `--fields` says of the revisions an act wrote, as decision 0074 has
-# it: `historica-wrote-1` first, and each revision written named once, in
-# digest order, by a `revision` line. `LAWS.writes_say_what_they_wrote`.
+# it: `historica-wrote-1` first, and then, read back from its `revision`
+# lines, each revision written, once, in digest order, and nothing else.
+# `LAWS.writes_say_what_they_wrote`.
 def fields.revision(r: Maybe<&2, String>, later: List<&2, String>) -> List<&2, String>:
   match r:
     case Some{x}:
@@ -10315,7 +10350,7 @@ def fields.ok(+written: List<&2, String>, ls: List<&2, String>) -> Bool:
     case Nil{}:
       False{}
     case +l <> +rest:
-      Bool.and(String.eq(l, WROTE()), Bool.and(rising(fields.revisions(rest)), all_held(written, fields.revisions(rest))))
+      Bool.and(String.eq(l, WROTE()), Bool.and(rising(fields.revisions(rest)), Bool.and(all_held(written, fields.revisions(rest)), all_held(fields.revisions(rest), written))))
 
 def carry.target.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, String>>:
   match named:
