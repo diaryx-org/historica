@@ -1516,3 +1516,15 @@ law record_reads_lines_as_text:
   for hs: List<&2, Main.Here>
   for e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}
   {Main.utf8.all(reads, Main.lined_added(ks, hs)) == True{} : Bool}
+
+# What `record` reads of the position, to state an edit against it, is
+# the store's replay of each file of lines it edits: one reading of each
+# file, in the order asked, where every replay succeeds.
+law record_reads_the_position:
+  for +older: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +left: String
+  for files: List<&2, String>
+  for bs: List<&2, Main.Before>
+  for e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
+  {Main.befores.read(older, ds, left, files, bs) == True{} : Bool}
