@@ -23,6 +23,10 @@
 #   bend main.bend -- status [--onto <target>] [--merge <target>]..
 #                                            where the folder is, and what it
 #                                            differs by
+#   bend main.bend -- update [<target>] [--dry-run]
+#                                            the folder made to hold a head
+#   bend main.bend -- merge [<target>..]     what the heads say together,
+#                                            written into the folder
 #   bend main.bend -- forget <target> <path> [--lines <first>..<last>]
 #                                            destroy some of what history
 #                                            holds of a file, keeping its shape
@@ -57,10 +61,12 @@ import ./prune.bend as Prune
 import ./receive.bend as Receive
 import ./offer.bend as Offer
 import ./export.bend as Export
+import ./update.bend as U
+import ./merging.bend as M
 import ./forget.bend as F
 
 def usage() -> IO(Unit):
-  C.die(Unit, 2, "usage: init [<dir>] | log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | arrange [-n|--dry-run] [--refile] | prune [--dry-run] [--fields] | receive <dir> [--dry-run] [--join-unrelated] [--fields] | forget <target> <path> [--lines <first>..<last>] [--dry-run] [--fields] | offer <dir> | export <dir> [<target>] [--files-only] [-n|--dry-run] | replay <ops docs..> | opdiff <parent> <child>")
+  C.die(Unit, 2, "usage: init [<dir>] | log [<target>|<from>..<to>] [--limit <n>] [--author <text>] [--grep <text>] [--since <when>] [--until <when>] [--path <path>] [--fields] | show <target> [<path>] | files <target> | cat <target> <path> | check | names | diff [<target>] [<path>] [--onto <target>] [--color <when>] | blame [<target>] <path> [--lines <first>..<last>] | status [--onto <target>] [--merge <target>] | name <bookmark> <target> [<path>] [--revision|--change] [--private|--shared] [--fields] | name --delete <bookmark> | record --dry-run [<path>..] [--onto <target>] [--merge <target>] [--move <old>=<new>] [--at <file>=<path>] [--accept <path>] [--bytes <path>] [--lines <path>] | update [<target>] [--dry-run] | merge [<target>..] | arrange [-n|--dry-run] [--refile] | prune [--dry-run] [--fields] | receive <dir> [--dry-run] [--join-unrelated] [--fields] | forget <target> <path> [--lines <first>..<last>] [--dry-run] [--fields] | offer <dir> | export <dir> [<target>] [--files-only] [-n|--dry-run] | replay <ops docs..> | opdiff <parent> <child>")
 
 def dispatch(args: List<&2, String>) -> IO(Unit):
   match args:
@@ -100,6 +106,10 @@ def dispatch(args: List<&2, String>) -> IO(Unit):
       C.carry(args)
     case "init" <> args:
       C.init(args)
+    case "update" <> args:
+      U.update(args)
+    case "merge" <> args:
+      M.merge(args)
     case "arrange" <> args:
       Arrange.arrange(args)
     case "prune" <> args:
