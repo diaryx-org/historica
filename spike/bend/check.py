@@ -3556,7 +3556,10 @@ def check_mutations(temporary):
             "log lists a revision no filter was asked of",
             "      keep_full(keeps(fl, f), f, kept(fl, rest))",
             "      keep_full(True{}, f, kept(fl, rest))",
-            "log_lemmas.kept_ok",
+            # Written against `log_lemmas.kept_ok`; the checker stops
+            # first at `listing_lemmas.kept_in`, which reads the
+            # same filter.
+            "listing_lemmas.kept_in",
             "commands.bend",
         ),
         (
@@ -4846,7 +4849,10 @@ def check_mutations(temporary):
             "status refuses a file of lines at another path than its own",
             '      [Obs.Refused{path, "recorded as lines and no longer UTF-8 text; drop it and add it again"}]',
             '      [Obs.Refused{SNil{}, "recorded as lines and no longer UTF-8 text; drop it and add it again"}]',
-            "survey_lemmas.each_changed",
+            # Written against `survey_lemmas.each_changed`; the checker stops
+            # first at `status_lemmas.disputed_file`, which reads the same
+            # refusal for a disputed file that is no longer text.
+            "status_lemmas.disputed_file",
             "survey.bend",
         ),
         (
@@ -5031,7 +5037,10 @@ def check_mutations(temporary):
             "diff looks up a file's statement by its path",
             "  maybe_eq(stated_digest(eds, origin(os, here.file(h))), Some{digest})",
             "  maybe_eq(stated_digest(eds, origin(os, here.path(h))), Some{digest})",
-            "plan_lemmas.believed",
+            # Written against `plan_lemmas.believed`; the checker stops
+            # first at `fetch_lemmas.plan_same`, which reads the same
+            # lookup of the file's statement.
+            "fetch_lemmas.plan_same",
             "commands.bend",
         ),
         (
@@ -5507,7 +5516,10 @@ def check_mutations(temporary):
             "abandon takes a flag for its target",
             "  Bool.pick(WWord, String.starts_with(w, \"-\"), WWord.Flag{}, WWord.Word{})))))))",
             "  Bool.pick(WWord, String.starts_with(w, \"--\"), WWord.Flag{}, WWord.Word{})))))))",
-            "rewrite_lemmas.word_plain",
+            # Written against `rewrite_lemmas.word_plain`; the checker stops
+            # first at `record_lemmas.wword_word`, which reads the same
+            # word as a flag.
+            "record_lemmas.wword_word",
             "commands.bend",
         ),
         (
