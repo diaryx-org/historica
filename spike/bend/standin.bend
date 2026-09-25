@@ -522,3 +522,37 @@ def docs.like(a: List<&2, List<&2, Ops.Op>>, b: List<&2, List<&2, Ops.Op>>) -> B
       Bool.and(ops.like(x, y), docs.like(xs, ys))
     case _ _:
       False{}
+
+# What a stand-in is owed
+# -----------------------
+
+# A document read where a stand-in sits beside it owes the stand-in every
+# item it forgets: an item the stand-in forgets is forgotten in what is
+# read, and one it keeps says nothing. Stated item by item, over runs as
+# long as the stand-in's, so a stale replica's narrower redaction can be
+# held to the same measure as a wider one.
+# `LAWS.standins_beside_forget_all_they_say` is stated over it.
+def item.covers(s: Ops.Item, r: Ops.Item) -> Bool:
+  match s r:
+    case Ops.Item{t1, n1, True{}} Ops.Item{t2, n2, f2}:
+      f2
+    case Ops.Item{t1, n1, False{}} r2:
+      True{}
+
+def items.covers(ss: List<&2, Ops.Item>, rs: List<&2, Ops.Item>) -> Bool:
+  match ss rs:
+    case Nil{} Nil{}:
+      True{}
+    case s <> ss2 r <> rs2:
+      Bool.and(item.covers(s, r), items.covers(ss2, rs2))
+    case _ _:
+      False{}
+
+def ops.covers(ss: List<&2, Ops.Op>, rs: List<&2, Ops.Op>) -> Bool:
+  match ss rs:
+    case Nil{} Nil{}:
+      True{}
+    case Ops.Op{k1, at1, i1} <> ra Ops.Op{k2, at2, i2} <> rb:
+      Bool.and(items.covers(i1, i2), ops.covers(ra, rb))
+    case _ _:
+      False{}

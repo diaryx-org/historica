@@ -99,6 +99,18 @@ by nothing else: so then, and only then, every command that fetches lists
 first header says they `forget` a digest it asked for. The Rust tool asks
 its catalogue in `cache/` first, and makes the same pass where the
 catalogue names none; the port reads no cache, and always makes it.
+For a digest the store does hold, a stand-in may still sit beside it, and
+there the Rust store asks its catalogue alone. So does the port: every
+fetch asks `Store.at` in its `forgets` form — `forgets` on the line after
+the root — and the host answers, after a path for each digest, each
+document its index says forgets one of them, `<digest> <path>` a line,
+taking the catalogue's `forgets` column for a path it accounts for and a
+document's first header for one it reads. That is the same pass the host
+makes for every answer, so it costs nothing more. The port reads what is
+named and asks each document again what it forgets before folding it in.
+`status` and `diff` over the folder ask the same form of every document
+the revisions name, and replay a file one of whose documents is missing or
+stood in for rather than settle it by a digest.
 `check` reports every file a store holds, so it lists them, reads and parses
 the ones with a grammar, and asks `Store.digests` for the digest and the size
 of each payload.
@@ -147,7 +159,12 @@ destroyed payload, or under its own digest — and only then asks
 `Store.remove` to destroy each original, with `operations/` as the
 directory its tidying stops at; then it lists `cache/` and asks
 `Store.remove` for each entry named by a digest, with `cache/` as the
-boundary, which leaves the note and the catalogues. Which documents are
+boundary, which leaves the note and the catalogues. Last it lists
+`operations/` a directory at a time with `Store.folder`, as the working
+copy's walk lists the folder, and asks `Store.remove` for each directory
+there whose listing is empty — the effect takes an empty directory as it
+takes a file, refuses one holding anything, and removes each directory
+above it left empty, `operations/` itself kept. Which documents are
 rewritten, what each stand-in says, where it is filed, and what is
 destroyed are all decided in Bend first.
 

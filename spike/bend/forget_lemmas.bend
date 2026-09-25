@@ -963,3 +963,293 @@ def others_case(m: Bool, +fs: List<&2, Main.Full>, +file: String, +t: String, em
 # one it forgets.
 def others_exclude(+fs: List<&2, Main.Full>, +file: String, +t: String) -> {Rev.member(Fg.others(fs, file, t), t) == False{} : Bool}:
   others_case(Rev.member(Fg.others(fs, file, t), t), fs, file, t, {==})
+
+# Stand-ins beside a held original
+# --------------------------------
+
+# A stand-in of the held shape, folded in, leaves forgotten every item it
+# forgets; and folding more in never brings one back.
+def item_cover_union(s: Ops.Item, h: Ops.Item) -> {Stand.item.covers(s, Stand.item.union(h, s)) == True{} : Bool}:
+  match s h:
+    case Ops.Item{ts, ns, True{}} Ops.Item{t, n, f}:
+      {==}
+    case Ops.Item{ts, ns, False{}} Ops.Item{t, n, f}:
+      {==}
+
+def items_cover_union(ss: List<&2, Ops.Item>, hs: List<&2, Ops.Item>, +e: {Stand.items.shape(hs, ss) == True{} : Bool}) -> {Stand.items.covers(ss, Stand.items.union(hs, ss)) == True{} : Bool}:
+  match ss hs:
+    case Nil{} Nil{}:
+      {==}
+    case Nil{} Ops.Item{+t, +n, +f} <> +hr:
+      Empty.absurd({Stand.items.covers(Nil{}, Stand.items.union(Ops.Item{t, n, f} <> hr, Nil{})) == True{} : Bool}, S.false_true(e))
+    case +s <> +sr Nil{}:
+      Empty.absurd({Stand.items.covers(s <> sr, Stand.items.union(Nil{}, s <> sr)) == True{} : Bool}, S.false_true(e))
+    case Ops.Item{+ts, +ns, +fs} <> +sr Ops.Item{+t, +n, +f} <> +hr:
+      AL.and_intro(Stand.item.covers(Ops.Item{ts, ns, fs}, Stand.item.union(Ops.Item{t, n, f}, Ops.Item{ts, ns, fs})), Stand.items.covers(sr, Stand.items.union(hr, sr)),
+        item_cover_union(Ops.Item{ts, ns, fs}, Ops.Item{t, n, f}),
+        items_cover_union(sr, hr, Comp.and_right(Bool.not(Bool.xor(n, ns)), Stand.items.shape(hr, sr), e)))
+
+def ops_cover_union(ss: List<&2, Ops.Op>, hs: List<&2, Ops.Op>, +e: {Stand.ops.shape(hs, ss) == True{} : Bool}) -> {Stand.ops.covers(ss, Stand.ops.union(hs, ss)) == True{} : Bool}:
+  match ss hs:
+    case Nil{} Nil{}:
+      {==}
+    case Nil{} Ops.Op{+k, +at, +hi} <> +hr:
+      Empty.absurd({Stand.ops.covers(Nil{}, Stand.ops.union(Ops.Op{k, at, hi} <> hr, Nil{})) == True{} : Bool}, S.false_true(e))
+    case Ops.Op{+ks, +ats, +si} <> +sr Nil{}:
+      Empty.absurd({Stand.ops.covers(Ops.Op{ks, ats, si} <> sr, Stand.ops.union(Nil{}, Ops.Op{ks, ats, si} <> sr)) == True{} : Bool}, S.false_true(e))
+    case Ops.Op{+ks, +ats, +si} <> +sr Ops.Op{+k, +at, +hi} <> +hr:
+      +e2 = Comp.and_right(Nat.is_eq(at, ats), Bool.and(Stand.items.shape(hi, si), Stand.ops.shape(hr, sr)), Comp.and_right(Ops.verb_is(k, ks), Bool.and(Nat.is_eq(at, ats), Bool.and(Stand.items.shape(hi, si), Stand.ops.shape(hr, sr))), e))
+      AL.and_intro(Stand.items.covers(si, Stand.items.union(hi, si)), Stand.ops.covers(sr, Stand.ops.union(hr, sr)),
+        items_cover_union(si, hi, Comp.and_left(Stand.items.shape(hi, si), Stand.ops.shape(hr, sr), e2)),
+        ops_cover_union(sr, hr, Comp.and_right(Stand.items.shape(hi, si), Stand.ops.shape(hr, sr), e2)))
+
+def item_cover_mono(s: Ops.Item, r: Ops.Item, x: Ops.Item, +h: {Stand.item.covers(s, r) == True{} : Bool}) -> {Stand.item.covers(s, Stand.item.union(r, x)) == True{} : Bool}:
+  match s r x:
+    case Ops.Item{ts, ns, True{}} Ops.Item{tr, nr, True{}} Ops.Item{tx, nx, True{}}:
+      {==}
+    case Ops.Item{ts, ns, True{}} Ops.Item{tr, nr, True{}} Ops.Item{tx, nx, False{}}:
+      {==}
+    case Ops.Item{+ts, +ns, True{}} Ops.Item{+tr, +nr, False{}} +x2:
+      Empty.absurd({Stand.item.covers(Ops.Item{ts, ns, True{}}, Stand.item.union(Ops.Item{tr, nr, False{}}, x2)) == True{} : Bool}, S.false_true(h))
+    case Ops.Item{ts, ns, False{}} r2 x2:
+      {==}
+
+def items_cover_mono(ss: List<&2, Ops.Item>, rs: List<&2, Ops.Item>, xs: List<&2, Ops.Item>, +h: {Stand.items.covers(ss, rs) == True{} : Bool}) -> {Stand.items.covers(ss, Stand.items.union(rs, xs)) == True{} : Bool}:
+  match ss rs xs:
+    case Nil{} Nil{} x:
+      {==}
+    case Nil{} +r <> +rr +x:
+      Empty.absurd({Stand.items.covers(Nil{}, Stand.items.union(r <> rr, x)) == True{} : Bool}, S.false_true(h))
+    case +s <> +sr Nil{} +x:
+      Empty.absurd({Stand.items.covers(s <> sr, Stand.items.union(Nil{}, x)) == True{} : Bool}, S.false_true(h))
+    case +s <> +sr +r <> +rr Nil{}:
+      h
+    case +s <> +sr +r <> +rr +x <> +xr:
+      AL.and_intro(Stand.item.covers(s, Stand.item.union(r, x)), Stand.items.covers(sr, Stand.items.union(rr, xr)),
+        item_cover_mono(s, r, x, Comp.and_left(Stand.item.covers(s, r), Stand.items.covers(sr, rr), h)),
+        items_cover_mono(sr, rr, xr, Comp.and_right(Stand.item.covers(s, r), Stand.items.covers(sr, rr), h)))
+
+def ops_cover_mono(ss: List<&2, Ops.Op>, rs: List<&2, Ops.Op>, xs: List<&2, Ops.Op>, +h: {Stand.ops.covers(ss, rs) == True{} : Bool}) -> {Stand.ops.covers(ss, Stand.ops.union(rs, xs)) == True{} : Bool}:
+  match ss rs xs:
+    case Nil{} Nil{} x:
+      {==}
+    case Nil{} Ops.Op{+kr, +atr, +ri} <> +rr +x:
+      Empty.absurd({Stand.ops.covers(Nil{}, Stand.ops.union(Ops.Op{kr, atr, ri} <> rr, x)) == True{} : Bool}, S.false_true(h))
+    case Ops.Op{+ks, +ats, +si} <> +sr Nil{} +x:
+      Empty.absurd({Stand.ops.covers(Ops.Op{ks, ats, si} <> sr, Stand.ops.union(Nil{}, x)) == True{} : Bool}, S.false_true(h))
+    case Ops.Op{+ks, +ats, +si} <> +sr Ops.Op{+kr, +atr, +ri} <> +rr Nil{}:
+      h
+    case Ops.Op{ks, ats, +si} <> +sr Ops.Op{kr, atr, +ri} <> +rr Ops.Op{kx, atx, +xi} <> +xr:
+      AL.and_intro(Stand.items.covers(si, Stand.items.union(ri, xi)), Stand.ops.covers(sr, Stand.ops.union(rr, xr)),
+        items_cover_mono(si, ri, xi, Comp.and_left(Stand.items.covers(si, ri), Stand.ops.covers(sr, rr), h)),
+        ops_cover_mono(sr, rr, xr, Comp.and_right(Stand.items.covers(si, ri), Stand.ops.covers(sr, rr), h)))
+
+def pick_cover(ss: List<&2, Ops.Op>, rs: List<&2, Ops.Op>, xs: List<&2, Ops.Op>, same: Bool, +h: {Stand.ops.covers(ss, rs) == True{} : Bool}) -> {Stand.ops.covers(ss, Stand.ops.fold.pick(rs, xs, same)) == True{} : Bool}:
+  match same:
+    case True{}:
+      ops_cover_mono(ss, rs, xs, h)
+    case False{}:
+      h
+
+def folded_cover(ds: List<&2, Ops.Doc>, +ss: List<&2, Ops.Op>, +held: List<&2, Ops.Op>, +h: {Stand.ops.covers(ss, held) == True{} : Bool}) -> {Stand.ops.covers(ss, Stand.ops.folded(ds, held)) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      h
+    case Ops.Doc{f, r, +stated} <> +rest:
+      folded_cover(rest, ss, Stand.ops.fold.pick(held, stated, Stand.ops.shape(held, stated)), pick_cover(ss, held, stated, Stand.ops.shape(held, stated), h))
+
+# What a stand-in of the held shape forgets is forgotten in what is read,
+# whatever other stand-ins are folded in after it.
+def forgets_all(f: Maybe<&2, String>, r: Maybe<&2, String>, +stated: List<&2, Ops.Op>, rest: List<&2, Ops.Doc>, +held: List<&2, Ops.Op>, +e: {Stand.ops.shape(held, stated) == True{} : Bool}) -> {Stand.ops.covers(stated, Stand.ops.folded(Ops.Doc{f, r, stated} <> rest, held)) == True{} : Bool}:
+  %Equal.sym(Bool, Stand.ops.shape(held, stated), True{}, e) : {Stand.ops.covers(stated, Stand.ops.folded(rest, Stand.ops.fold.pick(held, stated, _))) == True{} : Bool}
+  folded_cover(rest, stated, Stand.ops.union(held, stated), ops_cover_union(stated, held, e))
+
+def items_self(xs: List<&2, Ops.Item>) -> {Stand.items.like(xs, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(Stand.item.like(x, x), Stand.items.like(rest, rest), item_self(x), items_self(rest))
+
+def ops_self(xs: List<&2, Ops.Op>) -> {Stand.ops.like(xs, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case Ops.Op{k, +at, +items} <> +rest:
+      %Equal.sym(Bool, Ops.verb_is(k, k), True{}, verb_refl(k)) : {Bool.and(_, Bool.and(Nat.is_eq(at, at), Bool.and(Stand.items.like(items, items), Stand.ops.like(rest, rest)))) == True{} : Bool}
+      %Equal.sym(Bool, Nat.is_eq(at, at), True{}, Comp.eq_refl(at)) : {Bool.and(True{}, Bool.and(_, Bool.and(Stand.items.like(items, items), Stand.ops.like(rest, rest)))) == True{} : Bool}
+      %Equal.sym(Bool, Stand.items.like(items, items), True{}, items_self(items)) : {Bool.and(True{}, Bool.and(True{}, Bool.and(_, Stand.ops.like(rest, rest)))) == True{} : Bool}
+      ops_self(rest)
+
+# A stand-in's item folded into one read like the original stays like it:
+# forgotten, it takes the text and keeps the terminator; kept, it changes
+# nothing.
+def item_union_like(x: Ops.Item, c: Ops.Item, s: Ops.Item, +h: {Stand.item.like(x, c) == True{} : Bool}) -> {Stand.item.like(x, Stand.item.union(c, s)) == True{} : Bool}:
+  match x c s:
+    case Ops.Item{+tx, +nx, +fx} Ops.Item{+tc, +nc, True{}} Ops.Item{ts, ns, True{}}:
+      h
+    case Ops.Item{+tx, +nx, +fx} Ops.Item{+tc, +nc, False{}} Ops.Item{ts, ns, True{}}:
+      Comp.and_right(T.same(tx, tc), Bool.not(Bool.xor(nx, nc)), Comp.and_right(Bool.not(fx), Bool.and(T.same(tx, tc), Bool.not(Bool.xor(nx, nc))), h))
+    case Ops.Item{+tx, +nx, +fx} Ops.Item{+tc, +nc, +fc} Ops.Item{ts, ns, False{}}:
+      h
+
+def items_union_like(xs: List<&2, Ops.Item>, cs: List<&2, Ops.Item>, ss: List<&2, Ops.Item>, +h: {Stand.items.like(xs, cs) == True{} : Bool}) -> {Stand.items.like(xs, Stand.items.union(cs, ss)) == True{} : Bool}:
+  match xs cs ss:
+    case Nil{} Nil{} s:
+      {==}
+    case Nil{} +c <> +cr +s:
+      Empty.absurd({Stand.items.like(Nil{}, Stand.items.union(c <> cr, s)) == True{} : Bool}, S.false_true(h))
+    case +x <> +xr Nil{} +s:
+      Empty.absurd({Stand.items.like(x <> xr, Stand.items.union(Nil{}, s)) == True{} : Bool}, S.false_true(h))
+    case +x <> +xr +c <> +cr Nil{}:
+      h
+    case +x <> +xr +c <> +cr +s <> +sr:
+      AL.and_intro(Stand.item.like(x, Stand.item.union(c, s)), Stand.items.like(xr, Stand.items.union(cr, sr)),
+        item_union_like(x, c, s, Comp.and_left(Stand.item.like(x, c), Stand.items.like(xr, cr), h)),
+        items_union_like(xr, cr, sr, Comp.and_right(Stand.item.like(x, c), Stand.items.like(xr, cr), h)))
+
+def ops_union_like(xs: List<&2, Ops.Op>, cs: List<&2, Ops.Op>, ss: List<&2, Ops.Op>, +h: {Stand.ops.like(xs, cs) == True{} : Bool}) -> {Stand.ops.like(xs, Stand.ops.union(cs, ss)) == True{} : Bool}:
+  match xs cs ss:
+    case Nil{} Nil{} s:
+      {==}
+    case Nil{} Ops.Op{+kc, +atc, +ic} <> +cr +s:
+      Empty.absurd({Stand.ops.like(Nil{}, Stand.ops.union(Ops.Op{kc, atc, ic} <> cr, s)) == True{} : Bool}, S.false_true(h))
+    case Ops.Op{+kx, +atx, +ix} <> +xr Nil{} +s:
+      Empty.absurd({Stand.ops.like(Ops.Op{kx, atx, ix} <> xr, Stand.ops.union(Nil{}, s)) == True{} : Bool}, S.false_true(h))
+    case Ops.Op{+kx, +atx, +ix} <> +xr Ops.Op{+kc, +atc, +ic} <> +cr Nil{}:
+      h
+    case Ops.Op{+kx, +atx, +ix} <> +xr Ops.Op{+kc, +atc, +ic} <> +cr Ops.Op{ks, ats, +si} <> +sr:
+      +hr = Comp.and_right(Ops.verb_is(kx, kc), Bool.and(Nat.is_eq(atx, atc), Bool.and(Stand.items.like(ix, ic), Stand.ops.like(xr, cr))), h)
+      +hr2 = Comp.and_right(Nat.is_eq(atx, atc), Bool.and(Stand.items.like(ix, ic), Stand.ops.like(xr, cr)), hr)
+      AL.and_intro(Ops.verb_is(kx, kc), Bool.and(Nat.is_eq(atx, atc), Bool.and(Stand.items.like(ix, Stand.items.union(ic, si)), Stand.ops.like(xr, Stand.ops.union(cr, sr)))),
+        Comp.and_left(Ops.verb_is(kx, kc), Bool.and(Nat.is_eq(atx, atc), Bool.and(Stand.items.like(ix, ic), Stand.ops.like(xr, cr))), h),
+        AL.and_intro(Nat.is_eq(atx, atc), Bool.and(Stand.items.like(ix, Stand.items.union(ic, si)), Stand.ops.like(xr, Stand.ops.union(cr, sr))),
+          Comp.and_left(Nat.is_eq(atx, atc), Bool.and(Stand.items.like(ix, ic), Stand.ops.like(xr, cr)), hr),
+          AL.and_intro(Stand.items.like(ix, Stand.items.union(ic, si)), Stand.ops.like(xr, Stand.ops.union(cr, sr)),
+            items_union_like(ix, ic, si, Comp.and_left(Stand.items.like(ix, ic), Stand.ops.like(xr, cr), hr2)),
+            ops_union_like(xr, cr, sr, Comp.and_right(Stand.items.like(ix, ic), Stand.ops.like(xr, cr), hr2)))))
+
+def pick_like(xs: List<&2, Ops.Op>, held: List<&2, Ops.Op>, stated: List<&2, Ops.Op>, same: Bool, +h: {Stand.ops.like(xs, held) == True{} : Bool}) -> {Stand.ops.like(xs, Stand.ops.fold.pick(held, stated, same)) == True{} : Bool}:
+  match same:
+    case True{}:
+      ops_union_like(xs, held, stated, h)
+    case False{}:
+      h
+
+def folded_like(ds: List<&2, Ops.Doc>, +xs: List<&2, Ops.Op>, +held: List<&2, Ops.Op>, +h: {Stand.ops.like(xs, held) == True{} : Bool}) -> {Stand.ops.like(xs, Stand.ops.folded(ds, held)) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      h
+    case Ops.Doc{f, r, +stated} <> +rest:
+      folded_like(rest, xs, Stand.ops.fold.pick(held, stated, Stand.ops.shape(held, stated)), pick_like(xs, held, stated, Stand.ops.shape(held, stated), h))
+
+# Whatever documents say they forget one the store holds, what is read is
+# that document with each item as it was or forgotten.
+def only_forget(ds: List<&2, Ops.Doc>, +ops: List<&2, Ops.Op>) -> {Stand.ops.like(ops, Stand.ops.folded(ds, ops)) == True{} : Bool}:
+  folded_like(ds, ops, ops, ops_self(ops))
+
+# The union is indifferent to the order stand-ins come in: item by item,
+# forgetting is forgetting whichever came first.
+def item_union_comm(h: Ops.Item, a: Ops.Item, b: Ops.Item) -> {Stand.item.union(Stand.item.union(h, a), b) == Stand.item.union(Stand.item.union(h, b), a) : Ops.Item}:
+  match h a b:
+    case Ops.Item{t, n, f} Ops.Item{ta, na, True{}} Ops.Item{tb, nb, True{}}:
+      {==}
+    case Ops.Item{t, n, f} Ops.Item{ta, na, True{}} Ops.Item{tb, nb, False{}}:
+      {==}
+    case Ops.Item{t, n, f} Ops.Item{ta, na, False{}} Ops.Item{tb, nb, True{}}:
+      {==}
+    case Ops.Item{t, n, f} Ops.Item{ta, na, False{}} Ops.Item{tb, nb, False{}}:
+      {==}
+
+def items_union_comm(hs: List<&2, Ops.Item>, ys: List<&2, Ops.Item>, zs: List<&2, Ops.Item>) -> {Stand.items.union(Stand.items.union(hs, ys), zs) == Stand.items.union(Stand.items.union(hs, zs), ys) : List<&2, Ops.Item>}:
+  match hs ys zs:
+    case Nil{} y z:
+      {==}
+    case h <> hr Nil{} Nil{}:
+      {==}
+    case h <> hr Nil{} z <> zr:
+      {==}
+    case h <> hr y <> yr Nil{}:
+      {==}
+    case +h <> +hr +y <> +yr +z <> +zr:
+      %item_union_comm(h, y, z) : {Stand.item.union(Stand.item.union(h, y), z) <> Stand.items.union(Stand.items.union(hr, yr), zr) == _ <> Stand.items.union(Stand.items.union(hr, zr), yr) : List<&2, Ops.Item>}
+      %items_union_comm(hr, yr, zr) : {Stand.item.union(Stand.item.union(h, y), z) <> Stand.items.union(Stand.items.union(hr, yr), zr) == Stand.item.union(Stand.item.union(h, y), z) <> _ : List<&2, Ops.Item>}
+      {==}
+
+def ops_union_comm(hs: List<&2, Ops.Op>, ys: List<&2, Ops.Op>, zs: List<&2, Ops.Op>) -> {Stand.ops.union(Stand.ops.union(hs, ys), zs) == Stand.ops.union(Stand.ops.union(hs, zs), ys) : List<&2, Ops.Op>}:
+  match hs ys zs:
+    case Nil{} y z:
+      {==}
+    case Ops.Op{k, at, hi} <> hr Nil{} Nil{}:
+      {==}
+    case Ops.Op{k, at, hi} <> hr Nil{} Ops.Op{kz, atz, zi} <> zr:
+      {==}
+    case Ops.Op{k, at, hi} <> hr Ops.Op{ky, aty, yi} <> yr Nil{}:
+      {==}
+    case Ops.Op{+k, +at, +hi} <> +hr Ops.Op{ky, aty, +yi} <> +yr Ops.Op{kz, atz, +zi} <> +zr:
+      %items_union_comm(hi, yi, zi) : {Ops.Op{k, at, Stand.items.union(Stand.items.union(hi, yi), zi)} <> Stand.ops.union(Stand.ops.union(hr, yr), zr) == Ops.Op{k, at, _} <> Stand.ops.union(Stand.ops.union(hr, zr), yr) : List<&2, Ops.Op>}
+      %ops_union_comm(hr, yr, zr) : {Ops.Op{k, at, Stand.items.union(Stand.items.union(hi, yi), zi)} <> Stand.ops.union(Stand.ops.union(hr, yr), zr) == Ops.Op{k, at, Stand.items.union(Stand.items.union(hi, yi), zi)} <> _ : List<&2, Ops.Op>}
+      {==}
+
+# Folding a stand-in in changes no shape, so whether a later one is of the
+# held shape does not depend on what came before it.
+def items_shape_union(hs: List<&2, Ops.Item>, ys: List<&2, Ops.Item>, zs: List<&2, Ops.Item>) -> {Stand.items.shape(Stand.items.union(hs, ys), zs) == Stand.items.shape(hs, zs) : Bool}:
+  match hs ys zs:
+    case Nil{} y z:
+      {==}
+    case h <> hr Nil{} z:
+      {==}
+    case Ops.Item{t, n, f} <> hr Ops.Item{ty, ny, True{}} <> yr Nil{}:
+      {==}
+    case Ops.Item{t, n, f} <> hr Ops.Item{ty, ny, False{}} <> yr Nil{}:
+      {==}
+    case Ops.Item{t, +n, f} <> +hr Ops.Item{ty, ny, True{}} <> +yr Ops.Item{tz, +nz, fz} <> +zr:
+      %items_shape_union(hr, yr, zr) : {Bool.and(Bool.not(Bool.xor(n, nz)), Stand.items.shape(Stand.items.union(hr, yr), zr)) == Bool.and(Bool.not(Bool.xor(n, nz)), _) : Bool}
+      {==}
+    case Ops.Item{t, +n, f} <> +hr Ops.Item{ty, ny, False{}} <> +yr Ops.Item{tz, +nz, fz} <> +zr:
+      %items_shape_union(hr, yr, zr) : {Bool.and(Bool.not(Bool.xor(n, nz)), Stand.items.shape(Stand.items.union(hr, yr), zr)) == Bool.and(Bool.not(Bool.xor(n, nz)), _) : Bool}
+      {==}
+
+def ops_shape_union(hs: List<&2, Ops.Op>, ys: List<&2, Ops.Op>, zs: List<&2, Ops.Op>) -> {Stand.ops.shape(Stand.ops.union(hs, ys), zs) == Stand.ops.shape(hs, zs) : Bool}:
+  match hs ys zs:
+    case Nil{} y z:
+      {==}
+    case Ops.Op{k, at, hi} <> hr Nil{} z:
+      {==}
+    case Ops.Op{k, at, hi} <> hr Ops.Op{ky, aty, yi} <> yr Nil{}:
+      {==}
+    case Ops.Op{+k, +at, +hi} <> +hr Ops.Op{ky, aty, +yi} <> +yr Ops.Op{+kz, +atz, +zi} <> +zr:
+      %items_shape_union(hi, yi, zi) : {Bool.and(Ops.verb_is(k, kz), Bool.and(Nat.is_eq(at, atz), Bool.and(Stand.items.shape(Stand.items.union(hi, yi), zi), Stand.ops.shape(Stand.ops.union(hr, yr), zr)))) == Bool.and(Ops.verb_is(k, kz), Bool.and(Nat.is_eq(at, atz), Bool.and(_, Stand.ops.shape(hr, zr)))) : Bool}
+      %ops_shape_union(hr, yr, zr) : {Bool.and(Ops.verb_is(k, kz), Bool.and(Nat.is_eq(at, atz), Bool.and(Stand.items.shape(Stand.items.union(hi, yi), zi), Stand.ops.shape(Stand.ops.union(hr, yr), zr)))) == Bool.and(Ops.verb_is(k, kz), Bool.and(Nat.is_eq(at, atz), Bool.and(Stand.items.shape(Stand.items.union(hi, yi), zi), _))) : Bool}
+      {==}
+
+def pick_shape(hs: List<&2, Ops.Op>, ys: List<&2, Ops.Op>, s: Bool, zs: List<&2, Ops.Op>) -> {Stand.ops.shape(Stand.ops.fold.pick(hs, ys, s), zs) == Stand.ops.shape(hs, zs) : Bool}:
+  match s:
+    case True{}:
+      ops_shape_union(hs, ys, zs)
+    case False{}:
+      {==}
+
+def swap4(hs: List<&2, Ops.Op>, ys: List<&2, Ops.Op>, zs: List<&2, Ops.Op>, sy: Bool, sz: Bool) -> {Stand.ops.fold.pick(Stand.ops.fold.pick(hs, ys, sy), zs, sz) == Stand.ops.fold.pick(Stand.ops.fold.pick(hs, zs, sz), ys, sy) : List<&2, Ops.Op>}:
+  match sy sz:
+    case True{} True{}:
+      ops_union_comm(hs, ys, zs)
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def swap_pick(+hs: List<&2, Ops.Op>, +ys: List<&2, Ops.Op>, +zs: List<&2, Ops.Op>) -> {Stand.ops.fold.pick(Stand.ops.fold.pick(hs, ys, Stand.ops.shape(hs, ys)), zs, Stand.ops.shape(Stand.ops.fold.pick(hs, ys, Stand.ops.shape(hs, ys)), zs)) == Stand.ops.fold.pick(Stand.ops.fold.pick(hs, zs, Stand.ops.shape(hs, zs)), ys, Stand.ops.shape(Stand.ops.fold.pick(hs, zs, Stand.ops.shape(hs, zs)), ys)) : List<&2, Ops.Op>}:
+  %Equal.sym(Bool, Stand.ops.shape(Stand.ops.fold.pick(hs, ys, Stand.ops.shape(hs, ys)), zs), Stand.ops.shape(hs, zs), pick_shape(hs, ys, Stand.ops.shape(hs, ys), zs)) : {Stand.ops.fold.pick(Stand.ops.fold.pick(hs, ys, Stand.ops.shape(hs, ys)), zs, _) == Stand.ops.fold.pick(Stand.ops.fold.pick(hs, zs, Stand.ops.shape(hs, zs)), ys, Stand.ops.shape(Stand.ops.fold.pick(hs, zs, Stand.ops.shape(hs, zs)), ys)) : List<&2, Ops.Op>}
+  %Equal.sym(Bool, Stand.ops.shape(Stand.ops.fold.pick(hs, zs, Stand.ops.shape(hs, zs)), ys), Stand.ops.shape(hs, ys), pick_shape(hs, zs, Stand.ops.shape(hs, zs), ys)) : {Stand.ops.fold.pick(Stand.ops.fold.pick(hs, ys, Stand.ops.shape(hs, ys)), zs, Stand.ops.shape(hs, zs)) == Stand.ops.fold.pick(Stand.ops.fold.pick(hs, zs, Stand.ops.shape(hs, zs)), ys, _) : List<&2, Ops.Op>}
+  swap4(hs, ys, zs, Stand.ops.shape(hs, ys), Stand.ops.shape(hs, zs))
+
+# Two stand-ins next to each other fold alike in either order, so any
+# order of them does.
+def folded_swap(a: Ops.Doc, b: Ops.Doc, rest: List<&2, Ops.Doc>, +held: List<&2, Ops.Op>) -> {Stand.ops.folded(a <> b <> rest, held) == Stand.ops.folded(b <> a <> rest, held) : List<&2, Ops.Op>}:
+  match a b:
+    case Ops.Doc{fa, ra, +ys} Ops.Doc{fb, rb, +zs}:
+      %swap_pick(held, ys, zs) : {Stand.ops.folded(rest, Stand.ops.fold.pick(Stand.ops.fold.pick(held, ys, Stand.ops.shape(held, ys)), zs, Stand.ops.shape(Stand.ops.fold.pick(held, ys, Stand.ops.shape(held, ys)), zs))) == Stand.ops.folded(rest, _) : List<&2, Ops.Op>}
+      {==}

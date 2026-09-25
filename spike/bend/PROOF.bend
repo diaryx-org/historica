@@ -679,6 +679,16 @@ def Laws.chain_replays_like_through_standins(ds1, ds2, r1, r2, hd, hr):
 
 def Laws.forgetting_destroys_only_text(ops, ps, t, i):
   ForgetL.ops_forgot(ops, ps, t, i)
+
+def Laws.standins_beside_only_forget(ds, ops):
+  ForgetL.only_forget(ds, ops)
+
+def Laws.standins_beside_forget_all_they_say(f, r, stated, rest, held, e):
+  ForgetL.forgets_all(f, r, stated, rest, held, e)
+
+def Laws.standins_fold_in_any_order(a, b, rest, held):
+  ForgetL.folded_swap(a, b, rest, held)
+
 def Laws.name_reads_its_words(ws):
   NameL.args_said(ws)
 
