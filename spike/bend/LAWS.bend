@@ -67,7 +67,7 @@ import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
 import ./standing_lemmas.bend as StandingL
-import ./spelt_lemmas.bend as SpeltL
+import ./walked_lemmas.bend as WalkedL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -3674,10 +3674,18 @@ law export_spares_the_unrecorded:
   for +cds: List<&2, Store.Doc>
   {Export.caught.spares(seen, cfs, cds, Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, False{}, Export.recs(Export.seen.paths(seen), cfs, cds))) == True{} : Bool}
 
-# Every line of an `offer` manifest names a file by the digest the store's
-# listing gives the file at that path: each payload, document, revision,
-# rule, file of `claims/` and bookmark, group by group, so a fetcher that
-# checks a file against its line checks it against what the store holds.
+# Every line of an `offer` manifest names a file the store's listing
+# gives, by the digest the listing gives it: where `fetch` files the path
+# the line gives, the part of the listing the line's kind is drawn from —
+# the payloads, documents or revisions, the rule files or bookmark files
+# read from disk, the files of `claims/` — holds that label with that
+# digest. And every payload, document, revision and file of `claims/` the
+# listing holds has a line of its kind, at the path a fetcher asks for it
+# at, naming its digest; a rule or a bookmark is left out only where it is
+# private (`offer_names_no_private_rule`, `offer_names_no_private_bookmark`).
+# So a fetcher that checks a file against its line checks it against what
+# the store holds, and files it where the store has it. This is for a copy
+# whose directory's name has no `/` in it and is not `history`.
 law offer_names_each_file_by_its_digest:
   for +prefix: String
   for +s: Prune.Stored
@@ -3685,7 +3693,9 @@ law offer_names_each_file_by_its_digest:
   for +claims: List<&2, T.Split>
   for +rids: List<&2, T.Split>
   for +nids: List<&2, T.Split>
-  {Offer.manifest.from(prefix, s, marks, claims, rids, nids) == True{} : Bool}
+  for +hp: {T.has_char(prefix, '/') == False{} : Bool}
+  for +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}
+  {Bool.and(SortL.all_at(~Offer.Offered, ~OfferL.Listing, ~(c => o => OfferL.names_file(c, o)), OfferL.listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), OfferL.lists_all(OfferL.listing.of(s, claims, rids, nids), prefix, Offer.entries(prefix, s, marks, claims, rids, nids))) == True{} : Bool}
 
 # A path of ASCII is its own normal form C: normalising it, at every
 # boundary where a path arrives, changes nothing — which is very nearly
@@ -3744,7 +3754,7 @@ law nfc_leaves_separators_alone:
 law the_walk_yields_a_path_once:
   for +fs: List<&2, Folder.Found>
   for +rs: List<&2, T.Split>
-  {ListedL.rising(Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == True{} : Bool}
+  {WalkedL.rising(Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == True{} : Bool}
 
 # A file is opened where the folder spells it. The walk names a path in
 # normal form C, and the filesystem may spell it otherwise, so a read asks
@@ -3752,12 +3762,12 @@ law the_walk_yields_a_path_once:
 # lines the host writes for it is the last entry name whose normal form is
 # the path — a directory's, a file's, a link's own, never a link's target
 # and never a name that is not UTF-8 — and, where no entry's is, the path
-# as it is.
+# as it is; the host writes a file's runs and size with no space in them.
 law the_folder_spells_what_is_opened:
   for +es: List<&2, NfcL.Listed>
   for +want: String
-  for +h: {SpeltL.sized(es) == True{} : Bool}
-  {Folder.spelling(NfcL.listed.lines(es), want) == Maybe.default(&2, String, SpeltL.last_spelling(SpeltL.names(es), want), want) : String}
+  for +h: {WalkedL.sized(es) == True{} : Bool}
+  {Folder.spelling(NfcL.listed.lines(es), want) == Maybe.default(&2, String, WalkedL.last_spelling(WalkedL.names(es), want), want) : String}
 
 # A name that cannot be spelled is refused. Whatever a directory holds —
 # directories, files, links whatever their targets say, the rest — the
