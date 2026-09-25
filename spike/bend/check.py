@@ -1529,37 +1529,44 @@ def check_mutations(temporary):
             "advance reverses the moved prefix incorrectly",
             "advance(p, rest, it <> acc)",
             "advance(p, rest, List.append(&2, Item, acc, [it]))",
-            "LAWS.advance_exact",
+            # `LAWS.advance_exact` rejects it too; the checker meets the
+            # stand-in replay lemmas, which unfold the same walk, first.
+            "forget_lemmas.advance_like",
         ),
         (
             "delete ignores item disagreement",
             "drop_checked(rs, ss, Bool.and(ok, agrees(r, s)))",
             "drop_checked(rs, ss, ok)",
-            "LAWS.drop_checked_exact",
+            # And `LAWS.drop_checked_exact`, met after it.
+            "forget_lemmas.drop_like",
         ),
         (
             "cursor drops inserted items",
             "List.append(&2, Item, List.reverse(&2, Item, items), acc)",
             "acc",
-            "LAWS.cursor_walk_equivalent",
+            # And `LAWS.cursor_walk_equivalent`, met after it.
+            "forget_lemmas.go_like",
         ),
         (
             "cursor loses the trailing parent suffix",
             "Done{List.append(&2, Item, List.reverse(&2, Item, acc), state)}",
             "Done{List.reverse(&2, Item, acc)}",
-            "LAWS.cursor_walk_equivalent",
+            # And `LAWS.cursor_walk_equivalent`, met after it.
+            "forget_lemmas.go_end",
         ),
         (
             "cursor overwrites an earlier deletion error",
             'Maybe.or(&2, String, err, Bool.pick(Maybe<&2, String>, agreed, None{}, Some{"a delete at " ++ Nat.show(at) ++ " quotes lines the parent does not hold"}))',
             'Bool.pick(Maybe<&2, String>, agreed, None{}, Some{"a delete at " ++ Nat.show(at) ++ " quotes lines the parent does not hold"})',
-            "LAWS.cursor_walk_equivalent",
+            # And `LAWS.cursor_walk_equivalent`, met after it.
+            "forget_lemmas.go_like",
         ),
         (
             "public replay ignores the result digest",
             "apply.checked(result, items)\n\n# Blocks",
             "apply.checked(None{}, items)\n\n# Blocks",
-            "LAWS.cursor_apply_equivalent",
+            # And `LAWS.cursor_apply_equivalent`, met after it.
+            "forget_lemmas.apply_is",
         ),
         (
             "positional model loses the trailing-gap insertion",
@@ -2047,10 +2054,10 @@ def check_mutations(temporary):
         ),
         (
             "show finds a document whose digest the named one starts",
-            '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, doc_by_id(rest, id))',
-            '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, doc_by_id(rest, id))',
+            '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, held(rest, id))',
+            '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, held(rest, id))',
             "show_lemmas.by_id",
-            "commands.bend",
+            "standin.bend",
         ),
         (
             "cat prints through a link",
