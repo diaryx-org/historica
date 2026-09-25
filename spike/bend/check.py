@@ -4176,6 +4176,20 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export -n names a path twice where two files claim it",
+            "Main.sorted_distinct(entry.paths(t)), rules.shared(rs), rules.withheld(rs)",
+            "List.sort(~String, ~(a => b => String.is_le(a, b)), entry.paths(t)), rules.shared(rs), rules.withheld(rs)",
+            "dryrun_lemmas.dry_names",
+            "export.bend",
+        ),
+        (
+            "export -n names a file it would withdraw outside the store",
+            "      (\"would withdraw history/\" ++ w) <> withdrawn.said(rest)",
+            "      (\"would withdraw \" ++ w) <> withdrawn.said(rest)",
+            "dryrun_lemmas.withdrawn_back",
+            "export.bend",
+        ),
+        (
             "fetch files a document whose text is not the digest offered",
             "      Bool.pick(Land, String.eq(found, entry.digest(o)), text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",
             "      Bool.pick(Land, True{}, text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",

@@ -2754,6 +2754,29 @@ law export_destroys_only_what_is_forgotten:
   for h: {Rev.member(Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)) == True{} : Bool}
 
+# What `export -n` names, read back from its lines: a `would withdraw` line
+# for each file a copy being updated gives up, in the order they go, and a
+# `write` line for each path the target's tree places — every one of them,
+# none other, once each and in path order — whatever it counts, and no
+# line of the rest reads as either.
+law export_dry_run_names_what_it_would_write:
+  for +held: List<&2, Main.Full>
+  for +t: Tree.Tree()
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, T.Split>
+  for +bodies: List<&2, Prune.Body>
+  for +rs: List<&2, Receive.Ruled>
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +c: Export.Counts
+  for +ws: List<&2, String>
+  for +n: Nat
+  for +u: Bool
+  for +spelled: String
+  for +into: String
+  for +x: String
+  {Bool.and(Main.strings.same(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "would withdraw history/"), ws), Bool.and(Main.rising(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "write   ")), Export.bool.same(Rev.member(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "write   "), x), Export.tree.holds(t, x)))) == True{} : Bool}
+
 # An export updates a copy only where the copy is its own to update
 # (decision 0052): it goes on exactly where the copy is related to this
 # store (decision 0029) and every revision the copy holds is one this store
