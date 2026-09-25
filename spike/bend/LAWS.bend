@@ -2547,6 +2547,14 @@ law check_reads_each_line_of_a_listing:
   for +h: {FindL.spelt(e) == True{} : Bool}
   {Check.walk.step(Check.Seen{ds, fs, ls, t}, dir, Done{FindL.line(e) ++ "\n" ++ rest}) == Check.seen.go(String.split(rest, '\n'), dir, FindL.found(e, dir, fs, ls)) : Check.Seen}
 
+# `check` reads as a file's lines only payloads the store holds under a
+# digest some revision's `text` header names, each from where the store
+# holds it.
+law check_reads_only_held_text:
+  for +docs: List<&2, Main.Full>
+  for +ps: List<&2, Check.Stored>
+  {FindL.reads_held(Check.texts.plan(Check.set.of(Check.text.ids(docs)), ps), ps, Check.text.ids(docs)) == True{} : Bool}
+
 # `check` fails exactly where it found an error, `check --complete` also
 # where it found a head it cannot produce, and a note alone fails neither.
 law check_fails_on_an_error:

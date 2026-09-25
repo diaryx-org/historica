@@ -2466,23 +2466,31 @@ def texts.then(a: Texts, b: Texts) -> Texts:
     case Texts{l1, d1} Texts{l2, d2}:
       Texts{List.append(&2, Lines, l1, l2), List.append(&2, Store.Doc, d1, d2)}
 
-def texts.head(ids: List<&2, String>, +ps: List<&2, Stored>) -> Maybe<&2, String>:
+# The `text` payloads the pass reads as a file's lines, and where: each
+# digest asked for, in order, that the store holds a payload under
+# (`LAWS.check_reads_only_held_text`).
+def texts.planned(+id: String, at: Maybe<&2, String>, more: List<&2, T.Split>) -> List<&2, T.Split>:
+  match at:
+    case None{}:
+      more
+    case Some{+path}:
+      T.Split{id, path} <> more
+
+def texts.plan(ids: List<&2, String>, +ps: List<&2, Stored>) -> List<&2, T.Split>:
   match ids:
     case Nil{}:
-      None{}
+      Nil{}
     case +id <> rest:
-      stored.at(ps, id)
+      texts.planned(id, stored.at(ps, id), texts.plan(rest, ps))
 
-def texts.at(ids: List<&2, String>, +ps: List<&2, Stored>, at: Maybe<&2, String>) -> IO(Texts):
-  match ids at:
-    case Nil{} _:
+def texts.at(plan: List<&2, T.Split>) -> IO(Texts):
+  match plan:
+    case Nil{}:
       IO.pure(Texts, Texts{Nil{}, Nil{}})
-    case id <> +rest None{}:
-      texts.at(rest, ps, texts.head(rest, ps))
-    case +id <> +rest Some{+path}:
+    case T.Split{+id, +path} <> rest:
       do IO<Texts>:
         bs : List<&2, U32> <- Utf8.read_file(path)
-        more : Texts <- texts.at(rest, ps, texts.head(rest, ps))
+        more : Texts <- texts.at(rest)
         return texts.then(texts.read(id, path, bs), more)
 
 def text.ids(ds: List<&2, Main.Full>) -> List<&2, String>:
@@ -2581,7 +2589,7 @@ def pass(+root: String) -> IO(List<&2, Finding>):
     +of2 : List<&2, OpFiled> = attach(of1, stats)
     +ps : List<&2, Stored> = payloads(of2)
     +tids : List<&2, String> = set.of(text.ids(docs))
-    tx : Texts <- texts.at(tids, ps, texts.head(tids, ps))
+    tx : Texts <- texts.at(texts.plan(tids, ps))
     stale : Result<&1, &1, U32 & String, File> <- File.open(root ++ "/skipped.txt", "r")
     stale2 : Bool <- opened(stale)
     sw : Walked <- walk(root, "skipped")

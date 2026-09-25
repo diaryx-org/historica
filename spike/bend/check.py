@@ -3882,6 +3882,13 @@ def check_mutations(temporary):
             "check.bend",
         ),
         (
+            "check reads a text payload from where another digest is stored",
+            "      Bool.pick(Maybe<&2, String>, String.eq(i, id), Some{p}, stored.at(rest, id))",
+            "      Bool.pick(Maybe<&2, String>, String.eq(i, id), stored.at(rest, id), Some{p})",
+            "finding_lemmas.at_holds",
+            "check.bend",
+        ),
+        (
             "show finds a document whose digest the named one starts",
             '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, held(rest, id))',
             '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, held(rest, id))',

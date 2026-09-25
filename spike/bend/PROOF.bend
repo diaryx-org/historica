@@ -994,6 +994,9 @@ def Laws.check_follows_the_bookmarks_name_writes(docs, path, n, t, p, h):
 def Laws.check_reads_each_line_of_a_listing(ds, fs, ls, t, dir, e, rest, h):
   FindL.reads_line(ds, fs, ls, t, dir, e, rest, h)
 
+def Laws.check_reads_only_held_text(docs, ps):
+  FindL.reads_text(docs, ps)
+
 def Laws.check_fails_on_an_error(fs, complete):
   FindL.fails_is(fs, complete)
 
