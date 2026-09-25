@@ -1116,6 +1116,9 @@ def Laws.fetch_refuses_what_shares_no_revision(h, os, hr, ht, hn):
 def Laws.fetch_destroys_only_what_is_forgotten(s, os, d, h):
   FPlanL.destroyed(s, os, d, h)
 
+def Laws.fetch_writes_a_bookmark_once_a_pass(o, n, at, text, t, rules, held, moved, landed, root, o2, g, h):
+  FetchingL.once_a_pass(o, n, at, text, t, rules, held, moved, landed, root, o2, g, h)
+
 def Laws.fetch_asks_for_no_payload_held_or_forgotten(s, os, d, m):
   FPlanL.payload_lacks(s, os, d, m)
 

@@ -4225,6 +4225,13 @@ def check_mutations(temporary):
             "fetch.bend",
         ),
         (
+            "fetch writes one bookmark twice in a pass",
+            "      State{tally.name(n, t), rules, n <> held, moved}",
+            "      State{tally.name(n, t), rules, held, moved}",
+            "fetching_lemmas.once_a_pass",
+            "fetch.bend",
+        ),
+        (
             "fetch escapes a byte in lowercase hex",
             "Chr{U32.add(n, 48)}, Chr{U32.add(n, 55)})",
             "Chr{U32.add(n, 48)}, Chr{U32.add(n, 87)})",
