@@ -32,7 +32,7 @@ def names_shared(bs: List<&2, Bm.Bookmark>, +ids: List<&2, T.Split>, +prefix: St
 
 # The manifest is the one a store with no private bookmark would have.
 def bookmarks(+prefix: String, +s: Prune.Stored, +bs: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>) -> {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, s, Offer.shared(bs), claims, rids, nids) : List<&2, String>}:
-  Equal.cong(List<&2, Offer.Offered>, List<&2, String>, x => Offer.manifest.of(Offer.manifest.front(prefix, s), Offer.rules.offered(Receive.ruled(Offer.rules.of(s)), rids, prefix), Offer.splits.offered(claims, "reserved", prefix), x),
+  Equal.cong(List<&2, Offer.Offered>, List<&2, String>, x => Offer.rendered(Offer.heads.of(s), Offer.manifest.of(Offer.files.of(prefix, s), Offer.rules.offered(Receive.ruled(Offer.rules.of(s)), rids, prefix), Offer.splits.offered(claims, "reserved", prefix), x)),
     Offer.names.offered(bs, nids, prefix), Offer.names.offered(Offer.shared(bs), nids, prefix), names_shared(bs, nids, prefix))
 
 # Rules
@@ -67,7 +67,7 @@ def rules_shared(rs: List<&2, T.Split>, +ids: List<&2, T.Split>, +prefix: String
 def rules(+prefix: String, s: Prune.Stored, +bs: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>) -> {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, Offer.shared_rules(s), bs, claims, rids, nids) : List<&2, String>}:
   match s:
     case Prune.Stored{+docs, +revs, +od, +bods, +ps, +names, +rs}:
-      Equal.cong(List<&2, Offer.Offered>, List<&2, String>, x => Offer.manifest.of(Offer.manifest.front(prefix, Prune.Stored{docs, revs, od, bods, ps, names, rs}), x, Offer.splits.offered(claims, "reserved", prefix), Offer.names.offered(bs, nids, prefix)),
+      Equal.cong(List<&2, Offer.Offered>, List<&2, String>, x => Offer.rendered(Offer.heads.of(Prune.Stored{docs, revs, od, bods, ps, names, rs}), Offer.manifest.of(Offer.files.of(prefix, Prune.Stored{docs, revs, od, bods, ps, names, rs}), x, Offer.splits.offered(claims, "reserved", prefix), Offer.names.offered(bs, nids, prefix))),
         Offer.rules.offered(Receive.ruled(rs), rids, prefix), Offer.rules.offered(Receive.ruled(Offer.shared_files(rs)), rids, prefix), rules_shared(rs, rids, prefix))
 
 # Digests

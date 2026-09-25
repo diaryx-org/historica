@@ -4183,6 +4183,13 @@ def check_mutations(temporary):
             "fetch.bend",
         ),
         (
+            "fetch discards a bookmark's line as a kind it does not know",
+            "  [\"revision\", \"operation\", \"payload\", \"rule\", \"reserved\", \"name\"]",
+            "  [\"revision\", \"operation\", \"payload\", \"rule\", \"reserved\"]",
+            "manifest_lemmas.entry_read.go",
+            "fetch.bend",
+        ),
+        (
             "fetch takes a second URL over the first",
             "              Fail{Main.Refused{2, \"`fetch` wants one URL, not `\" ++ w ++ \"`\"}}",
             "              args.go(rest, fword.of(rest), join, fields, Some{w})",

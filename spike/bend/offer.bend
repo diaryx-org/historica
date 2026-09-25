@@ -85,7 +85,7 @@ type Offered is Data:
 def offered.line(o: Offered) -> String:
   match o:
     case Offered{k, d, f, p}:
-      k ++ " " ++ d ++ " " ++ Maybe.default(&2, String, f, "-") ++ " " ++ p
+      k ++ (" " ++ (d ++ (" " ++ (Maybe.default(&2, String, f, "-") ++ (" " ++ p)))))
 
 def offered.path(o: Offered) -> String:
   match o:
@@ -164,27 +164,37 @@ def rules.of(s: Prune.Stored) -> List<&2, T.Split>:
     case Prune.Stored{docs, revs, od, bs, ps, names, rules}:
       rules
 
-# The manifest's first lines: the header, the graph's heads in digest
-# order, and the files every revision could name — payloads, documents,
-# revisions — each group by path.
-def manifest.front(+prefix: String, s: Prune.Stored) -> List<&2, String>:
-  match s:
-    case Prune.Stored{+docs, +revs, od, +bs, +ps, names, rules}:
-      +fs = Arrange.distinct(Prune.fulls(Arrange.revision_docs(docs)))
-      "historica-offer-1" <> List.append(&2, String, heads.said(Main.sorted_distinct(Rev.heads(Main.history(fs)))),
-        T.map(~Offered, ~String, ~(o => offered.line(o)), List.concat(&2, Offered, [
-          by_path(splits.offered(ps, "payload", prefix)),
-          by_path(bodies.offered(bs, prefix)),
-          by_path(splits.offered(revs, "revision", prefix))])))
+# The manifest as `Offer` is rendered: the header, a `head` line for each
+# head, then a line for each file. `fetch` reads these lines back as the
+# heads and files they were written from
+# (`LAWS.fetch_reads_the_manifest_offer_writes`).
+def rendered(+hs: List<&2, String>, os: List<&2, Offered>) -> List<&2, String>:
+  "historica-offer-1" <> List.append(&2, String, heads.said(hs), T.map(~Offered, ~String, ~(o => offered.line(o)), os))
 
-# And the files no revision names: the rules, the other tool's, the
-# bookmarks — each group by path.
-def manifest.of(+front: List<&2, String>, rules: List<&2, Offered>, claims: List<&2, Offered>, names: List<&2, Offered>) -> List<&2, String>:
-  List.append(&2, String, front, T.map(~Offered, ~String, ~(o => offered.line(o)), List.concat(&2, Offered, [by_path(rules), by_path(claims), by_path(names)])))
+# The graph's heads, in digest order.
+def heads.of(s: Prune.Stored) -> List<&2, String>:
+  match s:
+    case Prune.Stored{+docs, revs, od, bs, ps, names, rules}:
+      Main.sorted_distinct(Rev.heads(Main.history(Arrange.distinct(Prune.fulls(Arrange.revision_docs(docs))))))
+
+# The files every revision could name — payloads, documents, revisions —
+# each group by path.
+def files.of(+prefix: String, s: Prune.Stored) -> List<&2, Offered>:
+  match s:
+    case Prune.Stored{docs, +revs, od, +bs, +ps, names, rules}:
+      List.concat(&2, Offered, [
+        by_path(splits.offered(ps, "payload", prefix)),
+        by_path(bodies.offered(bs, prefix)),
+        by_path(splits.offered(revs, "revision", prefix))])
+
+# And after them the files no revision names: the rules, the other tool's,
+# the bookmarks — each group by path.
+def manifest.of(front: List<&2, Offered>, rules: List<&2, Offered>, claims: List<&2, Offered>, names: List<&2, Offered>) -> List<&2, Offered>:
+  List.append(&2, Offered, front, List.concat(&2, Offered, [by_path(rules), by_path(claims), by_path(names)]))
 
 # Every line of the manifest, in the order `Offer` is rendered.
 def manifest(+prefix: String, +s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rule_ids: List<&2, T.Split>, +name_ids: List<&2, T.Split>) -> List<&2, String>:
-  manifest.of(manifest.front(prefix, s), rules.offered(Receive.ruled(rules.of(s)), rule_ids, prefix), splits.offered(claims, "reserved", prefix), names.offered(marks, name_ids, prefix))
+  rendered(heads.of(s), manifest.of(files.of(prefix, s), rules.offered(Receive.ruled(rules.of(s)), rule_ids, prefix), splits.offered(claims, "reserved", prefix), names.offered(marks, name_ids, prefix)))
 
 # What the laws say of a manifest
 # -------------------------------
