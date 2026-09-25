@@ -2883,16 +2883,19 @@ def laid.new(ls: List<&2, Laid>) -> List<&2, Ops.Item>:
 
 # A line of the rendering and the colour it is drawn in where there is
 # colour: bold for a fact about a file, cyan for a hunk's header, red and
-# green for what left and arrived, nothing for context. Off, every line is
-# the bytes it would be anyway, which is what `historica diff | patch` sees.
+# green for what left and arrived, nothing for context. Its text is kept as
+# runs (`Piece`, under Emphasis below), one for most lines, so that a line
+# replaced one for one can have the runs that differ marked inside its
+# colour. Off, every line is its runs read as they are, the bytes it would
+# be anyway, which is what `historica diff | patch` sees.
 type Painted is Data:
-  Painted{code: String, text: String}
+  Painted{code: String, runs: List<&2, Piece>}
 
-def plain(text: String) -> Painted:
-  Painted{SNil{}, text}
+def painted.line(+code: String, text: String) -> Painted:
+  Painted{code, [Piece{text, False{}}]}
 
 def meta(text: String) -> Painted:
-  Painted{"\u{1b}[1m", text}
+  painted.line("\u{1b}[1m", text)
 
 def sign_code(+sign: String) -> String:
   Bool.pick(String, String.eq(sign, "-"), "\u{1b}[31m", Bool.pick(String, String.eq(sign, "+"), "\u{1b}[32m", SNil{}))
@@ -3007,9 +3010,9 @@ def hunks.made(ls: List<&2, Laid>) -> List<&2, Hunk>:
 def laid.text(+sign: String, it: Ops.Item) -> List<&2, Painted>:
   match it:
     case Ops.Item{t, True{}, f}:
-      [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, True{}, f})}]
+      [painted.line(sign_code(sign), sign ++ Ops.shown(Ops.Item{t, True{}, f}))]
     case Ops.Item{t, False{}, f}:
-      [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, False{}, f})}, Painted{sign_code(sign), "\\ no newline at end of file"}]
+      [painted.line(sign_code(sign), sign ++ Ops.shown(Ops.Item{t, False{}, f})), painted.line(sign_code(sign), "\\ no newline at end of file")]
 
 # Emphasis
 # --------
@@ -3319,19 +3322,19 @@ def marks.fit(ns: List<&2, Numbered>, ms: List<&2, Maybe<&2, List<&2, Piece>>>) 
     case _ _:
       True{}
 
-def laid.marked.of(+sign: String, it: Ops.Item, t: String) -> List<&2, Painted>:
+def laid.marked.of(+sign: String, it: Ops.Item, ps: List<&2, Piece>) -> List<&2, Painted>:
   match it:
     case Ops.Item{x, True{}, f}:
-      [Painted{sign_code(sign), sign ++ t}]
+      [Painted{sign_code(sign), Piece{sign, False{}} <> ps}]
     case Ops.Item{x, False{}, f}:
-      [Painted{sign_code(sign), sign ++ t}, Painted{sign_code(sign), "\\ no newline at end of file"}]
+      [Painted{sign_code(sign), Piece{sign, False{}} <> ps}, painted.line(sign_code(sign), "\\ no newline at end of file")]
 
 def laid.marked(+sign: String, it: Ops.Item, m: Maybe<&2, List<&2, Piece>>) -> List<&2, Painted>:
   match m:
     case None{}:
       laid.text(sign, it)
     case Some{ps}:
-      laid.marked.of(sign, it, pieces.show(ps))
+      laid.marked.of(sign, it, ps)
 
 def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, List<&2, Piece>>>) -> List<&2, Painted>:
   match ns marks:
@@ -3342,10 +3345,13 @@ def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, List<&2, Piece>
     case Numbered{Laid{sign, it}, b, a} <> rest Nil{}:
       List.append(&2, Painted, laid.text(sign, it), hunk.lines(rest, Nil{}))
 
+def hunk.header(o: Nat, oc: Nat, n: Nat, nc: Nat) -> Painted:
+  painted.line("\u{1b}[36m", "@@ -" ++ Nat.show(o) ++ "," ++ Nat.show(oc) ++ " +" ++ Nat.show(n) ++ "," ++ Nat.show(nc) ++ " @@")
+
 def hunk.shown(+paint: Bool, h: Hunk) -> List<&2, Painted>:
   match h:
     case Hunk{o, oc, n, nc, +ns}:
-      Painted{"\u{1b}[36m", "@@ -" ++ Nat.show(o) ++ "," ++ Nat.show(oc) ++ " +" ++ Nat.show(n) ++ "," ++ Nat.show(nc) ++ " @@"} <> hunk.lines(ns, emph(ns, paint))
+      hunk.header(o, oc, n, nc) <> hunk.lines(ns, emph(ns, paint))
 
 def hunks.shown(+paint: Bool, hs: List<&2, Hunk>) -> List<&2, Painted>:
   match hs:
@@ -3692,10 +3698,19 @@ def diff.rendered(+paint: Bool, ps: List<&2, Compared>) -> List<&2, Painted>:
     case p <> rest:
       List.append(&2, Painted, render(paint, p), diff.rendered(paint, rest))
 
+# A line as printed: with colour, its runs drawn with the marks they have
+# and the whole in its colour; without, its runs as they are.
 def painted(+paint: Bool, p: Painted) -> String:
-  match p:
-    case Painted{+code, +text}:
-      Bool.pick(String, Bool.and(paint, Bool.not(String.is_empty(code))), code ++ text ++ "\u{1b}[0m", text)
+  match paint:
+    case True{}:
+      match p:
+        case Painted{+code, runs}:
+          +text = pieces.show(runs)
+          Bool.pick(String, String.is_empty(code), text, code ++ text ++ "\u{1b}[0m")
+    case False{}:
+      match p:
+        case Painted{code, runs}:
+          pieces.text(runs)
 
 def print_painted(+paint: Bool, ls: List<&2, Painted>) -> IO(Unit):
   match ls:

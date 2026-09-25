@@ -999,6 +999,15 @@ law diff_folder_shows_what_differs:
   for e: {Main.wc.compare(t, older, ds, left, reads, ps) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}
   {Main.all.shown(Main.Limit.None{}, cs) == True{} : Bool}
 
+# Colour changes no character of what `diff` prints. With colour, each line
+# is drawn in its colour, and where two lines were replaced one for one the
+# runs that differ are marked inside it; read without the colour — as a
+# line is printed where there is none — the lines are the very lines `diff`
+# prints without colour, one for one, whatever the files compared.
+law diff_colour_changes_no_character:
+  for +cs: List<&2, Main.Compared>
+  {T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(True{}, cs)) == T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(False{}, cs)) : List<&2, String>}
+
 # `log` reads its arguments as their plain reading says: the word after a
 # flag that takes a value is that flag's value, the last counting, and
 # `--limit`, `--since` and `--until` are read as a count and as bounds;
