@@ -6809,6 +6809,103 @@ def record.args.go(args: List<&2, String>, c: RecordCmd, k: RWord) -> Result<&2,
 def record.args.r(+args: List<&2, String>) -> Result<&2, &2, Refused, RecordCmd>:
   record.args.go(args, RecordCmd{None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, rword(args))
 
+# What `record`'s words say, read plainly. Each word is read as a flag and
+# what it says: the word after a flag that takes a value is that value,
+# whatever it is, and a word that is no flag is a path, with the slashes a
+# shell leaves on a directory taken off. What each flag's words then mean
+# is `rargs.said`; `LAWS.record_reads_its_words` holds `record.args.r` to it.
+def rargs.read(args: List<&2, String>, k: RWord) -> List<&2, T.Split>:
+  match args k:
+    case Nil{} _:
+      Nil{}
+    case w <> v <> +rest RWord.Message{}:
+      T.Split{"-m", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Onto{}:
+      T.Split{"--onto", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Merge{}:
+      T.Split{"--merge", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Accept{}:
+      T.Split{"--accept", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.At{}:
+      T.Split{"--at", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Move{}:
+      T.Split{"--move", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Bytes{}:
+      T.Split{"--bytes", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Lines{}:
+      T.Split{"--lines", v} <> rargs.read(rest, rword(rest))
+    case w <> +rest RWord.Dry{}:
+      T.Split{"--dry-run", SNil{}} <> rargs.read(rest, rword(rest))
+    case w <> +rest RWord.Fields{}:
+      T.Split{"--fields", SNil{}} <> rargs.read(rest, rword(rest))
+    case +w <> +rest RWord.Path{}:
+      T.Split{"path", trimmed(w)} <> rargs.read(rest, rword(rest))
+    case w <> +rest _:
+      rargs.read(rest, rword(rest))
+
+# Every value a flag was given, in order.
+def rargs.values(items: List<&2, T.Split>, +key: String) -> List<&2, String>:
+  match items:
+    case Nil{}:
+      Nil{}
+    case T.Split{+k, v} <> rest:
+      +later = rargs.values(rest, key)
+      Bool.pick(List<&2, String>, String.eq(k, key), v <> later, later)
+
+# The last value a flag was given, or `last` where it was given none.
+def rargs.last(items: List<&2, T.Split>, +key: String, last: Maybe<&2, String>) -> Maybe<&2, String>:
+  match items:
+    case Nil{}:
+      last
+    case T.Split{+k, v} <> rest:
+      rargs.last(rest, key, Bool.pick(Maybe<&2, String>, String.eq(k, key), Some{v}, last))
+
+# Whether a flag is there, or `had`.
+def rargs.has(items: List<&2, T.Split>, +key: String, had: Bool) -> Bool:
+  match items:
+    case Nil{}:
+      had
+    case T.Split{+k, v} <> rest:
+      rargs.has(rest, key, Bool.pick(Bool, String.eq(k, key), True{}, had))
+
+# Each path `--bytes` and `--lines` name, with the kind it is said to be.
+def rargs.kinds(items: List<&2, T.Split>) -> List<&2, T.Split>:
+  match items:
+    case Nil{}:
+      Nil{}
+    case T.Split{+k, +v} <> rest:
+      +later = rargs.kinds(rest)
+      Bool.pick(List<&2, T.Split>, String.eq(k, "--bytes"), T.Split{v, "bytes"} <> later,
+      Bool.pick(List<&2, T.Split>, String.eq(k, "--lines"), T.Split{v, "lines"} <> later, later))
+
+# `<one>=<other>` cut at its first `=`.
+def rargs.cut.of(+v: String, parts: List<&2, String>) -> T.Split:
+  match parts:
+    case a <> b <> rest:
+      T.Split{a, String.join(b <> rest, "=")}
+    case _:
+      T.Split{v, SNil{}}
+
+def rargs.cut(+v: String) -> T.Split:
+  rargs.cut.of(v, String.split(v, '='))
+
+def rargs.cuts(vs: List<&2, String>) -> List<&2, T.Split>:
+  match vs:
+    case Nil{}:
+      Nil{}
+    case +v <> rest:
+      rargs.cut(v) <> rargs.cuts(rest)
+
+# What the words mean: the last `--onto`; each `--merge`, `--at`, `--move`,
+# `--bytes` and `--lines`, in order, an `--at` or a `--move` cut at its
+# first `=`; `-n` and `--fields` if they are there; the last `-m`. Each
+# `--accept` and each path is kept too, the last first.
+def rargs.said(+items: List<&2, T.Split>) -> RecordCmd:
+  RecordCmd{rargs.last(items, "--onto", None{}), rargs.values(items, "--merge"), List.reverse(&2, String, rargs.values(items, "--accept")),
+    rargs.cuts(rargs.values(items, "--at")), rargs.cuts(rargs.values(items, "--move")), rargs.kinds(items),
+    List.reverse(&2, String, rargs.values(items, "path")), rargs.has(items, "--dry-run", False{}), rargs.has(items, "--fields", False{}),
+    rargs.last(items, "-m", None{})}
+
 # One path, two kinds, is a person who typed something they did not mean.
 def kinds.differs(ks: List<&2, T.Split>, +p: String, +k: String) -> Bool:
   match ks:
