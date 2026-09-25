@@ -2203,6 +2203,13 @@ def check_mutations(temporary):
             "record_lemmas.held_state",
             "commands.bend",
         ),
+        (
+            "record moves the bookmarks on every change but its parents'",
+            "Bool.pick(List<&2, Bm.Bookmark>, Rev.member(changes, c), Bm.Bookmark{n, Bm.Target.Change{c}, p} <> later, later)",
+            "Bool.pick(List<&2, Bm.Bookmark>, Rev.member(changes, c), later, Bm.Bookmark{n, Bm.Target.Change{c}, p} <> later)",
+            "record_lemmas.advancing_follows",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

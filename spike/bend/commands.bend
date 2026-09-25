@@ -7775,34 +7775,81 @@ def revision.filed(+st: Bool, +root: String, +stem: String, +text: String) -> IO
     done_wr : String <- wrote.io(st, wr)
     IO.pure(Unit, Unit{})
 
-# A record, written: identifiers minted for the files arriving, in path
-# order, then the change's; the content filed; the revision; and the
+# What a record writes, once its identifiers are drawn and the position's
+# content of each file it edits is read: an identifier minted for each
+# file arriving, in path order, and one after them for the change; the
+# content of each file; the revision, named by the digest of its text and
+# filed under the stem its moment, message and change give it; and the
 # bookmarks that follow the work. `t` is the tree where the stated renames
 # put each file, and `hs` every path the record looks at.
+type Recorded is Data:
+  Recorded{mint: List<&2, T.Split>, change: String, contents: List<&2, Content>, doc: Rev.Rev, id: String, stem: String, moving: List<&2, Bm.Bookmark>}
+
+def record.planned(+w: Writing, +hex: String, +befores: List<&2, Before>, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>) -> Recorded:
+  +arriving = Sv.sorted(Sv.added(obs))
+  +n = List.length(&2, String, arriving)
+  +ids = ids.minted(Nat.add(n, 1n), hex)
+  +mint = zipped(arriving, ids)
+  +change = Maybe.default(&2, String, List.get(&2, String, ids, n), SNil{})
+  +dr = drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint)
+  +doc = writing.rev(w, change, ps, drafted.facts(dr))
+  +id = Sha.digest(Utf8.encode(Rev.write(doc)))
+  Recorded{mint, change, drafted.contents(dr), doc, id, writing.stem(w, change, id, T.map(~Full, ~Naming.Named, ~(f => full.named(f)), fs)), advancing(parents.changes(fs, ps), bs)}
+
+# A record, written: the content filed, the revision, and the bookmarks
+# that follow the work.
+def record.written(+st: Bool, +root: String, +repo: String, +w: Writing, +facts: List<&2, T.Split>, +ps: List<&2, String>, r: Recorded) -> IO(Unit):
+  match r:
+    case Recorded{mint, +change, +cs, +doc, +id, +stem, moving}:
+      do IO<Unit>:
+        contents.filed(st, root, repo, stem, cs)
+        revision.filed(st, root, stem, Rev.write(doc))
+        advanced : List<&2, String> <- advance(st, root, change, moving)
+        record.said(w, facts, change, id, List.sort(~String, ~(a => b => String.is_le(a, b)), advanced), ps)
+
+# A record that states nothing is refused; otherwise identifiers are drawn
+# for the files arriving and the change, the position's content read, and
+# what that makes written.
 def record.write(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, pl: Sv.Planned, +w: Writing) -> IO(Unit):
   match pl:
     case Sv.Planned{+facts, r, c, a, e, d, +obs, +ls}:
-      +arriving = Sv.sorted(Sv.added(obs))
+      +n = List.length(&2, String, Sv.sorted(Sv.added(obs)))
       do IO<Unit>:
         stated.io(Unit, st, Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(List.is_empty(&2, T.Split, facts), Nat.is_lt(List.length(&2, String, ps), 2n)),
           Fail{Refused{1, "nothing here differs from what is already recorded, and a revision that states nothing would mean nothing"}}, Done{Unit{}}))
-        +n : Nat = List.length(&2, String, arriving)
         drew : Result<&1, &1, U32 & String, String> <- Store.drawn(Nat.show(Nat.mul(12n, Nat.add(n, 1n))))
         hex : String <- wrote.io(st, drew)
-        +ids : List<&2, String> = ids.minted(Nat.add(n, 1n), hex)
-        +mint : List<&2, T.Split> = zipped(arriving, ids)
-        +change : String = Maybe.default(&2, String, List.get(&2, String, ids, n), SNil{})
-        dr : Drafted <- drafted(st, root, fs, ps, t, hs, dg, reads, ks, moves, obs, ls, mint)
-        +dr2 : Drafted = dr
-        +cs : List<&2, Content> = drafted.contents(dr2)
-        +doc : Rev.Rev = writing.rev(w, change, ps, drafted.facts(dr2))
-        +text : String = Rev.write(doc)
-        +id : String = Sha.digest(Utf8.encode(text))
-        +stem : String = writing.stem(w, change, id, T.map(~Full, ~Naming.Named, ~(f => full.named(f)), fs))
-        contents.filed(st, root, repo, stem, cs)
-        revision.filed(st, root, stem, text)
-        advanced : List<&2, String> <- advance(st, root, change, advancing(parents.changes(fs, ps), bs))
-        record.said(w, facts, change, id, List.sort(~String, ~(a => b => String.is_le(a, b)), advanced), ps)
+        befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(Sv.edited(obs), hs))
+        record.written(st, root, repo, w, facts, ps, record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))
+
+# What a record writes is named as it says: each file arriving is added
+# under the identifier minted for it, in path order; the revision is named
+# by the digest of its text, and filed under the name its moment, message
+# and change compose; and each bookmark it moves names the change of one
+# of its parents. `LAWS.record_names_what_it_writes`.
+def strings.same(a: List<&2, String>, b: List<&2, String>) -> Bool:
+  match a b:
+    case x <> xs y <> ys:
+      Bool.and(String.eq(x, y), strings.same(xs, ys))
+    case Nil{} Nil{}:
+      True{}
+    case _ _:
+      False{}
+
+def follows(+changes: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> Bool:
+  match bs:
+    case Nil{}:
+      True{}
+    case Bm.Bookmark{n, Bm.Target.Change{+c}, p} <> rest:
+      Bool.and(Rev.member(changes, c), follows(changes, rest))
+    case b <> rest:
+      False{}
+
+def record.named(w: Writing, +arriving: List<&2, String>, +changes: List<&2, String>, r: Recorded) -> Bool:
+  match w r:
+    case Writing{a, +when, +message, f} Recorded{mint, +change, cs, +doc, +id, +stem, moving}:
+      Bool.and(strings.same(T.map(~T.Split, ~String, ~(s => split.head(s)), mint), arriving), Bool.and(String.eq(id, Sha.digest(Utf8.encode(Rev.write(doc)))),
+        Bool.and(String.starts_with(stem, Naming.compose(when, message, change)), follows(changes, moving))))
 
 def sorted_distinct(xs: List<&2, String>) -> List<&2, String>:
   distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))

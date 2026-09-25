@@ -17,6 +17,9 @@ import ./tree.bend as Tree
 import ./folder.bend as Folder
 import ./revision.bend as Rev
 import ./survey.bend as Sv
+import ./naming.bend as Naming
+import ./bookmark.bend as Bm
+import ./sha256.bend as Sha
 
 # Its words
 # ---------
@@ -355,3 +358,57 @@ def all_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> 
 # What `record` drafts states of each file what the folder holds there.
 def drafted_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> {Main.contents.state(befores, dg, reads, Main.drafted.contents(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}:
   all_state(~da, befores, dg, reads, mint, Sv.sorted(Sv.added(obs)), Sv.edited(obs), ks, hs)
+
+# What it writes is named as it says
+# ----------------------------------
+
+def mint_heads(ps: List<&2, String>, +hex: String) -> {Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.zipped(ps, Main.ids.minted(Nat.add(List.length(&2, String, ps), 1n), hex))), ps) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +rest:
+      B.and_tt(String.eq(p, p), Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.zipped(rest, Main.ids.minted(Nat.add(List.length(&2, String, rest), 1n), String.drop(hex, 24n)))), rest), S.eq_refl(p),
+        mint_heads(rest, String.drop(hex, 24n)))
+
+def stem_of_pre(+base: String, +change: String, +id: String, b1: Bool, b2: Bool) -> {String.starts_with(Naming.stem.of(base, change, id, b1, b2), base) == True{} : Bool}:
+  match b1:
+    case False{}:
+      B.sw_refl(base)
+    case True{}:
+      match b2:
+        case True{}:
+          B.sw_ext(base, base, " " ++ String.take(change, Naming.CHANGE_CHARS()) ++ " " ++ String.take(id, Naming.DIGEST_CHARS()), B.sw_refl(base))
+        case False{}:
+          B.sw_ext(base, base, " " ++ String.take(change, Naming.CHANGE_CHARS()), B.sw_refl(base))
+
+# A revision is filed under the name its moment, message and change
+# compose, extended only where the store holds that name already.
+def stem_pre(+when: String, +message: String, +change: String, +id: String, +ns: List<&2, Naming.Named>) -> {String.starts_with(Naming.stem(when, message, change, id, ns), Naming.compose(when, message, change)) == True{} : Bool}:
+  stem_of_pre(Naming.compose(when, message, change), change, id, Naming.sharing_base(ns, Naming.compose(when, message, change)), Naming.sharing_change(ns, Naming.compose(when, message, change), change))
+
+def follow_pick(b: Bool, +changes: List<&2, String>, +n: String, +c: String, +p: Bool, +later: List<&2, Bm.Bookmark>, eb: {Rev.member(changes, c) == b : Bool}, h: {Main.follows(changes, later) == True{} : Bool}) -> {Main.follows(changes, Bool.pick(List<&2, Bm.Bookmark>, b, Bm.Bookmark{n, Bm.Target.Change{c}, p} <> later, later)) == True{} : Bool}:
+  match b:
+    case True{}:
+      B.and_tt(Rev.member(changes, c), Main.follows(changes, later), eb, h)
+    case False{}:
+      h
+
+# Each bookmark that follows the work names one of the changes it follows.
+def advancing_follows(+changes: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> {Main.follows(changes, Main.advancing(changes, bs)) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Bm.Bookmark{+n, Bm.Target.Change{+c}, +p} <> +rest:
+      follow_pick(Rev.member(changes, c), changes, n, c, p, Main.advancing(changes, rest), {==}, advancing_follows(changes, rest))
+    case Bm.Bookmark{n, Bm.Target.Revision{c}, p} <> rest:
+      advancing_follows(changes, rest)
+    case Bm.Bookmark{n, Bm.Target.File{c}, p} <> rest:
+      advancing_follows(changes, rest)
+
+# What `record` writes is named as it says.
+def planned_named(w: Main.Writing, +hex: String, +befores: List<&2, Main.Before>, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>) -> {Main.record.named(w, Sv.sorted(Sv.added(obs)), Main.parents.changes(fs, ps), Main.record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)) == True{} : Bool}:
+  match w:
+    case Main.Writing{+a, +when, +message, +fl}:
+      B.and_tt(Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex))), Sv.sorted(Sv.added(obs))), Bool.and(String.eq(Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex))))))))), Bool.and(String.starts_with(Naming.stem(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), T.map(~Main.Full, ~Naming.Named, ~(x => Main.full.named(x)), fs)), Naming.compose(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}))), Main.follows(Main.parents.changes(fs, ps), Main.advancing(Main.parents.changes(fs, ps), bs)))), mint_heads(Sv.sorted(Sv.added(obs)), hex),
+        B.and_tt(String.eq(Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex))))))))), Bool.and(String.starts_with(Naming.stem(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), T.map(~Main.Full, ~Naming.Named, ~(x => Main.full.named(x)), fs)), Naming.compose(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}))), Main.follows(Main.parents.changes(fs, ps), Main.advancing(Main.parents.changes(fs, ps), bs))), S.eq_refl(Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex))))))))),
+          B.and_tt(String.starts_with(Naming.stem(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), T.map(~Main.Full, ~Naming.Named, ~(x => Main.full.named(x)), fs)), Naming.compose(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}))), Main.follows(Main.parents.changes(fs, ps), Main.advancing(Main.parents.changes(fs, ps), bs)), stem_pre(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), T.map(~Main.Full, ~Naming.Named, ~(x => Main.full.named(x)), fs)), advancing_follows(Main.parents.changes(fs, ps), bs))))
