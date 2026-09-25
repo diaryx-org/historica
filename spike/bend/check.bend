@@ -17,9 +17,9 @@
 # as well, since it is a file's lines. What each thing is and what it says
 # about the store is decided here.
 #
-# Not here, and said in the README: a redaction that has not finished
-# arriving (`StillQuoted`) is not looked for; and a document that does not
-# parse is reported in the port's parser's words, not the Rust tool's.
+# Not here, and said in the README: a file the filesystem will not hand
+# over, which run as root nothing is (`Unreadable` for a file of names or
+# rules is its bytes not being UTF-8, and that is here).
 
 import Base
 import ./commands.bend as Main
@@ -1763,6 +1763,205 @@ def heads.findings(+docs: List<&2, Main.Full>, +cs: List<&2, Content>, +ls: List
     case +h <> rest:
       List.append(&2, Finding, head.findings(docs, cs, ls, ds, hs, forgetting, h), heads.findings(docs, cs, ls, ds, hs, forgetting, rest))
 
+# A redaction still arriving
+# --------------------------
+#
+# `still_quoted`: where the walk reads a file, each element's sites — the
+# document that wrote it and each document whose `delete` quotes it — and
+# the first of them to say the element was destroyed. Every other site
+# that still holds its text undercuts that redaction, which is what a
+# forgetting document that has not finished arriving looks like.
+
+# A `delete`'s quote of one element: which element, which event, and
+# whether the quote is the text or the marker standing for it.
+type Quote is Data:
+  Quote{target: Merge.Name, event: Nat, forgotten: Bool}
+
+def uc.forgotten(i: Ops.Item) -> Bool:
+  match i:
+    case Ops.Item{t, n, f}:
+      f
+
+def uc.deletes(items: List<&2, Ops.Item>, +view: List<&2, Merge.Node>, +at: Nat, +e: Nat) -> List<&2, Quote>:
+  match items:
+    case Nil{}:
+      Nil{}
+    case +it <> rest:
+      List.append(&2, Quote, Maybe.default(&2, List<&2, Quote>, Maybe.map(&2, Merge.Node, List<&2, Quote>, n => [Quote{Merge.Node.name(n), e, uc.forgotten(it)}], List.get(&2, Merge.Node, view, at)), Nil{}),
+        uc.deletes(rest, view, 1n+at, e))
+
+def uc.op(+view: List<&2, Merge.Node>, +e: Nat, o: Ops.Op) -> List<&2, Quote>:
+  match o:
+    case Ops.Op{Ops.Delete{}, +at, items}:
+      uc.deletes(items, view, at, e)
+    case Ops.Op{Ops.Insert{}, at, items}:
+      Nil{}
+
+def uc.ops(os: List<&2, Ops.Op>, +view: List<&2, Merge.Node>, +e: Nat) -> List<&2, Quote>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case o <> rest:
+      List.append(&2, Quote, uc.op(view, e, o), uc.ops(rest, view, e))
+
+def uc.event(+t: List<&2, Merge.Node>, +e: Nat, ev: Maybe<&2, Merge.Rev>) -> List<&2, Quote>:
+  match ev:
+    case Some{Merge.Rev{+seen, Some{Merge.Edits{ops}}}}:
+      uc.ops(ops, Merge.visible(Merge.restrict(t, seen)), e)
+    case _:
+      Nil{}
+
+# The walk again, keeping every quote each `delete` made.
+type QW is Data:
+  QW{tree: List<&2, Merge.Node>, quotes: List<&2, Quote>}
+
+def uc.step(+g: List<&2, Merge.Rev>, +e: Nat, st: QW) -> QW:
+  match st:
+    case QW{+t, +qs}:
+      QW{Maybe.default(&2, List<&2, Merge.Node>, Merge.step(List.get(&2, Merge.Rev, g, e), t, e), t), List.append(&2, Quote, qs, uc.event(t, e, List.get(&2, Merge.Rev, g, e)))}
+
+def uc.go(o: List<&2, Nat>, +g: List<&2, Merge.Rev>, st: QW) -> QW:
+  match o:
+    case Nil{}:
+      st
+    case +e <> rest:
+      uc.go(rest, g, uc.step(g, e, st))
+
+def uc.quote(qs: List<&2, Quote>, +name: Merge.Name, +e: Nat) -> Maybe<&2, Bool>:
+  match qs:
+    case Nil{}:
+      None{}
+    case Quote{+t, +ev, +f} <> rest:
+      Bool.pick(Maybe<&2, Bool>, Bool.and(Merge.Name.eq(t, name), Nat.is_eq(ev, e)), Some{f}, uc.quote(rest, name, e))
+
+# Where an element stands: the digest a document is named by for the file,
+# and whether its text there is the marker.
+def uc.site.at(+d: String, f: Maybe<&2, Bool>) -> List<&2, T.Split>:
+  match f:
+    case None{}:
+      Nil{}
+    case Some{+x}:
+      Bool.pick(List<&2, T.Split>, String.is_empty(d), Nil{}, [T.Split{d, Bool.pick(String, x, "1", "0")}])
+
+def uc.site(+digests: List<&2, String>, +e: Nat, f: Maybe<&2, Bool>) -> List<&2, T.Split>:
+  uc.site.at(Maybe.default(&2, String, List.get(&2, String, digests, e), SNil{}), f)
+
+def uc.deleters(+digests: List<&2, String>, +qs: List<&2, Quote>, +name: Merge.Name, es: List<&2, Nat>) -> List<&2, T.Split>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case +e <> rest:
+      List.append(&2, T.Split, uc.site(digests, e, uc.quote(qs, name, e)), uc.deleters(digests, qs, name, rest))
+
+def uc.first(ss: List<&2, T.Split>) -> Maybe<&2, String>:
+  match ss:
+    case Nil{}:
+      None{}
+    case T.Split{+d, +f} <> rest:
+      Bool.pick(Maybe<&2, String>, String.eq(f, "1"), Some{d}, uc.first(rest))
+
+def uc.against(+forgets: String, ss: List<&2, T.Split>) -> List<&2, T.Split>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case T.Split{+d, +f} <> rest:
+      +more = uc.against(forgets, rest)
+      Bool.pick(List<&2, T.Split>, Bool.or(String.eq(f, "1"), String.eq(d, forgets)), more, T.Split{d, forgets} <> more)
+
+def uc.sites(+ss: List<&2, T.Split>, m: Maybe<&2, String>) -> List<&2, T.Split>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{+forgets}:
+      uc.against(forgets, ss)
+
+def uc.node(+digests: List<&2, String>, +qs: List<&2, Quote>, n: Merge.Node) -> List<&2, T.Split>:
+  match n:
+    case Merge.Node{+nm, +it, pl, +d}:
+      +ss = List.append(&2, T.Split, uc.site(digests, Merge.Node.author(Merge.Node{nm, it, pl, d}), Some{uc.forgotten(it)}),
+        uc.deleters(digests, qs, nm, List.sort(~Nat, ~(a => b => Nat.is_le(a, b)), d)))
+      uc.sites(ss, uc.first(ss))
+
+def uc.nodes(+digests: List<&2, String>, +qs: List<&2, Quote>, ns: List<&2, Merge.Node>) -> List<&2, T.Split>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case n <> rest:
+      List.append(&2, T.Split, uc.node(digests, qs, n), uc.nodes(digests, qs, rest))
+
+def uc.walked(+digests: List<&2, String>, ok: Bool, st: QW) -> List<&2, T.Split>:
+  match st:
+    case QW{t, +qs}:
+      Bool.pick(List<&2, T.Split>, ok, uc.nodes(digests, qs, t), Nil{})
+
+def uc.seen(+anc: List<&2, Main.Full>, +hs: List<&2, Held>, +file: String, r: Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>) -> List<&2, T.Split>:
+  match r:
+    case Fail{e}:
+      Nil{}
+    case Done{+ss}:
+      +names = Main.ids(anc)
+      +digests = Main.minted_digests(anc, file)
+      +g = quotes.revs(anc, names, digests, ss, hs, file)
+      +n = List.length(&2, Merge.Rev, g)
+      +o = kahn(n, g, Merge.upto(n), Nil{})
+      uc.walked(digests, Result.is_done(&2, &2, String, List<&2, Merge.Node>, quotes.go(o, g, names, digests, hs, file, Done{Nil{}})), uc.go(o, g, QW{Nil{}, Nil{}}))
+
+def uc.files(+docs: List<&2, Main.Full>, +hs: List<&2, Held>, +head: String, files: List<&2, String>) -> List<&2, T.Split>:
+  match files:
+    case Nil{}:
+      Nil{}
+    case +f <> rest:
+      +anc = Main.walked.ancestry(docs, head)
+      List.append(&2, T.Split, uc.seen(anc, hs, f, Tree.seen(List.length(&2, Main.Full, anc), Main.events_of(anc), Nil{})), uc.files(docs, hs, head, rest))
+
+# The heads read by the walk: where a redaction is anywhere, or a chain
+# does not hold operations all the way, as `content.files` decides.
+def uc.head(+docs: List<&2, Main.Full>, +hs: List<&2, Held>, +forgetting: Bool, +head: String) -> List<&2, T.Split>:
+  +anc = Main.ancestry(docs, head)
+  +walked = Maybe.default(&2, Bool, Maybe.map(&2, List<&2, Main.Full>, Bool, ch => Bool.or(forgetting, Bool.not(held.ops.all(hs, ch))), chain(docs, head)), True{})
+  Bool.pick(List<&2, T.Split>, Bool.and(Bool.and(complete(docs, anc), Result.is_done(&2, &2, Main.Refused, Tree.Tree(), Main.tree.r(docs, head))), walked),
+    uc.files(docs, hs, head, set.of(T.concat(String, T.map(~Main.Full, ~List<&2, String>, ~(a => files.named(a)), anc)))), Nil{})
+
+def uc.heads(+docs: List<&2, Main.Full>, +hs: List<&2, Held>, +forgetting: Bool, heads: List<&2, String>) -> List<&2, T.Split>:
+  match heads:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      List.append(&2, T.Split, uc.head(docs, hs, forgetting, h), uc.heads(docs, hs, forgetting, rest))
+
+def uc.said(ss: List<&2, T.Split>) -> List<&2, Finding>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case T.Split{+d, +f} <> rest:
+      note(ab12(d) ++ " still quotes items " ++ ab12(f) ++ " says were destroyed; a redaction that has not finished arriving looks exactly like this") <> uc.said(rest)
+
+def uc.key(s: T.Split) -> String:
+  match s:
+    case T.Split{d, f}:
+      d ++ " " ++ f
+
+def uc.keys(ss: List<&2, T.Split>) -> List<&2, String>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case s <> rest:
+      uc.key(s) <> uc.keys(rest)
+
+def uc.unkey(+s: String) -> T.Split:
+  Maybe.default(&2, T.Split, T.split_once(s), T.Split{s, SNil{}})
+
+def uc.unkeys(ks: List<&2, String>) -> List<&2, T.Split>:
+  match ks:
+    case Nil{}:
+      Nil{}
+    case k <> rest:
+      uc.unkey(k) <> uc.unkeys(rest)
+
+# Each undercut once, in digest order, as the Rust tool's set holds them.
+def undercuts(+docs: List<&2, Main.Full>, +hs: List<&2, Held>, +forgetting: Bool, +heads: List<&2, String>) -> List<&2, Finding>:
+  uc.said(uc.unkeys(set.of(uc.keys(uc.heads(docs, hs, forgetting, heads)))))
+
 # Which heads can be produced
 # ---------------------------
 
@@ -1893,6 +2092,14 @@ def skipped.one(+path: String, +text: String, st: Folder.Stated) -> Stating:
     case Folder.Stated.Wrong{e}:
       Stating{[skipped.wrong(path, e, retired(text))], Nil{}}
 
+# A rule file whose bytes are not UTF-8 is `Unreadable`, and states nothing.
+def skipped.read(+p: String, r: Result<&2, &2, String, String>) -> Stating:
+  match r:
+    case Fail{e}:
+      Stating{[error(p ++ ": " ++ e)], Nil{}}
+    case Done{+t}:
+      skipped.one(p, t, Folder.rule_in(t))
+
 def skipped.go(ps: List<&2, String>, k: Class) -> IO(Stating):
   match ps k:
     case Nil{} _:
@@ -1901,10 +2108,9 @@ def skipped.go(ps: List<&2, String>, k: Class) -> IO(Stating):
       skipped.go(rest, class(rest, SNil{}))
     case +p <> +rest _:
       do IO<Stating>:
-        text : String <- Store.read_text(p)
-        +t : String = text
+        r : Result<&2, &2, String, String> <- Store.read_utf8(p)
         more : Stating <- skipped.go(rest, class(rest, SNil{}))
-        return stating.then(skipped.one(p, t, Folder.rule_in(t)), more)
+        return stating.then(skipped.read(p, r), more)
 
 def rule.show(r: Rule) -> String:
   match r:
@@ -2064,14 +2270,21 @@ def bookmark.finding(+docs: List<&2, Main.Full>, +path: String, +name: String, r
     case Done{Bm.Stated{+t, p}}:
       Bool.pick(List<&2, Finding>, pointed(docs, t), Nil{}, [note("`" ++ name ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")])
 
+def name.text(+docs: List<&2, Main.Full>, +path: String, +name: String, r: Result<&2, &2, String, String>) -> List<&2, Finding>:
+  match r:
+    case Fail{e}:
+      [error(path ++ ": " ++ e)]
+    case Done{text}:
+      bookmark.finding(docs, path, name, Bm.parse(text))
+
 def name.read(+docs: List<&2, Main.Full>, +path: String, n: Maybe<&2, String>) -> IO(List<&2, Finding>):
   match n:
     case None{}:
       IO.pure(List<&2, Finding>, [foreign(path)])
     case Some{+name}:
       do IO<List<&2, Finding>>:
-        text : String <- Store.read_text(path)
-        return bookmark.finding(docs, path, name, Bm.parse(text))
+        r : Result<&2, &2, String, String> <- Store.read_utf8(path)
+        return name.text(docs, path, name, r)
 
 # Each file of `names/`: a bookmark read, or a file nothing reads.
 def names.go(+docs: List<&2, Main.Full>, +cut: Nat, ps: List<&2, String>, k: Class) -> IO(List<&2, Finding>):
@@ -2358,6 +2571,7 @@ def pass(+root: String) -> IO(List<&2, Finding>):
       resurrected(cs, ps, List.append(&2, String, set.of(targets.ops(cs)), List.append(&2, String, set.of(targets.res(cs)), set.of(targets.payloads(cs))))),
       step.findings(steps), unnamed(contents.named(docs), ps),
       heads.findings(docs, cs, ls, ds, hs, Bool.not(List.is_empty(&2, String, targets.ops(cs))), hd),
+      undercuts(docs, hs, Bool.not(List.is_empty(&2, String, targets.ops(cs))), hd),
       incomplete(docs, cs, ps, standing.all(cs), hd),
       skipped.findings(docs, stale2, root ++ "/skipped.txt", opens, st2),
       resolutions.findings(docs, ds, cs, ls, opens),

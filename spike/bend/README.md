@@ -811,7 +811,13 @@ had seen (`check_walks_causally`); the first event its author's view
 refuses says why in `MergeError`'s words. `check.py` asks `check` and
 `check --complete` of every store, and has four built to be found wanting:
 `damaged`, `gutted`, `tampered`, and `forgotten`, the corpus that forgets a
-payload, beside the forgetting documents of it that do not parse.
+payload, beside the forgetting documents of it that do not parse. A line
+forgotten where one revision wrote it and another deleted it is sought at
+every site that still holds its text (`StillQuoted`): `quoting` and
+`requoted` bring one of the two documents back without its forgetting, the
+deleter's and the writer's. A bookmark or a rule file whose bytes are not
+UTF-8 is refused by every command as the store opens, in `Utf8Error`'s
+words, and is an error to `check` (`unnamed`, `unruled`).
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1593,8 +1599,11 @@ is under 5k. Not ported:
   writes; `arrange`, `fetch`, `export`. It writes no `cache/`, which any reader
   rebuilds. A merge's file still holding the renderer's marker lines is not
   refused by `record --dry-run`, since the markers are not modelled.
-- **`check`** does not look for a redaction that has not finished arriving
-  (`StillQuoted`), or a file it cannot read (`Unreadable`).
+- **A file the filesystem will not hand over** is not `check`'s
+  `Unreadable`: the port's host reads what it is asked for or stops, and
+  run as root, as `check.py` is, nothing refuses a read. A file of names
+  or rules, or the identity file, whose bytes are not UTF-8 is refused
+  and reported as the Rust tool does.
 - **A revision that reads only as far as opening** is in the graph and
   refused where `log`, `show`, `files`, `cat`, `blame`, `status` and
   `diff` ask what it did; `record`, `amend`, `abandon`, `carry`, `name` and

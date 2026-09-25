@@ -273,6 +273,16 @@ def root() -> IO(String):
 # The header
 # ----------
 
+# A file read as text the way `read_to_string` reads it: refused, in
+# `Utf8Error`'s words, where its bytes are not UTF-8.
+def utf8.of(+bs: List<&2, U32>) -> Result<&2, &2, String, String>:
+  Maybe.default(&2, Result<&2, &2, String, String>, Maybe.map(&2, String, Result<&2, &2, String, String>, m => Fail{m}, Utf8.invalid(bs)), Done{Utf8.decode(bs)})
+
+def read_utf8(path: String) -> IO(Result<&2, &2, String, String>):
+  do IO<Result<&2, &2, String, String>>:
+    bs : List<&2, U32> <- Utf8.read_file(path)
+    return utf8.of(bs)
+
 def read_text(path: String) -> IO(String):
   do IO<String>:
     bs : List<&2, U32> <- Utf8.read_file(path)

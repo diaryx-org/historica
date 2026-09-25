@@ -354,6 +354,14 @@ def rules.stated(+file: String, st: Stated) -> IO(List<&2, Scope>):
     case Stated.Wrong{e}:
       die(List<&2, Scope>, 1, file ++ ": " ++ e)
 
+# A rule file whose bytes are not UTF-8 is refused before it is read.
+def rules.read(+file: String, r: Result<&2, &2, String, String>) -> IO(List<&2, Scope>):
+  match r:
+    case Fail{e}:
+      die(List<&2, Scope>, 1, file ++ ": " ++ e)
+    case Done{+text}:
+      rules.stated(file, rule_in(text))
+
 # In path order, so the file refused is the first the Rust loader reaches.
 def rules.go(+root: String, paths: List<&2, String>) -> IO(List<&2, Scope>):
   match paths:
@@ -362,8 +370,8 @@ def rules.go(+root: String, paths: List<&2, String>) -> IO(List<&2, Scope>):
     case +p <> rest:
       do IO<List<&2, Scope>>:
         +file : String = root ++ "/" ++ p
-        text : String <- Store.read_text(file)
-        here : List<&2, Scope> <- rules.stated(file, rule_in(text))
+        r : Result<&2, &2, String, String> <- Store.read_utf8(file)
+        here : List<&2, Scope> <- rules.read(file, r)
         later : List<&2, Scope> <- rules.go(root, rest)
         return List.append(&2, Scope, here, later)
 
