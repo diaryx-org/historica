@@ -22,6 +22,8 @@ import ./argv.bend as Argv
 import ./shell.bend as Shell
 import ./identity.bend as Identity
 import ./check.bend as Check
+import ./skip.bend as Skip
+import ./notes.bend as Notes
 import ./sort_lemmas.bend as SortL
 import ./naming.bend as Naming
 import ./fulls_lemmas.bend as FullsL
@@ -1259,6 +1261,71 @@ law identity_reads_back:
   for h: {Identity.unusable(a) == False{} : Bool}
   {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}
 
+# What `check` gathers from the store `init` makes — the header under its
+# note, `skipped/` holding only its note, and nothing else — it finds
+# nothing wrong with, wherever the store is.
+law check_finds_nothing_in_a_new_store:
+  for +root: String
+  {Check.found(Check.Gathered{root, Some{Notes.HEADER_NOTE()}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Texts{Nil{}, Nil{}}, False{}, Check.skipped.read(root ++ "/skipped/README.txt", Done{Notes.SKIPPED_NOTE()}), Check.Walked{Nil{}, Nil{}}, Nil{}}) == Nil{} : List<&2, Check.Finding>}
+
+# `skip`'s rules are equal only when they are one rule, and each is equal
+# to itself: what `held` asks is membership.
+law skip_rules_equal_only_when_equal:
+  for a: Skip.Rule
+  for b: Skip.Rule
+  for e: {Skip.rule.eq(a, b) == True{} : Bool}
+  {a == b : Skip.Rule}
+
+law skip_rule_equals_itself:
+  for a: Skip.Rule
+  {Skip.rule.eq(a, a) == True{} : Bool}
+
+# The file `skip <path>` writes for a path it accepts — spelled with no
+# `/` at its end, as `skip` spells one — is read back by the reader of
+# `skipped/` as exactly the rule it meant: the path or the directory, and
+# private or not.
+law skip_path_rule_reads_back:
+  for +file: String
+  for +v: String
+  for +directory: Bool
+  for +private: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  for +h: {String.ends_with(v, "/") == False{} : Bool}
+  {Skip.stated.of(file, Skip.file.text(Skip.Rule{sc, private}), Folder.rule_in(Skip.file.text(Skip.Rule{sc, private}))) == [Skip.Stating{Skip.Rule{sc, private}, file}] : List<&2, Skip.Stating>}
+
+# And the file `skip --name <name>` writes for a name it accepts, the same.
+law skip_name_rule_reads_back:
+  for +file: String
+  for +n: String
+  for +private: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.name.scope.r(n) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  {Skip.stated.of(file, Skip.file.text(Skip.Rule{sc, private}), Folder.rule_in(Skip.file.text(Skip.Rule{sc, private}))) == [Skip.Stating{Skip.Rule{sc, private}, file}] : List<&2, Skip.Stating>}
+
+# The rule `skip <path>` makes skips that file, or that directory and a
+# file under it, and nothing whose path does not start with the one named.
+law skip_path_rule_skips_under_its_path:
+  for +v: String
+  for +directory: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  for +x: String
+  for +q: String
+  {Bool.and(Bool.pick(Bool, directory, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)), Bool.or(Bool.not(Folder.skips([sc], q)), String.starts_with(q, v))) == True{} : Bool}
+
+# `skip` with no arguments lists every rule the files of `skipped/` state,
+# and no rule twice.
+law skip_lists_each_rule_once:
+  for +ss: List<&2, Skip.Stating>
+  {Bool.and(Skip.nodup(Skip.stated.rules(Skip.once(ss, Nil{}, Skip.once.dup(ss, Nil{})))), Skip.all.held(Skip.stated.rules(ss), Skip.stated.rules(Skip.once(ss, Nil{}, Skip.once.dup(ss, Nil{}))))) == True{} : Bool}
+
+# What `skip <path>...` writes is no rule the store already states and no
+# rule twice, and every rule asked for is written or was already there.
+law skip_writes_what_is_new:
+  for +rs: List<&2, Skip.Rule>
+  for +had: List<&2, Skip.Rule>
+  {Bool.and(Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))))), Skip.all.held(rs, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had))) == True{} : Bool}
 # `name` reads its words as their plain reading says: a flag counts
 # wherever it stands, the last of `--revision` and `--change` and the last
 # of `--private` and `--shared` deciding, `--delete` and `--fields` asked

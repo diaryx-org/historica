@@ -42,6 +42,7 @@ import ./blamed_lemmas.bend as Blamed
 import ./diffcmd_lemmas.bend as DiffCmd
 import ./logargs_lemmas.bend as LogArgs
 import ./check_lemmas.bend as CheckL
+import ./skip_lemmas.bend as SkipL
 import ./argv_lemmas.bend as ArgvL
 import ./shell_lemmas.bend as ShellL
 import ./opening_lemmas.bend as OpeningL
@@ -665,6 +666,22 @@ def Laws.header_opens_under_a_note(note):
 
 def Laws.identity_reads_back(file, a, directory, home, h):
   IdentityL.reads_back(file, a, directory, home, h)
+def Laws.check_finds_nothing_in_a_new_store(root):
+  CheckL.fresh(root)
+def Laws.skip_rules_equal_only_when_equal(a, b, e):
+  SkipL.rule_eq_sound(a, b, e)
+def Laws.skip_rule_equals_itself(a):
+  SkipL.rule_eq_refl(a)
+def Laws.skip_path_rule_reads_back(file, v, directory, private, sc, e, h):
+  SkipL.scoped_reads(file, v, directory, private, sc, e, h)
+def Laws.skip_name_rule_reads_back(file, n, private, sc, e):
+  SkipL.named_reads(file, n, private, sc, e)
+def Laws.skip_path_rule_skips_under_its_path(v, directory, sc, e, x, q):
+  SkipL.scoped_skips(v, directory, sc, e, x, q)
+def Laws.skip_lists_each_rule_once(ss):
+  SkipL.lists_once(ss)
+def Laws.skip_writes_what_is_new(rs, had):
+  SkipL.writes_new(rs, had)
 def Laws.name_reads_its_words(ws):
   NameL.args_said(ws)
 
