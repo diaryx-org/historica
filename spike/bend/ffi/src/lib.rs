@@ -1129,6 +1129,144 @@ fn digest(bytes: &[u8]) -> String {
     spelled
 }
 
+// Over HTTP
+// ---------
+
+/// The client every request is made with, as the Rust tool's `fetch` builds
+/// one (decision 0057): the host's own HTTP through `nyquest`, no cookies,
+/// since a public directory is asked nothing about who is asking, and no
+/// cache, since a manifest read again must be read again.
+fn web() -> Result<nyquest::BlockingClient, (i32, String)> {
+    static REGISTERED: std::sync::Once = std::sync::Once::new();
+    REGISTERED.call_once(nyquest_preset::register);
+    nyquest::ClientBuilder::default()
+        .user_agent(concat!("historica-bend/", env!("CARGO_PKG_VERSION")))
+        .no_cookies()
+        .no_caching()
+        .request_timeout(std::time::Duration::from_secs(60))
+        .build_blocking()
+        .map_err(|error| (EIO, format!("no HTTP client: {error}")))
+}
+
+/// What went wrong, as far down as the error chain goes: the Rust tool's
+/// `said`, since `nyquest`'s own message is a category.
+fn said(error: &dyn std::error::Error) -> (i32, String) {
+    let mut whole = error.to_string();
+    let mut cause = error.source();
+    while let Some(next) = cause {
+        whole.push_str(&format!(": {next}"));
+        cause = next.source();
+    }
+    (EIO, whole)
+}
+
+/// One text document over HTTP, for `fetch`: its URL, and back what came.
+///
+/// `text`, a newline and the body, for a body that is UTF-8; `bytes` and the
+/// digest of a body that is not, since what a reader does with such a body is
+/// refuse it and say what it hashed to; and `status` and the code for any
+/// answer that is not a success. A request that could not be made at all is
+/// the failure, in the host's words. Which code means a file is gone, and
+/// what any of it means for a fetch, is the Bend side's.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_web_get(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let url = text(query, query_len)?;
+        let response = web()?
+            .request(nyquest::blocking::Request::get(url.to_owned()))
+            .map_err(|error| said(&error))?;
+        let status = response.status();
+        if !status.is_successful() {
+            return Ok(format!("status {}", status.code()));
+        }
+        let bytes = response.bytes().map_err(|error| said(&error))?;
+        Ok(match String::from_utf8(bytes) {
+            Ok(body) => format!("text\n{body}"),
+            Err(error) => format!("bytes {}", digest(error.as_bytes())),
+        })
+    })
+}
+
+/// One file over HTTP, into a file, for `fetch`'s payloads and the files of
+/// another tool: its URL, then where to put it, a line each; and back the
+/// digest and the size of what arrived, or `status` and the code for an
+/// answer that is not a success, having written nothing.
+///
+/// The body goes from the wire to the file a piece at a time, hashed as it
+/// passes, so nothing holds it whole — decision 0067, as `Store.copy` keeps
+/// it. Where it goes is a staging name the Bend side chose; whether what
+/// arrived is what was offered, and so whether it is renamed into the store
+/// or removed, is the Bend side's too.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_web_pull(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    use std::io::{Read as _, Write as _};
+
+    answer(out, out_len, || {
+        let Some((url, to)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a pull is a URL, then where it goes".to_owned()));
+        };
+        let response = web()?
+            .request(nyquest::blocking::Request::get(url.to_owned()))
+            .map_err(|error| said(&error))?;
+        let status = response.status();
+        if !status.is_successful() {
+            return Ok(format!("status {}", status.code()));
+        }
+        let to = Path::new(to);
+        let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+        if let Some(directory) = to.parent() {
+            fs::create_dir_all(directory).map_err(|error| failed(directory, error))?;
+        }
+        let mut file = fs::File::create(to).map_err(|error| failed(to, error))?;
+        let mut body = response.into_read();
+        let mut hasher = Sha256::new();
+        let mut size: u64 = 0;
+        let mut piece = vec![0u8; 1 << 16];
+        let landed = loop {
+            let n = match body.read(&mut piece) {
+                Ok(0) => break Ok(()),
+                Ok(n) => n,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => break Err(said(&error)),
+            };
+            hasher.update(&piece[..n]);
+            size += n as u64;
+            if let Err(error) = file.write_all(&piece[..n]) {
+                break Err(failed(to, error));
+            }
+        }
+        .and_then(|()| file.sync_all().map_err(|error| failed(to, error)));
+        if let Err(error) = landed {
+            drop(file);
+            let _ = fs::remove_file(to);
+            return Err(error);
+        }
+        let mut spelled = String::with_capacity(DIGEST_CHARS);
+        for byte in hasher.finalize() {
+            spelled.push_str(&format!("{byte:02x}"));
+        }
+        Ok(format!("{spelled} {size}"))
+    })
+}
+
 // The boundary
 // ------------
 
@@ -1579,6 +1717,59 @@ mod tests {
         assert!(operations.is_dir());
         assert_eq!(asked(&operations), (0, "0".to_owned()));
         assert_eq!(call(hist_store_tidy, b"no newline").0, EINVAL);
+    }
+
+    /// A server that answers each request in turn with one of `answers` —
+    /// a status and a body — and says where it is.
+    fn served(answers: Vec<(u16, Vec<u8>)>) -> String {
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for (status, body) in answers {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut asked = Vec::new();
+                let mut piece = [0u8; 1024];
+                while !asked.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = stream.read(&mut piece).unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    asked.extend_from_slice(&piece[..n]);
+                }
+                let head = format!("HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                stream.write_all(head.as_bytes()).unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+        at
+    }
+
+    #[test]
+    fn a_document_over_http_is_its_text_its_digest_or_its_status() {
+        let at = served(vec![(200, b"historica\n".to_vec()), (200, vec![0xff, 0xfe]), (404, b"gone".to_vec())]);
+        let asked = |path: &str| call(hist_web_get, format!("{at}/{path}").as_bytes());
+        assert_eq!(asked("a.txt"), (0, "text\nhistorica\n".to_owned()));
+        assert_eq!(asked("b.bin"), (0, format!("bytes {}", digest(&[0xff, 0xfe]))));
+        // A status that is not a success says only which it was: whether it
+        // means the file is gone is the Bend side's to decide.
+        assert_eq!(asked("c.txt"), (0, "status 404".to_owned()));
+    }
+
+    #[test]
+    fn a_file_over_http_lands_where_it_is_told_and_is_answered_as_its_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = vec![0u8, 1, 2, 3].repeat(40_000);
+        let at = served(vec![(200, body.clone()), (410, b"gone".to_vec())]);
+        let to = dir.path().join("deep/.x.fetching");
+        let query = format!("{at}/p.bin\n{}", to.display());
+        assert_eq!(call(hist_web_pull, query.as_bytes()), (0, format!("{} {}", digest(&body), body.len())));
+        assert_eq!(fs::read(&to).unwrap(), body);
+        let elsewhere = dir.path().join("none");
+        let query = format!("{at}/q.bin\n{}", elsewhere.display());
+        assert_eq!(call(hist_web_pull, query.as_bytes()), (0, "status 410".to_owned()));
+        assert!(!elsewhere.exists(), "nothing is written for an answer that is not a success");
+        assert_eq!(call(hist_web_pull, b"no newline").0, EINVAL);
     }
 
     #[test]

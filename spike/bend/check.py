@@ -26,6 +26,8 @@ import subprocess
 import sys
 import tempfile
 import threading
+import functools
+import http.server
 
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
@@ -268,7 +270,7 @@ REWRITES = ("amend", "abandon", "carry")
 
 # The commands that move, remove and copy what a store holds: after each,
 # the whole of every store under the copy is compared, less `cache/`.
-MOVES = ("arrange", "prune", "receive", "offer", "export")
+MOVES = ("arrange", "prune", "receive", "offer", "export", "fetch")
 
 STORES = {
     "tree": [
@@ -783,6 +785,60 @@ STORES = {
         ["prune", "-n"],
         ["prune"],
     ],
+    # `fetch` from a published copy served over HTTP from a thread of this
+    # script (`{web}` is its address): into an empty store, every file the
+    # manifest names; a copy of this store's own, nothing new; a copy that
+    # forgot a line and a payload; a stranger, which an empty store may take;
+    # a manifest naming a digest a payload's bytes do not have; one naming a
+    # revision that is not there, read four times and refused; one being
+    # rewritten, read twice; one naming a directory this historica does not
+    # carry and a kind it does not know; one in a spelling it does not
+    # know, one malformed, one not text, and none at all; and every usage
+    # error, and `--fields` beside each kind of ending.
+    "fetching": [
+        ["fetch", "{web}/pub/offer.txt"],
+        ["fetch", "{web}/pub/offer.txt", "--fields"],
+        ["fetch", "--fields", "{web}/pub/offer.txt"],
+        ["fetch", "{web}/same/offer.txt"],
+        ["fetch", "{web}/fg/offer.txt"],
+        ["fetch", "{web}/stranger/offer.txt"],
+        ["fetch", "{web}/lie/offer.txt"],
+        ["fetch", "{web}/lie/offer.txt", "--fields"],
+        ["fetch", "{web}/stale/offer.txt"],
+        ["fetch", "{web}/stale/offer.txt", "--fields"],
+        ["fetch", "{web}/moving/offer.txt"],
+        ["fetch", "{web}/declined/offer.txt"],
+        ["fetch", "{web}/spelled/offer.txt"],
+        ["fetch", "{web}/malformed/offer.txt"],
+        ["fetch", "{web}/headless/offer.txt"],
+        ["fetch", "{web}/binary/offer.txt"],
+        ["fetch", "{web}/nowhere/offer.txt"],
+        ["fetch", "{web}/nowhere/offer.txt", "--fields"],
+        ["fetch"],
+        ["fetch", "--fields"],
+        ["fetch", "-x", "{web}/pub/offer.txt"],
+        ["fetch", "{web}/pub/offer.txt", "{web}/same/offer.txt"],
+        ["fetch", "127.0.0.1/offer.txt"],
+        ["fetch", "http://127.0.0.1"],
+        ["fetch", "http://127.0.0.1/pub/"],
+        ["fetch", "{web}/pub/offer.txt?v=2"],
+        ["fetch", "{web}/pub/offer.txt#top"],
+    ],
+    # And into a store holding the first revision of what was published: the
+    # rest taken; the store's own copy, holding nothing new, its bookmark
+    # kept; the forgetting copy, whose stand-ins destroy the originals here;
+    # a stranger refused, and joined when asked.
+    "fetched": [
+        ["fetch", "{web}/pub/offer.txt"],
+        ["fetch", "{web}/pub/offer.txt", "--fields"],
+        ["fetch", "{web}/same/offer.txt"],
+        ["fetch", "{web}/same/offer.txt", "--fields"],
+        ["fetch", "{web}/fg/offer.txt"],
+        ["fetch", "{web}/stranger/offer.txt"],
+        ["fetch", "{web}/stranger/offer.txt", "--fields"],
+        ["fetch", "{web}/stranger/offer.txt", "--join-unrelated"],
+        ["fetch", "--join-unrelated", "--fields", "{web}/stranger/offer.txt"],
+    ],
     # `init`, where there is nothing yet: here, in a directory named — `.`,
     # nothing, nested, with a slash — made with its parents; refused beside a
     # second argument, and where a store is already. And every command that
@@ -1225,7 +1281,12 @@ def record(temporary, rust, corpus, pinned=None):
         return store
     historica("init", ".")
     historica("identity", "Check <check@example.com>")
-    if corpus == "unicode":
+    if corpus == "fetched":
+        # The published source as it stood at its first revision, which
+        # `serve` kept aside.
+        shutil.rmtree(store)
+        shutil.copytree(temporary / "web-first", store, symlinks=True)
+    elif corpus == "unicode":
         (store / "café").mkdir()
         (store / "café" / "naïve résumé.md").write_text("an accent\n")
         (store / "notes.md").write_text("plain\n")
@@ -2003,6 +2064,116 @@ def assemble(temporary, corpus):
     return store
 
 
+class Web(http.server.SimpleHTTPRequestHandler):
+    """A static directory of files, as a publisher's host serves one.
+
+    One address is not static: `moving/offer.txt` is the manifest of a copy
+    being rewritten, which names a path that has since moved on every odd
+    request and is the copy's current manifest on every even one — so each
+    fetch of it reads a stale manifest, finds a path gone, and reads again.
+    """
+
+    asked = {}
+    lock = threading.Lock()
+
+    def log_message(self, *arguments):
+        pass
+
+    def do_GET(self):
+        if self.path == "/moving/offer.txt":
+            with Web.lock:
+                n = Web.asked.get(self.path, 0)
+                Web.asked[self.path] = n + 1
+            if n % 2 == 0:
+                self.path = "/moving/offer.stale.txt"
+        super().do_GET()
+
+
+def publish(temporary, rust):
+    """The copies `fetch` is held to the Rust tool over, each exported and
+    offered by the Rust tool, under `temporary / "web"`."""
+    web = temporary / "web"
+    source = temporary / "web-source"
+    home = temporary / "home-web"
+    env = {**os.environ, **PINS, "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}
+    web.mkdir()
+    source.mkdir()
+
+    def at(where, *command):
+        return subprocess.run([rust, *command], cwd=where, env=env, check=True, capture_output=True, timeout=120).stdout
+
+    def offered(where, name):
+        at(where, "export", str(web / name / "store"))
+        (web / name / "offer.txt").write_bytes(at(web / name, "offer", "store"))
+
+    at(source, "init", ".")
+    (source / "notes.md").write_text("one\ntwo\n")
+    (source / "p.bin").write_bytes(b"\x00one")
+    at(source, "record", "-m", "one")
+    at(source, "name", "first", "head")
+    first = temporary / "web-first"
+    shutil.copytree(source, first, symlinks=True)
+    offered(first, "same")
+    (source / "notes.md").write_text("one\ntwo\nthree\n")
+    (source / "q.bin").write_bytes(b"\x00two")
+    (source / "sub").mkdir()
+    (source / "sub" / "deep.md").write_text("deep\n")
+    at(source, "record", "-m", "two")
+    at(source, "name", "main", "head")
+    at(source, "name", "priv", "head", "--private")
+    at(source, "name", "old", "first", "--revision")
+    at(source, "skip", "build/")
+    at(source, "skip", "--private", "--name", "*.tmp")
+    (source / "history" / "claims" / "by").mkdir(parents=True)
+    (source / "history" / "claims" / "by" / "one.txt").write_text("vouched\n")
+    offered(source, "pub")
+    manifest = (web / "pub" / "offer.txt").read_text()
+    # A payload whose bytes are not the digest its line gives.
+    shutil.copytree(web / "pub", web / "lie", symlinks=True)
+    payload = next(line for line in manifest.splitlines() if line.startswith("payload ")).split(" ", 3)[3]
+    (web / "lie" / payload).write_bytes(b"\x00lie")
+    # A revision the manifest names and the copy no longer holds.
+    shutil.copytree(web / "pub", web / "stale", symlinks=True)
+    revision = [line for line in manifest.splitlines() if line.startswith("revision ")][-1].split(" ", 3)[3]
+    (web / "stale" / revision).unlink()
+    # A copy being rewritten: its stale manifest names that revision where it
+    # was before the publisher moved it.
+    shutil.copytree(web / "pub", web / "moving", symlinks=True)
+    (web / "moving" / "offer.stale.txt").write_text(manifest.replace(revision, revision.replace(".rev.txt", " moved.rev.txt")))
+    # A directory this historica does not carry, and a kind it does not know.
+    shutil.copytree(web / "pub", web / "declined", symlinks=True)
+    digest = hashlib.sha256(b"x").hexdigest()
+    (web / "declined" / "offer.txt").write_text(manifest + f"reserved {digest} - store/history/trust/key.txt\nreserved {digest} - store/history/trust/other.txt\nreserved {digest} - store/history/elsewhere/a.txt\nfuture {digest} - store/history/future/x\n")
+    for name, text in (("spelled", "historica-offer-2\n"), ("malformed", manifest + "payload nothex - store/x\n"), ("headless", manifest + f"head {digest}\n")):
+        (web / name).mkdir()
+        (web / name / "offer.txt").write_text(text)
+    (web / "binary").mkdir()
+    (web / "binary" / "offer.txt").write_bytes(b"\xff\xfe not text\n")
+    # What it forgot: a line of a file and a payload, before it was
+    # exported again, so its stand-ins arrive.
+    forgetting = temporary / "web-forgetting"
+    shutil.copytree(source, forgetting, symlinks=True)
+    at(forgetting, "forget", "head", "notes.md", "--lines", "1..1")
+    at(forgetting, "forget", "head", "q.bin")
+    (forgetting / "q.bin").unlink()
+    at(forgetting, "record", "-m", "three")
+    offered(forgetting, "fg")
+    stranger = temporary / "web-stranger"
+    stranger.mkdir()
+    at(stranger, "init", ".")
+    (stranger / "else.md").write_text("elsewhere\n")
+    at(stranger, "record", "-m", "elsewhere")
+    offered(stranger, "stranger")
+    return web
+
+
+def serve(web):
+    """Serve a directory from a thread, on a free port; its address."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Web, directory=str(web)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_address[1]}"
+
+
 def check_store(temporary):
     rust = shutil.which("historica")
     if rust is None:
@@ -2029,9 +2200,12 @@ def check_store(temporary):
         run(BEND, "main.bend", "-o", str(source), timeout=1800)
         # `bend -o` links nothing of ours, so the C is compiled here; `-w`
         # because the generated program is not ours to lint.
+        # What the archive's HTTP needs beside it, as `cargo rustc --print
+        # native-static-libs` lists it: `fetch`'s transport is the host's
+        # libcurl, built into the archive, over the system's TLS and zlib.
         run(
             os.environ.get("CC", "cc"), "-O3", "-w", "-o", str(native), str(source),
-            str(archive), "-lm", "-lpthread", timeout=1800,
+            str(archive), "-lssl", "-lcrypto", "-lz", "-ldl", "-lrt", "-lutil", "-lm", "-lpthread", timeout=1800,
         )
 
     tools = [("js", ["bun", str(script)])]
@@ -2042,6 +2216,9 @@ def check_store(temporary):
     parallel(builds)
 
     copies = itertools.count()
+
+    # `fetch`'s publisher: the copies exported and offered, served from here.
+    web = serve(publish(temporary, rust))
 
     # One copy per command, made afresh at the same path for each tool, so
     # a message naming a path in it names the same one.
@@ -2085,12 +2262,13 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting", "updating", "forgotten", "forgetting", "caught", "blocked", "meeting", "marked", "marked1", "resolved", "through")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting", "updating", "forgotten", "forgetting", "caught", "blocked", "meeting", "marked", "marked1", "resolved", "through", "fetching", "fetched")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
             changed = command[0] if isinstance(command[0], dict) else {}
             command = command[1:] if changed else command
+            command = [word.replace("{web}", web) for word in command]
             env = {**os.environ, **PINS, **changed}
             # `record` may write the folder — `--move` renames before it
             # surveys, dry run or not — so each tool runs on a copy of its

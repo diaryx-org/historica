@@ -97,6 +97,20 @@ def Store.runs(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_runs.c"
   import "./ffi/store_runs.js"
 
+# One text document over HTTP, for `fetch`: its URL; back `text` and the
+# body where it is UTF-8, `bytes` and its digest where it is not, and
+# `status` and the code for an answer that is not a success.
+def Store.get(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_get.c"
+  import "./ffi/store_get.js"
+
+# One file over HTTP, into a file: its URL, then where it goes; back the
+# digest and size of what arrived, or `status` and the code having written
+# nothing. The bytes go from the wire to the file, never through Bend.
+def Store.pull(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_pull.c"
+  import "./ffi/store_pull.js"
+
 # The process ends, with the code given, once what it printed is out: for
 # a command whose answer is its exit code and says nothing on standard
 # error. It never returns.
@@ -385,6 +399,12 @@ def linked(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def chmodded(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.chmod(query)
+
+def got(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.get(query)
+
+def pulled(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.pull(query)
 
 def read_text(path: String) -> IO(String):
   do IO<String>:
