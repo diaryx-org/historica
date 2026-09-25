@@ -130,28 +130,6 @@ def reading.go(ws: List<&2, String>, r: Result<&2, &2, Main.Refused, FgReading>)
     case +w <> rest:
       reading.go(rest, Result.bind(&2, &2, Main.Refused, FgReading, FgReading, r, x => reading.step(x, w)))
 
-# The words of a command line read plainly: every flag `forget` knows set
-# aside, and the word after `--lines`, whatever it is, with it; the rest in
-# order. `wants` is whether the word before was `--lines`.
-# `LAWS.forget_reads_its_words` holds `asked.r` to it.
-def plain.pick(wants: Bool, k: FgWord, +w: String, on: List<&2, String>, off: List<&2, String>) -> List<&2, String>:
-  match wants k:
-    case True{} _:
-      off
-    case False{} Fg.Lines{}:
-      on
-    case False{} Fg.Plain{}:
-      w <> off
-    case False{} _:
-      off
-
-def plain(ws: List<&2, String>, wants: Bool) -> List<&2, String>:
-  match ws:
-    case Nil{}:
-      Nil{}
-    case +w <> +rest:
-      plain.pick(wants, word(w), w, plain(rest, True{}), plain(rest, False{}))
-
 # What `forget` was asked: a revision, a path, the span if one was named,
 # a dry run, and `--fields`.
 type FgAsked is Data:
@@ -475,8 +453,7 @@ def named(fs: List<&2, Main.Full>, +file: String) -> List<&2, FgNamed>:
     case +f <> rest:
       named.of(Main.id_of(f), Main.said(Main.facts_of(f), file), Main.is_text(Main.facts_of(f), file), named(rest, file))
 
-# The documents themselves. `LAWS.forget_rewrites_only_the_files_documents`
-# holds the plan's targets to them.
+# The documents themselves, which the plan's targets are drawn from.
 def named.docs(ns: List<&2, FgNamed>) -> List<&2, String>:
   match ns:
     case Nil{}:

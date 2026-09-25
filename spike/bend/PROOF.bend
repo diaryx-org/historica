@@ -613,6 +613,9 @@ def Laws.chain_follows_first_parents(fs, id):
 def Laws.revisions_read_are_their_documents(root, ds):
   FullsL.fulls_filed(root, ds)
 
+def Laws.revisions_read_lose_no_document(root, ds):
+  FullsL.fulls_read(root, ds)
+
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
 
@@ -671,10 +674,7 @@ def Laws.forgetting_a_resolution_keeps_shape(pieces, ps, t, i):
   ForgetL.pieces_shape(pieces, ps, t, i)
 
 def Laws.forget_rewrites_only_the_files_documents(fs, ds, id, file, first, last, ts, ws, a, n, e):
-  ForgetL.rewrites(fs, ds, id, file, first, last, ts, ws, a, n, e)
-
-def Laws.forget_rewrites_every_document_quoting_the_span(fs, ds, id, file, first, last, plan, e, at, ea, every, ev, i, q, hq, hs, d, hd):
-  ForgettingL.rewrites_quoting(fs, ds, id, file, first, last, plan, e, at, ea, every, ev, i, q, hq, hs, d, hd)
+  ForgetL.rewrites_stated(fs, ds, id, file, first, last, ts, ws, a, n, e)
 
 def Laws.forget_whole_takes_one_payload(file, payload, files, stood, n, ts, ws, a, m, e):
   ForgetL.takes_one(file, payload, files, stood, n, Fg.Fg.Plan{ts, ws, a, m}, e)
@@ -688,8 +688,11 @@ def Laws.forget_destroys_only_what_it_forgets(fs, ts, p, e):
 def Laws.forget_reads_its_words(ws, t, p, sp, d, f, e):
   ForgetL.reads_words(ws, t, p, sp, d, f, e)
 
-def Laws.forget_clears_only_copies(ps, p, e):
-  ForgetL.clears(ps, p, e)
+def Laws.forget_clears_every_copy(ps, d, hd, hm):
+  ForgetL.clears_copy(ps, d, hd, hm)
+
+def Laws.forget_clears_only_copies(ps):
+  ForgetL.notes_kept(ps)
 
 def Laws.forget_states_what_it_made_unreadable(p, ds, lines, dry):
   ForgettingL.says_gone(p, ds, lines, dry)
@@ -700,20 +703,32 @@ def Laws.forget_says_what_it_destroys(p, ds, lines, dry):
 def Laws.forget_files_documents_where_nothing_is(fs, ds, w):
   ForgettingL.files_where(fs, ds, w)
 
+def Laws.forget_files_a_payloads_standin_where_it_was(fs, d, rest, f, text, hf):
+  ForgettingL.payload_beside(fs, d, rest, f, text, hf)
+
 def Laws.forget_takes_no_file_of_lines_whole(fs, ds, id, file):
   ForgettingL.no_span(fs, ds, id, file)
 
-def Laws.forget_sweeps_only_what_lists_empty(dir, r, found, p, h):
-  ForgettingL.sweeps(dir, r, found, p, h)
+def Laws.forget_sweeps_only_what_lists_empty(dir, r, found, p):
+  ForgettingL.sweeps(dir, r, found, p)
+
+def Laws.forget_sweeps_only_listed_directories(dir, ls, skip, p, h):
+  ForgettingL.dirs_named(dir, ls, skip, p, h)
+
+def Laws.forget_sweeps_past_a_links_target(dir, x, t, rest):
+  ForgettingL.past_link(dir, x, t, rest)
 
 def Laws.standin_replays_like_what_it_stands_in_for(st1, st2, f, r, ops1, f2, ops2, hs, hops):
   ForgetL.replays_like(st1, st2, f, r, ops1, f2, ops2, hs, hops)
 
-def Laws.chain_replays_like_through_standins(ds1, ds2, r1, r2, hd, hr):
-  ForgetL.chain_like(ds1, ds2, r1, r2, hd, hr)
+def Laws.replay_reads_alike_through_standins(ds1, ds2, r1, r2, hd, hr):
+  ForgetL.stored_like(ds1, ds2, r1, r2, hd, hr)
 
 def Laws.forgetting_destroys_only_text(ops, ps, t, i):
   ForgetL.ops_forgot(ops, ps, t, i)
+
+def Laws.forgetting_destroys_the_picked_text(ops, ps, t, i, k, j, kind, at, x, n, f, h):
+  ForgetL.ops_forgot_at(ops, ps, t, i, k, j, kind, at, x, n, f, h)
 
 def Laws.standins_beside_only_forget(ds, ops):
   ForgetL.only_forget(ds, ops)
