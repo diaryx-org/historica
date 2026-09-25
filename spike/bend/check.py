@@ -2667,7 +2667,7 @@ def check_mutations(temporary):
             "record moves the bookmarks on every change but its parents'",
             "Bool.pick(List<&2, Bm.Bookmark>, Rev.member(changes, c), Bm.Bookmark{n, Bm.Target.Change{c}, p} <> later, later)",
             "Bool.pick(List<&2, Bm.Bookmark>, Rev.member(changes, c), later, Bm.Bookmark{n, Bm.Target.Change{c}, p} <> later)",
-            "record_lemmas.advancing_follows",
+            "record_lemmas.ah.step",
             "commands.bend",
         ),
         (
@@ -2754,6 +2754,20 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "record extends a name no revision the store holds has",
+            "def sharing_base(ns: List<&2, Named>, +base: String) -> Bool:\n  match ns:\n    case Nil{}:\n      False{}",
+            "def sharing_base(ns: List<&2, Named>, +base: String) -> Bool:\n  match ns:\n    case Nil{}:\n      True{}",
+            "record_lemmas.sb_mem",
+            "naming.bend",
+        ),
+        (
+            "record moves only the first bookmark on a parent's change",
+            "      Bool.pick(List<&2, Bm.Bookmark>, Rev.member(changes, c), Bm.Bookmark{n, Bm.Target.Change{c}, p} <> later, later)",
+            "      Bool.pick(List<&2, Bm.Bookmark>, Rev.member(changes, c), [Bm.Bookmark{n, Bm.Target.Change{c}, p}], later)",
+            "record_lemmas.ah.step",
+            "commands.bend",
+        ),
+        (
             "record reads only the first file `--lines` names",
             "      Rev.keep(lines.stated(ks, p), p, lined_added(ks, rest))",
             "      Rev.keep(lines.stated(ks, p), p, Nil{})",
@@ -2764,7 +2778,7 @@ def check_mutations(temporary):
             "record reads the position as empty",
             "        return Before{f, items} <> later",
             "        return Before{f, Nil{}} <> later",
-            "record_lemmas.read1",
+            "record_lemmas.bi.of",
             "commands.bend",
         ),
         (

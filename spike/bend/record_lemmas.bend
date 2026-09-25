@@ -671,6 +671,19 @@ def carry_reads_its_words_ok(+args: List<&2, String>, +m: Maybe<&2, String>, +mv
 # What it states is what the folder holds
 # ---------------------------------------
 
+def some_eq(-A: Data, -x: A, -y: A, h: {Some{x} == Some{y} : Maybe<&2, A>}) -> {x == y : A}:
+  Equal.cong(Maybe<&2, A>, A, m => Maybe.default(&2, A, m, x), Some{x}, Some{y}, h)
+
+def none_some(-A: Data, -y: A, h: {None{} == Some{y} : Maybe<&2, A>}) -> Empty:
+  Comp.false_true(Equal.cong(Maybe<&2, A>, Bool, m => Maybe.is_some(&2, A, m), None{}, Some{y}, h))
+
+def or_true(a: Bool, -b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
 def u32_refl(x: U32) -> {U32.is_eq(x, x) == True{} : Bool}:
   match x:
     case U32{+w}:
@@ -691,99 +704,199 @@ def items_refl(xs: List<&2, Ops.Item>) -> {Main.items_eq(xs, xs) == True{} : Boo
     case +x <> +rest:
       B.and_tt(Main.item_eq(x, x), Main.items_eq(rest, rest), HunkL.item_refl(x), items_refl(rest))
 
-def state_app(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Main.Content>, +ds: List<&2, Main.Content>, +hc: {Main.contents.state(befores, dg, reads, cs) == True{} : Bool}, hd: {Main.contents.state(befores, dg, reads, ds) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, List.append(&2, Main.Content, cs, ds)) == True{} : Bool}:
+# What `record` reads of the position
+# ----------------------------------
+
+def bi.pick(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +g: String, +f: String, -items: List<&2, Ops.Item>, -later: List<&2, Main.Before>, -rest: List<&2, String>, c: Bool, ec: {String.eq(g, f) == c : Bool}, egot: {Main.content.in(older, ds, left, g) == Done{items} : Result<&2, &2, String, List<&2, Ops.Item>>}, m: {Bool.or(c, Rev.member(rest, f)) == True{} : Bool}, ih: {Rev.member(rest, f) == True{} : Bool} -> {Main.content.in(older, ds, left, f) == Done{Main.before_of(later, f)} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {Main.content.in(older, ds, left, f) == Done{Bool.pick(List<&2, Ops.Item>, c, items, Main.before_of(later, f))} : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  match c:
+    case True{}:
+      %S.eq_true(g, f, ec) : {Main.content.in(older, ds, left, _) == Done{items} : Result<&2, &2, String, List<&2, Ops.Item>>}
+      egot
+    case False{}:
+      ih(m)
+
+def bi.of(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +g: String, -rest: List<&2, String>, +f: String, got: Result<&2, &2, String, List<&2, Ops.Item>>, egot: {Main.content.in(older, ds, left, g) == got : Result<&2, &2, String, List<&2, Ops.Item>>}, more: Result<&2, &2, Main.Refused, List<&2, Main.Before>>, emore: {Main.befores.r(older, ds, left, rest) == more : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, -bs: List<&2, Main.Before>, e: {Main.befores.of(g, got, more) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, m: {Bool.or(String.eq(g, f), Rev.member(rest, f)) == True{} : Bool}, ih: @b2: List<&2, Main.Before> -> {Main.befores.r(older, ds, left, rest) == Done{b2} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>} -> {Rev.member(rest, f) == True{} : Bool} -> {Main.content.in(older, ds, left, f) == Done{Main.before_of(b2, f)} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {Main.content.in(older, ds, left, f) == Done{Main.before_of(bs, f)} : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  match got more:
+    case Fail{x} _:
+      Empty.absurd({Main.content.in(older, ds, left, f) == Done{Main.before_of(bs, f)} : Result<&2, &2, String, List<&2, Ops.Item>>}, B.fail_done(List<&2, Main.Before>, Main.Refused{1, x}, bs, e))
+    case Done{items} Fail{x}:
+      Empty.absurd({Main.content.in(older, ds, left, f) == Done{Main.before_of(bs, f)} : Result<&2, &2, String, List<&2, Ops.Item>>}, B.fail_done(List<&2, Main.Before>, x, bs, e))
+    case Done{+items} Done{+later}:
+      %B.done_eq(List<&2, Main.Before>, Main.Before{g, items} <> later, bs, e) : {Main.content.in(older, ds, left, f) == Done{Main.before_of(_, f)} : Result<&2, &2, String, List<&2, Ops.Item>>}
+      bi.pick(older, ds, left, g, f, items, later, rest, String.eq(g, f), {==}, egot, m, ih(later, emore))
+
+# What `record` reads of the position for a file it edits is the store's
+# replay of that file there: the one reading asked of each.
+def befores_in(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>, -bs: List<&2, Main.Before>, e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +f: String, m: {Rev.member(files, f) == True{} : Bool}) -> {Main.content.in(older, ds, left, f) == Done{Main.before_of(bs, f)} : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  match files:
+    case Nil{}:
+      Empty.absurd({Main.content.in(older, ds, left, f) == Done{Main.before_of(bs, f)} : Result<&2, &2, String, List<&2, Ops.Item>>}, S.false_true(m))
+    case +g <> +rest:
+      bi.of(older, ds, left, g, rest, f, Main.content.in(older, ds, left, g), {==}, Main.befores.r(older, ds, left, rest), {==}, bs, e, m, b2 => h1 => h2 => befores_in(older, ds, left, rest, b2, h1, f, h2))
+
+# The files it edits, each among those it reads
+# ---------------------------------------------
+
+def subl(xs: List<&2, String>, +ys: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Rev.member(ys, x), subl(rest, ys))
+
+def mhead(+x: String, +rest: List<&2, String>) -> {Rev.member(x <> rest, x) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(x, x), True{}, S.eq_refl(x)) : {Bool.or(_, Rev.member(rest, x)) == True{} : Bool}
+  {==}
+
+def sub_weak(xs: List<&2, String>, +ys: List<&2, String>, +y: String, +h: {subl(xs, ys) == True{} : Bool}) -> {subl(xs, y <> ys) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(Rev.member(y <> ys, x), subl(rest, y <> ys), or_true(String.eq(y, x), Rev.member(ys, x), Comp.and_left(Rev.member(ys, x), subl(rest, ys), h)), sub_weak(rest, ys, y, Comp.and_right(Rev.member(ys, x), subl(rest, ys), h)))
+
+def sub_refl(xs: List<&2, String>) -> {subl(xs, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(Rev.member(x <> rest, x), subl(rest, x <> rest), mhead(x, rest), sub_weak(rest, rest, x, sub_refl(rest)))
+
+def keep_sub(b: Bool, +f: String, +rest: List<&2, String>, +ys: List<&2, String>, h: {subl(Rev.keep(b, f, rest), ys) == True{} : Bool}) -> {subl(rest, ys) == True{} : Bool}:
+  match b:
+    case True{}:
+      Comp.and_right(Rev.member(ys, f), subl(rest, ys), h)
+    case False{}:
+      h
+
+def sub_tail(+edited: List<&2, String>, h: Main.Here, +rest: List<&2, Main.Here>, +files: List<&2, String>, hsub: {subl(Main.edited.lines(edited, h <> rest), files) == True{} : Bool}) -> {subl(Main.edited.lines(edited, rest), files) == True{} : Bool}:
+  match h:
+    case Main.Here{+p, Some{Tree.Entry{+f, q, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}:
+      keep_sub(Rev.member(edited, p), f, Main.edited.lines(edited, rest), files, hsub)
+    case Main.Here{p, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}:
+      hsub
+    case Main.Here{p, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, None{}}:
+      hsub
+    case Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}:
+      hsub
+    case Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}:
+      hsub
+    case Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, None{}}:
+      hsub
+    case Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}:
+      hsub
+    case Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}:
+      hsub
+    case Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, None{}}:
+      hsub
+    case Main.Here{p, None{}, Some{Folder.Found.File{r, x, n}}}:
+      hsub
+    case Main.Here{p, None{}, Some{Folder.Found.Link{r, x}}}:
+      hsub
+    case Main.Here{p, None{}, None{}}:
+      hsub
+
+def state_app(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Main.Content>, +ds2: List<&2, Main.Content>, +hc: {Main.contents.state(older, ds, left, dg, reads, cs) == True{} : Bool}, hd: {Main.contents.state(older, ds, left, dg, reads, ds2) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, List.append(&2, Main.Content, cs, ds2)) == True{} : Bool}:
   match cs:
     case Nil{}:
       hd
     case +c <> +rest:
-      B.and_tt(Main.content.states(befores, dg, reads, c), Main.contents.state(befores, dg, reads, List.append(&2, Main.Content, rest, ds)),
-        SortL.band_l(Main.content.states(befores, dg, reads, c), Main.contents.state(befores, dg, reads, rest), hc),
-        state_app(befores, dg, reads, rest, ds, SortL.band_r(Main.content.states(befores, dg, reads, c), Main.contents.state(befores, dg, reads, rest), hc), hd))
+      B.and_tt(Main.content.states(older, ds, left, dg, reads, c), Main.contents.state(older, ds, left, dg, reads, List.append(&2, Main.Content, rest, ds2)),
+        SortL.band_l(Main.content.states(older, ds, left, dg, reads, c), Main.contents.state(older, ds, left, dg, reads, rest), hc),
+        state_app(older, ds, left, dg, reads, rest, ds2, SortL.band_r(Main.content.states(older, ds, left, dg, reads, c), Main.contents.state(older, ds, left, dg, reads, rest), hc), hd))
 
-def pick_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {Main.contents.state(befores, dg, reads, cs) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, Bool.pick(List<&2, Main.Content>, b, cs, Nil{})) == True{} : Bool}:
+def pick_state(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {Main.contents.state(older, ds, left, dg, reads, cs) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Bool.pick(List<&2, Main.Content>, b, cs, Nil{})) == True{} : Bool}:
   match b:
     case True{}:
       h
     case False{}:
       {==}
 
-def unpick_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {Main.contents.state(befores, dg, reads, cs) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, Bool.pick(List<&2, Main.Content>, b, Nil{}, cs)) == True{} : Bool}:
+def unpick_state(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {Main.contents.state(older, ds, left, dg, reads, cs) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Bool.pick(List<&2, Main.Content>, b, Nil{}, cs)) == True{} : Bool}:
   match b:
     case True{}:
       {==}
     case False{}:
       h
 
-def either_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, +ds: List<&2, Main.Content>, hc: {Main.contents.state(befores, dg, reads, cs) == True{} : Bool}, hd: {Main.contents.state(befores, dg, reads, ds) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, Bool.pick(List<&2, Main.Content>, b, cs, ds)) == True{} : Bool}:
+def either_state(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, +ds2: List<&2, Main.Content>, hc: {Main.contents.state(older, ds, left, dg, reads, cs) == True{} : Bool}, hd: {Main.contents.state(older, ds, left, dg, reads, ds2) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Bool.pick(List<&2, Main.Content>, b, cs, ds2)) == True{} : Bool}:
   match b:
     case True{}:
       hc
     case False{}:
       hd
 
-def one_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +c: Main.Content, h: {Main.content.states(befores, dg, reads, c) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, [c]) == True{} : Bool}:
-  B.and_tt(Main.content.states(befores, dg, reads, c), True{}, h, {==})
+def one_state(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +c: Main.Content, h: {Main.content.states(older, ds, left, dg, reads, c) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, [c]) == True{} : Bool}:
+  B.and_tt(Main.content.states(older, ds, left, dg, reads, c), True{}, h, {==})
 
-def whole_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String) -> {Main.contents.state(befores, dg, reads, [Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}]) == True{} : Bool}:
-  one_state(befores, dg, reads, Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}, S.eq_refl(Main.status.folder_digest(dg, p)))
+def whole_state(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String) -> {Main.contents.state(older, ds, left, dg, reads, [Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}]) == True{} : Bool}:
+  one_state(older, ds, left, dg, reads, Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}, S.eq_refl(Main.status.folder_digest(dg, p)))
 
-def text_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String) -> {Main.contents.state(befores, dg, reads, [Main.Content.Text{f, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}]) == True{} : Bool}:
-  one_state(befores, dg, reads, Main.Content.Text{f, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}, bytes_refl(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))
+def text_state(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String) -> {Main.contents.state(older, ds, left, dg, reads, [Main.Content.Text{f, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}]) == True{} : Bool}:
+  one_state(older, ds, left, dg, reads, Main.Content.Text{f, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}, bytes_refl(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))
 
-# An edit is the document the diff finds, which replays.
-def edited_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, d: Maybe<&2, Ops.Doc>, +f: String, +p: String, +ed: {Ops.diff(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == d : Maybe<&2, Ops.Doc>}) -> {Main.contents.state(befores, dg, reads, Main.edited.content(f, p, d)) == True{} : Bool}:
+# An edit, applied to the store's replay of the file at the position,
+# gives the folder's lines.
+def edited_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, d: Maybe<&2, Ops.Doc>, +f: String, +p: String, +ed: {Ops.diff(Main.before_of(bs, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == d : Maybe<&2, Ops.Doc>}, mf: {Rev.member(files, f) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Main.edited.content(f, p, d)) == True{} : Bool}:
   match d:
     case None{}:
       {==}
     case Some{+doc}:
-      +ha = da(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), BlameL.tbl_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), doc, ed)
-      +hs = Equal.trans(Bool, Main.content.states(befores, dg, reads, Main.Content.Ops{f, p, Ops.write(doc)}), Main.content.replays(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Ops.write(doc), Some{doc}), True{},
-        Equal.cong(Maybe<&2, Ops.Doc>, Bool, x => Main.content.replays(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Ops.write(doc), x), Ops.diff(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Some{doc}, ed),
-        B.and_tt(String.eq(Ops.write(doc), Ops.write(doc)), Main.content.applied(Ops.apply(Main.before_of(befores, f), doc), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), S.eq_refl(Ops.write(doc)),
-          Equal.trans(Bool, Main.content.applied(Ops.apply(Main.before_of(befores, f), doc), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Main.content.applied(Done{Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))}, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), True{},
-            Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Bool, r => Main.content.applied(r, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Ops.apply(Main.before_of(befores, f), doc), Done{Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))}, ha),
+      +ha = da(Main.before_of(bs, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), BlameL.tbl_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), doc, ed)
+      +hin = befores_in(older, ds, left, files, bs, e, f, mf)
+      one_state(older, ds, left, dg, reads, Main.Content.Ops{f, p, doc},
+        Equal.trans(Bool, Main.content.applied(Result.bind(&2, &2, String, List<&2, Ops.Item>, List<&2, Ops.Item>, Main.content.in(older, ds, left, f), before => Ops.apply(before, doc)), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Main.content.applied(Ops.apply(Main.before_of(bs, f), doc), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), True{},
+          Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Bool, r => Main.content.applied(Result.bind(&2, &2, String, List<&2, Ops.Item>, List<&2, Ops.Item>, r, before => Ops.apply(before, doc)), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Main.content.in(older, ds, left, f), Done{Main.before_of(bs, f)}, hin),
+          Equal.trans(Bool, Main.content.applied(Ops.apply(Main.before_of(bs, f), doc), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Main.content.applied(Done{Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))}, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), True{},
+            Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Bool, r => Main.content.applied(r, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Ops.apply(Main.before_of(bs, f), doc), Done{Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))}, ha),
             items_refl(Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))))))
-      one_state(befores, dg, reads, Main.Content.Ops{f, p, Ops.write(doc)}, hs)
 
-def held_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, e: Maybe<&2, Tree.Entry>, +edited: List<&2, String>, +p: String) -> {Main.contents.state(befores, dg, reads, Main.stating.contents(Main.stating.held(edited, befores, p, e, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == True{} : Bool}:
-  match e:
-    case Some{Tree.Entry{+f, q, Tree.Whole{}, y, g, m}}:
-      pick_state(befores, dg, reads, Rev.member(edited, p), [Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}], whole_state(befores, dg, reads, f, p))
-    case Some{Tree.Entry{+f, q, Tree.Lines{}, y, g, m}}:
-      pick_state(befores, dg, reads, Rev.member(edited, p), Main.edited.content(f, p, Ops.diff(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))))), edited_state(~da, befores, dg, reads, Ops.diff(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), f, p, {==}))
-    case Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}:
+def lines_pick(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, b: Bool, +f: String, +p: String, +rest: List<&2, String>, hsub: {subl(Rev.keep(b, f, rest), files) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Bool.pick(List<&2, Main.Content>, b, Main.edited.content(f, p, Ops.diff(Main.before_of(bs, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))))), Nil{})) == True{} : Bool}:
+  match b:
+    case True{}:
+      edited_state(~da, older, ds, left, dg, reads, files, bs, e, Ops.diff(Main.before_of(bs, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), f, p, {==}, Comp.and_left(Rev.member(files, f), subl(rest, files), hsub))
+    case False{}:
+      {==}
+
+def held_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, en: Maybe<&2, Tree.Entry>, +edited: List<&2, String>, +p: String, -q: String, -runs: Bool, -n: Nat, +rest: List<&2, Main.Here>, hsub: {subl(Main.edited.lines(edited, Main.Here{p, en, Some{Folder.Found.File{q, runs, n}}} <> rest), files) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Main.stating.contents(Main.stating.held(edited, bs, p, en, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == True{} : Bool}:
+  match en:
+    case Some{Tree.Entry{+f, q2, Tree.Whole{}, y, g, m}}:
+      pick_state(older, ds, left, dg, reads, Rev.member(edited, p), [Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}], whole_state(older, ds, left, dg, reads, f, p))
+    case Some{Tree.Entry{+f, q2, Tree.Lines{}, y, g, m}}:
+      lines_pick(~da, older, ds, left, dg, reads, files, bs, e, Rev.member(edited, p), f, p, Main.edited.lines(edited, rest), hsub)
+    case Some{Tree.Entry{f, q2, Tree.Link{}, y, g, m}}:
       {==}
     case None{}:
       {==}
 
-def kind_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, lines: Bool, +file: String, +p: String) -> {Main.contents.state(befores, dg, reads, Main.arriving.kind(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), lines)) == True{} : Bool}:
+def kind_state(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, lines: Bool, +file: String, +p: String) -> {Main.contents.state(older, ds, left, dg, reads, Main.arriving.kind(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), lines)) == True{} : Bool}:
   match lines:
     case True{}:
-      unpick_state(befores, dg, reads, List.is_empty(&2, U32, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), [Main.Content.Text{file, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}], text_state(befores, dg, reads, file, p))
+      unpick_state(older, ds, left, dg, reads, List.is_empty(&2, U32, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), [Main.Content.Text{file, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}], text_state(older, ds, left, dg, reads, file, p))
     case False{}:
-      whole_state(befores, dg, reads, file, p)
+      whole_state(older, ds, left, dg, reads, file, p)
 
-def arriving_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, stated: Maybe<&2, String>, +file: String, +p: String) -> {Main.contents.state(befores, dg, reads, Main.arriving.of(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), stated)) == True{} : Bool}:
+def arriving_state(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, stated: Maybe<&2, String>, +file: String, +p: String) -> {Main.contents.state(older, ds, left, dg, reads, Main.arriving.of(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), stated)) == True{} : Bool}:
   match stated:
     case Some{+k}:
-      either_state(befores, dg, reads, String.eq(k, "bytes"), [Main.Content.Whole{file, p, Main.status.folder_digest(dg, p)}], Main.arriving.kind(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), True{}), whole_state(befores, dg, reads, file, p), kind_state(befores, dg, reads, True{}, file, p))
+      either_state(older, ds, left, dg, reads, String.eq(k, "bytes"), [Main.Content.Whole{file, p, Main.status.folder_digest(dg, p)}], Main.arriving.kind(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), True{}), whole_state(older, ds, left, dg, reads, file, p), kind_state(older, ds, left, dg, reads, True{}, file, p))
     case None{}:
-      kind_state(befores, dg, reads, Bool.and(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), Bool.not(Folder.has_nul(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), file, p)
+      kind_state(older, ds, left, dg, reads, Bool.and(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), Bool.not(Folder.has_nul(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), file, p)
 
-def at_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, arrives: Bool, +mint: List<&2, T.Split>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +p: String, e: Maybe<&2, Tree.Entry>, +runs: Bool) -> {Main.contents.state(befores, dg, reads, Main.stating.contents(Main.stating.at(mint, edited, ks, befores, p, e, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), runs, arrives))) == True{} : Bool}:
+def at_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, arrives: Bool, +mint: List<&2, T.Split>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +p: String, en: Maybe<&2, Tree.Entry>, +q: String, +runs: Bool, +n: Nat, +rest: List<&2, Main.Here>, hsub: {subl(Main.edited.lines(edited, Main.Here{p, en, Some{Folder.Found.File{q, runs, n}}} <> rest), files) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Main.stating.contents(Main.stating.at(mint, edited, ks, bs, p, en, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), runs, arrives))) == True{} : Bool}:
   match arrives:
     case True{}:
-      arriving_state(befores, dg, reads, Main.kind.stated(ks, p), Maybe.default(&2, String, Main.lookup(mint, p), SNil{}), p)
+      arriving_state(older, ds, left, dg, reads, Main.kind.stated(ks, p), Maybe.default(&2, String, Main.lookup(mint, p), SNil{}), p)
     case False{}:
-      held_state(~da, befores, dg, reads, e, edited, p)
+      held_state(~da, older, ds, left, dg, reads, files, bs, e, en, edited, p, q, runs, n, rest, hsub)
 
-def of_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, h: Main.Here) -> {Main.contents.state(befores, dg, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, befores, h))) == True{} : Bool}:
+def of_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, h: Main.Here, +rest: List<&2, Main.Here>, hsub: {subl(Main.edited.lines(edited, h <> rest), files) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h))) == True{} : Bool}:
   match h:
-    case Main.Here{+p, e, Some{Folder.Found.File{q, +runs, n}}}:
-      at_state(~da, befores, dg, reads, Rev.member(arriving, p), mint, edited, ks, p, e, runs)
-    case Main.Here{p, e, Some{Folder.Found.Link{q, t}}}:
+    case Main.Here{+p, en, Some{Folder.Found.File{+q, +runs, +n}}}:
+      at_state(~da, older, ds, left, dg, reads, files, bs, e, Rev.member(arriving, p), mint, edited, ks, p, en, q, runs, n, rest, hsub)
+    case Main.Here{p, en, Some{Folder.Found.Link{q, t}}}:
       {==}
-    case Main.Here{p, e, None{}}:
+    case Main.Here{p, en, None{}}:
       {==}
 
 def join_contents(a: Main.Stating, b: Main.Stating) -> {List.append(&2, Main.Content, Main.stating.contents(a), Main.stating.contents(b)) == Main.stating.contents(Main.stating.join(a, b)) : List<&2, Main.Content>}:
@@ -791,72 +904,145 @@ def join_contents(a: Main.Stating, b: Main.Stating) -> {List.append(&2, Main.Con
     case Main.Stating{c1, m1} Main.Stating{c2, m2}:
       {==}
 
-def all_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, hs: List<&2, Main.Here>) -> {Main.contents.state(befores, dg, reads, Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, befores, hs))) == True{} : Bool}:
+def all_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, hs: List<&2, Main.Here>, +hsub: {subl(Main.edited.lines(edited, hs), files) == True{} : Bool}) -> {Main.contents.state(older, ds, left, dg, reads, Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, hs))) == True{} : Bool}:
   match hs:
     case Nil{}:
       {==}
     case +h <> +rest:
-      %join_contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, befores, h), Main.stating.all(mint, arriving, edited, ks, dg, reads, befores, rest)) : {Main.contents.state(befores, dg, reads, _) == True{} : Bool}
-      state_app(befores, dg, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, befores, h)), Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, befores, rest)),
-        of_state(~da, befores, dg, reads, mint, arriving, edited, ks, h), all_state(~da, befores, dg, reads, mint, arriving, edited, ks, rest))
+      %join_contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h), Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, rest)) : {Main.contents.state(older, ds, left, dg, reads, _) == True{} : Bool}
+      state_app(older, ds, left, dg, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h)), Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, rest)),
+        of_state(~da, older, ds, left, dg, reads, files, bs, e, mint, arriving, edited, ks, h, rest, hsub), all_state(~da, older, ds, left, dg, reads, files, bs, e, mint, arriving, edited, ks, rest, sub_tail(edited, h, rest, files, hsub)))
 
-# What `record` drafts states of each file what the folder holds there.
-def drafted_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> {Main.contents.state(befores, dg, reads, Main.drafted.contents(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}:
-  all_state(~da, befores, dg, reads, mint, Sv.sorted(Sv.added(obs)), Sv.edited(obs), ks, hs)
+# What `record` drafts states of each file what the folder holds there,
+# against what it reads of the position.
+def drafted_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>, +bs: List<&2, Main.Before>, +e: {Main.befores.r(older, ds, left, Main.edited.lines(Sv.edited(obs), hs)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}) -> {Main.contents.state(older, ds, left, dg, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}:
+  all_state(~da, older, ds, left, dg, reads, Main.edited.lines(Sv.edited(obs), hs), bs, e, mint, Sv.sorted(Sv.added(obs)), Sv.edited(obs), ks, hs, sub_refl(Main.edited.lines(Sv.edited(obs), hs)))
 
 # What it writes is named as it says
 # ----------------------------------
 
-def mint_heads(ps: List<&2, String>, +hex: String) -> {Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.zipped(ps, Main.ids.minted(Nat.add(List.length(&2, String, ps), 1n), hex))), ps) == True{} : Bool}:
-  match ps:
-    case Nil{}:
-      {==}
-    case +p <> +rest:
-      B.and_tt(String.eq(p, p), Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.zipped(rest, Main.ids.minted(Nat.add(List.length(&2, String, rest), 1n), String.drop(hex, 24n)))), rest), S.eq_refl(p),
-        mint_heads(rest, String.drop(hex, 24n)))
+def stail(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{h, t}:
+      t
 
-def stem_of_pre(+base: String, +change: String, +id: String, b1: Bool, b2: Bool) -> {String.starts_with(Naming.stem.of(base, change, id, b1, b2), base) == True{} : Bool}:
+def neq_ext(a: String, -x: String, h: {a ++ SCon{' ', x} == a : String}) -> Empty:
+  match a:
+    case SNil{}:
+      S.false_true(Equal.cong(String, Bool, s => String.is_empty(s), SCon{' ', x}, SNil{}, h))
+    case SCon{c, t}:
+      neq_ext(t, x, Equal.cong(String, String, s => stail(s), SCon{c, t ++ SCon{' ', x}}, SCon{c, t}, h))
+
+def en.of(+a: String, +x: String, b: Bool, eb: {String.eq(a ++ SCon{' ', x}, a) == b : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, neq_ext(a, x, S.eq_true(a ++ SCon{' ', x}, a, eb)))
+
+# A name made longer is not the name.
+def ext_ne(+a: String, +x: String) -> {String.eq(a ++ SCon{' ', x}, a) == False{} : Bool}:
+  en.of(a, x, String.eq(a ++ SCon{' ', x}, a), {==})
+
+def sn.of(+base: String, +change: String, +id: String, b1: Bool, b2: Bool) -> {(String.starts_with(Naming.stem.of(base, change, id, b1, b2), base), String.eq(Naming.stem.of(base, change, id, b1, b2), base)) == (True{}, Bool.not(b1)) : Bool & Bool}:
   match b1:
     case False{}:
-      B.sw_refl(base)
+      %Equal.sym(Bool, String.starts_with(base, base), True{}, B.sw_refl(base)) : {(_, String.eq(base, base)) == (True{}, True{}) : Bool & Bool}
+      %Equal.sym(Bool, String.eq(base, base), True{}, S.eq_refl(base)) : {(True{}, _) == (True{}, True{}) : Bool & Bool}
+      {==}
     case True{}:
       match b2:
         case True{}:
-          B.sw_ext(base, base, " " ++ String.take(change, Naming.CHANGE_CHARS()) ++ " " ++ String.take(id, Naming.DIGEST_CHARS()), B.sw_refl(base))
+          %Equal.sym(Bool, String.starts_with(base ++ SCon{' ', String.take(change, Naming.CHANGE_CHARS()) ++ " " ++ String.take(id, Naming.DIGEST_CHARS())}, base), True{}, B.sw_ext(base, base, SCon{' ', String.take(change, Naming.CHANGE_CHARS()) ++ " " ++ String.take(id, Naming.DIGEST_CHARS())}, B.sw_refl(base))) : {(_, String.eq(base ++ SCon{' ', String.take(change, Naming.CHANGE_CHARS()) ++ " " ++ String.take(id, Naming.DIGEST_CHARS())}, base)) == (True{}, False{}) : Bool & Bool}
+          %Equal.sym(Bool, String.eq(base ++ SCon{' ', String.take(change, Naming.CHANGE_CHARS()) ++ " " ++ String.take(id, Naming.DIGEST_CHARS())}, base), False{}, ext_ne(base, String.take(change, Naming.CHANGE_CHARS()) ++ " " ++ String.take(id, Naming.DIGEST_CHARS()))) : {(True{}, _) == (True{}, False{}) : Bool & Bool}
+          {==}
         case False{}:
-          B.sw_ext(base, base, " " ++ String.take(change, Naming.CHANGE_CHARS()), B.sw_refl(base))
+          %Equal.sym(Bool, String.starts_with(base ++ SCon{' ', String.take(change, Naming.CHANGE_CHARS())}, base), True{}, B.sw_ext(base, base, SCon{' ', String.take(change, Naming.CHANGE_CHARS())}, B.sw_refl(base))) : {(_, String.eq(base ++ SCon{' ', String.take(change, Naming.CHANGE_CHARS())}, base)) == (True{}, False{}) : Bool & Bool}
+          %Equal.sym(Bool, String.eq(base ++ SCon{' ', String.take(change, Naming.CHANGE_CHARS())}, base), False{}, ext_ne(base, String.take(change, Naming.CHANGE_CHARS()))) : {(True{}, _) == (True{}, False{}) : Bool & Bool}
+          {==}
 
 # A revision is filed under the name its moment, message and change
-# compose, extended only where the store holds that name already.
-def stem_pre(+when: String, +message: String, +change: String, +id: String, +ns: List<&2, Naming.Named>) -> {String.starts_with(Naming.stem(when, message, change, id, ns), Naming.compose(when, message, change)) == True{} : Bool}:
-  stem_of_pre(Naming.compose(when, message, change), change, id, Naming.sharing_base(ns, Naming.compose(when, message, change)), Naming.sharing_change(ns, Naming.compose(when, message, change), change))
+# compose, and under that name exactly where no revision the store holds
+# has it.
+def stem_name(+when: String, +message: String, +change: String, +id: String, +ns: List<&2, Naming.Named>) -> {(String.starts_with(Naming.stem(when, message, change, id, ns), Naming.compose(when, message, change)), String.eq(Naming.stem(when, message, change, id, ns), Naming.compose(when, message, change))) == (True{}, Bool.not(Naming.sharing_base(ns, Naming.compose(when, message, change)))) : Bool & Bool}:
+  sn.of(Naming.compose(when, message, change), change, id, Naming.sharing_base(ns, Naming.compose(when, message, change)), Naming.sharing_change(ns, Naming.compose(when, message, change), change))
 
-def follow_pick(b: Bool, +changes: List<&2, String>, +n: String, +c: String, +p: Bool, +later: List<&2, Bm.Bookmark>, eb: {Rev.member(changes, c) == b : Bool}, h: {Main.follows(changes, later) == True{} : Bool}) -> {Main.follows(changes, Bool.pick(List<&2, Bm.Bookmark>, b, Bm.Bookmark{n, Bm.Target.Change{c}, p} <> later, later)) == True{} : Bool}:
-  match b:
-    case True{}:
-      B.and_tt(Rev.member(changes, c), Main.follows(changes, later), eb, h)
-    case False{}:
-      h
-
-# Each bookmark that follows the work names one of the changes it follows.
-def advancing_follows(+changes: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> {Main.follows(changes, Main.advancing(changes, bs)) == True{} : Bool}:
-  match bs:
+def sb_mem(fs: List<&2, Main.Full>, +base: String) -> {Naming.sharing_base(T.map(~Main.Full, ~Naming.Named, ~(f => Main.full.named(f)), fs), base) == Rev.member(T.map(~Main.Full, ~String, ~(f => Naming.base_of(Main.full.named(f))), fs), base) : Bool}:
+  match fs:
     case Nil{}:
       {==}
-    case Bm.Bookmark{+n, Bm.Target.Change{+c}, +p} <> +rest:
-      follow_pick(Rev.member(changes, c), changes, n, c, p, Main.advancing(changes, rest), {==}, advancing_follows(changes, rest))
-    case Bm.Bookmark{n, Bm.Target.Revision{c}, p} <> rest:
-      advancing_follows(changes, rest)
-    case Bm.Bookmark{n, Bm.Target.File{c}, p} <> rest:
-      advancing_follows(changes, rest)
+    case +f <> +rest:
+      Equal.cong(Bool, Bool, x => Bool.or(String.eq(Naming.base_of(Main.full.named(f)), base), x), Naming.sharing_base(T.map(~Main.Full, ~Naming.Named, ~(f => Main.full.named(f)), rest), base), Rev.member(T.map(~Main.Full, ~String, ~(f => Naming.base_of(Main.full.named(f))), rest), base), sb_mem(rest, base))
 
-# What `record` writes is named as it says.
-def planned_named(w: Main.Writing, +hex: String, +befores: List<&2, Main.Before>, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>) -> {Main.record.named(w, Sv.sorted(Sv.added(obs)), Main.parents.changes(fs, ps), Main.record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)) == True{} : Bool}:
-  match w:
-    case Main.Writing{+a, +when, +message, +fl}:
-      B.and_tt(Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex))), Sv.sorted(Sv.added(obs))), Bool.and(String.eq(Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex))))))))), Bool.and(String.starts_with(Naming.stem(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), T.map(~Main.Full, ~Naming.Named, ~(x => Main.full.named(x)), fs)), Naming.compose(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}))), Main.follows(Main.parents.changes(fs, ps), Main.advancing(Main.parents.changes(fs, ps), bs)))), mint_heads(Sv.sorted(Sv.added(obs)), hex),
-        B.and_tt(String.eq(Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex))))))))), Bool.and(String.starts_with(Naming.stem(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), T.map(~Main.Full, ~Naming.Named, ~(x => Main.full.named(x)), fs)), Naming.compose(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}))), Main.follows(Main.parents.changes(fs, ps), Main.advancing(Main.parents.changes(fs, ps), bs))), S.eq_refl(Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex))))))))),
-          B.and_tt(String.starts_with(Naming.stem(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), T.map(~Main.Full, ~Naming.Named, ~(x => Main.full.named(x)), fs)), Naming.compose(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}))), Main.follows(Main.parents.changes(fs, ps), Main.advancing(Main.parents.changes(fs, ps), bs)), stem_pre(when, message, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), Sha.digest(Utf8.encode(Rev.write(Main.writing.rev(Main.Writing{a, when, message, fl}, Maybe.default(&2, String, List.get(&2, String, Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex), List.length(&2, String, Sv.sorted(Sv.added(obs)))), SNil{}), ps, Main.drafted.facts(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, Main.zipped(Sv.sorted(Sv.added(obs)), Main.ids.minted(Nat.add(List.length(&2, String, Sv.sorted(Sv.added(obs))), 1n), hex)))))))), T.map(~Main.Full, ~Naming.Named, ~(x => Main.full.named(x)), fs)), advancing_follows(Main.parents.changes(fs, ps), bs))))
+def names_ok(+a: String, +when: String, +message: String, +fl: Bool, +hex: String, +befores: List<&2, Main.Before>, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>) -> {(String.starts_with(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))), String.eq(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))))) == (True{}, Bool.not(Rev.member(T.map(~Main.Full, ~String, ~(f => Naming.base_of(Main.full.named(f))), fs), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))))) : Bool & Bool}:
+  Equal.trans(Bool & Bool, (String.starts_with(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))), String.eq(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))))), (True{}, Bool.not(Naming.sharing_base(T.map(~Main.Full, ~Naming.Named, ~(f => Main.full.named(f)), fs), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))))), (True{}, Bool.not(Rev.member(T.map(~Main.Full, ~String, ~(f => Naming.base_of(Main.full.named(f))), fs), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))))),
+    stem_name(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Main.recorded.id(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), T.map(~Main.Full, ~Naming.Named, ~(f => Main.full.named(f)), fs)),
+    Equal.cong(Bool, Bool & Bool, x => (True{}, Bool.not(x)), Naming.sharing_base(T.map(~Main.Full, ~Naming.Named, ~(f => Main.full.named(f)), fs), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))), Rev.member(T.map(~Main.Full, ~String, ~(f => Naming.base_of(Main.full.named(f))), fs), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))), sb_mem(fs, Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))))))
+
+# The bookmarks that follow the work
+# ----------------------------------
+
+def ah.shift(-changes: List<&2, String>, -x: Bm.Bookmark, -rest: List<&2, Bm.Bookmark>, -B: Bm.Bookmark, ih: &j: Nat -> {List.get(&2, Bm.Bookmark, Main.advancing(changes, rest), j) == Some{B} : Maybe<&2, Bm.Bookmark>}) -> &j: Nat -> {List.get(&2, Bm.Bookmark, x <> Main.advancing(changes, rest), j) == Some{B} : Maybe<&2, Bm.Bookmark>}:
+  match ih:
+    case (j0, pj):
+      (1n+j0, pj)
+
+def ah.pick(+changes: List<&2, String>, +n2: String, +c2: String, +p2: Bool, +rest: List<&2, Bm.Bookmark>, -B: Bm.Bookmark, b: Bool, ih: &j: Nat -> {List.get(&2, Bm.Bookmark, Main.advancing(changes, rest), j) == Some{B} : Maybe<&2, Bm.Bookmark>}) -> &j: Nat -> {List.get(&2, Bm.Bookmark, Bool.pick(List<&2, Bm.Bookmark>, b, Bm.Bookmark{n2, Bm.Target.Change{c2}, p2} <> Main.advancing(changes, rest), Main.advancing(changes, rest)), j) == Some{B} : Maybe<&2, Bm.Bookmark>}:
+  match b:
+    case True{}:
+      ah.shift(changes, Bm.Bookmark{n2, Bm.Target.Change{c2}, p2}, rest, B, ih)
+    case False{}:
+      ih
+
+def ah.step(+changes: List<&2, String>, x: Bm.Bookmark, +rest: List<&2, Bm.Bookmark>, -B: Bm.Bookmark, ih: &j: Nat -> {List.get(&2, Bm.Bookmark, Main.advancing(changes, rest), j) == Some{B} : Maybe<&2, Bm.Bookmark>}) -> &j: Nat -> {List.get(&2, Bm.Bookmark, Main.advancing(changes, x <> rest), j) == Some{B} : Maybe<&2, Bm.Bookmark>}:
+  match x:
+    case Bm.Bookmark{+n2, Bm.Target.Change{+c2}, +p2}:
+      ah.pick(changes, n2, c2, p2, rest, B, Rev.member(changes, c2), ih)
+    case Bm.Bookmark{n2, Bm.Target.Revision{r}, p2}:
+      ih
+    case Bm.Bookmark{n2, Bm.Target.File{r}, p2}:
+      ih
+
+# Every bookmark on a change it follows moves with the work.
+def adv_has(+changes: List<&2, String>, bs: List<&2, Bm.Bookmark>, i: Nat, +n: String, +c: String, +pr: Bool, hi: {List.get(&2, Bm.Bookmark, bs, i) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}, +hc: {Rev.member(changes, c) == True{} : Bool}) -> &j: Nat -> {List.get(&2, Bm.Bookmark, Main.advancing(changes, bs), j) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}:
+  match bs i:
+    case Nil{} _:
+      Empty.absurd(&j: Nat -> {List.get(&2, Bm.Bookmark, Main.advancing(changes, Nil{}), j) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}, none_some(Bm.Bookmark, Bm.Bookmark{n, Bm.Target.Change{c}, pr}, hi))
+    case x <> +rest 0n:
+      %Equal.sym(Bm.Bookmark, x, Bm.Bookmark{n, Bm.Target.Change{c}, pr}, some_eq(Bm.Bookmark, x, Bm.Bookmark{n, Bm.Target.Change{c}, pr}, hi)) : &j: Nat -> {List.get(&2, Bm.Bookmark, Main.advancing(changes, _ <> rest), j) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}
+      %Equal.sym(Bool, Rev.member(changes, c), True{}, hc) : &j: Nat -> {List.get(&2, Bm.Bookmark, Bool.pick(List<&2, Bm.Bookmark>, _, Bm.Bookmark{n, Bm.Target.Change{c}, pr} <> Main.advancing(changes, rest), Main.advancing(changes, rest)), j) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}
+      (0n, {==})
+    case x <> +rest 1n+k:
+      ah.step(changes, x, rest, Bm.Bookmark{n, Bm.Target.Change{c}, pr}, adv_has(changes, rest, k, n, c, pr, hi, hc))
+
+def af.shift(-changes: List<&2, String>, -x: Bm.Bookmark, -rest: List<&2, Bm.Bookmark>, -b: Bm.Bookmark, ih: &i: Nat -> &c: String -> {(List.get(&2, Bm.Bookmark, rest, i), (Bm.target_of(b), Rev.member(changes, c))) == (Some{b}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}) -> &i: Nat -> &c: String -> {(List.get(&2, Bm.Bookmark, x <> rest, i), (Bm.target_of(b), Rev.member(changes, c))) == (Some{b}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}:
+  match ih:
+    case (i0, more):
+      (1n+i0, more)
+
+def af.pick(+changes: List<&2, String>, +n2: String, +c2: String, +p2: Bool, +rest: List<&2, Bm.Bookmark>, b0: Bool, eb0: {Rev.member(changes, c2) == b0 : Bool}, j: Nat, -b: Bm.Bookmark, hj: {List.get(&2, Bm.Bookmark, Bool.pick(List<&2, Bm.Bookmark>, b0, Bm.Bookmark{n2, Bm.Target.Change{c2}, p2} <> Main.advancing(changes, rest), Main.advancing(changes, rest)), j) == Some{b} : Maybe<&2, Bm.Bookmark>}, ih: @k: Nat -> {List.get(&2, Bm.Bookmark, Main.advancing(changes, rest), k) == Some{b} : Maybe<&2, Bm.Bookmark>} -> &i: Nat -> &c: String -> {(List.get(&2, Bm.Bookmark, rest, i), (Bm.target_of(b), Rev.member(changes, c))) == (Some{b}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}) -> &i: Nat -> &c: String -> {(List.get(&2, Bm.Bookmark, Bm.Bookmark{n2, Bm.Target.Change{c2}, p2} <> rest, i), (Bm.target_of(b), Rev.member(changes, c))) == (Some{b}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}:
+  match b0 j:
+    case True{} 0n:
+      %some_eq(Bm.Bookmark, Bm.Bookmark{n2, Bm.Target.Change{c2}, p2}, b, hj) : &i: Nat -> &c: String -> {(List.get(&2, Bm.Bookmark, Bm.Bookmark{n2, Bm.Target.Change{c2}, p2} <> rest, i), (Bm.target_of(_), Rev.member(changes, c))) == (Some{_}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}
+      (0n, (c2, (%Equal.sym(Bool, Rev.member(changes, c2), True{}, eb0) : {(Some{Bm.Bookmark{n2, Bm.Target.Change{c2}, p2}}, (Bm.Target.Change{c2}, _)) == (Some{Bm.Bookmark{n2, Bm.Target.Change{c2}, p2}}, (Bm.Target.Change{c2}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}; {==})))
+    case True{} 1n+k:
+      af.shift(changes, Bm.Bookmark{n2, Bm.Target.Change{c2}, p2}, rest, b, ih(k, hj))
+    case False{} _:
+      af.shift(changes, Bm.Bookmark{n2, Bm.Target.Change{c2}, p2}, rest, b, ih(j, hj))
+
+# Every bookmark that moves is one the store holds, on a change it follows.
+def adv_from(+changes: List<&2, String>, bs: List<&2, Bm.Bookmark>, j: Nat, -b: Bm.Bookmark, hj: {List.get(&2, Bm.Bookmark, Main.advancing(changes, bs), j) == Some{b} : Maybe<&2, Bm.Bookmark>}) -> &i: Nat -> &c: String -> {(List.get(&2, Bm.Bookmark, bs, i), (Bm.target_of(b), Rev.member(changes, c))) == (Some{b}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}:
+  match bs:
+    case Nil{}:
+      Empty.absurd(&i: Nat -> &c: String -> {(List.get(&2, Bm.Bookmark, Nil{}, i), (Bm.target_of(b), Rev.member(changes, c))) == (Some{b}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}, none_some(Bm.Bookmark, b, hj))
+    case Bm.Bookmark{+n2, Bm.Target.Change{+c2}, +p2} <> +rest:
+      af.pick(changes, n2, c2, p2, rest, Rev.member(changes, c2), {==}, j, b, hj, k => h => adv_from(changes, rest, k, b, h))
+    case Bm.Bookmark{+n2, Bm.Target.Revision{+r}, +p2} <> +rest:
+      af.shift(changes, Bm.Bookmark{n2, Bm.Target.Revision{r}, p2}, rest, b, adv_from(changes, rest, j, b, hj))
+    case Bm.Bookmark{+n2, Bm.Target.File{+r}, +p2} <> +rest:
+      af.shift(changes, Bm.Bookmark{n2, Bm.Target.File{r}, p2}, rest, b, adv_from(changes, rest, j, b, hj))
 
 # What it writes is settled
 # -------------------------
@@ -1000,13 +1186,6 @@ def reloc_files(t: Tree.Tree(), +file: String, +to: String) -> {T.map(~Tree.Entr
 def mem_head(+f: String, +rest: List<&2, String>) -> {Rev.member(f <> rest, f) == True{} : Bool}:
   %Equal.sym(Bool, String.eq(f, f), True{}, S.eq_refl(f)) : {Bool.or(_, Rev.member(rest, f)) == True{} : Bool}
   {==}
-
-def or_true(a: Bool, -b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      h
 
 def holds_step(b: Bool, +f: String, +e: Tree.Entry, +rest: Tree.Tree(), +g: String, eb: {String.eq(f, g) == b : Bool}, h: {Maybe.is_some(&2, Tree.Entry, Bool.pick(Maybe<&2, Tree.Entry>, b, Some{e}, Tree.lookup(rest, g))) == True{} : Bool}, ih: {Tree.holds(rest, g) == True{} : Bool} -> {Rev.member(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), rest), g) == True{} : Bool}) -> {Bool.or(b, Rev.member(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), rest), g)) == True{} : Bool}:
   match b:
@@ -1301,12 +1480,6 @@ def mnone_rest(b: Bool, -x: String, -r: Maybe<&2, String>, e: {Bool.pick(Maybe<&
     case True{}:
       Empty.absurd({r == None{} : Maybe<&2, String>}, none_some_m2(x, e))
 
-def some_eq(-A: Data, -x: A, -y: A, h: {Some{x} == Some{y} : Maybe<&2, A>}) -> {x == y : A}:
-  Equal.cong(Maybe<&2, A>, A, m => Maybe.default(&2, A, m, x), Some{x}, Some{y}, h)
-
-def none_some(-A: Data, -y: A, h: {None{} == Some{y} : Maybe<&2, A>}) -> Empty:
-  Comp.false_true(Equal.cong(Maybe<&2, A>, Bool, m => Maybe.is_some(&2, A, m), None{}, Some{y}, h))
-
 # A path `--lines` names is stated as lines.
 def stated_at(ks: List<&2, T.Split>, j: Nat, +p: String, hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, "lines"}} : Maybe<&2, T.Split>}) -> {Main.lines.stated(ks, p) == True{} : Bool}:
   match ks j:
@@ -1363,36 +1536,6 @@ def lines_at(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&2
 
 def lines_read(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, +hs: List<&2, Main.Here>, +e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}, +i: Nat, +p: String, +q: String, +r: Bool, +n: Nat, hi: {List.get(&2, Main.Here, hs, i) == Some{Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}} : Maybe<&2, Main.Here>}, +j: Nat, hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, "lines"}} : Maybe<&2, T.Split>}) -> {Bool.and(Rev.member(Main.lined_added(ks, hs), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}:
   lines_at(ks, reads, hs, i, p, q, r, n, e, hi, stated_at(ks, j, p, hj))
-
-# It reads the position's content of what it edits
-# ------------------------------------------------
-
-def read2(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +f: String, +items: List<&2, Ops.Item>, +rest: List<&2, String>, r: Result<&2, &2, Main.Refused, List<&2, Main.Before>>, -bs: List<&2, Main.Before>, er: {Main.befores.r(older, ds, left, rest) == r : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, eg: {Main.content.in(older, ds, left, f) == Done{items} : Result<&2, &2, String, List<&2, Ops.Item>>}, e: {Result.bind(&2, &2, Main.Refused, List<&2, Main.Before>, List<&2, Main.Before>, r, later => Done{Main.Before{f, items} <> later}) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, ih: @more: List<&2, Main.Before> -> {Main.befores.r(older, ds, left, rest) == Done{more} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>} -> {Main.befores.read(older, ds, left, rest, more) == True{} : Bool}) -> {Main.befores.read(older, ds, left, f <> rest, bs) == True{} : Bool}:
-  match r:
-    case Fail{x}:
-      Empty.absurd({Main.befores.read(older, ds, left, f <> rest, bs) == True{} : Bool}, B.fail_done(List<&2, Main.Before>, x, bs, e))
-    case Done{+later}:
-      %B.done_eq(List<&2, Main.Before>, Main.Before{f, items} <> later, bs, e) : {Main.befores.read(older, ds, left, f <> rest, _) == True{} : Bool}
-      %Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Main.content.in(older, ds, left, f), Done{items}, eg) : {Bool.and(String.eq(f, f), Bool.and(Main.content.applied(_, items), Main.befores.read(older, ds, left, rest, later))) == True{} : Bool}
-      B.and_tt(String.eq(f, f), Bool.and(Main.content.applied(Done{items}, items), Main.befores.read(older, ds, left, rest, later)), S.eq_refl(f),
-        B.and_tt(Main.content.applied(Done{items}, items), Main.befores.read(older, ds, left, rest, later), items_refl(items), ih(later, er)))
-
-def read1(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +f: String, +rest: List<&2, String>, got: Result<&2, &2, String, List<&2, Ops.Item>>, -bs: List<&2, Main.Before>, eg: {Main.content.in(older, ds, left, f) == got : Result<&2, &2, String, List<&2, Ops.Item>>}, e: {Main.befores.of(f, got, Main.befores.r(older, ds, left, rest)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, ih: @more: List<&2, Main.Before> -> {Main.befores.r(older, ds, left, rest) == Done{more} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>} -> {Main.befores.read(older, ds, left, rest, more) == True{} : Bool}) -> {Main.befores.read(older, ds, left, f <> rest, bs) == True{} : Bool}:
-  match got:
-    case Fail{x}:
-      Empty.absurd({Main.befores.read(older, ds, left, f <> rest, bs) == True{} : Bool}, B.fail_done(List<&2, Main.Before>, Main.Refused{1, x}, bs, e))
-    case Done{+items}:
-      read2(older, ds, left, f, items, rest, Main.befores.r(older, ds, left, rest), bs, {==}, eg, e, ih)
-
-# What `record` reads of the position is the store's replay of each file
-# it edits, one reading each, in order.
-def befores_read(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>, -bs: List<&2, Main.Before>, e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}) -> {Main.befores.read(older, ds, left, files, bs) == True{} : Bool}:
-  match files:
-    case Nil{}:
-      %B.done_eq(List<&2, Main.Before>, Nil{}, bs, e) : {Main.befores.read(older, ds, left, Nil{}, _) == True{} : Bool}
-      {==}
-    case +f <> +rest:
-      read1(older, ds, left, f, rest, Main.content.in(older, ds, left, f), bs, {==}, e, more => h => befores_read(older, ds, left, rest, more, h))
 
 # It gives kinds only to files
 # ----------------------------

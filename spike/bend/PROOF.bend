@@ -832,11 +832,17 @@ def Laws.abandon_takes_a_line(fs, id, only, run, e):
 def Laws.reword_changes_only_the_message(fs, prev, standing, m, reviser, revised, doc, e):
   RewriteL.reword_ok(fs, prev, standing, m, reviser, revised, doc, e)
 
-def Laws.record_states_the_folder(befores, t, hs, dg, reads, ks, moves, obs, ls, mint):
-  RecordL.drafted_state(~(p => c => tbl => d => e => Laws.diff_applies(p, c, tbl, d, e)), befores, dg, reads, t, hs, ks, moves, obs, ls, mint)
+def Laws.record_states_the_folder(older, ds, left, dg, reads, t, hs, ks, moves, obs, ls, mint, bs, e):
+  RecordL.drafted_state(~(p => c => tbl => d => e2 => Laws.diff_applies(p, c, tbl, d, e2)), older, ds, left, dg, reads, t, hs, ks, moves, obs, ls, mint, bs, e)
 
-def Laws.record_names_what_it_writes(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
-  RecordL.planned_named(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)
+def Laws.record_names_what_it_writes(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
+  RecordL.names_ok(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)
+
+def Laws.record_moves_the_bookmarks_on_its_parents(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls, i, n, c, pr, hi, hc):
+  RecordL.adv_has(Main.parents.changes(fs, ps), bs, i, n, c, pr, hi, hc)
+
+def Laws.record_moves_only_the_bookmarks_on_its_parents(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls, j, b, hj):
+  RecordL.adv_from(Main.parents.changes(fs, ps), bs, j, b, hj)
 
 def Laws.record_writes_only_what_is_settled(t, looked, held, walked, ss, moves, accepted, pl2, e, x):
   RecordL.settled_read(t, looked, held, walked, ss, moves, accepted, pl2, e, x)
@@ -861,9 +867,6 @@ def Laws.writes_say_what_they_wrote(a, when, m, facts, change, id, names, ps, pr
 
 def Laws.record_reads_lines_as_text(ks, reads, hs, e, i, p, q, r, n, hi, j, hj):
   RecordL.lines_read(ks, reads, hs, e, i, p, q, r, n, hi, j, hj)
-
-def Laws.record_reads_the_position(older, ds, left, files, bs, e):
-  RecordL.befores_read(older, ds, left, files, bs, e)
 
 def Laws.amend_keeps_what_it_added(arriving, kept, hex):
   RewriteL.amend_minted_ok(arriving, kept, hex)
