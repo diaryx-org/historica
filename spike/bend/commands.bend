@@ -4782,35 +4782,43 @@ def planned.read(ps: List<&2, Planned>) -> List<&2, String>:
     case Planned{+h, d, p, +read} <> rest:
       Rev.keep(read, here.path(h), planned.read(rest))
 
-# What the digests stated leave open. A file of lines is settled where the
-# folder holds a regular file at its path with the digest the file's nearest
-# statement leaves; a file of bytes or a link the position holds is settled
-# by its digest or its target, whatever the folder holds there.
-# `LAWS.diff_folder_replays_what_is_unsettled` and
-# `LAWS.diff_folder_reads_what_is_unsettled` hold `plans` to it.
+# What `LAWS.diff_folder_compares_like_with_like` asks of each path's plan,
+# by what the position and the folder hold there: a file the position does
+# not hold is read where the folder holds a regular one, and nothing is
+# replayed; a file of lines against a regular file is replayed exactly
+# where the folder's is read; a file of lines against anything else is
+# replayed and nothing read; and anything else is neither.
+def planned.like(p: Planned) -> Bool:
+  match p:
+    case Planned{Here{q, None{}, Some{Folder.Found.File{x, r, n}}}, d, replay, read}:
+      Bool.and(Bool.not(replay), read)
+    case Planned{Here{q, Some{Tree.Entry{f, y, Tree.Lines{}, g, h, m}}, Some{Folder.Found.File{x, r, n}}}, d, replay, read}:
+      Bool.not(Bool.xor(replay, read))
+    case Planned{Here{q, Some{Tree.Entry{f, y, Tree.Lines{}, g, h, m}}, found}, d, replay, read}:
+      Bool.and(replay, Bool.not(read))
+    case Planned{h, d, replay, read}:
+      Bool.and(Bool.not(replay), Bool.not(read))
+
+def plans.like(ps: List<&2, Planned>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case p <> rest:
+      Bool.and(planned.like(p), plans.like(rest))
+
+# The files of lines no statement settles: settled where the folder holds a
+# regular file at its path with the digest the file's nearest statement
+# leaves. `LAWS.diff_folder_fetches_what_it_replays` names them.
 def here.settled(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, h: Here) -> Bool:
   +h2 = h
   Bool.and(Bool.and(here.lines(h2), here.regular(h2)), here.same(eds, os, h2, here.digest(dg, h2)))
 
-def here.kept(h: Here) -> Bool:
-  +h2 = h
-  Bool.and(here.held(h2), Bool.not(here.lines(h2)))
-
-# The files of lines no statement settles, by file; and the folder's regular
-# files nothing the position holds settles, by path.
 def unsettled.files(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
   match hs:
     case Nil{}:
       Nil{}
     case +h <> rest:
       Rev.keep(Bool.and(here.lines(h), Bool.not(here.settled(dg, os, eds, h))), here.file(h), unsettled.files(dg, os, eds, rest))
-
-def unsettled.paths(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
-  match hs:
-    case Nil{}:
-      Nil{}
-    case +h <> rest:
-      Rev.keep(Bool.and(here.regular(h), Bool.not(Bool.or(here.kept(h), here.settled(dg, os, eds, h)))), here.path(h), unsettled.paths(dg, os, eds, rest))
 
 def wanted_all(+fs: List<&2, Full>, files: List<&2, String>) -> List<&2, String>:
   match files:

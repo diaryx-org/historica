@@ -554,11 +554,11 @@ def Laws.diff_folder_shows_what_differs(t, older, ds, left, reads, ps, cs, e):
 def Laws.diff_colour_changes_no_character(cs):
   Colour.colour_fit(cs)
 
-def Laws.diff_folder_replays_what_is_unsettled(dg, os, eds, hs):
-  PlanL.replayed_unsettled(dg, os, eds, hs)
+def Laws.diff_folder_compares_like_with_like(dg, os, eds, hs):
+  PlanL.plans_like(dg, os, eds, hs)
 
-def Laws.diff_folder_reads_what_is_unsettled(dg, os, eds, hs):
-  PlanL.read_unsettled(dg, os, eds, hs)
+def Laws.diff_folder_believes_a_stated_digest(dg, os, eds, path, file, at, y, g, m, fp, runs, size, d, os2, ho, w, hw, more, dg2, hd):
+  PlanL.believed(dg, os, eds, path, file, at, y, g, m, fp, runs, size, d, os2, ho, w, hw, more, dg2, hd)
 
 def Laws.diff_sizes_what_the_host_stated(found, stats, cs):
   SizesL.sized_told(found, stats, cs)
