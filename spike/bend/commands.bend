@@ -259,10 +259,17 @@ def bookmark.stated(+file: String, name: String, r: Result<&2, &2, String, Bm.St
     case Done{Bm.Stated{t, p}}:
       IO.pure(Bm.Bookmark, Bm.Bookmark{name, t, p})
 
+def bookmark.text(+file: String, name: String, r: Result<&2, &2, String, String>) -> IO(Bm.Bookmark):
+  match r:
+    case Fail{e}:
+      die(Bm.Bookmark, 1, file ++ ": " ++ e)
+    case Done{text}:
+      bookmark.stated(file, name, Bm.parse(text))
+
 def bookmark.read(+file: String, name: String) -> IO(Bm.Bookmark):
   do IO<Bm.Bookmark>:
-    text : String <- Store.read_text(file)
-    bookmark.stated(file, name, Bm.parse(text))
+    r : Result<&2, &2, String, String> <- Store.read_utf8(file)
+    bookmark.text(file, name, r)
 
 def bookmarks.read(+root: String, ns: List<&2, Named>) -> IO(List<&2, Bm.Bookmark>):
   match ns:
@@ -7230,6 +7237,14 @@ def opening.rule(+file: String, st: Folder.Stated) -> Result<&2, &2, String, Uni
     case _:
       Done{Unit{}}
 
+# A file of names or rules whose bytes are not UTF-8 refuses the opening.
+def opening.read(+file: String, t: Result<&2, &2, String, String>, k: String -> Result<&2, &2, String, Unit>) -> Result<&2, &2, String, Unit>:
+  match t:
+    case Fail{e}:
+      Fail{file ++ ": " ++ e}
+    case Done{x}:
+      k(x)
+
 def opening.names(+root: String, ns: List<&2, Named>, r: Result<&2, &2, String, Unit>) -> IO(Result<&2, &2, String, Unit>):
   match ns r:
     case _ Fail{e}:
@@ -7238,8 +7253,8 @@ def opening.names(+root: String, ns: List<&2, Named>, r: Result<&2, &2, String, 
       IO.pure(Result<&2, &2, String, Unit>, Done{u})
     case Named{n, +p} <> rest Done{u}:
       do IO<Result<&2, &2, String, Unit>>:
-        text : String <- Store.read_text(root ++ "/" ++ p)
-        opening.names(root, rest, opening.bookmark(root ++ "/" ++ p, Bm.parse(text)))
+        t : Result<&2, &2, String, String> <- Store.read_utf8(root ++ "/" ++ p)
+        opening.names(root, rest, opening.read(root ++ "/" ++ p, t, x => opening.bookmark(root ++ "/" ++ p, Bm.parse(x))))
 
 def opening.rules(+root: String, ps: List<&2, String>, r: Result<&2, &2, String, Unit>) -> IO(Result<&2, &2, String, Unit>):
   match ps r:
@@ -7249,8 +7264,8 @@ def opening.rules(+root: String, ps: List<&2, String>, r: Result<&2, &2, String,
       IO.pure(Result<&2, &2, String, Unit>, Done{u})
     case +p <> rest Done{u}:
       do IO<Result<&2, &2, String, Unit>>:
-        text : String <- Store.read_text(root ++ "/" ++ p)
-        opening.rules(root, rest, opening.rule(root ++ "/" ++ p, Folder.rule_in(text)))
+        t : Result<&2, &2, String, String> <- Store.read_utf8(root ++ "/" ++ p)
+        opening.rules(root, rest, opening.read(root ++ "/" ++ p, t, x => opening.rule(root ++ "/" ++ p, Folder.rule_in(x))))
 
 def opening(+root: String, h: Result<&2, &2, String, Unit>) -> IO(Result<&2, &2, String, Unit>):
   match h:

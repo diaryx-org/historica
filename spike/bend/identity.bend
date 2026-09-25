@@ -300,6 +300,14 @@ def from_ids(+file: String, r: Result<&2, &2, Malformed, Ids>, +directory: Strin
 def from_text(+file: String, +text: String, +directory: String, +home: Maybe<&2, String>) -> Result<&2, &2, String, String>:
   from_ids(file, parse(text), directory, home)
 
+# An identity file whose bytes are not UTF-8 is refused, naming it.
+def from_read(+file: String, r: Result<&2, &2, String, String>, +directory: String, +home: Maybe<&2, String>) -> Result<&2, &2, String, String>:
+  match r:
+    case Fail{e}:
+      Fail{file ++ ": " ++ e}
+    case Done{text}:
+      from_text(file, text, directory, home)
+
 def from_file(+file: String, +directory: String, +home: Maybe<&2, String>, r: Result<&1, &1, U32 & String, File>) -> IO(Result<&2, &2, String, String>):
   match r:
     case Fail{Tuple{+code, msg}}:
@@ -307,8 +315,8 @@ def from_file(+file: String, +directory: String, +home: Maybe<&2, String>, r: Re
     case Done{f}:
       do IO<Result<&2, &2, String, String>>:
         File.close(f)
-        text : String <- Store.read_text(file)
-        return from_text(file, text, directory, home)
+        r : Result<&2, &2, String, String> <- Store.read_utf8(file)
+        return from_read(file, r, directory, home)
 
 def author.at(p: Maybe<&2, String>, +directory: String, +home: Maybe<&2, String>) -> IO(Result<&2, &2, String, String>):
   match p:

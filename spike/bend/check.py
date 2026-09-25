@@ -735,7 +735,7 @@ STORES = {
         [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": None, "HOME": None, "USERPROFILE": None}, "record", "-m", "who"],
         *([{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/" + case}, "record", "-m", "who"]
           for case in ("default", "under", "nodefault", "twodefaults", "badkey", "nospace", "spaced", "undertwice",
-                       "underlate", "authortwice", "noauthor", "sameunder", "empty", "comment", "crlf")),
+                       "underlate", "authortwice", "noauthor", "sameunder", "empty", "comment", "crlf", "latin1", "cut")),
         [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/under", "HOME": "{copy}"}, "record", "-m", "who"],
         [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/under", "HOME": "{copy}/sub"}, "record", "-m", "who"],
         [{"HISTORICA_AUTHOR": "", "XDG_CONFIG_HOME": "{copy}/history/configs/under", "HOME": None}, "record", "-m", "who"],
@@ -921,6 +921,10 @@ STORES = {
     "gutted": [],
     "tampered": [],
     "forgotten": [],
+    "quoting": [],
+    "unnamed": [["log"], ["names"], ["status"], ["files", "head"], ["skip"], ["record", "-n"], ["record", "-m", "x", "--fields"], ["name", "x", "head"]],
+    "unruled": [["log"], ["names"], ["status"], ["skip"], ["skip", "y"], ["record", "-n"], ["record", "-m", "x", "--fields"]],
+    "requoted": [],
     "unreadable": [["log"], ["cat", "head", "notes.md"], ["cat", "head", "other.md"], ["show", "head", "notes.md"], ["show", "head", "other.md"],
                    ["diff", "head"], ["blame", "head", "notes.md"], ["blame", "head", "other.md"], ["files", "head"], ["status"],
                    ["diff"], ["blame", "notes.md"], ["record", "-n"]],
@@ -1394,6 +1398,11 @@ def record(temporary, rust, corpus, pinned=None):
         for case, text in configs.items():
             (store / "history" / "configs" / case / "historica").mkdir(parents=True)
             (store / "history" / "configs" / case / "historica" / "identity").write_text(text)
+        # Files whose bytes are not UTF-8: a byte no character begins with,
+        # and a character cut off by the end of the file.
+        for case, data in (("latin1", b"author Caf\xe9 <c@example.com>\n"), ("cut", b"author Caf\xc3")):
+            (store / "history" / "configs" / case / "historica").mkdir(parents=True)
+            (store / "history" / "configs" / case / "historica" / "identity").write_bytes(data)
         (store / "history" / "homes" / "one" / ".config" / "historica").mkdir(parents=True)
         (store / "history" / "homes" / "one" / ".config" / "historica" / "identity").write_text("author From Home <h@example.com>\n")
     elif corpus == "editing":
@@ -1468,6 +1477,40 @@ def record(temporary, rust, corpus, pinned=None):
             (operations("two") / "kept.md.ops.txt").unlink()
             (operations("two") / "photo.bin").unlink()
             (operations("one") / "notes.md").write_bytes(b"one\n\xff\n")
+    elif corpus in ("quoting", "requoted"):
+        # A line forgotten where one revision wrote it and a later one
+        # deleted it, and then one of the two documents back as it was and
+        # its forgetting gone: the redaction has not finished arriving, from
+        # the side that deleted the line, or from the side that wrote it.
+        (store / "n.md").write_text("one\n")
+        historica("record", "-m", "one")
+        (store / "n.md").write_text("one\ntwo\n")
+        historica("record", "-m", "two")
+        historica("name", "second", "head", "--revision")
+        (store / "n.md").write_text("one\n")
+        historica("record", "-m", "three")
+        historica("forget", "second", "n.md", "--lines", "2..2")
+        digest = lambda data: hashlib.sha256(data).hexdigest()
+        operations = store / "history" / "operations"
+        original = (
+            f"historica\nresult {digest(b'one' + chr(10).encode())}\n\ndelete 1 1\n-two\n" if corpus == "quoting"
+            else f"historica\nresult {digest(b'one' + chr(10).encode() + b'two' + chr(10).encode())}\n\ninsert 1\n+two\n"
+        ).encode()
+        (operations / "restored.ops.txt").write_bytes(original)
+        for path in operations.glob("*.ops.txt"):
+            if f"forgets {digest(original)}\n".encode() in path.read_bytes():
+                path.unlink()
+    elif corpus in ("unnamed", "unruled"):
+        # A bookmark or a rule whose bytes are not UTF-8, which every
+        # command refuses as it opens the store and `check` calls unreadable;
+        # and in `unruled`, a rule cut off inside a character too.
+        (store / "notes.md").write_text("one\n")
+        historica("record", "-m", "one")
+        if corpus == "unnamed":
+            (store / "history" / "names" / "caf\u00e9.txt").write_bytes(b"change \xff\n")
+        else:
+            (store / "history" / "skipped" / "latin1.txt").write_bytes(b"skip caf\xe9\n")
+            (store / "history" / "skipped" / "cut.txt").write_bytes(b"skip a\n\xe2\x82")
     elif corpus == "unreadable":
         # A revision written by hand naming an operation document, and a
         # resolution, that do not parse: nothing reads them until a command
@@ -1713,7 +1756,7 @@ def check_store(temporary):
 
     def compare(corpus, commands):
         recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping",
-                               "damaged", "gutted", "tampered", "unreadable")
+                               "damaged", "gutted", "tampered", "unreadable", "quoting", "requoted", "unnamed", "unruled")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
