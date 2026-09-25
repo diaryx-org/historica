@@ -428,6 +428,10 @@ pub unsafe extern "C" fn hist_store_write(
         let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
             return Err((EINVAL, format!("{}: not a file", path.display())));
         };
+        // A bare file name's parent is the empty path — the editor's file
+        // where `$TMPDIR` is set and empty — and the directory it is in is
+        // the one this process runs in, which is what is synced.
+        let directory = if directory.as_os_str().is_empty() { Path::new(".") } else { directory };
         fs::create_dir_all(directory).map_err(|error| failed(directory, error))?;
         let mut staged = name.to_owned();
         staged.push(format!(".{}.staged", std::process::id()));
