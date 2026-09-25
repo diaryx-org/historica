@@ -606,73 +606,6 @@ def unlines(ls: List<&2, T.Line>) -> String:
     case T.Line{t, n} <> rest:
       t ++ Bool.pick(String, n, "\n", SNil{}) ++ unlines(rest)
 
-# The reader's words
-# -------------------
-#
-# What the Rust reader says when it refuses a document at the preamble, at
-# a line's shape, or at a header's (`format::error`), so that a store
-# refused over a revision is refused in the same words.
-
-def msg.empty() -> String:
-  "a Historica document is never empty; it opens with `historica`"
-
-def msg.cr() -> String:
-  "carriage returns change a revision's identity; save this file with LF endings"
-
-def msg.bom() -> String:
-  "a byte order mark is part of the digest; delete the first three bytes"
-
-def msg.unterminated() -> String:
-  "every line the parser reads ends with a newline; add one"
-
-def msg.preamble() -> String:
-  "a Historica document opens with `historica`; add it as the first line"
-
-def msg.version.old(+found: String) -> Bool:
-  Bool.or(Bool.or(String.eq(found, "v0"), String.eq(found, "v1")), Bool.or(Bool.or(String.eq(found, "v2"), String.eq(found, "v3")), Bool.or(String.eq(found, "v4"), String.eq(found, "v5"))))
-
-def msg.version(+found: String) -> String:
-  Bool.pick(String, msg.version.old(found),
-    "this document is `historica-" ++ found ++ "`, a pre-1.0 format this release no longer reads; a 0.x Historica still reads it",
-    "this document is `historica-" ++ found ++ "` and this reader reads `historica`; upgrade Historica rather than trusting what it would leave out")
-
-def msg.empty_value() -> String:
-  "a header with no value is an absent fact spelled ambiguously; delete the line or give it a value"
-
-def msg.key(+k: String) -> String:
-  "`" ++ k ++ "` is not a key: keys are lowercase letters and hyphens, and a dot separates a tool's name from what it named, as in `diaryx.review-url`"
-
-def msg.padded() -> String:
-  "a value has no leading or trailing space; trim it"
-
-def msg.control() -> String:
-  "a value holds no control characters; remove it"
-
-def msg.blank() -> String:
-  "an empty message is spelled with no blank line at all; delete the blank line"
-
-def starts_bom(s: String) -> Bool:
-  match s:
-    case SCon{c, t}:
-      U32.is_eq(Char.to_u32(c), 65279)
-    case SNil{}:
-      False{}
-
-def preamble.versioned(found: Maybe<&2, String>) -> String:
-  match found:
-    case None{}:
-      msg.preamble()
-    case Some{+v}:
-      msg.version(v)
-
-# Why a first line is not the preamble: a byte order mark before it, the
-# preamble with no newline, a version this reader does not read, or no
-# preamble at all.
-def preamble.fault(+t: String) -> String:
-  Bool.pick(String, starts_bom(t), msg.bom(),
-    Bool.pick(String, String.eq(t, "historica"), msg.unterminated(),
-      preamble.versioned(T.strip_prefix(t, "historica-"))))
-
 # What one walk over a header's value finds: whether it starts or ends with
 # a space, and whether it holds a control character.
 type Scan is Data:
@@ -696,19 +629,18 @@ def header_of.scanned(+k: String, v: String, sc: Scan) -> Result<&2, &2, String,
   match sc:
     case Scan{padded, control}:
       do Result<&2, &2, String, Header>:
-        ensure(Bool.not(padded), msg.padded())
-        ensure(Bool.not(control), msg.control())
+        ensure(Bool.not(padded), "the header `" ++ k ++ "` has a padded value")
+        ensure(Bool.not(control), "the header `" ++ k ++ "` holds a control character")
         return Header{k, v}
 
-# `split_header`: a key, one space, and a value, checked in its order.
 def header_of(+t: String, cut: Maybe<&2, T.Split>) -> Result<&2, &2, String, Header>:
   match cut:
     case None{}:
-      Fail{msg.empty_value()}
+      Fail{"the header `" ++ t ++ "` has no value"}
     case Some{T.Split{+k, +v}}:
       do Result<&2, &2, String, Header>:
-        ensure(shaped_key(k), msg.key(k))
-        ensure(Bool.not(String.is_empty(v)), msg.empty_value())
+        ensure(shaped_key(k), "a malformed key `" ++ k ++ "`")
+        ensure(Bool.not(String.is_empty(v)), "the header `" ++ k ++ "` has no value")
         header_of.scanned(k, v, scan(v))
 
 # The headers and the message. Headers run to the first blank line, after
@@ -729,11 +661,11 @@ def headers.go(ls: List<&2, T.Line>, h: Result<&2, &2, String, Header>, +at: Nat
     case Nil{} _:
       Done{Headers{List.reverse(&2, Header, acc), SNil{}}}
     case T.Line{SNil{}, term} <> Nil{} _:
-      Fail{"line " ++ Nat.show(at) ++ ": " ++ msg.blank()}
+      Fail{"line " ++ Nat.show(at) ++ ": a blank line with no message after it"}
     case T.Line{SNil{}, term} <> rest _:
       Done{Headers{List.reverse(&2, Header, acc), unlines(rest)}}
     case T.Line{t, False{}} <> rest _:
-      Fail{"line " ++ Nat.show(at) ++ ": " ++ msg.unterminated()}
+      Fail{"line " ++ Nat.show(at) ++ ": unterminated line"}
     case T.Line{t, True{}} <> rest Fail{e}:
       Fail{"line " ++ Nat.show(at) ++ ": " ++ e}
     case T.Line{t, True{}} <> +rest Done{hd}:
@@ -758,34 +690,18 @@ def parse.head(+t: String, historica: Bool, +rest: List<&2, T.Line>) -> Result<&
     case True{}:
       parse.split(headers.go(rest, head_header(rest), 2n, Nil{}))
     case False{}:
-      Fail{"line 1: " ++ preamble.fault(t)}
+      Bool.pick(Result<&2, &2, String, Rev>, String.starts_with(t, "historica-"), Fail{"line 1: an unknown version `" ++ t ++ "`, likely a newer historica"}, Fail{"line 1: not a historica document"})
 
 def parse.preamble(ls: List<&2, T.Line>) -> Result<&2, &2, String, Rev>:
   match ls:
     case T.Line{+t, term} <> rest:
       parse.head(t, Bool.and(term, T.same(t, "historica")), rest)
     case Nil{}:
-      Fail{"line 1: " ++ msg.empty()}
+      Fail{"an empty document"}
 
-# The line the first carriage return is on.
-def cr_line(s: String, +at: Nat) -> Nat:
-  match s:
-    case SNil{}:
-      at
-    case SCon{+c, t}:
-      Bool.pick(Nat, Char.is_eq(c, '\r'), at, cr_line(t, Bool.pick(Nat, Char.is_eq(c, '\n'), 1n+at, at)))
-
-def parse.cr(+s: String, cr: Bool) -> Result<&2, &2, String, Rev>:
-  match cr:
-    case True{}:
-      Fail{"line " ++ Nat.show(cr_line(s, 1n)) ++ ": " ++ msg.cr()}
-    case False{}:
-      parse.preamble(T.lines(s))
-
-# A revision document, from its text. A carriage return anywhere refuses
-# it, unless a byte order mark comes first, which the reader refuses before.
+# A revision document, from its text.
 def parse(+s: String) -> Result<&2, &2, String, Rev>:
-  parse.cr(s, Bool.and(T.has_char(s, '\r'), Bool.not(starts_bom(s))))
+  Bool.pick(Result<&2, &2, String, Rev>, T.has_char(s, '\r'), Fail{"a carriage return"}, parse.preamble(T.lines(s)))
 
 # Writing
 # -------

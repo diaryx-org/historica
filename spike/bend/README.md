@@ -661,13 +661,7 @@ without it each rename asks the host once more, through `Store.move`,
 whether its new name is free — two files holding one document want one
 name — and the directories it empties go through `Store.tidy`, up to the
 store's own. Opening the store is the Rust tool's: a revision that does not
-parse refuses it, naming the file (`arrange_opens_what_parses`), in the
-Rust reader's words where the fault is the preamble, a line's shape or a
-header's spelling — the thirteen `unparsed-*` stores hold `arrange`,
-`export` and `prune` to one each: nothing, a carriage return, a byte order
-mark, an old and a new version, no preamble, a line with no newline at the
-end and one in the headers, a header with no value, a malformed key, a
-padded value, a control character, and a blank line with no message. The
+parse refuses it, naming the file (`arrange_opens_what_parses`). The
 `arranging` store is filed flat by digest, with one revision in a folder
 of a person's own, content in a directory of its own, a duplicate of each
 kind, a file no revision names, and three revisions sharing a summary —
@@ -1553,13 +1547,9 @@ is under 5k. Not ported:
   refuses a store whose documents do not parse, whose file names lie about
   their digests, whose bookmark or rule files are not ones, or whose heads
   have no tree, and not one whose content contradicts its history or whose
-  rules cover a tracked path. The gate is one def, `Prune.sound`, which the
-  whole of `check` can replace.
-- **The reader's words past a line's shape**: a revision refused at its
-  preamble, at a line, or at a header's spelling is refused in the Rust
-  reader's words; one refused for what its headers mean — their order, a
-  malformed digest or path, a fact stated twice, a missing header — in the
-  port's own. The first set is what `revision.bend`'s `msg.*` defs spell.
+  rules cover a tracked path. A revision the Rust tool refuses to open is
+  refused here too, naming the file, but in the port's parser's words for
+  why, which are not the Rust tool's.
 - **`export` onto a copy it made** (decision 0052): the port writes into
   an absent or empty directory only, and refuses one holding a store in
   words of its own rather than updating it in place. A destination that is

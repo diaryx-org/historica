@@ -270,27 +270,6 @@ REWRITES = ("amend", "abandon", "carry")
 # the whole of every store under the copy is compared, less `cache/`.
 MOVES = ("arrange", "prune", "receive", "offer", "export")
 
-# A revision file for each reason the reader refuses one before a header's
-# meaning is asked: nothing, a carriage return, a byte order mark, a
-# pre-1.0 and a newer version, no preamble, an unterminated line, a header
-# with no value, a malformed key, a padded value, a control character, and
-# a blank line with no message after it.
-UNPARSED = {
-    "empty": b"",
-    "crlf": b"historica\nchange kkkkkkkkkkkkkkkkkkkkkkkk\r\n",
-    "bom": b"\xef\xbb\xbfhistorica\n",
-    "old": b"historica-v2\nchange kkkkkkkkkkkkkkkkkkkkkkkk\n",
-    "new": b"historica-2\n",
-    "garbage": b"\n",
-    "short": b"historica",
-    "tail": b"historica\nchange kkkkkkkkkkkkkkkkkkkkkkkk",
-    "value": b"historica\nchange\n",
-    "key": b"historica\nChange kkkkkkkkkkkkkkkkkkkkkkkk\n",
-    "padded": b"historica\nauthor  someone\n",
-    "control": b"historica\nauthor some\x01one\n",
-    "blank": b"historica\nchange kkkkkkkkkkkkkkkkkkkkkkkk\n\n",
-}
-
 STORES = {
     "tree": [
         ["log"],
@@ -726,11 +705,9 @@ STORES = {
         ["arrange", "-n"],
     ],
     "lying": [["prune", "-n"], ["prune", "--fields"], ["arrange", "-n"]],
-    "unparsed": [["prune", "-n"], ["prune", "--fields"], ["arrange", "-n"], ["export", "-n", "out"]],
-    # One revision file the reader refuses, a store for each reason it has
-    # before a header's meaning is asked: every command that opens the
-    # store refuses it, naming the file, in the reader's words.
-    **{f"unparsed-{name}": [["arrange", "-n"], ["arrange"], ["export", "-n", "out"], ["prune", "-n"]] for name in UNPARSED},
+    # (The parser's reasons are the port's own words, not the Rust tool's,
+    # so `arrange`'s refusal to open this store is not compared.)
+    "unparsed": [["prune", "-n"], ["prune", "--fields"]],
     # A store and three beside it, filed in its folder: a copy that went on —
     # a revision, a document and a payload this one lacks, bookmarks new,
     # moved, and made private at one target, three rules one of which takes
@@ -1430,10 +1407,6 @@ def record(temporary, rust, corpus, pinned=None):
         (store / "history" / "claims" / ".DS_Store").write_bytes(b"\x00")
         (store / "occupied").mkdir()
         (store / "occupied" / "x.md").write_text("somebody's\n")
-    elif corpus.startswith("unparsed-"):
-        (store / "notes.md").write_text("one\n")
-        historica("record", "-m", "one")
-        (store / "history" / "revisions" / "bad.rev.txt").write_bytes(UNPARSED[corpus.removeprefix("unparsed-")])
     elif corpus in ("pruning", "lying", "unparsed"):
         def rec(*command):
             done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
@@ -1597,7 +1570,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting") or corpus.startswith("unparsed-")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
