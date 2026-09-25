@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.tidy`, `Store.sweep`, `Store.exit`, `Store.link` and `Store.runs`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.put`, `Store.through`, `Store.lay`, `Store.tidy`, `Store.sweep`, `Store.exit`, `Store.link`, `Store.runs` and `Store.chmod`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -191,6 +191,42 @@ a bookmark an `abandon` moves goes through `Store.write`. Which revisions
 are carried, in what order, what each restates and what it is called are
 decided in Bend.
 
+`update` reads what `status` reads — the walk, and the digest of each
+file it took — and, for each path the head holds where the walk took
+nothing, the listing of that path's directory, which says whether a
+directory, a link or something else stands there. It reads the documents
+the head's files of lines need, and, where the folder holds bytes that are
+not the head's, every document any revision states for a file that has
+been at that path, since whether those bytes may be written over is
+whether some revision records them. It asks `Store.at` where each payload
+the head names is, and nothing else of `operations/`. What it writes is
+the plan Bend made, through four effects that decide nothing: `Store.put`
+writes a file of lines — its directory made, the text staged beside it and
+renamed over it, keeping the permissions of the file it replaces, as the
+Rust tool's `write_if` does; `Store.lay` copies a payload from the store
+into the folder as a new file, refusing bytes that are not the digest it
+was told, as `Store.copy` refuses; `Store.link` makes a link beside the
+path and renames it over whatever stood there; and `Store.chmod` asks the
+execute bit of the path itself, a link standing there included, sets it
+where it differs — on what the path names, as its read bits say, as the
+Rust tool's `set_executable` does — and answers what the bit was before,
+so that Bend decides whether a `mode` line is owed. A removal is
+`Store.remove`, with the folder as where tidying stops.
+
+`merge` reads what `update` reads for the merged tree — the digest of each
+path it would write, the listing where a link goes, where each payload is
+— and the documents the walk of each contested file needs, and then reads
+the text of only the files whose digest is none of what it may write over,
+since whether that text is text decides whether it is anyone's work to
+keep. A file of lines it writes through `Store.through`, which writes as
+`std::fs::write` does — in place, and through a link standing at the path
+to the file it names — because that is how the Rust tool's `merge` lays
+one down; the rest through `update`'s effects. It removes nothing.
+`status` and `record` read the documents of the union's ancestry for a
+file the parents leave differently, and hand the walk's proposal to the
+marker check and to the resolution writer; everything they decide from it
+is decided in Bend.
+
 `arrange` reads what `check` reads — every revision and operation
 document, read and hashed here, and the digest of each payload from
 `Store.digests` — since a file's digest is what it is called for. Each
@@ -240,23 +276,24 @@ name, resolved, to put before every path. Which files are listed, in what
 order, and which are private is decided in Bend.
 
 `export` reads what `receive` reads of this store, and the stored texts of
-the target's ancestry through `Store.fetch`, as `cat` does, so each file of
-lines is replayed here. It writes a copy through the effects `init` and
+the target's ancestry through `Store.fetch`, as `cat` does, so each file
+of lines is replayed here. It writes a copy through the effects `init` and
 `receive` already use — `Store.mkdirs` and `Store.write` for `init`'s
 layout, `Store.once` for every document, revision and rule, `Store.write`
 for every bookmark, `Store.copy` for every payload and file of `claims/` —
-and lays the folder out file by file: a file of lines through `Store.once`,
-the text replayed here; a file of bytes through `Store.copy`, straight out
-of the store; and two effects of its own. `Store.link` makes a link where
-it is told, pointing where it is told, at a staged sibling renamed over the
-path, and never opens what it points at. `Store.runs` sets a file's
-execute bits the way the Rust tool's `set_executable` does — made
-runnable they follow the read bits, made plain they go — and answers
-whether anything changed, which is what `--files-only` reports as a `mode`
-line. Which files, under which names, spelled how, and which of them run,
-are decided in Bend: where a link points is `materialise`'s arithmetic,
-here. `Store.folder` answers whether the destination holds anything, and
-what; `Store.digests` reads each file `--files-only` wrote back.
+and lays the folder out file by file: a file of lines through
+`Store.once`, the text replayed here; a file of bytes through
+`Store.copy`, straight out of the store; and two effects more.
+`Store.link`, which `update` uses too, makes a link where it is told,
+pointing where it is told, at a staged sibling renamed over the path, and
+never opens what it points at. `Store.runs` sets a file's execute bits the
+way the Rust tool's `set_executable` does — made runnable they follow the
+read bits, made plain they go — and answers whether anything changed,
+which is what `--files-only` reports as a `mode` line. Which files, under
+which names, spelled how, and which of them run, are decided in Bend:
+where a link points is `materialise`'s arithmetic, here. `Store.folder`
+answers whether the destination holds anything, and what; `Store.digests`
+reads each file `--files-only` wrote back.
 
 Onto a copy it made, `export` reads the copy as it reads this store, walks
 the copy's folder through `Folder.walk` with `Store.digests` for each
