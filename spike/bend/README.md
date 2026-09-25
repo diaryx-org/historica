@@ -607,9 +607,9 @@ parse refuses it, naming the file (`arrange_opens_what_parses`). The
 of a person's own, content in a directory of its own, a duplicate of each
 kind, a file no revision names, and three revisions sharing a summary —
 two changes, and a reword — so every tier of a stem is reached; with
-`arrange` added to the corpus stores and to `log`'s, `check.py` holds
-seventeen `arrange`s to the Rust tool, every file of the store compared
-after.
+`arrange` added to the corpus stores, to `log`'s and to the stores `prune`
+reads, `check.py` holds twenty `arrange`s to the Rust tool, every file of
+the store compared after.
 
 `prune` is decision 0013's disk half. A revision may go where a revision
 the store keeps supersedes it, nothing kept names it as a parent, and it
