@@ -352,8 +352,8 @@ def split_met(+pre: String, +a: String, +mid: String, +b: String, +post: String)
     ListL.sw_prefix(pre, a ++ mid ++ b ++ post, a, B.sw_ext(a, a, mid ++ b ++ post, B.sw_refl(a))),
     B.sw_nil(String.reverse(pre ++ a ++ mid ++ b ++ post)))
 
-# Each refusal or claim is said on the line its turn comes to, beginning
-# with its word and its path.
+# Each refusal, claim or marked file is said on the line its turn comes
+# to, beginning with its word and its path.
 def splits_exact(+pre: String, +mid: String, +post: String, xs: List<&2, T.Split>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, Main.splits.said(pre, mid, post, xs), ls), List.append(&2, Main.Expect, Main.splits.expect(pre, xs), es)) == True{} : Bool}:
   match xs:
     case Nil{}:
@@ -383,16 +383,17 @@ def accepts_all(+xs: List<&2, String>, +tail: List<&2, String>) -> {Main.expect.
 
 # Everything the survey found is in the report, in order: after the
 # revisions the folder is compared with, each fact on a line beginning with
-# its kind and ending with its path, then each refusal, claim and accept on
-# a line beginning with its word and its path.
+# its kind and ending with its path, then each refusal, claim, marked file
+# and accept on a line beginning with its word and its path.
 def report_says(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +cs: List<&2, Tree.Contest>, sv: Sv.Survey) -> {Main.expect.in(Main.status.report(fs, bs, ps, cs, sv), Main.status.expects(sv)) == True{} : Bool}:
   match sv:
-    case Sv.Survey{+facts, +refused, +claimed, +accept, +renames}:
-      skip(Main.status.position(fs, bs, ps), List.append(&2, String, Main.facts.said(facts), List.append(&2, String, Main.splits.said("refused ", ": ", SNil{}, refused), List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))))), List.append(&2, Main.Expect, Main.facts.expect(facts), List.append(&2, Main.Expect, Main.splits.expect("refused ", refused), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), Main.accepts.expect(accept)))),
-        facts_exact(facts, List.append(&2, String, Main.splits.said("refused ", ": ", SNil{}, refused), List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))))), List.append(&2, Main.Expect, Main.splits.expect("refused ", refused), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), Main.accepts.expect(accept))),
-          splits_exact("refused ", ": ", SNil{}, refused, List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), Main.accepts.expect(accept)),
-            splits_exact("claimed ", ": ", " files claim it; say where each goes with --at", claimed, List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))), Main.accepts.expect(accept),
-              accepts_all(accept, List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))))))
+    case Sv.Survey{+facts, +refused, +claimed, +marked, +accept, +renames}:
+      skip(Main.status.position(fs, bs, ps), List.append(&2, String, Main.facts.said(facts), List.append(&2, String, Main.splits.said("refused ", ": ", SNil{}, refused), List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.splits.said("marked  ", " (", " left)", marked), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))))))), List.append(&2, Main.Expect, Main.facts.expect(facts), List.append(&2, Main.Expect, Main.splits.expect("refused ", refused), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), List.append(&2, Main.Expect, Main.splits.expect("marked  ", marked), Main.accepts.expect(accept))))),
+        facts_exact(facts, List.append(&2, String, Main.splits.said("refused ", ": ", SNil{}, refused), List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.splits.said("marked  ", " (", " left)", marked), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))))), List.append(&2, Main.Expect, Main.splits.expect("refused ", refused), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), List.append(&2, Main.Expect, Main.splits.expect("marked  ", marked), Main.accepts.expect(accept)))),
+          splits_exact("refused ", ": ", SNil{}, refused, List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.splits.said("marked  ", " (", " left)", marked), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))))), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), List.append(&2, Main.Expect, Main.splits.expect("marked  ", marked), Main.accepts.expect(accept))),
+            splits_exact("claimed ", ": ", " files claim it; say where each goes with --at", claimed, List.append(&2, String, Main.splits.said("marked  ", " (", " left)", marked), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))), List.append(&2, Main.Expect, Main.splits.expect("marked  ", marked), Main.accepts.expect(accept)),
+              splits_exact("marked  ", " (", " left)", marked, List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))), Main.accepts.expect(accept),
+                accepts_all(accept, List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))))))))
 
 # The contests
 # ------------
@@ -564,15 +565,15 @@ def proposed_none(b: Bool, -x: Maybe<&2, String>) -> {Bool.or(Bool.not(b), Maybe
 
 # The survey is told of each path compared once, in order, and of a file
 # the parents being joined leave differently, no digest to compare it with.
-def seens_ok(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Main.Here>) -> {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, hs)) == True{} : Bool}:
+def seens_ok(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Main.Proposal>, hs: List<&2, Main.Here>) -> {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, props, hs)) == True{} : Bool}:
   match hs:
     case Nil{}:
       {==}
     case Main.Here{+path, +e, +found} <> +rest:
-      AL.and_intro(Main.status.surveys.one(Main.Here{path, e, found}, Main.status.seen(t, dg, bf, reads, Main.Here{path, e, found})), Main.status.surveys(rest, Main.status.seens(t, dg, bf, reads, rest)),
+      AL.and_intro(Main.status.surveys.one(Main.Here{path, e, found}, Main.status.seen(t, dg, bf, reads, props, Main.Here{path, e, found})), Main.status.surveys(rest, Main.status.seens(t, dg, bf, reads, props, rest)),
         AL.and_intro(String.eq(path, path), Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))),
           S.eq_refl(path), proposed_none(Main.status.proposed(bf, e), Main.status.before(bf, e))),
-        seens_ok(t, dg, bf, reads, rest))
+        seens_ok(t, dg, bf, reads, props, rest))
 
 # What it believes
 # ----------------

@@ -219,6 +219,8 @@ def refusals_app(xs: List<&2, Sv.Obs>, +ys: List<&2, Sv.Obs>) -> {Sv.refusals(Li
       refusals_app(rest, ys)
     case Sv.Obs.Emptied{p} <> rest:
       refusals_app(rest, ys)
+    case Sv.Obs.Marked{p, n} <> rest:
+      refusals_app(rest, ys)
 
 # Every refusal names a path some surveyed path found in the folder.
 def found_all(+ss: List<&2, Sv.Seen>, rs: List<&2, T.Split>) -> Bool:
@@ -243,14 +245,14 @@ def found_weaken(rs: List<&2, T.Split>, +s: Sv.Seen, +rest: List<&2, Sv.Seen>, +
       {==}
     case T.Split{+p, b} <> more:
       match s:
-        case Sv.Seen{+path, +e, +found, +d, +before, +x, +sh, +pr}:
-          AL.and_intro(Sv.found_at(Sv.Seen{path, e, found, d, before, x, sh, pr} <> rest, p), found_all(Sv.Seen{path, e, found, d, before, x, sh, pr} <> rest, more),
+        case Sv.Seen{+path, +e, +found, +d, +before, +x, +sh, +pr, +mk}:
+          AL.and_intro(Sv.found_at(Sv.Seen{path, e, found, d, before, x, sh, pr, mk} <> rest, p), found_all(Sv.Seen{path, e, found, d, before, x, sh, pr, mk} <> rest, more),
             AL.or_right(Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), Sv.found_at(rest, p), Comp.and_left(Sv.found_at(rest, p), found_all(rest, more), h)),
-            found_weaken(more, Sv.Seen{path, e, found, d, before, x, sh, pr}, rest, Comp.and_right(Sv.found_at(rest, p), found_all(rest, more), h)))
+            found_weaken(more, Sv.Seen{path, e, found, d, before, x, sh, pr, mk}, rest, Comp.and_right(Sv.found_at(rest, p), found_all(rest, more), h)))
 
 # A surveyed path the folder found something at is one a refusal of it may
 # name.
-def here(+path: String, -e: Maybe<&2, Tree.Entry>, -f: F.Found, -d: String, -b: Maybe<&2, String>, -x: Bool, -sh: Maybe<&2, String>, -pr: Bool, -rest: List<&2, Sv.Seen>) -> {Sv.found_at(Sv.Seen{path, e, Some{f}, d, b, x, sh, pr} <> rest, path) == True{} : Bool}:
+def here(+path: String, -e: Maybe<&2, Tree.Entry>, -f: F.Found, -d: String, -b: Maybe<&2, String>, -x: Bool, -sh: Maybe<&2, String>, -pr: Bool, -mk: Nat, -rest: List<&2, Sv.Seen>) -> {Sv.found_at(Sv.Seen{path, e, Some{f}, d, b, x, sh, pr, mk} <> rest, path) == True{} : Bool}:
   %Equal.sym(Bool, String.eq(path, path), True{}, S.eq_refl(path)) : {Bool.or(Bool.and(_, True{}), Sv.found_at(rest, path)) == True{} : Bool}
   {==}
 
@@ -326,25 +328,34 @@ def found_emptied(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +runs: 
     case False{}:
       found_changed(ss, path, e, runs, True{}, hp)
 
-def found_lines(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, proposed: Bool, +text: Bool, empty: Bool, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.lines(path, e, digest, before, runs, text, proposed, empty))) == True{} : Bool}:
+# A file still marked is refused by `record` itself, not among the
+# refusals the survey makes.
+def found_resolved(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +runs: Bool, empty: Bool, marked: Nat, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.lines.resolved(path, e, runs, True{}, empty, marked))) == True{} : Bool}:
+  match marked:
+    case 0n:
+      found_emptied(ss, path, e, runs, empty, hp)
+    case 1n+k:
+      found_mode(ss, path, Tree.mode_eq(Tree.entry_mode(e), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), [Sv.Obs.Marked{path, 1n+k}], {==})
+
+def found_lines(+ss: List<&2, Sv.Seen>, +path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, proposed: Bool, +text: Bool, empty: Bool, +marked: Nat, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.lines(path, e, digest, before, runs, text, proposed, empty, marked))) == True{} : Bool}:
   match proposed:
     case True{}:
       match text:
         case False{}:
           found_changed(ss, path, e, runs, False{}, hp)
         case True{}:
-          found_emptied(ss, path, e, runs, empty, hp)
+          found_resolved(ss, path, e, runs, empty, marked, hp)
     case False{}:
       found_agreed(ss, path, e, runs, text, Sv.same(before, digest), hp)
 
-def found_held_file(+ss: List<&2, Sv.Seen>, +path: String, e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, text: Bool, proposed: Bool, empty: Bool, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.held_file(path, e, digest, before, runs, text, proposed, empty))) == True{} : Bool}:
+def found_held_file(+ss: List<&2, Sv.Seen>, +path: String, e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, text: Bool, proposed: Bool, empty: Bool, +marked: Nat, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.held_file(path, e, digest, before, runs, text, proposed, empty, marked))) == True{} : Bool}:
   match e:
     case Tree.Entry{+f, +p, Tree.Link{}, +y, +g, +m}:
       {==}
     case Tree.Entry{+f, +p, Tree.Whole{}, +y, +g, +m}:
       found_whole(ss, path, Tree.Entry{f, p, Tree.Whole{}, y, g, m}, digest, runs, y)
     case Tree.Entry{+f, +p, Tree.Lines{}, +y, +g, +m}:
-      found_lines(ss, path, Tree.Entry{f, p, Tree.Lines{}, y, g, m}, digest, before, runs, proposed, text, empty, hp)
+      found_lines(ss, path, Tree.Entry{f, p, Tree.Lines{}, y, g, m}, digest, before, runs, proposed, text, empty, marked, hp)
 
 def found_held_link(+ss: List<&2, Sv.Seen>, +path: String, +target: String, e: Tree.Entry, shown: Maybe<&2, String>, +before: Maybe<&2, String>, +hp: {Sv.found_at(ss, path) == True{} : Bool}) -> {found_all(ss, Sv.refusals(Sv.held_link(path, target, e, shown, before))) == True{} : Bool}:
   match e:
@@ -357,20 +368,20 @@ def found_held_link(+ss: List<&2, Sv.Seen>, +path: String, +target: String, e: T
 
 def seen_found(s: Sv.Seen, +rest: List<&2, Sv.Seen>) -> {found_all(s <> rest, Sv.refusals(Sv.seen(s))) == True{} : Bool}:
   match s:
-    case Sv.Seen{+path, Some{+e}, None{}, +d, +before, +x, +sh, +pr}:
-      found_dropped(Sv.Seen{path, Some{e}, None{}, d, before, x, sh, pr} <> rest, path, e, before, Nil{}, {==})
-    case Sv.Seen{+path, None{}, Some{F.Found.Link{+q, +target}}, +d, +before, +x, +sh, +pr}:
-      found_link(Sv.Seen{path, None{}, Some{F.Found.Link{q, target}}, d, before, x, sh, pr} <> rest, path, target, None{}, None{}, Sv.link_fault(target), True{},
-        here(path, None{}, F.Found.Link{q, target}, d, before, x, sh, pr, rest))
-    case Sv.Seen{+path, None{}, Some{F.Found.File{+q, +runs, +n}}, +d, +before, +x, +sh, +pr}:
+    case Sv.Seen{+path, Some{+e}, None{}, +d, +before, +x, +sh, +pr, +mk}:
+      found_dropped(Sv.Seen{path, Some{e}, None{}, d, before, x, sh, pr, mk} <> rest, path, e, before, Nil{}, {==})
+    case Sv.Seen{+path, None{}, Some{F.Found.Link{+q, +target}}, +d, +before, +x, +sh, +pr, +mk}:
+      found_link(Sv.Seen{path, None{}, Some{F.Found.Link{q, target}}, d, before, x, sh, pr, mk} <> rest, path, target, None{}, None{}, Sv.link_fault(target), True{},
+        here(path, None{}, F.Found.Link{q, target}, d, before, x, sh, pr, mk, rest))
+    case Sv.Seen{+path, None{}, Some{F.Found.File{+q, +runs, +n}}, +d, +before, +x, +sh, +pr, +mk}:
       {==}
-    case Sv.Seen{+path, Some{+e}, Some{F.Found.Link{+q, +target}}, +d, +before, +x, +sh, +pr}:
-      found_held_link(Sv.Seen{path, Some{e}, Some{F.Found.Link{q, target}}, d, before, x, sh, pr} <> rest, path, target, e, sh, before,
-        here(path, Some{e}, F.Found.Link{q, target}, d, before, x, sh, pr, rest))
-    case Sv.Seen{+path, Some{+e}, Some{F.Found.File{+q, +runs, +n}}, +d, +before, +x, +sh, +pr}:
-      found_held_file(Sv.Seen{path, Some{e}, Some{F.Found.File{q, runs, n}}, d, before, x, sh, pr} <> rest, path, e, d, before, runs, x, pr, Nat.is_eq(n, 0n),
-        here(path, Some{e}, F.Found.File{q, runs, n}, d, before, x, sh, pr, rest))
-    case Sv.Seen{+path, None{}, None{}, +d, +before, +x, +sh, +pr}:
+    case Sv.Seen{+path, Some{+e}, Some{F.Found.Link{+q, +target}}, +d, +before, +x, +sh, +pr, +mk}:
+      found_held_link(Sv.Seen{path, Some{e}, Some{F.Found.Link{q, target}}, d, before, x, sh, pr, mk} <> rest, path, target, e, sh, before,
+        here(path, Some{e}, F.Found.Link{q, target}, d, before, x, sh, pr, mk, rest))
+    case Sv.Seen{+path, Some{+e}, Some{F.Found.File{+q, +runs, +n}}, +d, +before, +x, +sh, +pr, +mk}:
+      found_held_file(Sv.Seen{path, Some{e}, Some{F.Found.File{q, runs, n}}, d, before, x, sh, pr, mk} <> rest, path, e, d, before, runs, x, pr, Nat.is_eq(n, 0n), mk,
+        here(path, Some{e}, F.Found.File{q, runs, n}, d, before, x, sh, pr, mk, rest))
+    case Sv.Seen{+path, None{}, None{}, +d, +before, +x, +sh, +pr, +mk}:
       {==}
 
 def seens_found(ss: List<&2, Sv.Seen>) -> {found_all(ss, Sv.refusals(Sv.seens(ss))) == True{} : Bool}:
@@ -870,7 +881,7 @@ def seens_covered(+only: List<&2, String>, ss: List<&2, Sv.Seen>) -> Bool:
   match ss:
     case Nil{}:
       True{}
-    case Sv.Seen{+path, e, found, d, b, x, sh, pr} <> rest:
+    case Sv.Seen{+path, e, found, d, b, x, sh, pr, mk} <> rest:
       Bool.and(Sv.covers(only, path), seens_covered(only, rest))
 
 def here_covered(+only: List<&2, String>, +path: String, +p: String, heq: {String.eq(path, p) == True{} : Bool}, hc: {Sv.covers(only, path) == True{} : Bool}) -> {Sv.covers(only, p) == True{} : Bool}:
@@ -881,7 +892,7 @@ def at_covered(ss: List<&2, Sv.Seen>, +only: List<&2, String>, +p: String, +hs: 
   match ss:
     case Nil{}:
       Empty.absurd({Sv.covers(only, p) == True{} : Bool}, S.false_true(hf))
-    case Sv.Seen{+path, +e, +found, +d, +b, +x, +sh, +pr} <> +rest:
+    case Sv.Seen{+path, +e, +found, +d, +b, +x, +sh, +pr, +mk} <> +rest:
       AL.or_cases({Sv.covers(only, p) == True{} : Bool}, Bool.and(String.eq(path, p), Maybe.is_some(&2, F.Found, found)), Sv.found_at(rest, p), hf,
         hl => here_covered(only, path, p, Comp.and_left(String.eq(path, p), Maybe.is_some(&2, F.Found, found), hl), Comp.and_left(Sv.covers(only, path), seens_covered(only, rest), hs)),
         hr => at_covered(rest, only, p, Comp.and_right(Sv.covers(only, path), seens_covered(only, rest), hs), hr))
@@ -902,13 +913,13 @@ def heres_covered(+only: List<&2, String>, hs: List<&2, Main.Here>) -> Bool:
     case Main.Here{+p, e, f} <> rest:
       Bool.and(Sv.covers(only, p), heres_covered(only, rest))
 
-def status_seens_ok(+only: List<&2, String>, +t0: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Main.Here>, +h: {heres_covered(only, hs) == True{} : Bool}) -> {seens_covered(only, Main.status.seens(t0, dg, bf, reads, hs)) == True{} : Bool}:
+def status_seens_ok(+only: List<&2, String>, +t0: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Main.Proposal>, hs: List<&2, Main.Here>, +h: {heres_covered(only, hs) == True{} : Bool}) -> {seens_covered(only, Main.status.seens(t0, dg, bf, reads, props, hs)) == True{} : Bool}:
   match hs:
     case Nil{}:
       {==}
     case Main.Here{+p, +e, +f} <> +rest:
-      AL.and_intro(Sv.covers(only, p), seens_covered(only, Main.status.seens(t0, dg, bf, reads, rest)), Comp.and_left(Sv.covers(only, p), heres_covered(only, rest), h),
-        status_seens_ok(only, t0, dg, bf, reads, rest, Comp.and_right(Sv.covers(only, p), heres_covered(only, rest), h)))
+      AL.and_intro(Sv.covers(only, p), seens_covered(only, Main.status.seens(t0, dg, bf, reads, props, rest)), Comp.and_left(Sv.covers(only, p), heres_covered(only, rest), h),
+        status_seens_ok(only, t0, dg, bf, reads, props, rest, Comp.and_right(Sv.covers(only, p), heres_covered(only, rest), h)))
 
 def limited_pick(c: Bool, +only: List<&2, String>, +h: Main.Here, +later: List<&2, Main.Here>, +hh: {heres_covered(only, [h]) == True{} : Bool}, +ih: {heres_covered(only, later) == True{} : Bool}) -> {heres_covered(only, Bool.pick(List<&2, Main.Here>, c, h <> later, later)) == True{} : Bool}:
   match c:
@@ -1028,15 +1039,15 @@ def unclaimed_found_ok(+only: List<&2, String>, fs: List<&2, F.Found>, +cs: List
         unclaimed_found_ok(only, rest, cs, Comp.and_right(found_in(only, f), SortL.all_at(~F.Found, ~List<&2, String>, ~found_in, only, rest), h)))
 
 # What a record restricted to some paths refuses is among them.
-def restricted_ok(+only: List<&2, String>, +t: Tree.Tree(), +t0: Tree.Tree(), +found: List<&2, F.Found>, +walked: List<&2, T.Split>, +held: Set(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +moves: List<&2, T.Split>) -> {Sv.all_covered(only, Sv.planned.refused(Sv.planned(t, Sv.only.tree(only, t), held, Sv.only.refused(only, walked), Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), moves))) == True{} : Bool}:
-  covered_app(only, Sv.only.refused(only, walked), Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}))), Sv.claimed_drops(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held))),
+def restricted_ok(+only: List<&2, String>, +t: Tree.Tree(), +t0: Tree.Tree(), +found: List<&2, F.Found>, +walked: List<&2, T.Split>, +held: Set(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Main.Proposal>, +moves: List<&2, T.Split>) -> {Sv.all_covered(only, Sv.planned.refused(Sv.planned(t, Sv.only.tree(only, t), held, Sv.only.refused(only, walked), Main.status.seens(t0, dg, bf, reads, props, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), moves))) == True{} : Bool}:
+  covered_app(only, Sv.only.refused(only, walked), Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(Main.status.seens(t0, dg, bf, reads, props, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}))), Sv.claimed_drops(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held))),
     only_refused_ok(only, walked),
-    found_covered(only, Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}))), Sv.claimed_drops(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held))),
-      status_seens_ok(only, t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}),
+    found_covered(only, Main.status.seens(t0, dg, bf, reads, props, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(Main.status.seens(t0, dg, bf, reads, props, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}))), Sv.claimed_drops(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held))),
+      status_seens_ok(only, t0, dg, bf, reads, props, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{}),
         heres_ok(only, Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))),
           unclaimed_ok(only, Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), only_tree_ok(only, t)),
           unclaimed_found_ok(only, Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t)), only_found_ok(only, found)))),
-      obs_found(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held, Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})))))
+      obs_found(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t)), held, Main.status.seens(t0, dg, bf, reads, props, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})))))
 
 # The renames `status` offers
 # ---------------------------
@@ -1079,6 +1090,8 @@ def departed_full(os: List<&2, Sv.Obs>) -> {full_keys(Sv.departed(os)) == True{}
     case Sv.Obs.Arrived{p, d} <> rest:
       departed_full(rest)
     case Sv.Obs.Emptied{p} <> rest:
+      departed_full(rest)
+    case Sv.Obs.Marked{p, n} <> rest:
       departed_full(rest)
 
 # The one arrival of some bytes is where `at_digest` finds it.
@@ -1444,7 +1457,7 @@ def path_once(+t: Tree.Tree(), +p: String, e: {Sv.claims(t) == Nil{} : List<&2, 
 # `record` goes on only where the survey claims no path.
 def planned_claims(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>, -done: Sv.Planned, e: {Main.planned.r(looked, pl, accepted) == Done{done} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {Sv.planned.claimed(pl) == Nil{} : List<&2, T.Split>}:
   match pl:
-    case Sv.Planned{facts, +refused, +claimed, +accept, +emptied, dangles, obs, links}:
+    case Sv.Planned{facts, +refused, +claimed, +accept, +emptied, dangles, +obs, links}:
       match dangles:
         case Some{m}:
           Empty.absurd({claimed == Nil{} : List<&2, T.Split>}, Blamed.fail_done(Sv.Planned, Main.Refused{1, m}, done, e))
@@ -1452,13 +1465,14 @@ def planned_claims(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, Str
           empty_nil(claimed, not_false(List.is_empty(&2, T.Split, claimed),
             done_cond(Bool.not(List.is_empty(&2, T.Split, claimed)), Main.Refused{1, Main.claimed.msg(looked, claimed)},
       Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}},
+      Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, Sv.marked(obs))), Fail{Main.Refused{1, Main.unresolved.msg(Sv.marked(obs))}},
       Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)),
         Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}},
       Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))),
         Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}},
       Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))),
         Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}},
-        Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))), done, e)))
+        Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))))), done, e)))
 
 # A link resolves inside the folder
 # ---------------------------------
