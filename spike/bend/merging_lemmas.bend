@@ -1041,3 +1041,58 @@ def record_back(+typed: List<&2, T.Split>, +bs: List<&2, T.Split>, +h: {SortL.al
   %Equal.sym(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(List.append(&2, String, M.merges.words(typed), List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"])), Main.RecordCmd{None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(List.append(&2, String, M.merges.words(typed), List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"])))), Main.record.args.go(List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]), Main.RecordCmd{None{}, List.append(&2, String, Nil{}, M.typed.spellings(typed)), Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]))), merges_back(typed, List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]), None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{})) : {_ == Done{Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs), Nil{}, Nil{}, Nil{}, False{}, False{}, Some{"<message>"}}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
   %Equal.sym(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]), Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]))), Main.record.args.go(["-m", "<message>"], Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, List.append(&2, T.Split, Nil{}, List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(["-m", "<message>"])), ats_back(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs), ["-m", "<message>"], None{}, M.typed.spellings(typed), Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}, SortL.all_sort(~T.Split, ~(a => b => M.typed.le(a, b)), ~(x => M.id.plain(x)), bs, h))) : {_ == Done{Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs), Nil{}, Nil{}, Nil{}, False{}, False{}, Some{"<message>"}}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
   {==}
+
+# How many met
+# ------------
+
+def laid.met(l: M.Laid) -> Bool:
+  match l:
+    case M.Laid{a, m}:
+      m
+
+def met_cons(l: M.Laid, -rest: List<&2, M.Laid>) -> {M.lay.met(l <> rest) == Nat.add(Bool.pick(Nat, laid.met(l), 1n, 0n), M.lay.met(rest)) : Nat}:
+  match l:
+    case M.Laid{a, m}:
+      {==}
+
+def met_lines(r: Result<&2, &2, String, Conflict.Joined>, +at: String, +held: String, +hs: List<&2, String>, +x: Bool, +m: Tree.Mode) -> {M.met.of(r) == laid.met(M.lay.lines(at, held, hs, x, m, r)) : Bool}:
+  match r:
+    case Done{+j}:
+      {==}
+    case Fail{e}:
+      {==}
+
+def met_whole(y: Maybe<&2, String>, +at: String, +f: String, +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, +held: String, +hs: List<&2, String>, +m: Tree.Mode) -> {Maybe.is_none(&2, String, y) == laid.met(M.lay.whole(at, f, cs, located, held, hs, m, y)) : Bool}:
+  match y:
+    case None{}:
+      {==}
+    case Some{+d}:
+      {==}
+
+def met_link(mm: Maybe<&2, String>, +at: String, +h: Upd.Held) -> {False{} == laid.met(M.lay.link(at, h, mm)) : Bool}:
+  match mm:
+    case None{}:
+      {==}
+    case Some{+s}:
+      {==}
+
+# The number `merge` says hold work that met counts, file by file, the
+# files where the store's walk of the heads met, or no payload wins.
+def met_all(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +ls: Map<&2, String>, +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, es: List<&2, Tree.Entry>) -> {M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, es))) == M.met.count(fs, ds, heads, es) : Nat}:
+  match es:
+    case Nil{}:
+      {==}
+    case Tree.Entry{+f, +p, Tree.Lines{}, +y, +g, +m} <> +rest:
+      %Equal.sym(Nat, M.lay.met(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Lines{}, y, g, m})) <> M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest))), Nat.add(Bool.pick(Nat, laid.met(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Lines{}, y, g, m}))), 1n, 0n), M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))), met_cons(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Lines{}, y, g, m})), M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))) : {_ == M.met.count(fs, ds, heads, Tree.Entry{f, p, Tree.Lines{}, y, g, m} <> rest) : Nat}
+      %met_lines(Main.joined(fs, ds, heads, f), M.at.of(bs, Tree.Entry{f, p, Tree.Lines{}, y, g, m}), Main.status.folder_digest(dg, M.at.of(bs, Tree.Entry{f, p, Tree.Lines{}, y, g, m})), M.head.lines(fs, ds, f, heads), M.text.at(texts, M.at.of(bs, Tree.Entry{f, p, Tree.Lines{}, y, g, m})), m) : {Nat.add(Bool.pick(Nat, _, 1n, 0n), M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))) == M.met.count(fs, ds, heads, Tree.Entry{f, p, Tree.Lines{}, y, g, m} <> rest) : Nat}
+      %Equal.sym(Nat, M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest))), M.met.count(fs, ds, heads, rest), met_all(fs, ds, heads, bs, t, dg, texts, ls, cs, located, rest)) : {Nat.add(Bool.pick(Nat, M.met.of(Main.joined(fs, ds, heads, f)), 1n, 0n), _) == M.met.count(fs, ds, heads, Tree.Entry{f, p, Tree.Lines{}, y, g, m} <> rest) : Nat}
+      {==}
+    case Tree.Entry{+f, +p, Tree.Whole{}, +y, +g, +m} <> +rest:
+      %Equal.sym(Nat, M.lay.met(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Whole{}, y, g, m})) <> M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest))), Nat.add(Bool.pick(Nat, laid.met(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Whole{}, y, g, m}))), 1n, 0n), M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))), met_cons(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Whole{}, y, g, m})), M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))) : {_ == M.met.count(fs, ds, heads, Tree.Entry{f, p, Tree.Whole{}, y, g, m} <> rest) : Nat}
+      %met_whole(y, M.at.of(bs, Tree.Entry{f, p, Tree.Whole{}, y, g, m}), f, cs, located, Main.status.folder_digest(dg, M.at.of(bs, Tree.Entry{f, p, Tree.Whole{}, y, g, m})), M.head.wholes(fs, f, heads), m) : {Nat.add(Bool.pick(Nat, _, 1n, 0n), M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))) == M.met.count(fs, ds, heads, Tree.Entry{f, p, Tree.Whole{}, y, g, m} <> rest) : Nat}
+      %Equal.sym(Nat, M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest))), M.met.count(fs, ds, heads, rest), met_all(fs, ds, heads, bs, t, dg, texts, ls, cs, located, rest)) : {Nat.add(Bool.pick(Nat, Maybe.is_none(&2, String, y), 1n, 0n), _) == M.met.count(fs, ds, heads, Tree.Entry{f, p, Tree.Whole{}, y, g, m} <> rest) : Nat}
+      {==}
+    case Tree.Entry{+f, +p, Tree.Link{}, +y, +g, +m} <> +rest:
+      %Equal.sym(Nat, M.lay.met(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Link{}, y, g, m})) <> M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest))), Nat.add(Bool.pick(Nat, laid.met(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Link{}, y, g, m}))), 1n, 0n), M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))), met_cons(M.lay(t, cs, located, M.place(fs, ds, heads, bs, dg, ls, texts, Tree.Entry{f, p, Tree.Link{}, y, g, m})), M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))) : {_ == M.met.count(fs, ds, heads, Tree.Entry{f, p, Tree.Link{}, y, g, m} <> rest) : Nat}
+      %met_link(Maybe.bind(&2, Tree.Target, String, g, x2 => Upd.materialise(t, M.at.of(bs, Tree.Entry{f, p, Tree.Link{}, y, g, m}), x2)), M.at.of(bs, Tree.Entry{f, p, Tree.Link{}, y, g, m}), Upd.held.of(ls, M.at.of(bs, Tree.Entry{f, p, Tree.Link{}, y, g, m}), None{})) : {Nat.add(Bool.pick(Nat, _, 1n, 0n), M.lay.met(M.lay.all(t, cs, located, M.places(fs, ds, heads, bs, dg, ls, texts, rest)))) == M.met.count(fs, ds, heads, Tree.Entry{f, p, Tree.Link{}, y, g, m} <> rest) : Nat}
+      met_all(fs, ds, heads, bs, t, dg, texts, ls, cs, located, rest)

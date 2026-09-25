@@ -4498,6 +4498,13 @@ def check_mutations(temporary):
             "merging.bend",
         ),
         (
+            "merge leaves a contested file of bytes out of the files where work met",
+            "      Laid{Act.Said{\"left \" ++ at ++ \" alone: it is contested and holds no lines\"} <> claims.cat(at, payload.claims(cs, file)), True{}}",
+            "      Laid{Act.Said{\"left \" ++ at ++ \" alone: it is contested and holds no lines\"} <> claims.cat(at, payload.claims(cs, file)), False{}}",
+            "merging_lemmas.met_whole",
+            "merging.bend",
+        ),
+        (
             "merge writes beside a path the file that keeps it too",
             "      beside.files(p, rest)",
             "      beside.files(p, f <> rest)",

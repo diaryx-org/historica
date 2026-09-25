@@ -993,6 +993,9 @@ def Laws.merge_counts_nothing_unfenced(j):
 def Laws.merge_prints_the_record_that_records_it(typed, bs, h):
   MergingL.record_back(typed, bs, h)
 
+def Laws.merge_counts_the_files_that_met(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
+  MergingL.met_all(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
+
 def Laws.merge_sets_aside_the_claims(cs):
   MergingL.aside(cs)
 
