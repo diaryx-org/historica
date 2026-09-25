@@ -2455,6 +2455,48 @@ def check_mutations(temporary):
             "naming_lemmas.newest_inv",
             "naming.bend",
         ),
+        (
+            "a mark is put on its run unsorted",
+            "      order.go(rest, insert(run, m), starts(rest))",
+            "      order.go(rest, m <> run, starts(rest))",
+            "nfc_lemmas.order_canonical",
+            "nfc.bend",
+        ),
+        (
+            "the class lookup stops at a run that begins with the character",
+            "      U32.is_lt(c, lo)\n    case _:\n      True{}",
+            "      U32.is_le(c, lo)\n    case _:\n      True{}",
+            "nfc_lemmas.class_scan",
+            "nfc.bend",
+        ),
+        (
+            "the walk keeps both of two names that are one path",
+            "    case f <> +rest True{}:\n      distinct.go(rest, last, distinct.same(rest, last))",
+            "    case f <> +rest True{}:\n      f <> distinct.go(rest, last, distinct.same(rest, last))",
+            "nfc_lemmas.go_apart",
+            "folder.bend",
+        ),
+        (
+            "a read opens whatever name the listing has, normal form or not",
+            "Bool.and(Bool.not(String.starts_with(line, \"u \")), String.eq(Nfc.nfc(name), want))",
+            "Bool.not(String.starts_with(line, \"u \"))",
+            "nfc_lemmas.take_ok",
+            "folder.bend",
+        ),
+        (
+            "a name that cannot be spelled is passed over",
+            "unspelled.is(rest), Keyed{unspelled.key(before, k), T.Split{dir ++ \"/\" ++ String.drop(line, 2n), unspelled.because()}} <> acc)",
+            "unspelled.is(rest), acc)",
+            "nfc_lemmas.count_go",
+            "folder.bend",
+        ),
+        (
+            "the quick check passes only what is below a space",
+            "Bool.and(Bool.or(U32.is_lt(x, 128), U32.is_lt(x, Tab.inert_below())), quick(t))",
+            "Bool.and(Bool.or(U32.is_lt(x, 32), U32.is_lt(x, Tab.inert_below())), quick(t))",
+            "nfc_lemmas.quick_ascii",
+            "nfc.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
