@@ -2963,6 +2963,35 @@ law fetch_destroys_only_what_is_forgotten:
   for h: {Rev.member(Fetch.plan.destroys(Fetch.plan.of(Fetch.here.of(s), os)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d)) == True{} : Bool}
 
+# `fetch` asks only for what this store lacks: every payload it asks for is
+# one this store holds no payload under the digest of, and one neither a
+# forgetting document here nor a line of the manifest forgets — so no
+# original a forgetting document stands in for is fetched back.
+law fetch_asks_for_no_payload_held_or_forgotten:
+  for +s: Receive.Side
+  for +os: List<&2, Offer.Offered>
+  for +d: String
+  for m: {Rev.member(FPlanL.digests(Fetch.plan.payloads(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}
+  {Bool.or(Rev.member(FPlanL.pays.of(s), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d))) == False{} : Bool}
+
+# And every document of `operations/` it asks for, the same: none this
+# store holds a document under the digest of, and none either side
+# forgets.
+law fetch_asks_for_no_document_held_or_forgotten:
+  for +s: Receive.Side
+  for +os: List<&2, Offer.Offered>
+  for +d: String
+  for m: {Rev.member(FPlanL.digests(Fetch.plan.documents(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}
+  {Bool.or(Rev.member(FPlanL.docs.of(s), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d))) == False{} : Bool}
+
+# And every revision it asks for is one this store does not hold.
+law fetch_asks_for_no_revision_it_holds:
+  for +s: Receive.Side
+  for +os: List<&2, Offer.Offered>
+  for +d: String
+  for m: {Rev.member(FPlanL.digests(Fetch.plan.revisions(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}
+  {Rev.member(Main.ids(Receive.side.fulls(s)), d) == False{} : Bool}
+
 # Asked for `--fields`, what `fetch` says of what it took is decision
 # 0074's: `historica-wrote-1` first, and then a `revision` line for each
 # revision it took — each named once, in digest order, and none named that
