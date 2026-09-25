@@ -80,19 +80,20 @@ def joined.r(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ss: List<&2,
     named : List<&2, T.Split> <- typed.named(fs, bs, ss, Nil{})
     typed.enough(typed.standing(Upd.heads.sorted(fs), named))
 
+# What a person typed for each head joined, in the order joined.
+def typed.spellings(xs: List<&2, T.Split>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case T.Split{h, s} <> rest:
+      s <> typed.spellings(rest)
+
 def typed.ids(xs: List<&2, T.Split>) -> List<&2, String>:
   match xs:
     case Nil{}:
       Nil{}
     case T.Split{h, s} <> rest:
       h <> typed.ids(rest)
-
-def typed.spelled(xs: List<&2, T.Split>) -> String:
-  match xs:
-    case Nil{}:
-      SNil{}
-    case T.Split{h, s} <> rest:
-      " --merge " ++ s ++ typed.spelled(rest)
 
 # Decision 0023: a head can stand on a revision somebody has since
 # rewritten, and then what meets below may be that rewrite rather than work
@@ -557,18 +558,55 @@ def rewrites.same(+dg: Map<&2, String>, acts: List<&2, Act>) -> Bool:
 # Saying it
 # ---------
 
-# What follows the lines each file owed: how the paths several files claim
-# were settled, how many files hold work that met, and the command that
-# records the merge — every head it joined, named as a person typed it, and
-# each file written beside a path where this merge wrote it, in full, since
-# `--at` names a file against a survey.
-def settling(xs: List<&2, T.Split>) -> String:
+# The command that records the merge, as the words a person types after
+# `historica record`: `--merge` and each head it joined, named as the
+# person typed it; `--at` and each file written beside a path where this
+# merge wrote it, in full, since `--at` names a file against a survey; and
+# the message still to write. `LAWS.merge_prints_the_record_that_records_it`
+# reads them back with `record`'s own parser.
+def merges.words(xs: List<&2, T.Split>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      SNil{}
-    case T.Split{f, p} <> rest:
-      " --at \"" ++ f ++ "=" ++ p ++ "\"" ++ settling(rest)
+      Nil{}
+    case T.Split{h, s} <> rest:
+      "--merge" <> s <> merges.words(rest)
 
+def ats.words(xs: List<&2, T.Split>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case T.Split{f, p} <> rest:
+      "--at" <> (f ++ "=" ++ p) <> ats.words(rest)
+
+def record.words(+typed: List<&2, T.Split>, +bs: List<&2, T.Split>) -> List<&2, String>:
+  List.append(&2, String, merges.words(typed), List.append(&2, String, ats.words(List.sort(~T.Split, ~(a => b => typed.le(a, b)), bs)), ["-m", "<message>"]))
+
+# The words as the line prints them: each after a space, and each pair
+# `--at` settles quoted, since a name `beside` gives always holds a space.
+def record.said(ws: List<&2, String>, quoted: Bool) -> String:
+  match ws:
+    case Nil{}:
+      SNil{}
+    case +w <> rest:
+      " " ++ Bool.pick(String, quoted, "\"" ++ w ++ "\"", w) ++ record.said(rest, String.eq(w, "--at"))
+
+# Whether a file's identifier holds no `=`, which `--at` cuts at; none the
+# store mints does.
+def no.equals(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Bool.not(Char.is_eq(c, '=')), no.equals(t))
+
+def id.plain(x: T.Split) -> Bool:
+  match x:
+    case T.Split{f, p}:
+      no.equals(f)
+
+# What follows the lines each file owed: how the paths several files claim
+# were settled, how many files hold work that met, and the command that
+# records the merge.
 def met.said(+n: Nat, +besides: Bool) -> String:
   Bool.pick(String, Nat.is_gt(n, 0n), Nat.show(n) ++ " file" ++ Bool.pick(String, Nat.is_eq(n, 1n), " holds", "s hold") ++ " work that met; resolve it, delete the lines historica wrote, and record it with:",
     Bool.pick(String, besides, "no lines met; record it with:", "nothing is contested; record it with:"))
@@ -576,7 +614,7 @@ def met.said(+n: Nat, +besides: Bool) -> String:
 def closing(+typed: List<&2, T.Split>, +bs: List<&2, T.Split>, +n: Nat) -> List<&2, String>:
   +besides = Bool.not(List.is_empty(&2, T.Split, bs))
   List.append(&2, String, Bool.pick(List<&2, String>, besides, ["a path two files claim is settled below by where this merge wrote them; type other paths there if you would rather"], Nil{}),
-    [met.said(n, besides), "  historica record" ++ typed.spelled(typed) ++ settling(List.sort(~T.Split, ~(a => b => typed.le(a, b)), bs)) ++ " -m <message>"])
+    [met.said(n, besides), "  historica record" ++ record.said(record.words(typed, bs), False{})])
 
 # Doing it
 # --------

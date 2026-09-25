@@ -990,6 +990,9 @@ def Laws.merge_counts_what_it_fences(j, x, a, h1, h2, h3):
 def Laws.merge_counts_nothing_unfenced(j):
   MergingL.plain_unmarked(j)
 
+def Laws.merge_prints_the_record_that_records_it(typed, bs, h):
+  MergingL.record_back(typed, bs, h)
+
 def Laws.merge_sets_aside_the_claims(cs):
   MergingL.aside(cs)
 
