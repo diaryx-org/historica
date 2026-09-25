@@ -2217,6 +2217,13 @@ def check_mutations(temporary):
             "fetch_lemmas.kept_one",
             "commands.bend",
         ),
+        (
+            "a span a..b read as b..a",
+            "      among(fs, Rev.without(reached(fs, to), reached(fs, from)))",
+            "      among(fs, Rev.without(reached(fs, from), reached(fs, to)))",
+            "span_lemmas.span_listed",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

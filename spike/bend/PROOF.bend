@@ -57,6 +57,7 @@ import ./chain_lemmas.bend as ChainL
 import ./fulls_lemmas.bend as FullsL
 import ./sizes_lemmas.bend as SizesL
 import ./fetch_lemmas.bend as FetchL
+import ./span_lemmas.bend as SpanL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -570,6 +571,9 @@ def Laws.chain_follows_first_parents(fs, id):
 
 def Laws.revisions_read_are_their_documents(root, ds):
   FullsL.fulls_filed(root, ds)
+
+def Laws.log_lists_its_span(fs, sp):
+  SpanL.span_listed(fs, sp)
 
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
