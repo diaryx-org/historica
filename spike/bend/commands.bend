@@ -9344,6 +9344,39 @@ def rw.args.go(+cmd: String, args: List<&2, String>, c: RwCmd, k: WWord) -> Resu
 def rw.args.r(+cmd: String, +args: List<&2, String>) -> Result<&2, &2, Refused, RwCmd>:
   rw.args.go(cmd, args, RwCmd{None{}, Nil{}, None{}, None{}, False{}, False{}, False{}}, wword(cmd, args))
 
+# What the words of `amend`, `abandon` and `carry` say, read plainly, as
+# `rargs.read` reads `record`'s: each a flag the command takes and what it
+# says, the word after one that takes a value being that value, or the
+# target. `LAWS.rewrite_reads_its_words` holds `rw.args.r` to `wargs.said`.
+def wargs.read(+cmd: String, args: List<&2, String>, k: WWord) -> List<&2, T.Split>:
+  match args k:
+    case Nil{} _:
+      Nil{}
+    case w <> v <> +rest WWord.Message{}:
+      T.Split{"-m", v} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> v <> +rest WWord.Move{}:
+      T.Split{"--move", v} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> v <> +rest WWord.Onto{}:
+      T.Split{"--onto", v} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest WWord.Only{}:
+      T.Split{"--only", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest WWord.Dry{}:
+      T.Split{"--dry-run", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest WWord.Fields{}:
+      T.Split{"--fields", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest WWord.Word{}:
+      T.Split{"target", w} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest _:
+      wargs.read(cmd, rest, wword(cmd, rest))
+
+# What the words mean: the last `-m`; each `--move`, in order, cut at its
+# first `=`; the last `--onto`; the target; and `-n`, `--fields` and
+# `--only` if they are there.
+def wargs.said(+items: List<&2, T.Split>) -> RwCmd:
+  RwCmd{rargs.last(items, "-m", None{}), rargs.cuts(rargs.values(items, "--move")), rargs.last(items, "--onto", None{}),
+    rargs.last(items, "target", None{}), rargs.has(items, "--dry-run", False{}), rargs.has(items, "--fields", False{}),
+    rargs.has(items, "--only", False{})}
+
 def rw.plan.r(+cmd: String, d: Bool, f: Bool) -> Result<&2, &2, Refused, Unit>:
   Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(d, f), Fail{Refused{2, "`" ++ cmd ++ " --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}}, Done{Unit{}})
 
