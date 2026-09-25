@@ -87,6 +87,7 @@ import ./host_lemmas.bend as HostL
 import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
+import ./standing_lemmas.bend as StandingL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1134,3 +1135,6 @@ def Laws.forget_reads_what_the_host_hashed(ps, ss, hl, h):
 
 def Laws.arrange_reads_what_the_host_hashed(ps, ss, hl, h):
   StatsL.arrange_reads(ss, ps, hl, h)
+
+def Laws.a_stand_in_stands_for_what_it_forgets(ds, ss, h):
+  StandingL.standing_of(ss, ds, h)

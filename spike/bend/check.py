@@ -5206,6 +5206,20 @@ def check_mutations(temporary):
             "stats_lemmas.digested_lines",
             "arrange.bend",
         ),
+        (
+            "a stand-in is taken for a digest its own begins with",
+            "      Bool.or(String.starts_with(text, \"historica\\nforgets \" ++ d ++ \"\\n\"), stands_for(text, rest))",
+            "      Bool.or(String.starts_with(text, \"historica\\nforgets \" ++ d), stands_for(text, rest))",
+            "standing_lemmas.stands",
+            "store.bend",
+        ),
+        (
+            "every document read is taken as a stand-in",
+            "      List.filter.put(Doc, d, standing.of(digests, rest), stands_for(text_of(d), digests))",
+            "      List.filter.put(Doc, d, standing.of(digests, rest), True{})",
+            "standing_lemmas.standing_of",
+            "store.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
