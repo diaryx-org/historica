@@ -20,7 +20,9 @@ bend main.bend -- log                    # in a folder with a history/, like his
 bend main.bend -- files head
 bend main.bend -- cat head notes.txt
 bend main.bend -- show kxry
-bend main.bend -- check
+bend main.bend -- check --complete        # what is wrong with the store, and what has not arrived
+bend main.bend -- -C notes log           # as if started in notes/
+bend main.bend -- help                   # the usage text, and `--version`
 bend main.bend -- replay history/operations/*/Start/notes.txt history/operations/*/*/notes.txt.ops.txt
 bend main.bend -- diff head             # what a revision did, rendered
 bend main.bend -- diff                  # the folder against the head
@@ -35,15 +37,21 @@ bend main.bend -- abandon tip -m "why"    # supersede a run of work with a tombs
 bend main.bend -- carry tip --onto main   # restate work against another parent
 bend main.bend -- name main head        # point a bookmark, and `--delete` one
 bend main.bend -- init notes            # make a store in notes/history
+bend main.bend -- identity "Ada <ada@example.com>"   # who records, from now on
+bend main.bend -- skip build/            # a rule `record` and `status` keep to
+bend main.bend -- git status            # no such command here: `historica-git`, on PATH
 bend main.bend -- opdiff old.txt new.txt # the operation document between two files
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through fifteen host effects (`store.bend`): `bend main.bend` runs
+here or above — through seventeen host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
-`check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
-tool byte for byte.
+`check.py` builds both and holds every command here to the Rust tool byte
+for byte. The JavaScript build is run as `bend main.bend -- <words>`, or
+`bun main.js -- -- <words>`: the runtime reads `--help` and `--threads` for
+itself unless a `--` comes first, and Bun takes the first `--` after a
+script as its own.
 
 They read what the command needs and nothing else, which is the Rust tool's
 own arrangement. A store's `revisions/` is the graph and is small, so every
@@ -270,8 +278,14 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
+| `argv.bend` | the command line before the command word, read as the Rust tool's `run` reads it: `-C <dir>` as often as given, the last counting; `help`, `-h`, `--help` and `-V`, `--version`; any other `-` word refused | `cli::run` |
+| `shell.bend` | the usage text and the version, a usage error's message with the usage after it, and decision 0072's dispatch of a word no command here has to `historica-<word>` on `PATH` | `cli::{main, run, dispatch}` |
+| `identity.bend` | who records: `$HISTORICA_AUTHOR`, or else the identity file under `$XDG_CONFIG_HOME` or `~/.config`, its blocks read and the deepest `under` holding the repository winning; and `identity <author>` writing it | `identity` |
+| `editor.bend` | a message asked of `$VISUAL` or `$EDITOR` when `record` or `abandon` is given no `-m`: the file handed over, the editor run where the repository is, what it wrote read back less its comment lines | `cli::from_an_editor` |
+| `skip.bend` | `skip`: the rules `skipped/` holds, listed; and a rule written for a path, a directory or a name, privately or not, under a name its file does not yet have, with every refusal the Rust tool makes | `cli::skip`, `working::Skipped` |
+| `check.bend` | `check [<dir>] [--complete]`: everything `Store::check` finds, walked and read as it reads the store, and reported as `render::report` reports it | `store::check`, `render::report` |
+| `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
+| `LAWS.bend` / `PROOF.bend` | a hundred and six claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -302,7 +316,11 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `blamed_lemmas.bend` | `blame_reads_the_walk`: `blame <target> <path>`'s rows, read without their authors, are the file the walk of the target's ancestry reads; `blame_numbers_its_lines`: `blame` numbers each line as the file does, and prints exactly the lines whose number falls in the span asked; `blame_prints_each_line`: each line it prints ends with the line it attributes, in order, with the marker after a line without a newline; `blame_reads_the_position`: `blame <path>` compares the folder with a revision the store holds, and the file it names is one that revision holds, or none is at the path; `blame_reads_a_held_file`: `blame <target> <path>` reads a revision the store holds and a file with lines its tree holds; `blame_prints_the_walk`, `blame_prints_the_folder`: what either form prints is one line for each line of the span, ending with it — of the file the walk reads, or of the folder's text; `blame_reads_its_words`: `blame` reads its arguments as their plain reading says — the last `--lines` value is the span, and the other words are the target and the path, in order; `blame_reads_a_folder_file`: `blame <path>` reads a file the folder holds at the path rather than a link, with the kind the position gives it | `blame`'s attribution |
 | `diffcmd_lemmas.bend` | `diff_reads_its_words`: `diff` reads its arguments as their plain reading says — `--onto` and `--color` take the word after them, `--color=` spells a colour in the word, the last of each counting, and the other words are the target and the path, in order; `diff_compares_with_the_parent`, `diff_folder_compares_with_a_held_revision`: the other side is what `--onto` names, a revision the store holds, or else the target's one parent or the head; `diff_limits_to_a_held_file`, `diff_folder_limits_to_a_held_file`: a file a comparison is limited to is one the tree it was named at holds; `diff_shows_what_differs`: `diff` shows only files whose two sides differ, and under a path limit only a file at that path on one side; `diff_folder_keeps_what_the_limit_wants`, `diff_folder_shows_what_differs`: over the folder, only paths the limit wants, and of those only ones whose sides differ | `diff`'s arguments, sides and files |
 | `logargs_lemmas.bend` | `log_reads_its_words`: `log` reads its arguments as their plain reading says — the word after a flag that takes a value is its value, the last counting, `--limit`, `--since` and `--until` read as a count and bounds, `--fields` asked for if it is there, and the other word the target | `log`'s arguments |
-| `check_lemmas.bend` | `check_pairs_each_payload`: `check` reports each payload with the digest asked for it — one per payload in the listing's order, none taken by a revision or an operation document; `check_refuses_what_does_not_parse`: it calls a document refused exactly where it does not parse | `check` |
+| `check_lemmas.bend` | `check_pairs_each_payload`: `check` reports each payload with the digest asked for it — one per payload in the order found, none taken by an operation document; `check_walks_causally`: the order it walks a merged file's events in places each after every event its author had seen | `check` |
+| `argv_lemmas.bend` | `argv_reads_its_words`: `-C <dir>` is read as often as it is given, the last counting, and the command word and every word after it — a `-C` among them — are the command's, as written | `cli::run` |
+| `shell_lemmas.bend` | `dispatch_runs_no_path`: the program a word is dispatched to holds no `/`, so it is looked up on `PATH` rather than run from where a path would put it | decision 0072 |
+| `opening_lemmas.bend` | `header_opens_under_a_note`: a store's header opens whatever its note says, once a blank line sets the note apart — the one `init` writes among them | `Store::open`, decision 0069 |
+| `identity_lemmas.bend` | `identity_reads_back`: the file `identity` writes reads back as its author for work in any directory, wherever that author is one a revision can hold | `identity` |
 | `show_lemmas.bend` | `cat_reads_a_held_file`: `cat <target> <path>` reads a revision the store holds and a file its tree holds that is not a link; `show_names_a_held_file`, `show_prints_a_held_document`, `show_prints_what_the_revision_states`: `show` names a file the target holds, and prints a document the store holds under the digest named — the revision's own, or the one it states for the file | `cat`, `show` |
 | `bookmark_lemmas.bend` | `bookmark_reads_back`: the file the Rust tool writes for a bookmark — the target line, and `private` where the name stays out of an export — parses back as that bookmark wherever its identifier is spelled as its kind is | `store::Bookmark` |
 | `abbrev_lemmas.bend` | `abbreviation_is_a_prefix`, `abbreviation_names_one`: the short digest `log` and every message print is a prefix of the digest, and no other digest of its length starts with it | `log`'s abbreviations |
@@ -349,8 +367,8 @@ abbreviations, marks, counted facts, the message verbatim — `files` the same
 file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
 binary and the JavaScript build against the Rust tool on sixteen such stores.
-`check` names every document by the digest `shasum` prints, and `opdiff`
-writes an operation document the Rust tool reads, `result` included. `cat` of a
+`opdiff` writes an operation document the Rust tool reads, `result`
+included. `cat` of a
 link refuses in the Rust tool's words, naming where it points relative to
 where it sits.
 
@@ -572,6 +590,81 @@ path really is. The notes are prose the Rust tool keeps in its source;
 `notes.bend`, and `check.py`, which compares everything `init` leaves,
 fails where they have drifted. The `bare` store, a folder with no store
 in it, has seven `init`s and the commands that need a store refusing.
+
+The command line is read as the Rust tool's `run` reads it (`argv.bend`):
+`-C <dir>` as often as it is given, the last counting, and every command
+then runs as if started there — the store found from there, a path argument
+read from there, `init` making its store there; `help`, `-h`, `--help` and
+no words at all print the default build's usage text, which `notes.py`
+takes from `historica help`, and `-V` or `--version` the workspace's
+version, which `check.py` holds to `Cargo.toml`; any other word starting
+`-` before the command is refused. A usage error prints its message, a
+blank line and the usage, and exits 2 (`shell.bend`). A word no command
+here has is decision 0072's: spelled in ASCII letters, digits and interior
+hyphens, it is looked up on `PATH` as `historica-<word>` and run in `-C`'s
+directory with the process's own streams, and the tool ends with its code
+(`Store.run`, `Store.exit`); a program that is not there is "there is no
+such command", one a signal ends or that will not start is said, and a
+word spelled otherwise is never looked for. The store is the nearest
+`history` directory, and one without `historica.txt` is refused as not a
+store rather than looked past; its header is decision 0069's gate — the
+format line, a pre-1.0 `historica-vN` told so, a line under it refused as a
+layout only a newer Historica writes, and a note under a blank line read
+past (`header_opens_under_a_note`). A writing command asked for `--fields`
+that fails for any reason but its words prints decision 0074's
+`historica-wrote-1` first, a store that will not open included, and not
+where `record`, `amend`, `abandon` and `carry` find no store, which the
+Rust tool looks for before it reads their words. `check.py`'s `shell` and
+`headless` stores hold all of it.
+
+Who records is `$HISTORICA_AUTHOR`, or else what the identity file under
+`$XDG_CONFIG_HOME` or `~/.config` says for the repository
+(`identity.bend`): a block of `author` alone is the default, a block headed
+`under <dir>` — `~` for the home — the author for work beneath it, the
+deepest holding the repository winning, and every way a file is not blocks
+of keys and values refused with its line. `identity <author>` writes the
+file where there is none, and the file it writes reads back as that author
+(`identity_reads_back`). `record` and `abandon` given no `-m` ask
+`$VISUAL`, or `$EDITOR` where it is not set, for the message
+(`editor.bend`): the editor is run on an empty `historica-message` in the
+temporary directory, in `-C`'s directory, and what it leaves is the
+message; one that fails or writes nothing stops the command, and one set
+but empty is a usage error. The `identity` and `editing` stores hold both
+to the Rust tool, each command given a home, a configuration directory and
+a temporary directory of its own inside the store it runs on.
+
+`skip` lists the rules `skipped/` states, in the order the loader walks
+them, and writes one for each path, directory or `--name` pattern it is
+given, one to a file, `--private` keeping a rule's text out of an export
+(`skip.bend`). A rule is written under its label — the path scrubbed of
+control characters, as `<path>.txt` or `<path>/all.txt` or `name
+<pattern>.txt` — or under the first twelve characters of its digest where
+that cannot be a file or is another rule's; one already stated is said so,
+and every refusal is the Rust tool's, in its order: outside the
+repository, space at either end, a `/` in a name, and any rule covering a
+file some head holds. The `skipping` and `badskip` stores hold it.
+
+`check [<dir>] [--complete]` reads the store as `Store::check` does and
+reports as `render::report` does (`check.bend`): the header refused or not
+there, every file of `revisions/`, `operations/`, `skipped/` and `names/`
+walked as the store walks them — a link found and never followed — each
+document hashed and parsed, and each payload's digest and size asked of the
+host rather than carried through a hash here, and paired with its own
+(`check_pairs_each_payload`). It finds files nothing reads, names that
+claim a digest they do not hash to, one document stored twice, parents,
+documents and payloads not here yet, content forgotten and content back
+again, work standing on a superseded revision, chains that do not replay
+and merges that do not say what they resolve, stale, retired and duplicated
+skip rules, malformed and dangling bookmarks, and heads the store cannot
+produce, which only `--complete` fails on. A file past a merge, or in a
+history that forgets something, is walked as `merge::quotes` walks it:
+each event stating what the store holds for the file, nothing where it
+holds none, in Kahn's order by digest, which places each event after all it
+had seen (`check_walks_causally`); the first event its author's view
+refuses says why in `MergeError`'s words. `check.py` asks `check` and
+`check --complete` of every store, and has four built to be found wanting:
+`damaged`, `gutted`, `tampered`, and `forgotten`, the corpus that forgets a
+payload, beside the forgetting documents of it that do not parse.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1117,7 +1210,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Ninety-seven mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and one mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1174,8 +1267,8 @@ rather than its parent, and a limit set to the spelling rather than the
 file it names; and one shown-file break: a file shown whose sides agree; and one
 folder-limit break: the folder's paths kept whatever the limit; and one
 log-argument break: `--author` read as `--grep`; and two check breaks: a
-document taking a payload's digest, and a parsed operation document called
-refused; and two cat-and-show breaks: a document found whose digest the
+document taking a payload's digest, and a merged file's event walked before
+what it had seen; and two cat-and-show breaks: a document found whose digest the
 named one begins, and a link printed through; and three hunk breaks: an
 arrival numbered as a line of the parent, a side that holds none of a
 hunk's lines named by its first line anyway, and a change shown only where
@@ -1191,7 +1284,10 @@ payload after a refusal starting the file over, and a document applied to
 nothing rather than to what came before; and two status breaks: the
 revisions joined kept newest first, and a `--merge` joined by its spelling
 rather than the revision it names; and one name break: a name taken without
-asking the path rules. The
+asking the path rules; and one command-line break: `-C` counting the first
+directory rather than the last; and one dispatch break: any word looked up
+on `PATH`; and one header break: a note under the format line read as a
+layout; and one identity break: the default author forgotten. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1298,18 +1394,19 @@ is under 5k. Not ported:
   Rust walk does, but `status` does not list it, since the host's listing
   carries no spelling of it.
 - **Forgetting** past the marker: `stand_in`, and the two-header document
-  that replaces a destroyed payload.
+  that replaces a destroyed payload, which `check` reads but nothing here
+  writes.
 - **Writing the store**: `record --merge`, whose resolutions nothing here
-  writes; `arrange`, `fetch`, `export`. `record` and `abandon` without
-  `-m` do not open an editor — with no `$VISUAL` or `$EDITOR` both refuse
-  as the Rust tool does — and who is recording is
-  read from `HISTORICA_AUTHOR` alone, not from the identity file the Rust
-  tool falls back on. It writes no `cache/`, which any reader rebuilds. The Rust tool finds a store by a `history` directory
-  and refuses one without `historica.txt` as not a store; the port looks
-  for the file, so it goes on looking above such a directory. `-C` is
-  not read. `check` does not report on `names/`. A merge's file
-  still holding the renderer's marker lines is not refused by
-  `record --dry-run`, since the markers are not modelled.
+  writes; `arrange`, `fetch`, `export`. It writes no `cache/`, which any reader
+  rebuilds. A merge's file still holding the renderer's marker lines is not
+  refused by `record --dry-run`, since the markers are not modelled.
+- **`check`'s words for a document that does not parse**: a revision, an
+  operation document or a resolution the port's parser refuses is
+  reported in that parser's words, not the Rust tool's `ParseError`, so
+  `check.py`'s stores hold no such document but the forgetting documents
+  of a payload, whose parser `check.bend` holds to the Rust one's words.
+  Nor does `check` look for a redaction that has not finished arriving
+  (`StillQuoted`), or a file it cannot read (`Unreadable`).
 - **A name that is not UTF-8**, which the Rust tool's `record` refuses
   with the rest of what the folder cannot take, is not among the paths
   `record --dry-run` refuses, as `status` does not list it.

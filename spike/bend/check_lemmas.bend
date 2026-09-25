@@ -1,12 +1,13 @@
-# `check` reports each payload with the digest asked for it. The digests
-# are asked for in the listing's own order, one per payload, and taken back
-# one at each payload and none elsewhere.
+# `check` asks the host for each payload's digest in the order it found the
+# payloads, and pairs each with its own answer: given one answer per
+# payload, every payload is paired with its own, in order, and no document
+# takes one. And the walk it reads a merged file by places every event
+# after all it had seen, which is what makes it a walk of the history.
 import Base
-import ./commands.bend as Main
+import ./check.bend as Check
+import ./merge.bend as Merge
 import ./text.bend as T
-import ./revision.bend as Rev
-import ./ops.bend as Ops
-import ./store.bend as Store
+import ./composition_lemmas.bend as Comp
 
 def ndisc(n: Nat) -> Type:
   match n:
@@ -29,48 +30,80 @@ def pred(n: Nat) -> Nat:
 def succ_inj(-a: Nat, -b: Nat, e: {1n+a == 1n+b : Nat}) -> {a == b : Nat}:
   Equal.cong(Nat, Nat, n => pred(n), 1n+a, 1n+b, e)
 
-def att_step(d: Bool, +l: String, +rv: Bool, +rest: List<&2, String>, stats: List<&2, String>, h: {List.length(&2, String, stats) == List.length(&2, String, Rev.keep(Bool.not(d), l, Main.payloads(rest))) : Nat}, ih: @st: List<&2, String> -> {List.length(&2, String, st) == List.length(&2, String, Main.payloads(rest)) : Nat} -> {Main.payload.pairs(Main.attach(Main.filed(rest), st)) == Main.zip.pairs(Main.payloads(rest), st) : List<&2, T.Split>}) -> {Main.payload.pairs(Main.attach(Main.Filed{l, d, rv, SNil{}} <> Main.filed(rest), stats)) == Main.zip.pairs(Rev.keep(Bool.not(d), l, Main.payloads(rest)), stats) : List<&2, T.Split>}:
-  match d:
-    case True{}:
-      ih(stats, h)
-    case False{}:
-      match stats:
-        case Nil{}:
-          Empty.absurd({Main.payload.pairs(Main.attach(Main.Filed{l, False{}, rv, SNil{}} <> Main.filed(rest), Nil{})) == Main.zip.pairs(l <> Main.payloads(rest), Nil{}) : List<&2, T.Split>}, zero_succ(List.length(&2, String, Main.payloads(rest)), h))
-        case +s <> more:
-          Equal.cong(List<&2, T.Split>, List<&2, T.Split>, xs => T.Split{l, s} <> xs, Main.payload.pairs(Main.attach(Main.filed(rest), more)), Main.zip.pairs(Main.payloads(rest), more), ih(more, succ_inj(List.length(&2, String, more), List.length(&2, String, Main.payloads(rest)), h)))
+# Pairing
+# -------
 
-# Each payload is paired with the digest asked for it, in order.
-def pairs_ok(ls: List<&2, String>, stats: List<&2, String>, h: {List.length(&2, String, stats) == List.length(&2, String, Main.payloads(ls)) : Nat}) -> {Main.payload.pairs(Main.attach(Main.filed(ls), stats)) == Main.zip.pairs(Main.payloads(ls), stats) : List<&2, T.Split>}:
-  match ls:
+def pairs_ok(fs: List<&2, Check.OpFiled>, stats: List<&2, String>, h: {List.length(&2, String, stats) == List.length(&2, String, Check.payload.paths(fs)) : Nat}) -> {Check.payload.pairs(Check.attach(fs, stats)) == Check.zip.pairs(Check.payload.paths(fs), stats) : List<&2, T.Split>}:
+  match fs:
     case Nil{}:
       {==}
-    case +l <> +rest:
-      att_step(Bool.or(String.starts_with(l, "revisions/"), String.ends_with(l, ".ops.txt")), l, String.starts_with(l, "revisions/"), rest, stats, h, st => hs => pairs_ok(rest, st, hs))
-
-# Refusals
-# --------
-
-def rev_line(+id: String, r: Result<&2, &2, String, Rev.Rev>) -> {Main.check.refuses(Main.check_rev(id, r)) == Main.rev.fails(r) : Bool}:
-  match r:
-    case Fail{e}:
-      {==}
-    case Done{x}:
-      {==}
-
-def ops_line(+id: String, r: Result<&2, &2, String, Ops.Doc>) -> {Main.check.refuses(Main.check_ops.of(id, r)) == Main.ops.fails(r) : Bool}:
-  match r:
-    case Fail{e}:
-      {==}
-    case Done{x}:
-      match x:
-        case Ops.Doc{f, res, ops}:
+    case Check.OpFiled.Doc{r} <> rest:
+      match stats:
+        case Nil{}:
+          pairs_ok(rest, Nil{}, h)
+        case +s <> +more:
+          pairs_ok(rest, s <> more, h)
+    case Check.OpFiled.Payload{+p, x} <> rest:
+      match stats:
+        case Nil{}:
+          Empty.absurd({Check.payload.pairs(Check.attach(Check.OpFiled.Payload{p, x} <> rest, Nil{})) == Check.zip.pairs(p <> Check.payload.paths(rest), Nil{}) : List<&2, T.Split>}, zero_succ(List.length(&2, String, Check.payload.paths(rest)), h))
+        case +s <> +more:
+          %Equal.sym(List<&2, T.Split>, Check.payload.pairs(Check.attach(rest, more)), Check.zip.pairs(Check.payload.paths(rest), more), pairs_ok(rest, more, succ_inj(List.length(&2, String, more), List.length(&2, String, Check.payload.paths(rest)), h))) : {T.Split{p, s} <> _ == Check.zip.pairs(p <> Check.payload.paths(rest), s <> more) : List<&2, T.Split>}
           {==}
 
-# `check` calls a document refused exactly where it does not parse.
-def doc_line(+d: Store.Doc, rev: Bool) -> {Main.check.refuses(Main.check_doc.of(d, rev)) == Main.doc.fails(d, rev) : Bool}:
-  match rev:
+# The walk's order
+# ----------------
+
+def app_nil(xs: List<&2, Nat>) -> {List.append(&2, Nat, xs, Nil{}) == xs : List<&2, Nat>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      %Equal.sym(List<&2, Nat>, List.append(&2, Nat, rest, Nil{}), rest, app_nil(rest)) : {x <> _ == x <> rest : List<&2, Nat>}
+      {==}
+
+def app_assoc(xs: List<&2, Nat>, +ys: List<&2, Nat>, +zs: List<&2, Nat>) -> {List.append(&2, Nat, List.append(&2, Nat, xs, ys), zs) == List.append(&2, Nat, xs, List.append(&2, Nat, ys, zs)) : List<&2, Nat>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      %Equal.sym(List<&2, Nat>, List.append(&2, Nat, List.append(&2, Nat, rest, ys), zs), List.append(&2, Nat, rest, List.append(&2, Nat, ys, zs)), app_assoc(rest, ys, zs)) : {x <> _ == x <> List.append(&2, Nat, rest, List.append(&2, Nat, ys, zs)) : List<&2, Nat>}
+      {==}
+
+# An order stays causal when what follows it is causal after it.
+def app_causal(placed: List<&2, Nat>, +r: List<&2, Nat>, +g: List<&2, Merge.Rev>, +before: List<&2, Nat>, +hp: {Check.causal.go(placed, g, before) == True{} : Bool}, hr: {Check.causal.go(r, g, List.append(&2, Nat, before, placed)) == True{} : Bool}) -> {Check.causal.go(List.append(&2, Nat, placed, r), g, before) == True{} : Bool}:
+  match placed:
+    case Nil{}:
+      Equal.trans(Bool, Check.causal.go(r, g, before), Check.causal.go(r, g, List.append(&2, Nat, before, Nil{})), True{},
+        Equal.cong(List<&2, Nat>, Bool, x => Check.causal.go(r, g, x), before, List.append(&2, Nat, before, Nil{}), Equal.sym(List<&2, Nat>, List.append(&2, Nat, before, Nil{}), before, app_nil(before))), hr)
+    case +x <> +rest:
+      +seen = Comp.and_left(Check.all.in(Merge.past(g, x), before), Check.causal.go(rest, g, List.append(&2, Nat, before, [x])), hp)
+      +after = app_causal(rest, r, g, List.append(&2, Nat, before, [x]), Comp.and_right(Check.all.in(Merge.past(g, x), before), Check.causal.go(rest, g, List.append(&2, Nat, before, [x])), hp),
+        Equal.trans(Bool, Check.causal.go(r, g, List.append(&2, Nat, List.append(&2, Nat, before, [x]), rest)), Check.causal.go(r, g, List.append(&2, Nat, before, x <> rest)), True{},
+          Equal.cong(List<&2, Nat>, Bool, y => Check.causal.go(r, g, y), List.append(&2, Nat, List.append(&2, Nat, before, [x]), rest), List.append(&2, Nat, before, x <> rest), app_assoc(before, [x], rest)), hr))
+      %Equal.sym(Bool, Check.all.in(Merge.past(g, x), before), True{}, seen) : {Bool.and(_, Check.causal.go(List.append(&2, Nat, rest, r), g, List.append(&2, Nat, before, [x]))) == True{} : Bool}
+      %Equal.sym(Bool, Check.causal.go(List.append(&2, Nat, rest, r), g, List.append(&2, Nat, before, [x])), True{}, after) : {Bool.and(True{}, _) == True{} : Bool}
+      {==}
+
+# What `ready` places has its whole past placed already.
+def ready.at(+i: Nat, rest: List<&2, Nat>, +g: List<&2, Merge.Rev>, +placed: List<&2, Nat>, b: Bool, eb: {Bool.and(Bool.not(Merge.has(placed, i)), Check.all.in(Merge.past(g, i), placed)) == b : Bool}, ih: {Check.causal.go(Check.ready(g, placed, rest), g, placed) == True{} : Bool}) -> {Check.causal.go(Bool.pick(List<&2, Nat>, b, [i], Check.ready(g, placed, rest)), g, placed) == True{} : Bool}:
+  match b:
     case True{}:
-      rev_line(Store.id_of(d), Rev.parse(Store.text_of(d)))
+      %Equal.sym(Bool, Check.all.in(Merge.past(g, i), placed), True{}, Comp.and_right(Bool.not(Merge.has(placed, i)), Check.all.in(Merge.past(g, i), placed), eb)) : {Bool.and(_, True{}) == True{} : Bool}
+      {==}
     case False{}:
-      ops_line(Store.id_of(d), Ops.parse(Store.text_of(d)))
+      ih
+
+def ready_causal(ixs: List<&2, Nat>, +g: List<&2, Merge.Rev>, +placed: List<&2, Nat>) -> {Check.causal.go(Check.ready(g, placed, ixs), g, placed) == True{} : Bool}:
+  match ixs:
+    case Nil{}:
+      {==}
+    case +i <> +rest:
+      ready.at(i, rest, g, placed, Bool.and(Bool.not(Merge.has(placed, i)), Check.all.in(Merge.past(g, i), placed)), {==}, ready_causal(rest, g, placed))
+
+def kahn_causal(fuel: Nat, +g: List<&2, Merge.Rev>, +ixs: List<&2, Nat>, +placed: List<&2, Nat>, h: {Check.causal.go(placed, g, Nil{}) == True{} : Bool}) -> {Check.causal(g, Check.kahn(fuel, g, ixs, placed)) == True{} : Bool}:
+  match fuel:
+    case 0n:
+      h
+    case 1n+p:
+      kahn_causal(p, g, ixs, List.append(&2, Nat, placed, Check.ready(g, placed, ixs)), app_causal(placed, Check.ready(g, placed, ixs), g, Nil{}, h, ready_causal(ixs, g, placed)))

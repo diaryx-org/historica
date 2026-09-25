@@ -42,6 +42,10 @@ import ./blamed_lemmas.bend as Blamed
 import ./diffcmd_lemmas.bend as DiffCmd
 import ./logargs_lemmas.bend as LogArgs
 import ./check_lemmas.bend as CheckL
+import ./argv_lemmas.bend as ArgvL
+import ./shell_lemmas.bend as ShellL
+import ./opening_lemmas.bend as OpeningL
+import ./identity_lemmas.bend as IdentityL
 import ./show_lemmas.bend as ShowL
 import ./hunk_lemmas.bend as HunkL
 import ./mark_lemmas.bend as MarkL
@@ -540,11 +544,11 @@ def Laws.diff_folder_shows_what_differs(t, older, ds, left, reads, ps, cs, e):
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
 
-def Laws.check_pairs_each_payload(ls, stats, h):
-  CheckL.pairs_ok(ls, stats, h)
+def Laws.check_pairs_each_payload(fs, stats, h):
+  CheckL.pairs_ok(fs, stats, h)
 
-def Laws.check_refuses_what_does_not_parse(d, rev):
-  CheckL.doc_line(d, rev)
+def Laws.check_walks_causally(fuel, g, ixs):
+  CheckL.kahn_causal(fuel, g, ixs, Nil{}, {==})
 
 def Laws.cat_reads_a_held_file(fs, bs, target, path, p, e):
   ShowL.cat_ok(fs, bs, target, path, p, e)
@@ -593,3 +597,15 @@ def Laws.status_joins_held_revisions(fs, bs, onto, ms, ps, e):
 
 def Laws.name_stays_in_names(n, e):
   NameL.stays(n, e)
+
+def Laws.argv_reads_its_words(ds, w, rest, e):
+  ArgvL.reads(ds, w, rest, e)
+
+def Laws.dispatch_runs_no_path(base, w, args, d, p, as, e):
+  ShellL.runs(base, w, args, d, p, as, e)
+
+def Laws.header_opens_under_a_note(note):
+  OpeningL.noted(note)
+
+def Laws.identity_reads_back(file, a, directory, home, h):
+  IdentityL.reads_back(file, a, directory, home, h)
