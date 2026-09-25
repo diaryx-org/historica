@@ -13,6 +13,10 @@ import ./composition_lemmas.bend as Comp
 import ./string_lemmas.bend as SL
 import ./equality_lemmas.bend as Eq
 import ./dryrun_lemmas.bend as DryL
+import ./fetching_lemmas.bend as FetchingL
+import ./map_lemmas.bend as ML
+import ./tree.bend as Tree
+import ./onto_lemmas.bend as OntoL
 
 # Splitting at newlines
 # ---------------------
@@ -210,3 +214,43 @@ def nothing_cases(+into: String, es: List<&2, Export.Listed>, header: Result<&1,
 def into_nothing(+into: String, +es: List<&2, Export.Listed>, header: Result<&1, &1, U32 & String, String>, +h: {Export.listed.ok(es) == True{} : Bool}) -> {Bool.and(Export.bool.same(Result.is_done(&2, &2, Main.Refused, Unit, Export.empty.r(into, Done{Export.listing(es)})), List.is_empty(&2, Export.Listed, es)), Export.bool.same(Export.dest.fresh(Export.dest.r(into, Done{Export.listing(es)}, header)), List.is_empty(&2, Export.Listed, es))) == True{} : Bool}:
   %Equal.sym(List<&2, String>, Export.dir.names(Export.listing(es)), Export.listed.names(es), names_back(es, h)) : {Bool.and(Export.bool.same(Result.is_done(&2, &2, Main.Refused, Unit, Export.holding.r(into, _)), List.is_empty(&2, Export.Listed, es)), Export.bool.same(Export.dest.fresh(Export.dest.r(into, Done{Export.listing(es)}, header)), List.is_empty(&2, Export.Listed, es))) == True{} : Bool}
   nothing_cases(into, es, header)
+
+# What a file reads back as
+# -------------------------
+
+def fast_head(s: String, +acc: String, +r: String, +h: {T.all_chars(~(c => Export.size.char(c)), s) == True{} : Bool}) -> {Export.stat.digest(T.split_once.fast(s ++ SCon{' ', r}, acc, T.space_first(s ++ SCon{' ', r}))) == String.reverse(String.reverse.go(s, acc)) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(Bool, Char.is_eq(c, ' '), False{}, space_false(c, Comp.and_left(Export.size.char(c), T.all_chars(~(c => Export.size.char(c)), t), h))) : {Export.stat.digest(T.split_once.fast(SCon{c, t ++ SCon{' ', r}}, acc, _)) == String.reverse(String.reverse.go(t, SCon{c, acc})) : String}
+      fast_head(t, SCon{c, acc}, r, Comp.and_right(Export.size.char(c), T.all_chars(~(c => Export.size.char(c)), t), h))
+
+# The digest on a line of the host's is the digest the line states.
+def stat_head(+d: String, +n: String, +h: {T.all_chars(~(c => Export.size.char(c)), d) == True{} : Bool}) -> {Export.stat.digest(T.split_once(d ++ SCon{' ', n})) == d : String}:
+  Equal.trans(String, Export.stat.digest(T.split_once(d ++ SCon{' ', n})), String.reverse(String.reverse(d)), d, fast_head(d, SNil{}, n, h), FetchingL.rev_rev(d))
+
+def folded_step(c: Bool, +p: String, +f: List<&2, String>, e: Bool, +rb: Bool, ec: {Bool.not(e) == c : Bool}, ih: {Result.is_done(&2, &2, Main.Refused, Unit, Export.folded.r(f)) == rb : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.folded.r(Tree.keep(~String, c, p, f))) == Bool.and(e, rb) : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, e, False{}, AL.not_of_true(e, ec)) : {False{} == Bool.and(_, rb) : Bool}
+      {==}
+    case False{}:
+      %Equal.sym(Bool, e, True{}, OntoL.not_false_true(e, ec)) : {Result.is_done(&2, &2, Main.Refused, Unit, Export.folded.r(f)) == Bool.and(_, rb) : Bool}
+      ih
+
+# A folder laid out alone is called folded exactly where some file it
+# wrote reads back as other bytes than it laid there.
+def folded_done(qs: List<&2, Export.Put>, ds: List<&2, T.Split>, +hs: {Export.stats.ok(ds) == True{} : Bool}, hl: {List.length(&2, Export.Put, qs) == List.length(&2, T.Split, ds) : Nat}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.folded.r(Export.folded(qs, Export.stat.lines(ds)))) == Export.reads.back(qs, ds) : Bool}:
+  match qs ds:
+    case Nil{} Nil{}:
+      {==}
+    case Nil{} x <> xs:
+      Empty.absurd({True{} == False{} : Bool}, ML.succ_zero(List.length(&2, T.Split, xs), Equal.sym(Nat, 0n, 1n+List.length(&2, T.Split, xs), hl)))
+    case q <> qrest Nil{}:
+      Empty.absurd({Result.is_done(&2, &2, Main.Refused, Unit, Export.folded.r(Export.folded(q <> qrest, Nil{}))) == False{} : Bool}, ML.succ_zero(List.length(&2, Export.Put, qrest), hl))
+    case +q <> +qrest T.Split{+d, +n} <> +drest:
+      +hd = Comp.and_left(T.all_chars(~(c => Export.size.char(c)), d), Export.stats.ok(drest), hs)
+      %Equal.sym(String, Export.stat.digest(T.split_once(d ++ SCon{' ', n})), d, stat_head(d, n, hd)) : {Result.is_done(&2, &2, Main.Refused, Unit, Export.folded.r(Tree.keep(~String, Bool.not(String.eq(_, Export.put.digest(q))), Export.put.path(q), Export.folded(qrest, Export.stat.lines(drest))))) == Bool.and(String.eq(d, Export.put.digest(q)), Export.reads.back(qrest, drest)) : Bool}
+      folded_step(Bool.not(String.eq(d, Export.put.digest(q))), Export.put.path(q), Export.folded(qrest, Export.stat.lines(drest)), String.eq(d, Export.put.digest(q)), Export.reads.back(qrest, drest), {==},
+        folded_done(qrest, drest, Comp.and_right(T.all_chars(~(c => Export.size.char(c)), d), Export.stats.ok(drest), hs), ML.succ_inj(List.length(&2, Export.Put, qrest), List.length(&2, T.Split, drest), hl)))

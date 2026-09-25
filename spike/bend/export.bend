@@ -2254,6 +2254,33 @@ def given.up(p: Plan, +cst: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +w: Str
           Bool.or(split.gone(Receive.stored.payloads(cst), w, split.digests(y)),
             Bool.or(rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), name.gone(marks, w, travel.names(n))))))
 
+# What the host says of a file it reads back (`Store.digests`): its digest
+# and its size, a line each.
+def stat.lines(ds: List<&2, T.Split>) -> List<&2, String>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case T.Split{d, n} <> rest:
+      (d ++ SCon{' ', n}) <> stat.lines(rest)
+
+# Whether every digest the host states is one word, as a digest is.
+def stats.ok(ds: List<&2, T.Split>) -> Bool:
+  match ds:
+    case Nil{}:
+      True{}
+    case T.Split{d, n} <> rest:
+      Bool.and(T.all_chars(~(c => size.char(c)), d), stats.ok(rest))
+
+# Whether each file reads back, one for one, as the bytes it was laid with.
+def reads.back(ps: List<&2, Put>, ds: List<&2, T.Split>) -> Bool:
+  match ps ds:
+    case +p <> prest T.Split{+d, n} <> drest:
+      Bool.and(String.eq(d, put.digest(p)), reads.back(prest, drest))
+    case Nil{} Nil{}:
+      True{}
+    case _ _:
+      False{}
+
 # What `cat` prints of a file at a revision.
 def cat.of(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Maybe<&2, String>:
   match r:
