@@ -2269,6 +2269,20 @@ def check_mutations(temporary):
             "conflict_lemmas.keep_one.got",
             "commands.bend",
         ),
+        (
+            "merge labels a run where nothing met",
+            "Bool.pick(String, open, closing(), SNil{}) ++ Ops.text(its)) ++ render.go",
+            "label(names, a) ++ Ops.text(its)) ++ render.go",
+            "conflict_lemmas.put_render.pick",
+            "conflict.bend",
+        ),
+        (
+            "merge leaves uncounted a region that meets at a file's end",
+            "      Bool.pick(Nat, hit, 1n, 0n)",
+            "      0n",
+            "conflict_lemmas.regions_hit",
+            "conflict.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

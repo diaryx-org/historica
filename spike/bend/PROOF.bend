@@ -607,3 +607,6 @@ def Laws.update_spares_the_unrecorded(tr, looks, gones, p, e):
 
 def Laws.merge_resolution_reads_back(ds, j, s, hm, doc, e):
   ConflictL.resolved(ds, j, s, hm, doc, e)
+
+def Laws.merge_renders_the_uncontested_as_itself(j, e):
+  ConflictL.render_plain(j, e)
