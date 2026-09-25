@@ -2184,6 +2184,14 @@ def dest.fresh(r: Result<&2, &2, Main.Refused, Dest>) -> Bool:
     case _:
       False{}
 
+# Whether a file of `claims/` goes by this name.
+def claim.named(cs: List<&2, T.Split>, +l: String) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case T.Split{+x, d} <> rest:
+      Bool.or(String.eq(x, l), claim.named(rest, l))
+
 # What `cat` prints of a file at a revision.
 def cat.of(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Maybe<&2, String>:
   match r:

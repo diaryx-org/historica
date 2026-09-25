@@ -1078,6 +1078,9 @@ def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, cfs):
 def Laws.export_update_leaves_the_copy_the_whole_set(p, here, cst, marks, d, h):
   OntoL.whole_set(p, here, cst, marks, d, h)
 
+def Laws.export_update_carries_only_the_claims_a_copy_lacks(cs, cc, l):
+  OntoL.fresh_named(cs, cc, l)
+
 def Laws.export_update_states_no_private_rule(held, t, ds, ps, bodies, rs, bs, claims, cst, retired):
   OntoL.added_shared(held, t, ds, ps, bodies, rs, bs, claims, cst, retired)
 

@@ -2838,6 +2838,16 @@ law export_update_leaves_the_copy_the_whole_set:
   for h: {Rev.member(Export.set.named(p), d) == True{} : Bool}
   {Bool.or(Export.copy.has(cst, d), Bool.or(Export.writes.has(Export.onto.writes(p, Export.onto.of(p, here, cst, marks)), d), Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)))) == True{} : Bool}
 
+# Bringing a copy up to date carries into it the files of `claims/` it
+# lacks, and no others (decisions 0053 and 0054): a file travels exactly
+# where the origin has it and the copy has none of that name, so what the
+# copy already holds there, whoever wrote it, is never written over.
+law export_update_carries_only_the_claims_a_copy_lacks:
+  for +cs: List<&2, T.Split>
+  for +cc: List<&2, T.Split>
+  for +l: String
+  {Export.claim.named(Export.claims.fresh(cs, Set.from_list(Export.split.labels(cc))), l) == Bool.and(Export.claim.named(cs, l), Bool.not(Export.claim.named(cc, l))) : Bool}
+
 # Bringing a copy up to date gives it no private rule either (decision
 # 0051): every rule file an update adds to the copy states a shared rule,
 # whatever the copy already states and whatever label each is filed under.
