@@ -2588,6 +2588,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "offer names a file by its path rather than its digest",
+            "      Offered{kind, d, None{}, addressed(prefix, p)} <> splits.offered(rest, kind, prefix)",
+            "      Offered{kind, p, None{}, addressed(prefix, p)} <> splits.offered(rest, kind, prefix)",
+            "offer_lemmas.splits_from",
+            "offer.bend",
+        ),
+        (
             "name keeps the other words newest first",
             "      NameCmd{p, a, d, f, sh, List.append(&2, String, r, [w])}",
             "      NameCmd{p, a, d, f, sh, w <> r}",
