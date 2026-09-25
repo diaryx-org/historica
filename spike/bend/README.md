@@ -309,8 +309,11 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_lays_out_only_what_the_walk_offers_back`: every path outside the store, no other file's directory, and none a rule covers; `export_carries_only_this_stores_files`: every document, forgetting document and payload a copy carries is one of this store's; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
 | `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
-| `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and seventy claims about the code, each proven | the test suite and Verus replay helpers |
+| `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have; `fetch_writes_a_bookmark_once_a_pass`: once a pass has written a bookmark, whatever the host answers for a later line naming it, no bookmark is written for it | `fetch` |
+| `manifest_lemmas.bend` | `fetch_reads_the_manifest_offer_writes`: the lines `offer` prints, each with a newline after it and answered by the host as the text at the manifest's URL, are read by `fetch` as the heads and files they were printed from, every kind, digest, forgotten digest and path as written | `offer`, `fetch` |
+| `fetchplan_lemmas.bend` | `fetch_refuses_only_what_shares_no_revision`: a refusal as unrelated is where no join was asked, each side holds a revision, and no revision the manifest lists is one this store holds or one a revision here names as a parent or as what it supersedes; `fetch_refuses_what_shares_no_revision`: and there it refuses, in the Rust tool's words; `fetch_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of this store, or a line of the manifest, says is forgotten; `fetch_asks_for_no_payload_held_or_forgotten`, `fetch_asks_for_no_document_held_or_forgotten` and `fetch_asks_for_no_revision_it_holds`: every payload and document it asks for is one this store holds nothing under the digest of and neither side forgets, and every revision one it does not hold; `fetch_says_what_it_took`: asked for `--fields`, it names each revision it took once, in digest order, and none it did not | `fetch` |
+| `escape_lemmas.bend` | `fetch_asks_for_a_path_by_its_bytes`: whatever the bytes of a path, what `fetch` asks for decodes, each escape read as `%` and two uppercase hex digits, back to exactly those bytes; `fetch_asks_in_characters_a_url_may_hold`: and holds only characters RFC 3986 leaves unreserved, `/` and `%`; `fetch_asks_for_what_is_unreserved_as_itself`: and each unreserved character, and `/`, is asked for as itself — every byte of the 256 shown to the checker, and with the three laws the whole of how a byte is spelled | `fetch` |
+| `LAWS.bend` / `PROOF.bend` | two hundred and eighty-two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -1161,46 +1164,68 @@ compared after.
 
 `fetch <url> [--join-unrelated] [--fields]` is decision 0048's other half:
 it reads the manifest `offer` wrote and takes what this store lacks. The
-URL is cut at its last `/` — every path in a manifest resolves against
-the directory the manifest sits in (decision 0052) — and one with no
-scheme, no manifest named, a directory named, or a query or a fragment is
-refused before anything is opened; what it keeps is the URL up to its last
-`/`, that included, and a manifest's name with no `/` in it
+URL is cut at its last `/` — every path in a manifest resolves against the
+directory the manifest sits in (decision 0052) — and one with no scheme,
+no manifest named, a directory named, or a query or a fragment is refused
+before anything is opened; what it keeps is the URL up to its last `/`,
+that included, and a manifest's name with no `/` in it
 (`fetch_asks_under_the_manifests_directory`). A command line is read as
-its words plainly say, the flags wherever they stand and the one other word
-the URL (`fetch_reads_its_words`). The store is opened and held to the
-whole of `check`, before anything is asked for and again once everything
-has arrived; the manifest is read as `Offer::parse`
-reads it, an unknown kind a discarded line and an unknown header a
-refused manifest. The plan is worked out before a byte is asked for: the
-payloads and documents this store has nothing under the digest of and
-neither side forgets, the revisions it lacks, the rules whose bytes no
-file of `skipped/` holds, another tool's files of `claims/` it does not
-have, and the bookmarks it does not hold — one it holds is kept, and said
-so (decision 0062) — each digest once; a store with revisions, fetching
-from a copy with revisions, must share one or name one as a parent, or be
-asked to join. The files are asked for in `receive`'s order, content first,
-then compliance with forgetting, then revisions, then the rest, and each
-is hashed against the digest its line gave before it is filed under that
-digest, here: nothing whose bytes are not its digest is written
+its words plainly say, the flags wherever they stand and the one other
+word the URL (`fetch_reads_its_words`). The store is opened and held to
+the whole of `check`, before anything is asked for and again once
+everything has arrived; the manifest is read as `Offer::parse` reads it,
+an unknown kind a discarded line and an unknown header a refused manifest,
+and what `offer` prints is read back as the heads and files it was printed
+from, each file's kind, digest, what it forgets and path, spaces and all
+(`fetch_reads_the_manifest_offer_writes`). The plan is worked out before a
+byte is asked for: the payloads and documents this store has nothing under
+the digest of and neither side forgets, the revisions it lacks, the rules
+whose bytes no file of `skipped/` holds, another tool's files of `claims/`
+it does not have, and the bookmarks it does not hold — one it holds is
+kept, and said so (decision 0062) — each digest once; a store with
+revisions, fetching from a copy with revisions, must share one or name one
+as a parent, or be asked to join: the fetch is refused exactly there, said
+of the manifest's `revision` lines and of this store's revisions and the
+revisions they name, not through the plan's own reading of either
+(`fetch_refuses_only_what_shares_no_revision`,
+`fetch_refuses_what_shares_no_revision`). An original is destroyed only
+where a forgetting document of this store, or a line of the manifest, says
+it is forgotten (`fetch_destroys_only_what_is_forgotten`), and nothing is
+asked for that this store holds or either side forgets
+(`fetch_asks_for_no_payload_held_or_forgotten`,
+`fetch_asks_for_no_document_held_or_forgotten`,
+`fetch_asks_for_no_revision_it_holds`). The files are asked for in
+`receive`'s order, content first, then compliance with forgetting, then
+revisions, then the rest, and each is hashed against the digest its line
+gave before it is filed under that digest, here: nothing whose bytes are
+not its digest is written
 (`fetch_files_only_text_that_hashes_to_its_line`,
 `fetch_lands_a_file_only_where_it_hashes_to_its_line`,
-`fetch_files_a_payload_under_what_it_hashes_to`), and nothing is asked
-for that the manifest does not name
-(`fetch_asks_only_for_what_the_manifest_names`). A path
-the server says is gone (404, 410) is the publisher having moved on, and
-the manifest is read again, three times at most. The host's part is two
-effects that decide nothing (`RUNTIME.md`): the text at a URL, and a file
-at a URL written into the store under a name Bend chose, answered by its
-digest. `check.py` serves `export`ed copies with their `offer.txt` over
-HTTP from a thread of its own and holds thirty-six `fetch`es to the Rust
-tool, the whole store compared after: into an empty store and into one
-holding the first revision, a copy with nothing new, a stranger refused
-and joined, a copy that forgot a line and a payload, a manifest naming a
-digest a payload's bytes do not have, a revision gone every time, a copy
-being rewritten while it is read, a reserved directory declined and a kind
-discarded, manifests misspelled, malformed and not text, none at all, and
-every usage error, with `--fields` beside each kind of ending.
+`fetch_files_a_payload_under_what_it_hashes_to`); a bookmark written in a
+pass is held for the rest of it, so a second line naming it writes nothing
+(`fetch_writes_a_bookmark_once_a_pass`); and nothing is asked for that the
+manifest does not name (`fetch_asks_only_for_what_the_manifest_names`). A
+path is asked for by its bytes as the Rust tool spells them — every byte
+that is not unreserved written `%` and two uppercase hex digits, `/` kept
+— so what is asked for decodes to exactly the path's bytes and holds
+nothing a URL's path may not (`fetch_asks_for_a_path_by_its_bytes`,
+`fetch_asks_in_characters_a_url_may_hold`,
+`fetch_asks_for_what_is_unreserved_as_itself`). A path the server says is
+gone (404, 410) is the publisher having moved on, and the manifest is read
+again, three times at most. The host's part is two effects that decide
+nothing (`RUNTIME.md`): the text at a URL, and a file at a URL written
+into the store under a name Bend chose, answered by its digest. `check.py`
+serves `export`ed copies with their `offer.txt` over HTTP from a thread of
+its own and holds thirty-six `fetch`es to the Rust tool, the whole store
+compared after: into an empty store and into one holding the first
+revision, a copy with nothing new, a stranger refused and joined, a copy
+that forgot a line and a payload, a manifest naming a digest a payload's
+bytes do not have, a revision gone every time, a copy being rewritten
+while it is read, a reserved directory declined and a kind discarded,
+manifests misspelled, malformed and not text, none at all, and every usage
+error, with `--fields` beside each kind of ending; what `--fields` says
+names each revision taken once, in digest order, and none that was not
+(`fetch_says_what_it_took`).
 
 `update [<target>] [--dry-run]` makes the folder hold a head, decision
 0030: the one head there is, or the one named, and a revision that is not
@@ -2063,7 +2088,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Three hundred and thirty-two mutations cover the primitive helpers, lost inserts, a lost trailing
+Three hundred and forty-two mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2254,11 +2279,17 @@ of; and seven more word breaks: a word `arrange` does not know taken,
 first word, `export`'s target read as its directory, a second source
 taken by `receive` over the first, `--fields` read by `receive` as
 joining unrelated histories, and the first of two directories taken by
-`offer`; and seven fetch breaks: a document filed whose text is not the
+`offer`; and seventeen fetch breaks: a document filed whose text is not the
 digest offered, a payload landed whatever it hashes to, a payload filed
 under the name it was staged at, a path asked for beside the one the
 manifest names, a URL's last slash cut off its directory, a second URL
-taken over the first, and `--fields` read as joining unrelated histories;
+taken over the first, `--fields` read as joining unrelated histories, a
+bookmark's line discarded as a kind the reader does not know, a revision
+the two sides share found only where all are, unrelated histories joined
+unasked, every original held destroyed, what a manifest's lines say they
+forget ignored, one bookmark written twice in a pass, a revision taken
+named twice, a byte escaped in lowercase hex, a space asked for as it is,
+and a `~` escaped that need not be;
 and seven update breaks:
 bytes no revision records written over, a file kept whose mode is not the
 one recorded, a file nobody recorded taken away, a file of lines written

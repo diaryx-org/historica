@@ -83,6 +83,9 @@ import ./export_lemmas.bend as ExportL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
+import ./manifest_lemmas.bend as ManL
+import ./fetchplan_lemmas.bend as FPlanL
+import ./escape_lemmas.bend as EscL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1137,3 +1140,39 @@ def Laws.record_names_the_latest_work(ws, w, e):
 
 def Laws.a_timestamp_is_read_at_its_offset(base, hb, hh, hh2, h, eh, mm, hm2, m, em, hd):
   NamingL.two.hh(hh, hh2, base, hb, h, eh, mm, hm2, m, em, hd)
+
+def Laws.fetch_reads_the_manifest_offer_writes(url, hs, os, hh, ho):
+  ManL.reads_back(url, hs, os, hh, ho)
+
+def Laws.fetch_refuses_only_what_shares_no_revision(h, os, join, x, r, e):
+  FPlanL.refused_only(h, os, join, x, r, e)
+
+def Laws.fetch_refuses_what_shares_no_revision(h, os, hr, ht, hn):
+  FPlanL.refuses(h, os, hr, ht, hn)
+
+def Laws.fetch_destroys_only_what_is_forgotten(s, os, d, h):
+  FPlanL.destroyed(s, os, d, h)
+
+def Laws.fetch_writes_a_bookmark_once_a_pass(o, n, at, text, t, rules, held, moved, landed, root, o2, g, h):
+  FetchingL.once_a_pass(o, n, at, text, t, rules, held, moved, landed, root, o2, g, h)
+
+def Laws.fetch_asks_for_no_payload_held_or_forgotten(s, os, d, m):
+  FPlanL.payload_lacks(s, os, d, m)
+
+def Laws.fetch_asks_for_no_document_held_or_forgotten(s, os, d, m):
+  FPlanL.document_lacks(s, os, d, m)
+
+def Laws.fetch_asks_for_no_revision_it_holds(s, os, d, m):
+  FPlanL.revision_lacks(s, os, d, m)
+
+def Laws.fetch_says_what_it_took(rs, ds, ps, rus, res, ns, k, dec, des, re):
+  FPlanL.says_what_it_took(rs, ds, ps, rus, res, ns, k, dec, des, re)
+
+def Laws.fetch_asks_for_a_path_by_its_bytes(bs, h):
+  EscL.dec_bytes(bs, h)
+
+def Laws.fetch_asks_in_characters_a_url_may_hold(bs, h):
+  EscL.url_bytes(bs, h)
+
+def Laws.fetch_asks_for_what_is_unreserved_as_itself():
+  EscL.kept_as_itself()

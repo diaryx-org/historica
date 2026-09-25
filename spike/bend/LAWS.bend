@@ -44,6 +44,10 @@ import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
+import ./manifest_lemmas.bend as ManL
+import ./fetching_lemmas.bend as FetchingL
+import ./fetchplan_lemmas.bend as FPlanL
+import ./escape_lemmas.bend as EscL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -3318,3 +3322,145 @@ law a_timestamp_is_read_at_its_offset:
   for em: {Nat.read(mm) == Some{m} : Maybe<&2, Nat>}
   for hd: {Nat.is_le(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), 86400n) == True{} : Bool}
   {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), Naming.instant(base ++ ("+" ++ (hh ++ (":" ++ mm))))), Naming.instant(base ++ ("-" ++ (hh ++ (":" ++ mm))))] == [Naming.instant(base ++ "Z"), Nat.add(Naming.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
+
+# The manifest `offer` writes is the manifest `fetch` reads (decisions 0048
+# and 0056). `offer` prints the lines `Offer.rendered` makes of a copy's
+# heads and files, each with a newline after it; handed that text by the
+# host as the document at the manifest's URL, `fetch` reads back every
+# head, in order, and every file, in order — its kind, its digest, what it
+# forgets and its path, spaces and all — wherever each head is a digest and
+# each file is one `offer` can name: one of the six kinds, a digest, what
+# it forgets a digest or nothing, and a path with no newline in it that
+# does not end with a carriage return.
+law fetch_reads_the_manifest_offer_writes:
+  for +url: String
+  for +hs: List<&2, String>
+  for +os: List<&2, Offer.Offered>
+  for +hh: {List.all(~&2, ~String, ~(d => T.is_digest(d)), hs) == True{} : Bool}
+  for +ho: {List.all(~&2, ~Offer.Offered, ~(o => ManL.writable(o)), os) == True{} : Bool}
+  {Fetch.manifest.got(url, Fetch.got.of(Done{"text\n" ++ ManL.printed(Offer.rendered(hs, os))})) == Done{Fetch.Manifest{hs, os}} : Result<&2, &2, Main.Refused, Fetch.Manifest>}
+
+# `fetch` refuses a copy as unrelated only where decision 0052 says it
+# must: joining was not asked, this store holds a revision, the manifest
+# lists one, and no revision it lists is one this store holds or one a
+# revision here names as a parent or as what it supersedes — the two of
+# decision 0029's arms a listing of digests can answer.
+law fetch_refuses_only_what_shares_no_revision:
+  for +h: Fetch.Here
+  for +os: List<&2, Offer.Offered>
+  for +join: Bool
+  for +x: String
+  for r: Main.Refused
+  for +e: {Fetch.plan.r(h, os, join) == Fail{r} : Result<&2, &2, Main.Refused, Fetch.FPlan>}
+  {Bool.and(Bool.not(join), Bool.and(Bool.not(List.is_empty(&2, Main.Full, Fetch.here.revs(h))), Bool.and(Bool.not(List.is_empty(&2, String, FPlanL.theirs(os))), Bool.not(Bool.and(Rev.member(FPlanL.theirs(os), x), Rev.member(FPlanL.ours(Fetch.here.revs(h)), x)))))) == True{} : Bool}
+
+# And it does refuse there, in the Rust tool's words: where joining is not
+# asked, each side holds a revision, and no revision the manifest lists is
+# one this store holds or names.
+law fetch_refuses_what_shares_no_revision:
+  for +h: Fetch.Here
+  for +os: List<&2, Offer.Offered>
+  for hr: {List.is_empty(&2, Main.Full, Fetch.here.revs(h)) == False{} : Bool}
+  for +ht: {List.is_empty(&2, String, FPlanL.theirs(os)) == False{} : Bool}
+  for hn: @x: String -> {Rev.member(FPlanL.theirs(os), x) == True{} : Bool} -> {Rev.member(FPlanL.ours(Fetch.here.revs(h)), x) == False{} : Bool}
+  {Fetch.plan.r(h, os, False{}) == Fail{Main.Refused{1, Fetch.UNRELATED()}} : Result<&2, &2, Main.Refused, Fetch.FPlan>}
+
+# Every original `fetch` destroys is one a forgetting document of this
+# store stands in for, or one a line of the manifest says its file forgets
+# (decision 0014): said of the documents and the lines themselves, not of
+# the list of digests the plan draws up from them.
+law fetch_destroys_only_what_is_forgotten:
+  for +s: Receive.Side
+  for +os: List<&2, Offer.Offered>
+  for +d: String
+  for h: {Rev.member(Fetch.plan.destroys(Fetch.plan.of(Fetch.here.of(s), os)), d) == True{} : Bool}
+  {Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d)) == True{} : Bool}
+
+# In one pass `fetch` writes a bookmark once (decision 0062): once it has
+# written bookmark `n`, whatever the host answers for a later line naming
+# `n`, it writes no bookmark for it — though two lines of a manifest may
+# name one bookmark with different bytes, and the plan takes both.
+law fetch_writes_a_bookmark_once_a_pass:
+  for +o: Offer.Offered
+  for +n: String
+  for +at: String
+  for +text: String
+  for +t: Fetch.Tally
+  for +rules: List<&2, Receive.Ruled>
+  for +held: List<&2, String>
+  for +moved: Maybe<&2, String>
+  for +landed: Bool
+  for +root: String
+  for +o2: Offer.Offered
+  for g: Fetch.Got
+  for +h: {Fetch.named_by(Offer.offered.path(o2)) == Some{n} : Maybe<&2, String>}
+  {FetchingL.writes_a_bookmark(Fetch.got.text(root, Fetch.state.held(Fetch.land.after(o, Fetch.Land.Name{n, at, text}, t, rules, held, moved, landed)), o2, g)) == False{} : Bool}
+
+# `fetch` asks only for what this store lacks: every payload it asks for is
+# one this store holds no payload under the digest of, and one neither a
+# forgetting document here nor a line of the manifest forgets — so no
+# original a forgetting document stands in for is fetched back.
+law fetch_asks_for_no_payload_held_or_forgotten:
+  for +s: Receive.Side
+  for +os: List<&2, Offer.Offered>
+  for +d: String
+  for m: {Rev.member(FPlanL.digests(Fetch.plan.payloads(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}
+  {Bool.or(Rev.member(FPlanL.pays.of(s), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d))) == False{} : Bool}
+
+# And every document of `operations/` it asks for, the same: none this
+# store holds a document under the digest of, and none either side
+# forgets.
+law fetch_asks_for_no_document_held_or_forgotten:
+  for +s: Receive.Side
+  for +os: List<&2, Offer.Offered>
+  for +d: String
+  for m: {Rev.member(FPlanL.digests(Fetch.plan.documents(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}
+  {Bool.or(Rev.member(FPlanL.docs.of(s), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d))) == False{} : Bool}
+
+# And every revision it asks for is one this store does not hold.
+law fetch_asks_for_no_revision_it_holds:
+  for +s: Receive.Side
+  for +os: List<&2, Offer.Offered>
+  for +d: String
+  for m: {Rev.member(FPlanL.digests(Fetch.plan.revisions(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}
+  {Rev.member(Main.ids(Receive.side.fulls(s)), d) == False{} : Bool}
+
+# Asked for `--fields`, what `fetch` says of what it took is decision
+# 0074's: `historica-wrote-1` first, and then a `revision` line for each
+# revision it took — each named once, in digest order, and none named that
+# it did not take.
+law fetch_says_what_it_took:
+  for +rs: List<&2, String>
+  for +ds: Nat
+  for +ps: Nat
+  for +rus: Nat
+  for +res: Nat
+  for +ns: List<&2, String>
+  for +k: Nat
+  for +dec: List<&2, Fetch.Declined>
+  for +des: Nat
+  for +re: Nat
+  {Main.fields.ok(rs, Fetch.said.done(True{}, Fetch.Tally{rs, ds, ps, rus, res, ns, k, dec, des, re})) == True{} : Bool}
+
+# `fetch` asks for a manifest's path by its bytes, as the Rust tool spells
+# them: whatever the bytes, what it asks for decodes — each escape read as
+# RFC 3986 asks a producer to spell one, `%` and two uppercase hex digits
+# — back to exactly those bytes.
+law fetch_asks_for_a_path_by_its_bytes:
+  for +bs: List<&2, U32>
+  for +h: {List.all(~&2, ~U32, ~(b => U32.is_lt(b, 256)), bs) == True{} : Bool}
+  {EscL.unescaped(Fetch.escaped.bytes(bs)) == Some{bs} : Maybe<&2, List<&2, U32>>}
+
+# And what it asks for holds nothing a URL's path may not hold as it is:
+# every character is one RFC 3986 leaves unreserved, `/`, or the `%` that
+# opens an escape.
+law fetch_asks_in_characters_a_url_may_hold:
+  for +bs: List<&2, U32>
+  for +h: {List.all(~&2, ~U32, ~(b => U32.is_lt(b, 256)), bs) == True{} : Bool}
+  {T.all_chars(~(c => EscL.url_char(c)), Fetch.escaped.bytes(bs)) == True{} : Bool}
+
+# And it escapes nothing it need not: each character RFC 3986 leaves
+# unreserved, and `/`, is asked for as itself. With the two laws above,
+# that is the whole of how a byte of a path is spelled.
+law fetch_asks_for_what_is_unreserved_as_itself:
+  {List.all(~&2, ~Char, ~(c => String.eq(Fetch.escaped.byte(Char.to_u32(c)), SCon{c, SNil{}})), String.to_list("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/")) == True{} : Bool}
