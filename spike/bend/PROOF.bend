@@ -1065,6 +1065,9 @@ def Laws.export_dry_run_names_what_it_would_write(held, t, ds, ps, bodies, rs, b
 def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, cfs):
   OntoL.copy_done(into, fs, cfs)
 
+def Laws.export_update_leaves_the_copy_the_whole_set(p, here, cst, marks, d, h):
+  OntoL.whole_set(p, here, cst, marks, d, h)
+
 def Laws.export_update_states_no_private_rule(held, t, ds, ps, bodies, rs, bs, claims, cst, retired):
   OntoL.added_shared(held, t, ds, ps, bodies, rs, bs, claims, cst, retired)
 
