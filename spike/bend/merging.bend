@@ -80,19 +80,20 @@ def joined.r(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ss: List<&2,
     named : List<&2, T.Split> <- typed.named(fs, bs, ss, Nil{})
     typed.enough(typed.standing(Upd.heads.sorted(fs), named))
 
+# What a person typed for each head joined, in the order joined.
+def typed.spellings(xs: List<&2, T.Split>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case T.Split{h, s} <> rest:
+      s <> typed.spellings(rest)
+
 def typed.ids(xs: List<&2, T.Split>) -> List<&2, String>:
   match xs:
     case Nil{}:
       Nil{}
     case T.Split{h, s} <> rest:
       h <> typed.ids(rest)
-
-def typed.spelled(xs: List<&2, T.Split>) -> String:
-  match xs:
-    case Nil{}:
-      SNil{}
-    case T.Split{h, s} <> rest:
-      " --merge " ++ s ++ typed.spelled(rest)
 
 # Decision 0023: a head can stand on a revision somebody has since
 # rewritten, and then what meets below may be that rewrite rather than work
@@ -344,17 +345,18 @@ def laid.acts(l: Laid) -> List<&2, Act>:
     case Laid{a, m}:
       a
 
-# What `LAWS.merge_spares_the_unrecorded` asks of each thing `merge` does,
-# stated in what the store and the folder read rather than in what `merge`
-# gathered for itself. Each write is at the path a file of the merged tree
-# holds, or at a name `beside` gives the file, with the mode the tree
-# records; a file of lines written is what the walk of the heads joined
-# renders; a payload laid is the one the tree names; a link points where
-# `cat` says it points. And what stood in the folder at that path, as the
-# folder's walk read it, is nothing, bytes the folder says are not text,
-# what this merge writes, the walk's reading unfenced, or what one of the
-# heads reads for the file — its own ancestry walked, as the Rust tool
-# reads a head, or for a payload what the head's tree names.
+# What `LAWS.merge_spares_the_unrecorded` asks of each thing `merge` does
+# for one file of the merged tree, stated in what the store and the folder
+# read rather than in what `merge` gathered for itself. Each write is at the
+# name `beside` gives that file where it gives one, and otherwise at the
+# file's own path, with the mode the tree records; a file of lines written
+# is what the walk of the heads joined renders for it; a payload laid is
+# the one the tree names for it; a link points where `cat` says it points.
+# And what stood in the folder at that path, as the folder's walk read it,
+# is nothing, bytes the folder says are not text, what this merge writes,
+# the walk's reading unfenced, or what one of the heads reads for the file
+# — its own ancestry walked, as the Rust tool reads a head, or for a
+# payload what the head's tree names.
 
 def split.has(xs: List<&2, T.Split>, +k: String, +v: String) -> Bool:
   match xs:
@@ -363,8 +365,19 @@ def split.has(xs: List<&2, T.Split>, +k: String, +v: String) -> Bool:
     case T.Split{+a, +b} <> rest:
       Bool.or(Bool.and(String.eq(a, k), String.eq(b, v)), split.has(rest, k, v))
 
+# Whether `beside` names the file.
+def split.named(xs: List<&2, T.Split>, +k: String) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case T.Split{+a, b} <> rest:
+      Bool.or(String.eq(a, k), split.named(rest, k))
+
+# Where a file is written: at the name `beside` gives it, where it gives
+# one, and otherwise at the file's own path — so a file set aside is never
+# written at the path the first claimant keeps.
 def at.is(+bs: List<&2, T.Split>, +f: String, +p: String, +at: String) -> Bool:
-  Bool.or(String.eq(at, p), split.has(bs, f, at))
+  Bool.pick(Bool, split.named(bs, f), split.has(bs, f, at), String.eq(at, p))
 
 def same.mode(a: Tree.Mode, b: Tree.Mode) -> Bool:
   match a b:
@@ -453,53 +466,169 @@ def laid.reads(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<
     case Tree.Entry{+f, +p, Tree.Link{}, y, +g, m}:
       link.act(bs, t, f, p, g, a)
 
-# Some file of the merged tree accounts for the act; and every act is so.
-def laid.some(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, es: List<&2, Tree.Entry>, +a: Act) -> Bool:
-  match es:
-    case Nil{}:
-      False{}
-    case e <> rest:
-      Bool.or(laid.reads(fs, ds, heads, bs, t, dg, texts, e, a), laid.some(fs, ds, heads, bs, t, dg, texts, rest, a))
-
-def laid.every(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +es: List<&2, Tree.Entry>, acts: List<&2, Act>) -> Bool:
+# Every act laid for one file is accounted for by that file; and, file by
+# file in the tree's order, every act laid for each is accounted for by it.
+def laid.by(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +e: Tree.Entry, acts: List<&2, Act>) -> Bool:
   match acts:
     case Nil{}:
       True{}
     case +a <> rest:
-      Bool.and(laid.some(fs, ds, heads, bs, t, dg, texts, es, a), laid.every(fs, ds, heads, bs, t, dg, texts, es, rest))
+      Bool.and(laid.reads(fs, ds, heads, bs, t, dg, texts, e, a), laid.by(fs, ds, heads, bs, t, dg, texts, e, rest))
 
-# Every file of the merged tree, in file order: the acts to perform, and
-# how many files hold work that met.
-type Lay is Data:
-  Lay{acts: List<&2, Act>, met: Nat}
+def laid.files(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +bs: List<&2, T.Split>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, es: List<&2, Tree.Entry>, ls: List<&2, Laid>) -> Bool:
+  match es ls:
+    case Nil{} Nil{}:
+      True{}
+    case +e <> er l <> lr:
+      Bool.and(laid.by(fs, ds, heads, bs, t, dg, texts, e, laid.acts(l)), laid.files(fs, ds, heads, bs, t, dg, texts, er, lr))
+    case _ _:
+      False{}
 
-def lay.join(a: Laid, b: Lay) -> Lay:
-  match a b:
-    case Laid{x, m} Lay{y, n}:
-      Lay{List.append(&2, Act, x, y), Nat.add(Bool.pick(Nat, m, 1n, 0n), n)}
-
-def lay.all(+t: Tree.Tree(), +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, ps: List<&2, Place>) -> Lay:
+# Every file of the merged tree, in file order, and what each takes.
+def lay.all(+t: Tree.Tree(), +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, ps: List<&2, Place>) -> List<&2, Laid>:
   match ps:
     case Nil{}:
-      Lay{Nil{}, 0n}
+      Nil{}
     case p <> rest:
-      lay.join(lay(t, cs, located, p), lay.all(t, cs, located, rest))
+      lay(t, cs, located, p) <> lay.all(t, cs, located, rest)
+
+# The acts to perform: each file's in turn, in file order.
+def lay.acts(ls: List<&2, Laid>) -> List<&2, Act>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Laid{a, m} <> rest:
+      List.append(&2, Act, a, lay.acts(rest))
+
+# How many files hold work that met.
+def lay.met(ls: List<&2, Laid>) -> Nat:
+  match ls:
+    case Nil{}:
+      0n
+    case Laid{a, m} <> rest:
+      Nat.add(Bool.pick(Nat, m, 1n, 0n), lay.met(rest))
+
+# How many files of the merged tree hold work that met, as
+# `LAWS.merge_counts_the_files_that_met` counts them from the store: a file
+# of lines whose walk of the heads met, and a file of bytes no side's
+# payload wins.
+def met.of(r: Result<&2, &2, String, Conflict.Joined>) -> Bool:
+  match r:
+    case Done{+j}:
+      Conflict.met(j)
+    case Fail{e}:
+      False{}
+
+def met.count(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, es: List<&2, Tree.Entry>) -> Nat:
+  match es:
+    case Nil{}:
+      0n
+    case Tree.Entry{+f, p, Tree.Lines{}, y, g, m} <> rest:
+      Nat.add(Bool.pick(Nat, met.of(Main.joined(fs, ds, heads, f)), 1n, 0n), met.count(fs, ds, heads, rest))
+    case Tree.Entry{f, p, Tree.Whole{}, y, g, m} <> rest:
+      Nat.add(Bool.pick(Nat, Maybe.is_none(&2, String, y), 1n, 0n), met.count(fs, ds, heads, rest))
+    case Tree.Entry{f, p, Tree.Link{}, y, g, m} <> rest:
+      met.count(fs, ds, heads, rest)
+
+# Where the folder already holds the merge
+# ----------------------------------------
+#
+# What `LAWS.merge_rewrites_nothing_merged` asks of the folder: at each
+# file's path, what the merge reads there — for a file of lines whose walk
+# found nothing met, the walk's reading; for a file of bytes, the payload
+# the tree names; for a link, a link pointing where `cat` says.
+def already.lines(+dg: Map<&2, String>, +p: String, r: Result<&2, &2, String, Conflict.Joined>) -> Bool:
+  match r:
+    case Done{+j}:
+      Bool.and(Bool.not(Conflict.met(j)), String.eq(Main.status.folder_digest(dg, p), Upd.text_digest(Conflict.plain(j))))
+    case Fail{e}:
+      False{}
+
+def already.one(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +ls: Map<&2, String>, e: Tree.Entry) -> Bool:
+  match e:
+    case Tree.Entry{+f, +p, Tree.Lines{}, y, g, m}:
+      already.lines(dg, p, Main.joined(fs, ds, heads, f))
+    case Tree.Entry{f, +p, Tree.Whole{}, y, g, m}:
+      Upd.records.payload(Main.status.folder_digest(dg, p), y)
+    case Tree.Entry{f, +p, Tree.Link{}, y, g, m}:
+      Upd.holds.target(Upd.held.of(ls, p, None{}), t, p, g)
+
+def already(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +ls: Map<&2, String>, es: List<&2, Tree.Entry>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case e <> rest:
+      Bool.and(already.one(fs, ds, heads, t, dg, ls, e), already(fs, ds, heads, t, dg, ls, rest))
+
+# Every file an act writes it writes with the bytes the folder's walk read
+# at its path, and no act points a link.
+def rewrites.same(+dg: Map<&2, String>, acts: List<&2, Act>) -> Bool:
+  match acts:
+    case Nil{}:
+      True{}
+    case Act.Lines{+at, text, m} <> rest:
+      Bool.and(String.eq(Upd.text_digest(text), Main.status.folder_digest(dg, at)), rewrites.same(dg, rest))
+    case Act.Whole{+at, from, p, m} <> rest:
+      Bool.and(String.eq(p, Main.status.folder_digest(dg, at)), rewrites.same(dg, rest))
+    case Act.Link{at, target} <> rest:
+      False{}
+    case Act.Said{l} <> rest:
+      rewrites.same(dg, rest)
+    case Act.Stop{e} <> rest:
+      rewrites.same(dg, rest)
 
 # Saying it
 # ---------
 
-# What follows the lines each file owed: how the paths several files claim
-# were settled, how many files hold work that met, and the command that
-# records the merge — every head it joined, named as a person typed it, and
-# each file written beside a path where this merge wrote it, in full, since
-# `--at` names a file against a survey.
-def settling(xs: List<&2, T.Split>) -> String:
+# The command that records the merge, as the words a person types after
+# `historica record`: `--merge` and each head it joined, named as the
+# person typed it; `--at` and each file written beside a path where this
+# merge wrote it, in full, since `--at` names a file against a survey; and
+# the message still to write. `LAWS.merge_prints_the_record_that_records_it`
+# reads them back with `record`'s own parser.
+def merges.words(xs: List<&2, T.Split>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      SNil{}
-    case T.Split{f, p} <> rest:
-      " --at \"" ++ f ++ "=" ++ p ++ "\"" ++ settling(rest)
+      Nil{}
+    case T.Split{h, s} <> rest:
+      "--merge" <> s <> merges.words(rest)
 
+def ats.words(xs: List<&2, T.Split>) -> List<&2, String>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case T.Split{f, p} <> rest:
+      "--at" <> (f ++ "=" ++ p) <> ats.words(rest)
+
+def record.words(+typed: List<&2, T.Split>, +bs: List<&2, T.Split>) -> List<&2, String>:
+  List.append(&2, String, merges.words(typed), List.append(&2, String, ats.words(List.sort(~T.Split, ~(a => b => typed.le(a, b)), bs)), ["-m", "<message>"]))
+
+# The words as the line prints them: each after a space, and each pair
+# `--at` settles quoted, since a name `beside` gives always holds a space.
+def record.said(ws: List<&2, String>, quoted: Bool) -> String:
+  match ws:
+    case Nil{}:
+      SNil{}
+    case +w <> rest:
+      " " ++ Bool.pick(String, quoted, "\"" ++ w ++ "\"", w) ++ record.said(rest, String.eq(w, "--at"))
+
+# Whether a file's identifier holds no `=`, which `--at` cuts at; none the
+# store mints does.
+def no.equals(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{c, t}:
+      Bool.and(Bool.not(Char.is_eq(c, '=')), no.equals(t))
+
+def id.plain(x: T.Split) -> Bool:
+  match x:
+    case T.Split{f, p}:
+      no.equals(f)
+
+# What follows the lines each file owed: how the paths several files claim
+# were settled, how many files hold work that met, and the command that
+# records the merge.
 def met.said(+n: Nat, +besides: Bool) -> String:
   Bool.pick(String, Nat.is_gt(n, 0n), Nat.show(n) ++ " file" ++ Bool.pick(String, Nat.is_eq(n, 1n), " holds", "s hold") ++ " work that met; resolve it, delete the lines historica wrote, and record it with:",
     Bool.pick(String, besides, "no lines met; record it with:", "nothing is contested; record it with:"))
@@ -507,7 +636,7 @@ def met.said(+n: Nat, +besides: Bool) -> String:
 def closing(+typed: List<&2, T.Split>, +bs: List<&2, T.Split>, +n: Nat) -> List<&2, String>:
   +besides = Bool.not(List.is_empty(&2, T.Split, bs))
   List.append(&2, String, Bool.pick(List<&2, String>, besides, ["a path two files claim is settled below by where this merge wrote them; type other paths there if you would rather"], Nil{}),
-    [met.said(n, besides), "  historica record" ++ typed.spelled(typed) ++ settling(List.sort(~T.Split, ~(a => b => typed.le(a, b)), bs)) ++ " -m <message>"])
+    [met.said(n, besides), "  historica record" ++ record.said(record.words(typed, bs), False{})])
 
 # Doing it
 # --------
@@ -663,16 +792,6 @@ def lined(es: List<&2, Tree.Entry>) -> List<&2, String>:
     case e <> rest:
       lined(rest)
 
-def lay.acts(l: Lay) -> List<&2, Act>:
-  match l:
-    case Lay{a, n}:
-      a
-
-def lay.met(l: Lay) -> Nat:
-  match l:
-    case Lay{a, n}:
-      n
-
 def merge.at(+r: String, +fs: List<&2, Main.Full>, +typed: List<&2, T.Split>) -> IO(Unit):
   +repo = Main.repository(r)
   +heads = typed.ids(typed)
@@ -695,7 +814,7 @@ def merge.at(+r: String, +fs: List<&2, Main.Full>, +typed: List<&2, T.Split>) ->
     +first : List<&2, Place> = places(fs, ds2, heads, bs, dg, ls2, Map.new(&2, String), t)
     tx : Map<&2, String> <- texts(repo, undecided(first), Map.new(&2, String))
     +tx2 : Map<&2, String> = tx
-    +laid : Lay = lay.all(t, cs, located, places(fs, ds2, heads, bs, dg, ls2, tx2, t))
+    +laid : List<&2, Laid> = lay.all(t, cs, located, places(fs, ds2, heads, bs, dg, ls2, tx2, t))
     said : List<&2, String> <- perform(repo, lay.acts(laid))
     Main.print_lines(List.concat(&2, String, [rewritten(fs, heads), contests.said(cs), said, closing(typed, bs, lay.met(laid))]))
 
