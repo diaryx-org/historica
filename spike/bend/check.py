@@ -6162,7 +6162,21 @@ def check_mutations(temporary):
             "a read opens whatever name the listing has, normal form or not",
             "Bool.and(Bool.not(String.starts_with(line, \"u \")), String.eq(Nfc.nfc(name), want))",
             "Bool.not(String.starts_with(line, \"u \"))",
-            "nfc_lemmas.take_ok",
+            "spelt_lemmas.read_back",
+            "folder.bend",
+        ),
+        (
+            "a read opens the first name that spells the path, not the last",
+            'got: Maybe<&2, String>) -> Maybe<&2, String>:\n  +name = entry.name(line)\n  Bool.pick(Maybe<&2, String>, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(Nfc.nfc(name), want)), Some{name}, got)',
+            '+got: Maybe<&2, String>) -> Maybe<&2, String>:\n  +name = entry.name(line)\n  Bool.pick(Maybe<&2, String>, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(Nfc.nfc(name), want)), Maybe.or(&2, String, got, Some{name}), got)',
+            "spelt_lemmas.read_back",
+            "folder.bend",
+        ),
+        (
+            "a read takes a link's target for a name",
+            "      spelling.go(rest, want, got, False{})",
+            "      spelling.go(rest, want, spelling.take(line, want, got), False{})",
+            "spelt_lemmas.read_back",
             "folder.bend",
         ),
         (

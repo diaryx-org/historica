@@ -1,8 +1,9 @@
 # Normal form C's laws: a string of ASCII is its own normal form; canonical
 # ordering puts every run of marks in order of class; the class lookup,
 # which stops early, misses nothing over the crate's table; `/` and `.` are
-# walls the algorithm composes nothing across. And the walk's: it yields a path
-# once, and opens a file only where the folder spells it.
+# walls the algorithm composes nothing across. And the walk's: it leaves no
+# two files in a row at one path, and a listing's lines, read back, refuse
+# each name that cannot be spelled.
 import Base
 import ./nfc.bend as N
 import ./nfc_tables.bend as Tab
@@ -742,53 +743,6 @@ def walk_apart(fs: List<&2, F.Found>) -> {F.apart(F.distinct(fs)) == True{} : Bo
       {==}
     case +f <> +rest:
       go_apart(rest, F.found.path(f), F.distinct.same(rest, F.found.path(f)), {==})
-
-# What a listing may spell a path with: nothing yet, or a name whose normal
-# form is the path.
-def spelt_ok(got: Maybe<&2, String>, +want: String) -> Bool:
-  match got:
-    case None{}:
-      True{}
-    case Some{n}:
-      String.eq(N.nfc(n), want)
-
-def take_ok.of(+line: String, +want: String, got: Maybe<&2, String>, c: Bool, +ec: {Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(N.nfc(F.entry.name(line)), want)) == c : Bool}, +hg: {spelt_ok(got, want) == True{} : Bool}) -> {spelt_ok(Bool.pick(Maybe<&2, String>, c, Some{F.entry.name(line)}, got), want) == True{} : Bool}:
-  match c:
-    case True{}:
-      and_r(Bool.not(String.starts_with(line, "u ")), String.eq(N.nfc(F.entry.name(line)), want), ec)
-    case False{}:
-      hg
-
-def take_ok(+line: String, +want: String, +got: Maybe<&2, String>, +hg: {spelt_ok(got, want) == True{} : Bool}) -> {spelt_ok(F.spelling.take(line, want, got), want) == True{} : Bool}:
-  take_ok.of(line, want, got, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(N.nfc(F.entry.name(line)), want)), {==}, hg)
-
-def spelling_ok(ls: List<&2, String>, +want: String, +got: Maybe<&2, String>, after: Bool, +hg: {spelt_ok(got, want) == True{} : Bool}) -> {spelt_ok(F.spelling.go(ls, want, got, after), want) == True{} : Bool}:
-  match ls after:
-    case Nil{} _:
-      hg
-    case line <> rest True{}:
-      spelling_ok(rest, want, got, False{}, hg)
-    case +line <> rest False{}:
-      spelling_ok(rest, want, F.spelling.take(line, want, got), String.starts_with(line, "l "), take_ok(line, want, got, hg))
-
-def or_true(a: Bool) -> {Bool.or(a, True{}) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def spelt_or(m: Maybe<&2, String>, +want: String, +h: {spelt_ok(m, want) == True{} : Bool}) -> {Bool.or(String.eq(Maybe.default(&2, String, m, want), want), String.eq(N.nfc(Maybe.default(&2, String, m, want)), want)) == True{} : Bool}:
-  match m:
-    case None{}:
-      %Equal.sym(Bool, String.eq(want, want), True{}, S.eq_refl(want)) : {Bool.or(_, String.eq(N.nfc(want), want)) == True{} : Bool}
-      {==}
-    case Some{+n}:
-      %Equal.sym(Bool, String.eq(N.nfc(n), want), True{}, h) : {Bool.or(String.eq(n, want), _) == True{} : Bool}
-      or_true(String.eq(n, want))
-
-def spelled_there(+ls: List<&2, String>, +want: String) -> {Bool.or(String.eq(F.spelling(ls, want), want), String.eq(N.nfc(F.spelling(ls, want)), want)) == True{} : Bool}:
-  spelt_or(F.spelling.go(ls, want, None{}, False{}), want, spelling_ok(ls, want, None{}, False{}, {==}))
 
 # A listing, as the host means it
 # -------------------------------

@@ -67,6 +67,7 @@ import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
 import ./standing_lemmas.bend as StandingL
+import ./spelt_lemmas.bend as SpeltL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -3747,12 +3748,16 @@ law the_walk_yields_a_path_once:
 
 # A file is opened where the folder spells it. The walk names a path in
 # normal form C, and the filesystem may spell it otherwise, so a read asks
-# the listing: the name it opens is one whose normal form is the path, or,
-# where the listing gives none, the path as it is.
+# the listing. Whatever a directory holds, the name read back from the
+# lines the host writes for it is the last entry name whose normal form is
+# the path — a directory's, a file's, a link's own, never a link's target
+# and never a name that is not UTF-8 — and, where no entry's is, the path
+# as it is.
 law the_folder_spells_what_is_opened:
-  for +ls: List<&2, String>
+  for +es: List<&2, NfcL.Listed>
   for +want: String
-  {Bool.or(String.eq(Folder.spelling(ls, want), want), String.eq(Nfc.nfc(Folder.spelling(ls, want)), want)) == True{} : Bool}
+  for +h: {SpeltL.sized(es) == True{} : Bool}
+  {Folder.spelling(NfcL.listed.lines(es), want) == Maybe.default(&2, String, SpeltL.last_spelling(SpeltL.names(es), want), want) : String}
 
 # A name that cannot be spelled is refused. Whatever a directory holds —
 # directories, files, links whatever their targets say, the rest — the
