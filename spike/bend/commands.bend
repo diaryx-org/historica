@@ -7252,12 +7252,15 @@ def planned.settled(pl: Sv.Planned, +accepted: List<&2, String>) -> Bool:
       Bool.and(List.is_empty(&2, T.Split, claimed), Bool.and(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, emptied),
         Bool.and(Maybe.is_none(&2, String, fault), Bool.and(List.is_empty(&2, String, minus(accept, accepted)), List.is_empty(&2, String, minus(accepted, accept)))))))
 
-def record.print(fs: List<&2, T.Split>) -> IO(Unit):
+def record.print.lines(fs: List<&2, T.Split>) -> List<&2, String>:
   match fs:
     case Nil{}:
-      IO.print("nothing here differs from what is recorded")
+      ["nothing here differs from what is recorded"]
     case some:
-      print_facts(some)
+      facts.said(some)
+
+def record.print(fs: List<&2, T.Split>) -> IO(Unit):
+  print_lines(record.print.lines(fs))
 
 def found_paths(fs: List<&2, Folder.Found>) -> List<&2, String>:
   T.map(~Folder.Found, ~String, ~(f => Folder.found.path(f)), fs)
@@ -7681,28 +7684,29 @@ def filed.io(+st: Bool, +root: String, +repo: String, +stem: String, +names: Lis
     case _ _:
       IO.pure(Unit, Unit{})
 
-def said.names(+prefix: String, +suffix: String, ns: List<&2, String>) -> IO(Unit):
+def said.lines(+prefix: String, +suffix: String, ns: List<&2, String>) -> List<&2, String>:
   match ns:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case n <> rest:
-      do IO<Unit>:
-        IO.print(prefix ++ n ++ suffix)
-        said.names(prefix, suffix, rest)
+      (prefix ++ n ++ suffix) <> said.lines(prefix, suffix, rest)
 
-def record.said(+w: Writing, +facts: List<&2, T.Split>, +change: String, +id: String, +names: List<&2, String>, +ps: List<&2, String>) -> IO(Unit):
+def said.names(+prefix: String, +suffix: String, ns: List<&2, String>) -> IO(Unit):
+  print_lines(said.lines(prefix, suffix, ns))
+
+# What a record says it did: for a machine, decision 0074's header, the
+# revision, and each bookmark moved; for a person, the facts, the change
+# and the revision, each bookmark moved, and whether this is a root.
+def record.said.lines(w: Writing, +facts: List<&2, T.Split>, +change: String, +id: String, +names: List<&2, String>, +ps: List<&2, String>) -> List<&2, String>:
   match w:
     case Writing{a, when, m, True{}}:
-      do IO<Unit>:
-        IO.print(WROTE())
-        IO.print("revision " ++ id)
-        said.names("name ", SNil{}, names)
+      WROTE() <> ("revision " ++ id) <> said.lines("name ", SNil{}, names)
     case Writing{a, when, m, False{}}:
-      do IO<Unit>:
-        print_facts(facts)
-        IO.print("recorded " ++ String.take(change, 8n) ++ " as " ++ String.take(id, 12n))
-        said.names(SNil{}, " -> " ++ String.take(change, 8n), names)
-        Bool.pick(IO(Unit), List.is_empty(&2, String, ps), IO.print("this is a root: it has no parent"), IO.pure(Unit, Unit{}))
+      List.concat(&2, String, [facts.said(facts), ["recorded " ++ String.take(change, 8n) ++ " as " ++ String.take(id, 12n)], said.lines(SNil{}, " -> " ++ String.take(change, 8n), names),
+        Bool.pick(List<&2, String>, List.is_empty(&2, String, ps), ["this is a root: it has no parent"], Nil{})])
+
+def record.said(+w: Writing, +facts: List<&2, T.Split>, +change: String, +id: String, +names: List<&2, String>, +ps: List<&2, String>) -> IO(Unit):
+  print_lines(record.said.lines(w, facts, change, id, names, ps))
 
 def stating.contents(s: Stating) -> List<&2, Content>:
   match s:
@@ -9070,14 +9074,15 @@ def carry.write(+st: Bool, +root: String, steps: List<&2, Step>, +ns: List<&2, N
                 revision.filed(st, root, stem, Rev.write(doc))
                 carry.write(st, root, rest, List.append(&2, Naming.Named, ns, [step.named(s)]))
 
-def carried.said(+prefix: String, steps: List<&2, Step>) -> IO(Unit):
+def carried.lines(+prefix: String, steps: List<&2, Step>) -> List<&2, String>:
   match steps:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case Step{p, id, o, d, r, w, m} <> rest:
-      do IO<Unit>:
-        IO.print(prefix ++ ab12(p) ++ " to " ++ ab12(id))
-        carried.said(prefix, rest)
+      (prefix ++ ab12(p) ++ " to " ++ ab12(id)) <> carried.lines(prefix, rest)
+
+def carried.said(+prefix: String, steps: List<&2, Step>) -> IO(Unit):
+  print_lines(carried.lines(prefix, steps))
 
 def carried.ids(steps: List<&2, Step>) -> List<&2, String>:
   match steps:
@@ -9153,28 +9158,22 @@ def same.r(+id: String, prev: Rev.Rev, doc: Rev.Rev) -> Result<&2, &2, Refused, 
     Done{Unit{}})
 
 # What amending says it did, or would do.
-def amend.told(machine: Bool, +id: String, +change: String, +prev: String, +facts: List<&2, T.Split>, +steps: List<&2, Step>) -> IO(Unit):
+def amend.told.lines(machine: Bool, +id: String, +change: String, +prev: String, +facts: List<&2, T.Split>, +steps: List<&2, Step>) -> List<&2, String>:
   match machine:
     case True{}:
-      do IO<Unit>:
-        IO.print(WROTE())
-        said.names("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps)))
+      WROTE() <> said.lines("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps)))
     case False{}:
-      do IO<Unit>:
-        print_facts(facts)
-        IO.print("amended " ++ String.take(change, 8n) ++ " as " ++ ab12(id))
-        IO.print("it supersedes " ++ ab12(prev) ++ ", which is still here")
-        carried.said("carried ", steps)
+      List.concat(&2, String, [facts.said(facts), ["amended " ++ String.take(change, 8n) ++ " as " ++ ab12(id), "it supersedes " ++ ab12(prev) ++ ", which is still here"], carried.lines("carried ", steps)])
 
-def amend.said(machine: Bool, planning: Bool, +facts: List<&2, T.Split>, +prev: String, +change: String, +id: String, +carrying: List<&2, String>, +steps: List<&2, Step>) -> IO(Unit):
+def amend.said.lines(machine: Bool, planning: Bool, +facts: List<&2, T.Split>, +prev: String, +change: String, +id: String, +carrying: List<&2, String>, +steps: List<&2, Step>) -> List<&2, String>:
   match planning:
     case True{}:
-      do IO<Unit>:
-        print_facts(facts)
-        IO.print("this would supersede " ++ ab12(prev))
-        said.names("would carry ", SNil{}, map12(carrying))
+      List.concat(&2, String, [facts.said(facts), ["this would supersede " ++ ab12(prev)], said.lines("would carry ", SNil{}, map12(carrying))])
     case False{}:
-      amend.told(machine, id, change, prev, facts, steps)
+      amend.told.lines(machine, id, change, prev, facts, steps)
+
+def amend.said(machine: Bool, planning: Bool, +facts: List<&2, T.Split>, +prev: String, +change: String, +id: String, +carrying: List<&2, String>, +steps: List<&2, Step>) -> IO(Unit):
+  print_lines(amend.said.lines(machine, planning, facts, prev, change, id, carrying, steps))
 
 # The amendment written: its content, the revision, and what it carries.
 def amend.written(+st: Bool, planning: Bool, +root: String, +repo: String, +fs: List<&2, Full>, +cs: List<&2, Content>, +id: String, +doc: Rev.Rev, +steps: List<&2, Step>) -> IO(Unit):
@@ -9637,14 +9636,12 @@ def abandon.line(+fs: List<&2, Full>, +id: String, only: Bool, run: List<&2, Str
         Bool.and(List.is_empty(&2, String, rest), Bool.not(Nat.is_lt(1n, List.length(&2, String, full.parents(find(fs, r)))))),
         abandon.after(rest, fs, r))))
 
-def said.each(+prefix: String, xs: List<&2, String>) -> IO(Unit):
+def each.lines(+prefix: String, xs: List<&2, String>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case x <> rest:
-      do IO<Unit>:
-        IO.print(prefix ++ x)
-        said.each(prefix, rest)
+      (prefix ++ x) <> each.lines(prefix, rest)
 
 def spelled_all(+bs: List<&2, Bm.Bookmark>, +h: Rev.History(), xs: List<&2, String>) -> List<&2, String>:
   match xs:
@@ -9656,27 +9653,28 @@ def spelled_all(+bs: List<&2, Bm.Bookmark>, +h: Rev.History(), xs: List<&2, Stri
 # abandon
 # -------
 
-def abandon.dry(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> IO(Unit):
+def abandon.dry.lines(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> List<&2, String>:
   +n = List.length(&2, String, run)
-  do IO<Unit>:
-    said.each("would abandon ", spelled_all(bs, history(fs), run))
-    IO.print("a tombstone would supersede " ++ Bool.pick(String, Nat.is_eq(n, 1n), "this revision", "these " ++ Nat.show(n) ++ " revisions") ++ ", and its message is required")
-    said.each("would carry ", map12(Bool.pick(List<&2, String>, only, would_carry(fs, id, standing_on(fs, id)), Nil{})))
+  List.concat(&2, String, [each.lines("would abandon ", spelled_all(bs, history(fs), run)),
+    ["a tombstone would supersede " ++ Bool.pick(String, Nat.is_eq(n, 1n), "this revision", "these " ++ Nat.show(n) ++ " revisions") ++ ", and its message is required"],
+    each.lines("would carry ", map12(Bool.pick(List<&2, String>, only, would_carry(fs, id, standing_on(fs, id)), Nil{})))])
 
-def abandon.said(+fields: Bool, +id: String, +change: String, +run: List<&2, String>, +names: List<&2, String>, +steps: List<&2, Step>) -> IO(Unit):
+def abandon.dry(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> IO(Unit):
+  print_lines(abandon.dry.lines(fs, bs, id, only, run))
+
+# What abandoning says it did: for a machine, decision 0074's header, each
+# revision written and each bookmark moved; for a person, what was
+# abandoned, the tombstone, each bookmark moved and what was carried.
+def abandon.said.lines(fields: Bool, +id: String, +change: String, +run: List<&2, String>, +names: List<&2, String>, +steps: List<&2, Step>) -> List<&2, String>:
   match fields:
     case True{}:
-      do IO<Unit>:
-        IO.print(WROTE())
-        said.names("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps)))
-        said.names("name ", SNil{}, sorted_distinct(names))
+      WROTE() <> List.append(&2, String, said.lines("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps))), said.lines("name ", SNil{}, sorted_distinct(names)))
     case False{}:
-      do IO<Unit>:
-        said.each("abandoned ", map12(run))
-        IO.print("the tombstone is " ++ ab12(id) ++ " (" ++ String.take(change, 8n) ++ ")")
-        said.names(SNil{}, " -> " ++ String.take(change, 8n), names)
-        carried.said("carried ", steps)
-        IO.print("what it supersedes is still here; `historica prune` is what removes it")
+      List.concat(&2, String, [each.lines("abandoned ", map12(run)), ["the tombstone is " ++ ab12(id) ++ " (" ++ String.take(change, 8n) ++ ")"],
+        said.lines(SNil{}, " -> " ++ String.take(change, 8n), names), carried.lines("carried ", steps), ["what it supersedes is still here; `historica prune` is what removes it"]])
+
+def abandon.said(+fields: Bool, +id: String, +change: String, +run: List<&2, String>, +names: List<&2, String>, +steps: List<&2, Step>) -> IO(Unit):
+  print_lines(abandon.said.lines(fields, id, change, run, names, steps))
 
 def reason.r(+m: String) -> Result<&2, &2, Refused, Unit>:
   Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(Naming.trim_space(m)),
@@ -9923,17 +9921,14 @@ def step.line(+dry: Bool, s: Step) -> String:
     case Step{p, id, o, d, r, w, m}:
       Bool.pick(String, dry, "would carry ", "carried ") ++ ab12(p) ++ " as " ++ ab12(id) ++ ", onto " ++ String.join(map12(o), " and ")
 
-def steps.lines(+dry: Bool, steps: List<&2, Step>) -> IO(Unit):
+def steps.said(+dry: Bool, steps: List<&2, Step>) -> List<&2, String>:
   match steps:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case +s <> rest:
       match s:
         case Step{p, id, o, d, +r, w, m}:
-          do IO<Unit>:
-            IO.print(step.line(dry, Step{p, id, o, d, r, w, m}))
-            said.names("  restated ", SNil{}, r)
-            steps.lines(dry, rest)
+          List.append(&2, String, step.line(dry, Step{p, id, o, d, r, w, m}) <> said.lines("  restated ", SNil{}, r), steps.said(dry, rest))
 
 def steps.restated(steps: List<&2, Step>) -> Bool:
   match steps:
@@ -9942,17 +9937,58 @@ def steps.restated(steps: List<&2, Step>) -> Bool:
     case Step{p, id, o, d, r, w, m} <> rest:
       Bool.or(Bool.not(List.is_empty(&2, String, r)), steps.restated(rest))
 
+# What carrying says it did or would do: for a machine, decision 0074's
+# header and each revision written; for a person, each step and what it
+# restated, and what is left for `prune` and `update`.
+def carry.said.lines(+fields: Bool, +dry: Bool, +steps: List<&2, Step>) -> List<&2, String>:
+  Bool.pick(List<&2, String>, fields,
+    WROTE() <> said.lines("revision ", SNil{}, sorted_distinct(carried.ids(steps))),
+  Bool.pick(List<&2, String>, List.is_empty(&2, Step, steps),
+    ["nothing stands on a rewritten revision; there is nothing to carry"],
+    List.concat(&2, String, [steps.said(dry, steps),
+      Bool.pick(List<&2, String>, dry, Nil{}, ["what was carried is still here, superseded; `historica prune` is what removes it"]),
+      Bool.pick(List<&2, String>, Bool.and(Bool.not(dry), steps.restated(steps)), ["the folder is unchanged; `historica update` makes it hold the carried head"], Nil{})])))
+
 def carry.said(+fields: Bool, +dry: Bool, +steps: List<&2, Step>) -> IO(Unit):
-  Bool.pick(IO(Unit), fields,
-    do IO<Unit>:
-      IO.print(WROTE())
-      said.names("revision ", SNil{}, sorted_distinct(carried.ids(steps))),
-  Bool.pick(IO(Unit), List.is_empty(&2, Step, steps),
-    IO.print("nothing stands on a rewritten revision; there is nothing to carry"),
-    do IO<Unit>:
-      steps.lines(dry, steps)
-      Bool.pick(IO(Unit), dry, IO.pure(Unit, Unit{}), IO.print("what was carried is still here, superseded; `historica prune` is what removes it"))
-      Bool.pick(IO(Unit), Bool.and(Bool.not(dry), steps.restated(steps)), IO.print("the folder is unchanged; `historica update` makes it hold the carried head"), IO.pure(Unit, Unit{}))))
+  print_lines(carry.said.lines(fields, dry, steps))
+
+# What `--fields` says of the revisions an act wrote, as decision 0074 has
+# it: `historica-wrote-1` first, and each revision written named once, in
+# digest order, by a `revision` line. `LAWS.writes_say_what_they_wrote`.
+def fields.revision(r: Maybe<&2, String>, later: List<&2, String>) -> List<&2, String>:
+  match r:
+    case Some{x}:
+      x <> later
+    case None{}:
+      later
+
+def fields.revisions(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      fields.revision(T.strip_prefix(l, "revision "), fields.revisions(rest))
+
+def rising.from(xs: List<&2, String>, +last: String) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Bool.and(String.is_le(last, x), Bool.not(String.eq(last, x))), rising.from(rest, x))
+
+def rising(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      rising.from(rest, x)
+
+def fields.ok(+written: List<&2, String>, ls: List<&2, String>) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case +l <> +rest:
+      Bool.and(String.eq(l, WROTE()), Bool.and(rising(fields.revisions(rest)), all_held(written, fields.revisions(rest))))
 
 def carry.target.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, String>>:
   match named:
