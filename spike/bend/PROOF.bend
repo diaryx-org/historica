@@ -53,6 +53,13 @@ import ./name_lemmas.bend as NameL
 import ./listing_lemmas.bend as ListL
 import ./naming_lemmas.bend as NamingL
 import ./nfc_lemmas.bend as NfcL
+import ./colour_lemmas.bend as Colour
+import ./plan_lemmas.bend as PlanL
+import ./chain_lemmas.bend as ChainL
+import ./fulls_lemmas.bend as FullsL
+import ./sizes_lemmas.bend as SizesL
+import ./fetch_lemmas.bend as FetchL
+import ./span_lemmas.bend as SpanL
 import ./survey.bend as Sv
 import ./naming.bend as Naming
 import ./store.bend as Store
@@ -540,6 +547,45 @@ def Laws.diff_folder_keeps_what_the_limit_wants(t, found, l):
 
 def Laws.diff_folder_shows_what_differs(t, older, ds, left, reads, ps, cs, e):
   DiffCmd.wc_compare_ok(t, older, ds, left, reads, ps, cs, e)
+
+def Laws.diff_colour_changes_no_character(cs):
+  Colour.colour_fit(cs)
+
+def Laws.diff_folder_replays_what_is_unsettled(dg, os, eds, hs):
+  PlanL.replayed_unsettled(dg, os, eds, hs)
+
+def Laws.diff_folder_reads_what_is_unsettled(dg, os, eds, hs):
+  PlanL.read_unsettled(dg, os, eds, hs)
+
+def Laws.diff_sizes_what_the_host_stated(found, stats, cs):
+  SizesL.sized_told(found, stats, cs)
+
+def Laws.diff_fetches_what_it_replays(fs, ws, ns, files):
+  FetchL.diff_fetched(fs, ws, ns, files)
+
+def Laws.diff_folder_fetches_what_it_replays(fs, dg, os, eds, hs):
+  FetchL.folder_fetched(fs, dg, os, eds, hs)
+
+def Laws.diff_folder_fetches_the_edits_it_believes(os, hs):
+  FetchL.edits_fetched(os, hs)
+
+def Laws.diff_asks_every_payload_it_shows(cs):
+  FetchL.payloads_asked(cs)
+
+def Laws.diff_stats_where_each_payload_was_found(root, ds, at):
+  FetchL.sizes_located(root, ds, at)
+
+def Laws.reading_fetches_what_resolutions_keep(ds):
+  FetchL.kept_fetched(ds)
+
+def Laws.chain_follows_first_parents(fs, id):
+  ChainL.chain_line(fs, id)
+
+def Laws.revisions_read_are_their_documents(root, ds):
+  FullsL.fulls_filed(root, ds)
+
+def Laws.log_lists_its_span(fs, sp):
+  SpanL.span_listed(fs, sp)
 
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
