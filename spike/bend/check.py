@@ -352,7 +352,7 @@ STORES = {
         ["record", "-n", "--onto", "kxry", "docs"],
     ],
     "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"], ["status"], ["record", "-n"]],
-    "merged": [["log"], ["files", "head"], ["status"]],
+    "merged": [["log"], ["files", "head"], ["status"], ["update"]],
     "links": [
         ["log"],
         ["files", "head"],
@@ -369,13 +369,18 @@ STORES = {
         ["status", "--onto", "kxry"],
         ["record", "-n"],
         ["record", "-n", "--onto", "kxry", "current"],
+        # A store that arrived with no folder: every file written, and each
+        # link made where its target is now.
+        ["update", "-n"],
+        ["update"],
     ],
-    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"], ["record", "-n"]],
+    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"], ["record", "-n"], ["update"]],
     "whole": [
         ["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"],
         ["diff", "head"], ["blame", "head", "notes/photo.png"], ["blame", "head", "notes/2026-08-20.md"],
         # An assembled store has no folder beside it, so everything is gone.
         ["diff"], ["blame", "notes/2026-08-20.md"], ["status"], ["record", "-n"], ["record", "-n", "notes/photo.png"],
+        ["update"],
     ],
     # Recorded here by the Rust tool rather than taken from a corpus: the
     # widest path holds characters outside ASCII, which the Rust tool
@@ -613,6 +618,7 @@ STORES = {
         [{"HISTORICA_AUTHOR": " Spaced <s@example.com>"}, "record", "-m", "who"],
         [{"HISTORICA_AUTHOR": " Spaced <s@example.com>"}, "record", "-m", "who", "--fields"],
         ["record", "-m", "not here", "nope.md"],
+        ["merge"],
     ],
     # Rewriting, written: `abandon`, `amend` and `carry` against the pinned
     # build, every byte they file compared. A run abandoned and one revision
@@ -812,6 +818,7 @@ STORES = {
         ["abandon", "top", "-m", "again"],
         ["status"],
         ["log"],
+        ["merge"],
     ],
     # `init`, where there is nothing yet: here, in a directory named — `.`,
     # nothing, nested, with a slash — made with its parents; refused beside a
@@ -828,6 +835,7 @@ STORES = {
         ["status"],
         ["name", "x", "head"],
         ["record", "-n"],
+        ["update"],
     ],
     # A rule file stating two rules: the store will not open.
     "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"]],
@@ -846,6 +854,8 @@ STORES = {
         ["init"],
         ["init", "."],
         ["init", "history"],
+        ["update"],
+        ["update", "-n", "head"],
     ],
     # A file recorded as lines that is no longer text.
     "notext": [["diff"], ["diff", "kept.md"], ["blame", "notes.md"], ["status"], ["record", "-n"], ["record", "-n", "kept.md"]],
@@ -887,6 +897,10 @@ STORES = {
         ["status", "--onto", "left"],
         ["status", "--onto", "right"],
         ["status", "--merge", "base", "--merge", "left"],
+        ["merge"],
+        ["merge", "left"],
+        ["record", "--onto", "left", "--merge", "right", "-m", "joined"],
+        ["record", "--merge", "left", "--merge", "right", "-m", "joined", "a.md"],
     ],
 
     # Two lines of work that each added a file at one path, and each wrote
@@ -908,6 +922,9 @@ STORES = {
         ["record", "-n", "--onto", "left", "--move", "t.md=u.md"],
         ["record", "-n"],
         ["status", "--onto", "left", "--merge", "right"],
+        ["merge", "right", "left"],
+        ["record", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "c.bin", "-m", "settled"],
+        ["record", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "c.bin", "--accept", "a.md", "-m", "settled"],
     ],
     # Decision 0033: a folder whose names the filesystem hands back
     # decomposed — a file, a directory, a file of bytes, and a link whose
@@ -930,6 +947,22 @@ STORES = {
         ["record", "-n", "--move", "twi\u0301n.md=twin2.md"],
         ["record", "-m", "second"], ["record", "-m", "only", "cafe\u0301.bin", "twi\u0301n.md"],
         ["amend", "-n", "--move", "cafe\u0301.md=moved.md"],
+    ],
+    # The same spelling where a command writes the folder: a folder spelled
+    # decomposed and in step with one head, a second line of work beside it.
+    # `update` opens each file the walk found where the folder spells it —
+    # rewriting, removing, relinking and setting the bit on that one rather
+    # than laying another beside it — tidies above a removal as the tree
+    # spells it, so a directory spelled decomposed that it empties stays, and
+    # joins a path the walk did not find onto the folder as the tree spells
+    # it; `merge` asks the folder at the tree's spelling, as the Rust tool's
+    # does, walk or none.
+    "renormal": [
+        ["status"], ["update"], ["update", "-n", "first"], ["update", "first"],
+        ["update", "-n", "side"], ["update", "side"], ["update", "second"],
+        ["merge", "second", "side"], ["merge"],
+        ["status", "--onto", "second", "--merge", "side"],
+        ["record", "-n", "--onto", "second", "--merge", "side"],
     ],
     # Names that are not UTF-8, which the format cannot hold: beside the
     # store and in a directory, one a directory itself, one sorting between
@@ -964,11 +997,17 @@ STORES = {
     # way a resolution can fail to assemble or to parse.
     "merge": [
         *(["cat", target, path] for target in ("left", "m1", "after", "m2") for path in ("f.md", "h.md")),
-        *(["cat", target, "f.md"] for target in ("unknown", "range", "result", "notlast", "adjacent", "positioned")),
+        *(["cat", target, "f.md"] for target in ("unknown", "range", "result", "notlast", "adjacent", "positioned", "twice")),
+        ["cat", "across", "f.md"],
+        ["blame", "across", "f.md"],
+        ["merge", "left", "right"],
+        ["status", "--onto", "twice", "--merge", "x"],
+        ["record", "-n", "--onto", "twice", "--merge", "x"],
         ["diff", "m1"],
         ["diff", "m1", "--onto", "left"],
         ["diff", "m2", "--onto", "x", "f.md"],
         *(["blame", target, path] for target in ("m1", "m2") for path in ("f.md", "h.md")),
+        *(["update", target] for target in ("m2", "unknown", "result")),
     ],
     # Merges that state no resolution, written by hand as the Rust tool
     # never would: where decision 0032's rule stops, and the file is what
@@ -977,6 +1016,81 @@ STORES = {
     # digests break the tie; a third merge joins all three; and `after` is
     # recorded on top of one, so its edit counts into the walked file; and
     # a merge joining a resolution with an edit concurrent with it.
+    # The folder behind the store, caught up: `update` to a head writes what
+    # the head records, removes what it does not where history records the
+    # bytes, sets modes, points links, and leaves a stray and a file nobody
+    # recorded alone; a second head, a revision that is not one, and the
+    # words it refuses.
+    "updating": [
+        ["update"],
+        ["update", "-n", "tip"],
+        ["update", "--dry-run", "tip"],
+        ["update", "tip"],
+        ["update", "side"],
+        ["update", "-n", "side"],
+        ["update", "base"],
+        ["update", "nope"],
+        ["update", "tip", "side"],
+        ["update", "--bogus"],
+        ["update", "-n", "--bogus", "tip"],
+    ],
+    # The same store once the folder holds the tip: settled, and the other
+    # head from there, into directories that are not there yet.
+    "caught": [
+        ["update", "tip"],
+        ["update", "-n", "tip"],
+        ["update", "side"],
+        ["update", "-n", "side"],
+    ],
+    # A head the folder cannot take: two files at one path, bytes stated
+    # whole on both sides, a file and a directory at one path, a payload the
+    # store does not hold; and in the folder a link where a file goes, a
+    # directory, unrecorded bytes where a link goes, a pipe, and a file a
+    # rule skips.
+    "blocked": [["update"], ["update", "-n"], ["update", "clash"]],
+    # Two lines of work that met: one line rewritten both ways, a line one
+    # side deleted beside the other's insertion, a last line two sides end
+    # differently, edits apart, a file only one side edited, and a mode one
+    # side set — `merge` fences what met and writes the rest; and a file
+    # the folder holds that neither side recorded, which it leaves alone.
+    "meeting": [
+        ["merge"],
+        ["merge", "left"],
+        ["merge", "right", "left"],
+        ["merge", "nope"],
+        ["merge", "--bogus"],
+        ["record", "--merge", "left", "--merge", "right", "-m", "the right side"],
+    ],
+    # The same once `merge` has written it and a person has started: one
+    # file resolved, one untouched, one with only the closing line
+    # deleted, and a file quoting a fence nobody rendered here. `status`
+    # counts what stands, `record` refuses it, and `merge` again leaves
+    # the work alone.
+    "marked": [
+        ["status", "--onto", "left", "--merge", "right"],
+        ["status", "--merge", "right", "--merge", "left"],
+        ["record", "-n", "--onto", "left", "--merge", "right"],
+        ["record", "-n", "--merge", "left", "--merge", "right"],
+        ["record", "-n", "--merge", "left", "--merge", "right", "h.md"],
+        ["merge"],
+    ],
+    # And with one file left marked.
+    "marked1": [["status", "--onto", "left", "--merge", "right"], ["record", "-n", "--onto", "left", "--merge", "right"]],
+    # And resolved: a merge recorded, each file the parents disagree about
+    # stated as a resolution of what the walk proposed — named items kept,
+    # what the person wrote inserted — beside an ordinary edit of a file
+    # they agree about.
+    # Files of lines laid down through the links standing at their paths,
+    # as `std::fs::write` lays them, and a payload's link replaced.
+    "through": [["merge"], ["merge", "left"]],
+    "resolved": [
+        ["status", "--onto", "left", "--merge", "right"],
+        ["record", "-n", "--merge", "left", "--merge", "right"],
+        ["record", "--merge", "left", "--merge", "right", "-m", "joined"],
+        ["record", "--onto", "left", "--merge", "right", "-m", "joined", "--fields"],
+        ["record", "--merge", "right", "--onto", "left", "-m", "joined\n\nat length"],
+        ["merge"],
+    ],
     "walked": [
         *(["cat", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         *(["blame", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
@@ -989,6 +1103,9 @@ STORES = {
         ["diff", "crossed", "--onto", "side"],
         ["status", "--onto", "after", "--merge", "crossed"],
         ["status", "--merge", "tops", "--merge", "all"],
+        *(["update", target] for target in ("after", "all", "crossed", "joined")),
+        ["merge", "tops"],
+        ["merge", "after", "tops"],
     ],
 }
 
@@ -1013,7 +1130,8 @@ def join(history, name, parents, change):
 
 
 def craft(history):
-    """Merges like `m1`, each naming a resolution of `f.md` broken one way.
+    """Merges like `m1`, each naming a resolution of `f.md` broken one way:
+    for `cat`, or, keeping one line twice, for a walk reaching across it.
 
     Written by hand, as the Rust tool never would: a revision is its bytes'
     digest, so each is a new revision beside `m1`, pinned by a bookmark.
@@ -1035,6 +1153,9 @@ def craft(history):
         "notlast": resolution.replace("+BOTH\n", "+BOTH\n\\ no newline\n"),
         "adjacent": resolution.replace("+BOTH\n", "+BOTH\ninsert\n+MORE\n"),
         "positioned": resolution.replace("insert\n", "insert 1\n"),
+        # Assembles, as `cat` reads it, to the first line twice; the walk
+        # of a merge reaching across it refuses the second keep.
+        "twice": re.sub(r"^result \S+", "result " + digest(b"a\na\nBOTH\nc\nd"), resolution.replace(f"keep {kept} 0 1\n", f"keep {kept} 0 1\nkeep {kept} 0 1\n", 1), flags=re.M),
     }
     (history / "operations" / "crafted").mkdir()
     (history / "revisions" / "crafted").mkdir()
@@ -1097,6 +1218,7 @@ def record(temporary, rust, corpus, pinned=None):
         write(f="z\na\nBOTH\nc\nd\ne\nx\n")
         rec("m2", "--merge", "x", "--merge", "z", "-m", "second merge")
         craft(store / "history")
+        join(store / "history", "across", ("twice", "x"), "t" * 24)
     elif corpus == "walked":
         def rec(name, *command):
             done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
@@ -1128,6 +1250,159 @@ def record(temporary, rust, corpus, pinned=None):
         write(f="top\na\nC\nd\n", g="one\nleft g\nside g\n")
         rec("side", "--onto", "left", "-m", "side")
         join(store / "history", "crossed", ("resolved", "side"), "p" * 24)
+    elif corpus in ("updating", "caught"):
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def base():
+            (store / "a.md").write_text("a\n")
+            (store / "b.bin").write_bytes(b"\x00base")
+            (store / "run.sh").write_text("#!/bin/sh\n")
+            (store / "run.sh").chmod(0o755)
+            (store / "keep.md").write_text("kept\n")
+            (store / "d").mkdir(exist_ok=True)
+            (store / "d" / "deep.md").write_text("deep\n")
+            for link, target in (("lnk", "a.md"), ("gone-link", "d/deep.md")):
+                if os.path.lexists(store / link):
+                    os.remove(store / link)
+                os.symlink(target, store / link)
+
+        base()
+        rec("base", "-m", "base")
+        (store / "a.md").write_text("a\nand more\n")
+        (store / "b.bin").write_bytes(b"\x00tip")
+        (store / "run.sh").chmod(0o644)
+        shutil.rmtree(store / "d")
+        os.remove(store / "lnk")
+        os.symlink("keep.md", store / "lnk")
+        os.remove(store / "gone-link")
+        (store / "new.md").write_text("new\n")
+        (store / "e").mkdir()
+        (store / "e" / "x.sh").write_text("#!/bin/sh\necho\n")
+        (store / "e" / "x.sh").chmod(0o755)
+        rec("tip", "-m", "tip")
+        (store / "new.md").unlink()
+        shutil.rmtree(store / "e")
+        base()
+        (store / "a.md").write_text("a\nside\n")
+        (store / "side.md").write_text("side\n")
+        rec("side", "--onto", "base", "-m", "side")
+        # The folder as the base left it, a stray nobody recorded, and the
+        # side's file edited and not recorded.
+        (store / "a.md").write_text("a\n")
+        (store / "stray.md").write_text("stray\n")
+        (store / "side.md").write_text("side, edited\n")
+        if corpus == "caught":
+            historica("update", "tip")
+            (store / "side.md").unlink()
+    elif corpus in ("meeting", "marked", "marked1", "resolved"):
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def write(**files):
+            for path, text in files.items():
+                (store / f"{path}.md").write_text(text)
+
+        write(f="a\nb\nc\n", g="one\ntwo\nthree\nfour\n", h="x\ny\nz\n", t="end", o="only\n", k="kept\n")
+        (store / "run.sh").write_text("#!/bin/sh\n")
+        rec("base", "-m", "base")
+        write(f="a\nLEFT\nc\n", g="zero\none\ntwo\nthree\nfour\n", h="x\nz\n", t="end, left", o="only, left\n")
+        (store / "run.sh").chmod(0o755)
+        rec("left", "-m", "left")
+        write(f="a\nRIGHT\nc\n", g="one\ntwo\nthree\nfour\nfive\n", h="x\ny\nY\nz\n", t="end, right\n", o="only\n", k="kept, and not recorded\n")
+        (store / "run.sh").chmod(0o644)
+        (store / "run.sh").write_text("#!/bin/sh\necho right\n")
+        write(k="kept\n")
+        rec("right", "--onto", "base", "-m", "right")
+        write(k="kept, and not recorded\n")
+        if corpus in ("marked", "marked1", "resolved"):
+            historica("merge")
+            text = (store / "t.md").read_text()
+            write(f="a\nLEFT and RIGHT\nc\n", t=text[: text.rindex("^^^ historica")], k="kept, and not recorded\nvvv historica: 0badbeef wrote vvv\n")
+            if corpus in ("marked1", "resolved"):
+                write(h="x\nY\nz\n")
+            if corpus == "resolved":
+                write(t="end, both ways\n", g="zero\none\ntwo, then\nthree\nfour\nfive\n")
+    elif corpus == "through":
+        # Two lines of work, and a folder whose files of lines are links:
+        # one to a file holding a head's version, one naming nothing yet,
+        # one to a plain copy of a file the tree runs, one to a file holding
+        # work nobody recorded; and a payload's path a link to its bytes.
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def write(**files):
+            for path, text in files.items():
+                (store / f"{path}.md").write_text(text)
+
+        write(f="a\nb\nc\n", g="g\n", h="h\n", o="o\n")
+        (store / "run.sh").write_text("#!/bin/sh\n")
+        (store / "run.sh").chmod(0o755)
+        (store / "p.bin").write_bytes(b"\x00p")
+        rec("base", "-m", "base")
+        write(f="a\nLEFT\nc\n", o="o, left\n")
+        rec("left", "-m", "left")
+        write(f="a\nRIGHT\nc\n", o="o\n")
+        rec("right", "--onto", "base", "-m", "right")
+        real = store / "real"
+        real.mkdir()
+        (real / "f.txt").write_text("a\nRIGHT\nc\n")
+        (real / "h.txt").write_text("mine\n")
+        (real / "run.txt").write_text("#!/bin/sh\n")
+        (real / "run.txt").chmod(0o644)
+        (real / "p.bin").write_bytes(b"\x00p")
+        for name, target in (("f.md", "real/f.txt"), ("g.md", "real/g.txt"), ("h.md", "real/h.txt"), ("run.sh", "real/run.txt"), ("p.bin", "real/p.bin")):
+            (store / name).unlink()
+            os.symlink(target, store / name)
+    elif corpus == "blocked":
+        (store / "a.md").write_text("a\n")
+        (store / "c.bin").write_bytes(b"\x00base")
+        (store / "t.md").write_text("t\n")
+        (store / "p.md").write_text("p\n")
+        (store / "m.bin").write_bytes(b"\x00missing")
+        (store / "secret.md").write_text("secret\n")
+        os.symlink("t.md", store / "lnk")
+        historica("record", "-m", "base")
+        historica("name", "base", "head", "--revision")
+        (store / "x.md").write_text("left x\n")
+        (store / "c.bin").write_bytes(b"\x00left")
+        (store / "n").write_text("n\n")
+        historica("record", "-m", "left")
+        historica("name", "left", "head", "--revision")
+        (store / "x.md").write_text("right x\n")
+        (store / "c.bin").write_bytes(b"\x00right")
+        (store / "n").unlink()
+        (store / "n").mkdir()
+        (store / "n" / "m.md").write_text("m\n")
+        historica("record", "--onto", "base", "-m", "right")
+        fields = subprocess.run([rust, "log", "--fields"], cwd=store, env=env, check=True, capture_output=True, text=True).stdout
+        left = (store / "history" / "names" / "left.txt").read_text().split()[1]
+        right = next(line.split()[0] for line in fields.splitlines()[1:] if "head" in line.split()[3] and line.split()[0] != left)
+        historica("name", "right", right, "--revision")
+        join(store / "history", "clash", ("left", "right"), "k" * 24)
+        # What stands in the folder's way.
+        (store / "a.md").unlink()
+        os.symlink("t.md", store / "a.md")
+        (store / "t.md").unlink()
+        (store / "t.md").mkdir()
+        (store / "t.md" / "inner.md").write_text("inner\n")
+        os.remove(store / "lnk")
+        (store / "lnk").write_text("not a link\n")
+        (store / "p.md").unlink()
+        os.mkfifo(store / "p.md")
+        (store / "history" / "skipped").mkdir(exist_ok=True)
+        (store / "history" / "skipped" / "secret.txt").write_text("skip secret.md\n")
+        missing = hashlib.sha256(b"\x00missing").hexdigest()
+        for payload in (store / "history" / "operations").rglob("*"):
+            if payload.is_file() and hashlib.sha256(payload.read_bytes()).hexdigest() == missing:
+                payload.unlink()
+        (store / "history" / "cache" / "operations.txt").unlink(missing_ok=True)
     elif corpus == "log":
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "first: notes")
@@ -1418,6 +1693,55 @@ def record(temporary, rust, corpus, pinned=None):
         (store / "history" / "skipped" / "drafts.txt").write_text("skip-name cafe\u0301-*\n")
         (store / "id\u00e9e.md").write_text("skipped\n")
         (store / "caf\u00e9-draft.txt").write_text("skipped by name\n")
+    elif corpus == "renormal":
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def relink(name, target):
+            if os.path.lexists(store / name):
+                os.remove(store / name)
+            os.symlink(target, store / name)
+
+        def first():
+            (store / "cafe\u0301.md").write_text("a\nb\nc\n")
+            (store / "re\u0301sume\u0301").mkdir(exist_ok=True)
+            (store / "re\u0301sume\u0301" / "cv.md").write_text("cv\n")
+            (store / "photo\u0301.bin").write_bytes(b"\x00one")
+            (store / "run\u0301.sh").write_text("#!/bin/sh\n")
+            (store / "run\u0301.sh").chmod(0o644)
+            relink("li\u0301nk", "cafe\u0301.md")
+
+        first()
+        rec("first", "-m", "first")
+        (store / "cafe\u0301.md").write_text("A\nb\nc\n")
+        (store / "photo\u0301.bin").write_bytes(b"\x00two")
+        (store / "run\u0301.sh").chmod(0o755)
+        relink("li\u0301nk", "re\u0301sume\u0301/cv.md")
+        (store / "e\u0301te\u0301.md").write_text("summer\n")
+        (store / "re\u0301sume\u0301" / "new.md").write_text("new\n")
+        (store / "di\u0301r").mkdir()
+        (store / "di\u0301r" / "only.md").write_text("only\n")
+        rec("second", "-m", "second")
+        # A line of work beside it, from the first, and the folder back in
+        # step with the second.
+        (store / "e\u0301te\u0301.md").unlink()
+        (store / "re\u0301sume\u0301" / "new.md").unlink()
+        shutil.rmtree(store / "di\u0301r")
+        first()
+        (store / "cafe\u0301.md").write_text("a\nb\nC\n")
+        (store / "side\u0301.md").write_text("side\n")
+        rec("side", "--onto", "first", "-m", "side")
+        (store / "side\u0301.md").unlink()
+        (store / "cafe\u0301.md").write_text("A\nb\nc\n")
+        (store / "photo\u0301.bin").write_bytes(b"\x00two")
+        (store / "run\u0301.sh").chmod(0o755)
+        relink("li\u0301nk", "re\u0301sume\u0301/cv.md")
+        (store / "e\u0301te\u0301.md").write_text("summer\n")
+        (store / "re\u0301sume\u0301" / "new.md").write_text("new\n")
+        (store / "di\u0301r").mkdir()
+        (store / "di\u0301r" / "only.md").write_text("only\n")
     elif corpus == "unspelled":
         (store / "notes.md").write_text("one\n")
         (store / "a.md").write_text("a\n")
@@ -1634,7 +1958,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("normal", "unspelled", "unnormal", "unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "forgotten", "forgetting")
+        recorded = corpus in ("normal", "renormal", "unspelled", "unnormal", "unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked", "meeting", "marked", "marked1", "resolved", "through", "forgotten", "forgetting")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -1645,7 +1969,7 @@ def check_store(temporary):
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too; and a
             # record that is not a dry run, the whole store it wrote.
-            writes = command[0] in ("record", "name", "init", "forget", *REWRITES)
+            writes = command[0] in ("record", "name", "init", "update", "merge", "forget", *REWRITES)
             recording = command[0] in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
             # `forget` destroys what `cache/` holds copies of, so its store is
             # compared whole, `cache/` and all.
@@ -2368,6 +2692,90 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "update writes over bytes no revision records",
+            "        Bool.pick(Step, Rev.member(recorded, d), Step.Write{}, Step.Refuse{UNRECORDED()}))",
+            "        Bool.pick(Step, True{}, Step.Write{}, Step.Refuse{UNRECORDED()}))",
+            "update_lemmas.file_sound",
+            "update.bend",
+        ),
+        (
+            "update keeps a file whose mode is not the one recorded",
+            "        Bool.pick(Step, Bool.xor(r, runs(mode)), Step.Mode{}, Step.Keep{}),",
+            "        Step.Keep{},",
+            "update_lemmas.file_sound",
+            "update.bend",
+        ),
+        (
+            "update takes away a file nobody recorded",
+            "      Bool.pick(Leaving, tracked, Leaving.Leave{}, Leaving.Stay{})",
+            "      Leaving.Remove{}",
+            "update_lemmas.went_of",
+            "update.bend",
+        ),
+        (
+            "a resolution runs a name into a keep it does not continue",
+            "Bool.and(String.eq(d, e), Nat.is_eq(1n+m, first))",
+            "Bool.and(String.eq(d, e), Nat.is_eq(m, first))",
+            "conflict_lemmas.put_kept",
+            "conflict.bend",
+        ),
+        (
+            "a resolution keeps a line the person deleted",
+            "    case Ops.Del{x} <> rest n <> more:\n      said.of(rest, more)",
+            "    case Ops.Del{x} <> rest n <> more:\n      Said.Kept{n} <> said.of(rest, more)",
+            "conflict_lemmas.said_fit",
+            "conflict.bend",
+        ),
+        (
+            "cat reads a keep from one item past where it starts",
+            "Done{List.take(&2, Ops.Item, List.drop(&2, Ops.Item, items, first), count)}",
+            "Done{List.take(&2, Ops.Item, List.drop(&2, Ops.Item, items, 1n+first), count)}",
+            "conflict_lemmas.keep_one.got",
+            "commands.bend",
+        ),
+        (
+            "merge labels a run where nothing met",
+            "Bool.pick(String, open, closing(), SNil{}) ++ Ops.text(its)) ++ render.go",
+            "label(names, a) ++ Ops.text(its)) ++ render.go",
+            "conflict_lemmas.put_render.pick",
+            "conflict.bend",
+        ),
+        (
+            "merge leaves uncounted a region that meets at a file's end",
+            "      Bool.pick(Nat, hit, 1n, 0n)",
+            "      0n",
+            "conflict_lemmas.regions_hit",
+            "conflict.bend",
+        ),
+        (
+            "merge leaves out the current heads nobody named",
+            "    typed.enough(typed.standing(Upd.heads.sorted(fs), named))",
+            "    typed.enough(named)",
+            "merging_lemmas.joined_all",
+            "merging.bend",
+        ),
+        (
+            "merge joins what a person typed rather than the revision it names",
+            "        typed.named(fs, bs, rest, typed.add(acc, Main.id_of(f), s))",
+            "        typed.named(fs, bs, rest, typed.add(acc, s, s))",
+            "merging_lemmas.named_held",
+            "merging.bend",
+        ),
+        (
+            "merge writes over text nobody recorded",
+            "Laid{Bool.pick(List<&2, Act>, Bool.and(text, unrecorded(",
+            "Laid{Bool.pick(List<&2, Act>, Bool.and(Bool.not(text), unrecorded(",
+            "merging_lemmas.spares",
+            "merging.bend",
+        ),
+        (
+            "merge lays a payload over work nobody recorded",
+            "Bool.pick(List<&2, Act>, unrecorded(held, p <> heads), [Act.Said{UNRECORDED(at)}], [Act.Whole{at, from, p, m}])",
+            "Bool.pick(List<&2, Act>, False{}, [Act.Said{UNRECORDED(at)}], [Act.Whole{at, from, p, m}])",
+            "merging_lemmas.whole_ok",
+            "merging.bend",
+        ),
+        (
             "show takes a document as standing in whatever its header forgets",
             "    case True{} True{} _:\n      Taken.Stands{}",
             "    case _ True{} _:\n      Taken.Stands{}",
@@ -2812,9 +3220,9 @@ def check_mutations(temporary):
         ),
         (
             "record diffs an edited file against nothing",
-            "edited.content(f, p, Ops.diff(before_of(befores, f), Ops.from_text(Utf8.decode(bs))))",
-            "edited.content(f, p, Ops.diff(Nil{}, Ops.from_text(Utf8.decode(bs))))",
-            "record_lemmas.held_state",
+            "edited.content(f, p, Ops.diff(before_of(befores, f), after))",
+            "edited.content(f, p, Ops.diff(Nil{}, after))",
+            "record_lemmas.lines_state",
             "commands.bend",
         ),
         (

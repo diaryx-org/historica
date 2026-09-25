@@ -26,7 +26,7 @@ import ./nfc.bend as Nfc
 # and whether the parents being joined leave a file of lines differently.
 type Seen is Data:
   Seen{path: String, entry: Maybe<&2, Tree.Entry>, found: Maybe<&2, Folder.Found>,
-       digest: String, before: Maybe<&2, String>, text: Bool, shown: Maybe<&2, String>, proposed: Bool}
+       digest: String, before: Maybe<&2, String>, text: Bool, shown: Maybe<&2, String>, proposed: Bool, marked: Nat}
 
 # What one path contributes.
 type Obs is Data:
@@ -39,6 +39,7 @@ type Obs is Data:
   Obs.Points{path: String, target: String, held: Maybe<&2, Tree.Entry>, shown: Maybe<&2, String>}
   Obs.Arrived{path: String, digest: String}
   Obs.Emptied{path: String}
+  Obs.Marked{path: String, count: Nat}
 
 # The digest of no bytes at all: every empty file has it, so it matches
 # nothing.
@@ -105,22 +106,26 @@ def lines.agreed(+path: String, +e: Tree.Entry, +digest: String, +before: Maybe<
 
 # Where the parents being joined leave a file of lines differently, the
 # merge owes a resolution of whatever the folder holds, so there is no
-# digest to settle it by — except that the grammar has no resolution of
-# nothing, so an emptied file states no edit, and `record` refuses it: it
-# is a merge and a deletion at once, and the deletion belongs in the
-# revision after. Marker lines the renderer wrote, which `record` refuses
-# too, are not modelled here.
-def lines.proposed(+path: String, +e: Tree.Entry, +runs: Bool, +text: Bool, empty: Bool) -> List<&2, Obs>:
+# digest to settle it by. Two things stop that resolution being stated: a
+# line the renderer wrote still standing in the file — `marked`, how many,
+# which `record` refuses — and a file emptied, since the grammar has no
+# resolution of nothing: that is a merge and a deletion at once, and the
+# deletion belongs in the revision after.
+def lines.resolved(+path: String, +e: Tree.Entry, +runs: Bool, +text: Bool, empty: Bool, +marked: Nat) -> List<&2, Obs>:
+  Bool.pick(List<&2, Obs>, Nat.is_gt(marked, 0n), List.append(&2, Obs, mode(path, e, runs), [Obs.Marked{path, marked}]),
+    Bool.pick(List<&2, Obs>, empty, List.append(&2, Obs, mode(path, e, runs), [Obs.Emptied{path}]), lines.changed(path, e, runs, text)))
+
+def lines.proposed(+path: String, +e: Tree.Entry, +runs: Bool, +text: Bool, empty: Bool, +marked: Nat) -> List<&2, Obs>:
   match text:
     case False{}:
       lines.changed(path, e, runs, text)
     case True{}:
-      Bool.pick(List<&2, Obs>, empty, List.append(&2, Obs, mode(path, e, runs), [Obs.Emptied{path}]), lines.changed(path, e, runs, text))
+      lines.resolved(path, e, runs, text, empty, marked)
 
-def lines(+path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, +text: Bool, proposed: Bool, empty: Bool) -> List<&2, Obs>:
+def lines(+path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, +text: Bool, proposed: Bool, empty: Bool, +marked: Nat) -> List<&2, Obs>:
   match proposed:
     case True{}:
-      lines.proposed(path, e, runs, text, empty)
+      lines.proposed(path, e, runs, text, empty, marked)
     case False{}:
       lines.agreed(path, e, digest, before, runs, text)
 
@@ -135,14 +140,14 @@ def dropped(+path: String, e: Tree.Entry, +before: Maybe<&2, String>) -> Obs:
 
 # A regular file the position holds: of the kind it was added as, or a link
 # there before, which is a drop and an add.
-def held_file(+path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, +text: Bool, proposed: Bool, empty: Bool) -> List<&2, Obs>:
+def held_file(+path: String, +e: Tree.Entry, +digest: String, +before: Maybe<&2, String>, +runs: Bool, +text: Bool, proposed: Bool, empty: Bool, +marked: Nat) -> List<&2, Obs>:
   match e:
     case Tree.Entry{f, p, Tree.Link{}, y, g, m}:
       [Obs.Dropped{f, path, None{}}, Obs.Added{path}, Obs.Arrived{path, digest}]
     case Tree.Entry{f, p, Tree.Whole{}, y, g, m}:
       whole(path, e, digest, runs, y)
     case Tree.Entry{f, p, Tree.Lines{}, y, g, m}:
-      lines(path, e, digest, before, runs, text, proposed, empty)
+      lines(path, e, digest, before, runs, text, proposed, empty, marked)
 
 # A link the position holds a file at: a drop and an add again.
 def held_link(+path: String, +target: String, +e: Tree.Entry, shown: Maybe<&2, String>, +before: Maybe<&2, String>) -> List<&2, Obs>:
@@ -155,17 +160,17 @@ def held_link(+path: String, +target: String, +e: Tree.Entry, shown: Maybe<&2, S
 # One path: the position's side against the folder's.
 def seen(s: Seen) -> List<&2, Obs>:
   match s:
-    case Seen{+path, Some{+e}, None{}, digest, before, text, shown, proposed}:
+    case Seen{+path, Some{+e}, None{}, digest, before, text, shown, proposed, mk}:
       [dropped(path, e, before)]
-    case Seen{+path, None{}, Some{Folder.Found.Link{q, +target}}, digest, before, text, shown, proposed}:
+    case Seen{+path, None{}, Some{Folder.Found.Link{q, +target}}, digest, before, text, shown, proposed, mk}:
       link(path, target, None{}, None{}, True{})
-    case Seen{+path, None{}, Some{Folder.Found.File{q, runs, n}}, +digest, before, text, shown, proposed}:
+    case Seen{+path, None{}, Some{Folder.Found.File{q, runs, n}}, +digest, before, text, shown, proposed, mk}:
       [Obs.Added{path}, Obs.Arrived{path, digest}]
-    case Seen{+path, Some{+e}, Some{Folder.Found.Link{q, +target}}, digest, before, text, shown, proposed}:
+    case Seen{+path, Some{+e}, Some{Folder.Found.Link{q, +target}}, digest, before, text, shown, proposed, mk}:
       held_link(path, target, e, shown, before)
-    case Seen{+path, Some{+e}, Some{Folder.Found.File{q, runs, +n}}, +digest, before, text, shown, proposed}:
-      held_file(path, e, digest, before, runs, text, proposed, Nat.is_eq(n, 0n))
-    case Seen{path, None{}, None{}, digest, before, text, shown, proposed}:
+    case Seen{+path, Some{+e}, Some{Folder.Found.File{q, runs, +n}}, +digest, before, text, shown, proposed, +mk}:
+      held_file(path, e, digest, before, runs, text, proposed, Nat.is_eq(n, 0n), mk)
+    case Seen{path, None{}, None{}, digest, before, text, shown, proposed, mk}:
       Nil{}
 
 def seens(ss: List<&2, Seen>) -> List<&2, Obs>:
@@ -274,6 +279,25 @@ def added(os: List<&2, Obs>) -> List<&2, String>:
       p <> added(rest)
     case o <> rest:
       added(rest)
+
+# The files a renderer's lines still stand in, each with how many, in
+# path order.
+def marked.go(os: List<&2, Obs>) -> List<&2, T.Split>:
+  match os:
+    case Nil{}:
+      Nil{}
+    case Obs.Marked{p, n} <> rest:
+      T.Split{p, Nat.show(n)} <> marked.go(rest)
+    case o <> rest:
+      marked.go(rest)
+
+def marked.path(s: T.Split) -> String:
+  match s:
+    case T.Split{p, n}:
+      p
+
+def marked(os: List<&2, Obs>) -> List<&2, T.Split>:
+  List.sort(~T.Split, ~(a => b => String.is_le(marked.path(a), marked.path(b))), marked.go(os))
 
 def edited(os: List<&2, Obs>) -> List<&2, String>:
   match os:
@@ -591,10 +615,11 @@ def renames_ok(+deps: List<&2, T.Split>, +arrs: List<&2, T.Split>, rs: List<&2, 
 # ----------
 
 # What `status` prints of it: the facts by kind and then path, what nothing
-# here can take, the paths several files claim with how many, the byte
-# payloads a person has to accept, and the renames it noticed.
+# here can take, the paths several files claim with how many, the files the
+# renderer's lines still stand in, the byte payloads a person has to
+# accept, and the renames it noticed.
 type Survey is Data:
-  Survey{facts: List<&2, T.Split>, refused: List<&2, T.Split>, claimed: List<&2, T.Split>, accept: List<&2, String>, renames: List<&2, T.Split>}
+  Survey{facts: List<&2, T.Split>, refused: List<&2, T.Split>, claimed: List<&2, T.Split>, marked: List<&2, T.Split>, accept: List<&2, String>, renames: List<&2, T.Split>}
 
 def fact(+kind: String, ps: List<&2, String>) -> List<&2, T.Split>:
   match ps:
@@ -627,7 +652,7 @@ def arrives_once(+arriving: Set(), fs: List<&2, T.Split>) -> Bool:
 def of(+t: Tree.Tree(), +cs: List<&2, T.Split>, walked: List<&2, T.Split>, +os: List<&2, Obs>) -> Survey:
   +gone = Set.from_list(dropped_files(os))
   +arriving = Set.from_list(added(os))
-  Survey{facts(os, links(t, gone, arriving, os)), List.append(&2, T.Split, walked, refusals(os)), cs, accepts(os), renames(departed(os), arrived(os))}
+  Survey{facts(os, links(t, gone, arriving, os)), List.append(&2, T.Split, walked, refusals(os)), cs, marked(os), accepts(os), renames(departed(os), arrived(os))}
 
 # The survey of a folder against a position `t`: `held` is every path the
 # folder holds, `walked` what its walk refused, and `ss` every path neither
@@ -638,12 +663,12 @@ def survey(+t: Tree.Tree(), +held: Set(), walked: List<&2, T.Split>, ss: List<&2
 
 def survey.refused(s: Survey) -> List<&2, T.Split>:
   match s:
-    case Survey{facts, refused, claimed, accept, renames}:
+    case Survey{facts, refused, claimed, marked, accept, renames}:
       refused
 
 def survey.renames(s: Survey) -> List<&2, T.Split>:
   match s:
-    case Survey{facts, refused, claimed, accept, renames}:
+    case Survey{facts, refused, claimed, marked, accept, renames}:
       renames
 
 # What `LAWS.status_refuses_what_the_folder_holds` asks of the refusals:
@@ -660,7 +685,7 @@ def found_at(ss: List<&2, Seen>, +p: String) -> Bool:
   match ss:
     case Nil{}:
       False{}
-    case Seen{path, e, found, d, b, x, sh, pr} <> rest:
+    case Seen{path, e, found, d, b, x, sh, pr, mk} <> rest:
       Bool.or(Bool.and(String.eq(path, p), Maybe.is_some(&2, Folder.Found, found)), found_at(rest, p))
 
 def refuses_found(+walked: List<&2, T.Split>, +ss: List<&2, Seen>, rs: List<&2, T.Split>) -> Bool:
@@ -673,7 +698,7 @@ def refuses_found(+walked: List<&2, T.Split>, +ss: List<&2, Seen>, rs: List<&2, 
 # Whether the folder says nothing the position does not.
 def is_quiet(s: Survey) -> Bool:
   match s:
-    case Survey{facts, refused, claimed, accept, renames}:
+    case Survey{facts, refused, claimed, marked, accept, renames}:
       Bool.and(Bool.and(List.is_empty(&2, T.Split, facts), List.is_empty(&2, T.Split, refused)), Bool.and(List.is_empty(&2, T.Split, claimed), List.is_empty(&2, String, accept)))
 
 # Recording

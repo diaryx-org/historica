@@ -68,6 +68,9 @@ import ./record_lemmas.bend as RecordL
 import ./rewrite_lemmas.bend as RewriteL
 import ./forget_lemmas.bend as ForgetL
 import ./forget.bend as Fg
+import ./update_lemmas.bend as UpdL
+import ./conflict_lemmas.bend as ConflictL
+import ./merging_lemmas.bend as MergingL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -699,9 +702,6 @@ def Laws.status_compares_with_the_revisions_tree(fs, p):
 def Laws.status_reads_only_lines(dg, bf, eds, os, hs):
   StatusL.reads_only_lines(dg, bf, eds, os, hs)
 
-def Laws.status_surveys_each_path(t, dg, bf, reads, hs):
-  StatusL.seens_ok(t, dg, bf, reads, hs)
-
 def Laws.status_believes_what_is_stated(older, ds, left, eds, os, hs, m, e, h):
   StatusL.believes(older, ds, left, eds, os, hs, m, e, h)
 
@@ -749,9 +749,6 @@ def Laws.a_rename_keeps_each_file_once(t, ats, ms, t2, moved, e):
 def Laws.a_rename_puts_each_file_where_it_was_said(t, ats, ms, t2, moved, e, g, hg):
   %Equal.sym(Tree.Tree(), t2, Sv.moved_all(moved, t), SurveyL.placed_moved(t, ats, ms, t2, moved, e)) : {Tree.path(_, g) == Maybe.or(&2, String, Sv.last_move(moved, g), Tree.path(t, g)) : Maybe<&2, String>}
   SurveyL.path_moved(moved, t, g, hg)
-
-def Laws.record_refuses_only_what_it_looks_at(only, t, t0, found, walked, held, dg, bf, reads, moves):
-  SurveyL.restricted_ok(only, t, t0, found, walked, held, dg, bf, reads, moves)
 
 def Laws.a_summary_fits_its_limit(message, change):
   NamingL.summary_fits(message, change)
@@ -893,3 +890,33 @@ def Laws.chain_replays_like_through_standins(ds1, ds2, r1, r2, hd, hr):
 
 def Laws.forgetting_destroys_only_text(ops, ps, t, i):
   ForgetL.ops_forgot(ops, ps, t, i)
+
+def Laws.update_reads_its_words(ws, c, e):
+  UpdL.args_said(ws, c, e)
+
+def Laws.update_lands(tr, looks, gones, p, e):
+  UpdL.plan_lands(tr, looks, gones, p, e)
+
+def Laws.update_spares_the_unrecorded(tr, looks, gones, p, e):
+  UpdL.plan_spares(tr, looks, gones, p, e)
+
+def Laws.merge_resolution_reads_back(ds, j, s, hm, doc, e):
+  ConflictL.resolved(ds, j, s, hm, doc, e)
+
+def Laws.merge_renders_the_uncontested_as_itself(j, e):
+  ConflictL.render_plain(j, e)
+
+def Laws.status_surveys_each_path(t, dg, bf, reads, props, hs):
+  StatusL.seens_ok(t, dg, bf, reads, props, hs)
+
+def Laws.record_refuses_only_what_it_looks_at(only, t, t0, found, walked, held, dg, bf, reads, props, moves):
+  SurveyL.restricted_ok(only, t, t0, found, walked, held, dg, bf, reads, props, moves)
+
+def Laws.merge_joins_held_revisions(fs, bs, ss, xs, e):
+  MergingL.joined_held(fs, bs, ss, xs, e)
+
+def Laws.merge_joins_every_head(fs, bs, ss, xs, e):
+  MergingL.joined_all(fs, bs, ss, xs, e)
+
+def Laws.merge_spares_the_unrecorded(t, cs, located, p):
+  MergingL.spares(t, cs, located, p)
