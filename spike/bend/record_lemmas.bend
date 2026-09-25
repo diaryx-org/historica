@@ -32,6 +32,7 @@ import ./equality_lemmas.bend as Eq
 import ./naming_lemmas.bend as NamingL
 import ./fetch_lemmas.bend as FetchL
 import ./graph_lemmas.bend as GL
+import ./conflict_lemmas.bend as ConflictL
 
 # Its words
 # ---------
@@ -1834,201 +1835,160 @@ def planned_once_list(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), +walk
   Equal.trans(Bool, Main.recorded.once.list(xs, fs), Main.recorded.once(Set.from_list(xs), fs), True{}, Equal.sym(Bool, Main.recorded.once(Set.from_list(xs), fs), Main.recorded.once.list(xs, fs), once_list(xs, fs)), planned_once(t, looked, held, walked, ss, moves))
 
 
-# What `record` resolves where parents are joined
-# -----------------------------------------------
+# Every resolution it states assembles to the folder's lines
+# --------------------------------------------------------
 
-def rdisc2(-E: Data, -A: Data, r: Result<&2, &2, E, A>) -> Type:
-  match r:
-    case Done{x}:
-      Empty
-    case Fail{e}:
-      Unit
+# What `LAWS.record_resolves_as_the_walk_proposes` asks of what `record`
+# states: each resolution, assembled against the store's documents as `cat`
+# assembles one, gives the lines the folder holds at its path.
+def resolution.read(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, c: Main.Content) -> Bool:
+  match c:
+    case Main.Content.Resolved{f, +p, d}:
+      Main.content.applied(Main.assemble(ds, d), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))))
+    case _:
+      True{}
 
-def fail_done2(-E: Data, -A: Data, -e: E, -x: A, h: {Fail{e} == Done{x} : Result<&2, &2, E, A>}) -> Empty:
-  %h : {rdisc2(E, A, _) : Type}
-  Unit{}
+def resolutions.read(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Main.Content>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case c <> rest:
+      Bool.and(resolution.read(ds, reads, c), resolutions.read(ds, reads, rest))
 
-def done_eq2(-E: Data, -A: Data, -a: A, -b: A, h: {Done{a} == Done{b} : Result<&2, &2, E, A>}) -> {a == b : A}:
-  Equal.cong(Result<&2, &2, E, A>, A, r => Result.default(&2, &2, E, A, r, a), Done{a}, Done{b}, h)
+# Whether the store's documents mint every element each proposal of the
+# walk stands under.
+def proposals.minted(+ds: List<&2, Store.Doc>, bs: List<&2, Main.Before>) -> Bool:
+  match bs:
+    case Nil{}:
+      True{}
+    case Main.Before.Proposed{f, j} <> rest:
+      Bool.and(Main.all_mint(ds, Conflict.named(j)), proposals.minted(ds, rest))
+    case b <> rest:
+      proposals.minted(ds, rest)
 
-# Of the befores the joining reads, one proposed for a file came from
-# `joined`: the walk of the parents.
-def jb.pick(c: Bool, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +g: String, +f: String, +jj: Conflict.Joined, +more: List<&2, Main.Before>, -k: Conflict.Joined, ec: {String.eq(g, f) == c : Bool}, ea: {Main.joined(fs, ds, ps, g) == Done{jj} : Result<&2, &2, String, Conflict.Joined>}, h: {Bool.pick(Maybe<&2, Conflict.Joined>, c, Some{jj}, Main.proposed_of(more, f)) == Some{k} : Maybe<&2, Conflict.Joined>}, ih: {Main.proposed_of(more, f) == Some{k} : Maybe<&2, Conflict.Joined>} -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}) -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}:
+def minted_pick(c: Bool, -j: Conflict.Joined, +ds: List<&2, Store.Doc>, +rest: List<&2, Main.Before>, +f: String, -k: Conflict.Joined, h: {Bool.pick(Maybe<&2, Conflict.Joined>, c, Some{j}, Main.proposed_of(rest, f)) == Some{k} : Maybe<&2, Conflict.Joined>}, hj: {Main.all_mint(ds, Conflict.named(j)) == True{} : Bool}, ih: {Main.proposed_of(rest, f) == Some{k} : Maybe<&2, Conflict.Joined>} -> {Main.all_mint(ds, Conflict.named(k)) == True{} : Bool}) -> {Main.all_mint(ds, Conflict.named(k)) == True{} : Bool}:
   match c:
     case True{}:
-      %S.eq_true(g, f, ec) : {Main.joined(fs, ds, ps, _) == Done{k} : Result<&2, &2, String, Conflict.Joined>}
-      %some_eq(Conflict.Joined, jj, k, h) : {Main.joined(fs, ds, ps, g) == Done{_} : Result<&2, &2, String, Conflict.Joined>}
-      ea
+      (%Equal.cong(Maybe<&2, Conflict.Joined>, Conflict.Joined, m => Maybe.default(&2, Conflict.Joined, m, j), Some{j}, Some{k}, h) : {Main.all_mint(ds, Conflict.named(_)) == True{} : Bool}; hj)
     case False{}:
       ih(h)
 
-def jb.map(r: Result<&2, &2, String, Conflict.Joined>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +g: String, +er: {Main.joined(fs, ds, ps, g) == r : Result<&2, &2, String, Conflict.Joined>}, +more: List<&2, Main.Before>, +f: String, -k: Conflict.Joined, -b: Main.Before, eb: {Result.map(&2, &2, String, Conflict.Joined, Main.Before, j => Main.Before.Proposed{g, j}, r) == Done{b} : Result<&2, &2, String, Main.Before>}, h: {Main.proposed_of(b <> more, f) == Some{k} : Maybe<&2, Conflict.Joined>}, ih: {Main.proposed_of(more, f) == Some{k} : Maybe<&2, Conflict.Joined>} -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}) -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}:
-  match r:
-    case Fail{x}:
-      Empty.absurd({Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}, fail_done2(String, Main.Before, x, b, eb))
-    case Done{+jj}:
-      jb.pick(String.eq(g, f), fs, ds, ps, g, f, jj, more, k, {==}, er,
-        (%Equal.sym(Main.Before, Main.Before.Proposed{g, jj}, b, done_eq2(String, Main.Before, Main.Before.Proposed{g, jj}, b, eb)) : {Main.proposed_of(_ <> more, f) == Some{k} : Maybe<&2, Conflict.Joined>}; h), ih)
-
-def jb.agree_pick(c: Bool, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +g: String, +x: List<&2, Ops.Item>, +more: List<&2, Main.Before>, +f: String, -k: Conflict.Joined, -b: Main.Before, eb: {Bool.pick(Result<&2, &2, String, Main.Before>, c, Done{Main.Before{g, x}}, Result.map(&2, &2, String, Conflict.Joined, Main.Before, j => Main.Before.Proposed{g, j}, Main.joined(fs, ds, ps, g))) == Done{b} : Result<&2, &2, String, Main.Before>}, h: {Main.proposed_of(b <> more, f) == Some{k} : Maybe<&2, Conflict.Joined>}, ih: {Main.proposed_of(more, f) == Some{k} : Maybe<&2, Conflict.Joined>} -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}) -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}:
-  match c:
-    case True{}:
-      ih((%Equal.sym(Main.Before, Main.Before{g, x}, b, done_eq2(String, Main.Before, Main.Before{g, x}, b, eb)) : {Main.proposed_of(_ <> more, f) == Some{k} : Maybe<&2, Conflict.Joined>}; h))
-    case False{}:
-      jb.map(Main.joined(fs, ds, ps, g), fs, ds, ps, g, {==}, more, f, k, b, eb, h, ih)
-
-def jb.agree(xs: List<&2, List<&2, Ops.Item>>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +g: String, +more: List<&2, Main.Before>, +f: String, -k: Conflict.Joined, -b: Main.Before, eb: {Main.joining.agree(fs, ds, ps, g, xs) == Done{b} : Result<&2, &2, String, Main.Before>}, h: {Main.proposed_of(b <> more, f) == Some{k} : Maybe<&2, Conflict.Joined>}, ih: {Main.proposed_of(more, f) == Some{k} : Maybe<&2, Conflict.Joined>} -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}) -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}:
-  match xs:
+# The proposal `record` finds for a file is one the documents mint.
+def proposed_minted(bs: List<&2, Main.Before>, +ds: List<&2, Store.Doc>, +f: String, -k: Conflict.Joined, +hm: {proposals.minted(ds, bs) == True{} : Bool}, h: {Main.proposed_of(bs, f) == Some{k} : Maybe<&2, Conflict.Joined>}) -> {Main.all_mint(ds, Conflict.named(k)) == True{} : Bool}:
+  match bs:
     case Nil{}:
-      ih((%Equal.sym(Main.Before, Main.Before{g, Nil{}}, b, done_eq2(String, Main.Before, Main.Before{g, Nil{}}, b, eb)) : {Main.proposed_of(_ <> more, f) == Some{k} : Maybe<&2, Conflict.Joined>}; h))
-    case +x <> +rest:
-      jb.agree_pick(Main.all_items_eq(rest, x), fs, ds, ps, g, x, more, f, k, b, eb, h, ih)
+      Empty.absurd({Main.all_mint(ds, Conflict.named(k)) == True{} : Bool}, none_some(Conflict.Joined, k, h))
+    case Main.Before.Proposed{+g, +j} <> +rest:
+      minted_pick(String.eq(g, f), j, ds, rest, f, k, h, SortL.band_l(Main.all_mint(ds, Conflict.named(j)), proposals.minted(ds, rest), hm), h2 => proposed_minted(rest, ds, f, k, SortL.band_r(Main.all_mint(ds, Conflict.named(j)), proposals.minted(ds, rest), hm), h2))
+    case Main.Before{g, its} <> +rest:
+      proposed_minted(rest, ds, f, k, hm, h)
 
-def said_done(-A: Data, r: Result<&2, &2, String, A>, -y: A, e: {Main.said.r(A, r) == Done{y} : Result<&2, &2, Main.Refused, A>}) -> {r == Done{y} : Result<&2, &2, String, A>}:
-  match r:
-    case Fail{x}:
-      Empty.absurd({Fail{x} == Done{y} : Result<&2, &2, String, A>}, fail_done2(Main.Refused, A, Main.Refused{1, x}, y, e))
-    case Done{z}:
-      %done_eq2(Main.Refused, A, z, y, e) : {Done{z} == Done{_} : Result<&2, &2, String, A>}
-      {==}
-
-def jr.c(r3: Result<&2, &2, Main.Refused, List<&2, Main.Before>>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +g: String, +xs: List<&2, List<&2, Ops.Item>>, +rest: List<&2, String>, +er3: {Main.joinings.r(fs, ds, ps, rest) == r3 : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, -b: Main.Before, +eb: {Main.joining.agree(fs, ds, ps, g, xs) == Done{b} : Result<&2, &2, String, Main.Before>}, -bs: List<&2, Main.Before>, e: {Result.bind(&2, &2, Main.Refused, List<&2, Main.Before>, List<&2, Main.Before>, r3, more => Done{b <> more}) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +f: String, -k: Conflict.Joined, h: {Main.proposed_of(bs, f) == Some{k} : Maybe<&2, Conflict.Joined>}, ih: @b2: List<&2, Main.Before> -> {Main.joinings.r(fs, ds, ps, rest) == Done{b2} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>} -> {Main.proposed_of(b2, f) == Some{k} : Maybe<&2, Conflict.Joined>} -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}) -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}:
-  match r3:
-    case Fail{x}:
-      Empty.absurd({Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}, B.fail_done(List<&2, Main.Before>, x, bs, e))
-    case Done{+more}:
-      jb.agree(xs, fs, ds, ps, g, more, f, k, b, eb, (%Equal.sym(List<&2, Main.Before>, b <> more, bs, B.done_eq(List<&2, Main.Before>, b <> more, bs, e)) : {Main.proposed_of(_, f) == Some{k} : Maybe<&2, Conflict.Joined>}; h), h3 => ih(more, er3, h3))
-
-def jr.b(r2: Result<&2, &2, Main.Refused, Main.Before>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +g: String, +xs: List<&2, List<&2, Ops.Item>>, +er2: {Main.said.r(Main.Before, Main.joining.agree(fs, ds, ps, g, xs)) == r2 : Result<&2, &2, Main.Refused, Main.Before>}, +rest: List<&2, String>, -bs: List<&2, Main.Before>, e: {Result.bind(&2, &2, Main.Refused, Main.Before, List<&2, Main.Before>, r2, j => Result.bind(&2, &2, Main.Refused, List<&2, Main.Before>, List<&2, Main.Before>, Main.joinings.r(fs, ds, ps, rest), more => Done{j <> more})) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +f: String, -k: Conflict.Joined, h: {Main.proposed_of(bs, f) == Some{k} : Maybe<&2, Conflict.Joined>}, ih: @b2: List<&2, Main.Before> -> {Main.joinings.r(fs, ds, ps, rest) == Done{b2} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>} -> {Main.proposed_of(b2, f) == Some{k} : Maybe<&2, Conflict.Joined>} -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}) -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}:
-  match r2:
-    case Fail{x}:
-      Empty.absurd({Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}, B.fail_done(List<&2, Main.Before>, x, bs, e))
-    case Done{+b}:
-      jr.c(Main.joinings.r(fs, ds, ps, rest), fs, ds, ps, g, xs, rest, {==}, b, said_done(Main.Before, Main.joining.agree(fs, ds, ps, g, xs), b, er2), bs, e, f, k, h, ih)
-
-def jr.a(r1: Result<&2, &2, Main.Refused, List<&2, List<&2, Ops.Item>>>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +g: String, +rest: List<&2, String>, -bs: List<&2, Main.Before>, e: {Result.bind(&2, &2, Main.Refused, List<&2, List<&2, Ops.Item>>, List<&2, Main.Before>, r1, xs => Result.bind(&2, &2, Main.Refused, Main.Before, List<&2, Main.Before>, Main.said.r(Main.Before, Main.joining.agree(fs, ds, ps, g, xs)), j => Result.bind(&2, &2, Main.Refused, List<&2, Main.Before>, List<&2, Main.Before>, Main.joinings.r(fs, ds, ps, rest), more => Done{j <> more}))) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +f: String, -k: Conflict.Joined, h: {Main.proposed_of(bs, f) == Some{k} : Maybe<&2, Conflict.Joined>}, ih: @b2: List<&2, Main.Before> -> {Main.joinings.r(fs, ds, ps, rest) == Done{b2} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>} -> {Main.proposed_of(b2, f) == Some{k} : Maybe<&2, Conflict.Joined>} -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}) -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}:
-  match r1:
-    case Fail{x}:
-      Empty.absurd({Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}, B.fail_done(List<&2, Main.Before>, x, bs, e))
-    case Done{+xs}:
-      jr.b(Main.said.r(Main.Before, Main.joining.agree(fs, ds, ps, g, xs)), fs, ds, ps, g, xs, {==}, rest, bs, e, f, k, h, ih)
-
-# What the joining proposes for a file is the walk of the parents.
-def joined_proposed(files: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, -bs: List<&2, Main.Before>, e: {Main.joinings.r(fs, ds, ps, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +f: String, -k: Conflict.Joined, h: {Main.proposed_of(bs, f) == Some{k} : Maybe<&2, Conflict.Joined>}) -> {Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}:
-  match files:
-    case Nil{}:
-      Empty.absurd({Main.joined(fs, ds, ps, f) == Done{k} : Result<&2, &2, String, Conflict.Joined>}, none_some(Conflict.Joined, k, (%Equal.sym(List<&2, Main.Before>, Nil{}, bs, B.done_eq(List<&2, Main.Before>, Nil{}, bs, e)) : {Main.proposed_of(_, f) == Some{k} : Maybe<&2, Conflict.Joined>}; h)))
-    case +g <> +rest:
-      jr.a(Main.said.r(List<&2, List<&2, Ops.Item>>, Main.joining.each(fs, ds, g, ps)), fs, ds, ps, g, rest, bs, e, f, k, h, b2 => e2 => h2 => joined_proposed(rest, fs, ds, ps, b2, e2, f, k, h2))
-
-# Every resolution it states is what the walk proposes
-# ----------------------------------------------------
-
-def res_app(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Main.Content>, +cs2: List<&2, Main.Content>, +hc: {Main.contents.resolve(fs, ds, ps, reads, cs) == True{} : Bool}, hd: {Main.contents.resolve(fs, ds, ps, reads, cs2) == True{} : Bool}) -> {Main.contents.resolve(fs, ds, ps, reads, List.append(&2, Main.Content, cs, cs2)) == True{} : Bool}:
+def res_app(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Main.Content>, +cs2: List<&2, Main.Content>, +hc: {resolutions.read(ds, reads, cs) == True{} : Bool}, hd: {resolutions.read(ds, reads, cs2) == True{} : Bool}) -> {resolutions.read(ds, reads, List.append(&2, Main.Content, cs, cs2)) == True{} : Bool}:
   match cs:
     case Nil{}:
       hd
     case +c <> +rest:
-      B.and_tt(Main.content.resolves(fs, ds, ps, reads, c), Main.contents.resolve(fs, ds, ps, reads, List.append(&2, Main.Content, rest, cs2)),
-        SortL.band_l(Main.content.resolves(fs, ds, ps, reads, c), Main.contents.resolve(fs, ds, ps, reads, rest), hc),
-        res_app(fs, ds, ps, reads, rest, cs2, SortL.band_r(Main.content.resolves(fs, ds, ps, reads, c), Main.contents.resolve(fs, ds, ps, reads, rest), hc), hd))
+      B.and_tt(resolution.read(ds, reads, c), resolutions.read(ds, reads, List.append(&2, Main.Content, rest, cs2)),
+        SortL.band_l(resolution.read(ds, reads, c), resolutions.read(ds, reads, rest), hc),
+        res_app(ds, reads, rest, cs2, SortL.band_r(resolution.read(ds, reads, c), resolutions.read(ds, reads, rest), hc), hd))
 
-def res_pick(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {Main.contents.resolve(fs, ds, ps, reads, cs) == True{} : Bool}) -> {Main.contents.resolve(fs, ds, ps, reads, Bool.pick(List<&2, Main.Content>, b, cs, Nil{})) == True{} : Bool}:
+def res_pick(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {resolutions.read(ds, reads, cs) == True{} : Bool}) -> {resolutions.read(ds, reads, Bool.pick(List<&2, Main.Content>, b, cs, Nil{})) == True{} : Bool}:
   match b:
     case True{}:
       h
     case False{}:
       {==}
 
-def res_unpick(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {Main.contents.resolve(fs, ds, ps, reads, cs) == True{} : Bool}) -> {Main.contents.resolve(fs, ds, ps, reads, Bool.pick(List<&2, Main.Content>, b, Nil{}, cs)) == True{} : Bool}:
+def res_unpick(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {resolutions.read(ds, reads, cs) == True{} : Bool}) -> {resolutions.read(ds, reads, Bool.pick(List<&2, Main.Content>, b, Nil{}, cs)) == True{} : Bool}:
   match b:
     case True{}:
       {==}
     case False{}:
       h
 
-def res_either(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, +cs2: List<&2, Main.Content>, hc: {Main.contents.resolve(fs, ds, ps, reads, cs) == True{} : Bool}, hd: {Main.contents.resolve(fs, ds, ps, reads, cs2) == True{} : Bool}) -> {Main.contents.resolve(fs, ds, ps, reads, Bool.pick(List<&2, Main.Content>, b, cs, cs2)) == True{} : Bool}:
+def res_either(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, +cs2: List<&2, Main.Content>, hc: {resolutions.read(ds, reads, cs) == True{} : Bool}, hd: {resolutions.read(ds, reads, cs2) == True{} : Bool}) -> {resolutions.read(ds, reads, Bool.pick(List<&2, Main.Content>, b, cs, cs2)) == True{} : Bool}:
   match b:
     case True{}:
       hc
     case False{}:
       hd
 
-def kind_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, lines: Bool, +file: String, +p: String, +digest: String) -> {Main.contents.resolve(fs, ds, ps, reads, Main.arriving.kind(file, p, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), lines)) == True{} : Bool}:
+def kind_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, lines: Bool, +file: String, +p: String, +digest: String) -> {resolutions.read(ds, reads, Main.arriving.kind(file, p, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), lines)) == True{} : Bool}:
   match lines:
     case True{}:
-      res_unpick(fs, ds, ps, reads, List.is_empty(&2, U32, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), [Main.Content.Text{file, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}], {==})
+      res_unpick(ds, reads, List.is_empty(&2, U32, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), [Main.Content.Text{file, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}], {==})
     case False{}:
       {==}
 
-def arriving_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, stated: Maybe<&2, String>, +file: String, +p: String, +digest: String) -> {Main.contents.resolve(fs, ds, ps, reads, Main.arriving.of(file, p, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), stated)) == True{} : Bool}:
+def arriving_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, stated: Maybe<&2, String>, +file: String, +p: String, +digest: String) -> {resolutions.read(ds, reads, Main.arriving.of(file, p, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), stated)) == True{} : Bool}:
   match stated:
     case Some{+k}:
-      res_either(fs, ds, ps, reads, String.eq(k, "bytes"), [Main.Content.Whole{file, p, digest}], Main.arriving.kind(file, p, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), True{}), {==}, kind_res(fs, ds, ps, reads, True{}, file, p, digest))
+      res_either(ds, reads, String.eq(k, "bytes"), [Main.Content.Whole{file, p, digest}], Main.arriving.kind(file, p, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), True{}), {==}, kind_res(ds, reads, True{}, file, p, digest))
     case None{}:
-      kind_res(fs, ds, ps, reads, Bool.and(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), Bool.not(Folder.has_nul(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), file, p, digest)
+      kind_res(ds, reads, Bool.and(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), Bool.not(Folder.has_nul(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), file, p, digest)
 
-def ed_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String, d: Maybe<&2, Ops.Doc>) -> {Main.contents.resolve(fs, ds, ps, reads, Main.edited.content(f, p, d)) == True{} : Bool}:
+def ed_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String, d: Maybe<&2, Ops.Doc>) -> {resolutions.read(ds, reads, Main.edited.content(f, p, d)) == True{} : Bool}:
   match d:
     case None{}:
       {==}
     case Some{doc}:
       {==}
 
-def rc_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String, +j: Conflict.Joined, r: Maybe<&2, Res.Doc>, +er: {Conflict.resolve(j, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == r : Maybe<&2, Res.Doc>}, +hj: {Main.joined(fs, ds, ps, f) == Done{j} : Result<&2, &2, String, Conflict.Joined>}) -> {Main.contents.resolve(fs, ds, ps, reads, Main.resolved.content(f, p, r)) == True{} : Bool}:
+# A resolution `Conflict.resolve` makes assembles back to the folder's
+# lines, where the documents mint what the proposal stands under.
+def rc_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String, +j: Conflict.Joined, r: Maybe<&2, Res.Doc>, +er: {Conflict.resolve(j, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == r : Maybe<&2, Res.Doc>}, +hj: {Main.all_mint(ds, Conflict.named(j)) == True{} : Bool}) -> {resolutions.read(ds, reads, Main.resolved.content(f, p, r)) == True{} : Bool}:
   match r:
     case None{}:
       {==}
     case Some{+doc}:
-      %Equal.sym(Result<&2, &2, String, Conflict.Joined>, Main.joined(fs, ds, ps, f), Done{j}, hj) : {Bool.and(Main.resolution.states(Main.joined.maybe(_), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Res.write(doc)), True{}) == True{} : Bool}
-      %Equal.sym(Maybe<&2, Res.Doc>, Conflict.resolve(j, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Some{doc}, er) : {Bool.and(Main.resolution.written(_, Res.write(doc)), True{}) == True{} : Bool}
-      B.and_tt(String.eq(Res.write(doc), Res.write(doc)), True{}, S.eq_refl(Res.write(doc)), {==})
+      %Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Main.assemble(ds, doc), Done{Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))}, ConflictL.resolved(ds, j, Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), hj, doc, er)) : {Bool.and(Main.content.applied(_, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), True{}) == True{} : Bool}
+      B.and_tt(Main.items_eq(Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), True{}, items_refl(Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), {==})
 
-def lines_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.joinings.r(fs, ds, ps, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +f: String, +p: String, m: Maybe<&2, Conflict.Joined>, +em: {Main.proposed_of(bs, f) == m : Maybe<&2, Conflict.Joined>}) -> {Main.contents.resolve(fs, ds, ps, reads, Main.lines.content(f, p, bs, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), m)) == True{} : Bool}:
+def lines_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, +bs: List<&2, Main.Before>, +hm: {proposals.minted(ds, bs) == True{} : Bool}, +f: String, +p: String, m: Maybe<&2, Conflict.Joined>, +em: {Main.proposed_of(bs, f) == m : Maybe<&2, Conflict.Joined>}) -> {resolutions.read(ds, reads, Main.lines.content(f, p, bs, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), m)) == True{} : Bool}:
   match m:
     case None{}:
-      ed_res(fs, ds, ps, reads, f, p, Ops.diff(Main.before_of(bs, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))))
+      ed_res(ds, reads, f, p, Ops.diff(Main.before_of(bs, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))))
     case Some{+j}:
-      rc_res(fs, ds, ps, reads, f, p, j, Conflict.resolve(j, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), {==}, joined_proposed(files, fs, ds, ps, bs, e, f, j, em))
+      rc_res(ds, reads, f, p, j, Conflict.resolve(j, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), {==}, proposed_minted(bs, ds, f, j, hm, em))
 
-def held_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.joinings.r(fs, ds, ps, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, en: Maybe<&2, Tree.Entry>, +edited: List<&2, String>, +p: String, +digest: String) -> {Main.contents.resolve(fs, ds, ps, reads, Main.stating.contents(Main.stating.held(edited, bs, p, en, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == True{} : Bool}:
+def held_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, +bs: List<&2, Main.Before>, +hm: {proposals.minted(ds, bs) == True{} : Bool}, en: Maybe<&2, Tree.Entry>, +edited: List<&2, String>, +p: String, +digest: String) -> {resolutions.read(ds, reads, Main.stating.contents(Main.stating.held(edited, bs, p, en, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == True{} : Bool}:
   match en:
     case Some{Tree.Entry{+f, q, Tree.Whole{}, y, g, m}}:
-      res_pick(fs, ds, ps, reads, Rev.member(edited, p), [Main.Content.Whole{f, p, digest}], {==})
+      res_pick(ds, reads, Rev.member(edited, p), [Main.Content.Whole{f, p, digest}], {==})
     case Some{Tree.Entry{+f, q, Tree.Lines{}, y, g, m}}:
-      res_pick(fs, ds, ps, reads, Rev.member(edited, p), Main.lines.content(f, p, bs, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Main.proposed_of(bs, f)), lines_res(fs, ds, ps, reads, files, bs, e, f, p, Main.proposed_of(bs, f), {==}))
+      res_pick(ds, reads, Rev.member(edited, p), Main.lines.content(f, p, bs, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Main.proposed_of(bs, f)), lines_res(ds, reads, bs, hm, f, p, Main.proposed_of(bs, f), {==}))
     case Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}:
       {==}
     case None{}:
       {==}
 
-def at_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.joinings.r(fs, ds, ps, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, arrives: Bool, +mint: List<&2, T.Split>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +p: String, en: Maybe<&2, Tree.Entry>, +digest: String, +runs: Bool) -> {Main.contents.resolve(fs, ds, ps, reads, Main.stating.contents(Main.stating.at(mint, edited, ks, bs, p, en, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), runs, arrives))) == True{} : Bool}:
+def at_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, +bs: List<&2, Main.Before>, +hm: {proposals.minted(ds, bs) == True{} : Bool}, arrives: Bool, +mint: List<&2, T.Split>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +p: String, en: Maybe<&2, Tree.Entry>, +digest: String, +runs: Bool) -> {resolutions.read(ds, reads, Main.stating.contents(Main.stating.at(mint, edited, ks, bs, p, en, digest, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), runs, arrives))) == True{} : Bool}:
   match arrives:
     case True{}:
-      arriving_res(fs, ds, ps, reads, Main.kind.stated(ks, p), Maybe.default(&2, String, Main.lookup(mint, p), SNil{}), p, digest)
+      arriving_res(ds, reads, Main.kind.stated(ks, p), Maybe.default(&2, String, Main.lookup(mint, p), SNil{}), p, digest)
     case False{}:
-      held_res(fs, ds, ps, reads, files, bs, e, en, edited, p, digest)
+      held_res(ds, reads, bs, hm, en, edited, p, digest)
 
-def of_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.joinings.r(fs, ds, ps, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +dg: Map<&2, String>, h: Main.Here) -> {Main.contents.resolve(fs, ds, ps, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h))) == True{} : Bool}:
+def of_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, +bs: List<&2, Main.Before>, +hm: {proposals.minted(ds, bs) == True{} : Bool}, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +dg: Map<&2, String>, h: Main.Here) -> {resolutions.read(ds, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h))) == True{} : Bool}:
   match h:
     case Main.Here{+p, en, Some{Folder.Found.File{q, +runs, n}}}:
-      at_res(fs, ds, ps, reads, files, bs, e, Rev.member(arriving, p), mint, edited, ks, p, en, Main.status.folder_digest(dg, p), runs)
+      at_res(ds, reads, bs, hm, Rev.member(arriving, p), mint, edited, ks, p, en, Main.status.folder_digest(dg, p), runs)
     case Main.Here{p, en, Some{Folder.Found.Link{q, t}}}:
       {==}
     case Main.Here{p, en, None{}}:
       {==}
 
-def all_res(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, +files: List<&2, String>, +bs: List<&2, Main.Before>, +e: {Main.joinings.r(fs, ds, ps, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +dg: Map<&2, String>, hs: List<&2, Main.Here>) -> {Main.contents.resolve(fs, ds, ps, reads, Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, hs))) == True{} : Bool}:
+def all_res(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, +bs: List<&2, Main.Before>, +hm: {proposals.minted(ds, bs) == True{} : Bool}, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +dg: Map<&2, String>, hs: List<&2, Main.Here>) -> {resolutions.read(ds, reads, Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, hs))) == True{} : Bool}:
   match hs:
     case Nil{}:
       {==}
     case +h <> +rest:
-      %join_contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h), Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, rest)) : {Main.contents.resolve(fs, ds, ps, reads, _) == True{} : Bool}
-      res_app(fs, ds, ps, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h)), Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, rest)),
-        of_res(fs, ds, ps, reads, files, bs, e, mint, arriving, edited, ks, dg, h), all_res(fs, ds, ps, reads, files, bs, e, mint, arriving, edited, ks, dg, rest))
+      %join_contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h), Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, rest)) : {resolutions.read(ds, reads, _) == True{} : Bool}
+      res_app(ds, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, bs, h)), Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, bs, rest)),
+        of_res(ds, reads, bs, hm, mint, arriving, edited, ks, dg, h), all_res(ds, reads, bs, hm, mint, arriving, edited, ks, dg, rest))
 
-# Where the parents being joined leave a file of lines differently, what
-# `record` states of it is the resolution `Conflict.resolve` makes of the
-# walk of those parents and the lines the folder holds.
-def drafted_resolves(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, +dg: Map<&2, String>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>, +bs: List<&2, Main.Before>, +e: {Main.joinings.r(fs, ds, ps, Main.edited.lines(Sv.edited(obs), hs)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}) -> {Main.contents.resolve(fs, ds, ps, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}:
-  all_res(fs, ds, ps, reads, Main.edited.lines(Sv.edited(obs), hs), bs, e, mint, Sv.sorted(Sv.added(obs)), Sv.edited(obs), ks, dg, hs)
+# Wherever the store's documents mint what each proposal stands under,
+# every resolution `record` states, assembled as `cat` assembles one, is
+# the file of lines the folder holds at its path.
+def drafted_resolves(+ds: List<&2, Store.Doc>, +reads: Map<&2, List<&2, U32>>, +dg: Map<&2, String>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>, +bs: List<&2, Main.Before>, +hm: {proposals.minted(ds, bs) == True{} : Bool}) -> {resolutions.read(ds, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}:
+  all_res(ds, reads, bs, hm, mint, Sv.sorted(Sv.added(obs)), Sv.edited(obs), ks, dg, hs)
