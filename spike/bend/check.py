@@ -3927,10 +3927,19 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "an absolute path is joined as the root",
+            '  Bool.pick(String, String.starts_with(p, "/"), p,',
+            '  Bool.pick(String, String.starts_with(p, "/"), "/",',
+            "init_lemmas.absolute",
+            "commands.bend",
+        ),
+        (
             "a path is joined to a base ending in a slash with another",
             '  Bool.pick(String, Bool.or(String.is_empty(base), String.ends_with(base, "/")), base ++ p, base ++ "/" ++ p))',
             '  Bool.pick(String, String.is_empty(base), base ++ p, base ++ "/" ++ p))',
-            "init_lemmas.join_rel",
+            # The checker meets it first where `init_lemmas.absolute`
+            # unfolds the join; the law it breaks is `init_doubles_no_slash`.
+            "init_lemmas.absolute",
             "commands.bend",
         ),
         (
@@ -4877,7 +4886,25 @@ def check_mutations(temporary):
             "fetch writes one bookmark twice in a pass",
             "      State{tally.name(n, t), rules, n <> held, moved}",
             "      State{tally.name(n, t), rules, held, moved}",
-            "fetching_lemmas.once_a_pass",
+            # And `fetching_lemmas.head_land`, where the law breaks, after it.
+            "fetching_lemmas.held_grows",
+            "fetch.bend",
+        ),
+        (
+            "complying with forgetting forgets the bookmarks the pass wrote",
+            "      State{tally.destroyed(n, t), rules, held, moved}",
+            "      State{tally.destroyed(n, t), rules, Nil{}, moved}",
+            "fetching_lemmas.comply_held",
+            "fetch.bend",
+        ),
+        (
+            "fetch writes a bookmark the pass already holds",
+            "      Bool.pick(Land, Rev.member(held, n), Land.Skip{}, name.of(root, path, n, Bm.parse(text)))",
+            "      name.of(root, path, n, Bm.parse(text))",
+            # The checker meets it first where another law's lemma unfolds
+            # the same pick; `fetching_lemmas.name_unheld`, where this law
+            # breaks, comes after.
+            "fetching_lemmas.nl",
             "fetch.bend",
         ),
         (
@@ -4968,7 +4995,41 @@ def check_mutations(temporary):
             "offer names a file by its path rather than its digest",
             "      Offered{kind, d, None{}, addressed(prefix, p)} <> splits.offered(rest, kind, prefix)",
             "      Offered{kind, p, None{}, addressed(prefix, p)} <> splits.offered(rest, kind, prefix)",
-            "offer_lemmas.splits_from",
+            # And `offer_lemmas.sound_splits`, after it: the line neither
+            # lists the file's digest nor names a digest the listing gives.
+            "offer_lemmas.covers_splits",
+            "offer.bend",
+        ),
+        (
+            "offer addresses a label with no slash before history",
+            'prefix ++ "/history/" ++ label)',
+            'prefix ++ "history/" ++ label)',
+            "offer_lemmas.filed_at",
+            "offer.bend",
+        ),
+        (
+            "offer lists a document as a payload",
+            'Offered{"operation", d, f, addressed(prefix, p)}',
+            'Offered{"payload", d, f, addressed(prefix, p)}',
+            # And `offer_lemmas.sound_bodies`, after it: no line of the
+            # document's kind, and a payload line the payloads do not list.
+            "offer_lemmas.covers_bodies",
+            "offer.bend",
+        ),
+        (
+            "offer leaves the revisions out of its manifest",
+            '        by_path(splits.offered(revs, "revision", prefix))])',
+            '        Nil{}])',
+            "offer_lemmas.complete",
+            "offer.bend",
+        ),
+        (
+            # Both privacy laws hold of this, since nothing private is
+            # named; only the manifest's completeness does not.
+            "offer lists no rule and no bookmark",
+            "      Offered{kind, d, None{}, addressed(prefix, label)} <> rest",
+            "      rest",
+            "offer_lemmas.found_kept",
             "offer.bend",
         ),
         (
@@ -6349,7 +6410,21 @@ def check_mutations(temporary):
             "a read opens whatever name the listing has, normal form or not",
             "Bool.and(Bool.not(String.starts_with(line, \"u \")), String.eq(Nfc.nfc(name), want))",
             "Bool.not(String.starts_with(line, \"u \"))",
-            "nfc_lemmas.take_ok",
+            "walked_lemmas.read_back",
+            "folder.bend",
+        ),
+        (
+            "a read opens the first name that spells the path, not the last",
+            'got: Maybe<&2, String>) -> Maybe<&2, String>:\n  +name = entry.name(line)\n  Bool.pick(Maybe<&2, String>, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(Nfc.nfc(name), want)), Some{name}, got)',
+            '+got: Maybe<&2, String>) -> Maybe<&2, String>:\n  +name = entry.name(line)\n  Bool.pick(Maybe<&2, String>, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(Nfc.nfc(name), want)), Maybe.or(&2, String, got, Some{name}), got)',
+            "walked_lemmas.read_back",
+            "folder.bend",
+        ),
+        (
+            "a read takes a link's target for a name",
+            "      spelling.go(rest, want, got, False{})",
+            "      spelling.go(rest, want, spelling.take(line, want, got), False{})",
+            "walked_lemmas.read_back",
             "folder.bend",
         ),
         (
@@ -6358,6 +6433,20 @@ def check_mutations(temporary):
             "unspelled.is(rest), acc)",
             "nfc_lemmas.read_back",
             "folder.bend",
+        ),
+        (
+            "the tables join a mark onto a slash",
+            "    60, 824, 8814, 61, 824, 8800,",
+            "    47, 824, 8814, 60, 824, 8814, 61, 824, 8800,",
+            "nfc_lemmas.slash_wall",
+            "nfc_tables.bend",
+        ),
+        (
+            "the tables join a dot onto what comes before it",
+            "    60, 824, 8814, 61, 824, 8800,",
+            "    60, 46, 8814, 60, 824, 8814, 61, 824, 8800,",
+            "nfc_lemmas.dot_wall",
+            "nfc_tables.bend",
         ),
         (
             "the quick check passes only what is below a space",
