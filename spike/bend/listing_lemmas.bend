@@ -1,11 +1,13 @@
 # What the reading commands list. `files` prints the tree's entries sorted
 # by path and file — each no smaller than the one before, and under each
 # path and file the entries the tree holds there — one line each, ending
-# with the entry's file identifier. `names` reads the bookmarks in name
-# order, none dropped or repeated, and prints a line for each, beginning
-# with its name and two spaces and ending with where it resolves: a pin or
-# a change's one current revision as an abbreviation of its digest that no
-# other held digest of its length begins with, or else why there is none.
+# with the entry's file identifier. `names` reads `names/`, a name and
+# `.txt` as that name, and the bookmarks in name order, under each name
+# exactly the files the store lists that are its, none dropped, repeated or
+# made up; and it prints a line for each, beginning with its name and two
+# spaces and ending with where it resolves: a pin or a change's one current
+# revision as an abbreviation of its digest that no other held digest of
+# its length begins with, or else why there is none.
 # `log --fields` prints its header and then lines each beginning with the
 # digest of a revision the span shows that every filter admits, no more
 # than the limit; and a log entry's figures are what its revision's facts
@@ -61,10 +63,79 @@ def said_ends(+t: Tree.Tree()) -> {Main.ends_all(Main.files.said(t), Main.files.
 def order_sorted(+ps: List<&2, String>) -> {SortL.sorted(~Main.Named, ~(n => Main.named.name(n)), Main.bookmarks.order(ps)) == True{} : Bool}:
   SortL.sort_sorted(~Main.Named, ~(n => Main.named.name(n)), Main.named(ps))
 
-# And holds every bookmark it was given: under each name, the ones found
-# under it, in the order found.
-def order_keyed(+ps: List<&2, String>, +k: String) -> {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.bookmarks.order(ps)) == SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.named(ps)) : List<&2, Main.Named>}:
-  SortL.sort_keyed(~Main.Named, ~(n => Main.named.name(n)), Main.named(ps), k)
+# A name and `.txt` is four characters longer than the name, and its
+# first that many characters are the name.
+def txt_length(+t: String) -> {String.length(String.append(t, ".txt")) == Nat.add(4n, String.length(t)) : Nat}:
+  match t:
+    case SNil{}:
+      {==}
+    case SCon{+h, +r}:
+      %txt_length(r) : {1n+String.length(String.append(r, ".txt")) == 1n+_ : Nat}
+      {==}
+
+def txt_take(+t: String) -> {String.take(String.append(t, ".txt"), String.length(t)) == t : String}:
+  match t:
+    case SNil{}:
+      {==}
+    case SCon{+h, +r}:
+      %txt_take(r) : {SCon{h, String.take(String.append(r, ".txt"), String.length(r))} == SCon{h, _} : String}
+      {==}
+
+def txt_bare(+n: String) -> {String.take(String.append(n, ".txt"), Nat.sub(String.length(String.append(n, ".txt")), 4n)) == n : String}:
+  %Equal.sym(Nat, String.length(String.append(n, ".txt")), Nat.add(4n, String.length(n)), txt_length(n)) : {String.take(String.append(n, ".txt"), Nat.sub(_, 4n)) == n : String}
+  %Equal.sym(Nat, Nat.sub(Nat.add(4n, String.length(n)), 4n), String.length(n), Comp.sub_add(4n, String.length(n))) : {String.take(String.append(n, ".txt"), _) == n : String}
+  txt_take(n)
+
+# Dropping nothing keeps the whole string.
+def drop_none(s: String) -> {String.drop(s, 0n) == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      {==}
+
+# The file `name` writes a bookmark to, `names/`, the name and `.txt`, is
+# read back as that name: what is cut off is the directory and the suffix,
+# and nothing of the name.
+def name_back(+n: String, ok: {Bm.name_ok(n) == True{} : Bool}) -> {Bm.name("names/" ++ n ++ ".txt") == Some{n} : Maybe<&2, String>}:
+  %Equal.sym(String, String.drop(String.append(n, ".txt"), 0n), String.append(n, ".txt"), drop_none(String.append(n, ".txt"))) : {Bm.name.of(_, String.ends_with(_, ".txt")) == Some{n} : Maybe<&2, String>}
+  %Equal.sym(Bool, String.ends_with(String.append(n, ".txt"), ".txt"), True{}, B.ends_pre(n, ".txt", ".txt", B.ends_refl(".txt"))) : {Bm.name.of(String.append(n, ".txt"), _) == Some{n} : Maybe<&2, String>}
+  %Equal.sym(String, String.take(String.append(n, ".txt"), Nat.sub(String.length(String.append(n, ".txt")), 4n)), n, txt_bare(n)) : {Bool.pick(Maybe<&2, String>, Bm.name_ok(_), Some{_}, None{}) == Some{n} : Maybe<&2, String>}
+  %Equal.sym(Bool, Bm.name_ok(n), True{}, ok) : {Bool.pick(Maybe<&2, String>, _, Some{n}, None{}) == Some{n} : Maybe<&2, String>}
+  {==}
+
+# What `named` finds under a name is what the listing holds there: a path
+# `Bm.name` reads as that name is kept, paired with that name and its own
+# path, and any other is passed over.
+def files_pick(b: Bool, +nm: String, +k: String, +p: String, +l: List<&2, Main.Named>, +r: List<&2, Main.Named>, eb: {String.eq(nm, k) == b : Bool}, ih: {l == r : List<&2, Main.Named>}) -> {Bool.pick(List<&2, Main.Named>, b, Main.Named{nm, p} <> l, l) == Bool.pick(List<&2, Main.Named>, b, Main.Named{k, p} <> r, r) : List<&2, Main.Named>}:
+  match b:
+    case True{}:
+      %S.eq_true(nm, k, eb) : {Main.Named{nm, p} <> l == Main.Named{_, p} <> r : List<&2, Main.Named>}
+      %ih : {Main.Named{nm, p} <> l == Main.Named{nm, p} <> _ : List<&2, Main.Named>}
+      {==}
+    case False{}:
+      ih
+
+def files_at(m: Maybe<&2, String>, +k: String, +p: String, +rest: List<&2, String>, ih: {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.named(rest)) == Main.bookmark_files(rest, k) : List<&2, Main.Named>}) -> {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.named.of(p, m, Main.named(rest))) == Bool.pick(List<&2, Main.Named>, Rev.maybe_eq(m, k), Main.Named{k, p} <> Main.bookmark_files(rest, k), Main.bookmark_files(rest, k)) : List<&2, Main.Named>}:
+  match m:
+    case None{}:
+      ih
+    case Some{+nm}:
+      files_pick(String.eq(nm, k), nm, k, p, SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.named(rest)), Main.bookmark_files(rest, k), {==}, ih)
+
+def named_files(ps: List<&2, String>, +k: String) -> {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.named(ps)) == Main.bookmark_files(ps, k) : List<&2, Main.Named>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +rest:
+      files_at(Bm.name(p), k, p, rest, named_files(rest, k))
+
+# And the sort holds every bookmark it was given: under each name, the
+# listing's files that name, in the order listed.
+def order_keyed(+ps: List<&2, String>, +k: String) -> {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.bookmarks.order(ps)) == Main.bookmark_files(ps, k) : List<&2, Main.Named>}:
+  Equal.trans(List<&2, Main.Named>, SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.bookmarks.order(ps)), SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.named(ps)), Main.bookmark_files(ps, k),
+    SortL.sort_keyed(~Main.Named, ~(n => Main.named.name(n)), Main.named(ps), k),
+    named_files(ps, k))
 
 # What starts with `c` still does behind the same prefix.
 def sw_prefix(a: String, +b: String, +c: String, h: {String.starts_with(b, c) == True{} : Bool}) -> {String.starts_with(String.append(a, b), String.append(a, c)) == True{} : Bool}:

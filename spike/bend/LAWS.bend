@@ -1420,19 +1420,29 @@ law files_lists_the_tree:
   for +k: String
   {SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, Main.files.listed(t)) == SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, t) : Tree.Tree()}
 
+# A bookmark's file is `names/`, its name and `.txt` — where `name` writes
+# it — and that path reads back as the bookmark it is: for any name
+# `Bm.name_ok` accepts, `Bm.name` cuts off the directory and the suffix and
+# nothing of the name.
+law bookmark_file_reads_back:
+  for +n: String
+  for ok: {Bm.name_ok(n) == True{} : Bool}
+  {Bm.name("names/" ++ n ++ ".txt") == Some{n} : Maybe<&2, String>}
+
 # `names` lists every bookmark once, in name order. The store's bookmarks
 # are read sorted by name, each no smaller than the one before it.
 law bookmarks_read_in_name_order:
   for +ps: List<&2, String>
   {SortL.sorted(~Main.Named, ~(n => Main.named.name(n)), Main.bookmarks.order(ps)) == True{} : Bool}
 
-# And the sort neither drops nor repeats one: under each name are the files
-# under `names/` that name that bookmark, as many and in the order the store
-# lists them.
+# And none is dropped, repeated or made up on the way: under each name are
+# exactly the paths the store lists under `names/` that `Bm.name` reads as
+# that name, each paired with its own path, as many and in the order the
+# store lists them — any other path it lists is passed over.
 law bookmarks_read_each_once:
   for +ps: List<&2, String>
   for +k: String
-  {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.bookmarks.order(ps)) == SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.named(ps)) : List<&2, Main.Named>}
+  {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.bookmarks.order(ps)) == Main.bookmark_files(ps, k) : List<&2, Main.Named>}
 
 # `names` prints a line for each bookmark it read, in the order read, each
 # beginning with the bookmark's name and two spaces, and, for a revision
