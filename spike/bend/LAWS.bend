@@ -42,6 +42,12 @@ import ./export.bend as Export
 import ./nfc.bend as Nfc
 import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
+import ./shell_lemmas.bend as ShellL
+import ./editor_lemmas.bend as EditorL
+import ./identity_lemmas.bend as IdentityL
+import ./forgetting_lemmas.bend as ForgettingL
+import ./opened_lemmas.bend as OpenedL
+import ./editor.bend as Editor
 import ./fetch.bend as Fetch
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
@@ -279,6 +285,23 @@ law revision_write_parse:
   for +r: Rev.Rev
   for e: {Rev.parse(s) == Done{r} : Result<&2, &2, String, Rev.Rev>}
   {Rev.write(r) == s : String}
+
+# What opening a store reads of a revision it accepts — the reading
+# decision 0061 keeps a revision in the graph by when the whole reading
+# refuses it — is the revision its lines state: for a document of a first
+# line, header lines `key value`, a blank line and a message, its change,
+# author and time are what the first `change`, `author` and `when` lines
+# say, its parents and what it supersedes every `parent` and `supersedes`
+# line in order, and its message all that follows the blank line, as
+# written.
+law opening_reads_what_a_revision_states:
+  for +first: String
+  for +hs: List<&2, T.Split>
+  for +m: String
+  for hf: {OpenedL.one_line(first) == True{} : Bool}
+  for hp: {OpenedL.plain(hs) == True{} : Bool}
+  for e: {Rev.refusal.opening(OpenedL.doc(first, hs, m)) == None{} : Maybe<&2, String>}
+  {Rev.opening.read(OpenedL.doc(first, hs, m)) == Some{OpenedL.stated(hs, m)} : Maybe<&2, Rev.Rev>}
 
 # The diff replays: whatever document `Ops.diff` writes for a parent and a
 # child, applying it to the parent produces the child. A child that is a
@@ -1276,6 +1299,34 @@ law forget_rewrites_only_the_files_documents:
   for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
   {Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts) == True{} : Bool}
 
+# And it rewrites every document that quotes them. For each element the
+# file's history ever wrote, as the walk of the whole history reads it,
+# whose key is among lines `first..last` of the file at the revision, as
+# the walk of its ancestry reads them, the document the revision that wrote
+# it names for the file, and each one a revision whose delete quotes it
+# names, is among the digests the plan destroys and stands in for: no
+# document that states or deletes a forgotten line keeps it legible.
+law forget_rewrites_every_document_quoting_the_span:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +file: String
+  for +first: String
+  for +last: String
+  for +plan: Fg.FgPlan
+  for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
+  for +at: List<&2, Fg.FgQuoted>
+  for ea: {Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file) == Done{at} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}
+  for +every: List<&2, Fg.FgQuoted>
+  for ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}
+  for +i: Nat
+  for +q: Fg.FgQuoted
+  for hq: {List.get(&2, Fg.FgQuoted, every, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}
+  for hs: {Rev.member(Fg.span.keys(Fg.quoted.visible(at), first, last), Fg.quoted.key(q)) == True{} : Bool}
+  for +d: String
+  for hd: {ForgettingL.quotes(q, Fg.named(fs, file), d) == True{} : Bool}
+  {Rev.member(ForgettingL.plan.targets(plan), d) == True{} : Bool}
+
 # Forgetting a file of bytes forgets the payload its tree holds for it at
 # the revision named, or nothing: another version of the file is another
 # payload (decision 0066), counted and left alone.
@@ -1332,6 +1383,59 @@ law forget_clears_only_copies:
   for +p: String
   for e: {Rev.member(Fg.cached(ps), p) == True{} : Bool}
   {T.is_digest(String.drop(p, 6n)) == True{} : Bool}
+
+# What `forget` prints reads back as what it does. Asked for `--fields`,
+# decision 0074's statement: a `gone` line for each digest the plan made
+# unreadable, in the plan's order, and no other line.
+law forget_states_what_it_made_unreadable:
+  for p: Fg.FgPlan
+  for ds: List<&2, String>
+  for lines: Bool
+  for dry: Bool
+  {ForgettingL.gone.read(Fg.said(p, True{}, ds, lines, dry)) == Some{ForgettingL.plan.targets(p)} : Maybe<&2, List<&2, String>>}
+
+# Otherwise its `destroyed history/` lines are the files it destroys, each
+# once and in the order it destroys them — `would destroy` under
+# `--dry-run`, which destroys nothing — and no other line it prints reads
+# as one: not the documents it wrote, the other versions it counted, nor
+# what forgetting cannot hide.
+law forget_says_what_it_destroys:
+  for p: Fg.FgPlan
+  for +ds: List<&2, String>
+  for +lines: Bool
+  for +dry: Bool
+  {ForgettingL.destroyed.read(Fg.said(p, False{}, ds, lines, dry), Bool.pick(String, dry, "would destroy", "destroyed")) == ds : List<&2, String>}
+
+# Every document `forget` writes is filed as one, its name ending
+# `.ops.txt`, and at the name its own bytes give it under `operations/` or
+# at one no file there has yet: a payload's stand-in goes where the payload
+# was (decision 0066) only where that name is free, and never over another
+# file.
+law forget_files_documents_where_nothing_is:
+  for +fs: List<&2, Fg.FgFiled>
+  for +ds: List<&2, String>
+  for w: Fg.FgWrite
+  {Bool.and(String.ends_with(Fg.filed.as(fs, ds, w), ".ops.txt"), Bool.or(String.eq(Fg.filed.as(fs, ds, w), ForgettingL.own(w)), Bool.not(Fg.filed.taken(fs, Fg.filed.as(fs, ds, w))))) == True{} : Bool}
+
+# A redaction is exact: given no span, `forget` plans nothing for a file of
+# lines, whatever the file holds — it is refused, and never forgotten whole.
+law forget_takes_no_file_of_lines_whole:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +file: String
+  {Result.is_done(&2, &2, Main.Refused, Fg.FgPlan, Fg.io.lines.plan.r(fs, ds, id, file, None{})) == False{} : Bool}
+
+# After a forgetting, the sweep of `operations/` removes a directory only
+# where it listed and listed nothing — one that will not list is kept —
+# and never `operations/` itself, the path of no name.
+law forget_sweeps_only_what_lists_empty:
+  for +dir: String
+  for r: Result<&1, &1, U32 & String, String>
+  for +found: List<&2, String>
+  for +p: String
+  for h: {Rev.member(Fg.swept.empty(dir, Fg.io.listed(r), found), p) == True{} : Bool}
+  {Bool.or(Rev.member(found, p), Bool.and(String.eq(dir, p), ForgettingL.emptied(dir, r))) == True{} : Bool}
 
 # Decision 0014: replay does not consult payload. A document whose every
 # item is the one written or that item forgotten — a stand-in, which states
@@ -2495,6 +2599,27 @@ law dispatch_runs_no_path:
   for e: {Shell.plan(base, w, args) == Shell.Plan.Run{d, p, as} : Shell.Plan}
   {T.has_char(p, '/') == False{} : Bool}
 
+# And the rule is decision 0072's positive one, with the alphabet taken
+# from Base's classes of character rather than the code points
+# `shell.bend` compares: a word is looked for exactly when it is ASCII
+# letters and digits with hyphens only between them, and then what runs is
+# `historica-` and the word, in the directory `-C` names, with every word
+# after it as typed; any other word is the refusal a command this tool
+# does not have gets.
+law dispatch_runs_a_spelled_word:
+  for +base: String
+  for +w: String
+  for +args: List<&2, String>
+  for h: {ShellL.word(w) == True{} : Bool}
+  {Shell.plan(base, w, args) == Shell.Plan.Run{base, "historica-" ++ w, args} : Shell.Plan}
+
+law dispatch_refuses_any_other_word:
+  for +base: String
+  for +w: String
+  for +args: List<&2, String>
+  for h: {ShellL.word(w) == False{} : Bool}
+  {Shell.plan(base, w, args) == Shell.Plan.Missing{"there is no `" ++ w ++ "` command"} : Shell.Plan}
+
 # A store's header opens whatever its note says, once a blank line sets the
 # note apart from the format line (decision 0069) — the header `init`
 # writes among them.
@@ -2512,6 +2637,184 @@ law identity_reads_back:
   for +home: Maybe<&2, String>
   for h: {Identity.unusable(a) == False{} : Bool}
   {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}
+
+# Who records is `$HISTORICA_AUTHOR` where it is set and not empty — or,
+# where it names one no revision can hold, the refusal naming the variable
+# — before any file is read; the identity file decides only where the
+# variable is unset or empty, as decision 0010 and the Rust tool's
+# `author_for` have it.
+law identity_takes_the_environment_first:
+  for env: Result<&1, &1, U32 & String, String>
+  {Identity.from_env(env) == Maybe.map(&2, String, Result<&2, &2, String, String>, x => Identity.checked(x, None{}), EditorL.unless_empty(EditorL.set(env))) : Maybe<&2, Result<&2, &2, String, String>>}
+
+# The file is where the Rust tool's `identity_path` puts it:
+# `historica/identity` under `$XDG_CONFIG_HOME` where that is set and not
+# empty, whatever the home; otherwise under `.config` in the home —
+# `$HOME`, or `$USERPROFILE` where `$HOME` is not set — and nowhere with
+# neither.
+law identity_file_is_where_the_rust_tool_looks:
+  for xdg: Result<&1, &1, U32 & String, String>
+  for home: Result<&1, &1, U32 & String, String>
+  for profile: Result<&1, &1, U32 & String, String>
+  {Identity.path.of(xdg, Identity.home.of(home, profile)) == Maybe.map(&2, String, String, d => Identity.joined(d, "historica/identity"), IdentityL.config(xdg, home, profile)) : Maybe<&2, String>}
+
+# And `identity` makes the directory that file goes in before writing it:
+# the directory it asks for, with the file's name after it, is the file,
+# wherever the configuration directory is — never one above it, which
+# would leave the write nowhere to land.
+law identity_makes_the_files_directory:
+  for xdg: Result<&1, &1, U32 & String, String>
+  for home: Result<&1, &1, U32 & String, String>
+  for profile: Result<&1, &1, U32 & String, String>
+  for +file: String
+  for e: {Identity.path.of(xdg, Identity.home.of(home, profile)) == Some{file} : Maybe<&2, String>}
+  {Identity.parent(file) ++ "/identity" == file : String}
+
+# An identity file of blocks — a default author's, where there is one, then
+# one `under` each directory with its author, each block ended by a blank
+# line — reads back as the blocks it states: the default author and every
+# directory's, in order, wherever each value is one a revision can hold,
+# each directory is written without the trailing `/` the reading drops, and
+# no two blocks name one directory.
+law identity_reads_its_blocks:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  {Identity.parse(IdentityL.text(IdentityL.lines(d, us))) == Done{Identity.Ids{d, us}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# And after any such blocks, a file is refused where the Rust tool refuses
+# it, at the line it names, counted from one: a block stating two authors
+# at the second.
+law identity_refuses_a_second_author:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +a: String
+  for +b: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for ha: {Identity.unusable(a) == False{} : Bool}
+  for hb: {Identity.unusable(b) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["author " ++ a, "author " ++ b]))) == Fail{Identity.Malformed{1n+1n+List.length(&2, String, IdentityL.lines(d, us)), "a block states one author"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A block whose `under` line comes after its author, at that line.
+law identity_refuses_under_after_an_author:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +a: String
+  for +dir: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for ha: {Identity.unusable(a) == False{} : Bool}
+  for hd: {Identity.unusable(dir) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["author " ++ a, "under " ++ dir]))) == Fail{Identity.Malformed{1n+1n+List.length(&2, String, IdentityL.lines(d, us)), "`under` heads a block, so it comes first"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A block naming two directories, at the second.
+law identity_refuses_a_second_directory:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +d1: String
+  for +d2: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for h1: {Identity.unusable(d1) == False{} : Bool}
+  for h2: {Identity.unusable(d2) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["under " ++ d1, "under " ++ d2]))) == Fail{Identity.Malformed{1n+1n+List.length(&2, String, IdentityL.lines(d, us)), "a block names one directory"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A block naming a directory and no author, at its first line, though
+# only the end of the file shows the author missing.
+law identity_refuses_a_directory_with_no_author:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +dir: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for hd: {Identity.unusable(dir) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["under " ++ dir]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "a block naming a directory states no author"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A second block stating a default author, at its first line.
+law identity_refuses_a_second_default:
+  for +a0: String
+  for +us: List<&2, T.Split>
+  for +b: String
+  for hf: {IdentityL.fits(Some{a0}, us) == True{} : Bool}
+  for hb: {Identity.unusable(b) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(Some{a0}, us), ["author " ++ b]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(Some{a0}, us)), "two blocks state a default author"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A block for a directory an earlier block names, at its first line.
+law identity_refuses_a_directory_claimed_twice:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +i: Nat
+  for +dir: String
+  for x: String
+  for +b: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for e: {List.get(&2, T.Split, us, i) == Some{T.Split{dir, x}} : Maybe<&2, T.Split>}
+  for hd: {Identity.unusable(dir) == False{} : Bool}
+  for hs: {String.ends_with(dir, "/") == False{} : Bool}
+  for hb: {Identity.unusable(b) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["under " ++ dir, "author " ++ b]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "two blocks claim one directory"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A line of any key but `author` and `under`, a line whose value is empty
+# or has space at an end, and a line with no space to split at, each where
+# it stands.
+law identity_refuses_an_unknown_key:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +k: String
+  for +v: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for hs: {T.has_char(k, ' ') == False{} : Bool}
+  for hc: {IdentityL.has_control(k) == False{} : Bool}
+  for hu: {String.eq(k, "under") == False{} : Bool}
+  for ha: {String.eq(k, "author") == False{} : Bool}
+  for hv: {Identity.unusable(v) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), [k ++ SCon{' ', v}]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "the keys are `author` and `under`"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+law identity_refuses_an_unusable_value:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +k: String
+  for +v: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for hs: {T.has_char(k, ' ') == False{} : Bool}
+  for hc: {IdentityL.has_control(k) == False{} : Bool}
+  for hv: {Folder.untrimmed(v) == True{} : Bool}
+  for hq: {IdentityL.has_control(v) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), [k ++ SCon{' ', v}]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "a value is not empty, carries no leading or trailing space, and holds no control character"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+law identity_refuses_a_line_with_no_space:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +w: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for he: {String.is_empty(w) == False{} : Bool}
+  for hs: {T.has_char(w, ' ') == False{} : Bool}
+  for hc: {IdentityL.has_control(w) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), [w]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "a line is a key, a space, and a value"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# `record` and `abandon` given no `-m` ask the editor the person chose, as
+# the Rust tool's `from_an_editor` reads the environment: `$VISUAL` where
+# it is set, `$EDITOR` only where `$VISUAL` is not set at all, and none —
+# the usage error — where the one that decides is empty, so an empty
+# `$VISUAL` is never a fall back to `$EDITOR`.
+law editor_is_the_one_chosen:
+  for visual: Result<&1, &1, U32 & String, String>
+  for editor: Result<&1, &1, U32 & String, String>
+  {Editor.chosen(visual, editor) == EditorL.unless_empty(Maybe.or(&2, String, EditorL.set(visual), EditorL.set(editor))) : Maybe<&2, String>}
+
+# And what the editor leaves is read back as the message exactly where it
+# exited 0: any other code, or a signal, stopped it without saving, and
+# one that would not start at all is said.
+law editor_is_read_only_when_it_saved:
+  for +editor: String
+  for r: Result<&1, &1, U32 & String, String>
+  {Result.is_done(&2, &2, Editor.Stop, Unit, Editor.ended(editor, r)) == EditorL.saved(r) : Bool}
+
+# The file the editor is given, `historica-message`, sits directly in the
+# temporary directory — `$TMPDIR`, or `/tmp` where it is not set — so the
+# directory `Path::parent` names for it, where removing it afterwards
+# stops, is that directory, and taking the file away takes nothing else.
+law editor_file_is_in_the_temporary_directory:
+  for r: Result<&1, &1, U32 & String, String>
+  for h: {EditorL.tmp_ok(r) == True{} : Bool}
+  {Identity.parent(Editor.scratch(r)) == EditorL.tmpdir(r) : String}
 
 # `check` reads `--complete` wherever it stands, and every other word, in
 # order, as a directory to check.
