@@ -328,14 +328,6 @@ def travel.of(bs: List<&2, Bm.Bookmark>, +pt: Pointed) -> Travel:
     case b <> rest:
       travel.push(b, pt, travel.of(rest, pt))
 
-# Whether every bookmark here may travel and finds what it names.
-def travels(bs: List<&2, Bm.Bookmark>, +pt: Pointed) -> Bool:
-  match bs:
-    case Nil{}:
-      True{}
-    case Bm.Bookmark{n, +g, p} <> rest:
-      Bool.and(Bool.and(Bool.not(p), pointed.holds(pt, g)), travels(rest, pt))
-
 def ruled.private(r: Receive.Ruled) -> Bool:
   match r:
     case Receive.Ruled{f, +line, l}:
@@ -1983,6 +1975,58 @@ def origin.fulls(+st: Prune.Stored) -> List<&2, Main.Full>:
 # What the laws say of an export
 # ------------------------------
 
+def fact.names(f: Tree.Fact, +x: String) -> Bool:
+  match f:
+    case Tree.Fact{+file, r}:
+      String.eq(file, x)
+
+# Whether a header of `hs` states a fact of kind `k` about the file `x`,
+# read as a fact is read: the file its value begins with.
+def fact.says(hs: List<&2, Rev.Header>, +k: String, +x: String) -> Bool:
+  match hs:
+    case Nil{}:
+      False{}
+    case Rev.Header{+key, +v} <> rest:
+      Bool.or(Bool.and(String.eq(key, k), fact.names(Tree.fact_of(v, T.split_once(v)), x)), fact.says(rest, k, x))
+
+# Whether some key of `ks` says something of the file `x` in `hs`.
+def fact.said(ks: List<&2, String>, +hs: List<&2, Rev.Header>, +x: String) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case +k <> rest:
+      Bool.or(fact.says(hs, k, x), fact.said(rest, hs, x))
+
+# Whether this revision is what a bookmark to `g` finds: the revision
+# itself, a revision of the change, or one that adds, moves, drops, edits,
+# or states the text or bytes of the file (decision 0024, the Rust tool's
+# `Pointed::over`).
+def target.in(f: Main.Full, g: Bm.Target) -> Bool:
+  match g:
+    case Bm.Target.Revision{+r}:
+      String.eq(Main.id_of(f), r)
+    case Bm.Target.Change{+c}:
+      String.eq(Main.change_of(f), c)
+    case Bm.Target.File{+x}:
+      fact.said(["add", "move", "drop", "edit", "text", "bytes"], Main.facts_of(f), x)
+
+# Whether some revision of `held` is what a bookmark to `g` finds.
+def target.found(held: List<&2, Main.Full>, +g: Bm.Target) -> Bool:
+  match held:
+    case Nil{}:
+      False{}
+    case +f <> rest:
+      Bool.or(target.in(f, g), target.found(rest, g))
+
+# The bookmarks among these that find something among the revisions
+# `held`, each as given and in the order given.
+def marks.found(bs: List<&2, Bm.Bookmark>, +held: List<&2, Main.Full>) -> List<&2, Bm.Bookmark>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Bm.Bookmark{+n, +g, p} <> rest:
+      Tree.keep(~Bm.Bookmark, target.found(held, g), Bm.Bookmark{n, g, p}, marks.found(rest, held))
+
 # A file of the store holding a digest.
 def split.held(ss: List<&2, T.Split>, +path: String, +digest: String) -> Bool:
   match ss:
@@ -1998,12 +2042,26 @@ def doc.has(ds: List<&2, Store.Doc>, +id: String) -> Bool:
     case Store.Doc{p, +i, n, t} <> rest:
       Bool.or(String.eq(i, id), doc.has(rest, id))
 
+# Whether two documents are one: the same path, digest, size and text.
+def doc.same(a: Store.Doc, b: Store.Doc) -> Bool:
+  match a b:
+    case Store.Doc{p, i, n, t} Store.Doc{q, j, m, u}:
+      Bool.and(String.eq(p, q), Bool.and(String.eq(i, j), Bool.and(Nat.is_eq(n, m), String.eq(t, u))))
+
+# Whether a document is, whole, one of these.
+def doc.among(ds: List<&2, Store.Doc>, +d: Store.Doc) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Bool.or(doc.same(x, d), doc.among(rest, d))
+
 def docs.from(xs: List<&2, Store.Doc>, +ds: List<&2, Store.Doc>) -> Bool:
   match xs:
     case Nil{}:
       True{}
-    case Store.Doc{p, +i, n, t} <> rest:
-      Bool.and(doc.has(ds, i), docs.from(rest, ds))
+    case +x <> rest:
+      Bool.and(doc.among(ds, x), docs.from(rest, ds))
 
 def pays.from(ys: List<&2, T.Split>, +ps: List<&2, T.Split>) -> Bool:
   match ys:
@@ -2013,8 +2071,8 @@ def pays.from(ys: List<&2, T.Split>, +ps: List<&2, T.Split>) -> Bool:
       Bool.and(split.held(ps, p, d), pays.from(rest, ps))
 
 # A copy is assembled from this store's own files: every document and
-# forgetting document it carries is one this store holds under that
-# digest, and every payload is a file of this store holding it.
+# forgetting document it carries is, whole, one this store holds, and every
+# payload is a file of this store holding it.
 def plan.from(p: Plan, +ds: List<&2, Store.Doc>, +ps: List<&2, T.Split>) -> Bool:
   match p:
     case Plan{r, docs, pays, forg, paths, rs, w, n, res}:
@@ -2056,15 +2114,6 @@ def named.edge(fs: List<&2, Main.Full>, +id: String) -> Bool:
       False{}
     case Main.Full{i, c, +parents, +supersedes, a, w, rb, rv, facts, m} <> rest:
       Bool.or(Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), named.edge(rest, id))
-
-# Whether this store has heard of every revision a copy holds: it holds
-# each, or some revision of it names each.
-def heard.all(cfs: List<&2, Main.Full>, +fs: List<&2, Main.Full>) -> Bool:
-  match cfs:
-    case Nil{}:
-      True{}
-    case +f <> rest:
-      Bool.and(Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), named.edge(fs, Main.id_of(f))), heard.all(rest, fs))
 
 # Whether a file of the store listed holds this digest.
 def split.has(ss: List<&2, T.Split>, +d: String) -> Bool:
@@ -2358,25 +2407,6 @@ def laid.all(ps: List<&2, Placed>, os: List<&2, Outcome>, +t: Tree.Tree(), +fs: 
     case _ _:
       True{}
 
-# A path a folder may be given: outside the store, not a directory another
-# of the tree's files needs, and not one a rule covers.
-def path.clear(+path: String, +dirs: Set(), +rules: List<&2, Folder.Scope>) -> Bool:
-  Bool.and(Bool.not(Arrange.has(dirs, path)), Bool.and(Bool.not(Bool.or(String.eq(path, "history"), String.starts_with(path, "history/"))), Bool.not(Folder.skips(rules, path))))
-
-def puts.clear(ps: List<&2, Put>, +dirs: Set(), +rules: List<&2, Folder.Scope>) -> Bool:
-  match ps:
-    case Nil{}:
-      True{}
-    case +p <> rest:
-      Bool.and(path.clear(put.path(p), dirs, rules), puts.clear(rest, dirs, rules))
-
-def folder.clear(+t: Tree.Tree(), +rules: List<&2, Folder.Scope>, r: Result<&2, &2, Main.Refused, List<&2, Put>>) -> Bool:
-  match r:
-    case Fail{e}:
-      True{}
-    case Done{ps}:
-      puts.clear(ps, Set.from_list(directories(placed(t))), rules)
-
 # What a law says of what `export` prints
 # ---------------------------------------
 
@@ -2395,6 +2425,14 @@ def said.after(ls: List<&2, String>, +prefix: String) -> List<&2, String>:
       Nil{}
     case +l <> rest:
       said.keep(String.starts_with(l, prefix), l, String.length(prefix), said.after(rest, prefix))
+
+# Whether a file of a tree that is not a link sits at a path.
+def tree.file(t: Tree.Tree(), +path: String) -> Bool:
+  match t:
+    case Nil{}:
+      False{}
+    case Tree.Entry{f, +p, k, y, g, m} <> rest:
+      Bool.or(Bool.and(String.eq(p, path), Bool.not(Tree.kind_eq(k, Tree.Link{}))), tree.file(rest, path))
 
 # Whether some file of a tree sits at a path.
 def tree.holds(t: Tree.Tree(), +path: String) -> Bool:

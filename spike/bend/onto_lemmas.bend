@@ -28,6 +28,15 @@ import ./composition_lemmas.bend as Comp
 # Which copy an export writes into
 # --------------------------------
 
+# Whether this store has heard of every revision a copy holds: it holds
+# each, or some revision of it names each.
+def heard_all(cfs: List<&2, Main.Full>, +fs: List<&2, Main.Full>) -> Bool:
+  match cfs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      Bool.and(Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), heard_all(rest, fs))
+
 # What a copy's revision is found among: the digests this store holds and
 # those its revisions name.
 def edges_named(fs: List<&2, Main.Full>, +id: String) -> {Rev.member(Export.named.edges(fs), id) == Export.named.edge(fs, id) : Bool}:
@@ -48,25 +57,25 @@ def heard_is(+fs: List<&2, Main.Full>, +id: String) -> {Arrange.has(Set.from_lis
       ReceiveL.member_app(Main.ids(fs), Export.named.edges(fs), id),
       Equal.cong(Bool, Bool, x => Bool.or(Rev.member(Main.ids(fs), id), x), Rev.member(Export.named.edges(fs), id), Export.named.edge(fs, id), edges_named(fs, id))))
 
-def stranger_step(c: Bool, +f: Main.Full, +rest: List<&2, Main.Full>, +fs: List<&2, Main.Full>, +into: String, ec: {Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)) == c : Bool}, ih: {Result.is_done(&2, &2, Main.Refused, Unit, Export.stranger.r(into, Export.stranger(rest, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs)))))) == Export.heard.all(rest, fs) : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.stranger.r(into, Bool.pick(Maybe<&2, String>, c, Export.stranger(rest, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs)))), Some{Main.id_of(f)}))) == Bool.and(Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), Export.heard.all(rest, fs)) : Bool}:
+def stranger_step(c: Bool, +f: Main.Full, +rest: List<&2, Main.Full>, +fs: List<&2, Main.Full>, +into: String, ec: {Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)) == c : Bool}, ih: {Result.is_done(&2, &2, Main.Refused, Unit, Export.stranger.r(into, Export.stranger(rest, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs)))))) == heard_all(rest, fs) : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.stranger.r(into, Bool.pick(Maybe<&2, String>, c, Export.stranger(rest, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs)))), Some{Main.id_of(f)}))) == Bool.and(Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), heard_all(rest, fs)) : Bool}:
   match c:
     case True{}:
-      %Equal.trans(Bool, True{}, Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), Equal.sym(Bool, Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), True{}, ec), heard_is(fs, Main.id_of(f))) : {Result.is_done(&2, &2, Main.Refused, Unit, Export.stranger.r(into, Export.stranger(rest, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs)))))) == Bool.and(_, Export.heard.all(rest, fs)) : Bool}
+      %Equal.trans(Bool, True{}, Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), Equal.sym(Bool, Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), True{}, ec), heard_is(fs, Main.id_of(f))) : {Result.is_done(&2, &2, Main.Refused, Unit, Export.stranger.r(into, Export.stranger(rest, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs)))))) == Bool.and(_, heard_all(rest, fs)) : Bool}
       ih
     case False{}:
-      %Equal.trans(Bool, False{}, Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), Equal.sym(Bool, Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), False{}, ec), heard_is(fs, Main.id_of(f))) : {False{} == Bool.and(_, Export.heard.all(rest, fs)) : Bool}
+      %Equal.trans(Bool, False{}, Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), Equal.sym(Bool, Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), False{}, ec), heard_is(fs, Main.id_of(f))) : {False{} == Bool.and(_, heard_all(rest, fs)) : Bool}
       {==}
 
 # The copy holds no revision this store has not heard of exactly where no
 # stranger is found in it.
-def stranger_done(cfs: List<&2, Main.Full>, +fs: List<&2, Main.Full>, +into: String) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.stranger.r(into, Export.stranger(cfs, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs)))))) == Export.heard.all(cfs, fs) : Bool}:
+def stranger_done(cfs: List<&2, Main.Full>, +fs: List<&2, Main.Full>, +into: String) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.stranger.r(into, Export.stranger(cfs, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs)))))) == heard_all(cfs, fs) : Bool}:
   match cfs:
     case Nil{}:
       {==}
     case +f <> +rest:
       stranger_step(Arrange.has(Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))), Main.id_of(f)), f, rest, fs, into, {==}, stranger_done(rest, fs, into))
 
-def rel_step(b: Bool, +into: String, +fs: List<&2, Main.Full>, +cfs: List<&2, Main.Full>) -> {Result.is_done(&2, &2, Main.Refused, Unit, Result.bind(&2, &2, Main.Refused, Unit, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, b, Done{Unit{}}, Fail{Main.Refused{1, Export.UNRELATED(into)}}), u => Export.stranger.r(into, Export.stranger(cfs, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))))))) == Bool.and(b, Export.heard.all(cfs, fs)) : Bool}:
+def rel_step(b: Bool, +into: String, +fs: List<&2, Main.Full>, +cfs: List<&2, Main.Full>) -> {Result.is_done(&2, &2, Main.Refused, Unit, Result.bind(&2, &2, Main.Refused, Unit, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, b, Done{Unit{}}, Fail{Main.Refused{1, Export.UNRELATED(into)}}), u => Export.stranger.r(into, Export.stranger(cfs, Set.from_list(List.append(&2, String, Main.ids(fs), Export.named.edges(fs))))))) == Bool.and(b, heard_all(cfs, fs)) : Bool}:
   match b:
     case True{}:
       stranger_done(cfs, fs, into)
@@ -75,8 +84,87 @@ def rel_step(b: Bool, +into: String, +fs: List<&2, Main.Full>, +cfs: List<&2, Ma
 
 # An export writes into a copy exactly where the copy is related to this
 # store and holds no revision this store has not heard of.
-def copy_done(+into: String, +fs: List<&2, Main.Full>, +cfs: List<&2, Main.Full>) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == Bool.and(Receive.related(fs, cfs), Export.heard.all(cfs, fs)) : Bool}:
+def copy_done(+into: String, +fs: List<&2, Main.Full>, +cfs: List<&2, Main.Full>) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == Bool.and(Receive.related(fs, cfs), heard_all(cfs, fs)) : Bool}:
   rel_step(Receive.related(fs, cfs), into, fs, cfs)
+
+# Where a revision is found among the edges `receive` reads a store's graph
+# by, some revision of the store names it as a parent or as superseded.
+def redges_named(fs: List<&2, Main.Full>, +id: String) -> {Rev.member(Receive.edges(fs), id) == Export.named.edge(fs, id) : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case Main.Full{i, c, +parents, +supersedes, a, w, rb, rv, facts, m} <> +rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, List.append(&2, String, parents, supersedes), Receive.edges(rest)), id), Bool.or(Rev.member(List.append(&2, String, parents, supersedes), id), Rev.member(Receive.edges(rest), id)), ReceiveL.member_app(List.append(&2, String, parents, supersedes), Receive.edges(rest), id)) : {_ == Bool.or(Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), Export.named.edge(rest, id)) : Bool}
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, parents, supersedes), id), Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), ReceiveL.member_app(parents, supersedes, id)) : {Bool.or(_, Rev.member(Receive.edges(rest), id)) == Bool.or(Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), Export.named.edge(rest, id)) : Bool}
+      %Equal.sym(Bool, Rev.member(Receive.edges(rest), id), Export.named.edge(rest, id), redges_named(rest, id)) : {Bool.or(Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), _) == Bool.or(Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), Export.named.edge(rest, id)) : Bool}
+      {==}
+
+# What a store holds or names, read as `receive` reads it, is what it has
+# heard of.
+def heard_of(+fs: List<&2, Main.Full>, +id: String) -> {Rev.member(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), id) == Bool.or(Rev.member(Main.ids(fs), id), Export.named.edge(fs, id)) : Bool}:
+  Equal.trans(Bool, Rev.member(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), id), Bool.or(Rev.member(Main.ids(fs), id), Rev.member(Receive.edges(fs), id)), Bool.or(Rev.member(Main.ids(fs), id), Export.named.edge(fs, id)),
+    ReceiveL.member_app(Main.ids(fs), Receive.edges(fs), id),
+    Equal.cong(Bool, Bool, x => Bool.or(Rev.member(Main.ids(fs), id), x), Rev.member(Receive.edges(fs), id), Export.named.edge(fs, id), redges_named(fs, id)))
+
+# A revision this store neither holds nor names, wherever the copy holds
+# it, is one it has not heard of.
+def heard_stranger(pre: List<&2, Main.Full>, +f: Main.Full, +post: List<&2, Main.Full>, +fs: List<&2, Main.Full>, h: {Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))) == False{} : Bool}) -> {heard_all(List.append(&2, Main.Full, pre, f <> post), fs) == False{} : Bool}:
+  match pre:
+    case Nil{}:
+      %Equal.sym(Bool, Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), False{}, h) : {Bool.and(_, heard_all(post, fs)) == False{} : Bool}
+      {==}
+    case +g <> +rest:
+      %Equal.sym(Bool, heard_all(List.append(&2, Main.Full, rest, f <> post), fs), False{}, heard_stranger(rest, f, post, fs, h)) : {Bool.and(Bool.or(Rev.member(Main.ids(fs), Main.id_of(g)), Export.named.edge(fs, Main.id_of(g))), _) == False{} : Bool}
+      AL.and_false_r(Bool.or(Rev.member(Main.ids(fs), Main.id_of(g)), Export.named.edge(fs, Main.id_of(g))))
+
+# An export refuses a copy holding a revision this store neither holds nor
+# names, wherever the copy holds it.
+def refuses_stranger(+into: String, +fs: List<&2, Main.Full>, +pre: List<&2, Main.Full>, +f: Main.Full, +post: List<&2, Main.Full>, h: {Rev.member(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), Main.id_of(f)) == False{} : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, List.append(&2, Main.Full, pre, f <> post))) == False{} : Bool}:
+  +cfs = List.append(&2, Main.Full, pre, f <> post)
+  Equal.trans(Bool, Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)), Bool.and(Receive.related(fs, cfs), heard_all(cfs, fs)), False{}, copy_done(into, fs, cfs),
+    (%Equal.sym(Bool, heard_all(cfs, fs), False{}, heard_stranger(pre, f, post, fs, Equal.trans(Bool, Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), Rev.member(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), Main.id_of(f)), False{}, Equal.sym(Bool, Rev.member(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), Main.id_of(f)), Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), heard_of(fs, Main.id_of(f))), h))) : {Bool.and(Receive.related(fs, cfs), _) == False{} : Bool}
+    AL.and_false_r(Receive.related(fs, cfs))))
+
+# Every revision a copy holds that this store holds or names is one it has
+# heard of.
+def heard_every(cfs: List<&2, Main.Full>, +fs: List<&2, Main.Full>, +h: {Main.all_held(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), Main.ids(cfs)) == True{} : Bool}) -> {heard_all(cfs, fs) == True{} : Bool}:
+  match cfs:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      +l = List.append(&2, String, Main.ids(fs), Receive.edges(fs))
+      ExportL.and_tt(Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), heard_all(rest, fs),
+        Equal.trans(Bool, Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), Rev.member(l, Main.id_of(f)), True{}, Equal.sym(Bool, Rev.member(l, Main.id_of(f)), Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), Export.named.edge(fs, Main.id_of(f))), heard_of(fs, Main.id_of(f))), ExportL.and_l(Rev.member(l, Main.id_of(f)), Main.all_held(l, Main.ids(rest)), h)),
+        heard_every(rest, fs, ExportL.and_r(Rev.member(l, Main.id_of(f)), Main.all_held(l, Main.ids(rest)), h)))
+
+def any_step(b: Bool, +x: String, +rest: List<&2, String>, +s: Set(), +c: String, eb: {String.eq(x, c) == b : Bool}, hm: {Bool.or(b, Rev.member(rest, c)) == True{} : Bool}, hs: {Arrange.has(s, c) == True{} : Bool}, ih: {Rev.member(rest, c) == True{} : Bool} -> {Receive.any_in(rest, s) == True{} : Bool}) -> {Bool.or(Arrange.has(s, x), Receive.any_in(rest, s)) == True{} : Bool}:
+  match b:
+    case True{}:
+      %Equal.sym(String, x, c, SL.eq_true(x, c, eb)) : {Bool.or(Arrange.has(s, _), Receive.any_in(rest, s)) == True{} : Bool}
+      ExportL.or_l(Arrange.has(s, c), Receive.any_in(rest, s), hs)
+    case False{}:
+      ExportL.or_r(Arrange.has(s, x), Receive.any_in(rest, s), ih(hm))
+
+def any_of(xs: List<&2, String>, +s: Set(), +c: String, hm: {Rev.member(xs, c) == True{} : Bool}, +hs: {Arrange.has(s, c) == True{} : Bool}) -> {Receive.any_in(xs, s) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(hm))
+    case +x <> +rest:
+      any_step(String.eq(x, c), x, rest, s, c, {==}, hm, hs, m => any_of(rest, s, c, m, hs))
+
+# Two stores sharing a revision are related.
+def related_of(+fs: List<&2, Main.Full>, +cfs: List<&2, Main.Full>, +c: String, hc: {Rev.member(Main.ids(cfs), c) == True{} : Bool}, hh: {Rev.member(Main.ids(fs), c) == True{} : Bool}) -> {Receive.related(fs, cfs) == True{} : Bool}:
+  +oi = Set.from_list(Main.ids(fs))
+  +ti = Set.from_list(Main.ids(cfs))
+  ExportL.or_r(Bool.or(List.is_empty(&2, Main.Full, fs), List.is_empty(&2, Main.Full, cfs)), Bool.or(Receive.any_in(Main.ids(cfs), oi), Bool.or(Receive.any_in(Receive.edges(cfs), oi), Receive.any_in(Receive.edges(fs), ti))),
+    ExportL.or_l(Receive.any_in(Main.ids(cfs), oi), Bool.or(Receive.any_in(Receive.edges(cfs), oi), Receive.any_in(Receive.edges(fs), ti)),
+      any_of(Main.ids(cfs), oi, c, hc, Equal.trans(Bool, Arrange.has(oi, c), Rev.member(Main.ids(fs), c), True{}, CatchL.has_member(Main.ids(fs), c), hh))))
+
+# An export goes on into a copy sharing a revision with this store, every
+# revision of which this store holds or names.
+def updates_heard(+into: String, +fs: List<&2, Main.Full>, +cfs: List<&2, Main.Full>, +c: String, hc: {Rev.member(Main.ids(cfs), c) == True{} : Bool}, hh: {Rev.member(Main.ids(fs), c) == True{} : Bool}, +h: {Main.all_held(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), Main.ids(cfs)) == True{} : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == True{} : Bool}:
+  Equal.trans(Bool, Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)), Bool.and(Receive.related(fs, cfs), heard_all(cfs, fs)), True{}, copy_done(into, fs, cfs),
+    ExportL.and_tt(Receive.related(fs, cfs), heard_all(cfs, fs), related_of(fs, cfs, c, hc, hh), heard_every(cfs, fs, h)))
 
 # The rules an update gives a copy
 # --------------------------------

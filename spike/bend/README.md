@@ -317,10 +317,11 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `offer.bend` | `offer`: the published copy's store read as `prune` reads it and opened as the Rust tool opens a store, and its manifest written to standard output — the header, every head of the graph, then payloads, documents, revisions, rules, the other tool's files and bookmarks, each group by path and each path under the copy's own name — with no private rule or bookmark named | `store::offer`, decisions 0048, 0052, 0056 |
 | `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have; `offer_names_each_file_by_its_digest`: every line names a file by the digest the store's listing gives it; `offer_lists_forgetting_as_prune_reads_it`: what the manifest says a document forgets is what `prune`, `receive` and `export` read it as forgetting, save a resolution the Rust tool's catalogue does not parse; `offer_lines_read_back`: `fetch`'s line reader reads each line it writes back as the file it names, whatever spaces the path holds | `offer` |
 | `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; a copy it made brought up to date, the folder caught up; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0052, 0053, 0062 |
-| `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_lays_out_only_what_the_walk_offers_back`: every path outside the store, no other file's directory, and none a rule covers; `export_carries_only_this_stores_files`: every document, forgetting document and payload a copy carries is one of this store's; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
+| `export_lemmas.bend` | `export_names_only_what_travels`: the bookmarks an export's plan gives a copy are exactly the shared ones, as `offer` lists them, that find something among the revisions it is given — the revision, a revision of the change, or one whose facts say anything of the file — in the store's order; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_carries_only_this_stores_files`: every document and forgetting document a copy carries is, whole, one of this store's documents, and every payload a file of this store holding it; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
 | `catchup_lemmas.bend` | `export_catches_up_to_a_fresh_copy`: once the steps of a copy's folder plan are taken, every path of the folder a fresh export lays out for the same target holds that file — by digest and mode, or by where its link points — one step a file, and nothing removed is one of those paths; `export_settles_only_on_what_it_laid_out`: a folder the plan calls settled already holds all that; `export_spares_the_unrecorded`: every file the plan writes or links over, and every file it removes, holds bytes `cat` of some revision of the copy reads for some file of its tree, or a payload that tree names — `update`'s promise, met at `update_lemmas.lookup_rec` | `export` onto a copy |
-| `onto_lemmas.bend` | `export_updates_only_a_copy_it_could_have_made`: an update goes on exactly where the copy is related and holds no revision this store neither holds nor names as a parent or as superseded; `export_update_leaves_the_copy_the_whole_set`: every revision, document, forgetting document and payload the set names is one the copy holds, one the update writes, or one a forgetting document of either side says is gone; `export_update_gives_up_only_what_the_set_no_longer_names`: every file an update withdraws or retires is a revision, document or payload file the set does not carry, a rule file of a rule the origin does not share, or a bookmark file of one that does not travel; `export_update_carries_only_the_claims_a_copy_lacks`: a file of `claims/` travels exactly where the copy has none of that name; `export_update_states_no_private_rule`: every rule file an update adds states a shared rule | `export` onto a copy |
-| `dryrun_lemmas.bend` | `export_dry_run_names_what_it_would_write`: read back, `export -n`'s `would withdraw` lines are the files a copy gives up, in order, and its `write` lines every path the tree places, once each and in path order; `export_files_only_dry_run_names_what_it_lays_out`: `--files-only -n`'s `write` and `link` lines are the files and links the real run says it wrote and linked | `export -n` |
+| `onto_lemmas.bend` | `export_updates_only_a_copy_it_could_have_made`: an update is refused wherever the copy holds a revision this store neither holds nor names as a parent or as superseded; `export_updates_a_copy_it_could_have_made`: and goes on into a copy sharing a revision with this store, every revision of which it holds or names; `export_update_leaves_the_copy_the_whole_set`: every revision, document, forgetting document and payload the set names is one the copy holds, one the update writes, or one a forgetting document of either side says is gone; `export_update_gives_up_only_what_the_set_no_longer_names`: every file an update withdraws or retires is a revision, document or payload file the set does not carry, a rule file of a rule the origin does not share, or a bookmark file of one that does not travel; `export_update_carries_only_the_claims_a_copy_lacks`: a file of `claims/` travels exactly where the copy has none of that name; `export_update_states_no_private_rule`: every rule file an update adds states a shared rule | `export` onto a copy |
+| `dryrun_lemmas.bend` | `export_dry_run_names_what_it_would_write`: read back, `export -n`'s `would withdraw` lines are the files a copy gives up, in order, and its `write` lines every path the tree places, once each and in path order; `export_files_only_dry_run_names_what_it_lays_out`: read back, `--files-only -n`'s `write` lines are every path where the tree holds a file that is no link, once each and in path order, and the real run's `wrote` lines are the same | `export -n` |
+| `placed_lemmas.bend` | `export_lays_out_every_path`: a folder `export` lays out holds a file at every path the target's tree places and at no other, each once and in path order; and, less its links, a file at every path where the tree holds one that is no link | `export` |
 | `filesonly_lemmas.bend` | `export_reads_a_directory_listing_back`: the host's listing of a directory reads back as its entries' names, once each and in order, a link's target no entry of its own; `export_writes_only_into_nothing`: `--files-only` lays a folder out, and a fresh copy is made, exactly where that listing names no entry; `export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise`: reading the host's digest line for each file it wrote, `--files-only` refuses the folder as folding the tree's paths exactly where some file reads back as other bytes than it laid | `export`, `export --files-only` |
 | `cleared_lemmas.bend` | `prune_clears_only_derived_files`: of any directory the host lists, in its own listing format, what `prune` clears from `cache/` is `cache/` and the name of each file entry that is a digest, once each and in order — no directory, link, link target, other entry, or file under another name | `prune` |
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
@@ -1246,23 +1247,27 @@ would call broken is refused, since a copy of a fault is two faults. What
 travels is the target's ancestry, closed over parent edges and nothing
 else, every document and payload those revisions name, followed through a
 resolution's `keep` lines, and every forgetting document standing in for
-any of it — each a file this store holds
+any of it — each, whole, one of this store's documents, and each payload
+copied from a file of this store holding it
 (`export_carries_only_this_stores_files`); the shared rules, filed under
 `Rule::label`'s names
-(`export_states_no_private_rule`); the shared bookmarks whose target the
-copy holds (`export_names_only_what_travels`), the rest counted as held
-back or as pointing past the target; and the files of `claims/`, whole.
+(`export_states_no_private_rule`); exactly the shared bookmarks, as
+`offer` lists them, that find something among the revisions the copy is
+given — the revision itself, a revision of the change, a revision adding,
+moving, dropping, editing, or stating the text or bytes of the file — in
+the store's order (`export_names_only_what_travels`), the rest counted as
+held back or as pointing past the target; and the files of `claims/`, whole.
 The copy's files are named as `arrange` names them, over what travels. The
-folder is laid out path by path, each path the tree places given one
-outcome at that path (`export_lays_out_every_path`): a file of lines
+folder is laid out path by path, and a folder laid out holds a file at
+every path the tree places and at no other, each once and in path order
+(`export_lays_out_every_path`): a file of lines
 holding exactly what `cat` prints there, a file of bytes the payload its
 entry names, copied out of the file of the store holding it, a link made
 where it sits and spelled as decision 0040 spells it, each runnable exactly
-where the tree says (`export_lays_each_file_as_the_tree_has_it`) — and
-every path outside the store, no other file's directory, and none a rule
-of the copy covers, so the copy's own walk offers back all it was given
-(`export_lays_out_only_what_the_walk_offers_back`); or, where the folder
-cannot take the tree whole, every path in the way named. `-n` prints the
+where the tree says (`export_lays_each_file_as_the_tree_has_it`); or,
+where the folder cannot take the tree whole — a path that is also another
+file's directory, one in the store, one a rule of the copy covers — every
+path in the way named. `-n` prints the
 counts, a `would withdraw` line for each file a copy being updated gives
 up, in the order they go, and a `write` line for every path the tree
 places, once each and in path order, no other line reading as either
@@ -1271,9 +1276,10 @@ same folder out into a directory holding nothing, with no store beside it,
 says each link and mode it set, and reads each file it wrote back, refusing
 a folder that folds two of the tree's paths onto one file exactly where some
 file reads back as other bytes than it laid
-(`export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise`); its `-n` names,
-file for file and link for link, what the real run then says it wrote and
-linked (`export_files_only_dry_run_names_what_it_lays_out`). What a
+(`export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise`); its `-n`
+names in `write` lines every path where the tree holds a file that is no
+link, once each and in path order, and those are what the real run names
+as `wrote` (`export_files_only_dry_run_names_what_it_lays_out`). What a
 directory holds is read from the host's listing of it, which reads back as
 the entries' own names, once each and in order, a link's target never
 taken for an entry (`export_reads_a_directory_listing_back`), so a folder
@@ -1289,9 +1295,12 @@ each flag counting wherever it stands (`export_reads_its_words`).
 
 A directory holding a copy this store made is brought up to date rather
 than refused (decision 0052), once it passes `check` — asked before the
-copy is opened, as the Rust tool asks it — and exactly where it is related
-and holds no revision this store neither holds nor names as a parent or as
-superseded (`export_updates_only_a_copy_it_could_have_made`). The set is
+copy is opened, as the Rust tool asks it. A copy holding a revision this
+store neither holds nor names as some revision's parent or as one it
+supersedes is refused, wherever that revision stands
+(`export_updates_only_a_copy_it_could_have_made`); one sharing a revision
+with this store, every revision of which it holds or names, goes on
+(`export_updates_a_copy_it_could_have_made`). The set is
 the same; the copy is diffed against it by content: each
 revision the set names is held under the stem it has, each document or
 payload either side forgets destroyed, each file the set no longer names
@@ -2505,17 +2514,21 @@ the source has it, an original destroyed that nothing forgets, and every
 payload file this store holds removed with it; and four offer
 breaks: a private bookmark named, a private rule named, a payload's
 stand-in read as an operation document, and nothing written where a line
-forgets nothing; and four
+forgets nothing; and seven
 export breaks: a link laid somewhere other than where it sits, a
 private bookmark given to the copy, a bookmark pointing past the target
-given to it, and a private rule written into it; and two breaks of an
+given to it, a file bookmark held without the drop that names the file, a
+change bookmark held to the revision IDs, bookmarks tested against no
+revision at all, and a private rule written into it; and two breaks of an
 export onto its copy: a file nothing recorded written over, and a stray
-file removed; and eight more export breaks: a word it does not know taken, a directory holding no
+file removed; and eleven more export breaks: a word it does not know taken, a directory holding no
 store updated, a file of lines laid out plain whatever its mode, a payload
 copied from a file named for it rather than the one holding it, a payload
 carried from a file the store does not hold, a revision the copy holds
-renamed, a path a rule of the copy covers laid out, and every original the
-copy holds destroyed; and fourteen breaks of what an export proves of a copy
+renamed, two paths of the tree laid out as one, a document carried with
+its text dropped, a copy somebody recorded in updated, links named among
+the files `--files-only` wrote, and every original the copy holds
+destroyed; and fourteen breaks of what an export proves of a copy
 and of what it says: a link's target counted as bytes the copy records, a
 copy's file kept whose mode is not the target's, a folder with a file to
 write taken for the export's own untouched output, a copy refused that
