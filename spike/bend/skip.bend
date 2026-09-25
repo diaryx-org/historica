@@ -84,7 +84,7 @@ def show(r: Rule) -> String:
       key(named(sc), p) ++ " " ++ value(sc) ++ Bool.pick(String, under(sc), "/", SNil{})
 
 # What a rule's file holds: its line, and a newline
-# (`LAWS.skip_writes_a_rule_its_reader_reads_back`).
+# (`LAWS.skip_path_rule_reads_back`, `LAWS.skip_name_rule_reads_back`).
 def file.text(r: Rule) -> String:
   show(r) ++ "\n"
 

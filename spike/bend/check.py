@@ -2817,6 +2817,57 @@ def check_mutations(temporary):
             "identity.bend",
         ),
         (
+            "check reads the note under a new store's format line as a layout",
+            "      +found = Store.line.cut(rest)",
+            "      +found = rest",
+            "check_lemmas.fresh",
+            "check.bend",
+        ),
+        (
+            "skip's rule equality ignores privacy",
+            "      Bool.and(scope.eq(x, y), Bool.not(Bool.xor(p, q)))",
+            "      scope.eq(x, y)",
+            "skip_lemmas.rule_eq_sound",
+            "skip.bend",
+        ),
+        (
+            "skip writes a directory's rule without its slash",
+            '      key(named(sc), p) ++ " " ++ value(sc) ++ Bool.pick(String, under(sc), "/", SNil{})',
+            '      key(named(sc), p) ++ " " ++ value(sc) ++ Bool.pick(String, under(sc), SNil{}, SNil{})',
+            "skip_lemmas.read_under",
+            "skip.bend",
+        ),
+        (
+            "skip reads a private name rule as shared",
+            '        Bool.or(String.starts_with(l, "private "), String.starts_with(l, "private-name ")))',
+            '        String.starts_with(l, "private "))',
+            # `LAWS.skip_name_rule_reads_back` rejects it; the checker meets
+            # the path's proof, which spells the same line, first.
+            "skip_lemmas.read_path",
+            "skip.bend",
+        ),
+        (
+            "a directory's rule does not skip the directory",
+            "    case Scope.Under{v}:\n      String.eq(path, v)",
+            "    case Scope.Under{v}:\n      False{}",
+            "skip_lemmas.skips_scoped",
+            "folder.bend",
+        ),
+        (
+            "skip's listing forgets the rule it just kept",
+            "      Stating{r, f} <> once(rest, r <> seen, once.dup(rest, r <> seen))",
+            "      Stating{r, f} <> once(rest, seen, once.dup(rest, seen))",
+            "skip_lemmas.disj.at",
+            "skip.bend",
+        ),
+        (
+            "skip asks whether a rule is new against what it had before the last",
+            "      sorted.go(rest, had, more, already, sorted.dup(rest, had, more))",
+            "      sorted.go(rest, had, more, already, sorted.dup(rest, had, fresh))",
+            "skip_lemmas.mono.at",
+            "skip.bend",
+        ),
+        (
             "show finds a document whose digest the named one starts",
             '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, held(rest, id))',
             '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, held(rest, id))',

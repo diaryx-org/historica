@@ -13,11 +13,6 @@ import ./commands.bend as Main
 import ./string_lemmas.bend as S
 import ./equality_lemmas.bend as EqL
 
-
-
-# Writing
-# -------
-
 # Rule equality
 # -------------
 
@@ -115,6 +110,135 @@ def rule_ne_sym.at(+a: Skip.Rule, +b: Skip.Rule, c: Bool, ec: {Skip.rule.eq(b, a
 def rule_ne_sym(+a: Skip.Rule, +b: Skip.Rule, h: {Skip.rule.eq(a, b) == False{} : Bool}) -> {Skip.rule.eq(b, a) == False{} : Bool}:
   rule_ne_sym.at(a, b, Skip.rule.eq(b, a), {==}, h)
 
+def or_swap(a: Bool, b: Bool, -c: Bool) -> {Bool.or(b, Bool.or(a, c)) == Bool.or(Bool.or(a, b), c) : Bool}:
+  match a:
+    case True{}:
+      match b:
+        case True{}:
+          {==}
+        case False{}:
+          {==}
+    case False{}:
+      {==}
+
+# Listing
+# -------
+
+def or_true_r(a: Bool) -> {Bool.or(a, True{}) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def not_true_false(b: Bool, e: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.false_true(e))
+
+# A rule some earlier file stated is one `x` is not, when `x` was seen and
+# the rule was not.
+def unseen_ne.at(+r: Skip.Rule, +x: Skip.Rule, +seen: List<&2, Skip.Rule>, c: Bool, ec: {Skip.rule.eq(r, x) == c : Bool}, e: {Skip.held(seen, r) == False{} : Bool}, hx: {Skip.held(seen, x) == True{} : Bool}) -> {c == False{} : Bool}:
+  match c:
+    case False{}:
+      {==}
+    case True{}:
+      +re : {r == x : Skip.Rule} = rule_eq_sound(r, x, ec)
+      +e2 : {Skip.held(seen, x) == False{} : Bool} = (%re : {Skip.held(seen, _) == False{} : Bool} e)
+      (%hx : {_ == False{} : Bool} e2)
+
+# Nothing the listing keeps is a rule already seen.
+def disj.at(+r: Skip.Rule, +f: String, +rest: List<&2, Skip.Stating>, +seen: List<&2, Skip.Rule>, +x: Skip.Rule, +hx: {Skip.held(seen, x) == True{} : Bool}, d: Bool, e: {Skip.once.dup(Skip.Stating{r, f} <> rest, seen) == d : Bool}, ih: @s2: List<&2, Skip.Rule> -> {Skip.held(s2, x) == True{} : Bool} -> {Skip.held(Skip.stated.rules(Skip.once(rest, s2, Skip.once.dup(rest, s2))), x) == False{} : Bool}) -> {Skip.held(Skip.stated.rules(Skip.once(Skip.Stating{r, f} <> rest, seen, d)), x) == False{} : Bool}:
+  match d:
+    case True{}:
+      ih(seen, hx)
+    case False{}:
+      +h2 : {Skip.held(r <> seen, x) == True{} : Bool} = (%Equal.sym(Bool, Skip.held(seen, x), True{}, hx) : {Bool.or(Skip.rule.eq(r, x), _) == True{} : Bool} or_true_r(Skip.rule.eq(r, x)))
+      +n : {Skip.rule.eq(r, x) == False{} : Bool} = unseen_ne.at(r, x, seen, Skip.rule.eq(r, x), {==}, e, hx)
+      %Equal.sym(Bool, Skip.rule.eq(r, x), False{}, n) : {Bool.or(_, Skip.held(Skip.stated.rules(Skip.once(rest, r <> seen, Skip.once.dup(rest, r <> seen))), x)) == False{} : Bool}
+      ih(r <> seen, h2)
+
+def disj(ss: List<&2, Skip.Stating>, +seen: List<&2, Skip.Rule>, +x: Skip.Rule, +hx: {Skip.held(seen, x) == True{} : Bool}) -> {Skip.held(Skip.stated.rules(Skip.once(ss, seen, Skip.once.dup(ss, seen))), x) == False{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case Skip.Stating{+r, +f} <> +rest:
+      disj.at(r, f, rest, seen, x, hx, Skip.once.dup(Skip.Stating{r, f} <> rest, seen), {==}, s2 => h => disj(rest, s2, x, h))
+
+def seen_self(+r: Skip.Rule, +seen: List<&2, Skip.Rule>) -> {Skip.held(r <> seen, r) == True{} : Bool}:
+  (%Equal.sym(Bool, Skip.rule.eq(r, r), True{}, rule_eq_refl(r)) : {Bool.or(_, Skip.held(seen, r)) == True{} : Bool} {==})
+
+def nd.at(+r: Skip.Rule, +f: String, +rest: List<&2, Skip.Stating>, +seen: List<&2, Skip.Rule>, d: Bool, e: {Skip.once.dup(Skip.Stating{r, f} <> rest, seen) == d : Bool}, ih: @s2: List<&2, Skip.Rule> -> {Skip.nodup(Skip.stated.rules(Skip.once(rest, s2, Skip.once.dup(rest, s2)))) == True{} : Bool}) -> {Skip.nodup(Skip.stated.rules(Skip.once(Skip.Stating{r, f} <> rest, seen, d))) == True{} : Bool}:
+  match d:
+    case True{}:
+      ih(seen)
+    case False{}:
+      +o = Skip.stated.rules(Skip.once(rest, r <> seen, Skip.once.dup(rest, r <> seen)))
+      %Equal.sym(Bool, Skip.held(o, r), False{}, disj(rest, r <> seen, r, seen_self(r, seen))) : {Bool.and(Bool.not(_), Skip.nodup(o)) == True{} : Bool}
+      ih(r <> seen)
+
+# The listing names no rule twice.
+def nd(ss: List<&2, Skip.Stating>, +seen: List<&2, Skip.Rule>) -> {Skip.nodup(Skip.stated.rules(Skip.once(ss, seen, Skip.once.dup(ss, seen)))) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case Skip.Stating{+r, +f} <> +rest:
+      nd.at(r, f, rest, seen, Skip.once.dup(Skip.Stating{r, f} <> rest, seen), {==}, s2 => nd(rest, s2))
+
+# Every stated rule is one seen before or one the listing keeps.
+def cov(ss: List<&2, Skip.Stating>, +seen: List<&2, Skip.Rule>, +out: List<&2, Skip.Rule>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case Skip.Stating{+r, f} <> rest:
+      Bool.and(Bool.or(Skip.held(seen, r), Skip.held(out, r)), cov(rest, seen, out))
+
+def cov_shift(ss: List<&2, Skip.Stating>, +r: Skip.Rule, +seen: List<&2, Skip.Rule>, +out: List<&2, Skip.Rule>) -> {cov(ss, r <> seen, out) == cov(ss, seen, r <> out) : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case Skip.Stating{+y, g} <> +rest:
+      %Equal.sym(Bool, cov(rest, r <> seen, out), cov(rest, seen, r <> out), cov_shift(rest, r, seen, out)) : {Bool.and(Bool.or(Bool.or(Skip.rule.eq(r, y), Skip.held(seen, y)), Skip.held(out, y)), _) == Bool.and(Bool.or(Skip.held(seen, y), Bool.or(Skip.rule.eq(r, y), Skip.held(out, y))), cov(rest, seen, r <> out)) : Bool}
+      %or_swap(Skip.rule.eq(r, y), Skip.held(seen, y), Skip.held(out, y)) : {Bool.and(_, cov(rest, seen, r <> out)) == Bool.and(Bool.or(Skip.held(seen, y), Bool.or(Skip.rule.eq(r, y), Skip.held(out, y))), cov(rest, seen, r <> out)) : Bool}
+      {==}
+
+def cov.at(+r: Skip.Rule, +f: String, +rest: List<&2, Skip.Stating>, +seen: List<&2, Skip.Rule>, d: Bool, e: {Skip.once.dup(Skip.Stating{r, f} <> rest, seen) == d : Bool}, ih: @s2: List<&2, Skip.Rule> -> {cov(rest, s2, Skip.stated.rules(Skip.once(rest, s2, Skip.once.dup(rest, s2)))) == True{} : Bool}) -> {cov(Skip.Stating{r, f} <> rest, seen, Skip.stated.rules(Skip.once(Skip.Stating{r, f} <> rest, seen, d))) == True{} : Bool}:
+  match d:
+    case True{}:
+      +o = Skip.stated.rules(Skip.once(rest, seen, Skip.once.dup(rest, seen)))
+      %Equal.sym(Bool, Skip.held(seen, r), True{}, e) : {Bool.and(Bool.or(_, Skip.held(o, r)), cov(rest, seen, o)) == True{} : Bool}
+      ih(seen)
+    case False{}:
+      +o = Skip.stated.rules(Skip.once(rest, r <> seen, Skip.once.dup(rest, r <> seen)))
+      %Equal.sym(Bool, Skip.held(seen, r), False{}, e) : {Bool.and(Bool.or(_, Skip.held(r <> o, r)), cov(rest, seen, r <> o)) == True{} : Bool}
+      %Equal.sym(Bool, Skip.held(r <> o, r), True{}, seen_self(r, o)) : {Bool.and(Bool.or(False{}, _), cov(rest, seen, r <> o)) == True{} : Bool}
+      %cov_shift(rest, r, seen, o) : {_ == True{} : Bool}
+      ih(r <> seen)
+
+def cov_once(ss: List<&2, Skip.Stating>, +seen: List<&2, Skip.Rule>) -> {cov(ss, seen, Skip.stated.rules(Skip.once(ss, seen, Skip.once.dup(ss, seen)))) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case Skip.Stating{+r, +f} <> +rest:
+      cov.at(r, f, rest, seen, Skip.once.dup(Skip.Stating{r, f} <> rest, seen), {==}, s2 => cov_once(rest, s2))
+
+def cov_nil(ss: List<&2, Skip.Stating>, +out: List<&2, Skip.Rule>) -> {cov(ss, Nil{}, out) == Skip.all.held(Skip.stated.rules(ss), out) : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case Skip.Stating{+r, f} <> rest:
+      Equal.cong(Bool, Bool, t => Bool.and(Skip.held(out, r), t), cov(rest, Nil{}, out), Skip.all.held(Skip.stated.rules(rest), out), cov_nil(rest, out))
+
+# `skip` with no arguments lists every rule the store states, and none
+# twice.
+def lists_once(+ss: List<&2, Skip.Stating>) -> {Bool.and(Skip.nodup(Skip.stated.rules(Skip.once(ss, Nil{}, Skip.once.dup(ss, Nil{})))), Skip.all.held(Skip.stated.rules(ss), Skip.stated.rules(Skip.once(ss, Nil{}, Skip.once.dup(ss, Nil{}))))) == True{} : Bool}:
+  +o = Skip.stated.rules(Skip.once(ss, Nil{}, Skip.once.dup(ss, Nil{})))
+  %Equal.sym(Bool, Skip.nodup(o), True{}, nd(ss, Nil{})) : {Bool.and(_, Skip.all.held(Skip.stated.rules(ss), o)) == True{} : Bool}
+  %cov_nil(ss, o) : {_ == True{} : Bool}
+  cov_once(ss, Nil{})
+
 # Writing
 # -------
 
@@ -132,6 +256,101 @@ def held_app(xs: List<&2, Skip.Rule>, +ys: List<&2, Skip.Rule>, +r: Skip.Rule) -
     case +x <> rest:
       %Equal.sym(Bool, Skip.held(List.append(&2, Skip.Rule, rest, ys), r), Bool.or(Skip.held(rest, r), Skip.held(ys, r)), held_app(rest, ys, r)) : {Bool.or(Skip.rule.eq(x, r), _) == Bool.or(Bool.or(Skip.rule.eq(x, r), Skip.held(rest, r)), Skip.held(ys, r)) : Bool}
       or_assoc(Skip.rule.eq(x, r), Skip.held(rest, r), Skip.held(ys, r))
+
+
+# A rule added last keeps a list clear of the store's rules, and free of
+# repeats, where it is neither.
+def none_snoc(xs: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>, +r: Skip.Rule, +h1: {Skip.none.held(xs, had) == True{} : Bool}, +h2: {Skip.held(had, r) == False{} : Bool}) -> {Skip.none.held(List.append(&2, Skip.Rule, xs, [r]), had) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(Bool, Skip.held(had, r), False{}, h2) : {Bool.and(Bool.not(_), True{}) == True{} : Bool}
+      {==}
+    case +x <> +rest:
+      AL.and_intro(Bool.not(Skip.held(had, x)), Skip.none.held(List.append(&2, Skip.Rule, rest, [r]), had), Comp.and_left(Bool.not(Skip.held(had, x)), Skip.none.held(rest, had), h1), none_snoc(rest, had, r, Comp.and_right(Bool.not(Skip.held(had, x)), Skip.none.held(rest, had), h1), h2))
+
+def nodup_snoc(xs: List<&2, Skip.Rule>, +r: Skip.Rule, +h1: {Skip.nodup(xs) == True{} : Bool}, +h2: {Skip.held(xs, r) == False{} : Bool}) -> {Skip.nodup(List.append(&2, Skip.Rule, xs, [r])) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      +hx : {Skip.held(rest, x) == False{} : Bool} = not_true_false(Skip.held(rest, x), Comp.and_left(Bool.not(Skip.held(rest, x)), Skip.nodup(rest), h1))
+      +nr : {Skip.nodup(rest) == True{} : Bool} = Comp.and_right(Bool.not(Skip.held(rest, x)), Skip.nodup(rest), h1)
+      +c : {Skip.rule.eq(r, x) == False{} : Bool} = rule_ne_sym(x, r, AL.or_false_l(Skip.rule.eq(x, r), Skip.held(rest, r), h2))
+      +d : {Skip.held(rest, r) == False{} : Bool} = AL.or_false_r(Skip.rule.eq(x, r), Skip.held(rest, r), h2)
+      %Equal.sym(Bool, Skip.held(List.append(&2, Skip.Rule, rest, [r]), x), Bool.or(Skip.held(rest, x), Skip.held([r], x)), held_app(rest, [r], x)) : {Bool.and(Bool.not(_), Skip.nodup(List.append(&2, Skip.Rule, rest, [r]))) == True{} : Bool}
+      %Equal.sym(Bool, Skip.held(rest, x), False{}, hx) : {Bool.and(Bool.not(Bool.or(_, Bool.or(Skip.rule.eq(r, x), False{}))), Skip.nodup(List.append(&2, Skip.Rule, rest, [r]))) == True{} : Bool}
+      %Equal.sym(Bool, Skip.rule.eq(r, x), False{}, c) : {Bool.and(Bool.not(Bool.or(False{}, Bool.or(_, False{}))), Skip.nodup(List.append(&2, Skip.Rule, rest, [r]))) == True{} : Bool}
+      nodup_snoc(rest, r, nr, d)
+
+# What is written holds what it held before.
+def mono.at(+r: Skip.Rule, +rest: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>, +f0: List<&2, Skip.Rule>, +a: List<&2, Skip.Rule>, +x: Skip.Rule, +hx: {Skip.held(f0, x) == True{} : Bool}, d: Bool, ih: @f1: List<&2, Skip.Rule> -> @a1: List<&2, Skip.Rule> -> {Skip.held(f1, x) == True{} : Bool} -> {Skip.held(Skip.sorted.fresh(Skip.sorted.go(rest, had, f1, a1, Skip.sorted.dup(rest, had, f1))), x) == True{} : Bool}) -> {Skip.held(Skip.sorted.fresh(Skip.sorted.go(r <> rest, had, f0, a, d)), x) == True{} : Bool}:
+  match d:
+    case True{}:
+      ih(f0, List.append(&2, Skip.Rule, a, [r]), hx)
+    case False{}:
+      +h0 : {Bool.or(Skip.held(f0, x), Skip.held([r], x)) == True{} : Bool} = (%Equal.sym(Bool, Skip.held(f0, x), True{}, hx) : {Bool.or(_, Skip.held([r], x)) == True{} : Bool} {==})
+      +h : {Skip.held(List.append(&2, Skip.Rule, f0, [r]), x) == True{} : Bool} = (%Equal.sym(Bool, Skip.held(List.append(&2, Skip.Rule, f0, [r]), x), Bool.or(Skip.held(f0, x), Skip.held([r], x)), held_app(f0, [r], x)) : {_ == True{} : Bool} h0)
+      ih(List.append(&2, Skip.Rule, f0, [r]), a, h)
+
+def mono(rs: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>, +f0: List<&2, Skip.Rule>, +a: List<&2, Skip.Rule>, +x: Skip.Rule, +hx: {Skip.held(f0, x) == True{} : Bool}) -> {Skip.held(Skip.sorted.fresh(Skip.sorted.go(rs, had, f0, a, Skip.sorted.dup(rs, had, f0))), x) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      hx
+    case +r <> +rest:
+      mono.at(r, rest, had, f0, a, x, hx, Skip.sorted.dup(r <> rest, had, f0), f1 => a1 => h => mono(rest, had, f1, a1, x, h))
+
+# What is written is new to the store and names no rule twice.
+def fresh_new.at(+r: Skip.Rule, +rest: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>, +f0: List<&2, Skip.Rule>, +a: List<&2, Skip.Rule>, +h1: {Skip.none.held(f0, had) == True{} : Bool}, +h2: {Skip.nodup(f0) == True{} : Bool}, d: Bool, +e: {Bool.or(Skip.held(had, r), Skip.held(f0, r)) == d : Bool}, ih: @f1: List<&2, Skip.Rule> -> @a1: List<&2, Skip.Rule> -> {Skip.none.held(f1, had) == True{} : Bool} -> {Skip.nodup(f1) == True{} : Bool} -> {Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(rest, had, f1, a1, Skip.sorted.dup(rest, had, f1))), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(rest, had, f1, a1, Skip.sorted.dup(rest, had, f1))))) == True{} : Bool}) -> {Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(r <> rest, had, f0, a, d)), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(r <> rest, had, f0, a, d)))) == True{} : Bool}:
+  match d:
+    case True{}:
+      ih(f0, List.append(&2, Skip.Rule, a, [r]), h1, h2)
+    case False{}:
+      +eh : {Skip.held(had, r) == False{} : Bool} = AL.or_false_l(Skip.held(had, r), Skip.held(f0, r), e)
+      +ef : {Skip.held(f0, r) == False{} : Bool} = AL.or_false_r(Skip.held(had, r), Skip.held(f0, r), e)
+      ih(List.append(&2, Skip.Rule, f0, [r]), a, none_snoc(f0, had, r, h1, eh), nodup_snoc(f0, r, h2, ef))
+
+def fresh_new(rs: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>, +f0: List<&2, Skip.Rule>, +a: List<&2, Skip.Rule>, +h1: {Skip.none.held(f0, had) == True{} : Bool}, +h2: {Skip.nodup(f0) == True{} : Bool}) -> {Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(rs, had, f0, a, Skip.sorted.dup(rs, had, f0))), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(rs, had, f0, a, Skip.sorted.dup(rs, had, f0))))) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      AL.and_intro(Skip.none.held(f0, had), Skip.nodup(f0), h1, h2)
+    case +r <> +rest:
+      fresh_new.at(r, rest, had, f0, a, h1, h2, Skip.sorted.dup(r <> rest, had, f0), {==}, f1 => a1 => g1 => g2 => fresh_new(rest, had, f1, a1, g1, g2))
+
+# Every rule asked is written or already stated.
+def asked_had.at(+r: Skip.Rule, +rest: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>, +f0: List<&2, Skip.Rule>, +a: List<&2, Skip.Rule>, hh: Bool, ehh: {Skip.held(had, r) == hh : Bool}, e: {Bool.or(hh, Skip.held(f0, r)) == True{} : Bool}) -> {Bool.or(Skip.held(Skip.sorted.fresh(Skip.sorted.go(rest, had, f0, List.append(&2, Skip.Rule, a, [r]), Skip.sorted.dup(rest, had, f0))), r), hh) == True{} : Bool}:
+  match hh:
+    case True{}:
+      or_true_r(Skip.held(Skip.sorted.fresh(Skip.sorted.go(rest, had, f0, List.append(&2, Skip.Rule, a, [r]), Skip.sorted.dup(rest, had, f0))), r))
+    case False{}:
+      %Equal.sym(Bool, Skip.held(Skip.sorted.fresh(Skip.sorted.go(rest, had, f0, List.append(&2, Skip.Rule, a, [r]), Skip.sorted.dup(rest, had, f0))), r), True{}, mono(rest, had, f0, List.append(&2, Skip.Rule, a, [r]), r, e)) : {Bool.or(_, False{}) == True{} : Bool}
+      {==}
+
+def asked.at(+r: Skip.Rule, +rest: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>, +f0: List<&2, Skip.Rule>, +a: List<&2, Skip.Rule>, d: Bool, e: {Bool.or(Skip.held(had, r), Skip.held(f0, r)) == d : Bool}, ih: @f1: List<&2, Skip.Rule> -> @a1: List<&2, Skip.Rule> -> {Skip.all.held(rest, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(rest, had, f1, a1, Skip.sorted.dup(rest, had, f1))), had)) == True{} : Bool}) -> {Skip.all.held(r <> rest, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(r <> rest, had, f0, a, d)), had)) == True{} : Bool}:
+  match d:
+    case True{}:
+      +o = Skip.sorted.fresh(Skip.sorted.go(rest, had, f0, List.append(&2, Skip.Rule, a, [r]), Skip.sorted.dup(rest, had, f0)))
+      %Equal.sym(Bool, Skip.held(List.append(&2, Skip.Rule, o, had), r), Bool.or(Skip.held(o, r), Skip.held(had, r)), held_app(o, had, r)) : {Bool.and(_, Skip.all.held(rest, List.append(&2, Skip.Rule, o, had))) == True{} : Bool}
+      AL.and_intro(Bool.or(Skip.held(o, r), Skip.held(had, r)), Skip.all.held(rest, List.append(&2, Skip.Rule, o, had)), asked_had.at(r, rest, had, f0, a, Skip.held(had, r), {==}, e), ih(f0, List.append(&2, Skip.Rule, a, [r])))
+    case False{}:
+      +f1 = List.append(&2, Skip.Rule, f0, [r])
+      +o = Skip.sorted.fresh(Skip.sorted.go(rest, had, f1, a, Skip.sorted.dup(rest, had, f1)))
+      +s0 : {Bool.or(Skip.held(f0, r), Skip.held([r], r)) == True{} : Bool} = (%Equal.sym(Bool, Skip.held([r], r), True{}, seen_self(r, Nil{})) : {Bool.or(Skip.held(f0, r), _) == True{} : Bool} or_true_r(Skip.held(f0, r)))
+      +self : {Skip.held(f1, r) == True{} : Bool} = (%Equal.sym(Bool, Skip.held(f1, r), Bool.or(Skip.held(f0, r), Skip.held([r], r)), held_app(f0, [r], r)) : {_ == True{} : Bool} s0)
+      %Equal.sym(Bool, Skip.held(List.append(&2, Skip.Rule, o, had), r), Bool.or(Skip.held(o, r), Skip.held(had, r)), held_app(o, had, r)) : {Bool.and(_, Skip.all.held(rest, List.append(&2, Skip.Rule, o, had))) == True{} : Bool}
+      %Equal.sym(Bool, Skip.held(o, r), True{}, mono(rest, had, f1, a, r, self)) : {Bool.and(Bool.or(_, Skip.held(had, r)), Skip.all.held(rest, List.append(&2, Skip.Rule, o, had))) == True{} : Bool}
+      ih(f1, a)
+
+def asked(rs: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>, +f0: List<&2, Skip.Rule>, +a: List<&2, Skip.Rule>) -> {Skip.all.held(rs, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(rs, had, f0, a, Skip.sorted.dup(rs, had, f0))), had)) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case +r <> +rest:
+      asked.at(r, rest, had, f0, a, Skip.sorted.dup(r <> rest, had, f0), {==}, f1 => a1 => asked(rest, had, f1, a1))
+
+# What `skip <path>...` writes is no rule the store already states and no
+# rule twice, and every rule asked for is written or was already there.
+def writes_new(+rs: List<&2, Skip.Rule>, +had: List<&2, Skip.Rule>) -> {Bool.and(Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))))), Skip.all.held(rs, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had))) == True{} : Bool}:
+  AL.and_intro(Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))))), Skip.all.held(rs, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had)), fresh_new(rs, had, Nil{}, Nil{}, {==}, {==}), asked(rs, had, Nil{}, Nil{}))
 
 
 
@@ -337,17 +556,6 @@ def scope_of(r: Result<&2, &2, Main.Refused, Folder.Scope>, d: Folder.Scope) -> 
 
 # Names
 # -----
-
-def or_swap(a: Bool, b: Bool, -c: Bool) -> {Bool.or(b, Bool.or(a, c)) == Bool.or(Bool.or(a, b), c) : Bool}:
-  match a:
-    case True{}:
-      match b:
-        case True{}:
-          {==}
-        case False{}:
-          {==}
-    case False{}:
-      {==}
 
 # Turning a string round keeps whether it holds a `/`.
 def hs_rev_go(s: String, +acc: String) -> {Folder.has_slash(String.reverse.go(s, acc)) == Bool.or(Folder.has_slash(s), Folder.has_slash(acc)) : Bool}:
