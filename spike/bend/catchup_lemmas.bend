@@ -521,3 +521,47 @@ def lands_of(refused: List<&2, T.Split>, +ps: List<&2, Export.Placed>, +t: Tree.
 # holding what a fresh export lays there, and removes none of them.
 def catch_lands(+t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>, +bs: List<&2, Prune.Body>, +rules: List<&2, Folder.Scope>, +seen: List<&2, Export.Seen>, +walk: List<&2, T.Split>, +dirs: Set(), +others: Set(), +whole: Bool, +rs: List<&2, Export.Rec>) -> {Export.caught.lands(seen, Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs), Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}:
   lands_of(List.concat(&2, T.Split, [Export.refused.tree(Export.placed(t), Set.from_list(Export.directories(Export.placed(t))), rules), Export.refused.walk(Export.placed.paths(Export.placed(t)), walk), Export.steps.refused(Export.steps(Export.lay(Export.placed(t), t, fs, ds, id, pays, bs), seen, dirs, others, whole, rs))]), Export.placed(t), t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs, {==})
+
+# A folder found settled
+# ----------------------
+
+def lands_keep(ps: List<&2, Export.Put>, xs: List<&2, Export.Step>, +ss: List<&2, Export.Seen>, +hl: {Export.lands(ps, xs, ss) == True{} : Bool}, +hs: {Export.steps.settled(xs) == True{} : Bool}) -> {Export.holds.all(ps, ss) == True{} : Bool}:
+  match ps xs:
+    case Nil{} Nil{}:
+      {==}
+    case Nil{} x <> xrest:
+      Empty.absurd({True{} == True{} : Bool}, Comp.false_true(hl))
+    case +p <> +prest Nil{}:
+      Empty.absurd({Export.holds.all(p <> prest, ss) == True{} : Bool}, Comp.false_true(hl))
+    case +p <> +prest x <> +xrest:
+      match x:
+        case Export.Step.Keep{}:
+          ExportL.and_tt(Export.seen.is(Export.seen.find(ss, Export.put.path(p)), Export.put.seen(p)), Export.holds.all(prest, ss),
+            ExportL.and_l(Export.seen.is(Export.seen.find(ss, Export.put.path(p)), Export.put.seen(p)), Export.lands(prest, xrest, ss), hl),
+            lands_keep(prest, xrest, ss, ExportL.and_r(Export.seen.is(Export.seen.find(ss, Export.put.path(p)), Export.put.seen(p)), Export.lands(prest, xrest, ss), hl), hs))
+        case Export.Step.Write{put, r}:
+          Empty.absurd({Export.holds.all(p <> prest, ss) == True{} : Bool}, Comp.false_true(hs))
+        case Export.Step.Link{put}:
+          Empty.absurd({Export.holds.all(p <> prest, ss) == True{} : Bool}, Comp.false_true(hs))
+        case Export.Step.Mode{q, r}:
+          Empty.absurd({Export.holds.all(p <> prest, ss) == True{} : Bool}, Comp.false_true(hs))
+        case Export.Step.Refuse{q, b}:
+          Empty.absurd({Export.holds.all(p <> prest, ss) == True{} : Bool}, Comp.false_true(hs))
+
+def settle(r: Result<&2, &2, Main.Refused, Export.Caught>, fresh: Result<&2, &2, Main.Refused, List<&2, Export.Put>>, +ss: List<&2, Export.Seen>, hs: {Export.caught.settled(r) == True{} : Bool}, hl: {Export.caught.lands(ss, r, fresh) == True{} : Bool}) -> {Export.fresh.held(ss, fresh) == True{} : Bool}:
+  match r:
+    case Fail{e}:
+      Empty.absurd({Export.fresh.held(ss, fresh) == True{} : Bool}, Comp.false_true(hs))
+    case Done{c}:
+      match c:
+        case Export.Caught{+xs, +rm}:
+          match fresh:
+            case Fail{e}:
+              Empty.absurd({False{} == True{} : Bool}, Comp.false_true(hl))
+            case Done{+ps}:
+              lands_keep(ps, xs, ss, ExportL.and_l(Export.lands(ps, xs, ss), Export.none.of(rm, Export.put.paths(ps)), hl), ExportL.and_l(Export.steps.settled(xs), List.is_empty(&2, String, rm), hs))
+
+# A folder found settled already holds, at each path, what a fresh export
+# of the same revision lays there.
+def settled_held(+t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>, +bs: List<&2, Prune.Body>, +rules: List<&2, Folder.Scope>, +seen: List<&2, Export.Seen>, +walk: List<&2, T.Split>, +dirs: Set(), +others: Set(), +whole: Bool, +rs: List<&2, Export.Rec>, h: {Export.caught.settled(Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs)) == True{} : Bool}) -> {Export.fresh.held(seen, Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}:
+  settle(Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs), Export.folder.r(t, fs, ds, id, pays, bs, rules), seen, h, catch_lands(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs))

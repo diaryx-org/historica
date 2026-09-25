@@ -1071,6 +1071,9 @@ def Laws.export_update_states_no_private_rule(held, t, ds, ps, bodies, rs, bs, c
 def Laws.export_catches_up_to_a_fresh_copy(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs):
   CatchL.catch_lands(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs)
 
+def Laws.export_settles_only_on_what_it_laid_out(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs, h):
+  CatchL.settled_held(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs, h)
+
 def Laws.export_spares_the_unrecorded(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds):
   CatchL.spares(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds)
 

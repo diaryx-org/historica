@@ -2322,6 +2322,21 @@ def caught.lands(+ss: List<&2, Seen>, r: Result<&2, &2, Main.Refused, Caught>, f
     case Done{c} Fail{e}:
       False{}
 
+# Whether the walk found, at each path of a fresh folder, that path's file.
+def holds.all(ps: List<&2, Put>, +ss: List<&2, Seen>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case +p <> rest:
+      Bool.and(seen.is(seen.find(ss, put.path(p)), put.seen(p)), holds.all(rest, ss))
+
+def fresh.held(+ss: List<&2, Seen>, fresh: Result<&2, &2, Main.Refused, List<&2, Put>>) -> Bool:
+  match fresh:
+    case Fail{e}:
+      False{}
+    case Done{ps}:
+      holds.all(ps, ss)
+
 # Every file the folder's plan writes or links over, and every file it
 # removes, holds bytes the history can give back.
 def caught.spares(+ss: List<&2, Seen>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, r: Result<&2, &2, Main.Refused, Caught>) -> Bool:
