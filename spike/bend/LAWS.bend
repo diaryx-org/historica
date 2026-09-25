@@ -1125,12 +1125,18 @@ law revisions_read_are_their_documents:
   for +ds: List<&2, Store.Doc>
   {FullsL.all_filed(root, ds, Main.fulls(root, ds)) == True{} : Bool}
 
-# `log` lists only what its span names, every one a revision the store
-# holds. With a target, it lists the target wherever the store holds it,
-# and every other revision it lists is a parent of one it lists — in a
-# store whose parents run back without a cycle, only the target's
-# ancestry. With `a..b`, it never lists `a`, and every revision it lists
-# is `b` or a parent of one `log b` lists.
+# `log` lists what its span names — the revisions it goes on with before
+# `--author`, `--grep`, `--since`, `--until` and `--limit` narrow them.
+# With a target, every one is a revision the store holds: the target,
+# wherever the store holds it, and otherwise only parents of revisions it
+# lists, so that in a store whose parents run back without a cycle it
+# lists only the target's ancestry. And where the store files each
+# revision under a digest no other has, it leaves out no parent the store
+# holds of a revision it lists, however many parents a merge joins, so
+# that it lists every revision a line of parents the store holds leads
+# back to from the target. With `a..b`, it lists what `log b` lists and
+# `log a` does not: nothing `log a` lists, `a` itself among them, and
+# everything else `log b` lists.
 law log_lists_its_span:
   for +fs: List<&2, Main.Full>
   for +a: String
@@ -1532,10 +1538,15 @@ law status_reads_only_lines:
   {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}
 
 # Where the parents being joined leave a file of lines differently —
-# `record::joined_content`'s `-` — `status` has no digest to settle it by,
-# whatever the folder holds: a file at its path is said to be edited,
-# emptied or refused, never unchanged, and a link or nothing there is said
-# to drop it, with no content an arrival could be matched to as its move.
+# `record::joined_content`'s `-` — there is no digest to settle it by,
+# whatever the folder holds. Of a file at its path the survey is told it
+# is edited, emptied or refused — emptied only where the file holds no
+# bytes, and edited only where it holds some; of a link or nothing there,
+# that the file is dropped, with no content an arrival could be matched
+# to as its move. These are what `record` states or refuses the merge by.
+# `status` prints the edit, the refusal and the drop, but its report, like
+# the Rust tool's, has no line for an emptied file, so a disputed file
+# left empty is shown as nothing differing; `docs/tasks` has that.
 law status_leaves_a_disputed_file_unsettled:
   for +t: Tree.Tree()
   for +dg: Map<&2, String>

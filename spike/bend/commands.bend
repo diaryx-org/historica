@@ -669,8 +669,24 @@ def among(fs: List<&2, Full>, +reached: List<&2, String>) -> List<&2, Full>:
     case +f <> rest:
       keep_full(Rev.member(reached, id_of(f)), f, among(rest, reached))
 
-def reached.all(+fs: List<&2, Full>, starts: List<&2, String>) -> List<&2, String>:
-  ancestry.seen(ancestry.go(Nat.mul(2n, 1n+List.length(&2, Full, fs)), fs, Reach{starts, Nil{}}))
+# Every parent each revision of the store names, counted.
+def parent_count(fs: List<&2, Full>) -> Nat:
+  match fs:
+    case Nil{}:
+      0n
+    case f <> rest:
+      Nat.add(List.length(&2, String, parents_of(f)), parent_count(rest))
+
+# Each step takes one digest off the frontier, and a revision's parents
+# join it once, when the revision is taken in; so a step for each digest
+# the walk starts from and each parent the store names is as many as it
+# can take, however many parents a merge joins. Twice the store's length
+# was not, where merges joined more than two.
+def reached.fuel(fs: List<&2, Full>, starts: List<&2, String>) -> Nat:
+  Nat.add(List.length(&2, String, starts), parent_count(fs))
+
+def reached.all(+fs: List<&2, Full>, +starts: List<&2, String>) -> List<&2, String>:
+  ancestry.seen(ancestry.go(reached.fuel(fs, starts), fs, Reach{starts, Nil{}}))
 
 def reached(+fs: List<&2, Full>, +id: String) -> List<&2, String>:
   reached.all(fs, [id])
@@ -1366,10 +1382,13 @@ def span.shown(+fs: List<&2, Full>, sp: Span) -> List<&2, Full>:
     case Span.Between{+from, +to}:
       among(fs, Rev.without(reached(fs, to), reached(fs, from)))
 
-# What `LAWS.log_lists_its_span` looks for in what `log` lists: every one
-# a revision the store holds; with a target, the target where the store
-# holds it, and every other revision a parent of one listed; with `a..b`,
-# never `a`, and every revision `b` or a parent of one `log b` lists.
+# What `LAWS.log_lists_its_span` looks for in what `log` lists. With a
+# target: every revision listed one the store holds, the target listed
+# wherever the store holds it, every other revision listed a parent of one
+# listed, and, where the store files each revision under a digest no other
+# has, every parent the store holds of a revision listed listed too. With
+# `a..b`: every revision listed one `log b` lists and `log a` does not, and
+# every one `log b` lists and `log a` does not listed.
 def parented(xs: List<&2, Full>, +p: String) -> Bool:
   match xs:
     case Nil{}:
@@ -1391,11 +1410,48 @@ def span.held(+fs: List<&2, Full>, xs: List<&2, Full>) -> Bool:
     case +x <> rest:
       Bool.and(Rev.member(ids(fs), id_of(x)), span.held(fs, rest))
 
+def span.parents_listed(+fs: List<&2, Full>, +ls: List<&2, Full>, ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case +p <> rest:
+      Bool.and(Bool.or(Bool.not(Rev.member(ids(fs), p)), Rev.member(ids(ls), p)), span.parents_listed(fs, ls, rest))
+
+def span.closed(+fs: List<&2, Full>, +ls: List<&2, Full>, xs: List<&2, Full>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(span.parents_listed(fs, ls, parents_of(x)), span.closed(fs, ls, rest))
+
+def span.filed_once(fs: List<&2, Full>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> +rest:
+      Bool.and(Bool.not(Rev.member(ids(rest), id_of(f))), span.filed_once(rest))
+
 def span.from_ok(+fs: List<&2, Full>, +t: String, +ls: List<&2, Full>) -> Bool:
-  Bool.and(span.held(fs, ls), Bool.and(Bool.or(Bool.not(Rev.member(ids(fs), t)), Rev.member(ids(ls), t)), span.linked(ls, t, ls)))
+  Bool.and(Bool.and(span.held(fs, ls), Bool.or(Bool.not(Rev.member(ids(fs), t)), Rev.member(ids(ls), t))), Bool.and(span.linked(ls, t, ls), Bool.or(Bool.not(span.filed_once(fs)), span.closed(fs, ls, ls))))
+
+# Each revision of `xs` one `log b` lists and `log a` does not.
+def span.parted(+fs: List<&2, Full>, +a: String, +b: String, xs: List<&2, Full>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Bool.and(Rev.member(ids(span.shown(fs, Span.From{b})), id_of(x)), Bool.not(Rev.member(ids(span.shown(fs, Span.From{a})), id_of(x)))), span.parted(fs, a, b, rest))
+
+# Each revision of `ys` one `log a` lists, or one of `ls`.
+def span.kept(+fs: List<&2, Full>, +a: String, +ls: List<&2, Full>, ys: List<&2, Full>) -> Bool:
+  match ys:
+    case Nil{}:
+      True{}
+    case +y <> rest:
+      Bool.and(Bool.or(Rev.member(ids(span.shown(fs, Span.From{a})), id_of(y)), Rev.member(ids(ls), id_of(y))), span.kept(fs, a, ls, rest))
 
 def span.range_ok(+fs: List<&2, Full>, +a: String, +b: String, +ls: List<&2, Full>) -> Bool:
-  Bool.and(span.held(fs, ls), Bool.and(Bool.not(Rev.member(ids(ls), a)), span.linked(span.shown(fs, Span.From{b}), b, ls)))
+  Bool.and(span.parted(fs, a, b, ls), span.kept(fs, a, ls, span.shown(fs, Span.From{b})))
 
 # The revision a `--path` is read at: the far end of what was named, or the
 # head where nothing was — and where there are several heads, none.
@@ -6410,9 +6466,10 @@ def status.seens(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +r
       status.seen(t, dg, bf, reads, h) <> status.seens(t, dg, bf, reads, rest)
 
 # What `LAWS.status_leaves_a_disputed_file_unsettled` looks for in what
-# the survey says of a path: a file there edited, emptied or refused; or
-# the file the position holds there dropped, with no content an arrival
-# could be matched to.
+# the survey is told of a path: a file there edited, emptied or refused,
+# emptied only where it holds no bytes and edited only where it holds
+# some; or the file the position holds there dropped, with no content an
+# arrival could be matched to.
 def obs.unsettles(+path: String, o: Sv.Obs) -> Bool:
   match o:
     case Sv.Obs.Edited{p}:
@@ -6420,6 +6477,20 @@ def obs.unsettles(+path: String, o: Sv.Obs) -> Bool:
     case Sv.Obs.Emptied{p}:
       String.eq(p, path)
     case Sv.Obs.Refused{p, b}:
+      String.eq(p, path)
+    case _:
+      False{}
+
+def obs.edits(+path: String, o: Sv.Obs) -> Bool:
+  match o:
+    case Sv.Obs.Edited{p}:
+      String.eq(p, path)
+    case _:
+      False{}
+
+def obs.empties(+path: String, o: Sv.Obs) -> Bool:
+  match o:
+    case Sv.Obs.Emptied{p}:
       String.eq(p, path)
     case _:
       False{}
@@ -6438,6 +6509,20 @@ def obs.any_unsettles(+path: String, os: List<&2, Sv.Obs>) -> Bool:
     case o <> rest:
       Bool.or(obs.unsettles(path, o), obs.any_unsettles(path, rest))
 
+def obs.any_edits(+path: String, os: List<&2, Sv.Obs>) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case o <> rest:
+      Bool.or(obs.edits(path, o), obs.any_edits(path, rest))
+
+def obs.any_empties(+path: String, os: List<&2, Sv.Obs>) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case o <> rest:
+      Bool.or(obs.empties(path, o), obs.any_empties(path, rest))
+
 def obs.any_drops_bare(+path: String, +file: String, os: List<&2, Sv.Obs>) -> Bool:
   match os:
     case Nil{}:
@@ -6445,10 +6530,10 @@ def obs.any_drops_bare(+path: String, +file: String, os: List<&2, Sv.Obs>) -> Bo
     case o <> rest:
       Bool.or(obs.drops_bare(path, file, o), obs.any_drops_bare(path, file, rest))
 
-def disputed.said(+path: String, +file: String, found: Maybe<&2, Folder.Found>, os: List<&2, Sv.Obs>) -> Bool:
+def disputed.said(+path: String, +file: String, found: Maybe<&2, Folder.Found>, +os: List<&2, Sv.Obs>) -> Bool:
   match found:
     case Some{Folder.Found.File{q, r, n}}:
-      obs.any_unsettles(path, os)
+      Bool.and(obs.any_unsettles(path, os), Bool.not(Bool.pick(Bool, Nat.is_eq(n, 0n), obs.any_edits(path, os), obs.any_empties(path, os))))
     case _:
       obs.any_drops_bare(path, file, os)
 
