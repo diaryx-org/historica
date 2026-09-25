@@ -783,6 +783,9 @@ def Laws.nfc_leaves_ascii(s, h):
 def Laws.nfc_orders_marks_by_class(ms):
   NfcL.orders_by_class(ms)
 
+def Laws.nfc_ordering_keeps_every_mark(ms, k):
+  NfcL.keeps_each_class(ms, k)
+
 def Laws.nfc_class_misses_nothing(c):
   NfcL.class_misses_nothing(c)
 
@@ -790,13 +793,13 @@ def Laws.nfc_leaves_separators_alone():
   NfcL.separators_inert()
 
 def Laws.the_walk_yields_a_path_once(fs):
-  NfcL.walk_apart(fs)
+  NfcL.walk_once(fs)
 
 def Laws.the_folder_spells_what_is_opened(ls, want):
   NfcL.spelled_there(ls, want)
 
-def Laws.a_name_that_cannot_be_spelled_is_refused(ls, prefix, dir):
-  NfcL.all_refused(ls, prefix, dir)
+def Laws.a_name_that_cannot_be_spelled_is_refused(es, prefix, dir):
+  NfcL.all_refused(es, prefix, dir)
 
 def Laws.record_reads_its_words(args, cmd, e):
   RecordL.args_said(args, cmd, e)

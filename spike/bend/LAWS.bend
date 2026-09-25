@@ -17,6 +17,7 @@ import ./similar.bend as Sim
 import ./folder.bend as Folder
 import ./nfc.bend as Nfc
 import ./nfc_tables.bend as Tab
+import ./nfc_lemmas.bend as NfcL
 import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
@@ -1686,11 +1687,21 @@ law nfc_leaves_ascii:
 
 # Canonical ordering puts every run of marks in order of class: in what
 # `order` makes of a decomposed string, no mark follows one of a higher
-# class with no starter between them, which is what makes two orders of
-# the same marks one string before composition reads them.
+# class with no starter between them — Unicode's canonical order, stated
+# over classes alone rather than by the insertion sort that makes it.
 law nfc_orders_marks_by_class:
   for +ms: List<&2, Nfc.Mark>
   {Nfc.canonical.go(Nfc.order(ms), 0) == True{} : Bool}
+
+# And moves no mark past another of its class: for every class, the marks
+# of that class in what `order` makes are the ones it was given, in the
+# order given — none lost, none added, starters kept in their order. With
+# the law above, that is what makes two orders of the same marks one
+# string before composition reads them.
+law nfc_ordering_keeps_every_mark:
+  for +ms: List<&2, Nfc.Mark>
+  for +k: U32
+  {NfcL.of_class(Nfc.order(ms), k) == NfcL.of_class(ms, k) : List<&2, Nfc.Mark>}
 
 # A character's class is the class of the run that holds it: the lookup
 # stops at the first run of the crate's table past the character, and
@@ -1699,21 +1710,23 @@ law nfc_class_misses_nothing:
   for +c: U32
   {Nfc.class(Tab.classes(), c) == Nfc.class.scan(Tab.classes(), c) : U32}
 
-# Normalising leaves `/` and `.` alone: in the crate's tables neither has
-# a class, is either half of a pair or what one makes, or is in any
-# decomposition. That is what normalising a path a component at a time —
-# as the walk normalises each name it reads — rests on, and what keeps a
-# link's target, resolved inside the folder, inside it once normalised.
+# In the crate's tables, neither `/` nor `.` has a combining class, is
+# either half of a composition pair or what one makes, or is in any
+# character's decomposition. Normalising a path a name at a time, as the
+# walk does, is normalising the whole of it only because of this, and a
+# link's target resolved inside the folder keeps its shape once
+# normalised for the same reason; the law is the tables' part of that.
 law nfc_leaves_separators_alone:
   {Bool.and(Nfc.inert(47), Nfc.inert(46)) == True{} : Bool}
 
-# The walk yields a path once. Two names a filesystem tells apart can be
-# one path in normal form C, and the walk keeps the one it met last, as
-# the Rust walk does: no two files it yields in a row share a path, and as
-# it yields them in path order, no two share one at all.
+# The walk yields a path once and loses none. Two names a filesystem tells
+# apart can be one path in normal form C, and the walk keeps one file for
+# it: no two files it yields in a row share a path — and it yields them in
+# path order — and every path a file it found is at, a file it yields is
+# at.
 law the_walk_yields_a_path_once:
-  for fs: List<&2, Folder.Found>
-  {Folder.apart(Folder.distinct(fs)) == True{} : Bool}
+  for +fs: List<&2, Folder.Found>
+  {Bool.and(Folder.apart(Folder.distinct(fs)), NfcL.paths_held(fs, Folder.distinct(fs))) == True{} : Bool}
 
 # A file is opened where the folder spells it. The walk names a path in
 # normal form C, and the filesystem may spell it otherwise, so a read asks
@@ -1724,15 +1737,17 @@ law the_folder_spells_what_is_opened:
   for +want: String
   {Bool.or(String.eq(Folder.spelling(ls, want), want), String.eq(Nfc.nfc(Folder.spelling(ls, want)), want)) == True{} : Bool}
 
-# A name that cannot be spelled is refused. The host hands over a name that
-# is not UTF-8 as `to_string_lossy` spells it, and every such name in a
-# directory's listing — a link's target aside — is refused once, whatever
-# the rules say, since no rule can name it.
+# A name that cannot be spelled is refused. Whatever a directory holds —
+# directories, files, links whatever their targets say, the rest — the
+# lines the host writes for it, read back, refuse each name that is not
+# UTF-8 once, where it is on disk under the directory, in
+# `WorkingError::NotUtf8`'s words, and nothing else; no rule is asked,
+# since none can name it.
 law a_name_that_cannot_be_spelled_is_refused:
-  for +ls: List<&2, String>
+  for es: List<&2, NfcL.Listed>
   for +prefix: String
   for +dir: String
-  {List.length(&2, Folder.Keyed, Folder.unspelled(ls, prefix, dir)) == Folder.unspelled.count(ls, False{}, Folder.unspelled.is(ls)) : Nat}
+  {Folder.unkeyed(Folder.unspelled(NfcL.listed.lines(es), prefix, dir)) == List.reverse(&2, T.Split, NfcL.listed.refused(es, dir)) : List<&2, T.Split>}
 
 # `record` reads its words as their plain reading says: the word after a
 # flag that takes a value is that value, whatever it is; the last `-m` and

@@ -276,7 +276,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `forget.bend` | `forget`: its arguments; the documents that quote a span — the edit that wrote each line, every delete of it, every resolution that copied it, followed through the walk — and the stand-in written for each; the originals found by their bytes and destroyed, and their copies in `cache/` with them; and every message and refusal | `store::forget`, `cli`'s `forget`, `Store::clear_cache` |
 | `forget_lemmas.bend` | what `forget` writes keeps its original's shape and destroys only text, and a replay through it reads the forgotten lines as forgotten and every other line as it was; what it rewrites is the file's own documents, one payload for a file of bytes, and the versions it counts are the others; what it destroys is only what it forgets, in `operations/` and in `cache/`; and it reads its words as their plain reading says | `cli/tests/forget.rs`, `cli/tests/cache.rs` |
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, reading what stands in for a forgotten document wherever it reads one, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and ninety-three claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | a hundred and ninety-four claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -294,7 +294,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `sort_lemmas.bend` | string order is total and transitive, and Base's `List.sort` by a name returns its items each no smaller than the one before, with the items under each name the ones it was given, in the order given; and whatever holds of every item any sort is given holds of every item it returns, since a merge only moves what it is handed (`all_sort`, and `all_sort_at` for a test that reads one more value) | `diff`'s pairing |
 | `pair_lemmas.bend` | `diff_pairs_each_file`: under any file, the pairs `diff` goes on with are the entries each side holds under it, paired in order as far as either goes — each file compared once with itself where each side holds it once | `diff`'s pairing |
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
-| `nfc_lemmas.bend` | `nfc_leaves_ascii`: a path of ASCII is its own normal form C; `nfc_orders_marks_by_class`: canonical ordering leaves no mark after one of a higher class with no starter between; `nfc_class_misses_nothing`: the class lookup, stopping at the first run past a character, finds what a search of every run finds over the crate's table; `nfc_leaves_separators_alone`: `/` and `.` have no class and are in no pair and no decomposition; `the_walk_yields_a_path_once`: of two names that are one path, the walk keeps one, the last it met; `the_folder_spells_what_is_opened`: a read opens a name whose normal form is the path, or the path itself; `a_name_that_cannot_be_spelled_is_refused`: every name the host cannot spell is refused once, whatever the rules say | `format::nfc`, `working::walk` |
+| `nfc_lemmas.bend` | `nfc_leaves_ascii`: a path of ASCII is its own normal form C; `nfc_orders_marks_by_class`: canonical ordering leaves no mark after one of a higher class with no starter between; `nfc_ordering_keeps_every_mark`: and the marks of every class are the ones it was given, in order; `nfc_class_misses_nothing`: the class lookup, stopping at the first run past a character, finds what a search of every run finds over the crate's table; `nfc_leaves_separators_alone`: in the crate's tables `/` and `.` have no class and are in no pair and no decomposition; `the_walk_yields_a_path_once`: the walk yields no two files in a row at one path, and loses no path it found; `the_folder_spells_what_is_opened`: a read opens a name whose normal form is the path, or the path itself; `a_name_that_cannot_be_spelled_is_refused`: the host's lines for any directory, read back, refuse each name that is not UTF-8 once, where it is on disk, in the Rust tool's words, and nothing else | `format::nfc`, `working::walk` |
 | `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added; `status_refuses_what_the_folder_holds`: every path `status` refuses is one its walk refused or one the folder holds something at that the position cannot take, never a path only the position holds; `status_offers_a_rename_the_bytes_make`: each rename it offers is from the one path that left holding some bytes, not nothing, to the one that arrived holding them; `record_refuses_a_dangling_link`: `record` refuses exactly where a link of the position names a file it drops and is neither going nor restated; `record_states_a_kind_only_for_an_arrival`: a stated kind goes through exactly where it names a path looked at that no file of the position holds; `record_moves_each_file_once`: one `move` line per file moved, none for a file going, at the last place the renames put it; `record_names_only_what_is_there`: every path named answers to a file of the folder, the position or the renames; `a_rename_keeps_each_file_once`, `a_rename_puts_each_file_where_it_was_said`: `--at` and `--move` leave the position's files each once, at the last place one put it and every other where it was; `record_refuses_only_what_it_looks_at`: whatever the folder and the store answer, a record restricted to some paths refuses only among them; `record_goes_on_where_each_path_holds_one_file`: where `record` goes on, no path it looks at holds two files, since the survey claims every path several files hold; `record_plans_in_file_order`, `record_plans_every_file`: it plans from the position in file order, each file's entries as they were; `a_link_refers_only_to_what_the_revision_states`: a link is written as a reference only where its target lands on a path the revision states; `a_link_resolves_inside_the_folder`: and a link at a path the format holds resolves, if at all, to a path that is not absolute and never climbs out with `..` | `working::walk`, `record::survey`, `record::plan` |
 | `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given; `status_says_what_it_found`: everything the survey found is in the report, in the order found, each on a line of its own naming it — a fact beginning with its kind and ending with its path, a refusal, a claim or an accept beginning with its word and its path; `status_says_each_contest`: where work is joined, each contest the tree merge found is said once, in its order, opening with the file contested, and where it is not, none; `status_compares_with_the_revisions_tree`: against one revision, the folder is compared with the tree `files`, `cat` and `diff` read there; `status_reads_only_lines`: every path it asks the host to read and every file it replays is a file of lines it compares; `status_surveys_each_path`: the survey is told of each path once, in order, and of a file the parents dispute with no digest; `status_believes_what_is_stated`, `status_joins_what_it_reads`: it is refused only where a file no statement settles cannot be replayed, or, joining, where a parent's reading of a file is refused, and with that refusal | `status`'s arguments, parents and report |
 | `naming_lemmas.bend` | `a_revision_is_filed_under_its_month`: a revision's stem is its month, a `/`, and one name holding nothing a filesystem reserves, whatever its message; `a_summary_fits_its_limit`: the summary is sixty characters at most; `a_summary_gives_up_its_ends`: it neither begins nor ends with a dot or a space; `content_is_filed_under_a_name_a_filesystem_holds`: each file of content is filed under a name with no control character; `record_compares_with_the_latest`: the timestamp the clock is checked against is one the store holds and none is later; `abandon_takes_a_reason_that_says_something`: a reason is taken exactly where it is not all whitespace | `naming`, `abandon`'s reason |
@@ -767,21 +767,25 @@ directory, as one, and under one spelled decomposed, 9.
 
 The laws say what that rests on. A path of ASCII is its own normal form
 (`nfc_leaves_ascii`), so normalising at every boundary changes nearly
-nothing. Canonical ordering leaves no mark after one of a higher class
-with no starter between (`nfc_orders_marks_by_class`), through an
-insertion sort proven to keep a run in order. The class lookup, which
-stops at the first run of the table past a character, finds what a search
-of every run finds, since the crate's table is in order
-(`nfc_class_misses_nothing`). And `/` and `.` have no class and are in no
-pair and no decomposition (`nfc_leaves_separators_alone`), which is what
-normalising a path a name at a time rests on, and what keeps a link's
-target, resolved inside the folder, inside it once normalised. Of the
-walk: it yields a path once (`the_walk_yields_a_path_once`), a read opens
-a name whose normal form is the path or the path itself
-(`the_folder_spells_what_is_opened`), and every name the host cannot spell
-is refused, once (`a_name_that_cannot_be_spelled_is_refused`). No law
-says that normalising twice is normalising once; that is the crate's
-promise, and the `nfc` stage holds the port to the crate.
+nothing. Canonical ordering is Unicode's canonical order, stated over
+classes alone — no mark after one of a higher class with no starter
+between (`nfc_orders_marks_by_class`) — and moves no mark past another of
+its class, losing and adding none: the marks of every class are the ones
+it was given, in order (`nfc_ordering_keeps_every_mark`). The class
+lookup, which stops at the first run of the table past a character, finds
+what a search of every run finds, since the crate's table is in order
+(`nfc_class_misses_nothing`). In the crate's tables `/` and `.` have no
+class and are in no pair and no decomposition
+(`nfc_leaves_separators_alone`), the tables' part of why normalising a
+path a name at a time normalises the whole of it. Of the walk: it yields
+no two files in a row at one path, in path order, and loses no path it
+found (`the_walk_yields_a_path_once`); a read opens a name whose normal
+form is the path, or the path itself (`the_folder_spells_what_is_opened`);
+and the host's lines for any directory, read back, refuse each name that
+is not UTF-8 once, where it is on disk, in the Rust tool's words, and
+nothing else (`a_name_that_cannot_be_spelled_is_refused`). No law says
+that normalising twice is normalising once; that is the crate's promise,
+and the `nfc` stage holds the port to the crate.
 
 A file's content is decision 0032's rule, as the Rust tool reads it: a
 revision that says nothing holds what its parents agree on, and a parent
@@ -1407,7 +1411,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-A hundred and eighty mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and eighty-two mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1531,11 +1535,13 @@ stand-in written for the revision that wrote it rather than the document it
 names, a payload's length written where its digest goes, a file destroyed
 without asking whether its bytes are forgotten, the span after `--lines`
 taken as a word too, every file of `cache/` but its note cleared, and the
-version forgotten counted among the others; and six normal-form
-breaks: a mark put on its run unsorted, a class lookup that stops at a run
-beginning with the character, both of two names that are one path kept, a
-read that opens any name its listing has, a name that cannot be spelled
-passed over, and a quick check that passes too little. The
+version forgotten counted among the others; and eight normal-form
+breaks: a mark put on its run unsorted, a run of marks dropped where a
+starter closes it, a class lookup that stops at a run beginning with the
+character, both of two names that are one path kept, the file kept for a
+path dropped, a read that opens any name its listing has, a name that
+cannot be spelled passed over, and a quick check that passes too little.
+The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent

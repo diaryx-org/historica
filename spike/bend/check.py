@@ -2946,7 +2946,7 @@ def check_mutations(temporary):
             "a name that cannot be spelled is passed over",
             "unspelled.is(rest), Keyed{unspelled.key(before, k), T.Split{dir ++ \"/\" ++ String.drop(line, 2n), unspelled.because()}} <> acc)",
             "unspelled.is(rest), acc)",
-            "nfc_lemmas.count_go",
+            "nfc_lemmas.read_back",
             "folder.bend",
         ),
         (
@@ -2955,6 +2955,20 @@ def check_mutations(temporary):
             "Bool.and(Bool.or(U32.is_lt(x, 32), U32.is_lt(x, Tab.inert_below())), quick(t))",
             "nfc_lemmas.quick_ascii",
             "nfc.bend",
+        ),
+        (
+            "ordering drops the run it closes at a starter",
+            "      List.append(&2, Mark, run, m <> order.go(rest, Nil{}, starts(rest)))",
+            "      m <> order.go(rest, Nil{}, starts(rest))",
+            "nfc_lemmas.order_canonical",
+            "nfc.bend",
+        ),
+        (
+            "the walk drops the file it keeps for a path",
+            "    case +f <> +rest False{}:\n      f <> distinct.go(rest, found.path(f), distinct.same(rest, found.path(f)))",
+            "    case +f <> +rest False{}:\n      distinct.go(rest, found.path(f), distinct.same(rest, found.path(f)))",
+            "nfc_lemmas.go_apart",
+            "folder.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):
