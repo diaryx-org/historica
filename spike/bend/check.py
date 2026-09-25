@@ -4197,6 +4197,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export withdraws a revision file of the copy's that the target's history holds",
+            "      Tree.keep(~String, Bool.not(Arrange.has(set, d)), p, revs.gone(rest, set))",
+            "      Tree.keep(~String, True{}, p, revs.gone(rest, set))",
+            "onto_lemmas.revs_gone",
+            "export.bend",
+        ),
+        (
             "export takes a link's target for an entry of the directory",
             "      entry.push(T.split_once(l), entry.names(rest, String.starts_with(l, \"l \")))",
             "      entry.push(T.split_once(l), entry.names(rest, False{}))",

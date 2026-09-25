@@ -2193,6 +2193,67 @@ def claim.named(cs: List<&2, T.Split>, +l: String) -> Bool:
     case T.Split{+x, d} <> rest:
       Bool.or(String.eq(x, l), claim.named(rest, l))
 
+# Whether some file of the copy's store sits at this path holding a digest
+# not among these.
+def split.gone(ss: List<&2, T.Split>, +w: String, +named: List<&2, String>) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case T.Split{+p, +d} <> rest:
+      Bool.or(Bool.and(String.eq(p, w), Bool.not(Rev.member(named, d))), split.gone(rest, w, named))
+
+def body.gone(bs: List<&2, Prune.Body>, +w: String, +named: List<&2, String>) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case Prune.Body{+p, +id, ok, f} <> rest:
+      Bool.or(Bool.and(String.eq(p, w), Bool.not(Rev.member(named, id))), body.gone(rest, w, named))
+
+# Whether any of these rules states this line.
+def rule.states(rs: List<&2, Receive.Ruled>, +line: String) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case Receive.Ruled{f, +x, l} <> rest:
+      Bool.or(String.eq(x, line), rule.states(rest, line))
+
+# Whether a rule file of the copy's at this path states a rule none of
+# these does.
+def rule.gone(rs: List<&2, Receive.Ruled>, +w: String, +shared: List<&2, Receive.Ruled>) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case Receive.Ruled{+f, +line, l} <> rest:
+      Bool.or(Bool.and(String.eq("skipped/" ++ f, w), Bool.not(rule.states(shared, line))), rule.gone(rest, w, shared))
+
+def mark.named(bs: List<&2, Bm.Bookmark>, +n: String) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case Bm.Bookmark{+x, t, pv} <> rest:
+      Bool.or(String.eq(x, n), mark.named(rest, n))
+
+# Whether a bookmark file of the copy's at this path names a bookmark none
+# of these does.
+def name.gone(bs: List<&2, Bm.Bookmark>, +w: String, +kept: List<&2, Bm.Bookmark>) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case Bm.Bookmark{+n, t, pv} <> rest:
+      Bool.or(Bool.and(String.eq("names/" ++ n ++ ".txt", w), Bool.not(mark.named(kept, n))), name.gone(rest, w, kept))
+
+# Whether a file a copy gives up is one the set no longer names: a
+# revision file of a revision it does not hold, a document or payload file
+# of one it does not carry, a rule file stating a rule it does not share,
+# or a bookmark file of a bookmark that does not travel.
+def given.up(p: Plan, +cst: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +w: String) -> Bool:
+  match p:
+    case Plan{r, d, y, f, paths, rs, wh, n, res}:
+      Bool.or(split.gone(stored.revs(cst), w, Main.ids(r)),
+        Bool.or(body.gone(Receive.stored.bodies(cst), w, List.append(&2, String, doc.ids(d), doc.ids(f))),
+          Bool.or(split.gone(Receive.stored.payloads(cst), w, split.digests(y)),
+            Bool.or(rule.gone(Receive.ruled(Receive.stored.rules(cst)), w, rs), name.gone(marks, w, travel.names(n))))))
+
 # What `cat` prints of a file at a revision.
 def cat.of(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Maybe<&2, String>:
   match r:

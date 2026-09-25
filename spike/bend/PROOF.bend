@@ -1078,6 +1078,9 @@ def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, cfs):
 def Laws.export_update_leaves_the_copy_the_whole_set(p, here, cst, marks, d, h):
   OntoL.whole_set(p, here, cst, marks, d, h)
 
+def Laws.export_update_gives_up_only_what_the_set_no_longer_names(p, here, cst, marks, w, h):
+  OntoL.given_all(p, here, cst, marks, w, h)
+
 def Laws.export_update_carries_only_the_claims_a_copy_lacks(cs, cc, l):
   OntoL.fresh_named(cs, cc, l)
 
