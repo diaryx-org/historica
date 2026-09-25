@@ -874,6 +874,18 @@ STORES = {
         ["status", "--onto", "after", "--merge", "crossed"],
         ["status", "--merge", "tops", "--merge", "all"],
     ],
+    # Merges of six parents, three deep, and one more joining `a` with a
+    # parent of its own ancestry: the walk out from a target is given a step
+    # for each parent the store names, and lists the whole of `a`, and
+    # nothing of it under `a..b`.
+    "wide": [
+        ["log", "a"],
+        ["log", "b"],
+        ["log", "a..b"],
+        ["log", "b..a"],
+        ["log", "l1a..b"],
+        ["log", "--fields", "a..b"],
+    ],
 }
 
 
@@ -1012,6 +1024,23 @@ def record(temporary, rust, corpus, pinned=None):
         write(f="top\na\nC\nd\n", g="one\nleft g\nside g\n")
         rec("side", "--onto", "left", "-m", "side")
         join(store / "history", "crossed", ("resolved", "side"), "p" * 24)
+    elif corpus == "wide":
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        (store / "f.md").write_text("base\n")
+        rec("base", "-m", "base")
+        for c in "abcdef":
+            (store / "f.md").write_text(f"base\n{c}\n")
+            rec(f"l3{c}", "--onto", "base", "-m", f"l3 {c}")
+        changes = iter("klmnopqrstuvwxyz")
+        for layer, below in (("l2", "l3"), ("l1", "l2")):
+            for c in "abcdef":
+                join(store / "history", f"{layer}{c}", tuple(f"{below}{x}" for x in "abcdef"), next(changes) * 24)
+        join(store / "history", "a", tuple(f"l1{x}" for x in "abcdef"), next(changes) * 24)
+        join(store / "history", "b", ("l3a", "a"), next(changes) * 24)
     elif corpus == "log":
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "first: notes")
@@ -1452,7 +1481,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "forgotten", "forgetting")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "wide", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "forgotten", "forgetting")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -2396,6 +2425,20 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "status forgets that the parents dispute a file",
+            "status.shown(t, e), proposed}",
+            "status.shown(t, e), False{}}",
+            "status_lemmas.disputed",
+            "commands.bend",
+        ),
+        (
+            "a disputed file emptied in the folder said as edited",
+            "Bool.pick(List<&2, Obs>, empty, List.append(&2, Obs, mode(path, e, runs), [Obs.Emptied{path}]), lines.changed(path, e, runs, text))",
+            "Bool.pick(List<&2, Obs>, empty, List.append(&2, Obs, mode(path, e, runs), [Obs.Edited{path}]), lines.changed(path, e, runs, text))",
+            "status_lemmas.disputed_file",
+            "survey.bend",
+        ),
+        (
             "a disputed file emptied in the folder said as nothing",
             "List.append(&2, Obs, mode(path, e, runs), [Obs.Emptied{path}])",
             "mode(path, e, runs)",
@@ -2615,6 +2658,34 @@ def check_mutations(temporary):
             "      among(fs, Rev.without(reached(fs, to), reached(fs, from)))",
             "      among(fs, Rev.without(reached(fs, from), reached(fs, to)))",
             "span_lemmas.range_ok",
+            "commands.bend",
+        ),
+        (
+            "a span a..b takes away only a itself",
+            "      among(fs, Rev.without(reached(fs, to), reached(fs, from)))",
+            "      among(fs, Rev.without(reached(fs, to), [from]))",
+            "span_lemmas.range_ok",
+            "commands.bend",
+        ),
+        (
+            "log with a target lists the target alone",
+            "      ancestry(fs, id)\n    case Span.Between",
+            "      among(fs, [id])\n    case Span.Between",
+            "span_lemmas.from_ok",
+            "commands.bend",
+        ),
+        (
+            "log's walk is given twice the store's length in steps",
+            "  Nat.add(List.length(&2, String, starts), parent_count(fs))",
+            "  Nat.mul(2n, 1n+List.length(&2, Full, fs))",
+            "span_lemmas.start_work",
+            "commands.bend",
+        ),
+        (
+            "log's walk is given a step for each revision, not each parent",
+            "      Nat.add(List.length(&2, String, parents_of(f)), parent_count(rest))",
+            "      Nat.add(1n, parent_count(rest))",
+            "span_lemmas.owed_nil",
             "commands.bend",
         ),
         (

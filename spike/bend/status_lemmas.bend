@@ -580,16 +580,39 @@ def unsettles_after(xs: List<&2, Sv.Obs>, +ys: List<&2, Sv.Obs>, +path: String, 
     case x <> rest:
       or_r(Main.obs.unsettles(path, x), Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, rest, ys)), unsettles_after(rest, ys, path, h))
 
+# After what a mode change says, one observation: what it says is all
+# there is to say of an edit or of emptying.
+def edits_after_mode(b: Bool, +path: String, +o: Sv.Obs, h: {Main.obs.edits(path, o) == False{} : Bool}) -> {Main.obs.any_edits(path, List.append(&2, Sv.Obs, Bool.pick(List<&2, Sv.Obs>, b, Nil{}, [Sv.Obs.Mode{path}]), [o])) == False{} : Bool}:
+  match b:
+    case True{}:
+      AL.or_false(Main.obs.edits(path, o), False{}, h, {==})
+    case False{}:
+      AL.or_false(Main.obs.edits(path, o), False{}, h, {==})
+
+def empties_after_mode(b: Bool, +path: String, +o: Sv.Obs, h: {Main.obs.empties(path, o) == False{} : Bool}) -> {Main.obs.any_empties(path, List.append(&2, Sv.Obs, Bool.pick(List<&2, Sv.Obs>, b, Nil{}, [Sv.Obs.Mode{path}]), [o])) == False{} : Bool}:
+  match b:
+    case True{}:
+      AL.or_false(Main.obs.empties(path, o), False{}, h, {==})
+    case False{}:
+      AL.or_false(Main.obs.empties(path, o), False{}, h, {==})
+
 # A file of lines the parents dispute, with a file in the folder at its
-# path, is edited, emptied or refused, whatever its bytes.
-def disputed_file(+path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, +runs: Bool, text: Bool, empty: Bool) -> {Main.obs.any_unsettles(path, Sv.lines.proposed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, text, empty)) == True{} : Bool}:
+# path, is edited, emptied or refused, whatever its bytes: emptied only
+# where it holds none, and edited only where it holds some.
+def disputed_file(+path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, +runs: Bool, text: Bool, empty: Bool) -> {Bool.and(Main.obs.any_unsettles(path, Sv.lines.proposed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, text, empty)), Bool.not(Bool.pick(Bool, empty, Main.obs.any_edits(path, Sv.lines.proposed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, text, empty)), Main.obs.any_empties(path, Sv.lines.proposed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, text, empty))))) == True{} : Bool}:
   match text empty:
-    case False{} _:
-      or_l(String.eq(path, path), False{}, S.eq_refl(path))
+    case False{} True{}:
+      AL.and_intro(Bool.or(String.eq(path, path), False{}), True{}, or_l(String.eq(path, path), False{}, S.eq_refl(path)), {==})
+    case False{} False{}:
+      AL.and_intro(Bool.or(String.eq(path, path), False{}), True{}, or_l(String.eq(path, path), False{}, S.eq_refl(path)), {==})
     case True{} True{}:
-      unsettles_after(Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}], path, or_l(String.eq(path, path), False{}, S.eq_refl(path)))
+      AL.and_intro(Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}])), Bool.not(Main.obs.any_edits(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}]))),
+        unsettles_after(Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}], path, or_l(String.eq(path, path), False{}, S.eq_refl(path))),
+        AL.not_true(Main.obs.any_edits(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}])), edits_after_mode(Tree.mode_eq(Tree.entry_mode(Tree.Entry{f, q, Tree.Lines{}, y, g, m}), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), path, Sv.Obs.Emptied{path}, {==})))
     case True{} False{}:
-      unsettles_after(Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}], path, or_l(String.eq(path, path), False{}, S.eq_refl(path)))
+      AL.and_intro(Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}])), Bool.not(Main.obs.any_empties(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}]))),
+        unsettles_after(Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}], path, or_l(String.eq(path, path), False{}, S.eq_refl(path))),
+        AL.not_true(Main.obs.any_empties(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}])), empties_after_mode(Tree.mode_eq(Tree.entry_mode(Tree.Entry{f, q, Tree.Lines{}, y, g, m}), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), path, Sv.Obs.Edited{path}, {==})))
 
 def disputed_said(b: Bool, eb: {b == True{} : Bool}, +path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, found: Maybe<&2, Folder.Found>, +dig: String, -bef: Maybe<&2, String>, text: Bool, -shown: Maybe<&2, String>) -> {Main.disputed.said(path, f, found, Sv.seen(Sv.Seen{path, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, found, dig, Bool.pick(Maybe<&2, String>, b, None{}, bef), text, shown, b})) == True{} : Bool}:
   match b:
@@ -611,7 +634,9 @@ def dash(+f: String, +bf: Map<&2, String>, -bf2: Map<&2, String>, h: {Map.get(St
 
 # Where the parents leave a file of lines differently, the survey is given
 # no digest to settle it by: whatever the folder holds, a file there is
-# edited, emptied or refused, and anything else drops it with no content.
+# edited, emptied or refused, emptied only where it holds no bytes and
+# edited only where it holds some, and anything else drops it with no
+# content.
 def disputed(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, -bf2: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, found: Maybe<&2, Folder.Found>, h: {Map.get(String, SNil{}, bf, f) == (bf2, "-") : Map<&2, String> & String}) -> {Main.disputed.said(path, f, found, Sv.seen(Main.status.seen(t, dg, bf, reads, Main.Here{path, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, found}))) == True{} : Bool}:
   disputed_said(String.eq(Main.stat_of(f, Map.get(String, SNil{}, bf, f)), "-"), dash(f, bf, bf2, h), path, f, q, y, g, m, found, Main.status.folder_digest(dg, path), Main.status.before(bf, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}), Folder.is_utf8(Main.bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path))), Main.status.shown(t, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}))
 

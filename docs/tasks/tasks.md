@@ -2,13 +2,14 @@
 title: Tasks
 description: Deferred work in historica — one file each, every one with a done state
 created: 2026-09-02
-updated: 2026-09-16
+updated: 2026-09-25
 contents:
   - "[The first capture is barrier-bound](first-capture-is-barrier-bound.md)"
   - "[A claim arriving needs no line](a-claim-arriving-needs-no-line.md)"
   - "[Saying what a command wrote](saying-what-a-command-wrote.md)"
   - "[The state at a revision without the walk](the-state-at-a-revision-without-the-walk.md)"
   - "[A capture pushes per file and barriers once](a-capture-pushes-per-file-and-barriers-once.md)"
+  - "[Saying a merge would empty a file](saying-a-merge-would-empty-a-file.md)"
 part_of: '[historica](/README.md)'
 ---
 
