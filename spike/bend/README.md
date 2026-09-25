@@ -311,7 +311,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
 | `manifest_lemmas.bend` | `fetch_reads_the_manifest_offer_writes`: the lines `offer` prints, each with a newline after it and answered by the host as the text at the manifest's URL, are read by `fetch` as the heads and files they were printed from, every kind, digest, forgotten digest and path as written | `offer`, `fetch` |
 | `fetchplan_lemmas.bend` | `fetch_refuses_only_what_shares_no_revision`: a refusal as unrelated is where no join was asked, each side holds a revision, and no revision the manifest lists is one this store holds or one a revision here names as a parent or as what it supersedes; `fetch_refuses_what_shares_no_revision`: and there it refuses, in the Rust tool's words; `fetch_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of this store, or a line of the manifest, says is forgotten; `fetch_says_what_it_took`: asked for `--fields`, it names each revision it took once, in digest order, and none it did not | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and fifty-nine claims about the code, each proven | the test suite and Verus replay helpers |
+| `escape_lemmas.bend` | `fetch_asks_for_a_path_by_its_bytes`: whatever the bytes of a path, what `fetch` asks for decodes, each escape read as `%` and two uppercase hex digits, back to exactly those bytes; `fetch_asks_in_characters_a_url_may_hold`: and holds only characters RFC 3986 leaves unreserved, `/` and `%`; `fetch_asks_for_what_is_unreserved_as_itself`: and each unreserved character, and `/`, is asked for as itself — every byte of the 256 shown to the checker, and with the three laws the whole of how a byte is spelled | `fetch` |
+| `LAWS.bend` / `PROOF.bend` | two hundred and sixty-six claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -1120,7 +1121,13 @@ digest, here: nothing whose bytes are not its digest is written
 `fetch_lands_a_file_only_where_it_hashes_to_its_line`,
 `fetch_files_a_payload_under_what_it_hashes_to`), and nothing is asked
 for that the manifest does not name
-(`fetch_asks_only_for_what_the_manifest_names`). A path
+(`fetch_asks_only_for_what_the_manifest_names`). A path is asked for by
+its bytes as the Rust tool spells them — every byte that is not
+unreserved written `%` and two uppercase hex digits, `/` kept — so what is
+asked for decodes to exactly the path's bytes and holds nothing a URL's
+path may not (`fetch_asks_for_a_path_by_its_bytes`,
+`fetch_asks_in_characters_a_url_may_hold`,
+`fetch_asks_for_what_is_unreserved_as_itself`). A path
 the server says is gone (404, 410) is the publisher having moved on, and
 the manifest is read again, three times at most. The host's part is two
 effects that decide nothing (`RUNTIME.md`): the text at a URL, and a file
@@ -1998,7 +2005,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and seventy-one mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and seventy-eight mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2154,14 +2161,16 @@ of; and seven more word breaks: a word `arrange` does not know taken,
 first word, `export`'s target read as its directory, a second source
 taken by `receive` over the first, `--fields` read by `receive` as
 joining unrelated histories, and the first of two directories taken by
-`offer`; and twelve fetch breaks: a document filed whose text is not the
+`offer`; and fifteen fetch breaks: a document filed whose text is not the
 digest offered, a payload landed whatever it hashes to, a payload filed
 under the name it was staged at, a path asked for beside the one the
 manifest names, a URL's last slash cut off its directory, a second URL
 taken over the first, `--fields` read as joining unrelated histories, a
 bookmark's line discarded as a kind the reader does not know, a revision
 the two sides share found only where all are, unrelated histories joined
-unasked, every original held destroyed, and a revision taken named twice;
+unasked, every original held destroyed, a revision taken named twice, a
+byte escaped in lowercase hex, a space asked for as it is, and a `~`
+escaped that need not be;
 and seven update breaks:
 bytes no revision records written over, a file kept whose mode is not the
 one recorded, a file nobody recorded taken away, a file of lines written

@@ -85,6 +85,7 @@ import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
 import ./manifest_lemmas.bend as ManL
 import ./fetchplan_lemmas.bend as FPlanL
+import ./escape_lemmas.bend as EscL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1117,3 +1118,12 @@ def Laws.fetch_destroys_only_what_is_forgotten(s, os, d, h):
 
 def Laws.fetch_says_what_it_took(rs, ds, ps, rus, res, ns, k, dec, des, re):
   FPlanL.says_what_it_took(rs, ds, ps, rus, res, ns, k, dec, des, re)
+
+def Laws.fetch_asks_for_a_path_by_its_bytes(bs, h):
+  EscL.dec_bytes(bs, h)
+
+def Laws.fetch_asks_in_characters_a_url_may_hold(bs, h):
+  EscL.url_bytes(bs, h)
+
+def Laws.fetch_asks_for_what_is_unreserved_as_itself():
+  EscL.kept_as_itself()
