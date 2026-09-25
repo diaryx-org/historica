@@ -739,3 +739,58 @@ def planned_once(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), +walked: L
   +os = List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held))
   +a = Set.from_list(Sv.added(os))
   recorded_once(a, os, Sv.links(t, Set.from_list(Sv.dropped_files(os)), a, os), Sv.moved.paths(moves, Set.from_list(Sv.dropped_files(os))))
+
+# It reads as lines only what is text
+# -----------------------------------
+
+def msome(m: Maybe<&2, String>) -> Type:
+  match m:
+    case Some{x}:
+      Unit
+    case None{}:
+      Empty
+
+def none_some_m2(-x: String, h: {Some{x} == None{} : Maybe<&2, String>}) -> Empty:
+  %h : {msome(_) : Type}
+  Unit{}
+
+def mnone_pick(b: Bool, -x: String, -r: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, b, Some{x}, r) == None{} : Maybe<&2, String>}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, none_some_m2(x, e))
+
+def mnone_rest(b: Bool, -x: String, -r: Maybe<&2, String>, e: {Bool.pick(Maybe<&2, String>, b, Some{x}, r) == None{} : Maybe<&2, String>}) -> {r == None{} : Maybe<&2, String>}:
+  match b:
+    case False{}:
+      e
+    case True{}:
+      Empty.absurd({r == None{} : Maybe<&2, String>}, none_some_m2(x, e))
+
+def text_keep(ls: Bool, u: Bool, +reads: Map<&2, List<&2, U32>>, +p: String, +rest: List<&2, String>, eu: {Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))) == u : Bool}, h: {Bool.and(ls, Bool.not(u)) == False{} : Bool}, ih: {Main.utf8.all(reads, rest) == True{} : Bool}) -> {Main.utf8.all(reads, Rev.keep(ls, p, rest)) == True{} : Bool}:
+  match ls:
+    case False{}:
+      ih
+    case True{}:
+      match u:
+        case True{}:
+          B.and_tt(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), Main.utf8.all(reads, rest), eu, ih)
+        case False{}:
+          Empty.absurd({Main.utf8.all(reads, Rev.keep(True{}, p, rest)) == True{} : Bool}, S.true_false(h))
+
+# Where `record` goes on, every file a person said is lines is text.
+def lines_text(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Main.Here>, +e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}) -> {Main.utf8.all(reads, Main.lined_added(ks, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case Main.Here{+p, None{}, Some{Folder.Found.File{q, r, n}}} <> +rest:
+      +b = Bool.and(Main.lines.stated(ks, p), Bool.not(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))))
+      text_keep(Main.lines.stated(ks, p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), reads, p, Main.lined_added(ks, rest), {==}, mnone_pick(b, "`" ++ p ++ "` cannot be recorded as lines: its bytes are not UTF-8, and a line is text whoever says otherwise. Record it as bytes, or convert the file first", Main.not_lines(ks, reads, rest), e),
+        lines_text(ks, reads, rest, mnone_rest(b, "`" ++ p ++ "` cannot be recorded as lines: its bytes are not UTF-8, and a line is text whoever says otherwise. Record it as bytes, or convert the file first", Main.not_lines(ks, reads, rest), e)))
+    case Main.Here{p, None{}, Some{Folder.Found.Link{q, t}}} <> rest:
+      lines_text(ks, reads, rest, e)
+    case Main.Here{p, None{}, None{}} <> rest:
+      lines_text(ks, reads, rest, e)
+    case Main.Here{p, Some{x}, f} <> rest:
+      lines_text(ks, reads, rest, e)

@@ -2259,6 +2259,13 @@ def check_mutations(temporary):
             "rewrite_lemmas.writes_fields",
             "commands.bend",
         ),
+        (
+            "record takes a file with no NUL for text",
+            "Bool.pick(Maybe<&2, String>, Bool.and(lines.stated(ks, p), Bool.not(Folder.is_utf8(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))),",
+            "Bool.pick(Maybe<&2, String>, Bool.and(lines.stated(ks, p), Folder.has_nul(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))),",
+            "record_lemmas.lines_text",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
