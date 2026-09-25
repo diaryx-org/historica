@@ -54,6 +54,8 @@ import ./fetchplan_lemmas.bend as FPlanL
 import ./escape_lemmas.bend as EscL
 import ./init_lemmas.bend as InitL
 import ./utf8_lemmas.bend as Utf8L
+import ./finding_lemmas.bend as FindL
+import ./skip_lemmas.bend as SkipL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2481,16 +2483,15 @@ law skip_name_rule_reads_back:
   for e: {Skip.name.scope.r(n) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
   {Skip.stated.of(file, Skip.file.text(Skip.Rule{sc, private}), Folder.rule_in(Skip.file.text(Skip.Rule{sc, private}))) == [Skip.Stating{Skip.Rule{sc, private}, file}] : List<&2, Skip.Stating>}
 
-# The rule `skip <path>` makes skips that file, or that directory and a
-# file under it, and nothing whose path does not start with the one named.
+# The rule `skip <path>` makes skips that file, or that directory whole
+# and every file under it.
 law skip_path_rule_skips_under_its_path:
   for +v: String
   for +directory: Bool
   for +sc: Folder.Scope
   for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
   for +x: String
-  for +q: String
-  {Bool.and(Bool.pick(Bool, directory, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)), Bool.or(Bool.not(Folder.skips([sc], q)), String.starts_with(q, v))) == True{} : Bool}
+  {Bool.pick(Bool, directory, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)) == True{} : Bool}
 
 # `skip` with no arguments lists every rule the files of `skipped/` state,
 # and no rule twice.
@@ -3866,3 +3867,169 @@ law utf8_reads_back:
   for +s: String
   for +h: {Utf8L.scalars(s) == True{} : Bool}
   {Store.utf8.of(Utf8.encode(s)) == Done{s} : Result<&2, &2, String, String>}
+
+# And nothing else: a file it skips is the path named, or, for a
+# directory, the path named, a `/`, and the rest — so the rule for `v`
+# skips neither `vx` nor, for a file, anything under `v/` — and a
+# directory it skips whole is the one named.
+law skip_path_rule_skips_nothing_else:
+  for +v: String
+  for +directory: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  for +q: String
+  for s: {Folder.skips([sc], q) == True{} : Bool}
+  {q == Bool.pick(String, directory, String.append(v ++ "/", String.drop(q, String.length(v ++ "/"))), v) : String}
+
+law skip_path_rule_skips_no_other_directory:
+  for +v: String
+  for +directory: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  for +p: String
+  for s: {Folder.skips_directory([sc], p) == True{} : Bool}
+  {p == v : String}
+
+# `skip` reads every word it is given, in order: spelled back — a
+# `--private` as itself, a `--name` and the word after it, a path as
+# itself, and, where reading stopped, the words from the one refused on —
+# what it read is the words.
+law skip_reads_its_words:
+  for +ws: List<&2, String>
+  {SkipL.spelled(Skip.read(ws)) == ws : List<&2, String>}
+
+# And it takes each word for what it is: no word it reads as a path is a
+# flag, and it stops only at a flag it does not take — anything opening
+# `--` but `--private`, and `--name` only with nothing after it to name.
+law skip_reads_flags_as_flags:
+  for +ws: List<&2, String>
+  {SkipL.plain(Skip.read(ws)) == True{} : Bool}
+
+# `--private` makes every rule `skip` writes private wherever it stands
+# among words read without a refusal: the rules are each scope asked for,
+# in order, and private.
+law skip_private_wherever_it_stands:
+  for +before: List<&2, String>
+  for +after: List<&2, String>
+  for c: {SkipL.clean(Skip.read(before)) == True{} : Bool}
+  for +ss: List<&2, Folder.Scope>
+  {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(List.append(&2, String, before, "--private" <> after)))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), ss) : List<&2, Skip.Rule>}
+
+# And where no word is `--private`, every rule it writes is shared.
+law skip_shares_without_private:
+  for +ws: List<&2, String>
+  for h: {Rev.member(ws, "--private") == False{} : Bool}
+  for +ss: List<&2, Folder.Scope>
+  {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(ws))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}
+
+# `skip <path>` reads the rule's path as what lies past the repository, as
+# the path really is: where its components are the repository's and more,
+# the first of those not empty, the rule's path is the further components
+# joined by `/`.
+law skip_reads_the_path_past_the_repository:
+  for +path: String
+  for +repo: String
+  for +settled: String
+  for +x: String
+  for +more: List<&2, String>
+  for e: {Identity.components(settled) == List.append(&2, String, Identity.components(repo), x <> more) : List<&2, String>}
+  for hx: {String.is_empty(x) == False{} : Bool}
+  {Skip.inside.r(path, repo, settled) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+
+# It refuses the repository itself, since a rule for all of it would leave
+# history nothing to hold ...
+law skip_refuses_the_repository_itself:
+  for +path: String
+  for +repo: String
+  for +settled: String
+  for e: {Identity.components(settled) == Identity.components(repo) : List<&2, String>}
+  {Skip.inside.r(path, repo, settled) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}
+
+# ... and a path that stops, or turns aside, before the repository's
+# components end, which is not inside it.
+law skip_refuses_a_path_outside_the_repository:
+  for +path: String
+  for +repo: String
+  for +settled: String
+  for +pre: List<&2, String>
+  for +y: String
+  for +r1: List<&2, String>
+  for +zs: List<&2, String>
+  for er: {Identity.components(repo) == List.append(&2, String, pre, y <> r1) : List<&2, String>}
+  for es: {Identity.components(settled) == List.append(&2, String, pre, zs) : List<&2, String>}
+  for h: {SkipL.turns(y, zs) == True{} : Bool}
+  {Skip.inside.r(path, repo, settled) == Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}} : Result<&2, &2, Main.Refused, String>}
+
+# Where `skip` goes on to write its rules, no rule it writes skips a file
+# any head holds, read with the loader's own `skips`: decision 0011, a rule
+# cannot take back what is recorded — so wherever some head's tree holds a
+# file a rule asked for covers, `skip` refuses.
+law skip_covers_nothing_history_holds:
+  for +fs: List<&2, Main.Full>
+  for +rs: List<&2, Skip.Rule>
+  for e: {Skip.covered.r(fs, rs) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
+  for +h: String
+  for hh: {Rev.member(Rev.heads(Main.history(fs)), h) == True{} : Bool}
+  for +t: Tree.Tree()
+  for +et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}
+  for +p: String
+  for +hp: {Rev.member(SkipL.paths(t), p) == True{} : Bool}
+  {Folder.skips(SkipL.scopes(rs), p) == False{} : Bool}
+
+# `check`'s report is every error it found, in the order found, then every
+# note, each on its own line under its word — so each finding once — then
+# how many of each, `nothing to report` only where it found nothing at
+# all; and, where a head cannot be produced from what is here, how many,
+# naming `--complete` to a caller who did not ask for it.
+law check_reports_errors_then_notes:
+  for +fs: List<&2, Check.Finding>
+  for +shown: String
+  for +complete: Bool
+  {Check.report(fs, shown, complete) == FindL.reported(fs, shown, complete) : String}
+
+# `check` reads a bookmark file `name` wrote for a well-formed target as
+# that bookmark: it finds nothing wrong where what it points at is here —
+# the revision by its digest, a revision of the change, or a revision
+# stating a fact about the file (decision 0024) — and otherwise notes, and
+# only notes, that it is not here yet.
+law check_follows_the_bookmarks_name_writes:
+  for +docs: List<&2, Main.Full>
+  for +path: String
+  for +n: String
+  for +t: Bm.Target
+  for +p: Bool
+  for +h: {Bm.target_ok(t) == True{} : Bool}
+  {Check.name.text(docs, path, n, Done{Bm.write(Bm.Stated{t, p})}) == Bool.pick(List<&2, Check.Finding>, FindL.here(docs, t), Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) : List<&2, Check.Finding>}
+
+# `check` reads each line of a directory's listing as the host writes it,
+# whatever it found before and whatever follows: a directory is the one
+# to walk next, a file is found by its name, spaces and all, a link is
+# found and the line of its target passed over whatever it says — never
+# followed — a link whose target cannot be spelled is found all the same,
+# and a name that is not UTF-8, or anything else, is passed over; each
+# under the directory listed.
+law check_reads_each_line_of_a_listing:
+  for +ds: List<&2, String>
+  for +fs: List<&2, String>
+  for +ls: List<&2, String>
+  for t: Bool
+  for +dir: String
+  for e: FindL.Listed
+  for +rest: String
+  for +h: {FindL.spelt(e) == True{} : Bool}
+  {Check.walk.step(Check.Seen{ds, fs, ls, t}, dir, Done{FindL.line(e) ++ "\n" ++ rest}) == Check.seen.go(String.split(rest, '\n'), dir, FindL.found(e, dir, fs, ls)) : Check.Seen}
+
+# `check` reads as a file's lines only payloads the store holds under a
+# digest some revision's `text` header names, each from where the store
+# holds it.
+law check_reads_only_held_text:
+  for +docs: List<&2, Main.Full>
+  for +ps: List<&2, Check.Stored>
+  {FindL.reads_held(Check.texts.plan(Check.set.of(Check.text.ids(docs)), ps), ps, Check.text.ids(docs)) == True{} : Bool}
+
+# `check` fails exactly where it found an error, `check --complete` also
+# where it found a head it cannot produce, and a note alone fails neither.
+law check_fails_on_an_error:
+  for +fs: List<&2, Check.Finding>
+  for complete: Bool
+  {Check.fails(fs, complete) == Bool.or(List.any(~&2, ~Check.Finding, ~(f => Check.is_error(f)), fs), Bool.and(complete, List.any(~&2, ~Check.Finding, ~(f => Check.is_head(f)), fs))) : Bool}

@@ -317,7 +317,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `manifest_lemmas.bend` | `fetch_reads_the_manifest_offer_writes`: the lines `offer` prints, each with a newline after it and answered by the host as the text at the manifest's URL, are read by `fetch` as the heads and files they were printed from, every kind, digest, forgotten digest and path as written | `offer`, `fetch` |
 | `fetchplan_lemmas.bend` | `fetch_refuses_only_what_shares_no_revision`: a refusal as unrelated is where no join was asked, each side holds a revision, and no revision the manifest lists is one this store holds or one a revision here names as a parent or as what it supersedes; `fetch_refuses_what_shares_no_revision`: and there it refuses, in the Rust tool's words; `fetch_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of this store, or a line of the manifest, says is forgotten; `fetch_asks_for_no_payload_held_or_forgotten`, `fetch_asks_for_no_document_held_or_forgotten` and `fetch_asks_for_no_revision_it_holds`: every payload and document it asks for is one this store holds nothing under the digest of and neither side forgets, and every revision one it does not hold; `fetch_says_what_it_took`: asked for `--fields`, it names each revision it took once, in digest order, and none it did not | `fetch` |
 | `escape_lemmas.bend` | `fetch_asks_for_a_path_by_its_bytes`: whatever the bytes of a path, what `fetch` asks for decodes, each escape read as `%` and two uppercase hex digits, back to exactly those bytes; `fetch_asks_in_characters_a_url_may_hold`: and holds only characters RFC 3986 leaves unreserved, `/` and `%`; `fetch_asks_for_what_is_unreserved_as_itself`: and each unreserved character, and `/`, is asked for as itself — every byte of the 256 shown to the checker, and with the three laws the whole of how a byte is spelled | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | three hundred and eleven claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | three hundred and twenty-six claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -366,7 +366,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `span_lemmas.bend` | `log_lists_its_span`: with a target, every revision `log` goes on with is one the store holds, the target among them wherever the store holds it and every other a parent of one of them, through an invariant of the walk out from the target — in a store without a cycle, only the target's ancestry; and where the store files each revision once, every parent the store holds of one of them is among them too, through a second invariant, that each parent of a revision taken in is taken in, waiting, or not the store's, and a count of the steps the walk owes, which the steps it is given always cover; with `a..b`, what `log b` lists and `log a` does not, no more and no less | `log`'s ranges |
 | `logargs_lemmas.bend` | `log_reads_its_words`: `log` reads its arguments as their plain reading says — the word after a flag that takes a value is its value, the last counting, `--limit`, `--since` and `--until` read as a count and bounds, `--fields` asked for if it is there, and the other word the target | `log`'s arguments |
 | `check_lemmas.bend` | `check_pairs_each_payload`: `check` reports each payload with the digest asked for it — one per payload in the order found, none taken by an operation document; `check_walks_causally`: the order it walks a merged file's events in places each after every event its author had seen; `check_reads_its_words`: `--complete` is read wherever it stands, and every other word, in order, as a directory | `check` |
-| `skip_lemmas.bend` | `skip_path_rule_reads_back`, `skip_name_rule_reads_back`: the file `skip` writes for a path or a name it accepts is read back by the reader of `skipped/` as exactly the rule meant, private or not — a line the reader splits, trims and keys as `Skipped::rule_in` does; `skip_path_rule_skips_under_its_path`: that rule skips the file, or the directory and a file in it, and nothing whose path does not start with the one named; `skip_lists_each_rule_once`: the listing names every rule the files state and none twice; `skip_writes_what_is_new`: what `skip` writes is no rule the store states and none twice, and every rule asked is written or already there; `skip_rules_equal_only_when_equal`, `skip_rule_equals_itself`: rule equality is equality, so "held" is membership | `cli::skip`, `working::Skipped` |
+| `finding_lemmas.bend` | `check_reports_errors_then_notes`: `check`'s report is every error in the order found, then every note, then how many of each — `nothing to report` only where nothing was found — and how many heads cannot be produced; `check_fails_on_an_error`: it fails exactly where it found an error, and with `--complete` where it found a head it cannot produce; `check_follows_the_bookmarks_name_writes`: a bookmark file `name` wrote reads back as that bookmark, drawing nothing where what it points at is here and one note otherwise; `check_reads_each_line_of_a_listing`: each line of a directory's listing is read as the host writes it, a link's target passed over whatever it says; `check_reads_only_held_text`: every `text` payload read as a file's lines is one the store holds, under a digest some `text` header names, read from where it holds it | `render::report`, `Report::is_ok`, `store::check`, `store::walk` |
+| `skip_lemmas.bend` | `skip_path_rule_reads_back`, `skip_name_rule_reads_back`: the file `skip` writes for a path or a name it accepts is read back by the reader of `skipped/` as exactly the rule meant, private or not — a line the reader splits, trims and keys as `Skipped::rule_in` does; `skip_path_rule_skips_under_its_path`: that rule skips the file, or the directory whole and every file under it; `skip_path_rule_skips_nothing_else`, `skip_path_rule_skips_no_other_directory`: and a file it skips is the path named or, for a directory, that path, a `/` and the rest, and a directory it skips whole is the one named; `skip_reads_its_words`, `skip_reads_flags_as_flags`: spelled back, what `skip` read is the words it was given, no word it reads as a path is a flag, and it stops only at a flag it does not take; `skip_private_wherever_it_stands`, `skip_shares_without_private`: `--private` makes every rule private wherever it stands, and without it every rule is shared; `skip_reads_the_path_past_the_repository`, `skip_refuses_the_repository_itself`, `skip_refuses_a_path_outside_the_repository`: a rule's path is what lies past the repository, and the repository itself and a path outside it are refused; `skip_covers_nothing_history_holds`: where `skip` goes on to write, no rule it writes skips a file any head holds (decision 0011); `skip_lists_each_rule_once`: the listing names every rule the files state and none twice; `skip_writes_what_is_new`: what `skip` writes is no rule the store states and none twice, and every rule asked is written or already there; `skip_rules_equal_only_when_equal`, `skip_rule_equals_itself`: rule equality is equality, so "held" is membership | `cli::skip`, `cli::path_scope`, `working::Skipped` |
 | `argv_lemmas.bend` | `argv_reads_its_words`: `-C <dir>` is read as often as it is given, the last counting, and the command word and every word after it — a `-C` among them — are the command's, as written; `argv_reads_the_version`, `argv_reads_help`: `-V` and `--version` read as the version, and `help`, `-h` and `--help` as the usage, whatever `-C`s come before them and whatever follows | `cli::run` |
 | `shell_lemmas.bend` | `dispatch_runs_no_path`: the program a word is dispatched to holds no `/`, so it is looked up on `PATH` rather than run from where a path would put it | decision 0072 |
 | `opening_lemmas.bend` | `header_opens_under_a_note`: a store's header opens whatever its note says, once a blank line sets the note apart — the one `init` writes among them | `Store::open`, decision 0069 |
@@ -951,12 +952,31 @@ file some head holds. The `skipping` and `badskip` stores hold it. What
 it writes is proved to read back: the file for a path or a name it accepts
 is, to the reader of `skipped/`, exactly the rule meant, private or not
 (`skip_path_rule_reads_back`, `skip_name_rule_reads_back`), and that rule
-skips what was named and nothing whose path does not start with it
-(`skip_path_rule_skips_under_its_path`). What it writes is new to the
+skips what was named — the file, or the directory whole and every file
+under it — and nothing else: not a path that only begins with the one
+named, and nothing under a file's (`skip_path_rule_skips_under_its_path`,
+`skip_path_rule_skips_nothing_else`,
+`skip_path_rule_skips_no_other_directory`). What it writes is new to the
 store and named once, and nothing asked is lost
 (`skip_writes_what_is_new`); its listing names every stated rule once
 (`skip_lists_each_rule_once`). Those two are stated over a membership
-that is proved to be equality, not over the equality the code asks.
+that is proved to be equality, not over the equality the code asks. Its
+words are read in a pure def, `Skip.read`, before a path is resolved
+against the store: spelled back, what it read is the words it was given,
+no word it reads as a path is a flag, and it stops only at a flag it does
+not take (`skip_reads_its_words`, `skip_reads_flags_as_flags`), and the
+IO says that refusal once every word before it has had its say.
+`--private` makes every rule private wherever it stands, and without it
+every rule is shared (`skip_private_wherever_it_stands`,
+`skip_shares_without_private`). A rule's path is what lies past the
+repository, over the components `Path::components` reads, and the
+repository itself and a path that stops or turns aside before the
+repository ends are refused (`skip_reads_the_path_past_the_repository`,
+`skip_refuses_the_repository_itself`,
+`skip_refuses_a_path_outside_the_repository`). Decision 0011 is decided
+in a pure step over the paths every head's tree holds: where `skip` goes
+on to write, no rule it writes skips, by the loader's own `skips`, a file
+any head holds (`skip_covers_nothing_history_holds`).
 
 `check [<dir>] [--complete]` reads the store as `Store::check` does and
 reports as `render::report` does (`check.bend`): the header refused or not
@@ -987,6 +1007,18 @@ every site that still holds its text (`StillQuoted`): `quoting` and
 deleter's and the writer's. A bookmark or a rule file whose bytes are not
 UTF-8 is refused by every command as the store opens, in `Utf8Error`'s
 words, and is an error to `check` (`unnamed`, `unruled`).
+What `check` says is held to a reading of its findings as a list: every
+error in the order found, then every note, then how many of each, and the
+heads it cannot produce (`check_reports_errors_then_notes`); and it fails
+exactly where it found an error, or, with `--complete`, a head it cannot
+produce (`check_fails_on_an_error`). One directory's listing is read in a
+pure step, each line as `Store.folder` writes it, a link's target line
+passed over whatever it says (`check_reads_each_line_of_a_listing`); the
+`text` payloads it reads as a file's lines are planned in another, and
+each is one the store holds, under a digest some revision's `text` header
+names (`check_reads_only_held_text`); and a bookmark `name` wrote reads
+back as that bookmark, drawing a note, never an error, only where what it
+points at is not here (`check_follows_the_bookmarks_name_writes`).
 
 `arrange` gives a store's files the names decision 0006 made
 deterministic, and touches no file's bytes. Every revision takes a stem
@@ -2165,7 +2197,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Three hundred and eighty-five mutations cover the primitive helpers, lost inserts, a lost trailing
+Four hundred mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2418,8 +2450,12 @@ breaks: `-C` counting the first directory rather than the last, `-V`
 not read as the version, and `-h` not read as help; and one
 dispatch break: any word looked up on `PATH`; and one header break: a note
 under the format line read as a layout; and one identity break: the
-default author forgotten; and two `check` breaks: a new store's note read
-as a layout, and only the last word read as asking for `--complete`; and
+default author forgotten; and nine `check` breaks: a new store's note read
+as a layout, only the last word read as asking for `--complete`, a note
+counted among the errors, a head it cannot produce failing it unasked, a
+bookmark to a file only a `bytes` header names or to a revision here not
+followed, a link's target line read as an entry, a file's size taken for
+its name, and a text payload read from where another digest is stored; and
 eight `init` breaks: the header written where the store does not look for
 it, a note written beside the store rather than in it, a note written
 into a directory it does not make, the notes written where `init` runs
@@ -2429,11 +2465,16 @@ base, and a `/` doubled after a base that ends with one; and seven
 UTF-8 breaks: a three-byte character's middle byte kept to five bits, a
 three-byte lead read as a two-byte one, the first character past the
 surrogates taken for one, and a validator that refuses `9F` after `ED`,
-`90` after `F0`, `F4` as a lead, or `BF` as a continuation; and six `skip` breaks: rule equality blind to privacy, a
-directory's rule written without its slash, a private name read back as
-shared, a directory's rule that does not skip the directory, a listing
-that forgets the rule it just kept, and a rule asked about against the
-rules written before the last. The
+`90` after `F0`, `F4` as a lead, or `BF` as a continuation; and fourteen `skip` breaks: rule equality blind to privacy, a directory's rule
+written without its slash, a private name read back as shared, a
+directory's rule that does not skip the directory or that skips what only
+begins with its name, a listing that forgets the rule it just kept, a rule
+asked about against the rules written before the last, `--name` taken for
+the name it matches, a flag it does not take read as a path, a
+`--private` after a path forgotten, a rule written that covers what
+history holds, the refusal passing over the first rule asked, a rule's
+path spelled from the root rather than past the repository, and the
+repository itself taken for a path to skip. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
