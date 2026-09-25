@@ -43,6 +43,7 @@ import ./nfc.bend as Nfc
 import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
+import ./arrange_lemmas.bend as ArrangeL
 import ./utf8.bend as Utf8
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
@@ -2435,9 +2436,9 @@ law arrange_reads_its_words:
   for +ws: List<&2, String>
   {Arrange.accepted(Arrange.ArrangeCmd, Arrange.args.r(ws)) == Bool.pick(Maybe<&2, Arrange.ArrangeCmd>, List.all(~&2, ~String, ~(w => Rev.member(["-n", "--dry-run", "--refile"], w)), ws), Some{Arrange.ArrangeCmd{Bool.or(Rev.member(ws, "-n"), Rev.member(ws, "--dry-run")), Rev.member(ws, "--refile")}}, None{}) : Maybe<&2, Arrange.ArrangeCmd>}
 
-# `arrange` never plans to write over a file: every rename its plan holds,
-# in `revisions/` and in `operations/`, goes from one path to a different
-# one that nothing in the store was at. Two files holding one document
+# `arrange` never writes over a file: every rename it carries out, in
+# `revisions/` and in `operations/`, goes from one path to a different one
+# that the store's listing does not hold. Two files holding one document
 # want one name, and the second finds it taken when its turn comes.
 law arrange_plans_no_overwrite:
   for +refile: Bool
@@ -2447,7 +2448,10 @@ law arrange_plans_no_overwrite:
   for +ls: List<&2, String>
   for +a: Arrange.Arrangement
   for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
-  {Arrange.plan_safe(Arrange.taken(ls), a) == True{} : Bool}
+  for +from: String
+  for +to: String
+  for h: {ArrangeL.moves(List.append(&2, T.Split, Arrange.done.renamed(Arrange.arrangement.revs(a)), Arrange.done.renamed(Arrange.arrangement.ops(a))), from, to) == True{} : Bool}
+  {Bool.or(String.eq(from, to), Rev.member(ls, to)) == False{} : Bool}
 
 # Without `--refile`, `arrange` renames a revision document only within
 # the directory it sits in: a folder a person filed one in is one they
@@ -2489,6 +2493,20 @@ law arrange_counts_every_file:
   for +a: Arrange.Arrangement
   for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
   {Arrange.accounted(a, revs, ops) == True{} : Bool}
+
+# `arrange` moves each file once: of each directory, a path is renamed
+# from no more often than the walk found a file there, so a file the walk
+# lists once is moved at most once, and a path it does not list, never.
+law arrange_moves_each_file_once:
+  for +refile: Bool
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +ops: List<&2, T.Split>
+  for +ls: List<&2, String>
+  for +a: Arrange.Arrangement
+  for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
+  for +x: String
+  {Bool.and(Nat.is_le(ArrangeL.times(T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), Arrange.done.renamed(Arrange.arrangement.revs(a))), x), ArrangeL.times(T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), revs), x)), Nat.is_le(ArrangeL.times(T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), Arrange.done.renamed(Arrange.arrangement.ops(a))), x), ArrangeL.times(T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), ops), x))) == True{} : Bool}
 
 # `prune` reads its words as their plain reading says: it accepts a
 # command line exactly where every word is `-n`, `--dry-run` or
