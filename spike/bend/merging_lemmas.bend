@@ -22,6 +22,8 @@ import ./update_lemmas.bend as UpdL
 import ./map_lemmas.bend as ML
 import ./conflict_lemmas.bend as ConflictL
 import ./rewrite_lemmas.bend as RewriteL
+import ./spelling_lemmas.bend as Spell
+import ./equality_lemmas.bend as Eq
 
 # Lists of heads
 # --------------
@@ -949,3 +951,93 @@ def fences_counted(+j: Conflict.Joined, +x: String, +a: Nat, +h1: {Rev.member(Co
     markers_has(Conflict.lines(Conflict.render(j)), Conflict.lines(Conflict.plain(j)), x, h1, fence_marks(j, x, a, h3),
       (%Equal.sym(Bool, Conflict.any_eq(Conflict.lines(Conflict.plain(j)), x), Rev.member(Conflict.lines(Conflict.plain(j)), x), any_member(Conflict.lines(Conflict.plain(j)), x)) : {_ == False{} : Bool}
         h2)))
+
+# The `record` line reads back
+# ----------------------------
+
+def join_cons(p: String, r: List<&2, String>, ne: {Spell.nonempty(String, r) == True{} : Bool}) -> {String.join(p <> r, "=") == p ++ ("=" ++ String.join(r, "=")) : String}:
+  match r:
+    case Nil{}:
+      Empty.absurd({String.join([p], "=") == p ++ ("=" ++ String.join(Nil{}, "=")) : String}, Comp.false_true(ne))
+    case q <> more:
+      {==}
+
+def join_push(c: Char, r: List<&2, String>, ne: {Spell.nonempty(String, r) == True{} : Bool}) -> {String.join(String.split.push(c, r), "=") == SCon{c, String.join(r, "=")} : String}:
+  match r:
+    case Nil{}:
+      Empty.absurd({String.join(String.split.push(c, Nil{}), "=") == SCon{c, String.join(Nil{}, "=")} : String}, Comp.false_true(ne))
+    case p <> Nil{}:
+      {==}
+    case p <> q <> more:
+      {==}
+
+def join_split.fin(h: Char, +t: String, cut: Bool, eq: {Char.is_eq(h, '=') == cut : Bool}, ih: {String.join(String.split(t, '='), "=") == t : String}) -> {String.join(String.split.fin(h, String.split(t, '='), cut), "=") == SCon{h, t} : String}:
+  match cut:
+    case True{}:
+      %Equal.sym(String, String.join(SNil{} <> String.split(t, '='), "="), SNil{} ++ ("=" ++ String.join(String.split(t, '='), "=")), join_cons(SNil{}, String.split(t, '='), Spell.split_nonempty(t, '='))) : {_ == SCon{h, t} : String}
+      %Equal.sym(String, String.join(String.split(t, '='), "="), t, ih) : {SCon{'=', _} == SCon{h, t} : String}
+      %Eq.char_eq(h, '=', eq) : {SCon{_, t} == SCon{h, t} : String}
+      {==}
+    case False{}:
+      %Equal.sym(String, String.join(String.split.push(h, String.split(t, '=')), "="), SCon{h, String.join(String.split(t, '='), "=")}, join_push(h, String.split(t, '='), Spell.split_nonempty(t, '='))) : {_ == SCon{h, t} : String}
+      %Equal.sym(String, String.join(String.split(t, '='), "="), t, ih) : {SCon{h, _} == SCon{h, t} : String}
+      {==}
+
+# Cut at every `=` and joined again with one, a string is itself.
+def join_split(s: String) -> {String.join(String.split(s, '='), "=") == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+h, +t}:
+      join_split.fin(h, t, Char.is_eq(h, '='), {==}, join_split(t))
+
+# A name with no `=` in it, then one: the name, then the rest cut.
+def split_pre(f: String, -r: String, +h: {M.no.equals(f) == True{} : Bool}) -> {String.split(f ++ SCon{'=', r}, '=') == f <> String.split(r, '=') : List<&2, String>}:
+  match f:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      Equal.trans(List<&2, String>, String.split.fin(c, String.split(t ++ SCon{'=', r}, '='), Char.is_eq(c, '=')), String.split.fin(c, String.split(t ++ SCon{'=', r}, '='), False{}), SCon{c, t} <> String.split(r, '='),
+        Equal.cong(Bool, List<&2, String>, b => String.split.fin(c, String.split(t ++ SCon{'=', r}, '='), b), Char.is_eq(c, '='), False{}, AL.not_of_true(Char.is_eq(c, '='), Comp.and_left(Bool.not(Char.is_eq(c, '=')), M.no.equals(t), h))),
+        Equal.cong(List<&2, String>, List<&2, String>, l => String.split.push(c, l), String.split(t ++ SCon{'=', r}, '='), t <> String.split(r, '='), split_pre(t, r, Comp.and_right(Bool.not(Char.is_eq(c, '=')), M.no.equals(t), h))))
+
+def at_split.of(r: List<&2, String>, +f: String, +p: String, +msg: String, +er: {String.split(p, '=') == r : List<&2, String>}, ne: {Spell.nonempty(String, r) == True{} : Bool}) -> {Main.record.split.of(msg, f <> r) == Done{T.Split{f, p}} : Result<&2, &2, Main.Refused, T.Split>}:
+  match r:
+    case Nil{}:
+      Empty.absurd({Main.record.split.of(msg, [f]) == Done{T.Split{f, p}} : Result<&2, &2, Main.Refused, T.Split>}, Comp.false_true(ne))
+    case +b <> +rest:
+      %er : {Done{T.Split{f, String.join(_, "=")}} == Done{T.Split{f, p}} : Result<&2, &2, Main.Refused, T.Split>}
+      %Equal.sym(String, String.join(String.split(p, '='), "="), p, join_split(p)) : {Done{T.Split{f, _}} == Done{T.Split{f, p}} : Result<&2, &2, Main.Refused, T.Split>}
+      {==}
+
+# `record` cuts `<file>=<path>` back into the file and the path.
+def at_split(+f: String, +p: String, +msg: String, +h: {M.no.equals(f) == True{} : Bool}) -> {Main.record.split(f ++ ("=" ++ p), msg) == Done{T.Split{f, p}} : Result<&2, &2, Main.Refused, T.Split>}:
+  %Equal.sym(List<&2, String>, String.split(f ++ SCon{'=', p}, '='), f <> String.split(p, '='), split_pre(f, p, h)) : {Main.record.split.of(msg, _) == Done{T.Split{f, p}} : Result<&2, &2, Main.Refused, T.Split>}
+  at_split.of(String.split(p, '='), f, p, msg, {==}, Spell.split_nonempty(p, '='))
+
+# Each `--merge` and its head, read back.
+def merges_back(xs: List<&2, T.Split>, +rest: List<&2, String>, +o: Maybe<&2, String>, +ms: List<&2, String>, +ac: List<&2, String>, +at: List<&2, T.Split>, +mv: List<&2, T.Split>, +ks: List<&2, T.Split>, +ns: List<&2, String>, +d: Bool, +f: Bool, +mg: Maybe<&2, String>) -> {Main.record.args.go(List.append(&2, String, M.merges.words(xs), rest), Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword(List.append(&2, String, M.merges.words(xs), rest))) == Main.record.args.go(rest, Main.RecordCmd{o, List.append(&2, String, ms, M.typed.spellings(xs)), ac, at, mv, ks, ns, d, f, mg}, Main.rword(rest)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(List<&2, String>, List.append(&2, String, ms, Nil{}), ms, SortL.lapp_nil(String, ms)) : {Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword(rest)) == Main.record.args.go(rest, Main.RecordCmd{o, _, ac, at, mv, ks, ns, d, f, mg}, Main.rword(rest)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+      {==}
+    case T.Split{h, +s} <> +more:
+      %SortL.app_assoc(String, ms, [s], M.typed.spellings(more)) : {Main.record.args.go(List.append(&2, String, M.merges.words(more), rest), Main.RecordCmd{o, List.append(&2, String, ms, [s]), ac, at, mv, ks, ns, d, f, mg}, Main.rword(List.append(&2, String, M.merges.words(more), rest))) == Main.record.args.go(rest, Main.RecordCmd{o, _, ac, at, mv, ks, ns, d, f, mg}, Main.rword(rest)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+      merges_back(more, rest, o, List.append(&2, String, ms, [s]), ac, at, mv, ks, ns, d, f, mg)
+
+# Each `--at` and its file and path, read back as the pair itself.
+def ats_back(xs: List<&2, T.Split>, +rest: List<&2, String>, +o: Maybe<&2, String>, +ms: List<&2, String>, +ac: List<&2, String>, +at: List<&2, T.Split>, +mv: List<&2, T.Split>, +ks: List<&2, T.Split>, +ns: List<&2, String>, +d: Bool, +f: Bool, +mg: Maybe<&2, String>, +h: {SortL.all_ok(~T.Split, ~(x => M.id.plain(x)), xs) == True{} : Bool}) -> {Main.record.args.go(List.append(&2, String, M.ats.words(xs), rest), Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword(List.append(&2, String, M.ats.words(xs), rest))) == Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, List.append(&2, T.Split, at, xs), mv, ks, ns, d, f, mg}, Main.rword(rest)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(List<&2, T.Split>, List.append(&2, T.Split, at, Nil{}), at, SortL.lapp_nil(T.Split, at)) : {Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword(rest)) == Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, _, mv, ks, ns, d, f, mg}, Main.rword(rest)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+      {==}
+    case T.Split{+fi, +p} <> +more:
+      %Equal.sym(Result<&2, &2, Main.Refused, T.Split>, Main.record.split(fi ++ ("=" ++ p), "`--at` is spelled `--at <file>=<path>`"), Done{T.Split{fi, p}}, at_split(fi, p, "`--at` is spelled `--at <file>=<path>`", Comp.and_left(M.id.plain(T.Split{fi, p}), SortL.all_ok(~T.Split, ~(x => M.id.plain(x)), more), h))) : {Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, _, s2 => Main.record.args.go(List.append(&2, String, M.ats.words(more), rest), Main.rc.at(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, s2), Main.rword(List.append(&2, String, M.ats.words(more), rest)))) == Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, List.append(&2, T.Split, at, T.Split{fi, p} <> more), mv, ks, ns, d, f, mg}, Main.rword(rest)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+      %SortL.app_assoc(T.Split, at, [T.Split{fi, p}], more) : {Main.record.args.go(List.append(&2, String, M.ats.words(more), rest), Main.RecordCmd{o, ms, ac, List.append(&2, T.Split, at, [T.Split{fi, p}]), mv, ks, ns, d, f, mg}, Main.rword(List.append(&2, String, M.ats.words(more), rest))) == Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, _, mv, ks, ns, d, f, mg}, Main.rword(rest)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+      ats_back(more, rest, o, ms, ac, List.append(&2, T.Split, at, [T.Split{fi, p}]), mv, ks, ns, d, f, mg, Comp.and_right(M.id.plain(T.Split{fi, p}), SortL.all_ok(~T.Split, ~(x => M.id.plain(x)), more), h))
+
+# The words `merge` prints `record` reads as the merge it laid out.
+def record_back(+typed: List<&2, T.Split>, +bs: List<&2, T.Split>, +h: {SortL.all_ok(~T.Split, ~(x => M.id.plain(x)), bs) == True{} : Bool}) -> {Main.record.args.r(M.record.words(typed, bs)) == Done{Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs), Nil{}, Nil{}, Nil{}, False{}, False{}, Some{"<message>"}}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  %Equal.sym(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(List.append(&2, String, M.merges.words(typed), List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"])), Main.RecordCmd{None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(List.append(&2, String, M.merges.words(typed), List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"])))), Main.record.args.go(List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]), Main.RecordCmd{None{}, List.append(&2, String, Nil{}, M.typed.spellings(typed)), Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]))), merges_back(typed, List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]), None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{})) : {_ == Done{Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs), Nil{}, Nil{}, Nil{}, False{}, False{}, Some{"<message>"}}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+  %Equal.sym(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]), Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(List.append(&2, String, M.ats.words(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), ["-m", "<message>"]))), Main.record.args.go(["-m", "<message>"], Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, List.append(&2, T.Split, Nil{}, List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs)), Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(["-m", "<message>"])), ats_back(List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs), ["-m", "<message>"], None{}, M.typed.spellings(typed), Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}, SortL.all_sort(~T.Split, ~(a => b => M.typed.le(a, b)), ~(x => M.id.plain(x)), bs, h))) : {_ == Done{Main.RecordCmd{None{}, M.typed.spellings(typed), Nil{}, List.sort(~T.Split, ~(a => b => M.typed.le(a, b)), bs), Nil{}, Nil{}, Nil{}, False{}, False{}, Some{"<message>"}}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+  {==}

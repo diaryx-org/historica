@@ -2538,6 +2538,20 @@ law update_dry_run_names_what_it_does:
   for +s: String
   {Upd.dry.read(Upd.said.dry(s, p)) == Upd.effects.read(s, Upd.effects(p)) : Upd.Named}
 
+# The `record` line `merge` prints records the merge it laid out — what
+# makes the pending merge live in a person's terminal (decision 0012). Its
+# words, read by `record`'s own parser, are a merge of every head `merge`
+# joined, each as the person typed it, in the order joined; settling each
+# file written beside a path at the path `merge` wrote it, in file order;
+# with the message still to write, and nothing else. (That is, where no
+# file's identifier holds an `=`, which `--at` cuts at and none the store
+# mints does.)
+law merge_prints_the_record_that_records_it:
+  for +typed: List<&2, T.Split>
+  for +bs: List<&2, T.Split>
+  for +h: {SortL.all_ok(~T.Split, ~(x => Merging.id.plain(x)), bs) == True{} : Bool}
+  {Main.record.args.r(Merging.record.words(typed, bs)) == Done{Main.RecordCmd{None{}, Merging.typed.spellings(typed), Nil{}, List.sort(~T.Split, ~(a => b => Merging.typed.le(a, b)), bs), Nil{}, Nil{}, Nil{}, False{}, False{}, Some{"<message>"}}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+
 # Decision 0008 forbids the format inventing a name, so `merge` keeps a
 # path several files claim for the first of them and writes each other
 # beside it. The files it writes beside a path are exactly those: each is

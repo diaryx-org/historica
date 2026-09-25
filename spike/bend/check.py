@@ -4484,6 +4484,20 @@ def check_mutations(temporary):
             "conflict.bend",
         ),
         (
+            "merge's record line names a head by its digest rather than as it was typed",
+            '      "--merge" <> s <> merges.words(rest)',
+            '      "--merge" <> h <> merges.words(rest)',
+            "merging_lemmas.merges_back",
+            "merging.bend",
+        ),
+        (
+            "merge's record line settles a path the other way round",
+            '      "--at" <> (f ++ "=" ++ p) <> ats.words(rest)',
+            '      "--at" <> (p ++ "=" ++ f) <> ats.words(rest)',
+            "merging_lemmas.ats_back",
+            "merging.bend",
+        ),
+        (
             "merge writes beside a path the file that keeps it too",
             "      beside.files(p, rest)",
             "      beside.files(p, f <> rest)",
