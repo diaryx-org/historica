@@ -2273,6 +2273,13 @@ def check_mutations(temporary):
             "record_lemmas.read1",
             "commands.bend",
         ),
+        (
+            "amend changes the identifier of a file it added",
+            "      T.Split{p, f} <> amend.mint(rest, more, ids)",
+            "      T.Split{p, f ++ \"x\"} <> amend.mint(rest, more, ids)",
+            "rewrite_lemmas.kp_case",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

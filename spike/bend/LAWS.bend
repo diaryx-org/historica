@@ -1528,3 +1528,13 @@ law record_reads_the_position:
   for bs: List<&2, Main.Before>
   for e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
   {Main.befores.read(older, ds, left, files, bs) == True{} : Bool}
+
+# An amendment keeps the identifiers it minted. Of the files arriving
+# against the amended revision's parents, each is given an identifier, in
+# path order, and each the amended revision added keeps the identifier it
+# was added under: only a path it did not add is minted one afresh.
+law amend_keeps_what_it_added:
+  for +arriving: List<&2, String>
+  for +kept: List<&2, T.Split>
+  for +hex: String
+  {Main.amend.minted.ok(arriving, kept, Main.amend.minted(arriving, kept, hex)) == True{} : Bool}
