@@ -1416,3 +1416,23 @@ law record_writes_only_what_is_settled:
   for pl2: Sv.Planned
   for e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
   {Main.planned.settled(pl2, accepted) == True{} : Bool}
+
+# What `amend` rewrites is a revision the store holds: the target named,
+# or else the one head there is.
+law amend_rewrites_a_held_revision:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for named: Maybe<&2, String>
+  for +f: Main.Full
+  for e: {Main.amend.target.r(fs, bs, named) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}
+  {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}
+
+# What `carry` is asked to carry, where a target is named, is a revision
+# the store holds.
+law carry_carries_a_held_revision:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for named: Maybe<&2, String>
+  for +id: String
+  for e: {Main.carry.target.r(fs, bs, named) == Done{Some{id}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}
+  {Rev.member(Main.ids(fs), id) == True{} : Bool}

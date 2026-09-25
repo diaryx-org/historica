@@ -2217,6 +2217,13 @@ def check_mutations(temporary):
             "record_lemmas.settled",
             "commands.bend",
         ),
+        (
+            "carry takes a change for the revision named",
+            "Result.map(&2, &2, Refused, Full, Maybe<&2, String>, f => Some{id_of(f)}, resolved.r(fs, bs, s))",
+            "Result.map(&2, &2, Refused, Full, Maybe<&2, String>, f => Some{change_of(f)}, resolved.r(fs, bs, s))",
+            "rewrite_lemmas.carry_held",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
