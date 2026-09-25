@@ -309,7 +309,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
 | `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
 | `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and fifty-eight claims about the code, each proven | the test suite and Verus replay helpers |
+| `manifest_lemmas.bend` | `fetch_reads_the_manifest_offer_writes`: the lines `offer` prints, each with a newline after it and answered by the host as the text at the manifest's URL, are read by `fetch` as the heads and files they were printed from, every kind, digest, forgotten digest and path as written | `offer`, `fetch` |
+| `LAWS.bend` / `PROOF.bend` | two hundred and fifty-nine claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -1095,7 +1096,9 @@ the URL (`fetch_reads_its_words`). The store is opened and held to the
 whole of `check`, before anything is asked for and again once everything
 has arrived; the manifest is read as `Offer::parse`
 reads it, an unknown kind a discarded line and an unknown header a
-refused manifest. The plan is worked out before a byte is asked for: the
+refused manifest, and what `offer` prints is read back as the heads and
+files it was printed from, each file's kind, digest, what it forgets and
+path, spaces and all (`fetch_reads_the_manifest_offer_writes`). The plan is worked out before a byte is asked for: the
 payloads and documents this store has nothing under the digest of and
 neither side forgets, the revisions it lacks, the rules whose bytes no
 file of `skipped/` holds, another tool's files of `claims/` it does not
@@ -1986,7 +1989,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and seventy mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and seventy-one mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2142,11 +2145,12 @@ of; and seven more word breaks: a word `arrange` does not know taken,
 first word, `export`'s target read as its directory, a second source
 taken by `receive` over the first, `--fields` read by `receive` as
 joining unrelated histories, and the first of two directories taken by
-`offer`; and seven fetch breaks: a document filed whose text is not the
+`offer`; and eight fetch breaks: a document filed whose text is not the
 digest offered, a payload landed whatever it hashes to, a payload filed
 under the name it was staged at, a path asked for beside the one the
 manifest names, a URL's last slash cut off its directory, a second URL
-taken over the first, and `--fields` read as joining unrelated histories;
+taken over the first, `--fields` read as joining unrelated histories, and
+a bookmark's line discarded as a kind the reader does not know;
 and seven update breaks:
 bytes no revision records written over, a file kept whose mode is not the
 one recorded, a file nobody recorded taken away, a file of lines written

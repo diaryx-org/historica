@@ -44,6 +44,7 @@ import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
+import ./manifest_lemmas.bend as ManL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2906,3 +2907,20 @@ law fetch_files_a_payload_under_what_it_hashes_to:
   for b: String
   for +e: {Fetch.pay.land(root, o, g) == Fetch.Land.Move{f, a, b} : Fetch.Land}
   {Fetch.Got.Pulled{b} == g : Fetch.Got}
+
+# The manifest `offer` writes is the manifest `fetch` reads (decisions 0048
+# and 0056). `offer` prints the lines `Offer.rendered` makes of a copy's
+# heads and files, each with a newline after it; handed that text by the
+# host as the document at the manifest's URL, `fetch` reads back every
+# head, in order, and every file, in order — its kind, its digest, what it
+# forgets and its path, spaces and all — wherever each head is a digest and
+# each file is one `offer` can name: one of the six kinds, a digest, what
+# it forgets a digest or nothing, and a path with no newline in it that
+# does not end with a carriage return.
+law fetch_reads_the_manifest_offer_writes:
+  for +url: String
+  for +hs: List<&2, String>
+  for +os: List<&2, Offer.Offered>
+  for +hh: {List.all(~&2, ~String, ~(d => T.is_digest(d)), hs) == True{} : Bool}
+  for +ho: {List.all(~&2, ~Offer.Offered, ~(o => ManL.writable(o)), os) == True{} : Bool}
+  {Fetch.manifest.got(url, Fetch.got.of(Done{"text\n" ++ ManL.printed(Offer.rendered(hs, os))})) == Done{Fetch.Manifest{hs, os}} : Result<&2, &2, Main.Refused, Fetch.Manifest>}
