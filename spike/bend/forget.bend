@@ -620,10 +620,29 @@ def base.created(+text: String, items: List<&2, Ops.Item>) -> FgBase:
     case +some:
       Fg.Ops{Ops.Doc{None{}, Some{Sha.digest(Utf8.encode(text))}, [Ops.Op{Ops.Insert{}, 0n, some}]}}
 
-def base.held(+path: String, +text: String) -> FgBase:
+# Where stand-ins for a document the store still holds sit beside it, the
+# Rust store reads the two as `cat` does: an operation document with each
+# item one of them forgets forgotten; a `text` payload, which is no
+# document, as what stands in for it, read together; a resolution as it is
+# held.
+def base.beside(+b: FgBase, os: List<&2, Ops.Doc>) -> FgBase:
+  match b:
+    case Fg.Ops{d}:
+      Fg.Ops{Stand.ops.fold(os, d)}
+    case other:
+      other
+
+def base.stood(+text: String, os: List<&2, Ops.Doc>) -> FgBase:
+  match os:
+    case Nil{}:
+      base.created(text, Ops.from_text(text))
+    case +o <> rest:
+      Fg.Ops{Stand.ops.fold(o <> rest, o)}
+
+def base.held(+ds: List<&2, Store.Doc>, +target: String, +path: String, +text: String) -> FgBase:
   Bool.pick(FgBase, String.ends_with(path, ".ops.txt"),
-    Bool.pick(FgBase, Res.is_resolution(text), base.resolved(Res.parse(text)), base.parsed(Ops.parse(text))),
-    base.created(text, Ops.from_text(text)))
+    Bool.pick(FgBase, Res.is_resolution(text), base.resolved(Res.parse(text)), base.beside(base.parsed(Ops.parse(text)), Stand.ops.beside(ds, target))),
+    base.stood(text, Stand.ops.beside(ds, target)))
 
 def base.standing(f: Stand.Found) -> FgBase:
   match f:
@@ -637,7 +656,7 @@ def base.standing(f: Stand.Found) -> FgBase:
 def base.found(+ds: List<&2, Store.Doc>, +target: String, held: Maybe<&2, Store.Doc>) -> FgBase:
   match held:
     case Some{Store.Doc{+p, i, n, +t}}:
-      base.held(p, t)
+      base.held(ds, target, p, t)
     case None{}:
       base.standing(Stand.found(ds, target))
 
@@ -953,6 +972,29 @@ def cached(ps: List<&2, String>) -> List<&2, String>:
     case +p <> rest:
       Rev.keep(T.is_digest(String.drop(p, 6n)), p, cached(rest))
 
+# What `operations/` holds empty: the Rust store's last step after a
+# forgetting removes every directory there left holding nothing, whether
+# this forgetting emptied it or it was empty before. The host lists one
+# directory at a time (`Store.folder`), `d` and a name for each
+# subdirectory and a link's target on the line after it, which is skipped
+# whatever it says; which directories are empty is decided here.
+def swept.join(+dir: String, +name: String) -> String:
+  Bool.pick(String, String.is_empty(dir), name, dir ++ "/" ++ name)
+
+def swept.dirs(+dir: String, ls: List<&2, String>, skip: Bool) -> List<&2, String>:
+  match ls skip:
+    case Nil{} _:
+      Nil{}
+    case l <> rest True{}:
+      swept.dirs(dir, rest, False{})
+    case +l <> rest False{}:
+      Rev.keep(String.starts_with(l, "d "), swept.join(dir, String.drop(l, 2n)), swept.dirs(dir, rest, String.starts_with(l, "l ")))
+
+# A directory whose listing says nothing is empty; `operations/` itself,
+# the path of no name, stays.
+def swept.empty(+dir: String, +text: String, found: List<&2, String>) -> List<&2, String>:
+  Rev.keep(Bool.and(Bool.not(String.is_empty(dir)), String.is_empty(text)), dir, found)
+
 # What is said
 # ------------
 
@@ -1054,6 +1096,29 @@ def io.remove(+boundary: String, +root: String, ps: List<&2, String>) -> IO(Unit
         done : String <- io.answer(r)
         io.remove(boundary, root, rest)
 
+# A directory that will not list is not one to remove.
+def io.listed(r: Result<&1, &1, U32 & String, String>) -> String:
+  match r:
+    case Fail{e}:
+      "u"
+    case Done{t}:
+      t
+
+# The empty directories under `operations/`, each relative to it: removed
+# where they are, each takes with it the directories above it that it
+# leaves empty, which is how one holding only empty ones goes too.
+def io.sweep(fuel: Nat, +base: String, pending: List<&2, String>, found: List<&2, String>) -> IO(List<&2, String>):
+  match fuel pending:
+    case 0n _:
+      IO.pure(List<&2, String>, found)
+    case 1n+q Nil{}:
+      IO.pure(List<&2, String>, found)
+    case 1n+q +dir <> rest:
+      do IO<List<&2, String>>:
+        r : Result<&1, &1, U32 & String, String> <- Store.listing_of(Bool.pick(String, String.is_empty(dir), base, base ++ "/" ++ dir))
+        +text : String = io.listed(r)
+        io.sweep(q, base, List.append(&2, String, swept.dirs(dir, String.lines(text), False{}), rest), swept.empty(dir, text, found))
+
 def io.said(ls: List<&2, String>) -> IO(Unit):
   match ls:
     case Nil{}:
@@ -1073,6 +1138,8 @@ def io.act(+root: String, +files: List<&2, FgFiled>, +destroys: List<&2, String>
         io.remove(root ++ "/operations", root, destroys)
         listed : List<&2, String> <- Store.cached(root)
         io.remove(root ++ "/cache", root, cached(listed))
+        empty : List<&2, String> <- io.sweep(U32.to_nat(1000000), root ++ "/operations", [SNil{}], Nil{})
+        io.remove(root ++ "/operations", root ++ "/operations", empty)
 
 # Every file of `operations/`, with the digest and size the host found.
 def io.files(+root: String) -> IO(List<&2, FgFiled>):
@@ -1128,8 +1195,7 @@ def io.whole(+root: String, +fs: List<&2, Main.Full>, +file: String, payload: Ma
   do IO<Unit>:
     listed : List<&2, FgFiled> <- io.files(root)
     +files : List<&2, FgFiled> = listed
-    at : List<&2, String> <- Store.located(root, others)
-    stood : List<&2, Store.Doc> <- Store.standing(root, target <> Store.missing(others, at))
+    stood : List<&2, Store.Doc> <- Store.standing(root, target <> others)
     +stood2 : List<&2, Store.Doc> = stood
     p : FgPlan <- Main.stated.io(FgPlan, late, whole.plan.r(file, y, files, stood2, elsewhere(others, stood2)))
     io.done(root, files, p, False{}, dry, fields, early)

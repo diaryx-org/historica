@@ -34,6 +34,10 @@ def Store.list(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 # back a path a line — relative to the root, or `-` for a digest this store
 # holds nothing for. A path, never a document: what is at it is read and
 # hashed here, and refused where its bytes are not the bytes asked for.
+# With `forgets` on the line after the root, each document the host's
+# catalogue says forgets one of the digests follows, `<digest> <path>` a
+# line: decision 0014's question for bytes the store still holds, and a
+# path again, whose document is read and asked here.
 def Store.at(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_at.c"
   import "./ffi/store_at.js"
@@ -408,13 +412,63 @@ def standing(+root: String, gone: List<&2, String>) -> IO(List<&2, Doc>):
         ds : List<&2, Doc> <- read_docs(under(root, documents.of(String.lines(text))))
         return standing.of(some, ds)
 
+# The host's answer in the `forgets` form: a line for each digest asked,
+# then the documents said to forget one of them.
+def answered(digests: List<&2, String>, ls: List<&2, String>) -> List<&2, String>:
+  match digests ls:
+    case d <> rest l <> more:
+      l <> answered(rest, more)
+    case _ _:
+      Nil{}
+
+def besides(digests: List<&2, String>, ls: List<&2, String>) -> List<&2, String>:
+  match digests ls:
+    case d <> rest l <> more:
+      besides(rest, more)
+    case _ more:
+      more
+
+def member(xs: List<&2, String>, +x: String) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(String.eq(y, x), member(rest, x))
+
+# The digests asked that the store holds, and of the documents said to
+# forget something, the paths of those said to forget one of them.
+def held.of(digests: List<&2, String>, answers: List<&2, String>) -> List<&2, String>:
+  match digests answers:
+    case +d <> rest "-" <> more:
+      held.of(rest, more)
+    case +d <> rest a <> more:
+      d <> held.of(rest, more)
+    case _ _:
+      Nil{}
+
+def beside.paths(+held: List<&2, String>, ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      List.filter.put(String, String.drop(l, 65n), beside.paths(held, rest), member(held, String.take(l, 64n)))
+
+# Decision 0014 where the original is still held — a sync brought it back,
+# or a stand-in arrived from a replica that complied — is read the way the
+# Rust store reads it: the host's catalogue says which documents forget a
+# digest the store holds, and those are read and asked again here. A digest
+# the store holds nothing for is `standing`'s: every document read, which is
+# the scan the Rust store makes for an absence.
 def fetch.of(+root: String, +digests: List<&2, String>) -> IO(List<&2, Doc>):
   do IO<List<&2, Doc>>:
-    answer : String <- IO.try(String, Store.at(root ++ "\n" ++ String.join(digests, "\n")))
-    +answers : List<&2, String> = String.split(answer, '\n')
+    answer : String <- IO.try(String, Store.at(root ++ "\nforgets\n" ++ String.join(digests, "\n")))
+    +ls : List<&2, String> = String.split(answer, '\n')
+    +answers : List<&2, String> = answered(digests, ls)
     found : List<&2, Doc> <- read_docs(at.paths(root, answers))
+    +held : List<&2, String> = held.of(digests, answers)
+    near : List<&2, Doc> <- read_docs(under(root, beside.paths(held, besides(digests, ls))))
     stood : List<&2, Doc> <- standing(root, missing(digests, answers))
-    return List.append(&2, Doc, found, stood)
+    return List.append(&2, Doc, found, List.append(&2, Doc, standing.of(held, near), stood))
 
 def fetch(+root: String, digests: List<&2, String>) -> IO(List<&2, Doc>):
   match digests:
@@ -422,6 +476,34 @@ def fetch(+root: String, digests: List<&2, String>) -> IO(List<&2, Doc>):
       IO.pure(List<&2, Doc>, Nil{})
     case +some:
       fetch.of(root, some)
+
+# The digests among these the store holds nothing for, or that the host's
+# catalogue says a document forgets: where the digest a statement states
+# may not be the content a reader reads.
+def forgotten.of(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case l <> rest:
+      String.take(l, 64n) <> forgotten.of(rest)
+
+def unsettled.of(digests: List<&2, String>, ls: List<&2, String>) -> List<&2, String>:
+  match digests ls:
+    case +d <> rest "-" <> more:
+      d <> unsettled.of(rest, more)
+    case d <> rest l <> more:
+      unsettled.of(rest, more)
+    case _ more:
+      forgotten.of(more)
+
+def unsettled(+root: String, digests: List<&2, String>) -> IO(List<&2, String>):
+  match digests:
+    case Nil{}:
+      IO.pure(List<&2, String>, Nil{})
+    case +some:
+      do IO<List<&2, String>>:
+        answer : String <- IO.try(String, Store.at(root ++ "\nforgets\n" ++ String.join(some, "\n")))
+        return unsettled.of(some, kept(String.split(answer, '\n')))
 
 # Where the bytes with each of these digests are, relative to the root, or
 # `-`: the host's answer, not yet believed.

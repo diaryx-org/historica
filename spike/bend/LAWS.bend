@@ -2251,3 +2251,36 @@ law merge_spares_the_unrecorded:
   for +located: Map<&2, String>
   for p: Merging.Place
   {Merging.laid.all(p, Merging.laid.acts(Merging.lay(t, cs, located, p))) == True{} : Bool}
+
+# Decision 0014 with the original still held — a sync brought it back, or
+# a stand-in arrived from a replica that complied: whatever documents say
+# they forget it, what a reader reads is the held document with each item
+# as it was or forgotten, its terminator kept, every operation where it
+# was. A stand-in redacts; it never rewrites.
+law standins_beside_only_forget:
+  for ds: List<&2, Ops.Doc>
+  for +ops: List<&2, Ops.Op>
+  {Stand.ops.like(ops, Stand.ops.folded(ds, ops)) == True{} : Bool}
+
+# And it redacts all it says: every item a stand-in of the held shape
+# forgets is forgotten in what is read, whatever stand-ins are folded in
+# after it, so a stale replica's narrower redaction brings nothing back.
+law standins_beside_forget_all_they_say:
+  for f: Maybe<&2, String>
+  for r: Maybe<&2, String>
+  for +stated: List<&2, Ops.Op>
+  for rest: List<&2, Ops.Doc>
+  for +held: List<&2, Ops.Op>
+  for +e: {Stand.ops.shape(held, stated) == True{} : Bool}
+  {Stand.ops.covers(stated, Stand.ops.folded(Ops.Doc{f, r, stated} <> rest, held)) == True{} : Bool}
+
+# Replicas redact independently, and the order their stand-ins arrive in
+# changes nothing: two neighbours swapped fold to the same document, so
+# every order does — and so, with the law above, a stand-in anywhere among
+# them has all it forgets forgotten.
+law standins_fold_in_any_order:
+  for a: Ops.Doc
+  for b: Ops.Doc
+  for rest: List<&2, Ops.Doc>
+  for +held: List<&2, Ops.Op>
+  {Stand.ops.folded(a <> b <> rest, held) == Stand.ops.folded(b <> a <> rest, held) : List<&2, Ops.Op>}

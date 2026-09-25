@@ -102,26 +102,28 @@ def ops.union(held: List<&2, Ops.Op>, stated: List<&2, Ops.Op>) -> List<&2, Ops.
     case hs _:
       hs
 
-def ops.fold.of(+forgets: Maybe<&2, String>, +result: Maybe<&2, String>, +held: List<&2, Ops.Op>, stated: List<&2, Ops.Op>, same: Bool) -> Ops.Doc:
+def ops.fold.pick(+held: List<&2, Ops.Op>, stated: List<&2, Ops.Op>, same: Bool) -> List<&2, Ops.Op>:
   match same:
     case True{}:
-      Ops.Doc{forgets, result, ops.union(held, stated)}
+      ops.union(held, stated)
     case False{}:
-      Ops.Doc{forgets, result, held}
+      held
 
-def ops.fold.one(base: Ops.Doc, d: Ops.Doc) -> Ops.Doc:
-  match base d:
-    case Ops.Doc{+f, +r, +held} Ops.Doc{f2, r2, +stated}:
-      ops.fold.of(f, r, held, stated, ops.shape(held, stated))
-
-# Decision 0014's union rule over one grammar: the first document is the
-# shape, and every one of the same shape forgets into it.
-def ops.fold(ds: List<&2, Ops.Doc>, base: Ops.Doc) -> Ops.Doc:
+# Decision 0014's union rule over one grammar: every document of the shape
+# held forgets into it, and one of another shape is set aside.
+def ops.folded(ds: List<&2, Ops.Doc>, +held: List<&2, Ops.Op>) -> List<&2, Ops.Op>:
   match ds:
     case Nil{}:
-      base
-    case d <> rest:
-      ops.fold(rest, ops.fold.one(base, d))
+      held
+    case Ops.Doc{f, r, +stated} <> rest:
+      ops.folded(rest, ops.fold.pick(held, stated, ops.shape(held, stated)))
+
+# The same over a document, whose headers are the base's: the original
+# where the store holds it, or else the first stand-in, which is the shape.
+def ops.fold(ds: List<&2, Ops.Doc>, base: Ops.Doc) -> Ops.Doc:
+  match base:
+    case Ops.Doc{f, r, +held}:
+      Ops.Doc{f, r, ops.folded(ds, held)}
 
 # A resolution's shape: each `keep` the same reference, each `insert` the
 # same run of terminators (decision 0050).
@@ -294,6 +296,56 @@ def found.of(+ds: List<&2, Store.Doc>, +d: String, h: Maybe<&2, String>) -> Foun
 def found(+ds: List<&2, Store.Doc>, +d: String) -> Found:
   found.of(ds, d, held(ds, d))
 
+# Decision 0014 where the original is still held — a sync brought it back,
+# or a stand-in arrived from a replica that complied — as the Rust reader's
+# `stand_in` reads it: the original is the shape, and every operation
+# document of that shape saying it forgets the digest forgets into it. A
+# `text` payload is the document inserting every line at 0. A held
+# resolution is read as it is held, since the catalogue the Rust reader
+# asks records nothing a resolution forgets; a held payload of bytes is its
+# bytes. The header is asked first, which is cheap, and only a document
+# that passes it is parsed.
+def forgetting(ds: List<&2, Store.Doc>, +d: String) -> List<&2, Store.Doc>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case Store.Doc{p, i, n, +t} <> rest:
+      List.filter.put(Store.Doc, Store.Doc{p, i, n, t}, forgetting(rest, d), Store.stands_for(t, [d]))
+
+def ops.beside(+ds: List<&2, Store.Doc>, +d: String) -> List<&2, Ops.Doc>:
+  ops.standing(forgetting(ds, d), d)
+
+def creation(+t: String) -> Ops.Doc:
+  Ops.Doc{None{}, None{}, [Ops.Op{Ops.Insert{}, 0n, Ops.from_text(t)}]}
+
+def held.base(+t: String, r: Result<&2, &2, String, Ops.Doc>) -> Ops.Doc:
+  match r:
+    case Done{doc}:
+      doc
+    case Fail{e}:
+      creation(t)
+
+def held.fold(+t: String, os: List<&2, Ops.Doc>, resolution: Bool) -> String:
+  match os resolution:
+    case Nil{} _:
+      t
+    case _ True{}:
+      t
+    case +o <> rest False{}:
+      Ops.write(ops.fold(o <> rest, held.base(t, Ops.parse(t))))
+
+# A `text` payload the store holds, as lines: its own, with every line a
+# stand-in beside it forgets forgotten.
+def created.of(+t: String, os: List<&2, Ops.Doc>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match os:
+    case Nil{}:
+      Done{Ops.from_text(t)}
+    case +o <> rest:
+      Ops.apply(Nil{}, ops.fold(o <> rest, creation(t)))
+
+def created(+ds: List<&2, Store.Doc>, +d: String, +t: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  created.of(t, ops.beside(ds, d))
+
 # The text a reader of an `edit` — or of a `keep` — consumes: the held
 # document, or the stand-ins' union written in their grammar. Nothing for a
 # payload's stand-in, which states no items for either to read.
@@ -308,8 +360,15 @@ def text.of(f: Found) -> Maybe<&2, String>:
     case _:
       None{}
 
+def text.held(+ds: List<&2, Store.Doc>, +d: String, h: Maybe<&2, String>) -> Maybe<&2, String>:
+  match h:
+    case Some{+t}:
+      Some{held.fold(t, ops.beside(ds, d), Res.is_resolution(t))}
+    case None{}:
+      text.of(found.ops(ds, d, ops.standing(ds, d)))
+
 def text(+ds: List<&2, Store.Doc>, +d: String) -> Maybe<&2, String>:
-  text.of(found(ds, d))
+  text.held(ds, d, held(ds, d))
 
 def ops.forgets(r: Result<&2, &2, String, Ops.Doc>) -> Maybe<&2, String>:
   match r:
@@ -461,5 +520,39 @@ def docs.like(a: List<&2, List<&2, Ops.Op>>, b: List<&2, List<&2, Ops.Op>>) -> B
       True{}
     case x <> xs y <> ys:
       Bool.and(ops.like(x, y), docs.like(xs, ys))
+    case _ _:
+      False{}
+
+# What a stand-in is owed
+# -----------------------
+
+# A document read where a stand-in sits beside it owes the stand-in every
+# item it forgets: an item the stand-in forgets is forgotten in what is
+# read, and one it keeps says nothing. Stated item by item, over runs as
+# long as the stand-in's, so a stale replica's narrower redaction can be
+# held to the same measure as a wider one.
+# `LAWS.standins_beside_forget_all_they_say` is stated over it.
+def item.covers(s: Ops.Item, r: Ops.Item) -> Bool:
+  match s r:
+    case Ops.Item{t1, n1, True{}} Ops.Item{t2, n2, f2}:
+      f2
+    case Ops.Item{t1, n1, False{}} r2:
+      True{}
+
+def items.covers(ss: List<&2, Ops.Item>, rs: List<&2, Ops.Item>) -> Bool:
+  match ss rs:
+    case Nil{} Nil{}:
+      True{}
+    case s <> ss2 r <> rs2:
+      Bool.and(item.covers(s, r), items.covers(ss2, rs2))
+    case _ _:
+      False{}
+
+def ops.covers(ss: List<&2, Ops.Op>, rs: List<&2, Ops.Op>) -> Bool:
+  match ss rs:
+    case Nil{} Nil{}:
+      True{}
+    case Ops.Op{k1, at1, i1} <> ra Ops.Op{k2, at2, i2} <> rb:
+      Bool.and(items.covers(i1, i2), ops.covers(ra, rb))
     case _ _:
       False{}

@@ -2121,10 +2121,10 @@ def held(+id: String, +digest: String, doc: Maybe<&2, String>) -> Result<&2, &2,
 # stands in for it applied to nothing, a forgotten line still a line
 # (decision 0014); and for a payload of bytes, which has no lines to keep,
 # decision 0066's refusal, naming the document standing where it was.
-def whole.found(+id: String, +digest: String, f: Stand.Found) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+def whole.found(+ds: List<&2, Store.Doc>, +id: String, +digest: String, f: Stand.Found) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match f:
     case Stand.Found.Held{t}:
-      Done{Ops.from_text(t)}
+      Stand.created(ds, digest, t)
     case Stand.Found.Ops{doc}:
       Ops.apply(Nil{}, doc)
     case Stand.Found.Payload{Stand.Stood{Stand.Payload{p, n}, by}}:
@@ -2133,7 +2133,7 @@ def whole.found(+id: String, +digest: String, f: Stand.Found) -> Result<&2, &2, 
       Fail{String.take(id, 12n) ++ " names the content document " ++ digest ++ ", which this store does not hold yet"}
 
 def whole(+ds: List<&2, Store.Doc>, +id: String, +digest: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
-  whole.found(id, digest, Stand.found(ds, digest))
+  whole.found(ds, id, digest, Stand.found(ds, digest))
 
 # The file's content at every revision that holds it, oldest first as the
 # trees are, by decision 0032's rule. A revision that says nothing holds
@@ -4734,12 +4734,14 @@ def origin(+os: Map<&2, T.Split>, +file: String) -> T.Split:
 
 # Decision 0014 meets the shortcut the origins are for: a digest a
 # statement names — a `text` payload, an `edit`'s `result` — is the file's
-# only while every document its content was made of is here. Once a
-# forgetting has destroyed one, the file reads `\\ forgotten` where the
-# text was, and no digest any document states is the digest of that; so a
-# file with a document gone is replayed, like one whose nearest statement
-# states nothing. Which documents are gone is the host's answer to where
-# they are, asked once for every document any revision names.
+# only while every document its content was made of is here, and nothing
+# stands in for one of them. Once a forgetting has destroyed one, or a
+# stand-in has arrived beside it, the file reads `\\ forgotten` where the
+# text was, and no digest any document states is the digest of that; so
+# such a file is replayed, like one whose nearest statement states nothing.
+# Which documents those are is the host's answer — where each is, and what
+# its catalogue says forgets one — asked once for every document any
+# revision names.
 def documents.put(+file: String, +d: String, r: Map<&2, List<&2, String>> & List<&2, String>) -> Map<&2, List<&2, String>>:
   (m, had) = r
   Map.set(&2, List<&2, String>, m, file, d <> had)
@@ -4799,8 +4801,8 @@ def origins.held(+root: String, +fs: List<&2, Full>, +os: Map<&2, T.Split>) -> I
   do IO<Map<&2, T.Split>>:
     +docs : Map<&2, List<&2, String>> = documents.map(fs, Map.new(&2, List<&2, String>))
     +all : List<&2, String> = distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), T.concat(String, Map.values(&2, List<&2, String>, docs))))
-    at : List<&2, String> <- Store.located(root, all)
-    return origins.lose(Store.missing(all, at), docs, Map.keys(&2, T.Split, os), os)
+    gone : List<&2, String> <- Store.unsettled(root, all)
+    return origins.lose(gone, docs, Map.keys(&2, T.Split, os), os)
 
 # The digest of a file of lines as its nearest statement leaves it: the
 # payload a `text` names, or the `result` an `edit`'s document states in its
