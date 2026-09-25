@@ -6173,6 +6173,20 @@ def check_mutations(temporary):
             "folder.bend",
         ),
         (
+            "the tables join a mark onto a slash",
+            "    60, 824, 8814, 61, 824, 8800,",
+            "    47, 824, 8814, 60, 824, 8814, 61, 824, 8800,",
+            "nfc_lemmas.slash_wall",
+            "nfc_tables.bend",
+        ),
+        (
+            "the tables join a dot onto what comes before it",
+            "    60, 824, 8814, 61, 824, 8800,",
+            "    60, 46, 8814, 60, 824, 8814, 61, 824, 8800,",
+            "nfc_lemmas.dot_wall",
+            "nfc_tables.bend",
+        ),
+        (
             "the quick check passes only what is below a space",
             "Bool.and(Bool.or(U32.is_lt(x, 128), U32.is_lt(x, Tab.inert_below())), quick(t))",
             "Bool.and(Bool.or(U32.is_lt(x, 32), U32.is_lt(x, Tab.inert_below())), quick(t))",

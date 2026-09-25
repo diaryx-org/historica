@@ -1187,8 +1187,8 @@ def Laws.nfc_ordering_keeps_every_mark(ms, k):
 def Laws.nfc_class_misses_nothing(c):
   NfcL.class_misses_nothing(c)
 
-def Laws.nfc_leaves_separators_alone():
-  NfcL.separators_inert()
+def Laws.nfc_leaves_separators_alone(xs, c, ys, h):
+  NfcL.separators_wall(xs, c, ys, h)
 
 def Laws.the_walk_yields_a_path_once(fs):
   NfcL.walk_once(fs)
