@@ -47,7 +47,15 @@ NATIVE = "--native" in sys.argv[1:]
 ONLY = next((a.split("=", 1)[1].split(",") for a in sys.argv[1:] if a.startswith("--stores=")), None)
 
 
-def run(*args, cwd=ROOT, timeout=120):
+# How long one run of Bend may take. The proof gate alone takes about a
+# minute on a quiet machine and several under load, and more laws keep
+# joining it. Two minutes failed good runs, and a mutation that ran out of
+# time looked like one the proofs let through. Comparing the two tools keeps
+# `capture`'s own two minutes per command.
+BEND_TIMEOUT = 900
+
+
+def run(*args, cwd=ROOT, timeout=BEND_TIMEOUT):
     print("+", " ".join(map(str, args)), flush=True)
     with SLOTS:
         subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
@@ -5257,7 +5265,7 @@ def check_mutations(temporary):
         with SLOTS:
             checked = subprocess.run(
                 [BEND, "PROOF.bend"], cwd=mutant,
-                capture_output=True, text=True, timeout=120,
+                capture_output=True, text=True, timeout=BEND_TIMEOUT,
             )
         diagnostic = checked.stdout + checked.stderr
         if checked.returncode == 0 or proof not in diagnostic or "expected" not in diagnostic:
@@ -5267,7 +5275,7 @@ def check_mutations(temporary):
             with SLOTS:
                 regression = subprocess.run(
                     [BEND, "replay_tests.bend"], cwd=mutant,
-                    capture_output=True, text=True, timeout=120,
+                    capture_output=True, text=True, timeout=BEND_TIMEOUT,
                 )
             diagnostic = regression.stdout + regression.stderr
             if regression.returncode == 0 or "forgotten quote preserves newline" not in diagnostic:
