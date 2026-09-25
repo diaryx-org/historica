@@ -1093,6 +1093,14 @@ law revisions_read_are_their_documents:
   for +ds: List<&2, Store.Doc>
   {FullsL.all_filed(root, ds, Main.fulls(root, ds)) == True{} : Bool}
 
+# `log` lists only what its span names: with a target, revisions the
+# target reaches; with `a..b`, revisions `b` reaches and `a` does not —
+# every one a revision the store holds.
+law log_lists_its_span:
+  for +fs: List<&2, Main.Full>
+  for +sp: Main.Span
+  {Main.span.all_in(fs, sp, Main.span.shown(fs, sp)) == True{} : Bool}
+
 # `log` reads its arguments as their plain reading says: the word after a
 # flag that takes a value is that flag's value, the last counting, and
 # `--limit`, `--since` and `--until` are read as a count and as bounds;

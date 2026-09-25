@@ -1369,6 +1369,25 @@ def span.shown(+fs: List<&2, Full>, sp: Span) -> List<&2, Full>:
     case Span.Between{+from, +to}:
       among(fs, Rev.without(reached(fs, to), reached(fs, from)))
 
+# Where `LAWS.log_lists_its_span` looks: a revision of the store a span
+# names — any, with no target; one the target reaches; or, of `a..b`, one
+# `b` reaches and `a` does not.
+def span.has(+fs: List<&2, Full>, sp: Span, +id: String) -> Bool:
+  match sp:
+    case Span.All{}:
+      Rev.member(ids(fs), id)
+    case Span.From{+a}:
+      Bool.and(Rev.member(ids(fs), id), Rev.member(reached(fs, a), id))
+    case Span.Between{+from, +to}:
+      Bool.and(Rev.member(ids(fs), id), Bool.and(Rev.member(reached(fs, to), id), Bool.not(Rev.member(reached(fs, from), id))))
+
+def span.all_in(+fs: List<&2, Full>, +sp: Span, xs: List<&2, Full>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(span.has(fs, sp, id_of(x)), span.all_in(fs, sp, rest))
+
 # The revision a `--path` is read at: the far end of what was named, or the
 # head where nothing was — and where there are several heads, none.
 def read_at.heads.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, heads: List<&2, String>) -> Result<&2, &2, Refused, String>:
