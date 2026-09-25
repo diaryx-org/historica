@@ -796,16 +796,6 @@ def links.said(+verb: String, ps: List<&2, Put>) -> List<&2, String>:
 # Laying out
 # ----------
 
-# What the folder was given, as the Rust tool's `update::apply` reports it:
-# the files written, the modes set, the links made.
-type Applied is Data:
-  Applied{wrote: List<&2, String>, set: List<&2, String>}
-
-def applied.push(+path: String, set: Bool, a: Applied) -> Applied:
-  match a:
-    case Applied{w, +s}:
-      Applied{path <> w, Bool.pick(List<&2, String>, set, path <> s, s)}
-
 def io.ok(r: Result<&1, &1, U32 & String, String>) -> IO(String):
   Main.name.io(r)
 
@@ -820,25 +810,27 @@ def runnable(+at: String, r: Bool) -> IO(Bool):
         return String.eq(said, "set")
 
 # The files, in path order, then the links: each written where nothing
-# stood, and made runnable where the tree says it can be run.
-def apply.files(+root: String, +into: String, ps: List<&2, Put>, a: Applied) -> IO(Applied):
+# stood, and made runnable where the tree says it can be run. What comes
+# back is every path whose mode was set, as the Rust tool's `update::apply`
+# reports it; the files written are the folder's files, in path order.
+def apply.files(+root: String, +into: String, ps: List<&2, Put>, +set: List<&2, String>) -> IO(List<&2, String>):
   match ps:
     case Nil{}:
-      IO.pure(Applied, a)
+      IO.pure(List<&2, String>, set)
     case Put.Text{+path, text, r} <> rest:
-      do IO<Applied>:
+      do IO<List<&2, String>>:
         w : Result<&1, &1, U32 & String, String> <- Store.filed(into ++ "/" ++ path ++ "\n" ++ text)
         x : String <- io.ok(w)
-        set : Bool <- runnable(into ++ "/" ++ path, r)
-        apply.files(root, into, rest, applied.push(path, set, a))
+        m : Bool <- runnable(into ++ "/" ++ path, r)
+        apply.files(root, into, rest, Bool.pick(List<&2, String>, m, path <> set, set))
     case Put.Bytes{+path, from, +d, r} <> rest:
-      do IO<Applied>:
+      do IO<List<&2, String>>:
         w : Result<&1, &1, U32 & String, String> <- Store.copied(root ++ "/" ++ from ++ "\n" ++ into ++ "/" ++ path ++ "\n" ++ d)
         x : String <- io.ok(w)
-        set : Bool <- runnable(into ++ "/" ++ path, r)
-        apply.files(root, into, rest, applied.push(path, set, a))
+        m : Bool <- runnable(into ++ "/" ++ path, r)
+        apply.files(root, into, rest, Bool.pick(List<&2, String>, m, path <> set, set))
     case Put.Link{path, t} <> rest:
-      apply.files(root, into, rest, a)
+      apply.files(root, into, rest, set)
 
 def apply.links(+into: String, ps: List<&2, Put>) -> IO(Unit):
   match ps:
@@ -852,26 +844,11 @@ def apply.links(+into: String, ps: List<&2, Put>) -> IO(Unit):
     case p <> rest:
       apply.links(into, rest)
 
-def applied.of(a: Applied) -> Applied:
-  match a:
-    case Applied{w, s}:
-      Applied{List.reverse(&2, String, w), List.reverse(&2, String, s)}
-
-def apply(+root: String, +into: String, +ps: List<&2, Put>) -> IO(Applied):
-  do IO<Applied>:
-    a : Applied <- apply.files(root, into, ps, Applied{Nil{}, Nil{}})
+def apply(+root: String, +into: String, +ps: List<&2, Put>) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    set : List<&2, String> <- apply.files(root, into, ps, Nil{})
     apply.links(into, ps)
-    return applied.of(a)
-
-def applied.wrote(a: Applied) -> List<&2, String>:
-  match a:
-    case Applied{w, s}:
-      w
-
-def applied.set(a: Applied) -> List<&2, String>:
-  match a:
-    case Applied{w, s}:
-      s
+    return List.reverse(&2, String, set)
 
 def modes.said(ps: List<&2, String>) -> List<&2, String>:
   match ps:
@@ -1060,6 +1037,10 @@ def holding.r(+into: String, names: List<&2, String>) -> Result<&2, &2, Main.Ref
     case +some:
       Fail{Main.Refused{1, into ++ " already holds " ++ String.join(List.take(&2, String, some, 3n), ", ") ++ "; laying a revision out wants a directory holding nothing, because nothing afterwards could say which files it put there" ++ more.said(List.length(&2, String, some))}}
 
+# The names a directory holds, read from `Store.folder`'s answer.
+def dir.names(+text: String) -> List<&2, String>:
+  entry.names(Bool.pick(List<&2, String>, String.is_empty(text), Nil{}, String.split(text, '\n')), False{})
+
 # `--files-only` lays the folder out into a directory that holds nothing,
 # made first; one that cannot be listed says why.
 def empty.r(+into: String, listed: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Main.Refused, Unit>:
@@ -1067,7 +1048,7 @@ def empty.r(+into: String, listed: Result<&1, &1, U32 & String, String>) -> Resu
     case Fail{Tuple{code, msg}}:
       Fail{Main.Refused{1, msg}}
     case Done{+text}:
-      holding.r(into, entry.names(Bool.pick(List<&2, String>, String.is_empty(text), Nil{}, String.split(text, '\n')), False{}))
+      holding.r(into, dir.names(text))
 
 def sound.r(ok: Bool) -> Result<&2, &2, Main.Refused, Unit>:
   Bool.pick(Result<&2, &2, Main.Refused, Unit>, ok, Done{Unit{}},
@@ -2123,6 +2104,86 @@ def set.named(p: Plan) -> List<&2, String>:
     case Plan{r, d, y, f, paths, rs, w, n, res}:
       List.concat(&2, String, [Main.ids(r), doc.ids(d), doc.ids(f), split.digests(y)])
 
+# What the host's listing of a directory says of one entry (`Store.folder`):
+# a directory, a file with whether it runs and its size, a link and where
+# it points, or anything else.
+type Listed is Data:
+  Listed.Dir{name: String}
+  Listed.File{runs: Bool, size: String, name: String}
+  Listed.Link{name: String, target: String}
+  Listed.Other{name: String}
+
+# One entry's lines, then the rest of the listing, as the host writes them:
+# `d <name>`, `f <x> <size> <name>`, `l <name>` and its target on the next
+# line, `o <name>`.
+def listed.then(e: Listed, +tail: String) -> String:
+  match e:
+    case Listed.Dir{name}:
+      "d " ++ (name ++ tail)
+    case Listed.File{runs, size, name}:
+      "f " ++ (Bool.pick(String, runs, "1", "0") ++ (" " ++ (size ++ (" " ++ (name ++ tail)))))
+    case Listed.Link{name, target}:
+      "l " ++ (name ++ SCon{'\n', target ++ tail})
+    case Listed.Other{name}:
+      "o " ++ (name ++ tail)
+
+def listed.more(es: List<&2, Listed>) -> String:
+  match es:
+    case Nil{}:
+      SNil{}
+    case e <> rest:
+      SCon{'\n', listed.then(e, listed.more(rest))}
+
+# A directory's listing: an entry a line, joined by newlines.
+def listing(es: List<&2, Listed>) -> String:
+  match es:
+    case Nil{}:
+      SNil{}
+    case e <> rest:
+      listed.then(e, listed.more(rest))
+
+def listed.names(es: List<&2, Listed>) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case Listed.Dir{name} <> rest:
+      name <> listed.names(rest)
+    case Listed.File{r, z, name} <> rest:
+      name <> listed.names(rest)
+    case Listed.Link{name, t} <> rest:
+      name <> listed.names(rest)
+    case Listed.Other{name} <> rest:
+      name <> listed.names(rest)
+
+def line.char(c: Char) -> Bool:
+  Bool.not(Char.is_eq(c, '\n'))
+
+def size.char(+c: Char) -> Bool:
+  Bool.not(Bool.or(Char.is_eq(c, ' '), Char.is_eq(c, '\n')))
+
+# What the host spells: no name or target holds a newline, and a size is a
+# number, with no space in it either.
+def listed.ok(es: List<&2, Listed>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case Listed.Dir{name} <> rest:
+      Bool.and(T.all_chars(~(c => line.char(c)), name), listed.ok(rest))
+    case Listed.File{r, size, name} <> rest:
+      Bool.and(T.all_chars(~(c => size.char(c)), size), Bool.and(T.all_chars(~(c => line.char(c)), name), listed.ok(rest)))
+    case Listed.Link{name, target} <> rest:
+      Bool.and(T.all_chars(~(c => line.char(c)), name), Bool.and(T.all_chars(~(c => line.char(c)), target), listed.ok(rest)))
+    case Listed.Other{name} <> rest:
+      Bool.and(T.all_chars(~(c => line.char(c)), name), listed.ok(rest))
+
+# Whether a directory, listed, is a fresh copy's to be made in.
+def dest.fresh(r: Result<&2, &2, Main.Refused, Dest>) -> Bool:
+  match r:
+    case Done{Dest.Fresh{}}:
+      True{}
+    case _:
+      False{}
+
 # What `cat` prints of a file at a revision.
 def cat.of(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Maybe<&2, String>:
   match r:
@@ -2371,6 +2432,16 @@ def put.paths(ps: List<&2, Put>) -> List<&2, String>:
     case p <> rest:
       put.path(p) <> put.paths(rest)
 
+# The files of a folder, less its links.
+def file.puts(ps: List<&2, Put>) -> List<&2, Put>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case Put.Link{path, t} <> rest:
+      file.puts(rest)
+    case p <> rest:
+      p <> file.puts(rest)
+
 def none.of(ps: List<&2, String>, +placed: List<&2, String>) -> Bool:
   match ps:
     case Nil{}:
@@ -2450,11 +2521,11 @@ def export.write(+r: String, +into: String, +st: Prune.Stored, +fs: List<&2, Mai
     texts : List<&2, Store.Doc> <- texts.read(r, fs, id)
     ps : List<&2, Put> <- Main.refused.io(List<&2, Put>, folder.r(t, fs, List.append(&2, Store.Doc, Receive.stored.odocs(st), texts), id, Receive.stored.payloads(st), Receive.stored.bodies(st), scopes(Receive.stored.rules(st), True{})))
     +ps2 : List<&2, Put> = ps
-    a : Applied <- apply(r, into, ps2)
+    set : List<&2, String> <- apply(r, into, ps2)
     real : Result<&1, &1, U32 & String, String> <- Store.really(into)
     Arrange.print_lines(List.concat(&2, String, [
       said.counts("exported", "held back", "left", "carried", plan.counts(p), p, n),
-      paths.said("wrote  ", applied.wrote(a)),
+      paths.said("wrote  ", put.paths(file.puts(ps2))),
       ["made a copy of " ++ Main.spelled(fs, bs, id) ++ " at " ++ Main.init.said(into, real)]]))
 
 def export.planned(dry: Bool, +r: String, +into: String, +st: Prune.Stored, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +t: Tree.Tree(), +held: List<&2, Main.Full>, +p: Plan) -> IO(Unit):
@@ -2830,15 +2901,6 @@ def export.full(+dry: Bool, +r: String, +into: String, +s: Receive.Side, +fs: Li
 # What a written file's bytes hash to when read back, where it is not what
 # was written: the folder folded two of the tree's paths onto one file
 # (decision 0027), and cannot represent this tree.
-def file.puts(ps: List<&2, Put>) -> List<&2, Put>:
-  match ps:
-    case Nil{}:
-      Nil{}
-    case Put.Link{path, t} <> rest:
-      file.puts(rest)
-    case p <> rest:
-      p <> file.puts(rest)
-
 def folded(ps: List<&2, Put>, stats: List<&2, String>) -> List<&2, String>:
   match ps stats:
     case +p <> rest +st <> more:
@@ -2860,17 +2922,27 @@ def folded.r(fs: List<&2, String>) -> Result<&2, &2, Main.Refused, Unit>:
     case +some:
       Fail{Main.Refused{1, "this folder folds paths the tree holds apart, and cannot represent it:" ++ folded.lines(some)}}
 
+# What `export --files-only -n` prints: every file it would write, every
+# link it would make and where it points, and what it would do.
+def said.folder(+ps: List<&2, Put>, +spelled: String, +into: String) -> List<&2, String>:
+  List.concat(&2, String, [puts.said(ps), links.said("link    ", ps), ["would write the folder " ++ spelled ++ " has at " ++ into ++ ", and no history beside it"]])
+
+# What it prints having laid the folder out: the files it wrote, the modes
+# it set, the links it made, and where the folder is.
+def said.laid(+ps: List<&2, Put>, +set: List<&2, String>, +spelled: String, +at: String) -> List<&2, String>:
+  List.concat(&2, String, [paths.said("wrote  ", put.paths(file.puts(ps))), modes.said(set), links.said("linked  ", ps), ["the folder " ++ spelled ++ " has, at " ++ at ++ ", and no history beside it"]])
+
 def export.folder(+dry: Bool, +r: String, +into: String, +spelled: String, +ps: List<&2, Put>) -> IO(Unit):
   match dry:
     case True{}:
-      Arrange.print_lines(List.concat(&2, String, [puts.said(ps), links.said("link    ", ps), ["would write the folder " ++ spelled ++ " has at " ++ into ++ ", and no history beside it"]]))
+      Arrange.print_lines(said.folder(ps, spelled, into))
     case False{}:
       do IO<Unit>:
-        a : Applied <- apply(r, into, ps)
-        +a2 : Applied = a
-        back : List<&2, String> <- Store.stats(into, applied.wrote(a2))
+        set : List<&2, String> <- apply(r, into, ps)
+        +set2 : List<&2, String> = set
+        back : List<&2, String> <- Store.stats(into, put.paths(file.puts(ps)))
         real : Result<&1, &1, U32 & String, String> <- Store.really(into)
-        Arrange.print_lines(List.concat(&2, String, [paths.said("wrote  ", applied.wrote(a2)), modes.said(applied.set(a2)), links.said("linked  ", ps), ["the folder " ++ spelled ++ " has, at " ++ Main.init.said(into, real) ++ ", and no history beside it"]]))
+        Arrange.print_lines(said.laid(ps, set2, spelled, Main.init.said(into, real)))
         Main.refused.io(Unit, folded.r(folded(file.puts(ps), back)))
 
 def export.files(+dry: Bool, +r: String, +into: String, +s: Receive.Side, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +t: Tree.Tree()) -> IO(Unit):

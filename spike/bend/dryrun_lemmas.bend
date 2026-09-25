@@ -277,3 +277,168 @@ def dry_names(+held: List<&2, Main.Full>, +t: Tree.Tree(), +ds: List<&2, Store.D
   %Equal.sym(List<&2, String>, Export.said.after(Export.said.plan(p, c, ws, n, u, spelled, into), "write   "), e, writes_said(p, c, ws, n, u, spelled, into)) : {Bool.and(Main.strings.same(ws, ws), Bool.and(Main.rising(e), Export.bool.same(Rev.member(_, x), Export.tree.holds(t, x)))) == True{} : Bool}
   ExportL.and_tt(Main.strings.same(ws, ws), Bool.and(Main.rising(e), Export.bool.same(Rev.member(e, x), Export.tree.holds(t, x))), same_strings(ws),
     ExportL.and_tt(Main.rising(e), Export.bool.same(Rev.member(e, x), Export.tree.holds(t, x)), RewriteL.sd_rising(Export.entry.paths(t)), tree_same(t, x)))
+
+# What `export --files-only` says it would do, and says it did
+# ------------------------------------------------------------
+
+def puts_write(ps: List<&2, Export.Put>) -> {Export.said.after(Export.puts.said(ps), "write   ") == Export.put.paths(Export.file.puts(ps)) : List<&2, String>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> +rest:
+      match p:
+        case Export.Put.Text{+path, t, r}:
+          %Equal.sym(Bool, String.starts_with(path, ""), True{}, sw_nil(path)) : {Export.said.keep(_, "write   " ++ path, 8n, Export.said.after(Export.puts.said(rest), "write   ")) == path <> Export.put.paths(Export.file.puts(rest)) : List<&2, String>}
+          %Equal.sym(String, String.drop(path, 0n), path, drop_zero(path)) : {_ <> Export.said.after(Export.puts.said(rest), "write   ") == path <> Export.put.paths(Export.file.puts(rest)) : List<&2, String>}
+          %Equal.sym(List<&2, String>, Export.said.after(Export.puts.said(rest), "write   "), Export.put.paths(Export.file.puts(rest)), puts_write(rest)) : {path <> _ == path <> Export.put.paths(Export.file.puts(rest)) : List<&2, String>}
+          {==}
+        case Export.Put.Bytes{+path, f, d, r}:
+          %Equal.sym(Bool, String.starts_with(path, ""), True{}, sw_nil(path)) : {Export.said.keep(_, "write   " ++ path, 8n, Export.said.after(Export.puts.said(rest), "write   ")) == path <> Export.put.paths(Export.file.puts(rest)) : List<&2, String>}
+          %Equal.sym(String, String.drop(path, 0n), path, drop_zero(path)) : {_ <> Export.said.after(Export.puts.said(rest), "write   ") == path <> Export.put.paths(Export.file.puts(rest)) : List<&2, String>}
+          %Equal.sym(List<&2, String>, Export.said.after(Export.puts.said(rest), "write   "), Export.put.paths(Export.file.puts(rest)), puts_write(rest)) : {path <> _ == path <> Export.put.paths(Export.file.puts(rest)) : List<&2, String>}
+          {==}
+        case Export.Put.Link{path, t}:
+          puts_write(rest)
+
+def wrote_back(ps: List<&2, String>) -> {Export.said.after(Export.paths.said("wrote  ", ps), "wrote   ") == ps : List<&2, String>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> rest:
+      %Equal.sym(Bool, String.starts_with(p, ""), True{}, sw_nil(p)) : {Export.said.keep(_, "wrote  " ++ " " ++ p, 8n, Export.said.after(Export.paths.said("wrote  ", rest), "wrote   ")) == p <> rest : List<&2, String>}
+      %Equal.sym(String, String.drop(p, 0n), p, drop_zero(p)) : {_ <> Export.said.after(Export.paths.said("wrote  ", rest), "wrote   ") == p <> rest : List<&2, String>}
+      %Equal.sym(List<&2, String>, Export.said.after(Export.paths.said("wrote  ", rest), "wrote   "), rest, wrote_back(rest)) : {p <> _ == p <> rest : List<&2, String>}
+      {==}
+
+# A link is named the same way, planned and done.
+def links_same(ps: List<&2, Export.Put>) -> {Export.said.after(Export.links.said("link    ", ps), "link    ") == Export.said.after(Export.links.said("linked  ", ps), "linked  ") : List<&2, String>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> +rest:
+      match p:
+        case Export.Put.Link{+path, +t}:
+          %Equal.sym(Bool, String.starts_with(path ++ "  (" ++ t ++ ")", ""), True{}, sw_nil(path ++ "  (" ++ t ++ ")")) : {Export.said.keep(_, "link    " ++ path ++ "  (" ++ t ++ ")", 8n, Export.said.after(Export.links.said("link    ", rest), "link    ")) == Export.said.after(Export.links.said("linked  ", Export.Put.Link{path, t} <> rest), "linked  ") : List<&2, String>}
+          %Equal.sym(Bool, String.starts_with(path ++ "  (" ++ t ++ ")", ""), True{}, sw_nil(path ++ "  (" ++ t ++ ")")) : {Export.said.keep(True{}, "link    " ++ path ++ "  (" ++ t ++ ")", 8n, Export.said.after(Export.links.said("link    ", rest), "link    ")) == Export.said.keep(_, "linked  " ++ path ++ "  (" ++ t ++ ")", 8n, Export.said.after(Export.links.said("linked  ", rest), "linked  ")) : List<&2, String>}
+          %Equal.sym(List<&2, String>, Export.said.after(Export.links.said("link    ", rest), "link    "), Export.said.after(Export.links.said("linked  ", rest), "linked  "), links_same(rest)) : {String.drop(path ++ "  (" ++ t ++ ")", 0n) <> _ == String.drop(path ++ "  (" ++ t ++ ")", 0n) <> Export.said.after(Export.links.said("linked  ", rest), "linked  ") : List<&2, String>}
+          {==}
+        case Export.Put.Text{path, t, r}:
+          links_same(rest)
+        case Export.Put.Bytes{path, f, d, r}:
+          links_same(rest)
+
+# Of three or four groups of lines, all quiet but one: what that one says.
+def three_first(+a: List<&2, String>, +b: List<&2, String>, +c: List<&2, String>, +pre: String, +qb: {quiet(b, pre) == True{} : Bool}, +qc: {quiet(c, pre) == True{} : Bool}) -> {Export.said.after(List.concat(&2, String, [a, b, c]), pre) == Export.said.after(a, pre) : List<&2, String>}:
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, a, List.append(&2, String, b, List.append(&2, String, c, Nil{}))), pre), List.append(&2, String, Export.said.after(a, pre), Export.said.after(List.append(&2, String, b, List.append(&2, String, c, Nil{})), pre)), after_app(a, List.append(&2, String, b, List.append(&2, String, c, Nil{})), pre)) : {_ == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, b, List.append(&2, String, c, Nil{})), pre), List.append(&2, String, Export.said.after(b, pre), Export.said.after(List.append(&2, String, c, Nil{}), pre)), after_app(b, List.append(&2, String, c, Nil{}), pre)) : {List.append(&2, String, Export.said.after(a, pre), _) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(b, pre), Nil{}, after_quiet(b, pre, qb)) : {List.append(&2, String, Export.said.after(a, pre), List.append(&2, String, _, Export.said.after(List.append(&2, String, c, Nil{}), pre))) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, c, Nil{}), pre), List.append(&2, String, Export.said.after(c, pre), Export.said.after(Nil{}, pre)), after_app(c, Nil{}, pre)) : {List.append(&2, String, Export.said.after(a, pre), _) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(c, pre), Nil{}, after_quiet(c, pre, qc)) : {List.append(&2, String, Export.said.after(a, pre), List.append(&2, String, _, Export.said.after(Nil{}, pre))) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, List.append(&2, String, Export.said.after(a, pre), Nil{}), Export.said.after(a, pre), SortL.lapp_nil(String, Export.said.after(a, pre))) : {_ == Export.said.after(a, pre) : List<&2, String>}
+  {==}
+
+def three_second(+a: List<&2, String>, +b: List<&2, String>, +c: List<&2, String>, +pre: String, +qa: {quiet(a, pre) == True{} : Bool}, +qc: {quiet(c, pre) == True{} : Bool}) -> {Export.said.after(List.concat(&2, String, [a, b, c]), pre) == Export.said.after(b, pre) : List<&2, String>}:
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, a, List.append(&2, String, b, List.append(&2, String, c, Nil{}))), pre), List.append(&2, String, Export.said.after(a, pre), Export.said.after(List.append(&2, String, b, List.append(&2, String, c, Nil{})), pre)), after_app(a, List.append(&2, String, b, List.append(&2, String, c, Nil{})), pre)) : {_ == Export.said.after(b, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(a, pre), Nil{}, after_quiet(a, pre, qa)) : {List.append(&2, String, _, Export.said.after(List.append(&2, String, b, List.append(&2, String, c, Nil{})), pre)) == Export.said.after(b, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, b, List.append(&2, String, c, Nil{})), pre), List.append(&2, String, Export.said.after(b, pre), Export.said.after(List.append(&2, String, c, Nil{}), pre)), after_app(b, List.append(&2, String, c, Nil{}), pre)) : {_ == Export.said.after(b, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, c, Nil{}), pre), List.append(&2, String, Export.said.after(c, pre), Export.said.after(Nil{}, pre)), after_app(c, Nil{}, pre)) : {List.append(&2, String, Export.said.after(b, pre), _) == Export.said.after(b, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(c, pre), Nil{}, after_quiet(c, pre, qc)) : {List.append(&2, String, Export.said.after(b, pre), List.append(&2, String, _, Export.said.after(Nil{}, pre))) == Export.said.after(b, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, List.append(&2, String, Export.said.after(b, pre), Nil{}), Export.said.after(b, pre), SortL.lapp_nil(String, Export.said.after(b, pre))) : {_ == Export.said.after(b, pre) : List<&2, String>}
+  {==}
+
+def four_first(+a: List<&2, String>, +b: List<&2, String>, +c: List<&2, String>, +d: List<&2, String>, +pre: String, +qb: {quiet(b, pre) == True{} : Bool}, +qc: {quiet(c, pre) == True{} : Bool}, +qd: {quiet(d, pre) == True{} : Bool}) -> {Export.said.after(List.concat(&2, String, [a, b, c, d]), pre) == Export.said.after(a, pre) : List<&2, String>}:
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, a, List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{})))), pre), List.append(&2, String, Export.said.after(a, pre), Export.said.after(List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{}))), pre)), after_app(a, List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{}))), pre)) : {_ == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{}))), pre), List.append(&2, String, Export.said.after(b, pre), Export.said.after(List.append(&2, String, c, List.append(&2, String, d, Nil{})), pre)), after_app(b, List.append(&2, String, c, List.append(&2, String, d, Nil{})), pre)) : {List.append(&2, String, Export.said.after(a, pre), _) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(b, pre), Nil{}, after_quiet(b, pre, qb)) : {List.append(&2, String, Export.said.after(a, pre), List.append(&2, String, _, Export.said.after(List.append(&2, String, c, List.append(&2, String, d, Nil{})), pre))) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, c, List.append(&2, String, d, Nil{})), pre), List.append(&2, String, Export.said.after(c, pre), Export.said.after(List.append(&2, String, d, Nil{}), pre)), after_app(c, List.append(&2, String, d, Nil{}), pre)) : {List.append(&2, String, Export.said.after(a, pre), _) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(c, pre), Nil{}, after_quiet(c, pre, qc)) : {List.append(&2, String, Export.said.after(a, pre), List.append(&2, String, _, Export.said.after(List.append(&2, String, d, Nil{}), pre))) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, d, Nil{}), pre), List.append(&2, String, Export.said.after(d, pre), Export.said.after(Nil{}, pre)), after_app(d, Nil{}, pre)) : {List.append(&2, String, Export.said.after(a, pre), _) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(d, pre), Nil{}, after_quiet(d, pre, qd)) : {List.append(&2, String, Export.said.after(a, pre), List.append(&2, String, _, Export.said.after(Nil{}, pre))) == Export.said.after(a, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, List.append(&2, String, Export.said.after(a, pre), Nil{}), Export.said.after(a, pre), SortL.lapp_nil(String, Export.said.after(a, pre))) : {_ == Export.said.after(a, pre) : List<&2, String>}
+  {==}
+
+def four_third(+a: List<&2, String>, +b: List<&2, String>, +c: List<&2, String>, +d: List<&2, String>, +pre: String, +qa: {quiet(a, pre) == True{} : Bool}, +qb: {quiet(b, pre) == True{} : Bool}, +qd: {quiet(d, pre) == True{} : Bool}) -> {Export.said.after(List.concat(&2, String, [a, b, c, d]), pre) == Export.said.after(c, pre) : List<&2, String>}:
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, a, List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{})))), pre), List.append(&2, String, Export.said.after(a, pre), Export.said.after(List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{}))), pre)), after_app(a, List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{}))), pre)) : {_ == Export.said.after(c, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(a, pre), Nil{}, after_quiet(a, pre, qa)) : {List.append(&2, String, _, Export.said.after(List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{}))), pre)) == Export.said.after(c, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, b, List.append(&2, String, c, List.append(&2, String, d, Nil{}))), pre), List.append(&2, String, Export.said.after(b, pre), Export.said.after(List.append(&2, String, c, List.append(&2, String, d, Nil{})), pre)), after_app(b, List.append(&2, String, c, List.append(&2, String, d, Nil{})), pre)) : {_ == Export.said.after(c, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(b, pre), Nil{}, after_quiet(b, pre, qb)) : {List.append(&2, String, _, Export.said.after(List.append(&2, String, c, List.append(&2, String, d, Nil{})), pre)) == Export.said.after(c, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, c, List.append(&2, String, d, Nil{})), pre), List.append(&2, String, Export.said.after(c, pre), Export.said.after(List.append(&2, String, d, Nil{}), pre)), after_app(c, List.append(&2, String, d, Nil{}), pre)) : {_ == Export.said.after(c, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(List.append(&2, String, d, Nil{}), pre), List.append(&2, String, Export.said.after(d, pre), Export.said.after(Nil{}, pre)), after_app(d, Nil{}, pre)) : {List.append(&2, String, Export.said.after(c, pre), _) == Export.said.after(c, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, Export.said.after(d, pre), Nil{}, after_quiet(d, pre, qd)) : {List.append(&2, String, Export.said.after(c, pre), List.append(&2, String, _, Export.said.after(Nil{}, pre))) == Export.said.after(c, pre) : List<&2, String>}
+  %Equal.sym(List<&2, String>, List.append(&2, String, Export.said.after(c, pre), Nil{}), Export.said.after(c, pre), SortL.lapp_nil(String, Export.said.after(c, pre))) : {_ == Export.said.after(c, pre) : List<&2, String>}
+  {==}
+
+def links_write(ps: List<&2, Export.Put>) -> {quiet(Export.links.said("link    ", ps), "write   ") == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      match p:
+        case Export.Put.Link{path, t}:
+          links_write(rest)
+        case Export.Put.Text{path, t, r}:
+          links_write(rest)
+        case Export.Put.Bytes{path, f, d, r}:
+          links_write(rest)
+
+def puts_link(ps: List<&2, Export.Put>) -> {quiet(Export.puts.said(ps), "link    ") == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      match p:
+        case Export.Put.Link{path, t}:
+          puts_link(rest)
+        case Export.Put.Text{path, t, r}:
+          puts_link(rest)
+        case Export.Put.Bytes{path, f, d, r}:
+          puts_link(rest)
+
+def linked_wrote(ps: List<&2, Export.Put>) -> {quiet(Export.links.said("linked  ", ps), "wrote   ") == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      match p:
+        case Export.Put.Link{path, t}:
+          linked_wrote(rest)
+        case Export.Put.Text{path, t, r}:
+          linked_wrote(rest)
+        case Export.Put.Bytes{path, f, d, r}:
+          linked_wrote(rest)
+
+def wrote_linked(ps: List<&2, String>) -> {quiet(Export.paths.said("wrote  ", ps), "linked  ") == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      wrote_linked(rest)
+
+def modes_wrote(ps: List<&2, String>) -> {quiet(Export.modes.said(ps), "wrote   ") == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      modes_wrote(rest)
+
+def modes_linked(ps: List<&2, String>) -> {quiet(Export.modes.said(ps), "linked  ") == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      modes_linked(rest)
+
+def same_of_eq(+a: List<&2, String>, -b: List<&2, String>, e: {a == b : List<&2, String>}) -> {Main.strings.same(a, b) == True{} : Bool}:
+  %e : {Main.strings.same(a, _) == True{} : Bool}
+  same_strings(a)
+
+# What `export --files-only -n` says it would write and link is what the
+# real run says it wrote and linked, file for file and link for link.
+def folder_said(+ps: List<&2, Export.Put>, +set: List<&2, String>, +spelled: String, +into: String, +at: String) -> {Bool.and(Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "write   "), Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   ")), Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "link    "), Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  "))) == True{} : Bool}:
+  +eq1 = Equal.trans(List<&2, String>, Export.said.after(Export.said.folder(ps, spelled, into), "write   "), Export.said.after(Export.puts.said(ps), "write   "), Export.put.paths(Export.file.puts(ps)), three_first(Export.puts.said(ps), Export.links.said("link    ", ps), ["would write the folder " ++ spelled ++ " has at " ++ into ++ ", and no history beside it"], "write   ", links_write(ps), {==}), puts_write(ps))
+  +eq2 = Equal.trans(List<&2, String>, Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   "), Export.said.after(Export.paths.said("wrote  ", Export.put.paths(Export.file.puts(ps))), "wrote   "), Export.put.paths(Export.file.puts(ps)), four_first(Export.paths.said("wrote  ", Export.put.paths(Export.file.puts(ps))), Export.modes.said(set), Export.links.said("linked  ", ps), ["the folder " ++ spelled ++ " has, at " ++ at ++ ", and no history beside it"], "wrote   ", modes_wrote(set), linked_wrote(ps), {==}), wrote_back(Export.put.paths(Export.file.puts(ps))))
+  +eq3 = three_second(Export.puts.said(ps), Export.links.said("link    ", ps), ["would write the folder " ++ spelled ++ " has at " ++ into ++ ", and no history beside it"], "link    ", puts_link(ps), {==})
+  +eq4 = four_third(Export.paths.said("wrote  ", Export.put.paths(Export.file.puts(ps))), Export.modes.said(set), Export.links.said("linked  ", ps), ["the folder " ++ spelled ++ " has, at " ++ at ++ ", and no history beside it"], "linked  ", wrote_linked(Export.put.paths(Export.file.puts(ps))), modes_linked(set), {==})
+  ExportL.and_tt(Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "write   "), Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   ")), Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "link    "), Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  ")),
+    same_of_eq(Export.said.after(Export.said.folder(ps, spelled, into), "write   "), Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   "), Equal.trans(List<&2, String>, Export.said.after(Export.said.folder(ps, spelled, into), "write   "), Export.put.paths(Export.file.puts(ps)), Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   "), eq1, Equal.sym(List<&2, String>, Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   "), Export.put.paths(Export.file.puts(ps)), eq2))),
+    same_of_eq(Export.said.after(Export.said.folder(ps, spelled, into), "link    "), Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  "), Equal.trans(List<&2, String>, Export.said.after(Export.said.folder(ps, spelled, into), "link    "), Export.said.after(Export.links.said("link    ", ps), "link    "), Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  "), eq3, Equal.trans(List<&2, String>, Export.said.after(Export.links.said("link    ", ps), "link    "), Export.said.after(Export.links.said("linked  ", ps), "linked  "), Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  "), links_same(ps), Equal.sym(List<&2, String>, Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  "), Export.said.after(Export.links.said("linked  ", ps), "linked  "), eq4)))))

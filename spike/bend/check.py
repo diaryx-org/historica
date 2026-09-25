@@ -4190,6 +4190,27 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export takes a link's target for an entry of the directory",
+            "      entry.push(T.split_once(l), entry.names(rest, String.starts_with(l, \"l \")))",
+            "      entry.push(T.split_once(l), entry.names(rest, False{}))",
+            "filesonly_lemmas.link_names",
+            "export.bend",
+        ),
+        (
+            "export reads a file's mode and size as its name",
+            "  Bool.pick(Maybe<&2, String>, String.eq(kind, \"f\"), entry.file(T.split_once(rest)), Some{rest})",
+            "  Bool.pick(Maybe<&2, String>, False{}, entry.file(T.split_once(rest)), Some{rest})",
+            "filesonly_lemmas.file_names",
+            "export.bend",
+        ),
+        (
+            "export --files-only -n plans to write a link as a file",
+            "    case Put.Bytes{path, f, d, r}:\n      [\"write   \" ++ path]\n    case Put.Link{path, t}:\n      Nil{}",
+            "    case Put.Bytes{path, f, d, r}:\n      [\"write   \" ++ path]\n    case Put.Link{path, t}:\n      [\"write   \" ++ path]",
+            "dryrun_lemmas.puts_write",
+            "export.bend",
+        ),
+        (
             "export -n names a path twice where two files claim it",
             "Main.sorted_distinct(entry.paths(t)), rules.shared(rs), rules.withheld(rs)",
             "List.sort(~String, ~(a => b => String.is_le(a, b)), entry.paths(t)), rules.shared(rs), rules.withheld(rs)",
