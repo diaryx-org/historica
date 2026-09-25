@@ -42,6 +42,7 @@ import ./argv.bend as Argv
 import ./shell.bend as Shell
 import ./identity.bend as Identity
 import ./skip.bend as Skip
+import ./check.bend as Check
 
 def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
   match all:
@@ -70,7 +71,7 @@ def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
     case "cat" <> t <> p <> extra <> more:
       Shell.refused.opened("`cat` takes a target and a path, and `" ++ extra ++ "` is a third argument")
     case "check" <> args:
-      C.check()
+      Check.check(args)
     case "names" <> Nil{}:
       C.names()
     case "names" <> extra <> rest:
