@@ -4265,6 +4265,12 @@ def payloads_of(cs: List<&2, Compared>) -> List<&2, String>:
     case Compared{f, t, b, a, m, g} <> rest:
       List.append(&2, String, side.payload(b), List.append(&2, String, side.payload(a), payloads_of(rest)))
 
+# What `diff` asks the host about: the payloads it shows, in order, each
+# once. `LAWS.diff_asks_every_payload_it_shows` and
+# `LAWS.diff_asks_each_payload_once` hold it to that.
+def payloads.asked(cs: List<&2, Compared>) -> List<&2, String>:
+  distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), payloads_of(cs)))
+
 def split_rests(xs: List<&2, T.Split>) -> List<&2, String>:
   match xs:
     case Nil{}:
@@ -4340,7 +4346,7 @@ def sizes.told(+stats: List<&2, String>, cs: List<&2, Compared>, ds: List<&2, Co
 def diff.sized(+root: String, +paint: Bool, cs: List<&2, Compared>) -> IO(Unit):
   do IO<Unit>:
     +cs2 : List<&2, Compared> = cs
-    +ds : List<&2, String> = distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), payloads_of(cs2)))
+    +ds : List<&2, String> = payloads.asked(cs2)
     at : List<&2, String> <- Store.located(root, ds)
     +found : List<&2, T.Split> = sizes.of(root, ds, at)
     stats : List<&2, String> <- Store.stats(root, split_rests(found))
@@ -4597,14 +4603,26 @@ def result.doc(doc: Maybe<&2, String>) -> Maybe<&2, String>:
     case Some{text}:
       result.go(String.split(text, '\n'), False{})
 
+# Which statement it is is asked of the key as a Boolean, so that a proof
+# about what the digest is read from need not match on its letters.
+def stated.edit(+ds: List<&2, Store.Doc>, +d: String, edit: Bool) -> Maybe<&2, String>:
+  match edit:
+    case True{}:
+      result.doc(doc_by_id(ds, d))
+    case False{}:
+      None{}
+
+def stated.by(+ds: List<&2, Store.Doc>, +k: String, +d: String, text: Bool) -> Maybe<&2, String>:
+  match text:
+    case True{}:
+      Some{d}
+    case False{}:
+      stated.edit(ds, d, String.eq(k, "edit"))
+
 def stated_digest(+ds: List<&2, Store.Doc>, o: T.Split) -> Maybe<&2, String>:
   match o:
-    case T.Split{"text", d}:
-      Some{d}
-    case T.Split{"edit", +d}:
-      result.doc(doc_by_id(ds, d))
-    case _:
-      None{}
+    case T.Split{+k, +d}:
+      stated.by(ds, k, d, String.eq(k, "text"))
 
 # One path, as the position and the folder hold it.
 type Here is Data:
@@ -4690,12 +4708,17 @@ def here.path(h: Here) -> String:
       p
 
 # The `edit` documents whose results say whether a file of lines changed.
+def edit_of.is(+d: String, edit: Bool) -> List<&2, String>:
+  match edit:
+    case True{}:
+      [d]
+    case False{}:
+      Nil{}
+
 def edit_of.split(o: T.Split) -> List<&2, String>:
   match o:
-    case T.Split{"edit", d}:
-      [d]
-    case _:
-      Nil{}
+    case T.Split{+k, d}:
+      edit_of.is(d, String.eq(k, "edit"))
 
 def edit_of(+os: Map<&2, T.Split>, +h: Here, needs: Bool) -> List<&2, String>:
   match needs:
@@ -4710,6 +4733,12 @@ def edits_of(+os: Map<&2, T.Split>, hs: List<&2, Here>) -> List<&2, String>:
       Nil{}
     case +h <> rest:
       List.append(&2, String, edit_of(os, h, Bool.and(here.lines(h), here.regular(h))), edits_of(os, rest))
+
+# What `diff` over the folder asks the store for before it plans: those
+# `edit` documents, each once. `LAWS.diff_folder_plans_by_the_edits_it_fetches`
+# holds the plan to depending on nothing else the store holds.
+def edits.asked(+os: Map<&2, T.Split>, hs: List<&2, Here>) -> List<&2, String>:
+  distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), edits_of(os, hs)))
 
 def regular_paths(hs: List<&2, Here>) -> List<&2, String>:
   match hs:
@@ -5025,7 +5054,7 @@ def diff.folder(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, 
     +hs : List<&2, Here> = heres(t2, found, lim)
     held : Map<&2, T.Split> <- origins.held(root, fs, origins.map(chain(fs, l), Map.new(&2, T.Split)))
     +os : Map<&2, T.Split> = held
-    eds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), edits_of(os, hs))))
+    eds : List<&2, Store.Doc> <- Store.fetch(root, edits.asked(os, hs))
     +paths : List<&2, String> = regular_paths(hs)
     stats : List<&2, String> <- Store.stats(repo, paths)
     +ps : List<&2, Planned> = plans(stats.map(paths, stats, Map.new(&2, String)), os, eds, hs)
