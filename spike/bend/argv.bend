@@ -19,13 +19,15 @@ type Asked is Data:
   Asked.Wrong{message: String}
   Asked.Command{base: Maybe<&2, String>, word: String, rest: List<&2, String>}
 
-# What the word in front is, before the command.
+# What the word in front is, before the command — or, after `-C`, that it
+# is the directory.
 type Lead is Data:
   Lead.Base{}
   Lead.Usage{}
   Lead.Version{}
   Lead.Option{}
   Lead.Word{}
+  Lead.Dir{}
 
 def lead.of(+w: String) -> Lead:
   Bool.pick(Lead, String.eq(w, "-C"), Lead.Base{},
@@ -40,14 +42,18 @@ def lead(args: List<&2, String>) -> Lead:
     case +w <> rest:
       lead.of(w)
 
+# Read one word at a time: `-C` leaves the next word to be read as its
+# directory (`Lead.Dir`), which is where a missing one is refused.
 def read.go(args: List<&2, String>, base: Maybe<&2, String>, k: Lead) -> Asked:
   match args k:
+    case Nil{} Lead.Dir{}:
+      Asked.Wrong{"`-C` wants a directory"}
     case Nil{} _:
       Asked.Usage{}
-    case w <> Nil{} Lead.Base{}:
-      Asked.Wrong{"`-C` wants a directory"}
-    case w <> d <> +rest Lead.Base{}:
+    case d <> +rest Lead.Dir{}:
       read.go(rest, Some{d}, lead(rest))
+    case w <> rest Lead.Base{}:
+      read.go(rest, base, Lead.Dir{})
     case w <> rest Lead.Usage{}:
       Asked.Usage{}
     case w <> rest Lead.Version{}:
@@ -59,6 +65,23 @@ def read.go(args: List<&2, String>, base: Maybe<&2, String>, k: Lead) -> Asked:
 
 def read(+args: List<&2, String>) -> Asked:
   read.go(args, None{}, lead(args))
+
+# A command line as the laws spell it: `-C` before each of `ds`, then the
+# command word and its arguments; and the directory the last of them names,
+# or `b` where there are none (`LAWS.argv_reads_its_words`).
+def spelled(ds: List<&2, String>, +w: String, +rest: List<&2, String>) -> List<&2, String>:
+  match ds:
+    case Nil{}:
+      w <> rest
+    case d <> more:
+      "-C" <> d <> spelled(more, w, rest)
+
+def last(ds: List<&2, String>, b: Maybe<&2, String>) -> Maybe<&2, String>:
+  match ds:
+    case Nil{}:
+      b
+    case d <> more:
+      last(more, Some{d})
 
 # The directory a command runs in, as `-C` gave it, if it did.
 def base.of(a: Asked) -> Maybe<&2, String>:

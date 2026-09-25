@@ -609,6 +609,24 @@ def attach(fs: List<&2, OpFiled>, stats: List<&2, String>) -> List<&2, OpFiled>:
     case OpFiled.Payload{p, x} <> rest s <> more:
       OpFiled.Payload{p, s} <> attach(rest, more)
 
+# Each payload beside what the host answered for it, in order — what the
+# pass reads of `attach`'s result (`LAWS.check_pairs_each_payload`).
+def payload.pairs(fs: List<&2, OpFiled>) -> List<&2, T.Split>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case OpFiled.Doc{r} <> rest:
+      payload.pairs(rest)
+    case OpFiled.Payload{p, s} <> rest:
+      T.Split{p, s} <> payload.pairs(rest)
+
+def zip.pairs(ps: List<&2, String>, stats: List<&2, String>) -> List<&2, T.Split>:
+  match ps stats:
+    case p <> pr s <> sr:
+      T.Split{p, s} <> zip.pairs(pr, sr)
+    case _ _:
+      Nil{}
+
 def stat.id(+stat: String) -> String:
   T.word(stat)
 
@@ -1556,6 +1574,18 @@ def kahn(fuel: Nat, +g: List<&2, Merge.Rev>, +ixs: List<&2, Nat>, +placed: List<
       placed
     case 1n+p:
       kahn(p, g, ixs, List.append(&2, Nat, placed, ready(g, placed, ixs)))
+
+# Whether an order places each event after every event it had seen: the
+# order a walk of a history must take (`LAWS.check_walks_causally`).
+def causal.go(o: List<&2, Nat>, +g: List<&2, Merge.Rev>, +before: List<&2, Nat>) -> Bool:
+  match o:
+    case Nil{}:
+      True{}
+    case +i <> rest:
+      Bool.and(all.in(Merge.past(g, i), before), causal.go(rest, g, List.append(&2, Nat, before, [i])))
+
+def causal(+g: List<&2, Merge.Rev>, o: List<&2, Nat>) -> Bool:
+  causal.go(o, g, Nil{})
 
 def out.of.range(+rev: String, +position: Nat, +length: Nat) -> String:
   rev ++ " names position " ++ Nat.show(position) ++ " of a file its author saw " ++ Nat.show(length) ++ " items of; the document was recorded against a different history"

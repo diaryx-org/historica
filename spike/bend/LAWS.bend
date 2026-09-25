@@ -18,6 +18,10 @@ import ./folder.bend as Folder
 import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
+import ./argv.bend as Argv
+import ./shell.bend as Shell
+import ./identity.bend as Identity
+import ./check.bend as Check
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1008,22 +1012,25 @@ law log_reads_its_words:
   for e: {Main.asked(args) == Done{a} : Result<&2, &2, String, Main.Asked>}
   {Main.asked.of(Main.largs.raw(args)) == Done{a} : Result<&2, &2, String, Main.Asked>}
 
-# `check` reports each payload with the digest asked for it. The store is
-# asked for one digest per payload, in the listing's order; given one for
-# each, every payload is paired with its own, in order, and no revision or
+# `check` reports each payload with the digest asked for it. The host is
+# asked for one digest per payload, in the order the walk found them; given
+# one for each, every payload is paired with its own, in order, and no
 # operation document takes one.
 law check_pairs_each_payload:
-  for ls: List<&2, String>
+  for fs: List<&2, Check.OpFiled>
   for stats: List<&2, String>
-  for h: {List.length(&2, String, stats) == List.length(&2, String, Main.payloads(ls)) : Nat}
-  {Main.payload.pairs(Main.attach(Main.filed(ls), stats)) == Main.zip.pairs(Main.payloads(ls), stats) : List<&2, T.Split>}
+  for h: {List.length(&2, String, stats) == List.length(&2, String, Check.payload.paths(fs)) : Nat}
+  {Check.payload.pairs(Check.attach(fs, stats)) == Check.zip.pairs(Check.payload.paths(fs), stats) : List<&2, T.Split>}
 
-# `check` calls a document refused exactly where it does not parse, as a
-# revision under `revisions/` and as an operation document elsewhere.
-law check_refuses_what_does_not_parse:
-  for +d: Store.Doc
-  for rev: Bool
-  {Main.check.refuses(Main.check_doc.of(d, rev)) == Main.doc.fails(d, rev) : Bool}
+# The order `check` walks a merged file's events in places each event after
+# every event its author had seen, whatever it is given to place and
+# however many rounds it takes: what makes the walk a reading of the
+# history and not of some other one.
+law check_walks_causally:
+  for fuel: Nat
+  for +g: List<&2, Merge.Rev>
+  for +ixs: List<&2, Nat>
+  {Check.causal(g, Check.kahn(fuel, g, ixs, Nil{})) == True{} : Bool}
 
 # `cat <target> <path>` reads a revision the store holds, and a file its
 # tree holds that is not a link.
@@ -1072,3 +1079,44 @@ law name_stays_in_names:
   for +n: String
   for e: {Main.name.checked.r(n) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
   {Main.escapes(n) == False{} : Bool}
+
+# The command line reads `-C <dir>` as often as it is given, the last
+# counting, and hands the command word and every word after it to the
+# command as written — a `-C` after the command word is the command's.
+law argv_reads_its_words:
+  for ds: List<&2, String>
+  for +w: String
+  for +rest: List<&2, String>
+  for e: {Argv.lead.of(w) == Argv.Lead.Word{} : Argv.Lead}
+  {Argv.read(Argv.spelled(ds, w, rest)) == Argv.Asked.Command{Argv.last(ds, None{}), w, rest} : Argv.Asked}
+
+# Decision 0072: the program a word no command here has is dispatched to
+# holds no `/`, so it is looked up on `PATH` and never run from where a
+# path would put it.
+law dispatch_runs_no_path:
+  for +base: String
+  for +w: String
+  for args: List<&2, String>
+  for +d: String
+  for +p: String
+  for as: List<&2, String>
+  for e: {Shell.plan(base, w, args) == Shell.Plan.Run{d, p, as} : Shell.Plan}
+  {T.has_char(p, '/') == False{} : Bool}
+
+# A store's header opens whatever its note says, once a blank line sets the
+# note apart from the format line (decision 0069) — the header `init`
+# writes among them.
+law header_opens_under_a_note:
+  for +note: String
+  {Store.header.r("historica\n\n" ++ note) == Done{Unit{}} : Result<&2, &2, String, Unit>}
+
+# The file `identity` writes reads back as the author it was written for,
+# for work in any directory, wherever that author is one a revision can
+# hold.
+law identity_reads_back:
+  for +file: String
+  for +a: String
+  for +directory: String
+  for +home: Maybe<&2, String>
+  for h: {Identity.unusable(a) == False{} : Bool}
+  {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}

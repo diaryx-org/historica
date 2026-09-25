@@ -93,9 +93,11 @@ since nothing there is a document.
 `cat` and `show` read that, then ask `Store.at` for the digests the revisions
 along the chain name for the one file asked about, and read those — a handful
 of operation documents, and a payload only where the file was written whole.
-`check` reports every file a store holds, so it lists them, reads and parses
-the ones with a grammar, and asks `Store.digests` for the digest and the size
-of each payload.
+`check` reports every file a store holds, so it walks each directory of it
+as the store's own walk does — a link noted and never followed — reads and
+parses the files with a grammar, asks `Store.digests` for the digest and the
+size of each payload, and reads a payload here only where a revision says it
+is a file's lines.
 
 `diff` and `blame` with no target read the folder as well: they walk it a
 directory at a time, ask `Store.digests` for the digest of each file it
