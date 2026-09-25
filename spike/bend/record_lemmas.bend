@@ -1,11 +1,22 @@
-# What `record`, `amend`, `abandon` and `carry` decide before they write.
+# What `record` decides before it writes.
 #
-# `record` reads its words as their plain reading says.
+# It reads its words as their plain reading says, and so do `amend`,
+# `abandon` and `carry`; and what it states each file holds is what the
+# folder holds there.
 import Base
 import ./commands.bend as Main
 import ./text.bend as T
 import ./sort_lemmas.bend as SortL
 import ./blamed_lemmas.bend as B
+import ./string_lemmas.bend as S
+import ./hunk_lemmas.bend as HunkL
+import ./blame_lemmas.bend as BlameL
+import ./ops.bend as Ops
+import ./utf8.bend as Utf8
+import ./tree.bend as Tree
+import ./folder.bend as Folder
+import ./revision.bend as Rev
+import ./survey.bend as Sv
 
 # Its words
 # ---------
@@ -208,3 +219,139 @@ def rw_go_said(+cmd: String, args: List<&2, String>, +m: Maybe<&2, String>, +mv:
 def rw_args_said(+cmd: String, +args: List<&2, String>, +c: Main.RwCmd, e: {Main.rw.args.r(cmd, args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {c == Main.wargs.said(Main.wargs.read(cmd, args, Main.wword(cmd, args))) : Main.RwCmd}:
   rw_go_said(cmd, args, None{}, Nil{}, None{}, None{}, False{}, False{}, False{}, Main.wword(cmd, args), c, e)
 
+
+# What it states is what the folder holds
+# ---------------------------------------
+
+def u32_refl(x: U32) -> {U32.is_eq(x, x) == True{} : Bool}:
+  match x:
+    case U32{+w}:
+      %Equal.sym(Cmp, Word.cmp(32n, w, w), EQ{}, S.word_refl(32n, w)) : {Cmp.is_eq(_) == True{} : Bool}
+      {==}
+
+def bytes_refl(xs: List<&2, U32>) -> {Main.bytes.same(xs, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      B.and_tt(U32.is_eq(x, x), Main.bytes.same(rest, rest), u32_refl(x), bytes_refl(rest))
+
+def items_refl(xs: List<&2, Ops.Item>) -> {Main.items_eq(xs, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      B.and_tt(Main.item_eq(x, x), Main.items_eq(rest, rest), HunkL.item_refl(x), items_refl(rest))
+
+def state_app(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Main.Content>, +ds: List<&2, Main.Content>, +hc: {Main.contents.state(befores, dg, reads, cs) == True{} : Bool}, hd: {Main.contents.state(befores, dg, reads, ds) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, List.append(&2, Main.Content, cs, ds)) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      hd
+    case +c <> +rest:
+      B.and_tt(Main.content.states(befores, dg, reads, c), Main.contents.state(befores, dg, reads, List.append(&2, Main.Content, rest, ds)),
+        SortL.band_l(Main.content.states(befores, dg, reads, c), Main.contents.state(befores, dg, reads, rest), hc),
+        state_app(befores, dg, reads, rest, ds, SortL.band_r(Main.content.states(befores, dg, reads, c), Main.contents.state(befores, dg, reads, rest), hc), hd))
+
+def pick_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {Main.contents.state(befores, dg, reads, cs) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, Bool.pick(List<&2, Main.Content>, b, cs, Nil{})) == True{} : Bool}:
+  match b:
+    case True{}:
+      h
+    case False{}:
+      {==}
+
+def unpick_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, h: {Main.contents.state(befores, dg, reads, cs) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, Bool.pick(List<&2, Main.Content>, b, Nil{}, cs)) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def either_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, b: Bool, +cs: List<&2, Main.Content>, +ds: List<&2, Main.Content>, hc: {Main.contents.state(befores, dg, reads, cs) == True{} : Bool}, hd: {Main.contents.state(befores, dg, reads, ds) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, Bool.pick(List<&2, Main.Content>, b, cs, ds)) == True{} : Bool}:
+  match b:
+    case True{}:
+      hc
+    case False{}:
+      hd
+
+def one_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +c: Main.Content, h: {Main.content.states(befores, dg, reads, c) == True{} : Bool}) -> {Main.contents.state(befores, dg, reads, [c]) == True{} : Bool}:
+  B.and_tt(Main.content.states(befores, dg, reads, c), True{}, h, {==})
+
+def whole_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String) -> {Main.contents.state(befores, dg, reads, [Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}]) == True{} : Bool}:
+  one_state(befores, dg, reads, Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}, S.eq_refl(Main.status.folder_digest(dg, p)))
+
+def text_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +f: String, +p: String) -> {Main.contents.state(befores, dg, reads, [Main.Content.Text{f, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}]) == True{} : Bool}:
+  one_state(befores, dg, reads, Main.Content.Text{f, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}, bytes_refl(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))
+
+# An edit is the document the diff finds, which replays.
+def edited_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, d: Maybe<&2, Ops.Doc>, +f: String, +p: String, +ed: {Ops.diff(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == d : Maybe<&2, Ops.Doc>}) -> {Main.contents.state(befores, dg, reads, Main.edited.content(f, p, d)) == True{} : Bool}:
+  match d:
+    case None{}:
+      {==}
+    case Some{+doc}:
+      +ha = da(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), BlameL.tbl_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), doc, ed)
+      +hs = Equal.trans(Bool, Main.content.states(befores, dg, reads, Main.Content.Ops{f, p, Ops.write(doc)}), Main.content.replays(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Ops.write(doc), Some{doc}), True{},
+        Equal.cong(Maybe<&2, Ops.Doc>, Bool, x => Main.content.replays(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Ops.write(doc), x), Ops.diff(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Some{doc}, ed),
+        B.and_tt(String.eq(Ops.write(doc), Ops.write(doc)), Main.content.applied(Ops.apply(Main.before_of(befores, f), doc), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), S.eq_refl(Ops.write(doc)),
+          Equal.trans(Bool, Main.content.applied(Ops.apply(Main.before_of(befores, f), doc), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Main.content.applied(Done{Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))}, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), True{},
+            Equal.cong(Result<&2, &2, String, List<&2, Ops.Item>>, Bool, r => Main.content.applied(r, Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), Ops.apply(Main.before_of(befores, f), doc), Done{Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))}, ha),
+            items_refl(Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))))))
+      one_state(befores, dg, reads, Main.Content.Ops{f, p, Ops.write(doc)}, hs)
+
+def held_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, e: Maybe<&2, Tree.Entry>, +edited: List<&2, String>, +p: String) -> {Main.contents.state(befores, dg, reads, Main.stating.contents(Main.stating.held(edited, befores, p, e, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))) == True{} : Bool}:
+  match e:
+    case Some{Tree.Entry{+f, q, Tree.Whole{}, y, g, m}}:
+      pick_state(befores, dg, reads, Rev.member(edited, p), [Main.Content.Whole{f, p, Main.status.folder_digest(dg, p)}], whole_state(befores, dg, reads, f, p))
+    case Some{Tree.Entry{+f, q, Tree.Lines{}, y, g, m}}:
+      pick_state(befores, dg, reads, Rev.member(edited, p), Main.edited.content(f, p, Ops.diff(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))))), edited_state(~da, befores, dg, reads, Ops.diff(Main.before_of(befores, f), Ops.from_text(Utf8.decode(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), f, p, {==}))
+    case Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}:
+      {==}
+    case None{}:
+      {==}
+
+def kind_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, lines: Bool, +file: String, +p: String) -> {Main.contents.state(befores, dg, reads, Main.arriving.kind(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), lines)) == True{} : Bool}:
+  match lines:
+    case True{}:
+      unpick_state(befores, dg, reads, List.is_empty(&2, U32, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), [Main.Content.Text{file, p, Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))}], text_state(befores, dg, reads, file, p))
+    case False{}:
+      whole_state(befores, dg, reads, file, p)
+
+def arriving_state(+befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, stated: Maybe<&2, String>, +file: String, +p: String) -> {Main.contents.state(befores, dg, reads, Main.arriving.of(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), stated)) == True{} : Bool}:
+  match stated:
+    case Some{+k}:
+      either_state(befores, dg, reads, String.eq(k, "bytes"), [Main.Content.Whole{file, p, Main.status.folder_digest(dg, p)}], Main.arriving.kind(file, p, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), True{}), whole_state(befores, dg, reads, file, p), kind_state(befores, dg, reads, True{}, file, p))
+    case None{}:
+      kind_state(befores, dg, reads, Bool.and(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), Bool.not(Folder.has_nul(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), file, p)
+
+def at_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, arrives: Bool, +mint: List<&2, T.Split>, +edited: List<&2, String>, +ks: List<&2, T.Split>, +p: String, e: Maybe<&2, Tree.Entry>, +runs: Bool) -> {Main.contents.state(befores, dg, reads, Main.stating.contents(Main.stating.at(mint, edited, ks, befores, p, e, Main.status.folder_digest(dg, p), Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)), runs, arrives))) == True{} : Bool}:
+  match arrives:
+    case True{}:
+      arriving_state(befores, dg, reads, Main.kind.stated(ks, p), Maybe.default(&2, String, Main.lookup(mint, p), SNil{}), p)
+    case False{}:
+      held_state(~da, befores, dg, reads, e, edited, p)
+
+def of_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, h: Main.Here) -> {Main.contents.state(befores, dg, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, befores, h))) == True{} : Bool}:
+  match h:
+    case Main.Here{+p, e, Some{Folder.Found.File{q, +runs, n}}}:
+      at_state(~da, befores, dg, reads, Rev.member(arriving, p), mint, edited, ks, p, e, runs)
+    case Main.Here{p, e, Some{Folder.Found.Link{q, t}}}:
+      {==}
+    case Main.Here{p, e, None{}}:
+      {==}
+
+def join_contents(a: Main.Stating, b: Main.Stating) -> {List.append(&2, Main.Content, Main.stating.contents(a), Main.stating.contents(b)) == Main.stating.contents(Main.stating.join(a, b)) : List<&2, Main.Content>}:
+  match a b:
+    case Main.Stating{c1, m1} Main.Stating{c2, m2}:
+      {==}
+
+def all_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +mint: List<&2, T.Split>, +arriving: List<&2, String>, +edited: List<&2, String>, +ks: List<&2, T.Split>, hs: List<&2, Main.Here>) -> {Main.contents.state(befores, dg, reads, Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, befores, hs))) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case +h <> +rest:
+      %join_contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, befores, h), Main.stating.all(mint, arriving, edited, ks, dg, reads, befores, rest)) : {Main.contents.state(befores, dg, reads, _) == True{} : Bool}
+      state_app(befores, dg, reads, Main.stating.contents(Main.stating.of(mint, arriving, edited, ks, dg, reads, befores, h)), Main.stating.contents(Main.stating.all(mint, arriving, edited, ks, dg, reads, befores, rest)),
+        of_state(~da, befores, dg, reads, mint, arriving, edited, ks, h), all_state(~da, befores, dg, reads, mint, arriving, edited, ks, rest))
+
+# What `record` drafts states of each file what the folder holds there.
+def drafted_state(~da: @parent: List<&2, Ops.Item> -> @child: List<&2, Ops.Item> -> {Ops.terminated_but_last(child) == True{} : Bool} -> @doc: Ops.Doc -> {Ops.diff(parent, child) == Some{doc} : Maybe<&2, Ops.Doc>} -> {Ops.apply(parent, doc) == Done{child} : Result<&2, &2, String, List<&2, Ops.Item>>}, +befores: List<&2, Main.Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +t: Tree.Tree(), +hs: List<&2, Main.Here>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> {Main.contents.state(befores, dg, reads, Main.drafted.contents(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}:
+  all_state(~da, befores, dg, reads, mint, Sv.sorted(Sv.added(obs)), Sv.edited(obs), ks, hs)

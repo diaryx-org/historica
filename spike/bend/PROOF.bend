@@ -671,3 +671,6 @@ def Laws.abandon_takes_a_line(fs, id, only, run, e):
 
 def Laws.reword_changes_only_the_message(fs, prev, standing, m, reviser, revised, doc, e):
   RewriteL.reword_ok(fs, prev, standing, m, reviser, revised, doc, e)
+
+def Laws.record_states_the_folder(befores, t, hs, dg, reads, ks, moves, obs, ls, mint):
+  RecordL.drafted_state(~(p => c => tbl => d => e => Laws.diff_applies(p, c, tbl, d, e)), befores, dg, reads, t, hs, ks, moves, obs, ls, mint)
