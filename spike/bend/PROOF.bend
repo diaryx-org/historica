@@ -52,6 +52,7 @@ import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./listing_lemmas.bend as ListL
 import ./record_lemmas.bend as RecordL
+import ./rewrite_lemmas.bend as RewriteL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -661,3 +662,6 @@ def Laws.record_reads_its_words(args, cmd, e):
 
 def Laws.rewrite_reads_its_words(cmd, args, c, e):
   RecordL.rw_args_said(cmd, args, c, e)
+
+def Laws.carry_keeps_what_it_restates(fs, ds, c, steps, e):
+  RewriteL.plan_kept(fs, ds, c, steps, e)
