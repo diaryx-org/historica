@@ -640,3 +640,196 @@ def sort_keyed(~A: Data, ~key: A -> String, +xs: List<&2, A>, +f: String) -> {ke
   Equal.trans(List<&2, A>, keyed(~A, ~key, f, List.sort.go(~A, ~(a => b => String.is_le(key(a), key(b))), List.length(&2, A, xs), List.length(&2, A, xs), List.sort.runs(A, xs))), keyed(~A, ~key, f, List.concat(&2, A, List.sort.runs(A, xs))), keyed(~A, ~key, f, xs),
     go_keyed(~A, ~key, List.length(&2, A, xs), List.length(&2, A, xs), List.sort.runs(A, xs), f, runs_sorted(~A, ~key, xs), runs_hn(A, xs), runs_hf(A, xs)),
     Equal.cong(List<&2, A>, List<&2, A>, l => keyed(~A, ~key, f, l), List.concat(&2, A, List.sort.runs(A, xs)), xs, concat_runs(A, xs)))
+
+# What a sort keeps
+# -----------------
+
+# A sort only moves what it is given, so whatever holds of every item it
+# was given holds of every item it returns, whichever order it sorts by.
+def all_ok(~A: Data, ~ok: A -> Bool, xs: List<&2, A>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(ok(x), all_ok(~A, ~ok, rest))
+
+def all_app(~A: Data, ~ok: A -> Bool, xs: List<&2, A>, +ys: List<&2, A>, +hx: {all_ok(~A, ~ok, xs) == True{} : Bool}, hy: {all_ok(~A, ~ok, ys) == True{} : Bool}) -> {all_ok(~A, ~ok, List.append(&2, A, xs, ys)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      hy
+    case +x <> +rest:
+      band_i(ok(x), all_ok(~A, ~ok, List.append(&2, A, rest, ys)), band_l(ok(x), all_ok(~A, ~ok, rest), hx), all_app(~A, ~ok, rest, ys, band_r(ok(x), all_ok(~A, ~ok, rest), hx), hy))
+
+def all_rev_go(~A: Data, ~ok: A -> Bool, acc: List<&2, A>, +zs: List<&2, A>, +ha: {all_ok(~A, ~ok, acc) == True{} : Bool}, +hz: {all_ok(~A, ~ok, zs) == True{} : Bool}) -> {all_ok(~A, ~ok, List.reverse.go(&2, A, acc, zs)) == True{} : Bool}:
+  match acc:
+    case Nil{}:
+      hz
+    case +a <> +rest:
+      all_rev_go(~A, ~ok, rest, a <> zs, band_r(ok(a), all_ok(~A, ~ok, rest), ha), band_i(ok(a), all_ok(~A, ~ok, zs), band_l(ok(a), all_ok(~A, ~ok, rest), ha), hz))
+
+def all_step(~A: Data, ~le: A -> A -> Bool, ~ok: A -> Bool, b: Bool, +f: Nat, +acc: List<&2, A>, +x: A, +xt: List<&2, A>, +y: A, +yt: List<&2, A>, ihf: {all_ok(~A, ~ok, List.merge.go(~A, ~le, f, (y <> acc, x <> xt, yt))) == True{} : Bool}, iht: {all_ok(~A, ~ok, List.merge.go(~A, ~le, f, (x <> acc, xt, y <> yt))) == True{} : Bool}) -> {all_ok(~A, ~ok, List.merge.go(~A, ~le, f, List.merge.step(A, acc, x, xt, y, yt, b))) == True{} : Bool}:
+  match b:
+    case False{}:
+      ihf
+    case True{}:
+      iht
+
+def all_merge(~A: Data, ~le: A -> A -> Bool, ~ok: A -> Bool, fuel: Nat, +acc: List<&2, A>, +xs: List<&2, A>, +ys: List<&2, A>, +ha: {all_ok(~A, ~ok, acc) == True{} : Bool}, +hx: {all_ok(~A, ~ok, xs) == True{} : Bool}, +hy: {all_ok(~A, ~ok, ys) == True{} : Bool}) -> {all_ok(~A, ~ok, List.merge.go(~A, ~le, fuel, (acc, xs, ys))) == True{} : Bool}:
+  match fuel:
+    case 0n:
+      all_rev_go(~A, ~ok, acc, List.append(&2, A, xs, ys), ha, all_app(~A, ~ok, xs, ys, hx, hy))
+    case 1n++f:
+      match xs ys:
+        case Nil{} Nil{}:
+          all_rev_go(~A, ~ok, acc, Nil{}, ha, {==})
+        case Nil{} +y <> +yt:
+          all_rev_go(~A, ~ok, acc, y <> yt, ha, hy)
+        case +x <> +xt Nil{}:
+          all_rev_go(~A, ~ok, acc, x <> xt, ha, hx)
+        case +x <> +xt +y <> +yt:
+          all_step(~A, ~le, ~ok, le(x, y), f, acc, x, xt, y, yt,
+            all_merge(~A, ~le, ~ok, f, y <> acc, x <> xt, yt, band_i(ok(y), all_ok(~A, ~ok, acc), band_l(ok(y), all_ok(~A, ~ok, yt), hy), ha), hx, band_r(ok(y), all_ok(~A, ~ok, yt), hy)),
+            all_merge(~A, ~le, ~ok, f, x <> acc, xt, y <> yt, band_i(ok(x), all_ok(~A, ~ok, acc), band_l(ok(x), all_ok(~A, ~ok, xt), hx), ha), band_r(ok(x), all_ok(~A, ~ok, xt), hx), hy))
+
+def all_runs(~A: Data, ~ok: A -> Bool, rs: List<&2, List<&2, A>>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> rest:
+      Bool.and(all_ok(~A, ~ok, r), all_runs(~A, ~ok, rest))
+
+def all_pass(~A: Data, ~le: A -> A -> Bool, ~ok: A -> Bool, +n: Nat, runs: List<&2, List<&2, A>>, +h: {all_runs(~A, ~ok, runs) == True{} : Bool}) -> {all_runs(~A, ~ok, List.sort.pass(~A, ~le, n, runs)) == True{} : Bool}:
+  match runs:
+    case Nil{}:
+      {==}
+    case +r <> Nil{}:
+      h
+    case +r1 <> +r2 <> +rest:
+      band_i(all_ok(~A, ~ok, List.merge.go(~A, ~le, n, (Nil{}, r1, r2))), all_runs(~A, ~ok, List.sort.pass(~A, ~le, n, rest)),
+        all_merge(~A, ~le, ~ok, n, Nil{}, r1, r2, {==}, band_l(all_ok(~A, ~ok, r1), all_runs(~A, ~ok, r2 <> rest), h), band_l(all_ok(~A, ~ok, r2), all_runs(~A, ~ok, rest), band_r(all_ok(~A, ~ok, r1), all_runs(~A, ~ok, r2 <> rest), h))),
+        all_pass(~A, ~le, ~ok, n, rest, band_r(all_ok(~A, ~ok, r2), all_runs(~A, ~ok, rest), band_r(all_ok(~A, ~ok, r1), all_runs(~A, ~ok, r2 <> rest), h))))
+
+def all_concat(~A: Data, ~ok: A -> Bool, runs: List<&2, List<&2, A>>, +h: {all_runs(~A, ~ok, runs) == True{} : Bool}) -> {all_ok(~A, ~ok, List.concat(&2, A, runs)) == True{} : Bool}:
+  match runs:
+    case Nil{}:
+      {==}
+    case +r <> +rest:
+      all_app(~A, ~ok, r, List.concat(&2, A, rest), band_l(all_ok(~A, ~ok, r), all_runs(~A, ~ok, rest), h), all_concat(~A, ~ok, rest, band_r(all_ok(~A, ~ok, r), all_runs(~A, ~ok, rest), h)))
+
+def all_go(~A: Data, ~le: A -> A -> Bool, ~ok: A -> Bool, fuel: Nat, +n: Nat, runs: List<&2, List<&2, A>>, +h: {all_runs(~A, ~ok, runs) == True{} : Bool}) -> {all_ok(~A, ~ok, List.sort.go(~A, ~le, fuel, n, runs)) == True{} : Bool}:
+  match fuel:
+    case 0n:
+      all_concat(~A, ~ok, runs, h)
+    case 1n++f:
+      match runs:
+        case Nil{}:
+          {==}
+        case +r <> Nil{}:
+          band_l(all_ok(~A, ~ok, r), True{}, h)
+        case +r1 <> +r2 <> +rest:
+          all_go(~A, ~le, ~ok, f, n, List.sort.pass(~A, ~le, n, r1 <> r2 <> rest), all_pass(~A, ~le, ~ok, n, r1 <> r2 <> rest, h))
+
+def all_runs_of(~A: Data, ~ok: A -> Bool, xs: List<&2, A>, +h: {all_ok(~A, ~ok, xs) == True{} : Bool}) -> {all_runs(~A, ~ok, List.sort.runs(A, xs)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      band_i(Bool.and(ok(x), True{}), all_runs(~A, ~ok, List.sort.runs(A, rest)), band_i(ok(x), True{}, band_l(ok(x), all_ok(~A, ~ok, rest), h), {==}), all_runs_of(~A, ~ok, rest, band_r(ok(x), all_ok(~A, ~ok, rest), h)))
+
+def all_sort(~A: Data, ~le: A -> A -> Bool, ~ok: A -> Bool, +xs: List<&2, A>, +h: {all_ok(~A, ~ok, xs) == True{} : Bool}) -> {all_ok(~A, ~ok, List.sort(~A, ~le, xs)) == True{} : Bool}:
+  all_go(~A, ~le, ~ok, List.length(&2, A, xs), List.length(&2, A, xs), List.sort.runs(A, xs), all_runs_of(~A, ~ok, xs, h))
+
+# The same, for a test that reads one more value, which a template cannot
+# capture: whatever holds of every item with it holds after the sort.
+def all_at(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, xs: List<&2, A>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(ok(c, x), all_at(~A, ~C, ~ok, c, rest))
+
+def all_app_at(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, xs: List<&2, A>, +ys: List<&2, A>, +hx: {all_at(~A, ~C, ~ok, c, xs) == True{} : Bool}, hy: {all_at(~A, ~C, ~ok, c, ys) == True{} : Bool}) -> {all_at(~A, ~C, ~ok, c, List.append(&2, A, xs, ys)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      hy
+    case +x <> +rest:
+      band_i(ok(c, x), all_at(~A, ~C, ~ok, c, List.append(&2, A, rest, ys)), band_l(ok(c, x), all_at(~A, ~C, ~ok, c, rest), hx), all_app_at(~A, ~C, ~ok, c, rest, ys, band_r(ok(c, x), all_at(~A, ~C, ~ok, c, rest), hx), hy))
+
+def all_rev_go_at(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, acc: List<&2, A>, +zs: List<&2, A>, +ha: {all_at(~A, ~C, ~ok, c, acc) == True{} : Bool}, +hz: {all_at(~A, ~C, ~ok, c, zs) == True{} : Bool}) -> {all_at(~A, ~C, ~ok, c, List.reverse.go(&2, A, acc, zs)) == True{} : Bool}:
+  match acc:
+    case Nil{}:
+      hz
+    case +a <> +rest:
+      all_rev_go_at(~A, ~C, ~ok, c, rest, a <> zs, band_r(ok(c, a), all_at(~A, ~C, ~ok, c, rest), ha), band_i(ok(c, a), all_at(~A, ~C, ~ok, c, zs), band_l(ok(c, a), all_at(~A, ~C, ~ok, c, rest), ha), hz))
+
+def all_step_at(~A: Data, ~le: A -> A -> Bool, ~C: Data, ~ok: C -> A -> Bool, +c: C, b: Bool, +f: Nat, +acc: List<&2, A>, +x: A, +xt: List<&2, A>, +y: A, +yt: List<&2, A>, ihf: {all_at(~A, ~C, ~ok, c, List.merge.go(~A, ~le, f, (y <> acc, x <> xt, yt))) == True{} : Bool}, iht: {all_at(~A, ~C, ~ok, c, List.merge.go(~A, ~le, f, (x <> acc, xt, y <> yt))) == True{} : Bool}) -> {all_at(~A, ~C, ~ok, c, List.merge.go(~A, ~le, f, List.merge.step(A, acc, x, xt, y, yt, b))) == True{} : Bool}:
+  match b:
+    case False{}:
+      ihf
+    case True{}:
+      iht
+
+def all_merge_at(~A: Data, ~le: A -> A -> Bool, ~C: Data, ~ok: C -> A -> Bool, +c: C, fuel: Nat, +acc: List<&2, A>, +xs: List<&2, A>, +ys: List<&2, A>, +ha: {all_at(~A, ~C, ~ok, c, acc) == True{} : Bool}, +hx: {all_at(~A, ~C, ~ok, c, xs) == True{} : Bool}, +hy: {all_at(~A, ~C, ~ok, c, ys) == True{} : Bool}) -> {all_at(~A, ~C, ~ok, c, List.merge.go(~A, ~le, fuel, (acc, xs, ys))) == True{} : Bool}:
+  match fuel:
+    case 0n:
+      all_rev_go_at(~A, ~C, ~ok, c, acc, List.append(&2, A, xs, ys), ha, all_app_at(~A, ~C, ~ok, c, xs, ys, hx, hy))
+    case 1n++f:
+      match xs ys:
+        case Nil{} Nil{}:
+          all_rev_go_at(~A, ~C, ~ok, c, acc, Nil{}, ha, {==})
+        case Nil{} +y <> +yt:
+          all_rev_go_at(~A, ~C, ~ok, c, acc, y <> yt, ha, hy)
+        case +x <> +xt Nil{}:
+          all_rev_go_at(~A, ~C, ~ok, c, acc, x <> xt, ha, hx)
+        case +x <> +xt +y <> +yt:
+          all_step_at(~A, ~le, ~C, ~ok, c, le(x, y), f, acc, x, xt, y, yt,
+            all_merge_at(~A, ~le, ~C, ~ok, c, f, y <> acc, x <> xt, yt, band_i(ok(c, y), all_at(~A, ~C, ~ok, c, acc), band_l(ok(c, y), all_at(~A, ~C, ~ok, c, yt), hy), ha), hx, band_r(ok(c, y), all_at(~A, ~C, ~ok, c, yt), hy)),
+            all_merge_at(~A, ~le, ~C, ~ok, c, f, x <> acc, xt, y <> yt, band_i(ok(c, x), all_at(~A, ~C, ~ok, c, acc), band_l(ok(c, x), all_at(~A, ~C, ~ok, c, xt), hx), ha), band_r(ok(c, x), all_at(~A, ~C, ~ok, c, xt), hx), hy))
+
+def all_runs_at(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, rs: List<&2, List<&2, A>>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> rest:
+      Bool.and(all_at(~A, ~C, ~ok, c, r), all_runs_at(~A, ~C, ~ok, c, rest))
+
+def all_pass_at(~A: Data, ~le: A -> A -> Bool, ~C: Data, ~ok: C -> A -> Bool, +c: C, +n: Nat, runs: List<&2, List<&2, A>>, +h: {all_runs_at(~A, ~C, ~ok, c, runs) == True{} : Bool}) -> {all_runs_at(~A, ~C, ~ok, c, List.sort.pass(~A, ~le, n, runs)) == True{} : Bool}:
+  match runs:
+    case Nil{}:
+      {==}
+    case +r <> Nil{}:
+      h
+    case +r1 <> +r2 <> +rest:
+      band_i(all_at(~A, ~C, ~ok, c, List.merge.go(~A, ~le, n, (Nil{}, r1, r2))), all_runs_at(~A, ~C, ~ok, c, List.sort.pass(~A, ~le, n, rest)),
+        all_merge_at(~A, ~le, ~C, ~ok, c, n, Nil{}, r1, r2, {==}, band_l(all_at(~A, ~C, ~ok, c, r1), all_runs_at(~A, ~C, ~ok, c, r2 <> rest), h), band_l(all_at(~A, ~C, ~ok, c, r2), all_runs_at(~A, ~C, ~ok, c, rest), band_r(all_at(~A, ~C, ~ok, c, r1), all_runs_at(~A, ~C, ~ok, c, r2 <> rest), h))),
+        all_pass_at(~A, ~le, ~C, ~ok, c, n, rest, band_r(all_at(~A, ~C, ~ok, c, r2), all_runs_at(~A, ~C, ~ok, c, rest), band_r(all_at(~A, ~C, ~ok, c, r1), all_runs_at(~A, ~C, ~ok, c, r2 <> rest), h))))
+
+def all_concat_at(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, runs: List<&2, List<&2, A>>, +h: {all_runs_at(~A, ~C, ~ok, c, runs) == True{} : Bool}) -> {all_at(~A, ~C, ~ok, c, List.concat(&2, A, runs)) == True{} : Bool}:
+  match runs:
+    case Nil{}:
+      {==}
+    case +r <> +rest:
+      all_app_at(~A, ~C, ~ok, c, r, List.concat(&2, A, rest), band_l(all_at(~A, ~C, ~ok, c, r), all_runs_at(~A, ~C, ~ok, c, rest), h), all_concat_at(~A, ~C, ~ok, c, rest, band_r(all_at(~A, ~C, ~ok, c, r), all_runs_at(~A, ~C, ~ok, c, rest), h)))
+
+def all_go_at(~A: Data, ~le: A -> A -> Bool, ~C: Data, ~ok: C -> A -> Bool, +c: C, fuel: Nat, +n: Nat, runs: List<&2, List<&2, A>>, +h: {all_runs_at(~A, ~C, ~ok, c, runs) == True{} : Bool}) -> {all_at(~A, ~C, ~ok, c, List.sort.go(~A, ~le, fuel, n, runs)) == True{} : Bool}:
+  match fuel:
+    case 0n:
+      all_concat_at(~A, ~C, ~ok, c, runs, h)
+    case 1n++f:
+      match runs:
+        case Nil{}:
+          {==}
+        case +r <> Nil{}:
+          band_l(all_at(~A, ~C, ~ok, c, r), True{}, h)
+        case +r1 <> +r2 <> +rest:
+          all_go_at(~A, ~le, ~C, ~ok, c, f, n, List.sort.pass(~A, ~le, n, r1 <> r2 <> rest), all_pass_at(~A, ~le, ~C, ~ok, c, n, r1 <> r2 <> rest, h))
+
+def all_runs_of_at(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, xs: List<&2, A>, +h: {all_at(~A, ~C, ~ok, c, xs) == True{} : Bool}) -> {all_runs_at(~A, ~C, ~ok, c, List.sort.runs(A, xs)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      band_i(Bool.and(ok(c, x), True{}), all_runs_at(~A, ~C, ~ok, c, List.sort.runs(A, rest)), band_i(ok(c, x), True{}, band_l(ok(c, x), all_at(~A, ~C, ~ok, c, rest), h), {==}), all_runs_of_at(~A, ~C, ~ok, c, rest, band_r(ok(c, x), all_at(~A, ~C, ~ok, c, rest), h)))
+
+def all_sort_at(~A: Data, ~le: A -> A -> Bool, ~C: Data, ~ok: C -> A -> Bool, +c: C, +xs: List<&2, A>, +h: {all_at(~A, ~C, ~ok, c, xs) == True{} : Bool}) -> {all_at(~A, ~C, ~ok, c, List.sort(~A, ~le, xs)) == True{} : Bool}:
+  all_go_at(~A, ~le, ~C, ~ok, c, List.length(&2, A, xs), List.length(&2, A, xs), List.sort.runs(A, xs), all_runs_of_at(~A, ~C, ~ok, c, xs, h))
