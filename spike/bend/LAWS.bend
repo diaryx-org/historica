@@ -2450,6 +2450,22 @@ law skip_shares_without_private:
   for +ss: List<&2, Folder.Scope>
   {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(ws))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}
 
+# Where `skip` goes on to write its rules, no rule it writes skips a file
+# any head holds, read with the loader's own `skips`: decision 0011, a rule
+# cannot take back what is recorded — so wherever some head's tree holds a
+# file a rule asked for covers, `skip` refuses.
+law skip_covers_nothing_history_holds:
+  for +fs: List<&2, Main.Full>
+  for +rs: List<&2, Skip.Rule>
+  for e: {Skip.covered.r(fs, rs) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
+  for +h: String
+  for hh: {Rev.member(Rev.heads(Main.history(fs)), h) == True{} : Bool}
+  for +t: Tree.Tree()
+  for +et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}
+  for +p: String
+  for +hp: {Rev.member(SkipL.paths(t), p) == True{} : Bool}
+  {Folder.skips(SkipL.scopes(rs), p) == False{} : Bool}
+
 # `check`'s report is every error it found, in the order found, then every
 # note, each on its own line under its word — so each finding once — then
 # how many of each, `nothing to report` only where it found nothing at

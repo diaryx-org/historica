@@ -530,16 +530,24 @@ def covered.said(ps: List<&2, String>) -> String:
     case p <> rest:
       "\n  " ++ p ++ covered.said(rest)
 
+# The refusal, where some head holds a path a wanted rule covers: each such
+# path once, sorted.
+def covered.after(r: Result<&2, &2, Main.Refused, List<&2, String>>) -> Result<&2, &2, Main.Refused, Unit>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+ps}:
+      +sorted = List.sort(~String, ~(a => b => String.is_le(a, b)), ps)
+      +n = List.length(&2, String, sorted)
+      +one = Nat.is_eq(n, 1n)
+      Bool.pick(Result<&2, &2, Main.Refused, Unit>, List.is_empty(&2, String, ps), Done{Unit{}},
+        Fail{Main.Refused{1, "history already holds " ++ Bool.pick(String, one, "a file this would skip", Nat.show(n) ++ " files this would skip") ++ ", and a rule cannot take back what is recorded; delete the " ++ Bool.pick(String, one, "file", "files") ++ " and record that, which is what removing a file from the tree means, and `forget` is what removes recorded content:" ++ covered.said(sorted)}})
+
 # Decision 0011, asked of every head: a rule is a fact about the
-# repository, so a path any line of work holds is one it cannot cover.
+# repository, so a path any line of work holds is one it cannot cover
+# (`LAWS.skip_covers_nothing_history_holds`).
 def covered.r(+fs: List<&2, Main.Full>, +rs: List<&2, Rule>) -> Result<&2, &2, Main.Refused, Unit>:
-  do Result<&2, &2, Main.Refused, Unit>:
-    ps : List<&2, String> <- covered.go(fs, rs, Rev.heads(Main.history(fs)), Nil{})
-    +sorted : List<&2, String> = List.sort(~String, ~(a => b => String.is_le(a, b)), ps)
-    +n : Nat = List.length(&2, String, sorted)
-    +one : Bool = Nat.is_eq(n, 1n)
-    Bool.pick(Result<&2, &2, Main.Refused, Unit>, Nat.is_eq(n, 0n), Done{Unit{}},
-      Fail{Main.Refused{1, "history already holds " ++ Bool.pick(String, one, "a file this would skip", Nat.show(n) ++ " files this would skip") ++ ", and a rule cannot take back what is recorded; delete the " ++ Bool.pick(String, one, "file", "files") ++ " and record that, which is what removing a file from the tree means, and `forget` is what removes recorded content:" ++ covered.said(sorted)}})
+  covered.after(covered.go(fs, rs, Rev.heads(Main.history(fs)), Nil{}))
 
 # Which wanted rules are new, and which the store — or an earlier word —
 # already states.
