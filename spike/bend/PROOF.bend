@@ -665,3 +665,6 @@ def Laws.rewrite_reads_its_words(cmd, args, c, e):
 
 def Laws.carry_keeps_what_it_restates(fs, ds, c, steps, e):
   RewriteL.plan_kept(fs, ds, c, steps, e)
+
+def Laws.abandon_takes_a_line(fs, id, only, run, e):
+  RewriteL.plan_line(fs, id, only, run, e)
