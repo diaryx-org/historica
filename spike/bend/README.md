@@ -305,15 +305,19 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `receive_lemmas.bend` | `receive_takes_only_revisions_it_lacks`: every revision it files is one of the source's revision documents, by digest and text, under a digest no revision document here has, through the sort and the pass that keeps each digest once; `receive_takes_only_documents_it_lacks` and `receive_takes_only_payloads_it_lacks`: every document and payload is one of the source's, under a digest this store holds nothing under and neither store forgets; `receive_joins_only_related_histories`: between two stores the check passes, it plans exactly where the histories are related, read from the revisions, or it was asked to join them; `receive_moves_no_bookmark`: each bookmark it writes, by name and target, is new here or one this store has at that target; `receive_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of either store names in its header; `receive_removes_only_the_originals`: every file it removes for them is an operation document or payload file of this store, at that path, holding one of those digests; `receive_trusts_what_it_plans_from`: nothing is planned into or out of a store holding a revision document whose text does not parse | `receive` |
 | `offer.bend` | `offer`: the published copy's store read as `prune` reads it and opened as the Rust tool opens a store, and its manifest written to standard output — the header, every head of the graph, then payloads, documents, revisions, rules, the other tool's files and bookmarks, each group by path and each path under the copy's own name — with no private rule or bookmark named | `store::offer`, decisions 0048, 0052, 0056 |
 | `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have; `offer_names_each_file_by_its_digest`: every line names a file by the digest the store's listing gives it; `offer_lists_forgetting_as_prune_reads_it`: what the manifest says a document forgets is what `prune`, `receive` and `export` read it as forgetting, save a resolution the Rust tool's catalogue does not parse; `offer_lines_read_back`: `fetch`'s line reader reads each line it writes back as the file it names, whatever spaces the path holds | `offer` |
-| `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0053, 0062 |
+| `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; a copy it made brought up to date, the folder caught up; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0052, 0053, 0062 |
 | `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_lays_out_only_what_the_walk_offers_back`: every path outside the store, no other file's directory, and none a rule covers; `export_carries_only_this_stores_files`: every document, forgetting document and payload a copy carries is one of this store's; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
+| `catchup_lemmas.bend` | `export_catches_up_to_a_fresh_copy`: once the steps of a copy's folder plan are taken, every path of the folder a fresh export lays out for the same target holds that file — by digest and mode, or by where its link points — one step a file, and nothing removed is one of those paths; `export_settles_only_on_what_it_laid_out`: a folder the plan calls settled already holds all that; `export_spares_the_unrecorded`: every file the plan writes or links over, and every file it removes, holds bytes `cat` of some revision of the copy reads for some file of its tree, or a payload that tree names — `update`'s promise, met at `update_lemmas.lookup_rec` | `export` onto a copy |
+| `onto_lemmas.bend` | `export_updates_only_a_copy_it_could_have_made`: an update goes on exactly where the copy is related and holds no revision this store neither holds nor names as a parent or as superseded; `export_update_leaves_the_copy_the_whole_set`: every revision, document, forgetting document and payload the set names is one the copy holds, one the update writes, or one a forgetting document of either side says is gone; `export_update_gives_up_only_what_the_set_no_longer_names`: every file an update withdraws or retires is a revision, document or payload file the set does not carry, a rule file of a rule the origin does not share, or a bookmark file of one that does not travel; `export_update_carries_only_the_claims_a_copy_lacks`: a file of `claims/` travels exactly where the copy has none of that name; `export_update_states_no_private_rule`: every rule file an update adds states a shared rule | `export` onto a copy |
+| `dryrun_lemmas.bend` | `export_dry_run_names_what_it_would_write`: read back, `export -n`'s `would withdraw` lines are the files a copy gives up, in order, and its `write` lines every path the tree places, once each and in path order; `export_files_only_dry_run_names_what_it_lays_out`: `--files-only -n`'s `write` and `link` lines are the files and links the real run says it wrote and linked | `export -n` |
+| `filesonly_lemmas.bend` | `export_reads_a_directory_listing_back`: the host's listing of a directory reads back as its entries' names, once each and in order, a link's target no entry of its own; `export_writes_only_into_nothing`: `--files-only` lays a folder out, and a fresh copy is made, exactly where that listing names no entry; `export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise`: reading the host's digest line for each file it wrote, `--files-only` refuses the folder as folding the tree's paths exactly where some file reads back as other bytes than it laid | `export`, `export --files-only` |
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
 | `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
 | `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have; `fetch_writes_a_bookmark_once_a_pass`: once a pass has written a bookmark, whatever the host answers for a later line naming it, no bookmark is written for it | `fetch` |
 | `manifest_lemmas.bend` | `fetch_reads_the_manifest_offer_writes`: the lines `offer` prints, each with a newline after it and answered by the host as the text at the manifest's URL, are read by `fetch` as the heads and files they were printed from, every kind, digest, forgotten digest and path as written | `offer`, `fetch` |
 | `fetchplan_lemmas.bend` | `fetch_refuses_only_what_shares_no_revision`: a refusal as unrelated is where no join was asked, each side holds a revision, and no revision the manifest lists is one this store holds or one a revision here names as a parent or as what it supersedes; `fetch_refuses_what_shares_no_revision`: and there it refuses, in the Rust tool's words; `fetch_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of this store, or a line of the manifest, says is forgotten; `fetch_asks_for_no_payload_held_or_forgotten`, `fetch_asks_for_no_document_held_or_forgotten` and `fetch_asks_for_no_revision_it_holds`: every payload and document it asks for is one this store holds nothing under the digest of and neither side forgets, and every revision one it does not hold; `fetch_says_what_it_took`: asked for `--fields`, it names each revision it took once, in digest order, and none it did not | `fetch` |
 | `escape_lemmas.bend` | `fetch_asks_for_a_path_by_its_bytes`: whatever the bytes of a path, what `fetch` asks for decodes, each escape read as `%` and two uppercase hex digits, back to exactly those bytes; `fetch_asks_in_characters_a_url_may_hold`: and holds only characters RFC 3986 leaves unreserved, `/` and `%`; `fetch_asks_for_what_is_unreserved_as_itself`: and each unreserved character, and `/`, is asked for as itself — every byte of the 256 shown to the checker, and with the three laws the whole of how a byte is spelled | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and ninety-eight claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | three hundred and eleven claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -1152,10 +1156,23 @@ where the tree says (`export_lays_each_file_as_the_tree_has_it`) — and
 every path outside the store, no other file's directory, and none a rule
 of the copy covers, so the copy's own walk offers back all it was given
 (`export_lays_out_only_what_the_walk_offers_back`); or, where the folder
-cannot take the tree whole, every path in the way named. `-n` prints the counts and the paths. `--files-only` lays the
+cannot take the tree whole, every path in the way named. `-n` prints the
+counts, a `would withdraw` line for each file a copy being updated gives
+up, in the order they go, and a `write` line for every path the tree
+places, once each and in path order, no other line reading as either
+(`export_dry_run_names_what_it_would_write`). `--files-only` lays the
 same folder out into a directory holding nothing, with no store beside it,
 says each link and mode it set, and reads each file it wrote back, refusing
-a folder that folds two of the tree's paths onto one file. A directory
+a folder that folds two of the tree's paths onto one file exactly where some
+file reads back as other bytes than it laid
+(`export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise`); its `-n` names,
+file for file and link for link, what the real run then says it wrote and
+linked (`export_files_only_dry_run_names_what_it_lays_out`). What a
+directory holds is read from the host's listing of it, which reads back as
+the entries' own names, once each and in order, a link's target never
+taken for an entry (`export_reads_a_directory_listing_back`), so a folder
+alone, and a fresh copy, is laid out exactly where that listing names
+nothing (`export_writes_only_into_nothing`). A directory
 holding anything that is not a copy is refused, one that cannot be listed
 in the Rust tool's words for why, on both builds: a fresh copy goes only
 where nothing is held, and an update only into a store
@@ -1166,21 +1183,38 @@ each flag counting wherever it stands (`export_reads_its_words`).
 
 A directory holding a copy this store made is brought up to date rather
 than refused (decision 0052), once it passes `check` — asked before the
-copy is opened, as the Rust tool asks it — is related, and holds no revision this store neither holds nor
-names. The set is the same; the copy is diffed against it by content: each
+copy is opened, as the Rust tool asks it — and exactly where it is related
+and holds no revision this store neither holds nor names as a parent or as
+superseded (`export_updates_only_a_copy_it_could_have_made`). The set is
+the same; the copy is diffed against it by content: each
 revision the set names is held under the stem it has, each document or
 payload either side forgets destroyed, each file the set no longer names
 withdrawn — revisions, then documents, then payloads — and each rule file
-and bookmark the origin no longer shares retired. Newcomers are named
+and bookmark the origin no longer shares retired, and nothing else is given
+up (`export_update_gives_up_only_what_the_set_no_longer_names`). What the update writes
+is one value, `onto.writes`, which it files and counts: after it the copy
+holds every revision, document, forgetting document and payload of the
+set, or a forgetting document of one side says it is gone
+(`export_update_leaves_the_copy_the_whole_set`); the files of `claims/` it
+carries are exactly those the copy has none of by name
+(`export_update_carries_only_the_claims_a_copy_lacks`); and the rule files
+it adds state shared rules only (`export_update_states_no_private_rule`).
+Newcomers are named
 around what the copy holds, as `stems_around` names them. The folder is
 caught up as `update::plan_at` catches one up: a path already holding what
 the target records is kept, one holding bytes some revision of the copy
 records is written over, and one holding work nothing recorded refuses the
 whole export — unless the folder is exactly what the copy's one head
 records and the export is about to take something away, when it is the
-export's own output and rewritten whole: no write lands on work no
-revision's record of that path holds
-(`export_writes_over_no_unrecorded_work`), nothing is destroyed that no
+export's own output and rewritten whole, and a folder is taken for that
+only where it holds, path by path, what a fresh export of that head lays
+out (`export_settles_only_on_what_it_laid_out`). Once the plan's steps are
+taken, every path holds what a fresh export of the target lays there, and
+nothing removed is one of them (`export_catches_up_to_a_fresh_copy`): no
+write lands on work no revision's record of that path holds
+(`export_writes_over_no_unrecorded_work`), and every file written over or
+removed holds bytes `cat` of some revision of the copy reads, or a payload
+its tree names (`export_spares_the_unrecorded`); nothing is destroyed that no
 forgetting document of either side names in its header
 (`export_destroys_only_what_is_forgotten`), no revision the copy holds is
 renamed (`export_renames_nothing_a_copy_holds`), and nothing is removed
@@ -2131,7 +2165,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Three hundred and seventy-one mutations cover the primitive helpers, lost inserts, a lost trailing
+Three hundred and eighty-five mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2318,7 +2352,18 @@ store updated, a file of lines laid out plain whatever its mode, a payload
 copied from a file named for it rather than the one holding it, a payload
 carried from a file the store does not hold, a revision the copy holds
 renamed, a path a rule of the copy covers laid out, and every original the
-copy holds destroyed; and two receive breaks: a store the check calls
+copy holds destroyed; and fourteen breaks of what an export proves of a copy
+and of what it says: a link's target counted as bytes the copy records, a
+copy's file kept whose mode is not the target's, a folder with a file to
+write taken for the export's own untouched output, a copy refused that
+holds a revision the origin pruned but names, private rules planned to
+travel, only the revisions a copy already holds written into it, a
+revision file withdrawn that the target's history holds, a file of
+`claims/` carried over the copy's own, a dry run naming a path twice where
+two files claim it and a withdrawn file outside `history/`, a link's
+target read as an entry of a directory, a file's mode and size read as its
+name, `--files-only -n` planning to write a link as a file, and the size
+the host states for a file read as its digest; and two receive breaks: a store the check calls
 broken planned from, and a plan and a statement taken at once; and one
 offer break: a directory that starts like a flag taken; and one offer
 digest break: a file named by its path rather than its digest; and the

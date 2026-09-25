@@ -81,6 +81,10 @@ import ./prune.bend as Prune
 import ./receive_lemmas.bend as ReceiveL
 import ./offer_lemmas.bend as OfferL
 import ./export_lemmas.bend as ExportL
+import ./catchup_lemmas.bend as CatchL
+import ./onto_lemmas.bend as OntoL
+import ./dryrun_lemmas.bend as DryL
+import ./filesonly_lemmas.bend as FilesL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
@@ -1020,6 +1024,45 @@ def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs,
 
 def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks, d, h):
   ExportL.destroyed(p, here, cst, marks, d, h)
+
+def Laws.export_reads_a_directory_listing_back(es, h):
+  FilesL.names_back(es, h)
+
+def Laws.export_writes_only_into_nothing(into, es, header, h):
+  FilesL.into_nothing(into, es, header, h)
+
+def Laws.export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise(qs, ds, hs, hl):
+  FilesL.folded_done(qs, ds, hs, hl)
+
+def Laws.export_dry_run_names_what_it_would_write(held, t, ds, ps, bodies, rs, bs, claims, c, ws, n, u, spelled, into, x):
+  DryL.dry_names(held, t, ds, ps, bodies, rs, bs, claims, c, ws, n, u, spelled, into, x)
+
+def Laws.export_files_only_dry_run_names_what_it_lays_out(ps, set, spelled, into, at):
+  DryL.folder_said(ps, set, spelled, into, at)
+
+def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, cfs):
+  OntoL.copy_done(into, fs, cfs)
+
+def Laws.export_update_leaves_the_copy_the_whole_set(p, here, cst, marks, d, h):
+  OntoL.whole_set(p, here, cst, marks, d, h)
+
+def Laws.export_update_gives_up_only_what_the_set_no_longer_names(p, here, cst, marks, w, h):
+  OntoL.given_all(p, here, cst, marks, w, h)
+
+def Laws.export_update_carries_only_the_claims_a_copy_lacks(cs, cc, l):
+  OntoL.fresh_named(cs, cc, l)
+
+def Laws.export_update_states_no_private_rule(held, t, ds, ps, bodies, rs, bs, claims, cst, retired):
+  OntoL.added_shared(held, t, ds, ps, bodies, rs, bs, claims, cst, retired)
+
+def Laws.export_catches_up_to_a_fresh_copy(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs):
+  CatchL.catch_lands(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs)
+
+def Laws.export_settles_only_on_what_it_laid_out(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs, h):
+  CatchL.settled_held(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs, h)
+
+def Laws.export_spares_the_unrecorded(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds):
+  CatchL.spares(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds)
 
 def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids):
   OfferL.digests(prefix, s, marks, claims, rids, nids)
