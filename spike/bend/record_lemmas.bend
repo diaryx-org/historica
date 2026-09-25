@@ -825,3 +825,15 @@ def befores_read(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: S
       {==}
     case +f <> +rest:
       read1(older, ds, left, f, rest, Main.content.in(older, ds, left, f), bs, {==}, e, more => h => befores_read(older, ds, left, rest, more, h))
+
+# It gives kinds only to files
+# ----------------------------
+
+# Every path given a kind is a file the folder holds.
+def kinds_found(ks: List<&2, T.Split>, +found: Set(), -u: Unit, +e: {Main.kinds.unheld.r(ks, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.kinds.found(ks, found) == True{} : Bool}:
+  match ks:
+    case Nil{}:
+      {==}
+    case T.Split{+p, k} <> +rest:
+      B.and_tt(Sv.has(found, p), Main.kinds.found(rest, found), pick_yes(Unit, Sv.has(found, p), Main.kinds.unheld.r(rest, found), Main.Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}, u, e),
+        kinds_found(rest, found, u, pick_keep(Unit, Sv.has(found, p), Main.kinds.unheld.r(rest, found), Main.Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}, u, e)))
