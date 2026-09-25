@@ -3735,14 +3735,15 @@ law nfc_leaves_separators_alone:
   for h: {Bool.or(U32.is_eq(c, 47), U32.is_eq(c, 46)) == True{} : Bool}
   {Nfc.nfc.points(Nfc.tabs(), List.append(&2, U32, xs, c <> ys)) == List.append(&2, U32, Nfc.nfc.points(Nfc.tabs(), xs), c <> Nfc.nfc.points(Nfc.tabs(), ys)) : List<&2, U32>}
 
-# The walk yields a path once and loses none. Two names a filesystem tells
-# apart can be one path in normal form C, and the walk keeps one file for
-# it: no two files it yields in a row share a path — and it yields them in
-# path order — and every path a file it found is at, a file it yields is
-# at.
+# The walk yields a path once, in path order. Two names a filesystem tells
+# apart can be one path in normal form C; whatever order the walk found its
+# files in, each file it yields is at a path after the one before it and
+# not the same one, so no path is yielded twice. Which file it keeps at a
+# path, and that it loses none, is `the_walk_keeps_the_file_it_met_last`.
 law the_walk_yields_a_path_once:
   for +fs: List<&2, Folder.Found>
-  {Bool.and(Folder.apart(Folder.distinct(fs)), NfcL.paths_held(fs, Folder.distinct(fs))) == True{} : Bool}
+  for +rs: List<&2, T.Split>
+  {ListedL.rising(Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == True{} : Bool}
 
 # A file is opened where the folder spells it. The walk names a path in
 # normal form C, and the filesystem may spell it otherwise, so a read asks
