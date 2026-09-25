@@ -3791,6 +3791,27 @@ def check_mutations(temporary):
             "folder.bend",
         ),
         (
+            "skip takes --name for the name it matches",
+            "      Words.Item{Item.Name{n}, read.go(rest, word(rest))}",
+            "      Words.Item{Item.Name{w}, read.go(rest, word(rest))}",
+            "skip_lemmas.spelled_go",
+            "skip.bend",
+        ),
+        (
+            "skip reads a flag it does not take as a path",
+            '    case +w <> +rest Word.Flag{}:\n      Words.Stop{w <> rest, Main.Refused{2, "`" ++ w ++ "` is not an argument `skip` takes"}}',
+            '    case +w <> +rest Word.Flag{}:\n      Words.Item{Item.Path{w}, read.go(rest, word(rest))}',
+            "skip_lemmas.plain_go",
+            "skip.bend",
+        ),
+        (
+            "skip forgets a --private after a path",
+            "    case Words.Item{i, more}:\n      private.of(more)",
+            "    case Words.Item{i, more}:\n      False{}",
+            "skip_lemmas.private_go",
+            "skip.bend",
+        ),
+        (
             "check counts a note among the errors",
             "      Nat.add(Bool.pick(Nat, Bool.not(Bool.xor(e, errors)), 1n, 0n), count.of(rest, errors))",
             "      Nat.add(Bool.pick(Nat, e, 1n, 0n), count.of(rest, errors))",

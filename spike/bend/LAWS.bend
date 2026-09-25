@@ -45,6 +45,7 @@ import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
 import ./finding_lemmas.bend as FindL
+import ./skip_lemmas.bend as SkipL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2416,6 +2417,38 @@ law skip_writes_what_is_new:
   for +rs: List<&2, Skip.Rule>
   for +had: List<&2, Skip.Rule>
   {Bool.and(Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))))), Skip.all.held(rs, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had))) == True{} : Bool}
+
+# `skip` reads every word it is given, in order: spelled back — a
+# `--private` as itself, a `--name` and the word after it, a path as
+# itself, and, where reading stopped, the words from the one refused on —
+# what it read is the words.
+law skip_reads_its_words:
+  for +ws: List<&2, String>
+  {SkipL.spelled(Skip.read(ws)) == ws : List<&2, String>}
+
+# And it takes each word for what it is: no word it reads as a path is a
+# flag, and it stops only at a flag it does not take — anything opening
+# `--` but `--private`, and `--name` only with nothing after it to name.
+law skip_reads_flags_as_flags:
+  for +ws: List<&2, String>
+  {SkipL.plain(Skip.read(ws)) == True{} : Bool}
+
+# `--private` makes every rule `skip` writes private wherever it stands
+# among words read without a refusal: the rules are each scope asked for,
+# in order, and private.
+law skip_private_wherever_it_stands:
+  for +before: List<&2, String>
+  for +after: List<&2, String>
+  for c: {SkipL.clean(Skip.read(before)) == True{} : Bool}
+  for +ss: List<&2, Folder.Scope>
+  {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(List.append(&2, String, before, "--private" <> after)))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), ss) : List<&2, Skip.Rule>}
+
+# And where no word is `--private`, every rule it writes is shared.
+law skip_shares_without_private:
+  for +ws: List<&2, String>
+  for h: {Rev.member(ws, "--private") == False{} : Bool}
+  for +ss: List<&2, Folder.Scope>
+  {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(ws))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}
 
 # `check`'s report is every error it found, in the order found, then every
 # note, each on its own line under its word — so each finding once — then

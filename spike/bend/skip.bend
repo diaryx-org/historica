@@ -291,39 +291,76 @@ def path.scope(+path: String) -> IO(Result<&2, &2, Main.Refused, Folder.Scope>):
     real : Result<&1, &1, U32 & String, String> <- Store.really(full)
     path.inside(Bool.not(String.eq(trimmed, path)), repo, inside.r(trimmed, repo, settled(full, real)))
 
-def asked.add(a: Asked, sc: Folder.Scope) -> Asked:
-  match a:
-    case Asked{ss, p}:
-      Asked{List.append(&2, Folder.Scope, ss, [sc]), p}
+# What one word, or a `--name` and its value, asks for.
+type Item is Data:
+  Item.Private{}
+  Item.Name{name: String}
+  Item.Path{path: String}
 
-def asked.private(a: Asked) -> Asked:
-  match a:
-    case Asked{ss, p}:
-      Asked{ss, True{}}
+# The words, read in order: an item and the words after it, the end, or
+# where reading stopped — the words from the refused one on, and why.
+type Words is Data:
+  Words.End{}
+  Words.Stop{words: List<&2, String>, refused: Main.Refused}
+  Words.Item{item: Item, more: Words}
 
-# The words, in order, each refused where it stands; a path is read against
-# the store as it comes, as the Rust tool reads it.
-def args.go(args: List<&2, String>, a: Asked, k: Word) -> IO(Asked):
+def read.go(args: List<&2, String>, k: Word) -> Words:
   match args k:
     case Nil{} _:
-      IO.pure(Asked, a)
+      Words.End{}
     case w <> +rest Word.Private{}:
-      args.go(rest, asked.private(a), word(rest))
-    case w <> Nil{} Word.Name{}:
-      Main.die(Asked, 2, "`--name` wants a name to match")
+      Words.Item{Item.Private{}, read.go(rest, word(rest))}
+    case +w <> Nil{} Word.Name{}:
+      Words.Stop{[w], Main.Refused{2, "`--name` wants a name to match"}}
     case w <> +n <> +rest Word.Name{}:
-      do IO<Asked>:
-        sc : Folder.Scope <- Main.refused.io(Folder.Scope, name.scope.r(n))
-        args.go(rest, asked.add(a, sc), word(rest))
-    case w <> rest Word.Suffix{}:
-      Main.die(Asked, 2, "`--suffix` is retired: an ending is `--name` and `*` and the ending, matched against a file's own name")
-    case w <> rest Word.Flag{}:
-      Main.die(Asked, 2, "`" ++ w ++ "` is not an argument `skip` takes")
+      Words.Item{Item.Name{n}, read.go(rest, word(rest))}
+    case +w <> +rest Word.Suffix{}:
+      Words.Stop{w <> rest, Main.Refused{2, "`--suffix` is retired: an ending is `--name` and `*` and the ending, matched against a file's own name"}}
+    case +w <> +rest Word.Flag{}:
+      Words.Stop{w <> rest, Main.Refused{2, "`" ++ w ++ "` is not an argument `skip` takes"}}
     case +w <> +rest Word.Path{}:
-      do IO<Asked>:
-        r : Result<&2, &2, Main.Refused, Folder.Scope> <- path.scope(w)
-        sc : Folder.Scope <- Main.refused.io(Folder.Scope, r)
-        args.go(rest, asked.add(a, sc), word(rest))
+      Words.Item{Item.Path{w}, read.go(rest, word(rest))}
+
+# The command line as `skip` reads it (`LAWS.skip_reads_its_words`,
+# `LAWS.skip_reads_flags_as_flags`): `--private` wherever it stands, each
+# `--name` and the word after it, and every other word a path, until a
+# flag `skip` does not take.
+def read(+args: List<&2, String>) -> Words:
+  read.go(args, word(args))
+
+# Whether a `--private` stands among what was read: it makes every rule of
+# the invocation private, wherever it is.
+def private.of(r: Words) -> Bool:
+  match r:
+    case Words.End{}:
+      False{}
+    case Words.Stop{ws, e}:
+      False{}
+    case Words.Item{Item.Private{}, more}:
+      True{}
+    case Words.Item{i, more}:
+      private.of(more)
+
+# Each item read, in order, a path read against the store as it comes, as
+# the Rust tool reads it; and the refusal where reading stopped, once every
+# word before it has had its say.
+def scopes.go(r: Words, +ss: List<&2, Folder.Scope>) -> IO(List<&2, Folder.Scope>):
+  match r:
+    case Words.End{}:
+      IO.pure(List<&2, Folder.Scope>, ss)
+    case Words.Stop{ws, e}:
+      Main.refused.io(List<&2, Folder.Scope>, Fail{e})
+    case Words.Item{Item.Private{}, more}:
+      scopes.go(more, ss)
+    case Words.Item{Item.Name{+n}, more}:
+      do IO<List<&2, Folder.Scope>>:
+        sc : Folder.Scope <- Main.refused.io(Folder.Scope, name.scope.r(n))
+        scopes.go(more, List.append(&2, Folder.Scope, ss, [sc]))
+    case Words.Item{Item.Path{+w}, more}:
+      do IO<List<&2, Folder.Scope>>:
+        r2 : Result<&2, &2, Main.Refused, Folder.Scope> <- path.scope(w)
+        sc : Folder.Scope <- Main.refused.io(Folder.Scope, r2)
+        scopes.go(more, List.append(&2, Folder.Scope, ss, [sc]))
 
 def rules.of(ss: List<&2, Folder.Scope>, +p: Bool) -> List<&2, Rule>:
   match ss:
@@ -592,12 +629,13 @@ def write(+root: String, +fs: List<&2, Main.Full>, +rs: List<&2, Rule>, +ss: Lis
 # rules there are.
 def skip(+args: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
-    a : Asked <- args.go(args, Asked{Nil{}, False{}}, word(args))
-    +rs : List<&2, Rule> = wanted(a)
+    +r : Words = read(args)
+    ss : List<&2, Folder.Scope> <- scopes.go(r, Nil{})
+    +rs : List<&2, Rule> = wanted(Asked{ss, private.of(r)})
     root : String <- Store.root()
-    +r : String = root
-    docs : List<&2, Store.Doc> <- Store.revisions(r)
-    bs : List<&2, Bm.Bookmark> <- Main.bookmarks(r)
-    ss : List<&2, Stating> <- stated(r)
-    +ss2 : List<&2, Stating> = ss
-    Bool.pick(IO(Unit), List.is_empty(&2, Rule, rs), IO.write(listed(ss2)), write(r, Main.fulls(r, docs), rs, ss2))
+    +here : String = root
+    docs : List<&2, Store.Doc> <- Store.revisions(here)
+    bs : List<&2, Bm.Bookmark> <- Main.bookmarks(here)
+    st : List<&2, Stating> <- stated(here)
+    +st2 : List<&2, Stating> = st
+    Bool.pick(IO(Unit), List.is_empty(&2, Rule, rs), IO.write(listed(st2)), write(here, Main.fulls(here, docs), rs, st2))
