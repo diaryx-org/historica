@@ -758,6 +758,34 @@ STORES = {
     # as a folder, at the head and at the first revision, planned and done;
     # refused over the occupied directory, a target that is not one, and the
     # words.
+    # Copies an export made, before the store went on: at the first revision,
+    # at the head, and each of those touched — a file edited, a stray file
+    # added, a revision recorded in it, a revision file that does not parse
+    # — and a stranger's store. Since then a line of a file only the second
+    # revision held was forgotten, a bookmark deleted and one made private, a
+    # rule deleted and one added. Each is brought up to date, planned and
+    # done, at the head and at the first revision, or refused.
+    "updating": [
+        ["export", "-n", "copy-old"],
+        ["export", "copy-old"],
+        ["export", "copy-old", "old"],
+        ["export", "-n", "copy-head"],
+        ["export", "copy-head"],
+        ["export", "--dry-run", "copy-head", "old"],
+        ["export", "copy-head", "old"],
+        ["export", "-n", "copy-edited"],
+        ["export", "copy-edited"],
+        ["export", "copy-stray"],
+        ["export", "copy-disturbed", "old"],
+        ["export", "copy-recorded"],
+        ["export", "-n", "copy-recorded"],
+        ["export", "copy-stranger"],
+        ["export", "copy-broken"],
+        ["export", "notes.md"],
+        ["export", "-n", "notes.md/deeper"],
+        ["export", "--files-only", "notes.md"],
+        ["export", "--files-only", "-n", "notes.md/deeper"],
+    ],
     "exporting": [
         ["export", "-n", "out"],
         ["export", "out"],
@@ -1371,6 +1399,60 @@ def record(temporary, rust, corpus, pinned=None):
         at(stranger, "record", "-m", "elsewhere")
         for name, path in (("other", other), ("agreeing", agreeing), ("stranger", stranger), ("forgetful", forgetful)):
             path.rename(store / name)
+    elif corpus == "updating":
+        def at(where, *command):
+            return subprocess.run([rust, *command], cwd=where, env=env, check=True, capture_output=True, text=True, timeout=120).stdout
+
+        (store / "notes.md").write_text("one\n")
+        (store / "photo.bin").write_bytes(b"\x00one")
+        (store / "run.sh").write_text("#!/bin/sh\necho run\n")
+        (store / "run.sh").chmod(0o755)
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        os.symlink("notes.md", store / "to-notes")
+        os.symlink("/etc/hosts", store / "abs")
+        historica("record", "-m", "one")
+        historica("name", "old", "head", "--revision")
+        (store / "gone.md").write_text("secret\nline\n")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "photo.bin").write_bytes(b"\x00two")
+        historica("record", "-m", "two")
+        two = at(store, "log", "--fields").splitlines()[1].split()[0]
+        (store / "gone.md").unlink()
+        (store / "sub" / "deep.md").write_text("deep\ner\n")
+        (store / "run.sh").chmod(0o644)
+        historica("record", "-m", "three")
+        historica("name", "main", "head")
+        historica("name", "doc", "head", "notes.md")
+        historica("name", "gone", "head")
+        historica("skip", "build/")
+        historica("skip", "--name", "*.log")
+        (store / "history" / "claims").mkdir()
+        (store / "history" / "claims" / "one.txt").write_text("vouched\n")
+        historica("export", "copy-old", "old")
+        historica("export", "copy-head")
+        historica("export", "copy-edited", "old")
+        (store / "copy-edited" / "notes.md").write_text("mine\n")
+        historica("export", "copy-stray", "old")
+        (store / "copy-stray" / "stray.md").write_text("stray\n")
+        historica("export", "copy-disturbed")
+        (store / "copy-disturbed" / "notes.md").write_text("mine\n")
+        historica("export", "copy-recorded", "old")
+        (store / "copy-recorded" / "x.md").write_text("x\n")
+        at(store / "copy-recorded", "record", "-m", "in the copy")
+        historica("export", "copy-broken", "old")
+        (store / "copy-broken" / "history" / "revisions" / "bad.rev.txt").write_text("garbage\n")
+        (store / "copy-stranger").mkdir()
+        at(store / "copy-stranger", "init", ".")
+        (store / "copy-stranger" / "else.md").write_text("elsewhere\n")
+        at(store / "copy-stranger", "record", "-m", "elsewhere")
+        # The store goes on without recording: nothing the copies hold is
+        # tracked by it.
+        historica("forget", two, "gone.md", "--lines", "1..1")
+        historica("name", "--delete", "gone")
+        historica("name", "doc", "head", "notes.md", "--private")
+        (store / "history" / "skipped" / "build" / "all.txt").unlink()
+        historica("skip", "dist/")
     elif corpus == "exporting":
         def at(*command):
             return subprocess.run([rust, *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120).stdout
@@ -1570,7 +1652,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting", "updating")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -2405,6 +2487,20 @@ def check_mutations(temporary):
             "      Tree.keep(~Receive.Ruled, Bool.not(ruled.private(r)), r, rules.shared(rest))",
             "      Tree.keep(~Receive.Ruled, True{}, r, rules.shared(rest))",
             "export_lemmas.shared_all",
+            "export.bend",
+        ),
+        (
+            "export writes over a file nothing recorded",
+            "      +over = Bool.pick(Step, recorded(whole, rs, path, d),",
+            "      +over = Bool.pick(Step, True{},",
+            "export_lemmas.held_safe",
+            "export.bend",
+        ),
+        (
+            "export removes a stray file nothing recorded",
+            "      Tree.keep(~String, Bool.and(Bool.not(Arrange.has(placed, p)), seen.gone(s, whole, rs)), p, removes(rest, placed, whole, rs))",
+            "      Tree.keep(~String, Bool.not(Arrange.has(placed, p)), p, removes(rest, placed, whole, rs))",
+            "export_lemmas.removes_safe",
             "export.bend",
         ),
         (

@@ -1702,3 +1702,25 @@ law a_link_resolves_inside_the_folder:
   for h: {Sv.path_check(link) == None{} : Maybe<&2, String>}
   for e: {Sv.resolution(link, target) == Some{p} : Maybe<&2, String>}
   {Main.escapes(p) == False{} : Bool}
+
+# Bringing a copy's folder up to date writes over no work nothing has
+# recorded: every write or link its plan makes over a regular file is over
+# bytes some revision of the copy records, or over the export's own output
+# (decision 0030, as 0052 meets it).
+law export_writes_over_no_unrecorded_work:
+  for +os: List<&2, Export.Outcome>
+  for +ss: List<&2, Export.Seen>
+  for +dirs: Set()
+  for +others: Set()
+  for +whole: Bool
+  for +rs: List<&2, Export.Rec>
+  {Export.steps.safe(Export.steps(os, ss, dirs, others, whole, rs), ss, whole, rs) == True{} : Bool}
+
+# And removes only what the walk found there that some revision records:
+# a stray file nobody recorded stays where it is.
+law export_removes_only_recorded_files:
+  for +ss: List<&2, Export.Seen>
+  for +placed: Set()
+  for +whole: Bool
+  for +rs: List<&2, Export.Rec>
+  {Export.removed.ok(Export.removes(ss, placed, whole, rs), ss, whole, rs) == True{} : Bool}

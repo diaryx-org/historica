@@ -777,3 +777,9 @@ def Laws.record_goes_on_where_each_path_holds_one_file(t, looked, held, walked, 
 
 def Laws.a_link_resolves_inside_the_folder(link, target, p, h, e):
   SurveyL.link_inside(link, target, p, h, e)
+
+def Laws.export_writes_over_no_unrecorded_work(os, ss, dirs, others, whole, rs):
+  ExportL.steps_safe(os, ss, dirs, others, whole, rs)
+
+def Laws.export_removes_only_recorded_files(ss, placed, whole, rs):
+  ExportL.removes_safe(ss, placed, whole, rs)

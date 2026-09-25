@@ -222,13 +222,30 @@ and lays the folder out file by file: a file of lines through `Store.once`,
 the text replayed here; a file of bytes through `Store.copy`, straight out
 of the store; and two effects of its own. `Store.link` makes a link where
 it is told, pointing where it is told, at a staged sibling renamed over the
-path, and never opens what it points at. `Store.runs` makes a file
-runnable the way the Rust tool's `set_executable` does — the execute bits
-follow the read bits — and answers whether anything changed, which is
-what `--files-only` reports as a `mode` line. Which files, under which
-names, spelled how, and which of them run, are decided in Bend: where a
-link points is `materialise`'s arithmetic, here. `Store.folder` answers
-whether the destination holds anything, and what.
+path, and never opens what it points at. `Store.runs` sets a file's
+execute bits the way the Rust tool's `set_executable` does — made
+runnable they follow the read bits, made plain they go — and answers
+whether anything changed, which is what `--files-only` reports as a `mode`
+line. Which files, under which names, spelled how, and which of them run,
+are decided in Bend: where a link points is `materialise`'s arithmetic,
+here. `Store.folder` answers whether the destination holds anything, and
+what; `Store.digests` reads each file `--files-only` wrote back.
+
+Onto a copy it made, `export` reads the copy as it reads this store, walks
+the copy's folder through `Folder.walk` with `Store.digests` for each
+file's digest, asks `Store.folder` what stands at each path the tree
+places and the walk did not offer, and reads what the copy's revisions
+say of every file ever at a path the walk found through `Store.fetch`.
+It writes over a file through `Store.write`, which lands staged and
+renamed, and over a payload by `Store.remove` then `Store.copy`; it
+removes through `Store.remove`, tidying up to the folder, and withdraws
+from the copy the same way, then `Store.sweep`. What is kept, written,
+withdrawn, destroyed or refused is decided in Bend.
+
+A refusal an effect reports is in the Rust tool's words on both builds:
+the native side's are `std::io::Error`'s, and the JS twins of
+`Store.folder` and `Store.mkdirs` spell an error the same way — the C
+library's description and `(os error N)` — rather than libuv's.
 
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and

@@ -487,13 +487,15 @@ pub unsafe extern "C" fn hist_store_link(
     })
 }
 
-/// A file made runnable: `export`'s, for a file the tree says can be run.
+/// A file's execute bit set as the tree says: `export`'s, for each file it
+/// writes or finds with the wrong mode.
 ///
-/// The argument is the path. The execute bits follow the read bits, as the
-/// Rust tool sets them — a file readable by its group becomes runnable by
-/// its group, and a private file stays private — and nothing else about the
-/// file changes. The answer is `set`, or `held` where the bits already were:
-/// which files are runnable is the Bend side's.
+/// The argument is the path, then `executable` or `plain`. Made runnable,
+/// the execute bits follow the read bits, as the Rust tool sets them — a
+/// file readable by its group becomes runnable by its group, and a private
+/// file stays private; made plain, every execute bit goes; nothing else
+/// about the file changes. The answer is `set`, or `held` where the bits
+/// already were: which files run is the Bend side's.
 ///
 /// # Safety
 ///
@@ -508,11 +510,15 @@ pub unsafe extern "C" fn hist_store_runs(
     use std::os::unix::fs::PermissionsExt as _;
 
     answer(out, out_len, || {
-        let path = Path::new(text(query, query_len)?);
+        let (path, wanted) = match text(query, query_len)?.split_once('\n') {
+            Some((path, "executable")) => (Path::new(path), true),
+            Some((path, "plain")) => (Path::new(path), false),
+            _ => return Err((EINVAL, "a mode is a path, then `executable` or `plain`".to_owned())),
+        };
         let failed = |error: std::io::Error| (code(&error), format!("{}: {error}", path.display()));
         let mut permissions = fs::metadata(path).map_err(failed)?.permissions();
         let held = permissions.mode();
-        let mode = held | ((held & 0o444) >> 2);
+        let mode = if wanted { held | ((held & 0o444) >> 2) } else { held & !0o111 };
         if mode == held {
             return Ok("held".to_owned());
         }
@@ -1401,15 +1407,22 @@ mod tests {
         fs::set_permissions(&private, fs::Permissions::from_mode(0o600)).unwrap();
         let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
 
-        assert_eq!(call(hist_store_runs, shared.display().to_string().as_bytes()), (0, "set".to_owned()));
+        let asked = |path: &Path, mode: &str| call(hist_store_runs, format!("{}\n{mode}", path.display()).as_bytes());
+
+        assert_eq!(asked(&shared, "executable"), (0, "set".to_owned()));
         assert_eq!(mode(&shared), 0o755);
-        assert_eq!(call(hist_store_runs, private.display().to_string().as_bytes()), (0, "set".to_owned()));
+        assert_eq!(asked(&private, "executable"), (0, "set".to_owned()));
         assert_eq!(mode(&private), 0o700);
         // Asked again, nothing changes, and it says so.
-        assert_eq!(call(hist_store_runs, shared.display().to_string().as_bytes()), (0, "held".to_owned()));
+        assert_eq!(asked(&shared, "executable"), (0, "held".to_owned()));
         assert_eq!(mode(&shared), 0o755);
+        // Made plain, every execute bit goes and nothing else does.
+        assert_eq!(asked(&shared, "plain"), (0, "set".to_owned()));
+        assert_eq!(mode(&shared), 0o644);
+        assert_eq!(asked(&shared, "plain"), (0, "held".to_owned()));
         let missing = dir.path().join("missing");
-        assert_eq!(call(hist_store_runs, missing.display().to_string().as_bytes()).0, ENOENT);
+        assert_eq!(asked(&missing, "plain").0, ENOENT);
+        assert_eq!(call(hist_store_runs, b"no mode").0, EINVAL);
     }
 
     #[test]

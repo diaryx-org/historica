@@ -281,8 +281,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `offer.bend` | `offer`: the published copy's store read as `prune` reads it and opened as the Rust tool opens a store, and its manifest written to standard output — the header, every head of the graph, then payloads, documents, revisions, rules, the other tool's files and bookmarks, each group by path and each path under the copy's own name — with no private rule or bookmark named | `store::offer`, decisions 0048, 0052, 0056 |
 | `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have | `offer` |
 | `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0053, 0062 |
-| `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule | `export` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and fifty-eight claims about the code, each proven | the test suite and Verus replay helpers |
+| `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision records its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what some revision records | `export` |
+| `LAWS.bend` / `PROOF.bend` | a hundred and sixty claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -757,8 +757,37 @@ it sits and spelled as decision 0040 spells it, a runnable file made
 runnable — or, where the folder cannot take the tree whole, every path in
 the way named. `-n` prints the counts and the paths. `--files-only` lays the
 same folder out into a directory holding nothing, with no store beside it,
-and says each link and mode it set. A directory holding anything that is
-not a copy is refused. The `exporting` store has lines, bytes, a runnable
+says each link and mode it set, and reads each file it wrote back, refusing
+a folder that folds two of the tree's paths onto one file. A directory
+holding anything that is not a copy is refused, one that cannot be listed
+in the Rust tool's words for why, on both builds.
+
+A directory holding a copy this store made is brought up to date rather
+than refused (decision 0052), once it passes the part of `check` the port
+reads, is related, and holds no revision this store neither holds nor
+names. The set is the same; the copy is diffed against it by content: each
+revision the set names is held under the stem it has, each document or
+payload either side forgets destroyed, each file the set no longer names
+withdrawn — revisions, then documents, then payloads — and each rule file
+and bookmark the origin no longer shares retired. Newcomers are named
+around what the copy holds, as `stems_around` names them. The folder is
+caught up as `update::plan_at` catches one up: a path already holding what
+the target records is kept, one holding bytes some revision of the copy
+records is written over, and one holding work nothing recorded refuses the
+whole export — unless the folder is exactly what the copy's one head
+records and the export is about to take something away, when it is the
+export's own output and rewritten whole: no write lands on work nothing has
+recorded (`export_writes_over_no_unrecorded_work`), and nothing is removed
+that no revision records (`export_removes_only_recorded_files`). The
+`updating` store has copies at
+the first revision and at the head, one with a file edited, one with a
+stray file, one disturbed at the head, one recorded in, one broken, and a
+stranger's store, made before the store forgot a line, deleted a bookmark,
+made one private and traded a rule for another; nineteen `export`s bring
+each up to date, at the head and back at the first revision, or refuse it,
+and refuse a destination that is a file or under one.
+
+The `exporting` store has lines, bytes, a runnable
 file, links by reference and verbatim, three revisions, a forgetting
 document for a file only the second holds, bookmarks shared, private,
 pinned and naming a file, rules shared, private and none, and a file of
@@ -766,8 +795,9 @@ pinned and naming a file, rules shared, private and none, and a file of
 every document the resolution keeps items of, and its folder laid out from
 the merge walk; the `folder` store's links, mode and rules; the `pruning`
 store's head, whose ancestry leaves a `supersedes` edge dangling; and the
-`merge` store refused as broken, `check.py` holds twenty-two `export`s to
-the Rust tool, every file written compared after.
+`merge` store refused as broken, and the nineteen of the `updating` store,
+`check.py` holds forty-one `export`s to the Rust tool, every file written
+compared after.
 
 Colour is the Rust tool's too: `auto` asks the host whether standard output
 is a terminal (`Store.tty`) and gives way to `NO_COLOR`, and a line
@@ -1313,7 +1343,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-A hundred and fifty mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and fifty-two mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1420,7 +1450,8 @@ the source has it, and an original destroyed that nothing forgets; and two offer
 breaks: a private bookmark named, and a private rule named; and four
 export breaks: a link laid somewhere other than where it sits, a
 private bookmark given to the copy, a bookmark pointing past the target
-given to it, and a private rule written into it. The
+given to it, and a private rule written into it; and two update breaks:
+a file nothing recorded written over, and a stray file removed. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1550,14 +1581,14 @@ is under 5k. Not ported:
   rules cover a tracked path. A revision the Rust tool refuses to open is
   refused here too, naming the file, but in the port's parser's words for
   why, which are not the Rust tool's.
-- **`export` onto a copy it made** (decision 0052): the port writes into
-  an absent or empty directory only, and refuses one holding a store in
-  words of its own rather than updating it in place. A destination that is
-  a file, or that cannot be listed, fails in the host's words. The copy's
+- **`export`'s edges**: the folder a copy is caught up to is read from
+  this store's documents rather than the copy's, which differ only where
+  the copy lacks bytes this store holds; a path the tree places under a
+  file the folder holds is refused in the port's words; and a file of lines
+  the target holds whose content a forgetting document stands in for is
+  not read, as `cat` does not read one (**Forgetting**, above). The copy's
   documents are written as they were read, not rewritten from what they
-  parse to, which is the same bytes in any store `check` passes; and the
-  folder is not read back after writing, so a filesystem that folds two of
-  the tree's paths onto one file is not caught.
+  parse to, which is the same bytes in any store `check` passes.
 
 ## What Bend asked for
 

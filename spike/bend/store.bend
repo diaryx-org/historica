@@ -97,8 +97,9 @@ def Store.link(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_link.c"
   import "./ffi/store_link.js"
 
-# A file made runnable: its path. The execute bits follow the read bits, as
-# the Rust tool sets them. Back `set`, or `held` where they already were.
+# A file's execute bits set: its path, then `executable` or `plain`. Made
+# runnable they follow the read bits, as the Rust tool sets them; made
+# plain they go. Back `set`, or `held` where they already were.
 def Store.runs(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_runs.c"
   import "./ffi/store_runs.js"
