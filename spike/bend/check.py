@@ -4891,6 +4891,15 @@ def check_mutations(temporary):
             "offer.bend",
         ),
         (
+            # Both privacy laws hold of this, since nothing private is
+            # named; only the manifest's completeness does not.
+            "offer lists no rule and no bookmark",
+            "      Offered{kind, d, None{}, addressed(prefix, label)} <> rest",
+            "      rest",
+            "offer_lemmas.found_kept",
+            "offer.bend",
+        ),
+        (
             "update writes over bytes no revision records",
             "        Bool.pick(Step, Rev.member(recorded, d), Step.Write{}, Step.Refuse{UNRECORDED()}))",
             "        Bool.pick(Step, True{}, Step.Write{}, Step.Refuse{UNRECORDED()}))",

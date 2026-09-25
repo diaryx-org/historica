@@ -290,15 +290,105 @@ def covers_bodies(bs: List<&2, Prune.Body>, +prefix: String) -> {covers(body.spl
         own_line("operation", d, f, Offer.addressed(prefix, l), Offer.bodies.offered(rest, prefix)),
         covers_more(body.splits(rest), Offer.Offered{"operation", d, f, Offer.addressed(prefix, l)}, Offer.bodies.offered(rest, prefix), "operation", prefix, covers_bodies(rest, prefix)))
 
+# The digest the listing gives label `l`: the first it lists it with.
+def given(ss: List<&2, T.Split>, +l: String) -> Maybe<&2, String>:
+  match ss:
+    case Nil{}:
+      None{}
+    case T.Split{+k, +v} <> rest:
+      Bool.pick(Maybe<&2, String>, String.eq(k, l), Some{v}, given(rest, l))
+
+# A file that is not private and that the listing gives a digest, kept by
+# its label and that digest.
+def kept(priv: Bool, m: Maybe<&2, String>, +label: String, rest: List<&2, T.Split>) -> List<&2, T.Split>:
+  match priv:
+    case True{}:
+      rest
+    case False{}:
+      match m:
+        case None{}:
+          rest
+        case Some{d}:
+          T.Split{label, d} <> rest
+
+# The rules a fetcher is owed: each rule whose line does not begin
+# `private` and whose file, `skipped/` and its name, the listing holds,
+# by that label and the digest the listing gives it.
+def public_rules(rs: List<&2, Receive.Ruled>, +ids: List<&2, T.Split>) -> List<&2, T.Split>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case Receive.Ruled{+file, +line, l} <> rest:
+      kept(String.starts_with(line, "private"), given(ids, "skipped/" ++ file), "skipped/" ++ file, public_rules(rest, ids))
+
+# The bookmarks a fetcher is owed: each that is not private and whose
+# file, `names/` and its name and `.txt`, the listing holds, by that label
+# and the digest the listing gives it.
+def public_names(bs: List<&2, Bm.Bookmark>, +ids: List<&2, T.Split>) -> List<&2, T.Split>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Bm.Bookmark{+n, t, +p} <> rest:
+      kept(p, given(ids, "names/" ++ n ++ ".txt"), "names/" ++ n ++ ".txt", public_names(rest, ids))
+
+def given_lookup(ss: List<&2, T.Split>, +l: String) -> {given(ss, l) == Arrange.lookup(ss, l) : Maybe<&2, String>}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+k, +v} <> rest:
+      %given_lookup(rest, l) : {Bool.pick(Maybe<&2, String>, String.eq(k, l), Some{v}, given(rest, l)) == Bool.pick(Maybe<&2, String>, String.eq(k, l), Some{v}, _) : Maybe<&2, String>}
+      {==}
+
+def found_kept(c: Bool, m: Maybe<&2, String>, +label: String, +k: String, +prefix: String, +ss: List<&2, T.Split>, +os: List<&2, Offer.Offered>, ih: {Offer.splits.offered(ss, k, prefix) == os : List<&2, Offer.Offered>}) -> {Offer.splits.offered(kept(c, m, label, ss), k, prefix) == Offer.offered.found(Bool.not(c), m, label, k, prefix, os) : List<&2, Offer.Offered>}:
+  match c:
+    case True{}:
+      match m:
+        case None{}:
+          ih
+        case Some{d}:
+          ih
+    case False{}:
+      match m:
+        case None{}:
+          ih
+        case Some{+d}:
+          %ih : {Offer.Offered{k, d, None{}, Offer.addressed(prefix, label)} <> Offer.splits.offered(ss, k, prefix) == Offer.Offered{k, d, None{}, Offer.addressed(prefix, label)} <> _ : List<&2, Offer.Offered>}
+          {==}
+
+def rules_are(rs: List<&2, Receive.Ruled>, +ids: List<&2, T.Split>, +prefix: String) -> {Offer.splits.offered(public_rules(rs, ids), "rule", prefix) == Offer.rules.offered(rs, ids, prefix) : List<&2, Offer.Offered>}:
+  match rs:
+    case Nil{}:
+      {==}
+    case Receive.Ruled{+file, +line, l} <> +rest:
+      %given_lookup(ids, "skipped/" ++ file) : {Offer.splits.offered(kept(String.starts_with(line, "private"), given(ids, "skipped/" ++ file), "skipped/" ++ file, public_rules(rest, ids)), "rule", prefix) == Offer.offered.found(Bool.not(String.starts_with(line, "private")), _, "skipped/" ++ file, "rule", prefix, Offer.rules.offered(rest, ids, prefix)) : List<&2, Offer.Offered>}
+      found_kept(String.starts_with(line, "private"), given(ids, "skipped/" ++ file), "skipped/" ++ file, "rule", prefix, public_rules(rest, ids), Offer.rules.offered(rest, ids, prefix), rules_are(rest, ids, prefix))
+
+def names_are(bs: List<&2, Bm.Bookmark>, +ids: List<&2, T.Split>, +prefix: String) -> {Offer.splits.offered(public_names(bs, ids), "name", prefix) == Offer.names.offered(bs, ids, prefix) : List<&2, Offer.Offered>}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Bm.Bookmark{+n, t, +p} <> +rest:
+      %given_lookup(ids, "names/" ++ n ++ ".txt") : {Offer.splits.offered(kept(p, given(ids, "names/" ++ n ++ ".txt"), "names/" ++ n ++ ".txt", public_names(rest, ids)), "name", prefix) == Offer.offered.found(Bool.not(p), _, "names/" ++ n ++ ".txt", "name", prefix, Offer.names.offered(rest, ids, prefix)) : List<&2, Offer.Offered>}
+      found_kept(p, given(ids, "names/" ++ n ++ ".txt"), "names/" ++ n ++ ".txt", "name", prefix, public_names(rest, ids), Offer.names.offered(rest, ids, prefix), names_are(rest, ids, prefix))
+
+def covers_rules(+rs: List<&2, Receive.Ruled>, +ids: List<&2, T.Split>, +prefix: String) -> {covers(public_rules(rs, ids), Offer.rules.offered(rs, ids, prefix), "rule", prefix) == True{} : Bool}:
+  %rules_are(rs, ids, prefix) : {covers(public_rules(rs, ids), _, "rule", prefix) == True{} : Bool}
+  covers_splits(public_rules(rs, ids), "rule", prefix)
+
+def covers_names(+bs: List<&2, Bm.Bookmark>, +ids: List<&2, T.Split>, +prefix: String) -> {covers(public_names(bs, ids), Offer.names.offered(bs, ids, prefix), "name", prefix) == True{} : Bool}:
+  %names_are(bs, ids, prefix) : {covers(public_names(bs, ids), _, "name", prefix) == True{} : Bool}
+  covers_splits(public_names(bs, ids), "name", prefix)
+
 # Every payload, document, revision and file of `claims/` the listing
-# holds has a line of its kind, at the path a fetcher asks for it at,
-# naming its digest.
-def lists_all(g: Listing, +prefix: String, +os: List<&2, Offer.Offered>) -> Bool:
+# holds, every rule that is not private whose file it holds, and every
+# bookmark that is not private whose file it holds, has a line of its
+# kind, at the path a fetcher asks for it at, naming its digest.
+def lists_all(g: Listing, +rules: List<&2, Receive.Ruled>, +marks: List<&2, Bm.Bookmark>, +prefix: String, +os: List<&2, Offer.Offered>) -> Bool:
   match g:
     case Listing{ps, ds, vs, rs, cs, ns}:
-      Bool.and(covers(ps, os, "payload", prefix), Bool.and(covers(ds, os, "operation", prefix), Bool.and(covers(vs, os, "revision", prefix), covers(cs, os, "reserved", prefix))))
+      Bool.and(covers(ps, os, "payload", prefix), Bool.and(covers(ds, os, "operation", prefix), Bool.and(covers(vs, os, "revision", prefix), Bool.and(covers(cs, os, "reserved", prefix), Bool.and(covers(public_rules(rules, rs), os, "rule", prefix), covers(public_names(marks, ns), os, "name", prefix))))))
 
-def complete(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>) -> {lists_all(listing.of(s, claims, rids, nids), prefix, Offer.entries(prefix, s, marks, claims, rids, nids)) == True{} : Bool}:
+def complete(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>) -> {lists_all(listing.of(s, claims, rids, nids), Receive.ruled(Offer.rules.of(s)), marks, prefix, Offer.entries(prefix, s, marks, claims, rids, nids)) == True{} : Bool}:
   match s:
     case Prune.Stored{docs, +revs, od, +bs, +ps, names, +rules}:
       +bp : List<&2, Offer.Offered> = Offer.by_path(Offer.splits.offered(ps, "payload", prefix))
@@ -309,25 +399,35 @@ def complete(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +c
       +bn : List<&2, Offer.Offered> = Offer.by_path(Offer.names.offered(marks, nids, prefix))
       +front : List<&2, Offer.Offered> = List.append(&2, Offer.Offered, bp, List.append(&2, Offer.Offered, bb, List.append(&2, Offer.Offered, bv, Nil{})))
       +back : List<&2, Offer.Offered> = List.append(&2, Offer.Offered, br, List.append(&2, Offer.Offered, bc, List.append(&2, Offer.Offered, bn, Nil{})))
-      and_tt(covers(ps, List.append(&2, Offer.Offered, front, back), "payload", prefix), Bool.and(covers(body.splits(bs), List.append(&2, Offer.Offered, front, back), "operation", prefix), Bool.and(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix))),
+      and_tt(covers(ps, List.append(&2, Offer.Offered, front, back), "payload", prefix), Bool.and(covers(body.splits(bs), List.append(&2, Offer.Offered, front, back), "operation", prefix), Bool.and(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), Bool.and(covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix), Bool.and(covers(public_rules(Receive.ruled(rules), rids), List.append(&2, Offer.Offered, front, back), "rule", prefix), covers(public_names(marks, nids), List.append(&2, Offer.Offered, front, back), "name", prefix))))),
         covers_app_l(ps, front, back, "payload", prefix,
           covers_app_l(ps, bp, List.append(&2, Offer.Offered, bb, List.append(&2, Offer.Offered, bv, Nil{})), "payload", prefix,
             covers_sort(ps, Offer.splits.offered(ps, "payload", prefix), "payload", prefix, covers_splits(ps, "payload", prefix)))),
-        and_tt(covers(body.splits(bs), List.append(&2, Offer.Offered, front, back), "operation", prefix), Bool.and(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix)),
+        and_tt(covers(body.splits(bs), List.append(&2, Offer.Offered, front, back), "operation", prefix), Bool.and(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), Bool.and(covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix), Bool.and(covers(public_rules(Receive.ruled(rules), rids), List.append(&2, Offer.Offered, front, back), "rule", prefix), covers(public_names(marks, nids), List.append(&2, Offer.Offered, front, back), "name", prefix)))),
           covers_app_l(body.splits(bs), front, back, "operation", prefix,
             covers_app_r(body.splits(bs), bp, List.append(&2, Offer.Offered, bb, List.append(&2, Offer.Offered, bv, Nil{})), "operation", prefix,
               covers_app_l(body.splits(bs), bb, List.append(&2, Offer.Offered, bv, Nil{}), "operation", prefix,
                 covers_sort(body.splits(bs), Offer.bodies.offered(bs, prefix), "operation", prefix, covers_bodies(bs, prefix))))),
-          and_tt(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix),
+          and_tt(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), Bool.and(covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix), Bool.and(covers(public_rules(Receive.ruled(rules), rids), List.append(&2, Offer.Offered, front, back), "rule", prefix), covers(public_names(marks, nids), List.append(&2, Offer.Offered, front, back), "name", prefix))),
             covers_app_l(revs, front, back, "revision", prefix,
               covers_app_r(revs, bp, List.append(&2, Offer.Offered, bb, List.append(&2, Offer.Offered, bv, Nil{})), "revision", prefix,
                 covers_app_r(revs, bb, List.append(&2, Offer.Offered, bv, Nil{}), "revision", prefix,
                   covers_app_l(revs, bv, Nil{}, "revision", prefix,
                     covers_sort(revs, Offer.splits.offered(revs, "revision", prefix), "revision", prefix, covers_splits(revs, "revision", prefix)))))),
-            covers_app_r(claims, front, back, "reserved", prefix,
-              covers_app_r(claims, br, List.append(&2, Offer.Offered, bc, List.append(&2, Offer.Offered, bn, Nil{})), "reserved", prefix,
+            and_tt(covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix), Bool.and(covers(public_rules(Receive.ruled(rules), rids), List.append(&2, Offer.Offered, front, back), "rule", prefix), covers(public_names(marks, nids), List.append(&2, Offer.Offered, front, back), "name", prefix)),
+              covers_app_r(claims, front, back, "reserved", prefix,
+                covers_app_r(claims, br, List.append(&2, Offer.Offered, bc, List.append(&2, Offer.Offered, bn, Nil{})), "reserved", prefix,
                 covers_app_l(claims, bc, List.append(&2, Offer.Offered, bn, Nil{}), "reserved", prefix,
-                  covers_sort(claims, Offer.splits.offered(claims, "reserved", prefix), "reserved", prefix, covers_splits(claims, "reserved", prefix))))))))
+                  covers_sort(claims, Offer.splits.offered(claims, "reserved", prefix), "reserved", prefix, covers_splits(claims, "reserved", prefix))))),
+              and_tt(covers(public_rules(Receive.ruled(rules), rids), List.append(&2, Offer.Offered, front, back), "rule", prefix), covers(public_names(marks, nids), List.append(&2, Offer.Offered, front, back), "name", prefix),
+                covers_app_r(public_rules(Receive.ruled(rules), rids), front, back, "rule", prefix,
+                  covers_app_l(public_rules(Receive.ruled(rules), rids), br, List.append(&2, Offer.Offered, bc, List.append(&2, Offer.Offered, bn, Nil{})), "rule", prefix,
+                    covers_sort(public_rules(Receive.ruled(rules), rids), Offer.rules.offered(Receive.ruled(rules), rids, prefix), "rule", prefix, covers_rules(Receive.ruled(rules), rids, prefix)))),
+                covers_app_r(public_names(marks, nids), front, back, "name", prefix,
+                  covers_app_r(public_names(marks, nids), br, List.append(&2, Offer.Offered, bc, List.append(&2, Offer.Offered, bn, Nil{})), "name", prefix,
+                    covers_app_r(public_names(marks, nids), bc, List.append(&2, Offer.Offered, bn, Nil{}), "name", prefix,
+                      covers_app_l(public_names(marks, nids), bn, Nil{}, "name", prefix,
+                        covers_sort(public_names(marks, nids), Offer.names.offered(marks, nids, prefix), "name", prefix, covers_names(marks, nids, prefix)))))))))))
 
 # Where `fetch` files what a manifest names
 # -----------------------------------------
@@ -566,8 +666,8 @@ def sound(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +clai
 # The manifest names every file of the store's listing it lists by the
 # digest the listing gives it, and lists every payload, document, revision
 # and file of `claims/`.
-def digests(+prefix: String, +s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>, +hp: {T.has_char(prefix, '/') == False{} : Bool}, +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}) -> {Bool.and(SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), lists_all(listing.of(s, claims, rids, nids), prefix, Offer.entries(prefix, s, marks, claims, rids, nids))) == True{} : Bool}:
-  and_tt(SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), lists_all(listing.of(s, claims, rids, nids), prefix, Offer.entries(prefix, s, marks, claims, rids, nids)),
+def digests(+prefix: String, +s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>, +hp: {T.has_char(prefix, '/') == False{} : Bool}, +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}) -> {Bool.and(SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), lists_all(listing.of(s, claims, rids, nids), Receive.ruled(Offer.rules.of(s)), marks, prefix, Offer.entries(prefix, s, marks, claims, rids, nids))) == True{} : Bool}:
+  and_tt(SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), lists_all(listing.of(s, claims, rids, nids), Receive.ruled(Offer.rules.of(s)), marks, prefix, Offer.entries(prefix, s, marks, claims, rids, nids)),
     sound(prefix, s, marks, claims, rids, nids, hp, hh), complete(prefix, s, marks, claims, rids, nids))
 
 # What a document forgets
