@@ -2346,6 +2346,17 @@ def states(+docs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, 
     case +p <> rest:
       state.of(docs, ds, p, file, Main.content_of(cs, p)) <> states(docs, ds, file, cs, rest)
 
+# Whether a parent's state differs from the one before it, where there is
+# one. A match of its own rather than `Maybe.map` of a lambda: Bend's native
+# build reads `Bool.or(found, Maybe.default(&2, Bool, Maybe.map(...), False{}))`
+# as false where the JS build and the Rust tool read true.
+def differ.from(last: Maybe<&2, List<&2, Ops.Item>>, items: List<&2, Ops.Item>) -> Bool:
+  match last:
+    case None{}:
+      False{}
+    case Some{l}:
+      Bool.not(Main.items_eq(l, items))
+
 # Whether the parents' states differ: where one has no answer, they do not
 # — that is already a finding.
 def differ.go(ss: List<&2, Held2>, last: Maybe<&2, List<&2, Ops.Item>>, found: Bool) -> Bool:
@@ -2357,7 +2368,7 @@ def differ.go(ss: List<&2, Held2>, last: Maybe<&2, List<&2, Ops.Item>>, found: B
     case Held2.Unknown{} <> rest:
       False{}
     case Held2.Known{+items} <> rest:
-      differ.go(rest, Some{items}, Bool.or(found, Maybe.default(&2, Bool, Maybe.map(&2, List<&2, Ops.Item>, Bool, l => Bool.not(Main.items_eq(l, items)), last), False{})))
+      differ.go(rest, Some{items}, Bool.or(found, differ.from(last, items)))
 
 def edit.named(hs: List<&2, Rev.Header>, +file: String) -> Maybe<&2, String>:
   List.head(&2, String, said.for(pairs(hs, "edit"), file))
