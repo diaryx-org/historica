@@ -1,6 +1,7 @@
 # What `merge` joins: every revision it joins is one the store holds, and
-# every current head is among them. Where it writes each file of the merged
-# tree is where the contests put it, with the tree's mode; where the folder
+# every current head is among them. It writes each file of the merged tree
+# at its own path, or, where a contest sets it aside, at a name holding its
+# identifier's marker, with the tree's mode; where the folder
 # already holds the merge it changes no byte. The markers it writes are the
 # ones `status` and `record --merge` count, and the `record` line it prints
 # is read by `record` as this merge.
@@ -26,6 +27,8 @@ import ./conflict_lemmas.bend as ConflictL
 import ./rewrite_lemmas.bend as RewriteL
 import ./spelling_lemmas.bend as Spell
 import ./equality_lemmas.bend as Eq
+import ./abbrev_lemmas.bend as AbbrevL
+import ./folder.bend as Folder
 
 # Lists of heads
 # --------------
@@ -294,10 +297,7 @@ def same_mode(m: Tree.Mode) -> {same.mode(m, m) == True{} : Bool}:
     case Tree.Plain{}:
       {==}
 
-# Where `merge` writes a file, read off the contests rather than off the
-# pairs `beside` makes of them: beside the path of the first contest over a
-# path that names the file after the file that keeps it, under the name
-# `beside_name` gives it there; and where none does, at its own path.
+# Whether `f` is among the files claiming a path after the first of them.
 def later(fs: List<&2, String>, +f: String) -> Bool:
   match fs:
     case Nil{}:
@@ -305,6 +305,127 @@ def later(fs: List<&2, String>, +f: String) -> Bool:
     case x <> rest:
       Rev.member(rest, f)
 
+# Whether some contest over a path names `f` after its first claimant: a
+# plain fact about the contests, whatever `beside` makes of them.
+def set.aside(cs: List<&2, Tree.Contest>, +f: String) -> Bool:
+  match cs:
+    case Nil{}:
+      False{}
+    case Tree.Path{p, fs} <> rest:
+      Bool.or(later(fs, f), set.aside(rest, f))
+    case c <> rest:
+      set.aside(rest, f)
+
+# What a file set aside carries in its name, as the Rust tool spells it:
+# `(historica `, the first eight characters of its identifier, and `)`.
+def marker(+f: String) -> String:
+  "(historica " ++ String.take(f, 8n) ++ ")"
+
+# Whether `at` is a place a file may be written: for a file set aside, a
+# name that holds its marker; for any other, its own path `q`.
+def fits(+s: Bool, +q: String, +mk: String, +at: String) -> Bool:
+  Bool.pick(Bool, s, String.contains(at, mk), String.eq(at, q))
+
+# Whether an act that writes stands where `fits` allows, and writes a file
+# with mode `m`.
+def act.at(+s: Bool, +q: String, +mk: String, +m: Tree.Mode, x: M.Act) -> Bool:
+  match x:
+    case M.Act.Lines{+at, text, m2}:
+      Bool.and(fits(s, q, mk, at), same.mode(m, m2))
+    case M.Act.Whole{+at, from, p, m2}:
+      Bool.and(fits(s, q, mk, at), same.mode(m, m2))
+    case M.Act.Link{+at, target}:
+      fits(s, q, mk, at)
+    case _:
+      True{}
+
+def acts.at(+s: Bool, +q: String, +mk: String, +m: Tree.Mode, xs: List<&2, M.Act>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(act.at(s, q, mk, m, x), acts.at(s, q, mk, m, rest))
+
+# File by file of the merged tree, every act laid for the file that writes
+# stands at its own path, or, where a contest sets it aside, at a name
+# holding its marker, with the tree's mode — and there is one file laid for
+# each file of the tree.
+def laid.at(+cs: List<&2, Tree.Contest>, es: List<&2, Tree.Entry>, ls: List<&2, M.Laid>) -> Bool:
+  match es ls:
+    case Nil{} Nil{}:
+      True{}
+    case +e <> er l <> lr:
+      Bool.and(acts.at(set.aside(cs, Tree.entry_file(e)), Tree.entry_path(e), marker(Tree.entry_file(e)), Tree.entry_mode(e), M.laid.acts(l)), laid.at(cs, er, lr))
+    case _ _:
+      False{}
+
+# A string holds what it starts with, and what any tail of it holds.
+def starts_app(b: String, +c: String) -> {String.starts_with(b ++ c, b) == True{} : Bool}:
+  match b:
+    case SNil{}:
+      match c:
+        case SNil{}:
+          {==}
+        case SCon{h, t}:
+          {==}
+    case SCon{+x, +r}:
+      %Equal.sym(Bool, Char.is_eq(x, x), True{}, AbbrevL.char_refl(x)) : {String.starts_with.if(r ++ c, r, _) == True{} : Bool}
+      starts_app(r, c)
+
+def contains_lead(b: String, +c: String) -> {String.contains(b ++ c, b) == True{} : Bool}:
+  match b:
+    case SNil{}:
+      match c:
+        case SNil{}:
+          {==}
+        case SCon{h, t}:
+          {==}
+    case SCon{+x, +r}:
+      %Equal.sym(Bool, String.starts_with(SCon{x, r} ++ c, SCon{x, r}), True{}, starts_app(SCon{x, r}, c)) : {String.contains.if(r ++ c, SCon{x, r}, _) == True{} : Bool}
+      {==}
+
+def contains_if(c: Bool, +t: String, +b: String, ih: {String.contains(t, b) == True{} : Bool}) -> {String.contains.if(t, b, c) == True{} : Bool}:
+  match c:
+    case False{}:
+      ih
+    case True{}:
+      {==}
+
+def contains_in(a: String, +s: String, +b: String, h: {String.contains(s, b) == True{} : Bool}) -> {String.contains(a ++ s, b) == True{} : Bool}:
+  match a:
+    case SNil{}:
+      h
+    case SCon{+x, +t}:
+      contains_if(String.starts_with(SCon{x, t ++ s}, b), t ++ s, b, contains_in(t, s, b, h))
+
+def contains_self(+b: String) -> {String.contains(b, b) == True{} : Bool}:
+  %Eq.app_nil(b) : {String.contains(_, b) == True{} : Bool}
+  contains_lead(b, SNil{})
+
+# Every name `beside.named` makes holds the marker it is given.
+def named_pick(c: Bool, +dir: String, +name: String, +mk: String, +stem: String, +ext: String) -> {String.contains(Bool.pick(String, c, dir ++ name ++ " " ++ mk, dir ++ stem ++ " " ++ mk ++ "." ++ ext), mk) == True{} : Bool}:
+  match c:
+    case True{}:
+      contains_in(dir, name ++ " " ++ mk, mk, contains_in(name, " " ++ mk, mk, contains_in(" ", mk, mk, contains_self(mk))))
+    case False{}:
+      contains_in(dir, stem ++ " " ++ mk ++ "." ++ ext, mk, contains_in(stem, " " ++ mk ++ "." ++ ext, mk, contains_in(" ", mk ++ "." ++ ext, mk, contains_lead(mk, "." ++ ext))))
+
+def named_marks(+dir: String, +name: String, +mk: String, cut: Maybe<&2, T.Split>) -> {String.contains(M.beside.named(dir, name, mk, cut), mk) == True{} : Bool}:
+  match cut:
+    case Some{T.Split{+stem, +ext}}:
+      named_pick(String.is_empty(stem), dir, name, mk, stem, ext)
+    case None{}:
+      contains_in(dir, name ++ " " ++ mk, mk, contains_in(name, " " ++ mk, mk, contains_in(" ", mk, mk, contains_self(mk))))
+
+# The name `merge` gives a file set aside holds the file's marker.
+def beside_marks(+p: String, +f: String) -> {String.contains(M.beside_name(p, f), marker(f)) == True{} : Bool}:
+  named_marks(Bool.pick(String, String.is_empty(Main.directory_of(p)), SNil{}, Main.directory_of(p) ++ "/"), Folder.last_component(p), marker(f), M.last_dot(Folder.last_component(p)))
+
+# Where `merge` writes a file, read off the contests rather than off the
+# pairs `beside` makes of them: beside the path of the first contest over a
+# path that names the file after the file that keeps it, and where none
+# does, at its own path. It is the bridge from the code's table to
+# `set.aside`, not a claim of its own.
 def aside(cs: List<&2, Tree.Contest>, +f: String, +q: String) -> String:
   match cs:
     case Nil{}:
@@ -314,36 +435,32 @@ def aside(cs: List<&2, Tree.Contest>, +f: String, +q: String) -> String:
     case c <> rest:
       aside(rest, f, q)
 
-# Whether an act that writes stands at `a`, and writes a file with mode `m`.
-def act.at(+a: String, +m: Tree.Mode, x: M.Act) -> Bool:
-  match x:
-    case M.Act.Lines{+at, text, m2}:
-      Bool.and(String.eq(at, a), same.mode(m, m2))
-    case M.Act.Whole{+at, from, p, m2}:
-      Bool.and(String.eq(at, a), same.mode(m, m2))
-    case M.Act.Link{+at, target}:
-      String.eq(at, a)
-    case _:
-      True{}
+def fits_pick(c: Bool, +s: Bool, +q: String, +mk: String, +bn: String, +a: String, hb: {String.contains(bn, mk) == True{} : Bool}, ih: {fits(s, q, mk, a) == True{} : Bool}) -> {fits(Bool.or(c, s), q, mk, Bool.pick(String, c, bn, a)) == True{} : Bool}:
+  match c:
+    case True{}:
+      hb
+    case False{}:
+      ih
 
-def acts.at(+a: String, +m: Tree.Mode, xs: List<&2, M.Act>) -> Bool:
-  match xs:
+# Where the contests put a file is a place it fits.
+def fits_aside(cs: List<&2, Tree.Contest>, +f: String, +q: String) -> {fits(set.aside(cs, f), q, marker(f), aside(cs, f, q)) == True{} : Bool}:
+  match cs:
     case Nil{}:
-      True{}
-    case +x <> rest:
-      Bool.and(act.at(a, m, x), acts.at(a, m, rest))
-
-# File by file of the merged tree, every act laid for the file stands where
-# `aside` puts it, with the tree's mode — and there is one file laid for
-# each file of the tree.
-def laid.at(+cs: List<&2, Tree.Contest>, es: List<&2, Tree.Entry>, ls: List<&2, M.Laid>) -> Bool:
-  match es ls:
-    case Nil{} Nil{}:
-      True{}
-    case +e <> er l <> lr:
-      Bool.and(acts.at(aside(cs, Tree.entry_file(e), Tree.entry_path(e)), Tree.entry_mode(e), M.laid.acts(l)), laid.at(cs, er, lr))
-    case _ _:
-      False{}
+      S.eq_refl(q)
+    case Tree.Path{+p, +fs} <> +rest:
+      fits_pick(later(fs, f), set.aside(rest, f), q, marker(f), M.beside_name(p, f), aside(rest, f, q), beside_marks(p, f), fits_aside(rest, f, q))
+    case Tree.Dropped{a, b} <> +rest:
+      fits_aside(rest, f, q)
+    case Tree.Moved{a, b} <> +rest:
+      fits_aside(rest, f, q)
+    case Tree.Content{a, b} <> +rest:
+      fits_aside(rest, f, q)
+    case Tree.ModeOf{a, b} <> +rest:
+      fits_aside(rest, f, q)
+    case Tree.TargetOf{a, b} <> +rest:
+      fits_aside(rest, f, q)
+    case Tree.Referenced{a, b, d} <> +rest:
+      fits_aside(rest, f, q)
 
 # `split.get` over two lists: the first's answer, else the second's.
 def get_app.pick(c: Bool, +b: String, +rest: List<&2, T.Split>, +ys: List<&2, T.Split>, +k: String, ih: {M.split.get(List.append(&2, T.Split, rest, ys), k) == Maybe.or(&2, String, M.split.get(rest, k), M.split.get(ys, k)) : Maybe<&2, String>}) -> {Bool.pick(Maybe<&2, String>, c, Some{b}, M.split.get(List.append(&2, T.Split, rest, ys), k)) == Maybe.or(&2, String, Bool.pick(Maybe<&2, String>, c, Some{b}, M.split.get(rest, k)), M.split.get(ys, k)) : Maybe<&2, String>}:
@@ -415,85 +532,87 @@ def aside_get(cs: List<&2, Tree.Contest>, +f: String, +q: String) -> {Maybe.defa
       %Equal.sym(Maybe<&2, String>, M.split.get(List.append(&2, T.Split, M.beside.of(c), M.beside(rest)), f), Maybe.or(&2, String, M.split.get(M.beside.of(c), f), M.split.get(M.beside(rest), f)), get_app(M.beside.of(c), M.beside(rest), f)) : {Maybe.default(&2, String, _, q) == aside(c <> rest, f, q) : String}
       aside_of(c, rest, f, q, aside_get(rest, f, q))
 
+# The place `merge` gives a file, as the code computes it, is one it fits.
+def fits_at(+cs: List<&2, Tree.Contest>, +f: String, +q: String) -> {fits(set.aside(cs, f), q, marker(f), Maybe.default(&2, String, M.split.get(M.beside(cs), f), q)) == True{} : Bool}:
+  %Equal.sym(String, Maybe.default(&2, String, M.split.get(M.beside(cs), f), q), aside(cs, f, q), aside_get(cs, f, q)) : {fits(set.aside(cs, f), q, marker(f), _) == True{} : Bool}
+  fits_aside(cs, f, q)
+
 # What one file's acts are, kind by kind: each that writes stands at the
-# place the file was given, with its mode.
-def one_lines(+a: String, +t: String, +m: Tree.Mode) -> {acts.at(a, m, [M.Act.Lines{a, t, m}]) == True{} : Bool}:
-  %Equal.sym(Bool, String.eq(a, a), True{}, S.eq_refl(a)) : {Bool.and(Bool.and(_, same.mode(m, m)), True{}) == True{} : Bool}
+# place the file was given, which fits it, with its mode.
+def one_lines(+a: String, +s: Bool, +q: String, +mk: String, +hw: {fits(s, q, mk, a) == True{} : Bool}, +t: String, +m: Tree.Mode) -> {acts.at(s, q, mk, m, [M.Act.Lines{a, t, m}]) == True{} : Bool}:
+  %Equal.sym(Bool, fits(s, q, mk, a), True{}, hw) : {Bool.and(Bool.and(_, same.mode(m, m)), True{}) == True{} : Bool}
   %Equal.sym(Bool, same.mode(m, m), True{}, same_mode(m)) : {Bool.and(Bool.and(True{}, _), True{}) == True{} : Bool}
   {==}
 
-def lines_at.pick(c: Bool, +a: String, +t: String, +m: Tree.Mode, -l: String) -> {acts.at(a, m, Bool.pick(List<&2, M.Act>, c, [M.Act.Said{l}], [M.Act.Lines{a, t, m}])) == True{} : Bool}:
+def lines_at.pick(c: Bool, +a: String, +s: Bool, +q: String, +mk: String, +hw: {fits(s, q, mk, a) == True{} : Bool}, +t: String, +m: Tree.Mode, -l: String) -> {acts.at(s, q, mk, m, Bool.pick(List<&2, M.Act>, c, [M.Act.Said{l}], [M.Act.Lines{a, t, m}])) == True{} : Bool}:
   match c:
     case True{}:
       {==}
     case False{}:
-      one_lines(a, t, m)
+      one_lines(a, s, q, mk, hw, t, m)
 
-def lines_at(+a: String, +held: String, +hs: List<&2, String>, +x: Bool, +m: Tree.Mode, r: Result<&2, &2, String, Conflict.Joined>) -> {acts.at(a, m, M.laid.acts(M.lay.lines(a, held, hs, x, m, r))) == True{} : Bool}:
+def lines_at(+a: String, +s: Bool, +q: String, +mk: String, +hw: {fits(s, q, mk, a) == True{} : Bool}, +held: String, +hs: List<&2, String>, +x: Bool, +m: Tree.Mode, r: Result<&2, &2, String, Conflict.Joined>) -> {acts.at(s, q, mk, m, M.laid.acts(M.lay.lines(a, held, hs, x, m, r))) == True{} : Bool}:
   match r:
     case Fail{e}:
       {==}
     case Done{+j}:
-      lines_at.pick(Bool.and(x, M.unrecorded(held, Upd.text_digest(Conflict.render(j)) <> Upd.text_digest(Conflict.plain(j)) <> hs)), a, Conflict.render(j), m, M.LEFT_UNRECORDED(a))
+      lines_at.pick(Bool.and(x, M.unrecorded(held, Upd.text_digest(Conflict.render(j)) <> Upd.text_digest(Conflict.plain(j)) <> hs)), a, s, q, mk, hw, Conflict.render(j), m, M.LEFT_UNRECORDED(a))
 
-def cat_at(+a: String, +m: Tree.Mode, +at: String, cs: List<&2, Tree.Claim>) -> {acts.at(a, m, M.claims.cat(at, cs)) == True{} : Bool}:
+def cat_at(+s: Bool, +q: String, +mk: String, +m: Tree.Mode, +at: String, cs: List<&2, Tree.Claim>) -> {acts.at(s, q, mk, m, M.claims.cat(at, cs)) == True{} : Bool}:
   match cs:
     case Nil{}:
       {==}
     case Tree.Claim{by, w} <> rest:
-      cat_at(a, m, at, rest)
+      cat_at(s, q, mk, m, at, rest)
 
-def whole_at.pick(c: Bool, +a: String, +from: String, +p: String, +m: Tree.Mode, -l: String) -> {acts.at(a, m, Bool.pick(List<&2, M.Act>, c, [M.Act.Said{l}], [M.Act.Whole{a, from, p, m}])) == True{} : Bool}:
+def whole_at.pick(c: Bool, +a: String, +s: Bool, +q: String, +mk: String, +hw: {fits(s, q, mk, a) == True{} : Bool}, +from: String, +p: String, +m: Tree.Mode, -l: String) -> {acts.at(s, q, mk, m, Bool.pick(List<&2, M.Act>, c, [M.Act.Said{l}], [M.Act.Whole{a, from, p, m}])) == True{} : Bool}:
   match c:
     case True{}:
       {==}
     case False{}:
-      %Equal.sym(Bool, String.eq(a, a), True{}, S.eq_refl(a)) : {Bool.and(Bool.and(_, same.mode(m, m)), True{}) == True{} : Bool}
+      %Equal.sym(Bool, fits(s, q, mk, a), True{}, hw) : {Bool.and(Bool.and(_, same.mode(m, m)), True{}) == True{} : Bool}
       %Equal.sym(Bool, same.mode(m, m), True{}, same_mode(m)) : {Bool.and(Bool.and(True{}, _), True{}) == True{} : Bool}
       {==}
 
-def whole_at.empty(e: Bool, +a: String, +from: String, +p: String, +m: Tree.Mode, +u: Bool, -s: String) -> {acts.at(a, m, Bool.pick(List<&2, M.Act>, e, [M.Act.Stop{s}], Bool.pick(List<&2, M.Act>, u, [M.Act.Said{M.LEFT_UNRECORDED(a)}], [M.Act.Whole{a, from, p, m}]))) == True{} : Bool}:
+def whole_at.empty(e: Bool, +a: String, +s: Bool, +q: String, +mk: String, +hw: {fits(s, q, mk, a) == True{} : Bool}, +from: String, +p: String, +m: Tree.Mode, +u: Bool, -st: String) -> {acts.at(s, q, mk, m, Bool.pick(List<&2, M.Act>, e, [M.Act.Stop{st}], Bool.pick(List<&2, M.Act>, u, [M.Act.Said{M.LEFT_UNRECORDED(a)}], [M.Act.Whole{a, from, p, m}]))) == True{} : Bool}:
   match e:
     case True{}:
       {==}
     case False{}:
-      whole_at.pick(u, a, from, p, m, M.LEFT_UNRECORDED(a))
+      whole_at.pick(u, a, s, q, mk, hw, from, p, m, M.LEFT_UNRECORDED(a))
 
-def whole_at(+a: String, +file: String, +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, +held: String, +hs: List<&2, String>, +m: Tree.Mode, y: Maybe<&2, String>) -> {acts.at(a, m, M.laid.acts(M.lay.whole(a, file, cs, located, held, hs, m, y))) == True{} : Bool}:
+def whole_at(+a: String, +s: Bool, +q: String, +mk: String, +hw: {fits(s, q, mk, a) == True{} : Bool}, +file: String, +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, +held: String, +hs: List<&2, String>, +m: Tree.Mode, y: Maybe<&2, String>) -> {acts.at(s, q, mk, m, M.laid.acts(M.lay.whole(a, file, cs, located, held, hs, m, y))) == True{} : Bool}:
   match y:
     case None{}:
-      cat_at(a, m, a, M.payload.claims(cs, file))
+      cat_at(s, q, mk, m, a, M.payload.claims(cs, file))
     case Some{+p}:
-      whole_at.empty(String.is_empty(Main.stat_of(p, Map.get(String, SNil{}, located, p))), a, Main.stat_of(p, Map.get(String, SNil{}, located, p)), p, m, M.unrecorded(held, p <> hs), "this store does not hold the content " ++ p)
+      whole_at.empty(String.is_empty(Main.stat_of(p, Map.get(String, SNil{}, located, p))), a, s, q, mk, hw, Main.stat_of(p, Map.get(String, SNil{}, located, p)), p, m, M.unrecorded(held, p <> hs), "this store does not hold the content " ++ p)
 
-def link_at.pick(c: Bool, +a: String, +m: Tree.Mode, +s: String) -> {acts.at(a, m, Bool.pick(List<&2, M.Act>, c, Nil{}, [M.Act.Link{a, s}])) == True{} : Bool}:
+def link_at.pick(c: Bool, +a: String, +s: Bool, +q: String, +mk: String, +hw: {fits(s, q, mk, a) == True{} : Bool}, +m: Tree.Mode, +t: String) -> {acts.at(s, q, mk, m, Bool.pick(List<&2, M.Act>, c, Nil{}, [M.Act.Link{a, t}])) == True{} : Bool}:
   match c:
     case True{}:
       {==}
     case False{}:
-      %Equal.sym(Bool, String.eq(a, a), True{}, S.eq_refl(a)) : {Bool.and(_, True{}) == True{} : Bool}
+      %Equal.sym(Bool, fits(s, q, mk, a), True{}, hw) : {Bool.and(_, True{}) == True{} : Bool}
       {==}
 
-def link_at(+a: String, +m: Tree.Mode, h: Upd.Held, want: Maybe<&2, String>) -> {acts.at(a, m, M.laid.acts(M.lay.link(a, h, want))) == True{} : Bool}:
+def link_at(+a: String, +s: Bool, +q: String, +mk: String, +hw: {fits(s, q, mk, a) == True{} : Bool}, +m: Tree.Mode, h: Upd.Held, want: Maybe<&2, String>) -> {acts.at(s, q, mk, m, M.laid.acts(M.lay.link(a, h, want))) == True{} : Bool}:
   match want:
     case None{}:
       {==}
-    case Some{+s}:
-      link_at.pick(Upd.lands.link(s, h), a, m, s)
+    case Some{+t}:
+      link_at.pick(Upd.lands.link(t, h), a, s, q, mk, hw, m, t)
 
-# One file of the merged tree: every act `merge` lays for it stands at the
-# place `aside` gives it.
-def placed(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +ls: Map<&2, String>, +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, e: Tree.Entry) -> {acts.at(aside(cs, Tree.entry_file(e), Tree.entry_path(e)), Tree.entry_mode(e), M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, M.beside(cs), dg, ls, texts, e)))) == True{} : Bool}:
+# One file of the merged tree: every act `merge` lays for it that writes
+# stands at a place that fits it, with its mode.
+def placed(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +ls: Map<&2, String>, +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, e: Tree.Entry) -> {acts.at(set.aside(cs, Tree.entry_file(e)), Tree.entry_path(e), marker(Tree.entry_file(e)), Tree.entry_mode(e), M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, M.beside(cs), dg, ls, texts, e)))) == True{} : Bool}:
   match e:
     case Tree.Entry{+f, +p, Tree.Lines{}, +y, +g, +m}:
-      %aside_get(cs, f, p) : {acts.at(_, m, M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, M.beside(cs), dg, ls, texts, Tree.Entry{f, p, Tree.Lines{}, y, g, m})))) == True{} : Bool}
-      lines_at(Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), Main.status.folder_digest(dg, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p)), M.heads.of(fs, ds, heads, Tree.Entry{f, p, Tree.Lines{}, y, g, m}), M.text.at(texts, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p)), m, M.joined.of(fs, ds, heads, Tree.Entry{f, p, Tree.Lines{}, y, g, m}))
+      lines_at(Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), set.aside(cs, f), p, marker(f), fits_at(cs, f, p), Main.status.folder_digest(dg, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p)), M.heads.of(fs, ds, heads, Tree.Entry{f, p, Tree.Lines{}, y, g, m}), M.text.at(texts, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p)), m, M.joined.of(fs, ds, heads, Tree.Entry{f, p, Tree.Lines{}, y, g, m}))
     case Tree.Entry{+f, +p, Tree.Whole{}, +y, +g, +m}:
-      %aside_get(cs, f, p) : {acts.at(_, m, M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, M.beside(cs), dg, ls, texts, Tree.Entry{f, p, Tree.Whole{}, y, g, m})))) == True{} : Bool}
-      whole_at(Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), f, cs, located, Main.status.folder_digest(dg, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p)), M.heads.of(fs, ds, heads, Tree.Entry{f, p, Tree.Whole{}, y, g, m}), m, y)
+      whole_at(Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), set.aside(cs, f), p, marker(f), fits_at(cs, f, p), f, cs, located, Main.status.folder_digest(dg, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p)), M.heads.of(fs, ds, heads, Tree.Entry{f, p, Tree.Whole{}, y, g, m}), m, y)
     case Tree.Entry{+f, +p, Tree.Link{}, +y, +g, +m}:
-      %aside_get(cs, f, p) : {acts.at(_, m, M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, M.beside(cs), dg, ls, texts, Tree.Entry{f, p, Tree.Link{}, y, g, m})))) == True{} : Bool}
-      link_at(Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), m, Upd.held.of(ls, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), None{}), Maybe.bind(&2, Tree.Target, String, g, x2 => Upd.materialise(t, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), x2)))
+      link_at(Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), set.aside(cs, f), p, marker(f), fits_at(cs, f, p), m, Upd.held.of(ls, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), None{}), Maybe.bind(&2, Tree.Target, String, g, x2 => Upd.materialise(t, Maybe.default(&2, String, M.split.get(M.beside(cs), f), p), x2)))
 
 # Every file of the merged tree, in turn.
 def placed_all(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +t: Tree.Tree(), +dg: Map<&2, String>, +texts: Map<&2, String>, +ls: Map<&2, String>, +cs: List<&2, Tree.Contest>, +located: Map<&2, String>, es: List<&2, Tree.Entry>) -> {laid.at(cs, es, M.lay.all(t, cs, located, M.places(fs, ds, heads, M.beside(cs), dg, ls, texts, es))) == True{} : Bool}:
@@ -501,7 +620,7 @@ def placed_all(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +heads: List<
     case Nil{}:
       {==}
     case +e <> +rest:
-      AL.and_intro(acts.at(aside(cs, Tree.entry_file(e), Tree.entry_path(e)), Tree.entry_mode(e), M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, M.beside(cs), dg, ls, texts, e)))), laid.at(cs, rest, M.lay.all(t, cs, located, M.places(fs, ds, heads, M.beside(cs), dg, ls, texts, rest))),
+      AL.and_intro(acts.at(set.aside(cs, Tree.entry_file(e)), Tree.entry_path(e), marker(Tree.entry_file(e)), Tree.entry_mode(e), M.laid.acts(M.lay(t, cs, located, M.place(fs, ds, heads, M.beside(cs), dg, ls, texts, e)))), laid.at(cs, rest, M.lay.all(t, cs, located, M.places(fs, ds, heads, M.beside(cs), dg, ls, texts, rest))),
         placed(fs, ds, heads, t, dg, texts, ls, cs, located, e),
         placed_all(fs, ds, heads, t, dg, texts, ls, cs, located, rest))
 

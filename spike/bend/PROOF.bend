@@ -1025,7 +1025,7 @@ def Laws.merge_counts_nothing_unfenced(j):
 def Laws.merge_prints_the_record_that_records_it(typed, bs, h):
   MergingL.record_back(typed, bs, h)
 
-def Laws.merge_sets_aside_the_claims(fs, ds, heads, t, dg, texts, ls, cs, located, es):
+def Laws.merge_writes_in_place_or_marked_aside(fs, ds, heads, t, dg, texts, ls, cs, located, es):
   MergingL.placed_all(fs, ds, heads, t, dg, texts, ls, cs, located, es)
 
 def Laws.arrange_reads_its_words(ws):
