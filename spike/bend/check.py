@@ -2476,7 +2476,9 @@ def check_mutations(temporary):
             "abandon takes a reason that is only whitespace",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(Naming.trim_space(m)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(m),",
-            "LAWS.abandon_takes_a_reason_that_says_something",
+            # Written against `LAWS.abandon_takes_a_reason_that_says_something`; the checker now stops
+            # first at `rewrite_lemmas.asked_ok`.
+            "rewrite_lemmas.asked_ok",
             "commands.bend",
         ),
         (
@@ -2644,7 +2646,9 @@ def check_mutations(temporary):
             "record lets through an acceptance nothing contests",
             "Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, needless)),",
             "Bool.pick(Result<&2, &2, Refused, Sv.Planned>, False{},",
-            "record_lemmas.settled",
+            # Written against `record_lemmas.settled`; the checker now stops
+            # first at `survey_lemmas.planned_claims`.
+            "survey_lemmas.planned_claims",
             "commands.bend",
         ),
         (
@@ -2658,7 +2662,9 @@ def check_mutations(temporary):
             "record moves the path named rather than the file at it",
             "      placed.move.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{f, to}]), placed.head(t2, rest), placed.fault(rest))",
             "      placed.move.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{from, to}]), placed.head(t2, rest), placed.fault(rest))",
-            "record_lemmas.move_held",
+            # Written against `record_lemmas.move_held`; the checker now stops
+            # first at `survey_lemmas.move_moved`.
+            "survey_lemmas.move_moved",
             "commands.bend",
         ),
         (
@@ -2672,7 +2678,9 @@ def check_mutations(temporary):
             "record lets a skipped name nothing answers to through",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, out)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, False{},",
-            "record_lemmas.named_ok",
+            # Written against `record_lemmas.named_ok`; the checker now stops
+            # first at `survey_lemmas.named_ok`.
+            "survey_lemmas.named_ok",
             "commands.bend",
         ),
         (
