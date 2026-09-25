@@ -25,6 +25,7 @@ import ./survey.bend as Sv
 import ./notes.bend as Notes
 import ./naming.bend as Naming
 import ./sha256.bend as Sha
+import ./standin.bend as Stand
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -160,11 +161,7 @@ def changes(fs: List<&2, Full>) -> List<&2, String>:
 
 # Documents by digest, for the content a revision names.
 def doc_by_id(ds: List<&2, Store.Doc>, +id: String) -> Maybe<&2, String>:
-  match ds:
-    case Nil{}:
-      None{}
-    case Store.Doc{path, +i, size, text} <> rest:
-      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, doc_by_id(rest, id))
+  Stand.held(ds, id)
 
 # Bookmarks
 # ---------
@@ -2042,6 +2039,25 @@ def held(+id: String, +digest: String, doc: Maybe<&2, String>) -> Result<&2, &2,
     case Some{text}:
       Done{text}
 
+# What a `text` or `bytes` line names, as lines: the payload's own, where
+# the store holds it; where a forgetting destroyed it, the creation that
+# stands in for it applied to nothing, a forgotten line still a line
+# (decision 0014); and for a payload of bytes, which has no lines to keep,
+# decision 0066's refusal, naming the document standing where it was.
+def whole.found(+id: String, +digest: String, f: Stand.Found) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  match f:
+    case Stand.Found.Held{t}:
+      Done{Ops.from_text(t)}
+    case Stand.Found.Ops{doc}:
+      Ops.apply(Nil{}, doc)
+    case Stand.Found.Payload{Stand.Stood{Stand.Payload{p, n}, by}}:
+      Fail{"the content " ++ String.take(p, 12n) ++ " was forgotten: " ++ n ++ " bytes destroyed, and " ++ String.take(by, 12n) ++ " is the document standing where they were"}
+    case _:
+      Fail{String.take(id, 12n) ++ " names the content document " ++ digest ++ ", which this store does not hold yet"}
+
+def whole(+ds: List<&2, Store.Doc>, +id: String, +digest: String) -> Result<&2, &2, String, List<&2, Ops.Item>>:
+  whole.found(id, digest, Stand.found(ds, digest))
+
 # The file's content at every revision that holds it, oldest first as the
 # trees are, by decision 0032's rule. A revision that says nothing holds
 # what its parents agree it holds; an `edit` naming an operation document
@@ -2186,7 +2202,7 @@ def kept.found(+d: String, +first: Nat, +count: Nat, doc: Maybe<&2, String>) -> 
 def assemble.piece(+ds: List<&2, Store.Doc>, p: Res.Piece) -> Result<&2, &2, String, List<&2, Ops.Item>>:
   match p:
     case Res.Piece.Keep{+d, first, count}:
-      kept.found(d, first, count, doc_by_id(ds, d))
+      kept.found(d, first, count, Stand.text(ds, d))
     case Res.Piece.Insert{items}:
       Done{items}
 
@@ -2296,9 +2312,9 @@ def kept_digests(ds: List<&2, Store.Doc>) -> List<&2, String>:
 def contents.said(+ds: List<&2, Store.Doc>, +id: String, +file: String, inherited: Maybe<&2, Result<&2, &2, String, Rule>>, s: Said) -> Maybe<&2, Result<&2, &2, String, Rule>>:
   match s:
     case Whole{+d}:
-      Some{Result.map(&2, &2, String, String, Rule, t => Known{Ops.from_text(t)}, held(id, d, doc_by_id(ds, d)))}
+      Some{Result.map(&2, &2, String, List<&2, Ops.Item>, Rule, items => Known{items}, whole(ds, id, d))}
     case Edited{+d}:
-      Some{edited.doc(ds, id, file, d, inherited, held(id, d, doc_by_id(ds, d)))}
+      Some{edited.doc(ds, id, file, d, inherited, held(id, d, Stand.text(ds, d)))}
     case Nothing{}:
       inherited
 
@@ -2444,21 +2460,21 @@ def walked.edited(+digests: List<&2, String>, doc: Result<&2, &2, String, String
       walked.by(digests, text, Res.is_resolution(text))
 
 # A payload is the document that inserts every line of it at 0.
-def walked.whole(text: Bool, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
+def walked.whole(text: Bool, doc: Result<&2, &2, String, List<&2, Ops.Item>>) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
   match text:
     case False{}:
       Done{None{}}
     case True{}:
-      Result.map(&2, &2, String, String, Maybe<&2, Merge.Statement>, t => Some{Merge.Edits{[Ops.Op{Ops.Insert{}, 0n, Ops.from_text(t)}]}}, doc)
+      Result.map(&2, &2, String, List<&2, Ops.Item>, Maybe<&2, Merge.Statement>, items => Some{Merge.Edits{[Ops.Op{Ops.Insert{}, 0n, items}]}}, doc)
 
 def walked.said(+ds: List<&2, Store.Doc>, +digests: List<&2, String>, +id: String, text: Bool, s: Said) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
   match s:
     case Nothing{}:
       Done{None{}}
     case Whole{+d}:
-      walked.whole(text, held(id, d, doc_by_id(ds, d)))
+      walked.whole(text, whole(ds, id, d))
     case Edited{+d}:
-      walked.edited(digests, held(id, d, doc_by_id(ds, d)))
+      walked.edited(digests, held(id, d, Stand.text(ds, d)))
 
 def walked.rev(+names: List<&2, String>, +digests: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +file: String, f: Full) -> Result<&2, &2, String, Merge.Rev>:
   match f:
@@ -2768,9 +2784,9 @@ def show.said.r(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Said) -
     case Nothing{}:
       Fail{Refused{1, String.take(id, 12n) ++ " did nothing to " ++ file}}
     case Whole{+d}:
-      show.doc.r(id, d, doc_by_id(ds, d))
+      show.doc.r(id, d, Stand.shown(ds, d))
     case Edited{+d}:
-      show.doc.r(id, d, doc_by_id(ds, d))
+      show.doc.r(id, d, Stand.shown(ds, d))
 
 # The file `show <target> <path>` names at the target.
 def show.file.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +p: String) -> Result<&2, &2, Refused, String>:
@@ -4485,6 +4501,76 @@ def origin.of(+file: String, r: Map<&2, T.Split> & T.Split) -> T.Split:
 def origin(+os: Map<&2, T.Split>, +file: String) -> T.Split:
   origin.of(file, Map.get(T.Split, T.Split{SNil{}, SNil{}}, os, file))
 
+# Decision 0014 meets the shortcut the origins are for: a digest a
+# statement names — a `text` payload, an `edit`'s `result` — is the file's
+# only while every document its content was made of is here. Once a
+# forgetting has destroyed one, the file reads `\\ forgotten` where the
+# text was, and no digest any document states is the digest of that; so a
+# file with a document gone is replayed, like one whose nearest statement
+# states nothing. Which documents are gone is the host's answer to where
+# they are, asked once for every document any revision names.
+def documents.put(+file: String, +d: String, r: Map<&2, List<&2, String>> & List<&2, String>) -> Map<&2, List<&2, String>>:
+  (m, had) = r
+  Map.set(&2, List<&2, String>, m, file, d <> had)
+
+def documents.fact(content: Bool, cut: Maybe<&2, T.Split>, m: Map<&2, List<&2, String>>) -> Map<&2, List<&2, String>>:
+  match content cut:
+    case True{} Some{T.Split{+file, +d}}:
+      documents.put(file, d, Map.get(List<&2, String>, Nil{}, m, file))
+    case _ _:
+      m
+
+def documents.facts(facts: List<&2, Rev.Header>, m: Map<&2, List<&2, String>>) -> Map<&2, List<&2, String>>:
+  match facts:
+    case Nil{}:
+      m
+    case Rev.Header{+k, +v} <> rest:
+      documents.facts(rest, documents.fact(stating.key(k), T.split_once(v), m))
+
+# Every document the revisions name for each file, by file.
+def documents.map(fs: List<&2, Full>, m: Map<&2, List<&2, String>>) -> Map<&2, List<&2, String>>:
+  match fs:
+    case Nil{}:
+      m
+    case f <> rest:
+      documents.map(rest, documents.facts(facts_of(f), m))
+
+def any_gone(+gone: List<&2, String>, ds: List<&2, String>) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case d <> rest:
+      Bool.or(Rev.member(gone, d), any_gone(gone, rest))
+
+def documents.got(r: Map<&2, List<&2, String>> & List<&2, String>) -> List<&2, String>:
+  (m, v) = r
+  v
+
+def origins.lost(o: T.Split, lost: Bool) -> T.Split:
+  match o lost:
+    case T.Split{k, d} True{}:
+      T.Split{"lost", d}
+    case o2 False{}:
+      o2
+
+def origins.lose.one(+gone: List<&2, String>, +docs: Map<&2, List<&2, String>>, +k: String, r: Map<&2, T.Split> & T.Split) -> Map<&2, T.Split>:
+  (m, v) = r
+  Map.set(&2, T.Split, m, k, origins.lost(v, any_gone(gone, documents.got(Map.get(List<&2, String>, Nil{}, docs, k)))))
+
+def origins.lose(+gone: List<&2, String>, +docs: Map<&2, List<&2, String>>, keys: List<&2, String>, os: Map<&2, T.Split>) -> Map<&2, T.Split>:
+  match keys:
+    case Nil{}:
+      os
+    case +k <> rest:
+      origins.lose(gone, docs, rest, origins.lose.one(gone, docs, k, Map.get(T.Split, T.Split{SNil{}, SNil{}}, os, k)))
+
+def origins.held(+root: String, +fs: List<&2, Full>, +os: Map<&2, T.Split>) -> IO(Map<&2, T.Split>):
+  do IO<Map<&2, T.Split>>:
+    +docs : Map<&2, List<&2, String>> = documents.map(fs, Map.new(&2, List<&2, String>))
+    +all : List<&2, String> = distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), T.concat(String, Map.values(&2, List<&2, String>, docs))))
+    at : List<&2, String> <- Store.located(root, all)
+    return origins.lose(Store.missing(all, at), docs, Map.keys(&2, T.Split, os), os)
+
 # The digest of a file of lines as its nearest statement leaves it: the
 # payload a `text` names, or the `result` an `edit`'s document states in its
 # header. Unknown otherwise, which is answered by replaying.
@@ -4937,7 +5023,8 @@ def diff.folder(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, 
     t : Tree.Tree() <- tree.maybe(fs, l)
     +t2 : Tree.Tree() = t
     +hs : List<&2, Here> = heres(t2, found, lim)
-    +os : Map<&2, T.Split> = origins.map(chain(fs, l), Map.new(&2, T.Split))
+    held : Map<&2, T.Split> <- origins.held(root, fs, origins.map(chain(fs, l), Map.new(&2, T.Split)))
+    +os : Map<&2, T.Split> = held
     eds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), edits_of(os, hs))))
     +paths : List<&2, String> = regular_paths(hs)
     stats : List<&2, String> <- Store.stats(repo, paths)
@@ -6405,7 +6492,8 @@ def status.joined_fails(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List
 def status.befores.one(+root: String, +fs: List<&2, Full>, +left: String, +hs: List<&2, Here>) -> IO(Map<&2, String>):
   do IO<Map<&2, String>>:
     +l : Maybe<&2, String> = Some{left}
-    +os : Map<&2, T.Split> = origins.map(chain(fs, l), Map.new(&2, T.Split))
+    held : Map<&2, T.Split> <- origins.held(root, fs, origins.map(chain(fs, l), Map.new(&2, T.Split)))
+    +os : Map<&2, T.Split> = held
     eds : List<&2, Store.Doc> <- Store.fetch(root, distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), status.edits(os, hs))))
     +eds2 : List<&2, Store.Doc> = eds
     ds : List<&2, Store.Doc> <- Store.fetch(root, wanted_all(fs, status.unknown(eds2, os, hs)))
@@ -8730,7 +8818,7 @@ def restate(+ds: List<&2, Store.Doc>, +id: String, +old_parent: String, +new_par
   match b:
     case Base{f, +old, +new}:
       do Result<&2, &2, String, Restated>:
-        ops : Ops.Doc <- doc.parsed(id, named, doc_by_id(ds, named))
+        ops : Ops.Doc <- doc.parsed(id, named, Stand.text(ds, named))
         +ops2 : Ops.Doc = ops
         c : Unit <- Bool.pick(Result<&2, &2, String, Unit>, Bool.or(forgets.any(doc.ops(ops2)), Bool.or(Ops.any_forgotten(old), Ops.any_forgotten(new))),
           Fail{"restating what " ++ ab12(id) ++ " did to " ++ file ++ " would re-record content a forgetting destroyed, which no carry may do; amend the work onto the rewrite by hand"}, Done{Unit{}})
