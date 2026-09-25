@@ -282,7 +282,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have | `offer` |
 | `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0053, 0062 |
 | `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule | `export` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and two claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | a hundred and fifty-eight claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -297,12 +297,14 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `similar_lemmas.bend` | `similar_diff_applies`: the document `diff` and `blame` draw from `similar`'s search takes the parent to the child — the search's moves are checked in one pass, and moves that pass are an edit script `diff_lemmas.bend` proves; `Ops.diff` answers any that do not, which the crate's two thousand cases never ask for | `historica::diff` |
 | `emphasis_lemmas.bend` | `emphasis_keeps_was`, `emphasis_keeps_now`: emphasis changes no character — a changed line's words are the line, and the runs `similar`'s Myers marks on either side read, in order, as that side's line | `diff`'s emphasis |
 | `mark_lemmas.bend` | `emphasis_marks_its_own_line`: every mark emphasis computes falls on its own line — a run of removals replaced one for one pairs each with the arrival at the same place, the runs a mark draws read as the line it is drawn on, and only a removal or an arrival has one | `diff`'s emphasis |
-| `sort_lemmas.bend` | string order is total and transitive, and Base's `List.sort` by a name returns its items each no smaller than the one before, with the items under each name the ones it was given, in the order given | `diff`'s pairing |
+| `sort_lemmas.bend` | string order is total and transitive, and Base's `List.sort` by a name returns its items each no smaller than the one before, with the items under each name the ones it was given, in the order given; and whatever holds of every item any sort is given holds of every item it returns, since a merge only moves what it is handed (`all_sort`, and `all_sort_at` for a test that reads one more value) | `diff`'s pairing |
 | `pair_lemmas.bend` | `diff_pairs_each_file`: under any file, the pairs `diff` goes on with are the entries each side holds under it, paired in order as far as either goes — each file compared once with itself where each side holds it once | `diff`'s pairing |
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
-| `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added | `working::walk`, `Survey::facts` |
-| `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given | `status`'s arguments and parents |
-| `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet | `store::check_name` |
+| `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added; `status_refuses_what_the_folder_holds`: every path `status` refuses is one its walk refused or one the folder holds something at that the position cannot take, never a path only the position holds; `status_offers_a_rename_the_bytes_make`: each rename it offers is from the one path that left holding some bytes, not nothing, to the one that arrived holding them; `record_refuses_a_dangling_link`: `record` refuses exactly where a link of the position names a file it drops and is neither going nor restated; `record_states_a_kind_only_for_an_arrival`: a stated kind goes through exactly where it names a path looked at that no file of the position holds; `record_moves_each_file_once`: one `move` line per file moved, none for a file going, at the last place the renames put it; `record_names_only_what_is_there`: every path named answers to a file of the folder, the position or the renames; `a_rename_keeps_each_file_once`, `a_rename_puts_each_file_where_it_was_said`: `--at` and `--move` leave the position's files each once, at the last place one put it and every other where it was; `record_refuses_only_what_it_looks_at`: whatever the folder and the store answer, a record restricted to some paths refuses only among them; `record_goes_on_where_each_path_holds_one_file`: where `record` goes on, no path it looks at holds two files, since the survey claims every path several files hold; `record_plans_in_file_order`, `record_plans_every_file`: it plans from the position in file order, each file's entries as they were; `a_link_refers_only_to_what_the_revision_states`: a link is written as a reference only where its target lands on a path the revision states; `a_link_resolves_inside_the_folder`: and a link at a path the format holds resolves, if at all, to a path that is not absolute and never climbs out with `..` | `working::walk`, `record::survey`, `record::plan` |
+| `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given; `status_says_what_it_found`: everything the survey found is in the report, in the order found, each on a line of its own naming it — a fact beginning with its kind and ending with its path, a refusal, a claim or an accept beginning with its word and its path; `status_says_each_contest`: where work is joined, each contest the tree merge found is said once, in its order, opening with the file contested, and where it is not, none; `status_compares_with_the_revisions_tree`: against one revision, the folder is compared with the tree `files`, `cat` and `diff` read there; `status_reads_only_lines`: every path it asks the host to read and every file it replays is a file of lines it compares; `status_surveys_each_path`: the survey is told of each path once, in order, and of a file the parents dispute with no digest; `status_believes_what_is_stated`, `status_joins_what_it_reads`: it is refused only where a file no statement settles cannot be replayed, or, joining, where a parent's reading of a file is refused, and with that refusal | `status`'s arguments, parents and report |
+| `naming_lemmas.bend` | `a_revision_is_filed_under_its_month`: a revision's stem is its month, a `/`, and one name holding nothing a filesystem reserves, whatever its message; `a_summary_fits_its_limit`: the summary is sixty characters at most; `a_summary_gives_up_its_ends`: it neither begins nor ends with a dot or a space; `content_is_filed_under_a_name_a_filesystem_holds`: each file of content is filed under a name with no control character; `record_compares_with_the_latest`: the timestamp the clock is checked against is one the store holds and none is later; `abandon_takes_a_reason_that_says_something`: a reason is taken exactly where it is not all whitespace | `naming`, `abandon`'s reason |
+| `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet; `name_reads_its_words`: `name` reads its words as their plain reading says, a field at a time; `name_does_what_it_reads`: a deletion only where `--delete` was said, of the one other word, with nothing shaping a target, and otherwise a bookmark set of the other words in order, never a file pinned; `name_points_where_asked`: the bookmark set has the name given and points at a revision, a change or a file the store holds, as asked, as private as asked or as it was; `name_deletes_the_bookmark_named`: `--delete` is refused exactly where no bookmark has the name, and otherwise reports the store's bookmark of that name; `name_states_what_it_set`: `--fields` says its header once, early or late, and then `name` | `store::check_name`, `name` |
+| `listing_lemmas.bend` | `files_lists_in_path_order`, `files_lists_the_tree`: `files` prints the tree's entries sorted by path and file, under each the ones the tree holds, each line ending with its file identifier; `bookmarks_read_in_name_order`, `names_lists_each_bookmark`: the bookmarks are read in name order and `names` prints a line for each, beginning with its name; `names_resolves_to_held`: a revision pin or a change resolves to an abbreviation of a revision the store holds, or a reason in parentheses; `log_fields_lists_what_it_keeps`: `log --fields` prints its header and a line per revision it keeps, beginning with its digest; `log_counts_each_fact`: an entry counts each `add`, `move`, `drop` and `edit` fact once; `log_follows_a_held_file`: the file `--path` follows is one the tree holds where it is read | `files`, `names`, `log`'s printing |
 | `PROOF.bend` (`replay`) | `replay_keeps_a_refusal`: once a document in the chain is refused, nothing after it — a payload included — makes the chain a file; `opdiff_replays_to_the_child`: the document `opdiff` finds between two files, applied as `replay` applies one, makes the second | `replay`, `opdiff` |
 | `target_lemmas.bend` | `target_is_held`: every target — a bookmark, `head`, a digest prefix or a change prefix — resolves to a revision the store holds; setting a key in Base's `Map` never invents a value, so the history heads and changes are read from holds only the store's revisions | `target::resolve` |
 | `log_lemmas.bend` | `log_lists_what_it_asks`: every revision `log` lists satisfies every filter asked of it, whatever the limit | `log`'s filters |
@@ -464,6 +466,26 @@ a resolution. What the renderer's marker lines leave standing in such a
 file (`marked`) is not reported: that needs the content contests
 `merge.bend` does not model.
 
+What the reading commands and `status` print is decided before anything
+is printed: each builds its lines — an entry of `log`, a line of `files` or
+`names`, the report `status` makes of its survey — and one `print_lines`
+prints them, so a law can read what they say, and `check.py` holds the
+same bytes. `files` lists each file of the tree once, in path order;
+`names` lists every bookmark in name order, and says where a pin or a
+change resolves as a revision the store holds; `log --fields` names each
+revision it keeps by its digest, an entry counts each fact once, and
+`--path` follows a file the tree holds. `status` says everything its survey
+found, each on a line naming it, and each contest once where work is
+joined; against one revision it compares the folder with the tree `files`
+reads there; it tells its survey of each path once, reads and replays only
+files of lines, believes a digest a statement gives, and is refused only
+where a replay, or a parent's reading when joining, is. What no law reaches
+is the IO itself — the order of the effects each command performs. A
+refusal before any effect is a `die`, which halts at once, so a law could
+say a wrong command line does nothing; but the proof would rest on the
+foreign effects the IO value names, and the gate would no longer print
+`All terms check.` alone.
+
 `record --dry-run` is the first of the writing commands, less the writing:
 it prints what `record` would state — the lines `status` prints, and a
 `moved` line for each file a person moved — or the refusal `record` would
@@ -523,6 +545,38 @@ holds; a clock behind the store; an author the format cannot hold; and a
 record of nothing — twenty-one records there and four more on the `fresh`
 store, the first a store has.
 
+The laws hold the survey and the names to what a person relies on. What
+`status` refuses is only what the folder holds, never a path only the
+position holds (`status_refuses_what_the_folder_holds`), and a rename it
+offers is from the one path that left holding some bytes to the one that
+arrived holding them (`status_offers_a_rename_the_bytes_make`). What
+`record` plans names only what is there (`record_names_only_what_is_there`)
+and, restricted to some paths, refuses only among them, whatever the folder
+and the store answer (`record_refuses_only_what_it_looks_at`); it states a
+kind only for a file arriving (`record_states_a_kind_only_for_an_arrival`),
+goes on only where each path it looks at holds one file
+(`record_goes_on_where_each_path_holds_one_file`), writes a link as a
+reference only to a path the revision states
+(`a_link_refers_only_to_what_the_revision_states`), and one never outside
+the folder (`a_link_resolves_inside_the_folder`),
+refuses a link left dangling exactly where one would be
+(`record_refuses_a_dangling_link`), and writes one `move` line per file,
+at the last place the renames put it (`record_moves_each_file_once`) —
+which is where the position it goes on with has the file, with every other
+where it was and none lost or doubled
+(`a_rename_puts_each_file_where_it_was_said`,
+`a_rename_keeps_each_file_once`). A revision's stem is its month, a `/`,
+and a name holding nothing a filesystem reserves
+(`a_revision_is_filed_under_its_month`), its summary sixty characters at
+most (`a_summary_fits_its_limit`) and never beginning or ending with a dot
+or a space (`a_summary_gives_up_its_ends`); each file of content is filed
+under a name with no control character
+(`content_is_filed_under_a_name_a_filesystem_holds`); the clock is checked
+against the latest work the store holds
+(`record_compares_with_the_latest`); and `abandon` takes a reason exactly
+where it is not all whitespace
+(`abandon_takes_a_reason_that_says_something`).
+
 `amend`, `abandon` and `carry` write too, and are held to
 `historica-pinned` the same way. `amend` of a revision nothing stands on is
 `record`'s survey against that revision's parents, keeping its change, its
@@ -572,6 +626,11 @@ and renamed over, through `Store.write`, and goes through `Store.remove`.
 `check.py` holds 58 `name` commands to the Rust tool with `names/` compared
 after: every target, nested names and a name beside a directory of the
 same name, every refusal, and a store whose bookmarks will not open.
+What `name` decides is pure, and the IO shell only opens, writes and
+prints what it was handed: the plan its words make (`name_reads_its_words`,
+`name_does_what_it_reads`), the bookmark it sets (`name_points_where_asked`),
+the one `--delete` finds (`name_deletes_the_bookmark_named`) and the lines
+it says after (`name_states_what_it_set`).
 
 `init [<dir>]` makes a store: `history/` in the directory named, or this
 one, with the directories it lacks, joined as `Path::join` joins, so a
@@ -1254,7 +1313,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Ninety-seven mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and fifty mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1327,8 +1386,30 @@ arriving file said to have changed as well; and two replay breaks: a
 payload after a refusal starting the file over, and a document applied to
 nothing rather than to what came before; and two status breaks: the
 revisions joined kept newest first, and a `--merge` joined by its spelling
-rather than the revision it names; and one name break: a name taken without
-asking the path rules; and four arrange breaks: a rename planned onto a
+rather than the revision it names; and six name breaks: a name taken without
+asking the path rules, the other words kept newest first, the header sent
+early without `--fields`, a bookmark moved that forgets it was private,
+`--revision` pinning the change, and `--fields`' header said twice; and six
+listing breaks: `files` in reverse path order or with the path last, a pin
+the store lacks said as its digest, bookmarks read in reverse, `log
+--fields` with the change first, and facts of every kind counted; and ten
+status-report breaks: a fact named by its path first, the accepts left out,
+contests said where no work is joined, a contest line naming the lower
+digest first, the parents after the first merged alone, a file of bytes
+read, a file replayed whatever its kind, a disputed file compared with a
+digest, a stated file replayed, and joining refused where no parent was
+read; and eleven survey breaks: a link to a file the
+record drops let dangle, a link written as a reference where the revision
+states nothing, a link's `..` pushed rather than climbed, a run of one path
+counted once too few, a file of lines refused
+at a path other than its own, a kind stated for a file already there, a
+`move` line for a file moved again later, a move that moves every file but
+the one named, a restricted record refusing what the walk refused
+elsewhere, a rename offered for bytes more than one path left, and a path
+nothing answers to let through; one reason break: a reason of only
+whitespace taken; and four naming breaks: a summary keeping a separator, a
+fallback longer than the limit, a filed path keeping its control
+characters, and the clock compared with the earliest work; and four arrange breaks: a rename planned onto a
 name that is taken, a revision refiled without `--refile`, a dry run's
 count leaving out the files it would leave, and a store opened past a
 revision that does not parse; and three prune breaks: a revision let go
