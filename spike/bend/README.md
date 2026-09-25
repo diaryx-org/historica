@@ -1698,9 +1698,12 @@ is under 5k. Not ported:
   refuses a store whose documents do not parse, whose file names lie about
   their digests, whose bookmark or rule files are not ones, or whose heads
   have no tree, and not one whose content contradicts its history or whose
-  rules cover a tracked path. A revision the Rust tool refuses to open is
-  refused here too, naming the file, but in the port's parser's words for
-  why, which are not the Rust tool's.
+  rules cover a tracked path. The gate `prune`, `receive` and `export`
+  ask is one def, `Prune.sound`, for the whole of `check` to replace. A
+  revision the Rust tool refuses to open is refused here too, naming the
+  file, but in the port's parser's words for why, which are not the Rust
+  tool's; the parsers are being brought to the Rust reader's words for
+  every command at once, elsewhere.
 - **`export`'s edges**: the folder a copy is caught up to is read from
   this store's documents rather than the copy's, which differ only where
   the copy lacks bytes this store holds; a path the tree places under a
