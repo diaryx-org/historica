@@ -4322,21 +4322,38 @@ def first_parent(+fs: List<&2, Full>, ps: List<&2, String>) -> Maybe<&2, Full>:
     case p <> rest:
       find(fs, p)
 
-def chain.go(fuel: Nat, +fs: List<&2, Full>, at: Maybe<&2, Full>, acc: List<&2, Full>) -> List<&2, Full>:
+def chain.go(fuel: Nat, +fs: List<&2, Full>, at: Maybe<&2, Full>) -> List<&2, Full>:
   match fuel at:
     case 0n _:
-      List.reverse(&2, Full, acc)
+      Nil{}
     case 1n+q None{}:
-      List.reverse(&2, Full, acc)
+      Nil{}
     case 1n+q Some{+f}:
-      chain.go(q, fs, first_parent(fs, parents_of(f)), f <> acc)
+      f <> chain.go(q, fs, first_parent(fs, parents_of(f)))
 
 def chain(+fs: List<&2, Full>, at: Maybe<&2, String>) -> List<&2, Full>:
   match at:
     case None{}:
       Nil{}
     case Some{+id}:
-      chain.go(1n+List.length(&2, Full, fs), fs, find(fs, id), Nil{})
+      chain.go(1n+List.length(&2, Full, fs), fs, find(fs, id))
+
+# Where `LAWS.chain_follows_first_parents` looks: revisions the store holds,
+# the first the one wanted, and each after it the first parent of the one
+# before.
+def parent.first(ps: List<&2, String>) -> Maybe<&2, String>:
+  match ps:
+    case Nil{}:
+      None{}
+    case p <> rest:
+      Some{p}
+
+def first_parents(+fs: List<&2, Full>, xs: List<&2, Full>, want: Maybe<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Bool.and(Rev.member(ids(fs), id_of(x)), maybe_eq(want, Some{id_of(x)})), first_parents(fs, rest, parent.first(parents_of(x))))
 
 # For each file, the nearest statement of its content on that line: the key
 # (`text`, `bytes` or `edit`) and the document it names.
