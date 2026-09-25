@@ -1,7 +1,9 @@
 # What `receive` plans. It takes only what this store lacks: revisions it
 # does not hold, and documents and payloads it has nothing under the digest
-# of and neither store forgets. It moves no bookmark this store has. And
-# the originals it destroys are ones a forgetting document stands in for.
+# of and neither store forgets. It moves no bookmark this store has. The
+# originals it destroys are ones a forgetting document stands in for. And
+# it plans nothing from a store holding a revision document whose text
+# does not parse, on either side.
 import Base
 import ./receive.bend as Receive
 import ./arrange.bend as Arrange
@@ -16,6 +18,8 @@ import ./string_lemmas.bend as S
 import ./prune_lemmas.bend as PruneL
 import ./prune.bend as Prune
 import ./status_lemmas.bend as StatusL
+import ./forget_lemmas.bend as ForgetL
+import ./arrange_lemmas.bend as ArrangeL
 
 # Taking what is lacking
 # ----------------------
@@ -166,75 +170,77 @@ def destroys(+here: Receive.Side, +there: Receive.Side) -> {Main.all_held(Receiv
     StatusL.ah_sort(~(a => b => String.is_le(a, b)), Receive.forgotten(here, there), Receive.among(Receive.forgotten(here, there), Set.from_list(List.append(&2, String, Receive.body.ids(Receive.stored.bodies(Receive.stored.of(here))), Receive.payload.ids(Receive.stored.payloads(Receive.stored.of(here)))))),
       among_held(Receive.forgotten(here, there), Set.from_list(List.append(&2, String, Receive.body.ids(Receive.stored.bodies(Receive.stored.of(here))), Receive.payload.ids(Receive.stored.payloads(Receive.stored.of(here))))), Receive.forgotten(here, there), held_refl(Receive.forgotten(here, there)))))
 
+# Every digest `receive` destroys is one a forgetting document of this
+# store or of the source stands in for: said of the documents themselves,
+# not of the list of digests the plan draws up from them.
+
+def or_assoc(a: Bool, -b: Bool, -c: Bool) -> {Bool.or(a, Bool.or(b, c)) == Bool.or(Bool.or(a, b), c) : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def member_app(xs: List<&2, String>, +ys: List<&2, String>, +d: String) -> {Rev.member(List.append(&2, String, xs, ys), d) == Bool.or(Rev.member(xs, d), Rev.member(ys, d)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, rest, ys), d), Bool.or(Rev.member(rest, d), Rev.member(ys, d)), member_app(rest, ys, d)) : {Bool.or(String.eq(x, d), _) == Bool.or(Rev.member(x <> rest, d), Rev.member(ys, d)) : Bool}
+      or_assoc(String.eq(x, d), Rev.member(rest, d), Rev.member(ys, d))
+
+def forgets_push(f: Maybe<&2, String>, +d: String, -rest: List<&2, Prune.Body>, ih: {Rev.member(Receive.body.forgets(rest), d) == Receive.forgot.by(rest, d) : Bool}) -> {Rev.member(Receive.forgets.push(f, Receive.body.forgets(rest)), d) == Bool.or(Receive.stands.for(f, d), Receive.forgot.by(rest, d)) : Bool}:
+  match f:
+    case None{}:
+      ih
+    case Some{t}:
+      Equal.cong(Bool, Bool, x => Bool.or(String.eq(t, d), x), Rev.member(Receive.body.forgets(rest), d), Receive.forgot.by(rest, d), ih)
+
+# A digest is among those these documents forget exactly where one of them
+# stands in for it.
+def forgets_member(bs: List<&2, Prune.Body>, +d: String) -> {Rev.member(Receive.body.forgets(bs), d) == Receive.forgot.by(bs, d) : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Prune.Body{p, i, ok, f} <> +rest:
+      forgets_push(f, d, rest, forgets_member(rest, d))
+
+def destroyed(+here: Receive.Side, +there: Receive.Side, +d: String, h: {Rev.member(Receive.rplan.destroys(Receive.plan.of(here, there)), d) == True{} : Bool}) -> {Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(here)), d), Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), d)) == True{} : Bool}:
+  %forgets_member(Receive.stored.bodies(Receive.stored.of(here)), d) : {Bool.or(_, Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), d)) == True{} : Bool}
+  %forgets_member(Receive.stored.bodies(Receive.stored.of(there)), d) : {Bool.or(Rev.member(Receive.body.forgets(Receive.stored.bodies(Receive.stored.of(here))), d), _) == True{} : Bool}
+  %member_app(Receive.body.forgets(Receive.stored.bodies(Receive.stored.of(here))), Receive.body.forgets(Receive.stored.bodies(Receive.stored.of(there))), d) : {_ == True{} : Bool}
+  ForgetL.held_member(Receive.forgotten(here, there), Receive.rplan.destroys(Receive.plan.of(here, there)), d, destroys(here, there), h)
+
 # What it plans from
 # ------------------
 
-def related_ok(c: Bool, +here: Receive.Side, +there: Receive.Side, +join: Bool, ea: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}, eb: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}, ec: {Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))) == c : Bool}) -> {Receive.plan.ok(here, there, join, Receive.plan.related(c, here, there)) == True{} : Bool}:
-  match c:
-    case True{}:
-      %Equal.sym(Bool, Prune.sound(Receive.stored.of(here)), True{}, ea) : {Bool.and(_, Bool.and(Prune.sound(Receive.stored.of(there)), Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))))) == True{} : Bool}
-      %Equal.sym(Bool, Prune.sound(Receive.stored.of(there)), True{}, eb) : {Bool.and(True{}, Bool.and(_, Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))))) == True{} : Bool}
-      ec
-    case False{}:
-      {==}
-
-def source_ok(b: Bool, +here: Receive.Side, +there: Receive.Side, +join: Bool, ea: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}, eb: {Prune.sound(Receive.stored.of(there)) == b : Bool}) -> {Receive.plan.ok(here, there, join, Receive.plan.source(b, here, there, join)) == True{} : Bool}:
-  match b:
-    case True{}:
-      related_ok(Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))), here, there, join, ea, eb, {==})
-    case False{}:
-      {==}
-
-def here_ok(a: Bool, +here: Receive.Side, +there: Receive.Side, +join: Bool, ea: {Prune.sound(Receive.stored.of(here)) == a : Bool}) -> {Receive.plan.ok(here, there, join, Receive.plan.here(a, here, there, join)) == True{} : Bool}:
+def and_false_r(a: Bool) -> {Bool.and(a, False{}) == False{} : Bool}:
   match a:
     case True{}:
-      source_ok(Prune.sound(Receive.stored.of(there)), here, there, join, ea, {==})
+      {==}
     case False{}:
       {==}
 
-# Nothing is planned from a store the check calls broken, on either side,
-# nor between two histories that share nothing, unless joining was asked.
-def plan_ok(+here: Receive.Side, +there: Receive.Side, +join: Bool) -> {Receive.plan.ok(here, there, join, Receive.plan.r(here, there, join)) == True{} : Bool}:
-  here_ok(Prune.sound(Receive.stored.of(here)), here, there, join, {==})
+def gate(a: Bool, -b: Bool, -c: Bool, -e: Bool, ha: {a == False{} : Bool}) -> {Bool.and(Bool.and(Bool.and(a, b), c), e) == False{} : Bool}:
+  %Equal.sym(Bool, a, False{}, ha) : {Bool.and(Bool.and(Bool.and(_, b), c), e) == False{} : Bool}
+  {==}
 
-# The words
-# ---------
+# A store holding a revision document whose text does not parse fails the
+# part of `check` the port reads, whatever else it holds.
+def sound_bad(+pre: List<&2, Store.Doc>, +path: String, +id: String, +size: Nat, +text: String, +post: List<&2, Store.Doc>, +revs: List<&2, T.Split>, +od: List<&2, Store.Doc>, +bs: List<&2, Prune.Body>, +ps: List<&2, T.Split>, +names: List<&2, String>, +rules: List<&2, T.Split>, +msg: String, hp: {String.ends_with(path, ".rev.txt") == True{} : Bool}, hf: {Rev.parse(text) == Fail{msg} : Result<&2, &2, String, Rev.Rev>}) -> {Prune.sound(Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}) == False{} : Bool}:
+  gate(Arrange.all_parse(Arrange.revision_docs(List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post))), Prune.revs.sound(revs), Bool.and(Prune.bodies.sound(bs), Prune.revs.sound(ps)), Bool.and(Bool.and(Prune.texts.bookmarks(names), Prune.texts.rules(rules)), Prune.heads.sound(Rev.heads(Main.history(Arrange.distinct(Prune.fulls(Arrange.revision_docs(List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post)))))), Arrange.distinct(Prune.fulls(Arrange.revision_docs(List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post)))))),
+    ArrangeL.bad_parse(pre, path, id, size, text, post, msg, hp, hf))
 
-def end_of(both: Bool, +dry: Bool, +fields: Bool, +join: Bool, source: Maybe<&2, String>, eb: {Bool.and(dry, fields) == both : Bool}) -> {Receive.args.ok(Receive.args.end.of(both, dry, fields, join, source)) == True{} : Bool}:
-  match both:
+def gate_there(c: Bool, +here: Receive.Side, +there: Receive.Side, +join: Bool, hs: {Prune.sound(Receive.stored.of(there)) == False{} : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.here(c, here, there, join)) == False{} : Bool}:
+  match c:
     case True{}:
+      %Equal.sym(Bool, Prune.sound(Receive.stored.of(there)), False{}, hs) : {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.source(_, here, there, join)) == False{} : Bool}
       {==}
     case False{}:
-      match source:
-        case None{}:
-          {==}
-        case Some{s}:
-          %Equal.sym(Bool, Bool.and(dry, fields), False{}, eb) : {Bool.not(_) == True{} : Bool}
-          {==}
+      {==}
 
-def go_ok(ws: List<&2, String>, k: Receive.RWord, +dry: Bool, +fields: Bool, +join: Bool, +source: Maybe<&2, String>) -> {Receive.args.ok(Receive.args.go(ws, k, dry, fields, join, source)) == True{} : Bool}:
-  match ws:
-    case Nil{}:
-      end_of(Bool.and(dry, fields), dry, fields, join, source, {==})
-    case +w <> +rest:
-      match k:
-        case Receive.RWord.Dry{}:
-          go_ok(rest, Receive.rword.of(rest), True{}, fields, join, source)
-        case Receive.RWord.Fields{}:
-          go_ok(rest, Receive.rword.of(rest), dry, True{}, join, source)
-        case Receive.RWord.Join{}:
-          go_ok(rest, Receive.rword.of(rest), dry, fields, True{}, source)
-        case Receive.RWord.Flag{}:
-          {==}
-        case Receive.RWord.End{}:
-          end_of(Bool.and(dry, fields), dry, fields, join, source, {==})
-        case Receive.RWord.Plain{}:
-          match source:
-            case None{}:
-              go_ok(rest, Receive.rword.of(rest), dry, fields, join, Some{w})
-            case Some{s}:
-              {==}
-
-# `receive` never reads a command line as a plan and a statement at once.
-def words(+ws: List<&2, String>) -> {Receive.args.ok(Receive.args.r(ws)) == True{} : Bool}:
-  go_ok(ws, Receive.rword.of(ws), False{}, False{}, False{}, None{})
+# `receive` plans nothing from a store holding a revision document whose
+# text does not parse, on either side.
+def trusts(+other: Receive.Side, +root: String, +pre: List<&2, Store.Doc>, +path: String, +id: String, +size: Nat, +text: String, +post: List<&2, Store.Doc>, +revs: List<&2, T.Split>, +od: List<&2, Store.Doc>, +bs: List<&2, Prune.Body>, +ps: List<&2, T.Split>, +names: List<&2, String>, +rules: List<&2, T.Split>, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +join: Bool, +msg: String, +hp: {String.ends_with(path, ".rev.txt") == True{} : Bool}, +hf: {Rev.parse(text) == Fail{msg} : Result<&2, &2, String, Rev.Rev>}) -> {Bool.or(Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(Receive.Side{root, Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}, marks, claims}, other, join)), Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(other, Receive.Side{root, Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}, marks, claims}, join))) == False{} : Bool}:
+  %Equal.sym(Bool, Prune.sound(Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}), False{}, sound_bad(pre, path, id, size, text, post, revs, od, bs, ps, names, rules, msg, hp, hf)) : {Bool.or(Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.here(_, Receive.Side{root, Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}, marks, claims}, other, join)), Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(other, Receive.Side{root, Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}, marks, claims}, join))) == False{} : Bool}
+  gate_there(Prune.sound(Receive.stored.of(other)), other, Receive.Side{root, Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}, marks, claims}, join, sound_bad(pre, path, id, size, text, post, revs, od, bs, ps, names, rules, msg, hp, hf))

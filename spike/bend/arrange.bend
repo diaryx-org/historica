@@ -75,13 +75,15 @@ def args.of(+dry: Bool, +refile: Bool, extra: Maybe<&2, String>) -> Result<&2, &
 def args.r(+ws: List<&2, String>) -> Result<&2, &2, Main.Refused, ArrangeCmd>:
   args.of(any_dry(ws), any_refile(ws), first_other(ws))
 
-# Every word a flag, which is what `args.r` accepting a command line says.
-def all_flags(ws: List<&2, String>) -> Bool:
-  match ws:
-    case Nil{}:
-      True{}
-    case +w <> rest:
-      Bool.and(is_flag(w), all_flags(rest))
+# What a command line is read as, where it is read at all: the command it
+# asks for, or nothing where it is refused. The laws say what each
+# command's words are read as through this, whatever a refusal says.
+def accepted(-A: Data, r: Result<&2, &2, Main.Refused, A>) -> Maybe<&2, A>:
+  match r:
+    case Fail{e}:
+      None{}
+    case Done{c}:
+      Some{c}
 
 # The store, as the Rust tool opens it
 # -----------------------------------

@@ -70,51 +70,6 @@ def rules(+prefix: String, s: Prune.Stored, +bs: List<&2, Bm.Bookmark>, +claims:
       Equal.cong(List<&2, Offer.Offered>, List<&2, String>, x => Offer.manifest.of(Offer.manifest.front(prefix, Prune.Stored{docs, revs, od, bods, ps, names, rs}), x, Offer.splits.offered(claims, "reserved", prefix), Offer.names.offered(bs, nids, prefix)),
         Offer.rules.offered(Receive.ruled(rs), rids, prefix), Offer.rules.offered(Receive.ruled(Offer.shared_files(rs)), rids, prefix), rules_shared(rs, rids, prefix))
 
-# The words
-# ---------
-
-def m_some(m: Maybe<&2, String>) -> Type:
-  match m:
-    case None{}:
-      Empty
-    case Some{x}:
-      Unit
-
-def some_none(-w: String, e: {Some{w} == None{} : Maybe<&2, String>}) -> Empty:
-  %e : {m_some(_) : Type}
-  Unit{}
-
-def dash_one(c: Bool, +w: String, ec: {String.starts_with(w, "-") == c : Bool}, ed: {Bool.pick(Maybe<&2, String>, c, Some{w}, None{}) == None{} : Maybe<&2, String>}) -> {Bool.and(String.eq(w, w), Bool.not(String.starts_with(w, "-"))) == True{} : Bool}:
-  match c:
-    case True{}:
-      Empty.absurd({Bool.and(String.eq(w, w), Bool.not(String.starts_with(w, "-"))) == True{} : Bool}, some_none(w, ed))
-    case False{}:
-      %Equal.sym(Bool, String.eq(w, w), True{}, S.eq_refl(w)) : {Bool.and(_, Bool.not(String.starts_with(w, "-"))) == True{} : Bool}
-      %Equal.sym(Bool, String.starts_with(w, "-"), False{}, ec) : {Bool.and(True{}, Bool.not(_)) == True{} : Bool}
-      {==}
-
-def plain_ok(ws: List<&2, String>, ed: {Offer.first_dash(ws) == None{} : Maybe<&2, String>}) -> {Offer.args.ok(ws, Offer.args.plain(ws)) == True{} : Bool}:
-  match ws:
-    case Nil{}:
-      {==}
-    case +w <> rest:
-      match rest:
-        case Nil{}:
-          dash_one(String.starts_with(w, "-"), w, {==}, ed)
-        case x <> more:
-          {==}
-
-def of_ok(+ws: List<&2, String>, dm: Maybe<&2, String>, ed: {Offer.first_dash(ws) == dm : Maybe<&2, String>}) -> {Offer.args.ok(ws, Offer.args.of(ws, dm)) == True{} : Bool}:
-  match dm:
-    case Some{w}:
-      {==}
-    case None{}:
-      plain_ok(ws, ed)
-
-# A command line `offer` accepts is one directory and nothing else.
-def words(+ws: List<&2, String>) -> {Offer.args.ok(ws, Offer.args.r(ws)) == True{} : Bool}:
-  of_ok(ws, Offer.first_dash(ws), {==})
-
 # Digests
 # -------
 

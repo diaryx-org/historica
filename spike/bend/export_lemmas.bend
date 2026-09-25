@@ -1,7 +1,9 @@
 # What `export` promises of a copy. Its folder has every path the target's
 # tree places, each once and at its own path, whatever the file is; every
-# bookmark it is given is shared and finds what it names in the copy; and
-# every rule file it is given states a shared rule.
+# bookmark it is given is shared and finds what it names in the copy;
+# every rule file it is given states a shared rule; and brought up to date,
+# it writes over, removes and destroys only what some revision or
+# forgetting document accounts for.
 import Base
 import ./export.bend as Export
 import ./receive.bend as Receive
@@ -20,6 +22,7 @@ import ./folder.bend as Folder
 import ./naming.bend as Naming
 import ./receive_lemmas.bend as ReceiveL
 import ./status_lemmas.bend as StatusL
+import ./forget_lemmas.bend as ForgetL
 
 # The folder
 # ----------
@@ -205,6 +208,60 @@ def or_r(a: Bool, -b: Bool, e: {b == True{} : Bool}) -> {Bool.or(a, b) == True{}
     case False{}:
       e
 
+# What `recorded` finds by looking the path up is held by some record of
+# that path.
+def rec_step(c: Bool, +p: String, +ds: List<&2, String>, +ls: List<&2, String>, -rest: List<&2, Export.Rec>, +path: String, +d: String, h: {Rev.member(Export.rec.digests(Bool.pick(Maybe<&2, Export.Rec>, c, Some{Export.Rec{p, ds, ls}}, Export.rec.find(rest, path))), d) == True{} : Bool}, ih: {Rev.member(Export.rec.digests(Export.rec.find(rest, path)), d) == True{} : Bool} -> {Export.recs.hold(rest, path, d) == True{} : Bool}) -> {Bool.or(Bool.and(c, Rev.member(ds, d)), Export.recs.hold(rest, path, d)) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, Rev.member(ds, d), True{}, h) : {Bool.or(_, Export.recs.hold(rest, path, d)) == True{} : Bool}
+      {==}
+    case False{}:
+      or_r(False{}, Export.recs.hold(rest, path, d), ih(h))
+
+def rec_find(rs: List<&2, Export.Rec>, +path: String, +d: String, h: {Rev.member(Export.rec.digests(Export.rec.find(rs, path)), d) == True{} : Bool}) -> {Export.recs.hold(rs, path, d) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+    case Export.Rec{+p, +ds, +ls} <> +rest:
+      rec_step(String.eq(p, path), p, ds, ls, rest, path, d, h, x => rec_find(rest, path, d, x))
+
+def rec_hold(whole: Bool, +rs: List<&2, Export.Rec>, +path: String, +d: String, h: {Export.recorded(whole, rs, path, d) == True{} : Bool}) -> {Bool.or(whole, Export.recs.hold(rs, path, d)) == True{} : Bool}:
+  match whole:
+    case True{}:
+      {==}
+    case False{}:
+      rec_find(rs, path, d, h)
+
+def lnk_step(c: Bool, +p: String, +ds: List<&2, String>, +ls: List<&2, String>, -rest: List<&2, Export.Rec>, +path: String, +t: String, h: {Rev.member(Export.rec.links(Bool.pick(Maybe<&2, Export.Rec>, c, Some{Export.Rec{p, ds, ls}}, Export.rec.find(rest, path))), t) == True{} : Bool}, ih: {Rev.member(Export.rec.links(Export.rec.find(rest, path)), t) == True{} : Bool} -> {Export.recs.link(rest, path, t) == True{} : Bool}) -> {Bool.or(Bool.and(c, Rev.member(ls, t)), Export.recs.link(rest, path, t)) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, Rev.member(ls, t), True{}, h) : {Bool.or(_, Export.recs.link(rest, path, t)) == True{} : Bool}
+      {==}
+    case False{}:
+      or_r(False{}, Export.recs.link(rest, path, t), ih(h))
+
+def lnk_find(rs: List<&2, Export.Rec>, +path: String, +t: String, h: {Rev.member(Export.rec.links(Export.rec.find(rs, path)), t) == True{} : Bool}) -> {Export.recs.link(rs, path, t) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
+    case Export.Rec{+p, +ds, +ls} <> +rest:
+      lnk_step(String.eq(p, path), p, ds, ls, rest, path, t, h, x => lnk_find(rest, path, t, x))
+
+def lnk_hold(whole: Bool, +rs: List<&2, Export.Rec>, +path: String, +t: String, h: {Export.recorded.link(whole, rs, path, t) == True{} : Bool}) -> {Bool.or(whole, Export.recs.link(rs, path, t)) == True{} : Bool}:
+  match whole:
+    case True{}:
+      {==}
+    case False{}:
+      lnk_find(rs, path, t, h)
+
+# What the walk found that `removes` counts as gone is what a record holds.
+def gone_recorded(s: Export.Seen, +whole: Bool, +rs: List<&2, Export.Rec>, h: {Export.seen.gone(s, whole, rs) == True{} : Bool}) -> {Export.seen.recorded(s, whole, rs) == True{} : Bool}:
+  match s:
+    case Export.Seen.File{+p, +d, r}:
+      rec_hold(whole, rs, p, d, h)
+    case Export.Seen.Link{+p, +t}:
+      lnk_hold(whole, rs, p, t, h)
+
 # A write or a link at a path lands where what the walk found there is
 # what `s` is.
 def over_at(+put: Export.Put, +path: String, -s: Maybe<&2, Export.Seen>, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, ep: {Export.put.path(put) == path : String}, es: {Export.seen.find(ss, path) == s : Maybe<&2, Export.Seen>}, h: {Export.over.ok(whole, rs, path, Export.held.digest(s)) == True{} : Bool}) -> {Export.over.ok(whole, rs, Export.put.path(put), Export.held.digest(Export.seen.find(ss, Export.put.path(put)))) == True{} : Bool}:
@@ -218,9 +275,9 @@ def over_file(r: Bool, link: Bool, +put: Export.Put, +path: String, +p: String, 
     case True{}:
       match link:
         case True{}:
-          over_at(put, path, Some{Export.Seen.File{p, d, runs}}, ss, whole, rs, ep, es, er)
+          over_at(put, path, Some{Export.Seen.File{p, d, runs}}, ss, whole, rs, ep, es, rec_hold(whole, rs, path, d, er))
         case False{}:
-          over_at(put, path, Some{Export.Seen.File{p, d, runs}}, ss, whole, rs, ep, es, er)
+          over_at(put, path, Some{Export.Seen.File{p, d, runs}}, ss, whole, rs, ep, es, rec_hold(whole, rs, path, d, er))
     case False{}:
       {==}
 
@@ -327,7 +384,7 @@ def removed_more(ps: List<&2, String>, +s: Export.Seen, +rest: List<&2, Export.S
       {==}
     case +p <> +more:
       and_tt(Export.witness(s <> rest, p, whole, rs), Export.removed.ok(more, s <> rest, whole, rs),
-        or_r(Bool.and(String.eq(Export.seen.path(s), p), Export.seen.gone(s, whole, rs)), Export.witness(rest, p, whole, rs), and_l(Export.witness(rest, p, whole, rs), Export.removed.ok(more, rest, whole, rs), h)),
+        or_r(Bool.and(String.eq(Export.seen.path(s), p), Export.seen.recorded(s, whole, rs)), Export.witness(rest, p, whole, rs), and_l(Export.witness(rest, p, whole, rs), Export.removed.ok(more, rest, whole, rs), h)),
         removed_more(more, s, rest, whole, rs, and_r(Export.witness(rest, p, whole, rs), Export.removed.ok(more, rest, whole, rs), h)))
 
 def removed_step(c: Bool, +s: Export.Seen, +rest: List<&2, Export.Seen>, +placed: Set(), +whole: Bool, +rs: List<&2, Export.Rec>, +ec: {Bool.and(Bool.not(Arrange.has(placed, Export.seen.path(s))), Export.seen.gone(s, whole, rs)) == c : Bool}, +ih: {Export.removed.ok(Export.removes(rest, placed, whole, rs), rest, whole, rs) == True{} : Bool}) -> {Export.removed.ok(Tree.keep(~String, c, Export.seen.path(s), Export.removes(rest, placed, whole, rs)), s <> rest, whole, rs) == True{} : Bool}:
@@ -335,8 +392,8 @@ def removed_step(c: Bool, +s: Export.Seen, +rest: List<&2, Export.Seen>, +placed
     case True{}:
       +gone = and_r(Bool.not(Arrange.has(placed, Export.seen.path(s))), Export.seen.gone(s, whole, rs), ec)
       and_tt(Export.witness(s <> rest, Export.seen.path(s), whole, rs), Export.removed.ok(Export.removes(rest, placed, whole, rs), s <> rest, whole, rs),
-        %Equal.sym(Bool, String.eq(Export.seen.path(s), Export.seen.path(s)), True{}, S.eq_refl(Export.seen.path(s))) : {Bool.or(Bool.and(_, Export.seen.gone(s, whole, rs)), Export.witness(rest, Export.seen.path(s), whole, rs)) == True{} : Bool}
-        %Equal.sym(Bool, Export.seen.gone(s, whole, rs), True{}, gone) : {Bool.or(Bool.and(True{}, _), Export.witness(rest, Export.seen.path(s), whole, rs)) == True{} : Bool}
+        %Equal.sym(Bool, String.eq(Export.seen.path(s), Export.seen.path(s)), True{}, S.eq_refl(Export.seen.path(s))) : {Bool.or(Bool.and(_, Export.seen.recorded(s, whole, rs)), Export.witness(rest, Export.seen.path(s), whole, rs)) == True{} : Bool}
+        %Equal.sym(Bool, Export.seen.recorded(s, whole, rs), True{}, gone_recorded(s, whole, rs, gone)) : {Bool.or(Bool.and(True{}, _), Export.witness(rest, Export.seen.path(s), whole, rs)) == True{} : Bool}
         {==},
         removed_more(Export.removes(rest, placed, whole, rs), s, rest, whole, rs, ih))
     case False{}:
@@ -375,61 +432,6 @@ def none_some(-A: Data, -x: A, e: {None{} == Some{x} : Maybe<&2, A>}) -> Empty:
 def some_none(-A: Data, -x: A, e: {Some{x} == None{} : Maybe<&2, A>}) -> Empty:
   %e : {m_some(A, _) : Type}
   Unit{}
-
-# The words
-# ---------
-
-def nand_or(a: Bool, b: Bool, e: {Bool.and(a, Bool.not(b)) == False{} : Bool}) -> {Bool.or(Bool.not(a), b) == True{} : Bool}:
-  match a b:
-    case False{} _:
-      {==}
-    case True{} True{}:
-      {==}
-    case True{} False{}:
-      Empty.absurd({Bool.or(Bool.not(True{}), False{}) == True{} : Bool}, S.true_false(e))
-
-def stray_step(c: Bool, +w: String, +rest: List<&2, String>, ec: {Bool.and(String.starts_with(w, "-"), Bool.not(Export.is_flag(w))) == c : Bool}, e: {Bool.pick(Maybe<&2, String>, c, Some{w}, Export.stray(rest)) == None{} : Maybe<&2, String>}, ih: {Export.stray(rest) == None{} : Maybe<&2, String>} -> {Export.flags.only(rest) == True{} : Bool}) -> {Export.flags.only(w <> rest) == True{} : Bool}:
-  match c:
-    case True{}:
-      Empty.absurd({Export.flags.only(w <> rest) == True{} : Bool}, some_none(String, w, e))
-    case False{}:
-      and_tt(Bool.or(Bool.not(String.starts_with(w, "-")), Export.is_flag(w)), Export.flags.only(rest), nand_or(String.starts_with(w, "-"), Export.is_flag(w), ec), ih(e))
-
-
-# A command line with no stray word holds only the flags `export` takes.
-def stray_none(ws: List<&2, String>, e: {Export.stray(ws) == None{} : Maybe<&2, String>}) -> {Export.flags.only(ws) == True{} : Bool}:
-  match ws:
-    case Nil{}:
-      {==}
-    case +w <> +rest:
-      stray_step(Bool.and(String.starts_with(w, "-"), Bool.not(Export.is_flag(w))), w, rest, {==}, e, x => stray_none(rest, x))
-
-def words_plain(+ws: List<&2, String>, pl: List<&2, String>, ep: {Export.plain(ws) == pl : List<&2, String>}, hf: {Export.flags.only(ws) == True{} : Bool}) -> {Export.args.ok(ws, Export.args.words(Export.any_dry(ws), Export.any_files(ws), pl)) == True{} : Bool}:
-  match pl:
-    case Nil{}:
-      {==}
-    case d <> Nil{}:
-      %Equal.sym(List<&2, String>, Export.plain(ws), [d], ep) : {Bool.and(Export.flags.only(ws), Bool.and(Nat.is_le(1n, List.length(&2, String, _)), Nat.is_le(List.length(&2, String, _), 2n))) == True{} : Bool}
-      %Equal.sym(Bool, Export.flags.only(ws), True{}, hf) : {Bool.and(_, True{}) == True{} : Bool}
-      {==}
-    case d <> t <> Nil{}:
-      %Equal.sym(List<&2, String>, Export.plain(ws), [d, t], ep) : {Bool.and(Export.flags.only(ws), Bool.and(Nat.is_le(1n, List.length(&2, String, _)), Nat.is_le(List.length(&2, String, _), 2n))) == True{} : Bool}
-      %Equal.sym(Bool, Export.flags.only(ws), True{}, hf) : {Bool.and(_, True{}) == True{} : Bool}
-      {==}
-    case d <> t <> x <> more:
-      {==}
-
-def words_of(+ws: List<&2, String>, sm: Maybe<&2, String>, es: {Export.stray(ws) == sm : Maybe<&2, String>}) -> {Export.args.ok(ws, Export.args.of(ws, sm)) == True{} : Bool}:
-  match sm:
-    case Some{w}:
-      {==}
-    case None{}:
-      words_plain(ws, Export.plain(ws), {==}, stray_none(ws, es))
-
-# A command line `export` accepts holds only the flags it takes, one
-# directory and at most one target.
-def words(+ws: List<&2, String>) -> {Export.args.ok(ws, Export.args.r(ws)) == True{} : Bool}:
-  words_of(ws, Export.stray(ws), {==})
 
 # Where it writes
 # ---------------
@@ -684,6 +686,70 @@ def destroys_of(+f: List<&2, String>, +cst: Prune.Stored) -> {Main.all_held(f, E
 
 def destroys(+p: Export.Plan, +here: List<&2, Prune.Body>, +cst: Prune.Stored, +marks: List<&2, Bm.Bookmark>) -> {Main.all_held(Export.onto.forgotten(Export.onto.of(p, here, cst, marks)), Export.onto.destroys(Export.onto.of(p, here, cst, marks))) == True{} : Bool}:
   destroys_of(Export.onto.forgotten.of(p, here, cst), cst)
+
+# Said of the documents themselves: every original an update destroys is
+# one a forgetting document of this store, or of the copy, stands in for.
+
+def fa_push(f: Maybe<&2, String>, +d: String, -rest: List<&2, Prune.Body>, ih: {Rev.member(Export.forgets.all(rest), d) == Receive.forgot.by(rest, d) : Bool}) -> {Rev.member(Export.maybe.push(f, Export.forgets.all(rest)), d) == Bool.or(Receive.stands.for(f, d), Receive.forgot.by(rest, d)) : Bool}:
+  match f:
+    case None{}:
+      ih
+    case Some{t}:
+      Equal.cong(Bool, Bool, x => Bool.or(String.eq(t, d), x), Rev.member(Export.forgets.all(rest), d), Receive.forgot.by(rest, d), ih)
+
+def forgets_all(bs: List<&2, Prune.Body>, +d: String) -> {Rev.member(Export.forgets.all(bs), d) == Receive.forgot.by(bs, d) : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Prune.Body{p, id, ok, f} <> +rest:
+      fa_push(f, d, rest, forgets_all(rest, d))
+
+def member_head(+t: String, +xs: List<&2, String>) -> {Rev.member(t <> xs, t) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(t, t), True{}, S.eq_refl(t)) : {Bool.or(_, Rev.member(xs, t)) == True{} : Bool}
+  {==}
+
+def here_all.none(c: Bool, -fa: List<&2, String>, -fh: List<&2, String>, ih: {Main.all_held(fa, fh) == True{} : Bool}) -> {Main.all_held(fa, Bool.pick(List<&2, String>, c, fh, fh)) == True{} : Bool}:
+  match c:
+    case True{}:
+      ih
+    case False{}:
+      ih
+
+def here_all.some(c: Bool, +t: String, +fa: List<&2, String>, +fh: List<&2, String>, +ih: {Main.all_held(fa, fh) == True{} : Bool}) -> {Main.all_held(t <> fa, Bool.pick(List<&2, String>, c, t <> fh, fh)) == True{} : Bool}:
+  match c:
+    case True{}:
+      and_tt(Rev.member(t <> fa, t), Main.all_held(t <> fa, fh), member_head(t, fa), ReceiveL.held_cons(t, fa, fh, ih))
+    case False{}:
+      ReceiveL.held_cons(t, fa, fh, ih)
+
+def here_all.step(c: Bool, f: Maybe<&2, String>, +fa: List<&2, String>, +fh: List<&2, String>, +ih: {Main.all_held(fa, fh) == True{} : Bool}) -> {Main.all_held(Export.maybe.push(f, fa), Bool.pick(List<&2, String>, c, Export.maybe.push(f, fh), fh)) == True{} : Bool}:
+  match f:
+    case None{}:
+      here_all.none(c, fa, fh, ih)
+    case Some{t}:
+      here_all.some(c, t, fa, fh, ih)
+
+# What the documents that travel forget is among what all of them forget.
+def here_all(bs: List<&2, Prune.Body>, +docs: Set()) -> {Main.all_held(Export.forgets.all(bs), Export.forgets.here(bs, docs)) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Prune.Body{p, +id, ok, f} <> +rest:
+      here_all.step(Arrange.has(docs, id), f, Export.forgets.all(rest), Export.forgets.here(rest, docs), here_all(rest, docs))
+
+def ex_or(a: Bool, +bs: List<&2, Prune.Body>, +cb: List<&2, Prune.Body>, +docs: Set(), +d: String, ea: {Rev.member(Export.forgets.here(bs, docs), d) == a : Bool}, h: {Bool.or(a, Rev.member(Export.forgets.all(cb), d)) == True{} : Bool}) -> {Bool.or(Receive.forgot.by(bs, d), Receive.forgot.by(cb, d)) == True{} : Bool}:
+  match a:
+    case True{}:
+      %Equal.sym(Bool, Receive.forgot.by(bs, d), True{}, Equal.trans(Bool, Receive.forgot.by(bs, d), Rev.member(Export.forgets.all(bs), d), True{}, Equal.sym(Bool, Rev.member(Export.forgets.all(bs), d), Receive.forgot.by(bs, d), forgets_all(bs, d)), ForgetL.held_member(Export.forgets.all(bs), Export.forgets.here(bs, docs), d, here_all(bs, docs), ea))) : {Bool.or(_, Receive.forgot.by(cb, d)) == True{} : Bool}
+      {==}
+    case False{}:
+      or_r(Receive.forgot.by(bs, d), Receive.forgot.by(cb, d), Equal.trans(Bool, Receive.forgot.by(cb, d), Rev.member(Export.forgets.all(cb), d), True{}, Equal.sym(Bool, Rev.member(Export.forgets.all(cb), d), Receive.forgot.by(cb, d), forgets_all(cb, d)), h))
+
+def destroyed(+p: Export.Plan, +here: List<&2, Prune.Body>, +cst: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +d: String, h: {Rev.member(Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d) == True{} : Bool}) -> {Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)) == True{} : Bool}:
+  ex_or(Rev.member(Export.forgets.here(here, Export.plan.docset(p)), d), here, Receive.stored.bodies(cst), Export.plan.docset(p), d, {==},
+    Equal.trans(Bool, Bool.or(Rev.member(Export.forgets.here(here, Export.plan.docset(p)), d), Rev.member(Export.forgets.all(Receive.stored.bodies(cst)), d)), Rev.member(List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst))), d), True{}, Equal.sym(Bool, Rev.member(List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst))), d), Bool.or(Rev.member(Export.forgets.here(here, Export.plan.docset(p)), d), Rev.member(Export.forgets.all(Receive.stored.bodies(cst)), d)), ReceiveL.member_app(Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst)), d)),
+      ForgetL.held_member(List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst))), Main.sorted_distinct(List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst)))), d, StatusL.ah_distinct(List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst))), List.sort(~String, ~(a => b => String.is_le(a, b)), List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst)))), StatusL.ah_sort(~(a => b => String.is_le(a, b)), List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst))), List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst))), ReceiveL.held_refl(List.append(&2, String, Export.forgets.here(here, Export.plan.docset(p)), Export.forgets.all(Receive.stored.bodies(cst)))))),
+        ForgetL.held_member(Export.onto.forgotten(Export.onto.of(p, here, cst, marks)), Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d, destroys(p, here, cst, marks), h))))
 
 # Where the folder's files go
 # ---------------------------

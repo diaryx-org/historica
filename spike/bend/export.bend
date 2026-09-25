@@ -107,6 +107,26 @@ def args.of(+ws: List<&2, String>, s: Maybe<&2, String>) -> Result<&2, &2, Main.
 def args.r(+ws: List<&2, String>) -> Result<&2, &2, Main.Refused, ExportCmd>:
   args.of(ws, stray(ws))
 
+# What a command `export` read says, written back as words: whether to plan
+# only, whether to write the files alone, and the directory followed by the
+# target, if one was given.
+type Said is Data:
+  Said{dry: Bool, files: Bool, words: List<&2, String>}
+
+def said.target(t: Maybe<&2, String>) -> List<&2, String>:
+  match t:
+    case None{}:
+      Nil{}
+    case Some{x}:
+      [x]
+
+def args.read(r: Result<&2, &2, Main.Refused, ExportCmd>) -> Maybe<&2, Said>:
+  match r:
+    case Fail{e}:
+      None{}
+    case Done{ExportCmd{dry, files, dir, target}}:
+      Some{Said{dry, files, dir <> said.target(target)}}
+
 # What travels
 # ------------
 
@@ -1716,12 +1736,37 @@ def held.digest(s: Maybe<&2, Seen>) -> Maybe<&2, String>:
     case _:
       None{}
 
+# Whether some revision's record of this path holds these bytes, or this
+# link: said of the records themselves, whichever of them it is.
+def recs.hold(rs: List<&2, Rec>, +path: String, +d: String) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case Rec{+p, ds, ls} <> rest:
+      Bool.or(Bool.and(String.eq(p, path), Rev.member(ds, d)), recs.hold(rest, path, d))
+
+def recs.link(rs: List<&2, Rec>, +path: String, +t: String) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case Rec{+p, ds, ls} <> rest:
+      Bool.or(Bool.and(String.eq(p, path), Rev.member(ls, t)), recs.link(rest, path, t))
+
+# Whether what stands at a path may be written over: the folder is the
+# export's own output, or some revision records it there.
 def over.ok(+whole: Bool, +rs: List<&2, Rec>, +path: String, h: Maybe<&2, String>) -> Bool:
   match h:
     case None{}:
       True{}
     case Some{+d}:
-      recorded(whole, rs, path, d)
+      Bool.or(whole, recs.hold(rs, path, d))
+
+def seen.recorded(s: Seen, +whole: Bool, +rs: List<&2, Rec>) -> Bool:
+  match s:
+    case Seen.File{+p, +d, r}:
+      Bool.or(whole, recs.hold(rs, p, d))
+    case Seen.Link{+p, +t}:
+      Bool.or(whole, recs.link(rs, p, t))
 
 # A step that writes or links over a regular file lands only where some
 # revision records what the file holds: the folder's own work is never
@@ -1749,7 +1794,7 @@ def witness(ss: List<&2, Seen>, +p: String, +whole: Bool, +rs: List<&2, Rec>) ->
     case Nil{}:
       False{}
     case +s <> rest:
-      Bool.or(Bool.and(String.eq(seen.path(s), p), seen.gone(s, whole, rs)), witness(rest, p, whole, rs))
+      Bool.or(Bool.and(String.eq(seen.path(s), p), seen.recorded(s, whole, rs)), witness(rest, p, whole, rs))
 
 def removed.ok(ps: List<&2, String>, +ss: List<&2, Seen>, +whole: Bool, +rs: List<&2, Rec>) -> Bool:
   match ps:
@@ -1923,19 +1968,6 @@ def origin.fulls(+st: Prune.Stored) -> List<&2, Main.Full>:
 # What the laws say of an export
 # ------------------------------
 
-# Every word starting `-` is a flag `export` takes.
-def flags.only(ws: List<&2, String>) -> Bool:
-  match ws:
-    case Nil{}:
-      True{}
-    case +w <> rest:
-      Bool.and(Bool.or(Bool.not(String.starts_with(w, "-")), is_flag(w)), flags.only(rest))
-
-# A command line `export` accepts: its flags, one directory, and at most
-# one target.
-def words.ok(+ws: List<&2, String>) -> Bool:
-  Bool.and(flags.only(ws), Bool.and(Nat.is_le(1n, List.length(&2, String, plain(ws))), Nat.is_le(List.length(&2, String, plain(ws)), 2n)))
-
 # A file of the store holding a digest.
 def split.held(ss: List<&2, T.Split>, +path: String, +digest: String) -> Bool:
   match ss:
@@ -2000,15 +2032,6 @@ def dest.ok(+l: Lst, +store: Bool, r: Result<&2, &2, Main.Refused, Dest>) -> Boo
       True{}
     case Done{dd}:
       dest.as(l, store, dd)
-
-# What `export` may do with a command line: refuse it, or read one it
-# accepts.
-def args.ok(+ws: List<&2, String>, r: Result<&2, &2, Main.Refused, ExportCmd>) -> Bool:
-  match r:
-    case Fail{e}:
-      True{}
-    case Done{c}:
-      words.ok(ws)
 
 # What `cat` prints of a file at a revision.
 def cat.of(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Maybe<&2, String>:
