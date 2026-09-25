@@ -1995,13 +1995,15 @@ def readable.docs(+ds: List<&2, Store.Doc>, digests: List<&2, String>) -> IO(Uni
 
 # The document an `edit` names, held and readable: one that does not parse
 # stops the reading of what the revisions did, the first time something
-# asks what it says (`MaterialiseError::UnreadableOperations`).
+# asks what it says (`MaterialiseError::UnreadableOperations`). One that
+# does is read through whatever stands beside it (decision 0014), as a
+# document the store no longer holds is read through what stands in for it.
 def held.read(+ds: List<&2, Store.Doc>, +id: String, +digest: String, found: Maybe<&2, Store.Doc>) -> Result<&2, &2, String, String>:
   match found:
     case None{}:
       held(id, digest, Stand.text(ds, digest))
     case Some{Store.Doc{+path, i, size, +text}}:
-      Maybe.default(&2, Result<&2, &2, String, String>, Maybe.map(&2, String, Result<&2, &2, String, String>, e => Fail{"what the revisions did could not be read: " ++ e}, unparsable(path, text)), Done{text})
+      Maybe.default(&2, Result<&2, &2, String, String>, Maybe.map(&2, String, Result<&2, &2, String, String>, e => Fail{"what the revisions did could not be read: " ++ e}, unparsable(path, text)), Done{Stand.held.text(ds, digest, text)})
 
 # What a `text` or `bytes` line names, as lines: the payload's own, where
 # the store holds it; where a forgetting destroyed it, the creation that
