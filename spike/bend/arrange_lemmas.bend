@@ -1,7 +1,8 @@
-# What `arrange` plans. It takes nothing but its flags; every rename it
-# plans goes to a path nothing in the store was at, from a different one;
-# and without `--refile`, a revision document is renamed only within the
-# directory it sits in.
+# What `arrange` plans. Every rename it plans goes to a path nothing in the
+# store was at, from a different one; without `--refile`, a revision
+# document is renamed only within the directory it sits in; and it opens no
+# store holding a revision document whose text does not parse. What it
+# reads its words as is `words_lemmas.bend`'s.
 import Base
 import ./arrange.bend as Arrange
 import ./commands.bend as Main
@@ -14,35 +15,7 @@ import ./position_lemmas.bend as Pos
 import ./revision_lemmas.bend as RevL
 import ./store.bend as Store
 import ./revision.bend as Rev
-
-# The words
-# ---------
-
-# A command line with no word but a flag is one whose every word is a flag.
-def other_step(c: Bool, +w: String, +rest: List<&2, String>, e: {Bool.pick(Maybe<&2, String>, c, Arrange.first_other(rest), Some{w}) == None{} : Maybe<&2, String>}, ih: {Arrange.first_other(rest) == None{} : Maybe<&2, String>} -> {Arrange.all_flags(rest) == True{} : Bool}) -> {Bool.and(c, Arrange.all_flags(rest)) == True{} : Bool}:
-  match c:
-    case True{}:
-      ih(e)
-    case False{}:
-      Empty.absurd({Bool.and(False{}, Arrange.all_flags(rest)) == True{} : Bool}, NameL.some_none(w, e))
-
-def no_other(ws: List<&2, String>, e: {Arrange.first_other(ws) == None{} : Maybe<&2, String>}) -> {Arrange.all_flags(ws) == True{} : Bool}:
-  match ws:
-    case Nil{}:
-      {==}
-    case +w <> +rest:
-      other_step(Arrange.is_flag(w), w, rest, e, h => no_other(rest, h))
-
-def of_none(+dry: Bool, +refile: Bool, extra: Maybe<&2, String>, -c: Arrange.ArrangeCmd, e: {Arrange.args.of(dry, refile, extra) == Done{c} : Result<&2, &2, Main.Refused, Arrange.ArrangeCmd>}) -> {extra == None{} : Maybe<&2, String>}:
-  match extra:
-    case Some{x}:
-      Empty.absurd({Some{x} == None{} : Maybe<&2, String>}, B.fail_done(Arrange.ArrangeCmd, Main.Refused{2, "`arrange` takes no arguments, and `" ++ x ++ "` is one"}, c, e))
-    case None{}:
-      {==}
-
-# `arrange` accepts a command line only where every word is one of its flags.
-def args_flags(+ws: List<&2, String>, -c: Arrange.ArrangeCmd, e: {Arrange.args.r(ws) == Done{c} : Result<&2, &2, Main.Refused, Arrange.ArrangeCmd>}) -> {Arrange.all_flags(ws) == True{} : Bool}:
-  no_other(ws, of_none(Arrange.any_dry(ws), Arrange.any_refile(ws), Arrange.first_other(ws), c, e))
+import ./tree.bend as Tree
 
 # Placing one file
 # ----------------
@@ -267,6 +240,44 @@ def of_found(found: Maybe<&2, Main.Refused>, -u: Unit, e: {Arrange.opened.of(fou
 # A store is opened only where every revision document in it parses.
 def opened(+ds: List<&2, Store.Doc>, -u: Unit, e: {Arrange.opened.r(ds) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Arrange.all_parse(Arrange.revision_docs(ds)) == True{} : Bool}:
   faults_none(Arrange.revision_docs(ds), of_found(Arrange.first_fault(Arrange.revision_docs(ds)), u, e))
+
+def and_false_r(a: Bool) -> {Bool.and(a, False{}) == False{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def bad_step(c: Bool, +q: Store.Doc, -r: List<&2, Store.Doc>, ih: {Arrange.all_parse(r) == False{} : Bool}) -> {Arrange.all_parse(Tree.keep(~Store.Doc, c, q, r)) == False{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, Arrange.all_parse(r), False{}, ih) : {Bool.and(Arrange.parses(q), _) == False{} : Bool}
+      and_false_r(Arrange.parses(q))
+    case False{}:
+      ih
+
+# Whatever else a store holds, a revision document among its files whose
+# text does not parse is one the check that every revision parses finds.
+def bad_parse(pre: List<&2, Store.Doc>, +path: String, +id: String, +size: Nat, +text: String, +post: List<&2, Store.Doc>, +msg: String, +hp: {String.ends_with(path, ".rev.txt") == True{} : Bool}, +hf: {Rev.parse(text) == Fail{msg} : Result<&2, &2, String, Rev.Rev>}) -> {Arrange.all_parse(Arrange.revision_docs(List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post))) == False{} : Bool}:
+  match pre:
+    case Nil{}:
+      %Equal.sym(Bool, String.ends_with(path, ".rev.txt"), True{}, hp) : {Arrange.all_parse(Tree.keep(~Store.Doc, _, Store.Doc{path, id, size, text}, Arrange.revision_docs(post))) == False{} : Bool}
+      %Equal.sym(Result<&2, &2, String, Rev.Rev>, Rev.parse(text), Fail{msg}, hf) : {Bool.and(Bool.not(Main.rev.fails(_)), Arrange.all_parse(Arrange.revision_docs(post))) == False{} : Bool}
+      {==}
+    case +q <> +rest:
+      bad_step(Arrange.claims_revision(Store.path_of(q)), q, Arrange.revision_docs(List.append(&2, Store.Doc, rest, Store.Doc{path, id, size, text} <> post)), bad_parse(rest, path, id, size, text, post, msg, hp, hf))
+
+def opens_r(r: Result<&2, &2, Main.Refused, Unit>, +ds: List<&2, Store.Doc>, e: {Arrange.opened.r(ds) == r : Result<&2, &2, Main.Refused, Unit>}, hb: {Arrange.all_parse(Arrange.revision_docs(ds)) == False{} : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, r) == False{} : Bool}:
+  match r:
+    case Fail{x}:
+      {==}
+    case Done{u}:
+      Empty.absurd({Result.is_done(&2, &2, Main.Refused, Unit, Done{u}) == False{} : Bool}, S.false_true(Equal.trans(Bool, False{}, Arrange.all_parse(Arrange.revision_docs(ds)), True{}, Equal.sym(Bool, Arrange.all_parse(Arrange.revision_docs(ds)), False{}, hb), opened(ds, u, e))))
+
+# `arrange` opens no store holding a revision document whose text does not
+# parse, whatever else the store holds.
+def opens(+pre: List<&2, Store.Doc>, +path: String, +id: String, +size: Nat, +text: String, +post: List<&2, Store.Doc>, +msg: String, hp: {String.ends_with(path, ".rev.txt") == True{} : Bool}, hf: {Rev.parse(text) == Fail{msg} : Result<&2, &2, String, Rev.Rev>}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Arrange.opened.r(List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post))) == False{} : Bool}:
+  opens_r(Arrange.opened.r(List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post)), List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), {==}, bad_parse(pre, path, id, size, text, post, msg, hp, hf))
 
 # Counting
 # --------

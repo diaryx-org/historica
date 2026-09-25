@@ -108,6 +108,18 @@ def args.go(ws: List<&2, String>, k: RWord, +dry: Bool, +fields: Bool, +join: Bo
 def args.r(+ws: List<&2, String>) -> Result<&2, &2, Main.Refused, ReceiveCmd>:
   args.go(ws, rword.of(ws), False{}, False{}, False{}, None{})
 
+# What a command `receive` read says, written back as words: its three
+# flags, and the source directory as the one other word.
+type Said is Data:
+  Said{dry: Bool, fields: Bool, join: Bool, words: List<&2, String>}
+
+def args.read(r: Result<&2, &2, Main.Refused, ReceiveCmd>) -> Maybe<&2, Said>:
+  match r:
+    case Fail{e}:
+      None{}
+    case Done{ReceiveCmd{dry, fields, join, source}}:
+      Some{Said{dry, fields, join, [source]}}
+
 # A store as receive reads it
 # ---------------------------
 
@@ -600,24 +612,21 @@ def plan.here(ok: Bool, +here: Side, +there: Side, +join: Bool) -> Result<&2, &2
 def plan.r(+here: Side, +there: Side, +join: Bool) -> Result<&2, &2, Main.Refused, RPlan>:
   plan.here(Prune.sound(stored.of(here)), here, there, join)
 
-# What a receive may plan from: two stores the part of `check` the port
-# reads passes, whose histories share a revision or an edge, or that the
-# person asked to join.
-def plan.ok(+here: Side, +there: Side, +join: Bool, r: Result<&2, &2, Main.Refused, RPlan>) -> Bool:
-  match r:
-    case Fail{e}:
-      True{}
-    case Done{p}:
-      Bool.and(Prune.sound(stored.of(here)), Bool.and(Prune.sound(stored.of(there)), Bool.or(join, related(side.fulls(here), side.fulls(there)))))
+# What the laws say of forgetting: whether a forgetting document stands
+# in for this digest, and whether one among these does.
+def stands.for(f: Maybe<&2, String>, +d: String) -> Bool:
+  match f:
+    case None{}:
+      False{}
+    case Some{t}:
+      String.eq(t, d)
 
-# What `receive` may read a command line as: never a plan and a statement
-# at once.
-def args.ok(r: Result<&2, &2, Main.Refused, ReceiveCmd>) -> Bool:
-  match r:
-    case Fail{e}:
-      True{}
-    case Done{ReceiveCmd{dry, fields, join, source}}:
-      Bool.not(Bool.and(dry, fields))
+def forgot.by(bs: List<&2, Prune.Body>, +d: String) -> Bool:
+  match bs:
+    case Nil{}:
+      False{}
+    case Prune.Body{p, i, ok, f} <> rest:
+      Bool.or(stands.for(f, d), forgot.by(rest, d))
 
 # The report
 # ----------

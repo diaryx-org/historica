@@ -66,19 +66,6 @@ def first_other(ws: List<&2, String>) -> Maybe<&2, String>:
     case +w <> rest:
       Bool.pick(Maybe<&2, String>, is_flag(w), first_other(rest), Some{w})
 
-# Every word a flag.
-def all_flags(ws: List<&2, String>) -> Bool:
-  match ws:
-    case Nil{}:
-      True{}
-    case +w <> rest:
-      Bool.and(is_flag(w), all_flags(rest))
-
-def one_or_other(c: PruneCmd) -> Bool:
-  match c:
-    case PruneCmd{dry, fields}:
-      Bool.not(Bool.and(dry, fields))
-
 # A plan is not on disk, so `--fields`, which states what is, has nothing to
 # say of one.
 def args.planned(+dry: Bool, +fields: Bool) -> Result<&2, &2, Main.Refused, PruneCmd>:
