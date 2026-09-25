@@ -1371,6 +1371,25 @@ def span.shown(+fs: List<&2, Full>, sp: Span) -> List<&2, Full>:
     case Span.Between{+from, +to}:
       among(fs, Rev.without(reached(fs, to), reached(fs, from)))
 
+# Where `LAWS.log_lists_its_span` looks: a revision of the store a span
+# names — any, with no target; one the target reaches; or, of `a..b`, one
+# `b` reaches and `a` does not.
+def span.has(+fs: List<&2, Full>, sp: Span, +id: String) -> Bool:
+  match sp:
+    case Span.All{}:
+      Rev.member(ids(fs), id)
+    case Span.From{+a}:
+      Bool.and(Rev.member(ids(fs), id), Rev.member(reached(fs, a), id))
+    case Span.Between{+from, +to}:
+      Bool.and(Rev.member(ids(fs), id), Bool.and(Rev.member(reached(fs, to), id), Bool.not(Rev.member(reached(fs, from), id))))
+
+def span.all_in(+fs: List<&2, Full>, +sp: Span, xs: List<&2, Full>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(span.has(fs, sp, id_of(x)), span.all_in(fs, sp, rest))
+
 # The revision a `--path` is read at: the far end of what was named, or the
 # head where nothing was — and where there are several heads, none.
 def read_at.heads.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, heads: List<&2, String>) -> Result<&2, &2, Refused, String>:
@@ -3037,16 +3056,19 @@ def laid.new(ls: List<&2, Laid>) -> List<&2, Ops.Item>:
 
 # A line of the rendering and the colour it is drawn in where there is
 # colour: bold for a fact about a file, cyan for a hunk's header, red and
-# green for what left and arrived, nothing for context. Off, every line is
-# the bytes it would be anyway, which is what `historica diff | patch` sees.
+# green for what left and arrived, nothing for context. Its text is kept as
+# runs (`Piece`, under Emphasis below), one for most lines, so that a line
+# replaced one for one can have the runs that differ marked inside its
+# colour. Off, every line is its runs read as they are, the bytes it would
+# be anyway, which is what `historica diff | patch` sees.
 type Painted is Data:
-  Painted{code: String, text: String}
+  Painted{code: String, runs: List<&2, Piece>}
 
-def plain(text: String) -> Painted:
-  Painted{SNil{}, text}
+def painted.line(+code: String, text: String) -> Painted:
+  Painted{code, [Piece{text, False{}}]}
 
 def meta(text: String) -> Painted:
-  Painted{"\u{1b}[1m", text}
+  painted.line("\u{1b}[1m", text)
 
 def sign_code(+sign: String) -> String:
   Bool.pick(String, String.eq(sign, "-"), "\u{1b}[31m", Bool.pick(String, String.eq(sign, "+"), "\u{1b}[32m", SNil{}))
@@ -3161,9 +3183,9 @@ def hunks.made(ls: List<&2, Laid>) -> List<&2, Hunk>:
 def laid.text(+sign: String, it: Ops.Item) -> List<&2, Painted>:
   match it:
     case Ops.Item{t, True{}, f}:
-      [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, True{}, f})}]
+      [painted.line(sign_code(sign), sign ++ Ops.shown(Ops.Item{t, True{}, f}))]
     case Ops.Item{t, False{}, f}:
-      [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, False{}, f})}, Painted{sign_code(sign), "\\ no newline at end of file"}]
+      [painted.line(sign_code(sign), sign ++ Ops.shown(Ops.Item{t, False{}, f})), painted.line(sign_code(sign), "\\ no newline at end of file")]
 
 # Emphasis
 # --------
@@ -3473,19 +3495,19 @@ def marks.fit(ns: List<&2, Numbered>, ms: List<&2, Maybe<&2, List<&2, Piece>>>) 
     case _ _:
       True{}
 
-def laid.marked.of(+sign: String, it: Ops.Item, t: String) -> List<&2, Painted>:
+def laid.marked.of(+sign: String, it: Ops.Item, ps: List<&2, Piece>) -> List<&2, Painted>:
   match it:
     case Ops.Item{x, True{}, f}:
-      [Painted{sign_code(sign), sign ++ t}]
+      [Painted{sign_code(sign), Piece{sign, False{}} <> ps}]
     case Ops.Item{x, False{}, f}:
-      [Painted{sign_code(sign), sign ++ t}, Painted{sign_code(sign), "\\ no newline at end of file"}]
+      [Painted{sign_code(sign), Piece{sign, False{}} <> ps}, painted.line(sign_code(sign), "\\ no newline at end of file")]
 
 def laid.marked(+sign: String, it: Ops.Item, m: Maybe<&2, List<&2, Piece>>) -> List<&2, Painted>:
   match m:
     case None{}:
       laid.text(sign, it)
     case Some{ps}:
-      laid.marked.of(sign, it, pieces.show(ps))
+      laid.marked.of(sign, it, ps)
 
 def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, List<&2, Piece>>>) -> List<&2, Painted>:
   match ns marks:
@@ -3496,10 +3518,13 @@ def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, List<&2, Piece>
     case Numbered{Laid{sign, it}, b, a} <> rest Nil{}:
       List.append(&2, Painted, laid.text(sign, it), hunk.lines(rest, Nil{}))
 
+def hunk.header(o: Nat, oc: Nat, n: Nat, nc: Nat) -> Painted:
+  painted.line("\u{1b}[36m", "@@ -" ++ Nat.show(o) ++ "," ++ Nat.show(oc) ++ " +" ++ Nat.show(n) ++ "," ++ Nat.show(nc) ++ " @@")
+
 def hunk.shown(+paint: Bool, h: Hunk) -> List<&2, Painted>:
   match h:
     case Hunk{o, oc, n, nc, +ns}:
-      Painted{"\u{1b}[36m", "@@ -" ++ Nat.show(o) ++ "," ++ Nat.show(oc) ++ " +" ++ Nat.show(n) ++ "," ++ Nat.show(nc) ++ " @@"} <> hunk.lines(ns, emph(ns, paint))
+      hunk.header(o, oc, n, nc) <> hunk.lines(ns, emph(ns, paint))
 
 def hunks.shown(+paint: Bool, hs: List<&2, Hunk>) -> List<&2, Painted>:
   match hs:
@@ -3846,10 +3871,19 @@ def diff.rendered(+paint: Bool, ps: List<&2, Compared>) -> List<&2, Painted>:
     case p <> rest:
       List.append(&2, Painted, render(paint, p), diff.rendered(paint, rest))
 
+# A line as printed: with colour, its runs drawn with the marks they have
+# and the whole in its colour; without, its runs as they are.
 def painted(+paint: Bool, p: Painted) -> String:
-  match p:
-    case Painted{+code, +text}:
-      Bool.pick(String, Bool.and(paint, Bool.not(String.is_empty(code))), code ++ text ++ "\u{1b}[0m", text)
+  match paint:
+    case True{}:
+      match p:
+        case Painted{+code, runs}:
+          +text = pieces.show(runs)
+          Bool.pick(String, String.is_empty(code), text, code ++ text ++ "\u{1b}[0m")
+    case False{}:
+      match p:
+        case Painted{code, runs}:
+          pieces.text(runs)
 
 def print_painted(+paint: Bool, ls: List<&2, Painted>) -> IO(Unit):
   match ls:
@@ -4376,6 +4410,71 @@ def split_rests(xs: List<&2, T.Split>) -> List<&2, String>:
     case T.Split{a, b} <> rest:
       b <> split_rests(rest)
 
+# Where `LAWS.diff_sizes_what_the_host_stated` looks. The host states a
+# size for a digest where it answered a line beginning with that digest,
+# the size after it.
+def nat.is(m: Maybe<&2, Nat>, +n: Nat) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{k}:
+      Nat.is_eq(k, n)
+
+def stat.says(stats: List<&2, String>, +d: String, +n: Nat) -> Bool:
+  match stats:
+    case Nil{}:
+      False{}
+    case +st <> rest:
+      Bool.or(Bool.and(String.eq(T.word(st), d), nat.is(Nat.read(String.drop(st, 65n)), n)), stat.says(rest, d, n))
+
+# Two sides hold the same: the same lines, or the same digest and size.
+def size.same(m: Maybe<&2, Nat>, k: Maybe<&2, Nat>) -> Bool:
+  match m k:
+    case None{} None{}:
+      True{}
+    case Some{a} Some{b}:
+      Nat.is_eq(a, b)
+    case _ _:
+      False{}
+
+def side.same(s: Maybe<&2, Side>, t: Maybe<&2, Side>) -> Bool:
+  match s t:
+    case None{} None{}:
+      True{}
+    case Some{Side.Lines{a}} Some{Side.Lines{b}}:
+      items_eq(a, b)
+    case Some{Side.Whole{d, m}} Some{Side.Whole{e, k}}:
+      Bool.and(String.eq(d, e), size.same(m, k))
+    case _ _:
+      False{}
+
+# A side whose size was unknown keeps its digest, and has a size only where
+# the host stated one for that digest; any other side is as it was.
+def side.given(+stats: List<&2, String>, +d: String, t: Maybe<&2, Side>) -> Bool:
+  match t:
+    case Some{Side.Whole{e, None{}}}:
+      String.eq(d, e)
+    case Some{Side.Whole{e, Some{+n}}}:
+      Bool.and(String.eq(d, e), stat.says(stats, d, n))
+    case _:
+      False{}
+
+def side.told(+stats: List<&2, String>, s: Maybe<&2, Side>, t: Maybe<&2, Side>) -> Bool:
+  match s:
+    case Some{Side.Whole{+d, None{}}}:
+      side.given(stats, d, t)
+    case other:
+      side.same(other, t)
+
+def sizes.told(+stats: List<&2, String>, cs: List<&2, Compared>, ds: List<&2, Compared>) -> Bool:
+  match cs ds:
+    case Nil{} Nil{}:
+      True{}
+    case Compared{f, t, b, a, m, g} <> rest Compared{f2, t2, b2, a2, m2, g2} <> more:
+      Bool.and(Bool.and(side.told(stats, b, b2), side.told(stats, a, a2)), sizes.told(stats, rest, more))
+    case _ _:
+      False{}
+
 def diff.sized(+root: String, +paint: Bool, cs: List<&2, Compared>) -> IO(Unit):
   do IO<Unit>:
     +cs2 : List<&2, Compared> = cs
@@ -4461,21 +4560,38 @@ def first_parent(+fs: List<&2, Full>, ps: List<&2, String>) -> Maybe<&2, Full>:
     case p <> rest:
       find(fs, p)
 
-def chain.go(fuel: Nat, +fs: List<&2, Full>, at: Maybe<&2, Full>, acc: List<&2, Full>) -> List<&2, Full>:
+def chain.go(fuel: Nat, +fs: List<&2, Full>, at: Maybe<&2, Full>) -> List<&2, Full>:
   match fuel at:
     case 0n _:
-      List.reverse(&2, Full, acc)
+      Nil{}
     case 1n+q None{}:
-      List.reverse(&2, Full, acc)
+      Nil{}
     case 1n+q Some{+f}:
-      chain.go(q, fs, first_parent(fs, parents_of(f)), f <> acc)
+      f <> chain.go(q, fs, first_parent(fs, parents_of(f)))
 
 def chain(+fs: List<&2, Full>, at: Maybe<&2, String>) -> List<&2, Full>:
   match at:
     case None{}:
       Nil{}
     case Some{+id}:
-      chain.go(1n+List.length(&2, Full, fs), fs, find(fs, id), Nil{})
+      chain.go(1n+List.length(&2, Full, fs), fs, find(fs, id))
+
+# Where `LAWS.chain_follows_first_parents` looks: revisions the store holds,
+# the first the one wanted, and each after it the first parent of the one
+# before.
+def parent.first(ps: List<&2, String>) -> Maybe<&2, String>:
+  match ps:
+    case Nil{}:
+      None{}
+    case p <> rest:
+      Some{p}
+
+def first_parents(+fs: List<&2, Full>, xs: List<&2, Full>, want: Maybe<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Bool.and(Rev.member(ids(fs), id_of(x)), maybe_eq(want, Some{id_of(x)})), first_parents(fs, rest, parent.first(parents_of(x))))
 
 # For each file, the nearest statement of its content on that line: the key
 # (`text`, `bytes` or `edit`) and the document it names.
@@ -4687,14 +4803,31 @@ def stat_of(+file: String, r: Map<&2, String> & String) -> String:
 type Planned is Data:
   Planned{here: Here, digest: String, replay: Bool, read: Bool}
 
+# The digest the host gave the folder's file at a path: the first word of
+# the line it answered for the path.
+def here.digest(+dg: Map<&2, String>, h: Here) -> String:
+  +path = here.path(h)
+  T.word(stat_of(path, Map.get(String, SNil{}, dg, path)))
+
+# Whether a file's nearest statement leaves it with this digest.
+def here.same(+eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, h: Here, +digest: String) -> Bool:
+  maybe_eq(stated_digest(eds, origin(os, here.file(h))), Some{digest})
+
+# Whether the position holds a file at a path.
+def here.held(h: Here) -> Bool:
+  match h:
+    case Here{p, Some{e}, found}:
+      True{}
+    case Here{p, None{}, found}:
+      False{}
+
 def plan.of(+h: Here, +digest: String, +lines: Bool, +regular: Bool, +same: Bool) -> Planned:
-  Planned{h, digest, Bool.and(lines, Bool.not(Bool.and(regular, same))), Bool.and(regular, Bool.or(String.is_empty(here.file(h)), Bool.and(lines, Bool.not(same))))}
+  Planned{h, digest, Bool.and(lines, Bool.not(Bool.and(regular, same))), Bool.and(regular, Bool.or(Bool.not(here.held(h)), Bool.and(lines, Bool.not(same))))}
 
 def plan(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, h: Here) -> Planned:
   +h2 = h
-  +digest = T.word(stat_of(here.path(h2), Map.get(String, SNil{}, dg, here.path(h2))))
-  plan.of(h2, digest, here.lines(h2), here.regular(h2),
-    maybe_eq(stated_digest(eds, origin(os, here.file(h2))), Some{digest}))
+  +digest = here.digest(dg, h2)
+  plan.of(h2, digest, here.lines(h2), here.regular(h2), here.same(eds, os, h2, digest))
 
 def plans(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, Planned>:
   match hs:
@@ -4716,6 +4849,36 @@ def planned.read(ps: List<&2, Planned>) -> List<&2, String>:
       Nil{}
     case Planned{+h, d, p, +read} <> rest:
       Rev.keep(read, here.path(h), planned.read(rest))
+
+# What the digests stated leave open. A file of lines is settled where the
+# folder holds a regular file at its path with the digest the file's nearest
+# statement leaves; a file of bytes or a link the position holds is settled
+# by its digest or its target, whatever the folder holds there.
+# `LAWS.diff_folder_replays_what_is_unsettled` and
+# `LAWS.diff_folder_reads_what_is_unsettled` hold `plans` to it.
+def here.settled(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, h: Here) -> Bool:
+  +h2 = h
+  Bool.and(Bool.and(here.lines(h2), here.regular(h2)), here.same(eds, os, h2, here.digest(dg, h2)))
+
+def here.kept(h: Here) -> Bool:
+  +h2 = h
+  Bool.and(here.held(h2), Bool.not(here.lines(h2)))
+
+# The files of lines no statement settles, by file; and the folder's regular
+# files nothing the position holds settles, by path.
+def unsettled.files(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      Rev.keep(Bool.and(here.lines(h), Bool.not(here.settled(dg, os, eds, h))), here.file(h), unsettled.files(dg, os, eds, rest))
+
+def unsettled.paths(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      Rev.keep(Bool.and(here.regular(h), Bool.not(Bool.or(here.kept(h), here.settled(dg, os, eds, h)))), here.path(h), unsettled.paths(dg, os, eds, rest))
 
 def wanted_all(+fs: List<&2, Full>, files: List<&2, String>) -> List<&2, String>:
   match files:
