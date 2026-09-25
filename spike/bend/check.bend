@@ -2587,6 +2587,14 @@ def pass(+root: String) -> IO(List<&2, Finding>):
     nf : List<&2, Finding> <- names.go(docs, 1n+String.length(root), walked.files(nw2), class(walked.files(nw2), SNil{}))
     return found(Gathered{root, htext, rw2, rf2, ow2, of2, tx, stale2, st, nw2, nf})
 
+# Whether `check` passes a store, as `prune`, `receive` and `export` ask
+# before destroying or copying anything (`Report::is_ok`): no error, whatever
+# the notes say and whether or not every head can be produced.
+def passes(+root: String) -> IO(Bool):
+  do IO<Bool>:
+    fs : List<&2, Finding> <- pass(root)
+    return Bool.not(fails(fs, False{}))
+
 # The command
 # -----------
 

@@ -34,6 +34,11 @@ import ./identity.bend as Identity
 import ./check.bend as Check
 import ./skip.bend as Skip
 import ./notes.bend as Notes
+import ./arrange.bend as Arrange
+import ./prune.bend as Prune
+import ./receive.bend as Receive
+import ./offer.bend as Offer
+import ./export.bend as Export
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2409,3 +2414,344 @@ law update_settles_only_what_stays:
 law merge_sets_aside_the_claims:
   for +cs: List<&2, Tree.Contest>
   {Bool.and(Merging.besides.claimed(cs, Merging.typed.ids(Merging.beside(cs))), Merging.contests.written(cs, Merging.typed.ids(Merging.beside(cs)))) == True{} : Bool}
+
+# `arrange` reads its words as their plain reading says: it accepts a
+# command line exactly where every word is `-n`, `--dry-run` or
+# `--refile`, wherever each stands, and then it plans rather than acts
+# exactly where `-n` or `--dry-run` is among them, and refiles exactly
+# where `--refile` is. No word typed to it is passed over.
+law arrange_reads_its_words:
+  for +ws: List<&2, String>
+  {Arrange.accepted(Arrange.ArrangeCmd, Arrange.args.r(ws)) == Bool.pick(Maybe<&2, Arrange.ArrangeCmd>, List.all(~&2, ~String, ~(w => Rev.member(["-n", "--dry-run", "--refile"], w)), ws), Some{Arrange.ArrangeCmd{Bool.or(Rev.member(ws, "-n"), Rev.member(ws, "--dry-run")), Rev.member(ws, "--refile")}}, None{}) : Maybe<&2, Arrange.ArrangeCmd>}
+
+# `arrange` never plans to write over a file: every rename its plan holds,
+# in `revisions/` and in `operations/`, goes from one path to a different
+# one that nothing in the store was at. Two files holding one document
+# want one name, and the second finds it taken when its turn comes.
+law arrange_plans_no_overwrite:
+  for +refile: Bool
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +ops: List<&2, T.Split>
+  for +ls: List<&2, String>
+  for +a: Arrange.Arrangement
+  for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
+  {Arrange.plan_safe(Arrange.taken(ls), a) == True{} : Bool}
+
+# Without `--refile`, `arrange` renames a revision document only within
+# the directory it sits in: a folder a person filed one in is one they
+# meant, and the stem's month is `--refile`'s to apply.
+law arrange_keeps_a_revision_where_it_sits:
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +ops: List<&2, T.Split>
+  for +ls: List<&2, String>
+  for +a: Arrange.Arrangement
+  for e: {Arrange.arrangement.r(False{}, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
+  {Arrange.all_in_place(Arrange.arrangement.revs(a)) == True{} : Bool}
+
+# `arrange` opens no store holding a revision document whose text does not
+# parse, wherever among the store's files it stands, as the Rust tool
+# refuses to; the others here pass such a document over. So nothing is
+# renamed over a history read only in part.
+law arrange_opens_what_parses:
+  for +pre: List<&2, Store.Doc>
+  for +path: String
+  for +id: String
+  for +size: Nat
+  for +text: String
+  for +post: List<&2, Store.Doc>
+  for +msg: String
+  for hp: {String.ends_with(path, ".rev.txt") == True{} : Bool}
+  for hf: {Rev.parse(text) == Fail{msg} : Result<&2, &2, String, Rev.Rev>}
+  {Result.is_done(&2, &2, Main.Refused, Unit, Arrange.opened.r(List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post))) == False{} : Bool}
+
+# Every file `arrange` walks is counted once in what it prints for its
+# directory: renamed, already arranged, left because its name is taken, or
+# named by no revision. Nothing it looked at goes unsaid.
+law arrange_counts_every_file:
+  for +refile: Bool
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +ops: List<&2, T.Split>
+  for +ls: List<&2, String>
+  for +a: Arrange.Arrangement
+  for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
+  {Arrange.accounted(a, revs, ops) == True{} : Bool}
+
+# `prune` reads its words as their plain reading says: it accepts a
+# command line exactly where every word is `-n`, `--dry-run` or
+# `--fields` and it does not hold both a flag asking for a plan and
+# `--fields` — a plan is not on disk, so `--fields` has nothing to say of
+# one; and then it plans exactly where `-n` or `--dry-run` is among them,
+# and states what is on disk exactly where `--fields` is.
+law prune_reads_its_words:
+  for +ws: List<&2, String>
+  {Arrange.accepted(Prune.PruneCmd, Prune.args.r(ws)) == Bool.pick(Maybe<&2, Prune.PruneCmd>, Bool.and(List.all(~&2, ~String, ~(w => Rev.member(["-n", "--dry-run", "--fields"], w)), ws), Bool.not(Bool.and(Bool.or(Rev.member(ws, "-n"), Rev.member(ws, "--dry-run")), Rev.member(ws, "--fields")))), Some{Prune.PruneCmd{Bool.or(Rev.member(ws, "-n"), Rev.member(ws, "--dry-run")), Rev.member(ws, "--fields")}}, None{}) : Maybe<&2, Prune.PruneCmd>}
+
+# `prune` never removes a revision that work it keeps stands on: of the
+# revisions a store holds, one pruning does not keep is named as a parent
+# by nothing it keeps — however many passes the fixed point takes, and in
+# whatever order a pass let revisions go.
+law prune_keeps_what_work_stands_on:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for hf: {Rev.member(Main.ids(fs), id) == True{} : Bool}
+  for hk: {Rev.member(Main.ids(Prune.kept(fs)), id) == False{} : Bool}
+  {Prune.stood_on(Prune.kept(fs), id) == False{} : Bool}
+
+# Every operation document and payload `prune` removes holds a digest
+# nothing it keeps needs: named by no revision it keeps, and no forgetting
+# document standing in for one that is.
+law prune_removes_only_unneeded_content:
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +ps: List<&2, T.Split>
+  {Prune.unneeded(Prune.pruned.content(Prune.plan(fs, revs, bs, ps)), Prune.referenced(Prune.kept(fs), bs)) == True{} : Bool}
+
+# `receive` takes only what this store lacks: every revision it plans to
+# write is one this store does not hold, and every document and payload
+# one it has nothing under the digest of — and that neither store forgets,
+# so a forgetting document is never undone by an arriving original.
+law receive_takes_only_what_is_missing:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  {Receive.fresh(here, there, Receive.plan.of(here, there)) == True{} : Bool}
+
+# `receive` moves no bookmark this store has: each it writes is one this
+# store lacks, or one it holds at the same target, whose axis joins. Two
+# targets for one name is a disagreement, and writes nothing.
+law receive_moves_no_bookmark:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  {Receive.names_kept(Receive.rplan.names(Receive.plan.of(here, there)), Receive.side.marks(here)) == True{} : Bool}
+
+# Every original `receive` destroys is one a forgetting document of this
+# store or of the source stands in for (decision 0014): among the
+# documents themselves, one whose header forgets that very digest.
+law receive_destroys_only_what_is_forgotten:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for +d: String
+  for h: {Rev.member(Receive.rplan.destroys(Receive.plan.of(here, there)), d) == True{} : Bool}
+  {Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(here)), d), Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), d)) == True{} : Bool}
+
+# `offer` names no private bookmark: the manifest is the one a store with
+# none would write, so the file a private key exists to keep back never
+# leaves the store as a `name` line.
+law offer_names_no_private_bookmark:
+  for +prefix: String
+  for +s: Prune.Stored
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +rids: List<&2, T.Split>
+  for +nids: List<&2, T.Split>
+  {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, s, Offer.shared(bs), claims, rids, nids) : List<&2, String>}
+
+# `offer` names no private rule either: the manifest is the one a store
+# whose `private` rules were never written would have.
+law offer_names_no_private_rule:
+  for +prefix: String
+  for +s: Prune.Stored
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +rids: List<&2, T.Split>
+  for +nids: List<&2, T.Split>
+  {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, Offer.shared_rules(s), bs, claims, rids, nids) : List<&2, String>}
+
+# `export` lays out every path the target's tree places, each once and at
+# its own path, whatever kind of file it is: one outcome a path, in path
+# order, so a folder laid out without a refusal holds exactly the tree's
+# paths — a link where it sits, not where it points.
+law export_lays_out_every_path:
+  for +ps: List<&2, Export.Placed>
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  {Export.outcome.paths(Export.lay(ps, t, fs, ds, id, pays, bs)) == Export.placed.paths(ps) : List<&2, String>}
+
+# Every bookmark a copy is given is shared, and finds in the copy what it
+# names (decision 0062): an export never discloses a private name, and
+# never manufactures a dangling bookmark the origin did not have.
+law export_names_only_what_travels:
+  for +bs: List<&2, Bm.Bookmark>
+  for +pt: Export.Pointed
+  {Export.travels(Export.travel.names(Export.travel.of(bs, pt)), pt) == True{} : Bool}
+
+# Every rule file a copy is given states a shared rule (decision 0051),
+# whatever label it is filed under.
+law export_states_no_private_rule:
+  for +rs: List<&2, Receive.Ruled>
+  {Export.lines.shared(Export.rules.files(rs)) == True{} : Bool}
+
+# Bringing a copy's folder up to date writes over no work nothing has
+# recorded: every write or link its plan makes over a regular file is over
+# bytes some revision of the copy records, or over the export's own output
+# (decision 0030, as 0052 meets it).
+law export_writes_over_no_unrecorded_work:
+  for +os: List<&2, Export.Outcome>
+  for +ss: List<&2, Export.Seen>
+  for +dirs: Set()
+  for +others: Set()
+  for +whole: Bool
+  for +rs: List<&2, Export.Rec>
+  {Export.steps.safe(Export.steps(os, ss, dirs, others, whole, rs), ss, whole, rs) == True{} : Bool}
+
+# And removes only what the walk found there that some revision records:
+# a stray file nobody recorded stays where it is.
+law export_removes_only_recorded_files:
+  for +ss: List<&2, Export.Seen>
+  for +placed: Set()
+  for +whole: Bool
+  for +rs: List<&2, Export.Rec>
+  {Export.removed.ok(Export.removes(ss, placed, whole, rs), ss, whole, rs) == True{} : Bool}
+
+# `export` reads its words as their plain reading says: it accepts a
+# command line exactly where the words starting `-` are all `-n`,
+# `--dry-run` or `--files-only`, wherever each stands, and one or two words
+# do not start `-`; and then it plans exactly where `-n` or `--dry-run` is
+# among them, writes the files alone exactly where `--files-only` is, and
+# its directory and target, written back as words, are those other words
+# in the order they were typed.
+law export_reads_its_words:
+  for +ws: List<&2, String>
+  {Export.args.read(Export.args.r(ws)) == Bool.pick(Maybe<&2, Export.Said>, Bool.and(List.all(~&2, ~String, ~(w => Rev.member(["-n", "--dry-run", "--files-only"], w)), List.filter(~String, ~(w => String.starts_with(w, "-")), ws)), Bool.and(Nat.is_le(1n, List.length(&2, String, List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws))), Nat.is_le(List.length(&2, String, List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)), 2n))), Some{Export.Said{Bool.or(Rev.member(ws, "-n"), Rev.member(ws, "--dry-run")), Rev.member(ws, "--files-only"), List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)}}, None{}) : Maybe<&2, Export.Said>}
+
+# An export makes a fresh copy only where nothing is, or where a directory
+# holds nothing, and updates only a directory holding something that is a
+# store: it never writes into somebody's files.
+law export_writes_only_where_a_copy_may_go:
+  for +into: String
+  for +l: Export.Lst
+  for +store: Bool
+  {Export.dest.ok(l, store, Export.dest.decide(into, l, store)) == True{} : Bool}
+
+# Every file an export lays out is as the target's tree has it: a file of
+# lines holds exactly what `cat` prints there, a file of bytes the payload
+# its entry names, copied from a file of the store holding that payload, a
+# link is spelled as decision 0040 materialises it, and each runs exactly
+# where the tree says it can be run.
+law export_lays_each_file_as_the_tree_has_it:
+  for +ps: List<&2, Export.Placed>
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  {Export.laid.all(ps, Export.lay(ps, t, fs, ds, id, pays, bs), t, fs, ds, id, pays) == True{} : Bool}
+
+# A copy is assembled from this store's own files: every document and
+# forgetting document it carries is one this store holds under that
+# digest, and every payload a file of this store holding it.
+law export_carries_only_this_stores_files:
+  for +held: List<&2, Main.Full>
+  for +t: Tree.Tree()
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, T.Split>
+  for +bodies: List<&2, Prune.Body>
+  for +rs: List<&2, Receive.Ruled>
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  {Export.plan.from(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), ds, ps) == True{} : Bool}
+
+# Updating a copy renames none of its revisions (decision 0052): each one
+# the copy already holds keeps the stem it was written under, whatever the
+# newcomers are called.
+law export_renames_nothing_a_copy_holds:
+  for +fs: List<&2, Main.Full>
+  for +held: List<&2, T.Split>
+  for +ex: List<&2, Naming.Named>
+  for +id: String
+  for +s: String
+  for +e: {Arrange.lookup(held, id) == Some{s} : Maybe<&2, String>}
+  for m: {Rev.member(Main.ids(fs), id) == True{} : Bool}
+  {Arrange.lookup(Export.stems.around(fs, held, ex), id) == Some{s} : Maybe<&2, String>}
+
+# `receive` plans nothing from a store holding a revision document whose
+# text does not parse, wherever among its files it stands and whatever
+# else it holds — neither into such a store nor out of one — since the part
+# of `check` it asks first calls that store broken.
+law receive_trusts_what_it_plans_from:
+  for +other: Receive.Side
+  for +root: String
+  for +pre: List<&2, Store.Doc>
+  for +path: String
+  for +id: String
+  for +size: Nat
+  for +text: String
+  for +post: List<&2, Store.Doc>
+  for +revs: List<&2, T.Split>
+  for +od: List<&2, Store.Doc>
+  for +bs: List<&2, Prune.Body>
+  for +ps: List<&2, T.Split>
+  for +names: List<&2, String>
+  for +rules: List<&2, T.Split>
+  for +marks: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +join: Bool
+  for +msg: String
+  for +hp: {String.ends_with(path, ".rev.txt") == True{} : Bool}
+  for +hf: {Rev.parse(text) == Fail{msg} : Result<&2, &2, String, Rev.Rev>}
+  {Bool.or(Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(Receive.Side{root, Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}, marks, claims}, other, join)), Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(other, Receive.Side{root, Prune.Stored{List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post), revs, od, bs, ps, names, rules}, marks, claims}, join))) == False{} : Bool}
+
+# `receive` reads its words as their plain reading says, though it reads
+# them in one pass: it accepts a command line exactly where the words
+# starting `-` are all `-n`, `--dry-run`, `--fields` or `--join-unrelated`,
+# wherever each stands, one word does not start `-`, and it does not hold
+# both a flag asking for a plan and `--fields`; and then it plans exactly
+# where `-n` or `--dry-run` is among them, states what is on disk exactly
+# where `--fields` is, joins unrelated histories only where
+# `--join-unrelated` is, and its source is that one other word.
+law receive_reads_its_words:
+  for +ws: List<&2, String>
+  {Receive.args.read(Receive.args.r(ws)) == Bool.pick(Maybe<&2, Receive.Said>, Bool.and(List.all(~&2, ~String, ~(w => Rev.member(["-n", "--dry-run", "--fields", "--join-unrelated"], w)), List.filter(~String, ~(w => String.starts_with(w, "-")), ws)), Bool.and(Nat.is_eq(List.length(&2, String, List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)), 1n), Bool.not(Bool.and(Bool.or(Rev.member(ws, "-n"), Rev.member(ws, "--dry-run")), Rev.member(ws, "--fields"))))), Some{Receive.Said{Bool.or(Rev.member(ws, "-n"), Rev.member(ws, "--dry-run")), Rev.member(ws, "--fields"), Rev.member(ws, "--join-unrelated"), List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)}}, None{}) : Maybe<&2, Receive.Said>}
+
+# `offer` accepts a command line exactly where it is one word that does
+# not start `-`, and then that word is the directory.
+law offer_reads_its_words:
+  for +ws: List<&2, String>
+  {Offer.args.read(Offer.args.r(ws)) == Bool.pick(Maybe<&2, List<&2, String>>, Bool.and(List.all(~&2, ~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws), Nat.is_eq(List.length(&2, String, ws), 1n)), Some{ws}, None{}) : Maybe<&2, List<&2, String>>}
+
+# Every file an export lays out sits at a path a folder may be given:
+# outside the store, not a directory another of the tree's files needs,
+# and none a rule of the copy covers, so the copy's own walk offers back
+# every file it was given.
+law export_lays_out_only_what_the_walk_offers_back:
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  {Export.folder.clear(t, rules, Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}
+
+# Updating a copy destroys only originals a forgetting document of this
+# store, or of the copy, stands in for (decision 0014): among the documents
+# themselves, one whose header forgets that very digest.
+law export_destroys_only_what_is_forgotten:
+  for +p: Export.Plan
+  for +here: List<&2, Prune.Body>
+  for +cst: Prune.Stored
+  for +marks: List<&2, Bm.Bookmark>
+  for +d: String
+  for h: {Rev.member(Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d) == True{} : Bool}
+  {Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)) == True{} : Bool}
+
+# Every line of an `offer` manifest names a file by the digest the store's
+# listing gives the file at that path: each payload, document, revision,
+# rule, file of `claims/` and bookmark, group by group, so a fetcher that
+# checks a file against its line checks it against what the store holds.
+law offer_names_each_file_by_its_digest:
+  for +prefix: String
+  for +s: Prune.Stored
+  for +marks: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +rids: List<&2, T.Split>
+  for +nids: List<&2, T.Split>
+  {Offer.manifest.from(prefix, s, marks, claims, rids, nids) == True{} : Bool}
