@@ -2829,6 +2829,28 @@ law export_catches_up_to_a_fresh_copy:
   for +rs: List<&2, Export.Rec>
   {Export.caught.lands(seen, Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs), Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}
 
+# An export takes a copy's folder for its own untouched output — the one
+# case it may rewrite whole (decisions 0030 and 0052 meeting) — only where
+# the walk found there what a fresh export of that revision lays out: a
+# folder its plan settles holds, at every path of the fresh folder, that
+# path's file, by digest and mode or by where its link points.
+law export_settles_only_on_what_it_laid_out:
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  for +seen: List<&2, Export.Seen>
+  for +walk: List<&2, T.Split>
+  for +dirs: Set()
+  for +others: Set()
+  for +whole: Bool
+  for +rs: List<&2, Export.Rec>
+  for h: {Export.caught.settled(Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs)) == True{} : Bool}
+  {Export.fresh.held(seen, Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}
+
 # Catching a copy's folder up writes over, and takes away, only bytes the
 # copy's own history can give back (decision 0030, as 0052 meets it): every
 # file one of its steps writes or links over, and every file it removes,

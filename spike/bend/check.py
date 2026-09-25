@@ -4162,6 +4162,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export takes a folder with a file to write for its own untouched output",
+            "      steps.settled(rest)\n    case s <> rest:\n      False{}",
+            "      steps.settled(rest)\n    case s <> rest:\n      steps.settled(rest)",
+            "catchup_lemmas.lands_keep",
+            "export.bend",
+        ),
+        (
             "export refuses a copy holding a revision this store names but pruned",
             "    stranger.r(into, stranger(cfs, Set.from_list(List.append(&2, String, Main.ids(fs), named.edges(fs)))))",
             "    stranger.r(into, stranger(cfs, Set.from_list(Main.ids(fs))))",
