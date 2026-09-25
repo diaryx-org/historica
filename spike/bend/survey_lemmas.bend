@@ -20,6 +20,7 @@ import ./pair_lemmas.bend as PairL
 import ./naming_lemmas.bend as NamingL
 import ./naming.bend as Naming
 import ./name_lemmas.bend as NameL
+import ./map_lemmas.bend as ML
 
 # The walk's refusals
 # -------------------
@@ -1684,3 +1685,23 @@ def res_ok(c: Bool, +m: Maybe<&2, List<&2, String>>, +hm: {inv_m(m) == True{} : 
 def link_inside(+link: String, +target: String, -p: String, +h: {Sv.path_check(link) == None{} : Maybe<&2, String>}, e: {Sv.resolution(link, target) == Some{p} : Maybe<&2, String>}) -> {Main.escapes(p) == False{} : Bool}:
   res_ok(Bool.or(String.starts_with(target, "/"), String.ends_with(target, "/")), Sv.res.go(String.split(target, '/'), Some{Sv.res.dir(List.reverse(&2, String, String.split(link, '/')))}),
     go_inv(String.split(target, '/'), Some{Sv.res.dir(List.reverse(&2, String, String.split(link, '/')))}, split_ns(target), init_inv(link, h)), p, e)
+
+# The set built from the arriving paths answers as the list does, so the
+# survey's arrival check is the list's.
+def has_hv(r: Set() & Bool) -> {Sv.has.of(r) == ML.hv(Unit, r) : Bool}:
+  match r:
+    case (m, b):
+      {==}
+
+def member_set(+xs: List<&2, String>, +p: String) -> {Sv.has(Set.from_list(xs), p) == List.contains(~String, ~(a => b => String.eq(a, b)), xs, p) : Bool}:
+  Equal.trans(Bool, Sv.has(Set.from_list(xs), p), ML.hv(Unit, Set.has(Set.from_list(xs), p)), List.contains(~String, ~(a => b => String.eq(a, b)), xs, p), has_hv(Set.has(Set.from_list(xs), p)), ML.set_from_list(xs, p))
+
+def arrives_list(+xs: List<&2, String>, fs: List<&2, T.Split>) -> {Sv.arrives_once(Set.from_list(xs), fs) == Sv.arrives_once.list(xs, fs) : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case T.Split{+k, +p} <> rest:
+      %Equal.sym(Bool, Sv.has(Set.from_list(xs), p), List.contains(~String, ~(a => b => String.eq(a, b)), xs, p), member_set(xs, p)) : {Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "dropped"), Bool.not(_))), Sv.arrives_once(Set.from_list(xs), rest)) == Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "dropped"), Bool.not(List.contains(~String, ~(a => b => String.eq(a, b)), xs, p)))), Sv.arrives_once.list(xs, rest)) : Bool}
+      %Equal.sym(Bool, Sv.arrives_once(Set.from_list(xs), rest), Sv.arrives_once.list(xs, rest), arrives_list(xs, rest)) : {Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "dropped"), Bool.not(List.contains(~String, ~(a => b => String.eq(a, b)), xs, p)))), _) == Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "dropped"), Bool.not(List.contains(~String, ~(a => b => String.eq(a, b)), xs, p)))), Sv.arrives_once.list(xs, rest)) : Bool}
+      {==}
+

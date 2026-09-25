@@ -20,6 +20,7 @@ import ./bookmark.bend as Bm
 import ./anchor_lemmas.bend as AL
 import ./composition_lemmas.bend as Comp
 import ./string_lemmas.bend as S
+import ./map_lemmas.bend as ML
 import ./text.bend as T
 import ./survey.bend as Sv
 import ./tree.bend as Tree
@@ -556,17 +557,62 @@ def proposed_none(b: Bool, -x: Maybe<&2, String>) -> {Bool.or(Bool.not(b), Maybe
     case False{}:
       {==}
 
-# The survey is told of each path compared once, in order, and of a file
-# the parents being joined leave differently, no digest to compare it with.
-def seens_ok(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Main.Proposal>, hs: List<&2, Main.Here>) -> {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, props, hs)) == True{} : Bool}:
+# What the host answered for a path is what the digest map built from its
+# answers gives it: the answer beside the last time the path was asked, and
+# otherwise what the map held before.
+def stat_gv(+file: String, r: Map<&2, String> & String) -> {Main.stat_of(file, r) == ML.gv(String, r) : String}:
+  match r:
+    case (m, x):
+      {==}
+
+def answer_none(+m: Map<&2, String>, +w: ML.Wf.top(String, m), +q: String, +x: String, +p: String, hit: Bool, +eh: {String.eq(q, p) == hit : Bool}) -> {ML.gv(String, Map.get(String, SNil{}, Map.set(&2, String, m, q, x), p)) == Maybe.default(&2, String, Bool.pick(Maybe<&2, String>, hit, Some{x}, None{}), ML.gv(String, Map.get(String, SNil{}, m, p))) : String}:
+  match hit:
+    case True{}:
+      +qp = S.eq_true(q, p, eh)
+      %qp : {ML.gv(String, Map.get(String, SNil{}, Map.set(&2, String, m, q, x), _)) == x : String}
+      ML.get_set_same(String, SNil{}, m, q, x)
+    case False{}:
+      ML.get_set_other(String, SNil{}, m, w, q, x, p, ML.eq_flip(q, p, eh))
+
+def answer_step(+m: Map<&2, String>, +w: ML.Wf.top(String, m), +q: String, +x: String, +p: String, r: Maybe<&2, String>) -> {Maybe.default(&2, String, r, ML.gv(String, Map.get(String, SNil{}, Map.set(&2, String, m, q, x), p))) == Maybe.default(&2, String, Main.status.answer.or(r, String.eq(q, p), x), ML.gv(String, Map.get(String, SNil{}, m, p))) : String}:
+  match r:
+    case None{}:
+      answer_none(m, w, q, x, p, String.eq(q, p), {==})
+    case Some{a}:
+      {==}
+
+def stats_map_answer(ps: List<&2, String>, xs: List<&2, String>, +m: Map<&2, String>, +w: ML.Wf.top(String, m), +p: String) -> {ML.gv(String, Map.get(String, SNil{}, Main.stats.map(ps, xs, m), p)) == Maybe.default(&2, String, Main.status.answer(ps, xs, p), ML.gv(String, Map.get(String, SNil{}, m, p))) : String}:
+  match ps xs:
+    case Nil{} _:
+      {==}
+    case q <> rest Nil{}:
+      {==}
+    case +q <> +rest +x <> +more:
+      %Equal.sym(String, ML.gv(String, Map.get(String, SNil{}, Main.stats.map(rest, more, Map.set(&2, String, m, q, x)), p)), Maybe.default(&2, String, Main.status.answer(rest, more, p), ML.gv(String, Map.get(String, SNil{}, Map.set(&2, String, m, q, x), p))), stats_map_answer(rest, more, Map.set(&2, String, m, q, x), ML.wf_set_map(String, m, w, q, x), p)) : {_ == Maybe.default(&2, String, Main.status.answer.or(Main.status.answer(rest, more, p), String.eq(q, p), x), ML.gv(String, Map.get(String, SNil{}, m, p))) : String}
+      answer_step(m, w, q, x, p, Main.status.answer(rest, more, p))
+
+# The folder's digest `status` gives a path is the first word of the host's
+# answer for it.
+def digest_ok(+ps: List<&2, String>, +xs: List<&2, String>, +path: String) -> {String.eq(Main.status.folder_digest(Main.stats.map(ps, xs, Map.new(&2, String)), path), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}))) == True{} : Bool}:
+  %Equal.sym(String, Main.stat_of(path, Map.get(String, SNil{}, Main.stats.map(ps, xs, Map.new(&2, String)), path)), ML.gv(String, Map.get(String, SNil{}, Main.stats.map(ps, xs, Map.new(&2, String)), path)), stat_gv(path, Map.get(String, SNil{}, Main.stats.map(ps, xs, Map.new(&2, String)), path))) : {String.eq(T.word(_), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}))) == True{} : Bool}
+  %Equal.sym(String, ML.gv(String, Map.get(String, SNil{}, Main.stats.map(ps, xs, Map.new(&2, String)), path)), Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}), stats_map_answer(ps, xs, Map.new(&2, String), ML.wf_new(String), path)) : {String.eq(T.word(_), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}))) == True{} : Bool}
+  S.eq_refl(T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{})))
+
+# The survey is told of each path compared once, in order; of a file the
+# parents being joined leave differently, no digest to compare it with; and
+# of every path, the host's answer for it as the folder's digest.
+def seens_ok(+t: Tree.Tree(), +ps: List<&2, String>, +xs: List<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Main.Proposal>, hs: List<&2, Main.Here>) -> {Main.status.surveys(ps, xs, hs, Main.status.seens(t, Main.stats.map(ps, xs, Map.new(&2, String)), bf, reads, props, hs)) == True{} : Bool}:
   match hs:
     case Nil{}:
       {==}
     case Main.Here{+path, +e, +found} <> +rest:
-      AL.and_intro(Main.status.surveys.one(Main.Here{path, e, found}, Main.status.seen(t, dg, bf, reads, props, Main.Here{path, e, found})), Main.status.surveys(rest, Main.status.seens(t, dg, bf, reads, props, rest)),
-        AL.and_intro(String.eq(path, path), Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))),
-          S.eq_refl(path), proposed_none(Main.status.proposed(bf, e), Main.status.before(bf, e))),
-        seens_ok(t, dg, bf, reads, props, rest))
+      +dg = Main.stats.map(ps, xs, Map.new(&2, String))
+      AL.and_intro(Main.status.surveys.one(ps, xs, Main.Here{path, e, found}, Main.status.seen(t, dg, bf, reads, props, Main.Here{path, e, found})), Main.status.surveys(ps, xs, rest, Main.status.seens(t, dg, bf, reads, props, rest)),
+        AL.and_intro(String.eq(path, path), Bool.and(Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))), String.eq(Main.status.folder_digest(dg, path), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{})))),
+          S.eq_refl(path),
+          AL.and_intro(Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))), String.eq(Main.status.folder_digest(dg, path), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}))),
+            proposed_none(Main.status.proposed(bf, e), Main.status.before(bf, e)), digest_ok(ps, xs, path))),
+        seens_ok(t, ps, xs, bf, reads, props, rest))
 
 # What it believes
 # ----------------
