@@ -653,11 +653,11 @@ def Laws.name_stays_in_names(n, e):
 def Laws.update_reads_its_words(ws, c, e):
   UpdL.args_said(ws, c, e)
 
-def Laws.update_lands(tr, looks, gones, p, e):
-  UpdL.plan_lands(tr, looks, gones, p, e)
+def Laws.update_lands(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
+  UpdL.plan_holds(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
 
-def Laws.update_spares_the_unrecorded(tr, looks, gones, p, e):
-  UpdL.plan_spares(tr, looks, gones, p, e)
+def Laws.update_spares_the_unrecorded(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
+  UpdL.plan_touches(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
 
 def Laws.merge_resolution_reads_back(ds, j, s, hm, doc, e):
   ConflictL.resolved(ds, j, s, hm, doc, e)

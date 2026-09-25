@@ -1220,30 +1220,53 @@ law update_reads_its_words:
   for e: {Upd.args.r(ws) == Done{c} : Result<&2, &2, Main.Refused, Upd.UpdateCmd>}
   {c == Upd.UpdateCmd{Upd.uargs.target(ws), Upd.uargs.dry(ws)} : Upd.UpdateCmd}
 
-# Where `update` plans at all, the folder it leaves holds the target: every
-# path the target's tree holds with one file ends up holding what the tree
-# records there — a file of lines its text, a file of bytes its payload,
-# each with its mode, a link pointing where the tree says — whatever the
-# folder held before, since everything else refuses the whole update.
+# Where `update` plans at all, the folder it leaves holds the target as the
+# store reads it: once the plan is carried out, every path the target's
+# tree holds one file at holds, for a file of lines, the bytes `cat
+# <target> <path>` prints; for a file of bytes, the payload the tree names;
+# each with the tree's mode; and for a link, a link pointing where `cat`
+# says it points — whatever the folder held there before, since anything
+# else refuses the whole update. `id` and `t` are the target and its tree,
+# `found`, `dg` and `ls` the walk's files, digests and links, and `ds` the
+# store's documents.
 law update_lands:
-  for tr: List<&2, T.Split>
-  for +looks: List<&2, Upd.Look>
-  for +gones: List<&2, Upd.Gone>
-  for +p: Upd.Plan
-  for e: {Upd.plan(tr, looks, gones) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
-  {Upd.landed(p) == True{} : Bool}
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for +t: Tree.Tree()
+  for +rs: List<&2, Folder.Scope>
+  for +walked: List<&2, T.Split>
+  for +found: List<&2, Folder.Found>
+  for +dg: Map<&2, String>
+  for +ls: Map<&2, String>
+  for +located: Map<&2, String>
+  for +ds: List<&2, Store.Doc>
+  for +more: List<&2, Store.Doc>
+  for -p: Upd.Plan
+  for +e: {Upd.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
+  {Upd.holds(fs, ds, id, t, p) == True{} : Bool}
 
-# Decision 0030's rule: a file `update` writes over, or takes away, holds
-# bytes some revision records at its path, and a link it takes away points
-# where some revision recorded one — so nothing it touches is the only copy
-# of anything.
+# Decision 0030's rule, in the store's own terms: every file `update`
+# writes over, or takes away, holds bytes that `cat` of some revision the
+# store holds reads for some file of it, or that its tree names as a
+# file's payload — so nothing it touches is the only copy of anything.
+# (`more` is what it fetched to read history with.) A link it takes away
+# is read from the revisions' link statements, as the Rust tool reads it,
+# and is not asked about here.
 law update_spares_the_unrecorded:
-  for tr: List<&2, T.Split>
-  for +looks: List<&2, Upd.Look>
-  for +gones: List<&2, Upd.Gone>
-  for +p: Upd.Plan
-  for e: {Upd.plan(tr, looks, gones) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
-  {Upd.spared(p) == True{} : Bool}
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for +t: Tree.Tree()
+  for +rs: List<&2, Folder.Scope>
+  for +walked: List<&2, T.Split>
+  for +found: List<&2, Folder.Found>
+  for +dg: Map<&2, String>
+  for +ls: Map<&2, String>
+  for +located: Map<&2, String>
+  for +ds: List<&2, Store.Doc>
+  for +more: List<&2, Store.Doc>
+  for -p: Upd.Plan
+  for +e: {Upd.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
+  {Upd.touches.recorded(fs, List.append(&2, Store.Doc, ds, more), p) == True{} : Bool}
 
 # Decision 0032's promise: the resolution `record --merge` writes for a
 # file of lines, assembled as `cat` assembles one, is exactly the file the

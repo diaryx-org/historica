@@ -14,7 +14,9 @@
 # every path takes from what the store and the folder say, and the IO below
 # performs exactly that plan, so `--dry-run` and the real thing name the
 # same files. What the plan decides is what the laws are about
-# (`update_lands`, `update_spares_the_unrecorded`); the effects are four
+# (`update_lands`, `update_spares_the_unrecorded`), stated against what
+# `cat` reads from the store rather than the plan's own entries; the
+# effects are four
 # writes that decide nothing — `Store.put`, `Store.lay`, `Store.link` and
 # `Store.chmod` — and `Store.remove`.
 
@@ -406,12 +408,6 @@ def lands_all(ds: List<&2, Decided>) -> Bool:
     case Decided{p, +w, h, rs, s} <> rest:
       Bool.and(lands(w, after(w, h, s)), lands_all(rest))
 
-# Every step of a plan, landed.
-def landed(p: Plan) -> Bool:
-  match p:
-    case Plan{steps, gone}:
-      lands_all(steps)
-
 # Whether a step writes over what stood at a path, and whether a removal
 # takes it away: what decision 0030 allows only for bytes some revision
 # records.
@@ -424,8 +420,9 @@ def replaces(s: Step) -> Bool:
     case _:
       False{}
 
-# A file written over, or taken away, holds bytes some revision records
-# at the path; a link taken away points where some revision recorded one.
+# A file a step writes over holds bytes the history of its path records —
+# the plan's own check, which `touches.recorded` below restates in the
+# store's terms.
 def spared.file(h: Held, +recorded: List<&2, String>) -> Bool:
   match h:
     case Held.File{+d, r}:
@@ -439,41 +436,6 @@ def spared.step(h: Held, +recorded: List<&2, String>, touched: Bool) -> Bool:
       spared.file(h, recorded)
     case False{}:
       True{}
-
-def spared.gone(h: Held, +recorded: List<&2, String>) -> Bool:
-  match h:
-    case Held.File{+d, r}:
-      Rev.member(recorded, d)
-    case Held.Link{+t}:
-      Rev.member(recorded, t)
-    case _:
-      False{}
-
-def spared.went(h: Held, +recorded: List<&2, String>, l: Leaving) -> Bool:
-  match l:
-    case Leaving.Remove{}:
-      spared.gone(h, recorded)
-    case _:
-      True{}
-
-def spared.steps(ds: List<&2, Decided>) -> Bool:
-  match ds:
-    case Nil{}:
-      True{}
-    case Decided{p, w, h, +rs, s} <> rest:
-      Bool.and(spared.step(h, rs, replaces(s)), spared.steps(rest))
-
-def spared.gones(ws: List<&2, Went>) -> Bool:
-  match ws:
-    case Nil{}:
-      True{}
-    case Went{p, h, +rs, l} <> rest:
-      Bool.and(spared.went(h, rs, l), spared.gones(rest))
-
-def spared(p: Plan) -> Bool:
-  match p:
-    case Plan{steps, gone}:
-      Bool.and(spared.steps(steps), spared.gones(gone))
 
 # Reading the target
 # ------------------
@@ -1157,6 +1119,170 @@ def planned.r(r: Result<&2, &2, List<&2, T.Split>, Plan>) -> Result<&2, &2, Main
 # The command
 # -----------
 
+# What the store says the folder should hold
+# ------------------------------------------
+#
+# The laws about `update` are stated against the store's own readings, not
+# the plan's: what `cat <target> <path>` reads, the payload and mode the
+# target's tree names, where `cat` says a link points; and, for what may be
+# written over or taken away, what `cat` of any revision the store holds
+# reads for any file of it.
+
+# A path holding a file with these bytes and this bit, or a link pointing
+# here.
+def holds.bytes(h: Held, +digest: String, +x: Bool) -> Bool:
+  match h:
+    case Held.File{d, r}:
+      Bool.and(String.eq(d, digest), Bool.not(Bool.xor(r, x)))
+    case _:
+      False{}
+
+def holds.lines(h: Held, +x: Bool, r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Bool:
+  match r:
+    case Done{items}:
+      holds.bytes(h, Sha.digest(Utf8.encode(Ops.text(items))), x)
+    case Fail{e}:
+      False{}
+
+def holds.payload(h: Held, +x: Bool, y: Maybe<&2, String>) -> Bool:
+  match y:
+    case Some{+d}:
+      holds.bytes(h, d, x)
+    case None{}:
+      False{}
+
+def holds.link(h: Held, +spelled: String) -> Bool:
+  match h:
+    case Held.Link{s}:
+      String.eq(s, spelled)
+    case _:
+      False{}
+
+def holds.target(h: Held, +t: Tree.Tree(), +at: String, g: Maybe<&2, Tree.Target>) -> Bool:
+  match g:
+    case Some{x}:
+      holds.link(h, Main.materialise(t, at, x))
+    case None{}:
+      False{}
+
+def executable(m: Tree.Mode) -> Bool:
+  match m:
+    case Tree.Executable{}:
+      True{}
+    case Tree.Plain{}:
+      False{}
+
+# Whether a path holds what the target records for one file of its tree:
+# the bytes `cat` of the target reads for a file of lines, from the
+# documents `ds`, or the payload its tree names for a file of bytes, each
+# with the tree's mode; or, for a link, a link pointing where `cat` says it
+# points.
+def reads(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +t: Tree.Tree(), e: Tree.Entry, h: Held) -> Bool:
+  match e:
+    case Tree.Entry{+f, p, Tree.Lines{}, y, g, m}:
+      holds.lines(h, executable(m), Main.content(fs, ds, id, f))
+    case Tree.Entry{f, p, Tree.Whole{}, y, g, m}:
+      holds.payload(h, executable(m), y)
+    case Tree.Entry{f, +p, Tree.Link{}, y, g, m}:
+      holds.target(h, t, p, g)
+
+# Once the plan is carried out, each path the target's tree holds one file
+# at holds what the target records there, and the plan's step at it is
+# the one for that path. What a step leaves is `after`'s reading of the
+# effects.
+def holds.go(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +t: Tree.Tree(), es: List<&2, Tree.Entry>, steps: List<&2, Decided>) -> Bool:
+  match es steps:
+    case Nil{} Nil{}:
+      True{}
+    case +e <> er Decided{+p, +w, +h, rs, +s} <> sr:
+      Bool.and(Bool.and(String.eq(p, Tree.entry_path(e)), reads(fs, ds, id, t, e, after(w, h, s))), holds.go(fs, ds, id, t, er, sr))
+    case _ _:
+      False{}
+
+def holds(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +t: Tree.Tree(), p: Plan) -> Bool:
+  match p:
+    case Plan{steps, gone}:
+      holds.go(fs, ds, id, t, single(placings(t)), steps)
+
+# Whether `cat` of a revision the store holds reads exactly these bytes for
+# some file of its tree, or its tree names them as a file's payload: bytes
+# that can be had back.
+def records.lines(+d: String, r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Bool:
+  match r:
+    case Done{items}:
+      String.eq(Sha.digest(Utf8.encode(Ops.text(items))), d)
+    case Fail{e}:
+      False{}
+
+def records.payload(+d: String, y: Maybe<&2, String>) -> Bool:
+  match y:
+    case Some{x}:
+      String.eq(x, d)
+    case None{}:
+      False{}
+
+def entry.records(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, e: Tree.Entry, +d: String) -> Bool:
+  match e:
+    case Tree.Entry{+f, p, Tree.Lines{}, y, g, m}:
+      records.lines(d, Main.content(fs, ds, id, f))
+    case Tree.Entry{f, p, Tree.Whole{}, y, g, m}:
+      records.payload(d, y)
+    case Tree.Entry{f, p, Tree.Link{}, y, g, m}:
+      False{}
+
+def tree.records(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, t: Tree.Tree(), +d: String) -> Bool:
+  match t:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      Bool.or(entry.records(fs, ds, id, e, d), tree.records(fs, ds, id, rest, d))
+
+def rev.records(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, +d: String) -> Bool:
+  match r:
+    case Done{t}:
+      tree.records(fs, ds, id, t, d)
+    case Fail{e}:
+      False{}
+
+def recoverable.go(rs: List<&2, Main.Full>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +d: String) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case +f <> rest:
+      Bool.or(rev.records(fs, ds, Main.id_of(f), Main.tree.r(fs, Main.id_of(f)), d), recoverable.go(rest, fs, ds, d))
+
+def recoverable(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +d: String) -> Bool:
+  recoverable.go(fs, fs, ds, d)
+
+# A file whose bytes can be had back; anything else is not asked about here.
+def held.recoverable(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, h: Held) -> Bool:
+  match h:
+    case Held.File{+d, r}:
+      recoverable(fs, ds, d)
+    case _:
+      True{}
+
+# Every file a plan writes over, or takes away, holds bytes that can be had
+# back from a revision the store holds.
+def touched.steps(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, steps: List<&2, Decided>) -> Bool:
+  match steps:
+    case Nil{}:
+      True{}
+    case Decided{p, w, +h, rs, s} <> rest:
+      Bool.and(Bool.or(Bool.not(replaces(s)), held.recoverable(fs, ds, h)), touched.steps(fs, ds, rest))
+
+def touched.gone(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, ws: List<&2, Went>) -> Bool:
+  match ws:
+    case Nil{}:
+      True{}
+    case Went{p, +h, rs, l} <> rest:
+      Bool.and(Bool.or(Bool.not(leaving.remove(l)), held.recoverable(fs, ds, h)), touched.gone(fs, ds, rest))
+
+def touches.recorded(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, p: Plan) -> Bool:
+  match p:
+    case Plan{steps, gone}:
+      Bool.and(touched.steps(fs, ds, steps), touched.gone(fs, ds, gone))
+
 # What one path the tree holds with one file wants, and what the folder
 # holds there, before it is known whether the digests some revision records
 # are needed to decide it.
@@ -1200,12 +1326,23 @@ def recorded.took(r: Map<&2, List<&2, String>> & List<&2, String>) -> List<&2, S
 def recorded.of(+rec: Map<&2, List<&2, String>>, +p: String) -> List<&2, String>:
   recorded.took(Map.get(List<&2, String>, Nil{}, rec, p))
 
-def looks(ps: List<&2, Pre>, +rec: Map<&2, List<&2, String>>) -> List<&2, Look>:
+# What history records at each path asked about, in the order asked.
+type Rec is Data:
+  Rec{path: String, digests: List<&2, String>}
+
+def recorded.in(rs: List<&2, Rec>, +p: String) -> List<&2, String>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case Rec{+q, ds} <> rest:
+      Bool.pick(List<&2, String>, String.eq(q, p), ds, recorded.in(rest, p))
+
+def looks(ps: List<&2, Pre>, +rec: List<&2, Rec>) -> List<&2, Look>:
   match ps:
     case Nil{}:
       Nil{}
     case Pre{+p, w, h} <> rest:
-      Look{p, w, h, recorded.of(rec, p)} <> looks(rest, rec)
+      Look{p, w, h, recorded.in(rec, p)} <> looks(rest, rec)
 
 def gone.held(h: Maybe<&2, Held>) -> Held:
   match h:
@@ -1231,13 +1368,13 @@ def gone.recorded(h: Held, digests: List<&2, String>, spellings: List<&2, String
     case _:
       Nil{}
 
-def gones(ps: List<&2, String>, +hm: Map<&2, Maybe<&2, Held>>, +rec: Map<&2, List<&2, String>>, +links: Map<&2, List<&2, String>>, +tracked: Set()) -> List<&2, Gone>:
+def gones(ps: List<&2, String>, +hm: Map<&2, Maybe<&2, Held>>, +rec: List<&2, Rec>, +links: Map<&2, List<&2, String>>, +tracked: Set()) -> List<&2, Gone>:
   match ps:
     case Nil{}:
       Nil{}
     case +p <> rest:
       +h = gone.held(taken(hm, p))
-      Gone{p, h, gone.recorded(h, recorded.of(rec, p), recorded.of(links, p)), has(Set.has(tracked, p))} <> gones(rest, hm, rec, links, tracked)
+      Gone{p, h, gone.recorded(h, recorded.in(rec, p), recorded.of(links, p)), has(Set.has(tracked, p))} <> gones(rest, hm, rec, links, tracked)
 
 def gone.links(ps: List<&2, String>, +hm: Map<&2, Maybe<&2, Held>>) -> List<&2, String>:
   match ps:
@@ -1246,12 +1383,12 @@ def gone.links(ps: List<&2, String>, +hm: Map<&2, Maybe<&2, Held>>) -> List<&2, 
     case +p <> rest:
       Rev.keep(is_link(taken(hm, p)), p, gone.links(rest, hm))
 
-def recorded.map(ps: List<&2, String>, +fs: List<&2, Main.Full>, +oldest: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, m: Map<&2, List<&2, String>>) -> Map<&2, List<&2, String>>:
+def recorded.list(ps: List<&2, String>, +fs: List<&2, Main.Full>, +oldest: List<&2, Main.Full>, +ds: List<&2, Store.Doc>) -> List<&2, Rec>:
   match ps:
     case Nil{}:
-      m
+      Nil{}
     case +p <> rest:
-      recorded.map(rest, fs, oldest, ds, Map.set(&2, List<&2, String>, m, p, recorded(fs, oldest, ds, p)))
+      Rec{p, recorded(fs, oldest, ds, p)} <> recorded.list(rest, fs, oldest, ds)
 
 def spelled.map(ps: List<&2, String>, +fs: List<&2, Main.Full>, m: Map<&2, List<&2, String>>) -> Map<&2, List<&2, String>>:
   match ps:
@@ -1337,11 +1474,43 @@ def fetched(+root: String, digests: List<&2, String>) -> IO(List<&2, Store.Doc>)
     more : List<&2, Store.Doc> <- Store.fetch(root, Main.kept_digests(ds2))
     return List.append(&2, Store.Doc, ds2, more)
 
-# The plan, from what the store and the folder say: the target's tree and
-# what it refuses, what the folder holds at each of its paths — the walk,
-# and a directory's listing where the walk took nothing — what each file
-# wants, and, where the folder's bytes are not already those, what history
-# records there.
+# What the plan is decided from, before history is asked: the tree by
+# path, what the folder holds at each (the walk, `found`, with the host's
+# digest of each file in `dg`, and a directory's listing where the walk
+# took nothing, `ls`), what each path of the tree wants — its content from
+# the documents `ds`, a payload where the store has it (`located`) — and
+# the paths the walk took that the tree does not hold.
+type Planning is Data:
+  Planning{placings: List<&2, Placing>, held: Map<&2, Maybe<&2, Held>>, pres: List<&2, Pre>, gone: List<&2, String>}
+
+def planning(+fs: List<&2, Main.Full>, +id: String, +t: Tree.Tree(), +found: List<&2, Folder.Found>, +dg: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, +ds: List<&2, Store.Doc>) -> Planning:
+  +pls = placings(t)
+  +hm = found.map(found, dg, Map.new(&2, Maybe<&2, Held>))
+  Planning{pls, hm, pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, hm, ls, single(pls)), gone.paths(found, Set.from_list(T.map(~Placing, ~String, ~(p => placing.path(p)), pls)))}
+
+# Where history has to be asked what it records: each path of the tree
+# where the folder's bytes are not the target's, and each path the target
+# does not hold.
+def planning.asked(pl: Planning) -> List<&2, String>:
+  match pl:
+    case Planning{pls, hm, +ps, +gp}:
+      List.append(&2, String, asks(ps), gp)
+
+# The plan, from that and from what history records: what the documents
+# fetched for it (`more`, beside `ds`) say each revision holds at each path
+# asked about, the links revisions stated there, and which paths a current
+# head tracks; `rs` are the rules of `skipped/` and `walked` what the walk
+# refused. Pure: what `update.at` asks the host for, it hands in.
+def plan.with(pl: Planning, +fs: List<&2, Main.Full>, +rs: List<&2, Folder.Scope>, +walked: List<&2, T.Split>, +ds: List<&2, Store.Doc>, +more: List<&2, Store.Doc>) -> Result<&2, &2, List<&2, T.Split>, Plan>:
+  match pl:
+    case Planning{+pls, +hm, +ps, +gp}:
+      +rec = recorded.list(List.append(&2, String, asks(ps), gp), fs, List.reverse(&2, Main.Full, Main.presentation(fs)), List.append(&2, Store.Doc, ds, more))
+      plan(refuse.tree(Set.from_list(dirs(pls)), rs, walked, pls), looks(ps, rec), gones(gp, hm, rec, spelled.map(gone.links(gp, hm), fs, Map.new(&2, List<&2, String>)), Set.from_list(tracked(fs, heads.sorted(fs)))))
+
+# Everything `update` decides, from what it read.
+def plan.from(+fs: List<&2, Main.Full>, +id: String, +t: Tree.Tree(), +rs: List<&2, Folder.Scope>, +walked: List<&2, T.Split>, +found: List<&2, Folder.Found>, +dg: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, +ds: List<&2, Store.Doc>, +more: List<&2, Store.Doc>) -> Result<&2, &2, List<&2, T.Split>, Plan>:
+  plan.with(planning(fs, id, t, found, dg, ls, located, ds), fs, rs, walked, ds, more)
+
 def update.at(+r: String, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +dry: Bool) -> IO(Unit):
   +repo = Main.repository(r)
   +spelled = spelled.id(fs, bs, id)
@@ -1353,31 +1522,21 @@ def update.at(+r: String, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, 
     Main.refused.io(Unit, head.r(fs, bs, id))
     t : Tree.Tree() <- Main.refused.io(Tree.Tree(), Main.tree.r(fs, id))
     +t2 : Tree.Tree() = t
-    +pls : List<&2, Placing> = placings(t2)
     +found : List<&2, Folder.Found> = Folder.walked.found(w2)
     +files : List<&2, String> = regular(found)
     stats : List<&2, String> <- Store.stats(repo, files)
-    +hm : Map<&2, Maybe<&2, Held>> = found.map(found, Main.stats.map(files, stats, Map.new(&2, String)), Map.new(&2, Maybe<&2, Held>))
-    +one : List<&2, Tree.Entry> = single(pls)
-    ls : Map<&2, String> <- listings(repo, Main.sorted_distinct(untaken(hm, one)), Map.new(&2, String))
+    +dg : Map<&2, String> = Main.stats.map(files, stats, Map.new(&2, String))
+    +one : List<&2, Tree.Entry> = single(placings(t2))
+    ls : Map<&2, String> <- listings(repo, Main.sorted_distinct(untaken(found.map(found, dg, Map.new(&2, Maybe<&2, Held>)), one)), Map.new(&2, String))
     +ls2 : Map<&2, String> = ls
     +pay : List<&2, String> = Main.sorted_distinct(payloads(one))
     at : List<&2, String> <- Store.located(r, pay)
     +located : Map<&2, String> = located.map(r, pay, at, Map.new(&2, String))
     ds : List<&2, Store.Doc> <- fetched(r, wanted_all(fs, lined(one)))
     +ds2 : List<&2, Store.Doc> = ds
-    +oldest : List<&2, Main.Full> = List.reverse(&2, Main.Full, Main.presentation(fs))
-    +ps : List<&2, Pre> = pres(fs, oldest, ds2, located, id, t2, hm, ls2, one)
-    +placed : Set() = Set.from_list(T.map(~Placing, ~String, ~(p => placing.path(p)), pls))
-    +gp : List<&2, String> = gone.paths(found, placed)
-    +asked : List<&2, String> = List.append(&2, String, asks(ps), gp)
-    more : List<&2, Store.Doc> <- fetched(r, wanted_all(fs, Main.sorted_distinct(files_all(fs, asked))))
-    +ds3 : List<&2, Store.Doc> = List.append(&2, Store.Doc, ds2, more)
-    +rec : Map<&2, List<&2, String>> = recorded.map(asked, fs, oldest, ds3, Map.new(&2, List<&2, String>))
-    +lk : Map<&2, List<&2, String>> = spelled.map(gone.links(gp, hm), fs, Map.new(&2, List<&2, String>))
-    +tr : Set() = Set.from_list(tracked(fs, heads.sorted(fs)))
-    +tree_refused : List<&2, T.Split> = refuse.tree(Set.from_list(dirs(pls)), rs, Folder.walked.refused(w2), pls)
-    p : Plan <- Main.refused.io(Plan, planned.r(plan(tree_refused, looks(ps, rec), gones(gp, hm, rec, lk, tr))))
+    +pl : Planning = planning(fs, id, t2, found, dg, ls2, located, ds2)
+    more : List<&2, Store.Doc> <- fetched(r, wanted_all(fs, Main.sorted_distinct(files_all(fs, planning.asked(pl)))))
+    p : Plan <- Main.refused.io(Plan, planned.r(plan.with(pl, fs, rs, Folder.walked.refused(w2), ds2, more)))
     done.plan(repo, spelled, dry, p)
 
 def update.of(+r: String, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, c: UpdateCmd) -> IO(Unit):
