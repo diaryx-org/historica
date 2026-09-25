@@ -309,7 +309,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
 | `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
 | `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and sixty-three claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | two hundred and sixty-four claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -362,6 +362,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `shell_lemmas.bend` | `dispatch_runs_no_path`: the program a word is dispatched to holds no `/`, so it is looked up on `PATH` rather than run from where a path would put it | decision 0072 |
 | `opening_lemmas.bend` | `header_opens_under_a_note`: a store's header opens whatever its note says, once a blank line sets the note apart — the one `init` writes among them | `Store::open`, decision 0069 |
 | `init_lemmas.bend` | `init_lays_down_only_its_store`: every directory `init` makes and every note it writes is its root, a `/` and components none of them empty, `.` or `..`, each note in the root or a directory it makes, whatever the root; `init_writes_text`: every note is lines of Unicode scalar values that are no control character, each ended by a newline; `check_finds_nothing_in_a_new_store`: the store `init` lays down holds no document, and what `check` gathers from it — `historica.txt` and `skipped/`'s note read back from the bytes written — it finds nothing wrong with; `init_takes_an_absolute_dir_as_it_is`, `init_doubles_no_slash`, `init_keeps_a_dot`: `<dir>` is joined as `Path::join` joins it — an absolute one wherever `init` runs, a `/` after it not doubled, `.` not resolved | `Store::init`, `cli::init` |
+| `utf8_lemmas.bend`, `utf8_lemmas.py` | `utf8_reads_back`: a string of Unicode scalar values, encoded as UTF-8 and decoded again, is itself — each code point taken apart into its thirty-two bits, the width `encode` gives it showing the bits above it clear, and each bit `decode` puts back shown to be the one it came from, a bit at a time so that no case split multiplies another; `utf8_lemmas.py` writes out the lemmas that say the same of every bit | `str::from_utf8`, `char::encode_utf8` |
 | `identity_lemmas.bend` | `identity_reads_back`: the file `identity` writes reads back as its author for work in any directory, wherever that author is one a revision can hold | `identity` |
 | `show_lemmas.bend` | `cat_reads_a_held_file`: `cat <target> <path>` reads a revision the store holds and a file its tree holds that is not a link; `show_names_a_held_file`, `show_prints_a_held_document`, `show_prints_what_the_revision_states`: `show` names a file the target holds, and prints a document the store holds under the digest named — the revision's own, or the one it states for the file | `cat`, `show` |
 | `bookmark_lemmas.bend` | `bookmark_reads_back`: the file the Rust tool writes for a bookmark — the target line, and `private` where the name stays out of an export — parses back as that bookmark wherever its identifier is spelled as its kind is | `store::Bookmark` |
@@ -1998,7 +1999,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and seventy-eight mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and eighty-one mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2196,7 +2197,10 @@ it, a note written beside the store rather than in it, a note written
 into a directory it does not make, the notes written where `init` runs
 rather than under the store, the cache note's last newline lost, a line
 of a note ended by a carriage return, an absolute path joined under the
-base, and a `/` doubled after a base that ends with one; and six `skip` breaks: rule equality blind to privacy, a
+base, and a `/` doubled after a base that ends with one; and three
+UTF-8 breaks: a three-byte character's middle byte kept to five bits, a
+three-byte lead read as a two-byte one, and the first character past the
+surrogates taken for one; and six `skip` breaks: rule equality blind to privacy, a
 directory's rule written without its slash, a private name read back as
 shared, a directory's rule that does not skip the directory, a listing
 that forgets the rule it just kept, and a rule asked about against the

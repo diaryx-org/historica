@@ -9,6 +9,7 @@ import ./blamed_lemmas.bend as B
 import ./check.bend as Check
 import ./store.bend as Store
 import ./utf8.bend as Utf8
+import ./utf8_lemmas.bend as Utf8L
 
 # Under a root
 # ------------
@@ -293,16 +294,13 @@ def dot_kept(+base: String, e: {String.is_empty(base) == False{} : Bool}, f: {St
 # Text
 # ----
 
-# A Unicode scalar value: at most U+10FFFF, and not a surrogate.
-def scalar(+x: U32) -> Bool:
-  Bool.and(U32.is_le(x, 1114111), Bool.or(U32.is_lt(x, 55296), U32.is_gt(x, 57343)))
-
-# A character the format's text holds: a newline, or a scalar value that
-# is no control character — printable ASCII, the common case, asked first.
+# A character the format's text holds: a newline, or a Unicode scalar
+# value — what reads back through UTF-8 (`utf8_reads_back`) — that is no
+# control character; printable ASCII, the common case, asked first.
 def plain(c: Char) -> Bool:
   match c:
     case Chr{+x}:
-      Bool.or(Bool.and(U32.is_ge(x, 32), U32.is_lt(x, 127)), Bool.or(U32.is_eq(x, 10), Bool.and(U32.is_ge(x, 160), scalar(x))))
+      Bool.or(Bool.and(U32.is_ge(x, 32), U32.is_lt(x, 127)), Bool.or(U32.is_eq(x, 10), Bool.and(U32.is_ge(x, 160), Utf8L.scalar(x))))
 
 def plains(s: String) -> Bool:
   match s:
