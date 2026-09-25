@@ -10439,108 +10439,6 @@ def name.args(ws: List<&2, String>, c: NameCmd) -> NameCmd:
     case +w <> rest:
       name.args(rest, name.word(c, nword(w), w))
 
-# The words read a field at a time, as `LAWS.name_reads_its_words` holds
-# `name.args` to: the last of `--revision` and `--change`, the last of
-# `--private` and `--shared`, whether `--delete` and `--fields` are there,
-# the flags shaping a target in the order typed, and every other word in
-# order.
-def nargs.pin.of(k: NWord, last: Bool) -> Bool:
-  match k:
-    case NWord.Revision{}:
-      True{}
-    case NWord.Change{}:
-      False{}
-    case _:
-      last
-
-def nargs.pin(ws: List<&2, String>, last: Bool) -> Bool:
-  match ws:
-    case Nil{}:
-      last
-    case +w <> rest:
-      nargs.pin(rest, nargs.pin.of(nword(w), last))
-
-def nargs.axis.of(k: NWord, last: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
-  match k:
-    case NWord.Private{}:
-      Some{True{}}
-    case NWord.Shared{}:
-      Some{False{}}
-    case _:
-      last
-
-def nargs.axis(ws: List<&2, String>, last: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
-  match ws:
-    case Nil{}:
-      last
-    case +w <> rest:
-      nargs.axis(rest, nargs.axis.of(nword(w), last))
-
-def nargs.delete.of(k: NWord, had: Bool) -> Bool:
-  match k:
-    case NWord.Delete{}:
-      True{}
-    case _:
-      had
-
-def nargs.delete(ws: List<&2, String>, had: Bool) -> Bool:
-  match ws:
-    case Nil{}:
-      had
-    case +w <> rest:
-      nargs.delete(rest, nargs.delete.of(nword(w), had))
-
-def nargs.fields.of(k: NWord, had: Bool) -> Bool:
-  match k:
-    case NWord.Fields{}:
-      True{}
-    case _:
-      had
-
-def nargs.fields(ws: List<&2, String>, had: Bool) -> Bool:
-  match ws:
-    case Nil{}:
-      had
-    case +w <> rest:
-      nargs.fields(rest, nargs.fields.of(nword(w), had))
-
-def nargs.shaping.of(k: NWord, w: String, rest: List<&2, String>) -> List<&2, String>:
-  match k:
-    case NWord.Revision{}:
-      w <> rest
-    case NWord.Change{}:
-      w <> rest
-    case NWord.Private{}:
-      w <> rest
-    case NWord.Shared{}:
-      w <> rest
-    case _:
-      rest
-
-def nargs.shaping(ws: List<&2, String>) -> List<&2, String>:
-  match ws:
-    case Nil{}:
-      Nil{}
-    case +w <> rest:
-      nargs.shaping.of(nword(w), w, nargs.shaping(rest))
-
-def nargs.words.of(k: NWord, w: String, rest: List<&2, String>) -> List<&2, String>:
-  match k:
-    case NWord.Other{}:
-      w <> rest
-    case _:
-      rest
-
-def nargs.words(ws: List<&2, String>) -> List<&2, String>:
-  match ws:
-    case Nil{}:
-      Nil{}
-    case +w <> rest:
-      nargs.words.of(nword(w), w, nargs.words(rest))
-
-def nargs.said(+ws: List<&2, String>) -> NameCmd:
-  NameCmd{nargs.pin(ws, False{}), nargs.axis(ws, None{}), nargs.delete(ws, False{}), nargs.fields(ws, False{}), nargs.shaping(ws), nargs.words(ws)}
-
 # `store::check_name`, and decision 0024's refusal of a name spelled as a
 # file identifier, which would stop the identifier naming its own file.
 def name_fault(+n: String) -> Maybe<&2, String>:
@@ -10765,27 +10663,35 @@ def name.plan.meant(c: NameCmd, p: NamePlan) -> Bool:
       Bool.and(Bool.not(d), Bool.and(nplan.words(rest, n <> t <> nplan.path(path)), Bool.and(nplan.same(pin, pin2), Bool.and(nplan.axis(axis, axis2), Bool.and(nplan.same(f, f2),
         Bool.and(Bool.not(Bool.and(pin2, Maybe.is_some(&2, String, path))), Bool.or(Bool.not(early), f2)))))))
 
-# Where a set points, as `LAWS.name_points_where_asked` holds it: the
-# bookmark named as asked, under `names/`; at a revision the store holds
-# where `--revision` pins it, at a change one of its revisions carries
-# where a target alone is given, and at a file one of its revisions' trees
-# holds where a path is; private as `--private` or `--shared` says, or as
+# Where a set points, as `LAWS.name_points_where_asked` holds it, with
+# `id` the revision the target names as `resolve` reads it for every
+# command: the bookmark named as asked, under `names/`; at that revision
+# where `--revision` pins it, at the change that revision carries where a
+# target alone is given, and at the file `show` names at that revision and
+# path where a path is; private as `--private` or `--shared` says, or as
 # the bookmark of that name already is, or shared where there is none.
-def name.somewhere(held: List<&2, String>, +fs: List<&2, Full>, +x: String) -> Bool:
-  match held:
+def name.carries(fs: List<&2, Full>, +id: String, +c: String) -> Bool:
+  match fs:
     case Nil{}:
       False{}
-    case +i <> rest:
-      Bool.or(tree.holds.r(tree.r(fs, i), x), name.somewhere(rest, fs, x))
+    case +f <> rest:
+      Bool.or(Bool.and(String.eq(id_of(f), id), String.eq(change_of(f), c)), name.carries(rest, id, c))
 
-def name.aimed(+fs: List<&2, Full>, path: Maybe<&2, String>, pin: Bool, t: Bm.Target) -> Bool:
+def name.shown(r: Result<&2, &2, Refused, String>, +x: String) -> Bool:
+  match r:
+    case Done{y}:
+      String.eq(y, x)
+    case Fail{e}:
+      False{}
+
+def name.aimed(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, path: Maybe<&2, String>, pin: Bool, t: Bm.Target) -> Bool:
   match path pin t:
-    case None{} True{} Bm.Target.Revision{id}:
-      Rev.member(ids(fs), id)
+    case None{} True{} Bm.Target.Revision{r}:
+      String.eq(r, id)
     case None{} False{} Bm.Target.Change{c}:
-      Rev.member(changes(fs), c)
+      name.carries(fs, id, c)
     case Some{p} _ Bm.Target.File{x}:
-      name.somewhere(ids(fs), fs, x)
+      name.shown(show.file.r(fs, bs, id, p), x)
     case _ _ _:
       False{}
 
@@ -10803,10 +10709,10 @@ def name.kept(bs: List<&2, Bm.Bookmark>, +n: String, axis: Maybe<&2, Bool>, p: B
     case None{}:
       name.kept.of(found_of(bs, n), p)
 
-def name.points(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +n: String, path: Maybe<&2, String>, pin: Bool, axis: Maybe<&2, Bool>, b: Bm.Bookmark) -> Bool:
+def name.points(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +id: String, path: Maybe<&2, String>, pin: Bool, axis: Maybe<&2, Bool>, b: Bm.Bookmark) -> Bool:
   match b:
     case Bm.Bookmark{+m, t, p}:
-      Bool.and(String.eq(m, n), Bool.and(Bool.not(escapes(m)), Bool.and(name.aimed(fs, path, pin, t), name.kept(bs, n, axis, p))))
+      Bool.and(String.eq(m, n), Bool.and(Bool.not(escapes(m)), Bool.and(name.aimed(fs, bs, id, path, pin, t), name.kept(bs, n, axis, p))))
 
 # What `--delete` finds, as `LAWS.name_deletes_the_bookmark_named` holds
 # it: a refusal exactly where the store has no bookmark of that name, and
