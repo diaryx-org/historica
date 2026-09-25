@@ -1103,13 +1103,17 @@ law reading_fetches_what_resolutions_keep:
 
 # The digest a statement gives a file is read along the first-parent line
 # back from the folder's position, the nearest revision on it to state the
-# file being the one believed. That line is what `chain` walks: it begins
-# at the revision named, and each revision after is the first parent of the
-# one before — every one a revision the store holds.
+# file being the one believed. That line is what `chain` walks, whole: it
+# begins at the revision named, each revision after is the first parent of
+# the one before — every one a revision the store holds — and it stops
+# where the line does, after a revision with no parent or a first parent
+# the store does not hold; of a name the store does not hold it walks none.
+# The one other place it may stop is after 1 + n revisions of a store of n,
+# which only a line that comes back round to itself could reach.
 law chain_follows_first_parents:
   for +fs: List<&2, Main.Full>
   for +id: String
-  {Main.first_parents(fs, Main.chain(fs, Some{id}), Some{id}) == True{} : Bool}
+  {Bool.and(Main.first_parents(fs, Main.chain(fs, Some{id}), Some{id}), Bool.or(Main.line.stops(fs, Main.chain(fs, Some{id}), Some{id}), Nat.is_eq(List.length(&2, Main.Full, Main.chain(fs, Some{id})), 1n+List.length(&2, Main.Full, fs)))) == True{} : Bool}
 
 # Every revision a command reads is one a document of `revisions/` spells:
 # filed there under the digest the revision is known by, and what
@@ -1121,13 +1125,17 @@ law revisions_read_are_their_documents:
   for +ds: List<&2, Store.Doc>
   {FullsL.all_filed(root, ds, Main.fulls(root, ds)) == True{} : Bool}
 
-# `log` lists only what its span names: with a target, revisions the
-# target reaches; with `a..b`, revisions `b` reaches and `a` does not —
-# every one a revision the store holds.
+# `log` lists only what its span names, every one a revision the store
+# holds. With a target, it lists the target wherever the store holds it,
+# and every other revision it lists is a parent of one it lists — in a
+# store whose parents run back without a cycle, only the target's
+# ancestry. With `a..b`, it never lists `a`, and every revision it lists
+# is `b` or a parent of one `log b` lists.
 law log_lists_its_span:
   for +fs: List<&2, Main.Full>
-  for +sp: Main.Span
-  {Main.span.all_in(fs, sp, Main.span.shown(fs, sp)) == True{} : Bool}
+  for +a: String
+  for +b: String
+  {Bool.and(Main.span.from_ok(fs, b, Main.span.shown(fs, Main.Span.From{b})), Main.span.range_ok(fs, a, b, Main.span.shown(fs, Main.Span.Between{a, b}))) == True{} : Bool}
 
 # `log` reads its arguments as their plain reading says: the word after a
 # flag that takes a value is that flag's value, the last counting, and
@@ -1492,11 +1500,11 @@ law status_says_what_it_found:
   for sv: Sv.Survey
   {Main.expect.in(Main.status.report(fs, bs, ps, cs, sv), Main.status.expects(sv)) == True{} : Bool}
 
-# Where work is joined, `status` says each contest the tree merge found,
-# once and in its order, on a line opening with the file contested — a
-# path several files claim is said as `claimed` instead; where one
-# revision or none is the position, it says none, since a contest deeper
-# in the graph was settled when its merge was recorded.
+# Where work is joined, `status` says each contest the tree merge found
+# but a path several files claim, once and in its order, on a line of its
+# own naming the file contested by the first eight characters of its name;
+# where one revision or none is the position, it says none, since a
+# contest deeper in the graph was settled when its merge was recorded.
 law status_says_each_contest:
   for +ps: List<&2, String>
   for +cs: List<&2, Tree.Contest>
@@ -1523,17 +1531,26 @@ law status_reads_only_lines:
   for +hs: List<&2, Main.Here>
   {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}
 
-# `status` tells its survey of each path it compares once, in order; and
-# where the parents being joined leave a file of lines differently, it
-# gives the survey no digest to compare the folder's with, since there is
-# none — `record::joined_content`'s `-`.
-law status_surveys_each_path:
+# Where the parents being joined leave a file of lines differently —
+# `record::joined_content`'s `-` — `status` has no digest to settle it by,
+# whatever the folder holds: a file at its path is said to be edited,
+# emptied or refused, never unchanged, and a link or nothing there is said
+# to drop it, with no content an arrival could be matched to as its move.
+law status_leaves_a_disputed_file_unsettled:
   for +t: Tree.Tree()
   for +dg: Map<&2, String>
   for +bf: Map<&2, String>
+  for -bf2: Map<&2, String>
   for +reads: Map<&2, List<&2, U32>>
-  for hs: List<&2, Main.Here>
-  {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, hs)) == True{} : Bool}
+  for +path: String
+  for +f: String
+  for +q: String
+  for +y: Maybe<&2, String>
+  for +g: Maybe<&2, Tree.Target>
+  for +m: Tree.Mode
+  for found: Maybe<&2, Folder.Found>
+  for h: {Map.get(String, SNil{}, bf, f) == (bf2, "-") : Map<&2, String> & String}
+  {Main.disputed.said(path, f, found, Sv.seen(Main.status.seen(t, dg, bf, reads, Main.Here{path, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, found}))) == True{} : Bool}
 
 # Against one revision, `status` believes the digest a statement gives a
 # file of lines and replays only where none does: it is refused only where
@@ -1551,18 +1568,20 @@ law status_believes_what_is_stated:
   for h: {Main.status.befores(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
   {Main.status.replay_fails(older, ds, left, eds, os, Main.status.lined(hs), e) == True{} : Bool}
 
-# Where several parents are joined, `status` reads each file of lines it
-# compares at each of them, and is refused only where some parent's
-# reading of some such file is, and then with that refusal.
+# Where several parents are joined, `status` compares each file with what
+# the parents' readings of it join to, as `record::joined_content` joins
+# them: the digest every parent that mentions the file reads, the empty
+# digest where none mentions it, and `-` where two read it differently —
+# one digest for each file it compares, in the order compared.
 law status_joins_what_it_reads:
   for hs: List<&2, Main.Here>
   for +fs: List<&2, Main.Full>
   for +ds: List<&2, Store.Doc>
   for +ps: List<&2, String>
-  for +m: Map<&2, String>
-  for +e: String
-  for h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
-  {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}
+  for +xs: List<&2, T.Split>
+  for h: {Main.status.joined.pairs(fs, ds, ps, hs) == Done{xs} : Result<&2, &2, String, List<&2, T.Split>>}
+  {Main.joined.files(fs, ds, ps, hs, xs) == True{} : Bool}
+
 # `record` refuses a link left dangling, exactly where one would be. A
 # link the position holds that names a file this record drops would be a
 # reference to nothing once the revision is written, so the plan goes on

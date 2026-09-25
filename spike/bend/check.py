@@ -2347,10 +2347,17 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
-            "a contest line names the lower digest first",
+            "a contest line leaves out the file it contests",
             '      Some{String.take(f, 8n) ++ lower_of(" is ", cs)}',
-            '      Some{lower_of(" is ", cs) ++ String.take(f, 8n)}',
-            "status_lemmas.push_open",
+            '      Some{lower_of(" is ", cs)}',
+            "status_lemmas.lines_named",
+            "commands.bend",
+        ),
+        (
+            "status says a claimed path among the contests",
+            "    case Tree.Path{p, fs}:\n      None{}",
+            "    case Tree.Path{p, fs}:\n      Some{p}",
+            "status_lemmas.lines_named",
             "commands.bend",
         ),
         (
@@ -2378,8 +2385,22 @@ def check_mutations(temporary):
             "status compares a file the parents dispute with a digest",
             "Bool.pick(Maybe<&2, String>, proposed, None{}, status.before(bf, e))",
             "status.before(bf, e)",
-            "status_lemmas.seens_ok",
+            "status_lemmas.disputed",
             "commands.bend",
+        ),
+        (
+            "status reads a file the parents dispute as one they agree on",
+            'String.eq(stat_of(f, Map.get(String, SNil{}, bf, f)), "-")',
+            'String.eq(stat_of(f, Map.get(String, SNil{}, bf, f)), "+")',
+            "status_lemmas.disputed",
+            "commands.bend",
+        ),
+        (
+            "a disputed file emptied in the folder said as nothing",
+            "List.append(&2, Obs, mode(path, e, runs), [Obs.Emptied{path}])",
+            "mode(path, e, runs)",
+            "status_lemmas.disputed_file",
+            "survey.bend",
         ),
         (
             "status replays a file a statement settles",
@@ -2389,10 +2410,24 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
-            "joining refuses where no parent was read",
-            "    case Nil{}:\n      Done{Nil{}}\n    case +p <> rest:\n      do Result<&2, &2, String, List<&2, Maybe<&2, String>>>:",
-            "    case Nil{}:\n      Fail{\"no parent\"}\n    case +p <> rest:\n      do Result<&2, &2, String, List<&2, Maybe<&2, String>>>:",
-            "status_lemmas.each_fails",
+            "joining takes the first parent's digest where the parents differ",
+            'Bool.pick(String, all_eq(rest, d), d, "-")',
+            "d",
+            "status_lemmas.joins_s",
+            "commands.bend",
+        ),
+        (
+            "joining reads a file at the first parent only",
+            "        xs : List<&2, Maybe<&2, String>> <- status.joined.each(fs, ds, file, rest)",
+            "        xs : List<&2, Maybe<&2, String>> <- Done{Nil{}}",
+            "status_lemmas.each_readings",
+            "commands.bend",
+        ),
+        (
+            "joining a file no parent mentions as disputed",
+            "    case Nil{}:\n      Sv.EMPTY()",
+            '    case Nil{}:\n      "-"',
+            "status_lemmas.joins_s",
             "commands.bend",
         ),
         (
@@ -2538,6 +2573,16 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "a chain that stops after the revision it began at",
+            "f <> chain.go(q, fs, first_parent(fs, parents_of(f)))",
+            "f <> chain.go(q, fs, None{})",
+            # `chain_lemmas.stops_at` rejects it too; the checker meets the
+            # lemma that the line is followed, which unfolds the same step,
+            # first.
+            "chain_lemmas.line_at",
+            "commands.bend",
+        ),
+        (
             "a document outside revisions/ read as a revision",
             "push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full(id, Rev.parse(text)), None{}), fulls(root, rest))",
             "push_full(full(id, Rev.parse(text)), fulls(root, rest))",
@@ -2569,7 +2614,21 @@ def check_mutations(temporary):
             "a span a..b read as b..a",
             "      among(fs, Rev.without(reached(fs, to), reached(fs, from)))",
             "      among(fs, Rev.without(reached(fs, from), reached(fs, to)))",
-            "span_lemmas.span_listed",
+            "span_lemmas.range_ok",
+            "commands.bend",
+        ),
+        (
+            "log's walk from a target takes nothing in",
+            "      Reach{List.append(&2, String, rest, parents), id <> seen}",
+            "      Reach{List.append(&2, String, rest, parents), seen}",
+            "span_lemmas.reach_inv",
+            "commands.bend",
+        ),
+        (
+            "log's walk from a target follows a revision's change, not its parents",
+            "ancestry.reach(id, rest, seen, parents_of(f), Rev.member(seen, id))",
+            "ancestry.reach(id, rest, seen, [change_of(f)], Rev.member(seen, id))",
+            "span_lemmas.next_inv",
             "commands.bend",
         ),
         (

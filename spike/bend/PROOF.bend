@@ -582,13 +582,13 @@ def Laws.reading_fetches_what_resolutions_keep(ds):
   FetchL.kept_fetched(ds)
 
 def Laws.chain_follows_first_parents(fs, id):
-  ChainL.chain_line(fs, id)
+  ChainL.chain_whole(fs, id)
 
 def Laws.revisions_read_are_their_documents(root, ds):
   FullsL.fulls_filed(root, ds)
 
-def Laws.log_lists_its_span(fs, sp):
-  SpanL.span_listed(fs, sp)
+def Laws.log_lists_its_span(fs, a, b):
+  SpanL.span_listed(fs, a, b)
 
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
@@ -730,14 +730,15 @@ def Laws.status_compares_with_the_revisions_tree(fs, p):
 def Laws.status_reads_only_lines(dg, bf, eds, os, hs):
   StatusL.reads_only_lines(dg, bf, eds, os, hs)
 
-def Laws.status_surveys_each_path(t, dg, bf, reads, hs):
-  StatusL.seens_ok(t, dg, bf, reads, hs)
+def Laws.status_leaves_a_disputed_file_unsettled(t, dg, bf, bf2, reads, path, f, q, y, g, m, found, h):
+  StatusL.disputed(t, dg, bf, bf2, reads, path, f, q, y, g, m, found, h)
 
 def Laws.status_believes_what_is_stated(older, ds, left, eds, os, hs, m, e, h):
   StatusL.believes(older, ds, left, eds, os, hs, m, e, h)
 
-def Laws.status_joins_what_it_reads(hs, fs, ds, ps, m, e, h):
-  StatusL.joined_fails(hs, fs, ds, ps, m, e, h)
+def Laws.status_joins_what_it_reads(hs, fs, ds, ps, xs, h):
+  StatusL.pairs_files(hs, fs, ds, ps, xs, h)
+
 def Laws.record_refuses_a_dangling_link(t, looked, held, walked, ss, moves):
   SurveyL.dangle_ok(t, Set.from_list(Sv.dropped_files(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))), Set.from_list(Sv.pointed(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))), List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))
 
