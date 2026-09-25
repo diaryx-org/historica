@@ -44,6 +44,7 @@ import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./arrange_lemmas.bend as ArrangeL
+import ./prune_lemmas.bend as PruneL
 import ./utf8.bend as Utf8
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
@@ -2529,15 +2530,38 @@ law prune_keeps_what_work_stands_on:
   for hk: {Rev.member(Main.ids(Prune.kept(fs)), id) == False{} : Bool}
   {Prune.stood_on(Prune.kept(fs), id) == False{} : Bool}
 
-# Every operation document and payload `prune` removes holds a digest
-# nothing it keeps needs: named by no revision it keeps, and no forgetting
-# document standing in for one that is.
+# `prune` lets a revision of the store go only where a revision of the
+# store says, in its own `supersedes`, that it supersedes it: one prune
+# keeps, or one it lets go of too, since a superseded run clears in one
+# pruning. Nothing a revision it keeps stands on goes either
+# (prune_keeps_what_work_stands_on), so no head is ever pruned.
+law prune_lets_go_only_what_is_superseded:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for hf: {Rev.member(Main.ids(fs), id) == True{} : Bool}
+  for hk: {Rev.member(Main.ids(Prune.kept(fs)), id) == False{} : Bool}
+  {PruneL.supersedes_any(fs, id) == True{} : Bool}
+
+# `prune --dry-run` and `prune` plan the same: of any store, the dry run
+# removes nothing and names, a line each and in the order they would go,
+# exactly the files the real run removes, and the real run names the same
+# files as it removes them; where nothing is prunable, both say so.
+law prune_dry_run_names_what_prune_removes:
+  for +s: Prune.Stored
+  {(Prune.act.says(Prune.act.of(True{}, False{}, Prune.stored.plan(s))), (Prune.act.says(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), Prune.act.removes(Prune.act.of(True{}, False{}, Prune.stored.plan(s))))) == (PruneL.report(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), T.map(~String, ~String, ~(f => "would remove history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))))), (PruneL.report(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), T.map(~String, ~String, ~(f => "removed history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))))), Nil{})) : List<&2, String> & (List<&2, String> & List<&2, String>)}
+
+# Every operation document and payload `prune` removes holds a digest no
+# revision it keeps names — read from that revision's own `edit`, `text`
+# and `bytes` facts — and is no forgetting document standing in for a
+# digest a revision it keeps names (decision 0014).
 law prune_removes_only_unneeded_content:
   for +fs: List<&2, Main.Full>
   for +revs: List<&2, T.Split>
   for +bs: List<&2, Prune.Body>
   for +ps: List<&2, T.Split>
-  {Prune.unneeded(Prune.pruned.content(Prune.plan(fs, revs, bs, ps)), Prune.referenced(Prune.kept(fs), bs)) == True{} : Bool}
+  for +d: String
+  for h: {Rev.member(Prune.pruned.content(Prune.plan(fs, revs, bs, ps)), d) == True{} : Bool}
+  {Bool.or(PruneL.named(Prune.kept(fs), d), PruneL.stands_in(bs, Prune.kept(fs), d)) == False{} : Bool}
 
 # `receive` takes only what this store lacks: every revision it plans to
 # write is one this store does not hold, and every document and payload
