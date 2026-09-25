@@ -14,6 +14,7 @@ import ./tree.bend as Tree
 import ./blamed_lemmas.bend as B
 import ./string_lemmas.bend as S
 import ./prune_lemmas.bend as PruneL
+import ./prune.bend as Prune
 import ./status_lemmas.bend as StatusL
 
 # Taking what is lacking
@@ -164,3 +165,76 @@ def destroys(+here: Receive.Side, +there: Receive.Side) -> {Main.all_held(Receiv
   StatusL.ah_distinct(Receive.forgotten(here, there), List.sort(~String, ~(a => b => String.is_le(a, b)), Receive.among(Receive.forgotten(here, there), Set.from_list(List.append(&2, String, Receive.body.ids(Receive.stored.bodies(Receive.stored.of(here))), Receive.payload.ids(Receive.stored.payloads(Receive.stored.of(here))))))),
     StatusL.ah_sort(~(a => b => String.is_le(a, b)), Receive.forgotten(here, there), Receive.among(Receive.forgotten(here, there), Set.from_list(List.append(&2, String, Receive.body.ids(Receive.stored.bodies(Receive.stored.of(here))), Receive.payload.ids(Receive.stored.payloads(Receive.stored.of(here)))))),
       among_held(Receive.forgotten(here, there), Set.from_list(List.append(&2, String, Receive.body.ids(Receive.stored.bodies(Receive.stored.of(here))), Receive.payload.ids(Receive.stored.payloads(Receive.stored.of(here))))), Receive.forgotten(here, there), held_refl(Receive.forgotten(here, there)))))
+
+# What it plans from
+# ------------------
+
+def related_ok(c: Bool, +here: Receive.Side, +there: Receive.Side, +join: Bool, ea: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}, eb: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}, ec: {Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))) == c : Bool}) -> {Receive.plan.ok(here, there, join, Receive.plan.related(c, here, there)) == True{} : Bool}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, Prune.sound(Receive.stored.of(here)), True{}, ea) : {Bool.and(_, Bool.and(Prune.sound(Receive.stored.of(there)), Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))))) == True{} : Bool}
+      %Equal.sym(Bool, Prune.sound(Receive.stored.of(there)), True{}, eb) : {Bool.and(True{}, Bool.and(_, Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))))) == True{} : Bool}
+      ec
+    case False{}:
+      {==}
+
+def source_ok(b: Bool, +here: Receive.Side, +there: Receive.Side, +join: Bool, ea: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}, eb: {Prune.sound(Receive.stored.of(there)) == b : Bool}) -> {Receive.plan.ok(here, there, join, Receive.plan.source(b, here, there, join)) == True{} : Bool}:
+  match b:
+    case True{}:
+      related_ok(Bool.or(join, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there))), here, there, join, ea, eb, {==})
+    case False{}:
+      {==}
+
+def here_ok(a: Bool, +here: Receive.Side, +there: Receive.Side, +join: Bool, ea: {Prune.sound(Receive.stored.of(here)) == a : Bool}) -> {Receive.plan.ok(here, there, join, Receive.plan.here(a, here, there, join)) == True{} : Bool}:
+  match a:
+    case True{}:
+      source_ok(Prune.sound(Receive.stored.of(there)), here, there, join, ea, {==})
+    case False{}:
+      {==}
+
+# Nothing is planned from a store the check calls broken, on either side,
+# nor between two histories that share nothing, unless joining was asked.
+def plan_ok(+here: Receive.Side, +there: Receive.Side, +join: Bool) -> {Receive.plan.ok(here, there, join, Receive.plan.r(here, there, join)) == True{} : Bool}:
+  here_ok(Prune.sound(Receive.stored.of(here)), here, there, join, {==})
+
+# The words
+# ---------
+
+def end_of(both: Bool, +dry: Bool, +fields: Bool, +join: Bool, source: Maybe<&2, String>, eb: {Bool.and(dry, fields) == both : Bool}) -> {Receive.args.ok(Receive.args.end.of(both, dry, fields, join, source)) == True{} : Bool}:
+  match both:
+    case True{}:
+      {==}
+    case False{}:
+      match source:
+        case None{}:
+          {==}
+        case Some{s}:
+          %Equal.sym(Bool, Bool.and(dry, fields), False{}, eb) : {Bool.not(_) == True{} : Bool}
+          {==}
+
+def go_ok(ws: List<&2, String>, k: Receive.RWord, +dry: Bool, +fields: Bool, +join: Bool, +source: Maybe<&2, String>) -> {Receive.args.ok(Receive.args.go(ws, k, dry, fields, join, source)) == True{} : Bool}:
+  match ws:
+    case Nil{}:
+      end_of(Bool.and(dry, fields), dry, fields, join, source, {==})
+    case +w <> +rest:
+      match k:
+        case Receive.RWord.Dry{}:
+          go_ok(rest, Receive.rword.of(rest), True{}, fields, join, source)
+        case Receive.RWord.Fields{}:
+          go_ok(rest, Receive.rword.of(rest), dry, True{}, join, source)
+        case Receive.RWord.Join{}:
+          go_ok(rest, Receive.rword.of(rest), dry, fields, True{}, source)
+        case Receive.RWord.Flag{}:
+          {==}
+        case Receive.RWord.End{}:
+          end_of(Bool.and(dry, fields), dry, fields, join, source, {==})
+        case Receive.RWord.Plain{}:
+          match source:
+            case None{}:
+              go_ok(rest, Receive.rword.of(rest), dry, fields, join, Some{w})
+            case Some{s}:
+              {==}
+
+# `receive` never reads a command line as a plan and a statement at once.
+def words(+ws: List<&2, String>) -> {Receive.args.ok(Receive.args.r(ws)) == True{} : Bool}:
+  go_ok(ws, Receive.rword.of(ws), False{}, False{}, False{}, None{})

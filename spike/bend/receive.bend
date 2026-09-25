@@ -69,10 +69,15 @@ def args.done(+dry: Bool, +fields: Bool, +join: Bool, source: Maybe<&2, String>)
 
 # A plan is not on disk, so `--fields` has nothing to say of one; and there
 # is nothing to receive from without a directory.
+def args.end.of(both: Bool, +dry: Bool, +fields: Bool, +join: Bool, source: Maybe<&2, String>) -> Result<&2, &2, Main.Refused, ReceiveCmd>:
+  match both:
+    case True{}:
+      Fail{Main.Refused{2, "`receive --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}}
+    case False{}:
+      args.done(dry, fields, join, source)
+
 def args.end(+dry: Bool, +fields: Bool, +join: Bool, source: Maybe<&2, String>) -> Result<&2, &2, Main.Refused, ReceiveCmd>:
-  Bool.pick(Result<&2, &2, Main.Refused, ReceiveCmd>, Bool.and(dry, fields),
-    Fail{Main.Refused{2, "`receive --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}},
-    args.done(dry, fields, join, source))
+  args.end.of(Bool.and(dry, fields), dry, fields, join, source)
 
 # The words in order, as the Rust tool reads them: each flag wherever it
 # stands, the first word that is not one the source, and the first word
@@ -594,6 +599,25 @@ def plan.here(ok: Bool, +here: Side, +there: Side, +join: Bool) -> Result<&2, &2
 # side, or between two nonempty stores that share nothing, unless asked.
 def plan.r(+here: Side, +there: Side, +join: Bool) -> Result<&2, &2, Main.Refused, RPlan>:
   plan.here(Prune.sound(stored.of(here)), here, there, join)
+
+# What a receive may plan from: two stores the part of `check` the port
+# reads passes, whose histories share a revision or an edge, or that the
+# person asked to join.
+def plan.ok(+here: Side, +there: Side, +join: Bool, r: Result<&2, &2, Main.Refused, RPlan>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{p}:
+      Bool.and(Prune.sound(stored.of(here)), Bool.and(Prune.sound(stored.of(there)), Bool.or(join, related(side.fulls(here), side.fulls(there)))))
+
+# What `receive` may read a command line as: never a plan and a statement
+# at once.
+def args.ok(r: Result<&2, &2, Main.Refused, ReceiveCmd>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{ReceiveCmd{dry, fields, join, source}}:
+      Bool.not(Bool.and(dry, fields))
 
 # The report
 # ----------

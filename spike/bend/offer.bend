@@ -62,6 +62,22 @@ def args.of(+ws: List<&2, String>, dash: Maybe<&2, String>) -> Result<&2, &2, Ma
 def args.r(+ws: List<&2, String>) -> Result<&2, &2, Main.Refused, String>:
   args.of(ws, first_dash(ws))
 
+# A command line `offer` accepts is one directory, and nothing that starts
+# like a flag.
+def words.one(ws: List<&2, String>, +dir: String) -> Bool:
+  match ws:
+    case +w <> Nil{}:
+      Bool.and(String.eq(w, dir), Bool.not(String.starts_with(w, "-")))
+    case _:
+      False{}
+
+def args.ok(+ws: List<&2, String>, r: Result<&2, &2, Main.Refused, String>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{+d}:
+      words.one(ws, d)
+
 # The manifest
 # ------------
 

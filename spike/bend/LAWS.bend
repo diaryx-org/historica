@@ -1724,3 +1724,102 @@ law export_removes_only_recorded_files:
   for +whole: Bool
   for +rs: List<&2, Export.Rec>
   {Export.removed.ok(Export.removes(ss, placed, whole, rs), ss, whole, rs) == True{} : Bool}
+
+# A command line `export` accepts holds no word starting `-` but the flags
+# it takes, one directory, and at most one target.
+law export_reads_its_words:
+  for +ws: List<&2, String>
+  {Export.args.ok(ws, Export.args.r(ws)) == True{} : Bool}
+
+# An export makes a fresh copy only where nothing is, or where a directory
+# holds nothing, and updates only a directory holding something that is a
+# store: it never writes into somebody's files.
+law export_writes_only_where_a_copy_may_go:
+  for +into: String
+  for +l: Export.Lst
+  for +store: Bool
+  {Export.dest.ok(l, store, Export.dest.decide(into, l, store)) == True{} : Bool}
+
+# Every file an export lays out is as the target's tree has it: a file of
+# lines holds exactly what `cat` prints there, a file of bytes the payload
+# its entry names, copied from a file of the store holding that payload, a
+# link is spelled as decision 0040 materialises it, and each runs exactly
+# where the tree says it can be run.
+law export_lays_each_file_as_the_tree_has_it:
+  for +ps: List<&2, Export.Placed>
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  {Export.laid.all(ps, Export.lay(ps, t, fs, ds, id, pays, bs), t, fs, ds, id, pays) == True{} : Bool}
+
+# A copy is assembled from this store's own files: every document and
+# forgetting document it carries is one this store holds under that
+# digest, and every payload a file of this store holding it.
+law export_carries_only_this_stores_files:
+  for +held: List<&2, Main.Full>
+  for +t: Tree.Tree()
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, T.Split>
+  for +bodies: List<&2, Prune.Body>
+  for +rs: List<&2, Receive.Ruled>
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  {Export.plan.from(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), ds, ps) == True{} : Bool}
+
+# Updating a copy renames none of its revisions (decision 0052): each one
+# the copy already holds keeps the stem it was written under, whatever the
+# newcomers are called.
+law export_renames_nothing_a_copy_holds:
+  for +fs: List<&2, Main.Full>
+  for +held: List<&2, T.Split>
+  for +ex: List<&2, Naming.Named>
+  for +id: String
+  for +s: String
+  for +e: {Arrange.lookup(held, id) == Some{s} : Maybe<&2, String>}
+  for m: {Rev.member(Main.ids(fs), id) == True{} : Bool}
+  {Arrange.lookup(Export.stems.around(fs, held, ex), id) == Some{s} : Maybe<&2, String>}
+
+# `receive` plans nothing from a store the part of `check` the port reads
+# calls broken, on either side, nor joins two histories that share no
+# revision or edge unless the person asked (decision 0029).
+law receive_trusts_what_it_plans_from:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for +join: Bool
+  {Receive.plan.ok(here, there, join, Receive.plan.r(here, there, join)) == True{} : Bool}
+
+# `receive` never reads a command line as a plan and a statement at once.
+law receive_reads_its_words:
+  for +ws: List<&2, String>
+  {Receive.args.ok(Receive.args.r(ws)) == True{} : Bool}
+
+# A command line `offer` accepts is one directory and nothing else.
+law offer_reads_its_words:
+  for +ws: List<&2, String>
+  {Offer.args.ok(ws, Offer.args.r(ws)) == True{} : Bool}
+
+# Every file an export lays out sits at a path a folder may be given:
+# outside the store, not a directory another of the tree's files needs,
+# and none a rule of the copy covers, so the copy's own walk offers back
+# every file it was given.
+law export_lays_out_only_what_the_walk_offers_back:
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  {Export.folder.clear(t, rules, Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}
+
+# Updating a copy destroys only originals a forgetting document of either
+# side stands in for (decision 0014).
+law export_destroys_only_what_is_forgotten:
+  for +p: Export.Plan
+  for +here: List<&2, Prune.Body>
+  for +cst: Prune.Stored
+  for +marks: List<&2, Bm.Bookmark>
+  {Main.all_held(Export.onto.forgotten(Export.onto.of(p, here, cst, marks)), Export.onto.destroys(Export.onto.of(p, here, cst, marks))) == True{} : Bool}
