@@ -3854,6 +3854,20 @@ def check_mutations(temporary):
             "check.bend",
         ),
         (
+            "check reads a link's target as an entry",
+            '      Seen{ds, fs, (prefix ++ "/" ++ String.drop(line, 2n)) <> ls, True{}}',
+            '      Seen{ds, fs, (prefix ++ "/" ++ String.drop(line, 2n)) <> ls, False{}}',
+            "finding_lemmas.reads_link",
+            "check.bend",
+        ),
+        (
+            "check takes a file's size for its name",
+            "    case Some{T.Split{size, name}}:\n      name",
+            "    case Some{T.Split{size, name}}:\n      size",
+            "finding_lemmas.reads_file",
+            "check.bend",
+        ),
+        (
             "show finds a document whose digest the named one starts",
             '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, held(rest, id))',
             '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, held(rest, id))',

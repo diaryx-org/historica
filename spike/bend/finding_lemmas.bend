@@ -9,6 +9,8 @@ import ./revision.bend as Rev
 import ./bookmark.bend as Bm
 import ./bookmark_lemmas.bend as BmL
 import ./text.bend as T
+import ./skip_lemmas.bend as SkipL
+import ./composition_lemmas.bend as Comp
 
 # The report
 # ----------
@@ -329,3 +331,198 @@ def name_read(+docs: List<&2, Main.Full>, +path: String, +n: String, +t: Bm.Targ
   %Equal.sym(Result<&2, &2, String, Bm.Stated>, Bm.parse(Bm.write(Bm.Stated{t, p})), Done{Bm.Stated{t, p}}, BmL.reads_back(t, p, h)) : {Check.bookmark.finding(docs, path, n, _) == Bool.pick(List<&2, Check.Finding>, here(docs, t), Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) : List<&2, Check.Finding>}
   %Equal.sym(Bool, Check.pointed(docs, t), here(docs, t), pointed_here(docs, t)) : {Bool.pick(List<&2, Check.Finding>, _, Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) == Bool.pick(List<&2, Check.Finding>, here(docs, t), Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) : List<&2, Check.Finding>}
   {==}
+
+# The walk
+# --------
+
+# One entry of a directory's listing, as the host lists it: a directory, a
+# file with its execute bit and size, a link and its target, a link whose
+# target cannot be spelled, a name that is not UTF-8, or anything else.
+type Listed is Data:
+  Listed.Dir{name: String}
+  Listed.File{exec: Bool, size: String, name: String}
+  Listed.Link{name: String, target: String}
+  Listed.Unspelled{name: String}
+  Listed.Lossy{name: String}
+  Listed.Other{name: String}
+
+# Its lines, as `Store.folder` writes them: `d`, `f` with the bit and the
+# size, `l` with the target on the next line, `L`, `u` and `o`.
+def line(e: Listed) -> String:
+  match e:
+    case Listed.Dir{n}:
+      "d " ++ n
+    case Listed.File{x, z, n}:
+      "f " ++ Bool.pick(String, x, "1", "0") ++ " " ++ z ++ " " ++ n
+    case Listed.Link{n, t}:
+      "l " ++ n ++ "\n" ++ t
+    case Listed.Unspelled{n}:
+      "L " ++ n
+    case Listed.Lossy{n}:
+      "u " ++ n
+    case Listed.Other{n}:
+      "o " ++ n
+
+# What the host lists: no name, and no target, holding a line break, and
+# no size a space.
+def spelt(e: Listed) -> Bool:
+  match e:
+    case Listed.Dir{+n}:
+      Bool.not(T.has_char(n, '\n'))
+    case Listed.File{x, +z, +n}:
+      Bool.and(Bool.not(T.has_char(z, ' ')), Bool.and(Bool.not(T.has_char(z, '\n')), Bool.not(T.has_char(n, '\n'))))
+    case Listed.Link{+n, +t}:
+      Bool.and(Bool.not(T.has_char(n, '\n')), Bool.not(T.has_char(t, '\n')))
+    case Listed.Unspelled{+n}:
+      Bool.not(T.has_char(n, '\n'))
+    case Listed.Lossy{+n}:
+      Bool.not(T.has_char(n, '\n'))
+    case Listed.Other{+n}:
+      Bool.not(T.has_char(n, '\n'))
+
+# What reading the entry finds, under the directory listed: a directory to
+# walk next, a file, or a link, which is never followed.
+def found(e: Listed, +dir: String, +fs: List<&2, String>, +ls: List<&2, String>) -> Check.Seen:
+  match e:
+    case Listed.Dir{n}:
+      Check.Seen{[dir ++ "/" ++ n], fs, ls, False{}}
+    case Listed.File{x, z, n}:
+      Check.Seen{Nil{}, (dir ++ "/" ++ n) <> fs, ls, False{}}
+    case Listed.Link{n, t}:
+      Check.Seen{Nil{}, fs, (dir ++ "/" ++ n) <> ls, False{}}
+    case Listed.Unspelled{n}:
+      Check.Seen{Nil{}, fs, (dir ++ "/" ++ n) <> ls, False{}}
+    case Listed.Lossy{n}:
+      Check.Seen{Nil{}, fs, ls, False{}}
+    case Listed.Other{n}:
+      Check.Seen{Nil{}, fs, ls, False{}}
+
+def split_nl.at(b: Bool, +c: Char, +t: String, +rest: String, h: {Bool.or(b, T.has_char(t, '\n')) == False{} : Bool}, ih: {T.has_char(t, '\n') == False{} : Bool} -> {String.split(String.append(t, SCon{'\n', rest}), '\n') == t <> String.split(rest, '\n') : List<&2, String>}) -> {String.split.fin(c, String.split(String.append(t, SCon{'\n', rest}), '\n'), b) == SCon{c, t} <> String.split(rest, '\n') : List<&2, String>}:
+  match b:
+    case True{}:
+      Empty.absurd({String.split.fin(c, String.split(String.append(t, SCon{'\n', rest}), '\n'), True{}) == SCon{c, t} <> String.split(rest, '\n') : List<&2, String>}, S.true_false(h))
+    case False{}:
+      %Equal.sym(List<&2, String>, String.split(String.append(t, SCon{'\n', rest}), '\n'), t <> String.split(rest, '\n'), ih(h)) : {String.split.fin(c, _, False{}) == SCon{c, t} <> String.split(rest, '\n') : List<&2, String>}
+      {==}
+
+# A line with no break in it, a newline, and the rest: that line, and the
+# rest's lines.
+def split_nl(l: String, +rest: String, h: {T.has_char(l, '\n') == False{} : Bool}) -> {String.split(String.append(l, SCon{'\n', rest}), '\n') == l <> String.split(rest, '\n') : List<&2, String>}:
+  match l:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      split_nl.at(Char.is_eq(c, '\n'), c, t, rest, h, ht => split_nl(t, rest, ht))
+
+def has_char_app(a: String, +b: String, +c: Char) -> {T.has_char(String.append(a, b), c) == Bool.or(T.has_char(a, c), T.has_char(b, c)) : Bool}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{+x, +t}:
+      %Equal.sym(Bool, T.has_char(String.append(t, b), c), Bool.or(T.has_char(t, c), T.has_char(b, c)), has_char_app(t, b, c)) : {Bool.or(Char.is_eq(x, c), _) == Bool.or(Bool.or(Char.is_eq(x, c), T.has_char(t, c)), T.has_char(b, c)) : Bool}
+      SkipL.or_assoc(Char.is_eq(x, c), T.has_char(t, c), T.has_char(b, c))
+
+def or_false(a: Bool, -b: Bool, ea: {a == False{} : Bool}, eb: {b == False{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
+  %Equal.sym(Bool, a, False{}, ea) : {Bool.or(_, b) == False{} : Bool}
+  eb
+
+def so.at(b: Bool, +c: Char, +zt: String, +acc: String, +n: String, h: {Bool.or(b, T.has_char(zt, ' ')) == False{} : Bool}, ih: {T.has_char(zt, ' ') == False{} : Bool} -> {T.split_once.fast(String.append(zt, SCon{' ', n}), SCon{c, acc}, T.space_first(String.append(zt, SCon{' ', n}))) == Some{T.Split{String.reverse(String.reverse.go(zt, SCon{c, acc})), n}} : Maybe<&2, T.Split>}) -> {T.split_once.fast(SCon{c, String.append(zt, SCon{' ', n})}, acc, b) == Some{T.Split{String.reverse(String.reverse.go(zt, SCon{c, acc})), n}} : Maybe<&2, T.Split>}:
+  match b:
+    case True{}:
+      Empty.absurd({T.split_once.fast(SCon{c, String.append(zt, SCon{' ', n})}, acc, True{}) == Some{T.Split{String.reverse(String.reverse.go(zt, SCon{c, acc})), n}} : Maybe<&2, T.Split>}, S.true_false(h))
+    case False{}:
+      ih(h)
+
+# Cut at its first space, a word with no space in it, a space, and the
+# rest is that word and the rest.
+def so_fast(z: String, +acc: String, +n: String, h: {T.has_char(z, ' ') == False{} : Bool}) -> {T.split_once.fast(String.append(z, SCon{' ', n}), acc, T.space_first(String.append(z, SCon{' ', n}))) == Some{T.Split{String.reverse(String.reverse.go(z, acc)), n}} : Maybe<&2, T.Split>}:
+  match z:
+    case SNil{}:
+      {==}
+    case SCon{+c, +zt}:
+      so.at(Char.is_eq(c, ' '), c, zt, acc, n, h, hz => so_fast(zt, SCon{c, acc}, n, hz))
+
+def split_once_at(+z: String, +n: String, h: {T.has_char(z, ' ') == False{} : Bool}) -> {T.split_once(z ++ " " ++ n) == Some{T.Split{z, n}} : Maybe<&2, T.Split>}:
+  %Equal.sym(Maybe<&2, T.Split>, T.split_once(z ++ " " ++ n), Some{T.Split{String.reverse(String.reverse(z)), n}}, so_fast(z, SNil{}, n, h)) : {_ == Some{T.Split{z, n}} : Maybe<&2, T.Split>}
+  Equal.cong(String, Maybe<&2, T.Split>, y => Some{T.Split{y, n}}, String.reverse(String.reverse(z)), z, SkipL.rev_rev(z))
+
+def not_has(+s: String, c: Char, h: {Bool.not(T.has_char(s, c)) == True{} : Bool}) -> {T.has_char(s, c) == False{} : Bool}:
+  SkipL.not_true_false(T.has_char(s, c), h)
+
+# A file's line holds no break where neither its size nor its name does.
+def file_nl(+z: String, +n: String, hz: {T.has_char(z, '\n') == False{} : Bool}, hn: {T.has_char(n, '\n') == False{} : Bool}) -> {T.has_char(String.append(z, SCon{' ', n}), '\n') == False{} : Bool}:
+  %Equal.sym(Bool, T.has_char(String.append(z, SCon{' ', n}), '\n'), Bool.or(T.has_char(z, '\n'), T.has_char(SCon{' ', n}, '\n')), has_char_app(z, SCon{' ', n}, '\n')) : {_ == False{} : Bool}
+  or_false(T.has_char(z, '\n'), T.has_char(SCon{' ', n}, '\n'), hz, hn)
+
+def reads_dir(+fs: List<&2, String>, +ls: List<&2, String>, +dir: String, +n: String, +rest: String, hn: {T.has_char(n, '\n') == False{} : Bool}) -> {Check.seen.go(String.split(String.append("d " ++ n, SCon{'\n', rest}), '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Dir{n}, dir, fs, ls)) : Check.Seen}:
+  %Equal.sym(List<&2, String>, String.split(String.append("d " ++ n, SCon{'\n', rest}), '\n'), ("d " ++ n) <> String.split(rest, '\n'), split_nl("d " ++ n, rest, hn)) : {Check.seen.go(_, dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Dir{n}, dir, fs, ls)) : Check.Seen}
+  %SkipL.drop_none(n) : {Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{[dir ++ "/" ++ _], fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Dir{n}, dir, fs, ls)) : Check.Seen}
+  {==}
+
+def reads_file(+fs: List<&2, String>, +ls: List<&2, String>, +dir: String, +l: String, +z: String, +n: String, +rest: String, hl: {T.has_char(l, '\n') == False{} : Bool}, el: {String.drop(l, 4n) == String.append(z, SCon{' ', n}) : String}, ek: {Check.kind.of(l) == Check.Entry.File{} : Check.Entry}, hz: {T.has_char(z, ' ') == False{} : Bool}) -> {Check.seen.go(String.split(String.append(l, SCon{'\n', rest}), '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, (dir ++ "/" ++ n) <> fs, ls, False{}}) : Check.Seen}:
+  %Equal.sym(List<&2, String>, String.split(String.append(l, SCon{'\n', rest}), '\n'), l <> String.split(rest, '\n'), split_nl(l, rest, hl)) : {Check.seen.go(_, dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, (dir ++ "/" ++ n) <> fs, ls, False{}}) : Check.Seen}
+  %Equal.sym(Check.Entry, Check.kind.of(l), Check.Entry.File{}, ek) : {Check.seen.go(String.split(rest, '\n'), dir, Check.seen.kind(Check.Seen{Nil{}, fs, ls, False{}}, dir, l, _)) == Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, (dir ++ "/" ++ n) <> fs, ls, False{}}) : Check.Seen}
+  %Equal.sym(String, String.drop(l, 4n), String.append(z, SCon{' ', n}), el) : {Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, (dir ++ "/" ++ Check.file.name(T.split_once(_))) <> fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, (dir ++ "/" ++ n) <> fs, ls, False{}}) : Check.Seen}
+  %Equal.sym(Maybe<&2, T.Split>, T.split_once(String.append(z, SCon{' ', n})), Some{T.Split{z, n}}, split_once_at(z, n, hz)) : {Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, (dir ++ "/" ++ Check.file.name(_)) <> fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, (dir ++ "/" ++ n) <> fs, ls, False{}}) : Check.Seen}
+  {==}
+
+def reads_link(+fs: List<&2, String>, +ls: List<&2, String>, +dir: String, +n: String, +t: String, +rest: String, hn: {T.has_char(n, '\n') == False{} : Bool}, ht: {T.has_char(t, '\n') == False{} : Bool}) -> {Check.seen.go(String.split(String.append("l " ++ n, SCon{'\n', String.append(t, SCon{'\n', rest})}), '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Link{n, t}, dir, fs, ls)) : Check.Seen}:
+  %Equal.sym(List<&2, String>, String.split(String.append("l " ++ n, SCon{'\n', String.append(t, SCon{'\n', rest})}), '\n'), ("l " ++ n) <> String.split(String.append(t, SCon{'\n', rest}), '\n'), split_nl("l " ++ n, String.append(t, SCon{'\n', rest}), hn)) : {Check.seen.go(_, dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Link{n, t}, dir, fs, ls)) : Check.Seen}
+  %Equal.sym(List<&2, String>, String.split(String.append(t, SCon{'\n', rest}), '\n'), t <> String.split(rest, '\n'), split_nl(t, rest, ht)) : {Check.seen.go(_, dir, Check.Seen{Nil{}, fs, (dir ++ "/" ++ String.drop(n, 0n)) <> ls, True{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Link{n, t}, dir, fs, ls)) : Check.Seen}
+  %SkipL.drop_none(n) : {Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, fs, (dir ++ "/" ++ _) <> ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Link{n, t}, dir, fs, ls)) : Check.Seen}
+  {==}
+
+def reads_unspelled(+fs: List<&2, String>, +ls: List<&2, String>, +dir: String, +n: String, +rest: String, hn: {T.has_char(n, '\n') == False{} : Bool}) -> {Check.seen.go(String.split(String.append("L " ++ n, SCon{'\n', rest}), '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Unspelled{n}, dir, fs, ls)) : Check.Seen}:
+  %Equal.sym(List<&2, String>, String.split(String.append("L " ++ n, SCon{'\n', rest}), '\n'), ("L " ++ n) <> String.split(rest, '\n'), split_nl("L " ++ n, rest, hn)) : {Check.seen.go(_, dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Unspelled{n}, dir, fs, ls)) : Check.Seen}
+  %SkipL.drop_none(n) : {Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, fs, (dir ++ "/" ++ _) <> ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Unspelled{n}, dir, fs, ls)) : Check.Seen}
+  {==}
+
+def reads_other(+fs: List<&2, String>, +ls: List<&2, String>, +dir: String, +l: String, +rest: String, hl: {T.has_char(l, '\n') == False{} : Bool}, ek: {Check.kind.of(l) == Check.Entry.Other{} : Check.Entry}) -> {Check.seen.go(String.split(String.append(l, SCon{'\n', rest}), '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) : Check.Seen}:
+  %Equal.sym(List<&2, String>, String.split(String.append(l, SCon{'\n', rest}), '\n'), l <> String.split(rest, '\n'), split_nl(l, rest, hl)) : {Check.seen.go(_, dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) : Check.Seen}
+  %Equal.sym(Check.Entry, Check.kind.of(l), Check.Entry.Other{}, ek) : {Check.seen.go(String.split(rest, '\n'), dir, Check.seen.kind(Check.Seen{Nil{}, fs, ls, False{}}, dir, l, _)) == Check.seen.go(String.split(rest, '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) : Check.Seen}
+  {==}
+
+def file_drop(x: Bool, +z: String, +n: String) -> {String.drop("f " ++ Bool.pick(String, x, "1", "0") ++ " " ++ z ++ " " ++ n, 4n) == String.append(z, SCon{' ', n}) : String}:
+  match x:
+    case True{}:
+      Equal.sym(String, String.append(z, SCon{' ', n}), String.drop(String.append(z, SCon{' ', n}), 0n), SkipL.drop_none(String.append(z, SCon{' ', n})))
+    case False{}:
+      Equal.sym(String, String.append(z, SCon{' ', n}), String.drop(String.append(z, SCon{' ', n}), 0n), SkipL.drop_none(String.append(z, SCon{' ', n})))
+
+def file_kind(x: Bool, +z: String, +n: String) -> {Check.kind.of("f " ++ Bool.pick(String, x, "1", "0") ++ " " ++ z ++ " " ++ n) == Check.Entry.File{} : Check.Entry}:
+  match x:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def file_line_nl(x: Bool, +z: String, +n: String, h: {T.has_char(String.append(z, SCon{' ', n}), '\n') == False{} : Bool}) -> {T.has_char("f " ++ Bool.pick(String, x, "1", "0") ++ " " ++ z ++ " " ++ n, '\n') == False{} : Bool}:
+  match x:
+    case True{}:
+      h
+    case False{}:
+      h
+
+# `check` reads each line of a directory's listing as the host writes it,
+# whatever was found before and whatever follows.
+def reads_line(+ds: List<&2, String>, +fs: List<&2, String>, +ls: List<&2, String>, t: Bool, +dir: String, e: Listed, +rest: String, +h: {spelt(e) == True{} : Bool}) -> {Check.walk.step(Check.Seen{ds, fs, ls, t}, dir, Done{line(e) ++ "\n" ++ rest}) == Check.seen.go(String.split(rest, '\n'), dir, found(e, dir, fs, ls)) : Check.Seen}:
+  match e:
+    case Listed.Dir{+n}:
+      reads_dir(fs, ls, dir, n, rest, not_has(n, '\n', h))
+    case Listed.File{+x, +z, +n}:
+      +hz : {T.has_char(z, ' ') == False{} : Bool} = not_has(z, ' ', Comp.and_left(Bool.not(T.has_char(z, ' ')), Bool.and(Bool.not(T.has_char(z, '\n')), Bool.not(T.has_char(n, '\n'))), h))
+      +h2 : {Bool.and(Bool.not(T.has_char(z, '\n')), Bool.not(T.has_char(n, '\n'))) == True{} : Bool} = Comp.and_right(Bool.not(T.has_char(z, ' ')), Bool.and(Bool.not(T.has_char(z, '\n')), Bool.not(T.has_char(n, '\n'))), h)
+      +hzn : {T.has_char(z, '\n') == False{} : Bool} = not_has(z, '\n', Comp.and_left(Bool.not(T.has_char(z, '\n')), Bool.not(T.has_char(n, '\n')), h2))
+      +hnn : {T.has_char(n, '\n') == False{} : Bool} = not_has(n, '\n', Comp.and_right(Bool.not(T.has_char(z, '\n')), Bool.not(T.has_char(n, '\n')), h2))
+      reads_file(fs, ls, dir, "f " ++ Bool.pick(String, x, "1", "0") ++ " " ++ z ++ " " ++ n, z, n, rest, file_line_nl(x, z, n, file_nl(z, n, hzn, hnn)), file_drop(x, z, n), file_kind(x, z, n), hz)
+    case Listed.Link{+n, +tg}:
+      +hn : {T.has_char(n, '\n') == False{} : Bool} = not_has(n, '\n', Comp.and_left(Bool.not(T.has_char(n, '\n')), Bool.not(T.has_char(tg, '\n')), h))
+      +ht : {T.has_char(tg, '\n') == False{} : Bool} = not_has(tg, '\n', Comp.and_right(Bool.not(T.has_char(n, '\n')), Bool.not(T.has_char(tg, '\n')), h))
+      %Equal.sym(String, String.append(String.append(n, SCon{'\n', tg}), SCon{'\n', rest}), String.append(n, String.append(SCon{'\n', tg}, SCon{'\n', rest})), SkipL.app_assoc(n, SCon{'\n', tg}, SCon{'\n', rest})) : {Check.seen.go(String.split(SCon{'l', SCon{' ', _}}, '\n'), dir, Check.Seen{Nil{}, fs, ls, False{}}) == Check.seen.go(String.split(rest, '\n'), dir, found(Listed.Link{n, tg}, dir, fs, ls)) : Check.Seen}
+      reads_link(fs, ls, dir, n, tg, rest, hn, ht)
+    case Listed.Unspelled{+n}:
+      reads_unspelled(fs, ls, dir, n, rest, not_has(n, '\n', h))
+    case Listed.Lossy{+n}:
+      reads_other(fs, ls, dir, "u " ++ n, rest, not_has(n, '\n', h), {==})
+    case Listed.Other{+n}:
+      reads_other(fs, ls, dir, "o " ++ n, rest, not_has(n, '\n', h), {==})
