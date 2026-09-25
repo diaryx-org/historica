@@ -658,6 +658,10 @@ def Laws.name_stays_in_names(n, e):
 def Laws.argv_reads_its_words(ds, w, rest, e):
   ArgvL.reads(ds, w, rest, e)
 
+def Laws.argv_reads_the_version(ds, v, rest, h):
+  ArgvL.reads_version(ds, v, rest, h)
+def Laws.argv_reads_help(ds, v, rest, h):
+  ArgvL.reads_help(ds, v, rest, h)
 def Laws.dispatch_runs_no_path(base, w, args, d, p, as, e):
   ShellL.runs(base, w, args, d, p, as, e)
 

@@ -2817,6 +2817,20 @@ def check_mutations(temporary):
             "identity.bend",
         ),
         (
+            "-V is not read as the version",
+            '  Bool.pick(Lead, Bool.or(String.eq(w, "-V"), String.eq(w, "--version")), Lead.Version{},',
+            '  Bool.pick(Lead, String.eq(w, "--version"), Lead.Version{},',
+            "argv_lemmas.version.at",
+            "argv.bend",
+        ),
+        (
+            "-h is not read as help",
+            '  Bool.pick(Lead, Bool.or(String.eq(w, "help"), Bool.or(String.eq(w, "-h"), String.eq(w, "--help"))), Lead.Usage{},',
+            '  Bool.pick(Lead, Bool.or(String.eq(w, "help"), String.eq(w, "--help")), Lead.Usage{},',
+            "argv_lemmas.help.at",
+            "argv.bend",
+        ),
+        (
             "check reads the note under a new store's format line as a layout",
             "      +found = Store.line.cut(rest)",
             "      +found = rest",
