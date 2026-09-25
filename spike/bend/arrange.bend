@@ -224,9 +224,31 @@ def lookup(ss: List<&2, T.Split>, +key: String) -> Maybe<&2, String>:
     case T.Split{+k, +v} <> rest:
       Bool.pick(Maybe<&2, String>, String.eq(k, key), Some{v}, lookup(rest, key))
 
-# The filename half of a stem: a rename in place keeps the directory.
-def leaf(+stem: String) -> String:
-  Naming.last(stem)
+# Whether a path has a `/` in it.
+def has_slash(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      False{}
+    case SCon{+c, rest}:
+      Bool.or(Char.is_eq(c, '/'), has_slash(rest))
+
+# The filename half of a stem, after its last `/`: a rename in place keeps
+# the directory.
+def leaf(s: String) -> String:
+  match s:
+    case SNil{}:
+      SNil{}
+    case SCon{+c, +rest}:
+      Bool.pick(String, has_slash(rest), leaf(rest), Bool.pick(String, Char.is_eq(c, '/'), rest, SCon{c, rest}))
+
+# A path with the name after its last `/` given another: the file it
+# names, renamed where it sits.
+def beside(p: String, +name: String) -> String:
+  match p:
+    case SNil{}:
+      name
+    case SCon{+c, +rest}:
+      Bool.pick(String, has_slash(SCon{c, rest}), SCon{c, beside(rest, name)}, name)
 
 # Content
 # -------
@@ -407,7 +429,7 @@ def rev.target(refile: Bool, +path: String, +stem: String) -> String:
     case True{}:
       "revisions/" ++ stem ++ ".rev.txt"
     case False{}:
-      String.append(Naming.head(path), leaf(stem) ++ ".rev.txt")
+      beside(path, leaf(stem) ++ ".rev.txt")
 
 def rev.placed(+refile: Bool, +taken: Set(), +path: String, stem: Maybe<&2, String>) -> Result<&2, &2, Main.Refused, Placing>:
   match stem:
@@ -497,21 +519,6 @@ def renames_safe(ps: List<&2, Placing>, +held: Set()) -> Bool:
     case +p <> rest:
       Bool.and(rename_safe(held, p), renames_safe(rest, held))
 
-# A rename that keeps a revision in the directory it sits in.
-def in_place(p: Placing) -> Bool:
-  match p:
-    case Placing.Rename{+from, +to}:
-      String.starts_with(to, Naming.head(from))
-    case _:
-      True{}
-
-def all_in_place(ps: List<&2, Placing>) -> Bool:
-  match ps:
-    case Nil{}:
-      True{}
-    case +p <> rest:
-      Bool.and(in_place(p), all_in_place(rest))
-
 def plan_safe(+held: Set(), a: Arrangement) -> Bool:
   match a:
     case Arrangement{+revs, +ops}:
@@ -566,21 +573,10 @@ def done.unnamed(ps: List<&2, Placing>) -> Nat:
 def planned(+ps: List<&2, Placing>) -> Came:
   Came{done.renamed(ps), done.already(ps), done.occupied(ps), done.unnamed(ps)}
 
-# How many files one directory's report counts: renamed, already arranged,
-# left, and named by no revision.
-def tally(c: Came) -> Nat:
-  match c:
-    case Came{rs, a, os, u}:
-      Nat.add(List.length(&2, T.Split, rs), Nat.add(a, Nat.add(List.length(&2, T.Split, os), u)))
-
 def arrangement.ops(a: Arrangement) -> List<&2, Placing>:
   match a:
     case Arrangement{revs, ops}:
       ops
-
-# Whether a plan's report counts each file of each directory once.
-def accounted(+a: Arrangement, +revs: List<&2, T.Split>, +ops: List<&2, T.Split>) -> Bool:
-  Bool.and(Nat.is_eq(tally(planned(arrangement.revs(a))), List.length(&2, T.Split, revs)), Nat.is_eq(tally(planned(arrangement.ops(a))), List.length(&2, T.Split, ops)))
 
 # What a rename the host was asked for came to: `moved` is a rename done,
 # and a new name already there — `both`, or `there` where the old is gone
@@ -608,40 +604,62 @@ def parent_of(+p: String) -> String:
 
 # One rename, carried out: moved, then the directories it emptied tidied up
 # to the store's own; or left where the name has filled since the plan.
-def act.one(+root: String, +dir: String, +from: String, +to: String, m: Moved) -> IO(Maybe<&2, Bool>):
+def act.one(+root: String, +dir: String, +from: String, +to: String, m: Moved) -> IO(Bool):
   match m:
     case Moved.Renamed{}:
-      do IO<Maybe<&2, Bool>>:
+      do IO<Bool>:
         t : Result<&1, &1, U32 & String, String> <- Store.tidied(root ++ "/" ++ dir ++ "\n" ++ root ++ "/" ++ parent_of(from))
-        return Some{True{}}
+        return True{}
     case Moved.Left{}:
-      IO.pure(Maybe<&2, Bool>, Some{False{}})
+      IO.pure(Bool, False{})
     case Moved.Failed{msg}:
-      Main.die(Maybe<&2, Bool>, 1, msg)
+      Main.die(Bool, 1, msg)
 
-def act.push(did: Maybe<&2, Bool>, +from: String, +to: String, d: Came) -> Came:
+# One rename's outcome, added to what its directory came to: a rename
+# done, or a file left.
+def act.push(did: Bool, +from: String, +to: String, d: Came) -> Came:
   match did d:
-    case Some{True{}} Came{rs, a, os, u}:
+    case True{} Came{rs, a, os, u}:
       Came{List.append(&2, T.Split, rs, [T.Split{from, to}]), a, os, u}
-    case Some{False{}} Came{rs, a, os, u}:
+    case False{} Came{rs, a, os, u}:
       Came{rs, a, List.append(&2, T.Split, os, [T.Split{from, to}]), u}
-    case None{} d2:
-      d2
 
-def acted(rs: List<&2, T.Split>, +root: String, +dir: String, d: Came) -> IO(Came):
+# What each rename came to, in order: done, or left.
+def acted(rs: List<&2, T.Split>, +root: String, +dir: String) -> IO(List<&2, Bool>):
   match rs:
     case Nil{}:
-      IO.pure(Came, d)
+      IO.pure(List<&2, Bool>, Nil{})
     case T.Split{+from, +to} <> rest:
-      do IO<Came>:
+      do IO<List<&2, Bool>>:
         m : Result<&1, &1, U32 & String, String> <- Store.moved(root ++ "\n" ++ from ++ "\n" ++ to)
-        did : Maybe<&2, Bool> <- act.one(root, dir, from, to, moved.of(m))
-        acted(rest, root, dir, act.push(did, from, to, d))
+        did : Bool <- act.one(root, dir, from, to, moved.of(m))
+        more : List<&2, Bool> <- acted(rest, root, dir)
+        return did <> more
+
+# The renames, each with what it came to, added in order to what the
+# directory came to.
+def came(rs: List<&2, T.Split>, outs: List<&2, Bool>, d: Came) -> Came:
+  match rs outs:
+    case T.Split{+from, +to} <> rest o <> more:
+      came(rest, more, act.push(o, from, to, d))
+    case _ _:
+      d
+
+# What a directory came to before any rename is carried out: the files
+# already named, those the plan left, and those no revision names.
+def act.start(+ps: List<&2, Placing>) -> Came:
+  Came{Nil{}, done.already(ps), done.occupied(ps), done.unnamed(ps)}
+
+# What a directory came to, given what each of its renames came to.
+def act.came(+ps: List<&2, Placing>, outs: List<&2, Bool>) -> Came:
+  came(done.renamed(ps), outs, act.start(ps))
 
 # The plan carried out, each rename in order: what it came to, the renames
 # done, and the files found taken after those the plan left.
 def act(+ps: List<&2, Placing>, +root: String, +dir: String) -> IO(Came):
-  acted(done.renamed(ps), root, dir, Came{Nil{}, done.already(ps), done.occupied(ps), done.unnamed(ps)})
+  do IO<Came>:
+    outs : List<&2, Bool> <- acted(done.renamed(ps), root, dir)
+    return act.came(ps, outs)
 
 # The report
 # ----------
