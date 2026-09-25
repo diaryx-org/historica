@@ -920,3 +920,12 @@ def Laws.merge_joins_every_head(fs, bs, ss, xs, e):
 
 def Laws.merge_spares_the_unrecorded(t, cs, located, p):
   MergingL.spares(t, cs, located, p)
+
+def Laws.standins_beside_only_forget(ds, ops):
+  ForgetL.only_forget(ds, ops)
+
+def Laws.standins_beside_forget_all_they_say(f, r, stated, rest, held, e):
+  ForgetL.forgets_all(f, r, stated, rest, held, e)
+
+def Laws.standins_fold_in_any_order(a, b, rest, held):
+  ForgetL.folded_swap(a, b, rest, held)
