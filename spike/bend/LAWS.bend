@@ -2491,6 +2491,24 @@ law check_follows_the_bookmarks_name_writes:
   for +h: {Bm.target_ok(t) == True{} : Bool}
   {Check.name.text(docs, path, n, Done{Bm.write(Bm.Stated{t, p})}) == Bool.pick(List<&2, Check.Finding>, FindL.here(docs, t), Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) : List<&2, Check.Finding>}
 
+# `check` reads each line of a directory's listing as the host writes it,
+# whatever it found before and whatever follows: a directory is the one
+# to walk next, a file is found by its name, spaces and all, a link is
+# found and the line of its target passed over whatever it says — never
+# followed — a link whose target cannot be spelled is found all the same,
+# and a name that is not UTF-8, or anything else, is passed over; each
+# under the directory listed.
+law check_reads_each_line_of_a_listing:
+  for +ds: List<&2, String>
+  for +fs: List<&2, String>
+  for +ls: List<&2, String>
+  for t: Bool
+  for +dir: String
+  for e: FindL.Listed
+  for +rest: String
+  for +h: {FindL.spelt(e) == True{} : Bool}
+  {Check.walk.step(Check.Seen{ds, fs, ls, t}, dir, Done{FindL.line(e) ++ "\n" ++ rest}) == Check.seen.go(String.split(rest, '\n'), dir, FindL.found(e, dir, fs, ls)) : Check.Seen}
+
 # `check` fails exactly where it found an error, `check --complete` also
 # where it found a head it cannot produce, and a note alone fails neither.
 law check_fails_on_an_error:

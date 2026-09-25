@@ -257,6 +257,11 @@ def seen.pending(s: Seen) -> List<&2, String>:
     case Seen{ds, fs, ls, t}:
       ds
 
+# One directory's listing read, as the host lists it, onto what was found
+# before (`LAWS.check_reads_each_line_of_a_listing`).
+def walk.step(s: Seen, +dir: String, r: Result<&1, &1, U32 & String, String>) -> Seen:
+  seen.go(String.split(listed(r), '\n'), dir, seen.fresh(s))
+
 def walk.go(fuel: Nat, +root: String, pending: List<&2, String>, s: Seen) -> IO(Seen):
   match fuel pending:
     case 0n _:
@@ -266,7 +271,7 @@ def walk.go(fuel: Nat, +root: String, pending: List<&2, String>, s: Seen) -> IO(
     case 1n+q +dir <> rest:
       do IO<Seen>:
         r : Result<&1, &1, U32 & String, String> <- Store.listing_of(Identity.joined(root, dir))
-        +got : Seen = seen.go(String.split(listed(r), '\n'), dir, seen.fresh(s))
+        +got : Seen = walk.step(s, dir, r)
         walk.go(q, root, List.append(&2, String, seen.pending(got), rest), got)
 
 def by_path(+ps: List<&2, String>) -> List<&2, String>:
