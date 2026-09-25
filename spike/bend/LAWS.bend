@@ -1036,9 +1036,9 @@ law diff_folder_reads_what_is_unsettled:
 
 # `diff` gives a file of bytes the size the host stated for its payload, and
 # nothing else. Sizing what it compares changes no side but one whose size
-# was unknown, which keeps its digest and has a size only where the host
-# answered a line for that very digest — not where the line it answered
-# names another, as it does for a payload it could not find.
+# was unknown, which keeps its digest and has a size only where the host's
+# line for the bytes it found names that very digest — not where those
+# bytes hash to another.
 law diff_sizes_what_the_host_stated:
   for +found: List<&2, T.Split>
   for +stats: List<&2, String>
@@ -1110,8 +1110,8 @@ law chain_follows_first_parents:
 # Every revision a command reads is one a document of `revisions/` spells:
 # filed there under the digest the revision is known by, and what
 # `Rev.write` writes, byte for byte, from what the revision says. Reading a
-# store's revisions keeps the documents the parser accepts, and nothing of
-# one is lost or added in the reading.
+# store's revisions takes nothing that is not such a document, and nothing
+# of one is lost or added in the reading.
 law revisions_read_are_their_documents:
   for +root: String
   for +ds: List<&2, Store.Doc>
