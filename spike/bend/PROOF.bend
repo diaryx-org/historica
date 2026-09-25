@@ -77,6 +77,7 @@ import ./opening_lemmas.bend as OpeningL
 import ./identity_lemmas.bend as IdentityL
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
+import ./prune.bend as Prune
 import ./receive_lemmas.bend as ReceiveL
 import ./offer_lemmas.bend as OfferL
 import ./export_lemmas.bend as ExportL
@@ -996,8 +997,14 @@ def Laws.prune_reads_its_words(ws):
 def Laws.prune_keeps_what_work_stands_on(fs, id, hf, hk):
   PruneL.stands(fs, id, hf, hk)
 
-def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps):
-  PruneL.content(fs, revs, bs, ps)
+def Laws.prune_lets_go_only_what_is_superseded(fs, id, hf, hk):
+  PruneL.superseded_gone(fs, id, hf, hk)
+
+def Laws.prune_dry_run_names_what_prune_removes(s):
+  PruneL.dry_run(Prune.stored.plan(s))
+
+def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps, d, h):
+  PruneL.removes(fs, revs, bs, ps, d, h)
 
 def Laws.receive_takes_only_what_is_missing(here, there):
   ReceiveL.fresh(here, there)
