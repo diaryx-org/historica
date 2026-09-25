@@ -2182,6 +2182,13 @@ def check_mutations(temporary):
             "rewrite_lemmas.made_kept",
             "commands.bend",
         ),
+        (
+            "abandon takes in a merge standing on the run",
+            "Bool.and(Nat.is_eq(List.length(&2, String, ps), 1n), Rev.member(ps, p))",
+            "Rev.member(ps, p)",
+            "rewrite_lemmas.joins_ok",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

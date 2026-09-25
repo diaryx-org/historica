@@ -128,3 +128,137 @@ def plan1(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying,
 # Every revision a carry plans keeps what it restates.
 def plan_kept(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +c: Main.Carrying, -steps: List<&2, Main.Step>, e: {Main.carry.plan(fs, ds, c) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}) -> {Main.steps.kept(fs, steps) == True{} : Bool}:
   plan1(fs, ds, c, Nat.add(List.length(&2, Main.Full, fs), 1n), Main.carrying.move(fs, c), steps, e)
+
+# Abandoning takes a line
+# -----------------------
+
+def pick_true(-A: Data, b: Bool, -x: A, -y: Main.Refused, -z: A, h: {Bool.pick(Result<&2, &2, Main.Refused, A>, b, Done{x}, Fail{y}) == Done{z} : Result<&2, &2, Main.Refused, A>}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, B.fail_done(A, y, z, h))
+
+def pick_false(-A: Data, b: Bool, -x: Main.Refused, -y: A, -z: A, h: {Bool.pick(Result<&2, &2, Main.Refused, A>, b, Fail{x}, Done{y}) == Done{z} : Result<&2, &2, Main.Refused, A>}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, B.fail_done(A, x, z, h))
+
+def already_ok(+fs: List<&2, Main.Full>, +id: String, -u: Unit, h: {Main.already.r(fs, id) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.unrewritten(fs, id) == True{} : Bool}:
+  pick_true(Unit, List.is_empty(&2, String, Main.successors(fs, id)), Unit{}, Main.Refused{1, Main.ab12(id) ++ " has already been rewritten, and superseding it again would leave one change with two current revisions; amend what replaced it:" ++ Main.listed12(Main.successors(fs, id))}, u, h)
+
+def or_false(a: Bool, h: {Bool.or(a, False{}) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def one_of(ps: List<&2, String>, +p: String, h: {Bool.and(Nat.is_eq(List.length(&2, String, ps), 1n), Rev.member(ps, p)) == True{} : Bool}) -> {Main.only.one(ps, p) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      Empty.absurd({Main.only.one(Nil{}, p) == True{} : Bool}, S.false_true(h))
+    case +x <> Nil{}:
+      or_false(String.eq(x, p), h)
+    case x <> y <> rest:
+      Empty.absurd({Main.only.one(x <> y <> rest, p) == True{} : Bool}, S.false_true(h))
+
+def joins_ok(+n: String, +ps: List<&2, String>, +p: String, -u: Unit, h: {Main.joins.r(n, ps, Some{p}) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.only.one(ps, p) == True{} : Bool}:
+  one_of(ps, p, pick_true(Unit, Bool.and(Nat.is_eq(List.length(&2, String, ps), 1n), Rev.member(ps, p)), Unit{}, Main.Refused{1, Main.joins.msg(n)}, u, h))
+
+def after_cons(+fs: List<&2, Main.Full>, +prev: String, +n: String, +more: List<&2, String>, -tail: List<&2, String>, e: {Done{n <> more} == Done{tail} : Result<&2, &2, Main.Refused, List<&2, String>>}, hu: {Main.unrewritten(fs, n) == True{} : Bool}, hj: {Main.only.one(Main.full.parents(Main.find(fs, n)), prev) == True{} : Bool}, hm: {Main.abandon.after(more, fs, n) == True{} : Bool}) -> {Main.abandon.after(tail, fs, prev) == True{} : Bool}:
+  %B.done_eq(List<&2, String>, n <> more, tail, e) : {Main.abandon.after(_, fs, prev) == True{} : Bool}
+  B.and_tt(Main.unrewritten(fs, n), Bool.and(Main.only.one(Main.full.parents(Main.find(fs, n)), prev), Main.abandon.after(more, fs, n)), hu,
+    B.and_tt(Main.only.one(Main.full.parents(Main.find(fs, n)), prev), Main.abandon.after(more, fs, n), hj, hm))
+
+def run3(+fs: List<&2, Main.Full>, +prev: String, +n: String, r: Result<&2, &2, Main.Refused, List<&2, String>>, -tail: List<&2, String>, e: {Result.bind(&2, &2, Main.Refused, List<&2, String>, List<&2, String>, r, more => Done{n <> more}) == Done{tail} : Result<&2, &2, Main.Refused, List<&2, String>>}, hu: {Main.unrewritten(fs, n) == True{} : Bool}, hj: {Main.only.one(Main.full.parents(Main.find(fs, n)), prev) == True{} : Bool}, ih: @more: List<&2, String> -> {r == Done{more} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Main.abandon.after(more, fs, n) == True{} : Bool}) -> {Main.abandon.after(tail, fs, prev) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.abandon.after(tail, fs, prev) == True{} : Bool}, B.fail_done(List<&2, String>, x, tail, e))
+    case Done{+more}:
+      after_cons(fs, prev, n, more, tail, e, hu, hj, ih(more, {==}))
+
+def run2(+k: Nat, +fs: List<&2, Main.Full>, +prev: String, +n: String, r: Result<&2, &2, Main.Refused, Unit>, -tail: List<&2, String>, er: {Main.joins.r(n, Main.full.parents(Main.find(fs, n)), Some{prev}) == r : Result<&2, &2, Main.Refused, Unit>}, e: {Result.bind(&2, &2, Main.Refused, Unit, List<&2, String>, r, j => Result.bind(&2, &2, Main.Refused, List<&2, String>, List<&2, String>, Main.run.go(k, fs, n, Main.standing_on(fs, n)), more => Done{n <> more})) == Done{tail} : Result<&2, &2, Main.Refused, List<&2, String>>}, hu: {Main.unrewritten(fs, n) == True{} : Bool}, ih: @more: List<&2, String> -> {Main.run.go(k, fs, n, Main.standing_on(fs, n)) == Done{more} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Main.abandon.after(more, fs, n) == True{} : Bool}) -> {Main.abandon.after(tail, fs, prev) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.abandon.after(tail, fs, prev) == True{} : Bool}, B.fail_done(List<&2, String>, x, tail, e))
+    case Done{u}:
+      run3(fs, prev, n, Main.run.go(k, fs, n, Main.standing_on(fs, n)), tail, e, hu, joins_ok(n, Main.full.parents(Main.find(fs, n)), prev, u, er), ih)
+
+def run1(+k: Nat, +fs: List<&2, Main.Full>, +prev: String, +n: String, r: Result<&2, &2, Main.Refused, Unit>, -tail: List<&2, String>, er: {Main.already.r(fs, n) == r : Result<&2, &2, Main.Refused, Unit>}, e: {Result.bind(&2, &2, Main.Refused, Unit, List<&2, String>, r, a => Result.bind(&2, &2, Main.Refused, Unit, List<&2, String>, Main.joins.r(n, Main.full.parents(Main.find(fs, n)), Some{prev}), j => Result.bind(&2, &2, Main.Refused, List<&2, String>, List<&2, String>, Main.run.go(k, fs, n, Main.standing_on(fs, n)), more => Done{n <> more}))) == Done{tail} : Result<&2, &2, Main.Refused, List<&2, String>>}, ih: @more: List<&2, String> -> {Main.run.go(k, fs, n, Main.standing_on(fs, n)) == Done{more} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Main.abandon.after(more, fs, n) == True{} : Bool}) -> {Main.abandon.after(tail, fs, prev) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.abandon.after(tail, fs, prev) == True{} : Bool}, B.fail_done(List<&2, String>, x, tail, e))
+    case Done{u}:
+      run2(k, fs, prev, n, Main.joins.r(n, Main.full.parents(Main.find(fs, n)), Some{prev}), tail, {==}, e, already_ok(fs, n, u, er), ih)
+
+# The rest of a run is a line nothing has rewritten, each revision standing
+# on the one before it alone.
+def run_after(+fuel: Nat, +fs: List<&2, Main.Full>, +prev: String, standing: List<&2, String>, -tail: List<&2, String>, e: {Main.run.go(fuel, fs, prev, standing) == Done{tail} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.abandon.after(tail, fs, prev) == True{} : Bool}:
+  match fuel standing:
+    case 0n Nil{}:
+      %B.done_eq(List<&2, String>, Nil{}, tail, e) : {Main.abandon.after(_, fs, prev) == True{} : Bool}
+      {==}
+    case 0n n <> Nil{}:
+      %B.done_eq(List<&2, String>, Nil{}, tail, e) : {Main.abandon.after(_, fs, prev) == True{} : Bool}
+      {==}
+    case 0n n <> m <> rest:
+      %B.done_eq(List<&2, String>, Nil{}, tail, e) : {Main.abandon.after(_, fs, prev) == True{} : Bool}
+      {==}
+    case 1n+k Nil{}:
+      %B.done_eq(List<&2, String>, Nil{}, tail, e) : {Main.abandon.after(_, fs, prev) == True{} : Bool}
+      {==}
+    case 1n+k +n <> Nil{}:
+      run1(k, fs, prev, n, Main.already.r(fs, n), tail, {==}, e, more => h => run_after(k, fs, n, Main.standing_on(fs, n), more, h))
+    case 1n+k +n <> +m <> +rest:
+      Empty.absurd({Main.abandon.after(tail, fs, prev) == True{} : Bool}, B.fail_done(List<&2, String>, Main.Refused{1, Nat.show(List.length(&2, String, n <> m <> rest)) ++ " lines of work stand on " ++ Main.ab12(prev) ++ ", and abandoning it would abandon all of them; name the one you mean, or abandon each in turn:" ++ Main.listed12(n <> m <> rest)}, tail, e))
+
+def pick_done_r(-A: Data, b: Bool, -x: Main.Refused, -y: A, -z: A, h: {Bool.pick(Result<&2, &2, Main.Refused, A>, b, Fail{x}, Done{y}) == Done{z} : Result<&2, &2, Main.Refused, A>}) -> {y == z : A}:
+  match b:
+    case True{}:
+      Empty.absurd({y == z : A}, B.fail_done(A, x, z, h))
+    case False{}:
+      B.done_eq(A, y, z, h)
+
+def not_false(b: Bool, h: {b == False{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
+  %Equal.sym(Bool, b, False{}, h) : {Bool.not(_) == True{} : Bool}
+  {==}
+
+def only_line(+fs: List<&2, Main.Full>, +id: String, -run: List<&2, String>, hu: {Main.unrewritten(fs, id) == True{} : Bool}, +e: {Bool.pick(Result<&2, &2, Main.Refused, List<&2, String>>, Nat.is_lt(1n, List.length(&2, String, Main.full.parents(Main.find(fs, id)))), Fail{Main.Refused{1, Main.joins.msg(id)}}, Done{[id]}) == Done{run} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.abandon.line(fs, id, True{}, run) == True{} : Bool}:
+  +b = Nat.is_lt(1n, List.length(&2, String, Main.full.parents(Main.find(fs, id))))
+  %pick_done_r(List<&2, String>, b, Main.Refused{1, Main.joins.msg(id)}, [id], run, e) : {Main.abandon.line(fs, id, True{}, _) == True{} : Bool}
+  B.and_tt(String.eq(id, id), Bool.and(Main.unrewritten(fs, id), Bool.not(b)), S.eq_refl(id),
+    B.and_tt(Main.unrewritten(fs, id), Bool.not(b), hu, not_false(b, pick_false(List<&2, String>, b, Main.Refused{1, Main.joins.msg(id)}, [id], run, e))))
+
+def only1(+fs: List<&2, Main.Full>, +id: String, r: Result<&2, &2, Main.Refused, Unit>, -run: List<&2, String>, er: {Main.already.r(fs, id) == r : Result<&2, &2, Main.Refused, Unit>}, e: {Result.bind(&2, &2, Main.Refused, Unit, List<&2, String>, r, a => Bool.pick(Result<&2, &2, Main.Refused, List<&2, String>>, Nat.is_lt(1n, List.length(&2, String, Main.full.parents(Main.find(fs, id)))), Fail{Main.Refused{1, Main.joins.msg(id)}}, Done{[id]})) == Done{run} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.abandon.line(fs, id, True{}, run) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.abandon.line(fs, id, True{}, run) == True{} : Bool}, B.fail_done(List<&2, String>, x, run, e))
+    case Done{u}:
+      only_line(fs, id, run, already_ok(fs, id, u, er), e)
+
+def whole2(+fs: List<&2, Main.Full>, +id: String, r: Result<&2, &2, Main.Refused, List<&2, String>>, -run: List<&2, String>, er: {Main.run.go(Nat.add(List.length(&2, Main.Full, fs), 1n), fs, id, Main.standing_on(fs, id)) == r : Result<&2, &2, Main.Refused, List<&2, String>>}, e: {Result.bind(&2, &2, Main.Refused, List<&2, String>, List<&2, String>, r, more => Done{id <> more}) == Done{run} : Result<&2, &2, Main.Refused, List<&2, String>>}, hu: {Main.unrewritten(fs, id) == True{} : Bool}) -> {Main.abandon.line(fs, id, False{}, run) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.abandon.line(fs, id, False{}, run) == True{} : Bool}, B.fail_done(List<&2, String>, x, run, e))
+    case Done{+more}:
+      %B.done_eq(List<&2, String>, id <> more, run, e) : {Main.abandon.line(fs, id, False{}, _) == True{} : Bool}
+      B.and_tt(String.eq(id, id), Bool.and(Main.unrewritten(fs, id), Main.abandon.after(more, fs, id)), S.eq_refl(id),
+        B.and_tt(Main.unrewritten(fs, id), Main.abandon.after(more, fs, id), hu, run_after(Nat.add(List.length(&2, Main.Full, fs), 1n), fs, id, Main.standing_on(fs, id), more, er)))
+
+def whole1(+fs: List<&2, Main.Full>, +id: String, r: Result<&2, &2, Main.Refused, Unit>, -run: List<&2, String>, er: {Main.already.r(fs, id) == r : Result<&2, &2, Main.Refused, Unit>}, e: {Result.bind(&2, &2, Main.Refused, Unit, List<&2, String>, r, a => Result.bind(&2, &2, Main.Refused, List<&2, String>, List<&2, String>, Main.run.go(Nat.add(List.length(&2, Main.Full, fs), 1n), fs, id, Main.standing_on(fs, id)), more => Done{id <> more})) == Done{run} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.abandon.line(fs, id, False{}, run) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.abandon.line(fs, id, False{}, run) == True{} : Bool}, B.fail_done(List<&2, String>, x, run, e))
+    case Done{u}:
+      whole2(fs, id, Main.run.go(Nat.add(List.length(&2, Main.Full, fs), 1n), fs, id, Main.standing_on(fs, id)), run, {==}, e, already_ok(fs, id, u, er))
+
+# What `abandon` plans to abandon is a line nothing has rewritten.
+def plan_line(+fs: List<&2, Main.Full>, +id: String, only: Bool, -run: List<&2, String>, e: {Main.abandon.plan.r(fs, id, only) == Done{run} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.abandon.line(fs, id, only, run) == True{} : Bool}:
+  match only:
+    case True{}:
+      only1(fs, id, Main.already.r(fs, id), run, {==}, e)
+    case False{}:
+      whole1(fs, id, Main.already.r(fs, id), run, {==}, e)

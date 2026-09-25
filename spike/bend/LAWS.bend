@@ -1334,3 +1334,16 @@ law carry_keeps_what_it_restates:
   for steps: List<&2, Main.Step>
   for e: {Main.carry.plan(fs, ds, c) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}
   {Main.steps.kept(fs, steps) == True{} : Bool}
+
+# What `abandon` abandons is a line of work nothing has rewritten yet. It
+# begins at the revision named, and each revision after that stands on the
+# one before it and on nothing else, so the tombstone standing where the
+# first stood takes no other line's work out of the history; and with
+# `--only` it is the revision named alone, which joins no other line.
+law abandon_takes_a_line:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for only: Bool
+  for run: List<&2, String>
+  for e: {Main.abandon.plan.r(fs, id, only) == Done{run} : Result<&2, &2, Main.Refused, List<&2, String>>}
+  {Main.abandon.line(fs, id, only, run) == True{} : Bool}

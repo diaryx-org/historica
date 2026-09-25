@@ -9439,18 +9439,19 @@ def joins.r(+id: String, +ps: List<&2, String>, prev: Maybe<&2, String>) -> Resu
 
 # Decision 0013's run: the named revision and everything standing on it,
 # which has to be a line. `standing` is what stands on `prev`, the last of
-# the run so far.
-def run.go(fuel: Nat, +fs: List<&2, Full>, +prev: String, +run: List<&2, String>, standing: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
+# the run so far, and what is found is the rest of the run.
+def run.go(fuel: Nat, +fs: List<&2, Full>, +prev: String, standing: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
   match fuel standing:
     case 0n _:
-      Done{run}
+      Done{Nil{}}
     case _ Nil{}:
-      Done{run}
+      Done{Nil{}}
     case 1n+k +n <> Nil{}:
       do Result<&2, &2, Refused, List<&2, String>>:
         a : Unit <- already.r(fs, n)
         j : Unit <- joins.r(n, full.parents(find(fs, n)), Some{prev})
-        run.go(k, fs, n, List.append(&2, String, run, [n]), standing_on(fs, n))
+        more : List<&2, String> <- run.go(k, fs, n, standing_on(fs, n))
+        return n <> more
     case _ +several:
       Fail{Refused{1, Nat.show(List.length(&2, String, several)) ++ " lines of work stand on " ++ ab12(prev) ++ ", and abandoning it would abandon all of them; name the one you mean, or abandon each in turn:" ++ listed12(several)}}
 
@@ -9463,7 +9464,31 @@ def abandon.plan.r(+fs: List<&2, Full>, +id: String, only: Bool) -> Result<&2, &
     case False{}:
       do Result<&2, &2, Refused, List<&2, String>>:
         a : Unit <- already.r(fs, id)
-        run.go(Nat.add(List.length(&2, Full, fs), 1n), fs, id, [id], standing_on(fs, id))
+        more : List<&2, String> <- run.go(Nat.add(List.length(&2, Full, fs), 1n), fs, id, standing_on(fs, id))
+        return id <> more
+
+# What `abandon` abandons is a line of work nothing has rewritten: it
+# begins at the revision named, and each revision after that stands on the
+# one before it and on nothing else; and with `--only` it is the revision
+# named alone, which joins no other line. `LAWS.abandon_takes_a_line`.
+def unrewritten(+fs: List<&2, Full>, +id: String) -> Bool:
+  List.is_empty(&2, String, successors(fs, id))
+
+def abandon.after(run: List<&2, String>, +fs: List<&2, Full>, +prev: String) -> Bool:
+  match run:
+    case Nil{}:
+      True{}
+    case +r <> rest:
+      Bool.and(unrewritten(fs, r), Bool.and(only.one(full.parents(find(fs, r)), prev), abandon.after(rest, fs, r)))
+
+def abandon.line(+fs: List<&2, Full>, +id: String, only: Bool, run: List<&2, String>) -> Bool:
+  match run:
+    case Nil{}:
+      False{}
+    case +r <> +rest:
+      Bool.and(String.eq(r, id), Bool.and(unrewritten(fs, r), Bool.pick(Bool, only,
+        Bool.and(List.is_empty(&2, String, rest), Bool.not(Nat.is_lt(1n, List.length(&2, String, full.parents(find(fs, r)))))),
+        abandon.after(rest, fs, r))))
 
 def said.each(+prefix: String, xs: List<&2, String>) -> IO(Unit):
   match xs:
