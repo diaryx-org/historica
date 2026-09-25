@@ -1116,6 +1116,15 @@ def Laws.fetch_refuses_what_shares_no_revision(h, os, hr, ht, hn):
 def Laws.fetch_destroys_only_what_is_forgotten(s, os, d, h):
   FPlanL.destroyed(s, os, d, h)
 
+def Laws.fetch_asks_for_no_payload_held_or_forgotten(s, os, d, m):
+  FPlanL.payload_lacks(s, os, d, m)
+
+def Laws.fetch_asks_for_no_document_held_or_forgotten(s, os, d, m):
+  FPlanL.document_lacks(s, os, d, m)
+
+def Laws.fetch_asks_for_no_revision_it_holds(s, os, d, m):
+  FPlanL.revision_lacks(s, os, d, m)
+
 def Laws.fetch_says_what_it_took(rs, ds, ps, rus, res, ns, k, dec, des, re):
   FPlanL.says_what_it_took(rs, ds, ps, rus, res, ns, k, dec, des, re)
 

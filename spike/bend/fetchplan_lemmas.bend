@@ -3,8 +3,9 @@
 # join asked, a revision on each side, and no revision the copy lists that
 # this store holds or that a revision here names as a parent or as what it
 # supersedes. It destroys only what a forgetting document of this store,
-# or a line of the manifest, says is forgotten. And asked for `--fields`,
-# it names each revision it took, once, in digest order.
+# or a line of the manifest, says is forgotten, and asks for nothing this
+# store holds or either side forgets. And asked for `--fields`, it names
+# each revision it took, once, in digest order.
 import Base
 import ./text.bend as T
 import ./revision.bend as Rev
@@ -284,6 +285,111 @@ def destroyed(+s: Receive.Side, +os: List<&2, Offer.Offered>, +d: String, h: {Re
   %listed_member(os, d) : {Bool.or(Rev.member(Receive.body.forgets(Receive.stored.bodies(Receive.stored.of(s))), d), _) == True{} : Bool}
   %ReceiveL.member_app(Receive.body.forgets(Receive.stored.bodies(Receive.stored.of(s))), Fetch.entry.forgets(os), d) : {_ == True{} : Bool}
   ForgetL.held_member(forgotten.of(s, os), Fetch.plan.destroys(Fetch.plan.of(Fetch.here.of(s), os)), d, destroys_held(s, os), h)
+
+# What it asks for
+# ----------------
+
+# The digests of the files a list names.
+def digests(os: List<&2, Offer.Offered>) -> List<&2, String>:
+  T.map(~Offer.Offered, ~String, ~(o => Fetch.entry.digest(o)), os)
+
+# The digests of this store's payloads, and of its documents, as the store
+# reads them.
+def pays.of(+s: Receive.Side) -> List<&2, String>:
+  Receive.payload.ids(Receive.stored.payloads(Receive.stored.of(s)))
+
+def docs.of(+s: Receive.Side) -> List<&2, String>:
+  Receive.body.ids(Receive.stored.bodies(Receive.stored.of(s)))
+
+# Whether no file of `xs` has its digest among `held` or `forgotten`.
+def good(xs: List<&2, Offer.Offered>, +held: List<&2, String>, +forgotten: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +o <> rest:
+      Bool.and(Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))), good(rest, held, forgotten))
+
+def keep_good(b: Bool, +o: Offer.Offered, -r: List<&2, Offer.Offered>, +held: List<&2, String>, +forgotten: List<&2, String>, eb: {Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))) == b : Bool}, hr: {good(r, held, forgotten) == True{} : Bool}) -> {good(Tree.keep(~Offer.Offered, b, o, r), held, forgotten) == True{} : Bool}:
+  match b:
+    case True{}:
+      AL.and_intro(Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))), good(r, held, forgotten), eb, hr)
+    case False{}:
+      hr
+
+def fresh_good(xs: List<&2, Offer.Offered>, +held: List<&2, String>, +forgotten: List<&2, String>) -> {good(Fetch.fresh(xs, held, forgotten), held, forgotten) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +o <> rest:
+      keep_good(Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))), o, Fetch.fresh(rest, held, forgotten), held, forgotten, {==}, fresh_good(rest, held, forgotten))
+
+def once_keep(b: Bool, +o: Offer.Offered, -r: List<&2, Offer.Offered>, +held: List<&2, String>, +forgotten: List<&2, String>, hc: {Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))) == True{} : Bool}, hr: {good(r, held, forgotten) == True{} : Bool}) -> {good(Tree.keep(~Offer.Offered, b, o, r), held, forgotten) == True{} : Bool}:
+  match b:
+    case True{}:
+      AL.and_intro(Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))), good(r, held, forgotten), hc, hr)
+    case False{}:
+      hr
+
+def once_good(xs: List<&2, Offer.Offered>, +seen: List<&2, String>, +held: List<&2, String>, +forgotten: List<&2, String>, +h: {good(xs, held, forgotten) == True{} : Bool}) -> {good(Fetch.once(xs, seen), held, forgotten) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +o <> +rest:
+      once_keep(Bool.not(Rev.member(seen, Fetch.entry.digest(o))), o, Fetch.once(rest, Bool.pick(List<&2, String>, Rev.member(seen, Fetch.entry.digest(o)), seen, Fetch.entry.digest(o) <> seen)), held, forgotten,
+        Comp.and_left(Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))), good(rest, held, forgotten), h),
+        once_good(rest, Bool.pick(List<&2, String>, Rev.member(seen, Fetch.entry.digest(o)), seen, Fetch.entry.digest(o) <> seen), held, forgotten, Comp.and_right(Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))), good(rest, held, forgotten), h)))
+
+def good_member.at(b: Bool, +o: Offer.Offered, -rest: List<&2, Offer.Offered>, +held: List<&2, String>, +forgotten: List<&2, String>, +d: String, eb: {String.eq(Fetch.entry.digest(o), d) == b : Bool}, hc: {Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))) == True{} : Bool}, ih: {Rev.member(digests(rest), d) == True{} : Bool} -> {Bool.and(Bool.not(Rev.member(held, d)), Bool.not(Rev.member(forgotten, d))) == True{} : Bool}, m: {Bool.or(b, Rev.member(digests(rest), d)) == True{} : Bool}) -> {Bool.and(Bool.not(Rev.member(held, d)), Bool.not(Rev.member(forgotten, d))) == True{} : Bool}:
+  match b:
+    case True{}:
+      %S.eq_true(Fetch.entry.digest(o), d, eb) : {Bool.and(Bool.not(Rev.member(held, _)), Bool.not(Rev.member(forgotten, _))) == True{} : Bool}
+      hc
+    case False{}:
+      ih(m)
+
+# A digest among those of a list no file of which is held or forgotten is
+# neither held nor forgotten.
+def good_member(xs: List<&2, Offer.Offered>, +held: List<&2, String>, +forgotten: List<&2, String>, +d: String, +h: {good(xs, held, forgotten) == True{} : Bool}, m: {Rev.member(digests(xs), d) == True{} : Bool}) -> {Bool.and(Bool.not(Rev.member(held, d)), Bool.not(Rev.member(forgotten, d))) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Bool.and(Bool.not(Rev.member(held, d)), Bool.not(Rev.member(forgotten, d))) == True{} : Bool}, S.false_true(m))
+    case +o <> +rest:
+      good_member.at(String.eq(Fetch.entry.digest(o), d), o, rest, held, forgotten, d, {==}, Comp.and_left(Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))), good(rest, held, forgotten), h), t => good_member(rest, held, forgotten, d, Comp.and_right(Bool.and(Bool.not(Rev.member(held, Fetch.entry.digest(o))), Bool.not(Rev.member(forgotten, Fetch.entry.digest(o)))), good(rest, held, forgotten), h), t), m)
+
+# What the plan wants of a kind is neither held nor forgotten.
+def wanted_lacks(+os: List<&2, Offer.Offered>, +kind: String, +held: List<&2, String>, +forgotten: List<&2, String>, +d: String, m: {Rev.member(digests(Fetch.wanted(os, kind, held, forgotten)), d) == True{} : Bool}) -> {Bool.and(Bool.not(Rev.member(held, d)), Bool.not(Rev.member(forgotten, d))) == True{} : Bool}:
+  good_member(Fetch.wanted(os, kind, held, forgotten), held, forgotten, d, once_good(Fetch.fresh(Fetch.of.kind(os, kind), held, forgotten), Nil{}, held, forgotten, fresh_good(Fetch.of.kind(os, kind), held, forgotten)), m)
+
+def nor(a: Bool, b: Bool, h: {Bool.and(Bool.not(a), Bool.not(b)) == True{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({Bool.or(True{}, b) == False{} : Bool}, S.false_true(h))
+    case False{}:
+      match b:
+        case True{}:
+          Empty.absurd({Bool.or(False{}, True{}) == False{} : Bool}, S.false_true(h))
+        case False{}:
+          {==}
+
+# Held here, or forgotten by either side: said of the store and the lines.
+def content_lacks(+s: Receive.Side, +os: List<&2, Offer.Offered>, +held: List<&2, String>, +d: String, h: {Bool.and(Bool.not(Rev.member(held, d)), Bool.not(Rev.member(forgotten.of(s, os), d))) == True{} : Bool}) -> {Bool.or(Rev.member(held, d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), forgot.listed(os, d))) == False{} : Bool}:
+  %ReceiveL.forgets_member(Receive.stored.bodies(Receive.stored.of(s)), d) : {Bool.or(Rev.member(held, d), Bool.or(_, forgot.listed(os, d))) == False{} : Bool}
+  %listed_member(os, d) : {Bool.or(Rev.member(held, d), Bool.or(Rev.member(Receive.body.forgets(Receive.stored.bodies(Receive.stored.of(s))), d), _)) == False{} : Bool}
+  %ReceiveL.member_app(Receive.body.forgets(Receive.stored.bodies(Receive.stored.of(s))), Fetch.entry.forgets(os), d) : {Bool.or(Rev.member(held, d), _) == False{} : Bool}
+  nor(Rev.member(held, d), Rev.member(forgotten.of(s, os), d), h)
+
+# Every payload a fetch asks for is one this store holds no payload under
+# the digest of, and neither side forgets.
+def payload_lacks(+s: Receive.Side, +os: List<&2, Offer.Offered>, +d: String, m: {Rev.member(digests(Fetch.plan.payloads(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}) -> {Bool.or(Rev.member(pays.of(s), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), forgot.listed(os, d))) == False{} : Bool}:
+  content_lacks(s, os, pays.of(s), d, wanted_lacks(os, "payload", pays.of(s), forgotten.of(s, os), d, m))
+
+# And every document, the same.
+def document_lacks(+s: Receive.Side, +os: List<&2, Offer.Offered>, +d: String, m: {Rev.member(digests(Fetch.plan.documents(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}) -> {Bool.or(Rev.member(docs.of(s), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), forgot.listed(os, d))) == False{} : Bool}:
+  content_lacks(s, os, docs.of(s), d, wanted_lacks(os, "operation", docs.of(s), forgotten.of(s, os), d, m))
+
+# And every revision is one this store does not hold.
+def revision_lacks(+s: Receive.Side, +os: List<&2, Offer.Offered>, +d: String, m: {Rev.member(digests(Fetch.plan.revisions(Fetch.plan.of(Fetch.here.of(s), os))), d) == True{} : Bool}) -> {Rev.member(Main.ids(Receive.side.fulls(s)), d) == False{} : Bool}:
+  AL.not_of_true(Rev.member(Main.ids(Receive.side.fulls(s)), d), Comp.and_left(Bool.not(Rev.member(Main.ids(Receive.side.fulls(s)), d)), Bool.not(Rev.member(Nil{}, d)), wanted_lacks(os, "revision", Main.ids(Receive.side.fulls(s)), Nil{}, d, m)))
 
 # What it says
 # ------------

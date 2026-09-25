@@ -4218,6 +4218,13 @@ def check_mutations(temporary):
             "fetch.bend",
         ),
         (
+            "fetch ignores what a manifest's lines say they forget",
+            "      Receive.forgets.push(f, entry.forgets(rest))",
+            "      entry.forgets(rest)",
+            "fetchplan_lemmas.listed_member",
+            "fetch.bend",
+        ),
+        (
             "fetch escapes a byte in lowercase hex",
             "Chr{U32.add(n, 48)}, Chr{U32.add(n, 55)})",
             "Chr{U32.add(n, 48)}, Chr{U32.add(n, 87)})",
