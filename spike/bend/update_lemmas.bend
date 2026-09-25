@@ -22,6 +22,8 @@ import ./graph_lemmas.bend as GL
 import ./map_lemmas.bend as ML
 import ./sort_lemmas.bend as SortL
 import ./rewrite_lemmas.bend as RewriteL
+import ./fetch_lemmas.bend as FetchL
+import ./bookmark.bend as Bm
 
 # Results
 # -------
@@ -1869,3 +1871,71 @@ def settled_says(p: U.Plan, +s: String, +e: {U.settled(p) == True{} : Bool}) -> 
       %Equal.sym(List<&2, U.Decided>, U.modes(ds), Nil{}, empty_nil(U.Decided, U.modes(ds), Comp.and_left(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)), Comp.and_right(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)))) : {U.said.settled(s, U.Plan{ds, ws}) == List.concat(&2, String, [Nil{}, Nil{}, U.said.modes("mode", _), U.said.links("link", U.links(ds)), U.said.leaves(U.leaves(ws)), ["the folder already holds " ++ s]]) : List<&2, String>}
       %Equal.sym(List<&2, U.Decided>, U.links(ds), Nil{}, empty_nil(U.Decided, U.links(ds), Comp.and_right(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)), Comp.and_right(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)))) : {U.said.settled(s, U.Plan{ds, ws}) == List.concat(&2, String, [Nil{}, Nil{}, Nil{}, U.said.links("link", _), U.said.leaves(U.leaves(ws)), ["the folder already holds " ++ s]]) : List<&2, String>}
       {==}
+
+# The folder is only ever given a head
+# ------------------------------------
+
+def mem_keyed.pick(b: Bool, +x: String, +rest: List<&2, String>, +d: String, h: {Bool.or(b, Rev.member(rest, d)) == True{} : Bool}, ih: {Rev.member(rest, d) == True{} : Bool} -> {List.is_empty(&2, String, SortL.keyed(~String, ~(s => s), d, rest)) == False{} : Bool}) -> {List.is_empty(&2, String, Bool.pick(List<&2, String>, b, x <> SortL.keyed(~String, ~(s => s), d, rest), SortL.keyed(~String, ~(s => s), d, rest))) == False{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih(h)
+
+# A string a list holds is one its items under that string hold.
+def mem_keyed(ys: List<&2, String>, +d: String, h: {Rev.member(ys, d) == True{} : Bool}) -> {List.is_empty(&2, String, SortL.keyed(~String, ~(s => s), d, ys)) == False{} : Bool}:
+  match ys:
+    case Nil{}:
+      Empty.absurd({List.is_empty(&2, String, Nil{}) == False{} : Bool}, Comp.false_true(h))
+    case +y <> +rest:
+      mem_keyed.pick(String.eq(y, d), y, rest, d, h, t => mem_keyed(rest, d, t))
+
+# What a sorted list holds, the list held.
+def sort_back(+xs: List<&2, String>, +d: String, m: {Rev.member(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), d) == True{} : Bool}) -> {Rev.member(xs, d) == True{} : Bool}:
+  FetchL.keyed_mem(xs, d,
+    (%SortL.sort_keyed(~String, ~(s => s), xs, d) : {List.is_empty(&2, String, _) == False{} : Bool}
+      mem_keyed(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), d, m)))
+
+def sorted_all(ys: List<&2, String>, +xs: List<&2, String>, +h: {Main.all_held(xs, ys) == True{} : Bool}) -> {Main.all_held(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), ys) == True{} : Bool}:
+  match ys:
+    case Nil{}:
+      {==}
+    case +y <> +rest:
+      AL.and_intro(Rev.member(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), y), Main.all_held(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), rest),
+        FetchL.sort_mem(xs, y, Comp.and_left(Rev.member(xs, y), Main.all_held(xs, rest), h)),
+        sorted_all(rest, xs, Comp.and_right(Rev.member(xs, y), Main.all_held(xs, rest), h)))
+
+def head_of.pick(b: Bool, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, -u: Unit, e: {Bool.pick(Result<&2, &2, Main.Refused, Unit>, b, Done{Unit{}}, Fail{Main.Refused{1, U.spelled.id(fs, bs, id) ++ " is not a head, and the folder only ever holds one; reading the past is `show` and `cat`, and going back is `abandon`. the heads:" ++ Main.described(fs, bs, U.heads.sorted(fs))}}) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, fail_done(Main.Refused, Unit, Main.Refused{1, U.spelled.id(fs, bs, id) ++ " is not a head, and the folder only ever holds one; reading the past is `show` and `cat`, and going back is `abandon`. the heads:" ++ Main.described(fs, bs, U.heads.sorted(fs))}, u, e))
+
+# Told nothing, `update` takes the store's one head, and there is no other.
+def none_only(hs: List<&2, String>, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, -id: String, +ehs: {U.heads.sorted(fs) == hs : List<&2, String>}, e: {U.target.none(fs, bs, hs) == Done{id} : Result<&2, &2, Main.Refused, String>}) -> {Main.all_held([id], Main.current_heads(Main.history(fs))) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      Empty.absurd({Main.all_held([id], Main.current_heads(Main.history(fs))) == True{} : Bool}, fail_done(Main.Refused, String, Main.Refused{1, "nothing is recorded here yet"}, id, e))
+    case +only <> more:
+      match more:
+        case Nil{}:
+          %done_eq(Main.Refused, String, only, id, e) : {Main.all_held([_], Main.current_heads(Main.history(fs))) == True{} : Bool}
+          %ehs : {Main.all_held(_, Main.current_heads(Main.history(fs))) == True{} : Bool}
+          sorted_all(Main.current_heads(Main.history(fs)), Main.current_heads(Main.history(fs)), RewriteL.held_refl(Main.current_heads(Main.history(fs))))
+        case +x <> +rest:
+          Empty.absurd({Main.all_held([id], Main.current_heads(Main.history(fs))) == True{} : Bool}, fail_done(Main.Refused, String, Main.Refused{1, "this store has " ++ Nat.show(List.length(&2, String, only <> x <> rest)) ++ " heads, so nothing here is `the` latest; name the one the folder should hold:" ++ Main.described(fs, bs, only <> x <> rest)}, id, e))
+
+def only_when(t: Maybe<&2, String>, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, -id: String, e: {U.target.r(fs, bs, t) == Done{id} : Result<&2, &2, Main.Refused, String>}) -> {Bool.or(Maybe.is_some(&2, String, t), Main.all_held([id], Main.current_heads(Main.history(fs)))) == True{} : Bool}:
+  match t:
+    case None{}:
+      none_only(U.heads.sorted(fs), fs, bs, id, {==}, e)
+    case Some{s}:
+      {==}
+
+# Whatever `update` is told, the revision it lays out is a current head of
+# the store; told nothing, it is the store's only head.
+def only_heads(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +t: Maybe<&2, String>, +id: String, -u: Unit, e1: {U.target.r(fs, bs, t) == Done{id} : Result<&2, &2, Main.Refused, String>}, e2: {U.head.r(fs, bs, id) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Bool.and(Rev.member(Main.current_heads(Main.history(fs)), id), Bool.or(Maybe.is_some(&2, String, t), Main.all_held([id], Main.current_heads(Main.history(fs))))) == True{} : Bool}:
+  AL.and_intro(Rev.member(Main.current_heads(Main.history(fs)), id), Bool.or(Maybe.is_some(&2, String, t), Main.all_held([id], Main.current_heads(Main.history(fs)))),
+    sort_back(Main.current_heads(Main.history(fs)), id, head_of.pick(Rev.member(U.heads.sorted(fs), id), fs, bs, id, u, e2)),
+    only_when(t, fs, bs, id, e1))

@@ -4330,6 +4330,20 @@ def check_mutations(temporary):
             "update.bend",
         ),
         (
+            "update lays out a revision named that is not a head",
+            "Bool.pick(Result<&2, &2, Main.Refused, Unit>, Rev.member(heads.sorted(fs), id), Done{Unit{}},",
+            "Bool.pick(Result<&2, &2, Main.Refused, Unit>, True{}, Done{Unit{}},",
+            "update_lemmas.only_heads",
+            "update.bend",
+        ),
+        (
+            "update told nothing takes the first of several heads",
+            '      Fail{Main.Refused{1, "this store has " ++ Nat.show(List.length(&2, String, several)) ++ " heads, so nothing here is `the` latest; name the one the folder should hold:" ++ Main.described(fs, bs, several)}}',
+            '      Done{Maybe.default(&2, String, List.head(&2, String, several), SNil{})}',
+            "update_lemmas.none_only",
+            "update.bend",
+        ),
+        (
             "update's dry run names no mode it would set",
             'said.paths("remove", removes(ws)), said.modes("mode", modes(ds)), said.links("link", links(ds))',
             'said.paths("remove", removes(ws)), said.links("link", links(ds))',

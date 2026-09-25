@@ -954,6 +954,9 @@ def Laws.skip_lists_each_rule_once(ss):
 def Laws.skip_writes_what_is_new(rs, had):
   SkipL.writes_new(rs, had)
 
+def Laws.update_holds_only_a_head(fs, bs, t, id, u, e1, e2):
+  UpdL.only_heads(fs, bs, t, id, u, e1, e2)
+
 def Laws.update_lands(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
   UpdL.plan_holds(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
 

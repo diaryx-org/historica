@@ -2136,6 +2136,20 @@ law update_reads_its_words:
   for e: {Upd.args.r(ws) == Done{c} : Result<&2, &2, Main.Refused, Upd.UpdateCmd>}
   {c == Upd.UpdateCmd{Upd.uargs.target(ws), Upd.uargs.dry(ws)} : Upd.UpdateCmd}
 
+# The folder is only ever given a head, decision 0030's rule: whatever
+# `update` is told, the revision it goes on to lay out is a current head of
+# the store; and told nothing, it is the store's only head — every current
+# head is that one.
+law update_holds_only_a_head:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +t: Maybe<&2, String>
+  for +id: String
+  for -u: Unit
+  for e1: {Upd.target.r(fs, bs, t) == Done{id} : Result<&2, &2, Main.Refused, String>}
+  for e2: {Upd.head.r(fs, bs, id) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  {Bool.and(Rev.member(Main.current_heads(Main.history(fs)), id), Bool.or(Maybe.is_some(&2, String, t), Main.all_held([id], Main.current_heads(Main.history(fs))))) == True{} : Bool}
+
 # Where `update` plans at all, the folder it leaves holds the target as the
 # store reads it: once the plan is carried out, every path the target's
 # tree holds one file at holds, for a file of lines, the bytes `cat
