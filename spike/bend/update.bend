@@ -11,14 +11,15 @@
 # stays where it is.
 #
 # As in the Rust tool, deciding and doing are a pair: `plan` works out what
-# every path takes from what the store and the folder say, and the IO below
-# performs exactly that plan, so `--dry-run` and the real thing name the
-# same files. What the plan decides is what the laws are about
-# (`update_lands`, `update_spares_the_unrecorded`), stated against what
-# `cat` reads from the store rather than the plan's own entries; the
-# effects are four
-# writes that decide nothing — `Store.put`, `Store.lay`, `Store.link` and
-# `Store.chmod` — and `Store.remove`.
+# every path takes from what the store and the folder say, `effects` lists
+# what carrying it out does, and the IO below performs exactly that list,
+# so `--dry-run` and the real thing name the same files
+# (`update_dry_run_names_what_it_does`). What the plan decides is what the
+# laws are about (`update_lands`, `update_spares_the_unrecorded`,
+# `update_touches_only_the_target`), stated against what `cat` reads from
+# the store and what the walk found rather than the plan's own entries; the
+# effects are four writes that decide nothing — `Store.put`, `Store.lay`,
+# `Store.link` and `Store.chmod` — and `Store.remove`.
 
 import Base
 import ./text.bend as T

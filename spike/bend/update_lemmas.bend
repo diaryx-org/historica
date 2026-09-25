@@ -1,10 +1,15 @@
-# What `update` decides. It reads its words as they say; where it plans at
-# all, every path the target's tree holds with one file holds, once the
-# plan is carried out, what `cat` of the target reads there — the bytes of
-# a file of lines, the payload of a file of bytes, each with its mode, and
-# a link pointing where `cat` says; and every file it writes over or takes
-# away holds bytes `cat` of some revision the store holds reads, which is
-# decision 0030's rule.
+# What `update` decides. It reads its words as they say, and lays out only
+# a current head. Where it plans at all, every path the target's tree holds
+# with one file holds, once the plan is carried out, what `cat` of the
+# target reads there — the bytes of a file of lines, the payload of a file
+# of bytes, each with its mode, and a link pointing where `cat` says; every
+# file it writes over or takes away holds bytes `cat` of some revision the
+# store holds reads, which is decision 0030's rule; and everything it does
+# is at a path the target holds, save removals, each where history records
+# the bytes the walk found. It says the folder holds the target exactly
+# where carrying the plan out would change nothing, and its dry run names
+# exactly the effects it performs. What a path holds after a step is
+# `after`'s model of the host's writes.
 import Base
 import ./text.bend as T
 import ./tree.bend as Tree
