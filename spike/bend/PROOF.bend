@@ -1057,6 +1057,9 @@ def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs,
 def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks, d, h):
   ExportL.destroyed(p, here, cst, marks, d, h)
 
+def Laws.export_catches_up_to_a_fresh_copy(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs):
+  CatchL.catch_lands(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs)
+
 def Laws.export_spares_the_unrecorded(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds):
   CatchL.spares(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds)
 

@@ -4155,6 +4155,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export keeps a copy's file whose mode is not the target's",
+            "      Bool.pick(Step, Bool.xor(held, wanted), Step.Mode{path, wanted}, Step.Keep{})",
+            "      Bool.pick(Step, False{}, Step.Mode{path, wanted}, Step.Keep{})",
+            "catchup_lemmas.same_lands",
+            "export.bend",
+        ),
+        (
             "fetch files a document whose text is not the digest offered",
             "      Bool.pick(Land, String.eq(found, entry.digest(o)), text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",
             "      Bool.pick(Land, True{}, text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",

@@ -2754,6 +2754,30 @@ law export_destroys_only_what_is_forgotten:
   for h: {Rev.member(Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)) == True{} : Bool}
 
+# Catching a copy's folder up leaves it holding what a fresh export of the
+# same target lays out (decision 0052): wherever the folder's plan is made,
+# the fresh folder can be laid out too, and once each of the plan's steps is
+# taken — a file written or linked, a mode set, a file kept — every path
+# the fresh folder has holds exactly its file there: the bytes of a file of
+# lines or the payload of a file of bytes, with its mode, or a link
+# pointing where the fresh one points. One step is taken for each of those
+# files, and nothing the plan removes is one of them.
+law export_catches_up_to_a_fresh_copy:
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  for +seen: List<&2, Export.Seen>
+  for +walk: List<&2, T.Split>
+  for +dirs: Set()
+  for +others: Set()
+  for +whole: Bool
+  for +rs: List<&2, Export.Rec>
+  {Export.caught.lands(seen, Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs), Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}
+
 # Catching a copy's folder up writes over, and takes away, only bytes the
 # copy's own history can give back (decision 0030, as 0052 meets it): every
 # file one of its steps writes or links over, and every file it removes,
