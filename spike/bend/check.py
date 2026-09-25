@@ -3747,6 +3747,27 @@ def check_mutations(temporary):
             "identity.bend",
         ),
         (
+            "a block may state two authors",
+            '      Fail{Malformed{at, "a block states one author"}}',
+            "      Done{Reading{ids, h, Some{b}, started}}",
+            "identity_lemmas.two_authors",
+            "identity.bend",
+        ),
+        (
+            "a block's refusal is said at its last line",
+            "Bool.pick(Nat, Nat.is_eq(started, 0n), at, started)",
+            "at",
+            "identity_lemmas.under_blocks",
+            "identity.bend",
+        ),
+        (
+            "a directory's second block is taken",
+            "Bool.or(String.eq(h, d), claimed(rest, d))",
+            "claimed(rest, d)",
+            "identity_lemmas.claimed_app",
+            "identity.bend",
+        ),
+        (
             "-V is not read as the version",
             '  Bool.pick(Lead, Bool.or(String.eq(w, "-V"), String.eq(w, "--version")), Lead.Version{},',
             '  Bool.pick(Lead, String.eq(w, "--version"), Lead.Version{},',

@@ -2371,6 +2371,125 @@ law identity_makes_the_files_directory:
   for e: {Identity.path.of(xdg, Identity.home.of(home, profile)) == Some{file} : Maybe<&2, String>}
   {Identity.parent(file) ++ "/identity" == file : String}
 
+# An identity file of blocks — a default author's, where there is one, then
+# one `under` each directory with its author, each block ended by a blank
+# line — reads back as the blocks it states: the default author and every
+# directory's, in order, wherever each value is one a revision can hold,
+# each directory is written without the trailing `/` the reading drops, and
+# no two blocks name one directory.
+law identity_reads_its_blocks:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  {Identity.parse(IdentityL.text(IdentityL.lines(d, us))) == Done{Identity.Ids{d, us}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# And after any such blocks, a file is refused where the Rust tool refuses
+# it, at the line it names, counted from one: a block stating two authors
+# at the second.
+law identity_refuses_a_second_author:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +a: String
+  for +b: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for ha: {Identity.unusable(a) == False{} : Bool}
+  for hb: {Identity.unusable(b) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["author " ++ a, "author " ++ b]))) == Fail{Identity.Malformed{1n+1n+List.length(&2, String, IdentityL.lines(d, us)), "a block states one author"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A block whose `under` line comes after its author, at that line.
+law identity_refuses_under_after_an_author:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +a: String
+  for +dir: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for ha: {Identity.unusable(a) == False{} : Bool}
+  for hd: {Identity.unusable(dir) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["author " ++ a, "under " ++ dir]))) == Fail{Identity.Malformed{1n+1n+List.length(&2, String, IdentityL.lines(d, us)), "`under` heads a block, so it comes first"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A block naming two directories, at the second.
+law identity_refuses_a_second_directory:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +d1: String
+  for +d2: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for h1: {Identity.unusable(d1) == False{} : Bool}
+  for h2: {Identity.unusable(d2) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["under " ++ d1, "under " ++ d2]))) == Fail{Identity.Malformed{1n+1n+List.length(&2, String, IdentityL.lines(d, us)), "a block names one directory"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A block naming a directory and no author, at its first line, though
+# only the end of the file shows the author missing.
+law identity_refuses_a_directory_with_no_author:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +dir: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for hd: {Identity.unusable(dir) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["under " ++ dir]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "a block naming a directory states no author"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A second block stating a default author, at its first line.
+law identity_refuses_a_second_default:
+  for +a0: String
+  for +us: List<&2, T.Split>
+  for +b: String
+  for hf: {IdentityL.fits(Some{a0}, us) == True{} : Bool}
+  for hb: {Identity.unusable(b) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(Some{a0}, us), ["author " ++ b]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(Some{a0}, us)), "two blocks state a default author"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A block for a directory an earlier block names, at its first line.
+law identity_refuses_a_directory_claimed_twice:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +i: Nat
+  for +dir: String
+  for x: String
+  for +b: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for e: {List.get(&2, T.Split, us, i) == Some{T.Split{dir, x}} : Maybe<&2, T.Split>}
+  for hd: {Identity.unusable(dir) == False{} : Bool}
+  for hs: {String.ends_with(dir, "/") == False{} : Bool}
+  for hb: {Identity.unusable(b) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), ["under " ++ dir, "author " ++ b]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "two blocks claim one directory"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+# A line of any key but `author` and `under`, a line whose value is empty
+# or has space at an end, and a line with no space to split at, each where
+# it stands.
+law identity_refuses_an_unknown_key:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +k: String
+  for +v: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for hs: {T.has_char(k, ' ') == False{} : Bool}
+  for hc: {IdentityL.has_control(k) == False{} : Bool}
+  for hu: {String.eq(k, "under") == False{} : Bool}
+  for ha: {String.eq(k, "author") == False{} : Bool}
+  for hv: {Identity.unusable(v) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), [k ++ SCon{' ', v}]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "the keys are `author` and `under`"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+law identity_refuses_an_unusable_value:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +k: String
+  for +v: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for hs: {T.has_char(k, ' ') == False{} : Bool}
+  for hc: {IdentityL.has_control(k) == False{} : Bool}
+  for hv: {Folder.untrimmed(v) == True{} : Bool}
+  for hq: {IdentityL.has_control(v) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), [k ++ SCon{' ', v}]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "a value is not empty, carries no leading or trailing space, and holds no control character"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
+law identity_refuses_a_line_with_no_space:
+  for +d: Maybe<&2, String>
+  for +us: List<&2, T.Split>
+  for +w: String
+  for hf: {IdentityL.fits(d, us) == True{} : Bool}
+  for he: {String.is_empty(w) == False{} : Bool}
+  for hs: {T.has_char(w, ' ') == False{} : Bool}
+  for hc: {IdentityL.has_control(w) == False{} : Bool}
+  {Identity.parse(IdentityL.text(List.append(&2, String, IdentityL.lines(d, us), [w]))) == Fail{Identity.Malformed{1n+List.length(&2, String, IdentityL.lines(d, us)), "a line is a key, a space, and a value"}} : Result<&2, &2, Identity.Malformed, Identity.Ids>}
+
 # `record` and `abandon` given no `-m` ask the editor the person chose, as
 # the Rust tool's `from_an_editor` reads the environment: `$VISUAL` where
 # it is set, `$EDITOR` only where `$VISUAL` is not set at all, and none —
