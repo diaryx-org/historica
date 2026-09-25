@@ -702,7 +702,7 @@ law walk_refuses_nothing_skipped:
 law status_says_an_arrival_once:
   for +os: List<&2, Sv.Obs>
   for +links: List<&2, String>
-  {Sv.arrives_once(Set.from_list(Sv.added(os)), Sv.facts(os, links)) == True{} : Bool}
+  {Sv.arrives_once.list(Sv.added(os), Sv.facts(os, links)) == True{} : Bool}
 
 # Every target names a revision the store holds. A bookmark, `head`, a
 # digest prefix or a change prefix: whichever a spelling is read as, the
@@ -1571,18 +1571,20 @@ law status_reads_only_lines:
   for +hs: List<&2, Main.Here>
   {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}
 
-# `status` tells its survey of each path it compares once, in order; and
-# where the parents being joined leave a file of lines differently, it
-# gives the survey no digest to compare the folder's with, since there is
-# none — `record::joined_content`'s `-`.
+# `status` tells its survey of each path it compares once, in order; where
+# the parents being joined leave a file of lines differently, it gives the
+# survey no digest to compare the folder's with, since there is none —
+# `record::joined_content`'s `-`; and the folder's digest it gives for each
+# path is the host's answer for that path, from the answers the host gave
+# for the files it was asked about, and none for a path it was not.
 law status_surveys_each_path:
   for +t: Tree.Tree()
-  for +dg: Map<&2, String>
+  for +stats: List<&2, String>
   for +bf: Map<&2, String>
   for +reads: Map<&2, List<&2, U32>>
   for +props: List<&2, Main.Proposal>
-  for hs: List<&2, Main.Here>
-  {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, props, hs)) == True{} : Bool}
+  for +hs: List<&2, Main.Here>
+  {Main.status.surveys(Main.regular_paths(hs), stats, hs, Main.status.seens(t, Main.stats.map(Main.regular_paths(hs), stats, Map.new(&2, String)), bf, reads, props, hs)) == True{} : Bool}
 
 # Against one revision, `status` believes the digest a statement gives a
 # file of lines and replays only where none does: it is refused only where
@@ -2036,7 +2038,7 @@ law record_says_an_arrival_once:
   for +walked: List<&2, T.Split>
   for +ss: List<&2, Sv.Seen>
   for +moves: List<&2, T.Split>
-  {Main.recorded.once(Set.from_list(Sv.added(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves)))), Main.planned.facts(Sv.planned(t, looked, held, walked, ss, moves))) == True{} : Bool}
+  {Main.recorded.once.list(Sv.added(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), Main.planned.facts(Sv.planned(t, looked, held, walked, ss, moves))) == True{} : Bool}
 
 # Asked for `--fields`, what `record`, `amend`, `abandon` and `carry` say
 # of what they wrote is decision 0074's: `historica-wrote-1` first, and

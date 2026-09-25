@@ -21,6 +21,8 @@ import ./naming.bend as Naming
 import ./bookmark.bend as Bm
 import ./sha256.bend as Sha
 import ./status_lemmas.bend as StatusL
+import ./map_lemmas.bend as ML
+import ./survey_lemmas.bend as SurveyL
 import ./store.bend as Store
 import ./conflict.bend as Conflict
 import ./resolution.bend as Res
@@ -863,3 +865,20 @@ def kinds_found(ks: List<&2, T.Split>, +found: Set(), -u: Unit, +e: {Main.kinds.
     case T.Split{+p, k} <> +rest:
       B.and_tt(Sv.has(found, p), Main.kinds.found(rest, found), pick_yes(Unit, Sv.has(found, p), Main.kinds.unheld.r(rest, found), Main.Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}, u, e),
         kinds_found(rest, found, u, pick_keep(Unit, Sv.has(found, p), Main.kinds.unheld.r(rest, found), Main.Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}, u, e)))
+
+def once_list(+xs: List<&2, String>, fs: List<&2, T.Split>) -> {Main.recorded.once(Set.from_list(xs), fs) == Main.recorded.once.list(xs, fs) : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case T.Split{+k, +p} <> rest:
+      %Equal.sym(Bool, Sv.has(Set.from_list(xs), p), Rev.member(xs, p), SurveyL.member_set(xs, p)) : {Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(_)))), Main.recorded.once(Set.from_list(xs), rest)) == Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Rev.member(xs, p))))), Main.recorded.once.list(xs, rest)) : Bool}
+      %Equal.sym(Bool, Main.recorded.once(Set.from_list(xs), rest), Main.recorded.once.list(xs, rest), once_list(xs, rest)) : {Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Rev.member(xs, p))))), _) == Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Rev.member(xs, p))))), Main.recorded.once.list(xs, rest)) : Bool}
+      {==}
+
+# `record --dry-run` names a path arriving only on an `added`, `moved` or
+# `dropped` line, read against the list of what arrives.
+def planned_once_list(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), +walked: List<&2, T.Split>, +ss: List<&2, Sv.Seen>, +moves: List<&2, T.Split>) -> {Main.recorded.once.list(Sv.added(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), Main.planned.facts(Sv.planned(t, looked, held, walked, ss, moves))) == True{} : Bool}:
+  +xs = Sv.added(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves)))
+  +fs = Main.planned.facts(Sv.planned(t, looked, held, walked, ss, moves))
+  Equal.trans(Bool, Main.recorded.once.list(xs, fs), Main.recorded.once(Set.from_list(xs), fs), True{}, Equal.sym(Bool, Main.recorded.once(Set.from_list(xs), fs), Main.recorded.once.list(xs, fs), once_list(xs, fs)), planned_once(t, looked, held, walked, ss, moves))
+
