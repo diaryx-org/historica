@@ -3733,6 +3733,20 @@ def check_mutations(temporary):
             "identity.bend",
         ),
         (
+            "an empty $XDG_CONFIG_HOME is a configuration directory",
+            "Bool.pick(Maybe<&2, String>, String.is_empty(x), path.home(home), Some{joined(x, FILE())})",
+            "Some{joined(x, FILE())}",
+            "identity_lemmas.path_set",
+            "identity.bend",
+        ),
+        (
+            "the directory identity makes keeps the slash",
+            "Bool.pick(String, Char.is_eq(c, '/'), t, parent.go(t))",
+            "Bool.pick(String, Char.is_eq(c, '/'), SCon{'/', t}, parent.go(t))",
+            "identity_lemmas.above",
+            "identity.bend",
+        ),
+        (
             "-V is not read as the version",
             '  Bool.pick(Lead, Bool.or(String.eq(w, "-V"), String.eq(w, "--version")), Lead.Version{},',
             '  Bool.pick(Lead, String.eq(w, "--version"), Lead.Version{},',
