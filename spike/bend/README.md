@@ -512,7 +512,8 @@ in it, or a directory's name, filed flat or in folders of their own — and a
 path the format cannot hold. A name matches exactly as its pattern reads,
 each `*` any run of characters: every name the pattern spells with some run
 for each `*`, and no other (`a_pattern_matches_each_name_it_spells`,
-`a_pattern_matches_only_names_it_spells`). `diff` compares it with the head, or with what
+`a_pattern_matches_only_names_it_spells`). `diff` compares it with the
+head, or with what
 `--onto` names, a path or `file:` limiting it to one file; the folder has
 no identifiers, so a file that moved there is a loss and an arrival. A file
 the position holds as lines must still be text, and one it does not is
@@ -1251,7 +1252,8 @@ paths, `--at`, `--move` at both ends, `--bytes`, `--lines`, amend's
 resolved against the tree. The folder keeps its own spelling, which is
 what has to be opened: a directory is listed by the name it was listed
 under, each line of its listing read as the entry the host wrote it for
-(`a_directory_is_read_as_the_host_lists_it`), and a file is opened by the name its listing spells the path with,
+(`a_directory_is_read_as_the_host_lists_it`), and a file is opened by the
+name its listing spells the path with,
 which `Folder.on_disk` asks the listing for only where the path could be
 spelled another way — a path of ASCII without `;`, `K` or `` ` ``, which
 three characters decompose to, cannot. `update` writes the same way: a
@@ -1354,7 +1356,8 @@ document of its own, named by its own digest and by nothing else, so where
 `Store.at` finds nothing the documents under `operations/` are read and
 each asked what it `forgets`: a stand-in the port writes, in any of the
 three grammars, is kept exactly for the digest its first header forgets
-(`a_stand_in_stands_for_what_it_forgets`). Several may stand in for one digest — each
+(`a_stand_in_stands_for_what_it_forgets`). Several may stand in for one
+digest — each
 `forget` of another span of a document writes one more — and they are read
 together as the Rust tool's union rule reads them: the first of each
 grammar is the shape, every later one that agrees with it is folded in, and
