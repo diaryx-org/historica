@@ -275,7 +275,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it, and written back | `format::resolution` |
 | `conflict.bend`, `conflict_lemmas.bend` | where concurrent work met in one file and how a person is shown it: the contested regions, the rendering with fences, the renderer's lines still standing in what a person left, and the resolution `record --merge` states — the walk's proposal aligned with the folder's file, each surviving line named by the document that minted it. `merge_renders_the_uncontested_as_itself`: a file where nothing met renders as the walk's file, byte for byte; `merge_resolution_reads_back`: the resolution `record --merge` writes, assembled as `cat` assembles one, is the folder's file | `merge.rs`'s contests, `conflict.rs`, `diff::resolve` |
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record` — `record --merge` included — `amend`, `abandon`, `carry` and `name` over the store it finds, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and fifty claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | a hundred and sixty-three claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -310,6 +310,13 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `blame_lemmas.bend` | `blame_shows_the_folder`: `blame <path>`'s rows are the folder file's lines, each once and in order, whatever history holds — built on `similar_diff_applies` and the layout laws | `blame`'s folder overlay |
 | `blamed_lemmas.bend` | `blame_reads_the_walk`: `blame <target> <path>`'s rows, read without their authors, are the file the walk of the target's ancestry reads; `blame_numbers_its_lines`: `blame` numbers each line as the file does, and prints exactly the lines whose number falls in the span asked; `blame_prints_each_line`: each line it prints ends with the line it attributes, in order, with the marker after a line without a newline; `blame_reads_the_position`: `blame <path>` compares the folder with a revision the store holds, and the file it names is one that revision holds, or none is at the path; `blame_reads_a_held_file`: `blame <target> <path>` reads a revision the store holds and a file with lines its tree holds; `blame_prints_the_walk`, `blame_prints_the_folder`: what either form prints is one line for each line of the span, ending with it — of the file the walk reads, or of the folder's text; `blame_reads_its_words`: `blame` reads its arguments as their plain reading says — the last `--lines` value is the span, and the other words are the target and the path, in order; `blame_reads_a_folder_file`: `blame <path>` reads a file the folder holds at the path rather than a link, with the kind the position gives it | `blame`'s attribution |
 | `diffcmd_lemmas.bend` | `diff_reads_its_words`: `diff` reads its arguments as their plain reading says — `--onto` and `--color` take the word after them, `--color=` spells a colour in the word, the last of each counting, and the other words are the target and the path, in order; `diff_compares_with_the_parent`, `diff_folder_compares_with_a_held_revision`: the other side is what `--onto` names, a revision the store holds, or else the target's one parent or the head; `diff_limits_to_a_held_file`, `diff_folder_limits_to_a_held_file`: a file a comparison is limited to is one the tree it was named at holds; `diff_shows_what_differs`: `diff` shows only files whose two sides differ, and under a path limit only a file at that path on one side; `diff_folder_keeps_what_the_limit_wants`, `diff_folder_shows_what_differs`: over the folder, only paths the limit wants, and of those only ones whose sides differ | `diff`'s arguments, sides and files |
+| `colour_lemmas.bend` | `diff_colour_changes_no_character`: every line `diff` renders is kept as runs, and what it renders with colour, read without it, is line for line what it prints without colour — a marked line is its sign and its runs, and every mark reads as its own line | `diff`'s colour |
+| `plan_lemmas.bend` | `diff_folder_replays_what_is_unsettled`, `diff_folder_reads_what_is_unsettled`: over the folder, `diff` replays exactly the files of lines no statement settles, and reads exactly the regular files nothing at the position settles — never a file of bytes or a link the position holds | `diff`'s reading of the folder |
+| `chain_lemmas.bend` | `chain_follows_first_parents`: the line a file's nearest statement is looked for along begins at the position and follows first parents, each a revision the store holds | the first-parent line |
+| `sizes_lemmas.bend` | `diff_sizes_what_the_host_stated`: sizing what `diff` compares changes no side but a file of bytes whose size was unknown, which keeps its digest and has a size only where the host's line for the bytes it found names that very digest | `diff`'s sizes |
+| `fetch_lemmas.bend` | `diff_fetches_what_it_replays`, `diff_folder_fetches_what_it_replays`: every document a revision states for a file `diff` replays is among those it fetches; `reading_fetches_what_resolutions_keep`: so is every document a resolution among them keeps; `diff_folder_fetches_the_edits_it_believes`: over the folder, so is the `edit` whose result could settle a file; `diff_asks_every_payload_it_shows`, `diff_stats_where_each_payload_was_found`: the host is asked about every payload shown, each once, and its stat only where it located that payload — through `List.sort` and `distinct` keeping every item | what `diff` asks the store and the host |
+| `fulls_lemmas.bend` | `revisions_read_are_their_documents`: every revision a command reads is one a document of `revisions/` spells, under the digest it is known by, byte for byte as `Rev.write` writes what the revision says | `Store::revisions` |
+| `span_lemmas.bend` | `log_lists_its_span`: `log` goes on only with what its span names — what a target reaches, or what `b` reaches and `a` does not of `a..b` — each a revision the store holds | `log`'s ranges |
 | `logargs_lemmas.bend` | `log_reads_its_words`: `log` reads its arguments as their plain reading says — the word after a flag that takes a value is its value, the last counting, `--limit`, `--since` and `--until` read as a count and bounds, `--fields` asked for if it is there, and the other word the target | `log`'s arguments |
 | `check_lemmas.bend` | `check_pairs_each_payload`: `check` reports each payload with the digest asked for it — one per payload in the listing's order, none taken by a revision or an operation document; `check_refuses_what_does_not_parse`: it calls a document refused exactly where it does not parse | `check` |
 | `show_lemmas.bend` | `cat_reads_a_held_file`: `cat <target> <path>` reads a revision the store holds and a file its tree holds that is not a link; `show_names_a_held_file`, `show_prints_a_held_document`, `show_prints_what_the_revision_states`: `show` names a file the target holds, and prints a document the store holds under the digest named — the revision's own, or the one it states for the file | `cat`, `show` |
@@ -358,6 +365,9 @@ abbreviations, marks, counted facts, the message verbatim — `files` the same
 file set, `cat` the same content, `show` the same bytes, and a target the
 Rust tool refuses is refused in the same words; `check.py` compares the native
 binary and the JavaScript build against the Rust tool on sixteen such stores.
+Every revision a command reads is one a document of `revisions/` spells,
+under the digest it is known by, and what `Rev.write` writes of it byte for
+byte (`revisions_read_are_their_documents`).
 `check` names every document by the digest `shasum` prints, and `opdiff`
 writes an operation document the Rust tool reads, `result` included. `cat` of a
 link refuses in the Rust tool's words, naming where it points relative to
@@ -383,7 +393,8 @@ clock each author read, in their own offset, a bare date being that whole
 day; `--path`, which reads the path once, at the revision named or the one
 head, and then follows the file through its renames; `<from>..<to>`, what
 `<to>` has behind it and `<from>` does not; and `--fields`, the
-`historica-log-1` listing. A timestamp is held to the calendar now — a leap
+`historica-log-1` listing; whatever the filters, it goes on only with
+revisions of the store its span names (`log_lists_its_span`). A timestamp is held to the calendar now — a leap
 day only in a leap year, no sixtieth second, and `-00:00` refused as the
 unknown offset — which is what the Rust parser always did, for a revision's
 `when` as for a bound. A usage error says what the Rust tool says, with the
@@ -408,7 +419,15 @@ context around each change, or the digest and length of a file of bytes;
 `blame <target> <path> [--lines <first>..<last>]` names the change, author
 and day that wrote each line. Two sides hold the same content for a file
 where the same revisions stated it, so only the files that differ are
-replayed. What is laid over the parent is what the Rust tool lays:
+replayed, and for each of those everything a revision states of it is
+fetched first (`diff_fetches_what_it_replays`), with whatever a resolution
+among them keeps (`reading_fetches_what_resolutions_keep`). A file of bytes
+is shown with the size the host gives it: every payload shown is asked
+about (`diff_asks_every_payload_it_shows`), its stat only where the host
+located it (`diff_stats_where_each_payload_was_found`), and a size is
+believed only where the bytes found there hash to that very payload,
+sizing changing nothing else (`diff_sizes_what_the_host_stated`). What is laid over the
+parent is what the Rust tool lays:
 `similar`'s Histogram diff, recomputed, which `similar.bend` ports whole —
 the preflight that answers two long, nearly disjoint sides with one
 replacement, the search for a rare shared run, the Myers search it falls
@@ -440,7 +459,15 @@ lines or bytes as decision 0017 sniffs it. `blame <path>` attributes the
 folder's lines as far as history can and marks the rest `(the folder)`. A
 file of lines is read only where the host's digest of it is not the one its
 nearest statement on the head's first-parent line leaves, so `diff` over
-the archive's folder takes 1.4 s. A malformed rule in `skipped/` refuses
+the archive's folder takes 1.4 s. What it replays is exactly the files of
+lines no statement settles, and what it reads of the folder exactly the
+regular files nothing at the position settles, never one the position holds
+as bytes or a link (`diff_folder_replays_what_is_unsettled`,
+`diff_folder_reads_what_is_unsettled`); the line the statements are read
+along follows first parents from the position (`chain_follows_first_parents`);
+and what a replay needs, and the `edit` whose result could settle a file, are
+fetched before (`diff_folder_fetches_what_it_replays`,
+`diff_folder_fetches_the_edits_it_believes`). A malformed rule in `skipped/` refuses
 every command, in the Rust tool's words, as a malformed bookmark does.
 
 `status` says how the folder differs from the head, or from what `--onto`
@@ -752,7 +779,10 @@ by the Unicode 17 table Rust's `char::is_alphanumeric` reads
 `diff head --onto` an early revision prints the Rust tool's bytes, its 653
 marks of emphasis included. Each mark falls on its own line
 (`emphasis_marks_its_own_line`): a removal is paired with the arrival at
-the same place in its run, and the runs a mark draws read as its line. Names are compared as the filesystem spells
+the same place in its run, and the runs a mark draws read as its line.
+Colour changes no character (`diff_colour_changes_no_character`): a line is
+kept as runs, and what `diff` renders with colour, printed without it, is
+line for line what it prints without colour. Names are compared as the filesystem spells
 them, with no normal form C. `opdiff` is what `diff` was here before: the operation
 document between two files, by `Ops.diff`.
 
@@ -1292,7 +1322,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-A hundred and forty-six mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and fifty-eight mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1388,12 +1418,21 @@ elsewhere, a rename offered for bytes more than one path left, and a path
 nothing answers to let through; one reason break: a reason of only
 whitespace taken; and four naming breaks: a summary keeping a separator, a
 fallback longer than the limit, a filed path keeping its control
-characters, and the clock compared with the earliest work; and three
-update breaks: bytes no revision records written over, a file kept whose
-mode is not the one recorded, and a file nobody recorded taken away; and
-three resolution breaks: a name run into a `keep` it does not continue, a
-line the person deleted kept, and a `keep` read from one item past where
-it starts; and two rendering breaks: a run nothing met labelled, and a
+characters, and the clock compared with the earliest work; and one colour break: a marked line drawn without its sign; and two
+folder-plan breaks: a settled file of lines replayed, and a folder file the
+position holds as bytes read; and one chain break: a chain that stays at
+the revision it began at; and one revision-reading break: a document
+outside `revisions/` read as a revision; and two size breaks: a size
+believed whatever digest the host's line names, and a payload the host
+could not find asked the stat of; and four fetch breaks: a file replayed
+with nothing fetched for it, what a resolution keeps left unfetched, an
+`edit` the folder's plan believes left unfetched, and a payload shown left
+unasked; and one span break: `a..b` read as `b..a`; and three update
+breaks: bytes no revision records written over, a file kept whose mode is
+not the one recorded, and a file nobody recorded taken away; and three
+resolution breaks: a name run into a `keep` it does not continue, a line
+the person deleted kept, and a `keep` read from one item past where it
+starts; and two rendering breaks: a run nothing met labelled, and a
 region meeting at a file's end left uncounted; and four merge breaks: the
 current heads nobody named left out, a head joined by its spelling rather
 than the revision it names, text nobody recorded written over, and a
