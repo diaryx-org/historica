@@ -379,22 +379,337 @@ def spelt_or(m: Maybe<&2, String>, +want: String, +h: {spelt_ok(m, want) == True
 def spelled_there(+ls: List<&2, String>, +want: String) -> {Bool.or(String.eq(F.spelling(ls, want), want), String.eq(N.nfc(F.spelling(ls, want)), want)) == True{} : Bool}:
   spelt_or(F.spelling.go(ls, want, None{}, False{}), want, spelling_ok(ls, want, None{}, False{}, {==}))
 
-# One refusal for every name a listing holds that cannot be spelled.
-def count_go(ls: List<&2, String>, +prefix: String, +dir: String, +before: String, +k: U32, after: Bool, odd: Bool, +acc: List<&2, F.Keyed>) -> {List.length(&2, F.Keyed, F.unspelled.go(ls, prefix, dir, before, k, after, odd, acc)) == Nat.add(F.unspelled.count(ls, after, odd), List.length(&2, F.Keyed, acc)) : Nat}:
-  match ls after odd:
-    case Nil{} _ _:
-      {==}
-    case line <> +rest True{} _:
-      count_go(rest, prefix, dir, before, k, False{}, F.unspelled.is(rest), acc)
-    case +line <> +rest False{} True{}:
-      +r : F.Keyed = F.Keyed{F.unspelled.key(before, k), T.Split{dir ++ "/" ++ String.drop(line, 2n), F.unspelled.because()}}
-      Equal.trans(Nat, List.length(&2, F.Keyed, F.unspelled.go(rest, prefix, dir, before, (k + 1 : U32), False{}, F.unspelled.is(rest), r <> acc)), Nat.add(F.unspelled.count(rest, False{}, F.unspelled.is(rest)), 1n+List.length(&2, F.Keyed, acc)), 1n+Nat.add(F.unspelled.count(rest, False{}, F.unspelled.is(rest)), List.length(&2, F.Keyed, acc)),
-        count_go(rest, prefix, dir, before, (k + 1 : U32), False{}, F.unspelled.is(rest), r <> acc),
-        Pos.add_succ(F.unspelled.count(rest, False{}, F.unspelled.is(rest)), List.length(&2, F.Keyed, acc)))
-    case +line <> +rest False{} False{}:
-      count_go(rest, prefix, dir, F.joined(prefix, F.entry.name(line)), 0, String.starts_with(line, "l "), F.unspelled.is(rest), acc)
+# A listing, as the host means it
+# -------------------------------
 
-def all_refused(+ls: List<&2, String>, +prefix: String, +dir: String) -> {List.length(&2, F.Keyed, F.unspelled(ls, prefix, dir)) == F.unspelled.count(ls, False{}, F.unspelled.is(ls)) : Nat}:
-  Equal.trans(Nat, List.length(&2, F.Keyed, F.unspelled(ls, prefix, dir)), Nat.add(F.unspelled.count(ls, False{}, F.unspelled.is(ls)), 0n), F.unspelled.count(ls, False{}, F.unspelled.is(ls)),
-    count_go(ls, prefix, dir, Bool.pick(String, String.is_empty(prefix), SNil{}, prefix ++ "/"), 0, False{}, F.unspelled.is(ls), Nil{}),
-    Comp.add_zero(F.unspelled.count(ls, False{}, F.unspelled.is(ls))))
+# One directory's entries as `Store.folder` knows them, before they are
+# lines: what `a_name_that_cannot_be_spelled_is_refused` reads back.
+type Listed is Data:
+  Listed.Dir{name: String}
+  Listed.File{runs: String, size: String, name: String}
+  Listed.Link{name: String, target: String}
+  Listed.Unreadable{name: String}
+  Listed.Other{name: String}
+  Listed.Unspelled{lossy: String}
+
+# The lines the host writes for them: a kind and a name, a link's target on
+# the line after it, and a name that is not UTF-8 as its lossy spelling.
+def listed.lines(es: List<&2, Listed>) -> List<&2, String>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case Listed.Dir{n} <> rest:
+      ("d " ++ n) <> listed.lines(rest)
+    case Listed.File{r, z, n} <> rest:
+      ("f " ++ r ++ " " ++ z ++ " " ++ n) <> listed.lines(rest)
+    case Listed.Link{n, t} <> rest:
+      ("l " ++ n) <> t <> listed.lines(rest)
+    case Listed.Unreadable{n} <> rest:
+      ("L " ++ n) <> listed.lines(rest)
+    case Listed.Other{n} <> rest:
+      ("o " ++ n) <> listed.lines(rest)
+    case Listed.Unspelled{x} <> rest:
+      ("u " ++ x) <> listed.lines(rest)
+
+# What the Rust tool refuses of them: each name that is not UTF-8, where it
+# is on disk under `dir`, with `WorkingError::NotUtf8`'s words.
+def listed.refused(es: List<&2, Listed>, +dir: String) -> List<&2, T.Split>:
+  match es:
+    case Nil{}:
+      Nil{}
+    case Listed.Unspelled{x} <> rest:
+      T.Split{dir ++ "/" ++ x, "not a name this format can hold"} <> listed.refused(rest, dir)
+    case e <> rest:
+      listed.refused(rest, dir)
+
+def sw_empty(t: String) -> {String.starts_with(t, SNil{}) == True{} : Bool}:
+  match t:
+    case SNil{}:
+      {==}
+    case SCon{h, r}:
+      {==}
+
+def drop_zero(t: String) -> {String.drop(t, 0n) == t : String}:
+  match t:
+    case SNil{}:
+      {==}
+    case SCon{h, r}:
+      {==}
+
+# Reading the lines back refuses each name that cannot be spelled, onto
+# what was refused before, whatever the entry before it and the count.
+def read_back(es: List<&2, Listed>, +prefix: String, +dir: String, +before: String, +k: U32, +acc: List<&2, F.Keyed>) -> {F.unkeyed(F.unspelled.go(listed.lines(es), prefix, dir, before, k, False{}, F.unspelled.is(listed.lines(es)), acc)) == List.reverse.go(&2, T.Split, listed.refused(es, dir), F.unkeyed(acc)) : List<&2, T.Split>}:
+  match es:
+    case Nil{}:
+      {==}
+    case Listed.Dir{+n} <> +rest:
+      read_back(rest, prefix, dir, F.joined(prefix, F.entry.name("d " ++ n)), 0, acc)
+    case Listed.File{+r, +z, +n} <> +rest:
+      read_back(rest, prefix, dir, F.joined(prefix, F.entry.name("f " ++ r ++ " " ++ z ++ " " ++ n)), 0, acc)
+    case Listed.Link{+n, +t} <> +rest:
+      %Equal.sym(Bool, String.starts_with(n, SNil{}), True{}, sw_empty(n)) : {F.unkeyed(F.unspelled.go(t <> listed.lines(rest), prefix, dir, F.joined(prefix, F.entry.name("l " ++ n)), 0, _, F.unspelled.is(t <> listed.lines(rest)), acc)) == List.reverse.go(&2, T.Split, listed.refused(rest, dir), F.unkeyed(acc)) : List<&2, T.Split>}
+      read_back(rest, prefix, dir, F.joined(prefix, F.entry.name("l " ++ n)), 0, acc)
+    case Listed.Unreadable{+n} <> +rest:
+      read_back(rest, prefix, dir, F.joined(prefix, F.entry.name("L " ++ n)), 0, acc)
+    case Listed.Other{+n} <> +rest:
+      read_back(rest, prefix, dir, F.joined(prefix, F.entry.name("o " ++ n)), 0, acc)
+    case Listed.Unspelled{+x} <> +rest:
+      %Equal.sym(Bool, String.starts_with(x, SNil{}), True{}, sw_empty(x)) : {F.unkeyed(F.unspelled.go(("u " ++ x) <> listed.lines(rest), prefix, dir, before, k, False{}, _, acc)) == List.reverse.go(&2, T.Split, listed.refused(rest, dir), T.Split{dir ++ "/" ++ x, "not a name this format can hold"} <> F.unkeyed(acc)) : List<&2, T.Split>}
+      %drop_zero(x) : {F.unkeyed(F.unspelled.go(listed.lines(rest), prefix, dir, before, (k + 1 : U32), False{}, F.unspelled.is(listed.lines(rest)), F.Keyed{F.unspelled.key(before, k), T.Split{dir ++ "/" ++ String.drop(x, 0n), F.unspelled.because()}} <> acc)) == List.reverse.go(&2, T.Split, listed.refused(rest, dir), T.Split{dir ++ "/" ++ _, "not a name this format can hold"} <> F.unkeyed(acc)) : List<&2, T.Split>}
+      read_back(rest, prefix, dir, before, (k + 1 : U32), F.Keyed{F.unspelled.key(before, k), T.Split{dir ++ "/" ++ String.drop(x, 0n), F.unspelled.because()}} <> acc)
+
+# A name that cannot be spelled, read back from the host's lines, is
+# refused once, where it is on disk, in the Rust tool's words; nothing
+# else in the listing is.
+def all_refused(es: List<&2, Listed>, +prefix: String, +dir: String) -> {F.unkeyed(F.unspelled(listed.lines(es), prefix, dir)) == List.reverse(&2, T.Split, listed.refused(es, dir)) : List<&2, T.Split>}:
+  read_back(es, prefix, dir, Bool.pick(String, String.is_empty(prefix), SNil{}, prefix ++ "/"), 0, Nil{})
+
+# Nothing lost
+# ------------
+
+# Whether some file of `ds` is at `p`.
+def held(ds: List<&2, F.Found>, +p: String) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case d <> rest:
+      Bool.or(String.eq(p, F.found.path(d)), held(rest, p))
+
+# Every path a file of `fs` is at, some file of `ds` is at.
+def paths_held(fs: List<&2, F.Found>, +ds: List<&2, F.Found>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case g <> rest:
+      Bool.and(held(ds, F.found.path(g)), paths_held(rest, ds))
+
+def held_or(fs: List<&2, F.Found>, +last: String, +ds: List<&2, F.Found>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +g <> rest:
+      Bool.and(Bool.or(String.eq(F.found.path(g), last), held(ds, F.found.path(g))), held_or(rest, last, ds))
+
+def or_widen(a: Bool, b: Bool, -c: Bool, e: {Bool.or(b, c) == True{} : Bool}) -> {Bool.or(a, Bool.or(b, c)) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      e
+
+# What was held beside `f` is held with `f` in front, whatever came first.
+def held_or_widen(fs: List<&2, F.Found>, +x: String, +last: String, +f: F.Found, +ds: List<&2, F.Found>, +ex: {F.found.path(f) == x : String}, +h: {held_or(fs, x, ds) == True{} : Bool}) -> {held_or(fs, last, f <> ds) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case +g <> +rest:
+      %Equal.sym(String, F.found.path(f), x, ex) : {Bool.and(Bool.or(String.eq(F.found.path(g), last), Bool.or(String.eq(F.found.path(g), _), held(ds, F.found.path(g)))), held_or(rest, last, f <> ds)) == True{} : Bool}
+      and_i(Bool.or(String.eq(F.found.path(g), last), Bool.or(String.eq(F.found.path(g), x), held(ds, F.found.path(g)))), held_or(rest, last, f <> ds),
+        or_widen(String.eq(F.found.path(g), last), String.eq(F.found.path(g), x), held(ds, F.found.path(g)), and_l(Bool.or(String.eq(F.found.path(g), x), held(ds, F.found.path(g))), held_or(rest, x, ds), h)),
+        held_or_widen(rest, x, last, f, ds, ex, and_r(Bool.or(String.eq(F.found.path(g), x), held(ds, F.found.path(g))), held_or(rest, x, ds), h)))
+
+def or_true_l(-b: Bool) -> {Bool.or(True{}, b) == True{} : Bool}:
+  {==}
+
+# Every file `distinct.go` passes over is at `last` or at a path it keeps.
+def go_held(fs: List<&2, F.Found>, +last: String, same: Bool, +es: {F.distinct.same(fs, last) == same : Bool}) -> {held_or(fs, last, F.distinct.go(fs, last, same)) == True{} : Bool}:
+  match fs same:
+    case Nil{} _:
+      {==}
+    case +g <> +rest True{}:
+      and_i(Bool.or(String.eq(F.found.path(g), last), held(F.distinct.go(rest, last, F.distinct.same(rest, last)), F.found.path(g))), held_or(rest, last, F.distinct.go(rest, last, F.distinct.same(rest, last))),
+        (%Equal.sym(Bool, String.eq(F.found.path(g), last), True{}, es) : {Bool.or(_, held(F.distinct.go(rest, last, F.distinct.same(rest, last)), F.found.path(g))) == True{} : Bool}
+         {==}),
+        go_held(rest, last, F.distinct.same(rest, last), {==}))
+    case +g <> +rest False{}:
+      +ds = F.distinct.go(rest, F.found.path(g), F.distinct.same(rest, F.found.path(g)))
+      and_i(Bool.or(String.eq(F.found.path(g), last), held(g <> ds, F.found.path(g))), held_or(rest, last, g <> ds),
+        or_widen(String.eq(F.found.path(g), last), String.eq(F.found.path(g), F.found.path(g)), held(ds, F.found.path(g)),
+          (%Equal.sym(Bool, String.eq(F.found.path(g), F.found.path(g)), True{}, S.eq_refl(F.found.path(g))) : {Bool.or(_, held(ds, F.found.path(g))) == True{} : Bool}
+           {==})),
+        held_or_widen(rest, F.found.path(g), last, g, ds, {==}, go_held(rest, F.found.path(g), F.distinct.same(rest, F.found.path(g)), {==})))
+
+# Held beside `f`, with `f` itself in front, is held.
+def held_of(fs: List<&2, F.Found>, +f: F.Found, +ds: List<&2, F.Found>, +h: {held_or(fs, F.found.path(f), ds) == True{} : Bool}) -> {paths_held(fs, f <> ds) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case +g <> +rest:
+      and_i(held(f <> ds, F.found.path(g)), paths_held(rest, f <> ds),
+        and_l(Bool.or(String.eq(F.found.path(g), F.found.path(f)), held(ds, F.found.path(g))), held_or(rest, F.found.path(f), ds), h),
+        held_of(rest, f, ds, and_r(Bool.or(String.eq(F.found.path(g), F.found.path(f)), held(ds, F.found.path(g))), held_or(rest, F.found.path(f), ds), h)))
+
+# No path the walk found is lost by keeping one file for it.
+def walk_keeps(fs: List<&2, F.Found>) -> {paths_held(fs, F.distinct(fs)) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      +ds = F.distinct.go(rest, F.found.path(f), F.distinct.same(rest, F.found.path(f)))
+      and_i(held(f <> ds, F.found.path(f)), paths_held(rest, f <> ds),
+        (%Equal.sym(Bool, String.eq(F.found.path(f), F.found.path(f)), True{}, S.eq_refl(F.found.path(f))) : {Bool.or(_, held(ds, F.found.path(f))) == True{} : Bool}
+         {==}),
+        held_of(rest, f, ds, go_held(rest, F.found.path(f), F.distinct.same(rest, F.found.path(f)), {==})))
+
+def walk_once(+fs: List<&2, F.Found>) -> {Bool.and(F.apart(F.distinct(fs)), paths_held(fs, F.distinct(fs))) == True{} : Bool}:
+  and_i(F.apart(F.distinct(fs)), paths_held(fs, F.distinct(fs)), walk_apart(fs), walk_keeps(fs))
+
+# Ordering moves no mark past its class
+# -------------------------------------
+
+# The marks of class `k`, in order.
+def of_class(ms: List<&2, N.Mark>, +k: U32) -> List<&2, N.Mark>:
+  match ms:
+    case Nil{}:
+      Nil{}
+    case +m <> +rest:
+      Bool.pick(List<&2, N.Mark>, U32.is_eq(N.mark.class(m), k), m <> of_class(rest, k), of_class(rest, k))
+
+def app_nil(xs: List<&2, N.Mark>) -> {List.append(&2, N.Mark, xs, Nil{}) == xs : List<&2, N.Mark>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %app_nil(rest) : {x <> List.append(&2, N.Mark, rest, Nil{}) == x <> _ : List<&2, N.Mark>}
+      {==}
+
+def app_assoc(xs: List<&2, N.Mark>, +ys: List<&2, N.Mark>, +zs: List<&2, N.Mark>) -> {List.append(&2, N.Mark, List.append(&2, N.Mark, xs, ys), zs) == List.append(&2, N.Mark, xs, List.append(&2, N.Mark, ys, zs)) : List<&2, N.Mark>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %app_assoc(rest, ys, zs) : {x <> List.append(&2, N.Mark, List.append(&2, N.Mark, rest, ys), zs) == x <> _ : List<&2, N.Mark>}
+      {==}
+
+def app_pick(c: Bool, +x: N.Mark, +a: List<&2, N.Mark>, +b: List<&2, N.Mark>) -> {Bool.pick(List<&2, N.Mark>, c, x <> List.append(&2, N.Mark, a, b), List.append(&2, N.Mark, a, b)) == List.append(&2, N.Mark, Bool.pick(List<&2, N.Mark>, c, x <> a, a), b) : List<&2, N.Mark>}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def of_app(xs: List<&2, N.Mark>, +ys: List<&2, N.Mark>, +k: U32) -> {of_class(List.append(&2, N.Mark, xs, ys), k) == List.append(&2, N.Mark, of_class(xs, k), of_class(ys, k)) : List<&2, N.Mark>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(List<&2, N.Mark>, of_class(List.append(&2, N.Mark, rest, ys), k), List.append(&2, N.Mark, of_class(rest, k), of_class(ys, k)), of_app(rest, ys, k)) : {Bool.pick(List<&2, N.Mark>, U32.is_eq(N.mark.class(x), k), x <> _, _) == List.append(&2, N.Mark, Bool.pick(List<&2, N.Mark>, U32.is_eq(N.mark.class(x), k), x <> of_class(rest, k), of_class(rest, k)), of_class(ys, k)) : List<&2, N.Mark>}
+      app_pick(U32.is_eq(N.mark.class(x), k), x, of_class(rest, k), of_class(ys, k))
+
+# Above `lo`, nothing is of a class below it.
+def lt_ne.cmp(c: Cmp, e: {c == LT{} : Cmp}) -> {Cmp.is_eq(SortL.cflip(c)) == False{} : Bool}:
+  %Equal.sym(Cmp, c, LT{}, e) : {Cmp.is_eq(SortL.cflip(_)) == False{} : Bool}
+  {==}
+
+def lt_ne(x: U32, y: U32, e: {U32.is_lt(x, y) == True{} : Bool}) -> {U32.is_eq(y, x) == False{} : Bool}:
+  match x y:
+    case U32{+a} U32{+b}:
+      %Equal.sym(Cmp, Word.cmp(32n, b, a), SortL.cflip(Word.cmp(32n, a, b)), SortL.word_flip(32n, a, b)) : {Cmp.is_eq(_) == False{} : Bool}
+      lt_ne.cmp(Word.cmp(32n, a, b), lt_cmp(Word.cmp(32n, a, b), e))
+
+def none_of_class(xs: List<&2, N.Mark>, +lo: U32, +k: U32, +hs: {sorted.from(xs, lo) == True{} : Bool}, +hk: {U32.is_lt(k, lo) == True{} : Bool}) -> {of_class(xs, k) == Nil{} : List<&2, N.Mark>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      +hx = lt_le(k, lo, N.mark.class(x), hk, and_l(U32.is_le(lo, N.mark.class(x)), sorted.from(rest, N.mark.class(x)), hs))
+      %Equal.sym(Bool, U32.is_eq(N.mark.class(x), k), False{}, lt_ne(k, N.mark.class(x), hx)) : {Bool.pick(List<&2, N.Mark>, _, x <> of_class(rest, k), of_class(rest, k)) == Nil{} : List<&2, N.Mark>}
+      none_of_class(rest, N.mark.class(x), k, and_r(U32.is_le(lo, N.mark.class(x)), sorted.from(rest, N.mark.class(x)), hs), hx)
+
+# Not at or below, above.
+def not_le_lt.cmp(c: Cmp, e: {Cmp.is_le(c) == False{} : Bool}) -> {Cmp.is_lt(SortL.cflip(c)) == True{} : Bool}:
+  match c:
+    case LT{}:
+      Empty.absurd({Cmp.is_lt(SortL.cflip(LT{})) == True{} : Bool}, S.true_false(e))
+    case EQ{}:
+      Empty.absurd({Cmp.is_lt(SortL.cflip(EQ{})) == True{} : Bool}, S.true_false(e))
+    case GT{}:
+      {==}
+
+def not_le_lt(x: U32, y: U32, e: {U32.is_le(x, y) == False{} : Bool}) -> {U32.is_lt(y, x) == True{} : Bool}:
+  match x y:
+    case U32{+a} U32{+b}:
+      %Equal.sym(Cmp, Word.cmp(32n, b, a), SortL.cflip(Word.cmp(32n, a, b)), SortL.word_flip(32n, a, b)) : {Cmp.is_lt(_) == True{} : Bool}
+      not_le_lt.cmp(Word.cmp(32n, a, b), e)
+
+def le_refl(x: U32) -> {U32.is_le(x, x) == True{} : Bool}:
+  match x:
+    case U32{+a}:
+      %Equal.sym(Cmp, Word.cmp(32n, a, a), EQ{}, S.word_refl(32n, a)) : {Cmp.is_le(_) == True{} : Bool}
+      {==}
+
+# A mark of class `k` goes in after every mark of its class.
+def before_higher(c: Bool, +m: N.Mark, +r: N.Mark, +rest: List<&2, N.Mark>, +k: U32, +ec: {U32.is_eq(N.mark.class(m), k) == c : Bool}, +hlt: {U32.is_lt(N.mark.class(m), N.mark.class(r)) == True{} : Bool}, +hs: {sorted.from(rest, N.mark.class(r)) == True{} : Bool}) -> {Bool.pick(List<&2, N.Mark>, c, m <> of_class(r <> rest, k), of_class(r <> rest, k)) == List.append(&2, N.Mark, of_class(r <> rest, k), Bool.pick(List<&2, N.Mark>, c, [m], Nil{})) : List<&2, N.Mark>}:
+  match c:
+    case False{}:
+      Equal.sym(List<&2, N.Mark>, List.append(&2, N.Mark, of_class(r <> rest, k), Nil{}), of_class(r <> rest, k), app_nil(of_class(r <> rest, k)))
+    case True{}:
+      +emk = EqL.u32_eq(N.mark.class(m), k, ec)
+      +hk : {U32.is_lt(k, N.mark.class(r)) == True{} : Bool} = (%emk : {U32.is_lt(_, N.mark.class(r)) == True{} : Bool}; hlt)
+      +e1 = none_of_class(r <> rest, N.mark.class(r), k, and_i(U32.is_le(N.mark.class(r), N.mark.class(r)), sorted.from(rest, N.mark.class(r)), le_refl(N.mark.class(r)), hs), hk)
+      %Equal.sym(List<&2, N.Mark>, of_class(r <> rest, k), Nil{}, e1) : {m <> _ == List.append(&2, N.Mark, _, [m]) : List<&2, N.Mark>}
+      {==}
+
+def after_pick(c: Bool, +r: N.Mark, +a: List<&2, N.Mark>, +b: List<&2, N.Mark>, +m1: List<&2, N.Mark>, +e: {a == List.append(&2, N.Mark, b, m1) : List<&2, N.Mark>}) -> {Bool.pick(List<&2, N.Mark>, c, r <> a, a) == List.append(&2, N.Mark, Bool.pick(List<&2, N.Mark>, c, r <> b, b), m1) : List<&2, N.Mark>}:
+  match c:
+    case True{}:
+      %Equal.sym(List<&2, N.Mark>, a, List.append(&2, N.Mark, b, m1), e) : {r <> _ == r <> List.append(&2, N.Mark, b, m1) : List<&2, N.Mark>}
+      {==}
+    case False{}:
+      e
+
+# Inserting a mark into a run in order adds it to its class's marks, last.
+def insert_class(run: List<&2, N.Mark>, +m: N.Mark, after: Bool, +ea: {N.goes_after(run, m) == after : Bool}, +lo: U32, +hs: {sorted.from(run, lo) == True{} : Bool}, +k: U32) -> {of_class(N.insert.go(run, m, after), k) == List.append(&2, N.Mark, of_class(run, k), of_class([m], k)) : List<&2, N.Mark>}:
+  match run after:
+    case Nil{} _:
+      {==}
+    case +r <> +rest True{}:
+      after_pick(U32.is_eq(N.mark.class(r), k), r, of_class(N.insert.go(rest, m, N.goes_after(rest, m)), k), of_class(rest, k), of_class([m], k),
+        insert_class(rest, m, N.goes_after(rest, m), {==}, N.mark.class(r), and_r(U32.is_le(lo, N.mark.class(r)), sorted.from(rest, N.mark.class(r)), hs), k))
+    case +r <> +rest False{}:
+      before_higher(U32.is_eq(N.mark.class(m), k), m, r, rest, k, {==}, not_le_lt(N.mark.class(r), N.mark.class(m), ea), and_r(U32.is_le(lo, N.mark.class(r)), sorted.from(rest, N.mark.class(r)), hs))
+
+def insert_run_class(run: List<&2, N.Mark>, +m: N.Mark, +hr: {sorted.run(run) == True{} : Bool}, +k: U32) -> {of_class(N.insert(run, m), k) == List.append(&2, N.Mark, of_class(run, k), of_class([m], k)) : List<&2, N.Mark>}:
+  match run:
+    case Nil{}:
+      {==}
+    case +r <> +rest:
+      insert_class(r <> rest, m, N.goes_after(r <> rest, m), {==}, N.mark.class(r), and_i(U32.is_le(N.mark.class(r), N.mark.class(r)), sorted.from(rest, N.mark.class(r)), le_refl(N.mark.class(r)), hr), k)
+
+def single_app(c: Bool, +m: N.Mark, +r: List<&2, N.Mark>) -> {List.append(&2, N.Mark, Bool.pick(List<&2, N.Mark>, c, [m], Nil{}), r) == Bool.pick(List<&2, N.Mark>, c, m <> r, r) : List<&2, N.Mark>}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def cons_class(+m: N.Mark, +x: List<&2, N.Mark>, +y: List<&2, N.Mark>, +k: U32, +e: {of_class(x, k) == of_class(y, k) : List<&2, N.Mark>}) -> {of_class(m <> x, k) == of_class(m <> y, k) : List<&2, N.Mark>}:
+  %e : {Bool.pick(List<&2, N.Mark>, U32.is_eq(N.mark.class(m), k), m <> of_class(x, k), of_class(x, k)) == Bool.pick(List<&2, N.Mark>, U32.is_eq(N.mark.class(m), k), m <> _, _) : List<&2, N.Mark>}
+  {==}
+
+# What `order` returns holds each class's marks as it was given them: the
+# run so far, then what is left, class by class.
+def order_class(ms: List<&2, N.Mark>, +run: List<&2, N.Mark>, st: Bool, +est: {N.starts(ms) == st : Bool}, +hr: {sorted.run(run) == True{} : Bool}, +k: U32) -> {of_class(N.order.go(ms, run, st), k) == List.append(&2, N.Mark, of_class(run, k), of_class(ms, k)) : List<&2, N.Mark>}:
+  match ms st:
+    case Nil{} _:
+      Equal.sym(List<&2, N.Mark>, List.append(&2, N.Mark, of_class(run, k), Nil{}), of_class(run, k), app_nil(of_class(run, k)))
+    case +m <> +rest True{}:
+      +x = N.order.go(rest, Nil{}, N.starts(rest))
+      Equal.trans(List<&2, N.Mark>, of_class(List.append(&2, N.Mark, run, m <> x), k), List.append(&2, N.Mark, of_class(run, k), of_class(m <> x, k)), List.append(&2, N.Mark, of_class(run, k), of_class(m <> rest, k)),
+        of_app(run, m <> x, k),
+        Equal.cong(List<&2, N.Mark>, List<&2, N.Mark>, t => List.append(&2, N.Mark, of_class(run, k), t), of_class(m <> x, k), of_class(m <> rest, k),
+          cons_class(m, x, rest, k, order_class(rest, Nil{}, N.starts(rest), {==}, {==}, k))))
+    case +m <> +rest False{}:
+      +ir = N.insert(run, m)
+      Equal.trans(List<&2, N.Mark>, of_class(N.order.go(rest, ir, N.starts(rest)), k), List.append(&2, N.Mark, of_class(ir, k), of_class(rest, k)), List.append(&2, N.Mark, of_class(run, k), of_class(m <> rest, k)),
+        order_class(rest, ir, N.starts(rest), {==}, insert_run(run, m, hr), k),
+        Equal.trans(List<&2, N.Mark>, List.append(&2, N.Mark, of_class(ir, k), of_class(rest, k)), List.append(&2, N.Mark, List.append(&2, N.Mark, of_class(run, k), of_class([m], k)), of_class(rest, k)), List.append(&2, N.Mark, of_class(run, k), of_class(m <> rest, k)),
+          Equal.cong(List<&2, N.Mark>, List<&2, N.Mark>, t => List.append(&2, N.Mark, t, of_class(rest, k)), of_class(ir, k), List.append(&2, N.Mark, of_class(run, k), of_class([m], k)), insert_run_class(run, m, hr, k)),
+          Equal.trans(List<&2, N.Mark>, List.append(&2, N.Mark, List.append(&2, N.Mark, of_class(run, k), of_class([m], k)), of_class(rest, k)), List.append(&2, N.Mark, of_class(run, k), List.append(&2, N.Mark, of_class([m], k), of_class(rest, k))), List.append(&2, N.Mark, of_class(run, k), of_class(m <> rest, k)),
+            app_assoc(of_class(run, k), of_class([m], k), of_class(rest, k)),
+            Equal.cong(List<&2, N.Mark>, List<&2, N.Mark>, t => List.append(&2, N.Mark, of_class(run, k), t), List.append(&2, N.Mark, of_class([m], k), of_class(rest, k)), of_class(m <> rest, k), single_app(U32.is_eq(N.mark.class(m), k), m, of_class(rest, k))))))
+
+# Canonical ordering moves no mark past another of its class, and loses or
+# adds none: the marks of every class are the ones given, in order.
+def keeps_each_class(+ms: List<&2, N.Mark>, +k: U32) -> {of_class(N.order(ms), k) == of_class(ms, k) : List<&2, N.Mark>}:
+  order_class(ms, Nil{}, N.starts(ms), {==}, {==}, k)

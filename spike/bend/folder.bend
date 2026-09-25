@@ -847,21 +847,6 @@ def unspelled.go(ls: List<&2, String>, +prefix: String, +dir: String, +before: S
     case +line <> +rest False{} False{}:
       unspelled.go(rest, prefix, dir, joined(prefix, entry.name(line)), 0, String.starts_with(line, "l "), unspelled.is(rest), acc)
 
-# How many names a listing holds that cannot be spelled: its `u` lines, a
-# link's target aside, with `odd` saying whether the line at the head is
-# one. What `LAWS.a_name_that_cannot_be_spelled_is_refused` counts the
-# refusals against.
-def unspelled.count(ls: List<&2, String>, after: Bool, odd: Bool) -> Nat:
-  match ls after odd:
-    case Nil{} _ _:
-      0n
-    case line <> +rest True{} _:
-      unspelled.count(rest, False{}, unspelled.is(rest))
-    case line <> +rest False{} True{}:
-      1n+unspelled.count(rest, False{}, unspelled.is(rest))
-    case +line <> +rest False{} False{}:
-      unspelled.count(rest, String.starts_with(line, "l "), unspelled.is(rest))
-
 # `ls` as the walk reads it, `prefix` the directory's path, and `dir` where
 # it is on disk.
 def unspelled(+ls: List<&2, String>, +prefix: String, +dir: String) -> List<&2, Keyed>:
