@@ -1421,6 +1421,85 @@ def touches.recorded(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, p: Plan
     case Plan{steps, gone}:
       Bool.and(touched.steps(fs, ds, steps), touched.gone(fs, ds, gone))
 
+# Where an update reaches in the folder: a write, a link or a mode set at a
+# path the target's tree holds; and a removal only at a path it does not
+# hold, where the walk found a file whose bytes some revision records for
+# a file history put at that path — `cat` of that revision reads them for
+# it, or its tree names them as its payload — or found a link.
+# `LAWS.update_touches_only_the_target` holds every effect to it.
+def tree.has(t: Tree.Tree(), +p: String) -> Bool:
+  match t:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      Bool.or(String.eq(Tree.entry_path(e), p), tree.has(rest, p))
+
+# `cat` of the revision `id` reads these bytes for the file `x`, or its
+# tree names them as that file's payload.
+def reads.as(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +x: String, m: Maybe<&2, Tree.Entry>, +d: String) -> Bool:
+  match m:
+    case Some{Tree.Entry{f, p, Tree.Lines{}, y, g, mo}}:
+      records.lines(d, Main.content(fs, ds, id, x))
+    case Some{Tree.Entry{f, p, Tree.Whole{}, y, g, mo}}:
+      records.payload(d, y)
+    case _:
+      False{}
+
+def rev.reads.as(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +x: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, +d: String) -> Bool:
+  match r:
+    case Done{t}:
+      reads.as(fs, ds, id, x, Tree.lookup(t, x), d)
+    case Fail{e}:
+      False{}
+
+def revs.read.as(rs: List<&2, Main.Full>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +x: String, +d: String) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case +f <> rest:
+      Bool.or(rev.reads.as(fs, ds, Main.id_of(f), x, Main.tree.r(fs, Main.id_of(f)), d), revs.read.as(rest, fs, ds, x, d))
+
+def files.read.as(xs: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +d: String) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case +x <> rest:
+      Bool.or(revs.read.as(fs, fs, ds, x, d), files.read.as(rest, fs, ds, d))
+
+# Some revision records these bytes for a file some revision put at `p`,
+# by an `add` or a `move`.
+def recorded.there(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +p: String, +d: String) -> Bool:
+  files.read.as(files_at(fs, p), fs, ds, d)
+
+# The walk found, at `p`, a file whose bytes — the digest the host gave for
+# it — some revision records there, or a link.
+def found.recorded(found: List<&2, Folder.Found>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +dg: Map<&2, String>, +p: String) -> Bool:
+  match found:
+    case Nil{}:
+      False{}
+    case Folder.Found.File{+q, r, n} <> rest:
+      Bool.or(Bool.and(String.eq(q, p), recorded.there(fs, ds, p, Main.status.folder_digest(dg, p))), found.recorded(rest, fs, ds, dg, p))
+    case Folder.Found.Link{+q, t} <> rest:
+      Bool.or(String.eq(q, p), found.recorded(rest, fs, ds, dg, p))
+
+def reaches(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +t: Tree.Tree(), +found: List<&2, Folder.Found>, +dg: Map<&2, String>, e: Effect) -> Bool:
+  match e:
+    case Effect.Write{p, w}:
+      tree.has(t, p)
+    case Effect.Link{p, x}:
+      tree.has(t, p)
+    case Effect.Mode{p, w}:
+      tree.has(t, p)
+    case Effect.Remove{+p}:
+      Bool.and(Bool.not(tree.has(t, p)), found.recorded(found, fs, ds, dg, p))
+
+def confined(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +t: Tree.Tree(), +found: List<&2, Folder.Found>, +dg: Map<&2, String>, es: List<&2, Effect>) -> Bool:
+  match es:
+    case Nil{}:
+      True{}
+    case e <> rest:
+      Bool.and(reaches(fs, ds, t, found, dg, e), confined(fs, ds, t, found, dg, rest))
+
 # Whether a step refuses the whole update.
 def refuses(s: Step) -> Bool:
   match s:
