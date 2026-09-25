@@ -1307,3 +1307,16 @@ law record_reads_its_words:
   for +cmd: Main.RecordCmd
   for e: {Main.record.args.r(args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
   {cmd == Main.rargs.said(Main.rargs.read(args, Main.rword(args))) : Main.RecordCmd}
+
+# `amend`, `abandon` and `carry` read their words as their plain reading
+# says: the word after `-m`, `--move` or `--onto`, where the command takes
+# it, is its value, whatever it is; the last `-m` and the last `--onto`
+# count, and each `--move`, in order, cut at its first `=`; `-n`,
+# `--fields` and `--only` are asked for if they are there; and the one
+# other word is the target.
+law rewrite_reads_its_words:
+  for +cmd: String
+  for +args: List<&2, String>
+  for +c: Main.RwCmd
+  for e: {Main.rw.args.r(cmd, args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}
+  {c == Main.wargs.said(Main.wargs.read(cmd, args, Main.wword(cmd, args))) : Main.RwCmd}

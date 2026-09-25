@@ -2168,6 +2168,13 @@ def check_mutations(temporary):
             "record_lemmas.go_said",
             "commands.bend",
         ),
+        (
+            "a rewrite keeps the first `-m` instead of the last",
+            "      RwCmd{Some{v}, mv, o, n, d, f, y}",
+            "      RwCmd{Maybe.or(&2, String, m, Some{v}), mv, o, n, d, f, y}",
+            "record_lemmas.rw_go_said",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

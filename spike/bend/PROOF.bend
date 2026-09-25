@@ -658,3 +658,6 @@ def Laws.status_joins_what_it_reads(hs, fs, ds, ps, m, e, h):
 
 def Laws.record_reads_its_words(args, cmd, e):
   RecordL.args_said(args, cmd, e)
+
+def Laws.rewrite_reads_its_words(cmd, args, c, e):
+  RecordL.rw_args_said(cmd, args, c, e)
