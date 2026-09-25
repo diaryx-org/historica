@@ -838,11 +838,11 @@ def Laws.record_states_the_folder(older, ds, left, dg, reads, t, hs, ks, moves, 
 def Laws.record_names_what_it_writes(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
   RecordL.names_ok(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)
 
-def Laws.record_moves_the_bookmarks_on_its_parents(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls, i, n, c, pr, hi, hc):
-  RecordL.adv_has(Main.parents.changes(fs, ps), bs, i, n, c, pr, hi, hc)
+def Laws.record_moves_the_bookmarks_on_its_parents(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls, k, p, hp, m, f, hf, hid, hfirst, i, n, pr, hi):
+  RecordL.parents.move(fs, ps, bs, k, p, hp, m, f, hf, hid, hfirst, i, n, pr, hi)
 
 def Laws.record_moves_only_the_bookmarks_on_its_parents(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls, j, b, hj):
-  RecordL.adv_from(Main.parents.changes(fs, ps), bs, j, b, hj)
+  RecordL.parents.moved(fs, ps, bs, j, b, hj)
 
 def Laws.record_writes_only_what_is_settled(t, looked, held, walked, ss, moves, accepted, pl2, e, x):
   RecordL.settled_read(t, looked, held, walked, ss, moves, accepted, pl2, e, x)
