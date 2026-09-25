@@ -1,7 +1,9 @@
-# `diff` gives a file of bytes the size the host stated for its payload, and
-# nothing else: sizing what it compares changes no side but one whose size
-# was unknown, which keeps its digest and has a size only where the host
-# answered a line for that very digest.
+# `diff` gives a file of bytes the size the host stated for its payload,
+# and only that: sizing what it compares changes no side but one whose size
+# was unknown, which keeps its digest and has a size only where a line the
+# host answered names that very digest; and where the host answered the
+# stat of a payload it located with the digest, a space and a size, a file
+# of bytes with that payload is given that size.
 import Base
 import ./ops.bend as Ops
 import ./text.bend as T
@@ -9,6 +11,8 @@ import ./commands.bend as Main
 import ./string_lemmas.bend as S
 import ./anchor_lemmas.bend as AL
 import ./composition_lemmas.bend as Comp
+import ./revision.bend as Rev
+import ./plan_lemmas.bend as PlanL
 
 def ndisc(m: Maybe<&2, Nat>) -> Type:
   match m:
@@ -20,6 +24,125 @@ def ndisc(m: Maybe<&2, Nat>) -> Type:
 def none_some(-n: Nat, e: {None{} == Some{n} : Maybe<&2, Nat>}) -> Empty:
   %e : {ndisc(_) : Type}
   Unit{}
+
+# A size stated is given
+# ----------------------
+
+def pred(n: Nat) -> Nat:
+  match n:
+    case 0n:
+      0n
+    case 1n+p:
+      p
+
+def zdisc(n: Nat) -> Type:
+  match n:
+    case 0n:
+      Unit
+    case 1n+p:
+      Empty
+
+def zero_succ(-p: Nat, e: {0n == 1n+p : Nat}) -> Empty:
+  %e : {zdisc(_) : Type}
+  Unit{}
+
+def succ_zero(-p: Nat, e: {1n+p == 0n : Nat}) -> Empty:
+  zero_succ(p, Equal.sym(Nat, 1n+p, 0n, e))
+
+def or_false_l(a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
+  match a:
+    case True{}:
+      e
+    case False{}:
+      {==}
+
+def or_false_r(a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({b == False{} : Bool}, S.true_false(e))
+    case False{}:
+      e
+
+def believed_app(b: Bool, +d: String, +st: String, -A: List<&2, T.Split>, -B: List<&2, T.Split>) -> {Main.sizes.believed(d, st, List.append(&2, T.Split, A, B), b) == List.append(&2, T.Split, Main.sizes.believed(d, st, A, b), B) : List<&2, T.Split>}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# The host answers one stat line for each payload it located, so what is
+# believed of the payloads before and after one is believed of each part.
+def read_app(f1: List<&2, T.Split>, s1: List<&2, String>, hl: {List.length(&2, T.Split, f1) == List.length(&2, String, s1) : Nat}, +f2: List<&2, T.Split>, +s2: List<&2, String>) -> {Main.sizes.read(List.append(&2, T.Split, f1, f2), List.append(&2, String, s1, s2)) == List.append(&2, T.Split, Main.sizes.read(f1, s1), Main.sizes.read(f2, s2)) : List<&2, T.Split>}:
+  match f1 s1:
+    case Nil{} Nil{}:
+      {==}
+    case Nil{} st <> more:
+      Empty.absurd({Main.sizes.read(f2, List.append(&2, String, st <> more, s2)) == List.append(&2, T.Split, Nil{}, Main.sizes.read(f2, s2)) : List<&2, T.Split>}, zero_succ(List.length(&2, String, more), hl))
+    case T.Split{+x, +p} <> rest Nil{}:
+      Empty.absurd({Main.sizes.read(List.append(&2, T.Split, T.Split{x, p} <> rest, f2), s2) == List.append(&2, T.Split, Main.sizes.read(T.Split{x, p} <> rest, Nil{}), Main.sizes.read(f2, s2)) : List<&2, T.Split>}, succ_zero(List.length(&2, T.Split, rest), hl))
+    case T.Split{+x, +p} <> rest +st <> more:
+      %Equal.sym(List<&2, T.Split>, Main.sizes.read(List.append(&2, T.Split, rest, f2), List.append(&2, String, more, s2)), List.append(&2, T.Split, Main.sizes.read(rest, more), Main.sizes.read(f2, s2)), read_app(rest, more, Equal.cong(Nat, Nat, k => pred(k), 1n+List.length(&2, T.Split, rest), 1n+List.length(&2, String, more), hl), f2, s2)) : {Main.sizes.believed(x, st, _, String.eq(T.word(st), x)) == List.append(&2, T.Split, Main.sizes.believed(x, st, Main.sizes.read(rest, more), String.eq(T.word(st), x)), Main.sizes.read(f2, s2)) : List<&2, T.Split>}
+      believed_app(String.eq(T.word(st), x), x, st, Main.sizes.read(rest, more), Main.sizes.read(f2, s2))
+
+def drop_after(t: String, +x: String, +k: Nat) -> {String.drop(t ++ x, Nat.add(String.length(t), k)) == String.drop(x, k) : String}:
+  match t:
+    case SNil{}:
+      {==}
+    case SCon{h, rest}:
+      drop_after(rest, x, k)
+
+def drop_zero(s: String) -> {String.drop(s, 0n) == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      {==}
+
+# The size after a sixty-four character digest and a space.
+def size_at(+d: String, +size: String, hd: {String.length(d) == 64n : Nat}) -> {String.drop(d ++ (" " ++ size), 65n) == size : String}:
+  %hd : {String.drop(d ++ (" " ++ size), Nat.add(_, 1n)) == size : String}
+  Equal.trans(String, String.drop(d ++ (" " ++ size), Nat.add(String.length(d), 1n)), String.drop(size, 0n), size, drop_after(d, " " ++ size, 1n), drop_zero(size))
+
+# The line the host answered for a digest is believed, with the size after it.
+def read_head(+d: String, +p: String, +size: String, hd: {String.length(d) == 64n : Nat}, hs: {T.all_chars(~(c => Bool.not(Char.is_eq(c, ' '))), d) == True{} : Bool}, +f2: List<&2, T.Split>, +s2: List<&2, String>) -> {Main.sizes.read(T.Split{d, p} <> f2, (d ++ (" " ++ size)) <> s2) == T.Split{d, size} <> Main.sizes.read(f2, s2) : List<&2, T.Split>}:
+  %Equal.sym(String, T.word(d ++ (" " ++ size)), d, PlanL.word_first(d, size, hs)) : {Main.sizes.believed(d, d ++ (" " ++ size), Main.sizes.read(f2, s2), String.eq(_, d)) == T.Split{d, size} <> Main.sizes.read(f2, s2) : List<&2, T.Split>}
+  %Equal.sym(Bool, String.eq(d, d), True{}, S.eq_refl(d)) : {Main.sizes.believed(d, d ++ (" " ++ size), Main.sizes.read(f2, s2), _) == T.Split{d, size} <> Main.sizes.read(f2, s2) : List<&2, T.Split>}
+  %Equal.sym(String, String.drop(d ++ (" " ++ size), 65n), size, size_at(d, size, hd)) : {T.Split{d, _} <> Main.sizes.read(f2, s2) == T.Split{d, size} <> Main.sizes.read(f2, s2) : List<&2, T.Split>}
+  {==}
+
+# What is believed of other payloads says nothing of this one.
+def skip_hit(c: Bool, +x: String, +st: String, +d: String, -R: List<&2, T.Split>, +Y: List<&2, T.Split>, ex: {String.eq(x, d) == False{} : Bool}, ih: {Main.size_of(List.append(&2, T.Split, R, Y), d) == Main.size_of(Y, d) : Maybe<&2, Nat>}) -> {Main.size_of(List.append(&2, T.Split, Main.sizes.believed(x, st, R, c), Y), d) == Main.size_of(Y, d) : Maybe<&2, Nat>}:
+  match c:
+    case True{}:
+      %Equal.sym(Bool, String.eq(x, d), False{}, ex) : {Bool.pick(Maybe<&2, Nat>, _, Nat.read(String.drop(st, 65n)), Main.size_of(List.append(&2, T.Split, R, Y), d)) == Main.size_of(Y, d) : Maybe<&2, Nat>}
+      ih
+    case False{}:
+      ih
+
+def skip_others(f1: List<&2, T.Split>, s1: List<&2, String>, +d: String, +hn: {Rev.member(T.map(~T.Split, ~String, ~(x => Main.split.head(x)), f1), d) == False{} : Bool}, +Y: List<&2, T.Split>) -> {Main.size_of(List.append(&2, T.Split, Main.sizes.read(f1, s1), Y), d) == Main.size_of(Y, d) : Maybe<&2, Nat>}:
+  match f1 s1:
+    case Nil{} _:
+      {==}
+    case T.Split{+x, p} <> rest Nil{}:
+      {==}
+    case T.Split{+x, p} <> +rest +st <> more:
+      skip_hit(String.eq(T.word(st), x), x, st, d, Main.sizes.read(rest, more), Y,
+        or_false_l(String.eq(x, d), Rev.member(T.map(~T.Split, ~String, ~(x => Main.split.head(x)), rest), d), hn),
+        skip_others(rest, more, d, or_false_r(String.eq(x, d), Rev.member(T.map(~T.Split, ~String, ~(x => Main.split.head(x)), rest), d), hn), Y))
+
+# So the size given a payload is the one the host answered for it.
+def size_given(+f1: List<&2, T.Split>, +s1: List<&2, String>, hl: {List.length(&2, T.Split, f1) == List.length(&2, String, s1) : Nat}, +d: String, hn: {Rev.member(T.map(~T.Split, ~String, ~(x => Main.split.head(x)), f1), d) == False{} : Bool}, hd: {String.length(d) == 64n : Nat}, hs: {T.all_chars(~(c => Bool.not(Char.is_eq(c, ' '))), d) == True{} : Bool}, +p: String, +f2: List<&2, T.Split>, +size: String, +n: Nat, hz: {Nat.read(size) == Some{n} : Maybe<&2, Nat>}, +s2: List<&2, String>) -> {Main.size_of(Main.sizes.read(List.append(&2, T.Split, f1, T.Split{d, p} <> f2), List.append(&2, String, s1, (d ++ (" " ++ size)) <> s2)), d) == Some{n} : Maybe<&2, Nat>}:
+  %Equal.sym(List<&2, T.Split>, Main.sizes.read(List.append(&2, T.Split, f1, T.Split{d, p} <> f2), List.append(&2, String, s1, (d ++ (" " ++ size)) <> s2)), List.append(&2, T.Split, Main.sizes.read(f1, s1), Main.sizes.read(T.Split{d, p} <> f2, (d ++ (" " ++ size)) <> s2)), read_app(f1, s1, hl, T.Split{d, p} <> f2, (d ++ (" " ++ size)) <> s2)) : {Main.size_of(_, d) == Some{n} : Maybe<&2, Nat>}
+  %Equal.sym(List<&2, T.Split>, Main.sizes.read(T.Split{d, p} <> f2, (d ++ (" " ++ size)) <> s2), T.Split{d, size} <> Main.sizes.read(f2, s2), read_head(d, p, size, hd, hs, f2, s2)) : {Main.size_of(List.append(&2, T.Split, Main.sizes.read(f1, s1), _), d) == Some{n} : Maybe<&2, Nat>}
+  %Equal.sym(Maybe<&2, Nat>, Main.size_of(List.append(&2, T.Split, Main.sizes.read(f1, s1), T.Split{d, size} <> Main.sizes.read(f2, s2)), d), Main.size_of(T.Split{d, size} <> Main.sizes.read(f2, s2), d), skip_others(f1, s1, d, hn, T.Split{d, size} <> Main.sizes.read(f2, s2))) : {_ == Some{n} : Maybe<&2, Nat>}
+  %Equal.sym(Bool, String.eq(d, d), True{}, S.eq_refl(d)) : {Bool.pick(Maybe<&2, Nat>, _, Nat.read(size), Main.size_of(Main.sizes.read(f2, s2), d)) == Some{n} : Maybe<&2, Nat>}
+  hz
+
+# A file of bytes that went, or that came, is shown with the size the host
+# answered for its payload.
+def sized_given(+f1: List<&2, T.Split>, +s1: List<&2, String>, hl: {List.length(&2, T.Split, f1) == List.length(&2, String, s1) : Nat}, +d: String, hn: {Rev.member(T.map(~T.Split, ~String, ~(x => Main.split.head(x)), f1), d) == False{} : Bool}, hd: {String.length(d) == 64n : Nat}, hs: {T.all_chars(~(c => Bool.not(Char.is_eq(c, ' '))), d) == True{} : Bool}, +p: String, +f2: List<&2, T.Split>, +size: String, +n: Nat, hz: {Nat.read(size) == Some{n} : Maybe<&2, Nat>}, +s2: List<&2, String>, +from: Maybe<&2, String>, +to: Maybe<&2, String>, +modes: Maybe<&2, T.Split>, +targets: Maybe<&2, Main.Retarget>) -> {Main.sized(Main.sizes.read(List.append(&2, T.Split, f1, T.Split{d, p} <> f2), List.append(&2, String, s1, (d ++ (" " ++ size)) <> s2)), [Main.Compared{from, to, Some{Main.Side.Whole{d, None{}}}, None{}, modes, targets}, Main.Compared{from, to, None{}, Some{Main.Side.Whole{d, None{}}}, modes, targets}]) == [Main.Compared{from, to, Some{Main.Side.Whole{d, Some{n}}}, None{}, modes, targets}, Main.Compared{from, to, None{}, Some{Main.Side.Whole{d, Some{n}}}, modes, targets}] : List<&2, Main.Compared>}:
+  %Equal.sym(Maybe<&2, Nat>, Main.size_of(Main.sizes.read(List.append(&2, T.Split, f1, T.Split{d, p} <> f2), List.append(&2, String, s1, (d ++ (" " ++ size)) <> s2)), d), Some{n}, size_given(f1, s1, hl, d, hn, hd, hs, p, f2, size, n, hz, s2)) : {[Main.Compared{from, to, Some{Main.Side.Whole{d, _}}, None{}, modes, targets}, Main.Compared{from, to, None{}, Some{Main.Side.Whole{d, _}}, modes, targets}] == [Main.Compared{from, to, Some{Main.Side.Whole{d, Some{n}}}, None{}, modes, targets}, Main.Compared{from, to, None{}, Some{Main.Side.Whole{d, Some{n}}}, modes, targets}] : List<&2, Main.Compared>}
+  {==}
 
 # Sameness is reflexive
 # ---------------------
