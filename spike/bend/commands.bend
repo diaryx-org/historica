@@ -9705,6 +9705,16 @@ def reword.r(+fs: List<&2, Full>, prev: Full, +standing: List<&2, String>, +m: M
         s : Unit <- same.r(id, Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message}, doc)
         return doc
 
+# A reword changes the message alone: the message is the one `-m` gave and
+# not the one the revision had, the reword supersedes that revision alone,
+# and with the old message put back it says exactly what that revision
+# said, as `bare` compares two revisions. `LAWS.reword_changes_only_the_message`.
+def reword.ok(prev: Full, m: Maybe<&2, String>, doc: Rev.Rev) -> Bool:
+  match prev doc:
+    case Full{+id, change, parents, ss, author, when, rb, rv, facts, +message} Rev.Rev{c2, p2, +ss2, a2, w2, rb2, rv2, f2, +msg2}:
+      Bool.and(Rev.maybe_eq(m, msg2), Bool.and(Bool.not(String.eq(msg2, message)), Bool.and(only.one(ss2, id),
+        String.eq(bare(Rev.Rev{c2, p2, ss2, a2, w2, rb2, rv2, f2, message}), bare(Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message})))))
+
 def reword.go(+st: Bool, +root: String, +fs: List<&2, Full>, +prev: Full, +standing: List<&2, String>, +m: Maybe<&2, String>, planning: Bool, +f: Bool) -> IO(Unit):
   match planning:
     case True{}:

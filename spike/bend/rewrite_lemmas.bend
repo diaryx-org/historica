@@ -262,3 +262,49 @@ def plan_line(+fs: List<&2, Main.Full>, +id: String, only: Bool, -run: List<&2, 
       only1(fs, id, Main.already.r(fs, id), run, {==}, e)
     case False{}:
       whole1(fs, id, Main.already.r(fs, id), run, {==}, e)
+
+# A reword changes the message alone
+# ----------------------------------
+
+def differs(b: Bool, +x: String, +message: String, +change: String, +parents: List<&2, String>, +author: String, +when: String, +facts: List<&2, Rev.Header>, eb: {String.eq(x, message) == b : Bool}, hne: {String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, x})) == False{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      +hx = S.eq_true(x, message, eb)
+      +hmm = Equal.trans(Bool, String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message})), String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, x})), False{},
+        Equal.cong(String, Bool, s => String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, s})), message, x, Equal.sym(String, x, message, hx)), hne)
+      Empty.absurd({Bool.not(True{}) == True{} : Bool}, S.true_false(Equal.trans(Bool, True{}, String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message})), False{}, Equal.sym(Bool, String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message})), True{}, S.eq_refl(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}))), hmm)))
+
+def reworded(+x: String, +id: String, +change: String, +parents: List<&2, String>, +ss: List<&2, String>, +author: String, +when: String, +rb: Maybe<&2, String>, +rv: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, +reviser: String, +revised: String, hne: {String.eq(Main.bare(Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message}), Main.bare(Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, x})) == False{} : Bool}) -> {Main.reword.ok(Main.Full{id, change, parents, ss, author, when, rb, rv, facts, message}, Some{x}, Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, x}) == True{} : Bool}:
+  B.and_tt(String.eq(x, x), Bool.and(Bool.not(String.eq(x, message)), Bool.and(String.eq(id, id), String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message})))), S.eq_refl(x),
+    B.and_tt(Bool.not(String.eq(x, message)), Bool.and(String.eq(id, id), String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}))), differs(String.eq(x, message), x, message, change, parents, author, when, facts, {==}, hne),
+    B.and_tt(String.eq(id, id), String.eq(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message}), Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message})), S.eq_refl(id), S.eq_refl(Rev.write(Rev.Rev{change, Main.sorted(parents), Nil{}, author, when, None{}, None{}, facts, message})))))
+
+def reword3(+x: String, +id: String, +change: String, +parents: List<&2, String>, +ss: List<&2, String>, +author: String, +when: String, +rb: Maybe<&2, String>, +rv: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, +reviser: String, +revised: String, r: Result<&2, &2, Main.Refused, Unit>, -doc: Rev.Rev, er: {Main.same.r(id, Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message}, Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, x}) == r : Result<&2, &2, Main.Refused, Unit>}, e: {Result.bind(&2, &2, Main.Refused, Unit, Rev.Rev, r, s => Done{Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, x}}) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}) -> {Main.reword.ok(Main.Full{id, change, parents, ss, author, when, rb, rv, facts, message}, Some{x}, doc) == True{} : Bool}:
+  match r:
+    case Fail{y}:
+      Empty.absurd({Main.reword.ok(Main.Full{id, change, parents, ss, author, when, rb, rv, facts, message}, Some{x}, doc) == True{} : Bool}, B.fail_done(Rev.Rev, y, doc, e))
+    case Done{u}:
+      %B.done_eq(Rev.Rev, Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, x}, doc, e) : {Main.reword.ok(Main.Full{id, change, parents, ss, author, when, rb, rv, facts, message}, Some{x}, _) == True{} : Bool}
+      reworded(x, id, change, parents, ss, author, when, rb, rv, facts, message, reviser, revised, pick_false(Unit, String.eq(Main.bare(Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message}), Main.bare(Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, x})), Main.Refused{1, Main.ab12(id) ++ " already says exactly this, and a revision superseding one identical to itself would mean nothing"}, Unit{}, u, er))
+
+def reword2(m: Maybe<&2, String>, +standing: List<&2, String>, +id: String, +change: String, +parents: List<&2, String>, +ss: List<&2, String>, +author: String, +when: String, +rb: Maybe<&2, String>, +rv: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, +reviser: String, +revised: String, -doc: Rev.Rev, e: {Result.bind(&2, &2, Main.Refused, String, Rev.Rev, Main.reword.message.r(id, standing, m), msg => Result.bind(&2, &2, Main.Refused, Unit, Rev.Rev, Main.same.r(id, Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message}, Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, msg}), s => Done{Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, msg}})) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}) -> {Main.reword.ok(Main.Full{id, change, parents, ss, author, when, rb, rv, facts, message}, m, doc) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Main.reword.ok(Main.Full{id, change, parents, ss, author, when, rb, rv, facts, message}, None{}, doc) == True{} : Bool}, B.fail_done(Rev.Rev, Main.Refused{1, Main.some_lines(standing) ++ " work stands on " ++ Main.ab12(id) ++ ", so the folder cannot say what it holds and the act available is a reword: give -m to fix its message alone, which keeps every other fact it states:" ++ Main.listed12(standing)}, doc, e))
+    case Some{+x}:
+      reword3(x, id, change, parents, ss, author, when, rb, rv, facts, message, reviser, revised, Main.same.r(id, Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message}, Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, x}), doc, {==}, e)
+
+def reword1(+fs: List<&2, Main.Full>, +standing: List<&2, String>, +m: Maybe<&2, String>, +id: String, +change: String, +parents: List<&2, String>, +ss: List<&2, String>, +author: String, +when: String, +rb: Maybe<&2, String>, +rv: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, +reviser: String, +revised: String, r: Result<&2, &2, Main.Refused, Unit>, -doc: Rev.Rev, e: {Result.bind(&2, &2, Main.Refused, Unit, Rev.Rev, r, a => Result.bind(&2, &2, Main.Refused, String, Rev.Rev, Main.reword.message.r(id, standing, m), msg => Result.bind(&2, &2, Main.Refused, Unit, Rev.Rev, Main.same.r(id, Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message}, Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, msg}), s => Done{Rev.Rev{change, parents, [id], author, when, Main.revised_by(reviser, author), Some{revised}, facts, msg}}))) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}) -> {Main.reword.ok(Main.Full{id, change, parents, ss, author, when, rb, rv, facts, message}, m, doc) == True{} : Bool}:
+  match r:
+    case Fail{y}:
+      Empty.absurd({Main.reword.ok(Main.Full{id, change, parents, ss, author, when, rb, rv, facts, message}, m, doc) == True{} : Bool}, B.fail_done(Rev.Rev, y, doc, e))
+    case Done{u}:
+      reword2(m, standing, id, change, parents, ss, author, when, rb, rv, facts, message, reviser, revised, doc, e)
+
+# What a reword writes changes the message alone.
+def reword_ok(+fs: List<&2, Main.Full>, prev: Main.Full, +standing: List<&2, String>, +m: Maybe<&2, String>, +reviser: String, +revised: String, -doc: Rev.Rev, e: {Main.reword.r(fs, prev, standing, m, reviser, revised) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}) -> {Main.reword.ok(prev, m, doc) == True{} : Bool}:
+  match prev:
+    case Main.Full{+id, +change, +parents, +ss, +author, +when, +rb, +rv, +facts, +message}:
+      reword1(fs, standing, m, id, change, parents, ss, author, when, rb, rv, facts, message, reviser, revised, Main.already.r(fs, id), doc, e)
