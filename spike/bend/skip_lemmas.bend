@@ -796,23 +796,6 @@ def sw_ext(a: String, b: String, +z: String, h: {String.starts_with(a, b) == Tru
     case SCon{x, xt} SCon{y, +yt}:
       sw_if(Char.is_eq(x, y), z, xt, yt, h, hh => sw_ext(xt, yt, z, hh))
 
-def sw_prefix.if(c: Bool, xt: String, yt: String, +w: String, h: {String.starts_with.if(xt, String.append(yt, w), c) == True{} : Bool}, ih: {String.starts_with(xt, String.append(yt, w)) == True{} : Bool} -> {String.starts_with(xt, yt) == True{} : Bool}) -> {String.starts_with.if(xt, yt, c) == True{} : Bool}:
-  match c:
-    case True{}:
-      ih(h)
-    case False{}:
-      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
-
-# What starts with `v` and more starts with `v`.
-def sw_prefix(q: String, v: String, +w: String, h: {String.starts_with(q, String.append(v, w)) == True{} : Bool}) -> {String.starts_with(q, v) == True{} : Bool}:
-  match q v:
-    case _ SNil{}:
-      sw_nil(q)
-    case SNil{} SCon{y, +yt}:
-      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
-    case SCon{x, +xt} SCon{y, +yt}:
-      sw_prefix.if(Char.is_eq(x, y), xt, yt, w, h, hh => sw_prefix(xt, yt, w, hh))
-
 def or_false_id(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
   match b:
     case True{}:
@@ -820,32 +803,64 @@ def or_false_id(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
     case False{}:
       {==}
 
-def eq_starts.at(+q: String, +v: String, b: Bool, eb: {String.eq(q, v) == b : Bool}) -> {Bool.or(Bool.not(b), String.starts_with(q, v)) == True{} : Bool}:
+# What it skips is the path named, or under it, and nothing else; a file
+# it skips is checked first, so a break in the rule meets its refusal here.
+
+def drop_none(s: String) -> {s == String.drop(s, 0n) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{x, t}:
+      {==}
+
+def split_at.c(b: Bool, +x: Char, +xt: String, +y: Char, +yt: String, eb: {Char.is_eq(x, y) == b : Bool}, h: {String.starts_with.if(xt, yt, b) == True{} : Bool}, ih: {String.starts_with(xt, yt) == True{} : Bool} -> {xt == String.append(yt, String.drop(xt, String.length(yt))) : String}) -> {SCon{x, xt} == SCon{y, String.append(yt, String.drop(xt, String.length(yt)))} : String}:
   match b:
     case False{}:
-      {==}
+      Empty.absurd({SCon{x, xt} == SCon{y, String.append(yt, String.drop(xt, String.length(yt)))} : String}, S.false_true(h))
     case True{}:
-      +qe : {q == v : String} = S.eq_true(q, v, eb)
-      (%Equal.sym(String, q, v, qe) : {String.starts_with(_, v) == True{} : Bool} sw_refl(v))
+      %EqL.char_eq(x, y, eb) : {SCon{x, xt} == SCon{_, String.append(yt, String.drop(xt, String.length(yt)))} : String}
+      Equal.cong(String, String, z => SCon{x, z}, xt, String.append(yt, String.drop(xt, String.length(yt))), ih(h))
 
-def under_starts.at(+q: String, +v: String, b: Bool, eb: {String.starts_with(q, v ++ "/") == b : Bool}) -> {Bool.or(Bool.not(b), String.starts_with(q, v)) == True{} : Bool}:
+# A string that starts with `p` is `p` and what follows it.
+def split_at(p: String, +s: String, h: {String.starts_with(s, p) == True{} : Bool}) -> {s == String.append(p, String.drop(s, String.length(p))) : String}:
+  match p s:
+    case SNil{} _:
+      drop_none(s)
+    case SCon{y, yt} SNil{}:
+      Empty.absurd({SNil{} == String.append(SCon{y, yt}, String.drop(SNil{}, String.length(SCon{y, yt}))) : String}, S.false_true(h))
+    case SCon{+y, +yt} SCon{+x, +xt}:
+      split_at.c(Char.is_eq(x, y), x, xt, y, yt, {==}, h, hh => split_at(yt, xt, hh))
+
+def or_false_true(b: Bool, h: {Bool.or(b, False{}) == True{} : Bool}) -> {b == True{} : Bool}:
   match b:
-    case False{}:
-      {==}
     case True{}:
-      sw_prefix(q, v, "/", eb)
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
 
-def skips_scoped(+v: String, d: Bool, +x: String, +q: String) -> {Bool.and(Bool.pick(Bool, d, Bool.and(Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], String.append(v ++ "/", x))), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v)), Bool.or(Bool.not(Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], q)), String.starts_with(q, v))) == True{} : Bool}:
+def only_scoped(+v: String, d: Bool, +q: String, s: {Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], q) == True{} : Bool}) -> {q == Bool.pick(String, d, String.append(v ++ "/", String.drop(q, String.length(v ++ "/"))), v) : String}:
   match d:
     case False{}:
-      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.and(Bool.or(_, False{}), Bool.or(Bool.not(Bool.or(String.eq(q, v), False{})), String.starts_with(q, v))) == True{} : Bool}
-      %Equal.sym(Bool, Bool.or(String.eq(q, v), False{}), String.eq(q, v), or_false_id(String.eq(q, v))) : {Bool.or(Bool.not(_), String.starts_with(q, v)) == True{} : Bool}
-      eq_starts.at(q, v, String.eq(q, v), {==})
+      S.eq_true(q, v, or_false_true(String.eq(q, v), s))
     case True{}:
-      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.and(Bool.and(Bool.or(_, False{}), Bool.or(String.starts_with(String.append(v ++ "/", x), v ++ "/"), False{})), Bool.or(Bool.not(Bool.or(String.starts_with(q, v ++ "/"), False{})), String.starts_with(q, v))) == True{} : Bool}
-      %Equal.sym(Bool, String.starts_with(String.append(v ++ "/", x), v ++ "/"), True{}, sw_ext(v ++ "/", v ++ "/", x, sw_refl(v ++ "/"))) : {Bool.and(Bool.or(_, False{}), Bool.or(Bool.not(Bool.or(String.starts_with(q, v ++ "/"), False{})), String.starts_with(q, v))) == True{} : Bool}
-      %Equal.sym(Bool, Bool.or(String.starts_with(q, v ++ "/"), False{}), String.starts_with(q, v ++ "/"), or_false_id(String.starts_with(q, v ++ "/"))) : {Bool.or(Bool.not(_), String.starts_with(q, v)) == True{} : Bool}
-      under_starts.at(q, v, String.starts_with(q, v ++ "/"), {==})
+      split_at(v ++ "/", q, or_false_true(String.starts_with(q, v ++ "/"), s))
+
+def only_directory(+v: String, d: Bool, +p: String, s: {Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], p) == True{} : Bool}) -> {p == v : String}:
+  match d:
+    case False{}:
+      S.eq_true(p, v, or_false_true(String.eq(p, v), s))
+    case True{}:
+      S.eq_true(p, v, or_false_true(String.eq(p, v), s))
+
+def skips_scoped(+v: String, d: Bool, +x: String) -> {Bool.pick(Bool, d, Bool.and(Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], String.append(v ++ "/", x))), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v)) == True{} : Bool}:
+  match d:
+    case False{}:
+      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.or(_, False{}) == True{} : Bool}
+      {==}
+    case True{}:
+      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.and(Bool.or(_, False{}), Bool.or(String.starts_with(String.append(v ++ "/", x), v ++ "/"), False{})) == True{} : Bool}
+      %Equal.sym(Bool, String.starts_with(String.append(v ++ "/", x), v ++ "/"), True{}, sw_ext(v ++ "/", v ++ "/", x, sw_refl(v ++ "/"))) : {Bool.or(_, False{}) == True{} : Bool}
+      {==}
 
 def scoped_scope.at(+v: String, ut: Bool, hb: Bool, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped.of(Bool.pick(Result<&2, &2, Main.Refused, String>, ut, Fail{Main.Refused{2, "`" ++ v ++ "` cannot be a rule: a value is not empty and carries no leading or trailing space"}}, Bool.pick(Result<&2, &2, Main.Refused, String>, hb, Fail{Main.Refused{2, "a rule is one line, and this value holds a line break"}}, Done{v})), d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}) -> {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope}:
   match ut hb:
@@ -856,9 +871,20 @@ def scoped_scope.at(+v: String, ut: Bool, hb: Bool, +d: Bool, +sc: Folder.Scope,
     case False{} False{}:
       Equal.cong(Result<&2, &2, Main.Refused, Folder.Scope>, Folder.Scope, r => scope_of(r, sc), Done{Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})}, Done{sc}, e)
 
-# The rule `skip <path>` makes skips the file, or the directory and what is
-# in it, and nothing whose path does not start with the one named.
-def scoped_skips(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +x: String, +q: String) -> {Bool.and(Bool.pick(Bool, d, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)), Bool.or(Bool.not(Folder.skips([sc], q)), String.starts_with(q, v))) == True{} : Bool}:
+# The rule `skip <path>` makes skips the file, or the directory and a file
+# in it.
+def scoped_skips(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +x: String) -> {Bool.pick(Bool, d, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)) == True{} : Bool}:
   +ea : {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope} = scoped_scope.at(v, Folder.untrimmed(v), Skip.has_break(v), d, sc, e)
-  %ea : {Bool.and(Bool.pick(Bool, d, Bool.and(Folder.skips_directory([_], v), Folder.skips([_], String.append(v ++ "/", x))), Folder.skips([_], v)), Bool.or(Bool.not(Folder.skips([_], q)), String.starts_with(q, v))) == True{} : Bool}
-  skips_scoped(v, d, x, q)
+  %ea : {Bool.pick(Bool, d, Bool.and(Folder.skips_directory([_], v), Folder.skips([_], String.append(v ++ "/", x))), Folder.skips([_], v)) == True{} : Bool}
+  skips_scoped(v, d, x)
+
+# A file the rule `skip <path>` makes skips is the one named, or, for a
+# directory, the one named, a `/`, and the rest of its path.
+def scoped_only(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +q: String, s: {Folder.skips([sc], q) == True{} : Bool}) -> {q == Bool.pick(String, d, String.append(v ++ "/", String.drop(q, String.length(v ++ "/"))), v) : String}:
+  +ea : {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope} = scoped_scope.at(v, Folder.untrimmed(v), Skip.has_break(v), d, sc, e)
+  only_scoped(v, d, q, (%Equal.sym(Folder.Scope, Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}), sc, ea) : {Folder.skips([_], q) == True{} : Bool} s))
+
+# And a directory it skips whole is the one named.
+def scoped_only_directory(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +p: String, s: {Folder.skips_directory([sc], p) == True{} : Bool}) -> {p == v : String}:
+  +ea : {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope} = scoped_scope.at(v, Folder.untrimmed(v), Skip.has_break(v), d, sc, e)
+  only_directory(v, d, p, (%Equal.sym(Folder.Scope, Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}), sc, ea) : {Folder.skips_directory([_], p) == True{} : Bool} s))

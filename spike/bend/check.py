@@ -3784,6 +3784,27 @@ def check_mutations(temporary):
             "skip.bend",
         ),
         (
+            "a directory's rule skips what only starts with its name",
+            '    case Scope.Under{v}:\n      String.starts_with(path, v ++ "/")',
+            '    case Scope.Under{v}:\n      String.starts_with(path, v)',
+            "skip_lemmas.only_scoped",
+            "folder.bend",
+        ),
+        (
+            "check counts a note among the errors",
+            "      Nat.add(Bool.pick(Nat, Bool.not(Bool.xor(e, errors)), 1n, 0n), count.of(rest, errors))",
+            "      Nat.add(Bool.pick(Nat, e, 1n, 0n), count.of(rest, errors))",
+            "finding_lemmas.count_notes.at",
+            "check.bend",
+        ),
+        (
+            "check fails on a head it cannot produce unasked",
+            "  Bool.or(Bool.not(Nat.is_eq(count.of(fs, True{}), 0n)), Bool.and(complete, Bool.not(Nat.is_eq(heads.of(fs), 0n))))",
+            "  Bool.or(Bool.not(Nat.is_eq(count.of(fs, True{}), 0n)), Bool.not(Nat.is_eq(heads.of(fs), 0n)))",
+            "finding_lemmas.fails_is",
+            "check.bend",
+        ),
+        (
             "show finds a document whose digest the named one starts",
             '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, held(rest, id))',
             '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, held(rest, id))',
