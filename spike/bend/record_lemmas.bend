@@ -669,3 +669,73 @@ def named_ok(+rules: List<&2, Folder.Scope>, +named: List<&2, String>, +folder: 
   +e2 = pick_rest(Unit, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))), Main.Refused{1, "`history/skipped/` says history does not take " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "this", "these") ++ ", and naming " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " here does not make " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " an exception; remove the rule if " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it is", "they are") ++ " to be recorded:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))}, Bool.pick(Result<&2, &2, Main.Refused, Unit>, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))), Fail{Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))}}, Done{Unit{}}), u, e)
   +h2 = not_true(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{})), pick_no(Unit, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))), Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))}, Done{Unit{}}, u, e2))
   both_empty(rules, Sv.unknown(named, folder, was, placed), h1, h2)
+
+# Its dry run says an arrival once
+# --------------------------------
+
+def once_app(+a: Set(), xs: List<&2, T.Split>, +ys: List<&2, T.Split>, +hx: {Main.recorded.once(a, xs) == True{} : Bool}, hy: {Main.recorded.once(a, ys) == True{} : Bool}) -> {Main.recorded.once(a, List.append(&2, T.Split, xs, ys)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      hy
+    case T.Split{+k, +p} <> +rest:
+      +c = Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Sv.has(a, p)))))
+      B.and_tt(c, Main.recorded.once(a, List.append(&2, T.Split, rest, ys)), SortL.band_l(c, Main.recorded.once(a, rest), hx),
+        once_app(a, rest, ys, SortL.band_r(c, Main.recorded.once(a, rest), hx), hy))
+
+def once_added(+a: Set(), ps: List<&2, String>) -> {Main.recorded.once(a, Sv.fact("added", ps)) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      once_added(a, rest)
+
+def once_moved(+a: Set(), ps: List<&2, String>) -> {Main.recorded.once(a, Sv.fact("moved", ps)) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      once_moved(a, rest)
+
+def once_dropped(+a: Set(), ps: List<&2, String>) -> {Main.recorded.once(a, Sv.fact("dropped", ps)) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> rest:
+      once_dropped(a, rest)
+
+def once_pick(b: Bool, +a: Set(), +k: String, +x: String, +later: List<&2, String>, eb: {Sv.has(a, x) == b : Bool}, h: {Main.recorded.once(a, Sv.fact(k, later)) == True{} : Bool}) -> {Main.recorded.once(a, Sv.fact(k, Sv.without.pick(b, x, later))) == True{} : Bool}:
+  match b:
+    case True{}:
+      h
+    case False{}:
+      B.and_tt(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Sv.has(a, x))))), Main.recorded.once(a, Sv.fact(k, later)),
+        or_true(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Sv.has(a, x)))),
+        or_true(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Sv.has(a, x))),
+        or_true(String.eq(k, "dropped"), Bool.not(Sv.has(a, x)), not_false(Sv.has(a, x), eb)))), h)
+
+def once_without(+a: Set(), +k: String, xs: List<&2, String>) -> {Main.recorded.once(a, Sv.fact(k, Sv.without(xs, a))) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      once_pick(Sv.has(a, x), a, k, x, Sv.without(rest, a), {==}, once_without(a, k, rest))
+
+# What `record --dry-run` says names an arriving file on its `added` line
+# alone, whatever it observed.
+def recorded_once(+a: Set(), +os: List<&2, Sv.Obs>, +ls: List<&2, String>, +mp: List<&2, String>) -> {Main.recorded.once(a, Sv.facts.recorded(a, os, ls, mp)) == True{} : Bool}:
+  +ed = Sv.fact("edited", Sv.without(Sv.sorted(Sv.edited(os)), a))
+  +md = Sv.fact("mode", Sv.without(Sv.sorted(Sv.modes(os)), a))
+  +lk = Sv.fact("link", Sv.without(Sv.sorted(ls), a))
+  +dr = Sv.fact("dropped", Sv.sorted(Sv.dropped_paths(os)))
+  +mv = Sv.fact("moved", Sv.sorted(mp))
+  once_app(a, Sv.fact("added", Sv.sorted(Sv.added(os))), List.append(&2, T.Split, mv, List.append(&2, T.Split, dr, List.append(&2, T.Split, ed, List.append(&2, T.Split, md, lk)))), once_added(a, Sv.sorted(Sv.added(os))),
+    once_app(a, mv, List.append(&2, T.Split, dr, List.append(&2, T.Split, ed, List.append(&2, T.Split, md, lk))), once_moved(a, Sv.sorted(mp)),
+    once_app(a, dr, List.append(&2, T.Split, ed, List.append(&2, T.Split, md, lk)), once_dropped(a, Sv.sorted(Sv.dropped_paths(os))),
+    once_app(a, ed, List.append(&2, T.Split, md, lk), once_without(a, "edited", Sv.sorted(Sv.edited(os))),
+    once_app(a, md, lk, once_without(a, "mode", Sv.sorted(Sv.modes(os))), once_without(a, "link", Sv.sorted(ls)))))))
+
+# What `record` plans says an arriving file once.
+def planned_once(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), +walked: List<&2, T.Split>, +ss: List<&2, Sv.Seen>, +moves: List<&2, T.Split>) -> {Main.recorded.once(Set.from_list(Sv.added(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves)))), Main.planned.facts(Sv.planned(t, looked, held, walked, ss, moves))) == True{} : Bool}:
+  +os = List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held))
+  +a = Set.from_list(Sv.added(os))
+  recorded_once(a, os, Sv.links(t, Set.from_list(Sv.dropped_files(os)), a, os), Sv.moved.paths(moves, Set.from_list(Sv.dropped_files(os))))

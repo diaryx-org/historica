@@ -7897,6 +7897,22 @@ def planned.facts(pl: Sv.Planned) -> List<&2, T.Split>:
     case Sv.Planned{facts, r, c, a, e, d, o, l}:
       facts
 
+def planned.obs(pl: Sv.Planned) -> List<&2, Sv.Obs>:
+  match pl:
+    case Sv.Planned{facts, r, c, a, e, d, o, l}:
+      o
+
+# `record --dry-run` says a file arriving once: of the facts a plan states,
+# only an `added` line, and a `moved` or `dropped` one, names a path being
+# added, since the add carries the file's content, mode and target in with
+# it. `LAWS.record_says_an_arrival_once`.
+def recorded.once(+arriving: Set(), fs: List<&2, T.Split>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case T.Split{+k, +p} <> rest:
+      Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Sv.has(arriving, p))))), recorded.once(arriving, rest))
+
 # Rewrites
 # --------
 
