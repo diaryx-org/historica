@@ -222,6 +222,31 @@ def preamble(ls: List<&2, T.Line>) -> Result<&2, &2, String, Doc>:
 def parse(s: String) -> Result<&2, &2, String, Doc>:
   preamble(T.lines(s))
 
+# Writing
+# -------
+
+# The exact bytes of a resolution, as the Rust writer spells one: the
+# headers, the blank line, and each piece — a `keep` as its three fields, an
+# `insert` as its items, `\ forgotten` where one's text was destroyed.
+def write.piece(p: Piece) -> String:
+  match p:
+    case Piece.Keep{d, first, count}:
+      "keep " ++ d ++ " " ++ T.spell(first) ++ " " ++ T.spell(count) ++ "\n"
+    case Piece.Insert{items}:
+      "insert\n" ++ Ops.write_items('+', items)
+
+def write.pieces(ps: List<&2, Piece>) -> String:
+  match ps:
+    case Nil{}:
+      SNil{}
+    case p <> rest:
+      write.piece(p) ++ write.pieces(rest)
+
+def write(d: Doc) -> String:
+  match d:
+    case Doc{forgets, result, pieces}:
+      "historica\n" ++ Ops.header_line("forgets", forgets) ++ Ops.header_line("result", result) ++ "\n" ++ write.pieces(pieces)
+
 # What a resolution names
 # -----------------------
 
@@ -258,31 +283,6 @@ def minted(d: Doc) -> List<&2, Ops.Item>:
   match d:
     case Doc{forgets, result, ps}:
       minted.of(ps)
-
-# Writing
-# -------
-
-# The bytes the Rust tool writes for a resolution: the preamble and headers
-# an operation document has, a blank line, and each piece — a `keep` line,
-# or `insert` and its items spelled as an operation document spells them.
-def write.piece(p: Piece) -> String:
-  match p:
-    case Piece.Keep{d, f, c}:
-      "keep " ++ d ++ " " ++ T.spell(f) ++ " " ++ T.spell(c) ++ "\n"
-    case Piece.Insert{items}:
-      "insert\n" ++ Ops.write_items('+', items)
-
-def write.pieces(ps: List<&2, Piece>) -> String:
-  match ps:
-    case Nil{}:
-      SNil{}
-    case p <> rest:
-      write.piece(p) ++ write.pieces(rest)
-
-def write(d: Doc) -> String:
-  match d:
-    case Doc{forgets, result, ps}:
-      "historica\n" ++ Ops.header_line("forgets", forgets) ++ Ops.header_line("result", result) ++ "\n" ++ write.pieces(ps)
 
 def sample() -> String:
   "historica\nresult 07a9e448f01c537968c69f3fc819f5ca1913b905cfdac762796d122043df8378\n\nkeep 880553fca8fcea94e325ee2cfb48e5a985cc797f39a14cc6d3cedecfeb2ae4d2 0 1\ninsert\n+new\n\\ no newline\n"
