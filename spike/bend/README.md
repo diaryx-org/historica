@@ -275,7 +275,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `forget.bend` | `forget`: its arguments; the documents that quote a span — the edit that wrote each line, every delete of it, every resolution that copied it, followed through the walk — and the stand-in written for each; the originals found by their bytes and destroyed, and their copies in `cache/` with them; and every message and refusal | `store::forget`, `cli`'s `forget`, `Store::clear_cache` |
 | `forget_lemmas.bend` | what `forget` writes keeps its original's shape and destroys only text, and a replay through it reads the forgotten lines as forgotten and every other line as it was; what it rewrites is the file's own documents, one payload for a file of bytes, and the versions it counts are the others; what it destroys is only what it forgets, in `operations/` and in `cache/`; and it reads its words as their plain reading says | `cli/tests/forget.rs`, `cli/tests/cache.rs` |
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, reading what stands in for a forgotten document wherever it reads one, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and eighty-six claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | a hundred and eighty-five claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -313,7 +313,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `plan_lemmas.bend` | `diff_folder_replays_what_is_unsettled`, `diff_folder_reads_what_is_unsettled`: over the folder, `diff` replays exactly the files of lines no statement settles, and reads exactly the regular files nothing at the position settles — never a file of bytes or a link the position holds | `diff`'s reading of the folder |
 | `chain_lemmas.bend` | `chain_follows_first_parents`: the line a file's nearest statement is looked for along begins at the position and follows first parents, each a revision the store holds | the first-parent line |
 | `sizes_lemmas.bend` | `diff_sizes_what_the_host_stated`: sizing what `diff` compares changes no side but a file of bytes whose size was unknown, which keeps its digest and has a size only where the host's line for the bytes it found names that very digest | `diff`'s sizes |
-| `fetch_lemmas.bend` | `diff_fetches_what_it_replays`, `diff_folder_fetches_what_it_replays`: every document a revision states for a file `diff` replays is among those it fetches; `reading_fetches_what_resolutions_keep`: so is every document a resolution among them keeps; `diff_folder_fetches_the_edits_it_believes`: over the folder, so is the `edit` whose result could settle a file; `diff_asks_every_payload_it_shows`, `diff_stats_where_each_payload_was_found`: the host is asked about every payload shown, each once, and its stat only where it located that payload — through `List.sort` and `distinct` keeping every item | what `diff` asks the store and the host |
+| `fetch_lemmas.bend` | `diff_folder_plans_by_the_edits_it_fetches`: `diff` over the folder plans each path from nothing the store holds but the `edit` documents it asks for — any documents that answer those digests as the store's do give the store's plan; `reading_finds_what_resolutions_keep`: where the store answers each digest a reader asks for after its first documents with a document under it, every `keep` of every resolution among those finds one; `diff_asks_every_payload_it_shows`, `diff_asks_each_payload_once`, `diff_stats_where_each_payload_was_found`: the host is asked about exactly the payloads shown, none twice — `List.sort` puts every item in order and keeps each, and `distinct` leaves each once — and the stat of each only where it located that payload | what `diff` asks the store and the host |
 | `fulls_lemmas.bend` | `revisions_read_are_their_documents`: every revision a command reads is one a document of `revisions/` spells, under the digest it is known by, byte for byte as `Rev.write` writes what the revision says | `Store::revisions` |
 | `span_lemmas.bend` | `log_lists_its_span`: `log` goes on only with what its span names — what a target reaches, or what `b` reaches and `a` does not of `a..b` — each a revision the store holds | `log`'s ranges |
 | `logargs_lemmas.bend` | `log_reads_its_words`: `log` reads its arguments as their plain reading says — the word after a flag that takes a value is its value, the last counting, `--limit`, `--since` and `--until` read as a count and bounds, `--fields` asked for if it is there, and the other word the target | `log`'s arguments |
@@ -417,11 +417,14 @@ context around each change, or the digest and length of a file of bytes;
 and day that wrote each line. Two sides hold the same content for a file
 where the same revisions stated it, so only the files that differ are
 replayed, and for each of those everything a revision states of it is
-fetched first (`diff_fetches_what_it_replays`), with whatever a resolution
-among them keeps (`reading_fetches_what_resolutions_keep`). A file of bytes
-is shown with the size the host gives it: every payload shown is asked
-about (`diff_asks_every_payload_it_shows`), its stat only where the host
-located it (`diff_stats_where_each_payload_was_found`), and a size is
+fetched first, with whatever a resolution among them keeps: once the store
+has answered each of those, every `keep` of every resolution fetched finds
+a document to take its items from (`reading_finds_what_resolutions_keep`).
+A file of bytes is shown with the size the host gives it: the host is asked
+about exactly the payloads shown, and about each once
+(`diff_asks_every_payload_it_shows`, `diff_asks_each_payload_once`), its
+stat only where it located the payload
+(`diff_stats_where_each_payload_was_found`), and a size is
 believed only where the bytes found there hash to that very payload,
 sizing changing nothing else (`diff_sizes_what_the_host_stated`). What is laid over the
 parent is what the Rust tool lays:
@@ -462,9 +465,11 @@ regular files nothing at the position settles, never one the position holds
 as bytes or a link (`diff_folder_replays_what_is_unsettled`,
 `diff_folder_reads_what_is_unsettled`); the line the statements are read
 along follows first parents from the position (`chain_follows_first_parents`);
-and what a replay needs, and the `edit` whose result could settle a file, are
-fetched before (`diff_folder_fetches_what_it_replays`,
-`diff_folder_fetches_the_edits_it_believes`). A statement settles a file
+and what a replay needs is fetched before it. The plan is read from nothing
+the store holds but the `edit` documents fetched for it, whose results are
+the digests that can settle a file: any documents that answer those digests
+as the store's do give the plan the store's give
+(`diff_folder_plans_by_the_edits_it_fetches`). A statement settles a file
 only while every document its content was made of is here: where a
 forgetting destroyed one, no digest any document states is the file's, and
 it is replayed through what stands in. A malformed rule in `skipped/` refuses
@@ -1346,7 +1351,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-A hundred and seventy-four mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and seventy-six mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1448,10 +1453,11 @@ position holds as bytes read; and one chain break: a chain that stays at
 the revision it began at; and one revision-reading break: a document
 outside `revisions/` read as a revision; and two size breaks: a size
 believed whatever digest the host's line names, and a payload the host
-could not find asked the stat of; and four fetch breaks: a file replayed
-with nothing fetched for it, what a resolution keeps left unfetched, an
-`edit` the folder's plan believes left unfetched, and a payload shown left
-unasked; and one span break: `a..b` read as `b..a`; and nineteen writing breaks: `record` keeping the first `--onto`
+could not find asked the stat of; and six fetch breaks: what a resolution
+keeps left unfetched, a resolution's `keep` left out of what it keeps, an
+`edit` the folder's plan believes left unfetched, what a `text` names
+fetched in place of an `edit`'s document, a payload shown left unasked, and
+one asked about twice; and one span break: `a..b` read as `b..a`; and nineteen writing breaks: `record` keeping the first `--onto`
 and a rewrite the first `-m`, a carried revision authored by whoever
 carried it, a merge let onto an abandoned run, a reword that drops what the
 revision stated, an edited file diffed against nothing, the bookmarks on

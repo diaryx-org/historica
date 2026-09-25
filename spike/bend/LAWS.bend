@@ -1049,41 +1049,32 @@ law diff_sizes_what_the_host_stated:
   for +cs: List<&2, Main.Compared>
   {Main.sizes.told(stats, cs, Main.sized(Main.sizes.read(found, stats), cs)) == True{} : Bool}
 
-# `diff <target>` asks the store for everything it replays. For every file
-# it compares whose content it reads — one side lacks it, or the two sides
-# were stated by different revisions — every document a revision states for
-# the file is among the documents it fetches.
-law diff_fetches_what_it_replays:
-  for +fs: List<&2, Main.Full>
-  for +ws: Map<&2, List<&2, String>>
-  for +ns: Map<&2, List<&2, String>>
-  for +files: List<&2, Main.Both>
-  {FetchL.fetched.each(fs, ws, ns, Main.compare.wanted_docs(fs, ws, ns, files), files) == True{} : Bool}
-
-# And over the folder: every document a revision states for a file of lines
-# no statement settles is among those `diff` fetches.
-law diff_folder_fetches_what_it_replays:
-  for +fs: List<&2, Main.Full>
+# `diff` over the folder plans each path — whether the position's file is
+# replayed, whether the folder's is read — from nothing the store holds but
+# the `edit` documents it asks for before it plans: any documents that
+# answer each digest it asks for as all of the store's do, with the same
+# text under it or with none, give the plan all of the store's give.
+law diff_folder_plans_by_the_edits_it_fetches:
   for +dg: Map<&2, String>
   for +os: Map<&2, T.Split>
   for +eds: List<&2, Store.Doc>
+  for +all: List<&2, Store.Doc>
   for +hs: List<&2, Main.Here>
-  {FetchL.fetched.files(fs, Main.wanted_all(fs, Main.planned.replayed(Main.plans(dg, os, eds, hs))), Main.unsettled.files(dg, os, eds, hs)) == True{} : Bool}
+  for +h: {FetchL.agree(eds, all, Main.edits.asked(os, hs)) == True{} : Bool}
+  {Main.plans(dg, os, eds, hs) == Main.plans(dg, os, all, hs) : List<&2, Main.Planned>}
 
-# And before any of it, `diff` over the folder asks for the `edit`
-# document of every file of lines its folder holds a regular file for,
-# where the file's nearest statement is an `edit`: the result that document
-# states is the digest that can settle the file.
-law diff_folder_fetches_the_edits_it_believes:
-  for +os: Map<&2, T.Split>
-  for +hs: List<&2, Main.Here>
-  {FetchL.edits.each(os, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.edits_of(os, hs))), hs) == True{} : Bool}
-
-# `diff` asks the host about the payload of every file of bytes it shows,
-# each once, so that each can be shown with its size.
+# `diff` asks the host about the payloads it shows and nothing else: a
+# digest is among those it asks about exactly where a comparison it shows
+# has a side that is a file of bytes with that payload.
 law diff_asks_every_payload_it_shows:
   for +cs: List<&2, Main.Compared>
-  {FetchL.payloads.each(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.payloads_of(cs))), cs) == True{} : Bool}
+  for +d: String
+  {Rev.member(Main.payloads.asked(cs), d) == FetchL.shows.bytes(cs, d) : Bool}
+
+# And it asks about each once: no payload is among them twice.
+law diff_asks_each_payload_once:
+  for +cs: List<&2, Main.Compared>
+  {FetchL.each_once(Main.payloads.asked(cs)) == True{} : Bool}
 
 # And it asks the stat of a payload only at the path the host located that
 # payload at — never of one the host could not find, which it answers `-`
@@ -1094,12 +1085,17 @@ law diff_stats_where_each_payload_was_found:
   for +at: List<&2, String>
   {FetchL.located.each(ds, at, Main.sizes.of(root, ds, at)) == True{} : Bool}
 
-# What a resolution keeps is fetched too. After the documents a reading
-# command asks for, it asks for every document a resolution among them
-# keeps lines of, which assembling the resolution reads.
-law reading_fetches_what_resolutions_keep:
+# What a resolution keeps is found. After the documents a reading command
+# fetches, it asks for the ones `kept_digests` names; and where the store
+# answers each of those with a document under that very digest, every
+# `keep` of every document among the first that reads as a resolution
+# finds a document under the digest it names, so assembling one against
+# all of them never refuses for want of a document it keeps.
+law reading_finds_what_resolutions_keep:
   for +ds: List<&2, Store.Doc>
-  {FetchL.kept.each(ds, Main.kept_digests(ds)) == True{} : Bool}
+  for +more: List<&2, Store.Doc>
+  for +h: {Main.all_held(FetchL.doc_ids(more), Main.kept_digests(ds)) == True{} : Bool}
+  {FetchL.kept.found(List.append(&2, Store.Doc, ds, more), ds) == True{} : Bool}
 
 # The digest a statement gives a file is read along the first-parent line
 # back from the folder's position, the nearest revision on it to state the
