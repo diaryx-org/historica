@@ -45,6 +45,7 @@ import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
 import ./manifest_lemmas.bend as ManL
+import ./fetchplan_lemmas.bend as FPlanL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2924,3 +2925,56 @@ law fetch_reads_the_manifest_offer_writes:
   for +hh: {List.all(~&2, ~String, ~(d => T.is_digest(d)), hs) == True{} : Bool}
   for +ho: {List.all(~&2, ~Offer.Offered, ~(o => ManL.writable(o)), os) == True{} : Bool}
   {Fetch.manifest.got(url, Fetch.got.of(Done{"text\n" ++ ManL.printed(Offer.rendered(hs, os))})) == Done{Fetch.Manifest{hs, os}} : Result<&2, &2, Main.Refused, Fetch.Manifest>}
+
+# `fetch` refuses a copy as unrelated only where decision 0052 says it
+# must: joining was not asked, this store holds a revision, the manifest
+# lists one, and no revision it lists is one this store holds or one a
+# revision here names as a parent or as what it supersedes — the two of
+# decision 0029's arms a listing of digests can answer.
+law fetch_refuses_only_what_shares_no_revision:
+  for +h: Fetch.Here
+  for +os: List<&2, Offer.Offered>
+  for +join: Bool
+  for +x: String
+  for r: Main.Refused
+  for +e: {Fetch.plan.r(h, os, join) == Fail{r} : Result<&2, &2, Main.Refused, Fetch.FPlan>}
+  {Bool.and(Bool.not(join), Bool.and(Bool.not(List.is_empty(&2, Main.Full, Fetch.here.revs(h))), Bool.and(Bool.not(List.is_empty(&2, String, FPlanL.theirs(os))), Bool.not(Bool.and(Rev.member(FPlanL.theirs(os), x), Rev.member(FPlanL.ours(Fetch.here.revs(h)), x)))))) == True{} : Bool}
+
+# And it does refuse there, in the Rust tool's words: where joining is not
+# asked, each side holds a revision, and no revision the manifest lists is
+# one this store holds or names.
+law fetch_refuses_what_shares_no_revision:
+  for +h: Fetch.Here
+  for +os: List<&2, Offer.Offered>
+  for hr: {List.is_empty(&2, Main.Full, Fetch.here.revs(h)) == False{} : Bool}
+  for +ht: {List.is_empty(&2, String, FPlanL.theirs(os)) == False{} : Bool}
+  for hn: @x: String -> {Rev.member(FPlanL.theirs(os), x) == True{} : Bool} -> {Rev.member(FPlanL.ours(Fetch.here.revs(h)), x) == False{} : Bool}
+  {Fetch.plan.r(h, os, False{}) == Fail{Main.Refused{1, Fetch.UNRELATED()}} : Result<&2, &2, Main.Refused, Fetch.FPlan>}
+
+# Every original `fetch` destroys is one a forgetting document of this
+# store stands in for, or one a line of the manifest says its file forgets
+# (decision 0014): said of the documents and the lines themselves, not of
+# the list of digests the plan draws up from them.
+law fetch_destroys_only_what_is_forgotten:
+  for +s: Receive.Side
+  for +os: List<&2, Offer.Offered>
+  for +d: String
+  for h: {Rev.member(Fetch.plan.destroys(Fetch.plan.of(Fetch.here.of(s), os)), d) == True{} : Bool}
+  {Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d)) == True{} : Bool}
+
+# Asked for `--fields`, what `fetch` says of what it took is decision
+# 0074's: `historica-wrote-1` first, and then a `revision` line for each
+# revision it took — each named once, in digest order, and none named that
+# it did not take.
+law fetch_says_what_it_took:
+  for +rs: List<&2, String>
+  for +ds: Nat
+  for +ps: Nat
+  for +rus: Nat
+  for +res: Nat
+  for +ns: List<&2, String>
+  for +k: Nat
+  for +dec: List<&2, Fetch.Declined>
+  for +des: Nat
+  for +re: Nat
+  {Main.fields.ok(rs, Fetch.said.done(True{}, Fetch.Tally{rs, ds, ps, rus, res, ns, k, dec, des, re})) == True{} : Bool}
