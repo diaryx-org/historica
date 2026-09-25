@@ -3202,27 +3202,42 @@ law offer_lists_forgetting_as_prune_reads_it:
   for +text: String
   {Offer.catalogue.forgets(text) == Bool.pick(Maybe<&2, String>, Bool.and(Res.is_resolution(text), Bool.not(Prune.forgotten.payload(T.lines(text)))), None{}, OfferL.forgets_of(Prune.body.of(path, id, text, Prune.forgotten.payload(T.lines(text))))) : Maybe<&2, String>}
 
-# `export` lays out every path the target's tree places, each once and at
-# its own path, whatever kind of file it is: one outcome a path, in path
-# order, so a folder laid out without a refusal holds exactly the tree's
-# paths — a link where it sits, not where it points.
+# The folder `export` lays out holds a file at every path the target's
+# tree places and at no other, each path once and in path order, whatever
+# kind of file it is: a link where it sits, not where it points.
 law export_lays_out_every_path:
-  for +ps: List<&2, Export.Placed>
   for +t: Tree.Tree()
   for +fs: List<&2, Main.Full>
   for +ds: List<&2, Store.Doc>
   for +id: String
   for +pays: List<&2, T.Split>
   for +bs: List<&2, Prune.Body>
-  {Export.outcome.paths(Export.lay(ps, t, fs, ds, id, pays, bs)) == Export.placed.paths(ps) : List<&2, String>}
+  for +rules: List<&2, Folder.Scope>
+  for +qs: List<&2, Export.Put>
+  for +x: String
+  for +h: {Export.folder.r(t, fs, ds, id, pays, bs, rules) == Done{qs} : Result<&2, &2, Main.Refused, List<&2, Export.Put>>}
+  {Bool.and(Main.rising(Export.put.paths(qs)), Export.bool.same(Rev.member(Export.put.paths(qs), x), Export.tree.holds(t, x))) == True{} : Bool}
 
-# Every bookmark a copy is given is shared, and finds in the copy what it
-# names (decision 0062): an export never discloses a private name, and
-# never manufactures a dangling bookmark the origin did not have.
+# The bookmarks an export's plan gives the copy are exactly the shared
+# ones, as `offer` lists them, that find something among the revisions the
+# copy is given (decision 0062), each as the store holds it and in the
+# store's order. What finds is said from the revisions themselves: a
+# revision bookmark finds its revision, a change bookmark a revision of
+# the change, and a file bookmark a revision whose facts add, move, drop,
+# edit, or state the text or bytes of the file (decision 0024). So an
+# export never discloses a private name, never manufactures a bookmark
+# that finds nothing in the copy, and leaves behind no shared bookmark that
+# would find its target there.
 law export_names_only_what_travels:
+  for +held: List<&2, Main.Full>
+  for +t: Tree.Tree()
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, T.Split>
+  for +bodies: List<&2, Prune.Body>
+  for +rs: List<&2, Receive.Ruled>
   for +bs: List<&2, Bm.Bookmark>
-  for +pt: Export.Pointed
-  {Export.travels(Export.travel.names(Export.travel.of(bs, pt)), pt) == True{} : Bool}
+  for +claims: List<&2, T.Split>
+  {Export.travel.names(Export.plan.names(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims))) == Export.marks.found(Offer.shared(bs), held) : List<&2, Bm.Bookmark>}
 
 # Every rule file a copy is given states a shared rule (decision 0051),
 # whatever label it is filed under.
@@ -3288,8 +3303,9 @@ law export_lays_each_file_as_the_tree_has_it:
   {Export.laid.all(ps, Export.lay(ps, t, fs, ds, id, pays, bs), t, fs, ds, id, pays) == True{} : Bool}
 
 # A copy is assembled from this store's own files: every document and
-# forgetting document it carries is one this store holds under that
-# digest, and every payload a file of this store holding it.
+# forgetting document it carries is, whole — its path, digest, size and
+# text — one of the documents this store holds, and every payload is
+# copied from a file of this store holding that digest.
 law export_carries_only_this_stores_files:
   for +held: List<&2, Main.Full>
   for +t: Tree.Tree()
@@ -3372,20 +3388,6 @@ law offer_reads_its_words:
   for +ws: List<&2, String>
   {Offer.args.read(Offer.args.r(ws)) == Bool.pick(Maybe<&2, List<&2, String>>, Bool.and(List.all(~&2, ~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws), Nat.is_eq(List.length(&2, String, ws), 1n)), Some{ws}, None{}) : Maybe<&2, List<&2, String>>}
 
-# Every file an export lays out sits at a path a folder may be given:
-# outside the store, not a directory another of the tree's files needs,
-# and none a rule of the copy covers, so the copy's own walk offers back
-# every file it was given.
-law export_lays_out_only_what_the_walk_offers_back:
-  for +t: Tree.Tree()
-  for +fs: List<&2, Main.Full>
-  for +ds: List<&2, Store.Doc>
-  for +id: String
-  for +pays: List<&2, T.Split>
-  for +bs: List<&2, Prune.Body>
-  for +rules: List<&2, Folder.Scope>
-  {Export.folder.clear(t, rules, Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}
-
 # Updating a copy destroys only originals a forgetting document of this
 # store, or of the copy, stands in for (decision 0014): among the documents
 # themselves, one whose header forgets that very digest.
@@ -3454,30 +3456,41 @@ law export_dry_run_names_what_it_would_write:
   for +x: String
   {Bool.and(Main.strings.same(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "would withdraw history/"), ws), Bool.and(Main.rising(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "write   ")), Export.bool.same(Rev.member(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "write   "), x), Export.tree.holds(t, x)))) == True{} : Bool}
 
-# What `export --files-only -n` says it would do is what the real run then
-# says it did: read back, its `write` lines name, in order, exactly the
-# files the real run names as `wrote`, and its `link` lines exactly the
-# links, each with where it points, that the real run names as `linked` —
-# whatever modes it went on to set.
+# What `export --files-only -n` says it would write is the target's tree:
+# read back, its `write` lines are the paths at which the tree holds a
+# file that is not a link — every one, once each, in path order, and no
+# other — and the real run, having laid the folder out, names exactly
+# those as `wrote`, whatever modes it went on to set.
 law export_files_only_dry_run_names_what_it_lays_out:
-  for +ps: List<&2, Export.Put>
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  for +qs: List<&2, Export.Put>
   for +set: List<&2, String>
   for +spelled: String
   for +into: String
   for +at: String
-  {Bool.and(Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "write   "), Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   ")), Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "link    "), Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  "))) == True{} : Bool}
+  for +x: String
+  for +h: {Export.folder.r(t, fs, ds, id, pays, bs, rules) == Done{qs} : Result<&2, &2, Main.Refused, List<&2, Export.Put>>}
+  {Bool.and(Main.strings.same(Export.said.after(Export.said.folder(qs, spelled, into), "write   "), Export.said.after(Export.said.laid(qs, set, spelled, at), "wrote   ")), Bool.and(Main.rising(Export.said.after(Export.said.folder(qs, spelled, into), "write   ")), Export.bool.same(Rev.member(Export.said.after(Export.said.folder(qs, spelled, into), "write   "), x), Export.tree.file(t, x)))) == True{} : Bool}
 
-# An export updates a copy only where the copy is its own to update
-# (decision 0052): it goes on exactly where the copy is related to this
-# store (decision 0029) and every revision the copy holds is one this store
-# holds, or names as some revision's parent or as one it supersedes. A
-# revision it has not heard of was recorded in the copy, and combining that
-# is `receive`'s.
+# An export refuses to update a copy holding a revision this store neither
+# holds nor names as some revision's parent or as one it supersedes — the
+# edges `receive` reads a store's graph by — wherever among the copy's
+# revisions it stands (decision 0052): somebody recorded it in the copy,
+# and combining that is `receive`'s.
 law export_updates_only_a_copy_it_could_have_made:
   for +into: String
   for +fs: List<&2, Main.Full>
-  for +cfs: List<&2, Main.Full>
-  {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == Bool.and(Receive.related(fs, cfs), Export.heard.all(cfs, fs)) : Bool}
+  for +pre: List<&2, Main.Full>
+  for +f: Main.Full
+  for +post: List<&2, Main.Full>
+  for h: {Rev.member(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), Main.id_of(f)) == False{} : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, List.append(&2, Main.Full, pre, f <> post))) == False{} : Bool}
 
 # Bringing a copy up to date leaves it holding the whole set a fresh
 # export of the target gives (decision 0052): every revision, document,
@@ -4831,3 +4844,18 @@ law receive_answers_the_same_either_way:
   for hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}
   for ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}
   {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, join)) == Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(there, here, join)) : Bool}
+
+# And it goes on into a copy it could have made: one sharing a revision
+# with this store (decision 0029), every revision of which this store
+# holds or names as some revision's parent or as one it supersedes — as a
+# copy it exported holds only its target's ancestry, and a revision pruned
+# here since is still named by what superseded it.
+law export_updates_a_copy_it_could_have_made:
+  for +into: String
+  for +fs: List<&2, Main.Full>
+  for +cfs: List<&2, Main.Full>
+  for +c: String
+  for hc: {Rev.member(Main.ids(cfs), c) == True{} : Bool}
+  for hh: {Rev.member(Main.ids(fs), c) == True{} : Bool}
+  for +h: {Main.all_held(List.append(&2, String, Main.ids(fs), Receive.edges(fs)), Main.ids(cfs)) == True{} : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == True{} : Bool}
