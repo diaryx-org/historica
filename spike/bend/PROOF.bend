@@ -80,6 +80,7 @@ import ./forgetting_lemmas.bend as ForgettingL
 import ./opened_lemmas.bend as OpenedL
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
+import ./cleared_lemmas.bend as ClearedL
 import ./prune.bend as Prune
 import ./receive_lemmas.bend as ReceiveL
 import ./offer_lemmas.bend as OfferL
@@ -1052,8 +1053,8 @@ def Laws.prune_dry_run_names_what_prune_removes(p, x):
 def Laws.prune_removes_only_files_that_may_go(fs, revs, bs, ps, x, h):
   PruneL.may_go(fs, revs, bs, ps, x, h)
 
-def Laws.prune_clears_only_derived_files(text, y, h):
-  PruneL.cleared(text, y, h)
+def Laws.prune_clears_only_derived_files(es, h):
+  ClearedL.cleared(es, h)
 
 def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps, d, h):
   PruneL.removes(fs, revs, bs, ps, d, h)

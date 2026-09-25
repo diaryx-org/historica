@@ -51,6 +51,7 @@ import ./editor.bend as Editor
 import ./fetch.bend as Fetch
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
+import ./cleared_lemmas.bend as ClearedL
 import ./receive_lemmas.bend as ReceiveL
 import ./offer_lemmas.bend as OfferL
 import ./utf8.bend as Utf8
@@ -3132,12 +3133,12 @@ law prune_dry_run_names_what_prune_removes:
   {(Rev.member(Prune.act.says(Prune.act.of(True{}, False{}, p)), "would remove history/" ++ x), Rev.member(Prune.act.says(Prune.act.of(False{}, False{}, p)), "removed history/" ++ x)) == (Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, p)), x), Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, p)), x)) : Bool & Bool}
 
 # Every file `prune` removes is one of the store's that may go: a revision
-# document holding a revision a revision of the store says, in its own
-# `supersedes`, that it supersedes, and that no revision `prune` keeps
-# names as a parent; or an operation document or payload holding a digest
-# no revision it keeps names by its own `edit`, `text` or `bytes` facts,
-# and that no forgetting document standing in for such content is filed
-# under.
+# document holding a revision of the store that `prune` does not keep —
+# one a revision of the store says, in its own `supersedes`, that it
+# supersedes, and that no revision it keeps names as a parent; or an
+# operation document or payload holding a digest no revision it keeps
+# names by its own `edit`, `text` or `bytes` facts, and that no forgetting
+# document standing in for such content is filed under.
 law prune_removes_only_files_that_may_go:
   for +fs: List<&2, Main.Full>
   for +revs: List<&2, T.Split>
@@ -3147,17 +3148,18 @@ law prune_removes_only_files_that_may_go:
   for h: {Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.plan(fs, revs, bs, ps))), x) == True{} : Bool}
   {Bool.or(PruneL.rev_goes(revs, fs, x), Bool.or(PruneL.content_goes(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), fs, bs, x), PruneL.content_goes(ps, fs, bs, x))) == True{} : Bool}
 
-# `prune` clears from `cache/` only files named by a digest — what any
-# reader rebuilds, and what may hold content it has just destroyed: every
-# path it removes there is `cache/` and the name a file line (`f `) of
-# the directory's listing gives, sixty-four lowercase hexadecimal digits.
-# So it never removes `cache/README.txt`, the note `init` writes, and a
-# directory, or a file a person put there under any other name, stays.
+# `prune` clears from `cache/` exactly the files named by a digest — what
+# any reader rebuilds, and what may hold content it has just destroyed.
+# Of any directory the host lists, in the host's own listing format, the
+# paths it removes there are `cache/` and the name of each file entry that
+# is sixty-four lowercase hexadecimal digits, once each and in the order
+# listed. A directory, a link, the target a link's line is followed by, an
+# entry of any other kind, and a file under any other name — `README.txt`,
+# the note `init` writes, among them — stay.
 law prune_clears_only_derived_files:
-  for +text: String
-  for +y: String
-  for h: {Rev.member(Prune.cleared.paths(text), y) == True{} : Bool}
-  {Bool.and(PruneL.derived(String.lines(text), y), Bool.not(String.eq(y, "cache/README.txt"))) == True{} : Bool}
+  for +es: List<&2, Export.Listed>
+  for +h: {Export.listed.ok(es) == True{} : Bool}
+  {Prune.cleared.paths(Export.listing(es)) == T.map(~String, ~String, ~(n => "cache/" ++ n), ClearedL.digest_files(es)) : List<&2, String>}
 
 # Every operation document and payload `prune` removes holds a digest no
 # revision it keeps names — read from that revision's own `edit`, `text`
