@@ -1,6 +1,8 @@
 # What `export` promises of a copy's store it brings up to date. It writes
 # only into a copy related to this store holding nothing this store has
-# not heard of.
+# not heard of; it leaves the copy the whole set, giving up only what the
+# set no longer names; it carries the files of `claims/` the copy lacks;
+# and it adds no private rule.
 import Base
 import ./export.bend as Export
 import ./receive.bend as Receive

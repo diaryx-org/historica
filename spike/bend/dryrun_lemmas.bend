@@ -1,7 +1,8 @@
 # What `export -n` says it would do. Read back, its `write` lines name every
 # path of the target's tree once, in path order, and nothing else; its
 # `would withdraw` lines name every file a copy being updated gives up, in
-# the order they go.
+# the order they go. And `--files-only -n` names, file for file and link
+# for link, what the real run says it wrote and linked.
 import Base
 import ./export.bend as Export
 import ./commands.bend as Main
