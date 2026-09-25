@@ -11,6 +11,7 @@ import ./merge.bend as Merge
 import ./store.bend as Store
 import ./conflict.bend as C
 import ./commands.bend as Main
+import ./standin.bend as Stand
 import ./string_lemmas.bend as SL
 import ./hunk_lemmas.bend as HL
 import ./anchor_lemmas.bend as AL
@@ -188,10 +189,10 @@ def keep_more.doc(+d: String, +m: Nat, +c: Nat, +it: Ops.Item, +h: List<&2, Ops.
 # ----------
 
 def piece_one(+ds: List<&2, Store.Doc>, +d: String, +m: Nat, +it: Ops.Item, hm: {Main.mints(ds, C.Named{C.Ref{d, m}, it}) == True{} : Bool}) -> {Main.assemble.piece(ds, Res.Piece.Keep{d, m, 1n}) == Done{[it]} : Result<&2, &2, String, List<&2, Ops.Item>>}:
-  keep_one.doc(d, m, it, Main.doc_by_id(ds, d), hm)
+  keep_one.doc(d, m, it, Stand.text(ds, d), hm)
 
 def piece_more(+ds: List<&2, Store.Doc>, +d: String, +m: Nat, +c: Nat, +it: Ops.Item, +h: List<&2, Ops.Item>, hm: {Main.mints(ds, C.Named{C.Ref{d, m}, it}) == True{} : Bool}, e: {Main.assemble.piece(ds, Res.Piece.Keep{d, 1n+m, c}) == Done{h} : Result<&2, &2, String, List<&2, Ops.Item>>}) -> {Main.assemble.piece(ds, Res.Piece.Keep{d, m, 1n+c}) == Done{it <> h} : Result<&2, &2, String, List<&2, Ops.Item>>}:
-  keep_more.doc(d, m, c, it, h, Main.doc_by_id(ds, d), hm, e)
+  keep_more.doc(d, m, c, it, h, Stand.text(ds, d), hm, e)
 
 # A line written before an insert joins it; before anything else, it is an
 # insert of its own.

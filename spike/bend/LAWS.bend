@@ -26,6 +26,8 @@ import ./sort_lemmas.bend as SortL
 import ./naming.bend as Naming
 import ./fulls_lemmas.bend as FullsL
 import ./fetch_lemmas.bend as FetchL
+import ./standin.bend as Stand
+import ./forget.bend as Fg
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1170,7 +1172,11 @@ law cat_reads_a_held_file:
 
 # `show <target> <path>` names a file the target's tree holds, and what
 # `show` prints is a document the store holds under the digest named — the
-# revision's own, or the one it states for the file.
+# revision's own, or the one it states for the file. Where a forgetting
+# destroyed the one it states (decisions 0014, 0050, 0066), what it prints
+# is what stands in for it: documents the store holds, each whole and in
+# the store's order, each saying in its first header that it `forgets` the
+# digest named — never a document of its own making.
 law show_names_a_held_file:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
@@ -1195,7 +1201,7 @@ law show_prints_what_the_revision_states:
   for s: Main.Said
   for +text: String
   for e: {Main.show.said.r(id, file, ds, s) == Done{text} : Result<&2, &2, Main.Refused, String>}
-  {Main.doc.holds(ds, Main.said.digest(s), text) == True{} : Bool}
+  {Bool.or(Main.doc.holds(ds, Main.said.digest(s), text), Stand.made_of(ds, Main.said.digest(s), text)) == True{} : Bool}
 
 # `name` writes where its name puts it, under `names/`: a name it takes is
 # never absolute and never climbs out with `..`, since a bookmark whose
@@ -2029,3 +2035,139 @@ law abandon_dry_run_names_the_run:
   for +only: Bool
   for +run: List<&2, String>
   {Main.said.first(run, Main.abandon.dry.lines(fs, bs, id, only, run), "would abandon ") == True{} : Bool}
+
+# A forgetting document states what it stands in for with only text
+# destroyed (decisions 0014 and 0050): every operation at its position with
+# its count and each item's terminator, every `keep` as it was and each
+# `insert` at its own length. So `standin.bend`'s union rule, which sets
+# aside a stand-in whose shape disagrees, folds in every one `forget`
+# writes.
+law forgetting_keeps_shape:
+  for ops: List<&2, Ops.Op>
+  for +ps: List<&2, Fg.FgPick>
+  for +t: String
+  for +i: Nat
+  {Stand.ops.shape(ops, Fg.forget.ops(ops, ps, t, i)) == True{} : Bool}
+
+law forgetting_a_resolution_keeps_shape:
+  for pieces: List<&2, Res.Piece>
+  for +ps: List<&2, Fg.FgPick>
+  for +t: String
+  for +i: Nat
+  {Stand.pieces.shape(pieces, Fg.forget.pieces(pieces, ps, t, i)) == True{} : Bool}
+
+# Every document `forget --lines` writes a stand-in for, and so every
+# digest whose bytes it destroys, is one a revision states for that file —
+# its `edit`'s, or the payload its `text` states: forgetting lines of one
+# file rewrites no other file's documents, however far the walk goes to
+# find a delete quoting them or a resolution's copy.
+law forget_rewrites_only_the_files_documents:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +file: String
+  for +first: String
+  for +last: String
+  for +ts: List<&2, String>
+  for +ws: List<&2, Fg.FgWrite>
+  for +a: Nat
+  for +n: Nat
+  for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
+  {Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts) == True{} : Bool}
+
+# Forgetting a file of bytes forgets the payload its tree holds for it at
+# the revision named, or nothing: another version of the file is another
+# payload (decision 0066), counted and left alone.
+law forget_whole_takes_one_payload:
+  for +file: String
+  for +payload: Maybe<&2, String>
+  for +files: List<&2, Fg.FgFiled>
+  for +stood: List<&2, Store.Doc>
+  for +n: Nat
+  for +ts: List<&2, String>
+  for +ws: List<&2, Fg.FgWrite>
+  for +a: Nat
+  for +m: Nat
+  for e: {Fg.whole.plan.r(file, payload, files, stood, n) == Done{Fg.Fg.Plan{ts, ws, a, m}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
+  {Main.all_held(Fg.payload.list(payload), ts) == True{} : Bool}
+
+# And the versions it says the file holds "elsewhere in its history, each
+# forgotten on its own" are other payloads than the one it forgets: the
+# count never includes the content it has just destroyed.
+law forget_counts_only_other_versions:
+  for +fs: List<&2, Main.Full>
+  for +file: String
+  for +t: String
+  {Rev.member(Fg.others(fs, file, t), t) == False{} : Bool}
+
+# `forget` destroys a file only where its bytes are one of the digests it
+# forgets: found by content, as everything in a store is, and nothing else
+# under `operations/` touched.
+law forget_destroys_only_what_it_forgets:
+  for +fs: List<&2, Fg.FgFiled>
+  for +ts: List<&2, String>
+  for +p: String
+  for e: {Rev.member(Fg.destroyed(fs, ts), p) == True{} : Bool}
+  {Rev.member(Fg.holding(fs, ts), p) == True{} : Bool}
+
+# `forget` reads its arguments as their plain reading says: every flag it
+# knows set aside, and with `--lines` the word after it, whatever that word
+# is; what is left, in order, is the target and the path.
+law forget_reads_its_words:
+  for +ws: List<&2, String>
+  for +t: String
+  for +p: String
+  for +sp: Maybe<&2, Fg.FgSpan>
+  for +d: Bool
+  for +f: Bool
+  for e: {Fg.asked.r(ws) == Done{Fg.Fg.Asked{t, p, sp, d, f}} : Result<&2, &2, Main.Refused, Fg.FgAsked>}
+  {Fg.plain(ws, False{}) == [t, p] : List<&2, String>}
+
+# What `forget` removes from `cache/` is an entry named by a digest — a
+# copy of some file's content, which may be a copy of what went — and
+# nothing else there: the note `init` writes and the catalogues survive.
+law forget_clears_only_copies:
+  for ps: List<&2, String>
+  for +p: String
+  for e: {Rev.member(Fg.cached(ps), p) == True{} : Bool}
+  {T.is_digest(String.drop(p, 6n)) == True{} : Bool}
+
+# Decision 0014: replay does not consult payload. A document whose every
+# item is the one written or that item forgotten — a stand-in, which states
+# no result — applied to a file whose every line is the original parent's
+# or that line forgotten, makes a file wherever the original makes one, and
+# each of its lines is the original's line or that line forgotten. A
+# forgotten item agrees with whatever its terminator allows, and nothing
+# else the walk does reads text.
+law standin_replays_like_what_it_stands_in_for:
+  for +st1: List<&2, Ops.Item>
+  for +st2: List<&2, Ops.Item>
+  for f: Maybe<&2, String>
+  for +r: Maybe<&2, String>
+  for +ops1: List<&2, Ops.Op>
+  for f2: Maybe<&2, String>
+  for +ops2: List<&2, Ops.Op>
+  for +hs: {Stand.items.like(st1, st2) == True{} : Bool}
+  for +hops: {Stand.ops.like(ops1, ops2) == True{} : Bool}
+  {Stand.result.like(Ops.apply(st1, Ops.Doc{f, r, ops1}), Ops.apply(st2, Ops.Doc{f2, None{}, ops2})) == True{} : Bool}
+
+# So a file's history replayed through stand-ins — any of its documents
+# forgotten, in any part — reads the forgotten lines as forgotten items and
+# every other line as it was, wherever the history replays.
+law chain_replays_like_through_standins:
+  for ds1: List<&2, List<&2, Ops.Op>>
+  for ds2: List<&2, List<&2, Ops.Op>>
+  for r1: Result<&2, &2, String, List<&2, Ops.Item>>
+  for r2: Result<&2, &2, String, List<&2, Ops.Item>>
+  for +hd: {Stand.docs.like(ds1, ds2) == True{} : Bool}
+  for +hr: {Stand.result.like(r1, r2) == True{} : Bool}
+  {Stand.result.like(Merge.replay(ds1, r1), Merge.replay(ds2, r2)) == True{} : Bool}
+
+# And what `forget` writes is such a stand-in: the document it stands in
+# for, with the text of the items picked destroyed and nothing else.
+law forgetting_destroys_only_text:
+  for ops: List<&2, Ops.Op>
+  for +ps: List<&2, Fg.FgPick>
+  for +t: String
+  for +i: Nat
+  {Stand.ops.like(ops, Fg.forget.ops(ops, ps, t, i)) == True{} : Bool}

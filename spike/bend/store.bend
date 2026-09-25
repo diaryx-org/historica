@@ -268,6 +268,18 @@ def name_paths(+root: String) -> IO(List<&2, String>):
     text : String <- IO.try(String, Store.list(root ++ "\nnames"))
     return kept(String.lines(text))
 
+# Every file under `operations/`, and under `cache/`, relative to the root,
+# sorted: what `forget` destroys among.
+def operations(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root ++ "\noperations"))
+    return kept(String.lines(text))
+
+def cached(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root ++ "\ncache"))
+    return kept(String.lines(text))
+
 # Whether what is printed goes to a terminal.
 def terminal() -> IO(Bool):
   do IO<Bool>:
@@ -347,10 +359,62 @@ def at.paths(+root: String, ps: List<&2, String>) -> List<&2, String>:
     case p <> rest:
       (root ++ "/" ++ p) <> at.paths(root, rest)
 
-def fetch.of(+root: String, digests: List<&2, String>) -> IO(List<&2, Doc>):
+# Decision 0014: a digest the store holds nothing for may have been
+# forgotten, and what stands in for it is a document of its own, named by
+# its own digest and by nothing else — so the only way to find one is to
+# read the documents and ask each what it `forgets`. A forgetting document
+# of any of the three grammars says so in its first header. The digests
+# asked for that came back `-`, and whether a document's text stands in for
+# one of them:
+def missing(digests: List<&2, String>, answers: List<&2, String>) -> List<&2, String>:
+  match digests answers:
+    case +d <> rest "-" <> more:
+      d <> missing(rest, more)
+    case d <> rest a <> more:
+      missing(rest, more)
+    case _ _:
+      Nil{}
+
+def stands_for(+text: String, digests: List<&2, String>) -> Bool:
+  match digests:
+    case Nil{}:
+      False{}
+    case d <> rest:
+      Bool.or(String.starts_with(text, "historica\nforgets " ++ d ++ "\n"), stands_for(text, rest))
+
+def standing.of(+digests: List<&2, String>, ds: List<&2, Doc>) -> List<&2, Doc>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case +d <> rest:
+      List.filter.put(Doc, d, standing.of(digests, rest), stands_for(text_of(d), digests))
+
+def documents.of(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      List.filter.put(String, l, documents.of(rest), String.ends_with(l, ".ops.txt"))
+
+# The documents standing in for these digests, in the listing's order: none
+# asked, nothing read.
+def standing(+root: String, gone: List<&2, String>) -> IO(List<&2, Doc>):
+  match gone:
+    case Nil{}:
+      IO.pure(List<&2, Doc>, Nil{})
+    case +some:
+      do IO<List<&2, Doc>>:
+        text : String <- IO.try(String, Store.list(root ++ "\noperations"))
+        ds : List<&2, Doc> <- read_docs(under(root, documents.of(String.lines(text))))
+        return standing.of(some, ds)
+
+def fetch.of(+root: String, +digests: List<&2, String>) -> IO(List<&2, Doc>):
   do IO<List<&2, Doc>>:
     answer : String <- IO.try(String, Store.at(root ++ "\n" ++ String.join(digests, "\n")))
-    read_docs(at.paths(root, String.split(answer, '\n')))
+    +answers : List<&2, String> = String.split(answer, '\n')
+    found : List<&2, Doc> <- read_docs(at.paths(root, answers))
+    stood : List<&2, Doc> <- standing(root, missing(digests, answers))
+    return List.append(&2, Doc, found, stood)
 
 def fetch(+root: String, digests: List<&2, String>) -> IO(List<&2, Doc>):
   match digests:
