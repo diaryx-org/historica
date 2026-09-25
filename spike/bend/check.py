@@ -655,6 +655,9 @@ STORES = {
         # after.
         ["record", "--fields", "-m", "x"], ["amend", "--fields"], ["abandon", "x", "--fields"], ["carry", "--fields"],
         ["name", "--fields", "x", "head"], ["-C", "nowhere", "record", "--fields"], ["-C", "nowhere", "name", "--fields", "x", "head"],
+        # `check` where there is no store: none found, a directory named
+        # that holds none, a file named, and a path not there.
+        ["check", "."], ["check", "notes.md"], ["check", "nowhere"], ["check", "nowhere/history"], ["-C", "nowhere", "check"],
     ],
     # The command line before any command: the usage and the version, what
     # is not an option, `-C` in its every position — the last counting, a
@@ -685,6 +688,11 @@ STORES = {
         [{"PATH": "{temporary}/bin:{path}"}, "hello.sh"],
         ["show"], ["show", "head", "notes.md", "x"], ["files"], ["files", "head", "x"],
         ["cat"], ["cat", "head"], ["cat", "head", "notes.md", "x"], ["names", "x"],
+        # The directory `check` is given: the store's, its `history`, one
+        # below it, by an absolute path, and a second one.
+        ["check", "."], ["check", "history"], ["check", "history/"], ["check", "./history/."], ["check", "sub"], ["check", "{copy}"],
+        ["check", "{copy}/history"], ["-C", "sub", "check"], ["-C", "sub", "check", ".."], ["check", ".", "--complete"],
+        ["check", "--bogus"], ["check", ".", "sub"], ["check", "--complete", "--complete"],
     ],
     # Opening a store, where there is only a `history` directory, or one
     # whose header names a format or a layout this reader lacks: every
@@ -701,6 +709,9 @@ STORES = {
         ["-C", "future/deeper", "status"],
         ["skip"], ["skip", "x"], ["-C", "layout", "skip"],
         ["init"],
+        # `check` describes what the others refuse, found the laxer way.
+        *(["check", name] for name in ("old", "future", "layout", "noted", "crlf", "bare", "old/history", "future/deeper")),
+        ["-C", "old", "check"], ["-C", "future/deeper", "check"], ["check", "old", "future"], ["check", "--complete", "layout"],
     ],
     # Who records. `identity` writing the file where the environment says
     # it goes — under `$XDG_CONFIG_HOME`, under `$HOME/.config`, nowhere —
@@ -899,7 +910,22 @@ STORES = {
         ["status", "--onto", "after", "--merge", "crossed"],
         ["status", "--merge", "tops", "--merge", "all"],
     ],
+    # What `check` exists to find, each store built by the Rust tool and then
+    # damaged: files nothing reads, a revision stored twice and under a
+    # digest it does not hash to, a parent that never arrived; documents
+    # and payloads gone, and a payload's bytes replaced; a line forgotten and
+    # a document written by hand against a view its author did not have;
+    # and a corpus's forgotten payload beside the forgetting documents that
+    # do not parse.
+    "damaged": [],
+    "gutted": [],
+    "tampered": [],
+    "forgotten": [],
 }
+
+# Every store checked, and asked whether it is complete.
+for commands in STORES.values():
+    commands += [["check"], ["check", "--complete"]]
 
 
 def join(history, name, parents, change):
@@ -1378,6 +1404,61 @@ def record(temporary, rust, corpus, pinned=None):
         (store / "sub").mkdir()
         (store / "sub" / "deep.md").write_text("deep\n")
         historica("record", "-m", "two")
+    elif corpus in ("damaged", "gutted"):
+        # A store as `check` exists to find it: two revisions and a
+        # forgotten payload, then what a hand, a sync or a disk did to it.
+        (store / "notes.md").write_text("one\n")
+        (store / "photo.bin").write_bytes(b"\x89PNG\x00one")
+        (store / "kept.md").write_text("kept\n")
+        historica("record", "-m", "one")
+        historica("name", "first", "head", "--revision")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "photo.bin").write_bytes(b"\x89PNG\x00two")
+        (store / "kept.md").write_text("kept\nmore\n")
+        historica("record", "-m", "two")
+        historica("forget", "first", "photo.bin")
+        history = store / "history"
+        one, two = (next(history.glob(f"revisions/*/* {m}.rev.txt")) for m in ("one", "two"))
+        operations = lambda m: next(history.glob(f"operations/*/* {m}"))
+        if corpus == "damaged":
+            # What sits in the directories without being read: a file with
+            # no suffix, a link, a payload nothing names; one revision
+            # stored twice, once under a digest it does not hash to; and a
+            # revision whose parent never arrived.
+            (history / "revisions" / "notes.txt").write_text("a note\n")
+            os.symlink(one.name, one.parent / "linked.rev.txt")
+            (operations("two") / "stray.bin").write_bytes(b"\x00stray")
+            shutil.copy(two, two.parent / ("a" * 64 + ".rev.txt"))
+            (history / "revisions" / "orphan.rev.txt").write_text(
+                "historica\nchange " + "m" * 24 + "\nparent " + "b" * 64 + "\n"
+                "author Check <check@example.com>\nwhen 2026-09-23T12:00:00+00:00\n\nan orphan"
+            )
+        else:
+            # What went missing: an operation document and a payload the
+            # head names, and a text payload's bytes replaced by some that
+            # are not text.
+            (operations("two") / "kept.md.ops.txt").unlink()
+            (operations("two") / "photo.bin").unlink()
+            (operations("one") / "notes.md").write_bytes(b"one\n\xff\n")
+    elif corpus == "tampered":
+        # A line forgotten, so every head is read by the walk rather than
+        # by arithmetic; and on top, written by hand, a revision whose
+        # document deletes a line its author's view did not hold there.
+        (store / "notes.md").write_text("one\n")
+        historica("record", "-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        historica("record", "-m", "two")
+        historica("forget", "head", "notes.md", "--lines", "2..2")
+        digest = lambda data: hashlib.sha256(data).hexdigest()
+        history = store / "history"
+        two = next(history.glob("revisions/*/* two.rev.txt"))
+        file = re.search(r"^edit (\S+) ", two.read_text(), re.M).group(1)
+        document = f"historica\nresult {digest(b'two')}\n\ndelete 0 1\n-WRONG\n"
+        (history / "operations" / "crafted.ops.txt").write_text(document)
+        (history / "revisions" / "crafted.rev.txt").write_text(
+            f"historica\nchange {'m' * 24}\nparent {digest(two.read_bytes())}\nauthor Check <check@example.com>\n"
+            f"when 2026-09-25T12:00:00+00:00\nedit {file} {digest(document.encode())}\n\nthree"
+        )
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1419,6 +1500,12 @@ def assemble(temporary, corpus):
             (history / kind).mkdir()
             for path in (CORPUS / kind).glob("*.txt"):
                 shutil.copy(path, history / kind / path.name)
+    elif corpus == "forgotten":
+        # The corpus that forgets a payload, with its forgetting documents —
+        # the one that parses and those that do not — among the operations.
+        for kind in ("revisions", "operations"):
+            shutil.copytree(CORPUS / "whole" / kind, history / kind)
+        shutil.copytree(CORPUS / "whole" / "forgotten", history / "operations" / "forgotten")
     else:
         for kind in ("revisions", "operations"):
             source = CORPUS / corpus / kind
@@ -1566,7 +1653,8 @@ def check_store(temporary):
         return env
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping",
+                               "damaged", "gutted", "tampered")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
