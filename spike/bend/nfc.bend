@@ -445,32 +445,6 @@ def class.scan(rs: List<&2, U32>, +c: U32) -> U32:
     case _:
       0
 
-def pairs.has(ps: List<&2, U32>, +c: U32) -> Bool:
-  match ps:
-    case +a <> +b <> +x <> rest:
-      Bool.or(Bool.or(U32.is_eq(a, c), U32.is_eq(b, c)), Bool.or(U32.is_eq(x, c), pairs.has(rest, c)))
-    case _:
-      False{}
-
-def points.has(xs: List<&2, U32>, +c: U32) -> Bool:
-  match xs:
-    case Nil{}:
-      False{}
-    case x <> rest:
-      Bool.or(U32.is_eq(x, c), points.has(rest, c))
-
-def entries.has(es: List<&2, List<&2, U32>>, +c: U32) -> Bool:
-  match es:
-    case Nil{}:
-      False{}
-    case e <> rest:
-      Bool.or(points.has(e, c), entries.has(rest, c))
-
-# A character normalising leaves where it is: a starter, in no pair, and in
-# no decomposition, before it or after.
-def inert(+c: U32) -> Bool:
-  Bool.and(U32.is_eq(class(Tab.classes(), c), 0), Bool.not(Bool.or(pairs.has(Tab.pairs(), c), entries.has(Tab.decompositions(), c))))
-
 # `check.py`'s `nfc` stage
 # ------------------------
 

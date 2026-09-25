@@ -1,8 +1,9 @@
 # Normal form C's laws: a string of ASCII is its own normal form; canonical
 # ordering puts every run of marks in order of class; the class lookup,
 # which stops early, misses nothing over the crate's table; `/` and `.` are
-# characters normalising leaves alone. And the walk's: it yields a path
-# once, and opens a file only where the folder spells it.
+# walls the algorithm composes nothing across. And the walk's: it leaves no
+# two files in a row at one path, and a listing's lines, read back, refuse
+# each name that cannot be spelled.
 import Base
 import ./nfc.bend as N
 import ./nfc_tables.bend as Tab
@@ -308,9 +309,420 @@ def classes_in_order() -> {N.runs.after(Tab.classes(), 0) == True{} : Bool}:
 def class_misses_nothing(+c: U32) -> {N.class(Tab.classes(), c) == N.class.scan(Tab.classes(), c) : U32}:
   class_scan(Tab.classes(), c, 0, classes_in_order())
 
-# Neither `/` nor `.` has a class, is in a pair, or is in a decomposition.
-def separators_inert() -> {Bool.and(N.inert(47), N.inert(46)) == True{} : Bool}:
+# Separators are walls
+# --------------------
+
+# Over the crate's tables a `/` or a `.` decomposes to itself, is a
+# starter, and is neither half of any pair, so each step of normal form C
+# goes through it: decomposition and marking are maps, ordering closes its
+# run of marks at a starter, and composition, meeting a starter nothing
+# joins, puts out what came before whole and walks what comes after as if
+# from the start.
+
+# Lists of code points and of marks, joined and reversed.
+def lapp_assoc(-A: Data, xs: List<&2, A>, -ys: List<&2, A>, -zs: List<&2, A>) -> {List.append(&2, A, List.append(&2, A, xs, ys), zs) == List.append(&2, A, xs, List.append(&2, A, ys, zs)) : List<&2, A>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case h <> t:
+      %Equal.sym(List<&2, A>, List.append(&2, A, List.append(&2, A, t, ys), zs), List.append(&2, A, t, List.append(&2, A, ys, zs)), lapp_assoc(A, t, ys, zs)) : {h <> _ == h <> List.append(&2, A, t, List.append(&2, A, ys, zs)) : List<&2, A>}
+      {==}
+
+def lrev_go_app(-A: Data, xs: List<&2, A>, acc: List<&2, A>, -tl: List<&2, A>) -> {List.reverse.go(&2, A, xs, List.append(&2, A, acc, tl)) == List.append(&2, A, List.reverse.go(&2, A, xs, acc), tl) : List<&2, A>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case h <> t:
+      lrev_go_app(A, t, h <> acc, tl)
+
+def lrev_go_cat(-A: Data, xs: List<&2, A>, -ys: List<&2, A>, acc: List<&2, A>) -> {List.reverse.go(&2, A, List.append(&2, A, xs, ys), acc) == List.reverse.go(&2, A, ys, List.reverse.go(&2, A, xs, acc)) : List<&2, A>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case h <> t:
+      lrev_go_cat(A, t, ys, h <> acc)
+
+def lrev_cat(-A: Data, +xs: List<&2, A>, +ys: List<&2, A>) -> {List.reverse(&2, A, List.append(&2, A, xs, ys)) == List.append(&2, A, List.reverse(&2, A, ys), List.reverse(&2, A, xs)) : List<&2, A>}:
+  Equal.trans(List<&2, A>, List.reverse(&2, A, List.append(&2, A, xs, ys)), List.reverse.go(&2, A, ys, List.reverse(&2, A, xs)), List.append(&2, A, List.reverse(&2, A, ys), List.reverse(&2, A, xs)),
+    lrev_go_cat(A, xs, ys, Nil{}), lrev_go_app(A, ys, Nil{}, List.reverse(&2, A, xs)))
+
+# `c` in front of what reverses `p`, and `p` reversed, then `c`.
+def lrev_cons(+c: U32, +p: List<&2, U32>, +r: List<&2, U32>) -> {List.append(&2, U32, List.reverse(&2, U32, c <> p), r) == List.append(&2, U32, List.reverse(&2, U32, p), c <> r) : List<&2, U32>}:
+  Equal.trans(List<&2, U32>, List.append(&2, U32, List.reverse(&2, U32, c <> p), r), List.append(&2, U32, List.append(&2, U32, List.reverse(&2, U32, p), [c]), r), List.append(&2, U32, List.reverse(&2, U32, p), c <> r),
+    Equal.cong(List<&2, U32>, List<&2, U32>, x => List.append(&2, U32, x, r), List.reverse(&2, U32, c <> p), List.append(&2, U32, List.reverse(&2, U32, p), [c]), lrev_go_app(U32, p, Nil{}, [c])),
+    lapp_assoc(U32, List.reverse(&2, U32, p), [c], r))
+
+# Decomposition, marking and ordering each go through a separator: it
+# decomposes to itself, is a starter, and a starter closes a run of marks.
+def decompose_wall(+es: List<&2, List<&2, U32>>, xs: List<&2, U32>, +c: U32, +ys: List<&2, U32>, hd: {N.decompose.one(es, c) == [c] : List<&2, U32>}) -> {N.decompose(es, List.append(&2, U32, xs, c <> ys)) == List.append(&2, U32, N.decompose(es, xs), c <> N.decompose(es, ys)) : List<&2, U32>}:
+  match xs:
+    case Nil{}:
+      %Equal.sym(List<&2, U32>, N.decompose.one(es, c), [c], hd) : {List.append(&2, U32, _, N.decompose(es, ys)) == c <> N.decompose(es, ys) : List<&2, U32>}
+      {==}
+    case +x <> rest:
+      %Equal.sym(List<&2, U32>, N.decompose(es, List.append(&2, U32, rest, c <> ys)), List.append(&2, U32, N.decompose(es, rest), c <> N.decompose(es, ys)), decompose_wall(es, rest, c, ys, hd)) : {List.append(&2, U32, N.decompose.one(es, x), _) == List.append(&2, U32, List.append(&2, U32, N.decompose.one(es, x), N.decompose(es, rest)), c <> N.decompose(es, ys)) : List<&2, U32>}
+      Equal.sym(List<&2, U32>, List.append(&2, U32, List.append(&2, U32, N.decompose.one(es, x), N.decompose(es, rest)), c <> N.decompose(es, ys)), List.append(&2, U32, N.decompose.one(es, x), List.append(&2, U32, N.decompose(es, rest), c <> N.decompose(es, ys))), lapp_assoc(U32, N.decompose.one(es, x), N.decompose(es, rest), c <> N.decompose(es, ys)))
+
+def marked_wall(+rs: List<&2, U32>, xs: List<&2, U32>, +c: U32, +ys: List<&2, U32>) -> {N.marked(rs, List.append(&2, U32, xs, c <> ys)) == List.append(&2, N.Mark, N.marked(rs, xs), N.Mark{c, N.class(rs, c)} <> N.marked(rs, ys)) : List<&2, N.Mark>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      %Equal.sym(List<&2, N.Mark>, N.marked(rs, List.append(&2, U32, rest, c <> ys)), List.append(&2, N.Mark, N.marked(rs, rest), N.Mark{c, N.class(rs, c)} <> N.marked(rs, ys)), marked_wall(rs, rest, c, ys)) : {N.Mark{x, N.class(rs, x)} <> _ == N.Mark{x, N.class(rs, x)} <> List.append(&2, N.Mark, N.marked(rs, rest), N.Mark{c, N.class(rs, c)} <> N.marked(rs, ys)) : List<&2, N.Mark>}
+      {==}
+
+def starts_cat(xs: List<&2, N.Mark>, -c: U32, -ys: List<&2, N.Mark>) -> {N.starts(List.append(&2, N.Mark, xs, N.Mark{c, 0} <> ys)) == N.starts(xs) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case m <> rest:
+      {==}
+
+def order_wall(xs: List<&2, N.Mark>, +run: List<&2, N.Mark>, st: Bool, +est: {N.starts(xs) == st : Bool}, +c: U32, +ys: List<&2, N.Mark>) -> {N.order.go(List.append(&2, N.Mark, xs, N.Mark{c, 0} <> ys), run, st) == List.append(&2, N.Mark, N.order.go(xs, run, st), N.Mark{c, 0} <> N.order(ys)) : List<&2, N.Mark>}:
+  match xs st:
+    case Nil{} True{}:
+      {==}
+    case Nil{} False{}:
+      Empty.absurd({N.order.go(N.Mark{c, 0} <> ys, run, False{}) == List.append(&2, N.Mark, run, N.Mark{c, 0} <> N.order(ys)) : List<&2, N.Mark>}, S.true_false(est))
+    case +m <> +rest True{}:
+      %Equal.sym(Bool, N.starts(List.append(&2, N.Mark, rest, N.Mark{c, 0} <> ys)), N.starts(rest), starts_cat(rest, c, ys)) : {List.append(&2, N.Mark, run, m <> N.order.go(List.append(&2, N.Mark, rest, N.Mark{c, 0} <> ys), Nil{}, _)) == List.append(&2, N.Mark, List.append(&2, N.Mark, run, m <> N.order.go(rest, Nil{}, N.starts(rest))), N.Mark{c, 0} <> N.order(ys)) : List<&2, N.Mark>}
+      %Equal.sym(List<&2, N.Mark>, N.order.go(List.append(&2, N.Mark, rest, N.Mark{c, 0} <> ys), Nil{}, N.starts(rest)), List.append(&2, N.Mark, N.order.go(rest, Nil{}, N.starts(rest)), N.Mark{c, 0} <> N.order(ys)), order_wall(rest, Nil{}, N.starts(rest), {==}, c, ys)) : {List.append(&2, N.Mark, run, m <> _) == List.append(&2, N.Mark, List.append(&2, N.Mark, run, m <> N.order.go(rest, Nil{}, N.starts(rest))), N.Mark{c, 0} <> N.order(ys)) : List<&2, N.Mark>}
+      Equal.sym(List<&2, N.Mark>, List.append(&2, N.Mark, List.append(&2, N.Mark, run, m <> N.order.go(rest, Nil{}, N.starts(rest))), N.Mark{c, 0} <> N.order(ys)), List.append(&2, N.Mark, run, List.append(&2, N.Mark, m <> N.order.go(rest, Nil{}, N.starts(rest)), N.Mark{c, 0} <> N.order(ys))), lapp_assoc(N.Mark, run, m <> N.order.go(rest, Nil{}, N.starts(rest)), N.Mark{c, 0} <> N.order(ys)))
+    case +m <> +rest False{}:
+      %Equal.sym(Bool, N.starts(List.append(&2, N.Mark, rest, N.Mark{c, 0} <> ys)), N.starts(rest), starts_cat(rest, c, ys)) : {N.order.go(List.append(&2, N.Mark, rest, N.Mark{c, 0} <> ys), N.insert(run, m), _) == List.append(&2, N.Mark, N.order.go(rest, N.insert(run, m), N.starts(rest)), N.Mark{c, 0} <> N.order(ys)) : List<&2, N.Mark>}
+      order_wall(rest, N.insert(run, m), N.starts(rest), {==}, c, ys)
+
+def order_cat(+xs: List<&2, N.Mark>, +c: U32, +ys: List<&2, N.Mark>) -> {N.order(List.append(&2, N.Mark, xs, N.Mark{c, 0} <> ys)) == List.append(&2, N.Mark, N.order(xs), N.Mark{c, 0} <> N.order(ys)) : List<&2, N.Mark>}:
+  %Equal.sym(Bool, N.starts(List.append(&2, N.Mark, xs, N.Mark{c, 0} <> ys)), N.starts(xs), starts_cat(xs, c, ys)) : {N.order.go(List.append(&2, N.Mark, xs, N.Mark{c, 0} <> ys), Nil{}, _) == List.append(&2, N.Mark, N.order(xs), N.Mark{c, 0} <> N.order(ys)) : List<&2, N.Mark>}
+  order_wall(xs, Nil{}, N.starts(xs), {==}, c, ys)
+
+# Composition. A walk with more already out behind it is the same walk,
+# step for step: `shift` puts `q` behind what a walk has put out.
+def shift(w: N.Walk, +q: List<&2, U32>) -> N.Walk:
+  match w:
+    case N.Walk{o, s, l, h}:
+      N.Walk{List.append(&2, U32, o, q), s, l, h}
+
+def lone_shift(b: Bool, +o: List<&2, U32>, +q: List<&2, U32>, +c: U32) -> {Bool.pick(N.Walk, b, N.Walk{List.append(&2, U32, o, q), Some{c}, None{}, Nil{}}, N.Walk{c <> List.append(&2, U32, o, q), None{}, None{}, Nil{}}) == shift(Bool.pick(N.Walk, b, N.Walk{o, Some{c}, None{}, Nil{}}, N.Walk{c <> o, None{}, None{}, Nil{}}), q) : N.Walk}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def kept_shift(b: Bool, +o: List<&2, U32>, +q: List<&2, U32>, +s: U32, +h: List<&2, U32>, +c: U32, +k: U32) -> {Bool.pick(N.Walk, b, N.Walk{List.append(&2, U32, h, s <> List.append(&2, U32, o, q)), Some{c}, None{}, Nil{}}, N.Walk{List.append(&2, U32, o, q), Some{s}, Some{k}, c <> h}) == shift(Bool.pick(N.Walk, b, N.Walk{List.append(&2, U32, h, s <> o), Some{c}, None{}, Nil{}}, N.Walk{o, Some{s}, Some{k}, c <> h}), q) : N.Walk}:
+  match b:
+    case True{}:
+      %Equal.sym(List<&2, U32>, List.append(&2, U32, List.append(&2, U32, h, s <> o), q), List.append(&2, U32, h, s <> List.append(&2, U32, o, q)), lapp_assoc(U32, h, s <> o, q)) : {N.Walk{List.append(&2, U32, h, s <> List.append(&2, U32, o, q)), Some{c}, None{}, Nil{}} == N.Walk{_, Some{c}, None{}, Nil{}} : N.Walk}
+      {==}
+    case False{}:
+      {==}
+
+def joined_shift(j: Maybe<&2, U32>, +o: List<&2, U32>, +q: List<&2, U32>, +last: Maybe<&2, U32>, +h: List<&2, U32>, +s: U32, +c: U32, +k: U32) -> {N.step.joined(List.append(&2, U32, o, q), last, h, j, s, c, k) == shift(N.step.joined(o, last, h, j, s, c, k), q) : N.Walk}:
+  match j:
+    case Some{r}:
+      {==}
+    case None{}:
+      kept_shift(U32.is_eq(k, 0), o, q, s, h, c, k)
+
+def behind_shift(+ps: List<&2, U32>, +o: List<&2, U32>, +q: List<&2, U32>, +s: U32, +l: U32, +h: List<&2, U32>, +c: U32, +k: U32, b: Bool) -> {N.step.behind(ps, List.append(&2, U32, o, q), s, l, h, c, k, b) == shift(N.step.behind(ps, o, s, l, h, c, k, b), q) : N.Walk}:
+  match b:
+    case True{}:
+      joined_shift(N.compose(ps, s, c), o, q, Some{l}, h, s, c, k)
+    case False{}:
+      kept_shift(U32.is_eq(k, 0), o, q, s, h, c, k)
+
+def at_shift(+ps: List<&2, U32>, +o: List<&2, U32>, +q: List<&2, U32>, +s: U32, last: Maybe<&2, U32>, +h: List<&2, U32>, +c: U32, +k: U32) -> {N.step.at(ps, List.append(&2, U32, o, q), s, last, h, c, k) == shift(N.step.at(ps, o, s, last, h, c, k), q) : N.Walk}:
+  match last:
+    case None{}:
+      joined_shift(N.compose(ps, s, c), o, q, None{}, h, s, c, k)
+    case Some{+l}:
+      behind_shift(ps, o, q, s, l, h, c, k, U32.is_lt(l, k))
+
+def step_shift(+ps: List<&2, U32>, w: N.Walk, m: N.Mark, +q: List<&2, U32>) -> {N.step(ps, shift(w, q), m) == shift(N.step(ps, w, m), q) : N.Walk}:
+  match w m:
+    case N.Walk{+o, None{}, l, h} N.Mark{+c, +k}:
+      lone_shift(U32.is_eq(k, 0), o, q, c)
+    case N.Walk{+o, Some{+s}, +l, +h} N.Mark{+c, +k}:
+      at_shift(ps, o, q, s, l, h, c, k)
+
+def walk_shift(+ps: List<&2, U32>, ms: List<&2, N.Mark>, +w: N.Walk, +q: List<&2, U32>) -> {N.walk.go(ps, ms, shift(w, q)) == shift(N.walk.go(ps, ms, w), q) : N.Walk}:
+  match ms:
+    case Nil{}:
+      {==}
+    case +m <> rest:
+      Equal.trans(N.Walk, N.walk.go(ps, rest, N.step(ps, shift(w, q), m)), N.walk.go(ps, rest, shift(N.step(ps, w, m), q)), shift(N.walk.go(ps, rest, N.step(ps, w, m)), q),
+        Equal.cong(N.Walk, N.Walk, x => N.walk.go(ps, rest, x), N.step(ps, shift(w, q), m), shift(N.step(ps, w, m), q), step_shift(ps, w, m, q)),
+        walk_shift(ps, rest, N.step(ps, w, m), q))
+
+def rev_behind(+h: List<&2, U32>, +p: List<&2, U32>, +q: List<&2, U32>) -> {List.reverse(&2, U32, List.append(&2, U32, h, List.append(&2, U32, p, q))) == List.append(&2, U32, List.reverse(&2, U32, q), List.reverse(&2, U32, List.append(&2, U32, h, p))) : List<&2, U32>}:
+  %Equal.sym(List<&2, U32>, List.append(&2, U32, h, List.append(&2, U32, p, q)), List.append(&2, U32, List.append(&2, U32, h, p), q), Equal.sym(List<&2, U32>, List.append(&2, U32, List.append(&2, U32, h, p), q), List.append(&2, U32, h, List.append(&2, U32, p, q)), lapp_assoc(U32, h, p, q))) : {List.reverse(&2, U32, _) == List.append(&2, U32, List.reverse(&2, U32, q), List.reverse(&2, U32, List.append(&2, U32, h, p))) : List<&2, U32>}
+  lrev_cat(U32, List.append(&2, U32, h, p), q)
+
+def done_shift(w: N.Walk, +q: List<&2, U32>) -> {N.walk.done(shift(w, q)) == List.append(&2, U32, List.reverse(&2, U32, q), N.walk.done(w)) : List<&2, U32>}:
+  match w:
+    case N.Walk{+o, None{}, l, +h}:
+      rev_behind(h, o, q)
+    case N.Walk{+o, Some{+s}, l, +h}:
+      rev_behind(h, s <> o, q)
+
+# A step blocked from composing is one that keeps what came.
+def behind_blocked(+ps: List<&2, U32>, +o: List<&2, U32>, +s: U32, +l: U32, +h: List<&2, U32>, +x: U32, +k: U32, b: Bool, hc: {N.compose(ps, s, x) == None{} : Maybe<&2, U32>}) -> {N.step.behind(ps, o, s, l, h, x, k, b) == N.step.kept(o, s, h, x, k) : N.Walk}:
+  match b:
+    case True{}:
+      %Equal.sym(Maybe<&2, U32>, N.compose(ps, s, x), None{}, hc) : {N.step.joined(o, Some{l}, h, _, s, x, k) == N.step.kept(o, s, h, x, k) : N.Walk}
+      {==}
+    case False{}:
+      {==}
+
+def at_blocked(+ps: List<&2, U32>, +o: List<&2, U32>, +s: U32, last: Maybe<&2, U32>, +h: List<&2, U32>, +x: U32, +k: U32, hc: {N.compose(ps, s, x) == None{} : Maybe<&2, U32>}) -> {N.step.at(ps, o, s, last, h, x, k) == N.step.kept(o, s, h, x, k) : N.Walk}:
+  match last:
+    case None{}:
+      %Equal.sym(Maybe<&2, U32>, N.compose(ps, s, x), None{}, hc) : {N.step.joined(o, None{}, h, _, s, x, k) == N.step.kept(o, s, h, x, k) : N.Walk}
+      {==}
+    case Some{+l}:
+      behind_blocked(ps, o, s, l, h, x, k, U32.is_lt(l, k), hc)
+
+def and_false(a: Bool) -> {Bool.and(a, False{}) == False{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def and_ff(a: Bool, b: Bool, -d: Bool, e: {b == False{} : Bool}) -> {Bool.and(a, Bool.and(b, d)) == False{} : Bool}:
+  %Equal.sym(Bool, b, False{}, e) : {Bool.and(a, Bool.and(_, d)) == False{} : Bool}
+  and_false(a)
+
+def compose_of_none(+ps: List<&2, U32>, +a: U32, +b: U32, lv: Bool, elv: {lv == False{} : Bool}, lvt: Bool, elvt: {lvt == False{} : Bool}, hp: {N.pair.go(ps, a, b, N.pair.cmp(ps, a, b)) == None{} : Maybe<&2, U32>}) -> {N.compose.of(ps, a, b, lv, lvt) == None{} : Maybe<&2, U32>}:
+  %Equal.sym(Bool, lv, False{}, elv) : {N.compose.of(ps, a, b, _, lvt) == None{} : Maybe<&2, U32>}
+  %Equal.sym(Bool, lvt, False{}, elvt) : {N.compose.of(ps, a, b, False{}, _) == None{} : Maybe<&2, U32>}
+  hp
+
+# What joins nothing after it: a character below the jamo and the
+# syllables, and below the first character of every pair.
+def firsts.above(ps: List<&2, U32>, +c: U32) -> Bool:
+  match ps:
+    case x <> y <> z <> rest:
+      U32.is_lt(c, x)
+    case _:
+      True{}
+
+def pair_below(ps: List<&2, U32>, +a: U32, +b: U32, hf: {firsts.above(ps, a) == True{} : Bool}) -> {N.pair.go(ps, a, b, N.pair.cmp(ps, a, b)) == None{} : Maybe<&2, U32>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case x <> Nil{}:
+      {==}
+    case x <> y <> Nil{}:
+      {==}
+    case +x <> +y <> z <> rest:
+      %Equal.sym(Cmp, U32.cmp(a, x), LT{}, lt_cmp(U32.cmp(a, x), hf)) : {N.pair.go(x <> y <> z <> rest, a, b, N.lex(_, U32.cmp(b, y))) == None{} : Maybe<&2, U32>}
+      {==}
+
+def lv_left(+c: U32, +x: U32, e1: {U32.is_ge(c, 4352) == False{} : Bool}) -> {N.hangul.lv(c, x) == False{} : Bool}:
+  %Equal.sym(Bool, U32.is_ge(c, 4352), False{}, e1) : {Bool.and(Bool.and(_, U32.is_le(c, 4370)), Bool.and(U32.is_ge(x, 4449), U32.is_le(x, 4469))) == False{} : Bool}
   {==}
+
+def lvt_left(+c: U32, +x: U32, e2: {U32.is_ge(c, 44032) == False{} : Bool}) -> {N.hangul.lvt(c, x) == False{} : Bool}:
+  %Equal.sym(Bool, U32.is_ge(c, 44032), False{}, e2) : {Bool.and(Bool.and(Bool.and(_, U32.is_le(c, 55203)), U32.is_eq(((c - 44032 : U32) % 28 : U32), 0)), Bool.and(U32.is_ge(x, 4520), U32.is_le(x, 4546))) == False{} : Bool}
+  {==}
+
+def right_none(+ps: List<&2, U32>, +c: U32, +x: U32, hf: {firsts.above(ps, c) == True{} : Bool}, e1: {U32.is_ge(c, 4352) == False{} : Bool}, e2: {U32.is_ge(c, 44032) == False{} : Bool}) -> {N.compose(ps, c, x) == None{} : Maybe<&2, U32>}:
+  compose_of_none(ps, c, x, N.hangul.lv(c, x), lv_left(c, x, e1), N.hangul.lvt(c, x), lvt_left(c, x, e2), pair_below(ps, c, x, hf))
+
+# Behind a starter nothing joins, the marks that come wait as they would
+# have gone out with no starter at all, and the next starter puts them
+# out after it.
+def lone_wall.at(b: Bool, +ps: List<&2, U32>, +rest: List<&2, N.Mark>, +p: List<&2, U32>, +c: U32, +h: List<&2, U32>, +x: U32, +k: U32, ih: {N.walk.done(N.walk.go(ps, rest, N.Walk{p, Some{c}, Some{k}, x <> h})) == List.append(&2, U32, List.reverse(&2, U32, p), c <> N.walk.done(N.walk.go(ps, rest, N.Walk{x <> h, None{}, None{}, Nil{}}))) : List<&2, U32>}) -> {N.walk.done(N.walk.go(ps, rest, Bool.pick(N.Walk, b, N.Walk{List.append(&2, U32, h, c <> p), Some{x}, None{}, Nil{}}, N.Walk{p, Some{c}, Some{k}, x <> h}))) == List.append(&2, U32, List.reverse(&2, U32, p), c <> N.walk.done(N.walk.go(ps, rest, Bool.pick(N.Walk, b, N.Walk{h, Some{x}, None{}, Nil{}}, N.Walk{x <> h, None{}, None{}, Nil{}})))) : List<&2, U32>}:
+  match b:
+    case True{}:
+      +w : N.Walk = N.Walk{h, Some{x}, None{}, Nil{}}
+      %Equal.sym(N.Walk, N.walk.go(ps, rest, shift(w, c <> p)), shift(N.walk.go(ps, rest, w), c <> p), walk_shift(ps, rest, w, c <> p)) : {N.walk.done(_) == List.append(&2, U32, List.reverse(&2, U32, p), c <> N.walk.done(N.walk.go(ps, rest, w))) : List<&2, U32>}
+      Equal.trans(List<&2, U32>, N.walk.done(shift(N.walk.go(ps, rest, w), c <> p)), List.append(&2, U32, List.reverse(&2, U32, c <> p), N.walk.done(N.walk.go(ps, rest, w))), List.append(&2, U32, List.reverse(&2, U32, p), c <> N.walk.done(N.walk.go(ps, rest, w))),
+        done_shift(N.walk.go(ps, rest, w), c <> p), lrev_cons(c, p, N.walk.done(N.walk.go(ps, rest, w))))
+    case False{}:
+      ih
+
+def lone_wall(+ps: List<&2, U32>, ys: List<&2, N.Mark>, +p: List<&2, U32>, +c: U32, +l: Maybe<&2, U32>, +h: List<&2, U32>, +hf: {firsts.above(ps, c) == True{} : Bool}, +e1: {U32.is_ge(c, 4352) == False{} : Bool}, +e2: {U32.is_ge(c, 44032) == False{} : Bool}) -> {N.walk.done(N.walk.go(ps, ys, N.Walk{p, Some{c}, l, h})) == List.append(&2, U32, List.reverse(&2, U32, p), c <> N.walk.done(N.walk.go(ps, ys, N.Walk{h, None{}, None{}, Nil{}}))) : List<&2, U32>}:
+  match ys:
+    case Nil{}:
+      Equal.trans(List<&2, U32>, List.reverse(&2, U32, List.append(&2, U32, h, c <> p)), List.append(&2, U32, List.reverse(&2, U32, c <> p), List.reverse(&2, U32, h)), List.append(&2, U32, List.reverse(&2, U32, p), c <> List.reverse(&2, U32, h)),
+        lrev_cat(U32, h, c <> p), lrev_cons(c, p, List.reverse(&2, U32, h)))
+    case N.Mark{+x, +k} <> +rest:
+      %Equal.sym(N.Walk, N.step.at(ps, p, c, l, h, x, k), N.step.kept(p, c, h, x, k), at_blocked(ps, p, c, l, h, x, k, right_none(ps, c, x, hf, e1, e2))) : {N.walk.done(N.walk.go(ps, rest, _)) == List.append(&2, U32, List.reverse(&2, U32, p), c <> N.walk.done(N.walk.go(ps, rest, N.step.lone(h, x, k)))) : List<&2, U32>}
+      lone_wall.at(U32.is_eq(k, 0), ps, rest, p, c, h, x, k, lone_wall(ps, rest, p, c, Some{k}, x <> h, hf, e1, e2))
+
+# A walk with no starter has nothing waiting.
+def ok(w: N.Walk) -> Bool:
+  match w:
+    case N.Walk{o, None{}, l, h}:
+      List.is_empty(&2, U32, h)
+    case N.Walk{o, Some{s}, l, h}:
+      True{}
+
+def kept_ok(b: Bool, +o: List<&2, U32>, +s: U32, +h: List<&2, U32>, +c: U32, +k: U32) -> {ok(Bool.pick(N.Walk, b, N.Walk{List.append(&2, U32, h, s <> o), Some{c}, None{}, Nil{}}, N.Walk{o, Some{s}, Some{k}, c <> h})) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def joined_ok(j: Maybe<&2, U32>, +o: List<&2, U32>, +last: Maybe<&2, U32>, +h: List<&2, U32>, +s: U32, +c: U32, +k: U32) -> {ok(N.step.joined(o, last, h, j, s, c, k)) == True{} : Bool}:
+  match j:
+    case Some{r}:
+      {==}
+    case None{}:
+      kept_ok(U32.is_eq(k, 0), o, s, h, c, k)
+
+def behind_ok(+ps: List<&2, U32>, +o: List<&2, U32>, +s: U32, +l: U32, +h: List<&2, U32>, +c: U32, +k: U32, b: Bool) -> {ok(N.step.behind(ps, o, s, l, h, c, k, b)) == True{} : Bool}:
+  match b:
+    case True{}:
+      joined_ok(N.compose(ps, s, c), o, Some{l}, h, s, c, k)
+    case False{}:
+      kept_ok(U32.is_eq(k, 0), o, s, h, c, k)
+
+def at_ok(+ps: List<&2, U32>, +o: List<&2, U32>, +s: U32, last: Maybe<&2, U32>, +h: List<&2, U32>, +c: U32, +k: U32) -> {ok(N.step.at(ps, o, s, last, h, c, k)) == True{} : Bool}:
+  match last:
+    case None{}:
+      joined_ok(N.compose(ps, s, c), o, None{}, h, s, c, k)
+    case Some{+l}:
+      behind_ok(ps, o, s, l, h, c, k, U32.is_lt(l, k))
+
+def lone_ok(b: Bool, +o: List<&2, U32>, +c: U32) -> {ok(Bool.pick(N.Walk, b, N.Walk{o, Some{c}, None{}, Nil{}}, N.Walk{c <> o, None{}, None{}, Nil{}})) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def step_ok(+ps: List<&2, U32>, w: N.Walk, m: N.Mark) -> {ok(N.step(ps, w, m)) == True{} : Bool}:
+  match w m:
+    case N.Walk{+o, None{}, l, h} N.Mark{+c, +k}:
+      lone_ok(U32.is_eq(k, 0), o, c)
+    case N.Walk{+o, Some{+s}, +last, +h} N.Mark{+c, +k}:
+      at_ok(ps, o, s, last, h, c, k)
+
+def go_ok(+ps: List<&2, U32>, ms: List<&2, N.Mark>, +w: N.Walk, hw: {ok(w) == True{} : Bool}) -> {ok(N.walk.go(ps, ms, w)) == True{} : Bool}:
+  match ms:
+    case Nil{}:
+      hw
+    case +m <> rest:
+      go_ok(ps, rest, N.step(ps, w, m), step_ok(ps, w, m))
+
+def walk_cat(+ps: List<&2, U32>, xs: List<&2, N.Mark>, +zs: List<&2, N.Mark>, +w: N.Walk) -> {N.walk.go(ps, List.append(&2, N.Mark, xs, zs), w) == N.walk.go(ps, zs, N.walk.go(ps, xs, w)) : N.Walk}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +m <> rest:
+      walk_cat(ps, rest, zs, N.step(ps, w, m))
+
+# A starter nothing composes with, on either side, closes what came
+# before it whole and opens what comes after as a walk of its own.
+def wall_at.lone(+ps: List<&2, U32>, +o: List<&2, U32>, +l: Maybe<&2, U32>, h: List<&2, U32>, +c: U32, hw: {List.is_empty(&2, U32, h) == True{} : Bool}, +ys: List<&2, N.Mark>, +hf: {firsts.above(ps, c) == True{} : Bool}, +e1: {U32.is_ge(c, 4352) == False{} : Bool}, +e2: {U32.is_ge(c, 44032) == False{} : Bool}) -> {N.walk.done(N.walk.go(ps, ys, N.step(ps, N.Walk{o, None{}, l, h}, N.Mark{c, 0}))) == List.append(&2, U32, N.walk.done(N.Walk{o, None{}, l, h}), c <> N.recompose(ps, ys)) : List<&2, U32>}:
+  match h:
+    case Nil{}:
+      lone_wall(ps, ys, o, c, None{}, Nil{}, hf, e1, e2)
+    case y <> t:
+      Empty.absurd({N.walk.done(N.walk.go(ps, ys, N.step(ps, N.Walk{o, None{}, l, y <> t}, N.Mark{c, 0}))) == List.append(&2, U32, N.walk.done(N.Walk{o, None{}, l, y <> t}), c <> N.recompose(ps, ys)) : List<&2, U32>}, S.false_true(hw))
+
+def wall_at(+ps: List<&2, U32>, w: N.Walk, +c: U32, hw: {ok(w) == True{} : Bool}, +ys: List<&2, N.Mark>, hl: @s: U32 -> {N.compose(ps, s, c) == None{} : Maybe<&2, U32>}, +hf: {firsts.above(ps, c) == True{} : Bool}, +e1: {U32.is_ge(c, 4352) == False{} : Bool}, +e2: {U32.is_ge(c, 44032) == False{} : Bool}) -> {N.walk.done(N.walk.go(ps, ys, N.step(ps, w, N.Mark{c, 0}))) == List.append(&2, U32, N.walk.done(w), c <> N.recompose(ps, ys)) : List<&2, U32>}:
+  match w:
+    case N.Walk{+o, None{}, +l, +h}:
+      wall_at.lone(ps, o, l, h, c, hw, ys, hf, e1, e2)
+    case N.Walk{+o, Some{+s}, +l, +h}:
+      %Equal.sym(N.Walk, N.step.at(ps, o, s, l, h, c, 0), N.step.kept(o, s, h, c, 0), at_blocked(ps, o, s, l, h, c, 0, hl(s))) : {N.walk.done(N.walk.go(ps, ys, _)) == List.append(&2, U32, N.walk.done(N.Walk{o, Some{s}, l, h}), c <> N.recompose(ps, ys)) : List<&2, U32>}
+      lone_wall(ps, ys, List.append(&2, U32, h, s <> o), c, None{}, Nil{}, hf, e1, e2)
+
+def recompose_wall(+ps: List<&2, U32>, +xs: List<&2, N.Mark>, +c: U32, +ys: List<&2, N.Mark>, hl: @s: U32 -> {N.compose(ps, s, c) == None{} : Maybe<&2, U32>}, +hf: {firsts.above(ps, c) == True{} : Bool}, +e1: {U32.is_ge(c, 4352) == False{} : Bool}, +e2: {U32.is_ge(c, 44032) == False{} : Bool}) -> {N.recompose(ps, List.append(&2, N.Mark, xs, N.Mark{c, 0} <> ys)) == List.append(&2, U32, N.recompose(ps, xs), c <> N.recompose(ps, ys)) : List<&2, U32>}:
+  +w0 : N.Walk = N.Walk{Nil{}, None{}, None{}, Nil{}}
+  %Equal.sym(N.Walk, N.walk.go(ps, List.append(&2, N.Mark, xs, N.Mark{c, 0} <> ys), w0), N.walk.go(ps, N.Mark{c, 0} <> ys, N.walk.go(ps, xs, w0)), walk_cat(ps, xs, N.Mark{c, 0} <> ys, w0)) : {N.walk.done(_) == List.append(&2, U32, N.recompose(ps, xs), c <> N.recompose(ps, ys)) : List<&2, U32>}
+  wall_at(ps, N.walk.go(ps, xs, w0), c, go_ok(ps, xs, w0, {==}), ys, hl, hf, e1, e2)
+
+# The whole of normal form C's algorithm, over any tables where `c`
+# decomposes to itself, is a starter, and composes with nothing.
+def points_wall(+rs: List<&2, U32>, +es: List<&2, List<&2, U32>>, +ps: List<&2, U32>, +xs: List<&2, U32>, +c: U32, +ys: List<&2, U32>, hd: {N.decompose.one(es, c) == [c] : List<&2, U32>}, hk: {N.class(rs, c) == 0 : U32}, hl: @s: U32 -> {N.compose(ps, s, c) == None{} : Maybe<&2, U32>}, +hf: {firsts.above(ps, c) == True{} : Bool}, +e1: {U32.is_ge(c, 4352) == False{} : Bool}, +e2: {U32.is_ge(c, 44032) == False{} : Bool}) -> {N.nfc.points(N.Tabs{rs, es, ps}, List.append(&2, U32, xs, c <> ys)) == List.append(&2, U32, N.nfc.points(N.Tabs{rs, es, ps}, xs), c <> N.nfc.points(N.Tabs{rs, es, ps}, ys)) : List<&2, U32>}:
+  +dx : List<&2, U32> = N.decompose(es, xs)
+  +dy : List<&2, U32> = N.decompose(es, ys)
+  %Equal.sym(List<&2, U32>, N.decompose(es, List.append(&2, U32, xs, c <> ys)), List.append(&2, U32, dx, c <> dy), decompose_wall(es, xs, c, ys, hd)) : {N.recompose(ps, N.order(N.marked(rs, _))) == List.append(&2, U32, N.nfc.points(N.Tabs{rs, es, ps}, xs), c <> N.nfc.points(N.Tabs{rs, es, ps}, ys)) : List<&2, U32>}
+  %Equal.sym(List<&2, N.Mark>, N.marked(rs, List.append(&2, U32, dx, c <> dy)), List.append(&2, N.Mark, N.marked(rs, dx), N.Mark{c, N.class(rs, c)} <> N.marked(rs, dy)), marked_wall(rs, dx, c, dy)) : {N.recompose(ps, N.order(_)) == List.append(&2, U32, N.nfc.points(N.Tabs{rs, es, ps}, xs), c <> N.nfc.points(N.Tabs{rs, es, ps}, ys)) : List<&2, U32>}
+  %Equal.sym(U32, N.class(rs, c), 0, hk) : {N.recompose(ps, N.order(List.append(&2, N.Mark, N.marked(rs, dx), N.Mark{c, _} <> N.marked(rs, dy)))) == List.append(&2, U32, N.nfc.points(N.Tabs{rs, es, ps}, xs), c <> N.nfc.points(N.Tabs{rs, es, ps}, ys)) : List<&2, U32>}
+  %Equal.sym(List<&2, N.Mark>, N.order(List.append(&2, N.Mark, N.marked(rs, dx), N.Mark{c, 0} <> N.marked(rs, dy))), List.append(&2, N.Mark, N.order(N.marked(rs, dx)), N.Mark{c, 0} <> N.order(N.marked(rs, dy))), order_cat(N.marked(rs, dx), c, N.marked(rs, dy))) : {N.recompose(ps, _) == List.append(&2, U32, N.nfc.points(N.Tabs{rs, es, ps}, xs), c <> N.nfc.points(N.Tabs{rs, es, ps}, ys)) : List<&2, U32>}
+  recompose_wall(ps, N.order(N.marked(rs, dx)), c, N.order(N.marked(rs, dy)), hl, hf, e1, e2)
+
+# The crate's tables: no pair has `/` or `.` as the character that joins.
+def seconds.miss(ps: List<&2, U32>, +b: U32) -> Bool:
+  match ps:
+    case x <> y <> z <> rest:
+      Bool.and(Bool.not(U32.is_eq(b, y)), seconds.miss(rest, b))
+    case _:
+      True{}
+
+def lex_eq(f: Cmp, -t: Cmp, e: {N.lex(f, t) == EQ{} : Cmp}) -> {t == EQ{} : Cmp}:
+  match f:
+    case LT{}:
+      Empty.absurd({t == EQ{} : Cmp}, EqL.lt_eq(e))
+    case EQ{}:
+      e
+    case GT{}:
+      Empty.absurd({t == EQ{} : Cmp}, EqL.gt_eq(e))
+
+def pair_none(ps: List<&2, U32>, +a: U32, +b: U32, o: Cmp, +eo: {N.pair.cmp(ps, a, b) == o : Cmp}, +h: {seconds.miss(ps, b) == True{} : Bool}) -> {N.pair.go(ps, a, b, o) == None{} : Maybe<&2, U32>}:
+  match ps o:
+    case Nil{} LT{}:
+      {==}
+    case x <> Nil{} LT{}:
+      {==}
+    case x <> y <> Nil{} LT{}:
+      {==}
+    case x <> y <> z <> rest LT{}:
+      {==}
+    case x <> y <> z <> rest EQ{}:
+      +same = lex_eq(U32.cmp(a, x), U32.cmp(b, y), eo)
+      +met = Equal.cong(Cmp, Bool, t => Bool.and(Bool.not(Cmp.is_eq(t)), seconds.miss(rest, b)), EQ{}, U32.cmp(b, y), Equal.sym(Cmp, U32.cmp(b, y), EQ{}, same))
+      Empty.absurd({N.pair.go(x <> y <> z <> rest, a, b, EQ{}) == None{} : Maybe<&2, U32>}, S.false_true(Equal.trans(Bool, False{}, Bool.and(Bool.not(Cmp.is_eq(U32.cmp(b, y))), seconds.miss(rest, b)), True{}, met, h)))
+    case x <> y <> z <> +rest GT{}:
+      pair_none(rest, a, b, N.pair.cmp(rest, a, b), {==}, and_r(Bool.not(U32.is_eq(b, y)), seconds.miss(rest, b), h))
+    case Nil{} EQ{}:
+      {==}
+    case Nil{} GT{}:
+      {==}
+    case x <> Nil{} EQ{}:
+      {==}
+    case x <> Nil{} GT{}:
+      {==}
+    case x <> y <> Nil{} EQ{}:
+      {==}
+    case x <> y <> Nil{} GT{}:
+      {==}
+
+# A character the crate's pairs never join, below the jamo, joins nothing
+# before it.
+def tables_miss(+c: U32, hm: {seconds.miss(Tab.pairs(), c) == True{} : Bool}, e1: {U32.is_ge(c, 4449) == False{} : Bool}, e2: {U32.is_ge(c, 4520) == False{} : Bool}, +s: U32) -> {N.compose(Tab.pairs(), s, c) == None{} : Maybe<&2, U32>}:
+  compose_of_none(Tab.pairs(), s, c,
+    N.hangul.lv(s, c), and_ff(Bool.and(U32.is_ge(s, 4352), U32.is_le(s, 4370)), U32.is_ge(c, 4449), U32.is_le(c, 4469), e1),
+    N.hangul.lvt(s, c), and_ff(Bool.and(N.hangul.is(s), U32.is_eq(((s - 44032 : U32) % 28 : U32), 0)), U32.is_ge(c, 4520), U32.is_le(c, 4546), e2),
+    pair_none(Tab.pairs(), s, c, N.pair.cmp(Tab.pairs(), s, c), {==}, hm))
+
+# `/` and `.` in normal form C's algorithm over the crate's tables.
+def slash_wall(+xs: List<&2, U32>, +ys: List<&2, U32>) -> {N.nfc.points(N.tabs(), List.append(&2, U32, xs, 47 <> ys)) == List.append(&2, U32, N.nfc.points(N.tabs(), xs), 47 <> N.nfc.points(N.tabs(), ys)) : List<&2, U32>}:
+  points_wall(Tab.classes(), Tab.decompositions(), Tab.pairs(), xs, 47, ys, {==}, {==}, s => tables_miss(47, {==}, {==}, {==}, s), {==}, {==}, {==})
+
+def dot_wall(+xs: List<&2, U32>, +ys: List<&2, U32>) -> {N.nfc.points(N.tabs(), List.append(&2, U32, xs, 46 <> ys)) == List.append(&2, U32, N.nfc.points(N.tabs(), xs), 46 <> N.nfc.points(N.tabs(), ys)) : List<&2, U32>}:
+  points_wall(Tab.classes(), Tab.decompositions(), Tab.pairs(), xs, 46, ys, {==}, {==}, s => tables_miss(46, {==}, {==}, {==}, s), {==}, {==}, {==})
+
+# `/` or `.`: whichever the separator is, the algorithm takes it as a wall.
+def sep_wall.of(b: Bool, +c: U32, eb: {U32.is_eq(c, 47) == b : Bool}, h: {Bool.or(b, U32.is_eq(c, 46)) == True{} : Bool}, +xs: List<&2, U32>, +ys: List<&2, U32>) -> {N.nfc.points(N.tabs(), List.append(&2, U32, xs, c <> ys)) == List.append(&2, U32, N.nfc.points(N.tabs(), xs), c <> N.nfc.points(N.tabs(), ys)) : List<&2, U32>}:
+  match b:
+    case True{}:
+      %Equal.sym(U32, c, 47, EqL.u32_eq(c, 47, eb)) : {N.nfc.points(N.tabs(), List.append(&2, U32, xs, _ <> ys)) == List.append(&2, U32, N.nfc.points(N.tabs(), xs), _ <> N.nfc.points(N.tabs(), ys)) : List<&2, U32>}
+      slash_wall(xs, ys)
+    case False{}:
+      %Equal.sym(U32, c, 46, EqL.u32_eq(c, 46, h)) : {N.nfc.points(N.tabs(), List.append(&2, U32, xs, _ <> ys)) == List.append(&2, U32, N.nfc.points(N.tabs(), xs), _ <> N.nfc.points(N.tabs(), ys)) : List<&2, U32>}
+      dot_wall(xs, ys)
+
+def separators_wall(+xs: List<&2, U32>, +c: U32, +ys: List<&2, U32>, h: {Bool.or(U32.is_eq(c, 47), U32.is_eq(c, 46)) == True{} : Bool}) -> {N.nfc.points(N.tabs(), List.append(&2, U32, xs, c <> ys)) == List.append(&2, U32, N.nfc.points(N.tabs(), xs), c <> N.nfc.points(N.tabs(), ys)) : List<&2, U32>}:
+  sep_wall.of(U32.is_eq(c, 47), c, {==}, h, xs, ys)
 
 # The walk
 # --------
@@ -331,53 +743,6 @@ def walk_apart(fs: List<&2, F.Found>) -> {F.apart(F.distinct(fs)) == True{} : Bo
       {==}
     case +f <> +rest:
       go_apart(rest, F.found.path(f), F.distinct.same(rest, F.found.path(f)), {==})
-
-# What a listing may spell a path with: nothing yet, or a name whose normal
-# form is the path.
-def spelt_ok(got: Maybe<&2, String>, +want: String) -> Bool:
-  match got:
-    case None{}:
-      True{}
-    case Some{n}:
-      String.eq(N.nfc(n), want)
-
-def take_ok.of(+line: String, +want: String, got: Maybe<&2, String>, c: Bool, +ec: {Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(N.nfc(F.entry.name(line)), want)) == c : Bool}, +hg: {spelt_ok(got, want) == True{} : Bool}) -> {spelt_ok(Bool.pick(Maybe<&2, String>, c, Some{F.entry.name(line)}, got), want) == True{} : Bool}:
-  match c:
-    case True{}:
-      and_r(Bool.not(String.starts_with(line, "u ")), String.eq(N.nfc(F.entry.name(line)), want), ec)
-    case False{}:
-      hg
-
-def take_ok(+line: String, +want: String, +got: Maybe<&2, String>, +hg: {spelt_ok(got, want) == True{} : Bool}) -> {spelt_ok(F.spelling.take(line, want, got), want) == True{} : Bool}:
-  take_ok.of(line, want, got, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(N.nfc(F.entry.name(line)), want)), {==}, hg)
-
-def spelling_ok(ls: List<&2, String>, +want: String, +got: Maybe<&2, String>, after: Bool, +hg: {spelt_ok(got, want) == True{} : Bool}) -> {spelt_ok(F.spelling.go(ls, want, got, after), want) == True{} : Bool}:
-  match ls after:
-    case Nil{} _:
-      hg
-    case line <> rest True{}:
-      spelling_ok(rest, want, got, False{}, hg)
-    case +line <> rest False{}:
-      spelling_ok(rest, want, F.spelling.take(line, want, got), String.starts_with(line, "l "), take_ok(line, want, got, hg))
-
-def or_true(a: Bool) -> {Bool.or(a, True{}) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-def spelt_or(m: Maybe<&2, String>, +want: String, +h: {spelt_ok(m, want) == True{} : Bool}) -> {Bool.or(String.eq(Maybe.default(&2, String, m, want), want), String.eq(N.nfc(Maybe.default(&2, String, m, want)), want)) == True{} : Bool}:
-  match m:
-    case None{}:
-      %Equal.sym(Bool, String.eq(want, want), True{}, S.eq_refl(want)) : {Bool.or(_, String.eq(N.nfc(want), want)) == True{} : Bool}
-      {==}
-    case Some{+n}:
-      %Equal.sym(Bool, String.eq(N.nfc(n), want), True{}, h) : {Bool.or(String.eq(n, want), _) == True{} : Bool}
-      or_true(String.eq(n, want))
-
-def spelled_there(+ls: List<&2, String>, +want: String) -> {Bool.or(String.eq(F.spelling(ls, want), want), String.eq(N.nfc(F.spelling(ls, want)), want)) == True{} : Bool}:
-  spelt_or(F.spelling.go(ls, want, None{}, False{}), want, spelling_ok(ls, want, None{}, False{}, {==}))
 
 # A listing, as the host means it
 # -------------------------------
@@ -463,96 +828,6 @@ def read_back(es: List<&2, Listed>, +prefix: String, +dir: String, +before: Stri
 # else in the listing is.
 def all_refused(es: List<&2, Listed>, +prefix: String, +dir: String) -> {F.unkeyed(F.unspelled(listed.lines(es), prefix, dir)) == List.reverse(&2, T.Split, listed.refused(es, dir)) : List<&2, T.Split>}:
   read_back(es, prefix, dir, Bool.pick(String, String.is_empty(prefix), SNil{}, prefix ++ "/"), 0, Nil{})
-
-# Nothing lost
-# ------------
-
-# Whether some file of `ds` is at `p`.
-def held(ds: List<&2, F.Found>, +p: String) -> Bool:
-  match ds:
-    case Nil{}:
-      False{}
-    case d <> rest:
-      Bool.or(String.eq(p, F.found.path(d)), held(rest, p))
-
-# Every path a file of `fs` is at, some file of `ds` is at.
-def paths_held(fs: List<&2, F.Found>, +ds: List<&2, F.Found>) -> Bool:
-  match fs:
-    case Nil{}:
-      True{}
-    case g <> rest:
-      Bool.and(held(ds, F.found.path(g)), paths_held(rest, ds))
-
-def held_or(fs: List<&2, F.Found>, +last: String, +ds: List<&2, F.Found>) -> Bool:
-  match fs:
-    case Nil{}:
-      True{}
-    case +g <> rest:
-      Bool.and(Bool.or(String.eq(F.found.path(g), last), held(ds, F.found.path(g))), held_or(rest, last, ds))
-
-def or_widen(a: Bool, b: Bool, -c: Bool, e: {Bool.or(b, c) == True{} : Bool}) -> {Bool.or(a, Bool.or(b, c)) == True{} : Bool}:
-  match a:
-    case True{}:
-      {==}
-    case False{}:
-      e
-
-# What was held beside `f` is held with `f` in front, whatever came first.
-def held_or_widen(fs: List<&2, F.Found>, +x: String, +last: String, +f: F.Found, +ds: List<&2, F.Found>, +ex: {F.found.path(f) == x : String}, +h: {held_or(fs, x, ds) == True{} : Bool}) -> {held_or(fs, last, f <> ds) == True{} : Bool}:
-  match fs:
-    case Nil{}:
-      {==}
-    case +g <> +rest:
-      %Equal.sym(String, F.found.path(f), x, ex) : {Bool.and(Bool.or(String.eq(F.found.path(g), last), Bool.or(String.eq(F.found.path(g), _), held(ds, F.found.path(g)))), held_or(rest, last, f <> ds)) == True{} : Bool}
-      and_i(Bool.or(String.eq(F.found.path(g), last), Bool.or(String.eq(F.found.path(g), x), held(ds, F.found.path(g)))), held_or(rest, last, f <> ds),
-        or_widen(String.eq(F.found.path(g), last), String.eq(F.found.path(g), x), held(ds, F.found.path(g)), and_l(Bool.or(String.eq(F.found.path(g), x), held(ds, F.found.path(g))), held_or(rest, x, ds), h)),
-        held_or_widen(rest, x, last, f, ds, ex, and_r(Bool.or(String.eq(F.found.path(g), x), held(ds, F.found.path(g))), held_or(rest, x, ds), h)))
-
-def or_true_l(-b: Bool) -> {Bool.or(True{}, b) == True{} : Bool}:
-  {==}
-
-# Every file `distinct.go` passes over is at `last` or at a path it keeps.
-def go_held(fs: List<&2, F.Found>, +last: String, same: Bool, +es: {F.distinct.same(fs, last) == same : Bool}) -> {held_or(fs, last, F.distinct.go(fs, last, same)) == True{} : Bool}:
-  match fs same:
-    case Nil{} _:
-      {==}
-    case +g <> +rest True{}:
-      and_i(Bool.or(String.eq(F.found.path(g), last), held(F.distinct.go(rest, last, F.distinct.same(rest, last)), F.found.path(g))), held_or(rest, last, F.distinct.go(rest, last, F.distinct.same(rest, last))),
-        (%Equal.sym(Bool, String.eq(F.found.path(g), last), True{}, es) : {Bool.or(_, held(F.distinct.go(rest, last, F.distinct.same(rest, last)), F.found.path(g))) == True{} : Bool}
-         {==}),
-        go_held(rest, last, F.distinct.same(rest, last), {==}))
-    case +g <> +rest False{}:
-      +ds = F.distinct.go(rest, F.found.path(g), F.distinct.same(rest, F.found.path(g)))
-      and_i(Bool.or(String.eq(F.found.path(g), last), held(g <> ds, F.found.path(g))), held_or(rest, last, g <> ds),
-        or_widen(String.eq(F.found.path(g), last), String.eq(F.found.path(g), F.found.path(g)), held(ds, F.found.path(g)),
-          (%Equal.sym(Bool, String.eq(F.found.path(g), F.found.path(g)), True{}, S.eq_refl(F.found.path(g))) : {Bool.or(_, held(ds, F.found.path(g))) == True{} : Bool}
-           {==})),
-        held_or_widen(rest, F.found.path(g), last, g, ds, {==}, go_held(rest, F.found.path(g), F.distinct.same(rest, F.found.path(g)), {==})))
-
-# Held beside `f`, with `f` itself in front, is held.
-def held_of(fs: List<&2, F.Found>, +f: F.Found, +ds: List<&2, F.Found>, +h: {held_or(fs, F.found.path(f), ds) == True{} : Bool}) -> {paths_held(fs, f <> ds) == True{} : Bool}:
-  match fs:
-    case Nil{}:
-      {==}
-    case +g <> +rest:
-      and_i(held(f <> ds, F.found.path(g)), paths_held(rest, f <> ds),
-        and_l(Bool.or(String.eq(F.found.path(g), F.found.path(f)), held(ds, F.found.path(g))), held_or(rest, F.found.path(f), ds), h),
-        held_of(rest, f, ds, and_r(Bool.or(String.eq(F.found.path(g), F.found.path(f)), held(ds, F.found.path(g))), held_or(rest, F.found.path(f), ds), h)))
-
-# No path the walk found is lost by keeping one file for it.
-def walk_keeps(fs: List<&2, F.Found>) -> {paths_held(fs, F.distinct(fs)) == True{} : Bool}:
-  match fs:
-    case Nil{}:
-      {==}
-    case +f <> +rest:
-      +ds = F.distinct.go(rest, F.found.path(f), F.distinct.same(rest, F.found.path(f)))
-      and_i(held(f <> ds, F.found.path(f)), paths_held(rest, f <> ds),
-        (%Equal.sym(Bool, String.eq(F.found.path(f), F.found.path(f)), True{}, S.eq_refl(F.found.path(f))) : {Bool.or(_, held(ds, F.found.path(f))) == True{} : Bool}
-         {==}),
-        held_of(rest, f, ds, go_held(rest, F.found.path(f), F.distinct.same(rest, F.found.path(f)), {==})))
-
-def walk_once(+fs: List<&2, F.Found>) -> {Bool.and(F.apart(F.distinct(fs)), paths_held(fs, F.distinct(fs))) == True{} : Bool}:
-  and_i(F.apart(F.distinct(fs)), paths_held(fs, F.distinct(fs)), walk_apart(fs), walk_keeps(fs))
 
 # Ordering moves no mark past its class
 # -------------------------------------

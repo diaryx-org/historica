@@ -104,6 +104,7 @@ import ./stats_lemmas.bend as StatsL
 import ./standing_lemmas.bend as StandingL
 import ./cleared_lemmas.bend as ClearedL
 import ./placed_lemmas.bend as PlacedL
+import ./walked_lemmas.bend as WalkedL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1117,9 +1118,6 @@ def Laws.export_settles_only_on_what_it_laid_out(t, fs, ds, id, pays, bs, rules,
 def Laws.export_spares_the_unrecorded(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds):
   CatchL.spares(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds)
 
-def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids):
-  OfferL.digests(prefix, s, marks, claims, rids, nids)
-
 def Laws.nfc_leaves_ascii(s, h):
   NfcL.leaves_ascii(s, h)
 
@@ -1131,15 +1129,6 @@ def Laws.nfc_ordering_keeps_every_mark(ms, k):
 
 def Laws.nfc_class_misses_nothing(c):
   NfcL.class_misses_nothing(c)
-
-def Laws.nfc_leaves_separators_alone():
-  NfcL.separators_inert()
-
-def Laws.the_walk_yields_a_path_once(fs):
-  NfcL.walk_once(fs)
-
-def Laws.the_folder_spells_what_is_opened(ls, want):
-  NfcL.spelled_there(ls, want)
 
 def Laws.a_name_that_cannot_be_spelled_is_refused(es, prefix, dir):
   NfcL.all_refused(es, prefix, dir)
@@ -1279,9 +1268,6 @@ def Laws.fetch_refuses_what_shares_no_revision(h, os, hr, ht, hn):
 def Laws.fetch_destroys_only_what_is_forgotten(s, os, d, h):
   FPlanL.destroyed(s, os, d, h)
 
-def Laws.fetch_writes_a_bookmark_once_a_pass(o, n, at, text, t, rules, held, moved, landed, root, o2, g, h):
-  FetchingL.once_a_pass(o, n, at, text, t, rules, held, moved, landed, root, o2, g, h)
-
 def Laws.fetch_asks_for_no_payload_held_or_forgotten(s, os, d, m):
   FPlanL.payload_lacks(s, os, d, m)
 
@@ -1308,9 +1294,6 @@ def Laws.init_lays_down_only_its_store(root):
 
 def Laws.init_writes_text(root):
   {==}
-
-def Laws.init_takes_an_absolute_dir_as_it_is(base, other, d):
-  InitL.absolute(base, other, d)
 
 def Laws.init_doubles_no_slash(base, d, e, f):
   InitL.slash_once(base, d, e, f)
@@ -1506,3 +1489,21 @@ def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, pre, f, post, h
 
 def Laws.export_updates_a_copy_it_could_have_made(into, fs, cfs, c, hc, hh, h):
   OntoL.updates_heard(into, fs, cfs, c, hc, hh, h)
+
+def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids, hp, hh):
+  OfferL.digests(prefix, s, marks, claims, rids, nids, hp, hh)
+
+def Laws.nfc_leaves_separators_alone(xs, c, ys, h):
+  NfcL.separators_wall(xs, c, ys, h)
+
+def Laws.the_walk_yields_a_path_once(fs, rs):
+  WalkedL.walk_rising(fs, rs)
+
+def Laws.the_folder_spells_what_is_opened(es, want, h):
+  WalkedL.spelled_there(es, want, h)
+
+def Laws.fetch_writes_a_bookmark_once_a_pass(root, ss, as, st):
+  FetchingL.once_a_pass(root, ss, as, st)
+
+def Laws.init_takes_an_absolute_dir_as_it_is(base, d, e, f):
+  InitL.absolute(base, d, e, f)

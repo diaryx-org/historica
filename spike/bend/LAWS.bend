@@ -72,6 +72,7 @@ import ./update_lemmas.bend as UpdL
 import ./record_lemmas.bend as RecordL
 import ./merging_lemmas.bend as MergingL
 import ./cleared_lemmas.bend as ClearedL
+import ./walked_lemmas.bend as WalkedL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -3619,10 +3620,20 @@ law export_spares_the_unrecorded:
   for +cds: List<&2, Store.Doc>
   {Export.caught.spares(seen, cfs, cds, Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, False{}, Export.recs(Export.seen.paths(seen), cfs, cds))) == True{} : Bool}
 
-# Every line of an `offer` manifest names a file by the digest the store's
-# listing gives the file at that path: each payload, document, revision,
-# rule, file of `claims/` and bookmark, group by group, so a fetcher that
-# checks a file against its line checks it against what the store holds.
+# Every line of an `offer` manifest names a file the store's listing
+# gives, by the digest the listing gives it: where `fetch` files the path
+# the line gives, the part of the listing the line's kind is drawn from —
+# the payloads, documents or revisions, the rule files or bookmark files
+# read from disk, the files of `claims/` — holds that label with that
+# digest. And every payload, document, revision and file of `claims/` the
+# listing holds has a line of its kind, at the path a fetcher asks for it
+# at, naming its digest; so does every rule whose line does not begin
+# `private` and every bookmark that is not private, wherever the listing
+# holds its file (`skipped/` and the rule's file, `names/` and the
+# bookmark's name and `.txt`), by the first digest the listing gives it.
+# So a fetcher that checks a file against its line checks it against what
+# the store holds, and files it where the store has it. This is for a copy
+# whose directory's name has no `/` in it and is not `history`.
 law offer_names_each_file_by_its_digest:
   for +prefix: String
   for +s: Prune.Stored
@@ -3630,7 +3641,9 @@ law offer_names_each_file_by_its_digest:
   for +claims: List<&2, T.Split>
   for +rids: List<&2, T.Split>
   for +nids: List<&2, T.Split>
-  {Offer.manifest.from(prefix, s, marks, claims, rids, nids) == True{} : Bool}
+  for +hp: {T.has_char(prefix, '/') == False{} : Bool}
+  for +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}
+  {Bool.and(SortL.all_at(~Offer.Offered, ~OfferL.Listing, ~(c => o => OfferL.names_file(c, o)), OfferL.listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), OfferL.lists_all(OfferL.listing.of(s, claims, rids, nids), Receive.ruled(Offer.rules.of(s)), marks, prefix, Offer.entries(prefix, s, marks, claims, rids, nids))) == True{} : Bool}
 
 # A path of ASCII is its own normal form C: normalising it, at every
 # boundary where a path arrives, changes nothing — which is very nearly
@@ -3665,32 +3678,44 @@ law nfc_class_misses_nothing:
   for +c: U32
   {Nfc.class(Tab.classes(), c) == Nfc.class.scan(Tab.classes(), c) : U32}
 
-# In the crate's tables, neither `/` nor `.` has a combining class, is
-# either half of a composition pair or what one makes, or is in any
-# character's decomposition. Normalising a path a name at a time, as the
-# walk does, is normalising the whole of it only because of this, and a
+# Normal form C's algorithm takes `/` and `.` as walls. Over the crate's
+# tables, what decomposing, ordering and composing makes of code points
+# with a `/` or a `.` among them is what it makes of those before, the
+# separator as it was, and what it makes of those after: nothing composes
+# across either and neither moves. Normalising a path a name at a time, as
+# the walk does, is normalising the whole of it for this reason, and a
 # link's target resolved inside the folder keeps its shape once
-# normalised for the same reason; the law is the tables' part of that.
+# normalised. (A string below U+0300 is handed back by the quick check
+# without the algorithm, which this law does not speak to.)
 law nfc_leaves_separators_alone:
-  {Bool.and(Nfc.inert(47), Nfc.inert(46)) == True{} : Bool}
+  for +xs: List<&2, U32>
+  for +c: U32
+  for +ys: List<&2, U32>
+  for h: {Bool.or(U32.is_eq(c, 47), U32.is_eq(c, 46)) == True{} : Bool}
+  {Nfc.nfc.points(Nfc.tabs(), List.append(&2, U32, xs, c <> ys)) == List.append(&2, U32, Nfc.nfc.points(Nfc.tabs(), xs), c <> Nfc.nfc.points(Nfc.tabs(), ys)) : List<&2, U32>}
 
-# The walk yields a path once and loses none. Two names a filesystem tells
-# apart can be one path in normal form C, and the walk keeps one file for
-# it: no two files it yields in a row share a path — and it yields them in
-# path order — and every path a file it found is at, a file it yields is
-# at.
+# The walk yields a path once, in path order. Two names a filesystem tells
+# apart can be one path in normal form C; whatever order the walk found its
+# files in, each file it yields is at a path after the one before it and
+# not the same one, so no path is yielded twice. Which file it keeps at a
+# path, and that it loses none, is `the_walk_keeps_the_file_it_met_last`.
 law the_walk_yields_a_path_once:
   for +fs: List<&2, Folder.Found>
-  {Bool.and(Folder.apart(Folder.distinct(fs)), NfcL.paths_held(fs, Folder.distinct(fs))) == True{} : Bool}
+  for +rs: List<&2, T.Split>
+  {WalkedL.rising(Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == True{} : Bool}
 
 # A file is opened where the folder spells it. The walk names a path in
 # normal form C, and the filesystem may spell it otherwise, so a read asks
-# the listing: the name it opens is one whose normal form is the path, or,
-# where the listing gives none, the path as it is.
+# the listing. Whatever a directory holds, the name read back from the
+# lines the host writes for it is the last entry name whose normal form is
+# the path — a directory's, a file's, a link's own, never a link's target
+# and never a name that is not UTF-8 — and, where no entry's is, the path
+# as it is; the host writes a file's runs and size with no space in them.
 law the_folder_spells_what_is_opened:
-  for +ls: List<&2, String>
+  for +es: List<&2, NfcL.Listed>
   for +want: String
-  {Bool.or(String.eq(Folder.spelling(ls, want), want), String.eq(Nfc.nfc(Folder.spelling(ls, want)), want)) == True{} : Bool}
+  for +h: {WalkedL.sized(es) == True{} : Bool}
+  {Folder.spelling(NfcL.listed.lines(es), want) == Maybe.default(&2, String, WalkedL.last_spelling(WalkedL.names(es), want), want) : String}
 
 # A name that cannot be spelled is refused. Whatever a directory holds —
 # directories, files, links whatever their targets say, the rest — the
@@ -4138,25 +4163,21 @@ law fetch_destroys_only_what_is_forgotten:
   for h: {Rev.member(Fetch.plan.destroys(Fetch.plan.of(Fetch.here.of(s), os)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d)) == True{} : Bool}
 
-# In one pass `fetch` writes a bookmark once (decision 0062): once it has
-# written bookmark `n`, whatever the host answers for a later line naming
-# `n`, it writes no bookmark for it — though two lines of a manifest may
-# name one bookmark with different bytes, and the plan takes both.
+# In one pass `fetch` writes a bookmark once (decision 0062). Whatever
+# steps the plan takes and whatever the host answers for each — what it
+# sends for a file, whether a staged file moved in, what complying
+# destroyed — of what the pass lands, step by step as `steps.io` takes
+# them, each step's landing `step.land` of the names the state holds, the
+# state each leaves threaded into the next, and no step taken once a path
+# is gone, no landing that writes bookmark `n` is followed by another that
+# writes `n` — though two lines of a manifest may name one bookmark with
+# different bytes, and the plan takes both.
 law fetch_writes_a_bookmark_once_a_pass:
-  for +o: Offer.Offered
-  for +n: String
-  for +at: String
-  for +text: String
-  for +t: Fetch.Tally
-  for +rules: List<&2, Receive.Ruled>
-  for +held: List<&2, String>
-  for +moved: Maybe<&2, String>
-  for +landed: Bool
   for +root: String
-  for +o2: Offer.Offered
-  for g: Fetch.Got
-  for +h: {Fetch.named_by(Offer.offered.path(o2)) == Some{n} : Maybe<&2, String>}
-  {FetchingL.writes_a_bookmark(Fetch.got.text(root, Fetch.state.held(Fetch.land.after(o, Fetch.Land.Name{n, at, text}, t, rules, held, moved, landed)), o2, g)) == False{} : Bool}
+  for +ss: List<&2, Fetch.Step>
+  for +as: List<&2, FetchingL.Answer>
+  for +st: Fetch.State
+  {FetchingL.once(FetchingL.pass.lands(root, ss, as, st)) == True{} : Bool}
 
 # `fetch` asks only for what this store lacks: every payload it asks for is
 # one this store holds no payload under the digest of, and one neither a
@@ -4243,12 +4264,14 @@ law init_writes_text:
   {InitL.texts(Main.init.layout(root)) == True{} : Bool}
 
 # `init` joins `<dir>` to the directory it runs in as `Path::join` joins
-# it. An absolute `<dir>` is where the store goes, wherever `init` runs.
+# it. An absolute `<dir>` is where the store goes, wherever `init` runs:
+# `init /d` makes `/d/history`, whatever the base.
 law init_takes_an_absolute_dir_as_it_is:
   for +base: String
-  for +other: String
   for +d: String
-  {Main.init.root(base, Some{"/" ++ d}) == Main.init.root(other, Some{"/" ++ d}) : String}
+  for +e: {String.is_empty(d) == False{} : Bool}
+  for +f: {String.ends_with(d, "/") == False{} : Bool}
+  {Main.init.root(base, Some{"/" ++ d}) == "/" ++ d ++ "/history" : String}
 
 # A `/` after `<dir>` is not doubled: `init sub/` makes the store
 # `init sub` makes.

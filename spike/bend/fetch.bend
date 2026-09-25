@@ -910,6 +910,21 @@ def carry.land(+root: String, +o: Offer.Offered, g: Got) -> Land:
   +label = Maybe.default(&2, String, reserved.label(o), SNil{})
   got.pull(root ++ "/" ++ Arrange.parent_of(label), Naming.last(label), o, g)
 
+# What a step lands, given what the host answered for it: a payload or
+# another tool's file moved in from where it was staged, a document filed,
+# and a bookmark written only where the pass does not hold its name
+# already. Complying with forgetting lands nothing of its own.
+def step.land(+root: String, s: Step, +held: List<&2, String>, g: Got) -> Land:
+  match s:
+    case Step.Pay{+o}:
+      pay.land(root, o, g)
+    case Step.Carry{+o}:
+      carry.land(root, o, g)
+    case Step.Text{+o}:
+      got.text(root, held, o, g)
+    case Step.Comply{}:
+      Land.Skip{}
+
 # Carrying it out
 # ---------------
 
@@ -1083,17 +1098,22 @@ def state.rules(s: State) -> List<&2, Receive.Ruled>:
 def land.io(+c: Ctx, +o: Offer.Offered, l: Land, +st: State) -> IO(State):
   land.go(c, o, l, state.tally(st), state.rules(st), state.held(st), state.moved(st))
 
+# The state complying leaves: `n` originals destroyed, counted, and the
+# rest as it was.
+def comply.after(+n: Nat, st: State) -> State:
+  match st:
+    case State{t, rules, held, moved}:
+      State{tally.destroyed(n, t), rules, held, moved}
+
 # Compliance with forgetting (decision 0014): every original here a
 # forgetting document stands in for destroyed, and what that empties.
-def comply.io(+c: Ctx, +here: Receive.Side, +des: List<&2, String>, st: State) -> IO(State):
-  match st:
-    case State{+t, +rules, +held, +moved}:
-      +st2 = Receive.stored.of(here)
-      +gone = Receive.destroyed(Receive.stored.bodies(st2), Receive.stored.payloads(st2), des)
-      do IO<State>:
-        Prune.removed(ctx.root(c), gone)
-        sw : Result<&1, &1, U32 & String, String> <- Store.swept(ctx.root(c) ++ "/operations")
-        return State{tally.destroyed(List.length(&2, String, gone), t), rules, held, moved}
+def comply.io(+c: Ctx, +here: Receive.Side, +des: List<&2, String>, +st: State) -> IO(State):
+  +st2 = Receive.stored.of(here)
+  +gone = Receive.destroyed(Receive.stored.bodies(st2), Receive.stored.payloads(st2), des)
+  do IO<State>:
+    Prune.removed(ctx.root(c), gone)
+    sw : Result<&1, &1, U32 & String, String> <- Store.swept(ctx.root(c) ++ "/operations")
+    return comply.after(List.length(&2, String, gone), st)
 
 def step.io(+c: Ctx, +here: Receive.Side, +des: List<&2, String>, s: Step, +st: State) -> IO(State):
   match s:
@@ -1101,17 +1121,17 @@ def step.io(+c: Ctx, +here: Receive.Side, +des: List<&2, String>, s: Step, +st: 
       +to = ctx.root(c) ++ "/operations/" ++ staged(entry.digest(o))
       do IO<State>:
         r : Result<&1, &1, U32 & String, String> <- Store.pulled(url.of(ctx.web(c), entry.path(o)) ++ "\n" ++ to)
-        land.io(c, o, pay.land(ctx.root(c), o, got.of(r)), st)
+        land.io(c, o, step.land(ctx.root(c), Step.Pay{o}, state.held(st), got.of(r)), st)
     case Step.Carry{+o}:
       +label = Maybe.default(&2, String, reserved.label(o), SNil{})
       +to = ctx.root(c) ++ "/" ++ Arrange.parent_of(label) ++ "/" ++ staged(Naming.last(label))
       do IO<State>:
         r : Result<&1, &1, U32 & String, String> <- Store.pulled(url.of(ctx.web(c), entry.path(o)) ++ "\n" ++ to)
-        land.io(c, o, carry.land(ctx.root(c), o, got.of(r)), st)
+        land.io(c, o, step.land(ctx.root(c), Step.Carry{o}, state.held(st), got.of(r)), st)
     case Step.Text{+o}:
       do IO<State>:
         r : Result<&1, &1, U32 & String, String> <- Store.got(url.of(ctx.web(c), entry.path(o)))
-        land.io(c, o, got.text(ctx.root(c), state.held(st), o, got.of(r)), st)
+        land.io(c, o, step.land(ctx.root(c), Step.Text{o}, state.held(st), got.of(r)), st)
     case Step.Comply{}:
       comply.io(c, here, des, st)
 
