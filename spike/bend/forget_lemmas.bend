@@ -277,6 +277,96 @@ def picked_named(qs: List<&2, Fg.FgQuoted>, +span: List<&2, String>, +ns: List<&
       join_picks(Rev.member(span, Fg.quoted.key(q)), Fg.quoted.forgot(q), Fg.picks.of(ns, Rev.member(span, Fg.quoted.key(q)), q), Fg.picked(rest, span, ns), Fg.named.docs(ns),
         picks_of(ns, Rev.member(span, Fg.quoted.key(q)), q), picked_named(rest, span, ns))
 
+# The stand-ins a plan writes, each read off its own bytes: it opens with
+# the format line and a `forgets` header naming a digest among those the
+# plan destroys, and is filed as forgetting that digest.
+def written.all(+ts: List<&2, String>, ws: List<&2, Fg.FgWrite>) -> Bool:
+  match ws:
+    case Nil{}:
+      True{}
+    case Fg.Fg.Write{+f, +text, p} <> rest:
+      Bool.and(Bool.and(Rev.member(ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n")), written.all(ts, rest))
+
+def written_weak(+y: String, +ts: List<&2, String>, ws: List<&2, Fg.FgWrite>, +h: {written.all(ts, ws) == True{} : Bool}) -> {written.all(y <> ts, ws) == True{} : Bool}:
+  match ws:
+    case Nil{}:
+      {==}
+    case Fg.Fg.Write{+f, +text, p} <> +rest:
+      +hh = Comp.and_left(Bool.and(Rev.member(ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n")), written.all(ts, rest), h)
+      AL.and_intro(Bool.and(Rev.member(y <> ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n")), written.all(y <> ts, rest),
+        AL.and_intro(Rev.member(y <> ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n"),
+          GL.member_tail(y, ts, f, Comp.and_left(Rev.member(ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n"), hh)),
+          Comp.and_right(Rev.member(ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n"), hh)),
+        written_weak(y, ts, rest, Comp.and_right(Bool.and(Rev.member(ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n")), written.all(ts, rest), h)))
+
+def written_app(+ts: List<&2, String>, xs: List<&2, Fg.FgWrite>, +ys: List<&2, Fg.FgWrite>, +hx: {written.all(ts, xs) == True{} : Bool}, hy: {written.all(ts, ys) == True{} : Bool}) -> {written.all(ts, List.append(&2, Fg.FgWrite, xs, ys)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      hy
+    case Fg.Fg.Write{+f, +text, p} <> +rest:
+      AL.and_intro(Bool.and(Rev.member(ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n")), written.all(ts, List.append(&2, Fg.FgWrite, rest, ys)),
+        Comp.and_left(Bool.and(Rev.member(ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n")), written.all(ts, rest), hx),
+        written_app(ts, rest, ys, Comp.and_right(Bool.and(Rev.member(ts, f), String.starts_with(text, "historica\nforgets " ++ f ++ "\n")), written.all(ts, rest), hx), hy))
+
+def listed(w: Maybe<&2, Fg.FgWrite>) -> List<&2, Fg.FgWrite>:
+  Maybe.default(&2, List<&2, Fg.FgWrite>, Maybe.map(&2, Fg.FgWrite, List<&2, Fg.FgWrite>, x => [x], w), Nil{})
+
+def write_of_c(c: Bool, +t: String, +rest: List<&2, String>, +text: String, +hs: {String.starts_with(text, "historica\nforgets " ++ t ++ "\n") == True{} : Bool}) -> {written.all(t <> rest, listed(Bool.pick(Maybe<&2, Fg.FgWrite>, c, None{}, Some{Fg.Fg.Write{t, text, False{}}}))) == True{} : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      AL.and_intro(Bool.and(Rev.member(t <> rest, t), String.starts_with(text, "historica\nforgets " ++ t ++ "\n")), True{},
+        AL.and_intro(Rev.member(t <> rest, t), String.starts_with(text, "historica\nforgets " ++ t ++ "\n"), GL.member_head(t, rest), hs), {==})
+
+# A stand-in opens by saying what it forgets.
+def ops_opens(+t: String, ops: List<&2, Ops.Op>) -> {String.starts_with(Ops.write(Ops.Doc{Some{t}, None{}, ops}), "historica\nforgets " ++ t ++ "\n") == True{} : Bool}:
+  B.sw_ext(t ++ "\n", t ++ "\n", "\n" ++ Ops.write_ops(ops), B.sw_refl(t ++ "\n"))
+
+def res_opens(+t: String, pieces: List<&2, Res.Piece>) -> {String.starts_with(Res.write(Res.Doc{Some{t}, None{}, pieces}), "historica\nforgets " ++ t ++ "\n") == True{} : Bool}:
+  B.sw_ext(t ++ "\n", t ++ "\n", "\n" ++ Res.write.pieces(pieces), B.sw_refl(t ++ "\n"))
+
+# The stand-in for a target forgets that target and says so first.
+def standin_written(+t: String, +rest: List<&2, String>, +ps: List<&2, Fg.FgPick>, b: Fg.FgBase, +w: Maybe<&2, Fg.FgWrite>, e: {Fg.standin.of(t, ps, b) == Done{w} : Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgWrite>>}) -> {written.all(t <> rest, listed(w)) == True{} : Bool}:
+  match b:
+    case Fg.Fg.Ops{Ops.Doc{f, +r, +ops}}:
+      +text = Ops.write(Ops.Doc{Some{t}, None{}, Fg.forget.ops(ops, ps, t, 0n)})
+      +said = Ops.write(Ops.Doc{Some{t}, r, ops})
+      %B.done_eq(Maybe<&2, Fg.FgWrite>, Fg.write.of(t, text, said), w, e) : {written.all(t <> rest, listed(_)) == True{} : Bool}
+      write_of_c(String.eq(text, said), t, rest, text, ops_opens(t, Fg.forget.ops(ops, ps, t, 0n)))
+    case Fg.Fg.Res{Res.Doc{f, r, +pieces}}:
+      +text = Res.write(Res.Doc{Some{t}, None{}, Fg.forget.pieces(pieces, ps, t, 0n)})
+      +said = Res.write(Res.Doc{Some{t}, None{}, pieces})
+      %B.done_eq(Maybe<&2, Fg.FgWrite>, Fg.write.of(t, text, said), w, e) : {written.all(t <> rest, listed(_)) == True{} : Bool}
+      write_of_c(String.eq(text, said), t, rest, text, res_opens(t, Fg.forget.pieces(pieces, ps, t, 0n)))
+    case Fg.Fg.Absent{}:
+      Empty.absurd({written.all(t <> rest, listed(w)) == True{} : Bool}, B.fail_done(Maybe<&2, Fg.FgWrite>, Main.Refused{1, "the span is quoted in " ++ t ++ ", which this store does not hold yet; forgetting preserves a document's shape, and the shape has not arrived"}, w, e))
+
+def standins_more(+t: String, +rest: List<&2, String>, +ps: List<&2, Fg.FgPick>, +ds: List<&2, Store.Doc>, +w: Maybe<&2, Fg.FgWrite>, r: Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>, +er: {Fg.standins(rest, ps, ds) == r : Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>}, +ws: List<&2, Fg.FgWrite>, e: {Result.bind(&2, &2, Main.Refused, List<&2, Fg.FgWrite>, List<&2, Fg.FgWrite>, r, more => Done{List.append(&2, Fg.FgWrite, listed(w), more)}) == Done{ws} : Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>}, +hw: {written.all(t <> rest, listed(w)) == True{} : Bool}, ih: @more: List<&2, Fg.FgWrite> -> {Fg.standins(rest, ps, ds) == Done{more} : Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>} -> {written.all(rest, more) == True{} : Bool}) -> {written.all(t <> rest, ws) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({written.all(t <> rest, ws) == True{} : Bool}, B.fail_done(List<&2, Fg.FgWrite>, x, ws, e))
+    case Done{+more}:
+      %B.done_eq(List<&2, Fg.FgWrite>, List.append(&2, Fg.FgWrite, listed(w), more), ws, e) : {written.all(t <> rest, _) == True{} : Bool}
+      written_app(t <> rest, listed(w), more, hw, written_weak(t, rest, more, ih(more, er)))
+
+def standins_head(+t: String, +rest: List<&2, String>, +ps: List<&2, Fg.FgPick>, +ds: List<&2, Store.Doc>, r: Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgWrite>>, +er: {Fg.standin.of(t, ps, Fg.base(ds, t)) == r : Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgWrite>>}, +ws: List<&2, Fg.FgWrite>, e: {Result.bind(&2, &2, Main.Refused, Maybe<&2, Fg.FgWrite>, List<&2, Fg.FgWrite>, r, w => Result.bind(&2, &2, Main.Refused, List<&2, Fg.FgWrite>, List<&2, Fg.FgWrite>, Fg.standins(rest, ps, ds), more => Done{List.append(&2, Fg.FgWrite, listed(w), more)})) == Done{ws} : Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>}, ih: @more: List<&2, Fg.FgWrite> -> {Fg.standins(rest, ps, ds) == Done{more} : Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>} -> {written.all(rest, more) == True{} : Bool}) -> {written.all(t <> rest, ws) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({written.all(t <> rest, ws) == True{} : Bool}, B.fail_done(List<&2, Fg.FgWrite>, x, ws, e))
+    case Done{+w}:
+      standins_more(t, rest, ps, ds, w, Fg.standins(rest, ps, ds), {==}, ws, e, standin_written(t, rest, ps, Fg.base(ds, t), w, er), ih)
+
+# Every stand-in `standins` writes forgets one of the targets it was
+# given, and says so first.
+def standins_written(xs: List<&2, String>, +ps: List<&2, Fg.FgPick>, +ds: List<&2, Store.Doc>, +ws: List<&2, Fg.FgWrite>, e: {Fg.standins(xs, ps, ds) == Done{ws} : Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>}) -> {written.all(xs, ws) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      %B.done_eq(List<&2, Fg.FgWrite>, Nil{}, ws, e) : {written.all(Nil{}, _) == True{} : Bool}
+      {==}
+    case +t <> +rest:
+      standins_head(t, rest, ps, ds, Fg.standin.of(t, ps, Fg.base(ds, t)), {==}, ws, e, more => em => standins_written(rest, ps, ds, more, em))
+
 def plan.targets(p: Fg.FgPlan) -> List<&2, String>:
   match p:
     case Fg.Fg.Plan{ts, ws, a, n}:
@@ -285,58 +375,65 @@ def plan.targets(p: Fg.FgPlan) -> List<&2, String>:
 def plan_eq(-a: Fg.FgPlan, -b: Fg.FgPlan, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {plan.targets(a) == plan.targets(b) : List<&2, String>}:
   Equal.cong(Fg.FgPlan, List<&2, String>, p => plan.targets(p), a, b, B.done_eq(Fg.FgPlan, a, b, h))
 
-def picked_ws(+ts: List<&2, String>, +already: Nat, r: Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>, +p: Fg.FgPlan, e: {Result.map(&2, &2, Main.Refused, List<&2, Fg.FgWrite>, Fg.FgPlan, ws => Fg.Fg.Plan{ts, ws, already, 0n}, r) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {ts == plan.targets(p) : List<&2, String>}:
+# A plan whose targets are among `docs`, and whose stand-ins each forget
+# one of its targets and say so first.
+def plan.good(+docs: List<&2, String>, p: Fg.FgPlan) -> Bool:
+  match p:
+    case Fg.Fg.Plan{+ts, ws, a, n}:
+      Bool.and(Main.all_held(docs, ts), written.all(ts, ws))
+
+def picked_good(+docs: List<&2, String>, +ts: List<&2, String>, +ps: List<&2, Fg.FgPick>, +ds: List<&2, Store.Doc>, +already: Nat, r: Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>, +er: {Fg.standins(ts, ps, ds) == r : Result<&2, &2, Main.Refused, List<&2, Fg.FgWrite>>}, +p: Fg.FgPlan, e: {Result.map(&2, &2, Main.Refused, List<&2, Fg.FgWrite>, Fg.FgPlan, ws => Fg.Fg.Plan{ts, ws, already, 0n}, r) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, +h: {Main.all_held(docs, ts) == True{} : Bool}) -> {plan.good(docs, p) == True{} : Bool}:
   match r:
     case Fail{x}:
-      Empty.absurd({ts == plan.targets(p) : List<&2, String>}, B.fail_done(Fg.FgPlan, x, p, e))
-    case Done{ws}:
-      plan_eq(Fg.Fg.Plan{ts, ws, already, 0n}, p, e)
+      Empty.absurd({plan.good(docs, p) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
+    case Done{+ws}:
+      %B.done_eq(Fg.FgPlan, Fg.Fg.Plan{ts, ws, already, 0n}, p, e) : {plan.good(docs, _) == True{} : Bool}
+      AL.and_intro(Main.all_held(docs, ts), written.all(ts, ws), h, standins_written(ts, ps, ds, ws, er))
 
-# A plan's targets are the documents its picks name, sorted, each once.
-def lines_of(+ds: List<&2, Store.Doc>, q: Fg.FgPicked, +p: Fg.FgPlan, e: {Fg.lines.of(ds, q) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Fg.targets(picks.of.picked(q)) == plan.targets(p) : List<&2, String>}:
+# A plan's targets are the documents its picks name, sorted, each once,
+# and its stand-ins are written for them.
+def lines_good(+docs: List<&2, String>, +ds: List<&2, Store.Doc>, q: Fg.FgPicked, +p: Fg.FgPlan, e: {Fg.lines.of(ds, q) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}, h: {Main.all_held(docs, Fg.targets(picks.of.picked(q))) == True{} : Bool}) -> {plan.good(docs, p) == True{} : Bool}:
   match q:
     case Fg.Fg.Picked{+ps, +already}:
-      picked_ws(Fg.targets(ps), already, Fg.standins(Fg.targets(ps), ps, ds), p, e)
+      picked_good(docs, Fg.targets(ps), ps, ds, already, Fg.standins(Fg.targets(ps), ps, ds), {==}, p, e, h)
 
 def targets_named(+docs: List<&2, String>, +ps: List<&2, Fg.FgPick>, h: {Main.all_held(docs, Fg.targets.of(ps)) == True{} : Bool}) -> {Main.all_held(docs, Fg.targets(ps)) == True{} : Bool}:
   StatusL.ah_distinct(docs, List.sort(~String, ~(a => b => String.is_le(a, b)), Fg.targets.of(ps)),
     StatusL.ah_sort(~(a => b => String.is_le(a, b)), docs, Fg.targets.of(ps), h))
 
-def every_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +span: List<&2, String>, r: Result<&2, &2, Main.Refused, List<&2, Fg.FgQuoted>>, +p: Fg.FgPlan, e: {Fg.lines.every(fs, ds, file, span, r) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Main.all_held(Fg.named.docs(Fg.named(fs, file)), plan.targets(p)) == True{} : Bool}:
+def every_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +span: List<&2, String>, r: Result<&2, &2, Main.Refused, List<&2, Fg.FgQuoted>>, +p: Fg.FgPlan, e: {Fg.lines.every(fs, ds, file, span, r) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {plan.good(Fg.named.docs(Fg.named(fs, file)), p) == True{} : Bool}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.all_held(Fg.named.docs(Fg.named(fs, file)), plan.targets(p)) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
+      Empty.absurd({plan.good(Fg.named.docs(Fg.named(fs, file)), p) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
     case Done{+every}:
       +q = Fg.picked(every, Fg.copies(every, span), Fg.named(fs, file))
-      +eq = lines_of(ds, q, p, e)
-      %eq : {Main.all_held(Fg.named.docs(Fg.named(fs, file)), _) == True{} : Bool}
-      targets_named(Fg.named.docs(Fg.named(fs, file)), picks.of.picked(q), picked_named(every, Fg.copies(every, span), Fg.named(fs, file)))
+      lines_good(Fg.named.docs(Fg.named(fs, file)), ds, q, p, e, targets_named(Fg.named.docs(Fg.named(fs, file)), picks.of.picked(q), picked_named(every, Fg.copies(every, span), Fg.named(fs, file))))
 
-def within_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +visible: List<&2, Fg.FgQuoted>, ok: Result<&2, &2, Main.Refused, Unit>, +p: Fg.FgPlan, e: {Fg.lines.within(fs, ds, id, file, first, last, visible, ok) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Main.all_held(Fg.named.docs(Fg.named(fs, file)), plan.targets(p)) == True{} : Bool}:
+def within_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +visible: List<&2, Fg.FgQuoted>, ok: Result<&2, &2, Main.Refused, Unit>, +p: Fg.FgPlan, e: {Fg.lines.within(fs, ds, id, file, first, last, visible, ok) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {plan.good(Fg.named.docs(Fg.named(fs, file)), p) == True{} : Bool}:
   match ok:
     case Fail{x}:
-      Empty.absurd({Main.all_held(Fg.named.docs(Fg.named(fs, file)), plan.targets(p)) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
+      Empty.absurd({plan.good(Fg.named.docs(Fg.named(fs, file)), p) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
     case Done{u}:
       every_ok(fs, ds, file, Fg.span.keys(visible, first, last), Fg.refused.of(List<&2, Fg.FgQuoted>, Fg.quotes(Fg.by_digest(fs), ds, id, file)), p, e)
 
-def at_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, r: Result<&2, &2, Main.Refused, List<&2, Fg.FgQuoted>>, +p: Fg.FgPlan, e: {Fg.lines.at(fs, ds, id, file, first, last, r) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Main.all_held(Fg.named.docs(Fg.named(fs, file)), plan.targets(p)) == True{} : Bool}:
+def at_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, r: Result<&2, &2, Main.Refused, List<&2, Fg.FgQuoted>>, +p: Fg.FgPlan, e: {Fg.lines.at(fs, ds, id, file, first, last, r) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {plan.good(Fg.named.docs(Fg.named(fs, file)), p) == True{} : Bool}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.all_held(Fg.named.docs(Fg.named(fs, file)), plan.targets(p)) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
+      Empty.absurd({plan.good(Fg.named.docs(Fg.named(fs, file)), p) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
     case Done{at}:
       +visible = Fg.quoted.visible(at)
       within_ok(fs, ds, id, file, first, last, visible, Fg.span.within.r(last, List.length(&2, Fg.FgQuoted, visible)), p, e)
 
-def checked_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, ok: Result<&2, &2, Main.Refused, Unit>, +p: Fg.FgPlan, e: {Fg.lines.checked(fs, ds, id, file, first, last, ok) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Main.all_held(Fg.named.docs(Fg.named(fs, file)), plan.targets(p)) == True{} : Bool}:
+def checked_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, ok: Result<&2, &2, Main.Refused, Unit>, +p: Fg.FgPlan, e: {Fg.lines.checked(fs, ds, id, file, first, last, ok) == Done{p} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {plan.good(Fg.named.docs(Fg.named(fs, file)), p) == True{} : Bool}:
   match ok:
     case Fail{x}:
-      Empty.absurd({Main.all_held(Fg.named.docs(Fg.named(fs, file)), plan.targets(p)) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
+      Empty.absurd({plan.good(Fg.named.docs(Fg.named(fs, file)), p) == True{} : Bool}, B.fail_done(Fg.FgPlan, x, p, e))
     case Done{u}:
       at_ok(fs, ds, id, file, first, last, Fg.refused.of(List<&2, Fg.FgQuoted>, Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file)), p, e)
 
 # Every document `forget --lines` plans a stand-in for is one a revision
-# states for the file.
-def rewrites(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +ts: List<&2, String>, +ws: List<&2, Fg.FgWrite>, +a: Nat, +n: Nat, e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts) == True{} : Bool}:
+# states for the file, and each stand-in it writes forgets one of them.
+def rewrites(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +ts: List<&2, String>, +ws: List<&2, Fg.FgWrite>, +a: Nat, +n: Nat, e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Bool.and(Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts), written.all(ts, ws)) == True{} : Bool}:
   checked_ok(fs, ds, id, file, first, last, Fg.span.checked.r(first, last), Fg.Fg.Plan{ts, ws, a, n}, e)
 
 # What a revision states for a file, read off its headers with no reader
@@ -464,9 +561,13 @@ def held_stated(+fs: List<&2, Main.Full>, +file: String, ts: List<&2, String>, +
         held_stated(fs, file, rest, Comp.and_right(Rev.member(Fg.named.docs(Fg.named(fs, file)), t), Main.all_held(Fg.named.docs(Fg.named(fs, file)), rest), h)))
 
 # Every document `forget --lines` plans a stand-in for is one a header of
-# some revision states for the file.
-def rewrites_stated(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +ts: List<&2, String>, +ws: List<&2, Fg.FgWrite>, +a: Nat, +n: Nat, e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {all_stated(fs, file, ts) == True{} : Bool}:
-  held_stated(fs, file, ts, rewrites(fs, ds, id, file, first, last, ts, ws, a, n, e))
+# some revision states for the file, and every stand-in it writes opens by
+# naming one of them as what it forgets.
+def rewrites_stated(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +ts: List<&2, String>, +ws: List<&2, Fg.FgWrite>, +a: Nat, +n: Nat, e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Bool.and(all_stated(fs, file, ts), written.all(ts, ws)) == True{} : Bool}:
+  +g = rewrites(fs, ds, id, file, first, last, ts, ws, a, n, e)
+  AL.and_intro(all_stated(fs, file, ts), written.all(ts, ws),
+    held_stated(fs, file, ts, Comp.and_left(Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts), written.all(ts, ws), g)),
+    Comp.and_right(Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts), written.all(ts, ws), g))
 
 # What a payload's forgetting takes
 # ---------------------------------
@@ -842,6 +943,28 @@ def clears_copy(ps: List<&2, String>, +d: String, +hd: {T.is_digest(d) == True{}
           %Equal.sym(Bool, T.is_digest(d), True{}, hd) : {Rev.member(Rev.keep(_, "cache/" ++ d, Fg.cached(rest)), "cache/" ++ d) == True{} : Bool};
           GL.member_head("cache/" ++ d, Fg.cached(rest))),
         t => keep_mem(T.is_digest(String.drop(q, 6n)), q, Fg.cached(rest), "cache/" ++ d, clears_copy(rest, d, hd, t)))
+
+# What `forget` removes from `cache/` was listed there.
+def cached_listed.step(b: Bool, +q: String, +rest: List<&2, String>, +p: String, m: {Rev.member(Rev.keep(b, q, Fg.cached(rest)), p) == True{} : Bool}, ih: {Rev.member(Fg.cached(rest), p) == True{} : Bool} -> {Rev.member(rest, p) == True{} : Bool}) -> {Rev.member(q <> rest, p) == True{} : Bool}:
+  match b:
+    case True{}:
+      GL.member_cons({Rev.member(q <> rest, p) == True{} : Bool}, q, Fg.cached(rest), p, m,
+        h => GL.member_at(q <> rest, q, p, h, GL.member_head(q, rest)),
+        t => GL.member_tail(q, rest, p, ih(t)))
+    case False{}:
+      GL.member_tail(q, rest, p, ih(m))
+
+def cached_listed(ps: List<&2, String>, +p: String, m: {Rev.member(Fg.cached(ps), p) == True{} : Bool}) -> {Rev.member(ps, p) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      m
+    case +q <> +rest:
+      cached_listed.step(T.is_digest(String.drop(q, 6n)), q, rest, p, m, t => cached_listed(rest, p, t))
+
+# An entry of `cache/` that `forget` removes is one the host listed, and
+# named by a digest.
+def clears_only(+ps: List<&2, String>, +n: String, +h: {Rev.member(Fg.cached(ps), "cache/" ++ n) == True{} : Bool}) -> {Bool.and(T.is_digest(n), Rev.member(ps, "cache/" ++ n)) == True{} : Bool}:
+  AL.and_intro(T.is_digest(n), Rev.member(ps, "cache/" ++ n), (%drop0(n) : {T.is_digest(_) == True{} : Bool}; clears(ps, "cache/" ++ n, h)), cached_listed(ps, "cache/" ++ n, h))
 
 # Replaying through a stand-in
 # ----------------------------

@@ -5175,6 +5175,13 @@ def check_mutations(temporary):
             "forget.bend",
         ),
         (
+            "a payload named `.txt` is taken for a document",
+            '  String.ends_with(p, ".ops.txt")\n\n# How many bytes',
+            '  String.ends_with(p, ".txt")\n\n# How many bytes',
+            "forgetting_lemmas.no_docs",
+            "forget.bend",
+        ),
+        (
             "a file of lines that will not replay is forgotten whole",
             "    case Fail{e}:\n      Fail{Main.Refused{1, e}}\n    case Done{items}:\n      +n = T.spell",
             "    case Fail{e}:\n      Done{Fg.Plan{Nil{}, Nil{}, 0n, 0n}}\n    case Done{items}:\n      +n = T.spell",
@@ -5238,6 +5245,20 @@ def check_mutations(temporary):
             "forget.bend",
         ),
         (
+            "a stand-in is filed as forgetting what it replaces",
+            "  Bool.pick(Maybe<&2, FgWrite>, String.eq(text, said), None{}, Some{Fg.Write{target, text, False{}}})",
+            "  Bool.pick(Maybe<&2, FgWrite>, String.eq(text, said), None{}, Some{Fg.Write{said, text, False{}}})",
+            "forget_lemmas.standin_written",
+            "forget.bend",
+        ),
+        (
+            "a stand-in for a resolution names no target",
+            "      Done{write.of(target, Res.write(Res.Doc{Some{target}, None{}, forget.pieces(pieces, ps, target, 0n)}), Res.write(Res.Doc{Some{target}, None{}, pieces}))}",
+            "      Done{write.of(target, Res.write(Res.Doc{None{}, None{}, forget.pieces(pieces, ps, target, 0n)}), Res.write(Res.Doc{Some{target}, None{}, pieces}))}",
+            "forget_lemmas.standin_written",
+            "forget.bend",
+        ),
+        (
             "forget reads a misspelled `--dry-run`",
             'String.eq(w, "--dry-run")), Fg.Dry{},',
             'String.eq(w, "--dryrun")), Fg.Dry{},',
@@ -5264,6 +5285,27 @@ def check_mutations(temporary):
             'path ++ ": line " ++ Nat.show(1n+n) ++ ": `" ++ p ++ "` is not a path',
             "fulls_lemmas.unnormal_step",
             "commands.bend",
+        ),
+        (
+            "a path not in normal form C is refused a line early",
+            "  unnormal.go(String.split(s, '\\n'), 1n)",
+            "  unnormal.go(String.split(s, '\\n'), 0n)",
+            "fulls_lemmas.unnormal_at",
+            "revision.bend",
+        ),
+        (
+            "a path the message names is refused as a header's",
+            "    case SNil{} <> rest:\n      None{}\n    case +l <> rest:\n      Maybe.or(&2, Unnormal",
+            "    case SNil{} <> rest:\n      unnormal.go(rest, 1n+n)\n    case +l <> rest:\n      Maybe.or(&2, Unnormal",
+            "fulls_lemmas.go_at",
+            "revision.bend",
+        ),
+        (
+            "mending a document mends its message too",
+            "    case SNil{} <> rest:\n      SNil{} <> rest\n",
+            "    case SNil{} <> rest:\n      SNil{} <> mended.go(rest)\n",
+            "fulls_lemmas.mended_agrees",
+            "revision.bend",
         ),
         (
             "name keeps the other words newest first",
