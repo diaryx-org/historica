@@ -62,6 +62,11 @@ import ./init_lemmas.bend as InitL
 import ./utf8_lemmas.bend as Utf8L
 import ./finding_lemmas.bend as FindL
 import ./skip_lemmas.bend as SkipL
+import ./host_lemmas.bend as HostL
+import ./listed_lemmas.bend as ListedL
+import ./pattern_lemmas.bend as PatL
+import ./stats_lemmas.bend as StatsL
+import ./standing_lemmas.bend as StandingL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -4490,3 +4495,149 @@ law check_fails_on_an_error:
   for +fs: List<&2, Check.Finding>
   for complete: Bool
   {Check.fails(fs, complete) == Bool.or(List.any(~&2, ~Check.Finding, ~(f => Check.is_error(f)), fs), Bool.and(complete, List.any(~&2, ~Check.Finding, ~(f => Check.is_head(f)), fs))) : Bool}
+
+# What a command reads of the store is what the host answered. Asked where
+# the bytes with each of some digests are, `Store.at` answers a line for
+# each digest, in the order asked — the path the bytes are at, or `-` where
+# the store holds nothing — and then `<digest> <path>` for each document
+# its catalogue says forgets one of them. Read back, those lines ask for
+# the document at each path given, and for no other; the digests the store
+# holds and those it lacks are one answer to each digest, in order; and the
+# documents said to forget a digest are read only for a digest the store
+# holds, the rest left to the scan that finds a stand-in for one it lacks.
+# The documents are then read, and hashed, here.
+law at_answer_reads_back:
+  for +root: String
+  for +ds: List<&2, String>
+  for +as: List<&2, Maybe<&2, String>>
+  for +fs: List<&2, T.Split>
+  for +h: {HostL.answer_ok(ds, as, fs) == True{} : Bool}
+  {Store.asked(root, ds, HostL.at.answer(as, fs)) == Store.Asked{HostL.found(root, as), HostL.held(ds, as), HostL.near(root, HostL.held(ds, as), fs), HostL.gone(ds, as)} : Store.Asked}
+
+# And the digests the same answer leaves unsettled — where what a
+# statement names may not be what a reader reads — are those the store
+# holds nothing for, in the order asked, and then each digest a document
+# is said to forget, in the host's order.
+law unsettled_answer_reads_back:
+  for +ds: List<&2, String>
+  for +as: List<&2, Maybe<&2, String>>
+  for +fs: List<&2, T.Split>
+  for +h: {HostL.answer_ok(ds, as, fs) == True{} : Bool}
+  {Store.unsettled.read(ds, HostL.at.answer(as, fs)) == List.append(&2, String, HostL.gone(ds, as), HostL.forgotten(fs)) : List<&2, String>}
+
+# A program is run as it was named. `Store.run` is asked the directory, the
+# program and each argument with a NUL between each, and the host reads the
+# question by splitting it at NUL; where none of them holds a NUL — which
+# no argument a process is handed can — that reading gives back the
+# directory, the program and every argument, each whole and in order, an
+# empty argument included.
+law run_asks_for_what_it_names:
+  for +dir: String
+  for +program: String
+  for +args: List<&2, String>
+  for +h: {HostL.all_nosep(dir <> program <> args, '\u{0}') == True{} : Bool}
+  {String.split(Store.run.query(dir, program, args), '\u{0}') == dir <> program <> args : List<&2, String>}
+
+# The walk reads a directory as the host lists it. `Store.folder` writes
+# an entry a line, as its adapter does — `d <name>`, `f <x> <size> <name>`,
+# `l <name>` with the link's target on the next line, `L`, `o`, and `u`
+# with a name that is not UTF-8 spelled lossily — and one step of the walk
+# reads each line as the entry it was written for, whatever its name holds
+# but a newline, a space included: the directories it names go on to be
+# listed, each as the walk names it — in normal form C, under the
+# directory — beside where the folder spells it, all but the store and
+# those a rule skips whole; the files and links `tracked` takes are found,
+# a file with its execute bit and its size, a link with its target as the
+# folder spells it; each file, link and other entry is refused for what
+# `refusal.of` finds in it, and a link's target is no entry; and each name
+# that cannot be spelled is refused where it is on disk. What was found,
+# refused and still to list before stays, behind it.
+law a_directory_is_read_as_the_host_lists_it:
+  for +es: List<&2, ListedL.Entry>
+  for +dir: String
+  for +disk: String
+  for +at: String
+  for +rules: List<&2, Folder.Scope>
+  for +rest: List<&2, T.Split>
+  for +found: List<&2, Folder.Found>
+  for +refused: List<&2, T.Split>
+  for +odd: List<&2, Folder.Keyed>
+  for +h: {ListedL.entries_ok(es) == True{} : Bool}
+  {ListedL.seen(Folder.walk.step(ListedL.text(es), dir, disk, at, rules, rest, found, refused, odd)) == ListedL.Seen{List.append(&2, T.Split, List.reverse(&2, T.Split, ListedL.dirs(es, dir, disk, rules)), rest), List.reverse.go(&2, Folder.Found, ListedL.found(es, dir, rules), found), List.reverse.go(&2, T.Split, ListedL.refused(es, dir, rules), refused), List.append(&2, T.Split, List.reverse(&2, T.Split, ListedL.odd(es, at)), Folder.unkeyed(odd))} : ListedL.Seen}
+
+# The walk yields its files in path order. Whatever order it found them
+# in, what it returns for the folder is sorted by path.
+law the_walk_yields_its_files_in_path_order:
+  for +fs: List<&2, Folder.Found>
+  for +rs: List<&2, T.Split>
+  {SortL.sorted(~Folder.Found, ~(f => Folder.found.path(f)), Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == True{} : Bool}
+
+# And at each path, the file it met there last, and no other. Two names a
+# filesystem tells apart can be one path in normal form C, and the Rust
+# walk keeps the file it met last; the walk puts each file on the front of
+# what it found as it meets it, so of the files found at a path, the first
+# is the one met last — and what the walk yields at the path is exactly
+# that one, or nothing where it found nothing there.
+law the_walk_keeps_the_file_it_met_last:
+  for +fs: List<&2, Folder.Found>
+  for +rs: List<&2, T.Split>
+  for +p: String
+  {SortL.keyed(~Folder.Found, ~(f => Folder.found.path(f)), p, Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == ListedL.first(SortL.keyed(~Folder.Found, ~(f => Folder.found.path(f)), p, fs)) : List<&2, Folder.Found>}
+
+# A name in a rule matches as decision 0011 reads it: a pattern is runs of
+# characters with a `*` between each, and `*` is any run of characters.
+# Whatever run each `*` is taken to stand for, the name the pattern then
+# spells is one it matches: the matcher, which looks for each run at the
+# first place it stands and asks the last to end the name, misses none.
+law a_pattern_matches_each_name_it_spells:
+  for +r0: String
+  for +more: List<&2, String>
+  for +xs: List<&2, String>
+  for +h: {HostL.all_nosep(r0 <> more, '*') == True{} : Bool}
+  {Folder.matches(String.join(r0 <> more, "*"), PatL.fill(r0, more, xs)) == True{} : Bool}
+
+# And it matches nothing else: a name a pattern matches is one the pattern
+# spells with some run of characters standing for each `*`.
+law a_pattern_matches_only_names_it_spells:
+  for +r0: String
+  for +more: List<&2, String>
+  for +c: String
+  for +h: {HostL.all_nosep(r0 <> more, '*') == True{} : Bool}
+  for e: {Folder.matches(String.join(r0 <> more, "*"), c) == True{} : Bool}
+  exs xs: List<&2, String>
+  {PatL.fill(r0, more, xs) == c : String}
+
+# `forget` reads each file of `operations/` as the host found it.
+# `Store.digests` answers the paths it is asked a line each, in order —
+# `<digest> <size>`, or `- 0` for a file that will not read — and `forget`
+# pairs each path with the digest and the size on the line for it: one
+# line to each path, none skipped and none shifted onto another.
+law forget_reads_what_the_host_hashed:
+  for +ps: List<&2, String>
+  for +ss: List<&2, T.Split>
+  for +hl: {Nat.is_eq(List.length(&2, String, ps), List.length(&2, T.Split, ss)) == True{} : Bool}
+  for +h: {StatsL.stats_ok(ss) == True{} : Bool}
+  {Fg.filed(ps, Store.stats.read(StatsL.digests.answer(ss))) == StatsL.filed(ps, ss) : List<&2, Fg.FgFiled>}
+
+# And `arrange` names each payload by the digest the host found for it,
+# one line to each payload, in order.
+law arrange_reads_what_the_host_hashed:
+  for +ps: List<&2, String>
+  for +ss: List<&2, T.Split>
+  for +hl: {Nat.is_eq(List.length(&2, String, ps), List.length(&2, T.Split, ss)) == True{} : Bool}
+  for +h: {StatsL.stats_ok(ss) == True{} : Bool}
+  {Arrange.zip.stats(ps, Store.stats.read(StatsL.digests.answer(ss))) == StatsL.digested(ps, ss) : List<&2, T.Split>}
+
+# A stand-in stands for the digest it forgets, and for no other. Every
+# forgetting document the port writes says what it forgets in its first
+# header — an operation document or a resolution that forgets a digest, as
+# `forget` writes one in the grammar of what it stands in for, and a
+# payload's two headers — and of those the scan reads, `standing` keeps for
+# some digests exactly the ones whose digest is among them, whatever else
+# each holds, in the order read: a digest that only begins another is not
+# that one.
+law a_stand_in_stands_for_what_it_forgets:
+  for +ds: List<&2, String>
+  for +ss: List<&2, StandingL.Standing>
+  for +h: {Bool.and(HostL.all_nonl(ds), StandingL.standing_ok(ss)) == True{} : Bool}
+  {Store.standing.of(ds, StandingL.docs(ss)) == StandingL.docs(StandingL.kept(ds, ss)) : List<&2, Store.Doc>}
