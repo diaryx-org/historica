@@ -703,17 +703,20 @@ def Laws.files_lists_the_tree(t, k):
 def Laws.bookmarks_read_in_name_order(ps):
   ListL.order_sorted(ps)
 
+def Laws.bookmarks_read_each_once(ps, k):
+  ListL.order_keyed(ps, k)
+
 def Laws.names_lists_each_bookmark(fs, bs):
   ListL.said_begun(fs, bs)
 
 def Laws.names_resolves_to_held(fs, here, t):
-  ListL.resolution_held(fs, here, t)
+  ListL.resolution_ok(fs, here, t)
 
 def Laws.log_fields_lists_what_it_keeps(fs, bs, sp, shown, fl, limit):
   ListL.fields_listed(fs, bs, sp, shown, fl, limit)
 
-def Laws.log_counts_each_fact(facts, key, added):
-  ListL.counts_each(facts, key, added)
+def Laws.log_counts_each_fact(sets, facts):
+  ListL.figures_counted(~sets, facts)
 
 def Laws.log_follows_a_held_file(fs, bs, sp, path, at, file, ea, e):
   ListL.followed_held(fs, bs, sp, path, at, file, ea, e)

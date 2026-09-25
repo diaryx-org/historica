@@ -1420,21 +1420,35 @@ law files_lists_the_tree:
   for +k: String
   {SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, Main.files.listed(t)) == SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, t) : Tree.Tree()}
 
-# `names` lists every bookmark once, in name order: the store's bookmarks
-# are read sorted by name, and `names` prints a line for each, in the
-# order read, beginning with its name — or says there are none.
+# `names` lists every bookmark once, in name order. The store's bookmarks
+# are read sorted by name, each no smaller than the one before it.
 law bookmarks_read_in_name_order:
   for +ps: List<&2, String>
   {SortL.sorted(~Main.Named, ~(n => Main.named.name(n)), Main.bookmarks.order(ps)) == True{} : Bool}
 
+# And the sort neither drops nor repeats one: under each name are the files
+# under `names/` that name that bookmark, as many and in the order the store
+# lists them.
+law bookmarks_read_each_once:
+  for +ps: List<&2, String>
+  for +k: String
+  {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.bookmarks.order(ps)) == SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.named(ps)) : List<&2, Main.Named>}
+
+# `names` prints a line for each bookmark it read, in the order read, each
+# beginning with the bookmark's name and two spaces, and, for a revision
+# pin or a change, ending with `  ->  ` and where it resolves; with no
+# bookmark, it says `no bookmarks here yet`.
 law names_lists_each_bookmark:
   for +fs: List<&2, Main.Full>
   for bs: List<&2, Bm.Bookmark>
-  {Main.names.begun(bs, Main.names.said(fs, bs)) == True{} : Bool}
+  {Main.names.begun(fs, bs, Main.names.said(fs, bs)) == True{} : Bool}
 
-# Where `names` says a revision pin or a change resolves is a revision the
-# store holds: an abbreviation of its digest — for a change, of its one
-# current revision — or else, in parentheses, why there is none.
+# Where `names` says a revision pin resolves, where the store holds the
+# revision, is an abbreviation of that revision's digest: a prefix of it,
+# its first eight characters at least, that no other digest the store holds
+# of the same length begins with. A pin the store lacks is `(not here
+# yet)`. A change with one current revision is the same abbreviation of
+# that revision, which the store holds; any other, a reason in parentheses.
 law names_resolves_to_held:
   for +fs: List<&2, Main.Full>
   for +here: Maybe<&2, Tree.Tree()>
@@ -1456,13 +1470,15 @@ law log_fields_lists_what_it_keeps:
 
 # A log entry counts what its revision did to the file set as the revision
 # states it: the files added, moved, dropped and edited are how many `add`,
-# `move`, `drop` and `edit` facts it states, each counted once and none set
-# aside for the files it added — only modes, links and bytes are.
+# `move`, `drop` and `edit` facts it states, and the modes, links and bytes
+# stored are how many `mode`, `link` and `bytes` facts it states about a
+# file no `add` fact names — each under its own word, in that order. The
+# files it added are asked of a `Set` built from them, which this takes, as
+# its one assumption, to hold exactly the strings it was built from.
 law log_counts_each_fact:
-  for facts: List<&2, Rev.Header>
-  for +key: String
-  for +added: Set()
-  {Main.count_facts(facts, key, added, False{}) == List.length(&2, String, Rev.values_of(facts, key)) : Nat}
+  for ~sets: @xs: List<&2, String> -> @x: String -> {Main.was_added(Set.from_list(xs), x) == Rev.member(xs, x) : Bool}
+  for +facts: List<&2, Rev.Header>
+  {Main.tree_facts.figures(facts) == [Main.Figure{"added", Main.facts.stated(facts, "add")}, Main.Figure{"moved", Main.facts.stated(facts, "move")}, Main.Figure{"mode", Main.facts.unadded(facts, "mode")}, Main.Figure{"link", Main.facts.unadded(facts, "link")}, Main.Figure{"dropped", Main.facts.stated(facts, "drop")}, Main.Figure{"edited", Main.facts.stated(facts, "edit")}, Main.Figure{"stored", Main.facts.unadded(facts, "bytes")}] : List<&2, Main.Figure>}
 
 # The file `log --path` follows is one the tree holds at the revision the
 # path is read at — the far end of the span named, or the one head — so
