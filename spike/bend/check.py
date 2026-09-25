@@ -5037,6 +5037,62 @@ def check_mutations(temporary):
             "nfc_lemmas.go_apart",
             "folder.bend",
         ),
+        (
+            "a digest the store lacks is read at `-`",
+            "  Bool.pick(List<&2, String>, Bool.or(absent(p), String.is_empty(p)), rest, (root ++ \"/\" ++ p) <> rest)",
+            "  Bool.pick(List<&2, String>, String.is_empty(p), rest, (root ++ \"/\" ++ p) <> rest)",
+            "host_lemmas.found_paths",
+            "store.bend",
+        ),
+        (
+            "a digest the store lacks is taken as held",
+            "      List.filter.put(String, d, held.of(rest, more), Bool.not(absent(a)))",
+            "      List.filter.put(String, d, held.of(rest, more), True{})",
+            "host_lemmas.held_of",
+            "store.bend",
+        ),
+        (
+            "a digest the store holds is taken as lacking",
+            "      List.filter.put(String, d, missing(rest, more), absent(a))",
+            "      List.filter.put(String, d, missing(rest, more), Bool.not(absent(a)))",
+            "host_lemmas.gone_of",
+            "store.bend",
+        ),
+        (
+            "a forgetting document is read for a digest the store lacks",
+            "      List.filter.put(String, String.drop(l, 65n), beside.paths(held, rest), member(held, String.take(l, 64n)))",
+            "      List.filter.put(String, String.drop(l, 65n), beside.paths(held, rest), True{})",
+            "host_lemmas.beside_line",
+            "store.bend",
+        ),
+        (
+            "a forgetting document is read at its line",
+            "      List.filter.put(String, String.drop(l, 65n), beside.paths(held, rest), member(held, String.take(l, 64n)))",
+            "      List.filter.put(String, String.drop(l, 64n), beside.paths(held, rest), member(held, String.take(l, 64n)))",
+            "host_lemmas.beside_line",
+            "store.bend",
+        ),
+        (
+            "the digests asked are answered one line late",
+            "    case d <> rest l <> more:\n      l <> answered(rest, more)",
+            "    case d <> rest l <> more:\n      more",
+            "host_lemmas.answered_app",
+            "store.bend",
+        ),
+        (
+            "a digest the store holds is taken as unsettled",
+            "      List.filter.put(String, d, unsettled.of(rest, more), absent(l))",
+            "      List.filter.put(String, d, unsettled.of(rest, more), True{})",
+            "host_lemmas.unsettled_of",
+            "store.bend",
+        ),
+        (
+            "a program is asked for with its arguments run together",
+            "      \"\\u{0}\" ++ a ++ run.args(rest)",
+            "      a ++ run.args(rest)",
+            "host_lemmas.split_args",
+            "store.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

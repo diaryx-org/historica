@@ -83,6 +83,7 @@ import ./export_lemmas.bend as ExportL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
+import ./host_lemmas.bend as HostL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1100,3 +1101,12 @@ def Laws.fetch_lands_a_file_only_where_it_hashes_to_its_line(folder, name, o, g,
 
 def Laws.fetch_files_a_payload_under_what_it_hashes_to(root, o, g, f, a, b, e):
   FetchingL.payload_lands_under_its_digest(root, o, g, f, a, b, e)
+
+def Laws.at_answer_reads_back(root, ds, as, fs, h):
+  HostL.fetch_reads(as, fs, root, ds, h)
+
+def Laws.unsettled_answer_reads_back(ds, as, fs, h):
+  HostL.unsettled_reads(as, fs, ds, h)
+
+def Laws.run_asks_for_what_it_names(dir, program, args, h):
+  HostL.run_asks(dir, program, args, h)

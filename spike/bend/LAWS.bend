@@ -44,6 +44,7 @@ import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
+import ./host_lemmas.bend as HostL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2906,3 +2907,45 @@ law fetch_files_a_payload_under_what_it_hashes_to:
   for b: String
   for +e: {Fetch.pay.land(root, o, g) == Fetch.Land.Move{f, a, b} : Fetch.Land}
   {Fetch.Got.Pulled{b} == g : Fetch.Got}
+
+# What a command reads of the store is what the host answered. Asked where
+# the bytes with each of some digests are, `Store.at` answers a line for
+# each digest, in the order asked — the path the bytes are at, or `-` where
+# the store holds nothing — and then `<digest> <path>` for each document
+# its catalogue says forgets one of them. Read back, those lines ask for
+# the document at each path given, and for no other; the digests the store
+# holds and those it lacks are one answer to each digest, in order; and the
+# documents said to forget a digest are read only for a digest the store
+# holds, the rest left to the scan that finds a stand-in for one it lacks.
+# The documents are then read, and hashed, here.
+law at_answer_reads_back:
+  for +root: String
+  for +ds: List<&2, String>
+  for +as: List<&2, Maybe<&2, String>>
+  for +fs: List<&2, T.Split>
+  for +h: {HostL.answer_ok(ds, as, fs) == True{} : Bool}
+  {Store.asked(root, ds, HostL.at.answer(as, fs)) == Store.Asked{HostL.found(root, as), HostL.held(ds, as), HostL.near(root, HostL.held(ds, as), fs), HostL.gone(ds, as)} : Store.Asked}
+
+# And the digests the same answer leaves unsettled — where what a
+# statement names may not be what a reader reads — are those the store
+# holds nothing for, in the order asked, and then each digest a document
+# is said to forget, in the host's order.
+law unsettled_answer_reads_back:
+  for +ds: List<&2, String>
+  for +as: List<&2, Maybe<&2, String>>
+  for +fs: List<&2, T.Split>
+  for +h: {HostL.answer_ok(ds, as, fs) == True{} : Bool}
+  {Store.unsettled.read(ds, HostL.at.answer(as, fs)) == List.append(&2, String, HostL.gone(ds, as), HostL.forgotten(fs)) : List<&2, String>}
+
+# A program is run as it was named. `Store.run` is asked the directory, the
+# program and each argument with a NUL between each, and the host reads the
+# question by splitting it at NUL; where none of them holds a NUL — which
+# no argument a process is handed can — that reading gives back the
+# directory, the program and every argument, each whole and in order, an
+# empty argument included.
+law run_asks_for_what_it_names:
+  for +dir: String
+  for +program: String
+  for +args: List<&2, String>
+  for +h: {HostL.all_nosep(dir <> program <> args, '\u{0}') == True{} : Bool}
+  {String.split(Store.run.query(dir, program, args), '\u{0}') == dir <> program <> args : List<&2, String>}
