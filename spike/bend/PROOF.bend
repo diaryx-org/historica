@@ -52,6 +52,7 @@ import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./listing_lemmas.bend as ListL
 import ./colour_lemmas.bend as Colour
+import ./plan_lemmas.bend as PlanL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -541,6 +542,12 @@ def Laws.diff_folder_shows_what_differs(t, older, ds, left, reads, ps, cs, e):
 
 def Laws.diff_colour_changes_no_character(cs):
   Colour.colour_fit(cs)
+
+def Laws.diff_folder_replays_what_is_unsettled(dg, os, eds, hs):
+  PlanL.replayed_unsettled(dg, os, eds, hs)
+
+def Laws.diff_folder_reads_what_is_unsettled(dg, os, eds, hs):
+  PlanL.read_unsettled(dg, os, eds, hs)
 
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
