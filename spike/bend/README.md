@@ -66,10 +66,20 @@ megabytes is three hundred and fifty of payloads — and a file there is opened
 only once a revision has named the digest it holds: `Store.at` answers where
 the bytes with a digest are, the way decision 0036's catalogue does, and what
 comes back is a path whose contents are read and hashed here before anything
-is believed about them. Nothing walks the payloads to find a name. `check` is
+is believed about them. The answer is read as the adapter writes it — a
+line for each digest asked, in order, a path or `-`, then a line for each
+document said to forget one — so a document is read at each path given
+and at no other, the digests held and lacking are one answer to each, and
+a forgetting document is read only for a digest the store holds
+(`at_answer_reads_back`, `unsettled_answer_reads_back`). Nothing walks the
+payloads to find a name. `check` is
 the exception it is in the Rust tool too: it reports every file, and asks the
 host for the digest and the size of each payload rather than carrying fifty
-megabytes of PDF through a hash in Bend.
+megabytes of PDF through a hash in Bend. `forget` and `arrange` ask the same
+of the files they weigh, and pair each path with the line the host wrote
+for it, none skipped and none shifted onto another
+(`forget_reads_what_the_host_hashed`,
+`arrange_reads_what_the_host_hashed`).
 
 On a real archive — two hundred and sixty revisions, four thousand
 documents, three hundred and fifty megabytes of them payloads — that is the
@@ -318,7 +328,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `manifest_lemmas.bend` | `fetch_reads_the_manifest_offer_writes`: the lines `offer` prints, each with a newline after it and answered by the host as the text at the manifest's URL, are read by `fetch` as the heads and files they were printed from, every kind, digest, forgotten digest and path as written | `offer`, `fetch` |
 | `fetchplan_lemmas.bend` | `fetch_refuses_only_what_shares_no_revision`: a refusal as unrelated is where no join was asked, each side holds a revision, and no revision the manifest lists is one this store holds or one a revision here names as a parent or as what it supersedes; `fetch_refuses_what_shares_no_revision`: and there it refuses, in the Rust tool's words; `fetch_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of this store, or a line of the manifest, says is forgotten; `fetch_asks_for_no_payload_held_or_forgotten`, `fetch_asks_for_no_document_held_or_forgotten` and `fetch_asks_for_no_revision_it_holds`: every payload and document it asks for is one this store holds nothing under the digest of and neither side forgets, and every revision one it does not hold; `fetch_says_what_it_took`: asked for `--fields`, it names each revision it took once, in digest order, and none it did not | `fetch` |
 | `escape_lemmas.bend` | `fetch_asks_for_a_path_by_its_bytes`: whatever the bytes of a path, what `fetch` asks for decodes, each escape read as `%` and two uppercase hex digits, back to exactly those bytes; `fetch_asks_in_characters_a_url_may_hold`: and holds only characters RFC 3986 leaves unreserved, `/` and `%`; `fetch_asks_for_what_is_unreserved_as_itself`: and each unreserved character, and `/`, is asked for as itself — every byte of the 256 shown to the checker, and with the three laws the whole of how a byte is spelled | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | three hundred and sixty claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | three hundred and seventy-one claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -338,6 +348,11 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `pair_lemmas.bend` | `diff_pairs_each_file`: under any file, the pairs `diff` goes on with are the entries each side holds under it, paired in order as far as either goes — each file compared once with itself where each side holds it once | `diff`'s pairing |
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
 | `nfc_lemmas.bend` | `nfc_leaves_ascii`: a path of ASCII is its own normal form C; `nfc_orders_marks_by_class`: canonical ordering leaves no mark after one of a higher class with no starter between; `nfc_ordering_keeps_every_mark`: and the marks of every class are the ones it was given, in order; `nfc_class_misses_nothing`: the class lookup, stopping at the first run past a character, finds what a search of every run finds over the crate's table; `nfc_leaves_separators_alone`: in the crate's tables `/` and `.` have no class and are in no pair and no decomposition; `the_walk_yields_a_path_once`: the walk yields no two files in a row at one path, and loses no path it found; `the_folder_spells_what_is_opened`: a read opens a name whose normal form is the path, or the path itself; `a_name_that_cannot_be_spelled_is_refused`: the host's lines for any directory, read back, refuse each name that is not UTF-8 once, where it is on disk, in the Rust tool's words, and nothing else | `format::nfc`, `working::walk` |
+| `host_lemmas.bend` | what the host answers, written as the adapter writes it and read back: `at_answer_reads_back`: `Store.at`'s answer in its `forgets` form asks for the document at each path it gives and at no other, reads one answer to each digest asked, in order, held or not, and reads a forgetting document only for a digest the store holds; `unsettled_answer_reads_back`: the digests the same answer leaves unsettled are those the store holds nothing for, in order, then each a document is said to forget; `run_asks_for_what_it_names`: `Store.run`'s question, split at NUL as the host splits it, is the directory, the program and every argument, each whole and in order | `ffi/src/lib.rs`, decisions 0014, 0036, 0072 |
+| `stats_lemmas.bend` | what the host hashed, written as the adapter writes `Store.digests`' answer — `<digest> <size>` a line, or `- 0`, one to each path asked, in order — and read back: `forget_reads_what_the_host_hashed`: `forget` pairs each file of `operations/` with the digest and size on the line for it; `arrange_reads_what_the_host_hashed`: `arrange` names each payload by the digest on its line | `ffi/src/lib.rs`, `forget`, `arrange` |
+| `standing_lemmas.bend` | `a_stand_in_stands_for_what_it_forgets`: every forgetting document the port writes — an operation document or a resolution forgetting a digest, and a payload's two headers — is kept by the scan for stand-ins exactly where the digest it forgets is among those asked, and for no digest that only begins its own | decision 0014, `Store::forgetting` |
+| `listed_lemmas.bend` | one directory of the folder, written as the adapter writes it and read back by the walk: `a_directory_is_read_as_the_host_lists_it`: each line is read as the entry it was written for, whatever its name holds but a newline — the directories it names are listed next, each named in normal form C beside where the folder spells it, the files and links `tracked` takes are found, a file with its execute bit and size and a link with its target as the folder spells it, each entry is refused for what `refusal.of` finds in it, a link's target is no entry, and each name that cannot be spelled is refused where it is on disk; `the_walk_yields_its_files_in_path_order`: what the walk yields is sorted by path; `the_walk_keeps_the_file_it_met_last`: and holds, at each path, exactly the file it met there last, or nothing where it found none | `working::walk`, decisions 0011, 0033 |
+| `pattern_lemmas.bend` | a name rule's pattern as decision 0011 reads it, `*` any run of characters and nothing else special: `a_pattern_matches_each_name_it_spells`: whatever run each `*` stands for, the name the pattern then spells is one `Folder.matches` matches, though it looks for each run only at the first place it stands; `a_pattern_matches_only_names_it_spells`: and a name it matches is one the pattern spells with some run for each `*` | `working::Pattern`, decision 0011 |
 | `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added, read against the list of what arrives; `status_refuses_what_the_folder_holds`: `status` refuses what its walk refused first, as the walk found it, and after that only a path where the folder holds a link whose target the format cannot hold, or a file recorded as lines whose bytes are no longer text, saying which — never a path only the position holds; `status_offers_a_rename_the_bytes_make`: each rename it offers is from the one path that left holding some bytes, not nothing, to the one that arrived holding them; `record_refuses_a_dangling_link`: where `record` goes on, a link of the position it keeps that names a file it drops sits where the folder holds a link the format can hold; `record_states_a_kind_only_for_an_arrival`: where `record` goes on, every kind stated names a path the restriction covers and no file of the position is at; `record_moves_each_file_once`: the `move` lines give each file the renames moved and the record keeps exactly one place, the last the renames put it, and a file dropped or never moved none; `record_names_only_what_is_there`: `record` goes on exactly where each path named covers a file of the folder, the position or the renames, whatever the rules say; `a_rename_keeps_each_file_once`, `a_rename_puts_each_file_where_it_was_said`: `--at` and `--move` leave the position's files each once, and `--at` alone leaves each at the path the last `--at` naming it gave and every other where it was; `record_refuses_only_what_it_looks_at`: whatever the folder and the store answer, a record restricted to some paths refuses only among them; `record_goes_on_where_each_path_holds_one_file`: where `record` goes on, no path it looks at holds two files, since the survey claims every path several files hold; `record_plans_in_file_order`, `record_plans_every_file`: it plans from the position in file order, each file's entries as they were; `a_link_refers_only_to_what_the_revision_states`: a link is written as `file:` and an identifier only for the file the revision holds where its target lands, in normal form C — the arrival minted there, or the one file of the position there the record keeps; `a_link_resolves_inside_the_folder`: and a link at a path the format holds resolves, if at all, to a path that is not absolute and never climbs out with `..` | `working::walk`, `record::survey`, `record::plan` |
 | `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given; `status_says_what_it_found`: everything the survey found is in the report, in the order found, each on a line of its own naming it — a fact beginning with its kind and ending with its path, a refusal, a claim, a file still marked or an accept beginning with its word and its path; `status_says_each_contest`: where work is joined, each contest the tree merge found but a path several files claim is said once, in its order, on a line naming the file contested by the first eight characters of its name, and where one revision or none is the position, none; `status_compares_with_the_revisions_tree`: against one revision, the folder is compared with the tree `files`, `cat` and `diff` read there; `status_reads_only_lines`: every path it asks the host to read and every file it replays is a file of lines it compares; `status_surveys_each_path`: the survey is told of each path once, in order, and of each path, as the folder's digest, the host's answer for it and none for a path it was not asked; `status_leaves_a_disputed_file_unsettled`: where the parents being joined leave a file of lines differently, what the survey is told of its path, whatever the folder holds, is that a file there is edited, emptied, refused or still marked — emptied only where it holds no bytes, edited only where it holds some — and that a link or nothing there drops it with no content an arrival could be matched to; the report `status` prints has no line for an emptied file, as the Rust tool's has none, which `docs/tasks` holds; `status_believes_what_is_stated`: against one revision it is refused only where a file no statement settles cannot be replayed, and with that refusal; `status_joins_what_it_reads`: joining, each file it compares is paired, in order, with what the parents' readings of it join to — the digest every parent that mentions it reads, the empty digest where none does, and `-` where two read it differently | `status`'s arguments, parents and report |
 | `update.bend`, `update_lemmas.bend` | `update`: the folder made to hold a head — the plan of what each path takes, from the target's tree, the walk, a directory's listing where the walk took nothing, and what history records at each path; the effects that carry it out, a list `apply` performs one host write at a time; and the IO. `update_reads_its_words`: `-n` or `--dry-run` anywhere makes a dry run, and the target is the one word not beginning with `-`; `update_holds_only_a_head`: whatever it is told, the revision it lays out is a current head of the store, and told nothing, the store's only one; `update_lands`: where it plans at all, every path the target holds with one file ends up holding what the store reads there — the bytes `cat <target> <path>` prints, or the payload the tree names, with the tree's mode, or a link pointing where `cat` says; `update_spares_the_unrecorded`: every file it writes over or takes away holds bytes `cat` of some revision the store holds reads for some file, or a payload its tree names; `update_touches_only_the_target`: every file it writes, mode it sets and link it makes is at a path the target's tree holds, and it removes only at a path the tree does not hold, where the walk found a file whose bytes some revision records for a file history put there, or a link; `update_again_keeps`: run again from what it left, it keeps every path it stepped through, whatever history then records; `update_settles_exactly_what_stays`: it says the folder already holds the target exactly where carrying its plan out would change nothing; `update_dry_run_names_what_it_does`: the dry run's lines, read back by the verb each begins with, name exactly the effects `apply` performs, kind by kind and in order, and say the folder holds the target exactly where there are none; `update_says_settled_as_its_dry_run`: with nothing to do, `update` says what its dry run says. What a path holds after its step is `after`'s model of the host's writes, which `check.py` holds to the Rust tool and nothing here proves | `cli::update`, `update::{plan, apply}` |
@@ -521,7 +536,11 @@ With no target, both read the folder beside the store (`folder.bend`),
 walked as the working copy is: everything is tracked but `history/` itself,
 what a rule in `skipped/` keeps out — a path, a directory, a name with `*`s
 in it, or a directory's name, filed flat or in folders of their own — and a
-path the format cannot hold. `diff` compares it with the head, or with what
+path the format cannot hold. A name matches exactly as its pattern reads,
+each `*` any run of characters: every name the pattern spells with some run
+for each `*`, and no other (`a_pattern_matches_each_name_it_spells`,
+`a_pattern_matches_only_names_it_spells`). `diff` compares it with the
+head, or with what
 `--onto` names, a path or `file:` limiting it to one file; the folder has
 no identifiers, so a file that moved there is a loss and an arrival. A file
 the position holds as lines must still be text, and one it does not is
@@ -912,7 +931,9 @@ blank line and the usage, and exits 2 (`shell.bend`). A word no command
 here has is decision 0072's: spelled in ASCII letters, digits and interior
 hyphens, it is looked up on `PATH` as `historica-<word>` and run in `-C`'s
 directory with the process's own streams, and the tool ends with its code
-(`Store.run`, `Store.exit`); a program that is not there is "there is no
+(`Store.run`, `Store.exit`) — the directory, the program and each argument
+handed over with a NUL between, which the host's split gives back each
+whole (`run_asks_for_what_it_names`); a program that is not there is "there is no
 such command", one a signal ends or that will not start is said, and a
 word spelled otherwise is never looked for: exactly the words Base's
 classes of character make ASCII letters and digits with hyphens only
@@ -1465,7 +1486,9 @@ paths, `--at`, `--move` at both ends, `--bytes`, `--lines`, amend's
 `log --path` read, `path:` or not — and a link's target once it is
 resolved against the tree. The folder keeps its own spelling, which is
 what has to be opened: a directory is listed by the name it was listed
-under, and a file is opened by the name its listing spells the path with,
+under, each line of its listing read as the entry the host wrote it for
+(`a_directory_is_read_as_the_host_lists_it`), and a file is opened by the
+name its listing spells the path with,
 which `Folder.on_disk` asks the listing for only where the path could be
 spelled another way — a path of ASCII without `;`, `K` or `` ` ``, which
 three characters decompose to, cannot. `update` writes the same way: a
@@ -1476,7 +1499,9 @@ tidies above a removal — so one spelled decomposed that a removal empties
 stays, as the Rust tool leaves it. `merge`, like the Rust tool's, reads
 no walk and asks the folder at the tree's spelling. Two names a
 filesystem tells apart that are one path are one file, the one the walk
-met last. And
+met last, and the walk yields its files in path order
+(`the_walk_keeps_the_file_it_met_last`,
+`the_walk_yields_its_files_in_path_order`). And
 `check_path`'s last rule is here: a revision stating a path not in normal
 form C, and a bookmark named so, are refused, and `name` says why in the
 Rust tool's words.
@@ -1566,7 +1591,10 @@ A store something was forgotten in is read as the Rust tool reads it
 nothing for may have been forgotten, and what stands in for it is a
 document of its own, named by its own digest and by nothing else, so where
 `Store.at` finds nothing the documents under `operations/` are read and
-each asked what it `forgets`. Several may stand in for one digest — each
+each asked what it `forgets`: a stand-in the port writes, in any of the
+three grammars, is kept exactly for the digest its first header forgets
+(`a_stand_in_stands_for_what_it_forgets`). Several may stand in for one
+digest — each
 `forget` of another span of a document writes one more — and they are read
 together as the Rust tool's union rule reads them: the first of each
 grammar is the shape, every later one that agrees with it is folded in, and
@@ -2235,7 +2263,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Four hundred and thirty-three mutations cover the primitive helpers, lost inserts, a lost trailing
+Four hundred and fifty-nine mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2536,7 +2564,24 @@ the name it matches, a flag it does not take read as a path, a
 `--private` after a path forgotten, a rule written that covers what
 history holds, the refusal passing over the first rule asked, a rule's
 path spelled from the root rather than past the repository, and the
-repository itself taken for a path to skip. The
+repository itself taken for a path to skip; and eight breaks of reading what the host
+answers: a digest the store lacks read at `-`, one it lacks taken as held,
+one it holds taken as lacking, a forgetting document read for a digest
+the store lacks and read at its line less a character, the answers read a
+line late, a digest the store holds taken as unsettled, and a program's
+arguments run together; and eight breaks of the folder's walk: a link's
+target read in normal form C, a directory listed where its name's normal
+form spells it, each directory paired with another's spelling, a file's
+name read as the folder spells it, every file found empty, a file that
+runs read as one that does not, the files sorted by path backwards, and
+every file found at a path yielded; and four pattern breaks: a run found a
+character short of where it stands, the last run asked to open the rest
+of the name, a middle run found and not passed, and the first run asked to
+end the name; and four breaks of reading what the host hashed: its answer
+split at spaces, a size filed by `forget` as a digest, one path's line
+read again for the next, and a payload named by `arrange` by its whole
+line; and two stand-in breaks: a stand-in taken for a digest its own
+begins with, and every document read taken as one. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
