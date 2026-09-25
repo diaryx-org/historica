@@ -8680,25 +8680,40 @@ def paths.of(+t: List<&2, Tree.Entry>, fs: List<&2, String>) -> List<&2, String>
     case +f <> rest:
       List.append(&2, String, Maybe.default(&2, List<&2, String>, Maybe.map(&2, String, List<&2, String>, p => [p], path.of(t, f)), Nil{}), paths.of(t, rest))
 
+# What restating a revision works out beyond what it keeps: the parents it
+# now stands on, its facts, its `revised` stamp, and what its step says,
+# writes and hands on.
+type Worked is Data:
+  Worked{parents: List<&2, String>, facts: List<&2, Rev.Header>, stamp: T.Split, onto: List<&2, String>, restated: List<&2, String>, writes: List<&2, Write>, moving: Moving}
+
+def step.worked(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +docs: List<&2, Full>, +id: String, +ps: List<&2, String>, +facts: List<&2, Rev.Header>, +mapped: List<&2, Mapped>, +authored: Maybe<&2, T.Split>) -> Result<&2, &2, String, Worked>:
+  +parents = sorted_distinct(mapped.news(mapped))
+  +moving = moving.join(mapped.moving(mapped))
+  +old_parent = Maybe.default(&2, String, List.get(&2, String, sorted(ps), 0n), SNil{})
+  do Result<&2, &2, String, Worked>:
+    e : Unit <- early.r(id, facts, moving, parents, ps)
+    rs : List<&2, Restated> <- restate.all(ds, id, old_parent, mapped.new_of(mapped, old_parent), moving, facts.keyed(facts, "edit"))
+    +rs2 : List<&2, Restated> = rs
+    +redone : List<&2, String> = restated.put(moving.lines(moving), rs2)
+    +new_facts : List<&2, Rev.Header> = facts.edited(facts, restated.edits(rs2))
+    n : Unit <- empty.r(id, new_facts, parents)
+    stamp : T.Split <- stamp.r(fs, docs, id, mapped, authored)
+    t : List<&2, Tree.Entry> <- Bool.pick(Result<&2, &2, String, List<&2, Tree.Entry>>, List.is_empty(&2, String, redone), Done{Nil{}}, tree.at.r(fs, id))
+    +t2 : List<&2, Tree.Entry> = t
+    return Worked{parents, new_facts, stamp, mapped.news(mapped), paths.of(t2, redone), restated.writes(t2, rs2), moving.after(rs2, moving, heads_of(facts.keyed(facts, "bytes")), dropped.of(facts))}
+
+# The restated revision: the change, author, moment and message of the one
+# it supersedes, and what restating worked out.
+def step.made(+id: String, +change: String, +author: String, +when: String, +message: String, w: Worked) -> Step:
+  match w:
+    case Worked{parents, new_facts, +stamp, onto, restated, writes, moving}:
+      +doc = {Rev.Rev{change, parents, [id], author, when, revised_by(split.rest(stamp), author), Some{split.head(stamp)}, new_facts, message} : Rev.Rev}
+      Step{id, Sha.digest(Utf8.encode(Rev.write(doc))), onto, doc, restated, writes, moving}
+
 def step.of(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +docs: List<&2, Full>, +id: String, prev: Full, +mapped: List<&2, Mapped>, +authored: Maybe<&2, T.Split>) -> Result<&2, &2, String, Step>:
   match prev:
     case Full{i, +change, +ps, ss, +author, +when, rb, rv, +facts, +message}:
-      +parents = sorted_distinct(mapped.news(mapped))
-      +moving = moving.join(mapped.moving(mapped))
-      +old_parent = Maybe.default(&2, String, List.get(&2, String, sorted(ps), 0n), SNil{})
-      do Result<&2, &2, String, Step>:
-        e : Unit <- early.r(id, facts, moving, parents, ps)
-        rs : List<&2, Restated> <- restate.all(ds, id, old_parent, mapped.new_of(mapped, old_parent), moving, facts.keyed(facts, "edit"))
-        +rs2 : List<&2, Restated> = rs
-        +redone : List<&2, String> = restated.put(moving.lines(moving), rs2)
-        +new_facts : List<&2, Rev.Header> = facts.edited(facts, restated.edits(rs2))
-        n : Unit <- empty.r(id, new_facts, parents)
-        stamp : T.Split <- stamp.r(fs, docs, id, mapped, authored)
-        +stamp2 : T.Split = stamp
-        +doc : Rev.Rev = Rev.Rev{change, parents, [id], author, when, revised_by(split.rest(stamp2), author), Some{split.head(stamp2)}, new_facts, message}
-        t : List<&2, Tree.Entry> <- Bool.pick(Result<&2, &2, String, List<&2, Tree.Entry>>, List.is_empty(&2, String, redone), Done{Nil{}}, tree.at.r(fs, id))
-        +t2 : List<&2, Tree.Entry> = t
-        return Step{id, Sha.digest(Utf8.encode(Rev.write(doc))), mapped.news(mapped), doc, paths.of(t2, redone), restated.writes(t2, rs2), moving.after(rs2, moving, heads_of(facts.keyed(facts, "bytes")), dropped.of(facts))}
+      Result.map(&2, &2, String, Worked, Step, w => step.made(id, change, author, when, message, w), step.worked(fs, ds, docs, id, ps, facts, mapped, authored))
 
 def step.id(s: Step) -> String:
   match s:
@@ -8743,6 +8758,37 @@ def steps.go(order: List<&2, String>, +fs: List<&2, Full>, +ds: List<&2, Store.D
         +s : Step = step
         more : List<&2, Step> <- steps.go(rest, fs, ds, mv, stamp, step.full(s) <> docs, T.Split{id, step.id(s)} <> planned, step.handed(s) <> handed)
         return s <> more
+
+# What a carry keeps of what it restates: each revision it writes has the
+# change, author, moment and message of the one the store holds under the
+# identifier it supersedes, supersedes that one alone, and is named by the
+# digest of its own text. `LAWS.carry_keeps_what_it_restates` holds every
+# plan to it.
+def only.one(xs: List<&2, String>, +x: String) -> Bool:
+  match xs:
+    case y <> Nil{}:
+      String.eq(y, x)
+    case _:
+      False{}
+
+def rev.kept(+pred: String, f: Maybe<&2, Full>, doc: Rev.Rev) -> Bool:
+  match f doc:
+    case Some{Full{i, change, ps, ss, author, when, rb, rv, facts, message}} Rev.Rev{change2, ps2, ss2, author2, when2, rb2, rv2, facts2, message2}:
+      Bool.and(String.eq(change, change2), Bool.and(String.eq(author, author2), Bool.and(String.eq(when, when2), Bool.and(String.eq(message, message2), only.one(ss2, pred)))))
+    case None{} _:
+      False{}
+
+def step.kept(+fs: List<&2, Full>, s: Step) -> Bool:
+  match s:
+    case Step{+p, id, o, +doc, r, w, m}:
+      Bool.and(String.eq(id, Sha.digest(Utf8.encode(Rev.write(doc)))), rev.kept(p, find(fs, p), doc))
+
+def steps.kept(+fs: List<&2, Full>, ss: List<&2, Step>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case s <> rest:
+      Bool.and(step.kept(fs, s), steps.kept(fs, rest))
 
 # The authored move's refusals, which belong to deciding rather than to
 # restating.

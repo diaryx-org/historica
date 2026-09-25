@@ -1320,3 +1320,17 @@ law rewrite_reads_its_words:
   for +c: Main.RwCmd
   for e: {Main.rw.args.r(cmd, args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}
   {c == Main.wargs.said(Main.wargs.read(cmd, args, Main.wword(cmd, args))) : Main.RwCmd}
+
+# A carry restates work without changing whose it is or when it was done.
+# Whatever it is asked to carry, each revision a plan would write has the
+# change, author, moment and message of the revision the store holds under
+# the identifier it supersedes, supersedes that one alone, and is named by
+# the digest of its own text: the identifier `carry` reports is the one
+# the store will find the revision under.
+law carry_keeps_what_it_restates:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +c: Main.Carrying
+  for steps: List<&2, Main.Step>
+  for e: {Main.carry.plan(fs, ds, c) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}
+  {Main.steps.kept(fs, steps) == True{} : Bool}

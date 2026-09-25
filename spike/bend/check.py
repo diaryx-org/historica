@@ -2175,6 +2175,13 @@ def check_mutations(temporary):
             "record_lemmas.rw_go_said",
             "commands.bend",
         ),
+        (
+            "a carried revision is authored by whoever carried it",
+            "Rev.Rev{change, parents, [id], author, when, revised_by(split.rest(stamp), author), Some{split.head(stamp)}, new_facts, message}",
+            "Rev.Rev{change, parents, [id], split.rest(stamp), when, revised_by(split.rest(stamp), author), Some{split.head(stamp)}, new_facts, message}",
+            "rewrite_lemmas.made_kept",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
