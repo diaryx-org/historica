@@ -18,6 +18,8 @@ import ./composition_lemmas.bend as Comp
 import ./similar_lemmas.bend as SimL
 import ./diff_lemmas.bend as Diff
 import ./blame_lemmas.bend as BlameL
+import ./blamed_lemmas.bend as Blamed
+import ./abbrev_lemmas.bend as Abbrev
 
 # What an alignment stands for
 # ----------------------------
@@ -424,3 +426,178 @@ def pieces_after(+ds: List<&2, Store.Doc>, +j: C.Joined, +after: List<&2, Ops.It
 # named them read them.
 def resolved(+ds: List<&2, Store.Doc>, +j: C.Joined, +s: String, +hm: {Main.all_mint(ds, C.named(j)) == True{} : Bool}, -doc: Res.Doc, e: {C.resolve(j, Ops.from_text(s)) == Some{doc} : Maybe<&2, Res.Doc>}) -> {Main.assemble(ds, doc) == Done{Ops.from_text(s)} : Result<&2, &2, String, List<&2, Ops.Item>>}:
   resolution_assembles(ds, Ops.from_text(s), C.pieces(C.said(j, Ops.from_text(s))), pieces_after(ds, j, Ops.from_text(s), hm), unterminated_none(Ops.from_text(s), 0n, BlameL.tbl_text(s)), doc, e)
+
+# Rendering
+# ---------
+
+# Whether no element here is among those that met.
+def unmarked(ns: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>) -> Bool:
+  match ns:
+    case Nil{}:
+      True{}
+    case +n <> rest:
+      Bool.and(Bool.not(C.name.in(mk, Merge.Node.name(n))), unmarked(rest, mk))
+
+# Whether no run here met.
+def calm(rs: List<&2, C.Run>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case C.Run{a, its, m} <> rest:
+      Bool.and(Bool.not(m), calm(rest))
+
+def not_false(b: Bool, e: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, Comp.false_true(e))
+    case False{}:
+      {==}
+
+def or_left_of(u: Bool, g: Bool, eg: {g == False{} : Bool}, h: {Bool.or(u, g) == True{} : Bool}) -> {u == True{} : Bool}:
+  match u g:
+    case True{} _:
+      {==}
+    case False{} True{}:
+      Empty.absurd({False{} == True{} : Bool}, SL.true_false(eg))
+    case False{} False{}:
+      Empty.absurd({False{} == True{} : Bool}, Comp.false_true(h))
+
+def gt_zero(n: Nat, e: {Nat.is_gt(n, 0n) == False{} : Bool}) -> {n == 0n : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+k:
+      Empty.absurd({1n+k == 0n : Nat}, SL.true_false(e))
+
+def gt_of_zero(-n: Nat, e: {n == 0n : Nat}) -> {Nat.is_gt(n, 0n) == False{} : Bool}:
+  %Equal.sym(Nat, n, 0n, e) : {Nat.is_gt(_, 0n) == False{} : Bool}
+  {==}
+
+def add_zero_left(a: Nat, -b: Nat, e: {Nat.add(a, b) == 0n : Nat}) -> {a == 0n : Nat}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+k:
+      Empty.absurd({1n+k == 0n : Nat}, Abbrev.succ_zero(Nat.add(k, b), e))
+
+# A run that has met counts, wherever it ends.
+def hit.some(+n: Merge.Node, +rest: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>, +r: Nat, s: Bool, +es: {Nat.is_eq(r, Merge.Node.author(n)) == s : Bool}, ih: {Nat.is_gt(C.regions(rest, mk, Some{Merge.Node.author(n)}, True{}), 0n) == True{} : Bool}) -> {Nat.is_gt(C.regions(n <> rest, mk, Some{r}, True{}), 0n) == True{} : Bool}:
+  match s:
+    case True{}:
+      %Equal.sym(Bool, Nat.is_eq(r, Merge.Node.author(n)), True{}, es) : {Nat.is_gt(Nat.add(Bool.pick(Nat, Bool.and(Bool.not(_), True{}), 1n, 0n), C.regions(rest, mk, Some{Merge.Node.author(n)}, Bool.or(Bool.and(_, True{}), C.name.in(mk, Merge.Node.name(n))))), 0n) == True{} : Bool}
+      ih
+    case False{}:
+      %Equal.sym(Bool, Nat.is_eq(r, Merge.Node.author(n)), False{}, es) : {Nat.is_gt(Nat.add(Bool.pick(Nat, Bool.and(Bool.not(_), True{}), 1n, 0n), C.regions(rest, mk, Some{Merge.Node.author(n)}, Bool.or(Bool.and(_, True{}), C.name.in(mk, Merge.Node.name(n))))), 0n) == True{} : Bool}
+      {==}
+
+def regions_hit(ns: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>, run: Maybe<&2, Nat>) -> {Nat.is_gt(C.regions(ns, mk, run, True{}), 0n) == True{} : Bool}:
+  match ns run:
+    case Nil{} None{}:
+      {==}
+    case Nil{} Some{r}:
+      {==}
+    case +n <> +rest None{}:
+      {==}
+    case +n <> +rest Some{+r}:
+      hit.some(n, rest, mk, r, Nat.is_eq(r, Merge.Node.author(n)), {==}, regions_hit(rest, mk, Some{Merge.Node.author(n)}))
+
+# Where no region is counted, nothing standing met.
+def calm.mine(+n: Merge.Node, +rest: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>, mn: Bool, +em: {C.name.in(mk, Merge.Node.name(n)) == mn : Bool}, ih: {Bool.or(unmarked(rest, mk), Nat.is_gt(C.regions(rest, mk, Some{Merge.Node.author(n)}, False{}), 0n)) == True{} : Bool}) -> {Bool.or(Bool.and(Bool.not(C.name.in(mk, Merge.Node.name(n))), unmarked(rest, mk)), Nat.is_gt(C.regions(rest, mk, Some{Merge.Node.author(n)}, C.name.in(mk, Merge.Node.name(n))), 0n)) == True{} : Bool}:
+  match mn:
+    case True{}:
+      %Equal.sym(Bool, C.name.in(mk, Merge.Node.name(n)), True{}, em) : {Bool.or(Bool.and(Bool.not(_), unmarked(rest, mk)), Nat.is_gt(C.regions(rest, mk, Some{Merge.Node.author(n)}, _), 0n)) == True{} : Bool}
+      regions_hit(rest, mk, Some{Merge.Node.author(n)})
+    case False{}:
+      %Equal.sym(Bool, C.name.in(mk, Merge.Node.name(n)), False{}, em) : {Bool.or(Bool.and(Bool.not(_), unmarked(rest, mk)), Nat.is_gt(C.regions(rest, mk, Some{Merge.Node.author(n)}, _), 0n)) == True{} : Bool}
+      ih
+
+def calm.some(+n: Merge.Node, +rest: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>, +r: Nat, s: Bool, +es: {Nat.is_eq(r, Merge.Node.author(n)) == s : Bool}, +ih: {Bool.or(unmarked(rest, mk), Nat.is_gt(C.regions(rest, mk, Some{Merge.Node.author(n)}, False{}), 0n)) == True{} : Bool}) -> {Bool.or(unmarked(n <> rest, mk), Nat.is_gt(C.regions(n <> rest, mk, Some{r}, False{}), 0n)) == True{} : Bool}:
+  match s:
+    case True{}:
+      %Equal.sym(Bool, Nat.is_eq(r, Merge.Node.author(n)), True{}, es) : {Bool.or(unmarked(n <> rest, mk), Nat.is_gt(Nat.add(Bool.pick(Nat, Bool.and(Bool.not(_), False{}), 1n, 0n), C.regions(rest, mk, Some{Merge.Node.author(n)}, Bool.or(Bool.and(_, False{}), C.name.in(mk, Merge.Node.name(n))))), 0n)) == True{} : Bool}
+      calm.mine(n, rest, mk, C.name.in(mk, Merge.Node.name(n)), {==}, ih)
+    case False{}:
+      %Equal.sym(Bool, Nat.is_eq(r, Merge.Node.author(n)), False{}, es) : {Bool.or(unmarked(n <> rest, mk), Nat.is_gt(Nat.add(Bool.pick(Nat, Bool.and(Bool.not(_), False{}), 1n, 0n), C.regions(rest, mk, Some{Merge.Node.author(n)}, Bool.or(Bool.and(_, False{}), C.name.in(mk, Merge.Node.name(n))))), 0n)) == True{} : Bool}
+      calm.mine(n, rest, mk, C.name.in(mk, Merge.Node.name(n)), {==}, ih)
+
+def regions_calm(ns: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>, run: Maybe<&2, Nat>) -> {Bool.or(unmarked(ns, mk), Nat.is_gt(C.regions(ns, mk, run, False{}), 0n)) == True{} : Bool}:
+  match ns run:
+    case Nil{} None{}:
+      {==}
+    case Nil{} Some{r}:
+      {==}
+    case +n <> +rest None{}:
+      calm.mine(n, rest, mk, C.name.in(mk, Merge.Node.name(n)), {==}, regions_calm(rest, mk, Some{Merge.Node.author(n)}))
+    case +n <> +rest Some{+r}:
+      calm.some(n, rest, mk, r, Nat.is_eq(r, Merge.Node.author(n)), {==}, regions_calm(rest, mk, Some{Merge.Node.author(n)}))
+
+def calm_of(+ns: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>, e: {C.regions(ns, mk, None{}, False{}) == 0n : Nat}) -> {unmarked(ns, mk) == True{} : Bool}:
+  or_left_of(unmarked(ns, mk), Nat.is_gt(C.regions(ns, mk, None{}, False{}), 0n), gt_of_zero(C.regions(ns, mk, None{}, False{}), e), regions_calm(ns, mk, None{}))
+
+# Runs of what did not meet have not met.
+def put_calm.pick(+a: Nat, +it: Ops.Item, +b: Nat, +its: List<&2, Ops.Item>, +x: Bool, +rest: List<&2, C.Run>, q: Bool, +eq: {Nat.is_eq(a, b) == q : Bool}, +h: {Bool.and(Bool.not(x), calm(rest)) == True{} : Bool}) -> {calm(Bool.pick(List<&2, C.Run>, Nat.is_eq(a, b), C.Run{b, it <> its, Bool.or(False{}, x)} <> rest, C.Run{a, [it], False{}} <> C.Run{b, its, x} <> rest)) == True{} : Bool}:
+  match q:
+    case True{}:
+      %Equal.sym(Bool, Nat.is_eq(a, b), True{}, eq) : {calm(Bool.pick(List<&2, C.Run>, _, C.Run{b, it <> its, Bool.or(False{}, x)} <> rest, C.Run{a, [it], False{}} <> C.Run{b, its, x} <> rest)) == True{} : Bool}
+      h
+    case False{}:
+      %Equal.sym(Bool, Nat.is_eq(a, b), False{}, eq) : {calm(Bool.pick(List<&2, C.Run>, _, C.Run{b, it <> its, Bool.or(False{}, x)} <> rest, C.Run{a, [it], False{}} <> C.Run{b, its, x} <> rest)) == True{} : Bool}
+      h
+
+def put_calm(+a: Nat, +it: Ops.Item, rs: List<&2, C.Run>, +h: {calm(rs) == True{} : Bool}) -> {calm(C.runs.put(a, it, False{}, rs)) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case C.Run{+b, +its, +x} <> +rest:
+      put_calm.pick(a, it, b, its, x, rest, Nat.is_eq(a, b), {==}, h)
+
+def runs_calm(ns: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>, +h: {unmarked(ns, mk) == True{} : Bool}) -> {calm(C.runs(ns, mk)) == True{} : Bool}:
+  match ns:
+    case Nil{}:
+      {==}
+    case +n <> +rest:
+      %Equal.sym(Bool, C.name.in(mk, Merge.Node.name(n)), False{}, not_false(C.name.in(mk, Merge.Node.name(n)), Comp.and_left(Bool.not(C.name.in(mk, Merge.Node.name(n))), unmarked(rest, mk), h))) : {calm(C.runs.put(Merge.Node.author(n), Merge.Node.item(n), _, C.runs(rest, mk))) == True{} : Bool}
+      put_calm(Merge.Node.author(n), Merge.Node.item(n), C.runs(rest, mk), runs_calm(rest, mk, Comp.and_right(Bool.not(C.name.in(mk, Merge.Node.name(n))), unmarked(rest, mk), h)))
+
+# A calm run renders as its lines, joined to the next or not.
+def put_render.pick(+a: Nat, +it: Ops.Item, +b: Nat, +its: List<&2, Ops.Item>, +rest: List<&2, C.Run>, +names: List<&2, String>, q: Bool, +eq: {Nat.is_eq(a, b) == q : Bool}) -> {C.render.go(Bool.pick(List<&2, C.Run>, Nat.is_eq(a, b), C.Run{b, it <> its, Bool.or(False{}, False{})} <> rest, C.Run{a, [it], False{}} <> C.Run{b, its, False{}} <> rest), names, False{}) == String.append(Ops.shown(it), String.append(Ops.terminator(it), C.render.go(C.Run{b, its, False{}} <> rest, names, False{}))) : String}:
+  match q:
+    case True{}:
+      %Equal.sym(Bool, Nat.is_eq(a, b), True{}, eq) : {C.render.go(Bool.pick(List<&2, C.Run>, _, C.Run{b, it <> its, Bool.or(False{}, False{})} <> rest, C.Run{a, [it], False{}} <> C.Run{b, its, False{}} <> rest), names, False{}) == String.append(Ops.shown(it), String.append(Ops.terminator(it), C.render.go(C.Run{b, its, False{}} <> rest, names, False{}))) : String}
+      %Equal.sym(String, String.append(String.append(Ops.shown(it), String.append(Ops.terminator(it), Ops.text(its))), C.render.go(rest, names, False{})), String.append(Ops.shown(it), String.append(String.append(Ops.terminator(it), Ops.text(its)), C.render.go(rest, names, False{}))), Blamed.app_assoc(Ops.shown(it), String.append(Ops.terminator(it), Ops.text(its)), C.render.go(rest, names, False{}))) : {_ == String.append(Ops.shown(it), String.append(Ops.terminator(it), String.append(Ops.text(its), C.render.go(rest, names, False{})))) : String}
+      %Equal.sym(String, String.append(String.append(Ops.terminator(it), Ops.text(its)), C.render.go(rest, names, False{})), String.append(Ops.terminator(it), String.append(Ops.text(its), C.render.go(rest, names, False{}))), Blamed.app_assoc(Ops.terminator(it), Ops.text(its), C.render.go(rest, names, False{}))) : {String.append(Ops.shown(it), _) == String.append(Ops.shown(it), String.append(Ops.terminator(it), String.append(Ops.text(its), C.render.go(rest, names, False{})))) : String}
+      {==}
+    case False{}:
+      %Equal.sym(Bool, Nat.is_eq(a, b), False{}, eq) : {C.render.go(Bool.pick(List<&2, C.Run>, _, C.Run{b, it <> its, Bool.or(False{}, False{})} <> rest, C.Run{a, [it], False{}} <> C.Run{b, its, False{}} <> rest), names, False{}) == String.append(Ops.shown(it), String.append(Ops.terminator(it), C.render.go(C.Run{b, its, False{}} <> rest, names, False{}))) : String}
+      %Equal.sym(String, String.append(Ops.terminator(it), SNil{}), Ops.terminator(it), Blamed.app_nil(Ops.terminator(it))) : {String.append(String.append(Ops.shown(it), _), String.append(Ops.text(its), C.render.go(rest, names, False{}))) == String.append(Ops.shown(it), String.append(Ops.terminator(it), String.append(Ops.text(its), C.render.go(rest, names, False{})))) : String}
+      %Equal.sym(String, String.append(String.append(Ops.shown(it), Ops.terminator(it)), String.append(Ops.text(its), C.render.go(rest, names, False{}))), String.append(Ops.shown(it), String.append(Ops.terminator(it), String.append(Ops.text(its), C.render.go(rest, names, False{})))), Blamed.app_assoc(Ops.shown(it), Ops.terminator(it), String.append(Ops.text(its), C.render.go(rest, names, False{})))) : {_ == String.append(Ops.shown(it), String.append(Ops.terminator(it), String.append(Ops.text(its), C.render.go(rest, names, False{})))) : String}
+      {==}
+
+def put_render(+a: Nat, +it: Ops.Item, rs: List<&2, C.Run>, +names: List<&2, String>, h: {calm(rs) == True{} : Bool}) -> {C.render.go(C.runs.put(a, it, False{}, rs), names, False{}) == String.append(Ops.shown(it), String.append(Ops.terminator(it), C.render.go(rs, names, False{}))) : String}:
+  match rs:
+    case Nil{}:
+      %Equal.sym(String, String.append(Ops.terminator(it), SNil{}), Ops.terminator(it), Blamed.app_nil(Ops.terminator(it))) : {String.append(String.append(Ops.shown(it), _), SNil{}) == String.append(Ops.shown(it), _) : String}
+      Blamed.app_nil(String.append(Ops.shown(it), Ops.terminator(it)))
+    case C.Run{+b, +its, True{}} <> +rest:
+      Empty.absurd({C.render.go(C.runs.put(a, it, False{}, C.Run{b, its, True{}} <> rest), names, False{}) == String.append(Ops.shown(it), String.append(Ops.terminator(it), C.render.go(C.Run{b, its, True{}} <> rest, names, False{}))) : String}, Comp.false_true(h))
+    case C.Run{+b, +its, False{}} <> +rest:
+      put_render.pick(a, it, b, its, rest, names, Nat.is_eq(a, b), {==})
+
+# What stands, none of it met, renders as its lines.
+def runs_render(ns: List<&2, Merge.Node>, +mk: List<&2, Merge.Name>, +names: List<&2, String>, +h: {unmarked(ns, mk) == True{} : Bool}) -> {C.render.go(C.runs(ns, mk), names, False{}) == Ops.text(Merge.file.of(ns)) : String}:
+  match ns:
+    case Nil{}:
+      {==}
+    case +n <> +rest:
+      +hr = Comp.and_right(Bool.not(C.name.in(mk, Merge.Node.name(n))), unmarked(rest, mk), h)
+      %Equal.sym(Bool, C.name.in(mk, Merge.Node.name(n)), False{}, not_false(C.name.in(mk, Merge.Node.name(n)), Comp.and_left(Bool.not(C.name.in(mk, Merge.Node.name(n))), unmarked(rest, mk), h))) : {C.render.go(C.runs.put(Merge.Node.author(n), Merge.Node.item(n), _, C.runs(rest, mk)), names, False{}) == Ops.text(Merge.file.of(n <> rest)) : String}
+      %Equal.sym(String, C.render.go(C.runs.put(Merge.Node.author(n), Merge.Node.item(n), False{}, C.runs(rest, mk)), names, False{}), String.append(Ops.shown(Merge.Node.item(n)), String.append(Ops.terminator(Merge.Node.item(n)), C.render.go(C.runs(rest, mk), names, False{}))), put_render(Merge.Node.author(n), Merge.Node.item(n), C.runs(rest, mk), names, runs_calm(rest, mk, hr))) : {_ == Ops.text(Merge.file.of(n <> rest)) : String}
+      %Equal.sym(String, C.render.go(C.runs(rest, mk), names, False{}), Ops.text(Merge.file.of(rest)), runs_render(rest, mk, names, hr)) : {String.append(Ops.shown(Merge.Node.item(n)), String.append(Ops.terminator(Merge.Node.item(n)), _)) == Ops.text(Merge.file.of(n <> rest)) : String}
+      {==}
+
+# A file where nothing met renders as the walk's file, byte for byte: no
+# fence, no label, nothing a person must delete.
+def render_plain(j: C.Joined, h: {C.met(j) == False{} : Bool}) -> {C.render(j) == C.plain(j) : String}:
+  match j:
+    case C.Joined{+ns, ds, +g, +t}:
+      runs_render(Merge.visible(t), C.marks(g, t), ns, calm_of(Merge.visible(t), C.marks(g, t), add_zero_left(C.regions(Merge.visible(t), C.marks(g, t), None{}, False{}), C.unterminated(Merge.file(t)), gt_zero(Nat.add(C.regions(Merge.visible(t), C.marks(g, t), None{}, False{}), C.unterminated(Merge.file(t))), h))))

@@ -1124,3 +1124,12 @@ law merge_resolution_reads_back:
   for doc: Res.Doc
   for e: {Conflict.resolve(j, Ops.from_text(s)) == Some{doc} : Maybe<&2, Res.Doc>}
   {Main.assemble(ds, doc) == Done{Ops.from_text(s)} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# `merge` writes what the walk reads into the folder, fenced where
+# concurrent work met; a file where nothing met — no region, and no line
+# but the last without a newline — is written as the walk's file, byte for
+# byte, with no line in it a person must find and delete.
+law merge_renders_the_uncontested_as_itself:
+  for j: Conflict.Joined
+  for e: {Conflict.met(j) == False{} : Bool}
+  {Conflict.render(j) == Conflict.plain(j) : String}
