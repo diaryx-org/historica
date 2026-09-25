@@ -733,6 +733,62 @@ STORES = {
         ["forget", "head", "notes.md", "--frob"],
         ["forget", "head", "notes.md", "--lines", "1", "--dry-run", "--fields"],
     ],
+    # Decision 0014 with the originals still held: stand-ins the Rust tool
+    # wrote elsewhere copied in beside them, as a sync that copies files
+    # leaves a store. Every reader reads through them where the Rust tool
+    # does — an operation document and a `text` payload with each item a
+    # stand-in forgets forgotten, a resolution and a payload of bytes as
+    # held — and `forget` takes them as what is already forgotten.
+    "resurrected": [
+        ["log"],
+        ["files", "head"],
+        ["cat", "head", "notes.md"],
+        ["cat", "first", "notes.md"],
+        ["cat", "r3", "notes.md"],
+        ["cat", "r9", "notes.md"],
+        ["cat", "first", "photo.bin"],
+        ["cat", "m1", "f.md"],
+        ["cat", "left", "f.md"],
+        ["show", "head", "notes.md"],
+        ["show", "first", "notes.md"],
+        ["show", "first", "photo.bin"],
+        ["show", "m1", "f.md"],
+        ["show", "left", "f.md"],
+        # Not `diff head`: the Rust store catalogues nothing a resolution
+        # forgets, so it finds the stand-in beside `m1`'s resolution only
+        # once something has made it scan every document — which assembling
+        # that resolution once does, since it keeps from a payload. `diff
+        # head` reads it twice, and says the revision after the merge turned
+        # `L` into `\ forgotten` in a file it did not touch.
+        ["diff", "first"],
+        ["diff", "r3"],
+        ["diff", "left"],
+        ["diff", "m1", "--onto", "left"],
+        ["diff", "head", "--onto", "first"],
+        ["blame", "head", "notes.md"],
+        ["blame", "first", "notes.md"],
+        ["blame", "m1", "f.md"],
+        ["blame", "left", "f.md"],
+        ["blame", "notes.md"],
+        ["blame", "f.md"],
+        ["status"],
+        ["status", "--onto", "r9"],
+        ["diff"],
+        ["diff", "--onto", "r1"],
+        ["record", "-n"],
+        ["record", "-m", "again"],
+        ["amend", "-m", "reworded"],
+        ["carry", "r13", "--onto", "r11"],
+        ["carry", "left", "--onto", "right"],
+        ["forget", "first", "notes.md", "--lines", "2"],
+        ["forget", "first", "notes.md", "--lines", "2..4"],
+        ["forget", "head", "notes.md", "--lines", "3..4"],
+        ["forget", "head", "notes.md", "--lines", "1..2", "--fields"],
+        ["forget", "left", "f.md", "--lines", "3"],
+        ["forget", "m1", "f.md", "--lines", "1"],
+        ["forget", "first", "photo.bin"],
+        ["forget", "r5", "photo.bin", "--dry-run"],
+    ],
     "stranded": [
         ["carry", "-n"],
         ["carry"],
@@ -1274,7 +1330,7 @@ def record(temporary, rust, corpus, pinned=None):
                     tombstone.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(path, tombstone)
             shutil.rmtree(elsewhere)
-    elif corpus in ("forgotten", "forgetting"):
+    elif corpus in ("forgotten", "forgetting", "resurrected"):
         # A file of lines edited a line at a time, long enough that reading
         # it leaves the Rust tool a state in `cache/`; a file of bytes
         # replaced twice; a merge whose resolution copies a line it moved;
@@ -1308,6 +1364,38 @@ def record(temporary, rust, corpus, pinned=None):
         notes[5] = "six, at last"
         (store / "notes.md").write_text("".join(f"{line}\n" for line in notes))
         rec("after", "-m", "after the merge")
+        if corpus == "resurrected":
+            # The originals kept, and beside them the stand-ins the Rust
+            # tool's `forget` wrote in a copy of this store: what a sync
+            # that copies files, rather than `receive`, leaves behind. The
+            # copy's `cache/` is left there, and this one's cleared, so that
+            # the catalogue the Rust tool reads here is taken from the
+            # directory as it now stands.
+            elsewhere = temporary / f"elsewhere-{corpus}"
+            shutil.rmtree(elsewhere, ignore_errors=True)
+            shutil.copytree(store, elsewhere, symlinks=True)
+            for command in (
+                ("first", "notes.md", "--lines", "2"),
+                ("head", "notes.md", "--lines", "3..4"),
+                ("left", "f.md", "--lines", "3"),
+                ("first", "photo.bin"),
+                ("first", "notes.md", "--lines", "4"),
+            ):
+                subprocess.run([rust, "forget", *command], cwd=elsewhere, env=env, check=True, capture_output=True, timeout=120)
+            there = elsewhere / "history" / "operations"
+            for path in sorted(there.rglob("*")):
+                here = store / "history" / "operations" / path.relative_to(there)
+                if path.is_file() and not here.exists():
+                    here.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(path, here)
+            for path in (store / "history" / "cache").iterdir():
+                if path.name != "README.txt":
+                    path.unlink()
+        if corpus == "forgetting":
+            # Directories under `operations/` that nothing fills, which the
+            # Rust tool's `forget` sweeps away with the ones it empties.
+            (store / "history" / "operations" / "2026-09" / "nothing").mkdir(parents=True)
+            (store / "history" / "operations" / "2026-01" / "deep" / "er").mkdir(parents=True)
         if corpus == "forgotten":
             historica("forget", "first", "notes.md", "--lines", "2")
             historica("forget", "head", "notes.md", "--lines", "3..4")
@@ -1452,7 +1540,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "forgotten", "forgetting")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "forgotten", "forgetting", "resurrected")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:

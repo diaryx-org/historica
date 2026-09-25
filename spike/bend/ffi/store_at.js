@@ -1,5 +1,7 @@
 // The JS twin of `store_at.c`: where the bytes with each digest are, one
-// path per digest asked for, `-` where the store holds none.
+// path per digest asked for, `-` where the store holds none — and, where
+// the first line after the root is `forgets`, then each document that says
+// it forgets one of them, as `<digest> <path>` a line, in path order.
 //
 // `cache/operations.txt` accounts for the paths it names that the directory
 // still holds; everything it does not account for is read and hashed. The
@@ -8,7 +10,14 @@ function store_at(query) {
   const fs = require("node:fs");
   const path = require("node:path");
   const crypto = require("node:crypto");
-  const [root, ...wanted] = query.split("\n");
+  const [root, ...asked] = query.split("\n");
+  const standing = asked[0] === "forgets";
+  const wanted = standing ? asked.slice(1) : asked;
+  const forgetting = new Map();
+  const forgets = (digest, relative) => {
+    if (!forgetting.has(digest)) forgetting.set(digest, []);
+    forgetting.get(digest).push(relative);
+  };
 
   const held = store_walk(root);
   const at = new Map();
@@ -28,9 +37,11 @@ function store_at(query) {
       const second = line.indexOf(" ", first + 1);
       if (first !== 64 || second < 0) continue;
       const digest = line.slice(0, first);
+      const forgotten = line.slice(first + 1, second);
       const relative = line.slice(second + 1);
       if (!held.has(relative)) continue;
       remember(digest, relative);
+      if (forgotten.length === 64) forgets(forgotten, relative);
       accounted.add(relative);
     }
   }
@@ -43,6 +54,12 @@ function store_at(query) {
       continue;
     }
     remember(crypto.createHash("sha256").update(bytes).digest("hex"), relative);
+    // The first header of any of the three forgetting grammars.
+    const opening = "historica\nforgets ";
+    if (bytes.length > opening.length + 64 && bytes.subarray(0, opening.length).toString("latin1") === opening) {
+      const digest = bytes.subarray(opening.length, opening.length + 64).toString("latin1");
+      if (/^[0-9a-f]{64}$/.test(digest) && bytes[opening.length + 64] === 0x0a) forgets(digest, relative);
+    }
   }
 
   const sorted = [...at.keys()].sort();
@@ -58,6 +75,21 @@ function store_at(query) {
     }
     return found === null ? "-" : found;
   });
+  if (standing) {
+    const beside = [];
+    for (const digest of wanted) {
+      for (const relative of forgetting.get(digest) || []) beside.push([relative, digest]);
+    }
+    // Byte order of the path, as Rust sorts its pairs.
+    beside.sort((a, b) => Buffer.compare(Buffer.from(a[0]), Buffer.from(b[0])) || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
+    const seen = new Set();
+    for (const [relative, digest] of beside) {
+      const line = `${digest} ${relative}`;
+      if (seen.has(line)) continue;
+      seen.add(line);
+      answer.push(line);
+    }
+  }
   return io_done(answer.join("\n"));
 }
 
