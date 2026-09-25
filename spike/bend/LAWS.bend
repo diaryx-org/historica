@@ -3002,6 +3002,214 @@ law export_destroys_only_what_is_forgotten:
   for h: {Rev.member(Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)) == True{} : Bool}
 
+# `export` knows what a directory holds by reading the host's listing of
+# it (`Store.folder`), and reads it back as the host writes it: the names
+# it finds are the entries' own, one each and in the order listed, whatever
+# the entries are — a directory, a file of any mode and size, a link (whose
+# target, on the line after it, is no entry of its own), or anything else.
+law export_reads_a_directory_listing_back:
+  for +es: List<&2, Export.Listed>
+  for +h: {Export.listed.ok(es) == True{} : Bool}
+  {Export.dir.names(Export.listing(es)) == Export.listed.names(es) : List<&2, String>}
+
+# And so an export writes only into a directory holding nothing: it lays a
+# folder out alone (`--files-only`) exactly where the host's listing names
+# no entry, and makes a fresh copy exactly there too. A directory holding
+# anything is refused, or, holding a copy, brought up to date.
+law export_writes_only_into_nothing:
+  for +into: String
+  for +es: List<&2, Export.Listed>
+  for header: Result<&1, &1, U32 & String, String>
+  for +h: {Export.listed.ok(es) == True{} : Bool}
+  {Bool.and(Export.bool.same(Result.is_done(&2, &2, Main.Refused, Unit, Export.empty.r(into, Done{Export.listing(es)})), List.is_empty(&2, Export.Listed, es)), Export.bool.same(Export.dest.fresh(Export.dest.r(into, Done{Export.listing(es)}, header)), List.is_empty(&2, Export.Listed, es))) == True{} : Bool}
+
+# A folder laid out alone is refused as folding paths the tree holds apart
+# (decision 0027) exactly where some file it wrote reads back as other
+# bytes than it laid there: reading the host's line for each file it wrote,
+# a digest and a size, it goes on exactly where every digest is that of
+# what was laid at that path.
+law export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise:
+  for +qs: List<&2, Export.Put>
+  for +ds: List<&2, T.Split>
+  for +hs: {Export.stats.ok(ds) == True{} : Bool}
+  for hl: {List.length(&2, Export.Put, qs) == List.length(&2, T.Split, ds) : Nat}
+  {Result.is_done(&2, &2, Main.Refused, Unit, Export.folded.r(Export.folded(qs, Export.stat.lines(ds)))) == Export.reads.back(qs, ds) : Bool}
+
+# What `export -n` names, read back from its lines: a `would withdraw` line
+# for each file a copy being updated gives up, in the order they go, and a
+# `write` line for each path the target's tree places — every one of them,
+# none other, once each and in path order — whatever it counts, and no
+# line of the rest reads as either.
+law export_dry_run_names_what_it_would_write:
+  for +held: List<&2, Main.Full>
+  for +t: Tree.Tree()
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, T.Split>
+  for +bodies: List<&2, Prune.Body>
+  for +rs: List<&2, Receive.Ruled>
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +c: Export.Counts
+  for +ws: List<&2, String>
+  for +n: Nat
+  for +u: Bool
+  for +spelled: String
+  for +into: String
+  for +x: String
+  {Bool.and(Main.strings.same(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "would withdraw history/"), ws), Bool.and(Main.rising(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "write   ")), Export.bool.same(Rev.member(Export.said.after(Export.said.plan(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), c, ws, n, u, spelled, into), "write   "), x), Export.tree.holds(t, x)))) == True{} : Bool}
+
+# What `export --files-only -n` says it would do is what the real run then
+# says it did: read back, its `write` lines name, in order, exactly the
+# files the real run names as `wrote`, and its `link` lines exactly the
+# links, each with where it points, that the real run names as `linked` —
+# whatever modes it went on to set.
+law export_files_only_dry_run_names_what_it_lays_out:
+  for +ps: List<&2, Export.Put>
+  for +set: List<&2, String>
+  for +spelled: String
+  for +into: String
+  for +at: String
+  {Bool.and(Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "write   "), Export.said.after(Export.said.laid(ps, set, spelled, at), "wrote   ")), Main.strings.same(Export.said.after(Export.said.folder(ps, spelled, into), "link    "), Export.said.after(Export.said.laid(ps, set, spelled, at), "linked  "))) == True{} : Bool}
+
+# An export updates a copy only where the copy is its own to update
+# (decision 0052): it goes on exactly where the copy is related to this
+# store (decision 0029) and every revision the copy holds is one this store
+# holds, or names as some revision's parent or as one it supersedes. A
+# revision it has not heard of was recorded in the copy, and combining that
+# is `receive`'s.
+law export_updates_only_a_copy_it_could_have_made:
+  for +into: String
+  for +fs: List<&2, Main.Full>
+  for +cfs: List<&2, Main.Full>
+  {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == Bool.and(Receive.related(fs, cfs), Export.heard.all(cfs, fs)) : Bool}
+
+# Bringing a copy up to date leaves it holding the whole set a fresh
+# export of the target gives (decision 0052): every revision, document,
+# forgetting document and payload the set names is one the copy's store
+# already holds a file of, one the update writes into it, or one a
+# forgetting document of this store or of the copy says is gone — which is
+# never handed back (decision 0014).
+law export_update_leaves_the_copy_the_whole_set:
+  for +p: Export.Plan
+  for +here: List<&2, Prune.Body>
+  for +cst: Prune.Stored
+  for +marks: List<&2, Bm.Bookmark>
+  for +d: String
+  for h: {Rev.member(Export.set.named(p), d) == True{} : Bool}
+  {Bool.or(Export.copy.has(cst, d), Bool.or(Export.writes.has(Export.onto.writes(p, Export.onto.of(p, here, cst, marks)), d), Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)))) == True{} : Bool}
+
+# And it gives up only what the set no longer names (decisions 0052, 0051
+# and 0062): every file an update withdraws from a copy, or retires, is a
+# revision file of a revision the target's history does not hold, a
+# document or payload file of one the set does not carry, a rule file
+# stating a rule the origin does not share, or a bookmark file of a
+# bookmark that does not travel.
+law export_update_gives_up_only_what_the_set_no_longer_names:
+  for +p: Export.Plan
+  for +here: List<&2, Prune.Body>
+  for +cst: Prune.Stored
+  for +marks: List<&2, Bm.Bookmark>
+  for +w: String
+  for h: {Rev.member(Export.onto.all(Export.onto.of(p, here, cst, marks)), w) == True{} : Bool}
+  {Export.given.up(p, cst, marks, w) == True{} : Bool}
+
+# Bringing a copy up to date carries into it the files of `claims/` it
+# lacks, and no others (decisions 0053 and 0054): a file travels exactly
+# where the origin has it and the copy has none of that name, so what the
+# copy already holds there, whoever wrote it, is never written over.
+law export_update_carries_only_the_claims_a_copy_lacks:
+  for +cs: List<&2, T.Split>
+  for +cc: List<&2, T.Split>
+  for +l: String
+  {Export.claim.named(Export.claims.fresh(cs, Set.from_list(Export.split.labels(cc))), l) == Bool.and(Export.claim.named(cs, l), Bool.not(Export.claim.named(cc, l))) : Bool}
+
+# Bringing a copy up to date gives it no private rule either (decision
+# 0051): every rule file an update adds to the copy states a shared rule,
+# whatever the copy already states and whatever label each is filed under.
+law export_update_states_no_private_rule:
+  for +held: List<&2, Main.Full>
+  for +t: Tree.Tree()
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, T.Split>
+  for +bodies: List<&2, Prune.Body>
+  for +rs: List<&2, Receive.Ruled>
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +cst: Prune.Stored
+  for +retired: Set()
+  {Export.lines.shared(Export.rules.added(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), cst, retired)) == True{} : Bool}
+
+# Catching a copy's folder up leaves it holding what a fresh export of the
+# same target lays out (decision 0052): wherever the folder's plan is made,
+# the fresh folder can be laid out too, and once each of the plan's steps is
+# taken — a file written or linked, a mode set, a file kept — every path
+# the fresh folder has holds exactly its file there: the bytes of a file of
+# lines or the payload of a file of bytes, with its mode, or a link
+# pointing where the fresh one points. One step is taken for each of those
+# files, and nothing the plan removes is one of them.
+law export_catches_up_to_a_fresh_copy:
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  for +seen: List<&2, Export.Seen>
+  for +walk: List<&2, T.Split>
+  for +dirs: Set()
+  for +others: Set()
+  for +whole: Bool
+  for +rs: List<&2, Export.Rec>
+  {Export.caught.lands(seen, Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs), Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}
+
+# An export takes a copy's folder for its own untouched output — the one
+# case it may rewrite whole (decisions 0030 and 0052 meeting) — only where
+# the walk found there what a fresh export of that revision lays out: a
+# folder its plan settles holds, at every path of the fresh folder, that
+# path's file, by digest and mode or by where its link points.
+law export_settles_only_on_what_it_laid_out:
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  for +seen: List<&2, Export.Seen>
+  for +walk: List<&2, T.Split>
+  for +dirs: Set()
+  for +others: Set()
+  for +whole: Bool
+  for +rs: List<&2, Export.Rec>
+  for h: {Export.caught.settled(Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs)) == True{} : Bool}
+  {Export.fresh.held(seen, Export.folder.r(t, fs, ds, id, pays, bs, rules)) == True{} : Bool}
+
+# Catching a copy's folder up writes over, and takes away, only bytes the
+# copy's own history can give back (decision 0030, as 0052 meets it): every
+# file one of its steps writes or links over, and every file it removes,
+# holds what `cat` of some revision of the copy reads for some file of its
+# tree, or the payload that tree names — `update`'s promise, asked of what
+# the copy's revisions record at each path the walk found there. A link it
+# takes away is read from the revisions' link statements, as the Rust tool
+# reads it, and is not asked about here; nor is a folder that is the
+# export's own last output, untouched since, which it rewrites whole.
+law export_spares_the_unrecorded:
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  for +seen: List<&2, Export.Seen>
+  for +walk: List<&2, T.Split>
+  for +dirs: Set()
+  for +others: Set()
+  for +cfs: List<&2, Main.Full>
+  for +cds: List<&2, Store.Doc>
+  {Export.caught.spares(seen, cfs, cds, Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, False{}, Export.recs(Export.seen.paths(seen), cfs, cds))) == True{} : Bool}
+
 # Every line of an `offer` manifest names a file by the digest the store's
 # listing gives the file at that path: each payload, document, revision,
 # rule, file of `claims/` and bookmark, group by group, so a fetcher that
