@@ -10,6 +10,7 @@ contents:
   - "[The state at a revision without the walk](the-state-at-a-revision-without-the-walk.md)"
   - "[A capture pushes per file and barriers once](a-capture-pushes-per-file-and-barriers-once.md)"
   - "[A stand-in beside a held resolution is read only after a scan](a-stand-in-beside-a-held-resolution-is-read-only-after-a-scan.md)"
+  - "[Saying a merge would empty a file](saying-a-merge-would-empty-a-file.md)"
 part_of: '[historica](/README.md)'
 ---
 

@@ -814,8 +814,24 @@ def among(fs: List<&2, Full>, +reached: List<&2, String>) -> List<&2, Full>:
     case +f <> rest:
       keep_full(Rev.member(reached, id_of(f)), f, among(rest, reached))
 
-def reached.all(+fs: List<&2, Full>, starts: List<&2, String>) -> List<&2, String>:
-  ancestry.seen(ancestry.go(Nat.mul(2n, 1n+List.length(&2, Full, fs)), fs, Reach{starts, Nil{}}))
+# Every parent each revision of the store names, counted.
+def parent_count(fs: List<&2, Full>) -> Nat:
+  match fs:
+    case Nil{}:
+      0n
+    case f <> rest:
+      Nat.add(List.length(&2, String, parents_of(f)), parent_count(rest))
+
+# Each step takes one digest off the frontier, and a revision's parents
+# join it once, when the revision is taken in; so a step for each digest
+# the walk starts from and each parent the store names is as many as it
+# can take, however many parents a merge joins. Twice the store's length
+# was not, where merges joined more than two.
+def reached.fuel(fs: List<&2, Full>, starts: List<&2, String>) -> Nat:
+  Nat.add(List.length(&2, String, starts), parent_count(fs))
+
+def reached.all(+fs: List<&2, Full>, +starts: List<&2, String>) -> List<&2, String>:
+  ancestry.seen(ancestry.go(reached.fuel(fs, starts), fs, Reach{starts, Nil{}}))
 
 def reached(+fs: List<&2, Full>, +id: String) -> List<&2, String>:
   reached.all(fs, [id])
@@ -1568,24 +1584,76 @@ def span.shown(+fs: List<&2, Full>, sp: Span) -> List<&2, Full>:
     case Span.Between{+from, +to}:
       among(fs, Rev.without(reached(fs, to), reached(fs, from)))
 
-# Where `LAWS.log_lists_its_span` looks: a revision of the store a span
-# names — any, with no target; one the target reaches; or, of `a..b`, one
-# `b` reaches and `a` does not.
-def span.has(+fs: List<&2, Full>, sp: Span, +id: String) -> Bool:
-  match sp:
-    case Span.All{}:
-      Rev.member(ids(fs), id)
-    case Span.From{+a}:
-      Bool.and(Rev.member(ids(fs), id), Rev.member(reached(fs, a), id))
-    case Span.Between{+from, +to}:
-      Bool.and(Rev.member(ids(fs), id), Bool.and(Rev.member(reached(fs, to), id), Bool.not(Rev.member(reached(fs, from), id))))
+# What `LAWS.log_lists_its_span` looks for in what `log` lists. With a
+# target: every revision listed one the store holds, the target listed
+# wherever the store holds it, every other revision listed a parent of one
+# listed, and, where the store files each revision under a digest no other
+# has, every parent the store holds of a revision listed listed too. With
+# `a..b`: every revision listed one `log b` lists and `log a` does not, and
+# every one `log b` lists and `log a` does not listed.
+def parented(xs: List<&2, Full>, +p: String) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case +x <> rest:
+      Bool.or(Rev.member(parents_of(x), p), parented(rest, p))
 
-def span.all_in(+fs: List<&2, Full>, +sp: Span, xs: List<&2, Full>) -> Bool:
+def span.linked(+ls: List<&2, Full>, +t: String, xs: List<&2, Full>) -> Bool:
   match xs:
     case Nil{}:
       True{}
     case +x <> rest:
-      Bool.and(span.has(fs, sp, id_of(x)), span.all_in(fs, sp, rest))
+      Bool.and(Bool.or(String.eq(id_of(x), t), parented(ls, id_of(x))), span.linked(ls, t, rest))
+
+def span.held(+fs: List<&2, Full>, xs: List<&2, Full>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Rev.member(ids(fs), id_of(x)), span.held(fs, rest))
+
+def span.parents_listed(+fs: List<&2, Full>, +ls: List<&2, Full>, ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case +p <> rest:
+      Bool.and(Bool.or(Bool.not(Rev.member(ids(fs), p)), Rev.member(ids(ls), p)), span.parents_listed(fs, ls, rest))
+
+def span.closed(+fs: List<&2, Full>, +ls: List<&2, Full>, xs: List<&2, Full>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(span.parents_listed(fs, ls, parents_of(x)), span.closed(fs, ls, rest))
+
+def span.filed_once(fs: List<&2, Full>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> +rest:
+      Bool.and(Bool.not(Rev.member(ids(rest), id_of(f))), span.filed_once(rest))
+
+def span.from_ok(+fs: List<&2, Full>, +t: String, +ls: List<&2, Full>) -> Bool:
+  Bool.and(Bool.and(span.held(fs, ls), Bool.or(Bool.not(Rev.member(ids(fs), t)), Rev.member(ids(ls), t))), Bool.and(span.linked(ls, t, ls), Bool.or(Bool.not(span.filed_once(fs)), span.closed(fs, ls, ls))))
+
+# Each revision of `xs` one `log b` lists and `log a` does not.
+def span.parted(+fs: List<&2, Full>, +a: String, +b: String, xs: List<&2, Full>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Bool.and(Rev.member(ids(span.shown(fs, Span.From{b})), id_of(x)), Bool.not(Rev.member(ids(span.shown(fs, Span.From{a})), id_of(x)))), span.parted(fs, a, b, rest))
+
+# Each revision of `ys` one `log a` lists, or one of `ls`.
+def span.kept(+fs: List<&2, Full>, +a: String, +ls: List<&2, Full>, ys: List<&2, Full>) -> Bool:
+  match ys:
+    case Nil{}:
+      True{}
+    case +y <> rest:
+      Bool.and(Bool.or(Rev.member(ids(span.shown(fs, Span.From{a})), id_of(y)), Rev.member(ids(ls), id_of(y))), span.kept(fs, a, ls, rest))
+
+def span.range_ok(+fs: List<&2, Full>, +a: String, +b: String, +ls: List<&2, Full>) -> Bool:
+  Bool.and(span.parted(fs, a, b, ls), span.kept(fs, a, ls, span.shown(fs, Span.From{b})))
 
 # The revision a `--path` is read at: the far end of what was named, or the
 # head where nothing was — and where there are several heads, none.
@@ -4792,7 +4860,9 @@ def chain(+fs: List<&2, Full>, at: Maybe<&2, String>) -> List<&2, Full>:
 
 # Where `LAWS.chain_follows_first_parents` looks: revisions the store holds,
 # the first the one wanted, and each after it the first parent of the one
-# before.
+# before; and where the walk stops, a line that goes on to none — after the
+# last revision on it, which has no parent or a first parent the store does
+# not hold, or, where it walked none, at a name the store does not hold.
 def parent.first(ps: List<&2, String>) -> Maybe<&2, String>:
   match ps:
     case Nil{}:
@@ -4806,6 +4876,15 @@ def first_parents(+fs: List<&2, Full>, xs: List<&2, Full>, want: Maybe<&2, Strin
       True{}
     case +x <> rest:
       Bool.and(Bool.and(Rev.member(ids(fs), id_of(x)), maybe_eq(want, Some{id_of(x)})), first_parents(fs, rest, parent.first(parents_of(x))))
+
+def line.stops(+fs: List<&2, Full>, xs: List<&2, Full>, want: Maybe<&2, String>) -> Bool:
+  match xs want:
+    case Nil{} None{}:
+      True{}
+    case Nil{} Some{+w}:
+      Bool.not(Rev.member(ids(fs), w))
+    case x <> rest _:
+      line.stops(fs, rest, parent.first(parents_of(x)))
 
 # For each file, the nearest statement of its content on that line: the key
 # (`text`, `bytes` or `edit`) and the document it names.
@@ -6872,14 +6951,13 @@ def status.answer(ps: List<&2, String>, xs: List<&2, String>, +p: String) -> May
       None{}
 
 # What `LAWS.status_surveys_each_path` reads in what the survey is told:
-# each path compared, once and in order; where the parents being joined
-# leave a file of lines differently, no digest to compare it with; and as
-# the folder's digest of each path, the first word of the host's answer
-# for it, among the paths `ps` it was asked for and the answers `xs`.
+# each path compared, once and in order, and as the folder's digest of
+# each path, the first word of the host's answer for it, among the paths
+# `ps` it was asked for and the answers `xs`.
 def status.surveys.one(+ps: List<&2, String>, +xs: List<&2, String>, h: Here, s: Sv.Seen) -> Bool:
   match h s:
     case Here{+p, e, f} Sv.Seen{q, e2, f2, d, before, text, shown, proposed, marked}:
-      Bool.and(String.eq(p, q), Bool.and(Bool.or(Bool.not(proposed), Maybe.is_none(&2, String, before)), String.eq(d, T.word(Maybe.default(&2, String, status.answer(ps, xs, p), SNil{})))))
+      Bool.and(String.eq(p, q), String.eq(d, T.word(Maybe.default(&2, String, status.answer(ps, xs, p), SNil{}))))
 
 def status.surveys(+ps: List<&2, String>, +xs: List<&2, String>, hs: List<&2, Here>, ss: List<&2, Sv.Seen>) -> Bool:
   match hs ss:
@@ -6889,6 +6967,80 @@ def status.surveys(+ps: List<&2, String>, +xs: List<&2, String>, hs: List<&2, He
       Bool.and(status.surveys.one(ps, xs, h, s), status.surveys(ps, xs, hr, sr))
     case _ _:
       False{}
+
+# What `LAWS.status_leaves_a_disputed_file_unsettled` looks for in what
+# the survey is told of a path: a file there edited, emptied, refused or
+# still marked, emptied only where it holds no bytes and edited only where
+# it holds some; or the file the position holds there dropped, with no
+# content an arrival could be matched to.
+def obs.unsettles(+path: String, o: Sv.Obs) -> Bool:
+  match o:
+    case Sv.Obs.Edited{p}:
+      String.eq(p, path)
+    case Sv.Obs.Emptied{p}:
+      String.eq(p, path)
+    case Sv.Obs.Refused{p, b}:
+      String.eq(p, path)
+    case Sv.Obs.Marked{p, n}:
+      String.eq(p, path)
+    case _:
+      False{}
+
+def obs.edits(+path: String, o: Sv.Obs) -> Bool:
+  match o:
+    case Sv.Obs.Edited{p}:
+      String.eq(p, path)
+    case _:
+      False{}
+
+def obs.empties(+path: String, o: Sv.Obs) -> Bool:
+  match o:
+    case Sv.Obs.Emptied{p}:
+      String.eq(p, path)
+    case _:
+      False{}
+
+def obs.drops_bare(+path: String, +file: String, o: Sv.Obs) -> Bool:
+  match o:
+    case Sv.Obs.Dropped{f, p, None{}}:
+      Bool.and(String.eq(p, path), String.eq(f, file))
+    case _:
+      False{}
+
+def obs.any_unsettles(+path: String, os: List<&2, Sv.Obs>) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case o <> rest:
+      Bool.or(obs.unsettles(path, o), obs.any_unsettles(path, rest))
+
+def obs.any_edits(+path: String, os: List<&2, Sv.Obs>) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case o <> rest:
+      Bool.or(obs.edits(path, o), obs.any_edits(path, rest))
+
+def obs.any_empties(+path: String, os: List<&2, Sv.Obs>) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case o <> rest:
+      Bool.or(obs.empties(path, o), obs.any_empties(path, rest))
+
+def obs.any_drops_bare(+path: String, +file: String, os: List<&2, Sv.Obs>) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case o <> rest:
+      Bool.or(obs.drops_bare(path, file, o), obs.any_drops_bare(path, file, rest))
+
+def disputed.said(+path: String, +file: String, found: Maybe<&2, Folder.Found>, +os: List<&2, Sv.Obs>) -> Bool:
+  match found:
+    case Some{Folder.Found.File{q, r, n}}:
+      Bool.and(obs.any_unsettles(path, os), Bool.not(Bool.pick(Bool, Nat.is_eq(n, 0n), obs.any_edits(path, os), obs.any_empties(path, os))))
+    case _:
+      obs.any_drops_bare(path, file, os)
 
 # Joining
 # -------
@@ -6941,38 +7093,85 @@ def status.agree(+xs: List<&2, String>) -> String:
     case +d <> rest:
       Bool.pick(String, all_eq(rest, d), d, "-")
 
-def status.joined.go(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, hs: List<&2, Here>, m: Map<&2, String>) -> Result<&2, &2, String, Map<&2, String>>:
+# Each file compared, with what the parents' readings of it join to, in
+# the order compared, or the first reading refused.
+def status.joined.pairs(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, hs: List<&2, Here>) -> Result<&2, &2, String, List<&2, T.Split>>:
   match hs:
     case Nil{}:
-      Done{m}
+      Done{Nil{}}
     case +h <> rest:
       +file = here.file(h)
-      do Result<&2, &2, String, Map<&2, String>>:
+      do Result<&2, &2, String, List<&2, T.Split>>:
         xs : List<&2, Maybe<&2, String>> <- status.joined.each(fs, ds, file, ps)
-        status.joined.go(fs, ds, ps, rest, Map.set(&2, String, m, file, status.agree(somes(xs))))
+        later : List<&2, T.Split> <- status.joined.pairs(fs, ds, ps, rest)
+        return T.Split{file, status.agree(somes(xs))} <> later
 
-# Where `LAWS.status_joins_what_it_reads` looks for a refusal: a file
-# compared, and a parent whose content of it could not be read.
-def status.one_fails(r: Result<&2, &2, String, Maybe<&2, String>>, +e: String) -> Bool:
+def splits.into(xs: List<&2, T.Split>, m: Map<&2, String>) -> Map<&2, String>:
+  match xs:
+    case Nil{}:
+      m
+    case T.Split{k, v} <> rest:
+      splits.into(rest, Map.set(&2, String, m, k, v))
+
+def status.joined.go(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, hs: List<&2, Here>, m: Map<&2, String>) -> Result<&2, &2, String, Map<&2, String>>:
+  Result.map(&2, &2, String, List<&2, T.Split>, Map<&2, String>, xs => splits.into(xs, m), status.joined.pairs(fs, ds, ps, hs))
+
+# What `LAWS.status_joins_what_it_reads` looks for: each file compared, in
+# order, with what the parents' readings of it join to — the empty digest
+# where no parent mentions the file, `-` where two parents read it
+# differently, and otherwise the digest every parent that mentions it reads.
+def reading.of(r: Result<&2, &2, String, Maybe<&2, String>>) -> Maybe<&2, String>:
   match r:
-    case Fail{x}:
-      String.eq(x, e)
-    case Done{d}:
-      False{}
+    case Done{m}:
+      m
+    case Fail{e}:
+      None{}
 
-def status.parents_fail(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, ps: List<&2, String>, +e: String) -> Bool:
+def status.readings(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String, ps: List<&2, String>) -> List<&2, Maybe<&2, String>>:
   match ps:
     case Nil{}:
-      False{}
+      Nil{}
     case +p <> rest:
-      Bool.or(status.one_fails(status.joined.one(fs, ds, file, p), e), status.parents_fail(fs, ds, file, rest, e))
+      reading.of(status.joined.one(fs, ds, file, p)) <> status.readings(fs, ds, file, rest)
 
-def status.joined_fails(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, hs: List<&2, Here>, +e: String) -> Bool:
-  match hs:
+def mentions.none(rs: List<&2, Maybe<&2, String>>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case None{} <> rest:
+      mentions.none(rest)
+    case Some{x} <> rest:
+      False{}
+
+def mentions.all(rs: List<&2, Maybe<&2, String>>, +d: String) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case None{} <> rest:
+      mentions.all(rest, d)
+    case Some{x} <> rest:
+      Bool.and(String.eq(x, d), mentions.all(rest, d))
+
+def mentions.differ(rs: List<&2, Maybe<&2, String>>) -> Bool:
+  match rs:
     case Nil{}:
       False{}
-    case +h <> rest:
-      Bool.or(status.parents_fail(fs, ds, here.file(h), ps, e), status.joined_fails(fs, ds, ps, rest, e))
+    case None{} <> rest:
+      mentions.differ(rest)
+    case Some{+x} <> +rest:
+      Bool.or(Bool.not(mentions.all(rest, x)), mentions.differ(rest))
+
+def joined.as(+rs: List<&2, Maybe<&2, String>>, +d: String) -> Bool:
+  Bool.pick(Bool, mentions.none(rs), String.eq(d, Sv.EMPTY()), Bool.pick(Bool, mentions.differ(rs), String.eq(d, "-"), mentions.all(rs, d)))
+
+def joined.files(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, hs: List<&2, Here>, xs: List<&2, T.Split>) -> Bool:
+  match hs xs:
+    case Nil{} Nil{}:
+      True{}
+    case h <> hr T.Split{+f, +d} <> xr:
+      Bool.and(String.eq(f, here.file(h)), Bool.and(joined.as(status.readings(fs, ds, f, ps), d), joined.files(fs, ds, ps, hr, xr)))
+    case _ _:
+      False{}
 
 # The digests at one parent: stated where the nearest statement says, and
 # replayed where it does not.
@@ -7148,49 +7347,37 @@ def contest.lines(cs: List<&2, Tree.Contest>) -> List<&2, String>:
 def contests.said(+ps: List<&2, String>, cs: List<&2, Tree.Contest>) -> List<&2, String>:
   Bool.pick(List<&2, String>, Nat.is_gt(List.length(&2, String, ps), 1n), contest.lines(cs), Nil{})
 
-# What `LAWS.status_says_each_contest` reads in the contests: where work
-# is joined, a line for each contest the merge found, in its order, opening
-# with the file contested — a path several files claim is said as `claimed`
-# instead — and where it is not, none.
-def contest.opens(c: Tree.Contest) -> Maybe<&2, String>:
-  match c:
-    case Tree.Dropped{f, by}:
-      Some{"kept " ++ String.take(f, 8n)}
-    case Tree.Moved{f, cs}:
-      Some{"moved " ++ String.take(f, 8n)}
-    case Tree.Content{f, cs}:
-      Some{String.take(f, 8n)}
-    case Tree.ModeOf{f, cs}:
-      Some{String.take(f, 8n)}
-    case Tree.TargetOf{f, cs}:
-      Some{String.take(f, 8n)}
-    case Tree.Referenced{f, by, links}:
-      Some{"kept " ++ String.take(f, 8n)}
-    case Tree.Path{p, fs}:
-      None{}
-
-def contests.opens(cs: List<&2, Tree.Contest>) -> List<&2, String>:
+# What `LAWS.status_says_each_contest` looks for in the lines said of the
+# contests: where two revisions or more are joined, one line for each
+# contest but a path several files claim, in the contests' order, each
+# naming the file contested by the first eight characters of its name; and
+# where one revision or none is the position, no line at all.
+def contests.unclaimed(cs: List<&2, Tree.Contest>) -> List<&2, Tree.Contest>:
   match cs:
     case Nil{}:
       Nil{}
+    case Tree.Path{p, fs} <> rest:
+      contests.unclaimed(rest)
     case c <> rest:
-      contest.push(contest.opens(c), contests.opens(rest))
+      c <> contests.unclaimed(rest)
 
-def contests.open(ls: List<&2, String>, os: List<&2, String>) -> Bool:
-  match ls os:
+def contests.named(ls: List<&2, String>, cs: List<&2, Tree.Contest>) -> Bool:
+  match ls cs:
     case Nil{} Nil{}:
       True{}
-    case l <> lr o <> or:
-      Bool.and(String.starts_with(l, o), contests.open(lr, or))
+    case l <> lr c <> cr:
+      Bool.and(String.contains(l, String.take(Tree.contest_key(c), 8n)), contests.named(lr, cr))
     case _ _:
       False{}
 
-def contests.shown(+ps: List<&2, String>, cs: List<&2, Tree.Contest>, ls: List<&2, String>) -> Bool:
-  match ls:
+def contests.shown(ps: List<&2, String>, cs: List<&2, Tree.Contest>, ls: List<&2, String>) -> Bool:
+  match ps:
     case Nil{}:
-      Bool.or(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), List.is_empty(&2, String, contests.opens(cs)))
-    case +some:
-      Bool.and(Nat.is_gt(List.length(&2, String, ps), 1n), contests.open(some, contests.opens(cs)))
+      List.is_empty(&2, String, ls)
+    case p <> Nil{}:
+      List.is_empty(&2, String, ls)
+    case _:
+      contests.named(ls, contests.unclaimed(cs))
 
 # Printing
 # --------
