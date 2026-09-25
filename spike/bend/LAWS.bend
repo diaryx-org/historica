@@ -2016,18 +2016,23 @@ law record_names_what_it_writes:
   for +ls: List<&2, String>
   {Main.record.named(w, Sv.sorted(Sv.added(obs)), Main.parents.changes(fs, ps), Main.record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)) == True{} : Bool}
 
-# What `record` goes on to write is a plan the survey settled. Where it
-# is not refused, no path is claimed by several files, nothing is there
-# that the format cannot record, nothing a merge would leave empty, no
-# link dangles, and the attachments accepted are exactly the ones
-# concurrent work states different bytes for.
+# What `record` goes on to write is the plan the survey made, as the
+# survey made it, and only one the survey settled: where the plan is not
+# refused, the walk refused none of the paths it looked at, and a path is
+# among those `--accept` names exactly where the survey observed that
+# concurrent work states different bytes for it.
 law record_writes_only_what_is_settled:
+  for +t: Tree.Tree()
   for +looked: Tree.Tree()
-  for pl: Sv.Planned
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  for +moves: List<&2, T.Split>
   for +accepted: List<&2, String>
   for pl2: Sv.Planned
-  for e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
-  {Main.planned.settled(pl2, accepted) == True{} : Bool}
+  for +e: {Main.planned.r(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
+  for +x: String
+  {(pl2, (walked, Rev.member(accepted, x))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))) : Sv.Planned & (List<&2, T.Split> & Bool)}
 
 # What `amend` rewrites is a revision the store holds: the target named,
 # or else the one head there is.
@@ -2061,16 +2066,17 @@ law record_moves_only_held_files:
   {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}
 
 # A record restricted to some paths is no merge, since a merge states
-# every contested file, and every rename it states is among those paths
-# at both its ends, since recording one end alone would spell the other as
-# a file appearing or disappearing.
+# every contested file, and every rename it is asked to make is among
+# those paths at both its ends, since recording one end alone would spell
+# the other as a file appearing or disappearing. `record` goes on past its
+# check of the restriction exactly where no path is named, or where it has
+# one parent at most and the path each `--move` moves from, and the one it
+# moves to, is among the paths named or beneath one of them.
 law record_restricts_no_merge_and_no_half_rename:
   for +named: List<&2, String>
   for +ps: List<&2, String>
   for +moves: List<&2, T.Split>
-  for u: Unit
-  for e: {Main.restricted.r(named, ps, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
-  {Main.restriction.whole(named, ps, moves) == True{} : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Unit, Main.restricted.r(named, ps, moves)) == Bool.or(List.is_empty(&2, String, named), Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), Bool.and(Sv.all_covered(named, moves), Sv.all_covered(named, Main.swapped(moves))))) : Bool}
 
 # `record --dry-run` says a file arriving once. Whatever the survey
 # observed, of the facts the plan it prints states, only an `added` line,
@@ -2106,14 +2112,24 @@ law writes_say_what_they_wrote:
   {Bool.and(Main.fields.ok([id], Main.record.said.lines(Main.Writing{a, when, m, True{}}, facts, change, id, names, ps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.amend.said.lines(True{}, False{}, facts, prev, change, id, carrying, steps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps))))) == True{} : Bool}
 
 # A file arriving that a person said is lines is read to be sure it is
-# text, and where `record` goes on it is: every file it reads because
-# `--lines` named it has bytes that are UTF-8.
+# text, and where `record` goes on it is. Of the paths it looks at, one
+# where the position holds nothing and the folder a regular file, and that
+# `--lines` names, is among the files it reads because `--lines` named
+# them, and the bytes read there are UTF-8.
 law record_reads_lines_as_text:
   for +ks: List<&2, T.Split>
   for +reads: Map<&2, List<&2, U32>>
-  for hs: List<&2, Main.Here>
-  for e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}
-  {Main.utf8.all(reads, Main.lined_added(ks, hs)) == True{} : Bool}
+  for +hs: List<&2, Main.Here>
+  for +e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}
+  for +i: Nat
+  for +p: String
+  for +q: String
+  for +r: Bool
+  for +n: Nat
+  for hi: {List.get(&2, Main.Here, hs, i) == Some{Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}} : Maybe<&2, Main.Here>}
+  for +j: Nat
+  for hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, "lines"}} : Maybe<&2, T.Split>}
+  {Bool.and(Rev.member(Main.lined_added(ks, hs), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}
 
 # What `record` reads of the position, to state an edit against it, is
 # the store's replay of each file of lines it edits: one reading of each
@@ -2151,14 +2167,19 @@ law abandon_asks_for_a_revision_and_a_reason:
   for e3: {Main.reason.r(m) == Done{u3} : Result<&2, &2, Main.Refused, Unit>}
   {Main.abandon.asked(c, m) == True{} : Bool}
 
-# A kind is a fact about a file: where `record` goes on, every path
-# `--bytes` or `--lines` names is a file the folder holds.
+# A kind is a fact about a file. Where `record` goes on past its check of
+# the kinds a person stated, every path `--bytes` or `--lines` named is a
+# file the folder holds.
 law record_gives_kinds_only_to_files:
-  for ks: List<&2, T.Split>
+  for +ks: List<&2, T.Split>
   for +found: Set()
   for u: Unit
-  for e: {Main.kinds.unheld.r(ks, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
-  {Main.kinds.found(ks, found) == True{} : Bool}
+  for +e: {Main.kinds.unheld.r(Main.kinds.of(ks), found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  for +j: Nat
+  for +p: String
+  for k: String
+  for hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, k}} : Maybe<&2, T.Split>}
+  {Sv.has(found, p) == True{} : Bool}
 
 # A dry run of `abandon` begins by naming, in order, each revision of the
 # run it would abandon, by the first twelve letters of its digest.

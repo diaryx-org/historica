@@ -26,6 +26,7 @@ import ./composition_lemmas.bend as Comp
 import ./anchor_lemmas.bend as AL
 import ./equality_lemmas.bend as Eq
 import ./naming_lemmas.bend as NamingL
+import ./fetch_lemmas.bend as FetchL
 
 # Its words
 # ---------
@@ -881,7 +882,7 @@ def not_true(b: Bool, h: {Bool.not(b) == False{} : Bool}) -> {b == True{} : Bool
     case False{}:
       Empty.absurd({False{} == True{} : Bool}, S.true_false(h))
 
-def settled_of(+looked: Tree.Tree(), +facts: List<&2, T.Split>, +refused: List<&2, T.Split>, +claimed: List<&2, T.Split>, +accept: List<&2, String>, +emptied: List<&2, String>, +obs: List<&2, Sv.Obs>, +links: List<&2, String>, +accepted: List<&2, String>, -pl2: Sv.Planned, +e: {Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, claimed)), Fail{Main.Refused{1, Main.claimed.msg(looked, claimed)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))))) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {Main.planned.settled(pl2, accepted) == True{} : Bool}:
+def settled_facts(+looked: Tree.Tree(), +facts: List<&2, T.Split>, +refused: List<&2, T.Split>, +claimed: List<&2, T.Split>, +accept: List<&2, String>, +emptied: List<&2, String>, +obs: List<&2, Sv.Obs>, +links: List<&2, String>, +accepted: List<&2, String>, -pl2: Sv.Planned, +e: {Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, claimed)), Fail{Main.Refused{1, Main.claimed.msg(looked, claimed)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))))) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {Bool.and(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept)))) == True{} : Bool}:
   +h1 = not_true(List.is_empty(&2, T.Split, claimed), pick_no(Sv.Planned, Bool.not(List.is_empty(&2, T.Split, claimed)), Main.Refused{1, Main.claimed.msg(looked, claimed)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))), pl2, e))
   +e2 = pick_rest(Sv.Planned, Bool.not(List.is_empty(&2, T.Split, claimed)), Main.Refused{1, Main.claimed.msg(looked, claimed)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))), pl2, e)
   +h2 = not_true(List.is_empty(&2, T.Split, refused), pick_no(Sv.Planned, Bool.not(List.is_empty(&2, T.Split, refused)), Main.Refused{1, Main.refused.msg(refused)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))), pl2, e2))
@@ -892,20 +893,99 @@ def settled_of(+looked: Tree.Tree(), +facts: List<&2, T.Split>, +refused: List<&
   +e5 = pick_rest(Sv.Planned, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}), pl2, e4)
   +h5 = not_true(List.is_empty(&2, String, Main.minus(accepted, accept)), pick_no(Sv.Planned, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}, pl2, e5))
   +e6 = pick_rest(Sv.Planned, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}, pl2, e5)
-  %B.done_eq(Sv.Planned, Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}, pl2, e6) : {Main.planned.settled(_, accepted) == True{} : Bool}
-  B.and_tt(List.is_empty(&2, T.Split, claimed), Bool.and(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, emptied), Bool.and(True{}, Bool.and(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept)))))), h1,
-    B.and_tt(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, emptied), Bool.and(True{}, Bool.and(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept))))), h2,
-    B.and_tt(List.is_empty(&2, String, emptied), Bool.and(True{}, Bool.and(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept)))), h3,
-    B.and_tt(True{}, Bool.and(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept))), {==},
-    B.and_tt(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept)), h4, h5)))))
+  B.and_tt(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept))), h2,
+    B.and_tt(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept)), h4, h5))
 
-# What `record` goes on to write is a plan the survey settled.
-def settled_ok(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>, -pl2: Sv.Planned, e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {Main.planned.settled(pl2, accepted) == True{} : Bool}:
+def settled_same(+looked: Tree.Tree(), +facts: List<&2, T.Split>, +refused: List<&2, T.Split>, +claimed: List<&2, T.Split>, +accept: List<&2, String>, +emptied: List<&2, String>, +obs: List<&2, Sv.Obs>, +links: List<&2, String>, +accepted: List<&2, String>, -pl2: Sv.Planned, +e: {Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, claimed)), Fail{Main.Refused{1, Main.claimed.msg(looked, claimed)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))))) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {pl2 == Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links} : Sv.Planned}:
+  +h1 = not_true(List.is_empty(&2, T.Split, claimed), pick_no(Sv.Planned, Bool.not(List.is_empty(&2, T.Split, claimed)), Main.Refused{1, Main.claimed.msg(looked, claimed)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))), pl2, e))
+  +e2 = pick_rest(Sv.Planned, Bool.not(List.is_empty(&2, T.Split, claimed)), Main.Refused{1, Main.claimed.msg(looked, claimed)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, T.Split, refused)), Fail{Main.Refused{1, Main.refused.msg(refused)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))), pl2, e)
+  +h2 = not_true(List.is_empty(&2, T.Split, refused), pick_no(Sv.Planned, Bool.not(List.is_empty(&2, T.Split, refused)), Main.Refused{1, Main.refused.msg(refused)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))), pl2, e2))
+  +e3 = pick_rest(Sv.Planned, Bool.not(List.is_empty(&2, T.Split, refused)), Main.Refused{1, Main.refused.msg(refused)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, emptied)), Fail{Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))), pl2, e2)
+  +h3 = not_true(List.is_empty(&2, String, emptied), pick_no(Sv.Planned, Bool.not(List.is_empty(&2, String, emptied)), Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})), pl2, e3))
+  +e4 = pick_rest(Sv.Planned, Bool.not(List.is_empty(&2, String, emptied)), Main.Refused{1, "a merge states what each contested file is, and there is no way to state that one is empty; leave " ++ Main.these(emptied, "it", "them") ++ " something and remove it in the revision after, or drop it here:" ++ Main.skips_held.lines(emptied)}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Fail{Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})), pl2, e3)
+  +h4 = not_true(List.is_empty(&2, String, Main.minus(accept, accepted)), pick_no(Sv.Planned, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}), pl2, e4))
+  +e5 = pick_rest(Sv.Planned, Bool.not(List.is_empty(&2, String, Main.minus(accept, accepted))), Main.Refused{1, "concurrent work states different bytes for " ++ Main.these(Main.minus(accept, accepted), "one attachment", "these attachments") ++ "; inspect " ++ Main.these(Main.minus(accept, accepted), "it", "them") ++ " and explicitly accept what the folder holds:" ++ Main.accept.lines(Main.minus(accept, accepted))}, Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}), pl2, e4)
+  +h5 = not_true(List.is_empty(&2, String, Main.minus(accepted, accept)), pick_no(Sv.Planned, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}, pl2, e5))
+  +e6 = pick_rest(Sv.Planned, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))), Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}, Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}, pl2, e5)
+  Equal.sym(Sv.Planned, Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}, pl2, B.done_eq(Sv.Planned, Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}, pl2, e6))
+
+def acc_of(pl: Sv.Planned) -> List<&2, String>:
+  match pl:
+    case Sv.Planned{f, r, c, a, e, d, o, l}:
+      a
+
+# Where the plan goes on, the walk refused nothing, and the attachments
+# accepted are the ones contested, each way round.
+def settled_ok(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>, -pl2: Sv.Planned, e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {Bool.and(List.is_empty(&2, T.Split, Sv.planned.refused(pl)), Bool.and(List.is_empty(&2, String, Main.minus(acc_of(pl), accepted)), List.is_empty(&2, String, Main.minus(accepted, acc_of(pl))))) == True{} : Bool}:
   match pl:
     case Sv.Planned{facts, refused, claimed, accept, emptied, Some{m}, obs, links}:
-      Empty.absurd({Main.planned.settled(pl2, accepted) == True{} : Bool}, B.fail_done(Sv.Planned, Main.Refused{1, m}, pl2, e))
+      Empty.absurd({Bool.and(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, Main.minus(accept, accepted)), List.is_empty(&2, String, Main.minus(accepted, accept)))) == True{} : Bool}, B.fail_done(Sv.Planned, Main.Refused{1, m}, pl2, e))
     case Sv.Planned{+facts, +refused, +claimed, +accept, +emptied, None{}, +obs, +links}:
-      settled_of(looked, facts, refused, claimed, accept, emptied, obs, links, accepted, pl2, e)
+      settled_facts(looked, facts, refused, claimed, accept, emptied, obs, links, accepted, pl2, e)
+
+# And what it goes on with is the plan unchanged.
+def same_ok(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>, -pl2: Sv.Planned, e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}) -> {pl2 == pl : Sv.Planned}:
+  match pl:
+    case Sv.Planned{facts, refused, claimed, accept, emptied, Some{m}, obs, links}:
+      Empty.absurd({pl2 == Sv.Planned{facts, refused, claimed, accept, emptied, Some{m}, obs, links} : Sv.Planned}, B.fail_done(Sv.Planned, Main.Refused{1, m}, pl2, e))
+    case Sv.Planned{+facts, +refused, +claimed, +accept, +emptied, None{}, +obs, +links}:
+      settled_same(looked, facts, refused, claimed, accept, emptied, obs, links, accepted, pl2, e)
+
+def mn.of(+x0: String, +rest: List<&2, String>, +ys: List<&2, String>, +x: String, b: Bool, eb: {Rev.member(ys, x0) == b : Bool}, c: Bool, ec: {String.eq(x0, x) == c : Bool}, h: {List.is_empty(&2, String, Rev.keep(Bool.not(b), x0, Main.minus(rest, ys))) == True{} : Bool}, m: {Bool.or(c, Rev.member(rest, x)) == True{} : Bool}, ih: {List.is_empty(&2, String, Main.minus(rest, ys)) == True{} : Bool} -> {Rev.member(rest, x) == True{} : Bool} -> {Rev.member(ys, x) == True{} : Bool}) -> {Rev.member(ys, x) == True{} : Bool}:
+  match b c:
+    case False{} _:
+      Empty.absurd({Rev.member(ys, x) == True{} : Bool}, S.false_true(h))
+    case True{} True{}:
+      %S.eq_true(x0, x, ec) : {Rev.member(ys, _) == True{} : Bool}
+      eb
+    case True{} False{}:
+      ih(h, m)
+
+# Where nothing of `xs` is left out of `ys`, whatever `xs` holds `ys` does.
+def minus_nil(xs: List<&2, String>, +ys: List<&2, String>, h: {List.is_empty(&2, String, Main.minus(xs, ys)) == True{} : Bool}, +x: String, m: {Rev.member(xs, x) == True{} : Bool}) -> {Rev.member(ys, x) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Rev.member(ys, x) == True{} : Bool}, S.false_true(m))
+    case +x0 <> +rest:
+      mn.of(x0, rest, ys, x, Rev.member(ys, x0), {==}, String.eq(x0, x), {==}, h, m, h2 => m2 => minus_nil(rest, ys, h2, x, m2))
+
+# Sorting drops nothing, and adds nothing.
+def sort_back(+xs: List<&2, String>, +d: String, m: {Rev.member(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), d) == True{} : Bool}) -> {Rev.member(xs, d) == True{} : Bool}:
+  FetchL.keyed_mem(xs, d, (%SortL.sort_keyed(~String, ~(s => s), xs, d) : {List.is_empty(&2, String, _) == False{} : Bool}; FetchL.mem_keyed(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), d, m)))
+
+def iff(a: Bool, b: Bool, f: {a == True{} : Bool} -> {b == True{} : Bool}, g: {b == True{} : Bool} -> {a == True{} : Bool}) -> {a == b : Bool}:
+  match a b:
+    case True{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+    case True{} False{}:
+      Empty.absurd({True{} == False{} : Bool}, S.false_true(f({==})))
+    case False{} True{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(g({==})))
+
+def app_empty(xs: List<&2, T.Split>, -ys: List<&2, T.Split>, h: {List.is_empty(&2, T.Split, List.append(&2, T.Split, xs, ys)) == True{} : Bool}) -> {xs == Nil{} : List<&2, T.Split>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      Empty.absurd({x <> rest == Nil{} : List<&2, T.Split>}, S.false_true(h))
+
+# What `record` goes on to write is the survey's plan as the survey made
+# it: the walk refused none of the paths it looked at, and a path is
+# accepted exactly where the survey found it contested.
+def settled_read(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), +walked: List<&2, T.Split>, +ss: List<&2, Sv.Seen>, +moves: List<&2, T.Split>, +accepted: List<&2, String>, -pl2: Sv.Planned, +e: {Main.planned.r(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}, +x: String) -> {(pl2, (walked, Rev.member(accepted, x))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))) : Sv.Planned & (List<&2, T.Split> & Bool)}:
+  +hs = settled_ok(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted, pl2, e)
+  +rest = Bool.and(List.is_empty(&2, String, Main.minus(acc_of(Sv.planned(t, looked, held, walked, ss, moves)), accepted)), List.is_empty(&2, String, Main.minus(accepted, acc_of(Sv.planned(t, looked, held, walked, ss, moves)))))
+  +hw = app_empty(walked, Sv.refusals(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held))), Comp.and_left(List.is_empty(&2, T.Split, Sv.planned.refused(Sv.planned(t, looked, held, walked, ss, moves))), rest, hs))
+  +h45 = Comp.and_right(List.is_empty(&2, T.Split, Sv.planned.refused(Sv.planned(t, looked, held, walked, ss, moves))), rest, hs)
+  +h4 = Comp.and_left(List.is_empty(&2, String, Main.minus(acc_of(Sv.planned(t, looked, held, walked, ss, moves)), accepted)), List.is_empty(&2, String, Main.minus(accepted, acc_of(Sv.planned(t, looked, held, walked, ss, moves)))), h45)
+  +h5 = Comp.and_right(List.is_empty(&2, String, Main.minus(acc_of(Sv.planned(t, looked, held, walked, ss, moves)), accepted)), List.is_empty(&2, String, Main.minus(accepted, acc_of(Sv.planned(t, looked, held, walked, ss, moves)))), h45)
+  +hm = iff(Rev.member(accepted, x), Rev.member(Sv.accepts(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held))), x), m => sort_back(Sv.accepts(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held))), x, minus_nil(accepted, List.sort(~String, ~(a => b => String.is_le(a, b)), Sv.accepts(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))), h5, x, m)), m => minus_nil(List.sort(~String, ~(a => b => String.is_le(a, b)), Sv.accepts(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held)))), accepted, h4, x, FetchL.sort_mem(Sv.accepts(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held))), x, m)))
+  %Equal.sym(Sv.Planned, pl2, Sv.planned(t, looked, held, walked, ss, moves), same_ok(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted, pl2, e)) : {(_, (walked, Rev.member(accepted, x))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))) : Sv.Planned & (List<&2, T.Split> & Bool)}
+  %Equal.sym(List<&2, T.Split>, walked, Nil{}, hw) : {(Sv.planned(t, looked, held, walked, ss, moves), (_, Rev.member(accepted, x))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))) : Sv.Planned & (List<&2, T.Split> & Bool)}
+  %Equal.sym(Bool, Rev.member(accepted, x), Rev.member(Sv.accepts(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(looked, Sv.claims(looked), held))), x), hm) : {(Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, _)) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))) : Sv.Planned & (List<&2, T.Split> & Bool)}
+  {==}
 
 # It moves only files the position holds
 # ---------------------------------------
@@ -1060,32 +1140,42 @@ def pick_keep(-A: Data, b: Bool, -r: Result<&2, &2, Main.Refused, A>, -x: Main.R
     case False{}:
       Empty.absurd({r == Done{y} : Result<&2, &2, Main.Refused, A>}, B.fail_done(A, x, y, e))
 
-def half_ok(+named: List<&2, String>, moves: List<&2, T.Split>, -u: Unit, +e: {Main.restricted.half.r(named, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.renames.covered(named, moves) == True{} : Bool}:
-  match moves:
-    case Nil{}:
-      {==}
-    case T.Split{+from, +to} <> +rest:
-      +b = Bool.and(Sv.covers(named, from), Sv.covers(named, to))
-      B.and_tt(b, Main.renames.covered(named, rest), pick_yes(Unit, b, Main.restricted.half.r(named, rest), Main.Refused{1, "`" ++ from ++ "` and `" ++ to ++ "` are one rename, and only one of them is among the paths this would record, which would spell the other end as a file appearing or disappearing; name both `" ++ from ++ "` and `" ++ to ++ "`, or record with no paths named"}, u, e),
-        half_ok(named, rest, u, pick_keep(Unit, b, Main.restricted.half.r(named, rest), Main.Refused{1, "`" ++ from ++ "` and `" ++ to ++ "` are one rename, and only one of them is among the paths this would record, which would spell the other end as a file appearing or disappearing; name both `" ++ from ++ "` and `" ++ to ++ "`, or record with no paths named"}, u, e)))
-
 def not_false(b: Bool, h: {b == False{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
   %Equal.sym(Bool, b, False{}, h) : {Bool.not(_) == True{} : Bool}
   {==}
 
-def whole_of(b0: Bool, +named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>, -u: Unit, +e: {Bool.pick(Result<&2, &2, Main.Refused, Unit>, b0, Done{Unit{}}, Bool.pick(Result<&2, &2, Main.Refused, Unit>, Nat.is_gt(List.length(&2, String, ps), 1n), Fail{Main.Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ Main.skips_held.lines(named)}}, Main.restricted.half.r(named, moves))) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Bool.or(b0, Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), Main.renames.covered(named, moves))) == True{} : Bool}:
-  match b0:
-    case True{}:
+def half_of(cf: Bool, ct: Bool, a: Bool, -b: Bool, -r: Result<&2, &2, Main.Refused, Unit>, -x: Main.Refused, ih: {Result.is_done(&2, &2, Main.Refused, Unit, r) == Bool.and(a, b) : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, Bool.and(cf, ct), r, Fail{x})) == Bool.and(Bool.and(cf, a), Bool.and(ct, b)) : Bool}:
+  match cf ct a:
+    case True{} True{} _:
+      ih
+    case True{} False{} True{}:
       {==}
-    case False{}:
-      +g = Nat.is_gt(List.length(&2, String, ps), 1n)
-      B.and_tt(Bool.not(g), Main.renames.covered(named, moves), not_false(g, pick_no(Unit, g, Main.Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ Main.skips_held.lines(named)}, Main.restricted.half.r(named, moves), u, e)),
-        half_ok(named, moves, u, pick_rest(Unit, g, Main.Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ Main.skips_held.lines(named)}, Main.restricted.half.r(named, moves), u, e)))
+    case True{} False{} False{}:
+      {==}
+    case False{} _ _:
+      {==}
 
-# A record restricted to some paths is no merge, and states no half of a
-# rename.
-def restriction_ok(+named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>, -u: Unit, e: {Main.restricted.r(named, ps, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.restriction.whole(named, ps, moves) == True{} : Bool}:
-  whole_of(List.is_empty(&2, String, named), named, ps, moves, u, e)
+# A restriction takes a rename exactly where it names both its ends.
+def half_iff(+named: List<&2, String>, moves: List<&2, T.Split>) -> {Result.is_done(&2, &2, Main.Refused, Unit, Main.restricted.half.r(named, moves)) == Bool.and(Sv.all_covered(named, moves), Sv.all_covered(named, Main.swapped(moves))) : Bool}:
+  match moves:
+    case Nil{}:
+      {==}
+    case T.Split{+from, +to} <> +rest:
+      half_of(Sv.covers(named, from), Sv.covers(named, to), Sv.all_covered(named, rest), Sv.all_covered(named, Main.swapped(rest)), Main.restricted.half.r(named, rest), Main.Refused{1, "`" ++ from ++ "` and `" ++ to ++ "` are one rename, and only one of them is among the paths this would record, which would spell the other end as a file appearing or disappearing; name both `" ++ from ++ "` and `" ++ to ++ "`, or record with no paths named"}, half_iff(named, rest))
+
+def whole_iff(b0: Bool, g: Bool, -named: List<&2, String>, -h: Result<&2, &2, Main.Refused, Unit>, -x: Main.Refused, -c: Bool, ih: {Result.is_done(&2, &2, Main.Refused, Unit, h) == c : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, b0, Done{Unit{}}, Bool.pick(Result<&2, &2, Main.Refused, Unit>, g, Fail{x}, h))) == Bool.or(b0, Bool.and(Bool.not(g), c)) : Bool}:
+  match b0 g:
+    case True{} _:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      ih
+
+# A record restricted to some paths goes on exactly where it is no merge
+# and takes both ends of every rename.
+def restriction_iff(+named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>) -> {Result.is_done(&2, &2, Main.Refused, Unit, Main.restricted.r(named, ps, moves)) == Bool.or(List.is_empty(&2, String, named), Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), Bool.and(Sv.all_covered(named, moves), Sv.all_covered(named, Main.swapped(moves))))) : Bool}:
+  whole_iff(List.is_empty(&2, String, named), Nat.is_gt(List.length(&2, String, ps), 1n), named, Main.restricted.half.r(named, moves), Main.Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ Main.skips_held.lines(named)}, Bool.and(Sv.all_covered(named, moves), Sv.all_covered(named, Main.swapped(moves))), half_iff(named, moves))
 
 # It names only what is there
 # ---------------------------
@@ -1211,32 +1301,68 @@ def mnone_rest(b: Bool, -x: String, -r: Maybe<&2, String>, e: {Bool.pick(Maybe<&
     case True{}:
       Empty.absurd({r == None{} : Maybe<&2, String>}, none_some_m2(x, e))
 
-def text_keep(ls: Bool, u: Bool, +reads: Map<&2, List<&2, U32>>, +p: String, +rest: List<&2, String>, eu: {Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))) == u : Bool}, h: {Bool.and(ls, Bool.not(u)) == False{} : Bool}, ih: {Main.utf8.all(reads, rest) == True{} : Bool}) -> {Main.utf8.all(reads, Rev.keep(ls, p, rest)) == True{} : Bool}:
-  match ls:
-    case False{}:
-      ih
-    case True{}:
-      match u:
-        case True{}:
-          B.and_tt(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), Main.utf8.all(reads, rest), eu, ih)
-        case False{}:
-          Empty.absurd({Main.utf8.all(reads, Rev.keep(True{}, p, rest)) == True{} : Bool}, S.true_false(h))
+def some_eq(-A: Data, -x: A, -y: A, h: {Some{x} == Some{y} : Maybe<&2, A>}) -> {x == y : A}:
+  Equal.cong(Maybe<&2, A>, A, m => Maybe.default(&2, A, m, x), Some{x}, Some{y}, h)
 
-# Where `record` goes on, every file a person said is lines is text.
-def lines_text(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Main.Here>, +e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}) -> {Main.utf8.all(reads, Main.lined_added(ks, hs)) == True{} : Bool}:
-  match hs:
-    case Nil{}:
+def none_some(-A: Data, -y: A, h: {None{} == Some{y} : Maybe<&2, A>}) -> Empty:
+  Comp.false_true(Equal.cong(Maybe<&2, A>, Bool, m => Maybe.is_some(&2, A, m), None{}, Some{y}, h))
+
+# A path `--lines` names is stated as lines.
+def stated_at(ks: List<&2, T.Split>, j: Nat, +p: String, hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, "lines"}} : Maybe<&2, T.Split>}) -> {Main.lines.stated(ks, p) == True{} : Bool}:
+  match ks j:
+    case Nil{} _:
+      Empty.absurd({Main.lines.stated(Nil{}, p) == True{} : Bool}, none_some(T.Split, T.Split{p, "lines"}, hj))
+    case x <> +rest 0n:
+      %Equal.sym(T.Split, x, T.Split{p, "lines"}, some_eq(T.Split, x, T.Split{p, "lines"}, hj)) : {Main.lines.stated(_ <> rest, p) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.or(Bool.and(_, String.eq("lines", "lines")), Main.lines.stated(rest, p)) == True{} : Bool}
       {==}
-    case Main.Here{+p, None{}, Some{Folder.Found.File{q, r, n}}} <> +rest:
-      +b = Bool.and(Main.lines.stated(ks, p), Bool.not(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))))
-      text_keep(Main.lines.stated(ks, p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), reads, p, Main.lined_added(ks, rest), {==}, mnone_pick(b, "`" ++ p ++ "` cannot be recorded as lines: its bytes are not UTF-8, and a line is text whoever says otherwise. Record it as bytes, or convert the file first", Main.not_lines(ks, reads, rest), e),
-        lines_text(ks, reads, rest, mnone_rest(b, "`" ++ p ++ "` cannot be recorded as lines: its bytes are not UTF-8, and a line is text whoever says otherwise. Record it as bytes, or convert the file first", Main.not_lines(ks, reads, rest), e)))
-    case Main.Here{p, None{}, Some{Folder.Found.Link{q, t}}} <> rest:
-      lines_text(ks, reads, rest, e)
-    case Main.Here{p, None{}, None{}} <> rest:
-      lines_text(ks, reads, rest, e)
-    case Main.Here{p, Some{x}, f} <> rest:
-      lines_text(ks, reads, rest, e)
+    case T.Split{+a, +k} <> rest 1n+i:
+      or_true(Bool.and(String.eq(a, p), String.eq(k, "lines")), Main.lines.stated(rest, p), stated_at(rest, i, p, hj))
+
+def keep_mem(b: Bool, +x: String, rest: List<&2, String>, +y: String, h: {Rev.member(rest, y) == True{} : Bool}) -> {Rev.member(Rev.keep(b, x, rest), y) == True{} : Bool}:
+  match b:
+    case True{}:
+      or_true(String.eq(x, y), Rev.member(rest, y), h)
+    case False{}:
+      h
+
+# Where the path is the first the words look at, it is read, and text.
+def lines_head(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, +p: String, -q: String, -r: Bool, -n: Nat, +rest: List<&2, Main.Here>, +hst: {Main.lines.stated(ks, p) == True{} : Bool}, e0: {Main.not_lines(ks, reads, Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}} <> rest) == None{} : Maybe<&2, String>}) -> {Bool.and(Rev.member(Main.lined_added(ks, Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}} <> rest), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}:
+  +hb = Equal.trans(Bool, Bool.not(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), Bool.and(Main.lines.stated(ks, p), Bool.not(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), False{},
+    Equal.cong(Bool, Bool, x => Bool.and(x, Bool.not(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), True{}, Main.lines.stated(ks, p), Equal.sym(Bool, Main.lines.stated(ks, p), True{}, hst)),
+    mnone_pick(Bool.and(Main.lines.stated(ks, p), Bool.not(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))), "`" ++ p ++ "` cannot be recorded as lines: its bytes are not UTF-8, and a line is text whoever says otherwise. Record it as bytes, or convert the file first", Main.not_lines(ks, reads, rest), e0))
+  %Equal.sym(Bool, Main.lines.stated(ks, p), True{}, hst) : {Bool.and(Rev.member(Rev.keep(_, p, Main.lined_added(ks, rest)), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}
+  %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.and(Bool.or(_, Rev.member(Main.lined_added(ks, rest), p)), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}
+  not_true(Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), hb)
+
+def lines_step(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, h: Main.Here, +rest: List<&2, Main.Here>, +p: String, e: {Main.not_lines(ks, reads, h <> rest) == None{} : Maybe<&2, String>}, ih: {Main.not_lines(ks, reads, rest) == None{} : Maybe<&2, String>} -> {Bool.and(Rev.member(Main.lined_added(ks, rest), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}) -> {Bool.and(Rev.member(Main.lined_added(ks, h <> rest), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}:
+  match h:
+    case Main.Here{+p2, None{}, Some{Folder.Found.File{q2, r2, n2}}}:
+      +got = ih(mnone_rest(Bool.and(Main.lines.stated(ks, p2), Bool.not(Folder.is_utf8(Main.bytes_of(p2, Map.get(List<&2, U32>, Nil{}, reads, p2))))), "`" ++ p2 ++ "` cannot be recorded as lines: its bytes are not UTF-8, and a line is text whoever says otherwise. Record it as bytes, or convert the file first", Main.not_lines(ks, reads, rest), e))
+      AL.and_intro(Rev.member(Rev.keep(Main.lines.stated(ks, p2), p2, Main.lined_added(ks, rest)), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), keep_mem(Main.lines.stated(ks, p2), p2, Main.lined_added(ks, rest), p, Comp.and_left(Rev.member(Main.lined_added(ks, rest), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), got)), Comp.and_right(Rev.member(Main.lined_added(ks, rest), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), got))
+    case Main.Here{p2, None{}, Some{Folder.Found.Link{q2, t2}}}:
+      ih(e)
+    case Main.Here{p2, None{}, None{}}:
+      ih(e)
+    case Main.Here{p2, Some{x}, f}:
+      ih(e)
+
+# Every file arriving that `--lines` names is read, and where `record`
+# goes on its bytes are text.
+def lines_at(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&2, Main.Here>, i: Nat, +p: String, +q: String, +r: Bool, +n: Nat, +e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}, hi: {List.get(&2, Main.Here, hs, i) == Some{Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}} : Maybe<&2, Main.Here>}, +hst: {Main.lines.stated(ks, p) == True{} : Bool}) -> {Bool.and(Rev.member(Main.lined_added(ks, hs), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}:
+  match hs i:
+    case Nil{} _:
+      Empty.absurd({Bool.and(Rev.member(Main.lined_added(ks, Nil{}), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}, none_some(Main.Here, Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}, hi))
+    case +h <> +rest 0n:
+      +eh = some_eq(Main.Here, h, Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}, hi)
+      +e0 = Equal.trans(Maybe<&2, String>, Main.not_lines(ks, reads, Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}} <> rest), Main.not_lines(ks, reads, h <> rest), None{}, Equal.cong(Main.Here, Maybe<&2, String>, x => Main.not_lines(ks, reads, x <> rest), Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}, h, Equal.sym(Main.Here, h, Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}, eh)), e)
+      %Equal.sym(Main.Here, h, Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}, eh) : {Bool.and(Rev.member(Main.lined_added(ks, _ <> rest), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}
+      lines_head(ks, reads, p, q, r, n, rest, hst, e0)
+    case h <> +rest 1n+k:
+      lines_step(ks, reads, h, rest, p, e, er => lines_at(ks, reads, rest, k, p, q, r, n, er, hi, hst))
+
+def lines_read(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, +hs: List<&2, Main.Here>, +e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}, +i: Nat, +p: String, +q: String, +r: Bool, +n: Nat, hi: {List.get(&2, Main.Here, hs, i) == Some{Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}} : Maybe<&2, Main.Here>}, +j: Nat, hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, "lines"}} : Maybe<&2, T.Split>}) -> {Bool.and(Rev.member(Main.lined_added(ks, hs), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}:
+  lines_at(ks, reads, hs, i, p, q, r, n, e, hi, stated_at(ks, j, p, hj))
 
 # It reads the position's content of what it edits
 # ------------------------------------------------
@@ -1271,11 +1397,73 @@ def befores_read(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: S
 # It gives kinds only to files
 # ----------------------------
 
-# Every path given a kind is a file the folder holds.
-def kinds_found(ks: List<&2, T.Split>, +found: Set(), -u: Unit, +e: {Main.kinds.unheld.r(ks, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.kinds.found(ks, found) == True{} : Bool}:
-  match ks:
-    case Nil{}:
+def ne_pick(b: Bool, +x: T.Split, rest: List<&2, T.Split>, h: {List.is_empty(&2, T.Split, rest) == False{} : Bool}) -> {List.is_empty(&2, T.Split, Bool.pick(List<&2, T.Split>, b, x <> rest, rest)) == False{} : Bool}:
+  match b:
+    case True{}:
       {==}
-    case T.Split{+p, k} <> +rest:
-      B.and_tt(Sv.has(found, p), Main.kinds.found(rest, found), pick_yes(Unit, Sv.has(found, p), Main.kinds.unheld.r(rest, found), Main.Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}, u, e),
-        kinds_found(rest, found, u, pick_keep(Unit, Sv.has(found, p), Main.kinds.unheld.r(rest, found), Main.Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}, u, e)))
+    case False{}:
+      h
+
+# A path `--bytes` or `--lines` names is one a kind is stated for.
+def keyed_at(ks: List<&2, T.Split>, j: Nat, +p: String, -k: String, hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, k}} : Maybe<&2, T.Split>}) -> {List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, ks)) == False{} : Bool}:
+  match ks j:
+    case Nil{} _:
+      Empty.absurd({List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, Nil{})) == False{} : Bool}, none_some(T.Split, T.Split{p, k}, hj))
+    case x <> +rest 0n:
+      %Equal.sym(T.Split, x, T.Split{p, k}, some_eq(T.Split, x, T.Split{p, k}, hj)) : {List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, _ <> rest)) == False{} : Bool}
+      %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {List.is_empty(&2, T.Split, Bool.pick(List<&2, T.Split>, _, T.Split{p, k} <> SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest), SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest))) == False{} : Bool}
+      {==}
+    case +x <> +rest 1n+i:
+      ne_pick(String.eq(Main.split_key(x), p), x, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest), keyed_at(rest, i, p, k, hj))
+
+def dk.of(+a: T.Split, +b: T.Split, +rest: List<&2, T.Split>, +p: String, ea: Bool, eqa: {String.eq(Main.split_key(a), p) == ea : Bool}, eab: Bool, eqab: {String.eq(Main.split_key(a), Main.split_key(b)) == eab : Bool}, h: {List.is_empty(&2, T.Split, Bool.pick(List<&2, T.Split>, ea, a <> SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, b <> rest), SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, b <> rest))) == False{} : Bool}, ih: {List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, b <> rest)) == False{} : Bool} -> {List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, Main.kinds.distinct(b <> rest))) == False{} : Bool}) -> {List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, Bool.pick(List<&2, T.Split>, eab, Main.kinds.distinct(b <> rest), a <> Main.kinds.distinct(b <> rest)))) == False{} : Bool}:
+  match ea eab:
+    case False{} True{}:
+      ih(h)
+    case False{} False{}:
+      %Equal.sym(Bool, String.eq(Main.split_key(a), p), False{}, eqa) : {List.is_empty(&2, T.Split, Bool.pick(List<&2, T.Split>, _, a <> SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, Main.kinds.distinct(b <> rest)), SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, Main.kinds.distinct(b <> rest)))) == False{} : Bool}
+      ih(h)
+    case True{} True{}:
+      +ap = S.eq_true(Main.split_key(a), p, eqa)
+      +ab = S.eq_true(Main.split_key(a), Main.split_key(b), eqab)
+      +bp = Equal.trans(String, Main.split_key(b), Main.split_key(a), p, Equal.sym(String, Main.split_key(a), Main.split_key(b), ab), ap)
+      +hb = Equal.trans(Bool, String.eq(Main.split_key(b), p), String.eq(p, p), True{}, Equal.cong(String, Bool, z => String.eq(z, p), Main.split_key(b), p, bp), S.eq_refl(p))
+      ih((Equal.trans(Bool, List.is_empty(&2, T.Split, Bool.pick(List<&2, T.Split>, String.eq(Main.split_key(b), p), b <> SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest), SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest))), List.is_empty(&2, T.Split, b <> SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest)), False{}, Equal.cong(Bool, Bool, z => List.is_empty(&2, T.Split, Bool.pick(List<&2, T.Split>, z, b <> SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest), SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest))), String.eq(Main.split_key(b), p), True{}, hb), {==})))
+    case True{} False{}:
+      %Equal.sym(Bool, String.eq(Main.split_key(a), p), True{}, eqa) : {List.is_empty(&2, T.Split, Bool.pick(List<&2, T.Split>, _, a <> SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, Main.kinds.distinct(b <> rest)), SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, Main.kinds.distinct(b <> rest)))) == False{} : Bool}
+      {==}
+
+# Dropping a path's repeats keeps the path.
+def distinct_keeps(xs: List<&2, T.Split>, +p: String, h: {List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, xs)) == False{} : Bool}) -> {List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, Main.kinds.distinct(xs))) == False{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case a <> Nil{}:
+      h
+    case +a <> +b <> +rest:
+      dk.of(a, b, rest, p, String.eq(Main.split_key(a), p), {==}, String.eq(Main.split_key(a), Main.split_key(b)), {==}, h, hh => distinct_keeps(b <> rest, p, hh))
+
+def uh.of(+q: String, +p: String, +found: Set(), b: Bool, eb: {String.eq(q, p) == b : Bool}, hq: {Sv.has(found, q) == True{} : Bool}, -x: T.Split, -rest: List<&2, T.Split>, h: {List.is_empty(&2, T.Split, Bool.pick(List<&2, T.Split>, b, x <> rest, rest)) == False{} : Bool}, ih: {List.is_empty(&2, T.Split, rest) == False{} : Bool} -> {Sv.has(found, p) == True{} : Bool}) -> {Sv.has(found, p) == True{} : Bool}:
+  match b:
+    case True{}:
+      %S.eq_true(q, p, eb) : {Sv.has(found, _) == True{} : Bool}
+      hq
+    case False{}:
+      ih(h)
+
+# Where the check of kinds goes on, every path it checked is in the folder.
+def unheld_has(xs: List<&2, T.Split>, +found: Set(), -u: Unit, +e: {Main.kinds.unheld.r(xs, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}, +p: String, h: {List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, xs)) == False{} : Bool}) -> {Sv.has(found, p) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Sv.has(found, p) == True{} : Bool}, S.true_false(h))
+    case T.Split{+q, +k} <> +rest:
+      uh.of(q, p, found, String.eq(q, p), {==}, pick_yes(Unit, Sv.has(found, q), Main.kinds.unheld.r(rest, found), Main.Refused{2, "`" ++ q ++ "` is not a file in this folder, so there is no kind for it to be"}, u, e), T.Split{q, k}, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, rest), h,
+        hr => unheld_has(rest, found, u, pick_keep(Unit, Sv.has(found, q), Main.kinds.unheld.r(rest, found), Main.Refused{2, "`" ++ q ++ "` is not a file in this folder, so there is no kind for it to be"}, u, e), p, hr))
+
+# Every path `--bytes` or `--lines` names is a file the folder holds,
+# where `record` goes on past its check of the kinds.
+def kinds_held(+ks: List<&2, T.Split>, +found: Set(), -u: Unit, +e: {Main.kinds.unheld.r(Main.kinds.of(ks), found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}, +j: Nat, +p: String, -k: String, hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, k}} : Maybe<&2, T.Split>}) -> {Sv.has(found, p) == True{} : Bool}:
+  unheld_has(Main.kinds.of(ks), found, u, e, p, distinct_keeps(List.sort(~T.Split, ~(a => b => String.is_le(Main.split_key(a), Main.split_key(b))), ks), p,
+    Equal.trans(Bool, List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, List.sort(~T.Split, ~(a => b => String.is_le(Main.split_key(a), Main.split_key(b))), ks))), List.is_empty(&2, T.Split, SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, ks)), False{},
+      Equal.cong(List<&2, T.Split>, Bool, l => List.is_empty(&2, T.Split, l), SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, List.sort(~T.Split, ~(a => b => String.is_le(Main.split_key(a), Main.split_key(b))), ks)), SortL.keyed(~T.Split, ~(s => Main.split_key(s)), p, ks), SortL.sort_keyed(~T.Split, ~(s => Main.split_key(s)), ks, p)),
+      keyed_at(ks, j, p, k, hj))))
