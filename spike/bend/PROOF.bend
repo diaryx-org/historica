@@ -51,6 +51,7 @@ import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./listing_lemmas.bend as ListL
+import ./record_lemmas.bend as RecordL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -654,3 +655,6 @@ def Laws.status_believes_what_is_stated(older, ds, left, eds, os, hs, m, e, h):
 
 def Laws.status_joins_what_it_reads(hs, fs, ds, ps, m, e, h):
   StatusL.joined_fails(hs, fs, ds, ps, m, e, h)
+
+def Laws.record_reads_its_words(args, cmd, e):
+  RecordL.args_said(args, cmd, e)

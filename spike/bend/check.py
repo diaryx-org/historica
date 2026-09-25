@@ -2161,6 +2161,13 @@ def check_mutations(temporary):
             "status_lemmas.each_fails",
             "commands.bend",
         ),
+        (
+            "record keeps the first `--onto` instead of the last",
+            "      RecordCmd{Some{v}, ms, ac, at, mv, ks, ns, d, f, mg}",
+            "      RecordCmd{Maybe.or(&2, String, o, Some{v}), ms, ac, at, mv, ks, ns, d, f, mg}",
+            "record_lemmas.go_said",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

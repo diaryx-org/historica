@@ -1294,3 +1294,16 @@ law status_joins_what_it_reads:
   for +e: String
   for h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
   {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}
+
+# `record` reads its words as their plain reading says: the word after a
+# flag that takes a value is that value, whatever it is; the last `-m` and
+# the last `--onto` count; each `--merge`, `--at`, `--move`, `--bytes` and
+# `--lines` counts, in the order given, an `--at` or a `--move` cut at its
+# first `=`; `-n` and `--fields` are asked for if they are there; and
+# every other word is a path, the slashes a shell leaves on a directory
+# taken off. Each `--accept` and each path is kept, the last first.
+law record_reads_its_words:
+  for +args: List<&2, String>
+  for +cmd: Main.RecordCmd
+  for e: {Main.record.args.r(args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+  {cmd == Main.rargs.said(Main.rargs.read(args, Main.rword(args))) : Main.RecordCmd}
