@@ -2775,6 +2775,18 @@ law export_writes_only_into_nothing:
   for +h: {Export.listed.ok(es) == True{} : Bool}
   {Bool.and(Export.bool.same(Result.is_done(&2, &2, Main.Refused, Unit, Export.empty.r(into, Done{Export.listing(es)})), List.is_empty(&2, Export.Listed, es)), Export.bool.same(Export.dest.fresh(Export.dest.r(into, Done{Export.listing(es)}, header)), List.is_empty(&2, Export.Listed, es))) == True{} : Bool}
 
+# A folder laid out alone is refused as folding paths the tree holds apart
+# (decision 0027) exactly where some file it wrote reads back as other
+# bytes than it laid there: reading the host's line for each file it wrote,
+# a digest and a size, it goes on exactly where every digest is that of
+# what was laid at that path.
+law export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise:
+  for +qs: List<&2, Export.Put>
+  for +ds: List<&2, T.Split>
+  for +hs: {Export.stats.ok(ds) == True{} : Bool}
+  for hl: {List.length(&2, Export.Put, qs) == List.length(&2, T.Split, ds) : Nat}
+  {Result.is_done(&2, &2, Main.Refused, Unit, Export.folded.r(Export.folded(qs, Export.stat.lines(ds)))) == Export.reads.back(qs, ds) : Bool}
+
 # What `export -n` names, read back from its lines: a `would withdraw` line
 # for each file a copy being updated gives up, in the order they go, and a
 # `write` line for each path the target's tree places — every one of them,

@@ -4225,6 +4225,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export reads the size the host states for a file as its digest",
+            "    case Some{T.Split{d, n}}:\n      d\n",
+            "    case Some{T.Split{d, n}}:\n      n\n",
+            "filesonly_lemmas.fast_head",
+            "export.bend",
+        ),
+        (
             "export -n names a path twice where two files claim it",
             "Main.sorted_distinct(entry.paths(t)), rules.shared(rs), rules.withheld(rs)",
             "List.sort(~String, ~(a => b => String.is_le(a, b)), entry.paths(t)), rules.shared(rs), rules.withheld(rs)",

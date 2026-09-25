@@ -1066,6 +1066,9 @@ def Laws.export_reads_a_directory_listing_back(es, h):
 def Laws.export_writes_only_into_nothing(into, es, header, h):
   FilesL.into_nothing(into, es, header, h)
 
+def Laws.export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise(qs, ds, hs, hl):
+  FilesL.folded_done(qs, ds, hs, hl)
+
 def Laws.export_dry_run_names_what_it_would_write(held, t, ds, ps, bodies, rs, bs, claims, c, ws, n, u, spelled, into, x):
   DryL.dry_names(held, t, ds, ps, bodies, rs, bs, claims, c, ws, n, u, spelled, into, x)
 
