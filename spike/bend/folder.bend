@@ -170,7 +170,8 @@ def said(+line: String) -> Said:
   Bool.pick(Said, Bool.or(String.is_empty(line), String.starts_with(line, "#")), Said.Nothing{}, said.of(scope(line)))
 
 # `str::lines`: split at each newline, a `\r` before it dropped, and no
-# empty line after a final newline.
+# empty line after a final newline. A `\r` ending the text with no newline
+# after it ends no line, and stays.
 def unreturned(+l: String) -> String:
   Bool.pick(String, String.ends_with(l, "\r"), String.take(l, Nat.sub(String.length(l), 1n)), l)
 
@@ -179,7 +180,7 @@ def lines.trimmed(ls: List<&2, String>) -> List<&2, String>:
     case Nil{}:
       Nil{}
     case +l <> Nil{}:
-      Bool.pick(List<&2, String>, String.is_empty(l), Nil{}, [unreturned(l)])
+      Bool.pick(List<&2, String>, String.is_empty(l), Nil{}, [l])
     case l <> rest:
       unreturned(l) <> lines.trimmed(rest)
 

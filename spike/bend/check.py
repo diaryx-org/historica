@@ -1160,6 +1160,9 @@ def record(temporary, rust, corpus, pinned=None):
         (store / "cache").write_text("a file, which a directory's name does not cover\n")
         if corpus == "badskip":
             (store / "history" / "skipped" / "two.txt").write_text("skip a\nskip b\n")
+            # A carriage return ending the file, with no newline after it to
+            # make it a line ending: it is the value's.
+            (store / "history" / "skipped" / "unended.txt").write_bytes(b"skip a\r")
         if corpus == "notext":
             (store / "notes.md").write_bytes(b"one\n\xff\xfe\n")
     elif corpus == "surveyed":
