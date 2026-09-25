@@ -616,6 +616,12 @@ def Laws.revisions_read_are_their_documents(root, ds):
 def Laws.revisions_read_lose_no_document(root, ds):
   FullsL.fulls_read(root, ds)
 
+def Laws.unnormal_names_its_line(s, n, q, h):
+  FullsL.unnormal_at(s, n, q, h)
+
+def Laws.mended_changes_only_path_headers(s):
+  FullsL.mended_agrees(String.split(s, '\n'))
+
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
 
@@ -691,7 +697,10 @@ def Laws.forget_reads_its_words(ws, t, p, sp, d, f, e):
 def Laws.forget_clears_every_copy(ps, d, hd, hm):
   ForgetL.clears_copy(ps, d, hd, hm)
 
-def Laws.forget_clears_only_copies(ps):
+def Laws.forget_clears_only_copies(ps, n, h):
+  ForgetL.clears_only(ps, n, h)
+
+def Laws.forget_keeps_the_note_and_catalogues(ps):
   ForgetL.notes_kept(ps)
 
 def Laws.forget_states_what_it_made_unreadable(p, ds, lines, dry):
@@ -703,8 +712,11 @@ def Laws.forget_says_what_it_destroys(p, ds, lines, dry):
 def Laws.forget_files_documents_where_nothing_is(fs, ds, w):
   ForgettingL.files_where(fs, ds, w)
 
-def Laws.forget_files_a_payloads_standin_where_it_was(fs, d, rest, f, text, hf):
-  ForgettingL.payload_beside(fs, d, rest, f, text, hf)
+def Laws.forget_files_a_payloads_standin_where_it_was(fs, t, text, hd, hp, hf):
+  ForgettingL.payload_beside(fs, t, text, hd, hp, hf)
+
+def Laws.forget_files_a_payloads_standin_by_its_digest_where_that_is_taken(fs, t, text, hd, hp, hf):
+  ForgettingL.payload_own(fs, t, text, hd, hp, hf)
 
 def Laws.forget_takes_no_file_of_lines_whole(fs, ds, id, file):
   ForgettingL.no_span(fs, ds, id, file)

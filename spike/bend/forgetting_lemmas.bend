@@ -17,6 +17,9 @@ import ./string_lemmas.bend as S
 import ./graph_lemmas.bend as GL
 import ./fetch_lemmas.bend as FetchL
 import ./forget_lemmas.bend as ForgetL
+import ./sort_lemmas.bend as SortL
+import ./status_lemmas.bend as StatusL
+import ./span_lemmas.bend as SpanL
 
 def sw_nil(str: String) -> {String.starts_with(str, SNil{}) == True{} : Bool}:
   match str:
@@ -266,10 +269,187 @@ def beside_free(b: Bool, +fs: List<&2, Fg.FgFiled>, +d: String, +named: String, 
     case True{}:
       Empty.absurd({named == d ++ ".ops.txt" : String}, S.false_true(Equal.trans(Bool, False{}, Rev.member(paths(fs), d ++ ".ops.txt"), True{}, Equal.sym(Bool, Rev.member(paths(fs), d ++ ".ops.txt"), False{}, hf), Equal.trans(Bool, Rev.member(paths(fs), d ++ ".ops.txt"), Fg.filed.taken(fs, d ++ ".ops.txt"), True{}, Equal.sym(Bool, Fg.filed.taken(fs, d ++ ".ops.txt"), Rev.member(paths(fs), d ++ ".ops.txt"), taken_paths(fs, d ++ ".ops.txt")), eb))))
 
-# A payload's stand-in is filed where the payload was, at the first file
-# it destroys with `.ops.txt` added, wherever no file has that name.
-def payload_beside(+fs: List<&2, Fg.FgFiled>, +d: String, +rest: List<&2, String>, f: String, +text: String, hf: {Rev.member(paths(fs), d ++ ".ops.txt") == False{} : Bool}) -> {Fg.filed.as(fs, d <> rest, Fg.Fg.Write{f, text, True{}}) == d ++ ".ops.txt" : String}:
-  beside_free(Fg.filed.taken(fs, d ++ ".ops.txt"), fs, d, "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt", {==}, hf)
+# Where the payload was
+# ---------------------
+
+# Some document of `operations/` holds the bytes `t`.
+def holds.doc(fs: List<&2, Fg.FgFiled>, +t: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.or(Bool.and(String.ends_with(p, ".ops.txt"), String.eq(t, d)), holds.doc(rest, t))
+
+# Some file of `operations/` that is no document holds them: a payload.
+def holds.payload(fs: List<&2, Fg.FgFiled>, +t: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.or(Bool.and(Bool.not(String.ends_with(p, ".ops.txt")), String.eq(t, d)), holds.payload(rest, t))
+
+# Every payload holding `t` has its name with `.ops.txt` added free among
+# the files `all` lists.
+def free.beside(+all: List<&2, Fg.FgFiled>, fs: List<&2, Fg.FgFiled>, +t: String) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.and(Bool.or(Bool.not(Bool.and(Bool.not(String.ends_with(p, ".ops.txt")), String.eq(t, d))), Bool.not(Rev.member(paths(all), p ++ ".ops.txt"))), free.beside(all, rest, t))
+
+# `r` is the name of a payload holding `t`, with `.ops.txt` added.
+def payload.at(fs: List<&2, Fg.FgFiled>, +t: String, +r: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.or(Bool.and(Bool.not(String.ends_with(p, ".ops.txt")), Bool.and(String.eq(t, d), String.eq(r, p ++ ".ops.txt"))), payload.at(rest, t, r))
+
+def no_docs.step(c: Bool, k: Bool, +p: String, +rest: List<&2, Fg.FgFiled>, +t: String, h: {Bool.or(Bool.and(k, c), holds.doc(rest, t)) == False{} : Bool}, ih: {holds.doc(rest, t) == False{} : Bool} -> {Fg.destroyed.of(rest, [t], True{}) == Nil{} : List<&2, String>}) -> {Rev.keep(Bool.and(Bool.or(c, False{}), Bool.not(Bool.xor(k, True{}))), p, Fg.destroyed.of(rest, [t], True{})) == Nil{} : List<&2, String>}:
+  match c k:
+    case True{} True{}:
+      Empty.absurd({p <> Fg.destroyed.of(rest, [t], True{}) == Nil{} : List<&2, String>}, S.true_false(h))
+    case True{} False{}:
+      ih(h)
+    case False{} True{}:
+      ih(h)
+    case False{} False{}:
+      ih(h)
+
+# Where no document holds `t`, forgetting it destroys no document.
+def no_docs(fs: List<&2, Fg.FgFiled>, +t: String, h: {holds.doc(fs, t) == False{} : Bool}) -> {Fg.destroyed.of(fs, [t], True{}) == Nil{} : List<&2, String>}:
+  match fs:
+    case Nil{}:
+      {==}
+    case Fg.Fg.Filed{+p, +d, n} <> +rest:
+      no_docs.step(String.eq(t, d), String.ends_with(p, ".ops.txt"), p, rest, t, h, x => no_docs(rest, t, x))
+
+def some_payload.step(c: Bool, k: Bool, +p: String, +rest: List<&2, Fg.FgFiled>, +t: String, h: {Bool.or(Bool.and(Bool.not(k), c), holds.payload(rest, t)) == True{} : Bool}, ih: {holds.payload(rest, t) == True{} : Bool} -> {List.is_empty(&2, String, Fg.destroyed.of(rest, [t], False{})) == False{} : Bool}) -> {List.is_empty(&2, String, Rev.keep(Bool.and(Bool.or(c, False{}), Bool.not(Bool.xor(k, False{}))), p, Fg.destroyed.of(rest, [t], False{}))) == False{} : Bool}:
+  match c k:
+    case True{} False{}:
+      {==}
+    case True{} True{}:
+      ih(h)
+    case False{} True{}:
+      ih(h)
+    case False{} False{}:
+      ih(h)
+
+# Where a payload holds `t`, forgetting it destroys some payload.
+def some_payload(fs: List<&2, Fg.FgFiled>, +t: String, h: {holds.payload(fs, t) == True{} : Bool}) -> {List.is_empty(&2, String, Fg.destroyed.of(fs, [t], False{})) == False{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({List.is_empty(&2, String, Nil{}) == False{} : Bool}, S.false_true(h))
+    case Fg.Fg.Filed{+p, +d, n} <> +rest:
+      some_payload.step(String.eq(t, d), String.ends_with(p, ".ops.txt"), p, rest, t, h, x => some_payload(rest, t, x))
+
+# The name beside a payload, free.
+def beside.ok(+all: List<&2, Fg.FgFiled>, +t: String, +r: String) -> Bool:
+  Bool.and(payload.at(all, t, r), Bool.not(Rev.member(paths(all), r)))
+
+def listed_at.step(c: Bool, k: Bool, +all: List<&2, Fg.FgFiled>, +p: String, +d: String, +n: String, +rest: List<&2, Fg.FgFiled>, +t: String, +x: String, m: {Rev.member(Rev.keep(Bool.and(Bool.or(c, False{}), Bool.not(Bool.xor(k, False{}))), p, Fg.destroyed.of(rest, [t], False{})), x) == True{} : Bool}, +hf: {Bool.and(Bool.or(Bool.not(Bool.and(Bool.not(k), c)), Bool.not(Rev.member(paths(all), p ++ ".ops.txt"))), free.beside(all, rest, t)) == True{} : Bool}, ih: {Rev.member(Fg.destroyed.of(rest, [t], False{}), x) == True{} : Bool} -> {free.beside(all, rest, t) == True{} : Bool} -> {Bool.and(payload.at(rest, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}) -> {Bool.and(Bool.or(Bool.and(Bool.not(k), Bool.and(c, String.eq(x ++ ".ops.txt", p ++ ".ops.txt"))), payload.at(rest, t, x ++ ".ops.txt")), Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}:
+  match c k:
+    case True{} False{}:
+      GL.member_cons({Bool.and(Bool.or(Bool.and(True{}, Bool.and(True{}, String.eq(x ++ ".ops.txt", p ++ ".ops.txt"))), payload.at(rest, t, x ++ ".ops.txt")), Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}, p, Fg.destroyed.of(rest, [t], False{}), x, m,
+        e => (%e : {Bool.and(Bool.or(String.eq(_ ++ ".ops.txt", p ++ ".ops.txt"), payload.at(rest, t, _ ++ ".ops.txt")), Bool.not(Rev.member(paths(all), _ ++ ".ops.txt"))) == True{} : Bool};
+          %Equal.sym(Bool, String.eq(p ++ ".ops.txt", p ++ ".ops.txt"), True{}, S.eq_refl(p ++ ".ops.txt")) : {Bool.and(Bool.or(_, payload.at(rest, t, p ++ ".ops.txt")), Bool.not(Rev.member(paths(all), p ++ ".ops.txt"))) == True{} : Bool};
+          Comp.and_left(Bool.not(Rev.member(paths(all), p ++ ".ops.txt")), free.beside(all, rest, t), hf)),
+        tl => (+r = ih(tl, Comp.and_right(Bool.not(Rev.member(paths(all), p ++ ".ops.txt")), free.beside(all, rest, t), hf))
+          AL.and_intro(Bool.or(String.eq(x ++ ".ops.txt", p ++ ".ops.txt"), payload.at(rest, t, x ++ ".ops.txt")), Bool.not(Rev.member(paths(all), x ++ ".ops.txt")),
+            AL.or_right(String.eq(x ++ ".ops.txt", p ++ ".ops.txt"), payload.at(rest, t, x ++ ".ops.txt"), Comp.and_left(payload.at(rest, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(all), x ++ ".ops.txt")), r)),
+            Comp.and_right(payload.at(rest, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(all), x ++ ".ops.txt")), r))))
+    case True{} True{}:
+      ih(m, Comp.and_right(True{}, free.beside(all, rest, t), hf))
+    case False{} True{}:
+      ih(m, Comp.and_right(True{}, free.beside(all, rest, t), hf))
+    case False{} False{}:
+      ih(m, Comp.and_right(True{}, free.beside(all, rest, t), hf))
+
+# A payload forgetting `t` destroys is one holding `t`, and where every
+# such name is free, the name beside it is.
+def listed_at(+all: List<&2, Fg.FgFiled>, fs: List<&2, Fg.FgFiled>, +t: String, +x: String, m: {Rev.member(Fg.destroyed.of(fs, [t], False{}), x) == True{} : Bool}, hf: {free.beside(all, fs, t) == True{} : Bool}) -> {Bool.and(payload.at(fs, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({Bool.and(False{}, Bool.not(Rev.member(paths(all), x ++ ".ops.txt"))) == True{} : Bool}, S.false_true(m))
+    case Fg.Fg.Filed{+p, +d, +n} <> +rest:
+      listed_at.step(String.eq(t, d), String.ends_with(p, ".ops.txt"), all, p, d, n, rest, t, x, m, hf, mm => ff => listed_at(all, rest, t, x, mm, ff))
+
+def beside_head(+fs: List<&2, Fg.FgFiled>, ds: List<&2, String>, +t: String, +named: String, hne: {List.is_empty(&2, String, ds) == False{} : Bool}, hh: {Main.all_held(Fg.destroyed.of(fs, [t], False{}), ds) == True{} : Bool}, hf: {free.beside(fs, fs, t) == True{} : Bool}) -> {beside.ok(fs, t, Fg.filed.beside(fs, ds, named)) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      Empty.absurd({beside.ok(fs, t, named) == True{} : Bool}, S.true_false(hne))
+    case +x <> rest:
+      +ok = listed_at(fs, fs, t, x, Comp.and_left(Rev.member(Fg.destroyed.of(fs, [t], False{}), x), Main.all_held(Fg.destroyed.of(fs, [t], False{}), rest), hh), hf)
+      +free = Comp.and_right(payload.at(fs, t, x ++ ".ops.txt"), Bool.not(Rev.member(paths(fs), x ++ ".ops.txt")), ok)
+      %Equal.sym(String, Bool.pick(String, Fg.filed.taken(fs, x ++ ".ops.txt"), named, x ++ ".ops.txt"), x ++ ".ops.txt", beside_free(Fg.filed.taken(fs, x ++ ".ops.txt"), fs, x, named, {==}, SortL.ne_not(Rev.member(paths(fs), x ++ ".ops.txt"), free))) : {beside.ok(fs, t, _) == True{} : Bool}
+      ok
+
+# Decision 0066: where no document holds the payload's bytes and a payload
+# does, its stand-in is filed beside a payload holding them, at a name no
+# file has, wherever every such name is free.
+def payload_beside(+fs: List<&2, Fg.FgFiled>, +t: String, +text: String, hd: {holds.doc(fs, t) == False{} : Bool}, hp: {holds.payload(fs, t) == True{} : Bool}, hf: {free.beside(fs, fs, t) == True{} : Bool}) -> {beside.ok(fs, t, Fg.filed.as(fs, Fg.destroyed(fs, [t]), Fg.Fg.Write{t, text, True{}})) == True{} : Bool}:
+  +D = Fg.destroyed.of(fs, [t], False{})
+  %Equal.sym(List<&2, String>, Fg.destroyed.of(fs, [t], True{}), Nil{}, no_docs(fs, t, hd)) : {beside.ok(fs, t, Fg.filed.beside(fs, List.append(&2, String, List.sort(~String, ~(a => b => Fg.path.le(a, b)), _), List.sort(~String, ~(a => b => Fg.path.le(a, b)), D)), "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt")) == True{} : Bool}
+  beside_head(fs, List.sort(~String, ~(a => b => Fg.path.le(a, b)), D), t, "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt",
+    SortL.ne_sort(~String, ~(a => b => Fg.path.le(a, b)), D, some_payload(fs, t, hp)),
+    StatusL.ah_sort(~(a => b => Fg.path.le(a, b)), D, D, SpanL.held_refl(D)),
+    hf)
+
+# Every payload holding `t` has its name with `.ops.txt` added taken by
+# a file `all` lists.
+def taken.beside(+all: List<&2, Fg.FgFiled>, fs: List<&2, Fg.FgFiled>, +t: String) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case Fg.Fg.Filed{+p, +d, n} <> rest:
+      Bool.and(Bool.or(Bool.not(Bool.and(Bool.not(String.ends_with(p, ".ops.txt")), String.eq(t, d))), Rev.member(paths(all), p ++ ".ops.txt")), taken.beside(all, rest, t))
+
+def listed_taken.step(c: Bool, k: Bool, +all: List<&2, Fg.FgFiled>, +p: String, +rest: List<&2, Fg.FgFiled>, +t: String, +x: String, m: {Rev.member(Rev.keep(Bool.and(Bool.or(c, False{}), Bool.not(Bool.xor(k, False{}))), p, Fg.destroyed.of(rest, [t], False{})), x) == True{} : Bool}, +hf: {Bool.and(Bool.or(Bool.not(Bool.and(Bool.not(k), c)), Rev.member(paths(all), p ++ ".ops.txt")), taken.beside(all, rest, t)) == True{} : Bool}, ih: {Rev.member(Fg.destroyed.of(rest, [t], False{}), x) == True{} : Bool} -> {taken.beside(all, rest, t) == True{} : Bool} -> {Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}) -> {Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}:
+  match c k:
+    case True{} False{}:
+      GL.member_cons({Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}, p, Fg.destroyed.of(rest, [t], False{}), x, m,
+        e => (%e : {Rev.member(paths(all), _ ++ ".ops.txt") == True{} : Bool};
+          Comp.and_left(Rev.member(paths(all), p ++ ".ops.txt"), taken.beside(all, rest, t), hf)),
+        tl => ih(tl, Comp.and_right(Rev.member(paths(all), p ++ ".ops.txt"), taken.beside(all, rest, t), hf)))
+    case True{} True{}:
+      ih(m, Comp.and_right(True{}, taken.beside(all, rest, t), hf))
+    case False{} True{}:
+      ih(m, Comp.and_right(True{}, taken.beside(all, rest, t), hf))
+    case False{} False{}:
+      ih(m, Comp.and_right(True{}, taken.beside(all, rest, t), hf))
+
+# Where every payload's name beside it is taken, so is the name beside
+# any payload forgetting `t` destroys.
+def listed_taken(+all: List<&2, Fg.FgFiled>, fs: List<&2, Fg.FgFiled>, +t: String, +x: String, m: {Rev.member(Fg.destroyed.of(fs, [t], False{}), x) == True{} : Bool}, hf: {taken.beside(all, fs, t) == True{} : Bool}) -> {Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({Rev.member(paths(all), x ++ ".ops.txt") == True{} : Bool}, S.false_true(m))
+    case Fg.Fg.Filed{+p, +d, n} <> +rest:
+      listed_taken.step(String.eq(t, d), String.ends_with(p, ".ops.txt"), all, p, rest, t, x, m, hf, mm => ff => listed_taken(all, rest, t, x, mm, ff))
+
+def taken_pick(b: Bool, +fs: List<&2, Fg.FgFiled>, +x: String, +named: String, eb: {Fg.filed.taken(fs, x ++ ".ops.txt") == b : Bool}, ht: {Rev.member(paths(fs), x ++ ".ops.txt") == True{} : Bool}) -> {Bool.pick(String, b, named, x ++ ".ops.txt") == named : String}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({x ++ ".ops.txt" == named : String}, S.false_true(Equal.trans(Bool, False{}, Fg.filed.taken(fs, x ++ ".ops.txt"), True{}, Equal.sym(Bool, Fg.filed.taken(fs, x ++ ".ops.txt"), False{}, eb), Equal.trans(Bool, Fg.filed.taken(fs, x ++ ".ops.txt"), Rev.member(paths(fs), x ++ ".ops.txt"), True{}, taken_paths(fs, x ++ ".ops.txt"), ht))))
+
+def taken_head(+fs: List<&2, Fg.FgFiled>, ds: List<&2, String>, +t: String, +named: String, hne: {List.is_empty(&2, String, ds) == False{} : Bool}, hh: {Main.all_held(Fg.destroyed.of(fs, [t], False{}), ds) == True{} : Bool}, hf: {taken.beside(fs, fs, t) == True{} : Bool}) -> {Fg.filed.beside(fs, ds, named) == named : String}:
+  match ds:
+    case Nil{}:
+      Empty.absurd({named == named : String}, S.true_false(hne))
+    case +x <> rest:
+      taken_pick(Fg.filed.taken(fs, x ++ ".ops.txt"), fs, x, named, {==}, listed_taken(fs, fs, t, x, Comp.and_left(Rev.member(Fg.destroyed.of(fs, [t], False{}), x), Main.all_held(Fg.destroyed.of(fs, [t], False{}), rest), hh), hf))
+
+# And where every such name is taken, it goes to the name its own bytes
+# give it.
+def payload_own(+fs: List<&2, Fg.FgFiled>, +t: String, +text: String, hd: {holds.doc(fs, t) == False{} : Bool}, hp: {holds.payload(fs, t) == True{} : Bool}, hf: {taken.beside(fs, fs, t) == True{} : Bool}) -> {Fg.filed.as(fs, Fg.destroyed(fs, [t]), Fg.Fg.Write{t, text, True{}}) == own(Fg.Fg.Write{t, text, True{}}) : String}:
+  +D = Fg.destroyed.of(fs, [t], False{})
+  %Equal.sym(List<&2, String>, Fg.destroyed.of(fs, [t], True{}), Nil{}, no_docs(fs, t, hd)) : {Fg.filed.beside(fs, List.append(&2, String, List.sort(~String, ~(a => b => Fg.path.le(a, b)), _), List.sort(~String, ~(a => b => Fg.path.le(a, b)), D)), "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt") == "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt" : String}
+  taken_head(fs, List.sort(~String, ~(a => b => Fg.path.le(a, b)), D), t, "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt",
+    SortL.ne_sort(~String, ~(a => b => Fg.path.le(a, b)), D, some_payload(fs, t, hp)),
+    StatusL.ah_sort(~(a => b => Fg.path.le(a, b)), D, D, SpanL.held_refl(D)),
+    hf)
 
 # A file of lines is never forgotten whole
 # ----------------------------------------

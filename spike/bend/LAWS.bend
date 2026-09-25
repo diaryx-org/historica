@@ -1163,14 +1163,22 @@ law chain_follows_first_parents:
   for +id: String
   {Bool.and(Main.first_parents(fs, Main.chain(fs, Some{id}), Some{id}), Bool.or(Main.line.stops(fs, Main.chain(fs, Some{id}), Some{id}), Nat.is_eq(List.length(&2, Main.Full, Main.chain(fs, Some{id})), 1n+List.length(&2, Main.Full, fs)))) == True{} : Bool}
 
-# Every revision a command reads is one a document of `revisions/` spells,
-# filed there under the digest the revision is known by: either what
-# `Rev.write` writes, byte for byte, from what the revision says; or,
-# where the document names a path not in normal form C — which the Rust
-# tool refuses only once something reads the whole of it — the revision's
-# facts are that refusal, in the Rust tool's words naming the path and
-# its line, and the revision with the facts of the document its paths
-# mended put back is what `Rev.write` writes of that mended document.
+# Every revision `fulls` reads — the reading `record`, `abandon`, `amend`,
+# `carry`, `name`, `forget`, `merge`, `arrange`, `skip` and `update` open
+# the store with — is one a document of `revisions/` spells, filed there
+# under the digest the revision is known by: either what `Rev.write`
+# writes, byte for byte, from what the revision says; or the parser
+# refuses the document, `Rev.unnormal` finds a path not in normal form C
+# in it — which the Rust tool refuses only once something reads the whole
+# of it — and the revision's facts are that refusal, in the Rust tool's
+# words naming the path and the line `Rev.unnormal` finds, and the
+# revision with the facts of the document `Rev.mended` makes put back is
+# what `Rev.write` writes of that mended document. What that line is and
+# what mending may change, the two laws after the next say. The commands
+# that ask what a revision did — `log`, `diff`, `blame`, `status` and the
+# rest — open the store with `opened.fulls`, which holds besides these the
+# revisions an opening accepts and a whole reading refuses; this law does
+# not speak for those.
 law revisions_read_are_their_documents:
   for +root: String
   for +ds: List<&2, Store.Doc>
@@ -1184,6 +1192,26 @@ law revisions_read_lose_no_document:
   for +root: String
   for +ds: List<&2, Store.Doc>
   {FullsL.all_read(root, ds, Main.fulls(root, ds)) == True{} : Bool}
+
+# The line `Rev.unnormal` names is where the fault is: counting the format
+# line as the first, it is an `add` or `move` header ending in a space and
+# the path it names, that path is not in normal form C, and no line before
+# it is blank, so it is among the headers.
+law unnormal_names_its_line:
+  for s: String
+  for +n: Nat
+  for +q: String
+  for h: {Rev.unnormal(s) == Some{Rev.Unnormal{n, q}} : Maybe<&2, Rev.Unnormal>}
+  {FullsL.line.at(String.split(s, '\n'), 1n, n, q) == True{} : Bool}
+
+# And mending changes no more than the headers that name paths: the lines
+# `Rev.mended` joins are as many as the document's, an `add` header stays
+# an `add` header and a `move` one a `move` one, every other header is
+# left as it is, and from the blank line that ends the headers on — the
+# message — every line is the document's own.
+law mended_changes_only_path_headers:
+  for s: String
+  {FullsL.mended.agrees(String.split(s, '\n'), Rev.mended.go(String.split(s, '\n'))) == True{} : Bool}
 
 # `log` lists what its span names — the revisions it goes on with before
 # `--author`, `--grep`, `--since`, `--until` and `--limit` narrow them.
@@ -1295,13 +1323,15 @@ law forgetting_a_resolution_keeps_shape:
   for +i: Nat
   {Stand.pieces.shape(pieces, Fg.forget.pieces(pieces, ps, t, i)) == True{} : Bool}
 
-# Every digest `forget --lines` forgets — each it writes a stand-in for,
-# and each whose bytes it destroys — is one some revision of the store
+# Every digest `forget --lines` forgets is one some revision of the store
 # states for that file, read straight off its headers: an `edit`, `text` or
 # `bytes` header whose value is the file's path, a space and that digest.
+# And every stand-in it writes forgets one of those digests, read off the
+# stand-in's own bytes: it opens with the format line and a `forgets`
+# header naming that digest, which is the one it is filed as forgetting.
 # However far the walk goes to find a delete quoting a line or a
 # resolution's copy of it, forgetting lines of a file rewrites only what
-# a revision says of that file.
+# a revision says of that file, and says so in what it writes.
 law forget_rewrites_only_the_files_documents:
   for +fs: List<&2, Main.Full>
   for +ds: List<&2, Store.Doc>
@@ -1314,7 +1344,7 @@ law forget_rewrites_only_the_files_documents:
   for +a: Nat
   for +n: Nat
   for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
-  {ForgetL.all_stated(fs, file, ts) == True{} : Bool}
+  {Bool.and(ForgetL.all_stated(fs, file, ts), ForgetL.written.all(ts, ws)) == True{} : Bool}
 
 # Forgetting a file of bytes forgets the payload its tree holds for it at
 # the revision named, or nothing: another version of the file is another
@@ -1378,11 +1408,20 @@ law forget_clears_every_copy:
   for hm: {Rev.member(ps, "cache/" ++ d) == True{} : Bool}
   {Rev.member(Fg.cached(ps), "cache/" ++ d) == True{} : Bool}
 
-# And nothing else there: whatever `cache/` lists, the note `init` writes
-# (`cache/README.txt`) and the Rust store's three catalogues
-# (`cache/operations.txt`, `cache/working.txt`, `cache/revisions.txt`)
-# survive a forgetting.
+# And nothing else there: an entry `forget` removes from `cache/` is one
+# the host listed, and its name past `cache/` is a digest — as the Rust
+# store's `clear_cache` has it, an entry is named by a digest and nothing
+# else is.
 law forget_clears_only_copies:
+  for +ps: List<&2, String>
+  for +n: String
+  for h: {Rev.member(Fg.cached(ps), "cache/" ++ n) == True{} : Bool}
+  {Bool.and(T.is_digest(n), Rev.member(ps, "cache/" ++ n)) == True{} : Bool}
+
+# So, whatever `cache/` lists, the note `init` writes (`cache/README.txt`)
+# and the Rust store's three catalogues (`cache/operations.txt`,
+# `cache/working.txt`, `cache/revisions.txt`) survive a forgetting.
+law forget_keeps_the_note_and_catalogues:
   for +ps: List<&2, String>
   {Bool.or(Rev.member(Fg.cached(ps), "cache/README.txt"), Bool.or(Rev.member(Fg.cached(ps), "cache/operations.txt"), Bool.or(Rev.member(Fg.cached(ps), "cache/working.txt"), Rev.member(Fg.cached(ps), "cache/revisions.txt")))) == False{} : Bool}
 
@@ -1417,17 +1456,32 @@ law forget_files_documents_where_nothing_is:
   for w: Fg.FgWrite
   {Bool.and(String.ends_with(Fg.filed.as(fs, ds, w), ".ops.txt"), Bool.or(String.eq(Fg.filed.as(fs, ds, w), ForgettingL.own(w)), Bool.not(Fg.filed.taken(fs, Fg.filed.as(fs, ds, w))))) == True{} : Bool}
 
-# Decision 0066: a payload's stand-in goes where the payload was — at the
-# first file the forgetting destroys, with `.ops.txt` added — wherever no
-# file of `operations/` has that name.
+# Decision 0066: a payload's stand-in goes where the payload was. Forget
+# the bytes `t` where no document of `operations/` holds them and some
+# payload does: the stand-in `forget` writes for them is filed at the name
+# of a file there that is no document and holds `t`, with `.ops.txt`
+# added, and no file there has that name yet — wherever no payload holding
+# `t` has that name taken.
 law forget_files_a_payloads_standin_where_it_was:
   for +fs: List<&2, Fg.FgFiled>
-  for +d: String
-  for +rest: List<&2, String>
-  for f: String
+  for +t: String
   for +text: String
-  for hf: {Rev.member(ForgettingL.paths(fs), d ++ ".ops.txt") == False{} : Bool}
-  {Fg.filed.as(fs, d <> rest, Fg.Fg.Write{f, text, True{}}) == d ++ ".ops.txt" : String}
+  for hd: {ForgettingL.holds.doc(fs, t) == False{} : Bool}
+  for hp: {ForgettingL.holds.payload(fs, t) == True{} : Bool}
+  for hf: {ForgettingL.free.beside(fs, fs, t) == True{} : Bool}
+  {ForgettingL.beside.ok(fs, t, Fg.filed.as(fs, Fg.destroyed(fs, [t]), Fg.Fg.Write{t, text, True{}})) == True{} : Bool}
+
+# And where every payload holding `t` has that name taken, the stand-in
+# goes to the one name nothing else can claim: its own digest's, under
+# `operations/`.
+law forget_files_a_payloads_standin_by_its_digest_where_that_is_taken:
+  for +fs: List<&2, Fg.FgFiled>
+  for +t: String
+  for +text: String
+  for hd: {ForgettingL.holds.doc(fs, t) == False{} : Bool}
+  for hp: {ForgettingL.holds.payload(fs, t) == True{} : Bool}
+  for hf: {ForgettingL.taken.beside(fs, fs, t) == True{} : Bool}
+  {Fg.filed.as(fs, Fg.destroyed(fs, [t]), Fg.Fg.Write{t, text, True{}}) == "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt" : String}
 
 # A redaction is exact: given no span, `forget` plans nothing for a file of
 # lines, whatever the file holds — it is refused, and never forgotten whole.
