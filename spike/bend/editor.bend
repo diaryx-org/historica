@@ -59,14 +59,22 @@ def read.back(+file: String, r: Result<&1, &1, U32 & String, File>) -> IO(Result
         gone : Result<&1, &1, U32 & String, String> <- Store.removed(Identity.parent(file) ++ "\n" ++ file)
         return Done{text}
 
-def saved(+file: String, r: Result<&2, &2, Stop, Unit>) -> IO(Result<&2, &2, Stop, String>):
+def opened(+file: String) -> IO(Result<&2, &2, Stop, String>):
+  do IO<Result<&2, &2, Stop, String>>:
+    o : Result<&1, &1, U32 & String, File> <- File.open(file, "r")
+    read.back(file, o)
+
+# What the editor's ending leads to: the file read back by `read` where it
+# saved, and otherwise the stop, with nothing read.
+def saved.with(+file: String, r: Result<&2, &2, Stop, Unit>, read: String -> IO(Result<&2, &2, Stop, String>)) -> IO(Result<&2, &2, Stop, String>):
   match r:
     case Fail{s}:
       IO.pure(Result<&2, &2, Stop, String>, Fail{s})
     case Done{u}:
-      do IO<Result<&2, &2, Stop, String>>:
-        opened : Result<&1, &1, U32 & String, File> <- File.open(file, "r")
-        read.back(file, opened)
+      read(file)
+
+def saved(+file: String, r: Result<&2, &2, Stop, Unit>) -> IO(Result<&2, &2, Stop, String>):
+  saved.with(file, r, f => opened(f))
 
 def edited(+file: String, +editor: String, w: Result<&1, &1, U32 & String, String>) -> IO(Result<&2, &2, Stop, String>):
   match w:
