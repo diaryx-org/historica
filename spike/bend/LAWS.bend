@@ -25,6 +25,9 @@ import ./sort_lemmas.bend as SortL
 import ./naming.bend as Naming
 import ./fulls_lemmas.bend as FullsL
 import ./fetch_lemmas.bend as FetchL
+import ./update.bend as Upd
+import ./conflict.bend as Conflict
+import ./merging.bend as Merging
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1515,9 +1518,10 @@ law log_follows_a_held_file:
 # `status` says everything its survey of the folder found, in the order
 # found, each on a line of its own that names it: each fact on a line
 # beginning with its kind and ending with its path, then each path refused
-# or claimed on a line beginning `refused` or `claimed` and the path, and
-# each accept on one beginning `accept` and the path and ending with it
-# again.
+# or claimed on a line beginning `refused` or `claimed` and the path, each
+# file the renderer's lines still stand in on one beginning `marked` and
+# the path, and each accept on one beginning `accept` and the path and
+# ending with it again.
 law status_says_what_it_found:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
@@ -1566,8 +1570,9 @@ law status_surveys_each_path:
   for +dg: Map<&2, String>
   for +bf: Map<&2, String>
   for +reads: Map<&2, List<&2, U32>>
+  for +props: List<&2, Main.Proposal>
   for hs: List<&2, Main.Here>
-  {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, hs)) == True{} : Bool}
+  {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, props, hs)) == True{} : Bool}
 
 # Against one revision, `status` believes the digest a statement gives a
 # file of lines and replays only where none does: it is refused only where
@@ -1745,8 +1750,9 @@ law record_refuses_only_what_it_looks_at:
   for +dg: Map<&2, String>
   for +bf: Map<&2, String>
   for +reads: Map<&2, List<&2, U32>>
+  for +props: List<&2, Main.Proposal>
   for +moves: List<&2, T.Split>
-  {Sv.all_covered(only, Sv.planned.refused(Sv.planned(t, Sv.only.tree(only, t), held, Sv.only.refused(only, walked), Main.status.seens(t0, dg, bf, reads, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), moves))) == True{} : Bool}
+  {Sv.all_covered(only, Sv.planned.refused(Sv.planned(t, Sv.only.tree(only, t), held, Sv.only.refused(only, walked), Main.status.seens(t0, dg, bf, reads, props, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), moves))) == True{} : Bool}
 
 # A revision's summary is sixty characters at most. However long the first
 # line of its message, the name keeps as much of it as fits, cut between
@@ -1911,7 +1917,10 @@ law reword_changes_only_the_message:
 # each file it drafts content for, an edit is the written form of the
 # document that replays the position's lines of that file to the lines
 # the folder holds — `befores` being the position's — text is the bytes
-# the folder holds, and a payload is named by the digest of the folder's.
+# the folder holds, a payload is named by the digest of the folder's, and
+# where the parents being joined leave the file differently, a resolution
+# is the written form of the one the walk's proposal and the folder's lines
+# make, which `merge_resolution_reads_back` assembles back to those lines.
 law record_states_the_folder:
   for +befores: List<&2, Main.Before>
   for +t: Tree.Tree()
@@ -1950,9 +1959,10 @@ law record_names_what_it_writes:
 
 # What `record` goes on to write is a plan the survey settled. Where it
 # is not refused, no path is claimed by several files, nothing is there
-# that the format cannot record, nothing a merge would leave empty, no
-# link dangles, and the attachments accepted are exactly the ones
-# concurrent work states different bytes for.
+# that the format cannot record, no file still holds a line the renderer
+# wrote, nothing a merge would leave empty, no link dangles, and the
+# attachments accepted are exactly the ones concurrent work states
+# different bytes for.
 law record_writes_only_what_is_settled:
   for +looked: Tree.Tree()
   for pl: Sv.Planned
@@ -2101,3 +2111,97 @@ law abandon_dry_run_names_the_run:
   for +only: Bool
   for +run: List<&2, String>
   {Main.said.first(run, Main.abandon.dry.lines(fs, bs, id, only, run), "would abandon ") == True{} : Bool}
+
+# `update` reads its words as they say: a dry run where `-n` or
+# `--dry-run` is among them, and the target the one word that does not
+# begin with `-`.
+law update_reads_its_words:
+  for +ws: List<&2, String>
+  for +c: Upd.UpdateCmd
+  for e: {Upd.args.r(ws) == Done{c} : Result<&2, &2, Main.Refused, Upd.UpdateCmd>}
+  {c == Upd.UpdateCmd{Upd.uargs.target(ws), Upd.uargs.dry(ws)} : Upd.UpdateCmd}
+
+# Where `update` plans at all, the folder it leaves holds the target: every
+# path the target's tree holds with one file ends up holding what the tree
+# records there — a file of lines its text, a file of bytes its payload,
+# each with its mode, a link pointing where the tree says — whatever the
+# folder held before, since everything else refuses the whole update.
+law update_lands:
+  for tr: List<&2, T.Split>
+  for +looks: List<&2, Upd.Look>
+  for +gones: List<&2, Upd.Gone>
+  for +p: Upd.Plan
+  for e: {Upd.plan(tr, looks, gones) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
+  {Upd.landed(p) == True{} : Bool}
+
+# Decision 0030's rule: a file `update` writes over, or takes away, holds
+# bytes some revision records at its path, and a link it takes away points
+# where some revision recorded one — so nothing it touches is the only copy
+# of anything.
+law update_spares_the_unrecorded:
+  for tr: List<&2, T.Split>
+  for +looks: List<&2, Upd.Look>
+  for +gones: List<&2, Upd.Gone>
+  for +p: Upd.Plan
+  for e: {Upd.plan(tr, looks, gones) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
+  {Upd.spared(p) == True{} : Bool}
+
+# Decision 0032's promise: the resolution `record --merge` writes for a
+# file of lines, assembled as `cat` assembles one, is exactly the file the
+# person left in the folder — every line they kept named back from the
+# document that minted it, every line they wrote stated, and the digest it
+# states the one `cat` finds — wherever the store's documents mint each
+# element the walk stands under as the walk read them.
+law merge_resolution_reads_back:
+  for +ds: List<&2, Store.Doc>
+  for +j: Conflict.Joined
+  for +s: String
+  for hm: {Main.all_mint(ds, Conflict.named(j)) == True{} : Bool}
+  for doc: Res.Doc
+  for e: {Conflict.resolve(j, Ops.from_text(s)) == Some{doc} : Maybe<&2, Res.Doc>}
+  {Main.assemble(ds, doc) == Done{Ops.from_text(s)} : Result<&2, &2, String, List<&2, Ops.Item>>}
+
+# `merge` writes what the walk reads into the folder, fenced where
+# concurrent work met; a file where nothing met — no region, and no line
+# but the last without a newline — is written as the walk's file, byte for
+# byte, with no line in it a person must find and delete.
+law merge_renders_the_uncontested_as_itself:
+  for j: Conflict.Joined
+  for e: {Conflict.met(j) == False{} : Bool}
+  {Conflict.render(j) == Conflict.plain(j) : String}
+
+# `merge` joins only revisions the store holds: each head a person names
+# resolves to one, and each it joins unnamed is a current head, so no
+# spelling can make it lay out work the store does not have.
+law merge_joins_held_revisions:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ss: List<&2, String>
+  for +xs: List<&2, T.Split>
+  for e: {Merging.joined.r(fs, bs, ss) == Done{xs} : Result<&2, &2, Main.Refused, List<&2, T.Split>>}
+  {Main.all_held(Main.ids(fs), Merging.typed.ids(xs)) == True{} : Bool}
+
+# Decision 0012's rule, what is named and every current head that is not:
+# whatever a person names, and in whatever order, `merge` joins every
+# current head of the store, which is what makes the `record` line it
+# prints record the merge it laid out.
+law merge_joins_every_head:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ss: List<&2, String>
+  for +xs: List<&2, T.Split>
+  for e: {Merging.joined.r(fs, bs, ss) == Done{xs} : Result<&2, &2, Main.Refused, List<&2, T.Split>>}
+  {Main.all_held(Merging.typed.ids(xs), Upd.heads.sorted(fs)) == True{} : Bool}
+
+# Decision 0012's safety: whatever `merge` does at a place it does at that
+# place's path; a file of lines it writes there is the walk's rendering;
+# and it writes only where the folder held nothing, a file of lines no
+# longer text, or one of the versions it decided against — what it writes,
+# the walk's reading unfenced, the payload, or what one of the heads being
+# joined leaves the file as. Work nobody recorded is never written over.
+law merge_spares_the_unrecorded:
+  for +t: Tree.Tree()
+  for +cs: List<&2, Tree.Contest>
+  for +located: Map<&2, String>
+  for p: Merging.Place
+  {Merging.laid.all(p, Merging.laid.acts(Merging.lay(t, cs, located, p))) == True{} : Bool}
