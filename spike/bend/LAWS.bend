@@ -2410,12 +2410,40 @@ law update_again_keeps:
   {Upd.decide(w, Upd.after(w, h, Upd.decide(w, h, rs)), rs2) == Upd.Step.Keep{} : Upd.Step}
 
 # `update` says the folder already holds the target, and carries nothing
-# out, only where carrying its plan out would change nothing: every path it
-# steps through would hold what it held, and nothing would be taken away.
-law update_settles_only_what_stays:
+# out, exactly where carrying its plan out would change nothing. Where it
+# says so, every path it steps through would hold what it held, and nothing
+# would be taken away; and where that is so — the folder holds the target
+# already at every path the tree holds, and no file history records stands
+# where the target holds nothing — it says so, rather than writing a file
+# over itself. What a step would leave is `after`'s model of the host's
+# writes.
+law update_settles_exactly_what_stays:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for +t: Tree.Tree()
+  for +rs: List<&2, Folder.Scope>
+  for +walked: List<&2, T.Split>
+  for +found: List<&2, Folder.Found>
+  for +dg: Map<&2, String>
+  for +ls: Map<&2, String>
+  for +located: Map<&2, String>
+  for +ds: List<&2, Store.Doc>
+  for +more: List<&2, Store.Doc>
+  for -p: Upd.Plan
+  for +e: {Upd.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
+  {Upd.settled(p) == Upd.unchanged(p) : Bool}
+
+# `update --dry-run` plans exactly what `update` does. Its lines, read back
+# by the verb each begins with, name each file `update` writes, each it
+# removes, each whose mode it sets and to what, and each link it makes and
+# where it points — the effects `apply` performs, one host write each, in
+# the order it performs each kind — and nothing else; and it says the
+# folder already holds the target exactly where there is nothing to
+# perform, which is where `update` itself performs nothing and says so.
+law update_dry_run_names_what_it_does:
   for p: Upd.Plan
-  for +e: {Upd.settled(p) == True{} : Bool}
-  {Upd.unchanged(p) == True{} : Bool}
+  for +s: String
+  {Upd.dry.read(Upd.said.dry(s, p)) == Upd.effects.read(s, Upd.effects(p)) : Upd.Named}
 
 # Decision 0008 forbids the format inventing a name, so `merge` keeps a
 # path several files claim for the first of them and writes each other

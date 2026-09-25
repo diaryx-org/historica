@@ -323,10 +323,16 @@ def plan(tree: List<&2, T.Split>, looks: List<&2, Look>, gones: List<&2, Gone>) 
 # ------------------
 
 # What a path holds once its step is done: the bytes written, with the mode
-# the target records; the mode set; the link made. This is the reading of
-# what the effects do that the laws are stated over — `Store.put` and
-# `Store.lay` land the bytes, `Store.chmod` sets the bit, `Store.link`
-# makes the link — and nothing about them is proven here.
+# the target records; the mode set; the link made. This is a model of the
+# host's writes, not a proof about them: it says what `Store.put` and
+# `Store.lay` are taken to leave (the bytes asked for), what `Store.chmod`
+# leaves (the bit asked for) and what `Store.link` leaves (a link pointing
+# where it was asked to). Every law below that speaks of
+# the folder after an update — `update_lands`, `update_again_keeps`,
+# `update_settles_exactly_what_stays` — speaks of it through this model.
+# That the effects do what it says is RUNTIME.md's contract for them, and
+# `check.py` holds it by comparing the whole folder after each `update` with
+# the Rust tool's; nothing here proves it.
 def wants.digest(w: Wants) -> String:
   match w:
     case Wants.Lines{+text, m}:
@@ -1020,20 +1026,6 @@ def disk(+repo: String, +dm: Map<&2, String>, +p: String) -> String:
 def removed.one(+p: String, answer: String) -> List<&2, String>:
   Bool.pick(List<&2, String>, String.eq(answer, "removed"), [p], Nil{})
 
-# Each removal, and each directory it empties up to the folder itself —
-# the directories above the path as the tree spells it, which is where the
-# Rust tool tidies.
-def apply.removes(+repo: String, +dm: Map<&2, String>, ps: List<&2, String>) -> IO(List<&2, String>):
-  match ps:
-    case Nil{}:
-      IO.pure(List<&2, String>, Nil{})
-    case +p <> rest:
-      do IO<List<&2, String>>:
-        r : Result<&1, &1, U32 & String, String> <- Store.removed(repo ++ "\n" ++ disk(repo, dm, p) ++ "\n" ++ Folder.joined(repo, p))
-        a : String <- done.io(r)
-        more : List<&2, String> <- apply.removes(repo, dm, rest)
-        return List.append(&2, String, removed.one(p, a), more)
-
 # The bit set after the bytes land, and said where it was not already so.
 def chmod.said(+p: String, +w: Wants, was: String) -> List<&2, String>:
   Bool.pick(List<&2, String>, Bool.xor(String.eq(was, "1"), wants.runs(w)), [Main.pad("mode", 7n) ++ " " ++ p ++ "  (" ++ wants.mode(w) ++ ")"], Nil{})
@@ -1053,38 +1045,158 @@ def write.one(+repo: String, +dm: Map<&2, String>, +p: String, w: Wants) -> IO(R
     case _:
       IO.pure(Result<&1, &1, U32 & String, String>, Done{SNil{}})
 
-# Each file written, and its mode set: the mode lines it owes, in order.
-def apply.writes(+repo: String, +dm: Map<&2, String>, ds: List<&2, Decided>) -> IO(List<&2, String>):
+# What carrying out a plan does to the folder, as `apply` performs it:
+# each removal, then each file written (its mode set after the bytes land),
+# each link made, and each mode set on bytes already right — one write of
+# the host's each, in that order, and nothing decided between them.
+# `LAWS.update_dry_run_names_what_it_does` holds the dry run to this list,
+# and `LAWS.update_touches_only_the_target` says where in the folder it
+# reaches.
+type Effect is Data:
+  Effect.Remove{path: String}
+  Effect.Write{path: String, wants: Wants}
+  Effect.Link{path: String, target: String}
+  Effect.Mode{path: String, wants: Wants}
+
+def effects.removes(ps: List<&2, String>) -> List<&2, Effect>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case p <> rest:
+      Effect.Remove{p} <> effects.removes(rest)
+
+def effects.writes(ds: List<&2, Decided>) -> List<&2, Effect>:
   match ds:
     case Nil{}:
-      IO.pure(List<&2, String>, Nil{})
-    case Decided{+p, +w, h, rs, s} <> rest:
-      do IO<List<&2, String>>:
+      Nil{}
+    case Decided{p, w, h, rs, s} <> rest:
+      Effect.Write{p, w} <> effects.writes(rest)
+
+def effects.links(ds: List<&2, Decided>) -> List<&2, Effect>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case Decided{p, w, h, rs, s} <> rest:
+      Effect.Link{p, wants.target(w)} <> effects.links(rest)
+
+def effects.modes(ds: List<&2, Decided>) -> List<&2, Effect>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case Decided{p, w, h, rs, s} <> rest:
+      Effect.Mode{p, w} <> effects.modes(rest)
+
+def effects(p: Plan) -> List<&2, Effect>:
+  match p:
+    case Plan{+ds, ws}:
+      List.concat(&2, Effect, [effects.removes(removes(ws)), effects.writes(writes(ds)), effects.links(links(ds)), effects.modes(modes(ds))])
+
+# The dry run read back
+# ---------------------
+#
+# What `LAWS.update_dry_run_names_what_it_does` reads the dry run with, and
+# names the effects with: a line beginning with a verb, padded as the Rust
+# tool pads it, is read as what follows the verb — a path written or
+# removed, a path and the mode it is set to, a path and where its link
+# points, or the target the folder already holds.
+type Named is Data:
+  Named{writes: List<&2, String>, removes: List<&2, String>, modes: List<&2, String>, links: List<&2, String>, settled: List<&2, String>}
+
+def dry.as(+l: String, +verb: String, rest: List<&2, String>) -> List<&2, String>:
+  Rev.keep(String.starts_with(l, verb), String.drop(l, String.length(verb)), rest)
+
+def dry.line(+l: String, r: Named) -> Named:
+  match r:
+    case Named{a, b, c, d, x}:
+      Named{dry.as(l, "write   ", a), dry.as(l, "remove  ", b), dry.as(l, "mode    ", c), dry.as(l, "link    ", d), dry.as(l, "the folder already holds ", x)}
+
+def dry.read(ls: List<&2, String>) -> Named:
+  match ls:
+    case Nil{}:
+      Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}
+    case +l <> rest:
+      dry.line(l, dry.read(rest))
+
+# Each effect as the dry run names it: a mode by what the bit is set to, a
+# link by where the host is asked to point it.
+def effect.named(e: Effect, r: Named) -> Named:
+  match e r:
+    case Effect.Write{p, w} Named{a, b, c, d, x}:
+      Named{p <> a, b, c, d, x}
+    case Effect.Remove{p} Named{a, b, c, d, x}:
+      Named{a, p <> b, c, d, x}
+    case Effect.Mode{p, +w} Named{a, b, c, d, x}:
+      Named{a, b, (p ++ "  (" ++ Bool.pick(String, wants.runs(w), "executable", "plain") ++ ")") <> c, d, x}
+    case Effect.Link{p, t} Named{a, b, c, d, x}:
+      Named{a, b, c, (p ++ "  (" ++ t ++ ")") <> d, x}
+
+def effects.named(es: List<&2, Effect>) -> Named:
+  match es:
+    case Nil{}:
+      Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}
+    case e <> rest:
+      effect.named(e, effects.named(rest))
+
+def named.settled(r: Named, y: List<&2, String>) -> Named:
+  match r:
+    case Named{a, b, c, d, x}:
+      Named{a, b, c, d, y}
+
+# The effects, named; and the folder said to hold the target already
+# exactly where there are none.
+def effects.read(+spelled: String, +es: List<&2, Effect>) -> Named:
+  named.settled(effects.named(es), Bool.pick(List<&2, String>, List.is_empty(&2, Effect, es), [spelled], Nil{}))
+
+# What the host said as the effects were performed: the paths it removed,
+# and the mode lines owed by the files written and by the modes set.
+type Carried is Data:
+  Carried{removed: List<&2, String>, wset: List<&2, String>, mset: List<&2, String>}
+
+def carried.removed(+p: String, +answer: String, c: Carried) -> Carried:
+  match c:
+    case Carried{r, w, m}:
+      Carried{List.append(&2, String, removed.one(p, answer), r), w, m}
+
+def carried.wset(set: List<&2, String>, c: Carried) -> Carried:
+  match c:
+    case Carried{r, w, m}:
+      Carried{r, List.append(&2, String, set, w), m}
+
+def carried.mset(set: List<&2, String>, c: Carried) -> Carried:
+  match c:
+    case Carried{r, w, m}:
+      Carried{r, w, List.append(&2, String, set, m)}
+
+# Each effect in turn. A removal takes away each directory it empties up to
+# the folder itself — the directories above the path as the tree spells it,
+# which is where the Rust tool tidies; a file written has its bit set after.
+def perform(+repo: String, +dm: Map<&2, String>, es: List<&2, Effect>) -> IO(Carried):
+  match es:
+    case Nil{}:
+      IO.pure(Carried, Carried{Nil{}, Nil{}, Nil{}})
+    case Effect.Remove{+p} <> rest:
+      do IO<Carried>:
+        r : Result<&1, &1, U32 & String, String> <- Store.removed(repo ++ "\n" ++ disk(repo, dm, p) ++ "\n" ++ Folder.joined(repo, p))
+        a : String <- done.io(r)
+        more : Carried <- perform(repo, dm, rest)
+        return carried.removed(p, a, more)
+    case Effect.Write{+p, +w} <> rest:
+      do IO<Carried>:
         r : Result<&1, &1, U32 & String, String> <- write.one(repo, dm, p, w)
         a : String <- done.io(r)
         set : List<&2, String> <- chmod(repo, dm, p, w)
-        more : List<&2, String> <- apply.writes(repo, dm, rest)
-        return List.append(&2, String, set, more)
-
-def apply.links(+repo: String, +dm: Map<&2, String>, ds: List<&2, Decided>) -> IO(Unit):
-  match ds:
-    case Nil{}:
-      IO.pure(Unit, Unit{})
-    case Decided{+p, w, h, rs, s} <> rest:
-      do IO<Unit>:
-        r : Result<&1, &1, U32 & String, String> <- Store.linked(disk(repo, dm, p) ++ "\n" ++ wants.target(w))
+        more : Carried <- perform(repo, dm, rest)
+        return carried.wset(set, more)
+    case Effect.Link{+p, +t} <> rest:
+      do IO<Carried>:
+        r : Result<&1, &1, U32 & String, String> <- Store.linked(disk(repo, dm, p) ++ "\n" ++ t)
         a : String <- done.io(r)
-        apply.links(repo, dm, rest)
-
-def apply.modes(+repo: String, +dm: Map<&2, String>, ds: List<&2, Decided>) -> IO(List<&2, String>):
-  match ds:
-    case Nil{}:
-      IO.pure(List<&2, String>, Nil{})
-    case Decided{+p, +w, h, rs, s} <> rest:
-      do IO<List<&2, String>>:
+        perform(repo, dm, rest)
+    case Effect.Mode{+p, +w} <> rest:
+      do IO<Carried>:
         set : List<&2, String> <- chmod(repo, dm, p, w)
-        more : List<&2, String> <- apply.modes(repo, dm, rest)
-        return List.append(&2, String, set, more)
+        more : Carried <- perform(repo, dm, rest)
+        return carried.mset(set, more)
 
 # A written file that does not read back as what was written: the folder
 # folds two of the tree's paths onto one file, decision 0027's case, and
@@ -1103,20 +1215,22 @@ def folded.r(fs: List<&2, String>) -> Result<&2, &2, Main.Refused, Unit>:
     case +some:
       Fail{Main.Refused{1, "this folder folds paths the tree holds apart, and cannot represent it:" ++ String.concat(T.map(~String, ~String, ~(p => "\n  " ++ p), some))}}
 
+def applied.lines(+paths: List<&2, String>, +spelled: String, ds: List<&2, Decided>, ws: List<&2, Went>, fold: List<&2, String>, c: Carried) -> List<&2, String>:
+  match c:
+    case Carried{removed, wset, mset}:
+      List.concat(&2, String, [said.paths("wrote", paths), said.paths("removed", removed), wset, mset, said.links("linked", links(ds)), said.leaves(leaves(ws)),
+        Bool.pick(List<&2, String>, List.is_empty(&2, String, fold), ["the folder holds " ++ spelled], Nil{})])
+
 def apply(+repo: String, +dm: Map<&2, String>, +spelled: String, p: Plan) -> IO(Unit):
   match p:
     case Plan{+ds, +ws}:
       +written = writes(ds)
       +paths = T.map(~Decided, ~String, ~(d => decided.path(d)), written)
       do IO<Unit>:
-        removed : List<&2, String> <- apply.removes(repo, dm, removes(ws))
-        wset : List<&2, String> <- apply.writes(repo, dm, written)
-        apply.links(repo, dm, links(ds))
-        mset : List<&2, String> <- apply.modes(repo, dm, modes(ds))
+        c : Carried <- perform(repo, dm, effects(Plan{ds, ws}))
         stats : List<&2, String> <- Store.stats(repo, spelt.all(dm, paths))
         +fold : List<&2, String> = folded(written, stats)
-        Main.print_lines(List.concat(&2, String, [said.paths("wrote", paths), said.paths("removed", removed), wset, mset, said.links("linked", links(ds)), said.leaves(leaves(ws)),
-          Bool.pick(List<&2, String>, List.is_empty(&2, String, fold), ["the folder holds " ++ spelled], Nil{})]))
+        Main.print_lines(applied.lines(paths, spelled, ds, ws, fold, c))
         Main.refused.io(Unit, folded.r(fold))
 
 def done.plan(+repo: String, +dm: Map<&2, String>, +spelled: String, +dry: Bool, +p: Plan) -> IO(Unit):
