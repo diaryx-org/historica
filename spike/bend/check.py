@@ -2476,9 +2476,7 @@ def check_mutations(temporary):
             "abandon takes a reason that is only whitespace",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(Naming.trim_space(m)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(m),",
-            # Written against `LAWS.abandon_takes_a_reason_that_says_something`; the checker now stops
-            # first at `rewrite_lemmas.asked_ok`.
-            "rewrite_lemmas.asked_ok",
+            "LAWS.abandon_takes_a_reason_that_says_something",
             "commands.bend",
         ),
         (
@@ -2608,10 +2606,10 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
-            "a carried revision is authored by whoever carried it",
-            "Rev.Rev{change, parents, [id], author, when, revised_by(split.rest(stamp), author), Some{split.head(stamp)}, new_facts, message}",
-            "Rev.Rev{change, parents, [id], split.rest(stamp), when, revised_by(split.rest(stamp), author), Some{split.head(stamp)}, new_facts, message}",
-            "rewrite_lemmas.made_kept",
+            "a carried revision reports the identifier of the one it supersedes",
+            "      Step{id, Sha.digest(Utf8.encode(Rev.write(doc))), onto, doc, restated, writes, moving}",
+            "      Step{id, id, onto, doc, restated, writes, moving}",
+            "rewrite_lemmas.made_filed",
             "commands.bend",
         ),
         (
@@ -2719,17 +2717,61 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
-            "abandon takes a reason of spaces",
-            "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(Naming.trim_space(m)),",
-            "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(m),",
-            "rewrite_lemmas.asked_ok",
-            "commands.bend",
-        ),
-        (
             "an abandon dry run names the run in reverse",
             '[each.lines("would abandon ", spelled_all(bs, history(fs), run)),',
             '[each.lines("would abandon ", spelled_all(bs, history(fs), List.reverse(&2, String, run))),',
             "rewrite_lemmas.dry_names",
+            "commands.bend",
+        ),
+        (
+            "an abandon dry run names each revision by its whole digest",
+            "      (ab12(x) ++ names_at(bs, h, x)) <> spelled_all(bs, h, rest)",
+            "      (x ++ names_at(bs, h, x)) <> spelled_all(bs, h, rest)",
+            "rewrite_lemmas.said_run",
+            "commands.bend",
+        ),
+        (
+            "--fields leaves out what an amendment carried",
+            'WROTE() <> said.lines("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps)))\n',
+            'WROTE() <> said.lines("revision ", SNil{}, sorted_distinct([id]))\n',
+            "rewrite_lemmas.writes_fields",
+            "commands.bend",
+        ),
+        (
+            "amend without a target takes a superseded head",
+            "        h : Maybe<&2, String> <- the_head.r(fs, bs, current_heads(history(fs)))\n        amend.head.r(fs, h)",
+            "        h : Maybe<&2, String> <- the_head.r(fs, bs, Rev.heads(history(fs)))\n        amend.head.r(fs, h)",
+            "rewrite_lemmas.amend_head",
+            "commands.bend",
+        ),
+        (
+            "amend rewrites the head whatever target is named",
+            "    case Some{+s}:\n      resolved.r(fs, bs, s)\n    case None{}:\n      do Result<&2, &2, Refused, Full>:\n        h : Maybe<&2, String> <- the_head.r",
+            "    case Some{+s}:\n      resolved.r(fs, bs, \"head\")\n    case None{}:\n      do Result<&2, &2, Refused, Full>:\n        h : Maybe<&2, String> <- the_head.r",
+            "rewrite_lemmas.amend_named",
+            "commands.bend",
+        ),
+        (
+            "abandon goes on with no target named",
+            '    case None{}:\n      Fail{Refused{2, "`abandon` wants the revision to abandon; it and everything standing on it go"}}',
+            "    case None{}:\n      Done{Unit{}}",
+            "rewrite_lemmas.asks_n",
+            "commands.bend",
+        ),
+        (
+            "abandon takes a flag for its target",
+            "  Bool.pick(WWord, String.starts_with(w, \"-\"), WWord.Flag{}, WWord.Word{})))))))",
+            "  Bool.pick(WWord, String.starts_with(w, \"--\"), WWord.Flag{}, WWord.Word{})))))))",
+            "rewrite_lemmas.word_plain",
+            "commands.bend",
+        ),
+        (
+            "a dry run may ask for --fields",
+            "  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(d, f), Fail{Refused{2, \"`\" ++ cmd ++ ",
+            "  Bool.pick(Result<&2, &2, Refused, Unit>, False{}, Fail{Refused{2, \"`\" ++ cmd ++ ",
+            # Written against `rewrite_lemmas.named_code`; the checker stops
+            # first at `rewrite_lemmas.asks_df`, which takes the same refusal.
+            "rewrite_lemmas.asks_df",
             "commands.bend",
         ),
     )

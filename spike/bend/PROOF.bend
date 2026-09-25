@@ -814,8 +814,8 @@ def Laws.record_reads_its_words(args, cmd, e):
 def Laws.rewrite_reads_its_words(cmd, args, c, e):
   RecordL.rw_args_said(cmd, args, c, e)
 
-def Laws.carry_keeps_what_it_restates(fs, ds, c, steps, e):
-  RewriteL.plan_kept(fs, ds, c, steps, e)
+def Laws.carry_says_what_it_files(fs, ds, c, steps, e, path):
+  RewriteL.carry_fields(path, fs, ds, c, steps, e)
 
 def Laws.abandon_takes_a_line(fs, id, only, run, e):
   RewriteL.plan_line(fs, id, only, run, e)
@@ -832,8 +832,11 @@ def Laws.record_names_what_it_writes(w, hex, befores, fs, bs, ps, t, hs, dg, rea
 def Laws.record_writes_only_what_is_settled(looked, pl, accepted, pl2, e):
   RecordL.settled_ok(looked, pl, accepted, pl2, e)
 
-def Laws.amend_rewrites_a_held_revision(fs, bs, named, f, e):
-  RewriteL.amend_held(fs, bs, named, f, e)
+def Laws.amend_rewrites_the_revision_named(fs, bs, s, f, e):
+  RewriteL.amend_named(fs, bs, s, f, e)
+
+def Laws.amend_rewrites_the_one_head(fs, bs, f, e):
+  RewriteL.amend_head(fs, bs, f, e)
 
 def Laws.carry_carries_a_held_revision(fs, bs, named, id, e):
   RewriteL.carry_held(fs, bs, named, id, e)
@@ -859,8 +862,11 @@ def Laws.record_reads_the_position(older, ds, left, files, bs, e):
 def Laws.amend_keeps_what_it_added(arriving, kept, hex):
   RewriteL.amend_minted_ok(arriving, kept, hex)
 
-def Laws.abandon_asks_for_a_revision_and_a_reason(c, m, u1, u2, u3, e1, e2, e3):
-  RewriteL.asked_ok(c, m, u1, u2, u3, e1, e2, e3)
+def Laws.abandon_abandons_only_a_word_it_was_given(args, c, e):
+  RewriteL.target_words(args, c, e)
+
+def Laws.abandon_refuses_a_dry_run_with_fields(args, c, e):
+  RewriteL.dry_fields(args, c, e)
 
 def Laws.record_gives_kinds_only_to_files(ks, found, u, e):
   RecordL.kinds_found(ks, found, u, e)

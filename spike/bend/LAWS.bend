@@ -1831,19 +1831,20 @@ law rewrite_reads_its_words:
   for e: {Main.rw.args.r(cmd, args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}
   {c == Main.wargs.said(Main.wargs.read(cmd, args, Main.wword(cmd, args))) : Main.RwCmd}
 
-# A carry restates work without changing whose it is or when it was done.
-# Whatever it is asked to carry, each revision a plan would write has the
-# change, author, moment and message of the revision the store holds under
-# the identifier it supersedes, supersedes that one alone, and is named by
-# the digest of its own text: the identifier `carry` reports is the one
-# the store will find the revision under.
-law carry_keeps_what_it_restates:
+# What `carry` says it wrote is what it files, named as the store will
+# name it. Whatever it is asked to carry, with `--fields` it says
+# `historica-wrote-1` and then, in its `revision` lines read back, exactly
+# the revisions it files — each once, in digest order — each by the name
+# the store reads it back under: the digest of the bytes `carry` files for
+# it, wherever they are filed.
+law carry_says_what_it_files:
   for +fs: List<&2, Main.Full>
   for +ds: List<&2, Store.Doc>
   for +c: Main.Carrying
-  for steps: List<&2, Main.Step>
+  for +steps: List<&2, Main.Step>
   for e: {Main.carry.plan(fs, ds, c) == Done{steps} : Result<&2, &2, String, List<&2, Main.Step>>}
-  {Main.steps.kept(fs, steps) == True{} : Bool}
+  for +path: String
+  {Main.fields.ok(Main.steps.filed(path, steps), Main.carry.said.lines(True{}, False{}, steps)) == True{} : Bool}
 
 # What `abandon` abandons is a line of work nothing has rewritten yet. It
 # begins at the revision named, and each revision after that stands on the
@@ -1927,15 +1928,25 @@ law record_writes_only_what_is_settled:
   for e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
   {Main.planned.settled(pl2, accepted) == True{} : Bool}
 
-# What `amend` rewrites is a revision the store holds: the target named,
-# or else the one head there is.
-law amend_rewrites_a_held_revision:
+# What `amend` rewrites, where a target is named, is the revision that
+# target names: the one every command resolves the same spelling to.
+law amend_rewrites_the_revision_named:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
-  for named: Maybe<&2, String>
-  for +f: Main.Full
-  for e: {Main.amend.target.r(fs, bs, named) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}
-  {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}
+  for +s: String
+  for f: Main.Full
+  for e: {Main.amend.target.r(fs, bs, Some{s}) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}
+  {Main.resolve(fs, bs, s) == Done{Main.id_of(f)} : Result<&2, &2, String, String>}
+
+# With no target named, `amend` rewrites the one current head: where it
+# goes on, the store's current heads are that revision and no other, so a
+# store with several, or none, is refused rather than guessed at.
+law amend_rewrites_the_one_head:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for f: Main.Full
+  for e: {Main.amend.target.r(fs, bs, None{}) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}
+  {Main.current_heads(Main.history(fs)) == [Main.id_of(f)] : List<&2, String>}
 
 # What `carry` is asked to carry, where a target is named, is a revision
 # the store holds.
@@ -1985,8 +1996,10 @@ law record_says_an_arrival_once:
 
 # Asked for `--fields`, what `record`, `amend`, `abandon` and `carry` say
 # of what they wrote is decision 0074's: `historica-wrote-1` first, and
-# then a `revision` line for each revision the act wrote — each named
-# once, in digest order, and none named that it did not write.
+# then `revision` lines which, read back, name exactly the revisions each
+# is handed as written — `record` its revision, `amend` and `abandon`
+# theirs and each they carried, `carry` each it carried — every one of
+# them, each once, in digest order, and nothing else.
 law writes_say_what_they_wrote:
   for +a: String
   for +when: String
@@ -2035,19 +2048,25 @@ law amend_keeps_what_it_added:
   for +hex: String
   {Main.amend.minted.ok(arriving, kept, Main.amend.minted(arriving, kept, hex)) == True{} : Bool}
 
-# `abandon` is asked for a revision and a reason. Where it goes on, a
-# target was named, a dry run did not also ask for `--fields`, and the
-# reason, the one thing a tombstone carries, is not blank.
-law abandon_asks_for_a_revision_and_a_reason:
+# `abandon` is asked which revision to abandon. It goes on only where its
+# words name one, and what they name is one of the words it was given and
+# not a flag: nothing is abandoned by default, and no flag is taken for a
+# target.
+law abandon_abandons_only_a_word_it_was_given:
+  for +args: List<&2, String>
   for c: Main.RwCmd
-  for +m: String
-  for u1: Unit
-  for u2: Unit
-  for u3: Unit
-  for e1: {Main.abandon.named.r(Main.rw.named(c)) == Done{u1} : Result<&2, &2, Main.Refused, Unit>}
-  for e2: {Main.rw.plan.r("abandon", Main.rw.dry_of(c), Main.rw.fields_of(c)) == Done{u2} : Result<&2, &2, Main.Refused, Unit>}
-  for e3: {Main.reason.r(m) == Done{u3} : Result<&2, &2, Main.Refused, Unit>}
-  {Main.abandon.asked(c, m) == True{} : Bool}
+  for e: {Main.abandon.words.r(args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}
+  {Main.abandon.target.ok(args, Main.rw.named(c)) == True{} : Bool}
+
+# A dry run is a plan, and `--fields` states what is on disk. Whatever
+# words `abandon` reads, the check it makes of them before it reads any
+# revision refuses `--dry-run --fields` after them as a usage error, with
+# exit code 2.
+law abandon_refuses_a_dry_run_with_fields:
+  for +args: List<&2, String>
+  for c: Main.RwCmd
+  for e: {Main.rw.args.r("abandon", args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}
+  {Main.refused.code(Main.RwCmd, Main.abandon.words.r(List.append(&2, String, args, ["--dry-run", "--fields"]))) == 2 : U32}
 
 # A kind is a fact about a file: where `record` goes on, every path
 # `--bytes` or `--lines` names is a file the folder holds.
@@ -2058,12 +2077,16 @@ law record_gives_kinds_only_to_files:
   for e: {Main.kinds.unheld.r(ks, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
   {Main.kinds.found(ks, found) == True{} : Bool}
 
-# A dry run of `abandon` begins by naming, in order, each revision of the
-# run it would abandon, by the first twelve letters of its digest.
+# A dry run of `abandon` says what it would do, and nothing else: a
+# `would abandon` line for each revision of the run, in order, naming it
+# by the first twelve letters of its digest with nothing after them but
+# what begins with two spaces, as the bookmarks there are named; then a
+# line saying a tombstone would supersede them; and after that only
+# `would carry` lines.
 law abandon_dry_run_names_the_run:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
   for +id: String
   for +only: Bool
   for +run: List<&2, String>
-  {Main.said.first(run, Main.abandon.dry.lines(fs, bs, id, only, run), "would abandon ") == True{} : Bool}
+  {Main.dry.said(run, Main.abandon.dry.lines(fs, bs, id, only, run)) == True{} : Bool}
