@@ -700,6 +700,9 @@ def Laws.files_lists_in_path_order(t):
 def Laws.files_lists_the_tree(t, k):
   ListL.files_keyed(t, k)
 
+def Laws.bookmark_file_reads_back(n, ok):
+  ListL.name_back(n, ok)
+
 def Laws.bookmarks_read_in_name_order(ps):
   ListL.order_sorted(ps)
 

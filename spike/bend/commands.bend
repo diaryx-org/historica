@@ -221,6 +221,17 @@ def bookmarks.read(+root: String, ns: List<&2, Named>) -> IO(List<&2, Bm.Bookmar
 def bookmarks.order(ps: List<&2, String>) -> List<&2, Named>:
   List.sort(~Named, ~(a => b => named.le(a, b)), named(ps))
 
+# What `LAWS.bookmarks_read_each_once` reads the store's listing as holding
+# under one name, from the listing itself rather than from `named`: each
+# path it lists, in the order listed, that `Bm.name` reads as that name,
+# paired with it.
+def bookmark_files(ps: List<&2, String>, +k: String) -> List<&2, Named>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case +p <> +rest:
+      Bool.pick(List<&2, Named>, Rev.maybe_eq(Bm.name(p), k), Named{k, p} <> bookmark_files(rest, k), bookmark_files(rest, k))
+
 # What opening the store reads besides its documents: the bookmarks, then
 # the rules of `skipped/` — each refusing the store, as the Rust tool's
 # `Store::open` does, where a file is not what it should be.
