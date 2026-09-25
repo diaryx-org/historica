@@ -56,6 +56,7 @@ import ./plan_lemmas.bend as PlanL
 import ./chain_lemmas.bend as ChainL
 import ./fulls_lemmas.bend as FullsL
 import ./sizes_lemmas.bend as SizesL
+import ./fetch_lemmas.bend as FetchL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -554,6 +555,15 @@ def Laws.diff_folder_reads_what_is_unsettled(dg, os, eds, hs):
 
 def Laws.diff_sizes_what_the_host_stated(found, stats, cs):
   SizesL.sized_told(found, stats, cs)
+
+def Laws.diff_fetches_what_it_replays(fs, ws, ns, files):
+  FetchL.diff_fetched(fs, ws, ns, files)
+
+def Laws.diff_folder_fetches_what_it_replays(fs, dg, os, eds, hs):
+  FetchL.folder_fetched(fs, dg, os, eds, hs)
+
+def Laws.reading_fetches_what_resolutions_keep(ds):
+  FetchL.kept_fetched(ds)
 
 def Laws.chain_follows_first_parents(fs, id):
   ChainL.chain_line(fs, id)

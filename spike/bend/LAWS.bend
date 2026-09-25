@@ -20,6 +20,7 @@ import ./store.bend as Store
 import ./survey.bend as Sv
 import ./sort_lemmas.bend as SortL
 import ./fulls_lemmas.bend as FullsL
+import ./fetch_lemmas.bend as FetchL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1043,6 +1044,34 @@ law diff_sizes_what_the_host_stated:
   for +stats: List<&2, String>
   for +cs: List<&2, Main.Compared>
   {Main.sizes.told(stats, cs, Main.sized(Main.sizes.read(found, stats), cs)) == True{} : Bool}
+
+# `diff <target>` asks the store for everything it replays. For every file
+# it compares whose content it reads — one side lacks it, or the two sides
+# were stated by different revisions — every document a revision states for
+# the file is among the documents it fetches.
+law diff_fetches_what_it_replays:
+  for +fs: List<&2, Main.Full>
+  for +ws: Map<&2, List<&2, String>>
+  for +ns: Map<&2, List<&2, String>>
+  for +files: List<&2, Main.Both>
+  {FetchL.fetched.each(fs, ws, ns, Main.compare.wanted_docs(fs, ws, ns, files), files) == True{} : Bool}
+
+# And over the folder: every document a revision states for a file of lines
+# no statement settles is among those `diff` fetches.
+law diff_folder_fetches_what_it_replays:
+  for +fs: List<&2, Main.Full>
+  for +dg: Map<&2, String>
+  for +os: Map<&2, T.Split>
+  for +eds: List<&2, Store.Doc>
+  for +hs: List<&2, Main.Here>
+  {FetchL.fetched.files(fs, Main.wanted_all(fs, Main.planned.replayed(Main.plans(dg, os, eds, hs))), Main.unsettled.files(dg, os, eds, hs)) == True{} : Bool}
+
+# What a resolution keeps is fetched too. After the documents a reading
+# command asks for, it asks for every document a resolution among them
+# keeps lines of, which assembling the resolution reads.
+law reading_fetches_what_resolutions_keep:
+  for +ds: List<&2, Store.Doc>
+  {FetchL.kept.each(ds, Main.kept_digests(ds)) == True{} : Bool}
 
 # The digest a statement gives a file is read along the first-parent line
 # back from the folder's position, the nearest revision on it to state the

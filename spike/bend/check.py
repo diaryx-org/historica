@@ -2203,6 +2203,20 @@ def check_mutations(temporary):
             "sizes_lemmas.says",
             "commands.bend",
         ),
+        (
+            "diff fetches nothing for a file it replays",
+            "    case True{}:\n      wanted(fs, f)\n",
+            "    case True{}:\n      Nil{}\n",
+            "fetch_lemmas.one_fetched",
+            "commands.bend",
+        ),
+        (
+            "what a resolution keeps left unfetched",
+            "    case True{}:\n      Res.keeps(Res.parse(text))\n",
+            "    case True{}:\n      Nil{}\n",
+            "fetch_lemmas.kept_one",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
