@@ -1369,6 +1369,25 @@ def span.shown(+fs: List<&2, Full>, sp: Span) -> List<&2, Full>:
     case Span.Between{+from, +to}:
       among(fs, Rev.without(reached(fs, to), reached(fs, from)))
 
+# Where `LAWS.log_lists_its_span` looks: a revision of the store a span
+# names — any, with no target; one the target reaches; or, of `a..b`, one
+# `b` reaches and `a` does not.
+def span.has(+fs: List<&2, Full>, sp: Span, +id: String) -> Bool:
+  match sp:
+    case Span.All{}:
+      Rev.member(ids(fs), id)
+    case Span.From{+a}:
+      Bool.and(Rev.member(ids(fs), id), Rev.member(reached(fs, a), id))
+    case Span.Between{+from, +to}:
+      Bool.and(Rev.member(ids(fs), id), Bool.and(Rev.member(reached(fs, to), id), Bool.not(Rev.member(reached(fs, from), id))))
+
+def span.all_in(+fs: List<&2, Full>, +sp: Span, xs: List<&2, Full>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(span.has(fs, sp, id_of(x)), span.all_in(fs, sp, rest))
+
 # The revision a `--path` is read at: the far end of what was named, or the
 # head where nothing was — and where there are several heads, none.
 def read_at.heads.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +path: String, heads: List<&2, String>) -> Result<&2, &2, Refused, String>:
@@ -2883,16 +2902,19 @@ def laid.new(ls: List<&2, Laid>) -> List<&2, Ops.Item>:
 
 # A line of the rendering and the colour it is drawn in where there is
 # colour: bold for a fact about a file, cyan for a hunk's header, red and
-# green for what left and arrived, nothing for context. Off, every line is
-# the bytes it would be anyway, which is what `historica diff | patch` sees.
+# green for what left and arrived, nothing for context. Its text is kept as
+# runs (`Piece`, under Emphasis below), one for most lines, so that a line
+# replaced one for one can have the runs that differ marked inside its
+# colour. Off, every line is its runs read as they are, the bytes it would
+# be anyway, which is what `historica diff | patch` sees.
 type Painted is Data:
-  Painted{code: String, text: String}
+  Painted{code: String, runs: List<&2, Piece>}
 
-def plain(text: String) -> Painted:
-  Painted{SNil{}, text}
+def painted.line(+code: String, text: String) -> Painted:
+  Painted{code, [Piece{text, False{}}]}
 
 def meta(text: String) -> Painted:
-  Painted{"\u{1b}[1m", text}
+  painted.line("\u{1b}[1m", text)
 
 def sign_code(+sign: String) -> String:
   Bool.pick(String, String.eq(sign, "-"), "\u{1b}[31m", Bool.pick(String, String.eq(sign, "+"), "\u{1b}[32m", SNil{}))
@@ -3007,9 +3029,9 @@ def hunks.made(ls: List<&2, Laid>) -> List<&2, Hunk>:
 def laid.text(+sign: String, it: Ops.Item) -> List<&2, Painted>:
   match it:
     case Ops.Item{t, True{}, f}:
-      [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, True{}, f})}]
+      [painted.line(sign_code(sign), sign ++ Ops.shown(Ops.Item{t, True{}, f}))]
     case Ops.Item{t, False{}, f}:
-      [Painted{sign_code(sign), sign ++ Ops.shown(Ops.Item{t, False{}, f})}, Painted{sign_code(sign), "\\ no newline at end of file"}]
+      [painted.line(sign_code(sign), sign ++ Ops.shown(Ops.Item{t, False{}, f})), painted.line(sign_code(sign), "\\ no newline at end of file")]
 
 # Emphasis
 # --------
@@ -3319,19 +3341,19 @@ def marks.fit(ns: List<&2, Numbered>, ms: List<&2, Maybe<&2, List<&2, Piece>>>) 
     case _ _:
       True{}
 
-def laid.marked.of(+sign: String, it: Ops.Item, t: String) -> List<&2, Painted>:
+def laid.marked.of(+sign: String, it: Ops.Item, ps: List<&2, Piece>) -> List<&2, Painted>:
   match it:
     case Ops.Item{x, True{}, f}:
-      [Painted{sign_code(sign), sign ++ t}]
+      [Painted{sign_code(sign), Piece{sign, False{}} <> ps}]
     case Ops.Item{x, False{}, f}:
-      [Painted{sign_code(sign), sign ++ t}, Painted{sign_code(sign), "\\ no newline at end of file"}]
+      [Painted{sign_code(sign), Piece{sign, False{}} <> ps}, painted.line(sign_code(sign), "\\ no newline at end of file")]
 
 def laid.marked(+sign: String, it: Ops.Item, m: Maybe<&2, List<&2, Piece>>) -> List<&2, Painted>:
   match m:
     case None{}:
       laid.text(sign, it)
     case Some{ps}:
-      laid.marked.of(sign, it, pieces.show(ps))
+      laid.marked.of(sign, it, ps)
 
 def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, List<&2, Piece>>>) -> List<&2, Painted>:
   match ns marks:
@@ -3342,10 +3364,13 @@ def hunk.lines(ns: List<&2, Numbered>, marks: List<&2, Maybe<&2, List<&2, Piece>
     case Numbered{Laid{sign, it}, b, a} <> rest Nil{}:
       List.append(&2, Painted, laid.text(sign, it), hunk.lines(rest, Nil{}))
 
+def hunk.header(o: Nat, oc: Nat, n: Nat, nc: Nat) -> Painted:
+  painted.line("\u{1b}[36m", "@@ -" ++ Nat.show(o) ++ "," ++ Nat.show(oc) ++ " +" ++ Nat.show(n) ++ "," ++ Nat.show(nc) ++ " @@")
+
 def hunk.shown(+paint: Bool, h: Hunk) -> List<&2, Painted>:
   match h:
     case Hunk{o, oc, n, nc, +ns}:
-      Painted{"\u{1b}[36m", "@@ -" ++ Nat.show(o) ++ "," ++ Nat.show(oc) ++ " +" ++ Nat.show(n) ++ "," ++ Nat.show(nc) ++ " @@"} <> hunk.lines(ns, emph(ns, paint))
+      hunk.header(o, oc, n, nc) <> hunk.lines(ns, emph(ns, paint))
 
 def hunks.shown(+paint: Bool, hs: List<&2, Hunk>) -> List<&2, Painted>:
   match hs:
@@ -3692,10 +3717,19 @@ def diff.rendered(+paint: Bool, ps: List<&2, Compared>) -> List<&2, Painted>:
     case p <> rest:
       List.append(&2, Painted, render(paint, p), diff.rendered(paint, rest))
 
+# A line as printed: with colour, its runs drawn with the marks they have
+# and the whole in its colour; without, its runs as they are.
 def painted(+paint: Bool, p: Painted) -> String:
-  match p:
-    case Painted{+code, +text}:
-      Bool.pick(String, Bool.and(paint, Bool.not(String.is_empty(code))), code ++ text ++ "\u{1b}[0m", text)
+  match paint:
+    case True{}:
+      match p:
+        case Painted{+code, runs}:
+          +text = pieces.show(runs)
+          Bool.pick(String, String.is_empty(code), text, code ++ text ++ "\u{1b}[0m")
+    case False{}:
+      match p:
+        case Painted{code, runs}:
+          pieces.text(runs)
 
 def print_painted(+paint: Bool, ls: List<&2, Painted>) -> IO(Unit):
   match ls:
@@ -4222,6 +4256,71 @@ def split_rests(xs: List<&2, T.Split>) -> List<&2, String>:
     case T.Split{a, b} <> rest:
       b <> split_rests(rest)
 
+# Where `LAWS.diff_sizes_what_the_host_stated` looks. The host states a
+# size for a digest where it answered a line beginning with that digest,
+# the size after it.
+def nat.is(m: Maybe<&2, Nat>, +n: Nat) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{k}:
+      Nat.is_eq(k, n)
+
+def stat.says(stats: List<&2, String>, +d: String, +n: Nat) -> Bool:
+  match stats:
+    case Nil{}:
+      False{}
+    case +st <> rest:
+      Bool.or(Bool.and(String.eq(T.word(st), d), nat.is(Nat.read(String.drop(st, 65n)), n)), stat.says(rest, d, n))
+
+# Two sides hold the same: the same lines, or the same digest and size.
+def size.same(m: Maybe<&2, Nat>, k: Maybe<&2, Nat>) -> Bool:
+  match m k:
+    case None{} None{}:
+      True{}
+    case Some{a} Some{b}:
+      Nat.is_eq(a, b)
+    case _ _:
+      False{}
+
+def side.same(s: Maybe<&2, Side>, t: Maybe<&2, Side>) -> Bool:
+  match s t:
+    case None{} None{}:
+      True{}
+    case Some{Side.Lines{a}} Some{Side.Lines{b}}:
+      items_eq(a, b)
+    case Some{Side.Whole{d, m}} Some{Side.Whole{e, k}}:
+      Bool.and(String.eq(d, e), size.same(m, k))
+    case _ _:
+      False{}
+
+# A side whose size was unknown keeps its digest, and has a size only where
+# the host stated one for that digest; any other side is as it was.
+def side.given(+stats: List<&2, String>, +d: String, t: Maybe<&2, Side>) -> Bool:
+  match t:
+    case Some{Side.Whole{e, None{}}}:
+      String.eq(d, e)
+    case Some{Side.Whole{e, Some{+n}}}:
+      Bool.and(String.eq(d, e), stat.says(stats, d, n))
+    case _:
+      False{}
+
+def side.told(+stats: List<&2, String>, s: Maybe<&2, Side>, t: Maybe<&2, Side>) -> Bool:
+  match s:
+    case Some{Side.Whole{+d, None{}}}:
+      side.given(stats, d, t)
+    case other:
+      side.same(other, t)
+
+def sizes.told(+stats: List<&2, String>, cs: List<&2, Compared>, ds: List<&2, Compared>) -> Bool:
+  match cs ds:
+    case Nil{} Nil{}:
+      True{}
+    case Compared{f, t, b, a, m, g} <> rest Compared{f2, t2, b2, a2, m2, g2} <> more:
+      Bool.and(Bool.and(side.told(stats, b, b2), side.told(stats, a, a2)), sizes.told(stats, rest, more))
+    case _ _:
+      False{}
+
 def diff.sized(+root: String, +paint: Bool, cs: List<&2, Compared>) -> IO(Unit):
   do IO<Unit>:
     +cs2 : List<&2, Compared> = cs
@@ -4307,21 +4406,38 @@ def first_parent(+fs: List<&2, Full>, ps: List<&2, String>) -> Maybe<&2, Full>:
     case p <> rest:
       find(fs, p)
 
-def chain.go(fuel: Nat, +fs: List<&2, Full>, at: Maybe<&2, Full>, acc: List<&2, Full>) -> List<&2, Full>:
+def chain.go(fuel: Nat, +fs: List<&2, Full>, at: Maybe<&2, Full>) -> List<&2, Full>:
   match fuel at:
     case 0n _:
-      List.reverse(&2, Full, acc)
+      Nil{}
     case 1n+q None{}:
-      List.reverse(&2, Full, acc)
+      Nil{}
     case 1n+q Some{+f}:
-      chain.go(q, fs, first_parent(fs, parents_of(f)), f <> acc)
+      f <> chain.go(q, fs, first_parent(fs, parents_of(f)))
 
 def chain(+fs: List<&2, Full>, at: Maybe<&2, String>) -> List<&2, Full>:
   match at:
     case None{}:
       Nil{}
     case Some{+id}:
-      chain.go(1n+List.length(&2, Full, fs), fs, find(fs, id), Nil{})
+      chain.go(1n+List.length(&2, Full, fs), fs, find(fs, id))
+
+# Where `LAWS.chain_follows_first_parents` looks: revisions the store holds,
+# the first the one wanted, and each after it the first parent of the one
+# before.
+def parent.first(ps: List<&2, String>) -> Maybe<&2, String>:
+  match ps:
+    case Nil{}:
+      None{}
+    case p <> rest:
+      Some{p}
+
+def first_parents(+fs: List<&2, Full>, xs: List<&2, Full>, want: Maybe<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Bool.and(Rev.member(ids(fs), id_of(x)), maybe_eq(want, Some{id_of(x)})), first_parents(fs, rest, parent.first(parents_of(x))))
 
 # For each file, the nearest statement of its content on that line: the key
 # (`text`, `bytes` or `edit`) and the document it names.
@@ -4533,14 +4649,31 @@ def stat_of(+file: String, r: Map<&2, String> & String) -> String:
 type Planned is Data:
   Planned{here: Here, digest: String, replay: Bool, read: Bool}
 
+# The digest the host gave the folder's file at a path: the first word of
+# the line it answered for the path.
+def here.digest(+dg: Map<&2, String>, h: Here) -> String:
+  +path = here.path(h)
+  T.word(stat_of(path, Map.get(String, SNil{}, dg, path)))
+
+# Whether a file's nearest statement leaves it with this digest.
+def here.same(+eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, h: Here, +digest: String) -> Bool:
+  maybe_eq(stated_digest(eds, origin(os, here.file(h))), Some{digest})
+
+# Whether the position holds a file at a path.
+def here.held(h: Here) -> Bool:
+  match h:
+    case Here{p, Some{e}, found}:
+      True{}
+    case Here{p, None{}, found}:
+      False{}
+
 def plan.of(+h: Here, +digest: String, +lines: Bool, +regular: Bool, +same: Bool) -> Planned:
-  Planned{h, digest, Bool.and(lines, Bool.not(Bool.and(regular, same))), Bool.and(regular, Bool.or(String.is_empty(here.file(h)), Bool.and(lines, Bool.not(same))))}
+  Planned{h, digest, Bool.and(lines, Bool.not(Bool.and(regular, same))), Bool.and(regular, Bool.or(Bool.not(here.held(h)), Bool.and(lines, Bool.not(same))))}
 
 def plan(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, h: Here) -> Planned:
   +h2 = h
-  +digest = T.word(stat_of(here.path(h2), Map.get(String, SNil{}, dg, here.path(h2))))
-  plan.of(h2, digest, here.lines(h2), here.regular(h2),
-    maybe_eq(stated_digest(eds, origin(os, here.file(h2))), Some{digest}))
+  +digest = here.digest(dg, h2)
+  plan.of(h2, digest, here.lines(h2), here.regular(h2), here.same(eds, os, h2, digest))
 
 def plans(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, Planned>:
   match hs:
@@ -4562,6 +4695,36 @@ def planned.read(ps: List<&2, Planned>) -> List<&2, String>:
       Nil{}
     case Planned{+h, d, p, +read} <> rest:
       Rev.keep(read, here.path(h), planned.read(rest))
+
+# What the digests stated leave open. A file of lines is settled where the
+# folder holds a regular file at its path with the digest the file's nearest
+# statement leaves; a file of bytes or a link the position holds is settled
+# by its digest or its target, whatever the folder holds there.
+# `LAWS.diff_folder_replays_what_is_unsettled` and
+# `LAWS.diff_folder_reads_what_is_unsettled` hold `plans` to it.
+def here.settled(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, h: Here) -> Bool:
+  +h2 = h
+  Bool.and(Bool.and(here.lines(h2), here.regular(h2)), here.same(eds, os, h2, here.digest(dg, h2)))
+
+def here.kept(h: Here) -> Bool:
+  +h2 = h
+  Bool.and(here.held(h2), Bool.not(here.lines(h2)))
+
+# The files of lines no statement settles, by file; and the folder's regular
+# files nothing the position holds settles, by path.
+def unsettled.files(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      Rev.keep(Bool.and(here.lines(h), Bool.not(here.settled(dg, os, eds, h))), here.file(h), unsettled.files(dg, os, eds, rest))
+
+def unsettled.paths(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      Rev.keep(Bool.and(here.regular(h), Bool.not(Bool.or(here.kept(h), here.settled(dg, os, eds, h)))), here.path(h), unsettled.paths(dg, os, eds, rest))
 
 def wanted_all(+fs: List<&2, Full>, files: List<&2, String>) -> List<&2, String>:
   match files:
@@ -6809,6 +6972,103 @@ def record.args.go(args: List<&2, String>, c: RecordCmd, k: RWord) -> Result<&2,
 def record.args.r(+args: List<&2, String>) -> Result<&2, &2, Refused, RecordCmd>:
   record.args.go(args, RecordCmd{None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, rword(args))
 
+# What `record`'s words say, read plainly. Each word is read as a flag and
+# what it says: the word after a flag that takes a value is that value,
+# whatever it is, and a word that is no flag is a path, with the slashes a
+# shell leaves on a directory taken off. What each flag's words then mean
+# is `rargs.said`; `LAWS.record_reads_its_words` holds `record.args.r` to it.
+def rargs.read(args: List<&2, String>, k: RWord) -> List<&2, T.Split>:
+  match args k:
+    case Nil{} _:
+      Nil{}
+    case w <> v <> +rest RWord.Message{}:
+      T.Split{"-m", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Onto{}:
+      T.Split{"--onto", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Merge{}:
+      T.Split{"--merge", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Accept{}:
+      T.Split{"--accept", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.At{}:
+      T.Split{"--at", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Move{}:
+      T.Split{"--move", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Bytes{}:
+      T.Split{"--bytes", v} <> rargs.read(rest, rword(rest))
+    case w <> v <> +rest RWord.Lines{}:
+      T.Split{"--lines", v} <> rargs.read(rest, rword(rest))
+    case w <> +rest RWord.Dry{}:
+      T.Split{"--dry-run", SNil{}} <> rargs.read(rest, rword(rest))
+    case w <> +rest RWord.Fields{}:
+      T.Split{"--fields", SNil{}} <> rargs.read(rest, rword(rest))
+    case +w <> +rest RWord.Path{}:
+      T.Split{"path", trimmed(w)} <> rargs.read(rest, rword(rest))
+    case w <> +rest _:
+      rargs.read(rest, rword(rest))
+
+# Every value a flag was given, in order.
+def rargs.values(items: List<&2, T.Split>, +key: String) -> List<&2, String>:
+  match items:
+    case Nil{}:
+      Nil{}
+    case T.Split{+k, v} <> rest:
+      +later = rargs.values(rest, key)
+      Bool.pick(List<&2, String>, String.eq(k, key), v <> later, later)
+
+# The last value a flag was given, or `last` where it was given none.
+def rargs.last(items: List<&2, T.Split>, +key: String, last: Maybe<&2, String>) -> Maybe<&2, String>:
+  match items:
+    case Nil{}:
+      last
+    case T.Split{+k, v} <> rest:
+      rargs.last(rest, key, Bool.pick(Maybe<&2, String>, String.eq(k, key), Some{v}, last))
+
+# Whether a flag is there, or `had`.
+def rargs.has(items: List<&2, T.Split>, +key: String, had: Bool) -> Bool:
+  match items:
+    case Nil{}:
+      had
+    case T.Split{+k, v} <> rest:
+      rargs.has(rest, key, Bool.pick(Bool, String.eq(k, key), True{}, had))
+
+# Each path `--bytes` and `--lines` name, with the kind it is said to be.
+def rargs.kinds(items: List<&2, T.Split>) -> List<&2, T.Split>:
+  match items:
+    case Nil{}:
+      Nil{}
+    case T.Split{+k, +v} <> rest:
+      +later = rargs.kinds(rest)
+      Bool.pick(List<&2, T.Split>, String.eq(k, "--bytes"), T.Split{v, "bytes"} <> later,
+      Bool.pick(List<&2, T.Split>, String.eq(k, "--lines"), T.Split{v, "lines"} <> later, later))
+
+# `<one>=<other>` cut at its first `=`.
+def rargs.cut.of(+v: String, parts: List<&2, String>) -> T.Split:
+  match parts:
+    case a <> b <> rest:
+      T.Split{a, String.join(b <> rest, "=")}
+    case _:
+      T.Split{v, SNil{}}
+
+def rargs.cut(+v: String) -> T.Split:
+  rargs.cut.of(v, String.split(v, '='))
+
+def rargs.cuts(vs: List<&2, String>) -> List<&2, T.Split>:
+  match vs:
+    case Nil{}:
+      Nil{}
+    case +v <> rest:
+      rargs.cut(v) <> rargs.cuts(rest)
+
+# What the words mean: the last `--onto`; each `--merge`, `--at`, `--move`,
+# `--bytes` and `--lines`, in order, an `--at` or a `--move` cut at its
+# first `=`; `-n` and `--fields` if they are there; the last `-m`. Each
+# `--accept` and each path is kept too, the last first.
+def rargs.said(+items: List<&2, T.Split>) -> RecordCmd:
+  RecordCmd{rargs.last(items, "--onto", None{}), rargs.values(items, "--merge"), List.reverse(&2, String, rargs.values(items, "--accept")),
+    rargs.cuts(rargs.values(items, "--at")), rargs.cuts(rargs.values(items, "--move")), rargs.kinds(items),
+    List.reverse(&2, String, rargs.values(items, "path")), rargs.has(items, "--dry-run", False{}), rargs.has(items, "--fields", False{}),
+    rargs.last(items, "-m", None{})}
+
 # One path, two kinds, is a person who typed something they did not mean.
 def kinds.differs(ks: List<&2, T.Split>, +p: String, +k: String) -> Bool:
   match ks:
@@ -6864,6 +7124,15 @@ def kinds.unheld.r(ks: List<&2, T.Split>, +found: Set()) -> Result<&2, &2, Refus
       Bool.pick(Result<&2, &2, Refused, Unit>, Sv.has(found, p), kinds.unheld.r(rest, found),
         Fail{Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}})
 
+# Every path given a kind is a file the folder holds.
+# `LAWS.record_gives_kinds_only_to_files`.
+def kinds.found(ks: List<&2, T.Split>, +found: Set()) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case T.Split{+p, k} <> rest:
+      Bool.and(Sv.has(found, p), kinds.found(rest, found))
+
 # `--at`'s file, by a file bookmark or an identifier: `target::file_by_name`.
 def at.file.of(+s: String, found: Maybe<&2, Bm.Target>) -> Result<&2, &2, Refused, String>:
   match found:
@@ -6899,6 +7168,19 @@ def restricted.r(+named: List<&2, String>, +ps: List<&2, String>, moves: List<&2
   Bool.pick(Result<&2, &2, Refused, Unit>, Nat.is_gt(List.length(&2, String, ps), 1n),
     Fail{Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ skips_held.lines(named)}},
     restricted.half.r(named, moves)))
+
+# A record restricted to some paths is no merge, and every rename it
+# states is among those paths at both its ends.
+# `LAWS.record_restricts_no_merge_and_no_half_rename`.
+def renames.covered(+named: List<&2, String>, moves: List<&2, T.Split>) -> Bool:
+  match moves:
+    case Nil{}:
+      True{}
+    case T.Split{+from, +to} <> rest:
+      Bool.and(Bool.and(Sv.covers(named, from), Sv.covers(named, to)), renames.covered(named, rest))
+
+def restriction.whole(+named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>) -> Bool:
+  Bool.or(List.is_empty(&2, String, named), Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), renames.covered(named, moves)))
 
 # `--fields`'s header, and a refusal that owes it first: `historica-wrote-1`
 # goes out before any refusal but a usage error, wherever the command stops.
@@ -7023,6 +7305,21 @@ def placed.r(+t: Tree.Tree(), +ats: List<&2, T.Split>, +ms: List<&2, T.Split>) -
     p : Placed <- placed.at.r(ats, t, Nil{}, placed.holds(t, ats))
     placed.of.r(p, ms)
 
+# Every file a stated rename moves is one of `files`: `--at` names a file
+# the position holds, and `--move` a path one file alone holds there.
+# `LAWS.record_moves_only_held_files`.
+def moved.held(+files: List<&2, String>, moved: List<&2, T.Split>) -> Bool:
+  match moved:
+    case Nil{}:
+      True{}
+    case T.Split{+f, to} <> rest:
+      Bool.and(Rev.member(files, f), moved.held(files, rest))
+
+def placed.moved(p: Placed) -> List<&2, T.Split>:
+  match p:
+    case Placed{t, moved}:
+      moved
+
 # A named path nothing answers to, and whether a rule keeps it out.
 def these(+ps: List<&2, String>, +one: String, +many: String) -> String:
   Bool.pick(String, Nat.is_eq(List.length(&2, String, ps), 1n), one, many)
@@ -7064,6 +7361,15 @@ def not_lines(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&
         not_lines(ks, reads, rest))
     case h <> rest:
       not_lines(ks, reads, rest)
+
+# Every file `record` reads because a person said it is lines is text
+# where recording goes on. `LAWS.record_reads_lines_as_text`.
+def utf8.all(+reads: Map<&2, List<&2, U32>>, ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case +p <> rest:
+      Bool.and(Folder.is_utf8(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), utf8.all(reads, rest))
 
 # What recording refuses that `status` only describes, in the order the
 # Rust tool asks: a link left dangling, a path several files claim, what
@@ -7117,12 +7423,25 @@ def planned.r(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>)
         Fail{Refused{1, these(needless, "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ accept.lines(needless)}},
         Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))))
 
-def record.print(fs: List<&2, T.Split>) -> IO(Unit):
+# What `record` goes on to write is a plan the survey settled: no path
+# several files claim, nothing the format cannot record, nothing a merge
+# would leave empty, no fault, and the attachments accepted exactly the
+# ones concurrent work contests. `LAWS.record_writes_only_what_is_settled`.
+def planned.settled(pl: Sv.Planned, +accepted: List<&2, String>) -> Bool:
+  match pl:
+    case Sv.Planned{facts, refused, claimed, +accept, emptied, fault, obs, links}:
+      Bool.and(List.is_empty(&2, T.Split, claimed), Bool.and(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, String, emptied),
+        Bool.and(Maybe.is_none(&2, String, fault), Bool.and(List.is_empty(&2, String, minus(accept, accepted)), List.is_empty(&2, String, minus(accepted, accept)))))))
+
+def record.print.lines(fs: List<&2, T.Split>) -> List<&2, String>:
   match fs:
     case Nil{}:
-      IO.print("nothing here differs from what is recorded")
+      ["nothing here differs from what is recorded"]
     case some:
-      print_facts(some)
+      facts.said(some)
+
+def record.print(fs: List<&2, T.Split>) -> IO(Unit):
+  print_lines(record.print.lines(fs))
 
 def found_paths(fs: List<&2, Folder.Found>) -> List<&2, String>:
   T.map(~Folder.Found, ~String, ~(f => Folder.found.path(f)), fs)
@@ -7326,10 +7645,8 @@ def arriving.kind(+file: String, +p: String, +digest: String, +bs: List<&2, U32>
 
 def arriving.of(+file: String, +p: String, +digest: String, +bs: List<&2, U32>, stated: Maybe<&2, String>) -> List<&2, Content>:
   match stated:
-    case Some{"bytes"}:
-      [Content.Whole{file, p, digest}]
     case Some{k}:
-      arriving.kind(file, p, digest, bs, True{})
+      Bool.pick(List<&2, Content>, String.eq(k, "bytes"), [Content.Whole{file, p, digest}], arriving.kind(file, p, digest, bs, True{}))
     case None{}:
       arriving.kind(file, p, digest, bs, Bool.and(Folder.is_utf8(bs), Bool.not(Folder.has_nul(bs))))
 
@@ -7548,28 +7865,29 @@ def filed.io(+st: Bool, +root: String, +repo: String, +stem: String, +names: Lis
     case _ _:
       IO.pure(Unit, Unit{})
 
-def said.names(+prefix: String, +suffix: String, ns: List<&2, String>) -> IO(Unit):
+def said.lines(+prefix: String, +suffix: String, ns: List<&2, String>) -> List<&2, String>:
   match ns:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case n <> rest:
-      do IO<Unit>:
-        IO.print(prefix ++ n ++ suffix)
-        said.names(prefix, suffix, rest)
+      (prefix ++ n ++ suffix) <> said.lines(prefix, suffix, rest)
 
-def record.said(+w: Writing, +facts: List<&2, T.Split>, +change: String, +id: String, +names: List<&2, String>, +ps: List<&2, String>) -> IO(Unit):
+def said.names(+prefix: String, +suffix: String, ns: List<&2, String>) -> IO(Unit):
+  print_lines(said.lines(prefix, suffix, ns))
+
+# What a record says it did: for a machine, decision 0074's header, the
+# revision, and each bookmark moved; for a person, the facts, the change
+# and the revision, each bookmark moved, and whether this is a root.
+def record.said.lines(w: Writing, +facts: List<&2, T.Split>, +change: String, +id: String, +names: List<&2, String>, +ps: List<&2, String>) -> List<&2, String>:
   match w:
     case Writing{a, when, m, True{}}:
-      do IO<Unit>:
-        IO.print(WROTE())
-        IO.print("revision " ++ id)
-        said.names("name ", SNil{}, names)
+      WROTE() <> ("revision " ++ id) <> said.lines("name ", SNil{}, names)
     case Writing{a, when, m, False{}}:
-      do IO<Unit>:
-        print_facts(facts)
-        IO.print("recorded " ++ String.take(change, 8n) ++ " as " ++ String.take(id, 12n))
-        said.names(SNil{}, " -> " ++ String.take(change, 8n), names)
-        Bool.pick(IO(Unit), List.is_empty(&2, String, ps), IO.print("this is a root: it has no parent"), IO.pure(Unit, Unit{}))
+      List.concat(&2, String, [facts.said(facts), ["recorded " ++ String.take(change, 8n) ++ " as " ++ String.take(id, 12n)], said.lines(SNil{}, " -> " ++ String.take(change, 8n), names),
+        Bool.pick(List<&2, String>, List.is_empty(&2, String, ps), ["this is a root: it has no parent"], Nil{})])
+
+def record.said(+w: Writing, +facts: List<&2, T.Split>, +change: String, +id: String, +names: List<&2, String>, +ps: List<&2, String>) -> IO(Unit):
+  print_lines(record.said.lines(w, facts, change, id, names, ps))
 
 def stating.contents(s: Stating) -> List<&2, Content>:
   match s:
@@ -7596,18 +7914,78 @@ def writing.stem(w: Writing, +change: String, +id: String, +ns: List<&2, Naming.
 type Drafted is Data:
   Drafted{contents: List<&2, Content>, facts: List<&2, Rev.Header>}
 
-def drafted(+st: Bool, +root: String, +fs: List<&2, Full>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> IO(Drafted):
+# `befores` is the position's content of each file of lines it edits.
+def drafted.of(+befores: List<&2, Before>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> Drafted:
   +arriving = Sv.sorted(Sv.added(obs))
   +gone = Sv.dropped_files(obs)
-  +edited = Sv.edited(obs)
+  +said = stating.all(mint, arriving, Sv.edited(obs), ks, dg, reads, befores, hs)
+  +cs = stating.contents(said)
+  +modes = List.append(&2, T.Split, stating.modes(said), modes.held(mint, t, Sv.modes(obs), hs))
+  +links = links.stated(mint, t, Set.from_list(gone), Set.from_list(arriving), Sv.pointing(obs), ls)
+  Drafted{cs, record.facts(swapped(mint), Sv.moved.final(moves, Set.from_list(gone)), modes, gone, cs, links)}
+
+def drafted(+st: Bool, +root: String, +fs: List<&2, Full>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> IO(Drafted):
   do IO<Drafted>:
-    befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(edited, hs))
-    +said : Stating = stating.all(mint, arriving, edited, ks, dg, reads, befores, hs)
-    +cs : List<&2, Content> = stating.contents(said)
-    +modes : List<&2, T.Split> = List.append(&2, T.Split, stating.modes(said), modes.held(mint, t, Sv.modes(obs), hs))
-    +links : List<&2, T.Split> = links.stated(mint, t, Set.from_list(gone), Set.from_list(arriving), Sv.pointing(obs), ls)
-    +moved : List<&2, T.Split> = Sv.moved.final(moves, Set.from_list(gone))
-    return Drafted{cs, record.facts(swapped(mint), moved, modes, gone, cs, links)}
+    befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(Sv.edited(obs), hs))
+    return drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint)
+
+# What `record` states a file holds is what the folder holds there: an
+# edit is the written form of the document that replays the position's
+# lines of the file to the folder's, text is the folder's bytes, and a
+# payload is named by the digest of the folder's. `befores` is the
+# position's content of each file of lines. `LAWS.record_states_the_folder`.
+def content.applied(r: Result<&2, &2, String, List<&2, Ops.Item>>, +after: List<&2, Ops.Item>) -> Bool:
+  match r:
+    case Done{xs}:
+      items_eq(xs, after)
+    case Fail{e}:
+      False{}
+
+def content.replays(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +doc: String, d: Maybe<&2, Ops.Doc>) -> Bool:
+  match d:
+    case None{}:
+      False{}
+    case Some{+x}:
+      Bool.and(String.eq(Ops.write(x), doc), content.applied(Ops.apply(before, x), after))
+
+def bytes.same(a: List<&2, U32>, b: List<&2, U32>) -> Bool:
+  match a b:
+    case x <> xs y <> ys:
+      Bool.and(U32.is_eq(x, y), bytes.same(xs, ys))
+    case Nil{} Nil{}:
+      True{}
+    case _ _:
+      False{}
+
+def content.states(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, c: Content) -> Bool:
+  match c:
+    case Content.Ops{+f, +p, +doc}:
+      +before = before_of(befores, f)
+      +after = Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))
+      content.replays(before, after, doc, Ops.diff(before, after))
+    case Content.Text{f, +p, bs}:
+      bytes.same(bs, bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))
+    case Content.Whole{f, +p, d}:
+      String.eq(d, status.folder_digest(dg, p))
+
+def contents.state(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case c <> rest:
+      Bool.and(content.states(befores, dg, reads, c), contents.state(befores, dg, reads, rest))
+
+# The position's content `record` reads for the files it edits: one
+# reading of each file asked about, in order, and each the store's replay
+# of that file at the position. `LAWS.record_reads_the_position`.
+def befores.read(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>, bs: List<&2, Before>) -> Bool:
+  match files bs:
+    case +f <> rest Before{+g, +items} <> more:
+      Bool.and(String.eq(g, f), Bool.and(content.applied(content.in(older, ds, left, f), items), befores.read(older, ds, left, rest, more)))
+    case Nil{} Nil{}:
+      True{}
+    case _ _:
+      False{}
 
 def drafted.contents(d: Drafted) -> List<&2, Content>:
   match d:
@@ -7632,34 +8010,81 @@ def revision.filed(+st: Bool, +root: String, +stem: String, +text: String) -> IO
     done_wr : String <- wrote.io(st, wr)
     IO.pure(Unit, Unit{})
 
-# A record, written: identifiers minted for the files arriving, in path
-# order, then the change's; the content filed; the revision; and the
+# What a record writes, once its identifiers are drawn and the position's
+# content of each file it edits is read: an identifier minted for each
+# file arriving, in path order, and one after them for the change; the
+# content of each file; the revision, named by the digest of its text and
+# filed under the stem its moment, message and change give it; and the
 # bookmarks that follow the work. `t` is the tree where the stated renames
 # put each file, and `hs` every path the record looks at.
+type Recorded is Data:
+  Recorded{mint: List<&2, T.Split>, change: String, contents: List<&2, Content>, doc: Rev.Rev, id: String, stem: String, moving: List<&2, Bm.Bookmark>}
+
+def record.planned(+w: Writing, +hex: String, +befores: List<&2, Before>, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>) -> Recorded:
+  +arriving = Sv.sorted(Sv.added(obs))
+  +n = List.length(&2, String, arriving)
+  +ids = ids.minted(Nat.add(n, 1n), hex)
+  +mint = zipped(arriving, ids)
+  +change = Maybe.default(&2, String, List.get(&2, String, ids, n), SNil{})
+  +dr = drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint)
+  +doc = writing.rev(w, change, ps, drafted.facts(dr))
+  +id = Sha.digest(Utf8.encode(Rev.write(doc)))
+  Recorded{mint, change, drafted.contents(dr), doc, id, writing.stem(w, change, id, T.map(~Full, ~Naming.Named, ~(f => full.named(f)), fs)), advancing(parents.changes(fs, ps), bs)}
+
+# A record, written: the content filed, the revision, and the bookmarks
+# that follow the work.
+def record.written(+st: Bool, +root: String, +repo: String, +w: Writing, +facts: List<&2, T.Split>, +ps: List<&2, String>, r: Recorded) -> IO(Unit):
+  match r:
+    case Recorded{mint, +change, +cs, +doc, +id, +stem, moving}:
+      do IO<Unit>:
+        contents.filed(st, root, repo, stem, cs)
+        revision.filed(st, root, stem, Rev.write(doc))
+        advanced : List<&2, String> <- advance(st, root, change, moving)
+        record.said(w, facts, change, id, List.sort(~String, ~(a => b => String.is_le(a, b)), advanced), ps)
+
+# A record that states nothing is refused; otherwise identifiers are drawn
+# for the files arriving and the change, the position's content read, and
+# what that makes written.
 def record.write(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, pl: Sv.Planned, +w: Writing) -> IO(Unit):
   match pl:
     case Sv.Planned{+facts, r, c, a, e, d, +obs, +ls}:
-      +arriving = Sv.sorted(Sv.added(obs))
+      +n = List.length(&2, String, Sv.sorted(Sv.added(obs)))
       do IO<Unit>:
         stated.io(Unit, st, Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(List.is_empty(&2, T.Split, facts), Nat.is_lt(List.length(&2, String, ps), 2n)),
           Fail{Refused{1, "nothing here differs from what is already recorded, and a revision that states nothing would mean nothing"}}, Done{Unit{}}))
-        +n : Nat = List.length(&2, String, arriving)
         drew : Result<&1, &1, U32 & String, String> <- Store.drawn(Nat.show(Nat.mul(12n, Nat.add(n, 1n))))
         hex : String <- wrote.io(st, drew)
-        +ids : List<&2, String> = ids.minted(Nat.add(n, 1n), hex)
-        +mint : List<&2, T.Split> = zipped(arriving, ids)
-        +change : String = Maybe.default(&2, String, List.get(&2, String, ids, n), SNil{})
-        dr : Drafted <- drafted(st, root, fs, ps, t, hs, dg, reads, ks, moves, obs, ls, mint)
-        +dr2 : Drafted = dr
-        +cs : List<&2, Content> = drafted.contents(dr2)
-        +doc : Rev.Rev = writing.rev(w, change, ps, drafted.facts(dr2))
-        +text : String = Rev.write(doc)
-        +id : String = Sha.digest(Utf8.encode(text))
-        +stem : String = writing.stem(w, change, id, T.map(~Full, ~Naming.Named, ~(f => full.named(f)), fs))
-        contents.filed(st, root, repo, stem, cs)
-        revision.filed(st, root, stem, text)
-        advanced : List<&2, String> <- advance(st, root, change, advancing(parents.changes(fs, ps), bs))
-        record.said(w, facts, change, id, List.sort(~String, ~(a => b => String.is_le(a, b)), advanced), ps)
+        befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(Sv.edited(obs), hs))
+        record.written(st, root, repo, w, facts, ps, record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))
+
+# What a record writes is named as it says: each file arriving is added
+# under the identifier minted for it, in path order; the revision is named
+# by the digest of its text, and filed under the name its moment, message
+# and change compose; and each bookmark it moves names the change of one
+# of its parents. `LAWS.record_names_what_it_writes`.
+def strings.same(a: List<&2, String>, b: List<&2, String>) -> Bool:
+  match a b:
+    case x <> xs y <> ys:
+      Bool.and(String.eq(x, y), strings.same(xs, ys))
+    case Nil{} Nil{}:
+      True{}
+    case _ _:
+      False{}
+
+def follows(+changes: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> Bool:
+  match bs:
+    case Nil{}:
+      True{}
+    case Bm.Bookmark{n, Bm.Target.Change{+c}, p} <> rest:
+      Bool.and(Rev.member(changes, c), follows(changes, rest))
+    case b <> rest:
+      False{}
+
+def record.named(w: Writing, +arriving: List<&2, String>, +changes: List<&2, String>, r: Recorded) -> Bool:
+  match w r:
+    case Writing{a, +when, +message, f} Recorded{mint, +change, cs, +doc, +id, +stem, moving}:
+      Bool.and(strings.same(T.map(~T.Split, ~String, ~(s => split.head(s)), mint), arriving), Bool.and(String.eq(id, Sha.digest(Utf8.encode(Rev.write(doc)))),
+        Bool.and(String.starts_with(stem, Naming.compose(when, message, change)), follows(changes, moving))))
 
 def sorted_distinct(xs: List<&2, String>) -> List<&2, String>:
   distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))
@@ -7668,6 +8093,22 @@ def planned.facts(pl: Sv.Planned) -> List<&2, T.Split>:
   match pl:
     case Sv.Planned{facts, r, c, a, e, d, o, l}:
       facts
+
+def planned.obs(pl: Sv.Planned) -> List<&2, Sv.Obs>:
+  match pl:
+    case Sv.Planned{facts, r, c, a, e, d, o, l}:
+      o
+
+# `record --dry-run` says a file arriving once: of the facts a plan states,
+# only an `added` line, and a `moved` or `dropped` one, names a path being
+# added, since the add carries the file's content, mode and target in with
+# it. `LAWS.record_says_an_arrival_once`.
+def recorded.once(+arriving: Set(), fs: List<&2, T.Split>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case T.Split{+k, +p} <> rest:
+      Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Sv.has(arriving, p))))), recorded.once(arriving, rest))
 
 # Rewrites
 # --------
@@ -8583,25 +9024,40 @@ def paths.of(+t: List<&2, Tree.Entry>, fs: List<&2, String>) -> List<&2, String>
     case +f <> rest:
       List.append(&2, String, Maybe.default(&2, List<&2, String>, Maybe.map(&2, String, List<&2, String>, p => [p], path.of(t, f)), Nil{}), paths.of(t, rest))
 
+# What restating a revision works out beyond what it keeps: the parents it
+# now stands on, its facts, its `revised` stamp, and what its step says,
+# writes and hands on.
+type Worked is Data:
+  Worked{parents: List<&2, String>, facts: List<&2, Rev.Header>, stamp: T.Split, onto: List<&2, String>, restated: List<&2, String>, writes: List<&2, Write>, moving: Moving}
+
+def step.worked(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +docs: List<&2, Full>, +id: String, +ps: List<&2, String>, +facts: List<&2, Rev.Header>, +mapped: List<&2, Mapped>, +authored: Maybe<&2, T.Split>) -> Result<&2, &2, String, Worked>:
+  +parents = sorted_distinct(mapped.news(mapped))
+  +moving = moving.join(mapped.moving(mapped))
+  +old_parent = Maybe.default(&2, String, List.get(&2, String, sorted(ps), 0n), SNil{})
+  do Result<&2, &2, String, Worked>:
+    e : Unit <- early.r(id, facts, moving, parents, ps)
+    rs : List<&2, Restated> <- restate.all(ds, id, old_parent, mapped.new_of(mapped, old_parent), moving, facts.keyed(facts, "edit"))
+    +rs2 : List<&2, Restated> = rs
+    +redone : List<&2, String> = restated.put(moving.lines(moving), rs2)
+    +new_facts : List<&2, Rev.Header> = facts.edited(facts, restated.edits(rs2))
+    n : Unit <- empty.r(id, new_facts, parents)
+    stamp : T.Split <- stamp.r(fs, docs, id, mapped, authored)
+    t : List<&2, Tree.Entry> <- Bool.pick(Result<&2, &2, String, List<&2, Tree.Entry>>, List.is_empty(&2, String, redone), Done{Nil{}}, tree.at.r(fs, id))
+    +t2 : List<&2, Tree.Entry> = t
+    return Worked{parents, new_facts, stamp, mapped.news(mapped), paths.of(t2, redone), restated.writes(t2, rs2), moving.after(rs2, moving, heads_of(facts.keyed(facts, "bytes")), dropped.of(facts))}
+
+# The restated revision: the change, author, moment and message of the one
+# it supersedes, and what restating worked out.
+def step.made(+id: String, +change: String, +author: String, +when: String, +message: String, w: Worked) -> Step:
+  match w:
+    case Worked{parents, new_facts, +stamp, onto, restated, writes, moving}:
+      +doc = {Rev.Rev{change, parents, [id], author, when, revised_by(split.rest(stamp), author), Some{split.head(stamp)}, new_facts, message} : Rev.Rev}
+      Step{id, Sha.digest(Utf8.encode(Rev.write(doc))), onto, doc, restated, writes, moving}
+
 def step.of(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +docs: List<&2, Full>, +id: String, prev: Full, +mapped: List<&2, Mapped>, +authored: Maybe<&2, T.Split>) -> Result<&2, &2, String, Step>:
   match prev:
     case Full{i, +change, +ps, ss, +author, +when, rb, rv, +facts, +message}:
-      +parents = sorted_distinct(mapped.news(mapped))
-      +moving = moving.join(mapped.moving(mapped))
-      +old_parent = Maybe.default(&2, String, List.get(&2, String, sorted(ps), 0n), SNil{})
-      do Result<&2, &2, String, Step>:
-        e : Unit <- early.r(id, facts, moving, parents, ps)
-        rs : List<&2, Restated> <- restate.all(ds, id, old_parent, mapped.new_of(mapped, old_parent), moving, facts.keyed(facts, "edit"))
-        +rs2 : List<&2, Restated> = rs
-        +redone : List<&2, String> = restated.put(moving.lines(moving), rs2)
-        +new_facts : List<&2, Rev.Header> = facts.edited(facts, restated.edits(rs2))
-        n : Unit <- empty.r(id, new_facts, parents)
-        stamp : T.Split <- stamp.r(fs, docs, id, mapped, authored)
-        +stamp2 : T.Split = stamp
-        +doc : Rev.Rev = Rev.Rev{change, parents, [id], author, when, revised_by(split.rest(stamp2), author), Some{split.head(stamp2)}, new_facts, message}
-        t : List<&2, Tree.Entry> <- Bool.pick(Result<&2, &2, String, List<&2, Tree.Entry>>, List.is_empty(&2, String, redone), Done{Nil{}}, tree.at.r(fs, id))
-        +t2 : List<&2, Tree.Entry> = t
-        return Step{id, Sha.digest(Utf8.encode(Rev.write(doc))), mapped.news(mapped), doc, paths.of(t2, redone), restated.writes(t2, rs2), moving.after(rs2, moving, heads_of(facts.keyed(facts, "bytes")), dropped.of(facts))}
+      Result.map(&2, &2, String, Worked, Step, w => step.made(id, change, author, when, message, w), step.worked(fs, ds, docs, id, ps, facts, mapped, authored))
 
 def step.id(s: Step) -> String:
   match s:
@@ -8646,6 +9102,37 @@ def steps.go(order: List<&2, String>, +fs: List<&2, Full>, +ds: List<&2, Store.D
         +s : Step = step
         more : List<&2, Step> <- steps.go(rest, fs, ds, mv, stamp, step.full(s) <> docs, T.Split{id, step.id(s)} <> planned, step.handed(s) <> handed)
         return s <> more
+
+# What a carry keeps of what it restates: each revision it writes has the
+# change, author, moment and message of the one the store holds under the
+# identifier it supersedes, supersedes that one alone, and is named by the
+# digest of its own text. `LAWS.carry_keeps_what_it_restates` holds every
+# plan to it.
+def only.one(xs: List<&2, String>, +x: String) -> Bool:
+  match xs:
+    case y <> Nil{}:
+      String.eq(y, x)
+    case _:
+      False{}
+
+def rev.kept(+pred: String, f: Maybe<&2, Full>, doc: Rev.Rev) -> Bool:
+  match f doc:
+    case Some{Full{i, change, ps, ss, author, when, rb, rv, facts, message}} Rev.Rev{change2, ps2, ss2, author2, when2, rb2, rv2, facts2, message2}:
+      Bool.and(String.eq(change, change2), Bool.and(String.eq(author, author2), Bool.and(String.eq(when, when2), Bool.and(String.eq(message, message2), only.one(ss2, pred)))))
+    case None{} _:
+      False{}
+
+def step.kept(+fs: List<&2, Full>, s: Step) -> Bool:
+  match s:
+    case Step{+p, id, o, +doc, r, w, m}:
+      Bool.and(String.eq(id, Sha.digest(Utf8.encode(Rev.write(doc)))), rev.kept(p, find(fs, p), doc))
+
+def steps.kept(+fs: List<&2, Full>, ss: List<&2, Step>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case s <> rest:
+      Bool.and(step.kept(fs, s), steps.kept(fs, rest))
 
 # The authored move's refusals, which belong to deciding rather than to
 # restating.
@@ -8780,14 +9267,15 @@ def carry.write(+st: Bool, +root: String, steps: List<&2, Step>, +ns: List<&2, N
                 revision.filed(st, root, stem, Rev.write(doc))
                 carry.write(st, root, rest, List.append(&2, Naming.Named, ns, [step.named(s)]))
 
-def carried.said(+prefix: String, steps: List<&2, Step>) -> IO(Unit):
+def carried.lines(+prefix: String, steps: List<&2, Step>) -> List<&2, String>:
   match steps:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case Step{p, id, o, d, r, w, m} <> rest:
-      do IO<Unit>:
-        IO.print(prefix ++ ab12(p) ++ " to " ++ ab12(id))
-        carried.said(prefix, rest)
+      (prefix ++ ab12(p) ++ " to " ++ ab12(id)) <> carried.lines(prefix, rest)
+
+def carried.said(+prefix: String, steps: List<&2, Step>) -> IO(Unit):
+  print_lines(carried.lines(prefix, steps))
 
 def carried.ids(steps: List<&2, Step>) -> List<&2, String>:
   match steps:
@@ -8841,6 +9329,32 @@ def amend.mint(arriving: List<&2, String>, found: List<&2, Maybe<&2, String>>, i
     case _ _ _:
       Nil{}
 
+# The identifiers an amendment gives the files arriving, `kept` being what
+# the amended revision added, by path, and `hex` what was drawn for the
+# rest.
+def amend.minted(+arriving: List<&2, String>, +kept: List<&2, T.Split>, +hex: String) -> List<&2, T.Split>:
+  amend.mint(arriving, lookups(arriving, kept), ids.minted(List.length(&2, String, minus(arriving, heads_of(kept))), hex))
+
+# An amendment gives every file arriving an identifier, in path order,
+# and each file the amended revision added keeps the identifier it was
+# added under. `LAWS.amend_keeps_what_it_added`.
+def keeps.one(m: Maybe<&2, String>, +f: String) -> Bool:
+  match m:
+    case Some{g}:
+      String.eq(f, g)
+    case None{}:
+      True{}
+
+def minted.keeps(+kept: List<&2, T.Split>, mint: List<&2, T.Split>) -> Bool:
+  match mint:
+    case Nil{}:
+      True{}
+    case T.Split{+p, +f} <> rest:
+      Bool.and(keeps.one(lookup(kept, p), f), minted.keeps(kept, rest))
+
+def amend.minted.ok(+arriving: List<&2, String>, +kept: List<&2, T.Split>, +mint: List<&2, T.Split>) -> Bool:
+  Bool.and(strings.same(T.map(~T.Split, ~String, ~(s => split.head(s)), mint), arriving), minted.keeps(kept, mint))
+
 def amend.draw(+st: Bool, +n: Nat, none: Bool) -> IO(String):
   match none:
     case True{}:
@@ -8863,28 +9377,22 @@ def same.r(+id: String, prev: Rev.Rev, doc: Rev.Rev) -> Result<&2, &2, Refused, 
     Done{Unit{}})
 
 # What amending says it did, or would do.
-def amend.told(machine: Bool, +id: String, +change: String, +prev: String, +facts: List<&2, T.Split>, +steps: List<&2, Step>) -> IO(Unit):
+def amend.told.lines(machine: Bool, +id: String, +change: String, +prev: String, +facts: List<&2, T.Split>, +steps: List<&2, Step>) -> List<&2, String>:
   match machine:
     case True{}:
-      do IO<Unit>:
-        IO.print(WROTE())
-        said.names("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps)))
+      WROTE() <> said.lines("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps)))
     case False{}:
-      do IO<Unit>:
-        print_facts(facts)
-        IO.print("amended " ++ String.take(change, 8n) ++ " as " ++ ab12(id))
-        IO.print("it supersedes " ++ ab12(prev) ++ ", which is still here")
-        carried.said("carried ", steps)
+      List.concat(&2, String, [facts.said(facts), ["amended " ++ String.take(change, 8n) ++ " as " ++ ab12(id), "it supersedes " ++ ab12(prev) ++ ", which is still here"], carried.lines("carried ", steps)])
 
-def amend.said(machine: Bool, planning: Bool, +facts: List<&2, T.Split>, +prev: String, +change: String, +id: String, +carrying: List<&2, String>, +steps: List<&2, Step>) -> IO(Unit):
+def amend.said.lines(machine: Bool, planning: Bool, +facts: List<&2, T.Split>, +prev: String, +change: String, +id: String, +carrying: List<&2, String>, +steps: List<&2, Step>) -> List<&2, String>:
   match planning:
     case True{}:
-      do IO<Unit>:
-        print_facts(facts)
-        IO.print("this would supersede " ++ ab12(prev))
-        said.names("would carry ", SNil{}, map12(carrying))
+      List.concat(&2, String, [facts.said(facts), ["this would supersede " ++ ab12(prev)], said.lines("would carry ", SNil{}, map12(carrying))])
     case False{}:
-      amend.told(machine, id, change, prev, facts, steps)
+      amend.told.lines(machine, id, change, prev, facts, steps)
+
+def amend.said(machine: Bool, planning: Bool, +facts: List<&2, T.Split>, +prev: String, +change: String, +id: String, +carrying: List<&2, String>, +steps: List<&2, Step>) -> IO(Unit):
+  print_lines(amend.said.lines(machine, planning, facts, prev, change, id, carrying, steps))
 
 # The amendment written: its content, the revision, and what it carries.
 def amend.written(+st: Bool, planning: Bool, +root: String, +repo: String, +fs: List<&2, Full>, +cs: List<&2, Content>, +id: String, +doc: Rev.Rev, +steps: List<&2, Step>) -> IO(Unit):
@@ -8911,7 +9419,7 @@ def amend.write(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>, +p
       +pid = id_of(prev)
       do IO<Unit>:
         hex : String <- amend.draw(st, n, Bool.or(dry, Nat.is_eq(n, 0n)))
-        +mint : List<&2, T.Split> = amend.mint(arriving, lookups(arriving, kept), ids.minted(n, hex))
+        +mint : List<&2, T.Split> = amend.minted(arriving, kept, hex)
         dr : Drafted <- drafted(st, root, fs, ps, t, hs, dg, reads, ks, moves, obs, ls, mint)
         +dr2 : Drafted = dr
         +doc : Rev.Rev = Rev.Rev{change_of(prev), sorted(ps), [pid], author_of(prev), when_of(prev), revised_by(reviser, author_of(prev)), Some{revised}, drafted.facts(dr2), Maybe.default(&2, String, m, message_of(prev))}
@@ -9247,6 +9755,39 @@ def rw.args.go(+cmd: String, args: List<&2, String>, c: RwCmd, k: WWord) -> Resu
 def rw.args.r(+cmd: String, +args: List<&2, String>) -> Result<&2, &2, Refused, RwCmd>:
   rw.args.go(cmd, args, RwCmd{None{}, Nil{}, None{}, None{}, False{}, False{}, False{}}, wword(cmd, args))
 
+# What the words of `amend`, `abandon` and `carry` say, read plainly, as
+# `rargs.read` reads `record`'s: each a flag the command takes and what it
+# says, the word after one that takes a value being that value, or the
+# target. `LAWS.rewrite_reads_its_words` holds `rw.args.r` to `wargs.said`.
+def wargs.read(+cmd: String, args: List<&2, String>, k: WWord) -> List<&2, T.Split>:
+  match args k:
+    case Nil{} _:
+      Nil{}
+    case w <> v <> +rest WWord.Message{}:
+      T.Split{"-m", v} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> v <> +rest WWord.Move{}:
+      T.Split{"--move", v} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> v <> +rest WWord.Onto{}:
+      T.Split{"--onto", v} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest WWord.Only{}:
+      T.Split{"--only", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest WWord.Dry{}:
+      T.Split{"--dry-run", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest WWord.Fields{}:
+      T.Split{"--fields", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest WWord.Word{}:
+      T.Split{"target", w} <> wargs.read(cmd, rest, wword(cmd, rest))
+    case w <> +rest _:
+      wargs.read(cmd, rest, wword(cmd, rest))
+
+# What the words mean: the last `-m`; each `--move`, in order, cut at its
+# first `=`; the last `--onto`; the target; and `-n`, `--fields` and
+# `--only` if they are there.
+def wargs.said(+items: List<&2, T.Split>) -> RwCmd:
+  RwCmd{rargs.last(items, "-m", None{}), rargs.cuts(rargs.values(items, "--move")), rargs.last(items, "--onto", None{}),
+    rargs.last(items, "target", None{}), rargs.has(items, "--dry-run", False{}), rargs.has(items, "--fields", False{}),
+    rargs.has(items, "--only", False{})}
+
 def rw.plan.r(+cmd: String, d: Bool, f: Bool) -> Result<&2, &2, Refused, Unit>:
   Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(d, f), Fail{Refused{2, "`" ++ cmd ++ " --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}}, Done{Unit{}})
 
@@ -9263,18 +9804,19 @@ def joins.r(+id: String, +ps: List<&2, String>, prev: Maybe<&2, String>) -> Resu
 
 # Decision 0013's run: the named revision and everything standing on it,
 # which has to be a line. `standing` is what stands on `prev`, the last of
-# the run so far.
-def run.go(fuel: Nat, +fs: List<&2, Full>, +prev: String, +run: List<&2, String>, standing: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
+# the run so far, and what is found is the rest of the run.
+def run.go(fuel: Nat, +fs: List<&2, Full>, +prev: String, standing: List<&2, String>) -> Result<&2, &2, Refused, List<&2, String>>:
   match fuel standing:
     case 0n _:
-      Done{run}
+      Done{Nil{}}
     case _ Nil{}:
-      Done{run}
+      Done{Nil{}}
     case 1n+k +n <> Nil{}:
       do Result<&2, &2, Refused, List<&2, String>>:
         a : Unit <- already.r(fs, n)
         j : Unit <- joins.r(n, full.parents(find(fs, n)), Some{prev})
-        run.go(k, fs, n, List.append(&2, String, run, [n]), standing_on(fs, n))
+        more : List<&2, String> <- run.go(k, fs, n, standing_on(fs, n))
+        return n <> more
     case _ +several:
       Fail{Refused{1, Nat.show(List.length(&2, String, several)) ++ " lines of work stand on " ++ ab12(prev) ++ ", and abandoning it would abandon all of them; name the one you mean, or abandon each in turn:" ++ listed12(several)}}
 
@@ -9287,16 +9829,38 @@ def abandon.plan.r(+fs: List<&2, Full>, +id: String, only: Bool) -> Result<&2, &
     case False{}:
       do Result<&2, &2, Refused, List<&2, String>>:
         a : Unit <- already.r(fs, id)
-        run.go(Nat.add(List.length(&2, Full, fs), 1n), fs, id, [id], standing_on(fs, id))
+        more : List<&2, String> <- run.go(Nat.add(List.length(&2, Full, fs), 1n), fs, id, standing_on(fs, id))
+        return id <> more
 
-def said.each(+prefix: String, xs: List<&2, String>) -> IO(Unit):
+# What `abandon` abandons is a line of work nothing has rewritten: it
+# begins at the revision named, and each revision after that stands on the
+# one before it and on nothing else; and with `--only` it is the revision
+# named alone, which joins no other line. `LAWS.abandon_takes_a_line`.
+def unrewritten(+fs: List<&2, Full>, +id: String) -> Bool:
+  List.is_empty(&2, String, successors(fs, id))
+
+def abandon.after(run: List<&2, String>, +fs: List<&2, Full>, +prev: String) -> Bool:
+  match run:
+    case Nil{}:
+      True{}
+    case +r <> rest:
+      Bool.and(unrewritten(fs, r), Bool.and(only.one(full.parents(find(fs, r)), prev), abandon.after(rest, fs, r)))
+
+def abandon.line(+fs: List<&2, Full>, +id: String, only: Bool, run: List<&2, String>) -> Bool:
+  match run:
+    case Nil{}:
+      False{}
+    case +r <> +rest:
+      Bool.and(String.eq(r, id), Bool.and(unrewritten(fs, r), Bool.pick(Bool, only,
+        Bool.and(List.is_empty(&2, String, rest), Bool.not(Nat.is_lt(1n, List.length(&2, String, full.parents(find(fs, r)))))),
+        abandon.after(rest, fs, r))))
+
+def each.lines(+prefix: String, xs: List<&2, String>) -> List<&2, String>:
   match xs:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case x <> rest:
-      do IO<Unit>:
-        IO.print(prefix ++ x)
-        said.each(prefix, rest)
+      (prefix ++ x) <> each.lines(prefix, rest)
 
 def spelled_all(+bs: List<&2, Bm.Bookmark>, +h: Rev.History(), xs: List<&2, String>) -> List<&2, String>:
   match xs:
@@ -9308,27 +9872,40 @@ def spelled_all(+bs: List<&2, Bm.Bookmark>, +h: Rev.History(), xs: List<&2, Stri
 # abandon
 # -------
 
-def abandon.dry(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> IO(Unit):
+def abandon.dry.lines(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> List<&2, String>:
   +n = List.length(&2, String, run)
-  do IO<Unit>:
-    said.each("would abandon ", spelled_all(bs, history(fs), run))
-    IO.print("a tombstone would supersede " ++ Bool.pick(String, Nat.is_eq(n, 1n), "this revision", "these " ++ Nat.show(n) ++ " revisions") ++ ", and its message is required")
-    said.each("would carry ", map12(Bool.pick(List<&2, String>, only, would_carry(fs, id, standing_on(fs, id)), Nil{})))
+  List.concat(&2, String, [each.lines("would abandon ", spelled_all(bs, history(fs), run)),
+    ["a tombstone would supersede " ++ Bool.pick(String, Nat.is_eq(n, 1n), "this revision", "these " ++ Nat.show(n) ++ " revisions") ++ ", and its message is required"],
+    each.lines("would carry ", map12(Bool.pick(List<&2, String>, only, would_carry(fs, id, standing_on(fs, id)), Nil{})))])
 
-def abandon.said(+fields: Bool, +id: String, +change: String, +run: List<&2, String>, +names: List<&2, String>, +steps: List<&2, Step>) -> IO(Unit):
+def abandon.dry(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> IO(Unit):
+  print_lines(abandon.dry.lines(fs, bs, id, only, run))
+
+# A dry run of `abandon` begins by naming, in order, each revision it
+# would abandon, by its digest's first twelve letters.
+# `LAWS.abandon_dry_run_names_the_run`.
+def said.first(xs: List<&2, String>, ls: List<&2, String>, +prefix: String) -> Bool:
+  match xs ls:
+    case Nil{} _:
+      True{}
+    case +x <> rest +l <> more:
+      Bool.and(String.starts_with(l, prefix ++ ab12(x)), said.first(rest, more, prefix))
+    case _ Nil{}:
+      False{}
+
+# What abandoning says it did: for a machine, decision 0074's header, each
+# revision written and each bookmark moved; for a person, what was
+# abandoned, the tombstone, each bookmark moved and what was carried.
+def abandon.said.lines(fields: Bool, +id: String, +change: String, +run: List<&2, String>, +names: List<&2, String>, +steps: List<&2, Step>) -> List<&2, String>:
   match fields:
     case True{}:
-      do IO<Unit>:
-        IO.print(WROTE())
-        said.names("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps)))
-        said.names("name ", SNil{}, sorted_distinct(names))
+      WROTE() <> List.append(&2, String, said.lines("revision ", SNil{}, sorted_distinct(id <> carried.ids(steps))), said.lines("name ", SNil{}, sorted_distinct(names)))
     case False{}:
-      do IO<Unit>:
-        said.each("abandoned ", map12(run))
-        IO.print("the tombstone is " ++ ab12(id) ++ " (" ++ String.take(change, 8n) ++ ")")
-        said.names(SNil{}, " -> " ++ String.take(change, 8n), names)
-        carried.said("carried ", steps)
-        IO.print("what it supersedes is still here; `historica prune` is what removes it")
+      List.concat(&2, String, [each.lines("abandoned ", map12(run)), ["the tombstone is " ++ ab12(id) ++ " (" ++ String.take(change, 8n) ++ ")"],
+        said.lines(SNil{}, " -> " ++ String.take(change, 8n), names), carried.lines("carried ", steps), ["what it supersedes is still here; `historica prune` is what removes it"]])
+
+def abandon.said(+fields: Bool, +id: String, +change: String, +run: List<&2, String>, +names: List<&2, String>, +steps: List<&2, Step>) -> IO(Unit):
+  print_lines(abandon.said.lines(fields, id, change, run, names, steps))
 
 def reason.r(+m: String) -> Result<&2, &2, Refused, Unit>:
   Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(Naming.trim_space(m)),
@@ -9392,6 +9969,14 @@ def abandon.named.r(n: Maybe<&2, String>) -> Result<&2, &2, Refused, Unit>:
       Done{Unit{}}
     case None{}:
       Fail{Refused{2, "`abandon` wants the revision to abandon; it and everything standing on it go"}}
+
+# `abandon` is asked for a revision and a reason: where it goes on, a
+# target was named, a dry run did not also ask for `--fields`, and the
+# reason given is not blank. `LAWS.abandon_asks_for_a_revision_and_a_reason`.
+def abandon.asked(c: RwCmd, +m: String) -> Bool:
+  match c:
+    case RwCmd{mg, mv, o, n, d, f, y}:
+      Bool.and(Maybe.is_some(&2, String, n), Bool.and(Bool.not(Bool.and(d, f)), Bool.not(String.is_empty(Naming.trim_space(m)))))
 
 def rw.named(c: RwCmd) -> Maybe<&2, String>:
   match c:
@@ -9504,6 +10089,16 @@ def reword.r(+fs: List<&2, Full>, prev: Full, +standing: List<&2, String>, +m: M
         s : Unit <- same.r(id, Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message}, doc)
         return doc
 
+# A reword changes the message alone: the message is the one `-m` gave and
+# not the one the revision had, the reword supersedes that revision alone,
+# and with the old message put back it says exactly what that revision
+# said, as `bare` compares two revisions. `LAWS.reword_changes_only_the_message`.
+def reword.ok(prev: Full, m: Maybe<&2, String>, doc: Rev.Rev) -> Bool:
+  match prev doc:
+    case Full{+id, change, parents, ss, author, when, rb, rv, facts, +message} Rev.Rev{c2, p2, +ss2, a2, w2, rb2, rv2, f2, +msg2}:
+      Bool.and(Rev.maybe_eq(m, msg2), Bool.and(Bool.not(String.eq(msg2, message)), Bool.and(only.one(ss2, id),
+        String.eq(bare(Rev.Rev{c2, p2, ss2, a2, w2, rb2, rv2, f2, message}), bare(Rev.Rev{change, parents, ss, author, when, rb, rv, facts, message})))))
+
 def reword.go(+st: Bool, +root: String, +fs: List<&2, Full>, +prev: Full, +standing: List<&2, String>, +m: Maybe<&2, String>, planning: Bool, +f: Bool) -> IO(Unit):
   match planning:
     case True{}:
@@ -9565,17 +10160,14 @@ def step.line(+dry: Bool, s: Step) -> String:
     case Step{p, id, o, d, r, w, m}:
       Bool.pick(String, dry, "would carry ", "carried ") ++ ab12(p) ++ " as " ++ ab12(id) ++ ", onto " ++ String.join(map12(o), " and ")
 
-def steps.lines(+dry: Bool, steps: List<&2, Step>) -> IO(Unit):
+def steps.said(+dry: Bool, steps: List<&2, Step>) -> List<&2, String>:
   match steps:
     case Nil{}:
-      IO.pure(Unit, Unit{})
+      Nil{}
     case +s <> rest:
       match s:
         case Step{p, id, o, d, +r, w, m}:
-          do IO<Unit>:
-            IO.print(step.line(dry, Step{p, id, o, d, r, w, m}))
-            said.names("  restated ", SNil{}, r)
-            steps.lines(dry, rest)
+          List.append(&2, String, step.line(dry, Step{p, id, o, d, r, w, m}) <> said.lines("  restated ", SNil{}, r), steps.said(dry, rest))
 
 def steps.restated(steps: List<&2, Step>) -> Bool:
   match steps:
@@ -9584,17 +10176,58 @@ def steps.restated(steps: List<&2, Step>) -> Bool:
     case Step{p, id, o, d, r, w, m} <> rest:
       Bool.or(Bool.not(List.is_empty(&2, String, r)), steps.restated(rest))
 
+# What carrying says it did or would do: for a machine, decision 0074's
+# header and each revision written; for a person, each step and what it
+# restated, and what is left for `prune` and `update`.
+def carry.said.lines(+fields: Bool, +dry: Bool, +steps: List<&2, Step>) -> List<&2, String>:
+  Bool.pick(List<&2, String>, fields,
+    WROTE() <> said.lines("revision ", SNil{}, sorted_distinct(carried.ids(steps))),
+  Bool.pick(List<&2, String>, List.is_empty(&2, Step, steps),
+    ["nothing stands on a rewritten revision; there is nothing to carry"],
+    List.concat(&2, String, [steps.said(dry, steps),
+      Bool.pick(List<&2, String>, dry, Nil{}, ["what was carried is still here, superseded; `historica prune` is what removes it"]),
+      Bool.pick(List<&2, String>, Bool.and(Bool.not(dry), steps.restated(steps)), ["the folder is unchanged; `historica update` makes it hold the carried head"], Nil{})])))
+
 def carry.said(+fields: Bool, +dry: Bool, +steps: List<&2, Step>) -> IO(Unit):
-  Bool.pick(IO(Unit), fields,
-    do IO<Unit>:
-      IO.print(WROTE())
-      said.names("revision ", SNil{}, sorted_distinct(carried.ids(steps))),
-  Bool.pick(IO(Unit), List.is_empty(&2, Step, steps),
-    IO.print("nothing stands on a rewritten revision; there is nothing to carry"),
-    do IO<Unit>:
-      steps.lines(dry, steps)
-      Bool.pick(IO(Unit), dry, IO.pure(Unit, Unit{}), IO.print("what was carried is still here, superseded; `historica prune` is what removes it"))
-      Bool.pick(IO(Unit), Bool.and(Bool.not(dry), steps.restated(steps)), IO.print("the folder is unchanged; `historica update` makes it hold the carried head"), IO.pure(Unit, Unit{}))))
+  print_lines(carry.said.lines(fields, dry, steps))
+
+# What `--fields` says of the revisions an act wrote, as decision 0074 has
+# it: `historica-wrote-1` first, and each revision written named once, in
+# digest order, by a `revision` line. `LAWS.writes_say_what_they_wrote`.
+def fields.revision(r: Maybe<&2, String>, later: List<&2, String>) -> List<&2, String>:
+  match r:
+    case Some{x}:
+      x <> later
+    case None{}:
+      later
+
+def fields.revisions(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case +l <> rest:
+      fields.revision(T.strip_prefix(l, "revision "), fields.revisions(rest))
+
+def rising.from(xs: List<&2, String>, +last: String) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      Bool.and(Bool.and(String.is_le(last, x), Bool.not(String.eq(last, x))), rising.from(rest, x))
+
+def rising(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case +x <> rest:
+      rising.from(rest, x)
+
+def fields.ok(+written: List<&2, String>, ls: List<&2, String>) -> Bool:
+  match ls:
+    case Nil{}:
+      False{}
+    case +l <> +rest:
+      Bool.and(String.eq(l, WROTE()), Bool.and(rising(fields.revisions(rest)), all_held(written, fields.revisions(rest))))
 
 def carry.target.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, named: Maybe<&2, String>) -> Result<&2, &2, Refused, Maybe<&2, String>>:
   match named:

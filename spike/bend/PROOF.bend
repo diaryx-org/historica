@@ -61,6 +61,15 @@ import ./survey.bend as Sv
 import ./naming.bend as Naming
 import ./store.bend as Store
 import ./commands.bend as Main
+import ./colour_lemmas.bend as Colour
+import ./plan_lemmas.bend as PlanL
+import ./chain_lemmas.bend as ChainL
+import ./fulls_lemmas.bend as FullsL
+import ./sizes_lemmas.bend as SizesL
+import ./fetch_lemmas.bend as FetchL
+import ./span_lemmas.bend as SpanL
+import ./record_lemmas.bend as RecordL
+import ./rewrite_lemmas.bend as RewriteL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -816,3 +825,102 @@ def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks):
 
 def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids):
   OfferL.digests(prefix, s, marks, claims, rids, nids)
+
+def Laws.diff_colour_changes_no_character(cs):
+  Colour.colour_fit(cs)
+
+def Laws.diff_folder_replays_what_is_unsettled(dg, os, eds, hs):
+  PlanL.replayed_unsettled(dg, os, eds, hs)
+
+def Laws.diff_folder_reads_what_is_unsettled(dg, os, eds, hs):
+  PlanL.read_unsettled(dg, os, eds, hs)
+
+def Laws.diff_sizes_what_the_host_stated(found, stats, cs):
+  SizesL.sized_told(found, stats, cs)
+
+def Laws.diff_fetches_what_it_replays(fs, ws, ns, files):
+  FetchL.diff_fetched(fs, ws, ns, files)
+
+def Laws.diff_folder_fetches_what_it_replays(fs, dg, os, eds, hs):
+  FetchL.folder_fetched(fs, dg, os, eds, hs)
+
+def Laws.diff_folder_fetches_the_edits_it_believes(os, hs):
+  FetchL.edits_fetched(os, hs)
+
+def Laws.diff_asks_every_payload_it_shows(cs):
+  FetchL.payloads_asked(cs)
+
+def Laws.diff_stats_where_each_payload_was_found(root, ds, at):
+  FetchL.sizes_located(root, ds, at)
+
+def Laws.reading_fetches_what_resolutions_keep(ds):
+  FetchL.kept_fetched(ds)
+
+def Laws.chain_follows_first_parents(fs, id):
+  ChainL.chain_line(fs, id)
+
+def Laws.revisions_read_are_their_documents(root, ds):
+  FullsL.fulls_filed(root, ds)
+
+def Laws.log_lists_its_span(fs, sp):
+  SpanL.span_listed(fs, sp)
+
+def Laws.record_reads_its_words(args, cmd, e):
+  RecordL.args_said(args, cmd, e)
+
+def Laws.rewrite_reads_its_words(cmd, args, c, e):
+  RecordL.rw_args_said(cmd, args, c, e)
+
+def Laws.carry_keeps_what_it_restates(fs, ds, c, steps, e):
+  RewriteL.plan_kept(fs, ds, c, steps, e)
+
+def Laws.abandon_takes_a_line(fs, id, only, run, e):
+  RewriteL.plan_line(fs, id, only, run, e)
+
+def Laws.reword_changes_only_the_message(fs, prev, standing, m, reviser, revised, doc, e):
+  RewriteL.reword_ok(fs, prev, standing, m, reviser, revised, doc, e)
+
+def Laws.record_states_the_folder(befores, t, hs, dg, reads, ks, moves, obs, ls, mint):
+  RecordL.drafted_state(~(p => c => tbl => d => e => Laws.diff_applies(p, c, tbl, d, e)), befores, dg, reads, t, hs, ks, moves, obs, ls, mint)
+
+def Laws.record_names_what_it_writes(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
+  RecordL.planned_named(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)
+
+def Laws.record_writes_only_what_is_settled(looked, pl, accepted, pl2, e):
+  RecordL.settled_ok(looked, pl, accepted, pl2, e)
+
+def Laws.amend_rewrites_a_held_revision(fs, bs, named, f, e):
+  RewriteL.amend_held(fs, bs, named, f, e)
+
+def Laws.carry_carries_a_held_revision(fs, bs, named, id, e):
+  RewriteL.carry_held(fs, bs, named, id, e)
+
+def Laws.record_moves_only_held_files(t, ats, ms, p, e):
+  RecordL.placed_held(t, ats, ms, p, e)
+
+def Laws.record_restricts_no_merge_and_no_half_rename(named, ps, moves, u, e):
+  RecordL.restriction_ok(named, ps, moves, u, e)
+
+def Laws.record_says_an_arrival_once(t, looked, held, walked, ss, moves):
+  RecordL.planned_once(t, looked, held, walked, ss, moves)
+
+def Laws.writes_say_what_they_wrote(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry):
+  RewriteL.writes_fields(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry)
+
+def Laws.record_reads_lines_as_text(ks, reads, hs, e):
+  RecordL.lines_text(ks, reads, hs, e)
+
+def Laws.record_reads_the_position(older, ds, left, files, bs, e):
+  RecordL.befores_read(older, ds, left, files, bs, e)
+
+def Laws.amend_keeps_what_it_added(arriving, kept, hex):
+  RewriteL.amend_minted_ok(arriving, kept, hex)
+
+def Laws.abandon_asks_for_a_revision_and_a_reason(c, m, u1, u2, u3, e1, e2, e3):
+  RewriteL.asked_ok(c, m, u1, u2, u3, e1, e2, e3)
+
+def Laws.record_gives_kinds_only_to_files(ks, found, u, e):
+  RecordL.kinds_found(ks, found, u, e)
+
+def Laws.abandon_dry_run_names_the_run(fs, bs, id, only, run):
+  RewriteL.dry_names(fs, bs, id, only, run)
