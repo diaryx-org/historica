@@ -4001,6 +4001,13 @@ def check_mutations(temporary):
             "prune.bend",
         ),
         (
+            "prune clears every file of cache/",
+            '      Rev.keep(Bool.and(String.starts_with(l, "f "), T.is_digest(entry_name(l))), entry_name(l), cached(rest))',
+            '      Rev.keep(String.starts_with(l, "f "), entry_name(l), cached(rest))',
+            "prune_lemmas.cached",
+            "prune.bend",
+        ),
+        (
             "prune takes a plan and a statement at once",
             "  Bool.pick(Result<&2, &2, Main.Refused, PruneCmd>, Bool.and(dry, fields),",
             "  Bool.pick(Result<&2, &2, Main.Refused, PruneCmd>, False{},",
@@ -4040,6 +4047,13 @@ def check_mutations(temporary):
             "    Bool.or(any_in(Main.ids(theirs), oi), Bool.or(any_in(edges(theirs), oi), any_in(edges(ours), ti))))",
             "    Bool.or(any_in(Main.ids(theirs), oi), Bool.or(any_in(edges(theirs), oi), any_in(Main.ids(ours), ti))))",
             "receive_lemmas.related_is",
+            "receive.bend",
+        ),
+        (
+            "receive removes every payload file this store holds",
+            "    T.map(~T.Split, ~String, ~(s => Prune.split.path(s)), kept.in(splits.distinct(ps), gone))))",
+            "    T.map(~T.Split, ~String, ~(s => Prune.split.path(s)), splits.distinct(ps))))",
+            "receive_lemmas.removes_only",
             "receive.bend",
         ),
         (

@@ -561,3 +561,29 @@ def dry_run(p: Prune.Pruned) -> {(Prune.act.says(Prune.act.of(True{}, False{}, p
   match p:
     case Prune.Pruned{+r, +o, +y, +fs}:
       dry_of(fs)
+
+# Clearing `cache/`
+# -----------------
+
+def cached_hit(e: Bool, +n: String, +r: List<&2, String>, +x: String, +ee: {String.eq(n, x) == e : Bool}, +hn: {T.is_digest(n) == True{} : Bool}, h: {Bool.or(e, Rev.member(r, x)) == True{} : Bool}, ih: {Rev.member(r, x) == True{} : Bool} -> {T.is_digest(x) == True{} : Bool}) -> {T.is_digest(x) == True{} : Bool}:
+  match e:
+    case True{}:
+      %S.eq_true(n, x, ee) : {T.is_digest(_) == True{} : Bool}
+      hn
+    case False{}:
+      ih(h)
+
+def cached_of(b: Bool, +sw: Bool, +n: String, +r: List<&2, String>, +x: String, +eb: {Bool.and(sw, T.is_digest(n)) == b : Bool}, h: {Rev.member(Rev.keep(b, n, r), x) == True{} : Bool}, ih: {Rev.member(r, x) == True{} : Bool} -> {T.is_digest(x) == True{} : Bool}) -> {T.is_digest(x) == True{} : Bool}:
+  match b:
+    case True{}:
+      cached_hit(String.eq(n, x), n, r, x, {==}, ArrangeL.and_tr(sw, T.is_digest(n), eb), h, ih)
+    case False{}:
+      ih(h)
+
+# Every name `prune` clears from `cache/` is a digest.
+def cached(ls: List<&2, String>, +x: String, h: {Rev.member(Prune.cached(ls), x) == True{} : Bool}) -> {T.is_digest(x) == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      Empty.absurd({T.is_digest(x) == True{} : Bool}, S.false_true(h))
+    case +l <> +rest:
+      cached_of(Bool.and(String.starts_with(l, "f "), T.is_digest(Prune.entry_name(l))), String.starts_with(l, "f "), Prune.entry_name(l), Prune.cached(rest), x, {==}, h, hr => cached(rest, x, hr))

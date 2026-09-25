@@ -851,3 +851,106 @@ def kept_marks(bs: List<&2, Bm.Bookmark>, +hm: List<&2, Bm.Bookmark>, +n: String
 # this store has none of by that name, or has at that very target.
 def moves_none(+here: Receive.Side, +there: Receive.Side, +n: String, +at: String, h: {marks_at(Receive.rplan.names(Receive.plan.of(here, there)), n, at) == True{} : Bool}) -> {Bool.or(Bool.not(named(Receive.side.marks(here), n)), marks_at(Receive.side.marks(here), n, at)) == True{} : Bool}:
   kept_marks(Receive.rplan.names(Receive.plan.of(here, there)), Receive.side.marks(here), n, at, names(here, there), h)
+
+# The files it removes
+# --------------------
+
+# Whether one of these files is at `x` and holds one of `des`.
+def gone_at(ss: List<&2, T.Split>, +x: String, +des: List<&2, String>) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case T.Split{+q, +d} <> rest:
+      Bool.or(Bool.and(String.eq(q, x), Rev.member(des, d)), gone_at(rest, x, des))
+
+def gone_hit(c: Bool, e: Bool, +q: String, +d: String, +r: List<&2, T.Split>, +rest: List<&2, T.Split>, +x: String, +des: List<&2, String>, +ec: {Arrange.has(Set.from_list(des), d) == c : Bool}, +ee: {String.eq(q, x) == e : Bool}, h: {Rev.member(T.map(~T.Split, ~String, ~(s => Prune.split.path(s)), Tree.keep(~T.Split, c, T.Split{q, d}, r)), x) == True{} : Bool}, ih: {Rev.member(T.map(~T.Split, ~String, ~(s => Prune.split.path(s)), r), x) == True{} : Bool} -> {gone_at(rest, x, des) == True{} : Bool}) -> {gone_at(T.Split{q, d} <> rest, x, des) == True{} : Bool}:
+  match c e:
+    case True{} True{}:
+      PruneL.or_lt(Bool.and(String.eq(q, x), Rev.member(des, d)), gone_at(rest, x, des),
+        B.and_tt(String.eq(q, x), Rev.member(des, d), ee, Equal.trans(Bool, Rev.member(des, d), Arrange.has(Set.from_list(des), d), True{}, Equal.sym(Bool, Arrange.has(Set.from_list(des), d), Rev.member(des, d), ArrangeL.has_list(des, d)), ec)))
+    case True{} False{}:
+      PruneL.or_rt(Bool.and(String.eq(q, x), Rev.member(des, d)), gone_at(rest, x, des), ih(ArrangeL.or_tt_r(String.eq(q, x), Rev.member(T.map(~T.Split, ~String, ~(s => Prune.split.path(s)), r), x), h, ee)))
+    case False{} _:
+      PruneL.or_rt(Bool.and(String.eq(q, x), Rev.member(des, d)), gone_at(rest, x, des), ih(h))
+
+# What `kept.in` keeps of a list of files holds one of the digests asked
+# about.
+def kept_gone(ss: List<&2, T.Split>, +des: List<&2, String>, +x: String, h: {Rev.member(T.map(~T.Split, ~String, ~(s => Prune.split.path(s)), Receive.kept.in(ss, Set.from_list(des))), x) == True{} : Bool}) -> {gone_at(ss, x, des) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      h
+    case T.Split{+q, +d} <> +rest:
+      gone_hit(Arrange.has(Set.from_list(des), d), String.eq(q, x), q, d, Receive.kept.in(rest, Set.from_list(des)), rest, x, des, {==}, {==}, h, hr => kept_gone(rest, des, x, hr))
+
+def tkeep_gone(b: Bool, +q: String, +d: String, +r: List<&2, T.Split>, +rest: List<&2, T.Split>, +x: String, +des: List<&2, String>, h: {gone_at(Tree.keep(~T.Split, b, T.Split{q, d}, r), x, des) == True{} : Bool}, ih: {gone_at(r, x, des) == True{} : Bool} -> {gone_at(rest, x, des) == True{} : Bool}) -> {gone_at(T.Split{q, d} <> rest, x, des) == True{} : Bool}:
+  match b:
+    case True{}:
+      PruneL.or_tt(Bool.and(String.eq(q, x), Rev.member(des, d)), gone_at(r, x, des), gone_at(rest, x, des), h, ih)
+    case False{}:
+      PruneL.or_rt(Bool.and(String.eq(q, x), Rev.member(des, d)), gone_at(rest, x, des), ih(h))
+
+def sdedup_gone(ys: List<&2, T.Split>, +prev: String, +x: String, +des: List<&2, String>, h: {gone_at(Receive.splits.dedup(ys, prev), x, des) == True{} : Bool}) -> {gone_at(ys, x, des) == True{} : Bool}:
+  match ys:
+    case Nil{}:
+      h
+    case T.Split{+q, +d} <> +rest:
+      tkeep_gone(Bool.not(String.eq(d, prev)), q, d, Receive.splits.dedup(rest, d), rest, x, des, h, hr => sdedup_gone(rest, d, x, des, hr))
+
+def lists_hit(c: Bool, +q: String, +d: String, +rest: List<&2, T.Split>, +path: String, +dd: String, +x: String, +des: List<&2, String>, +ec: {Bool.and(String.eq(q, path), String.eq(d, dd)) == c : Bool}, +hx: {String.eq(path, x) == True{} : Bool}, +hd: {Rev.member(des, dd) == True{} : Bool}, h: {Bool.or(c, lists(rest, path, dd)) == True{} : Bool}, ih: {lists(rest, path, dd) == True{} : Bool} -> {gone_at(rest, x, des) == True{} : Bool}) -> {gone_at(T.Split{q, d} <> rest, x, des) == True{} : Bool}:
+  match c:
+    case True{}:
+      +eq = S.eq_true(q, path, ArrangeL.and_tl(String.eq(q, path), String.eq(d, dd), ec))
+      +ed = S.eq_true(d, dd, ArrangeL.and_tr(String.eq(q, path), String.eq(d, dd), ec))
+      PruneL.or_lt(Bool.and(String.eq(q, x), Rev.member(des, d)), gone_at(rest, x, des),
+        (%Equal.sym(String, q, path, eq) : {Bool.and(String.eq(_, x), Rev.member(des, d)) == True{} : Bool}; %Equal.sym(String, d, dd, ed) : {Bool.and(String.eq(path, x), Rev.member(des, _)) == True{} : Bool}; B.and_tt(String.eq(path, x), Rev.member(des, dd), hx, hd)))
+    case False{}:
+      PruneL.or_rt(Bool.and(String.eq(q, x), Rev.member(des, d)), gone_at(rest, x, des), ih(h))
+
+# A file a list lists, at `x` and holding one of `des`, is one of them.
+def lists_gone(cs: List<&2, T.Split>, +path: String, +dd: String, +x: String, +des: List<&2, String>, +hx: {String.eq(path, x) == True{} : Bool}, +hd: {Rev.member(des, dd) == True{} : Bool}, h: {lists(cs, path, dd) == True{} : Bool}) -> {gone_at(cs, x, des) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      h
+    case T.Split{+q, +d} <> +rest:
+      lists_hit(Bool.and(String.eq(q, path), String.eq(d, dd)), q, d, rest, path, dd, x, des, {==}, hx, hd, h, hr => lists_gone(rest, path, dd, x, des, hx, hd, hr))
+
+def from_gone.hit(c: Bool, +q: String, +d: String, +rest: List<&2, T.Split>, +cs: List<&2, T.Split>, +x: String, +des: List<&2, String>, +ec: {Bool.and(String.eq(q, x), Rev.member(des, d)) == c : Bool}, +hc: {lists(cs, q, d) == True{} : Bool}, h: {Bool.or(c, gone_at(rest, x, des)) == True{} : Bool}, ih: {gone_at(rest, x, des) == True{} : Bool} -> {gone_at(cs, x, des) == True{} : Bool}) -> {gone_at(cs, x, des) == True{} : Bool}:
+  match c:
+    case True{}:
+      lists_gone(cs, q, d, x, des, ArrangeL.and_tl(String.eq(q, x), Rev.member(des, d), ec), ArrangeL.and_tr(String.eq(q, x), Rev.member(des, d), ec), hc)
+    case False{}:
+      ih(h)
+
+def from_gone(ys: List<&2, T.Split>, +cs: List<&2, T.Split>, +x: String, +des: List<&2, String>, +ha: {SortL.all_at(~T.Split, ~List<&2, T.Split>, ~(c => a => listed.by(c, a)), cs, ys) == True{} : Bool}, h: {gone_at(ys, x, des) == True{} : Bool}) -> {gone_at(cs, x, des) == True{} : Bool}:
+  match ys:
+    case Nil{}:
+      Empty.absurd({gone_at(cs, x, des) == True{} : Bool}, S.false_true(h))
+    case T.Split{+q, +d} <> +rest:
+      from_gone.hit(Bool.and(String.eq(q, x), Rev.member(des, d)), q, d, rest, cs, x, des, {==},
+        PruneL.and_l(lists(cs, q, d), SortL.all_at(~T.Split, ~List<&2, T.Split>, ~(c => a => listed.by(c, a)), cs, rest), ha), h,
+        hr => from_gone(rest, cs, x, des, PruneL.and_r(lists(cs, q, d), SortL.all_at(~T.Split, ~List<&2, T.Split>, ~(c => a => listed.by(c, a)), cs, rest), ha), hr))
+
+def sdistinct_gone(+ps: List<&2, T.Split>, +x: String, +des: List<&2, String>, h: {gone_at(Receive.splits.distinct(ps), x, des) == True{} : Bool}) -> {gone_at(ps, x, des) == True{} : Bool}:
+  from_gone(List.sort(~T.Split, ~(a => b => Receive.split.le(a, b)), ps), ps, x, des,
+    SortL.all_sort_at(~T.Split, ~(a => b => Receive.split.le(a, b)), ~List<&2, T.Split>, ~(c => a => listed.by(c, a)), ps, ps, sself_all(ps)),
+    sdedup_gone(List.sort(~T.Split, ~(a => b => Receive.split.le(a, b)), ps), SNil{}, x, des, h))
+
+def removed_of(m: Bool, +a: List<&2, String>, +b: List<&2, String>, +x: String, +bs: List<&2, T.Split>, +ps: List<&2, T.Split>, +des: List<&2, String>, +em: {Rev.member(a, x) == m : Bool}, h: {Bool.or(m, Rev.member(b, x)) == True{} : Bool}, ha: {Rev.member(a, x) == True{} : Bool} -> {gone_at(bs, x, des) == True{} : Bool}, hb: {Rev.member(b, x) == True{} : Bool} -> {gone_at(ps, x, des) == True{} : Bool}) -> {Bool.or(gone_at(bs, x, des), gone_at(ps, x, des)) == True{} : Bool}:
+  match m:
+    case True{}:
+      PruneL.or_lt(gone_at(bs, x, des), gone_at(ps, x, des), ha(em))
+    case False{}:
+      PruneL.or_rt(gone_at(bs, x, des), gone_at(ps, x, des), hb(h))
+
+# Every file `receive` removes for the originals it destroys is an
+# operation document or a payload file of this store, at that path,
+# holding one of the digests destroyed.
+def removes_only(+bs: List<&2, Prune.Body>, +ps: List<&2, T.Split>, +des: List<&2, String>, +x: String, h: {Rev.member(Receive.destroyed(bs, ps, des), x) == True{} : Bool}) -> {Bool.or(gone_at(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), x, des), gone_at(ps, x, des)) == True{} : Bool}:
+  +a = T.map(~T.Split, ~String, ~(s => Prune.split.path(s)), Receive.kept.in(T.map(~Prune.Body, ~T.Split, ~(b => Receive.body.split.of(b)), bs), Set.from_list(des)))
+  +b = T.map(~T.Split, ~String, ~(s => Prune.split.path(s)), Receive.kept.in(Receive.splits.distinct(ps), Set.from_list(des)))
+  +l = List.append(&2, String, a, b)
+  +hl = ForgetL.held_member(l, Main.sorted_distinct(l), x, StatusL.ah_distinct(l, List.sort(~String, ~(a => b => String.is_le(a, b)), l), StatusL.ah_sort(~(a => b => String.is_le(a, b)), l, l, held_refl(l))), h)
+  removed_of(Rev.member(a, x), a, b, x, T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), ps, des, {==},
+    Equal.trans(Bool, Bool.or(Rev.member(a, x), Rev.member(b, x)), Rev.member(l, x), True{}, Equal.sym(Bool, Rev.member(l, x), Bool.or(Rev.member(a, x), Rev.member(b, x)), ArrangeL.member_app(a, b, x)), hl),
+    ha => kept_gone(T.map(~Prune.Body, ~T.Split, ~(b => Receive.body.split.of(b)), bs), des, x, ha),
+    hb => sdistinct_gone(ps, x, des, kept_gone(Receive.splits.distinct(ps), des, x, hb)))

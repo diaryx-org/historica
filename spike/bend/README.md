@@ -299,17 +299,17 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `arrange.bend` | `arrange`: every revision's stem over the whole store — the base, a change's first letters, a digest's — each file of content filed under the stem of the revision whose claim on it wins, at the path it had; the plan, in the Rust tool's walk order, and the renames carried out, each asking again whether its name is free; and the opening the Rust tool refuses where a revision does not parse | `store::arrange`, `naming::stems` |
 | `arrange_lemmas.bend` | `arrange_plans_no_overwrite`: every rename it carries out goes from a path to a different one the store's listing does not hold, the code's set of taken paths read back as the list it was built from; `arrange_moves_each_file_once`: of each directory, a path is renamed from no more often than the walk found a file there; `arrange_keeps_a_revision_where_it_sits`: without `--refile`, a revision is renamed only within its directory; `arrange_opens_what_parses`: it opens no store holding a revision document whose text does not parse, wherever it stands; `arrange_counts_every_file`: every file it walks is counted once in what it prints | `arrange` |
 | `prune.bend` | `prune`: what may go, to the Rust tool's fixed point — each revision asked, in digest order, against what is kept at its turn — and the content nothing kept still needs, forgetting documents included; the whole of `check` asked first, before the store is opened, as the Rust tool asks it; the files removed, `cache/` cleared, and the directories left empty swept | `store::prune`, decision 0013 |
-| `prune_lemmas.bend` | `prune_keeps_what_work_stands_on`: no revision it keeps names one it lets go of as a parent, through an invariant every step of every pass keeps; `prune_lets_go_only_what_is_superseded`: every revision it lets go of is one a revision of the store says it supersedes, through a second such invariant; `prune_removes_only_unneeded_content`: every document and payload it removes holds a digest no revision it keeps names by its own `edit`, `text` or `bytes` headers, and is no forgetting document standing in for one that is; `prune_dry_run_names_what_prune_removes`: a dry run removes nothing and names, a line each and in order, the files the real run removes | `prune` |
+| `prune_lemmas.bend` | `prune_keeps_what_work_stands_on`: no revision it keeps names one it lets go of as a parent, through an invariant every step of every pass keeps; `prune_lets_go_only_what_is_superseded`: every revision it lets go of is one a revision of the store says it supersedes, through a second such invariant; `prune_removes_only_unneeded_content`: every document and payload it removes holds a digest no revision it keeps names by its own `edit`, `text` or `bytes` headers, and is no forgetting document standing in for one that is; `prune_dry_run_names_what_prune_removes`: a dry run removes nothing and names, a line each and in order, the files the real run removes; `prune_clears_only_derived_files`: it clears from `cache/` only files named by a digest | `prune` |
 | `receive.bend` | `receive`: two stores read as the Rust tool opens them, each held to the whole of `check` as the Rust tool's `receive_plan` holds it, related or joined; the union planned — revisions, documents and payloads this store lacks and neither forgets, bookmarks new or joined on their axis and the disagreements, rules under the labels `Rule::label` gives, the files of `claims/` — and carried out, content before the revisions naming it, with the originals a forgetting document stands in for destroyed | `store::receive`, decisions 0029, 0044, 0045, 0053, 0062 |
-| `receive_lemmas.bend` | `receive_takes_only_revisions_it_lacks`: every revision it files is one of the source's revision documents, by digest and text, under a digest no revision document here has, through the sort and the pass that keeps each digest once; `receive_takes_only_documents_it_lacks` and `receive_takes_only_payloads_it_lacks`: every document and payload is one of the source's, under a digest this store holds nothing under and neither store forgets; `receive_joins_only_related_histories`: between two stores the check passes, it plans exactly where the histories are related, read from the revisions, or it was asked to join them; `receive_moves_no_bookmark`: each bookmark it writes, by name and target, is new here or one this store has at that target; `receive_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of either store names in its header; `receive_trusts_what_it_plans_from`: nothing is planned into or out of a store holding a revision document whose text does not parse | `receive` |
+| `receive_lemmas.bend` | `receive_takes_only_revisions_it_lacks`: every revision it files is one of the source's revision documents, by digest and text, under a digest no revision document here has, through the sort and the pass that keeps each digest once; `receive_takes_only_documents_it_lacks` and `receive_takes_only_payloads_it_lacks`: every document and payload is one of the source's, under a digest this store holds nothing under and neither store forgets; `receive_joins_only_related_histories`: between two stores the check passes, it plans exactly where the histories are related, read from the revisions, or it was asked to join them; `receive_moves_no_bookmark`: each bookmark it writes, by name and target, is new here or one this store has at that target; `receive_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of either store names in its header; `receive_removes_only_the_originals`: every file it removes for them is an operation document or payload file of this store, at that path, holding one of those digests; `receive_trusts_what_it_plans_from`: nothing is planned into or out of a store holding a revision document whose text does not parse | `receive` |
 | `offer.bend` | `offer`: the published copy's store read as `prune` reads it and opened as the Rust tool opens a store, and its manifest written to standard output — the header, every head of the graph, then payloads, documents, revisions, rules, the other tool's files and bookmarks, each group by path and each path under the copy's own name — with no private rule or bookmark named | `store::offer`, decisions 0048, 0052, 0056 |
-| `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have; `offer_names_each_file_by_its_digest`: every line names a file by the digest the store's listing gives it; `offer_lists_forgetting_as_prune_reads_it`: what the manifest says a document forgets is what `prune`, `receive` and `export` read it as forgetting, save a resolution the Rust tool's catalogue does not parse | `offer` |
+| `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have; `offer_names_each_file_by_its_digest`: every line names a file by the digest the store's listing gives it; `offer_lists_forgetting_as_prune_reads_it`: what the manifest says a document forgets is what `prune`, `receive` and `export` read it as forgetting, save a resolution the Rust tool's catalogue does not parse; `offer_lines_read_back`: `fetch`'s line reader reads each line it writes back as the file it names, whatever spaces the path holds | `offer` |
 | `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0053, 0062 |
 | `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_lays_out_only_what_the_walk_offers_back`: every path outside the store, no other file's directory, and none a rule covers; `export_carries_only_this_stores_files`: every document, forgetting document and payload a copy carries is one of this store's; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
 | `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
 | `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and sixty-five claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | two hundred and sixty-eight claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -951,7 +951,9 @@ entries of `cache/` with them, and `Store.sweep` takes the directories
 left empty. `-n` prints the plan the real run carries out: it removes
 nothing, and names a line each, in order, the files the real run removes
 (`prune_dry_run_names_what_prune_removes`); `--fields` prints decision
-0074's `gone` lines. The `pruning` store has an amendment and an abandoned run of three,
+0074's `gone` lines. Of `cache/`, only files named by a digest are
+cleared, so the note `init` writes there stays
+(`prune_clears_only_derived_files`). The `pruning` store has an amendment and an abandoned run of three,
 content only they named and content a kept revision shares, a second copy
 of a pruned revision, an empty directory, a platform's file and a cache
 entry; `lying` and `unparsed` are two stores `check` calls broken, and
@@ -980,7 +982,9 @@ that very target (`receive_moves_no_bookmark`); the dry run's exit goes through
 Rules arrive under `Rule::label`'s names, a rule's digest where a file here
 already has the name; the files of `claims/` by name, unread. An original
 here that an arriving forgetting document stands in for is destroyed
-(`receive_destroys_only_what_is_forgotten`), and so are the directories
+(`receive_destroys_only_what_is_forgotten`) — every file removed for one
+an operation document or payload file of this store holding that digest
+(`receive_removes_only_the_originals`) — and so are the directories
 that leaves empty. Nothing is planned from a store `check` calls broken,
 on either side — a store holding a revision
 document that does not parse, wherever it stands, is one
@@ -1026,7 +1030,11 @@ a fetcher checking a file against its line checks it against what the
 store holds; and what a document's line says it forgets is what `prune`,
 `receive` and `export` read it as forgetting, save a resolution, which the
 Rust tool's catalogue does not parse and lists as forgetting nothing
-(`offer_lists_forgetting_as_prune_reads_it`).
+(`offer_lists_forgetting_as_prune_reads_it`). And `fetch`'s own reader
+reads each line back as the file it names — its kind, digest, what it
+forgets and its path, whatever spaces the path holds
+(`offer_lines_read_back`) — so what a fetcher checks a file against is the
+digest the listing gave it.
 
 `export <dir> [<target>]` writes decision 0042's copy: a fresh repository
 at `<dir>`, assembled rather than mirrored. The target — `head` where none
@@ -2008,7 +2016,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and eighty-one mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and eighty-four mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2136,19 +2144,21 @@ version forgotten counted among the others; and six arrange breaks: a rename pla
 name that is taken, a revision refiled without `--refile`, a dry run's
 count leaving out the files it would leave, a store opened past a
 revision that does not parse, a taken set that forgets the listing, and
-renames carried out backwards; and seven prune breaks: a revision let go
+renames carried out backwards; and eight prune breaks: a revision let go
 that work still stands on, every revision read as superseded, content
 removed that a kept revision names, a payload a revision names by `bytes`
 read as unneeded, a forgetting document standing in for named content
-removed, a dry run that removes what it lists, and a plan and a statement
-taken at once; and seven receive breaks: a
+removed, a dry run that removes what it lists, every file of `cache/`
+cleared, and a plan and a statement taken at once; and eight receive breaks: a
 document taken that this store already holds, a payload copied that it
 already holds, a revision taken that it already holds, its own revisions
 filed as the source's, a source refused whose revisions this store builds
 on, a bookmark moved to where
-the source has it, and an original destroyed that nothing forgets; and three offer
-breaks: a private bookmark named, a private rule named, and a payload's
-stand-in read as an operation document; and four
+the source has it, an original destroyed that nothing forgets, and every
+payload file this store holds removed with it; and four offer
+breaks: a private bookmark named, a private rule named, a payload's
+stand-in read as an operation document, and nothing written where a line
+forgets nothing; and four
 export breaks: a link laid somewhere other than where it sits, a
 private bookmark given to the copy, a bookmark pointing past the target
 given to it, and a private rule written into it; and two breaks of an
