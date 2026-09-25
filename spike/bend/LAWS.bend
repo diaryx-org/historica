@@ -1860,31 +1860,30 @@ law a_link_resolves_inside_the_folder:
   for e: {Sv.resolution(link, target) == Some{p} : Maybe<&2, String>}
   {Main.escapes(p) == False{} : Bool}
 
-# `record` reads its words as their plain reading says: the word after a
-# flag that takes a value is that value, whatever it is; the last `-m` and
-# the last `--onto` count; each `--merge`, `--at`, `--move`, `--bytes` and
-# `--lines` counts, in the order given, an `--at` or a `--move` cut at its
-# first `=`; `-n` and `--fields` are asked for if they are there; and
-# every other word is a path, the slashes a shell leaves on a directory
-# taken off. Each `--accept` and each path is kept, the last first.
+# `record` reads its words as their plain reading says, one at a time.
+# Whatever words it has read, one flag more says one thing more and leaves
+# the rest as it was: `-m` or `--message` and the word after it is the
+# message, and `--onto` and the word after it what to record onto, the
+# last of each counting; `--merge` adds a revision to merge, and `--bytes`
+# and `--lines` a path given that kind, after those before it; `--accept`
+# adds a path accepted; and `-n`, `--dry-run` and `--fields` ask for
+# what they name. The word after a flag that takes one is its value,
+# whatever it is, and such a flag with no word after it is refused.
 law record_reads_its_words:
   for +args: List<&2, String>
-  for +cmd: Main.RecordCmd
-  for e: {Main.record.args.r(args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
-  {cmd == Main.rargs.said(Main.rargs.read(args, Main.rword(args))) : Main.RecordCmd}
-
-# `amend`, `abandon` and `carry` read their words as their plain reading
-# says: the word after `-m`, `--move` or `--onto`, where the command takes
-# it, is its value, whatever it is; the last `-m` and the last `--onto`
-# count, and each `--move`, in order, cut at its first `=`; `-n`,
-# `--fields` and `--only` are asked for if they are there; and the one
-# other word is the target.
-law rewrite_reads_its_words:
-  for +cmd: String
-  for +args: List<&2, String>
-  for +c: Main.RwCmd
-  for e: {Main.rw.args.r(cmd, args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}
-  {c == Main.wargs.said(Main.wargs.read(cmd, args, Main.wword(cmd, args))) : Main.RwCmd}
+  for +o: Maybe<&2, String>
+  for +ms: List<&2, String>
+  for +ac: List<&2, String>
+  for +at: List<&2, T.Split>
+  for +mv: List<&2, T.Split>
+  for +ks: List<&2, T.Split>
+  for +ns: List<&2, String>
+  for +d: Bool
+  for +f: Bool
+  for +mg: Maybe<&2, String>
+  for +e: {Main.record.args.r(args) == Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+  for +v: String
+  {[Main.record.args.r(List.append(&2, String, args, ["-m", v])), Main.record.args.r(List.append(&2, String, args, ["--message", v])), Main.record.args.r(List.append(&2, String, args, ["--onto", v])), Main.record.args.r(List.append(&2, String, args, ["--merge", v])), Main.record.args.r(List.append(&2, String, args, ["--accept", v])), Main.record.args.r(List.append(&2, String, args, ["--bytes", v])), Main.record.args.r(List.append(&2, String, args, ["--lines", v])), Main.record.args.r(List.append(&2, String, args, ["-n"])), Main.record.args.r(List.append(&2, String, args, ["--dry-run"])), Main.record.args.r(List.append(&2, String, args, ["--fields"])), Main.record.args.r(List.append(&2, String, args, ["-m"])), Main.record.args.r(List.append(&2, String, args, ["--onto"])), Main.record.args.r(List.append(&2, String, args, ["--merge"])), Main.record.args.r(List.append(&2, String, args, ["--accept"])), Main.record.args.r(List.append(&2, String, args, ["--at"])), Main.record.args.r(List.append(&2, String, args, ["--move"])), Main.record.args.r(List.append(&2, String, args, ["--bytes"])), Main.record.args.r(List.append(&2, String, args, ["--lines"]))] == [Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, Some{v}}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, Some{v}}}, Done{Main.RecordCmd{Some{v}, ms, ac, at, mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, List.append(&2, String, ms, [v]), ac, at, mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, v <> ac, at, mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, List.append(&2, T.Split, ks, [T.Split{v, "bytes"}]), ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, List.append(&2, T.Split, ks, [T.Split{v, "lines"}]), ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, True{}, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, True{}, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, True{}, mg}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Fail{Main.Refused{2, "`--onto` wants a value"}}, Fail{Main.Refused{2, "`--merge` wants a value"}}, Fail{Main.Refused{2, "`--accept` wants a value"}}, Fail{Main.Refused{2, "`--at` wants a value"}}, Fail{Main.Refused{2, "`--move` wants a value"}}, Fail{Main.Refused{2, "`--bytes` wants a value"}}, Fail{Main.Refused{2, "`--lines` wants a value"}}] : List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>}
 
 # A carry restates work without changing whose it is or when it was done.
 # Whatever it is asked to carry, each revision a plan would write has the
@@ -1928,35 +1927,61 @@ law reword_changes_only_the_message:
   for e: {Main.reword.r(fs, prev, standing, m, reviser, revised) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}
   {Main.reword.ok(prev, m, doc) == True{} : Bool}
 
-# What `record` states a file holds is what the folder holds there. Of
-# each file it drafts content for, an edit is the written form of the
-# document that replays the position's lines of that file to the lines
-# the folder holds — `befores` being the position's — text is the bytes
-# the folder holds, a payload is named by the digest of the folder's, and
-# where the parents being joined leave the file differently, a resolution
-# is the written form of the one the walk's proposal and the folder's lines
-# make, which `merge_resolution_reads_back` assembles back to those lines.
+# What `record` states a file holds is what the folder holds there. Where
+# it reads what it edits of the position, of each file it drafts content
+# for, an edit applied to the store's replay of that file at the position
+# gives the lines the folder holds, text is the bytes the folder holds,
+# and a payload is named by the digest the folder's walk gave its path; a
+# record from one position states no resolution. Where the parents being
+# joined leave a file differently, `record_resolves_as_the_walk_proposes`.
 law record_states_the_folder:
-  for +befores: List<&2, Main.Before>
-  for +t: Tree.Tree()
-  for +hs: List<&2, Main.Here>
+  for +older: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +left: String
   for +dg: Map<&2, String>
   for +reads: Map<&2, List<&2, U32>>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
   for +ks: List<&2, T.Split>
   for +moves: List<&2, T.Split>
   for +obs: List<&2, Sv.Obs>
   for +ls: List<&2, String>
   for +mint: List<&2, T.Split>
-  {Main.contents.state(befores, dg, reads, Main.drafted.contents(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
+  for +bs: List<&2, Main.Before>
+  for +e: {Main.befores.r(older, ds, left, Main.edited.lines(Sv.edited(obs), hs)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
+  {Main.contents.state(older, ds, left, dg, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
 
-# What `record` writes is named as it says. Each file arriving is added
-# under the identifier minted for it, in path order; the revision is named
-# by the digest of its own text, and filed under the name decision 0019
-# composes from its moment, its message and its change, extended only
-# where the store already holds a revision of that name; and each
-# bookmark it moves names the change of one of its parents.
+# Decision 0032: where the parents being joined leave a file of lines
+# differently, what `record` states of it is the written form of the
+# resolution `Conflict.resolve` makes of the walk of those parents — the
+# reading `merge` lays out, `Main.joined` — and the lines the folder
+# holds, which `merge_resolution_reads_back` assembles back to those lines.
+law record_resolves_as_the_walk_proposes:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +dg: Map<&2, String>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  for +mint: List<&2, T.Split>
+  for +bs: List<&2, Main.Before>
+  for +e: {Main.joinings.r(fs, ds, ps, Main.edited.lines(Sv.edited(obs), hs)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
+  {Main.contents.resolve(fs, ds, ps, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
+
+# What `record` writes is named as it says. The revision is filed under
+# the name decision 0019 composes from its moment, its message and its
+# change, or a longer one beginning with it, and under that name exactly
+# where no revision the store holds has it.
 law record_names_what_it_writes:
-  for w: Main.Writing
+  for +a: String
+  for +when: String
+  for +message: String
+  for +fl: Bool
   for +hex: String
   for +befores: List<&2, Main.Before>
   for +fs: List<&2, Main.Full>
@@ -1970,21 +1995,31 @@ law record_names_what_it_writes:
   for +moves: List<&2, T.Split>
   for +obs: List<&2, Sv.Obs>
   for +ls: List<&2, String>
-  {Main.record.named(w, Sv.sorted(Sv.added(obs)), Main.parents.changes(fs, ps), Main.record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)) == True{} : Bool}
+  {(String.starts_with(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))), String.eq(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))))) == (True{}, Bool.not(Rev.member(T.map(~Main.Full, ~String, ~(f => Naming.base_of(Main.full.named(f))), fs), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))))) : Bool & Bool}
 
-# What `record` goes on to write is a plan the survey settled. Where it
-# is not refused, no path is claimed by several files, nothing is there
-# that the format cannot record, no file still holds a line the renderer
-# wrote, nothing a merge would leave empty, no link dangles, and the
-# attachments accepted are exactly the ones concurrent work states
-# different bytes for.
+# What `record` goes on to write is the plan the survey made, as the
+# survey made it, and one the survey settled. Where the plan is not
+# refused, neither the walk nor the survey refused any path it looked at,
+# the survey observed no file still holding a line the renderer wrote and
+# no contested file of lines left empty, every link
+# the position holds is anchored — naming no file the record drops, unless
+# the link goes too or the folder's link at its path is one the record
+# observes — and a path is among those `--accept` names exactly where the
+# survey observed that concurrent work states different bytes for it.
+# That no path it looks at holds two files is
+# `record_goes_on_where_each_path_holds_one_file`.
 law record_writes_only_what_is_settled:
+  for +t: Tree.Tree()
   for +looked: Tree.Tree()
-  for pl: Sv.Planned
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  for +moves: List<&2, T.Split>
   for +accepted: List<&2, String>
   for pl2: Sv.Planned
-  for e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
-  {Main.planned.settled(pl2, accepted) == True{} : Bool}
+  for +e: {Main.planned.r(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
+  for +x: String
+  {(pl2, (walked, (Sv.refusals(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.marked(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.emptied(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.anchored(t, Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), Sv.planned.pointing(Sv.planned(t, looked, held, walked, ss, moves))), Rev.member(accepted, x))))))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, (Nil{}, (Nil{}, (Nil{}, (True{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))))))) : Sv.Planned & (List<&2, T.Split> & (List<&2, T.Split> & (List<&2, T.Split> & (List<&2, String> & (Bool & Bool)))))}
 
 # What `amend` rewrites is a revision the store holds: the target named,
 # or else the one head there is.
@@ -2018,16 +2053,17 @@ law record_moves_only_held_files:
   {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}
 
 # A record restricted to some paths is no merge, since a merge states
-# every contested file, and every rename it states is among those paths
-# at both its ends, since recording one end alone would spell the other as
-# a file appearing or disappearing.
+# every contested file, and every rename it is asked to make is among
+# those paths at both its ends, since recording one end alone would spell
+# the other as a file appearing or disappearing. `record` goes on past its
+# check of the restriction exactly where no path is named, or where it has
+# one parent at most and the path each `--move` moves from, and the one it
+# moves to, is among the paths named or beneath one of them.
 law record_restricts_no_merge_and_no_half_rename:
   for +named: List<&2, String>
   for +ps: List<&2, String>
   for +moves: List<&2, T.Split>
-  for u: Unit
-  for e: {Main.restricted.r(named, ps, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
-  {Main.restriction.whole(named, ps, moves) == True{} : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Unit, Main.restricted.r(named, ps, moves)) == Bool.or(List.is_empty(&2, String, named), Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), Bool.and(Sv.all_covered(named, moves), Sv.all_covered(named, Main.swapped(moves))))) : Bool}
 
 # `record --dry-run` says a file arriving once. Whatever the survey
 # observed, of the facts the plan it prints states, only an `added` line,
@@ -2063,26 +2099,24 @@ law writes_say_what_they_wrote:
   {Bool.and(Main.fields.ok([id], Main.record.said.lines(Main.Writing{a, when, m, True{}}, facts, change, id, names, ps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.amend.said.lines(True{}, False{}, facts, prev, change, id, carrying, steps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps))))) == True{} : Bool}
 
 # A file arriving that a person said is lines is read to be sure it is
-# text, and where `record` goes on it is: every file it reads because
-# `--lines` named it has bytes that are UTF-8.
+# text, and where `record` goes on it is. Of the paths it looks at, one
+# where the position holds nothing and the folder a regular file, and that
+# `--lines` names, is among the files it reads because `--lines` named
+# them, and the bytes read there are UTF-8.
 law record_reads_lines_as_text:
   for +ks: List<&2, T.Split>
   for +reads: Map<&2, List<&2, U32>>
-  for hs: List<&2, Main.Here>
-  for e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}
-  {Main.utf8.all(reads, Main.lined_added(ks, hs)) == True{} : Bool}
-
-# What `record` reads of the position, to state an edit against it, is
-# the store's replay of each file of lines it edits: one reading of each
-# file, in the order asked, where every replay succeeds.
-law record_reads_the_position:
-  for +older: List<&2, Main.Full>
-  for +ds: List<&2, Store.Doc>
-  for +left: String
-  for files: List<&2, String>
-  for bs: List<&2, Main.Before>
-  for e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
-  {Main.befores.read(older, ds, left, files, bs) == True{} : Bool}
+  for +hs: List<&2, Main.Here>
+  for +e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}
+  for +i: Nat
+  for +p: String
+  for +q: String
+  for +r: Bool
+  for +n: Nat
+  for hi: {List.get(&2, Main.Here, hs, i) == Some{Main.Here{p, None{}, Some{Folder.Found.File{q, r, n}}}} : Maybe<&2, Main.Here>}
+  for +j: Nat
+  for hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, "lines"}} : Maybe<&2, T.Split>}
+  {Bool.and(Rev.member(Main.lined_added(ks, hs), p), Folder.is_utf8(Main.bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))) == True{} : Bool}
 
 # An amendment keeps the identifiers it minted. Of the files arriving
 # against the amended revision's parents, each is given an identifier, in
@@ -2108,14 +2142,19 @@ law abandon_asks_for_a_revision_and_a_reason:
   for e3: {Main.reason.r(m) == Done{u3} : Result<&2, &2, Main.Refused, Unit>}
   {Main.abandon.asked(c, m) == True{} : Bool}
 
-# A kind is a fact about a file: where `record` goes on, every path
-# `--bytes` or `--lines` names is a file the folder holds.
+# A kind is a fact about a file. Where `record` goes on past its check of
+# the kinds a person stated, every path `--bytes` or `--lines` named is a
+# file the folder holds.
 law record_gives_kinds_only_to_files:
-  for ks: List<&2, T.Split>
+  for +ks: List<&2, T.Split>
   for +found: Set()
   for u: Unit
-  for e: {Main.kinds.unheld.r(ks, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
-  {Main.kinds.found(ks, found) == True{} : Bool}
+  for +e: {Main.kinds.unheld.r(Main.kinds.of(ks), found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  for +j: Nat
+  for +p: String
+  for k: String
+  for hj: {List.get(&2, T.Split, ks, j) == Some{T.Split{p, k}} : Maybe<&2, T.Split>}
+  {Sv.has(found, p) == True{} : Bool}
 
 # A dry run of `abandon` begins by naming, in order, each revision of the
 # run it would abandon, by the first twelve letters of its digest.
@@ -2906,3 +2945,175 @@ law fetch_files_a_payload_under_what_it_hashes_to:
   for b: String
   for +e: {Fetch.pay.land(root, o, g) == Fetch.Land.Move{f, a, b} : Fetch.Land}
   {Fetch.Got.Pulled{b} == g : Fetch.Got}
+
+# `record` cuts `--at` and `--move` at their first `=`. Whatever words it
+# has read, `--at <file>=<path>` adds one more file to put at a path, and
+# `--move <old>=<new>` one more path to move, after those before it, what
+# follows the first `=` kept whole whatever `=` it holds; a value with no
+# `=` is refused. And a word that does not begin with `-` is a path to
+# record: kept as it was typed where it does not end in `/`, and the `/`
+# a shell leaves after a directory changes nothing.
+law record_reads_renames_and_paths:
+  for +args: List<&2, String>
+  for +o: Maybe<&2, String>
+  for +ms: List<&2, String>
+  for +ac: List<&2, String>
+  for +at: List<&2, T.Split>
+  for +mv: List<&2, T.Split>
+  for +ks: List<&2, T.Split>
+  for +ns: List<&2, String>
+  for +d: Bool
+  for +f: Bool
+  for +mg: Maybe<&2, String>
+  for +e: {Main.record.args.r(args) == Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+  for +a: String
+  for +b: String
+  for +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}
+  for +p: String
+  for +hp: {String.starts_with(p, "-") == False{} : Bool}
+  for +hn: {String.is_empty(p) == False{} : Bool}
+  for +hs: {String.ends_with(p, "/") == False{} : Bool}
+  {[Main.record.args.r(List.append(&2, String, args, ["--at", a ++ ("=" ++ b)])), Main.record.args.r(List.append(&2, String, args, ["--move", a ++ ("=" ++ b)])), Main.record.args.r(List.append(&2, String, args, ["--at", a])), Main.record.args.r(List.append(&2, String, args, ["--move", a])), Main.record.args.r(List.append(&2, String, args, [p])), Main.record.args.r(List.append(&2, String, args, [p ++ "/"]))] == [Done{Main.RecordCmd{o, ms, ac, List.append(&2, T.Split, at, [T.Split{a, b}]), mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, List.append(&2, T.Split, mv, [T.Split{a, b}]), ks, ns, d, f, mg}}, Fail{Main.Refused{2, "`--at` is spelled `--at <file>=<path>`"}}, Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, p <> ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, p <> ns, d, f, mg}}] : List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>}
+
+# `amend` reads its words as their plain reading says, one at a time.
+# Whatever words it has read, `-m` or `--message` and the word after it
+# is the message, the last counting; `--move <old>=<new>` adds one more
+# rename after those before it, cut at its first `=`, and one with no `=`
+# is refused; `-n`, `--dry-run` and `--fields` ask for what they name;
+# `--onto` and `--only` are refused; so is a flag with no word after it
+# for its value; and a word that does not begin with `-` is the revision
+# to amend where none is named yet, and refused as a second where one is.
+law amend_reads_its_words:
+  for +args: List<&2, String>
+  for +m: Maybe<&2, String>
+  for +mv: List<&2, T.Split>
+  for +o: Maybe<&2, String>
+  for +n: Maybe<&2, String>
+  for +d: Bool
+  for +f: Bool
+  for +y: Bool
+  for +e: {Main.rw.args.r("amend", args) == Done{Main.RwCmd{m, mv, o, n, d, f, y}} : Result<&2, &2, Main.Refused, Main.RwCmd>}
+  for +v: String
+  for +a: String
+  for +b: String
+  for +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}
+  for +w: String
+  for +hw: {String.starts_with(w, "-") == False{} : Bool}
+  {[Main.rw.args.r("amend", List.append(&2, String, args, ["-m", v])), Main.rw.args.r("amend", List.append(&2, String, args, ["--message", v])), Main.rw.args.r("amend", List.append(&2, String, args, ["--move", a ++ ("=" ++ b)])), Main.rw.args.r("amend", List.append(&2, String, args, ["--move", a])), Main.rw.args.r("amend", List.append(&2, String, args, ["-n"])), Main.rw.args.r("amend", List.append(&2, String, args, ["--dry-run"])), Main.rw.args.r("amend", List.append(&2, String, args, ["--fields"])), Main.rw.args.r("amend", List.append(&2, String, args, ["--onto", v])), Main.rw.args.r("amend", List.append(&2, String, args, ["--only"])), Main.rw.args.r("amend", List.append(&2, String, args, ["-m"])), Main.rw.args.r("amend", List.append(&2, String, args, ["--move"])), Main.rw.args.r("amend", List.append(&2, String, args, [w]))] == [Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{m, List.append(&2, T.Split, mv, [T.Split{a, b}]), o, n, d, f, y}}, Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`--onto` is not an argument `amend` takes"}}, Fail{Main.Refused{2, "`--only` is not an argument `amend` takes"}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Fail{Main.Refused{2, "`--move` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`amend` rewrites one revision, and `" ++ w ++ "` is a second"}})] : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}
+
+# `abandon` reads its words the same way. Whatever words it has read, `-m`
+# or `--message` and the word after it is the reason, the last counting;
+# `--only`, `-n`, `--dry-run` and `--fields` ask for what they name;
+# `--move` and `--onto` are refused, and so is `-m` with no word after
+# it; and a word that does not begin with `-` is the revision to abandon
+# from where none is named yet, and refused as a second where one is.
+law abandon_reads_its_words:
+  for +args: List<&2, String>
+  for +m: Maybe<&2, String>
+  for +mv: List<&2, T.Split>
+  for +o: Maybe<&2, String>
+  for +n: Maybe<&2, String>
+  for +d: Bool
+  for +f: Bool
+  for +y: Bool
+  for +e: {Main.rw.args.r("abandon", args) == Done{Main.RwCmd{m, mv, o, n, d, f, y}} : Result<&2, &2, Main.Refused, Main.RwCmd>}
+  for +v: String
+  for +a: String
+  for +b: String
+  for +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}
+  for +w: String
+  for +hw: {String.starts_with(w, "-") == False{} : Bool}
+  {[Main.rw.args.r("abandon", List.append(&2, String, args, ["-m", v])), Main.rw.args.r("abandon", List.append(&2, String, args, ["--message", v])), Main.rw.args.r("abandon", List.append(&2, String, args, ["--only"])), Main.rw.args.r("abandon", List.append(&2, String, args, ["-n"])), Main.rw.args.r("abandon", List.append(&2, String, args, ["--dry-run"])), Main.rw.args.r("abandon", List.append(&2, String, args, ["--fields"])), Main.rw.args.r("abandon", List.append(&2, String, args, ["--move", v])), Main.rw.args.r("abandon", List.append(&2, String, args, ["--onto", v])), Main.rw.args.r("abandon", List.append(&2, String, args, ["-m"])), Main.rw.args.r("abandon", List.append(&2, String, args, [w]))] == [Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, f, True{}}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`--move` is not an argument `abandon` takes"}}, Fail{Main.Refused{2, "`--onto` is not an argument `abandon` takes"}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`abandon` abandons one run of work, and `" ++ w ++ "` is a second"}})] : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}
+
+# And `carry`. Whatever words it has read, `--onto` and the word after it
+# is where to carry onto, the last counting; `-n`, `--dry-run` and
+# `--fields` ask for what they name; `-m`, `--message`, `--move` and
+# `--only` are refused, and so is `--onto` with no word after it; and a
+# word that does not begin with `-` is the work to carry where none is
+# named yet, and refused as a second where one is.
+law carry_reads_its_words:
+  for +args: List<&2, String>
+  for +m: Maybe<&2, String>
+  for +mv: List<&2, T.Split>
+  for +o: Maybe<&2, String>
+  for +n: Maybe<&2, String>
+  for +d: Bool
+  for +f: Bool
+  for +y: Bool
+  for +e: {Main.rw.args.r("carry", args) == Done{Main.RwCmd{m, mv, o, n, d, f, y}} : Result<&2, &2, Main.Refused, Main.RwCmd>}
+  for +v: String
+  for +a: String
+  for +b: String
+  for +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}
+  for +w: String
+  for +hw: {String.starts_with(w, "-") == False{} : Bool}
+  {[Main.rw.args.r("carry", List.append(&2, String, args, ["--onto", v])), Main.rw.args.r("carry", List.append(&2, String, args, ["-n"])), Main.rw.args.r("carry", List.append(&2, String, args, ["--dry-run"])), Main.rw.args.r("carry", List.append(&2, String, args, ["--fields"])), Main.rw.args.r("carry", List.append(&2, String, args, ["-m", v])), Main.rw.args.r("carry", List.append(&2, String, args, ["--message", v])), Main.rw.args.r("carry", List.append(&2, String, args, ["--move", v])), Main.rw.args.r("carry", List.append(&2, String, args, ["--only"])), Main.rw.args.r("carry", List.append(&2, String, args, ["--onto"])), Main.rw.args.r("carry", List.append(&2, String, args, [w]))] == [Done{Main.RwCmd{m, mv, Some{v}, n, d, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`-m` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--message` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--move` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--only` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--onto` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`carry` carries one line of work, and `" ++ w ++ "` is a second"}})] : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}
+
+# Every bookmark on the change of a revision `record` records onto moves
+# with the work. Where one of the parents named is the identifier of a
+# revision the store holds, and no revision the store lists before that one
+# has the identifier, every bookmark the store holds on that revision's
+# change is among those it moves, its name and its privacy as they were.
+law record_moves_the_bookmarks_on_its_parents:
+  for +a: String
+  for +when: String
+  for +message: String
+  for +fl: Bool
+  for +hex: String
+  for +befores: List<&2, Main.Before>
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ps: List<&2, String>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +dg: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  for +k: Nat
+  for +p: String
+  for hp: {List.get(&2, String, ps, k) == Some{p} : Maybe<&2, String>}
+  for +m: Nat
+  for +f: Main.Full
+  for hf: {List.get(&2, Main.Full, fs, m) == Some{f} : Maybe<&2, Main.Full>}
+  for hid: {Main.id_of(f) == p : String}
+  for hfirst: {Rev.member(Main.ids(List.take(&2, Main.Full, fs, m)), p) == False{} : Bool}
+  for +i: Nat
+  for +n: String
+  for +pr: Bool
+  for hi: {List.get(&2, Bm.Bookmark, bs, i) == Some{Bm.Bookmark{n, Bm.Target.Change{Main.change_of(f)}, pr}} : Maybe<&2, Bm.Bookmark>}
+  exs j: Nat
+  {List.get(&2, Bm.Bookmark, Main.recorded.moving(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), j) == Some{Bm.Bookmark{n, Bm.Target.Change{Main.change_of(f)}, pr}} : Maybe<&2, Bm.Bookmark>}
+
+# And no other moves: each bookmark `record` moves is one the store holds,
+# on the change of a revision the store holds whose identifier is one of
+# the parents named, no revision the store lists before that one having
+# the identifier.
+law record_moves_only_the_bookmarks_on_its_parents:
+  for +a: String
+  for +when: String
+  for +message: String
+  for +fl: Bool
+  for +hex: String
+  for +befores: List<&2, Main.Before>
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ps: List<&2, String>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +dg: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  for +j: Nat
+  for b: Bm.Bookmark
+  for hj: {List.get(&2, Bm.Bookmark, Main.recorded.moving(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), j) == Some{b} : Maybe<&2, Bm.Bookmark>}
+  exs i: Nat
+  exs k: Nat
+  exs m: Nat
+  exs f: Main.Full
+  {(List.get(&2, Bm.Bookmark, bs, i), (Bm.target_of(b), (List.get(&2, String, ps, k), (List.get(&2, Main.Full, fs, m), Rev.member(Main.ids(List.take(&2, Main.Full, fs, m)), Main.id_of(f)))))) == (Some{b}, (Bm.Target.Change{Main.change_of(f)}, (Some{Main.id_of(f)}, (Some{f}, False{})))) : Maybe<&2, Bm.Bookmark> & (Bm.Target & (Maybe<&2, String> & (Maybe<&2, Main.Full> & Bool)))}

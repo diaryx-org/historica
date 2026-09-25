@@ -7452,103 +7452,6 @@ def rc.normal(c: RecordCmd) -> RecordCmd:
     case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}:
       RecordCmd{o, ms, ac, T.map(~T.Split, ~T.Split, ~(x => typed.at(x)), at), T.map(~T.Split, ~T.Split, ~(x => typed.move(x)), mv), T.map(~T.Split, ~T.Split, ~(x => typed.kind(x)), ks), T.map(~String, ~String, ~(x => Nfc.nfc(x)), ns), d, f, mg}
 
-# What `record`'s words say, read plainly. Each word is read as a flag and
-# what it says: the word after a flag that takes a value is that value,
-# whatever it is, and a word that is no flag is a path, with the slashes a
-# shell leaves on a directory taken off. What each flag's words then mean
-# is `rargs.said`; `LAWS.record_reads_its_words` holds `record.args.r` to it.
-def rargs.read(args: List<&2, String>, k: RWord) -> List<&2, T.Split>:
-  match args k:
-    case Nil{} _:
-      Nil{}
-    case w <> v <> +rest RWord.Message{}:
-      T.Split{"-m", v} <> rargs.read(rest, rword(rest))
-    case w <> v <> +rest RWord.Onto{}:
-      T.Split{"--onto", v} <> rargs.read(rest, rword(rest))
-    case w <> v <> +rest RWord.Merge{}:
-      T.Split{"--merge", v} <> rargs.read(rest, rword(rest))
-    case w <> v <> +rest RWord.Accept{}:
-      T.Split{"--accept", v} <> rargs.read(rest, rword(rest))
-    case w <> v <> +rest RWord.At{}:
-      T.Split{"--at", v} <> rargs.read(rest, rword(rest))
-    case w <> v <> +rest RWord.Move{}:
-      T.Split{"--move", v} <> rargs.read(rest, rword(rest))
-    case w <> v <> +rest RWord.Bytes{}:
-      T.Split{"--bytes", v} <> rargs.read(rest, rword(rest))
-    case w <> v <> +rest RWord.Lines{}:
-      T.Split{"--lines", v} <> rargs.read(rest, rword(rest))
-    case w <> +rest RWord.Dry{}:
-      T.Split{"--dry-run", SNil{}} <> rargs.read(rest, rword(rest))
-    case w <> +rest RWord.Fields{}:
-      T.Split{"--fields", SNil{}} <> rargs.read(rest, rword(rest))
-    case +w <> +rest RWord.Path{}:
-      T.Split{"path", trimmed(w)} <> rargs.read(rest, rword(rest))
-    case w <> +rest _:
-      rargs.read(rest, rword(rest))
-
-# Every value a flag was given, in order.
-def rargs.values(items: List<&2, T.Split>, +key: String) -> List<&2, String>:
-  match items:
-    case Nil{}:
-      Nil{}
-    case T.Split{+k, v} <> rest:
-      +later = rargs.values(rest, key)
-      Bool.pick(List<&2, String>, String.eq(k, key), v <> later, later)
-
-# The last value a flag was given, or `last` where it was given none.
-def rargs.last(items: List<&2, T.Split>, +key: String, last: Maybe<&2, String>) -> Maybe<&2, String>:
-  match items:
-    case Nil{}:
-      last
-    case T.Split{+k, v} <> rest:
-      rargs.last(rest, key, Bool.pick(Maybe<&2, String>, String.eq(k, key), Some{v}, last))
-
-# Whether a flag is there, or `had`.
-def rargs.has(items: List<&2, T.Split>, +key: String, had: Bool) -> Bool:
-  match items:
-    case Nil{}:
-      had
-    case T.Split{+k, v} <> rest:
-      rargs.has(rest, key, Bool.pick(Bool, String.eq(k, key), True{}, had))
-
-# Each path `--bytes` and `--lines` name, with the kind it is said to be.
-def rargs.kinds(items: List<&2, T.Split>) -> List<&2, T.Split>:
-  match items:
-    case Nil{}:
-      Nil{}
-    case T.Split{+k, +v} <> rest:
-      +later = rargs.kinds(rest)
-      Bool.pick(List<&2, T.Split>, String.eq(k, "--bytes"), T.Split{v, "bytes"} <> later,
-      Bool.pick(List<&2, T.Split>, String.eq(k, "--lines"), T.Split{v, "lines"} <> later, later))
-
-# `<one>=<other>` cut at its first `=`.
-def rargs.cut.of(+v: String, parts: List<&2, String>) -> T.Split:
-  match parts:
-    case a <> b <> rest:
-      T.Split{a, String.join(b <> rest, "=")}
-    case _:
-      T.Split{v, SNil{}}
-
-def rargs.cut(+v: String) -> T.Split:
-  rargs.cut.of(v, String.split(v, '='))
-
-def rargs.cuts(vs: List<&2, String>) -> List<&2, T.Split>:
-  match vs:
-    case Nil{}:
-      Nil{}
-    case +v <> rest:
-      rargs.cut(v) <> rargs.cuts(rest)
-
-# What the words mean: the last `--onto`; each `--merge`, `--at`, `--move`,
-# `--bytes` and `--lines`, in order, an `--at` or a `--move` cut at its
-# first `=`; `-n` and `--fields` if they are there; the last `-m`. Each
-# `--accept` and each path is kept too, the last first.
-def rargs.said(+items: List<&2, T.Split>) -> RecordCmd:
-  RecordCmd{rargs.last(items, "--onto", None{}), rargs.values(items, "--merge"), List.reverse(&2, String, rargs.values(items, "--accept")),
-    rargs.cuts(rargs.values(items, "--at")), rargs.cuts(rargs.values(items, "--move")), rargs.kinds(items),
-    List.reverse(&2, String, rargs.values(items, "path")), rargs.has(items, "--dry-run", False{}), rargs.has(items, "--fields", False{}),
-    rargs.last(items, "-m", None{})}
-
 # One path, two kinds, is a person who typed something they did not mean.
 def kinds.differs(ks: List<&2, T.Split>, +p: String, +k: String) -> Bool:
   match ks:
@@ -7566,11 +7469,6 @@ def kinds.clash.r(ks: List<&2, T.Split>, +seen: List<&2, T.Split>) -> Result<&2,
         Fail{Refused{2, "`" ++ p ++ "` is stated as both bytes and lines, and it is one or the other"}},
         kinds.clash.r(rest, T.Split{p, k} <> seen))
 
-def split_le(a: T.Split, b: T.Split) -> Bool:
-  match a b:
-    case T.Split{x, i} T.Split{y, j}:
-      String.is_le(x, y)
-
 def split_key(s: T.Split) -> String:
   match s:
     case T.Split{k, v}:
@@ -7586,7 +7484,7 @@ def kinds.distinct(ks: List<&2, T.Split>) -> List<&2, T.Split>:
 
 # What each kind is stated for, a path once, in path order.
 def kinds.of(ks: List<&2, T.Split>) -> List<&2, T.Split>:
-  kinds.distinct(List.sort(~T.Split, ~(a => b => split_le(a, b)), ks))
+  kinds.distinct(List.sort(~T.Split, ~(a => b => String.is_le(split_key(a), split_key(b))), ks))
 
 def lines.stated(ks: List<&2, T.Split>, +p: String) -> Bool:
   match ks:
@@ -7603,15 +7501,6 @@ def kinds.unheld.r(ks: List<&2, T.Split>, +found: Set()) -> Result<&2, &2, Refus
     case T.Split{+p, k} <> rest:
       Bool.pick(Result<&2, &2, Refused, Unit>, Sv.has(found, p), kinds.unheld.r(rest, found),
         Fail{Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}})
-
-# Every path given a kind is a file the folder holds.
-# `LAWS.record_gives_kinds_only_to_files`.
-def kinds.found(ks: List<&2, T.Split>, +found: Set()) -> Bool:
-  match ks:
-    case Nil{}:
-      True{}
-    case T.Split{+p, k} <> rest:
-      Bool.and(Sv.has(found, p), kinds.found(rest, found))
 
 # `--at`'s file, by a file bookmark or an identifier: `target::file_by_name`.
 def at.file.of(+s: String, found: Maybe<&2, Bm.Target>) -> Result<&2, &2, Refused, String>:
@@ -7648,19 +7537,6 @@ def restricted.r(+named: List<&2, String>, +ps: List<&2, String>, moves: List<&2
   Bool.pick(Result<&2, &2, Refused, Unit>, Nat.is_gt(List.length(&2, String, ps), 1n),
     Fail{Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ skips_held.lines(named)}},
     restricted.half.r(named, moves)))
-
-# A record restricted to some paths is no merge, and every rename it
-# states is among those paths at both its ends.
-# `LAWS.record_restricts_no_merge_and_no_half_rename`.
-def renames.covered(+named: List<&2, String>, moves: List<&2, T.Split>) -> Bool:
-  match moves:
-    case Nil{}:
-      True{}
-    case T.Split{+from, +to} <> rest:
-      Bool.and(Bool.and(Sv.covers(named, from), Sv.covers(named, to)), renames.covered(named, rest))
-
-def restriction.whole(+named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>) -> Bool:
-  Bool.or(List.is_empty(&2, String, named), Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), renames.covered(named, moves)))
 
 # `--fields`'s header, and a refusal that owes it first: `historica-wrote-1`
 # goes out before any refusal but a usage error, wherever the command stops.
@@ -7917,15 +7793,6 @@ def not_lines(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&
     case h <> rest:
       not_lines(ks, reads, rest)
 
-# Every file `record` reads because a person said it is lines is text
-# where recording goes on. `LAWS.record_reads_lines_as_text`.
-def utf8.all(+reads: Map<&2, List<&2, U32>>, ps: List<&2, String>) -> Bool:
-  match ps:
-    case Nil{}:
-      True{}
-    case +p <> rest:
-      Bool.and(Folder.is_utf8(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), utf8.all(reads, rest))
-
 # What recording refuses that `status` only describes, in the order the
 # Rust tool asks: a link left dangling, a path several files claim, what
 # nothing here can take, what a merge would empty, and contested bytes
@@ -7991,17 +7858,6 @@ def planned.r(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, String>)
       Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, needless)),
         Fail{Refused{1, these(needless, "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ accept.lines(needless)}},
         Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}}))))))
-
-# What `record` goes on to write is a plan the survey settled: no path
-# several files claim, nothing the format cannot record, no file still
-# holding lines the renderer wrote, nothing a merge would leave empty, no
-# fault, and the attachments accepted exactly the ones concurrent work
-# contests. `LAWS.record_writes_only_what_is_settled`.
-def planned.settled(pl: Sv.Planned, +accepted: List<&2, String>) -> Bool:
-  match pl:
-    case Sv.Planned{facts, refused, claimed, +accept, emptied, fault, +obs, links}:
-      Bool.and(List.is_empty(&2, T.Split, claimed), Bool.and(List.is_empty(&2, T.Split, refused), Bool.and(List.is_empty(&2, T.Split, Sv.marked(obs)), Bool.and(List.is_empty(&2, String, emptied),
-        Bool.and(Maybe.is_none(&2, String, fault), Bool.and(List.is_empty(&2, String, minus(accept, accepted)), List.is_empty(&2, String, minus(accepted, accept))))))))
 
 def record.print.lines(fs: List<&2, T.Split>) -> List<&2, String>:
   match fs:
@@ -8088,7 +7944,7 @@ def file_at(+mint: List<&2, T.Split>, +t: Tree.Tree(), +path: String) -> Maybe<&
 # a file arriving, a payload of bytes the folder still has, or — for a
 # file a merge's parents leave differently — a resolution document.
 type Content is Data:
-  Content.Ops{file: String, path: String, doc: String}
+  Content.Ops{file: String, path: String, doc: Ops.Doc}
   Content.Text{file: String, path: String, bytes: List<&2, U32>}
   Content.Whole{file: String, path: String, digest: String}
   Content.Resolved{file: String, path: String, doc: String}
@@ -8096,7 +7952,7 @@ type Content is Data:
 def content.held(c: Content) -> String:
   match c:
     case Content.Ops{f, p, doc}:
-      Sha.digest(Utf8.encode(doc))
+      Sha.digest(Utf8.encode(Ops.write(doc)))
     case Content.Text{f, p, bs}:
       Sha.digest(bs)
     case Content.Whole{f, p, d}:
@@ -8323,7 +8179,7 @@ def edited.content(+f: String, +p: String, d: Maybe<&2, Ops.Doc>) -> List<&2, Co
     case None{}:
       Nil{}
     case Some{doc}:
-      [Content.Ops{f, p, Ops.write(doc)}]
+      [Content.Ops{f, p, doc}]
 
 # Decision 0032: a merge states a file its parents disagree about whole,
 # as a resolution of what the walk proposed — whether or not the folder
@@ -8525,7 +8381,7 @@ def advance(+st: Bool, +root: String, +change: String, bs: List<&2, Bm.Bookmark>
 def filed.one(+repo: String, +name: String, c: Content) -> IO(Result<&1, &1, U32 & String, String>):
   match c:
     case Content.Ops{f, p, doc}:
-      Store.filed(name ++ "\n" ++ doc)
+      Store.filed(name ++ "\n" ++ Ops.write(doc))
     case Content.Text{f, p, bs}:
       Store.filed(name ++ "\n" ++ Utf8.decode(bs))
     case Content.Whole{f, p, d}:
@@ -8616,13 +8472,16 @@ def drafted(+st: Bool, +root: String, +fs: List<&2, Full>, +ps: List<&2, String>
     return drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint)
 
 # What `record` states a file holds is what the folder holds there: an
-# edit is the written form of the document that replays the position's
-# lines of the file to the folder's, text is the folder's bytes, a payload
-# is named by the digest of the folder's, and a resolution is the written
-# form of the one `Conflict.resolve` makes of the walk's proposal and the
-# folder's lines — which `LAWS.merge_resolution_reads_back` assembles back
-# to them. `befores` is the position's content of each file of lines.
-# `LAWS.record_states_the_folder`.
+# edit, applied to the store's replay of the file at the position, gives
+# the lines the folder holds; text is the folder's bytes; and a payload is
+# named by the digest the folder's walk gave its path. A record from one
+# position resolves nothing. `LAWS.record_states_the_folder`.
+#
+# Where the parents being joined leave a file of lines differently, what
+# it states is the written form of the resolution `Conflict.resolve` makes
+# of the walk of those parents — `joined`, the reading `merge` lays out —
+# and the lines the folder holds; `LAWS.merge_resolution_reads_back`
+# assembles that back to those lines. `LAWS.record_resolves_as_the_walk_proposes`.
 def resolution.written(d: Maybe<&2, Res.Doc>, +doc: String) -> Bool:
   match d:
     case Some{x}:
@@ -8644,13 +8503,6 @@ def content.applied(r: Result<&2, &2, String, List<&2, Ops.Item>>, +after: List<
     case Fail{e}:
       False{}
 
-def content.replays(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +doc: String, d: Maybe<&2, Ops.Doc>) -> Bool:
-  match d:
-    case None{}:
-      False{}
-    case Some{+x}:
-      Bool.and(String.eq(Ops.write(x), doc), content.applied(Ops.apply(before, x), after))
-
 def bytes.same(a: List<&2, U32>, b: List<&2, U32>) -> Bool:
   match a b:
     case x <> xs y <> ys:
@@ -8660,37 +8512,44 @@ def bytes.same(a: List<&2, U32>, b: List<&2, U32>) -> Bool:
     case _ _:
       False{}
 
-def content.states(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, c: Content) -> Bool:
+def content.states(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, c: Content) -> Bool:
   match c:
     case Content.Ops{+f, +p, +doc}:
-      +before = before_of(befores, f)
-      +after = Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))
-      content.replays(before, after, doc, Ops.diff(before, after))
+      content.applied(Result.bind(&2, &2, String, List<&2, Ops.Item>, List<&2, Ops.Item>, content.in(older, ds, left, f), before => Ops.apply(before, doc)), Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))))
     case Content.Text{f, +p, bs}:
       bytes.same(bs, bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))
     case Content.Whole{f, +p, d}:
       String.eq(d, status.folder_digest(dg, p))
-    case Content.Resolved{+f, +p, +doc}:
-      resolution.states(proposed_of(befores, f), Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), doc)
+    case Content.Resolved{f, p, doc}:
+      False{}
 
-def contents.state(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
+def joined.maybe(r: Result<&2, &2, String, Conflict.Joined>) -> Maybe<&2, Conflict.Joined>:
+  match r:
+    case Done{j}:
+      Some{j}
+    case Fail{e}:
+      None{}
+
+def content.resolves(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, c: Content) -> Bool:
+  match c:
+    case Content.Resolved{+f, +p, +doc}:
+      resolution.states(joined.maybe(joined(fs, ds, ps, f)), Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), doc)
+    case _:
+      True{}
+
+def contents.resolve(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
   match cs:
     case Nil{}:
       True{}
     case c <> rest:
-      Bool.and(content.states(befores, dg, reads, c), contents.state(befores, dg, reads, rest))
+      Bool.and(content.resolves(fs, ds, ps, reads, c), contents.resolve(fs, ds, ps, reads, rest))
 
-# The position's content `record` reads for the files it edits: one
-# reading of each file asked about, in order, and each the store's replay
-# of that file at the position. `LAWS.record_reads_the_position`.
-def befores.read(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>, bs: List<&2, Before>) -> Bool:
-  match files bs:
-    case +f <> rest Before{+g, +items} <> more:
-      Bool.and(String.eq(g, f), Bool.and(content.applied(content.in(older, ds, left, f), items), befores.read(older, ds, left, rest, more)))
-    case Nil{} Nil{}:
+def contents.state(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
+  match cs:
+    case Nil{}:
       True{}
-    case _ _:
-      False{}
+    case c <> rest:
+      Bool.and(content.states(older, ds, left, dg, reads, c), contents.state(older, ds, left, dg, reads, rest))
 
 def drafted.contents(d: Drafted) -> List<&2, Content>:
   match d:
@@ -8762,11 +8621,28 @@ def record.write(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>, +
         befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(Sv.edited(obs), hs))
         record.written(st, root, repo, w, facts, ps, record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))
 
-# What a record writes is named as it says: each file arriving is added
-# under the identifier minted for it, in path order; the revision is named
-# by the digest of its text, and filed under the name its moment, message
-# and change compose; and each bookmark it moves names the change of one
-# of its parents. `LAWS.record_names_what_it_writes`.
+# What a record writes, read back: its change, the stem it is filed
+# under, and the bookmarks that follow the work.
+def recorded.change(r: Recorded) -> String:
+  match r:
+    case Recorded{mint, change, cs, doc, id, stem, moving}:
+      change
+
+def recorded.stem(r: Recorded) -> String:
+  match r:
+    case Recorded{mint, change, cs, doc, id, stem, moving}:
+      stem
+
+def recorded.id(r: Recorded) -> String:
+  match r:
+    case Recorded{mint, change, cs, doc, id, stem, moving}:
+      id
+
+def recorded.moving(r: Recorded) -> List<&2, Bm.Bookmark>:
+  match r:
+    case Recorded{mint, change, cs, doc, id, stem, moving}:
+      moving
+
 def strings.same(a: List<&2, String>, b: List<&2, String>) -> Bool:
   match a b:
     case x <> xs y <> ys:
@@ -8775,21 +8651,6 @@ def strings.same(a: List<&2, String>, b: List<&2, String>) -> Bool:
       True{}
     case _ _:
       False{}
-
-def follows(+changes: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> Bool:
-  match bs:
-    case Nil{}:
-      True{}
-    case Bm.Bookmark{n, Bm.Target.Change{+c}, p} <> rest:
-      Bool.and(Rev.member(changes, c), follows(changes, rest))
-    case b <> rest:
-      False{}
-
-def record.named(w: Writing, +arriving: List<&2, String>, +changes: List<&2, String>, r: Recorded) -> Bool:
-  match w r:
-    case Writing{a, +when, +message, f} Recorded{mint, +change, cs, +doc, +id, +stem, moving}:
-      Bool.and(strings.same(T.map(~T.Split, ~String, ~(s => split.head(s)), mint), arriving), Bool.and(String.eq(id, Sha.digest(Utf8.encode(Rev.write(doc)))),
-        Bool.and(String.starts_with(stem, Naming.compose(when, message, change)), follows(changes, moving))))
 
 def sorted_distinct(xs: List<&2, String>) -> List<&2, String>:
   distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), xs))
@@ -10383,39 +10244,6 @@ def rw.normal(c: RwCmd) -> RwCmd:
   match c:
     case RwCmd{m, mv, o, n, d, f, y}:
       RwCmd{m, T.map(~T.Split, ~T.Split, ~(x => typed.move(x)), mv), o, n, d, f, y}
-
-# What the words of `amend`, `abandon` and `carry` say, read plainly, as
-# `rargs.read` reads `record`'s: each a flag the command takes and what it
-# says, the word after one that takes a value being that value, or the
-# target. `LAWS.rewrite_reads_its_words` holds `rw.args.r` to `wargs.said`.
-def wargs.read(+cmd: String, args: List<&2, String>, k: WWord) -> List<&2, T.Split>:
-  match args k:
-    case Nil{} _:
-      Nil{}
-    case w <> v <> +rest WWord.Message{}:
-      T.Split{"-m", v} <> wargs.read(cmd, rest, wword(cmd, rest))
-    case w <> v <> +rest WWord.Move{}:
-      T.Split{"--move", v} <> wargs.read(cmd, rest, wword(cmd, rest))
-    case w <> v <> +rest WWord.Onto{}:
-      T.Split{"--onto", v} <> wargs.read(cmd, rest, wword(cmd, rest))
-    case w <> +rest WWord.Only{}:
-      T.Split{"--only", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
-    case w <> +rest WWord.Dry{}:
-      T.Split{"--dry-run", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
-    case w <> +rest WWord.Fields{}:
-      T.Split{"--fields", SNil{}} <> wargs.read(cmd, rest, wword(cmd, rest))
-    case w <> +rest WWord.Word{}:
-      T.Split{"target", w} <> wargs.read(cmd, rest, wword(cmd, rest))
-    case w <> +rest _:
-      wargs.read(cmd, rest, wword(cmd, rest))
-
-# What the words mean: the last `-m`; each `--move`, in order, cut at its
-# first `=`; the last `--onto`; the target; and `-n`, `--fields` and
-# `--only` if they are there.
-def wargs.said(+items: List<&2, T.Split>) -> RwCmd:
-  RwCmd{rargs.last(items, "-m", None{}), rargs.cuts(rargs.values(items, "--move")), rargs.last(items, "--onto", None{}),
-    rargs.last(items, "target", None{}), rargs.has(items, "--dry-run", False{}), rargs.has(items, "--fields", False{}),
-    rargs.has(items, "--only", False{})}
 
 def rw.plan.r(+cmd: String, d: Bool, f: Bool) -> Result<&2, &2, Refused, Unit>:
   Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(d, f), Fail{Refused{2, "`" ++ cmd ++ " --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}}, Done{Unit{}})
