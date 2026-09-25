@@ -648,16 +648,37 @@ def swept(+r: String) -> IO(Unit):
 def print_lines(ls: List<&2, String>) -> IO(Unit):
   Arrange.print_lines(ls)
 
-def prune.act(dry: Bool, +fields: Bool, +r: String, +p: Pruned) -> IO(Unit):
+# What one `prune` does with its plan: the files it removes, in the order
+# it removes them, and the lines it prints. A dry run removes nothing.
+type Act is Data:
+  Act{removes: List<&2, String>, says: List<&2, String>}
+
+def act.of(+dry: Bool, +fields: Bool, +p: Pruned) -> Act:
+  Act{Bool.pick(List<&2, String>, dry, Nil{}, pruned.files(p)), said(dry, fields, p)}
+
+def act.removes(a: Act) -> List<&2, String>:
+  match a:
+    case Act{rs, ss}:
+      rs
+
+def act.says(a: Act) -> List<&2, String>:
+  match a:
+    case Act{rs, ss}:
+      ss
+
+def prune.acted(dry: Bool, +r: String, +a: Act) -> IO(Unit):
   match dry:
     case True{}:
-      print_lines(said(True{}, fields, p))
+      print_lines(act.says(a))
     case False{}:
       do IO<Unit>:
-        removed(r, pruned.files(p))
+        removed(r, act.removes(a))
         cleared(r)
         swept(r)
-        print_lines(said(False{}, fields, p))
+        print_lines(act.says(a))
+
+def prune.act(+dry: Bool, +fields: Bool, +r: String, +p: Pruned) -> IO(Unit):
+  prune.acted(dry, r, act.of(dry, fields, p))
 
 # No store to open: `--fields`'s header goes out before the refusal, as the
 # Rust tool's `prune` and `receive` owe it (its `record` does not).

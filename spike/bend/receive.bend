@@ -539,28 +539,6 @@ def plan.of(+here: Side, +there: Side) -> RPlan:
 # What the laws say of a plan
 # ---------------------------
 
-def docs.fresh(ds: List<&2, Store.Doc>, +have: Set()) -> Bool:
-  match ds:
-    case Nil{}:
-      True{}
-    case +d <> rest:
-      Bool.and(Bool.not(Arrange.has(have, Store.id_of(d))), docs.fresh(rest, have))
-
-def splits.fresh(ss: List<&2, T.Split>, +have: Set()) -> Bool:
-  match ss:
-    case Nil{}:
-      True{}
-    case +s <> rest:
-      Bool.and(Bool.not(Arrange.has(have, split.digest(s))), splits.fresh(rest, have))
-
-# Whether a plan takes only what this store lacks: revisions it does not
-# hold, and documents and payloads it has nothing under the digest of and
-# neither store forgets.
-def fresh(+here: Side, +there: Side, p: RPlan) -> Bool:
-  match p:
-    case RPlan{rs, ds, ps, ns, rules, res, des, cs}:
-      Bool.and(docs.fresh(rs, have.revisions(here)), Bool.and(docs.fresh(ds, have.documents(here, there)), splits.fresh(ps, have.payloads(here, there))))
-
 def keeps.of(+t: Bm.Target, found: Maybe<&2, Bm.Bookmark>) -> Bool:
   match found:
     case None{}:

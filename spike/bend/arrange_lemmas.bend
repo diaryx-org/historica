@@ -16,6 +16,7 @@ import ./revision_lemmas.bend as RevL
 import ./store.bend as Store
 import ./revision.bend as Rev
 import ./tree.bend as Tree
+import ./map_lemmas.bend as ML
 
 # Placing one file
 # ----------------
@@ -358,3 +359,351 @@ def named_counts(+refile: Bool, +held: Set(), +ss: List<&2, T.Split>, +revs: Lis
 # Every file arranging walks is counted once in what a dry run prints.
 def counts(+refile: Bool, +fs: List<&2, Main.Full>, +revs: List<&2, T.Split>, +ops: List<&2, T.Split>, +ls: List<&2, String>, +a: Arrange.Arrangement, e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}) -> {Arrange.accounted(a, revs, ops) == True{} : Bool}:
   named_counts(refile, Arrange.taken(ls), Arrange.stems(Arrange.distinct(fs)), revs, ops, Arrange.operation_names(fs, Arrange.stems(Arrange.distinct(fs))), a, e)
+
+# Sets, read as lists
+# -------------------
+
+def found_hv(r: Set() & Bool) -> {Arrange.found(r) == ML.hv(Unit, r) : Bool}:
+  match r:
+    case (m, b):
+      {==}
+
+# A set built from a list has exactly the list's strings, so a law may say
+# what the code asks of a set as a plain fact about the list it was built
+# from.
+def has_list(+xs: List<&2, String>, +k: String) -> {Arrange.has(Set.from_list(xs), k) == Rev.member(xs, k) : Bool}:
+  Equal.trans(Bool, Arrange.has(Set.from_list(xs), k), ML.hv(Unit, Set.has(Set.from_list(xs), k)), Rev.member(xs, k), found_hv(Set.has(Set.from_list(xs), k)), ML.set_from_list(xs, k))
+
+def or_assoc(a: Bool, -b: Bool, -c: Bool) -> {Bool.or(a, Bool.or(b, c)) == Bool.or(Bool.or(a, b), c) : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# A string is in two lists one after the other where it is in either.
+def member_app(xs: List<&2, String>, +ys: List<&2, String>, +d: String) -> {Rev.member(List.append(&2, String, xs, ys), d) == Bool.or(Rev.member(xs, d), Rev.member(ys, d)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, rest, ys), d), Bool.or(Rev.member(rest, d), Rev.member(ys, d)), member_app(rest, ys, d)) : {Bool.or(String.eq(x, d), _) == Bool.or(Rev.member(x <> rest, d), Rev.member(ys, d)) : Bool}
+      or_assoc(String.eq(x, d), Rev.member(rest, d), Rev.member(ys, d))
+
+# Booleans
+# --------
+
+def or_ff_l(a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.true_false(e))
+    case False{}:
+      {==}
+
+def or_ff_r(a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({b == False{} : Bool}, S.true_false(e))
+    case False{}:
+      e
+
+def or_ff(a: Bool, -b: Bool, ea: {a == False{} : Bool}, eb: {b == False{} : Bool}) -> {Bool.or(a, b) == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({Bool.or(True{}, b) == False{} : Bool}, S.true_false(ea))
+    case False{}:
+      eb
+
+def and_tl(a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(e))
+
+def and_tr(a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      e
+    case False{}:
+      Empty.absurd({b == True{} : Bool}, S.false_true(e))
+
+def not_tt(b: Bool, e: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.false_true(e))
+    case False{}:
+      {==}
+
+def not_ff(b: Bool, e: {b == False{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
+  match b:
+    case True{}:
+      Empty.absurd({Bool.not(True{}) == True{} : Bool}, S.true_false(e))
+    case False{}:
+      {==}
+
+# Of an `or` that holds, the right side holds where the left does not.
+def or_tt_r(a: Bool, -b: Bool, e: {Bool.or(a, b) == True{} : Bool}, ea: {a == False{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({b == True{} : Bool}, S.true_false(ea))
+    case False{}:
+      e
+
+def and_ff_l(a: Bool, -b: Bool, e: {a == False{} : Bool}) -> {Bool.and(a, b) == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({Bool.and(True{}, b) == False{} : Bool}, S.true_false(e))
+    case False{}:
+      {==}
+
+def and_ff_r(a: Bool, -b: Bool, e: {b == False{} : Bool}) -> {Bool.and(a, b) == False{} : Bool}:
+  match a:
+    case True{}:
+      e
+    case False{}:
+      {==}
+
+# What arranging moves
+# --------------------
+
+# Whether a list of renames holds one from `from` to `to`.
+def moves(rs: List<&2, T.Split>, +from: String, +to: String) -> Bool:
+  match rs:
+    case Nil{}:
+      False{}
+    case T.Split{+f, +t} <> rest:
+      Bool.or(Bool.and(String.eq(f, from), String.eq(t, to)), moves(rest, from, to))
+
+def moves_app(xs: List<&2, T.Split>, +ys: List<&2, T.Split>, +from: String, +to: String) -> {moves(List.append(&2, T.Split, xs, ys), from, to) == Bool.or(moves(xs, from, to), moves(ys, from, to)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case T.Split{+f, +t} <> +rest:
+      %Equal.sym(Bool, moves(List.append(&2, T.Split, rest, ys), from, to), Bool.or(moves(rest, from, to), moves(ys, from, to)), moves_app(rest, ys, from, to)) : {Bool.or(Bool.and(String.eq(f, from), String.eq(t, to)), _) == Bool.or(moves(T.Split{f, t} <> rest, from, to), moves(ys, from, to)) : Bool}
+      or_assoc(Bool.and(String.eq(f, from), String.eq(t, to)), moves(rest, from, to), moves(ys, from, to))
+
+# A rename that is the one asked about goes where its plan found nothing,
+# from a different path; any other leaves the question to the rest.
+def rename_hit(c: Bool, +held: Set(), +f: String, +t: String, +from: String, +to: String, +ec: {Bool.and(String.eq(f, from), String.eq(t, to)) == c : Bool}, +hs: {Bool.and(Bool.not(String.eq(f, t)), Bool.not(Arrange.has(held, t))) == True{} : Bool}, -rest: List<&2, T.Split>, hm: {Bool.or(c, moves(rest, from, to)) == True{} : Bool}, ih: {moves(rest, from, to) == True{} : Bool} -> {Bool.or(String.eq(from, to), Arrange.has(held, to)) == False{} : Bool}) -> {Bool.or(String.eq(from, to), Arrange.has(held, to)) == False{} : Bool}:
+  match c:
+    case True{}:
+      +ef = S.eq_true(f, from, and_tl(String.eq(f, from), String.eq(t, to), ec))
+      +et = S.eq_true(t, to, and_tr(String.eq(f, from), String.eq(t, to), ec))
+      %ef : {Bool.or(String.eq(_, to), Arrange.has(held, to)) == False{} : Bool}
+      %et : {Bool.or(String.eq(f, _), Arrange.has(held, _)) == False{} : Bool}
+      or_ff(String.eq(f, t), Arrange.has(held, t),
+        not_tt(String.eq(f, t), and_tl(Bool.not(String.eq(f, t)), Bool.not(Arrange.has(held, t)), hs)),
+        not_tt(Arrange.has(held, t), and_tr(Bool.not(String.eq(f, t)), Bool.not(Arrange.has(held, t)), hs)))
+    case False{}:
+      ih(hm)
+
+# Every rename a directory's plan carries out goes where its plan found
+# nothing, from a different path.
+def renamed_safe(ps: List<&2, Arrange.Placing>, +held: Set(), +from: String, +to: String, +hs: {Arrange.renames_safe(ps, held) == True{} : Bool}, hm: {moves(Arrange.done.renamed(ps), from, to) == True{} : Bool}) -> {Bool.or(String.eq(from, to), Arrange.has(held, to)) == False{} : Bool}:
+  match ps:
+    case Nil{}:
+      Empty.absurd({Bool.or(String.eq(from, to), Arrange.has(held, to)) == False{} : Bool}, S.false_true(hm))
+    case +p <> +rest:
+      match p:
+        case Arrange.Placing.Rename{+f, +t}:
+          rename_hit(Bool.and(String.eq(f, from), String.eq(t, to)), held, f, t, from, to, {==},
+            and_tl(Arrange.rename_safe(held, Arrange.Placing.Rename{f, t}), Arrange.renames_safe(rest, held), hs), Arrange.done.renamed(rest), hm,
+            h => renamed_safe(rest, held, from, to, and_tr(Arrange.rename_safe(held, Arrange.Placing.Rename{f, t}), Arrange.renames_safe(rest, held), hs), h))
+        case Arrange.Placing.Already{+f}:
+          renamed_safe(rest, held, from, to, and_tr(True{}, Arrange.renames_safe(rest, held), hs), hm)
+        case Arrange.Placing.Occupied{+f, +h}:
+          renamed_safe(rest, held, from, to, and_tr(True{}, Arrange.renames_safe(rest, held), hs), hm)
+        case Arrange.Placing.Unnamed{+f}:
+          renamed_safe(rest, held, from, to, and_tr(True{}, Arrange.renames_safe(rest, held), hs), hm)
+
+# A set built from a list lacks a string where the list does.
+def has_false(+xs: List<&2, String>, +k: String, h: {Arrange.has(Set.from_list(xs), k) == False{} : Bool}) -> {Rev.member(xs, k) == False{} : Bool}:
+  Equal.trans(Bool, Rev.member(xs, k), Arrange.has(Set.from_list(xs), k), False{}, Equal.sym(Bool, Arrange.has(Set.from_list(xs), k), Rev.member(xs, k), has_list(xs, k)), h)
+
+def app_false(+xs: List<&2, String>, +ys: List<&2, String>, +k: String, h: {Rev.member(List.append(&2, String, xs, ys), k) == False{} : Bool}) -> {Bool.or(Rev.member(xs, k), Rev.member(ys, k)) == False{} : Bool}:
+  Equal.trans(Bool, Bool.or(Rev.member(xs, k), Rev.member(ys, k)), Rev.member(List.append(&2, String, xs, ys), k), False{}, Equal.sym(Bool, Rev.member(List.append(&2, String, xs, ys), k), Bool.or(Rev.member(xs, k), Rev.member(ys, k)), member_app(xs, ys, k)), h)
+
+def taken_list(+ls: List<&2, String>, +to: String, h: {Arrange.has(Arrange.taken(ls), to) == False{} : Bool}) -> {Rev.member(ls, to) == False{} : Bool}:
+  or_ff_l(Rev.member(ls, to), Rev.member(List.concat(&2, String, T.map(~String, ~List<&2, String>, ~(n => Naming.prefixes(n)), ls)), to),
+    app_false(ls, List.concat(&2, String, T.map(~String, ~List<&2, String>, ~(n => Naming.prefixes(n)), ls)), to,
+      has_false(List.append(&2, String, ls, List.concat(&2, String, T.map(~String, ~List<&2, String>, ~(n => Naming.prefixes(n)), ls))), to, h)))
+
+def either_safe(c: Bool, +held: Set(), +rs: List<&2, Arrange.Placing>, +os: List<&2, Arrange.Placing>, +from: String, +to: String, +ec: {moves(Arrange.done.renamed(rs), from, to) == c : Bool}, +hr: {Arrange.renames_safe(rs, held) == True{} : Bool}, +ho: {Arrange.renames_safe(os, held) == True{} : Bool}, h: {Bool.or(c, moves(Arrange.done.renamed(os), from, to)) == True{} : Bool}) -> {Bool.or(String.eq(from, to), Arrange.has(held, to)) == False{} : Bool}:
+  match c:
+    case True{}:
+      renamed_safe(rs, held, from, to, hr, ec)
+    case False{}:
+      renamed_safe(os, held, from, to, ho, h)
+
+def plan_moves(+held: Set(), a: Arrange.Arrangement, +from: String, +to: String, +hs: {Arrange.plan_safe(held, a) == True{} : Bool}, h: {moves(List.append(&2, T.Split, Arrange.done.renamed(Arrange.arrangement.revs(a)), Arrange.done.renamed(Arrange.arrangement.ops(a))), from, to) == True{} : Bool}) -> {Bool.or(String.eq(from, to), Arrange.has(held, to)) == False{} : Bool}:
+  match a:
+    case Arrange.Arrangement{+rs, +os}:
+      either_safe(moves(Arrange.done.renamed(rs), from, to), held, rs, os, from, to, {==},
+        and_tl(Arrange.renames_safe(rs, held), Arrange.renames_safe(os, held), hs), and_tr(Arrange.renames_safe(rs, held), Arrange.renames_safe(os, held), hs),
+        Equal.trans(Bool, Bool.or(moves(Arrange.done.renamed(rs), from, to), moves(Arrange.done.renamed(os), from, to)), moves(List.append(&2, T.Split, Arrange.done.renamed(rs), Arrange.done.renamed(os)), from, to), True{},
+          Equal.sym(Bool, moves(List.append(&2, T.Split, Arrange.done.renamed(rs), Arrange.done.renamed(os)), from, to), Bool.or(moves(Arrange.done.renamed(rs), from, to), moves(Arrange.done.renamed(os), from, to)), moves_app(Arrange.done.renamed(rs), Arrange.done.renamed(os), from, to)), h))
+
+# `arrange` never plans to write over a file: every rename it carries out,
+# in either directory, goes from one path to a different one the store's
+# listing does not hold.
+def no_overwrite(+refile: Bool, +fs: List<&2, Main.Full>, +revs: List<&2, T.Split>, +ops: List<&2, T.Split>, +ls: List<&2, String>, +a: Arrange.Arrangement, +e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}, +from: String, +to: String, +h: {moves(List.append(&2, T.Split, Arrange.done.renamed(Arrange.arrangement.revs(a)), Arrange.done.renamed(Arrange.arrangement.ops(a))), from, to) == True{} : Bool}) -> {Bool.or(String.eq(from, to), Rev.member(ls, to)) == False{} : Bool}:
+  +hp = plan_moves(Arrange.taken(ls), a, from, to, plan_safe(refile, fs, revs, ops, ls, a, e), h)
+  or_ff(String.eq(from, to), Rev.member(ls, to), or_ff_l(String.eq(from, to), Arrange.has(Arrange.taken(ls), to), hp),
+    taken_list(ls, to, or_ff_r(String.eq(from, to), Arrange.has(Arrange.taken(ls), to), hp)))
+
+# Moving each file once
+# ---------------------
+
+# The first half of a pair: a file's path in a walk, or where a rename
+# moves a file from.
+def first(s: T.Split) -> String:
+  match s:
+    case T.Split{a, b}:
+      a
+
+# How many times a list holds a string.
+def times(xs: List<&2, String>, +x: String) -> Nat:
+  match xs:
+    case Nil{}:
+      0n
+    case +y <> rest:
+      +later = times(rest, x)
+      Bool.pick(Nat, String.eq(y, x), 1n+later, later)
+
+def placing.path(p: Arrange.Placing) -> String:
+  match p:
+    case Arrange.Placing.Rename{f, t}:
+      f
+    case Arrange.Placing.Already{f}:
+      f
+    case Arrange.Placing.Occupied{f, h}:
+      f
+    case Arrange.Placing.Unnamed{f}:
+      f
+
+def place_in(c: Bool, +path: String, +target: String) -> {placing.path(Bool.pick(Arrange.Placing, c, Arrange.Placing.Occupied{path, target}, Arrange.Placing.Rename{path, target})) == path : String}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def place_at(c: Bool, +held: Set(), +path: String, +target: String) -> {placing.path(Bool.pick(Arrange.Placing, c, Arrange.Placing.Already{path}, Bool.pick(Arrange.Placing, Arrange.has(held, target), Arrange.Placing.Occupied{path, target}, Arrange.Placing.Rename{path, target}))) == path : String}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      place_in(Arrange.has(held, target), path, target)
+
+# A file is placed from where it is.
+def place_path(+held: Set(), +path: String, +target: String) -> {placing.path(Arrange.place(held, path, target)) == path : String}:
+  place_at(String.eq(path, target), held, path, target)
+
+def op_path(+held: Set(), +path: String, name: Maybe<&2, String>) -> {placing.path(Arrange.op.placed(held, path, name)) == path : String}:
+  match name:
+    case None{}:
+      {==}
+    case Some{+n}:
+      place_path(held, path, "operations/" ++ n)
+
+def cons_eq(+x: String, -y: String, -xs: List<&2, String>, -ys: List<&2, String>, ex: {x == y : String}, ers: {xs == ys : List<&2, String>}) -> {x <> xs == y <> ys : List<&2, String>}:
+  %ex : {x <> xs == _ <> ys : List<&2, String>}
+  Equal.cong(List<&2, String>, List<&2, String>, l => x <> l, xs, ys, ers)
+
+# The files of `operations/` are placed one each, in the walk's order,
+# each from where the walk found it.
+def ops_paths(ds: List<&2, T.Split>, +held: Set(), +names: List<&2, T.Split>) -> {T.map(~Arrange.Placing, ~String, ~(p => placing.path(p)), Arrange.ops.placed(ds, held, names)) == T.map(~T.Split, ~String, ~(s => first(s)), ds) : List<&2, String>}:
+  match ds:
+    case Nil{}:
+      {==}
+    case T.Split{+path, +id} <> +rest:
+      cons_eq(placing.path(Arrange.op.placed(held, path, Arrange.lookup(names, id))), path, T.map(~Arrange.Placing, ~String, ~(p => placing.path(p)), Arrange.ops.placed(rest, held, names)), T.map(~T.Split, ~String, ~(s => first(s)), rest),
+        op_path(held, path, Arrange.lookup(names, id)), ops_paths(rest, held, names))
+
+def rev_path(+refile: Bool, +held: Set(), +path: String, stem: Maybe<&2, String>, +x: Arrange.Placing, e: {Arrange.rev.placed(refile, held, path, stem) == Done{x} : Result<&2, &2, Main.Refused, Arrange.Placing>}) -> {placing.path(x) == path : String}:
+  match stem:
+    case None{}:
+      Empty.absurd({placing.path(x) == path : String}, B.fail_done(Arrange.Placing, Main.Refused{1, path ++ " changed while it was being arranged"}, x, e))
+    case Some{+s}:
+      %done_placing(Arrange.place(held, path, Arrange.rev.target(refile, path, s)), x, e) : {placing.path(_) == path : String}
+      place_path(held, path, Arrange.rev.target(refile, path, s))
+
+def cons_paths(p: Result<&2, &2, Main.Refused, Arrange.Placing>, r: Result<&2, &2, Main.Refused, List<&2, Arrange.Placing>>, +ps: List<&2, Arrange.Placing>, +path: String, -more: List<&2, String>, e: {Arrange.placed.cons(p, r) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, Arrange.Placing>>}, hp: @x: Arrange.Placing -> {p == Done{x} : Result<&2, &2, Main.Refused, Arrange.Placing>} -> {placing.path(x) == path : String}, hr: @xs: List<&2, Arrange.Placing> -> {r == Done{xs} : Result<&2, &2, Main.Refused, List<&2, Arrange.Placing>>} -> {T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), xs) == more : List<&2, String>}) -> {T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), ps) == path <> more : List<&2, String>}:
+  match p r:
+    case Fail{x} _:
+      Empty.absurd({T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), ps) == path <> more : List<&2, String>}, B.fail_done(List<&2, Arrange.Placing>, x, ps, e))
+    case Done{x} Fail{y}:
+      Empty.absurd({T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), ps) == path <> more : List<&2, String>}, B.fail_done(List<&2, Arrange.Placing>, y, ps, e))
+    case Done{+x} Done{+xs}:
+      %done_list(x <> xs, ps, e) : {T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), _) == path <> more : List<&2, String>}
+      cons_eq(placing.path(x), path, T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), xs), more, hp(x, {==}), hr(xs, {==}))
+
+# The revision documents are placed one each, in the walk's order, each
+# from where the walk found it.
+def revs_paths(ds: List<&2, T.Split>, +refile: Bool, +held: Set(), +ss: List<&2, T.Split>, +ps: List<&2, Arrange.Placing>, e: {Arrange.revs.placed(ds, refile, held, ss) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, Arrange.Placing>>}) -> {T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), ps) == T.map(~T.Split, ~String, ~(s => first(s)), ds) : List<&2, String>}:
+  match ds:
+    case Nil{}:
+      %done_list(Nil{}, ps, e) : {T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), _) == Nil{} : List<&2, String>}
+      {==}
+    case T.Split{+path, +id} <> +rest:
+      cons_paths(Arrange.rev.placed(refile, held, path, Arrange.lookup(ss, id)), Arrange.revs.placed(rest, refile, held, ss), ps, path, T.map(~T.Split, ~String, ~(s => first(s)), rest), e,
+        x => h => rev_path(refile, held, path, Arrange.lookup(ss, id), x, h),
+        xs => h => revs_paths(rest, refile, held, ss, xs, h))
+
+def le_both(c: Bool, +a: Nat, +b: Nat, h: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.is_le(Bool.pick(Nat, c, 1n+a, a), Bool.pick(Nat, c, 1n+b, b)) == True{} : Bool}:
+  match c:
+    case True{}:
+      h
+    case False{}:
+      h
+
+def le_right(c: Bool, +a: Nat, +b: Nat, h: {Nat.is_le(a, b) == True{} : Bool}) -> {Nat.is_le(a, Bool.pick(Nat, c, 1n+b, b)) == True{} : Bool}:
+  match c:
+    case True{}:
+      ML.le_weak(a, b, h)
+    case False{}:
+      h
+
+# A plan renames a path no more often than it places a file from there.
+def renamed_le(ps: List<&2, Arrange.Placing>, +x: String) -> {Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(ps)), x), times(T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), ps), x)) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +rest:
+      match p:
+        case Arrange.Placing.Rename{+f, +t}:
+          le_both(String.eq(f, x), times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(rest)), x), times(T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), rest), x), renamed_le(rest, x))
+        case Arrange.Placing.Already{+f}:
+          le_right(String.eq(f, x), times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(rest)), x), times(T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), rest), x), renamed_le(rest, x))
+        case Arrange.Placing.Occupied{+f, +h}:
+          le_right(String.eq(f, x), times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(rest)), x), times(T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), rest), x), renamed_le(rest, x))
+        case Arrange.Placing.Unnamed{+f}:
+          le_right(String.eq(f, x), times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(rest)), x), times(T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), rest), x), renamed_le(rest, x))
+
+# Of one directory placed from where its walk found each file: a path is
+# renamed from no more often than the walk found a file there.
+def moved_once(+ps: List<&2, Arrange.Placing>, +ds: List<&2, T.Split>, +x: String, +e: {T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), ps) == T.map(~T.Split, ~String, ~(s => first(s)), ds) : List<&2, String>}) -> {Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(ps)), x), times(T.map(~T.Split, ~String, ~(s => first(s)), ds), x)) == True{} : Bool}:
+  %e : {Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(ps)), x), times(_, x)) == True{} : Bool}
+  renamed_le(ps, x)
+
+def placed_once(+held: Set(), +revs: List<&2, T.Split>, +ops: List<&2, T.Split>, +names: List<&2, T.Split>, rp: Result<&2, &2, Main.Refused, List<&2, Arrange.Placing>>, +a: Arrange.Arrangement, +x: String, e: {Arrange.arrangement.placed(held, ops, names, rp) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}, hr: @xs: List<&2, Arrange.Placing> -> {rp == Done{xs} : Result<&2, &2, Main.Refused, List<&2, Arrange.Placing>>} -> {T.map(~Arrange.Placing, ~String, ~(q => placing.path(q)), xs) == T.map(~T.Split, ~String, ~(s => first(s)), revs) : List<&2, String>}) -> {Bool.and(Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.revs(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), revs), x)), Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.ops(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), ops), x))) == True{} : Bool}:
+  match rp:
+    case Fail{y}:
+      Empty.absurd({Bool.and(Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.revs(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), revs), x)), Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.ops(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), ops), x))) == True{} : Bool}, B.fail_done(Arrange.Arrangement, y, a, e))
+    case Done{+ps}:
+      %done_plan(Arrange.Arrangement{ps, Arrange.ops.placed(ops, held, names)}, a, e) : {Bool.and(Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.revs(_))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), revs), x)), Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.ops(_))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), ops), x))) == True{} : Bool}
+      B.and_tt(Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(ps)), x), times(T.map(~T.Split, ~String, ~(s => first(s)), revs), x)), Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.ops.placed(ops, held, names))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), ops), x)),
+        moved_once(ps, revs, x, hr(ps, {==})), moved_once(Arrange.ops.placed(ops, held, names), ops, x, ops_paths(ops, held, names)))
+
+def named_once(+refile: Bool, +held: Set(), +ss: List<&2, T.Split>, +revs: List<&2, T.Split>, +ops: List<&2, T.Split>, names: Result<&2, &2, Main.Refused, List<&2, T.Split>>, +a: Arrange.Arrangement, +x: String, e: {Arrange.arrangement.named(refile, held, ss, revs, ops, names) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}) -> {Bool.and(Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.revs(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), revs), x)), Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.ops(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), ops), x))) == True{} : Bool}:
+  match names:
+    case Fail{y}:
+      Empty.absurd({Bool.and(Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.revs(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), revs), x)), Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.ops(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), ops), x))) == True{} : Bool}, B.fail_done(Arrange.Arrangement, y, a, e))
+    case Done{+ns}:
+      placed_once(held, revs, ops, ns, Arrange.revs.placed(revs, refile, held, ss), a, x, e, xs => h => revs_paths(revs, refile, held, ss, xs, h))
+
+# `arrange` moves each file once: of each directory, a path is renamed from
+# no more often than the walk found a file there.
+def once(+refile: Bool, +fs: List<&2, Main.Full>, +revs: List<&2, T.Split>, +ops: List<&2, T.Split>, +ls: List<&2, String>, +a: Arrange.Arrangement, e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}, +x: String) -> {Bool.and(Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.revs(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), revs), x)), Nat.is_le(times(T.map(~T.Split, ~String, ~(s => first(s)), Arrange.done.renamed(Arrange.arrangement.ops(a))), x), times(T.map(~T.Split, ~String, ~(s => first(s)), ops), x))) == True{} : Bool}:
+  named_once(refile, Arrange.taken(ls), Arrange.stems(Arrange.distinct(fs)), revs, ops, Arrange.operation_names(fs, Arrange.stems(Arrange.distinct(fs))), a, x, e)
