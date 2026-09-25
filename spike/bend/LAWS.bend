@@ -46,6 +46,7 @@ import ./fetch.bend as Fetch
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
 import ./receive_lemmas.bend as ReceiveL
+import ./offer_lemmas.bend as OfferL
 import ./utf8.bend as Utf8
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
@@ -2602,13 +2603,31 @@ law receive_takes_only_payloads_it_lacks:
   for h: {ReceiveL.lists(ReceiveL.rplan.payloads(Receive.plan.of(here, there)), path, d) == True{} : Bool}
   {Bool.and(Bool.not(Bool.or(Rev.member(T.map(~T.Split, ~String, ~(s => Receive.split.digest(s)), Receive.stored.payloads(Receive.stored.of(here))), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(here)), d), Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), d)))), ReceiveL.lists(Receive.stored.payloads(Receive.stored.of(there)), path, d)) == True{} : Bool}
 
-# `receive` moves no bookmark this store has: each it writes is one this
-# store lacks, or one it holds at the same target, whose axis joins. Two
-# targets for one name is a disagreement, and writes nothing.
+# Between two stores the check passes, `receive` plans exactly where it
+# was given `--join-unrelated` or the histories are related as decision
+# 0029 has it, read from the revisions themselves: one store is empty, or
+# they share a revision, or a revision of either names one of the other's
+# as a parent or as what it supersedes. Anything else is refused.
+law receive_joins_only_related_histories:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for +join: Bool
+  for hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}
+  for ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, join)) == Bool.or(join, ReceiveL.related(Receive.side.fulls(here), Receive.side.fulls(there))) : Bool}
+
+# `receive` moves no bookmark this store has, though it may add one: each
+# it writes, by name and by the target it spells, is one this store has
+# none of by that name, or has at that very target — a bookmark's name is
+# its file's, so a store holds one of each. Two targets for one name is a
+# disagreement, and writes nothing.
 law receive_moves_no_bookmark:
   for +here: Receive.Side
   for +there: Receive.Side
-  {Receive.names_kept(Receive.rplan.names(Receive.plan.of(here, there)), Receive.side.marks(here)) == True{} : Bool}
+  for +n: String
+  for +at: String
+  for h: {ReceiveL.marks_at(Receive.rplan.names(Receive.plan.of(here, there)), n, at) == True{} : Bool}
+  {Bool.or(Bool.not(ReceiveL.named(Receive.side.marks(here), n)), ReceiveL.marks_at(Receive.side.marks(here), n, at)) == True{} : Bool}
 
 # Every original `receive` destroys is one a forgetting document of this
 # store or of the source stands in for (decision 0014): among the
@@ -2642,6 +2661,17 @@ law offer_names_no_private_rule:
   for +rids: List<&2, T.Split>
   for +nids: List<&2, T.Split>
   {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, Offer.shared_rules(s), bs, claims, rids, nids) : List<&2, String>}
+
+# `offer` lists what a document of `operations/` forgets as `prune`,
+# `receive` and `export` read it: a stand-in for a payload, and an
+# operation document, by the `forgets` line of its own grammar — save a
+# resolution that is no stand-in, which the Rust tool's catalogue does not
+# parse, so its manifest lists one as forgetting nothing.
+law offer_lists_forgetting_as_prune_reads_it:
+  for +path: String
+  for +id: String
+  for +text: String
+  {Offer.catalogue.forgets(text) == Bool.pick(Maybe<&2, String>, Bool.and(Res.is_resolution(text), Bool.not(Prune.forgotten.payload(T.lines(text)))), None{}, OfferL.forgets_of(Prune.body.of(path, id, text, Prune.forgotten.payload(T.lines(text))))) : Maybe<&2, String>}
 
 # `export` lays out every path the target's tree places, each once and at
 # its own path, whatever kind of file it is: one outcome a path, in path

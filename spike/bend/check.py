@@ -4036,6 +4036,13 @@ def check_mutations(temporary):
             "receive.bend",
         ),
         (
+            "receive refuses a source whose revisions this store builds on",
+            "    Bool.or(any_in(Main.ids(theirs), oi), Bool.or(any_in(edges(theirs), oi), any_in(edges(ours), ti))))",
+            "    Bool.or(any_in(Main.ids(theirs), oi), Bool.or(any_in(edges(theirs), oi), any_in(Main.ids(ours), ti))))",
+            "receive_lemmas.related_is",
+            "receive.bend",
+        ),
+        (
             "receive moves a bookmark this store holds elsewhere",
             "      Bool.pick(Marked, same_target(tt, ht), marked.joined(n, ht, hp, tp), Marked{Nil{}, [Conflict{n, Bm.Bookmark{hn, ht, hp}, Bm.Bookmark{n, tt, tp}}]})",
             "      Bool.pick(Marked, same_target(tt, ht), marked.joined(n, ht, hp, tp), Marked{[Bm.Bookmark{n, tt, tp}], Nil{}})",
@@ -4048,6 +4055,13 @@ def check_mutations(temporary):
             "  Main.sorted_distinct(among(List.append(&2, String, forgotten(here, there), body.ids(stored.bodies(stored.of(there)))), Set.from_list(",
             "receive_lemmas.destroys",
             "receive.bend",
+        ),
+        (
+            "offer reads a payload's stand-in as an operation document",
+            "  Bool.pick(Maybe<&2, String>, Prune.forgotten.payload(T.lines(text)), Stand.payload.forgets(Stand.payload.parse(text)),",
+            "  Bool.pick(Maybe<&2, String>, False{}, Stand.payload.forgets(Stand.payload.parse(text)),",
+            "offer_lemmas.catalogue",
+            "offer.bend",
         ),
         (
             "offer names a private bookmark",

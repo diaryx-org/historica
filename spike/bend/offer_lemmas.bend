@@ -14,6 +14,9 @@ import ./tree.bend as Tree
 import ./commands.bend as Main
 import ./string_lemmas.bend as S
 import ./prune_lemmas.bend as PruneL
+import ./resolution.bend as Res
+import ./ops.bend as Ops
+import ./standin.bend as Stand
 
 # Bookmarks
 # ---------
@@ -194,3 +197,38 @@ def digests(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +cl
               and_tt(Offer.offered.from(Offer.splits.offered(claims, "reserved", prefix), claims, prefix), Offer.offered.from(Offer.names.offered(marks, nids, prefix), nids, prefix),
                 splits_from(claims, "reserved", prefix),
                 names_from(marks, nids, prefix))))))
+
+# What a document forgets
+# -----------------------
+
+def forgets_of(b: Prune.Body) -> Maybe<&2, String>:
+  match b:
+    case Prune.Body{p, i, ok, f}:
+      f
+
+def two_forgets(r: Bool, +path: String, +id: String, +text: String) -> {Bool.pick(Maybe<&2, String>, r, None{}, Prune.ops.forgets(Ops.parse(text))) == Bool.pick(Maybe<&2, String>, Bool.and(r, True{}), None{}, forgets_of(Prune.body.of.two(path, id, text, r))) : Maybe<&2, String>}:
+  match r:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def pick_false(r: Bool, +x: Maybe<&2, String>) -> {x == Bool.pick(Maybe<&2, String>, Bool.and(r, False{}), None{}, x) : Maybe<&2, String>}:
+  match r:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def read_forgets(fp: Bool, +path: String, +id: String, +text: String) -> {Bool.pick(Maybe<&2, String>, fp, Stand.payload.forgets(Stand.payload.parse(text)), Bool.pick(Maybe<&2, String>, Res.is_resolution(text), None{}, Prune.ops.forgets(Ops.parse(text)))) == Bool.pick(Maybe<&2, String>, Bool.and(Res.is_resolution(text), Bool.not(fp)), None{}, forgets_of(Prune.body.of(path, id, text, fp))) : Maybe<&2, String>}:
+  match fp:
+    case True{}:
+      pick_false(Res.is_resolution(text), Stand.payload.forgets(Stand.payload.parse(text)))
+    case False{}:
+      two_forgets(Res.is_resolution(text), path, id, text)
+
+# `offer`'s catalogue lists a document as forgetting what the reading
+# `prune`, `receive` and `export` share reads it as forgetting, save a
+# resolution that is no stand-in, which it lists as forgetting nothing.
+def catalogue(+path: String, +id: String, +text: String) -> {Offer.catalogue.forgets(text) == Bool.pick(Maybe<&2, String>, Bool.and(Res.is_resolution(text), Bool.not(Prune.forgotten.payload(T.lines(text)))), None{}, forgets_of(Prune.body.of(path, id, text, Prune.forgotten.payload(T.lines(text))))) : Maybe<&2, String>}:
+  read_forgets(Prune.forgotten.payload(T.lines(text)), path, id, text)
