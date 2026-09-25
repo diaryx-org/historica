@@ -2280,6 +2280,13 @@ def check_mutations(temporary):
             "rewrite_lemmas.kp_case",
             "commands.bend",
         ),
+        (
+            "abandon takes a reason of spaces",
+            "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(Naming.trim_space(m)),",
+            "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(m),",
+            "rewrite_lemmas.asked_ok",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

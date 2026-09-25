@@ -1538,3 +1538,26 @@ law amend_keeps_what_it_added:
   for +kept: List<&2, T.Split>
   for +hex: String
   {Main.amend.minted.ok(arriving, kept, Main.amend.minted(arriving, kept, hex)) == True{} : Bool}
+
+# `abandon` is asked for a revision and a reason. Where it goes on, a
+# target was named, a dry run did not also ask for `--fields`, and the
+# reason, the one thing a tombstone carries, is not blank.
+law abandon_asks_for_a_revision_and_a_reason:
+  for c: Main.RwCmd
+  for +m: String
+  for u1: Unit
+  for u2: Unit
+  for u3: Unit
+  for e1: {Main.abandon.named.r(Main.rw.named(c)) == Done{u1} : Result<&2, &2, Main.Refused, Unit>}
+  for e2: {Main.rw.plan.r("abandon", Main.rw.dry_of(c), Main.rw.fields_of(c)) == Done{u2} : Result<&2, &2, Main.Refused, Unit>}
+  for e3: {Main.reason.r(m) == Done{u3} : Result<&2, &2, Main.Refused, Unit>}
+  {Main.abandon.asked(c, m) == True{} : Bool}
+
+# A kind is a fact about a file: where `record` goes on, every path
+# `--bytes` or `--lines` names is a file the folder holds.
+law record_gives_kinds_only_to_files:
+  for ks: List<&2, T.Split>
+  for +found: Set()
+  for u: Unit
+  for e: {Main.kinds.unheld.r(ks, found) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  {Main.kinds.found(ks, found) == True{} : Bool}

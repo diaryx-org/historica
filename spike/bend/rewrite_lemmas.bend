@@ -16,6 +16,8 @@ import ./blamed_lemmas.bend as B
 import ./bookmark.bend as Bm
 import ./sort_lemmas.bend as SortL
 import ./status_lemmas.bend as StatusL
+import ./naming.bend as Naming
+import ./survey.bend as Sv
 
 def rdisc_s(-A: Data, r: Result<&2, &2, String, A>) -> Type:
   match r:
@@ -606,3 +608,24 @@ def amend_minted_ok(+arriving: List<&2, String>, +kept: List<&2, T.Split>, +hex:
   +ids = Main.ids.minted(List.length(&2, String, Main.minus(arriving, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept))), hex)
   +m = Main.amend.mint(arriving, Main.lookups(arriving, kept), ids)
   B.and_tt(Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), m), arriving), Main.minted.keeps(kept, m), am_heads(arriving, kept, hex), am_keeps(arriving, kept, ids))
+
+# Abandoning asks for a revision and a reason
+# -------------------------------------------
+
+def named_some(n: Maybe<&2, String>, -u: Unit, e: {Main.abandon.named.r(n) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Maybe.is_some(&2, String, n) == True{} : Bool}:
+  match n:
+    case Some{x}:
+      {==}
+    case None{}:
+      Empty.absurd({Maybe.is_some(&2, String, None{}) == True{} : Bool}, B.fail_done(Unit, Main.Refused{2, "`abandon` wants the revision to abandon; it and everything standing on it go"}, u, e))
+
+# Where `abandon` goes on, it was asked for a revision and a reason.
+def asked_ok(c: Main.RwCmd, +m: String, -u1: Unit, -u2: Unit, -u3: Unit, e1: {Main.abandon.named.r(Main.rw.named(c)) == Done{u1} : Result<&2, &2, Main.Refused, Unit>}, e2: {Main.rw.plan.r("abandon", Main.rw.dry_of(c), Main.rw.fields_of(c)) == Done{u2} : Result<&2, &2, Main.Refused, Unit>}, e3: {Main.reason.r(m) == Done{u3} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.abandon.asked(c, m) == True{} : Bool}:
+  match c:
+    case Main.RwCmd{mg, mv, o, +n, +d, +f, y}:
+      B.and_tt(Maybe.is_some(&2, String, n), Bool.and(Bool.not(Bool.and(d, f)), Bool.not(String.is_empty(Naming.trim_space(m)))), named_some(n, u1, e1),
+        B.and_tt(Bool.not(Bool.and(d, f)), Bool.not(String.is_empty(Naming.trim_space(m))),
+          not_false(Bool.and(d, f), pick_false(Unit, Bool.and(d, f), Main.Refused{2, "`abandon --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}, Unit{}, u2, e2)),
+          not_false(String.is_empty(Naming.trim_space(m)), pick_false(Unit, String.is_empty(Naming.trim_space(m)), Main.Refused{1, "abandoning removes this work from what the history means, and the reason is the only thing the tombstone carries; say why with -m"}, Unit{}, u3, e3))))
+
+

@@ -6961,6 +6961,15 @@ def kinds.unheld.r(ks: List<&2, T.Split>, +found: Set()) -> Result<&2, &2, Refus
       Bool.pick(Result<&2, &2, Refused, Unit>, Sv.has(found, p), kinds.unheld.r(rest, found),
         Fail{Refused{2, "`" ++ p ++ "` is not a file in this folder, so there is no kind for it to be"}})
 
+# Every path given a kind is a file the folder holds.
+# `LAWS.record_gives_kinds_only_to_files`.
+def kinds.found(ks: List<&2, T.Split>, +found: Set()) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case T.Split{+p, k} <> rest:
+      Bool.and(Sv.has(found, p), kinds.found(rest, found))
+
 # `--at`'s file, by a file bookmark or an identifier: `target::file_by_name`.
 def at.file.of(+s: String, found: Maybe<&2, Bm.Target>) -> Result<&2, &2, Refused, String>:
   match found:
@@ -9785,6 +9794,14 @@ def abandon.named.r(n: Maybe<&2, String>) -> Result<&2, &2, Refused, Unit>:
       Done{Unit{}}
     case None{}:
       Fail{Refused{2, "`abandon` wants the revision to abandon; it and everything standing on it go"}}
+
+# `abandon` is asked for a revision and a reason: where it goes on, a
+# target was named, a dry run did not also ask for `--fields`, and the
+# reason given is not blank. `LAWS.abandon_asks_for_a_revision_and_a_reason`.
+def abandon.asked(c: RwCmd, +m: String) -> Bool:
+  match c:
+    case RwCmd{mg, mv, o, n, d, f, y}:
+      Bool.and(Maybe.is_some(&2, String, n), Bool.and(Bool.not(Bool.and(d, f)), Bool.not(String.is_empty(Naming.trim_space(m)))))
 
 def rw.named(c: RwCmd) -> Maybe<&2, String>:
   match c:
