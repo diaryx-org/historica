@@ -2662,6 +2662,24 @@ law offer_names_no_private_rule:
   for +nids: List<&2, T.Split>
   {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, Offer.shared_rules(s), bs, claims, rids, nids) : List<&2, String>}
 
+# `fetch` reads the line `offer` writes for a file back as that file: its
+# kind, its digest, what it forgets and its path, whatever spaces the path
+# holds — for every kind a reader of `historica-offer-1` knows, a digest
+# that is one, and nothing forgotten or a forgotten digest that is one. So
+# a fetcher checks each file against the digest offer_names_each_file_by_its_digest
+# says its line carries.
+law offer_lines_read_back:
+  for +k: String
+  for +d: String
+  for +g: Maybe<&2, String>
+  for +p: String
+  for +rest: List<&2, String>
+  for +nh: Bool
+  for +hk: {Rev.member(Fetch.KINDS(), k) == True{} : Bool}
+  for +hd: {T.is_digest(d) == True{} : Bool}
+  for +hg: {OfferL.forgets_ok(g) == True{} : Bool}
+  {Fetch.line.at(Offer.offered.line(Offer.Offered{k, d, g, p}) <> rest, nh) == Fetch.LRead.Entry{Offer.Offered{k, d, g, p}} : Fetch.LRead}
+
 # `offer` lists what a document of `operations/` forgets as `prune`,
 # `receive` and `export` read it: a stand-in for a payload, and an
 # operation document, by the `forgets` line of its own grammar — save a

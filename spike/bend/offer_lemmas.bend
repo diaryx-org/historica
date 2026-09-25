@@ -17,6 +17,11 @@ import ./prune_lemmas.bend as PruneL
 import ./resolution.bend as Res
 import ./ops.bend as Ops
 import ./standin.bend as Stand
+import ./fetch.bend as Fetch
+import ./bookmark_lemmas.bend as BmL
+import ./spelling_lemmas.bend as Spell
+import ./arrange_lemmas.bend as ArrangeL
+import ./revision.bend as Rev
 
 # Bookmarks
 # ---------
@@ -232,3 +237,166 @@ def read_forgets(fp: Bool, +path: String, +id: String, +text: String) -> {Bool.p
 # resolution that is no stand-in, which it lists as forgetting nothing.
 def catalogue(+path: String, +id: String, +text: String) -> {Offer.catalogue.forgets(text) == Bool.pick(Maybe<&2, String>, Bool.and(Res.is_resolution(text), Bool.not(Prune.forgotten.payload(T.lines(text)))), None{}, forgets_of(Prune.body.of(path, id, text, Prune.forgotten.payload(T.lines(text))))) : Maybe<&2, String>}:
   read_forgets(Prune.forgotten.payload(T.lines(text)), path, id, text)
+
+# Reading a line back
+# -------------------
+
+def hex_sp.at(+c: Char, b: Bool, eb: {Char.is_eq(c, ' ') == b : Bool}, h: {T.is_hex(c) == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.false_true(Equal.trans(Bool, False{}, T.is_hex(c), True{}, (%Equal.sym(Char, c, ' ', BmL.chr_eq(c, ' ', eb)) : {False{} == T.is_hex(_) : Bool}
+        {==}), h)))
+
+# A string of hex characters has no space in it.
+def nosp_hex(s: String, +h: {T.all_chars(~T.is_hex, s) == True{} : Bool}) -> {T.has_char(s, ' ') == False{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      ArrangeL.or_ff(Char.is_eq(c, ' '), T.has_char(t, ' '),
+        hex_sp.at(c, Char.is_eq(c, ' '), {==}, ArrangeL.and_tl(T.is_hex(c), T.all_chars(~T.is_hex, t), h)),
+        nosp_hex(t, ArrangeL.and_tr(T.is_hex(c), T.all_chars(~T.is_hex, t), h)))
+
+# A digest has no space in it.
+def nosp_digest(+d: String, h: {T.is_digest(d) == True{} : Bool}) -> {T.has_char(d, ' ') == False{} : Bool}:
+  nosp_hex(d, ArrangeL.and_tr(Nat.is_eq(String.length(d), 64n), T.all_chars(~T.is_hex, d), h))
+
+def go_step(b: Bool, +c: Char, +t: String, +r: String, +acc: String, eb: {Char.is_eq(c, ' ') == b : Bool}, +hb: {b == False{} : Bool}, ih: {T.split_once.go(t ++ (" " ++ r), SCon{c, acc}) == Some{T.Split{String.reverse.go(SCon{c, acc}, t), r}} : Maybe<&2, T.Split>}) -> {Bool.pick(Maybe<&2, T.Split>, b, Some{T.Split{String.reverse(acc), t ++ (" " ++ r)}}, T.split_once.go(t ++ (" " ++ r), SCon{c, acc})) == Some{T.Split{String.reverse.go(acc, SCon{c, t}), r}} : Maybe<&2, T.Split>}:
+  match b:
+    case True{}:
+      Empty.absurd({Some{T.Split{String.reverse(acc), t ++ (" " ++ r)}} == Some{T.Split{String.reverse.go(acc, SCon{c, t}), r}} : Maybe<&2, T.Split>}, S.true_false(hb))
+    case False{}:
+      ih
+
+# The walk that cuts at the first space, over a word with none, a space
+# and the rest: the word, and the rest.
+def go_word(t: String, +acc: String, +r: String, +h: {T.has_char(t, ' ') == False{} : Bool}) -> {T.split_once.go(t ++ (" " ++ r), acc) == Some{T.Split{String.reverse.go(acc, t), r}} : Maybe<&2, T.Split>}:
+  match t:
+    case SNil{}:
+      {==}
+    case SCon{+c, +u}:
+      go_step(Char.is_eq(c, ' '), c, u, r, acc, {==}, ArrangeL.or_ff_l(Char.is_eq(c, ' '), T.has_char(u, ' '), h),
+        go_word(u, SCon{c, acc}, r, ArrangeL.or_ff_r(Char.is_eq(c, ' '), T.has_char(u, ' '), h)))
+
+# A word with no space, a space and the rest cut at the first space is
+# the word and the rest.
+def cut_word(+a: String, +r: String, +h: {T.has_char(a, ' ') == False{} : Bool}) -> {T.split_once(a ++ (" " ++ r)) == Some{T.Split{a, r}} : Maybe<&2, T.Split>}:
+  Equal.trans(Maybe<&2, T.Split>, T.split_once(a ++ (" " ++ r)), T.split_once.go(a ++ (" " ++ r), SNil{}), Some{T.Split{a, r}}, Spell.split_fast(a ++ (" " ++ r), SNil{}), go_word(a, SNil{}, r, h))
+
+# A kind a reader knows has no space in it and does not start as `head`
+# does.
+def not_h(k: String) -> Bool:
+  match k:
+    case SNil{}:
+      False{}
+    case SCon{c, t}:
+      Bool.not(Char.is_eq(c, 'h'))
+
+def kind_ok(+k: String) -> Bool:
+  Bool.and(Bool.not(T.has_char(k, ' ')), not_h(k))
+
+def kinds_ok(ks: List<&2, String>) -> Bool:
+  match ks:
+    case Nil{}:
+      True{}
+    case +k <> rest:
+      Bool.and(kind_ok(k), kinds_ok(rest))
+
+def member_ok.of(c: Bool, +l: String, +rest: List<&2, String>, +k: String, +ec: {String.eq(l, k) == c : Bool}, +ha: {Bool.and(kind_ok(l), kinds_ok(rest)) == True{} : Bool}, hm: {Bool.or(c, Rev.member(rest, k)) == True{} : Bool}, ih: {kinds_ok(rest) == True{} : Bool} -> {Rev.member(rest, k) == True{} : Bool} -> {kind_ok(k) == True{} : Bool}) -> {kind_ok(k) == True{} : Bool}:
+  match c:
+    case True{}:
+      %S.eq_true(l, k, ec) : {kind_ok(_) == True{} : Bool}
+      ArrangeL.and_tl(kind_ok(l), kinds_ok(rest), ha)
+    case False{}:
+      ih(ArrangeL.and_tr(kind_ok(l), kinds_ok(rest), ha), hm)
+
+def member_ok(ks: List<&2, String>, +k: String, +ha: {kinds_ok(ks) == True{} : Bool}, hm: {Rev.member(ks, k) == True{} : Bool}) -> {kind_ok(k) == True{} : Bool}:
+  match ks:
+    case Nil{}:
+      Empty.absurd({kind_ok(k) == True{} : Bool}, S.false_true(hm))
+    case +l <> +rest:
+      member_ok.of(String.eq(l, k), l, rest, k, {==}, ha, hm, a => b => member_ok(rest, k, a, b))
+
+# Every kind a reader of `historica-offer-1` knows.
+def known(+k: String, hm: {Rev.member(Fetch.KINDS(), k) == True{} : Bool}) -> {kind_ok(k) == True{} : Bool}:
+  member_ok(Fetch.KINDS(), k, {==}, hm)
+
+def head_pick(b: Bool, +t: String, -y: String, eb: {Bool.not(b) == True{} : Bool}) -> {Bool.pick(Maybe<&2, String>, b, T.strip_prefix(t, y), None{}) == None{} : Maybe<&2, String>}:
+  match b:
+    case True{}:
+      Empty.absurd({T.strip_prefix(t, y) == None{} : Maybe<&2, String>}, S.false_true(eb))
+    case False{}:
+      {==}
+
+# A line starting with a kind is no head's.
+def head_none(k: String, +x: String, h: {not_h(k) == True{} : Bool}) -> {T.strip_prefix(k ++ x, "head ") == None{} : Maybe<&2, String>}:
+  match k:
+    case SNil{}:
+      Empty.absurd({T.strip_prefix(SNil{} ++ x, "head ") == None{} : Maybe<&2, String>}, S.false_true(h))
+    case SCon{+c, +t}:
+      head_pick(Char.is_eq(c, 'h'), t ++ x, "ead ", h)
+
+# What a line says a file forgets: a digest, or `-` for nothing.
+def forgets_ok(g: Maybe<&2, String>) -> Bool:
+  match g:
+    case None{}:
+      True{}
+    case Some{x}:
+      T.is_digest(x)
+
+def dash_digest(c: Bool, +x: String, ec: {String.eq(x, "-") == c : Bool}, h: {T.is_digest(x) == True{} : Bool}) -> {Bool.pick(Maybe<&2, String>, c, None{}, Some{x}) == Some{x} : Maybe<&2, String>}:
+  match c:
+    case True{}:
+      Empty.absurd({None{} == Some{x} : Maybe<&2, String>}, S.false_true((%S.eq_true(x, "-", ec) : {T.is_digest(_) == True{} : Bool}; h)))
+    case False{}:
+      {==}
+
+def g_nosp(g: Maybe<&2, String>, h: {forgets_ok(g) == True{} : Bool}) -> {T.has_char(Maybe.default(&2, String, g, "-"), ' ') == False{} : Bool}:
+  match g:
+    case None{}:
+      {==}
+    case Some{+x}:
+      nosp_digest(x, h)
+
+def g_ok(g: Maybe<&2, String>, h: {forgets_ok(g) == True{} : Bool}) -> {Bool.or(String.eq(Maybe.default(&2, String, g, "-"), "-"), T.is_digest(Maybe.default(&2, String, g, "-"))) == True{} : Bool}:
+  match g:
+    case None{}:
+      {==}
+    case Some{+x}:
+      PruneL.or_rt(String.eq(x, "-"), T.is_digest(x), h)
+
+def g_back(g: Maybe<&2, String>, h: {forgets_ok(g) == True{} : Bool}) -> {Fetch.forgets.of(Maybe.default(&2, String, g, "-")) == g : Maybe<&2, String>}:
+  match g:
+    case None{}:
+      {==}
+    case Some{+x}:
+      dash_digest(String.eq(x, "-"), x, {==}, h)
+
+def pick3(a: Bool, b: Bool, c: Bool, -x: Fetch.LRead, -y: Fetch.LRead, -z: Fetch.LRead, -w: Fetch.LRead, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}, ec: {c == True{} : Bool}) -> {Bool.pick(Fetch.LRead, a, Bool.pick(Fetch.LRead, b, Bool.pick(Fetch.LRead, c, x, y), z), w) == x : Fetch.LRead}:
+  match a b c:
+    case True{} True{} True{}:
+      {==}
+    case False{} _ _:
+      Empty.absurd({Bool.pick(Fetch.LRead, False{}, Bool.pick(Fetch.LRead, b, Bool.pick(Fetch.LRead, c, x, y), z), w) == x : Fetch.LRead}, S.false_true(ea))
+    case True{} False{} _:
+      Empty.absurd({Bool.pick(Fetch.LRead, True{}, Bool.pick(Fetch.LRead, False{}, Bool.pick(Fetch.LRead, c, x, y), z), w) == x : Fetch.LRead}, S.false_true(eb))
+    case True{} True{} False{}:
+      Empty.absurd({Bool.pick(Fetch.LRead, True{}, Bool.pick(Fetch.LRead, True{}, Bool.pick(Fetch.LRead, False{}, x, y), z), w) == x : Fetch.LRead}, S.false_true(ec))
+
+# `fetch` reads the line `offer` writes for a file back as that file:
+# its kind, its digest, what it forgets and its path, whatever spaces the
+# path holds.
+def line_back(+k: String, +d: String, +g: Maybe<&2, String>, +p: String, +rest: List<&2, String>, +nh: Bool, +hk: {Rev.member(Fetch.KINDS(), k) == True{} : Bool}, +hd: {T.is_digest(d) == True{} : Bool}, +hg: {forgets_ok(g) == True{} : Bool}) -> {Fetch.line.at(Offer.offered.line(Offer.Offered{k, d, g, p}) <> rest, nh) == Fetch.LRead.Entry{Offer.Offered{k, d, g, p}} : Fetch.LRead}:
+  +gd = Maybe.default(&2, String, g, "-")
+  +ko = known(k, hk)
+  +r2 = gd ++ (" " ++ p)
+  +r1 = d ++ (" " ++ r2)
+  %Equal.sym(Maybe<&2, String>, T.strip_prefix(k ++ (" " ++ r1), "head "), None{}, head_none(k, " " ++ r1, ArrangeL.and_tr(Bool.not(T.has_char(k, ' ')), not_h(k), ko))) : {Fetch.line.head(nh, _, k ++ (" " ++ r1)) == Fetch.LRead.Entry{Offer.Offered{k, d, g, p}} : Fetch.LRead}
+  %Equal.sym(Maybe<&2, T.Split>, T.split_once(k ++ (" " ++ r1)), Some{T.Split{k, r1}}, cut_word(k, r1, ArrangeL.not_tt(T.has_char(k, ' '), ArrangeL.and_tl(Bool.not(T.has_char(k, ' ')), not_h(k), ko)))) : {Fetch.line.fields(Fetch.four.a(_)) == Fetch.LRead.Entry{Offer.Offered{k, d, g, p}} : Fetch.LRead}
+  %Equal.sym(Maybe<&2, T.Split>, T.split_once(r1), Some{T.Split{d, r2}}, cut_word(d, r2, nosp_digest(d, hd))) : {Fetch.line.fields(Fetch.four.b(k, _)) == Fetch.LRead.Entry{Offer.Offered{k, d, g, p}} : Fetch.LRead}
+  %Equal.sym(Maybe<&2, T.Split>, T.split_once(r2), Some{T.Split{gd, p}}, cut_word(gd, p, g_nosp(g, hg))) : {Fetch.line.fields(Fetch.four.c(k, d, _)) == Fetch.LRead.Entry{Offer.Offered{k, d, g, p}} : Fetch.LRead}
+  Equal.trans(Fetch.LRead, Fetch.line.entry(Fetch.Four{k, d, gd, p}), Fetch.LRead.Entry{Offer.Offered{k, d, Fetch.forgets.of(gd), p}}, Fetch.LRead.Entry{Offer.Offered{k, d, g, p}},
+    pick3(Rev.member(Fetch.KINDS(), k), T.is_digest(d), Bool.or(String.eq(gd, "-"), T.is_digest(gd)), Fetch.LRead.Entry{Offer.Offered{k, d, Fetch.forgets.of(gd), p}}, Fetch.LRead.Bad{"a forgotten digest that is not a digest"}, Fetch.LRead.Bad{"a digest that is not a digest"}, Fetch.LRead.Skip{}, hk, hd, g_ok(g, hg)),
+    Equal.cong(Maybe<&2, String>, Fetch.LRead, x => Fetch.LRead.Entry{Offer.Offered{k, d, x, p}}, Fetch.forgets.of(gd), g, g_back(g, hg)))
