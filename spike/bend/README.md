@@ -362,7 +362,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `shell_lemmas.bend` | `dispatch_runs_no_path`: the program a word is dispatched to holds no `/`, so it is looked up on `PATH` rather than run from where a path would put it | decision 0072 |
 | `opening_lemmas.bend` | `header_opens_under_a_note`: a store's header opens whatever its note says, once a blank line sets the note apart — the one `init` writes among them | `Store::open`, decision 0069 |
 | `init_lemmas.bend` | `init_lays_down_only_its_store`: every directory `init` makes and every note it writes is its root, a `/` and components none of them empty, `.` or `..`, each note in the root or a directory it makes, whatever the root; `init_writes_text`: every note is lines of Unicode scalar values that are no control character, each ended by a newline; `check_finds_nothing_in_a_new_store`: the store `init` lays down holds no document, and what `check` gathers from it — `historica.txt` and `skipped/`'s note read back from the bytes written — it finds nothing wrong with; `init_takes_an_absolute_dir_as_it_is`, `init_doubles_no_slash`, `init_keeps_a_dot`: `<dir>` is joined as `Path::join` joins it — an absolute one wherever `init` runs, a `/` after it not doubled, `.` not resolved | `Store::init`, `cli::init` |
-| `utf8_lemmas.bend`, `utf8_lemmas.py` | `utf8_reads_back`: a string of Unicode scalar values, encoded as UTF-8 and decoded again, is itself — each code point taken apart into its thirty-two bits, the width `encode` gives it showing the bits above it clear, and each bit `decode` puts back shown to be the one it came from, a bit at a time so that no case split multiplies another; `utf8_lemmas.py` writes out the lemmas that say the same of every bit | `str::from_utf8`, `char::encode_utf8` |
+| `utf8_lemmas.bend`, `utf8_lemmas.py` | `utf8_reads_back`: a string of Unicode scalar values, encoded as UTF-8 and read back as the store reads a file as text (`read_to_string`), is itself — `invalid` finds nothing wrong with the bytes, and `decode` gives back every character. Each code point is taken apart into its thirty-two bits: the width `encode` gives it shows the bits above that width clear; each bit `decode` puts back is shown to be the one it came from, a bit at a time so that no case split multiplies another; and each byte is shown to be one the validator takes — a lead or second byte by the few bits that decide it, after `E0`, `ED`, `F0` and `F4` included, a continuation byte whatever bits it carries. `utf8_lemmas.py` writes out the lemmas that say the same of every bit and every lead | `str::from_utf8`, `char::encode_utf8` |
 | `identity_lemmas.bend` | `identity_reads_back`: the file `identity` writes reads back as its author for work in any directory, wherever that author is one a revision can hold | `identity` |
 | `show_lemmas.bend` | `cat_reads_a_held_file`: `cat <target> <path>` reads a revision the store holds and a file its tree holds that is not a link; `show_names_a_held_file`, `show_prints_a_held_document`, `show_prints_what_the_revision_states`: `show` names a file the target holds, and prints a document the store holds under the digest named — the revision's own, or the one it states for the file | `cat`, `show` |
 | `bookmark_lemmas.bend` | `bookmark_reads_back`: the file the Rust tool writes for a bookmark — the target line, and `private` where the name stays out of an export — parses back as that bookmark wherever its identifier is spelled as its kind is | `store::Bookmark` |
@@ -1999,7 +1999,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and eighty-one mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and eighty-five mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2197,10 +2197,11 @@ it, a note written beside the store rather than in it, a note written
 into a directory it does not make, the notes written where `init` runs
 rather than under the store, the cache note's last newline lost, a line
 of a note ended by a carriage return, an absolute path joined under the
-base, and a `/` doubled after a base that ends with one; and three
+base, and a `/` doubled after a base that ends with one; and seven
 UTF-8 breaks: a three-byte character's middle byte kept to five bits, a
-three-byte lead read as a two-byte one, and the first character past the
-surrogates taken for one; and six `skip` breaks: rule equality blind to privacy, a
+three-byte lead read as a two-byte one, the first character past the
+surrogates taken for one, and a validator that refuses `9F` after `ED`,
+`90` after `F0`, `F4` as a lead, or `BF` as a continuation; and six `skip` breaks: rule equality blind to privacy, a
 directory's rule written without its slash, a private name read back as
 shared, a directory's rule that does not skip the directory, a listing
 that forgets the rule it just kept, and a rule asked about against the
