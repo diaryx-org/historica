@@ -674,3 +674,96 @@ def ad.of(sm: Maybe<&2, T.Split>, +url: String, -r: String, -m: String, es: {Fet
 # everything up to the URL's last `/`, that included.
 def addressed_ok(+url: String, -r: String, -m: String, e: {Fetch.addressed.r(url) == Done{Fetch.Addressed{r, m}} : Result<&2, &2, Main.Refused, Fetch.Addressed>}) -> {Bool.and(String.eq(String.append(r, m), url), Bool.and(String.ends_with(r, "/"), Bool.and(Bool.not(String.is_empty(m)), List.all(~&2, ~Char, ~(c => Bool.not(Char.is_eq(c, '/'))), String.to_list(m))))) == True{} : Bool}:
   ad.of(Fetch.scheme.go(url, SNil{}), url, r, m, {==}, e)
+
+# A bookmark once a pass
+# ----------------------
+
+# Whether a landing writes a bookmark.
+def writes_a_bookmark(l: Fetch.Land) -> Bool:
+  match l:
+    case Fetch.Land.Name{n, a, t}:
+      True{}
+    case _:
+      False{}
+
+def wb_filed(+p: String, fault: Maybe<&2, String>, +at: String, +t: String) -> {writes_a_bookmark(Fetch.filed.if(p, fault, at, t)) == False{} : Bool}:
+  match fault:
+    case Some{e}:
+      {==}
+    case None{}:
+      {==}
+
+def wb_rule(+p: String, +t: String, st: Folder.Stated) -> {writes_a_bookmark(Fetch.rule.of(p, t, st)) == False{} : Bool}:
+  match st:
+    case Folder.Stated.Wrong{e}:
+      {==}
+    case Folder.Stated.None{}:
+      {==}
+    case Folder.Stated.One{sc}:
+      {==}
+
+def wb_bytes(o: Offer.Offered) -> {writes_a_bookmark(Fetch.bytes.land(o)) == False{} : Bool}:
+  match o:
+    case Offer.Offered{+k, d, f, +p}:
+      {==}
+
+def mem_head(+x: String, +rest: List<&2, String>) -> {Rev.member(x <> rest, x) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(x, x), True{}, S.eq_refl(x)) : {Bool.or(_, Rev.member(rest, x)) == True{} : Bool}
+  {==}
+
+# A line naming a bookmark the pass holds lands as nothing.
+def wb_name(+root: String, +p: String, +n: String, +held: List<&2, String>, +t: String) -> {writes_a_bookmark(Fetch.name.land(root, p, n <> held, Some{n}, t)) == False{} : Bool}:
+  %Equal.sym(Bool, Rev.member(n <> held, n), True{}, mem_head(n, held)) : {writes_a_bookmark(Bool.pick(Fetch.Land, _, Fetch.Land.Skip{}, Fetch.name.of(root, p, n, Bm.parse(t)))) == False{} : Bool}
+  {==}
+
+def wb_text.c(c3: Bool, +root: String, +n: String, +held: List<&2, String>, +p: String, +t: String) -> {writes_a_bookmark(Bool.pick(Fetch.Land, c3, Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, n <> held, Some{n}, t))) == False{} : Bool}:
+  match c3:
+    case True{}:
+      wb_rule(p, t, Folder.rule_in(t))
+    case False{}:
+      wb_name(root, p, n, held, t)
+
+def wb_text.b(c2: Bool, c3: Bool, +root: String, +n: String, +held: List<&2, String>, +d: String, +p: String, +t: String) -> {writes_a_bookmark(Bool.pick(Fetch.Land, c2, Fetch.filed.if(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t), Bool.pick(Fetch.Land, c3, Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, n <> held, Some{n}, t)))) == False{} : Bool}:
+  match c2:
+    case True{}:
+      wb_filed(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t)
+    case False{}:
+      wb_text.c(c3, root, n, held, p, t)
+
+def wb_text.a(c1: Bool, c2: Bool, c3: Bool, +root: String, +n: String, +held: List<&2, String>, +d: String, +p: String, +t: String) -> {writes_a_bookmark(Bool.pick(Fetch.Land, c1, Fetch.filed.if(p, Fetch.op.fault(t), root ++ "/operations/" ++ d ++ ".ops.txt", t), Bool.pick(Fetch.Land, c2, Fetch.filed.if(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t), Bool.pick(Fetch.Land, c3, Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, n <> held, Some{n}, t))))) == False{} : Bool}:
+  match c1:
+    case True{}:
+      wb_filed(p, Fetch.op.fault(t), root ++ "/operations/" ++ d ++ ".ops.txt", t)
+    case False{}:
+      wb_text.b(c2, c3, root, n, held, d, p, t)
+
+# Whatever its kind, a document whose path names a bookmark the pass holds
+# writes no bookmark.
+def wb_text(+root: String, +n: String, +held: List<&2, String>, o: Offer.Offered, +t: String, h: {Fetch.named_by(Offer.offered.path(o)) == Some{n} : Maybe<&2, String>}) -> {writes_a_bookmark(Fetch.text.land(root, n <> held, o, t)) == False{} : Bool}:
+  match o:
+    case Offer.Offered{+k, +d, f, +p}:
+      %Equal.sym(Maybe<&2, String>, Fetch.named_by(p), Some{n}, h) : {writes_a_bookmark(Bool.pick(Fetch.Land, String.eq(k, "operation"), Fetch.filed.if(p, Fetch.op.fault(t), root ++ "/operations/" ++ d ++ ".ops.txt", t), Bool.pick(Fetch.Land, String.eq(k, "revision"), Fetch.filed.if(p, Fetch.rev.ok(Rev.parse(t)), root ++ "/revisions/" ++ d ++ ".rev.txt", t), Bool.pick(Fetch.Land, String.eq(k, "rule"), Fetch.rule.of(p, t, Folder.rule_in(t)), Fetch.name.land(root, p, n <> held, _, t))))) == False{} : Bool}
+      wb_text.a(String.eq(k, "operation"), String.eq(k, "revision"), String.eq(k, "rule"), root, n, held, d, p, t)
+
+def wb_pick(c: Bool, -a: Fetch.Land, -b: Fetch.Land, ha: {writes_a_bookmark(a) == False{} : Bool}, hb: {writes_a_bookmark(b) == False{} : Bool}) -> {writes_a_bookmark(Bool.pick(Fetch.Land, c, a, b)) == False{} : Bool}:
+  match c:
+    case True{}:
+      ha
+    case False{}:
+      hb
+
+# In one pass, a bookmark is written once: once a pass has written `n`,
+# whatever the host answers for a later line naming `n`, no bookmark is
+# written for it.
+def once_a_pass(+o: Offer.Offered, +n: String, +at: String, +text: String, +t: Fetch.Tally, +rules: List<&2, Receive.Ruled>, +held: List<&2, String>, +moved: Maybe<&2, String>, +landed: Bool, +root: String, +o2: Offer.Offered, g: Fetch.Got, +h: {Fetch.named_by(Offer.offered.path(o2)) == Some{n} : Maybe<&2, String>}) -> {writes_a_bookmark(Fetch.got.text(root, Fetch.state.held(Fetch.land.after(o, Fetch.Land.Name{n, at, text}, t, rules, held, moved, landed)), o2, g)) == False{} : Bool}:
+  match g:
+    case Fetch.Got.Failed{m}:
+      {==}
+    case Fetch.Got.Status{+c}:
+      wb_pick(Fetch.gone(c), Fetch.Land.Gone{}, Fetch.Land.Refuse{Fetch.unreachable(Fetch.entry.path(o2), "the server answered " ++ c)}, {==}, {==})
+    case Fetch.Got.Bytes{+found}:
+      wb_pick(String.eq(found, Fetch.entry.digest(o2)), Fetch.bytes.land(o2), Fetch.Land.Refuse{Fetch.TAMPERED(Fetch.entry.path(o2), Fetch.entry.digest(o2), found)}, wb_bytes(o2), {==})
+    case Fetch.Got.Text{+t2}:
+      wb_pick(String.eq(Fetch.text.digest(t2), Fetch.entry.digest(o2)), Fetch.text.land(root, n <> held, o2, t2), Fetch.Land.Refuse{Fetch.TAMPERED(Fetch.entry.path(o2), Fetch.entry.digest(o2), Fetch.text.digest(t2))}, wb_text(root, n, held, o2, t2, h), {==})
+    case Fetch.Got.Pulled{d}:
+      {==}

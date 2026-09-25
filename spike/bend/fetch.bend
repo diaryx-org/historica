@@ -1010,27 +1010,52 @@ def io.done(r: Result<&1, &1, U32 & String, String>) -> IO(String):
 def refused.at(-A: Data, +c: Ctx, +msg: String) -> IO(A):
   Main.stated.io(A, ctx.fields(c), Fail{Main.Refused{1, msg}})
 
+# What one answer acted on leaves the pass holding: a path found gone
+# recorded, a rule read kept for the union, and each file written counted
+# under what it is — a revision by its digest, a bookmark by its name,
+# which the pass then holds, so that no later line of the pass writes it
+# again; another tool's file only where it was moved into place rather
+# than kept.
+def land.after(+o: Offer.Offered, l: Land, +t: Tally, +rules: List<&2, Receive.Ruled>, +held: List<&2, String>, +moved: Maybe<&2, String>, +landed: Bool) -> State:
+  match l:
+    case Land.Gone{}:
+      State{t, rules, held, Some{entry.path(o)}}
+    case Land.Refuse{m}:
+      State{t, rules, held, moved}
+    case Land.Skip{}:
+      State{t, rules, held, moved}
+    case Land.Rule{r}:
+      State{t, Receive.ruled.push(r, rules), held, moved}
+    case Land.File{at, text}:
+      State{Bool.pick(Tally, String.eq(entry.kind(o), "revision"), tally.revision(entry.digest(o), t), tally.document(t)), rules, held, moved}
+    case Land.Name{+n, at, text}:
+      State{tally.name(n, t), rules, n <> held, moved}
+    case Land.Move{folder, from, to}:
+      State{Bool.pick(Tally, String.eq(entry.kind(o), "payload"), tally.payload(t), Bool.pick(Tally, landed, tally.reserved(t), t)), rules, held, moved}
+    case Land.Discard{folder, file, m}:
+      State{t, rules, held, moved}
+
 # One answer acted on.
 def land.go(+c: Ctx, +o: Offer.Offered, l: Land, +t: Tally, +rules: List<&2, Receive.Ruled>, +held: List<&2, String>, +moved: Maybe<&2, String>) -> IO(State):
   match l:
     case Land.Gone{}:
-      IO.pure(State, State{t, rules, held, Some{entry.path(o)}})
+      IO.pure(State, land.after(o, Land.Gone{}, t, rules, held, moved, False{}))
     case Land.Refuse{m}:
       refused.at(State, c, m)
     case Land.Skip{}:
-      IO.pure(State, State{t, rules, held, moved})
+      IO.pure(State, land.after(o, Land.Skip{}, t, rules, held, moved, False{}))
     case Land.Rule{r}:
-      IO.pure(State, State{t, Receive.ruled.push(r, rules), held, moved})
+      IO.pure(State, land.after(o, Land.Rule{r}, t, rules, held, moved, False{}))
     case Land.File{+at, +text}:
       do IO<State>:
         w : Result<&1, &1, U32 & String, String> <- Store.filed(at ++ "\n" ++ text)
         x : String <- io.done(w)
-        return State{Bool.pick(Tally, String.eq(entry.kind(o), "revision"), tally.revision(entry.digest(o), t), tally.document(t)), rules, held, moved}
+        return land.after(o, Land.File{at, text}, t, rules, held, moved, True{})
     case Land.Name{+n, +at, +text}:
       do IO<State>:
         w : Result<&1, &1, U32 & String, String> <- Store.written(at ++ "\n" ++ text)
         x : String <- io.done(w)
-        return State{tally.name(n, t), rules, n <> held, moved}
+        return land.after(o, Land.Name{n, at, text}, t, rules, held, moved, True{})
     case Land.Move{+folder, +from, +to}:
       do IO<State>:
         w : Result<&1, &1, U32 & String, String> <- Store.moved(folder ++ "\n" ++ from ++ "\n" ++ to)
@@ -1038,7 +1063,7 @@ def land.go(+c: Ctx, +o: Offer.Offered, l: Land, +t: Tally, +rules: List<&2, Rec
         +landed : Bool = String.eq(how, "moved")
         gone : Result<&1, &1, U32 & String, String> <- Bool.pick(IO(Result<&1, &1, U32 & String, String>), landed, IO.pure(Result<&1, &1, U32 & String, String>, Done{"kept"}), Store.removed(folder ++ "\n" ++ folder ++ "/" ++ from))
         y : String <- io.done(gone)
-        return State{Bool.pick(Tally, String.eq(entry.kind(o), "payload"), tally.payload(t), Bool.pick(Tally, landed, tally.reserved(t), t)), rules, held, moved}
+        return land.after(o, Land.Move{folder, from, to}, t, rules, held, moved, landed)
     case Land.Discard{+folder, +file, +m}:
       do IO<State>:
         gone : Result<&1, &1, U32 & String, String> <- Store.removed(folder ++ "\n" ++ folder ++ "/" ++ file)

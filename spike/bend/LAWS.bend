@@ -45,6 +45,7 @@ import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
 import ./manifest_lemmas.bend as ManL
+import ./fetching_lemmas.bend as FetchingL
 import ./fetchplan_lemmas.bend as FPlanL
 import ./escape_lemmas.bend as EscL
 
@@ -2962,6 +2963,26 @@ law fetch_destroys_only_what_is_forgotten:
   for +d: String
   for h: {Rev.member(Fetch.plan.destroys(Fetch.plan.of(Fetch.here.of(s), os)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(s)), d), FPlanL.forgot.listed(os, d)) == True{} : Bool}
+
+# In one pass `fetch` writes a bookmark once (decision 0062): once it has
+# written bookmark `n`, whatever the host answers for a later line naming
+# `n`, it writes no bookmark for it — though two lines of a manifest may
+# name one bookmark with different bytes, and the plan takes both.
+law fetch_writes_a_bookmark_once_a_pass:
+  for +o: Offer.Offered
+  for +n: String
+  for +at: String
+  for +text: String
+  for +t: Fetch.Tally
+  for +rules: List<&2, Receive.Ruled>
+  for +held: List<&2, String>
+  for +moved: Maybe<&2, String>
+  for +landed: Bool
+  for +root: String
+  for +o2: Offer.Offered
+  for g: Fetch.Got
+  for +h: {Fetch.named_by(Offer.offered.path(o2)) == Some{n} : Maybe<&2, String>}
+  {FetchingL.writes_a_bookmark(Fetch.got.text(root, Fetch.state.held(Fetch.land.after(o, Fetch.Land.Name{n, at, text}, t, rules, held, moved, landed)), o2, g)) == False{} : Bool}
 
 # `fetch` asks only for what this store lacks: every payload it asks for is
 # one this store holds no payload under the digest of, and one neither a
