@@ -3719,14 +3719,21 @@ law nfc_class_misses_nothing:
   for +c: U32
   {Nfc.class(Tab.classes(), c) == Nfc.class.scan(Tab.classes(), c) : U32}
 
-# In the crate's tables, neither `/` nor `.` has a combining class, is
-# either half of a composition pair or what one makes, or is in any
-# character's decomposition. Normalising a path a name at a time, as the
-# walk does, is normalising the whole of it only because of this, and a
+# Normal form C's algorithm takes `/` and `.` as walls. Over the crate's
+# tables, what decomposing, ordering and composing makes of code points
+# with a `/` or a `.` among them is what it makes of those before, the
+# separator as it was, and what it makes of those after: nothing composes
+# across either and neither moves. Normalising a path a name at a time, as
+# the walk does, is normalising the whole of it for this reason, and a
 # link's target resolved inside the folder keeps its shape once
-# normalised for the same reason; the law is the tables' part of that.
+# normalised. (A string below U+0300 is handed back by the quick check
+# without the algorithm, which this law does not speak to.)
 law nfc_leaves_separators_alone:
-  {Bool.and(Nfc.inert(47), Nfc.inert(46)) == True{} : Bool}
+  for +xs: List<&2, U32>
+  for +c: U32
+  for +ys: List<&2, U32>
+  for h: {Bool.or(U32.is_eq(c, 47), U32.is_eq(c, 46)) == True{} : Bool}
+  {Nfc.nfc.points(Nfc.tabs(), List.append(&2, U32, xs, c <> ys)) == List.append(&2, U32, Nfc.nfc.points(Nfc.tabs(), xs), c <> Nfc.nfc.points(Nfc.tabs(), ys)) : List<&2, U32>}
 
 # The walk yields a path once and loses none. Two names a filesystem tells
 # apart can be one path in normal form C, and the walk keeps one file for
