@@ -52,6 +52,7 @@ import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./update_lemmas.bend as UpdL
 import ./conflict_lemmas.bend as ConflictL
+import ./merging_lemmas.bend as MergingL
 import ./listing_lemmas.bend as ListL
 import ./naming_lemmas.bend as NamingL
 import ./survey.bend as Sv
@@ -741,3 +742,12 @@ def Laws.record_goes_on_where_each_path_holds_one_file(t, looked, held, walked, 
 
 def Laws.a_link_resolves_inside_the_folder(link, target, p, h, e):
   SurveyL.link_inside(link, target, p, h, e)
+
+def Laws.merge_joins_held_revisions(fs, bs, ss, xs, e):
+  MergingL.joined_held(fs, bs, ss, xs, e)
+
+def Laws.merge_joins_every_head(fs, bs, ss, xs, e):
+  MergingL.joined_all(fs, bs, ss, xs, e)
+
+def Laws.merge_spares_the_unrecorded(t, cs, located, p):
+  MergingL.spares(t, cs, located, p)

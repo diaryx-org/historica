@@ -282,6 +282,40 @@ def lay(+t: Tree.Tree(), +cs: List<&2, Tree.Contest>, +located: Map<&2, String>,
     case Place{Tree.Entry{f, p2, Tree.Lines{}, y, g, +m}, +at, +held, h, +hs, +x, r}:
       lay.lines(at, held, hs, x, m, r)
 
+def laid.acts(l: Laid) -> List<&2, Act>:
+  match l:
+    case Laid{a, m}:
+      a
+
+# What `LAWS.merge_spares_the_unrecorded` asks of each thing `merge` does
+# at a place: it is done at that place's path; a file of lines written
+# there is the walk's rendering, and stands where the folder held nothing,
+# no text, what the merge writes, the walk's reading unfenced, or what one
+# of the heads being joined leaves the file as; a payload laid stands where
+# the folder held nothing, the payload, or what one of the heads leaves.
+def spared.lines(+held: String, +heads: List<&2, String>, text: Bool, +written: String, r: Result<&2, &2, String, Conflict.Joined>) -> Bool:
+  match r:
+    case Done{+j}:
+      Bool.and(String.eq(written, Conflict.render(j)), Bool.or(Bool.not(text), Bool.or(String.eq(held, "-"), Rev.member(Upd.text_digest(written) <> Upd.text_digest(Conflict.plain(j)) <> heads, held))))
+    case Fail{e}:
+      False{}
+
+def laid.ok(p: Place, a: Act) -> Bool:
+  match p a:
+    case Place{e, +at, +held, h, +heads, text, r} Act.Lines{+at2, +written, m}:
+      Bool.and(String.eq(at2, at), spared.lines(held, heads, text, written, r))
+    case Place{e, +at, +held, h, +heads, text, r} Act.Whole{+at2, from, +payload, m}:
+      Bool.and(String.eq(at2, at), Bool.or(String.eq(held, "-"), Rev.member(payload <> heads, held)))
+    case p2 a2:
+      True{}
+
+def laid.all(+p: Place, acts: List<&2, Act>) -> Bool:
+  match acts:
+    case Nil{}:
+      True{}
+    case a <> rest:
+      Bool.and(laid.ok(p, a), laid.all(p, rest))
+
 # Every file of the merged tree, in file order: the acts to perform, and
 # how many files hold work that met.
 type Lay is Data:

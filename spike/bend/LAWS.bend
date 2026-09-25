@@ -21,6 +21,7 @@ import ./survey.bend as Sv
 import ./update.bend as Upd
 import ./conflict.bend as Conflict
 import ./resolution.bend as Res
+import ./merging.bend as Merging
 import ./sort_lemmas.bend as SortL
 import ./naming.bend as Naming
 
@@ -1599,3 +1600,39 @@ law a_link_resolves_inside_the_folder:
   for h: {Sv.path_check(link) == None{} : Maybe<&2, String>}
   for e: {Sv.resolution(link, target) == Some{p} : Maybe<&2, String>}
   {Main.escapes(p) == False{} : Bool}
+
+# `merge` joins only revisions the store holds: each head a person names
+# resolves to one, and each it joins unnamed is a current head, so no
+# spelling can make it lay out work the store does not have.
+law merge_joins_held_revisions:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ss: List<&2, String>
+  for +xs: List<&2, T.Split>
+  for e: {Merging.joined.r(fs, bs, ss) == Done{xs} : Result<&2, &2, Main.Refused, List<&2, T.Split>>}
+  {Main.all_held(Main.ids(fs), Merging.typed.ids(xs)) == True{} : Bool}
+
+# Decision 0012's rule, what is named and every current head that is not:
+# whatever a person names, and in whatever order, `merge` joins every
+# current head of the store, which is what makes the `record` line it
+# prints record the merge it laid out.
+law merge_joins_every_head:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ss: List<&2, String>
+  for +xs: List<&2, T.Split>
+  for e: {Merging.joined.r(fs, bs, ss) == Done{xs} : Result<&2, &2, Main.Refused, List<&2, T.Split>>}
+  {Main.all_held(Merging.typed.ids(xs), Upd.heads.sorted(fs)) == True{} : Bool}
+
+# Decision 0012's safety: whatever `merge` does at a place it does at that
+# place's path; a file of lines it writes there is the walk's rendering;
+# and it writes only where the folder held nothing, a file of lines no
+# longer text, or one of the versions it decided against — what it writes,
+# the walk's reading unfenced, the payload, or what one of the heads being
+# joined leaves the file as. Work nobody recorded is never written over.
+law merge_spares_the_unrecorded:
+  for +t: Tree.Tree()
+  for +cs: List<&2, Tree.Contest>
+  for +located: Map<&2, String>
+  for p: Merging.Place
+  {Merging.laid.all(p, Merging.laid.acts(Merging.lay(t, cs, located, p))) == True{} : Bool}
