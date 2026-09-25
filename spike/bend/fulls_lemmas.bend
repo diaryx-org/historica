@@ -1,8 +1,8 @@
 # Every revision a command reads is one a document of `revisions/` spells:
 # filed there under the digest it is known by, and what `Rev.write` writes,
-# byte for byte, from what the revision says. `fulls` keeps the documents
-# the parser accepts and nothing else, and the writer reproduces what the
-# parser accepted (`LAWS.revision_write_parse`).
+# byte for byte, from what the revision says. `fulls` keeps nothing but
+# documents of `revisions/` the parser accepts, and the writer reproduces
+# what the parser accepted (`LAWS.revision_write_parse`).
 import Base
 import ./revision.bend as Rev
 import ./store.bend as Store
