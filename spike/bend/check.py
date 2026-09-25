@@ -2196,6 +2196,13 @@ def check_mutations(temporary):
             "fulls_lemmas.fulls_filed",
             "commands.bend",
         ),
+        (
+            "a size believed whatever digest the host's line names",
+            "sizes.read(rest, more), String.eq(T.word(st), d))",
+            "sizes.read(rest, more), True{})",
+            "sizes_lemmas.says",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

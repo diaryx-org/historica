@@ -1033,6 +1033,17 @@ law diff_folder_reads_what_is_unsettled:
   for +hs: List<&2, Main.Here>
   {Main.planned.read(Main.plans(dg, os, eds, hs)) == Main.unsettled.paths(dg, os, eds, hs) : List<&2, String>}
 
+# `diff` gives a file of bytes the size the host stated for its payload, and
+# nothing else. Sizing what it compares changes no side but one whose size
+# was unknown, which keeps its digest and has a size only where the host
+# answered a line for that very digest — not where the line it answered
+# names another, as it does for a payload it could not find.
+law diff_sizes_what_the_host_stated:
+  for +found: List<&2, T.Split>
+  for +stats: List<&2, String>
+  for +cs: List<&2, Main.Compared>
+  {Main.sizes.told(stats, cs, Main.sized(Main.sizes.read(found, stats), cs)) == True{} : Bool}
+
 # The digest a statement gives a file is read along the first-parent line
 # back from the folder's position, the nearest revision on it to state the
 # file being the one believed. That line is what `chain` walks: it begins

@@ -4237,6 +4237,71 @@ def split_rests(xs: List<&2, T.Split>) -> List<&2, String>:
     case T.Split{a, b} <> rest:
       b <> split_rests(rest)
 
+# Where `LAWS.diff_sizes_what_the_host_stated` looks. The host states a
+# size for a digest where it answered a line beginning with that digest,
+# the size after it.
+def nat.is(m: Maybe<&2, Nat>, +n: Nat) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{k}:
+      Nat.is_eq(k, n)
+
+def stat.says(stats: List<&2, String>, +d: String, +n: Nat) -> Bool:
+  match stats:
+    case Nil{}:
+      False{}
+    case +st <> rest:
+      Bool.or(Bool.and(String.eq(T.word(st), d), nat.is(Nat.read(String.drop(st, 65n)), n)), stat.says(rest, d, n))
+
+# Two sides hold the same: the same lines, or the same digest and size.
+def size.same(m: Maybe<&2, Nat>, k: Maybe<&2, Nat>) -> Bool:
+  match m k:
+    case None{} None{}:
+      True{}
+    case Some{a} Some{b}:
+      Nat.is_eq(a, b)
+    case _ _:
+      False{}
+
+def side.same(s: Maybe<&2, Side>, t: Maybe<&2, Side>) -> Bool:
+  match s t:
+    case None{} None{}:
+      True{}
+    case Some{Side.Lines{a}} Some{Side.Lines{b}}:
+      items_eq(a, b)
+    case Some{Side.Whole{d, m}} Some{Side.Whole{e, k}}:
+      Bool.and(String.eq(d, e), size.same(m, k))
+    case _ _:
+      False{}
+
+# A side whose size was unknown keeps its digest, and has a size only where
+# the host stated one for that digest; any other side is as it was.
+def side.given(+stats: List<&2, String>, +d: String, t: Maybe<&2, Side>) -> Bool:
+  match t:
+    case Some{Side.Whole{e, None{}}}:
+      String.eq(d, e)
+    case Some{Side.Whole{e, Some{+n}}}:
+      Bool.and(String.eq(d, e), stat.says(stats, d, n))
+    case _:
+      False{}
+
+def side.told(+stats: List<&2, String>, s: Maybe<&2, Side>, t: Maybe<&2, Side>) -> Bool:
+  match s:
+    case Some{Side.Whole{+d, None{}}}:
+      side.given(stats, d, t)
+    case other:
+      side.same(other, t)
+
+def sizes.told(+stats: List<&2, String>, cs: List<&2, Compared>, ds: List<&2, Compared>) -> Bool:
+  match cs ds:
+    case Nil{} Nil{}:
+      True{}
+    case Compared{f, t, b, a, m, g} <> rest Compared{f2, t2, b2, a2, m2, g2} <> more:
+      Bool.and(Bool.and(side.told(stats, b, b2), side.told(stats, a, a2)), sizes.told(stats, rest, more))
+    case _ _:
+      False{}
+
 def diff.sized(+root: String, +paint: Bool, cs: List<&2, Compared>) -> IO(Unit):
   do IO<Unit>:
     +cs2 : List<&2, Compared> = cs
