@@ -579,23 +579,20 @@ def Laws.diff_folder_reads_what_is_unsettled(dg, os, eds, hs):
 def Laws.diff_sizes_what_the_host_stated(found, stats, cs):
   SizesL.sized_told(found, stats, cs)
 
-def Laws.diff_fetches_what_it_replays(fs, ws, ns, files):
-  FetchL.diff_fetched(fs, ws, ns, files)
+def Laws.diff_folder_plans_by_the_edits_it_fetches(dg, os, eds, all, hs, h):
+  FetchL.plans_fetched(dg, os, eds, all, hs, h)
 
-def Laws.diff_folder_fetches_what_it_replays(fs, dg, os, eds, hs):
-  FetchL.folder_fetched(fs, dg, os, eds, hs)
+def Laws.diff_asks_every_payload_it_shows(cs, d):
+  FetchL.payloads_shown(cs, d)
 
-def Laws.diff_folder_fetches_the_edits_it_believes(os, hs):
-  FetchL.edits_fetched(os, hs)
-
-def Laws.diff_asks_every_payload_it_shows(cs):
-  FetchL.payloads_asked(cs)
+def Laws.diff_asks_each_payload_once(cs):
+  FetchL.payloads_once(cs)
 
 def Laws.diff_stats_where_each_payload_was_found(root, ds, at):
   FetchL.sizes_located(root, ds, at)
 
-def Laws.reading_fetches_what_resolutions_keep(ds):
-  FetchL.kept_fetched(ds)
+def Laws.reading_finds_what_resolutions_keep(ds, more, h):
+  FetchL.kept_found(ds, more, h)
 
 def Laws.chain_follows_first_parents(fs, id):
   ChainL.chain_line(fs, id)
