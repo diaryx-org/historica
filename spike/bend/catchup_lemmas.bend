@@ -1,6 +1,8 @@
 # What `export` promises of a copy's folder it catches up. Every file its
 # plan writes over or takes away holds bytes the copy's own history can
-# give back.
+# give back; once its steps are taken, every path holds what a fresh export
+# of the target lays there; and a folder it calls settled holds that
+# already.
 import Base
 import ./export.bend as Export
 import ./update.bend as U

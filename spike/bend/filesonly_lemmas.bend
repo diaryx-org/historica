@@ -1,6 +1,9 @@
-# What `export --files-only` reads of the directory it lays a folder out
-# into: the host's listing, read back, names exactly the entries the
-# directory holds, in order, so it goes on exactly where there are none.
+# What `export` reads of the directory it writes into: the host's listing,
+# read back, names exactly the entries the directory holds, in order, so a
+# folder alone, or a fresh copy, is laid out exactly where there are none.
+# And what `--files-only` reads back of each file it wrote is the digest
+# the host states for it, so it calls a folder folded exactly where one
+# reads back as other bytes than it laid.
 import Base
 import ./export.bend as Export
 import ./text.bend as T
