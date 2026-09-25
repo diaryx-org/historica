@@ -102,6 +102,7 @@ import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
 import ./standing_lemmas.bend as StandingL
+import ./spelt_lemmas.bend as SpeltL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1193,8 +1194,8 @@ def Laws.nfc_leaves_separators_alone(xs, c, ys, h):
 def Laws.the_walk_yields_a_path_once(fs, rs):
   ListedL.walk_rising(fs, rs)
 
-def Laws.the_folder_spells_what_is_opened(ls, want):
-  NfcL.spelled_there(ls, want)
+def Laws.the_folder_spells_what_is_opened(es, want, h):
+  SpeltL.spelled_there(es, want, h)
 
 def Laws.a_name_that_cannot_be_spelled_is_refused(es, prefix, dir):
   NfcL.all_refused(es, prefix, dir)
