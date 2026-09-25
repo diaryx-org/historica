@@ -20,6 +20,7 @@ import ./resolution.bend as Res
 import ./merge.bend as Merge
 import ./similar.bend as Sim
 import ./folder.bend as Folder
+import ./nfc.bend as Nfc
 import ./unicode.bend as Uni
 import ./survey.bend as Sv
 import ./notes.bend as Notes
@@ -88,34 +89,64 @@ def push_full(f: Maybe<&2, Full>, rest: List<&2, Full>) -> List<&2, Full>:
     case Some{x}:
       x <> rest
 
+# A revision whose only fault is a path not in normal form C: its causal
+# headers, which the Rust tool opens a store with, and in place of its
+# facts the refusal a reader of the whole of it meets, in the Rust tool's
+# words, under a key no document can have (`unread`).
+def full.unread(+id: String, +m: String, parsed: Result<&2, &2, String, Rev.Rev>) -> Maybe<&2, Full>:
+  match parsed:
+    case Fail{e}:
+      None{}
+    case Done{Rev.Rev{change, parents, supersedes, author, when, revised_by, revised, facts, message}}:
+      Some{Full{id, change, parents, supersedes, author, when, revised_by, revised, [Rev.Header{SNil{}, m}], message}}
+
+def full.unnormal(+id: String, +path: String, +text: String, u: Maybe<&2, Rev.Unnormal>) -> Maybe<&2, Full>:
+  match u:
+    case None{}:
+      None{}
+    case Some{Rev.Unnormal{n, p}}:
+      full.unread(id, path ++ ": line " ++ Nat.show(n) ++ ": `" ++ p ++ "` is not a path (it is not in Unicode normal form C, which is the one spelling a store records); write components separated by `/`, relative to the repository root", Rev.parse(Rev.mended(text)))
+
+def full.read(+id: String, +path: String, +text: String, parsed: Result<&2, &2, String, Rev.Rev>) -> Maybe<&2, Full>:
+  match parsed:
+    case Done{r}:
+      full(id, Done{r})
+    case Fail{e}:
+      full.unnormal(id, path, text, Rev.unnormal(text))
+
 # The revisions among a store's documents: what `revisions/` holds and the
-# parser accepts. `check` is where the rest are reported.
+# parser accepts, and one it refuses only for a path not in normal form C,
+# as `unread` says. `check` is where the rest are reported.
 def fulls(+root: String, ds: List<&2, Store.Doc>) -> List<&2, Full>:
   match ds:
     case Nil{}:
       Nil{}
     case Store.Doc{+path, +id, size, +text} <> rest:
-      push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full(id, Rev.parse(text)), None{}), fulls(root, rest))
+      push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full.read(id, path, text, Rev.parse(text)), None{}), fulls(root, rest))
 
 # A revision opening accepts and its whole reading refuses is in the
 # graph, as the Rust tool's store holds it (decision 0061), carrying why
 # where its facts would be: every command that asks what it did is refused
 # in the whole reading's words, naming the file (`unread`). `fulls` keeps
-# only what reads whole (`LAWS.revisions_read_are_their_documents`); the
-# commands open the store with `opened.fulls`, which is that and these.
-def full.unread(+id: String, +why: String, r: Maybe<&2, Rev.Rev>) -> Maybe<&2, Full>:
+# what reads whole and what only a path not in normal form C keeps from
+# reading whole (`LAWS.revisions_read_are_their_documents`); the commands
+# that ask what a revision did open the store with `opened.fulls`, which is
+# that and these.
+def full.unopened(+id: String, +why: String, r: Maybe<&2, Rev.Rev>) -> Maybe<&2, Full>:
   match r:
     case None{}:
       None{}
     case Some{Rev.Rev{change, parents, supersedes, author, when, revised_by, revised, facts, message}}:
       Some{Full{id, change, parents, supersedes, author, when, revised_by, revised, [Rev.Header{SNil{}, why}], message}}
 
+# A revision that does not read whole: one whose only fault is a path not
+# in normal form C as `fulls` holds it, and any other as opening reads it.
 def full.opened(+id: String, +path: String, +text: String, parsed: Result<&2, &2, String, Rev.Rev>) -> Maybe<&2, Full>:
   match parsed:
     case Done{r}:
       full(id, Done{r})
     case Fail{e}:
-      full.unread(id, path ++ ": " ++ e, Rev.opening.read(text))
+      Maybe.or(&2, Full, full.unnormal(id, path, text, Rev.unnormal(text)), full.unopened(id, path ++ ": " ++ e, Rev.opening.read(text)))
 
 def opened.fulls(+root: String, ds: List<&2, Store.Doc>) -> List<&2, Full>:
   match ds:
@@ -132,7 +163,7 @@ def unread.facts(hs: List<&2, Rev.Header>) -> Maybe<&2, String>:
       None{}
 
 # Why a revision's document does not read whole, where it does not.
-def unread(f: Full) -> Maybe<&2, String>:
+def unread.one(f: Full) -> Maybe<&2, String>:
   match f:
     case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
       unread.facts(facts)
@@ -142,7 +173,7 @@ def unread.first(fs: List<&2, Full>) -> Maybe<&2, String>:
     case Nil{}:
       None{}
     case f <> rest:
-      Maybe.or(&2, String, unread(f), unread.first(rest))
+      Maybe.or(&2, String, unread.one(f), unread.first(rest))
 
 def id_of(f: Full) -> String:
   match f:
@@ -178,6 +209,44 @@ def facts_of(f: Full) -> List<&2, Rev.Header>:
   match f:
     case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
       facts
+
+# Why the whole of one of these revisions cannot be read, where one cannot:
+# the refusal `fulls` kept in place of its facts.
+def unread.of(hs: List<&2, Rev.Header>) -> Maybe<&2, String>:
+  match hs:
+    case Rev.Header{SNil{}, m} <> rest:
+      Some{m}
+    case _:
+      None{}
+
+def unread(fs: List<&2, Full>) -> Maybe<&2, String>:
+  match fs:
+    case Nil{}:
+      None{}
+    case f <> rest:
+      Maybe.or(&2, String, unread.of(facts_of(f)), unread(rest))
+
+def unread.said(u: Maybe<&2, String>) -> Result<&2, &2, Refused, Unit>:
+  match u:
+    case None{}:
+      Done{Unit{}}
+    case Some{m}:
+      Fail{Refused{1, m}}
+
+# Refused where the whole of any of these revisions cannot be read, as the
+# Rust tool is where it reads them: `log` of what it lists, `show` of what
+# it prints.
+def unread.r(fs: List<&2, Full>) -> Result<&2, &2, Refused, Unit>:
+  unread.said(unread(fs))
+
+# What a tree is refused for where the whole of a revision it is made from
+# cannot be read: the Rust tool's words for what the revisions did.
+def unread.or(-A: Data, u: Maybe<&2, String>, r: Result<&2, &2, Refused, A>) -> Result<&2, &2, Refused, A>:
+  match u:
+    case None{}:
+      r
+    case Some{m}:
+      Fail{Refused{1, "what the revisions did could not be read: " ++ m}}
 
 def revision_of(f: Full) -> Rev.Revision:
   match f:
@@ -943,8 +1012,11 @@ def tree.of.r(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> R
     case Done{m}:
       Done{Tree.merged_tree(m)}
 
+def tree.read.r(+id: String, +anc: List<&2, Full>) -> Result<&2, &2, Refused, Tree.Tree()>:
+  unread.or(Tree.Tree(), unread(anc), tree.of.r(id, Tree.merge(events_of(anc))))
+
 def tree.r(+fs: List<&2, Full>, +id: String) -> Result<&2, &2, Refused, Tree.Tree()>:
-  tree.of.r(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
+  tree.read.r(id, ancestry.oldest(fs, id))
 
 # Where a command asks what the revisions behind `ids` did: the first of
 # them, by digest, whose document does not read whole stops it
@@ -1036,12 +1108,18 @@ def file_named.r(+id: String, +bs: List<&2, Bm.Bookmark>, spelling: String, +t: 
     case +s:
       file_named.found.r(id, s, t, Bm.find(bs, s))
 
+# A path as a person spelled it: after `path:`, where they wrote one, and
+# in normal form C, decision 0033's one spelling of a path, which their
+# keyboard, shell and tab completion need not have used.
+def path.spelled(+sp: String) -> String:
+  Nfc.nfc(Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp))
+
 def file_in.spelled.r(+id: String, +bs: List<&2, Bm.Bookmark>, +path: String, +t: Tree.Tree(), named: Maybe<&2, String>) -> Result<&2, &2, Refused, String>:
   match named:
     case Some{n}:
       file_named.r(id, bs, n, t)
     case None{}:
-      +p = Maybe.default(&2, String, T.strip_prefix(path, "path:"), path)
+      +p = path.spelled(path)
       file_in.of.r(id, p, Tree.at(t, p))
 
 # The file one argument names at one revision: a path, `path:` and a path
@@ -2981,12 +3059,12 @@ def show.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +root: String, +f: 
   match path:
     case None{}:
       do IO<Unit>:
-        unread.io(SNil{}, unread(f))
+        unread.io(SNil{}, unread.one(f))
         ds : List<&2, Store.Doc> <- Store.fetch(root, [id_of(f)])
         show.write(show.doc.r(id_of(f), id_of(f), doc_by_id(ds, id_of(f))))
     case Some{+p}:
       do IO<Unit>:
-        unread.io(SNil{}, unread(f))
+        unread.io(SNil{}, unread.one(f))
         readable(fs, [id_of(f)])
         file : String <- refused.io(String, show.file.r(fs, bs, id_of(f), p))
         +file2 : String = file
@@ -3004,7 +3082,9 @@ def show(+target: String, path: Maybe<&2, String>) -> IO(Unit):
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     +bs2 : List<&2, Bm.Bookmark> = bs
     f : Full <- resolved(fs, bs2, target)
-    show.of(fs, bs2, r, f, path)
+    +f2 : Full = f
+    refused.io(Unit, unread.r([f2]))
+    show.of(fs, bs2, r, f2, path)
 
 # What changed
 # ------------
@@ -4098,7 +4178,7 @@ def diff.limit.spelled(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: 
     case True{}:
       diff.limit.file.r(fs, bs, right, sp)
     case False{}:
-      Done{Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}}
+      Done{Limit.Path{path.spelled(sp)}}
 
 def diff.limit.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +right: String, only: Maybe<&2, String>) -> Result<&2, &2, Refused, Limit>:
   match only:
@@ -4984,15 +5064,28 @@ def wanted_all(+fs: List<&2, Full>, files: List<&2, String>) -> List<&2, String>
     case f <> rest:
       List.append(&2, String, wanted(fs, f), wanted_all(fs, rest))
 
-# The folder's files that have to be read, by path.
-def read_all(+repo: String, paths: List<&2, String>, m: Map<&2, List<&2, U32>>) -> IO(Map<&2, List<&2, U32>>):
-  match paths:
-    case Nil{}:
-      IO.pure(Map<&2, List<&2, U32>>, m)
-    case +p <> rest:
+def read_each(+repo: String, paths: List<&2, String>, disk: List<&2, String>, m: Map<&2, List<&2, U32>>) -> IO(Map<&2, List<&2, U32>>):
+  match paths disk:
+    case +p <> rest d <> more:
       do IO<Map<&2, List<&2, U32>>>:
-        bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ p)
-        read_all(repo, rest, Map.set(&2, List<&2, U32>, m, p, bs))
+        bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ d)
+        read_each(repo, rest, more, Map.set(&2, List<&2, U32>, m, p, bs))
+    case _ _:
+      IO.pure(Map<&2, List<&2, U32>>, m)
+
+# The folder's files that have to be read, by path, each opened where the
+# folder spells it.
+def read_all(+repo: String, +paths: List<&2, String>, m: Map<&2, List<&2, U32>>) -> IO(Map<&2, List<&2, U32>>):
+  do IO<Map<&2, List<&2, U32>>>:
+    disk : List<&2, String> <- Folder.on_disk.all(repo, paths)
+    read_each(repo, paths, disk, m)
+
+# What the host says each of the folder's files holds, asked where the
+# folder spells it.
+def folder.stats(+repo: String, +paths: List<&2, String>) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    disk : List<&2, String> <- Folder.on_disk.all(repo, paths)
+    Store.stats(repo, disk)
 
 def bytes_of(+path: String, r: Map<&2, List<&2, U32>> & List<&2, U32>) -> List<&2, U32>:
   (m, bs) = r
@@ -5115,7 +5208,7 @@ def wc.limit.spelled(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +left: May
     case True{}:
       wc.limit.file.r(fs, bs, sp, left)
     case False{}:
-      Done{Limit.Path{Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)}}
+      Done{Limit.Path{path.spelled(sp)}}
 
 def wc.limit.r(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +left: Maybe<&2, String>, only: Maybe<&2, String>) -> Result<&2, &2, Refused, Limit>:
   match only:
@@ -5194,7 +5287,7 @@ def diff.folder(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, 
     +eds2 : List<&2, Store.Doc> = eds
     readable.docs(eds2, edits_of(os, hs))
     +paths : List<&2, String> = regular_paths(hs)
-    stats : List<&2, String> <- Store.stats(repo, paths)
+    stats : List<&2, String> <- folder.stats(repo, paths)
     +ps : List<&2, Planned> = plans(stats.map(paths, stats, Map.new(&2, String)), os, eds2, hs)
     ds : List<&2, Store.Doc> <- Store.fetch(root, wanted_all(fs, planned.replayed(ps)))
     +ds2 : List<&2, Store.Doc> = ds
@@ -6033,7 +6126,7 @@ def wcf.spelled.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +lef
     case True{}:
       wcf.file.r(bs, t, sp, left)
     case False{}:
-      +p = Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)
+      +p = path.spelled(sp)
       wcf.path.r(bs, t, p, left, Tree.at(t, p))
 
 def wcf.held.r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: Maybe<&2, String>) -> Result<&2, &2, Refused, Held>:
@@ -6163,7 +6256,8 @@ def blame.held(+root: String, +fs: List<&2, Full>, +repo: String, +t: Tree.Tree(
       do IO<Unit>:
         k : Maybe<&2, Tree.FileKind> <- refused.io(Maybe<&2, Tree.FileKind>, wcf.checked.r(path, t, file, found))
         +k2 : Maybe<&2, Tree.FileKind> = k
-        bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ path)
+        disk : String <- Folder.on_disk(repo, path)
+        bs : List<&2, U32> <- Utf8.read_file(repo ++ "/" ++ disk)
         +bs2 : List<&2, U32> = bs
         refused.io(Unit, wcf.kind.r(path, k2, bs2))
         rows : List<&2, Row> <- wcf.origins(root, fs, l, file)
@@ -6771,12 +6865,15 @@ def status.tree.of.r(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged
     case Done{m}:
       Done{m}
 
+def status.tree.read.r(+id: String, +anc: List<&2, Full>) -> Result<&2, &2, Refused, Tree.Merged>:
+  unread.or(Tree.Merged, unread(anc), status.tree.of.r(id, Tree.merge(events_of(anc))))
+
 def status.tree.r(+fs: List<&2, Full>, +ps: List<&2, String>) -> Result<&2, &2, Refused, Tree.Merged>:
   match ps:
     case Nil{}:
       Done{Tree.Merged{Nil{}, Nil{}}}
     case +first <> rest:
-      status.tree.of.r(first, Tree.merge(events_of(picked(reached.all(fs, ps), Pick{waiting(fs), Nil{}}))))
+      status.tree.read.r(first, picked(reached.all(fs, ps), Pick{waiting(fs), Nil{}}))
 
 # `target::parents`: `--onto`, then each `--merge`, none named twice; the
 # head where nothing is named, or where one `--merge` is all there is; in
@@ -7094,7 +7191,7 @@ def status.surveyed(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmar
     +cs : List<&2, T.Split> = Sv.claims(t2)
     +hs : List<&2, Here> = heres(Sv.unclaimed(t2, cs), Sv.unclaimed_found(Folder.walked.found(w2), cs), Limit.None{})
     +paths : List<&2, String> = regular_paths(hs)
-    stats : List<&2, String> <- Store.stats(repo, paths)
+    stats : List<&2, String> <- folder.stats(repo, paths)
     +dg : Map<&2, String> = stats.map(paths, stats, Map.new(&2, String))
     bf : Map<&2, String> <- status.befores.io(root, fs, ps, hs)
     +bf2 : Map<&2, String> = bf
@@ -7309,6 +7406,32 @@ def record.args.go(args: List<&2, String>, c: RecordCmd, k: RWord) -> Result<&2,
 
 def record.args.r(+args: List<&2, String>) -> Result<&2, &2, Refused, RecordCmd>:
   record.args.go(args, RecordCmd{None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, rword(args))
+
+# Decision 0033: every path the words name, in normal form C, as the Rust
+# tool reads each — the paths, `--at`'s path, `--move`'s two ends,
+# `--bytes`' and `--lines`'. The file `--at` names is a bookmark or an
+# identifier, and `--accept` a path the Rust tool reads as it is. Read
+# once the words are, so `record.args.r` is their plain reading still
+# (`LAWS.record_reads_its_words`).
+def typed.at(s: T.Split) -> T.Split:
+  match s:
+    case T.Split{file, path}:
+      T.Split{file, Nfc.nfc(path)}
+
+def typed.move(s: T.Split) -> T.Split:
+  match s:
+    case T.Split{from, to}:
+      T.Split{Nfc.nfc(from), Nfc.nfc(to)}
+
+def typed.kind(s: T.Split) -> T.Split:
+  match s:
+    case T.Split{path, kind}:
+      T.Split{Nfc.nfc(path), kind}
+
+def rc.normal(c: RecordCmd) -> RecordCmd:
+  match c:
+    case RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}:
+      RecordCmd{o, ms, ac, T.map(~T.Split, ~T.Split, ~(x => typed.at(x)), at), T.map(~T.Split, ~T.Split, ~(x => typed.move(x)), mv), T.map(~T.Split, ~T.Split, ~(x => typed.kind(x)), ks), T.map(~String, ~String, ~(x => Nfc.nfc(x)), ns), d, f, mg}
 
 # What `record`'s words say, read plainly. Each word is read as a flag and
 # what it says: the word after a flag that takes a value is that value,
@@ -8387,7 +8510,9 @@ def filed.one(+repo: String, +name: String, c: Content) -> IO(Result<&1, &1, U32
     case Content.Text{f, p, bs}:
       Store.filed(name ++ "\n" ++ Utf8.decode(bs))
     case Content.Whole{f, p, d}:
-      Store.copied(repo ++ "/" ++ p ++ "\n" ++ name ++ "\n" ++ d)
+      do IO<Result<&1, &1, U32 & String, String>>:
+        disk : String <- Folder.on_disk(repo, p)
+        Store.copied(repo ++ "/" ++ disk ++ "\n" ++ name ++ "\n" ++ d)
     case Content.Resolved{f, p, doc}:
       Store.filed(name ++ "\n" ++ doc)
 
@@ -9961,7 +10086,7 @@ def record.surveyed(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>
         stated.io(Unit, st, skips_held.r(skipped_held(rules, t)))
         stated.io(Unit, st, named.r(rules, only, folder, Sv.paths(t0), Sv.paths(t)))
         stated.io(Unit, st, record.fault.r(Sv.kind_fault(only, t, kinds)))
-        stats : List<&2, String> <- Store.stats(repo, paths)
+        stats : List<&2, String> <- folder.stats(repo, paths)
         +dg : Map<&2, String> = stats.map(paths, stats, Map.new(&2, String))
         bf : Map<&2, String> <- status.befores.io(root, fs, ps, hs)
         +bf2 : Map<&2, String> = bf
@@ -10111,7 +10236,7 @@ def record(+args: List<&2, String>) -> IO(Unit):
     root : String <- record.root(st, found)
     +r : String = root
     a : RecordCmd <- refused.io(RecordCmd, record.args.r(args))
-    record.checked(st, r, a)
+    record.checked(st, r, rc.normal(a))
 
 # Rewriting: amend, abandon, carry
 # --------------------------------
@@ -10224,6 +10349,12 @@ def rw.args.go(+cmd: String, args: List<&2, String>, c: RwCmd, k: WWord) -> Resu
 
 def rw.args.r(+cmd: String, +args: List<&2, String>) -> Result<&2, &2, Refused, RwCmd>:
   rw.args.go(cmd, args, RwCmd{None{}, Nil{}, None{}, None{}, False{}, False{}, False{}}, wword(cmd, args))
+
+# `--move`'s two ends in normal form C, as `record`'s are (`rc.normal`).
+def rw.normal(c: RwCmd) -> RwCmd:
+  match c:
+    case RwCmd{m, mv, o, n, d, f, y}:
+      RwCmd{m, T.map(~T.Split, ~T.Split, ~(x => typed.move(x)), mv), o, n, d, f, y}
 
 # What the words of `amend`, `abandon` and `carry` say, read plainly, as
 # `rargs.read` reads `record`'s: each a flag the command takes and what it
@@ -10618,7 +10749,8 @@ def amend(+args: List<&2, String>) -> IO(Unit):
     found : Result<&1, &1, U32 & String, String> <- Store.root.found()
     root : String <- record.root(st, found)
     +r : String = root
-    c : RwCmd <- refused.io(RwCmd, rw.args.r("amend", args))
+    c0 : RwCmd <- refused.io(RwCmd, rw.args.r("amend", args))
+    c : RwCmd = rw.normal(c0)
     +c2 : RwCmd = c
     refused.io(Unit, rw.plan.r("amend", rw.dry_of(c2), rw.fields_of(c2)))
     amend.go(st, r, c2)

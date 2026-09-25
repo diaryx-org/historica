@@ -3,7 +3,8 @@
 and hold the store commands to the Rust tool's output.
 
 The stages are independent and run at once; `check.py <stage>...` runs only
-those named, for iterating on one: store, corpora, similar, proof, mutations.
+those named, for iterating on one: store, corpora, similar, nfc, proof,
+mutations.
 
 The corpora and the store commands run on the JS build alone unless given
 `--native`, which builds and runs each natively as well: emitting and
@@ -110,6 +111,7 @@ def main():
         "store": check_store,
         "corpora": check_corpora,
         "similar": check_similar,
+        "nfc": check_nfc,
         "proof": check_proof,
         "mutations": check_mutations,
         "reach": check_reach,
@@ -229,6 +231,71 @@ def check_similar(temporary):
     if differ or len(got) != len(cases):
         sys.exit(f"{len(differ)} of {len(cases)} diffs differ from `similar`")
     print(f"similar: {len(cases)} cases, as the crate draws them")
+
+
+# Normal form C
+# -------------
+
+# `nfc.bend` is the `unicode-normalization` crate's normal form C, held to
+# the crate itself: every character that decomposes, alone and before a
+# mark; and strings drawn from what the tables are about — starters that
+# compose and marks of every class in every order, a mark blocked by
+# another of its class, starters that compose with starters, characters
+# composition excludes, Hangul jamo and syllables, and the quick check's
+# Latin — each compared on normal form C and on normal form D, the
+# decomposition composition starts from.
+def nfc_cases(rng, classes, decompositions, pairs):
+    firsts = sorted({a for a, _, _ in pairs})
+    seconds = sorted({b for _, b, _ in pairs})
+    composites = sorted({x for _, _, x in pairs})
+    marks = sorted(classes)
+    excluded = sorted(set(decompositions) - set(composites))
+    jamo = list(range(0x1100, 0x1113)) + list(range(0x1161, 0x1176)) + list(range(0x11A7, 0x11C3))
+    syllables = [0xAC00, 0xAC01, 0xAC1C, 0xD7A3, 0xB098, 0xD55C]
+    latin = [ord(c) for c in "aeiouAEKZ ;`/._-09"] + list(range(0xC0, 0x180, 7))
+    pools = [firsts, seconds, composites, marks, excluded, jamo, syllables, latin, latin]
+    cases = []
+    for c in sorted(decompositions):
+        cases.append(chr(c))
+        cases.append(chr(c) + chr(rng.choice(marks)) + chr(rng.choice(marks)))
+    for _ in range(12000):
+        size = rng.randint(1, 9)
+        cases.append("".join(chr(rng.choice(rng.choice(pools))) for _ in range(size)))
+    # A pair's halves with marks between them, in every order of two.
+    for _ in range(3000):
+        a, b, _ = rng.choice(pairs)
+        between = [chr(rng.choice(marks)) for _ in range(rng.randint(0, 3))]
+        cases.append(chr(a) + "".join(between) + chr(b) + chr(rng.choice(marks)))
+    return [c for c in cases if "\n" not in c and "\r" not in c]
+
+
+def check_nfc(temporary):
+    run("cargo", "build", "-q", "--release", "--example", "nfc_tables", cwd=ROOT / "ffi", timeout=600)
+    reference = ROOT / "ffi" / "target" / "release" / "examples" / "nfc_tables"
+    source = temporary / "nfc.c"
+    native = temporary / "nfc"
+    run(BEND, "nfc.bend", "-o", str(source), timeout=600)
+    run(os.environ.get("CC", "cc"), "-O2", "-w", "-o", str(native), str(source), "-lm", "-lpthread", timeout=900)
+    classes, decompositions, pairs = {}, {}, []
+    for line in subprocess.run([str(reference), "tables"], capture_output=True, text=True, check=True).stdout.splitlines():
+        kind, *fields = line.split()
+        if kind == "c":
+            classes[int(fields[0], 16)] = int(fields[1], 16)
+        elif kind == "d":
+            decompositions[int(fields[0], 16)] = [int(f, 16) for f in fields[1:]]
+        elif kind == "p":
+            pairs.append(tuple(int(f, 16) for f in fields))
+    cases = nfc_cases(random.Random(20260925), classes, decompositions, pairs)
+    text = "".join(c + "\n" for c in cases)
+    (temporary / "nfc-cases.txt").write_text(text)
+    expected = subprocess.run([str(reference), "nfc"], input=text, capture_output=True, text=True, check=True).stdout.splitlines()
+    got = subprocess.run([str(native), str(temporary / "nfc-cases.txt")], capture_output=True, text=True, check=True).stdout.splitlines()
+    differ = [i for i, want in enumerate(expected) if i >= len(got) or got[i] != want]
+    for i in differ[:5]:
+        print(f"DIFF nfc case {i}: {' '.join(f'{ord(c):x}' for c in cases[i])}\n  want {expected[i]}\n  got  {got[i] if i < len(got) else ''}")
+    if differ or len(got) != len(cases):
+        sys.exit(f"{len(differ)} of {len(cases)} strings normalise otherwise than `unicode-normalization` does")
+    print(f"nfc: {len(cases)} strings, as the crate normalises them")
 
 
 # The store commands
@@ -1232,6 +1299,71 @@ STORES = {
         ["merge", "right", "left"],
         ["record", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "c.bin", "-m", "settled"],
         ["record", "--onto", "left", "--merge", "right", "--at", "lx=x.md", "--at", "rx=x-right.md", "--accept", "c.bin", "--accept", "a.md", "-m", "settled"],
+    ],
+    # Decision 0033: a folder whose names the filesystem hands back
+    # decomposed — a file, a directory, a file of bytes, and a link whose
+    # target is spelled so — recorded, then edited, renamed with `mv`, and
+    # joined by new ones, one of them beside the same name composed; a rule
+    # and a pattern stated decomposed; and every command given paths
+    # decomposed, `path:` and all. Each reads them in normal form C, as the
+    # Rust tool does, and opens each file where the folder spells it.
+    "normal": [
+        ["status"], ["status", "--onto", "first"],
+        ["diff"], ["diff", "cafe\u0301.md"], ["diff", "path:cafe\u0301.md"], ["diff", "caf\u00e9.md"],
+        ["diff", "head", "cafe\u0301.md"], ["diff", "--onto", "first", "re\u0301sume\u0301/cv.md"],
+        ["blame", "cafe\u0301.md"], ["blame", "head", "cafe\u0301.md"], ["blame", "twi\u0301n.md"], ["blame", "path:nai\u0308ve.md"],
+        ["cat", "head", "cafe\u0301.md"], ["cat", "first", "photo\u0301.bin"], ["cat", "head", "nope\u0301.md"],
+        ["show", "head", "cafe\u0301.md"], ["files", "head"], ["log", "--path", "cafe\u0301.md"],
+        ["name", "mark", "head", "cafe\u0301.md"], ["name", "cafe\u0301", "head"], ["name", "caf\u00e9", "head"],
+        ["record", "-n"], ["record", "-n", "cafe\u0301.md"], ["record", "-n", "re\u0301sume\u0301/"],
+        ["record", "-n", "--move", "notes.md=no\u0308tes.md"], ["record", "-n", "--move", "cafe\u0301.md=moved.md"],
+        ["record", "-n", "--bytes", "nai\u0308ve.md"], ["record", "-n", "--lines", "cafe\u0301.bin"],
+        ["record", "-n", "--move", "twi\u0301n.md=twin2.md"],
+        ["record", "-m", "second"], ["record", "-m", "only", "cafe\u0301.bin", "twi\u0301n.md"],
+        ["amend", "-n", "--move", "cafe\u0301.md=moved.md"],
+    ],
+    # The same spelling where a command writes the folder: a folder spelled
+    # decomposed and in step with one head, a second line of work beside it.
+    # `update` opens each file the walk found where the folder spells it —
+    # rewriting, removing, relinking and setting the bit on that one rather
+    # than laying another beside it — tidies above a removal as the tree
+    # spells it, so a directory spelled decomposed that it empties stays, and
+    # joins a path the walk did not find onto the folder as the tree spells
+    # it; `merge` asks the folder at the tree's spelling, as the Rust tool's
+    # does, walk or none.
+    "renormal": [
+        ["status"], ["update"], ["update", "-n", "first"], ["update", "first"],
+        ["update", "-n", "side"], ["update", "side"], ["update", "second"],
+        ["merge", "second", "side"], ["merge"],
+        ["status", "--onto", "second", "--merge", "side"],
+        ["record", "-n", "--onto", "second", "--merge", "side"],
+    ],
+    # Names that are not UTF-8, which the format cannot hold: beside the
+    # store and in a directory, one a directory itself, one sorting between
+    # two names the lossy spelling would put the other way round, and one
+    # under a directory spelled decomposed — among other refusals, which
+    # they are listed in the walk's order with. `status` and `record` refuse
+    # each in the Rust tool's words, naming where it is on disk, and a
+    # record that is not looking at them goes on.
+    "unspelled": [
+        ["status"], ["record", "-n"], ["record", "-n", "notes.md"], ["record", "-n", "sub"], ["record", "-n", "sub/ok.md"],
+        ["diff"], ["blame", "notes.md"], ["record", "-m", "refused"], ["record", "-m", "notes only", "notes.md"],
+    ],
+    # A revision stating a path not in normal form C, which no writer
+    # makes: the Rust tool opens the store on its causal headers and refuses
+    # it where the whole of it is read, naming the line. So every reader of
+    # it refuses in those words — `log` and `show` as they are, a tree with
+    # what the revisions did — and one that reads only what came before it,
+    # or only its causal headers, goes on.
+    "unnormal": [
+        ["log"], ["log", "first"], ["log", "--limit", "0"], ["log", "--fields"],
+        ["files", "head"], ["files", "first"], ["files", "main"],
+        ["cat", "head", "notes.md"], ["cat", "first", "notes.md"],
+        ["show", "head"], ["show", "head", "notes.md"], ["show", "first"],
+        ["diff"], ["diff", "head"], ["diff", "first"], ["diff", "--onto", "first"],
+        ["blame", "notes.md"], ["blame", "head", "notes.md"], ["blame", "first", "notes.md"],
+        ["status"], ["status", "--onto", "first"], ["record", "-n"], ["record", "-n", "--onto", "first"],
+        ["names"], ["name", "x", "head"], ["name", "y", "head", "notes.md"], ["name", "z", "first", "notes.md"],
     ],
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
@@ -2356,6 +2488,121 @@ def record(temporary, rust, corpus, pinned=None):
             (history / "revisions" / ("1" * 64 + ".rev.txt")).write_bytes(two.read_bytes())
         if corpus == "unparsed":
             (history / "revisions" / "bad.rev.txt").write_text("garbage\n")
+    elif corpus == "normal":
+        # Spelled decomposed, as a filesystem that normalises to NFD hands
+        # names back: `e` and U+0301 rather than `é`.
+        (store / "cafe\u0301.md").write_text("one\ntwo\n")
+        (store / "notes.md").write_text("notes\n")
+        (store / "re\u0301sume\u0301").mkdir()
+        (store / "re\u0301sume\u0301" / "cv.md").write_text("cv\n")
+        (store / "photo\u0301.bin").write_bytes(b"\x00\x01")
+        os.symlink("cafe\u0301.md", store / "to-cafe")
+        historica("record", "-m", "one")
+        historica("name", "first", "head", "--revision")
+        (store / "cafe\u0301.md").write_text("one\ntwo\nthree\n")
+        historica("record", "-m", "two")
+        # And the folder moves on: an edit, a rename by `mv` to a name
+        # spelled decomposed, new files beside ones the store holds, and one
+        # name twice, decomposed and composed, which are one path.
+        (store / "cafe\u0301.md").write_text("one\n2\nthree\nfour\n")
+        (store / "notes.md").rename(store / "no\u0308tes.md")
+        (store / "nai\u0308ve.md").write_text("naive\n")
+        (store / "cafe\u0301.bin").write_bytes(b"\x00bytes")
+        (store / "re\u0301sume\u0301" / "new.md").write_text("new\n")
+        (store / "twi\u0301n.md").write_text("decomposed\n")
+        (store / "tw\u00edn.md").write_text("composed\n")
+        # A rule stated decomposed skips what the folder spells composed.
+        (store / "history" / "skipped" / "idea.txt").write_text("skip ide\u0301e.md\n")
+        (store / "history" / "skipped" / "drafts.txt").write_text("skip-name cafe\u0301-*\n")
+        (store / "id\u00e9e.md").write_text("skipped\n")
+        (store / "caf\u00e9-draft.txt").write_text("skipped by name\n")
+    elif corpus == "renormal":
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def relink(name, target):
+            if os.path.lexists(store / name):
+                os.remove(store / name)
+            os.symlink(target, store / name)
+
+        def first():
+            (store / "cafe\u0301.md").write_text("a\nb\nc\n")
+            (store / "re\u0301sume\u0301").mkdir(exist_ok=True)
+            (store / "re\u0301sume\u0301" / "cv.md").write_text("cv\n")
+            (store / "photo\u0301.bin").write_bytes(b"\x00one")
+            (store / "run\u0301.sh").write_text("#!/bin/sh\n")
+            (store / "run\u0301.sh").chmod(0o644)
+            relink("li\u0301nk", "cafe\u0301.md")
+
+        first()
+        rec("first", "-m", "first")
+        (store / "cafe\u0301.md").write_text("A\nb\nc\n")
+        (store / "photo\u0301.bin").write_bytes(b"\x00two")
+        (store / "run\u0301.sh").chmod(0o755)
+        relink("li\u0301nk", "re\u0301sume\u0301/cv.md")
+        (store / "e\u0301te\u0301.md").write_text("summer\n")
+        (store / "re\u0301sume\u0301" / "new.md").write_text("new\n")
+        (store / "di\u0301r").mkdir()
+        (store / "di\u0301r" / "only.md").write_text("only\n")
+        rec("second", "-m", "second")
+        # A line of work beside it, from the first, and the folder back in
+        # step with the second.
+        (store / "e\u0301te\u0301.md").unlink()
+        (store / "re\u0301sume\u0301" / "new.md").unlink()
+        shutil.rmtree(store / "di\u0301r")
+        first()
+        (store / "cafe\u0301.md").write_text("a\nb\nC\n")
+        (store / "side\u0301.md").write_text("side\n")
+        rec("side", "--onto", "first", "-m", "side")
+        (store / "side\u0301.md").unlink()
+        (store / "cafe\u0301.md").write_text("A\nb\nc\n")
+        (store / "photo\u0301.bin").write_bytes(b"\x00two")
+        (store / "run\u0301.sh").chmod(0o755)
+        relink("li\u0301nk", "re\u0301sume\u0301/cv.md")
+        (store / "e\u0301te\u0301.md").write_text("summer\n")
+        (store / "re\u0301sume\u0301" / "new.md").write_text("new\n")
+        (store / "di\u0301r").mkdir()
+        (store / "di\u0301r" / "only.md").write_text("only\n")
+    elif corpus == "unspelled":
+        (store / "notes.md").write_text("one\n")
+        (store / "a.md").write_text("a\n")
+        historica("record", "-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "a\u00e9.md").write_text("after the byte 0x80, before 0xff\n")
+        (store / "bell\x07.md").write_text("a control character\n")
+        os.mkfifo(store / "pipe")
+        (store / "sub").mkdir()
+        (store / "sub" / "ok.md").write_text("ok\n")
+        (store / "d\u0301ir").mkdir()
+        (store / "d\u0301ir" / "fine.md").write_text("fine\n")
+        root = os.fsencode(store)
+        for name in (b"a\x80.md", b"bad\xff.md", b"sub/in\xff.md", b"sub/\xfe\xfe", b"d\xcc\x81ir/x\xff.md"):
+            with open(root + b"/" + name, "wb") as f:
+                f.write(b"cannot be named\n")
+        os.mkdir(root + b"/dir\xfe")
+        with open(root + b"/dir\xfe/inner.md", "wb") as f:
+            f.write(b"beneath a name that cannot be spelled\n")
+    elif corpus == "unnormal":
+        (store / "notes.md").write_text("one\n")
+        (store / "caf\u00e9.md").write_text("cafe\n")
+        historica("record", "-m", "first")
+        historica("name", "first", "head", "--revision")
+        historica("name", "main", "head")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "d\u00e9j\u00e0.md").write_text("again\n")
+        historica("record", "-m", "second")
+        # The second revision restated by hand with the path it adds
+        # decomposed: a new revision, since a revision is its bytes' digest,
+        # and the head, since nothing names it as a parent.
+        history = store / "history"
+        revision = next(p for p in (history / "revisions").rglob("*.rev.txt") if p.read_text().endswith("\n\nsecond"))
+        text = revision.read_text()
+        assert "d\u00e9j\u00e0.md" in text
+        revision.write_text(text.replace("d\u00e9j\u00e0.md", "de\u0301ja\u0300.md"))
+        for cached in (history / "cache").glob("*.txt"):
+            cached.unlink()
     elif corpus in ("forgotten", "forgetting", "resurrected"):
         # A file of lines edited a line at a time, long enough that reading
         # it leaves the Rust tool a state in `cache/`; a file of bytes
@@ -2638,7 +2885,7 @@ def check_store(temporary):
         return env
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping",
+        recorded = corpus in ("normal", "renormal", "unspelled", "unnormal", "unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping",
                                "damaged", "gutted", "tampered", "unreadable", "quoting", "requoted", "unnamed", "unruled", "forgotten", "forgetting",
                                "updating", "caught", "blocked", "meeting", "marked", "marked1", "resolved", "through", "resurrected",
                                "arranging", "pruning", "lying", "unparsed", "receiving", "exporting")
@@ -4112,8 +4359,8 @@ def check_mutations(temporary):
         ),
         (
             "status merges only the parents after the first",
-            "      status.tree.of.r(first, Tree.merge(events_of(picked(reached.all(fs, ps), Pick{waiting(fs), Nil{}}))))",
-            "      status.tree.of.r(first, Tree.merge(events_of(picked(reached.all(fs, rest), Pick{waiting(fs), Nil{}}))))",
+            "      status.tree.read.r(first, picked(reached.all(fs, ps), Pick{waiting(fs), Nil{}}))",
+            "      status.tree.read.r(first, picked(reached.all(fs, rest), Pick{waiting(fs), Nil{}}))",
             "status_lemmas.one_tree",
             "commands.bend",
         ),
@@ -4296,8 +4543,8 @@ def check_mutations(temporary):
         ),
         (
             "a document outside revisions/ read as a revision",
-            "push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full(id, Rev.parse(text)), None{}), fulls(root, rest))",
-            "push_full(full(id, Rev.parse(text)), fulls(root, rest))",
+            "push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full.read(id, path, text, Rev.parse(text)), None{}), fulls(root, rest))",
+            "push_full(full.read(id, path, text, Rev.parse(text)), fulls(root, rest))",
             "fulls_lemmas.fulls_filed",
             "commands.bend",
         ),
@@ -4488,6 +4735,62 @@ def check_mutations(temporary):
             '[each.lines("would abandon ", spelled_all(bs, history(fs), List.reverse(&2, String, run))),',
             "rewrite_lemmas.dry_names",
             "commands.bend",
+        ),
+        (
+            "a mark is put on its run unsorted",
+            "      order.go(rest, insert(run, m), starts(rest))",
+            "      order.go(rest, m <> run, starts(rest))",
+            "nfc_lemmas.order_canonical",
+            "nfc.bend",
+        ),
+        (
+            "the class lookup stops at a run that begins with the character",
+            "      U32.is_lt(c, lo)\n    case _:\n      True{}",
+            "      U32.is_le(c, lo)\n    case _:\n      True{}",
+            "nfc_lemmas.class_scan",
+            "nfc.bend",
+        ),
+        (
+            "the walk keeps both of two names that are one path",
+            "    case f <> +rest True{}:\n      distinct.go(rest, last, distinct.same(rest, last))",
+            "    case f <> +rest True{}:\n      f <> distinct.go(rest, last, distinct.same(rest, last))",
+            "nfc_lemmas.go_apart",
+            "folder.bend",
+        ),
+        (
+            "a read opens whatever name the listing has, normal form or not",
+            "Bool.and(Bool.not(String.starts_with(line, \"u \")), String.eq(Nfc.nfc(name), want))",
+            "Bool.not(String.starts_with(line, \"u \"))",
+            "nfc_lemmas.take_ok",
+            "folder.bend",
+        ),
+        (
+            "a name that cannot be spelled is passed over",
+            "unspelled.is(rest), Keyed{unspelled.key(before, k), T.Split{dir ++ \"/\" ++ String.drop(line, 2n), unspelled.because()}} <> acc)",
+            "unspelled.is(rest), acc)",
+            "nfc_lemmas.read_back",
+            "folder.bend",
+        ),
+        (
+            "the quick check passes only what is below a space",
+            "Bool.and(Bool.or(U32.is_lt(x, 128), U32.is_lt(x, Tab.inert_below())), quick(t))",
+            "Bool.and(Bool.or(U32.is_lt(x, 32), U32.is_lt(x, Tab.inert_below())), quick(t))",
+            "nfc_lemmas.quick_ascii",
+            "nfc.bend",
+        ),
+        (
+            "ordering drops the run it closes at a starter",
+            "      List.append(&2, Mark, run, m <> order.go(rest, Nil{}, starts(rest)))",
+            "      m <> order.go(rest, Nil{}, starts(rest))",
+            "nfc_lemmas.order_canonical",
+            "nfc.bend",
+        ),
+        (
+            "the walk drops the file it keeps for a path",
+            "    case +f <> +rest False{}:\n      f <> distinct.go(rest, found.path(f), distinct.same(rest, found.path(f)))",
+            "    case +f <> +rest False{}:\n      distinct.go(rest, found.path(f), distinct.same(rest, found.path(f)))",
+            "nfc_lemmas.go_apart",
+            "folder.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):

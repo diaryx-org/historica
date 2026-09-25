@@ -2,10 +2,10 @@
 #
 # A bookmark's name is its path below `names/` without `.txt`, so
 # `names/feature/x.txt` is the bookmark `feature/x`, and a name is spelled
-# the way a tracked path is — which is `Rev.is_path`, and no control
-# character. (Unicode normal form C is not checked here, as it is not for a
-# path.) A file whose path is not such a name is no bookmark, and is passed
-# over, as the Rust tool's loader passes it over and its `check` notes it.
+# the way a tracked path is — which is `Rev.is_path`, Unicode normal form C
+# included, and no control character. A file whose path is not such a name
+# is no bookmark, and is passed over, as the Rust tool's loader passes it
+# over and its `check` notes it.
 #
 # The file is one line — `change`, `revision` or `file` and what it names —
 # and at most one more, which is `private`: the name stays out of an export.

@@ -274,7 +274,8 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `ops.bend` | the operation document: parse, write, replay, and the longest-common-subsequence diff the proofs are about | `format::operations`, `replay` |
 | `similar.bend` | the diff the commands draw: `similar` 3.2.0's Histogram, with its preflights, its Myers fallback and heuristics, and the compaction around it, held to the crate on two thousand cases, Myers alone among them | `diff`, the `similar` crate |
 | `unicode.bend` | which characters are letters or digits, as Rust's `char::is_alphanumeric` reads Unicode 17 | `char` |
-| `folder.bend` | the working copy: `skipped/`'s rules read and matched, the folder walked a directory at a time, what it refuses and why, and what counts as text | `working` |
+| `nfc.bend`, `nfc_tables.bend`, `nfc.py` | Unicode normal form C, decision 0033's one spelling of a path, as `unicode-normalization` 0.1.25 computes it: canonical decomposition, Hangul by arithmetic, canonical ordering by combining class and composition by primary composites; the tables written by `nfc.py` from what `ffi/examples/nfc_tables.rs` asks the crate of every scalar value, so the Unicode is the Rust tool's 17.0.0, and held to the crate on nineteen thousand strings | `format::nfc`, the `unicode-normalization` crate |
+| `folder.bend` | the working copy: `skipped/`'s rules read and matched, the folder walked a directory at a time, each name read in normal form C and each file opened where the folder spells it, what it refuses and why — a name that is not UTF-8 among it — and what counts as text | `working` |
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
@@ -306,7 +307,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0053, 0062 |
 | `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_lays_out_only_what_the_walk_offers_back`: every path outside the store, no other file's directory, and none a rule covers; `export_carries_only_this_stores_files`: every document, forgetting document and payload a copy carries is one of this store's; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words` and `export_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s single pass over its words included | `arrange`, `prune`, `receive`, `offer`, `export` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and forty-four claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | two hundred and fifty-two claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -324,6 +325,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `sort_lemmas.bend` | string order is total and transitive, and Base's `List.sort` by a name returns its items each no smaller than the one before, with the items under each name the ones it was given, in the order given; and whatever holds of every item any sort is given holds of every item it returns, since a merge only moves what it is handed (`all_sort`, and `all_sort_at` for a test that reads one more value) | `diff`'s pairing |
 | `pair_lemmas.bend` | `diff_pairs_each_file`: under any file, the pairs `diff` goes on with are the entries each side holds under it, paired in order as far as either goes — each file compared once with itself where each side holds it once | `diff`'s pairing |
 | `folder_lemmas.bend` | `rules_are_well_formed`: every rule a file in `skipped/` states is a path with a value or a name that is one component, not empty and not only `*`; `listing_skips_nothing`: reading a directory's listing adds no file or link a rule in `skipped/` skips, and no directory a rule skips whole, so the working copy's walk takes nothing skipped | `working`, decision 0011 |
+| `nfc_lemmas.bend` | `nfc_leaves_ascii`: a path of ASCII is its own normal form C; `nfc_orders_marks_by_class`: canonical ordering leaves no mark after one of a higher class with no starter between; `nfc_ordering_keeps_every_mark`: and the marks of every class are the ones it was given, in order; `nfc_class_misses_nothing`: the class lookup, stopping at the first run past a character, finds what a search of every run finds over the crate's table; `nfc_leaves_separators_alone`: in the crate's tables `/` and `.` have no class and are in no pair and no decomposition; `the_walk_yields_a_path_once`: the walk yields no two files in a row at one path, and loses no path it found; `the_folder_spells_what_is_opened`: a read opens a name whose normal form is the path, or the path itself; `a_name_that_cannot_be_spelled_is_refused`: the host's lines for any directory, read back, refuse each name that is not UTF-8 once, where it is on disk, in the Rust tool's words, and nothing else | `format::nfc`, `working::walk` |
 | `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added; `status_refuses_what_the_folder_holds`: every path `status` refuses is one its walk refused or one the folder holds something at that the position cannot take, never a path only the position holds; `status_offers_a_rename_the_bytes_make`: each rename it offers is from the one path that left holding some bytes, not nothing, to the one that arrived holding them; `record_refuses_a_dangling_link`: `record` refuses exactly where a link of the position names a file it drops and is neither going nor restated; `record_states_a_kind_only_for_an_arrival`: a stated kind goes through exactly where it names a path looked at that no file of the position holds; `record_moves_each_file_once`: one `move` line per file moved, none for a file going, at the last place the renames put it; `record_names_only_what_is_there`: every path named answers to a file of the folder, the position or the renames; `a_rename_keeps_each_file_once`, `a_rename_puts_each_file_where_it_was_said`: `--at` and `--move` leave the position's files each once, at the last place one put it and every other where it was; `record_refuses_only_what_it_looks_at`: whatever the folder and the store answer, a record restricted to some paths refuses only among them; `record_goes_on_where_each_path_holds_one_file`: where `record` goes on, no path it looks at holds two files, since the survey claims every path several files hold; `record_plans_in_file_order`, `record_plans_every_file`: it plans from the position in file order, each file's entries as they were; `a_link_refers_only_to_what_the_revision_states`: a link is written as a reference only where its target lands on a path the revision states; `a_link_resolves_inside_the_folder`: and a link at a path the format holds resolves, if at all, to a path that is not absolute and never climbs out with `..` | `working::walk`, `record::survey`, `record::plan` |
 | `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given; `status_says_what_it_found`: everything the survey found is in the report, in the order found, each on a line of its own naming it — a fact beginning with its kind and ending with its path, a refusal, a claim, a file still marked or an accept beginning with its word and its path; `status_says_each_contest`: where work is joined, each contest the tree merge found is said once, in its order, opening with the file contested, and where it is not, none; `status_compares_with_the_revisions_tree`: against one revision, the folder is compared with the tree `files`, `cat` and `diff` read there; `status_reads_only_lines`: every path it asks the host to read and every file it replays is a file of lines it compares; `status_surveys_each_path`: the survey is told of each path once, in order, and of a file the parents dispute with no digest; `status_believes_what_is_stated`, `status_joins_what_it_reads`: it is refused only where a file no statement settles cannot be replayed, or, joining, where a parent's reading of a file is refused, and with that refusal | `status`'s arguments, parents and report |
 | `update.bend`, `update_lemmas.bend` | `update`: the folder made to hold a head — the plan of what each path takes, from the target's tree, the walk, a directory's listing where the walk took nothing, and what history records at each path; and the IO that performs it. `update_reads_its_words`: `-n` or `--dry-run` anywhere makes a dry run, and the target is the one word not beginning with `-`; `update_lands`: where it plans at all, every path the target holds with one file ends up holding what the store reads there — the bytes `cat <target> <path>` prints, or the payload the tree names, with the tree's mode, or a link pointing where `cat` says; `update_spares_the_unrecorded`: every file it writes over or takes away holds bytes `cat` of some revision the store holds reads for some file, or a payload its tree names; `update_again_keeps`: run again from what it left, it keeps every path it stepped through, whatever history then records; `update_settles_only_what_stays`: it says the folder already holds the target only where carrying its plan out would change nothing | `cli::update`, `update::{plan, apply}` |
@@ -348,7 +350,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `chain_lemmas.bend` | `chain_follows_first_parents`: the line a file's nearest statement is looked for along begins at the position and follows first parents, each a revision the store holds | the first-parent line |
 | `sizes_lemmas.bend` | `diff_sizes_what_the_host_stated`: sizing what `diff` compares changes no side but a file of bytes whose size was unknown, which keeps its digest and has a size only where the host's line for the bytes it found names that very digest | `diff`'s sizes |
 | `fetch_lemmas.bend` | `diff_fetches_what_it_replays`, `diff_folder_fetches_what_it_replays`: every document a revision states for a file `diff` replays is among those it fetches; `reading_fetches_what_resolutions_keep`: so is every document a resolution among them keeps; `diff_folder_fetches_the_edits_it_believes`: over the folder, so is the `edit` whose result could settle a file; `diff_asks_every_payload_it_shows`, `diff_stats_where_each_payload_was_found`: the host is asked about every payload shown, each once, and its stat only where it located that payload — through `List.sort` and `distinct` keeping every item | what `diff` asks the store and the host |
-| `fulls_lemmas.bend` | `revisions_read_are_their_documents`: every revision a command reads is one a document of `revisions/` spells, under the digest it is known by, byte for byte as `Rev.write` writes what the revision says | `Store::revisions` |
+| `fulls_lemmas.bend` | `revisions_read_are_their_documents`: every revision a command reads is one a document of `revisions/` spells, under the digest it is known by, byte for byte as `Rev.write` writes what the revision says — or, where a path it states is not in normal form C, the refusal its readers meet in place of its facts | `Store::revisions` |
 | `span_lemmas.bend` | `log_lists_its_span`: `log` goes on only with what its span names — what a target reaches, or what `b` reaches and `a` does not of `a..b` — each a revision the store holds | `log`'s ranges |
 | `logargs_lemmas.bend` | `log_reads_its_words`: `log` reads its arguments as their plain reading says — the word after a flag that takes a value is its value, the last counting, `--limit`, `--since` and `--until` read as a count and bounds, `--fields` asked for if it is there, and the other word the target | `log`'s arguments |
 | `check_lemmas.bend` | `check_pairs_each_payload`: `check` reports each payload with the digest asked for it — one per payload in the order found, none taken by an operation document; `check_walks_causally`: the order it walks a merged file's events in places each after every event its author had seen; `check_reads_its_words`: `--complete` is read wherever it stands, and every other word, in order, as a directory; `check_finds_nothing_in_a_new_store`: what `check` gathers from the store `init` makes — the header under its note, `skipped/` holding only its note — it finds nothing wrong with | `check` |
@@ -1164,9 +1166,81 @@ marks of emphasis included. Each mark falls on its own line
 the same place in its run, and the runs a mark draws read as its line.
 Colour changes no character (`diff_colour_changes_no_character`): a line is
 kept as runs, and what `diff` renders with colour, printed without it, is
-line for line what it prints without colour. Names are compared as the filesystem spells
-them, with no normal form C. `opdiff` is what `diff` was here before: the operation
+line for line what it prints without colour. `opdiff` is what `diff` was here before: the operation
 document between two files, by `Ops.diff`.
+
+A path is spelled one way, as decision 0033 has it: in Unicode normal form
+C, which `nfc.bend` computes as the `unicode-normalization` crate the Rust
+tool uses does, from the crate's own tables (`nfc_tables.bend`, which
+`nfc.py` writes from what `ffi/examples/nfc_tables.rs` asks the crate of
+every scalar value — Unicode 17.0.0, where Python's `unicodedata` here is
+14). `check.py`'s `nfc` stage holds it to the crate on nineteen thousand
+strings, on both normal forms C and D: every character that decomposes,
+alone and before marks, and strings drawn from what the tables are about.
+A path is normalised wherever the Rust tool normalises one: each name the
+walk reads, a rule in `skipped/`, every path a person types — `record`'s
+paths, `--at`, `--move` at both ends, `--bytes`, `--lines`, amend's
+`--move`, and the path `cat`, `show`, `diff`, `blame`, `name` and
+`log --path` read, `path:` or not — and a link's target once it is
+resolved against the tree. The folder keeps its own spelling, which is
+what has to be opened: a directory is listed by the name it was listed
+under, and a file is opened by the name its listing spells the path with,
+which `Folder.on_disk` asks the listing for only where the path could be
+spelled another way — a path of ASCII without `;`, `K` or `` ` ``, which
+three characters decompose to, cannot. `update` writes the same way: a
+file the walk found is rewritten, removed, relinked and given its bit
+where the folder spells it, rather than laid again beside it, and any
+other path is joined on as the tree spells it, as are the directories it
+tidies above a removal — so one spelled decomposed that a removal empties
+stays, as the Rust tool leaves it. `merge`, like the Rust tool's, reads
+no walk and asks the folder at the tree's spelling. Two names a
+filesystem tells apart that are one path are one file, the one the walk
+met last. And
+`check_path`'s last rule is here: a revision stating a path not in normal
+form C, and a bookmark named so, are refused, and `name` says why in the
+Rust tool's words.
+
+The Rust tool refuses such a revision only where something reads the
+whole of it — opening a store reads a revision's causal headers alone —
+and the port does the same: `fulls` keeps the causal headers of a
+revision refused only for that, with the refusal, naming the file and the
+line, in place of its facts, and a tree made from it refuses with what the
+revisions did, `log` of what it lists and `show` of what it prints as they
+are, while what reads only what came before it goes on. A name the host
+cannot spell as UTF-8 is refused as `WorkingError::NotUtf8` refuses it,
+whatever the rules say, naming where it is on disk; the host lists it as
+`to_string_lossy` spells it, and the walk files the refusal where it met
+the name, between the entries around it. Four stores hold all of it to
+the Rust tool: `normal`, a folder whose names the filesystem hands back
+decomposed, recorded, edited, renamed and added to, with every command
+given decomposed paths, 32 commands; `renormal`, such a folder in step
+with one head and a second line of work beside it, updated to each and
+merged, 11; `unnormal`, a revision restated by
+hand with a decomposed path, every reader of it and every one that goes
+on, 27; and `unspelled`, names that are not UTF-8 beside the store, in a
+directory, as one, and under one spelled decomposed, 9.
+
+The laws say what that rests on. A path of ASCII is its own normal form
+(`nfc_leaves_ascii`), so normalising at every boundary changes nearly
+nothing. Canonical ordering is Unicode's canonical order, stated over
+classes alone — no mark after one of a higher class with no starter
+between (`nfc_orders_marks_by_class`) — and moves no mark past another of
+its class, losing and adding none: the marks of every class are the ones
+it was given, in order (`nfc_ordering_keeps_every_mark`). The class
+lookup, which stops at the first run of the table past a character, finds
+what a search of every run finds, since the crate's table is in order
+(`nfc_class_misses_nothing`). In the crate's tables `/` and `.` have no
+class and are in no pair and no decomposition
+(`nfc_leaves_separators_alone`), the tables' part of why normalising a
+path a name at a time normalises the whole of it. Of the walk: it yields
+no two files in a row at one path, in path order, and loses no path it
+found (`the_walk_yields_a_path_once`); a read opens a name whose normal
+form is the path, or the path itself (`the_folder_spells_what_is_opened`);
+and the host's lines for any directory, read back, refuse each name that
+is not UTF-8 once, where it is on disk, in the Rust tool's words, and
+nothing else (`a_name_that_cannot_be_spelled_is_refused`). No law says
+that normalising twice is normalising once; that is the crate's promise,
+and the `nfc` stage holds the port to the crate.
 
 A file's content is decision 0032's rule, as the Rust tool reads it: a
 revision that says nothing holds what its parents agree on, and a parent
@@ -1855,7 +1929,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and fifty-three mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and sixty-one mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2029,7 +2103,12 @@ what a head leaves a file of lines as taken from its tree's payload, a
 file of lines written without its tree's mode, and the file that keeps a
 path written beside it too; and three breaks of a stand-in beside a held original:
 one that rewrites a line it does not forget, the text of a forgotten line
-taken from whichever stand-in folds in last, and one that forgets nothing; and three command-line
+taken from whichever stand-in folds in last, and one that forgets nothing; and eight normal-form
+breaks: a mark put on its run unsorted, a run of marks dropped where a
+starter closes it, a class lookup that stops at a run beginning with the
+character, both of two names that are one path kept, the file kept for a
+path dropped, a read that opens any name its listing has, a name that
+cannot be spelled passed over, and a quick check that passes too little; and three command-line
 breaks: `-C` counting the first directory rather than the last, `-V`
 not read as the version, and `-h` not read as help; and one
 dispatch break: any word looked up on `PATH`; and one header break: a note
@@ -2136,16 +2215,15 @@ rules beside them.
 The port is the *format* and the *core*; the Rust crate is 33k lines and this
 is under 5k. Not ported:
 
-- **Refusing a name that is not UTF-8**: the walk leaves it out, as the
-  Rust walk does, but `status` does not list it, since the host's listing
-  carries no spelling of it.
 - **Forgetting**, at one edge: a resolution's stand-in beside a held resolution
   is not read, which is the Rust tool's first reading of it and not its
   later ones (above). And where the Rust tool's catalogue in `cache/` is
   stale — a stand-in copied in after it was written — the Rust store
   believes it for a document it holds and misses the stand-in, where the
   host here reads every path the catalogue does not account for and finds
-  it.
+  it. A directory under `operations/` whose name is not UTF-8, which no
+  writer makes, is never swept: the host lists it as a name that cannot be
+  spelled, not as a directory, where the Rust sweep removes it if empty.
 - **Writing the store**: `fetch`. It writes no `cache/`, which any
   reader rebuilds.
 - **A file the filesystem will not hand over** is not `check`'s
@@ -2156,15 +2234,14 @@ is under 5k. Not ported:
 - **A revision that reads only as far as opening** is in the graph and
   refused where `log`, `show`, `files`, `cat`, `blame`, `status` and
   `diff` ask what it did; `record`, `amend`, `abandon`, `carry`, `name`,
-  `skip`, `update` and `merge` read only the revisions that read whole, as
-  before.
+  `skip`, `update` and `merge` read only the revisions that read whole, or
+  whose only fault is a path not in normal form C, as before.
 - **Which refusal a walk names** where two events of one walk each
   contradict their views: the port names the first in its own causal
   order, which need not be the one `merge.rs`'s order meets first.
-- **A name that is not UTF-8**, which the Rust tool's `record` refuses
-  with the rest of what the folder cannot take, is not among the paths
-  `record --dry-run` refuses, as `status` does not list it.
-- Unicode normal form C on paths, bookmark names and the folder's names.
+- **Two directories that are one path** in normal form C are walked as
+  the last of them, where the Rust walk walks both and keeps, file by
+  file, the last it met.
 - **`export`'s edges**: the folder a copy is caught up to is read from
   this store's documents rather than the copy's, which differ only where
   the copy lacks bytes this store holds; and a path the tree places under a

@@ -462,8 +462,15 @@ def tree_of(+p: String, r: Result<&2, &2, Tree.Fault, Tree.Merged>) -> {Result.m
 
 # Against one revision, `status` compares the folder with the tree `files`,
 # `cat` and `diff` read there, or refuses as they do.
+def read_tree(+p: String, u: Maybe<&2, String>, r: Result<&2, &2, Tree.Fault, Tree.Merged>) -> {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.unread.or(Tree.Merged, u, Main.status.tree.of.r(p, r))) == Main.unread.or(Tree.Tree(), u, Main.tree.of.r(p, r)) : Result<&2, &2, Main.Refused, Tree.Tree()>}:
+  match u:
+    case None{}:
+      tree_of(p, r)
+    case Some{m}:
+      {==}
+
 def one_tree(+fs: List<&2, Main.Full>, +p: String) -> {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.r(fs, [p])) == Main.tree.r(fs, p) : Result<&2, &2, Main.Refused, Tree.Tree()>}:
-  tree_of(p, Tree.merge(Main.events_of(Main.ancestry.oldest(fs, p))))
+  read_tree(p, Main.unread(Main.ancestry.oldest(fs, p)), Tree.merge(Main.events_of(Main.ancestry.oldest(fs, p))))
 
 # What it reads
 # -------------

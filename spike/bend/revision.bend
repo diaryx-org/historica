@@ -7,6 +7,7 @@ import ./text.bend as T
 import ./ident.bend as Id
 import ./utf8.bend as Utf8
 import ./words.bend as W
+import ./nfc.bend as Nfc
 
 # The model
 # ---------
@@ -223,8 +224,8 @@ def is_timestamp(+s: String) -> Bool:
         Bool.and(within(s, 17n, 2n, 0n, 59n), Bool.and(Bool.and(within(s, 20n, 2n, 0n, 23n), within(s, 23n, 2n, 0n, 59n)), Bool.not(unknown_offset(s)))))))
 
 # A path is relative, with no empty component and no `.` or `..`, and no
-# leading or trailing space, and no backslash. (Unicode normal form C is not
-# checked here.)
+# leading or trailing space, and no backslash; and, decision 0033's rule,
+# in Unicode normal form C, the one spelling a store records.
 #
 # One walk decides it: `part` is what the component so far is — nothing, a
 # `.`, a `..`, or a name — and a component is closed at each `/` and at the
@@ -262,12 +263,15 @@ def is_path.go(p: String, part: Part, last: Bool) -> Bool:
     case SCon{+c, t}:
       is_path.go(t, part.next(part, c), Char.is_eq(c, ' '))
 
-def is_path(p: String) -> Bool:
+def is_path.shape(p: String) -> Bool:
   match p:
     case SCon{' ', t}:
       False{}
     case _:
       is_path.go(p, Part.Empty{}, False{})
+
+def is_path(+p: String) -> Bool:
+  Bool.and(is_path.shape(p), Nfc.is_nfc(p))
 
 # A value that is a file ID and one more thing, cut at the first space.
 def entry(v: String) -> Maybe<&2, T.Split>:
@@ -835,15 +839,15 @@ def w.components(ps: List<&2, String>) -> Maybe<&2, String>:
       Bool.pick(Maybe<&2, String>, String.is_empty(p), Some{"it has an empty component"},
         Bool.pick(Maybe<&2, String>, Bool.or(String.eq(p, "."), String.eq(p, "..")), Some{"`.` and `..` are not components"}, w.components(rest)))
 
-# `check_path`: why a value is not a path a revision may name. Unicode
-# normal form C is not asked, as nowhere in this port.
+# `check_path`: why a value is not a path a revision may name, normal form
+# C asked last (decision 0033).
 def w.path(+value: String) -> Maybe<&2, String>:
   Bool.pick(Maybe<&2, String>, String.is_empty(value), Some{"it is empty"},
   Bool.pick(Maybe<&2, String>, String.starts_with(value, "/"), Some{"it begins with `/`, and a path is relative to the repository root"},
   Bool.pick(Maybe<&2, String>, String.ends_with(value, "/"), Some{"it ends with `/`, and a path names a file rather than a directory"},
   Bool.pick(Maybe<&2, String>, Bool.or(String.starts_with(value, " "), String.ends_with(value, " ")), Some{"it has leading or trailing space"},
   Bool.pick(Maybe<&2, String>, List.any(~&2, ~Char, ~is_control, String.to_list(value)), Some{"it holds a control character"},
-    w.components(String.split(value, '/')))))))
+    Maybe.or(&2, String, w.components(String.split(value, '/')), Bool.pick(Maybe<&2, String>, Nfc.is_nfc(value), None{}, Some{"it is not in Unicode normal form C, which is the one spelling a store records"})))))))
 
 # What has been read
 # ------------------
@@ -1196,6 +1200,74 @@ def worded(+s: String, r: Result<&2, &2, String, Rev>) -> Result<&2, &2, String,
 # A revision document, from its text.
 def parse(+s: String) -> Result<&2, &2, String, Rev>:
   worded(s, Bool.pick(Result<&2, &2, String, Rev>, T.has_char(s, '\r'), Fail{"a carriage return"}, parse.preamble(T.lines(s))))
+
+# A path not in normal form C
+# ---------------------------
+
+# Decision 0033 as the Rust parser meets it: `parse_path` refuses an `add`
+# or `move` whose path is not in normal form C, and says which line. It is
+# the one refusal the Rust tool defers — opening a store reads only the
+# causal headers, and the path is refused where something asks for the
+# whole document — so a reader here needs the revision's causal headers
+# and the refusal both: `unnormal` finds the line, counting the format line
+# as the first, and `mended` is the document with the paths normalised,
+# which parses where nothing else is wrong with it.
+type Unnormal is Data:
+  Unnormal{line: Nat, path: String}
+
+def unnormal.path(cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case None{}:
+      SNil{}
+    case Some{T.Split{file, path}}:
+      path
+
+def unnormal.keyed(+l: String) -> Maybe<&2, String>:
+  Maybe.or(&2, String, T.strip_prefix(l, "add "), T.strip_prefix(l, "move "))
+
+def unnormal.value(+n: Nat, v: Maybe<&2, String>) -> Maybe<&2, Unnormal>:
+  match v:
+    case None{}:
+      None{}
+    case Some{+rest}:
+      +p = unnormal.path(T.split_once(rest))
+      Bool.pick(Maybe<&2, Unnormal>, Nfc.is_nfc(p), None{}, Some{Unnormal{n, p}})
+
+def unnormal.go(ls: List<&2, String>, +n: Nat) -> Maybe<&2, Unnormal>:
+  match ls:
+    case Nil{}:
+      None{}
+    case SNil{} <> rest:
+      None{}
+    case +l <> rest:
+      Maybe.or(&2, Unnormal, unnormal.value(n, unnormal.keyed(l)), unnormal.go(rest, 1n+n))
+
+# The first line of the headers stating a path not in normal form C.
+def unnormal(s: String) -> Maybe<&2, Unnormal>:
+  unnormal.go(String.split(s, '\n'), 1n)
+
+def mended.value(+key: String, cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case None{}:
+      key
+    case Some{T.Split{file, path}}:
+      key ++ file ++ " " ++ Nfc.nfc(path)
+
+def mended.line(+l: String) -> String:
+  Bool.pick(String, String.starts_with(l, "add "), mended.value("add ", T.split_once(String.drop(l, 4n))),
+    Bool.pick(String, String.starts_with(l, "move "), mended.value("move ", T.split_once(String.drop(l, 5n))), l))
+
+def mended.go(ls: List<&2, String>) -> List<&2, String>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case SNil{} <> rest:
+      SNil{} <> rest
+    case +l <> rest:
+      mended.line(l) <> mended.go(rest)
+
+def mended(s: String) -> String:
+  String.join(mended.go(String.split(s, '\n')), "\n")
 
 # Writing
 # -------

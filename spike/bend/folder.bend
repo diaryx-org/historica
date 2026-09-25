@@ -15,13 +15,18 @@
 # cannot spell — is left out, which is all `diff` and `blame` do with one;
 # `walk.all` also says why, as `status` does.
 #
-# Not here: Unicode normal form C. A name the filesystem hands back
-# decomposed is compared as it is spelled, as everywhere else in this port.
+# Decision 0033: a name is read in Unicode normal form C (`nfc.bend`), as
+# the Rust walk reads it, so a name the filesystem hands back decomposed is
+# the path it was recorded as. The folder keeps its own spelling, which is
+# what has to be opened: a directory is listed by the name it was listed
+# under, and `on_disk` finds a path's spelling again for a read.
 
 import Base
 import ./text.bend as T
 import ./store.bend as Store
 import ./bookmark.bend as Bm
+import ./nfc.bend as Nfc
+import ./nfc_tables.bend as Tab
 
 def die(-A: Type, code: U32, msg: String) -> IO(A):
   IO.die(A, code, "historica: " ++ msg)
@@ -356,12 +361,25 @@ def platform_name(+name: String) -> Bool:
       Bool.or(Bool.or(String.eq(name, "desktop.ini"), String.eq(name, ".localized")),
         Bool.or(String.eq(name, ".directory"), String.eq(name, "@eaDir")))))
 
+# A rule's value in normal form C, as `Rule::parse` stores it once it has
+# checked it: the walk's paths are in that form, and a rule matches them.
+def scope.normal(sc: Scope) -> Scope:
+  match sc:
+    case Scope.Path{v}:
+      Scope.Path{Nfc.nfc(v)}
+    case Scope.Under{v}:
+      Scope.Under{Nfc.nfc(v)}
+    case Scope.Name{p}:
+      Scope.Name{Nfc.nfc(p)}
+    case Scope.NameUnder{p}:
+      Scope.NameUnder{Nfc.nfc(p)}
+
 def rules.stated(+file: String, st: Stated) -> IO(List<&2, Scope>):
   match st:
     case Stated.None{}:
       IO.pure(List<&2, Scope>, Nil{})
     case Stated.One{sc}:
-      IO.pure(List<&2, Scope>, [sc])
+      IO.pure(List<&2, Scope>, [scope.normal(sc)])
     case Stated.Wrong{e}:
       die(List<&2, Scope>, 1, file ++ ": " ++ e)
 
@@ -651,21 +669,233 @@ def refused_kept(+rules: List<&2, Scope>, rs: List<&2, T.Split>) -> Bool:
 
 # The order `working::walk` meets paths in: each directory's names in byte
 # order, a directory's contents where its name falls. That is path order
-# with `/` below every other character, and no name holds a NUL.
-def walked_key.go(cs: List<&2, Char>) -> List<&2, Char>:
+# with `/` below every other character, and no name holds a NUL. It is
+# taken over code points, which leaves room above every character for a
+# place no name spells.
+def walked_points(cs: List<&2, Char>) -> List<&2, U32>:
   match cs:
     case Nil{}:
       Nil{}
     case Chr{+x} <> rest:
-      Bool.pick(Char, U32.is_eq(x, 47), Chr{0}, Chr{x}) <> walked_key.go(rest)
+      Bool.pick(U32, U32.is_eq(x, 47), 0, x) <> walked_points(rest)
 
+def points.le(a: List<&2, U32>, b: List<&2, U32>) -> Bool:
+  match a b:
+    case Nil{} _:
+      True{}
+    case x <> xs Nil{}:
+      False{}
+    case +x <> xs +y <> ys:
+      Bool.or(U32.is_lt(x, y), Bool.and(U32.is_eq(x, y), points.le(xs, ys)))
+
+# Two paths in the walk's order.
 def walked_le(+a: String, +b: String) -> Bool:
-  String.is_le(String.from_list(walked_key.go(String.to_list(a))), String.from_list(walked_key.go(String.to_list(b))))
+  points.le(walked_points(String.to_list(a)), walked_points(String.to_list(b)))
 
 def refused.path(r: T.Split) -> String:
   match r:
     case T.Split{p, b}:
       p
+
+# Names in normal form C
+# ---------------------
+
+# A listing as the walk reads it: each entry's name in normal form C, and a
+# link's target, on the line after it, as the folder spells it — a target
+# is a string, and `record` resolves it before it normalises it. A name
+# that cannot be spelled stays as the host spelled it.
+def normal.sized(+runs: String, cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case None{}:
+      runs
+    case Some{T.Split{size, name}}:
+      runs ++ " " ++ size ++ " " ++ Nfc.nfc(name)
+
+def normal.file(cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case None{}:
+      SNil{}
+    case Some{T.Split{runs, rest}}:
+      normal.sized(runs, T.split_once(rest))
+
+def normal.line(+line: String) -> String:
+  Bool.pick(String, String.starts_with(line, "f "), "f " ++ normal.file(T.split_once(String.drop(line, 2n))),
+    Bool.pick(String, String.starts_with(line, "u "), line, String.take(line, 2n) ++ Nfc.nfc(String.drop(line, 2n))))
+
+def normal.lines(ls: List<&2, String>, after: Bool) -> List<&2, String>:
+  match ls after:
+    case Nil{} _:
+      Nil{}
+    case line <> rest True{}:
+      line <> normal.lines(rest, False{})
+    case +line <> rest False{}:
+      normal.line(line) <> normal.lines(rest, String.starts_with(line, "l "))
+
+# The name a listing line gives its entry.
+def entry.sized(cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case None{}:
+      SNil{}
+    case Some{T.Split{size, name}}:
+      name
+
+def entry.file(cut: Maybe<&2, T.Split>) -> String:
+  match cut:
+    case None{}:
+      SNil{}
+    case Some{T.Split{runs, rest}}:
+      entry.sized(T.split_once(rest))
+
+def entry.name(+line: String) -> String:
+  Bool.pick(String, String.starts_with(line, "f "), entry.file(T.split_once(String.drop(line, 2n))), String.drop(line, 2n))
+
+# The directories a listing walks next, as the folder spells them: those
+# `listing.dir` takes, in the order the listing holds them.
+def raw.dir(+line: String, +prefix: String, +disk: String, +rules: List<&2, Scope>, d: Bool, +later: List<&2, String>) -> List<&2, String>:
+  match d:
+    case False{}:
+      later
+    case True{}:
+      +name = Nfc.nfc(String.drop(line, 2n))
+      Bool.pick(List<&2, String>, Bool.or(is_store(prefix, name), skips_directory(rules, joined(prefix, name))), later, joined(disk, String.drop(line, 2n)) <> later)
+
+def raw.dirs(ls: List<&2, String>, +prefix: String, +disk: String, +rules: List<&2, Scope>, after: Bool) -> List<&2, String>:
+  match ls after:
+    case Nil{} _:
+      Nil{}
+    case line <> rest True{}:
+      raw.dirs(rest, prefix, disk, rules, False{})
+    case +line <> rest False{}:
+      raw.dir(line, prefix, disk, rules, String.starts_with(line, "d "), raw.dirs(rest, prefix, disk, rules, String.starts_with(line, "l ")))
+
+# Each directory to walk, as the walk names it and as the folder spells it.
+def paired(ns: List<&2, String>, ds: List<&2, String>) -> List<&2, T.Split>:
+  match ns ds:
+    case n <> nr d <> dr:
+      T.Split{n, d} <> paired(nr, dr)
+    case _ _:
+      Nil{}
+
+# Two names the filesystem tells apart can be one path in normal form C;
+# the Rust walk keeps the one it met last, which a stable sort of the walk's
+# files — each put on the front as it was met — leaves first.
+def distinct.same(fs: List<&2, Found>, +last: String) -> Bool:
+  match fs:
+    case f <> rest:
+      String.eq(found.path(f), last)
+    case _:
+      False{}
+
+def distinct.go(fs: List<&2, Found>, +last: String, same: Bool) -> List<&2, Found>:
+  match fs same:
+    case Nil{} _:
+      Nil{}
+    case f <> +rest True{}:
+      distinct.go(rest, last, distinct.same(rest, last))
+    case +f <> +rest False{}:
+      f <> distinct.go(rest, found.path(f), distinct.same(rest, found.path(f)))
+
+def distinct(fs: List<&2, Found>) -> List<&2, Found>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case +f <> +rest:
+      f <> distinct.go(rest, found.path(f), distinct.same(rest, found.path(f)))
+
+# No two files in a row at one path: what `LAWS.the_walk_yields_a_path_once`
+# says of what the walk yields.
+def apart.go(fs: List<&2, Found>, +last: String) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      Bool.and(Bool.not(String.eq(found.path(f), last)), apart.go(rest, found.path(f)))
+
+def apart(fs: List<&2, Found>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      apart.go(rest, found.path(f))
+
+# Names that cannot be spelled
+# ----------------------------
+
+# A name the host cannot spell as UTF-8 is refused in the Rust tool's words
+# whatever the rules say, since no rule can name it, and is not walked
+# into: `WorkingError::NotUtf8`. The host hands the name over as
+# `to_string_lossy` spells it, and the refusal names where it is on disk,
+# as the Rust tool's does.
+def unspelled.because() -> String:
+  "not a name this format can hold"
+
+# A refusal and where the walk met it.
+type Keyed is Data:
+  Keyed{key: List<&2, U32>, refusal: T.Split}
+
+def keyed.key(k: Keyed) -> List<&2, U32>:
+  match k:
+    case Keyed{key, r}:
+      key
+
+def keyed.refusal(k: Keyed) -> T.Split:
+  match k:
+    case Keyed{key, r}:
+      r
+
+# Where the `k`th name that cannot be spelled after `before` was met: after
+# `before` and all beneath it, and before the entry after it. Its lossy
+# spelling cannot say, since it does not sort as the bytes do.
+def unspelled.key(+before: String, +k: U32) -> List<&2, U32>:
+  List.append(&2, U32, walked_points(String.to_list(before)), [0, (1114112 + k : U32)])
+
+def unspelled.is(ls: List<&2, String>) -> Bool:
+  match ls:
+    case +line <> rest:
+      String.starts_with(line, "u ")
+    case _:
+      False{}
+
+# A listing's names that cannot be spelled, keyed: `before` is the path of
+# the entry before, or the directory's own with a `/` after it; `after`
+# says the line is the target of the link before it, and `odd` that it
+# names what cannot be spelled.
+def unspelled.go(ls: List<&2, String>, +prefix: String, +dir: String, +before: String, +k: U32, after: Bool, odd: Bool, acc: List<&2, Keyed>) -> List<&2, Keyed>:
+  match ls after odd:
+    case Nil{} _ _:
+      acc
+    case line <> +rest True{} _:
+      unspelled.go(rest, prefix, dir, before, k, False{}, unspelled.is(rest), acc)
+    case +line <> +rest False{} True{}:
+      unspelled.go(rest, prefix, dir, before, (k + 1 : U32), False{}, unspelled.is(rest), Keyed{unspelled.key(before, k), T.Split{dir ++ "/" ++ String.drop(line, 2n), unspelled.because()}} <> acc)
+    case +line <> +rest False{} False{}:
+      unspelled.go(rest, prefix, dir, joined(prefix, entry.name(line)), 0, String.starts_with(line, "l "), unspelled.is(rest), acc)
+
+# `ls` as the walk reads it, `prefix` the directory's path, and `dir` where
+# it is on disk.
+def unspelled(+ls: List<&2, String>, +prefix: String, +dir: String) -> List<&2, Keyed>:
+  unspelled.go(ls, prefix, dir, Bool.pick(String, String.is_empty(prefix), SNil{}, prefix ++ "/"), 0, False{}, unspelled.is(ls), Nil{})
+
+def keyed.all(rs: List<&2, T.Split>) -> List<&2, Keyed>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case +r <> rest:
+      Keyed{walked_points(String.to_list(refused.path(r))), r} <> keyed.all(rest)
+
+def unkeyed(ks: List<&2, Keyed>) -> List<&2, T.Split>:
+  match ks:
+    case Nil{}:
+      Nil{}
+    case k <> rest:
+      keyed.refusal(k) <> unkeyed(rest)
+
+# Every refusal in the order the Rust walk makes them.
+def walk.refusals(rs: List<&2, T.Split>, odd: List<&2, Keyed>) -> List<&2, T.Split>:
+  unkeyed(List.sort(~Keyed, ~(a => b => points.le(keyed.key(a), keyed.key(b))), List.append(&2, Keyed, keyed.all(rs), odd)))
+
+# The walk
+# --------
 
 # Everything one walk of the folder turned up: the files it tracks, and the
 # paths it refused with why.
@@ -682,33 +912,169 @@ def walked.refused(w: Walked) -> List<&2, T.Split>:
     case Walked{found, refused}:
       refused
 
-def walk.go(fuel: Nat, +repo: String, +rules: List<&2, Scope>, pending: List<&2, String>, found: List<&2, Found>, refused: List<&2, T.Split>) -> IO(Walked):
+# One directory at a time: `pending` holds each still to list, as the walk
+# names it and as the folder spells it, and `odd` the names that cannot be
+# spelled, keyed.
+def walk.go(fuel: Nat, +repo: String, +rules: List<&2, Scope>, pending: List<&2, T.Split>, found: List<&2, Found>, refused: List<&2, T.Split>, odd: List<&2, Keyed>) -> IO(Walked):
   match fuel pending:
     case 0n _:
-      IO.pure(Walked, Walked{found, refused})
+      IO.pure(Walked, Walked{found, walk.refusals(refused, odd)})
     case 1n+q Nil{}:
-      IO.pure(Walked, Walked{found, refused})
-    case 1n+q +dir <> rest:
+      IO.pure(Walked, Walked{found, walk.refusals(refused, odd)})
+    case 1n+q T.Split{+dir, +disk} <> rest:
       do IO<Walked>:
-        got : String <- listed(Bool.pick(String, String.is_empty(dir), repo, repo ++ "/" ++ dir))
-        +text : String = got
-        +l : Listing = listing.go(String.split(text, '\n'), dir, rules, Listing{Nil{}, found, None{}})
-        walk.go(q, repo, rules, List.append(&2, String, listing.dirs(l), rest), listing.found(l), refusals.go(String.split(text, '\n'), dir, rules, False{}, refused))
+        +at : String = Bool.pick(String, String.is_empty(disk), repo, repo ++ "/" ++ disk)
+        got : String <- listed(at)
+        +raw : List<&2, String> = String.split(got, '\n')
+        +ls : List<&2, String> = normal.lines(raw, False{})
+        +l : Listing = listing.go(ls, dir, rules, Listing{Nil{}, found, None{}})
+        +next : List<&2, T.Split> = paired(listing.dirs(l), List.reverse(&2, String, raw.dirs(raw, dir, disk, rules, False{})))
+        walk.go(q, repo, rules, List.append(&2, T.Split, next, rest), listing.found(l), refusals.go(ls, dir, rules, False{}, refused), List.append(&2, Keyed, unspelled(ls, dir, at), odd))
 
 # Every file the working copy tracks, in path order, and every path it
 # refused, in the order the Rust walk refuses them.
 def walk.all(+repo: String, +rules: List<&2, Scope>) -> IO(Walked):
   do IO<Walked>:
-    w : Walked <- walk.go(U32.to_nat(1000000), repo, rules, [SNil{}], Nil{}, Nil{})
+    w : Walked <- walk.go(U32.to_nat(1000000), repo, rules, [T.Split{SNil{}, SNil{}}], Nil{}, Nil{}, Nil{})
     +w2 : Walked = w
-    return Walked{List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), walked.found(w2)),
-      List.sort(~T.Split, ~(a => b => walked_le(refused.path(a), refused.path(b))), walked.refused(w2))}
+    return Walked{distinct(List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), walked.found(w2))), walked.refused(w2)}
 
 # Every file the working copy tracks, in path order.
 def walk(+repo: String, +rules: List<&2, Scope>) -> IO(List<&2, Found>):
   do IO<List<&2, Found>>:
     w : Walked <- walk.all(repo, rules)
     return walked.found(w)
+
+# Where a path is on disk
+# -----------------------
+
+# A path of ASCII none of whose characters another character decomposes to
+# has one spelling, itself: `nfc_tables.bend` says which those are.
+def member(xs: List<&2, U32>, +x: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case y <> rest:
+      Bool.or(U32.is_eq(y, x), member(rest, x))
+
+def plain(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{Chr{+x}, t}:
+      Bool.and(Bool.and(U32.is_lt(x, 128), Bool.not(member(Tab.ascii_images(), x))), plain(t))
+
+# Whether this line spells `want`.
+def spelling.take(+line: String, +want: String, got: Maybe<&2, String>) -> Maybe<&2, String>:
+  +name = entry.name(line)
+  Bool.pick(Maybe<&2, String>, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(Nfc.nfc(name), want)), Some{name}, got)
+
+# The name a listing spells `want` with: the last whose normal form it is,
+# as the walk keeps the last.
+def spelling.go(ls: List<&2, String>, +want: String, got: Maybe<&2, String>, after: Bool) -> Maybe<&2, String>:
+  match ls after:
+    case Nil{} _:
+      got
+    case line <> rest True{}:
+      spelling.go(rest, want, got, False{})
+    case +line <> rest False{}:
+      spelling.go(rest, want, spelling.take(line, want, got), String.starts_with(line, "l "))
+
+def spelling(ls: List<&2, String>, +want: String) -> String:
+  Maybe.default(&2, String, spelling.go(ls, want, None{}, False{}), want)
+
+def listing.lines(r: Result<&1, &1, U32 & String, String>) -> List<&2, String>:
+  match r:
+    case Fail{e}:
+      Nil{}
+    case Done{text}:
+      String.split(text, '\n')
+
+# A directory's listing, from those read already or from the host. One
+# that will not be read spells nothing, and the read that follows fails in
+# the host's words.
+def listing.read(+dir: String, cached: Maybe<&2, List<&2, String>>) -> IO(List<&2, String>):
+  match cached:
+    case Some{ls}:
+      IO.pure(List<&2, String>, ls)
+    case None{}:
+      do IO<List<&2, String>>:
+        r : Result<&1, &1, U32 & String, String> <- Store.listing_of(dir)
+        return listing.lines(r)
+
+# A path spelled as far as it has been, and the listings read so far.
+type Spelt is Data:
+  Spelt{path: String, seen: Map<&2, List<&2, String>>}
+
+def spelt.path(s: Spelt) -> String:
+  match s:
+    case Spelt{p, m}:
+      p
+
+def spelt.seen(s: Spelt) -> Map<&2, List<&2, String>>:
+  match s:
+    case Spelt{p, m}:
+      m
+
+def cached.of(ls: List<&2, String>) -> Maybe<&2, List<&2, String>>:
+  match ls:
+    case Nil{}:
+      None{}
+    case l <> rest:
+      Some{l <> rest}
+
+def cached(r: Map<&2, List<&2, String>> & List<&2, String>) -> Maybe<&2, List<&2, String>>:
+  (m, ls) = r
+  cached.of(ls)
+
+def on_disk.plain(ps: List<&2, String>) -> Bool:
+  match ps:
+    case c <> rest:
+      plain(c)
+    case _:
+      True{}
+
+# One component after another: one that has one spelling as it is, and any
+# other read against the listing of the directory it is in.
+def on_disk.go(parts: List<&2, String>, +repo: String, +at: String, +seen: Map<&2, List<&2, String>>, simple: Bool) -> IO(Spelt):
+  match parts simple:
+    case Nil{} _:
+      IO.pure(Spelt, Spelt{at, seen})
+    case +c <> +rest True{}:
+      on_disk.go(rest, repo, joined(at, c), seen, on_disk.plain(rest))
+    case +c <> +rest False{}:
+      do IO<Spelt>:
+        +dir : String = Bool.pick(String, String.is_empty(at), repo, repo ++ "/" ++ at)
+        ls : List<&2, String> <- listing.read(dir, cached(Map.get(List<&2, String>, Nil{}, seen, dir)))
+        +ls2 : List<&2, String> = ls
+        on_disk.go(rest, repo, joined(at, spelling(ls2, c)), Map.set(&2, List<&2, String>, seen, dir, ls2), on_disk.plain(rest))
+
+def on_disk.one(+repo: String, +p: String, +seen: Map<&2, List<&2, String>>) -> IO(Spelt):
+  +parts = String.split(p, '/')
+  on_disk.go(parts, repo, SNil{}, seen, on_disk.plain(parts))
+
+def on_disk.all.go(ps: List<&2, String>, +repo: String, +seen: Map<&2, List<&2, String>>) -> IO(List<&2, String>):
+  match ps:
+    case Nil{}:
+      IO.pure(List<&2, String>, Nil{})
+    case +p <> rest:
+      do IO<List<&2, String>>:
+        s : Spelt <- on_disk.one(repo, p, seen)
+        +s2 : Spelt = s
+        more : List<&2, String> <- on_disk.all.go(rest, repo, spelt.seen(s2))
+        return spelt.path(s2) <> more
+
+# Where each path the walk named is under `repo`, as the folder spells it,
+# which is where it has to be opened: the walk's path is in normal form C,
+# and the file may not be. A directory is listed at most once for all of
+# them, and only where a component could be spelled another way.
+def on_disk.all(+repo: String, ps: List<&2, String>) -> IO(List<&2, String>):
+  on_disk.all.go(ps, repo, Map.new(&2, List<&2, String>))
+
+def on_disk(+repo: String, +p: String) -> IO(String):
+  do IO<String>:
+    s : Spelt <- on_disk.one(repo, p, Map.new(&2, List<&2, String>))
+    return spelt.path(s)
 
 # Text
 # ----

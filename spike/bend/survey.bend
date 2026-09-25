@@ -16,6 +16,7 @@ import Base
 import ./text.bend as T
 import ./tree.bend as Tree
 import ./folder.bend as Folder
+import ./nfc.bend as Nfc
 
 # One path, as the position and the folder hold it, with what was learned
 # about it: the folder's digest of a regular file, the digest the position's
@@ -470,8 +471,15 @@ def observed.of(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +target: String
     case Some{+at}:
       Bool.pick(String, stated(t, gone, arriving, at), "r" ++ at, "v" ++ target)
 
+# Where a link's target lands, spelled as a store path: the fold above, and
+# then in normal form C, as `record::resolution` spells it. Normalising
+# moves no `/` and no `.`, which no pair composes and nothing decomposes
+# to, so what the fold said of the path's shape still holds.
+def resolved(+link: String, +target: String) -> Maybe<&2, String>:
+  Maybe.map(&2, String, String, p => Nfc.nfc(p), resolution(link, target))
+
 def observed(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String) -> String:
-  observed.of(t, gone, arriving, target, resolution(path, target))
+  observed.of(t, gone, arriving, target, resolved(path, target))
 
 # What the position's link says, the same way: nothing where it holds no
 # link, or where the file a reference names is going.
@@ -520,7 +528,7 @@ def maybe_eq(a: Maybe<&2, String>, b: Maybe<&2, String>) -> Bool:
 # reference a link's target is written as: the path the target lands on,
 # folded against the link's own directory, and one the revision states.
 def lands_on(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +at: String) -> Bool:
-  Bool.and(maybe_eq(resolution(path, target), Some{at}), stated(t, gone, arriving, at))
+  Bool.and(maybe_eq(resolved(path, target), Some{at}), stated(t, gone, arriving, at))
 
 def retargeted(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +held: Maybe<&2, Tree.Entry>, shown: Maybe<&2, String>) -> Bool:
   Bool.pick(Bool, same(standing(gone, held, shown), target), False{},
@@ -701,8 +709,8 @@ def is_quiet(s: Survey) -> Bool:
 # goes (`--at`), and the renames nothing can observe (`--move`). And what
 # `status` describes, `record` refuses.
 
-# `format::check_path`: why a path a person typed cannot be one. Unicode
-# normal form C is not here, as nowhere in this port.
+# `format::check_path`: why a path a person typed cannot be one, the last
+# rule decision 0033's: a store spells a path one way.
 def component_fault(cs: List<&2, String>) -> Maybe<&2, String>:
   match cs:
     case Nil{}:
@@ -711,13 +719,20 @@ def component_fault(cs: List<&2, String>) -> Maybe<&2, String>:
       Bool.pick(Maybe<&2, String>, String.is_empty(c), Some{"it has an empty component"},
       Bool.pick(Maybe<&2, String>, Bool.or(String.eq(c, "."), String.eq(c, "..")), Some{"`.` and `..` are not components"}, component_fault(rest)))
 
+def normal_fault(f: Maybe<&2, String>, +p: String) -> Maybe<&2, String>:
+  match f:
+    case Some{because}:
+      Some{because}
+    case None{}:
+      Bool.pick(Maybe<&2, String>, Nfc.is_nfc(p), None{}, Some{"it is not in Unicode normal form C, which is the one spelling a store records"})
+
 def path_check(+p: String) -> Maybe<&2, String>:
   Bool.pick(Maybe<&2, String>, String.is_empty(p), Some{"it is empty"},
   Bool.pick(Maybe<&2, String>, String.starts_with(p, "/"), Some{"it begins with `/`, and a path is relative to the repository root"},
   Bool.pick(Maybe<&2, String>, String.ends_with(p, "/"), Some{"it ends with `/`, and a path names a file rather than a directory"},
   Bool.pick(Maybe<&2, String>, Bool.or(String.starts_with(p, " "), String.ends_with(p, " ")), Some{"it has leading or trailing space"},
   Bool.pick(Maybe<&2, String>, List.any(~&2, ~Char, ~Folder.is_control, String.to_list(p)), Some{"it holds a control character"},
-    component_fault(String.split(p, '/')))))))
+    normal_fault(component_fault(String.split(p, '/')), p))))))
 
 # `Restriction::covers`: a path named, or one beneath a named directory;
 # every path where none is named.
