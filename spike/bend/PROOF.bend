@@ -80,6 +80,7 @@ import ./prune_lemmas.bend as PruneL
 import ./receive_lemmas.bend as ReceiveL
 import ./offer_lemmas.bend as OfferL
 import ./export_lemmas.bend as ExportL
+import ./catchup_lemmas.bend as CatchL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
@@ -1055,6 +1056,9 @@ def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs,
 
 def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks, d, h):
   ExportL.destroyed(p, here, cst, marks, d, h)
+
+def Laws.export_spares_the_unrecorded(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds):
+  CatchL.spares(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds)
 
 def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids):
   OfferL.digests(prefix, s, marks, claims, rids, nids)

@@ -41,6 +41,7 @@ import ./notes.bend as Notes
 import ./ops.bend as Ops
 import ./sha256.bend as Sha
 import ./utf8.bend as Utf8
+import ./update.bend as Upd
 
 # The words
 # ---------
@@ -1967,6 +1968,67 @@ def ever.all(ps: List<&2, String>, +fs: List<&2, Main.Full>) -> List<&2, String>
 
 def origin.fulls(+st: Prune.Stored) -> List<&2, Main.Full>:
   Arrange.distinct(Prune.fulls(Arrange.revision_docs(Receive.stored.docs(st))))
+
+# What a law says of a folder caught up
+# -------------------------------------
+
+# Whether bytes the folder holds can be had back from a history: `cat` of
+# some revision of it reads them for some file of its tree, or its tree
+# names them as a file's payload — the question `update` asks of its store.
+def given.back(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, h: Maybe<&2, String>) -> Bool:
+  match h:
+    case None{}:
+      True{}
+    case Some{+d}:
+      Upd.recoverable(fs, ds, d)
+
+def step.spares(s: Step, +ss: List<&2, Seen>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>) -> Bool:
+  match s:
+    case Step.Write{+put, r}:
+      given.back(fs, ds, held.digest(seen.find(ss, put.path(put))))
+    case Step.Link{+put}:
+      given.back(fs, ds, held.digest(seen.find(ss, put.path(put))))
+    case _:
+      True{}
+
+def steps.spare(xs: List<&2, Step>, +ss: List<&2, Seen>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case x <> rest:
+      Bool.and(step.spares(x, ss, fs, ds), steps.spare(rest, ss, fs, ds))
+
+# A link the walk found is read from the revisions' link statements, as the
+# Rust tool reads it, and is not asked about here.
+def seen.spared(s: Seen, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>) -> Bool:
+  match s:
+    case Seen.File{p, +d, r}:
+      Upd.recoverable(fs, ds, d)
+    case Seen.Link{p, t}:
+      True{}
+
+def spared.at(ss: List<&2, Seen>, +p: String, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case +s <> rest:
+      Bool.or(Bool.and(String.eq(seen.path(s), p), seen.spared(s, fs, ds)), spared.at(rest, p, fs, ds))
+
+def removed.spare(ps: List<&2, String>, +ss: List<&2, Seen>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case +p <> rest:
+      Bool.and(spared.at(ss, p, fs, ds), removed.spare(rest, ss, fs, ds))
+
+# Every file the folder's plan writes or links over, and every file it
+# removes, holds bytes the history can give back.
+def caught.spares(+ss: List<&2, Seen>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, r: Result<&2, &2, Main.Refused, Caught>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{Caught{xs, rm}}:
+      Bool.and(steps.spare(xs, ss, fs, ds), removed.spare(rm, ss, fs, ds))
 
 
 # What the laws say of an export
