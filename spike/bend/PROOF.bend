@@ -973,6 +973,15 @@ def Laws.skip_private_wherever_it_stands(before, after, c, ss):
 def Laws.skip_shares_without_private(ws, h, ss):
   SkipL.writes_shared(ws, h, ss)
 
+def Laws.skip_reads_the_path_past_the_repository(path, repo, settled, x, more, e, hx):
+  SkipL.inside_past(path, repo, settled, x, more, e, hx)
+
+def Laws.skip_refuses_the_repository_itself(path, repo, settled, e):
+  SkipL.inside_self(path, repo, settled, e)
+
+def Laws.skip_refuses_a_path_outside_the_repository(path, repo, settled, pre, y, r1, zs, er, es, h):
+  SkipL.inside_outside(path, repo, settled, pre, y, r1, zs, er, es, h)
+
 def Laws.skip_covers_nothing_history_holds(fs, rs, e, h, hh, t, et, p, hp):
   SkipL.covers_nothing_held(fs, rs, e, h, hh, t, et, p, hp)
 

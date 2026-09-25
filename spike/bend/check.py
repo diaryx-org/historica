@@ -3826,6 +3826,20 @@ def check_mutations(temporary):
             "skip.bend",
         ),
         (
+            "skip spells a rule's path from the root rather than past the repository",
+            "    case 1n+k x <> rest:\n      drop.n(k, rest)",
+            "    case 1n+k x <> rest:\n      drop.n(k, x <> rest)",
+            "skip_lemmas.drop_past",
+            "skip.bend",
+        ),
+        (
+            "skip takes the repository itself for a path to skip",
+            "    Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(spelled),",
+            "    Bool.pick(Result<&2, &2, Main.Refused, String>, False{},",
+            "skip_lemmas.inside_self",
+            "skip.bend",
+        ),
+        (
             "check counts a note among the errors",
             "      Nat.add(Bool.pick(Nat, Bool.not(Bool.xor(e, errors)), 1n, 0n), count.of(rest, errors))",
             "      Nat.add(Bool.pick(Nat, e, 1n, 0n), count.of(rest, errors))",

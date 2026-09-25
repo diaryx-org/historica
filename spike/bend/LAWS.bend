@@ -2450,6 +2450,44 @@ law skip_shares_without_private:
   for +ss: List<&2, Folder.Scope>
   {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(ws))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}
 
+# `skip <path>` reads the rule's path as what lies past the repository, as
+# the path really is: where its components are the repository's and more,
+# the first of those not empty, the rule's path is the further components
+# joined by `/`.
+law skip_reads_the_path_past_the_repository:
+  for +path: String
+  for +repo: String
+  for +settled: String
+  for +x: String
+  for +more: List<&2, String>
+  for e: {Identity.components(settled) == List.append(&2, String, Identity.components(repo), x <> more) : List<&2, String>}
+  for hx: {String.is_empty(x) == False{} : Bool}
+  {Skip.inside.r(path, repo, settled) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+
+# It refuses the repository itself, since a rule for all of it would leave
+# history nothing to hold ...
+law skip_refuses_the_repository_itself:
+  for +path: String
+  for +repo: String
+  for +settled: String
+  for e: {Identity.components(settled) == Identity.components(repo) : List<&2, String>}
+  {Skip.inside.r(path, repo, settled) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}
+
+# ... and a path that stops, or turns aside, before the repository's
+# components end, which is not inside it.
+law skip_refuses_a_path_outside_the_repository:
+  for +path: String
+  for +repo: String
+  for +settled: String
+  for +pre: List<&2, String>
+  for +y: String
+  for +r1: List<&2, String>
+  for +zs: List<&2, String>
+  for er: {Identity.components(repo) == List.append(&2, String, pre, y <> r1) : List<&2, String>}
+  for es: {Identity.components(settled) == List.append(&2, String, pre, zs) : List<&2, String>}
+  for h: {SkipL.turns(y, zs) == True{} : Bool}
+  {Skip.inside.r(path, repo, settled) == Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}} : Result<&2, &2, Main.Refused, String>}
+
 # Where `skip` goes on to write its rules, no rule it writes skips a file
 # any head holds, read with the loader's own `skips`: decision 0011, a rule
 # cannot take back what is recorded — so wherever some head's tree holds a
