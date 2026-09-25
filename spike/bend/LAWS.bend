@@ -2552,6 +2552,15 @@ law prune_dry_run_names_what_prune_removes:
   for +s: Prune.Stored
   {(Prune.act.says(Prune.act.of(True{}, False{}, Prune.stored.plan(s))), (Prune.act.says(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), Prune.act.removes(Prune.act.of(True{}, False{}, Prune.stored.plan(s))))) == (PruneL.report(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), T.map(~String, ~String, ~(f => "would remove history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))))), (PruneL.report(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), T.map(~String, ~String, ~(f => "removed history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))))), Nil{})) : List<&2, String> & (List<&2, String> & List<&2, String>)}
 
+# `prune` clears from `cache/` only files named by a digest — what any
+# reader rebuilds, and what may hold content it has just destroyed; the
+# note `init` writes there, or anything else a person put there, stays.
+law prune_clears_only_derived_files:
+  for +ls: List<&2, String>
+  for +x: String
+  for h: {Rev.member(Prune.cached(ls), x) == True{} : Bool}
+  {T.is_digest(x) == True{} : Bool}
+
 # Every operation document and payload `prune` removes holds a digest no
 # revision it keeps names — read from that revision's own `edit`, `text`
 # and `bytes` facts — and is no forgetting document standing in for a
@@ -2802,6 +2811,19 @@ law export_renames_nothing_a_copy_holds:
   for +e: {Arrange.lookup(held, id) == Some{s} : Maybe<&2, String>}
   for m: {Rev.member(Main.ids(fs), id) == True{} : Bool}
   {Arrange.lookup(Export.stems.around(fs, held, ex), id) == Some{s} : Maybe<&2, String>}
+
+# The files `receive` removes, for the digests it destroys, are this
+# store's own: each an operation document or a payload file here, at that
+# path, holding one of those digests — so, with
+# receive_destroys_only_what_is_forgotten, every file it removes holds what
+# a forgetting document stands in for.
+law receive_removes_only_the_originals:
+  for +bs: List<&2, Prune.Body>
+  for +ps: List<&2, T.Split>
+  for +des: List<&2, String>
+  for +x: String
+  for h: {Rev.member(Receive.destroyed(bs, ps, des), x) == True{} : Bool}
+  {Bool.or(ReceiveL.gone_at(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), x, des), ReceiveL.gone_at(ps, x, des)) == True{} : Bool}
 
 # `receive` plans nothing from a store holding a revision document whose
 # text does not parse, wherever among its files it stands and whatever

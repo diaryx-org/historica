@@ -1003,6 +1003,9 @@ def Laws.prune_lets_go_only_what_is_superseded(fs, id, hf, hk):
 def Laws.prune_dry_run_names_what_prune_removes(s):
   PruneL.dry_run(Prune.stored.plan(s))
 
+def Laws.prune_clears_only_derived_files(ls, x, h):
+  PruneL.cached(ls, x, h)
+
 def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps, d, h):
   PruneL.removes(fs, revs, bs, ps, d, h)
 
@@ -1065,6 +1068,9 @@ def Laws.export_carries_only_this_stores_files(held, t, ds, ps, bodies, rs, bs, 
 
 def Laws.export_renames_nothing_a_copy_holds(fs, held, ex, id, s, e, m):
   ExportL.stems_kept(fs, held, ex, id, s, e, m)
+
+def Laws.receive_removes_only_the_originals(bs, ps, des, x, h):
+  ReceiveL.removes_only(bs, ps, des, x, h)
 
 def Laws.receive_trusts_what_it_plans_from(other, root, pre, path, id, size, text, post, revs, od, bs, ps, names, rules, marks, claims, join, msg, hp, hf):
   ReceiveL.trusts(other, root, pre, path, id, size, text, post, revs, od, bs, ps, names, rules, marks, claims, join, msg, hp, hf)
