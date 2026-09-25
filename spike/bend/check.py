@@ -4162,6 +4162,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export refuses a copy holding a revision this store names but pruned",
+            "    stranger.r(into, stranger(cfs, Set.from_list(List.append(&2, String, Main.ids(fs), named.edges(fs)))))",
+            "    stranger.r(into, stranger(cfs, Set.from_list(Main.ids(fs))))",
+            "onto_lemmas.copy_done",
+            "export.bend",
+        ),
+        (
             "fetch files a document whose text is not the digest offered",
             "      Bool.pick(Land, String.eq(found, entry.digest(o)), text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",
             "      Bool.pick(Land, True{}, text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",

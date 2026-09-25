@@ -81,6 +81,7 @@ import ./receive_lemmas.bend as ReceiveL
 import ./offer_lemmas.bend as OfferL
 import ./export_lemmas.bend as ExportL
 import ./catchup_lemmas.bend as CatchL
+import ./onto_lemmas.bend as OntoL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
@@ -1056,6 +1057,9 @@ def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs,
 
 def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks, d, h):
   ExportL.destroyed(p, here, cst, marks, d, h)
+
+def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, cfs):
+  OntoL.copy_done(into, fs, cfs)
 
 def Laws.export_catches_up_to_a_fresh_copy(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs):
   CatchL.catch_lands(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, whole, rs)
