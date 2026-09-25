@@ -4,10 +4,11 @@
 # `name` takes is refused neither by `check_name` nor by the path rules it
 # reads, so it is never absolute and never climbs.
 #
-# And what `name` does: it reads its words as they say, a field at a time;
+# And what `name` does: it reads its words as list facts about them say;
 # a plan is what the words said, a deletion only of the one word beside
-# `--delete`; the bookmark it sets points at what was asked — a revision,
-# a change or a file the store holds — as private as asked or as it was;
+# `--delete`; the bookmark it sets points at what its target names as
+# `resolve` reads it — that revision, its change, or the file `show` names
+# there — as private as asked or as it was;
 # `--delete` is refused exactly where no bookmark has the name; and
 # `--fields` says its header once.
 import Base
