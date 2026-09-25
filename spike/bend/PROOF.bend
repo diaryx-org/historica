@@ -77,6 +77,7 @@ import ./opening_lemmas.bend as OpeningL
 import ./identity_lemmas.bend as IdentityL
 import ./editor_lemmas.bend as EditorL
 import ./forgetting_lemmas.bend as ForgettingL
+import ./opened_lemmas.bend as OpenedL
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
 import ./receive_lemmas.bend as ReceiveL
@@ -364,6 +365,9 @@ def Laws.write_parse(s, doc, e):
 
 def Laws.revision_write_parse(s, r, e):
   RevL.write_parse(s, r, e)
+
+def Laws.opening_reads_what_a_revision_states(first, hs, m, hf, hp, e):
+  OpenedL.opened(first, hs, m, hf, hp, e)
 
 def Laws.diff_applies(parent, child, tbl, doc, e):
   Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Done{child},
