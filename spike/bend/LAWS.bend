@@ -2022,8 +2022,10 @@ law record_names_what_it_writes:
   {(String.starts_with(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))), String.eq(Main.recorded.stem(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls))))) == (True{}, Bool.not(Rev.member(T.map(~Main.Full, ~String, ~(f => Naming.base_of(Main.full.named(f))), fs), Naming.compose(when, message, Main.recorded.change(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)))))) : Bool & Bool}
 
 # Every bookmark on the change of a revision `record` records onto moves
-# with the work: of the bookmarks the store holds, one that names the
-# change of one of its parents is among those it moves.
+# with the work. Where one of the parents named is the identifier of a
+# revision the store holds, and no revision the store lists before that one
+# has the identifier, every bookmark the store holds on that revision's
+# change is among those it moves, its name and its privacy as they were.
 law record_moves_the_bookmarks_on_its_parents:
   for +a: String
   for +when: String
@@ -2042,17 +2044,25 @@ law record_moves_the_bookmarks_on_its_parents:
   for +moves: List<&2, T.Split>
   for +obs: List<&2, Sv.Obs>
   for +ls: List<&2, String>
+  for +k: Nat
+  for +p: String
+  for hp: {List.get(&2, String, ps, k) == Some{p} : Maybe<&2, String>}
+  for +m: Nat
+  for +f: Main.Full
+  for hf: {List.get(&2, Main.Full, fs, m) == Some{f} : Maybe<&2, Main.Full>}
+  for hid: {Main.id_of(f) == p : String}
+  for hfirst: {Rev.member(Main.ids(List.take(&2, Main.Full, fs, m)), p) == False{} : Bool}
   for +i: Nat
   for +n: String
-  for +c: String
   for +pr: Bool
-  for hi: {List.get(&2, Bm.Bookmark, bs, i) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}
-  for +hc: {Rev.member(Main.parents.changes(fs, ps), c) == True{} : Bool}
+  for hi: {List.get(&2, Bm.Bookmark, bs, i) == Some{Bm.Bookmark{n, Bm.Target.Change{Main.change_of(f)}, pr}} : Maybe<&2, Bm.Bookmark>}
   exs j: Nat
-  {List.get(&2, Bm.Bookmark, Main.recorded.moving(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), j) == Some{Bm.Bookmark{n, Bm.Target.Change{c}, pr}} : Maybe<&2, Bm.Bookmark>}
+  {List.get(&2, Bm.Bookmark, Main.recorded.moving(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), j) == Some{Bm.Bookmark{n, Bm.Target.Change{Main.change_of(f)}, pr}} : Maybe<&2, Bm.Bookmark>}
 
 # And no other moves: each bookmark `record` moves is one the store holds,
-# and names the change of one of its parents.
+# on the change of a revision the store holds whose identifier is one of
+# the parents named, no revision the store lists before that one having
+# the identifier.
 law record_moves_only_the_bookmarks_on_its_parents:
   for +a: String
   for +when: String
@@ -2075,14 +2085,21 @@ law record_moves_only_the_bookmarks_on_its_parents:
   for b: Bm.Bookmark
   for hj: {List.get(&2, Bm.Bookmark, Main.recorded.moving(Main.record.planned(Main.Writing{a, when, message, fl}, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)), j) == Some{b} : Maybe<&2, Bm.Bookmark>}
   exs i: Nat
-  exs c: String
-  {(List.get(&2, Bm.Bookmark, bs, i), (Bm.target_of(b), Rev.member(Main.parents.changes(fs, ps), c))) == (Some{b}, (Bm.Target.Change{c}, True{})) : Maybe<&2, Bm.Bookmark> & (Bm.Target & Bool)}
+  exs k: Nat
+  exs m: Nat
+  exs f: Main.Full
+  {(List.get(&2, Bm.Bookmark, bs, i), (Bm.target_of(b), (List.get(&2, String, ps, k), (List.get(&2, Main.Full, fs, m), Rev.member(Main.ids(List.take(&2, Main.Full, fs, m)), Main.id_of(f)))))) == (Some{b}, (Bm.Target.Change{Main.change_of(f)}, (Some{Main.id_of(f)}, (Some{f}, False{})))) : Maybe<&2, Bm.Bookmark> & (Bm.Target & (Maybe<&2, String> & (Maybe<&2, Main.Full> & Bool)))}
 
 # What `record` goes on to write is the plan the survey made, as the
-# survey made it, and only one the survey settled: where the plan is not
-# refused, the walk refused none of the paths it looked at, and a path is
-# among those `--accept` names exactly where the survey observed that
-# concurrent work states different bytes for it.
+# survey made it, and one the survey settled. Where the plan is not
+# refused, neither the walk nor the survey refused any path it looked at,
+# the survey observed no contested file of lines left empty, every link
+# the position holds is anchored — naming no file the record drops, unless
+# the link goes too or the folder's link at its path is one the record
+# observes — and a path is among those `--accept` names exactly where the
+# survey observed that concurrent work states different bytes for it.
+# That no path it looks at holds two files is
+# `record_goes_on_where_each_path_holds_one_file`.
 law record_writes_only_what_is_settled:
   for +t: Tree.Tree()
   for +looked: Tree.Tree()
@@ -2094,7 +2111,7 @@ law record_writes_only_what_is_settled:
   for pl2: Sv.Planned
   for +e: {Main.planned.r(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
   for +x: String
-  {(pl2, (walked, Rev.member(accepted, x))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))) : Sv.Planned & (List<&2, T.Split> & Bool)}
+  {(pl2, (walked, (Sv.refusals(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.emptied(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.anchored(t, Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), Sv.planned.pointing(Sv.planned(t, looked, held, walked, ss, moves))), Rev.member(accepted, x)))))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, (Nil{}, (Nil{}, (True{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x)))))) : Sv.Planned & (List<&2, T.Split> & (List<&2, T.Split> & (List<&2, String> & (Bool & Bool))))}
 
 # What `amend` rewrites is a revision the store holds: the target named,
 # or else the one head there is.

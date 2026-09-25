@@ -2671,6 +2671,36 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "record reads a parent's identifier as its change",
+            "      Bool.pick(Maybe<&2, String>, String.eq(i, id), Some{change}, full.change_of(rest, id))",
+            "      Bool.pick(Maybe<&2, String>, String.eq(i, id), Some{i}, full.change_of(rest, id))",
+            "record_lemmas.co.step",
+            "commands.bend",
+        ),
+        (
+            "record moves the bookmarks on its first parent alone",
+            "full.change_of(fs, p)), Nil{}), parents.changes(fs, rest))",
+            "full.change_of(fs, p)), Nil{}), Nil{})",
+            "record_lemmas.pc.has",
+            "commands.bend",
+        ),
+        (
+            "record writes what the survey refused",
+            "moved.paths(moves, gone)), List.append(&2, T.Split, walked, refusals(os)), cs,",
+            "moved.paths(moves, gone)), walked, cs,",
+            # `record_lemmas.settled_read` rejects it too; the checker meets
+            # `survey_lemmas.restricted_ok`, which unfolds the same field, first.
+            "survey_lemmas.restricted_ok",
+            "survey.bend",
+        ),
+        (
+            "record writes a contested file of lines left empty",
+            "sorted(accepts(os)), emptied(os), dangle(",
+            "sorted(accepts(os)), Nil{}, dangle(",
+            "record_lemmas.settled_read",
+            "survey.bend",
+        ),
+        (
             "record lets through an acceptance nothing contests",
             "Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, needless)),",
             "Bool.pick(Result<&2, &2, Refused, Sv.Planned>, False{},",
