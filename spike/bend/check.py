@@ -2266,6 +2266,13 @@ def check_mutations(temporary):
             "record_lemmas.lines_text",
             "commands.bend",
         ),
+        (
+            "record reads the position as empty",
+            "        return Before{f, items} <> later",
+            "        return Before{f, Nil{}} <> later",
+            "record_lemmas.read1",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

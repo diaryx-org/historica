@@ -704,3 +704,6 @@ def Laws.writes_say_what_they_wrote(a, when, m, facts, change, id, names, ps, pr
 
 def Laws.record_reads_lines_as_text(ks, reads, hs, e):
   RecordL.lines_text(ks, reads, hs, e)
+
+def Laws.record_reads_the_position(older, ds, left, files, bs, e):
+  RecordL.befores_read(older, ds, left, files, bs, e)

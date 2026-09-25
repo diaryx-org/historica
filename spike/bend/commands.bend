@@ -7803,6 +7803,18 @@ def contents.state(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map
     case c <> rest:
       Bool.and(content.states(befores, dg, reads, c), contents.state(befores, dg, reads, rest))
 
+# The position's content `record` reads for the files it edits: one
+# reading of each file asked about, in order, and each the store's replay
+# of that file at the position. `LAWS.record_reads_the_position`.
+def befores.read(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>, bs: List<&2, Before>) -> Bool:
+  match files bs:
+    case +f <> rest Before{+g, +items} <> more:
+      Bool.and(String.eq(g, f), Bool.and(content.applied(content.in(older, ds, left, f), items), befores.read(older, ds, left, rest, more)))
+    case Nil{} Nil{}:
+      True{}
+    case _ _:
+      False{}
+
 def drafted.contents(d: Drafted) -> List<&2, Content>:
   match d:
     case Drafted{cs, fs}:

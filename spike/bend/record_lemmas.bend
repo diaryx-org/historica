@@ -21,6 +21,7 @@ import ./naming.bend as Naming
 import ./bookmark.bend as Bm
 import ./sha256.bend as Sha
 import ./status_lemmas.bend as StatusL
+import ./store.bend as Store
 
 # Its words
 # ---------
@@ -794,3 +795,33 @@ def lines_text(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<
       lines_text(ks, reads, rest, e)
     case Main.Here{p, Some{x}, f} <> rest:
       lines_text(ks, reads, rest, e)
+
+# It reads the position's content of what it edits
+# ------------------------------------------------
+
+def read2(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +f: String, +items: List<&2, Ops.Item>, +rest: List<&2, String>, r: Result<&2, &2, Main.Refused, List<&2, Main.Before>>, -bs: List<&2, Main.Before>, er: {Main.befores.r(older, ds, left, rest) == r : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, eg: {Main.content.in(older, ds, left, f) == Done{items} : Result<&2, &2, String, List<&2, Ops.Item>>}, e: {Result.bind(&2, &2, Main.Refused, List<&2, Main.Before>, List<&2, Main.Before>, r, later => Done{Main.Before{f, items} <> later}) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, ih: @more: List<&2, Main.Before> -> {Main.befores.r(older, ds, left, rest) == Done{more} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>} -> {Main.befores.read(older, ds, left, rest, more) == True{} : Bool}) -> {Main.befores.read(older, ds, left, f <> rest, bs) == True{} : Bool}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Main.befores.read(older, ds, left, f <> rest, bs) == True{} : Bool}, B.fail_done(List<&2, Main.Before>, x, bs, e))
+    case Done{+later}:
+      %B.done_eq(List<&2, Main.Before>, Main.Before{f, items} <> later, bs, e) : {Main.befores.read(older, ds, left, f <> rest, _) == True{} : Bool}
+      %Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Main.content.in(older, ds, left, f), Done{items}, eg) : {Bool.and(String.eq(f, f), Bool.and(Main.content.applied(_, items), Main.befores.read(older, ds, left, rest, later))) == True{} : Bool}
+      B.and_tt(String.eq(f, f), Bool.and(Main.content.applied(Done{items}, items), Main.befores.read(older, ds, left, rest, later)), S.eq_refl(f),
+        B.and_tt(Main.content.applied(Done{items}, items), Main.befores.read(older, ds, left, rest, later), items_refl(items), ih(later, er)))
+
+def read1(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +f: String, +rest: List<&2, String>, got: Result<&2, &2, String, List<&2, Ops.Item>>, -bs: List<&2, Main.Before>, eg: {Main.content.in(older, ds, left, f) == got : Result<&2, &2, String, List<&2, Ops.Item>>}, e: {Main.befores.of(f, got, Main.befores.r(older, ds, left, rest)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}, ih: @more: List<&2, Main.Before> -> {Main.befores.r(older, ds, left, rest) == Done{more} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>} -> {Main.befores.read(older, ds, left, rest, more) == True{} : Bool}) -> {Main.befores.read(older, ds, left, f <> rest, bs) == True{} : Bool}:
+  match got:
+    case Fail{x}:
+      Empty.absurd({Main.befores.read(older, ds, left, f <> rest, bs) == True{} : Bool}, B.fail_done(List<&2, Main.Before>, Main.Refused{1, x}, bs, e))
+    case Done{+items}:
+      read2(older, ds, left, f, items, rest, Main.befores.r(older, ds, left, rest), bs, {==}, eg, e, ih)
+
+# What `record` reads of the position is the store's replay of each file
+# it edits, one reading each, in order.
+def befores_read(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, files: List<&2, String>, -bs: List<&2, Main.Before>, e: {Main.befores.r(older, ds, left, files) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}) -> {Main.befores.read(older, ds, left, files, bs) == True{} : Bool}:
+  match files:
+    case Nil{}:
+      %B.done_eq(List<&2, Main.Before>, Nil{}, bs, e) : {Main.befores.read(older, ds, left, Nil{}, _) == True{} : Bool}
+      {==}
+    case +f <> +rest:
+      read1(older, ds, left, f, rest, Main.content.in(older, ds, left, f), bs, {==}, e, more => h => befores_read(older, ds, left, rest, more, h))
