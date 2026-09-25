@@ -833,3 +833,125 @@ def all_runs_of_at(~A: Data, ~C: Data, ~ok: C -> A -> Bool, +c: C, xs: List<&2, 
 
 def all_sort_at(~A: Data, ~le: A -> A -> Bool, ~C: Data, ~ok: C -> A -> Bool, +c: C, +xs: List<&2, A>, +h: {all_at(~A, ~C, ~ok, c, xs) == True{} : Bool}) -> {all_at(~A, ~C, ~ok, c, List.sort(~A, ~le, xs)) == True{} : Bool}:
   all_go_at(~A, ~le, ~C, ~ok, c, List.length(&2, A, xs), List.length(&2, A, xs), List.sort.runs(A, xs), all_runs_of_at(~A, ~C, ~ok, c, xs, h))
+
+# What a sort returns is empty only where what it was given is
+# ------------------------------------------------------------
+
+def ne_rev(-A: Data, acc: List<&2, A>, +zs: List<&2, A>, h: {List.is_empty(&2, A, zs) == False{} : Bool}) -> {List.is_empty(&2, A, List.reverse.go(&2, A, acc, zs)) == False{} : Bool}:
+  match acc:
+    case Nil{}:
+      h
+    case +a <> +rest:
+      ne_rev(A, rest, a <> zs, {==})
+
+def ne_step(~A: Data, ~le: A -> A -> Bool, b: Bool, +f: Nat, +acc: List<&2, A>, +x: A, +xt: List<&2, A>, +y: A, +yt: List<&2, A>, ihf: {List.is_empty(&2, A, List.merge.go(~A, ~le, f, (y <> acc, x <> xt, yt))) == False{} : Bool}, iht: {List.is_empty(&2, A, List.merge.go(~A, ~le, f, (x <> acc, xt, y <> yt))) == False{} : Bool}) -> {List.is_empty(&2, A, List.merge.go(~A, ~le, f, List.merge.step(A, acc, x, xt, y, yt, b))) == False{} : Bool}:
+  match b:
+    case False{}:
+      ihf
+    case True{}:
+      iht
+
+# A merge with something already taken returns something.
+def ne_merge_acc(~A: Data, ~le: A -> A -> Bool, fuel: Nat, +a: A, +at: List<&2, A>, +xs: List<&2, A>, +ys: List<&2, A>) -> {List.is_empty(&2, A, List.merge.go(~A, ~le, fuel, (a <> at, xs, ys))) == False{} : Bool}:
+  match fuel:
+    case 0n:
+      ne_rev(A, at, a <> List.append(&2, A, xs, ys), {==})
+    case 1n++f:
+      match xs ys:
+        case Nil{} Nil{}:
+          ne_rev(A, at, [a], {==})
+        case Nil{} +y <> +yt:
+          ne_rev(A, at, a <> y <> yt, {==})
+        case +x <> +xt Nil{}:
+          ne_rev(A, at, a <> x <> xt, {==})
+        case +x <> +xt +y <> +yt:
+          ne_step(~A, ~le, le(x, y), f, a <> at, x, xt, y, yt,
+            ne_merge_acc(~A, ~le, f, y, a <> at, x <> xt, yt),
+            ne_merge_acc(~A, ~le, f, x, a <> at, xt, y <> yt))
+
+# A merge of a run with something in it returns something.
+def ne_merge_x(~A: Data, ~le: A -> A -> Bool, fuel: Nat, +acc: List<&2, A>, +x: A, +xt: List<&2, A>, +ys: List<&2, A>) -> {List.is_empty(&2, A, List.merge.go(~A, ~le, fuel, (acc, x <> xt, ys))) == False{} : Bool}:
+  match fuel:
+    case 0n:
+      ne_rev(A, acc, x <> List.append(&2, A, xt, ys), {==})
+    case 1n++f:
+      match ys:
+        case Nil{}:
+          ne_rev(A, acc, x <> xt, {==})
+        case +y <> +yt:
+          ne_step(~A, ~le, le(x, y), f, acc, x, xt, y, yt,
+            ne_merge_acc(~A, ~le, f, y, acc, x <> xt, yt),
+            ne_merge_acc(~A, ~le, f, x, acc, xt, y <> yt))
+
+# Every run holds something.
+def runs_ne(-A: Data, rs: List<&2, List<&2, A>>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case r <> rest:
+      Bool.and(Bool.not(List.is_empty(&2, A, r)), runs_ne(A, rest))
+
+def ne_merge_run(~A: Data, ~le: A -> A -> Bool, +n: Nat, r1: List<&2, A>, +r2: List<&2, A>, h: {Bool.not(List.is_empty(&2, A, r1)) == True{} : Bool}) -> {Bool.not(List.is_empty(&2, A, List.merge.go(~A, ~le, n, (Nil{}, r1, r2)))) == True{} : Bool}:
+  match r1:
+    case Nil{}:
+      Empty.absurd({Bool.not(List.is_empty(&2, A, List.merge.go(~A, ~le, n, (Nil{}, Nil{}, r2)))) == True{} : Bool}, S.false_true(h))
+    case +x <> +xt:
+      %Equal.sym(Bool, List.is_empty(&2, A, List.merge.go(~A, ~le, n, (Nil{}, x <> xt, r2))), False{}, ne_merge_x(~A, ~le, n, Nil{}, x, xt, r2)) : {Bool.not(_) == True{} : Bool}
+      {==}
+
+def ne_pass(~A: Data, ~le: A -> A -> Bool, +n: Nat, runs: List<&2, List<&2, A>>, +h: {runs_ne(A, runs) == True{} : Bool}) -> {runs_ne(A, List.sort.pass(~A, ~le, n, runs)) == True{} : Bool}:
+  match runs:
+    case Nil{}:
+      {==}
+    case +r <> Nil{}:
+      h
+    case +r1 <> +r2 <> +rest:
+      band_i(Bool.not(List.is_empty(&2, A, List.merge.go(~A, ~le, n, (Nil{}, r1, r2)))), runs_ne(A, List.sort.pass(~A, ~le, n, rest)),
+        ne_merge_run(~A, ~le, n, r1, r2, band_l(Bool.not(List.is_empty(&2, A, r1)), runs_ne(A, r2 <> rest), h)),
+        ne_pass(~A, ~le, n, rest, band_r(Bool.not(List.is_empty(&2, A, r2)), runs_ne(A, rest), band_r(Bool.not(List.is_empty(&2, A, r1)), runs_ne(A, r2 <> rest), h))))
+
+def ne_not(b: Bool, h: {Bool.not(b) == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.false_true(h))
+
+def ne_app(-A: Data, r: List<&2, A>, -ys: List<&2, A>, h: {Bool.not(List.is_empty(&2, A, r)) == True{} : Bool}) -> {List.is_empty(&2, A, List.append(&2, A, r, ys)) == False{} : Bool}:
+  match r:
+    case Nil{}:
+      Empty.absurd({List.is_empty(&2, A, ys) == False{} : Bool}, S.false_true(h))
+    case x <> xt:
+      {==}
+
+def ne_go(~A: Data, ~le: A -> A -> Bool, fuel: Nat, +n: Nat, runs: List<&2, List<&2, A>>, +hr: {runs_ne(A, runs) == True{} : Bool}, hl: {List.is_empty(&2, List<&2, A>, runs) == False{} : Bool}) -> {List.is_empty(&2, A, List.sort.go(~A, ~le, fuel, n, runs)) == False{} : Bool}:
+  match fuel:
+    case 0n:
+      match runs:
+        case Nil{}:
+          Empty.absurd({List.is_empty(&2, A, Nil{}) == False{} : Bool}, S.true_false(hl))
+        case +r <> +rest:
+          ne_app(A, r, List.concat(&2, A, rest), band_l(Bool.not(List.is_empty(&2, A, r)), runs_ne(A, rest), hr))
+    case 1n++f:
+      match runs:
+        case Nil{}:
+          Empty.absurd({List.is_empty(&2, A, Nil{}) == False{} : Bool}, S.true_false(hl))
+        case +r <> Nil{}:
+          ne_not(List.is_empty(&2, A, r), band_l(Bool.not(List.is_empty(&2, A, r)), True{}, hr))
+        case +r1 <> +r2 <> +rest:
+          ne_go(~A, ~le, f, n, List.sort.pass(~A, ~le, n, r1 <> r2 <> rest), ne_pass(~A, ~le, n, r1 <> r2 <> rest, hr), {==})
+
+def ne_runs(-A: Data, xs: List<&2, A>) -> {runs_ne(A, List.sort.runs(A, xs)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      ne_runs(A, rest)
+
+# A sort by any order of something returns something.
+def ne_sort(~A: Data, ~le: A -> A -> Bool, xs: List<&2, A>, h: {List.is_empty(&2, A, xs) == False{} : Bool}) -> {List.is_empty(&2, A, List.sort(~A, ~le, xs)) == False{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({List.is_empty(&2, A, List.sort(~A, ~le, Nil{})) == False{} : Bool}, S.true_false(h))
+    case +x <> +rest:
+      ne_go(~A, ~le, List.length(&2, A, x <> rest), List.length(&2, A, x <> rest), List.sort.runs(A, x <> rest), ne_runs(A, x <> rest), {==})

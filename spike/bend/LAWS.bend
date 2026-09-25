@@ -67,6 +67,7 @@ import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
 import ./standing_lemmas.bend as StandingL
+import ./forget_lemmas.bend as ForgetL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1162,14 +1163,22 @@ law chain_follows_first_parents:
   for +id: String
   {Bool.and(Main.first_parents(fs, Main.chain(fs, Some{id}), Some{id}), Bool.or(Main.line.stops(fs, Main.chain(fs, Some{id}), Some{id}), Nat.is_eq(List.length(&2, Main.Full, Main.chain(fs, Some{id})), 1n+List.length(&2, Main.Full, fs)))) == True{} : Bool}
 
-# Every revision a command reads is one a document of `revisions/` spells:
-# filed there under the digest the revision is known by, and what
-# `Rev.write` writes, byte for byte, from what the revision says — or,
-# where a path it states is not in normal form C, which the Rust tool
-# refuses only once something reads the whole of it, the refusal every
-# such reader meets, in place of its facts. Reading a store's revisions
-# takes nothing that is not such a document, and nothing of one is lost or
-# added in the reading.
+# Every revision `fulls` reads — the reading `record`, `abandon`, `amend`,
+# `carry`, `name`, `forget`, `merge`, `arrange`, `skip` and `update` open
+# the store with — is one a document of `revisions/` spells, filed there
+# under the digest the revision is known by: either what `Rev.write`
+# writes, byte for byte, from what the revision says; or the parser
+# refuses the document, `Rev.unnormal` finds a path not in normal form C
+# in it — which the Rust tool refuses only once something reads the whole
+# of it — and the revision's facts are that refusal, in the Rust tool's
+# words naming the path and the line `Rev.unnormal` finds, and the
+# revision with the facts of the document `Rev.mended` makes put back is
+# what `Rev.write` writes of that mended document. What that line is and
+# what mending may change, the two laws after the next say. The commands
+# that ask what a revision did — `log`, `diff`, `blame`, `status` and the
+# rest — open the store with `opened.fulls`, which holds besides these the
+# revisions an opening accepts and a whole reading refuses; this law does
+# not speak for those.
 law revisions_read_are_their_documents:
   for +root: String
   for +ds: List<&2, Store.Doc>
@@ -1285,11 +1294,15 @@ law forgetting_a_resolution_keeps_shape:
   for +i: Nat
   {Stand.pieces.shape(pieces, Fg.forget.pieces(pieces, ps, t, i)) == True{} : Bool}
 
-# Every document `forget --lines` writes a stand-in for, and so every
-# digest whose bytes it destroys, is one a revision states for that file —
-# its `edit`'s, or the payload its `text` states: forgetting lines of one
-# file rewrites no other file's documents, however far the walk goes to
-# find a delete quoting them or a resolution's copy.
+# Every digest `forget --lines` forgets is one some revision of the store
+# states for that file, read straight off its headers: an `edit`, `text` or
+# `bytes` header whose value is the file's path, a space and that digest.
+# And every stand-in it writes forgets one of those digests, read off the
+# stand-in's own bytes: it opens with the format line and a `forgets`
+# header naming that digest, which is the one it is filed as forgetting.
+# However far the walk goes to find a delete quoting a line or a
+# resolution's copy of it, forgetting lines of a file rewrites only what
+# a revision says of that file, and says so in what it writes.
 law forget_rewrites_only_the_files_documents:
   for +fs: List<&2, Main.Full>
   for +ds: List<&2, Store.Doc>
@@ -1302,35 +1315,7 @@ law forget_rewrites_only_the_files_documents:
   for +a: Nat
   for +n: Nat
   for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
-  {Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts) == True{} : Bool}
-
-# And it rewrites every document that quotes them. For each element the
-# file's history ever wrote, as the walk of the whole history reads it,
-# whose key is among lines `first..last` of the file at the revision, as
-# the walk of its ancestry reads them, the document the revision that wrote
-# it names for the file, and each one a revision whose delete quotes it
-# names, is among the digests the plan destroys and stands in for: no
-# document that states or deletes a forgotten line keeps it legible.
-law forget_rewrites_every_document_quoting_the_span:
-  for +fs: List<&2, Main.Full>
-  for +ds: List<&2, Store.Doc>
-  for +id: String
-  for +file: String
-  for +first: String
-  for +last: String
-  for +plan: Fg.FgPlan
-  for e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{plan} : Result<&2, &2, Main.Refused, Fg.FgPlan>}
-  for +at: List<&2, Fg.FgQuoted>
-  for ea: {Fg.quotes(Main.walked.ancestry(fs, id), ds, id, file) == Done{at} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}
-  for +every: List<&2, Fg.FgQuoted>
-  for ev: {Fg.quotes(Fg.by_digest(fs), ds, id, file) == Done{every} : Result<&2, &2, String, List<&2, Fg.FgQuoted>>}
-  for +i: Nat
-  for +q: Fg.FgQuoted
-  for hq: {List.get(&2, Fg.FgQuoted, every, i) == Some{q} : Maybe<&2, Fg.FgQuoted>}
-  for hs: {Rev.member(Fg.span.keys(Fg.quoted.visible(at), first, last), Fg.quoted.key(q)) == True{} : Bool}
-  for +d: String
-  for hd: {ForgettingL.quotes(q, Fg.named(fs, file), d) == True{} : Bool}
-  {Rev.member(ForgettingL.plan.targets(plan), d) == True{} : Bool}
+  {Bool.and(ForgetL.all_stated(fs, file, ts), ForgetL.written.all(ts, ws)) == True{} : Bool}
 
 # Forgetting a file of bytes forgets the payload its tree holds for it at
 # the revision named, or nothing: another version of the file is another
@@ -1367,9 +1352,13 @@ law forget_destroys_only_what_it_forgets:
   for e: {Rev.member(Fg.destroyed(fs, ts), p) == True{} : Bool}
   {Rev.member(Fg.holding(fs, ts), p) == True{} : Bool}
 
-# `forget` reads its arguments as their plain reading says: every flag it
-# knows set aside, and with `--lines` the word after it, whatever that word
-# is; what is left, in order, is the target and the path.
+# `forget` reads its arguments as their plain reading says, read with no
+# classifier of its own: set aside each `--lines` and the word after it,
+# whatever that word is, and the target and the path are the words left
+# that do not open with `-`, in order; it is a dry run exactly where `-n`
+# or `--dry-run` is among the words left, and asked for `--fields` exactly
+# where `--fields` is; and the span is `span.r` of the word after the last
+# `--lines`, or none where no `--lines` is.
 law forget_reads_its_words:
   for +ws: List<&2, String>
   for +t: String
@@ -1378,16 +1367,17 @@ law forget_reads_its_words:
   for +d: Bool
   for +f: Bool
   for e: {Fg.asked.r(ws) == Done{Fg.Fg.Asked{t, p, sp, d, f}} : Result<&2, &2, Main.Refused, Fg.FgAsked>}
-  {Fg.plain(ws, False{}) == [t, p] : List<&2, String>}
+  {(ForgetL.plain.said(ws, False{}), (ForgetL.dry.said(ws, False{}), (ForgetL.fields.said(ws, False{}), Fg.asked.span(ForgetL.lines.said(ws, False{}))))) == ([t, p], (d, (f, Done{sp}))) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}
 
-# What `forget` removes from `cache/` is an entry named by a digest — a
-# copy of some file's content, which may be a copy of what went — and
-# nothing else there: the note `init` writes and the catalogues survive.
+# And nothing else there: an entry `forget` removes from `cache/` is one
+# the host listed, and its name past `cache/` is a digest — as the Rust
+# store's `clear_cache` has it, an entry is named by a digest and nothing
+# else is.
 law forget_clears_only_copies:
-  for ps: List<&2, String>
-  for +p: String
-  for e: {Rev.member(Fg.cached(ps), p) == True{} : Bool}
-  {T.is_digest(String.drop(p, 6n)) == True{} : Bool}
+  for +ps: List<&2, String>
+  for +n: String
+  for h: {Rev.member(Fg.cached(ps), "cache/" ++ n) == True{} : Bool}
+  {Bool.and(T.is_digest(n), Rev.member(ps, "cache/" ++ n)) == True{} : Bool}
 
 # What `forget` prints reads back as what it does. Asked for `--fields`,
 # decision 0074's statement: a `gone` line for each digest the plan made
@@ -1412,10 +1402,8 @@ law forget_says_what_it_destroys:
   {ForgettingL.destroyed.read(Fg.said(p, False{}, ds, lines, dry), Bool.pick(String, dry, "would destroy", "destroyed")) == ds : List<&2, String>}
 
 # Every document `forget` writes is filed as one, its name ending
-# `.ops.txt`, and at the name its own bytes give it under `operations/` or
-# at one no file there has yet: a payload's stand-in goes where the payload
-# was (decision 0066) only where that name is free, and never over another
-# file.
+# `.ops.txt`, and never over another file: at the name its own bytes give
+# it under `operations/`, or at a name no file there has yet.
 law forget_files_documents_where_nothing_is:
   for +fs: List<&2, Fg.FgFiled>
   for +ds: List<&2, String>
@@ -1431,16 +1419,17 @@ law forget_takes_no_file_of_lines_whole:
   for +file: String
   {Result.is_done(&2, &2, Main.Refused, Fg.FgPlan, Fg.io.lines.plan.r(fs, ds, id, file, None{})) == False{} : Bool}
 
-# After a forgetting, the sweep of `operations/` removes a directory only
-# where it listed and listed nothing — one that will not list is kept —
-# and never `operations/` itself, the path of no name.
+# After a forgetting, the Rust store removes every directory under
+# `operations/` left empty, and the port sweeps for them a listing at a
+# time. What one listing adds to what is removed is exactly the directory
+# listed, where the listing was read and said nothing: never one that
+# would not list, and never `operations/` itself, the path of no name.
 law forget_sweeps_only_what_lists_empty:
   for +dir: String
   for r: Result<&1, &1, U32 & String, String>
   for +found: List<&2, String>
   for +p: String
-  for h: {Rev.member(Fg.swept.empty(dir, Fg.io.listed(r), found), p) == True{} : Bool}
-  {Bool.or(Rev.member(found, p), Bool.and(String.eq(dir, p), ForgettingL.emptied(dir, r))) == True{} : Bool}
+  {Rev.member(Fg.swept.empty(dir, Fg.io.listed(r), found), p) == Bool.or(Rev.member(found, p), Bool.and(String.eq(dir, p), ForgettingL.emptied(dir, r))) : Bool}
 
 # Decision 0014: replay does not consult payload. A document whose every
 # item is the one written or that item forgotten — a stand-in, which states
@@ -1461,20 +1450,9 @@ law standin_replays_like_what_it_stands_in_for:
   for +hops: {Stand.ops.like(ops1, ops2) == True{} : Bool}
   {Stand.result.like(Ops.apply(st1, Ops.Doc{f, r, ops1}), Ops.apply(st2, Ops.Doc{f2, None{}, ops2})) == True{} : Bool}
 
-# So a file's history replayed through stand-ins — any of its documents
-# forgotten, in any part — reads the forgotten lines as forgotten items and
-# every other line as it was, wherever the history replays.
-law chain_replays_like_through_standins:
-  for ds1: List<&2, List<&2, Ops.Op>>
-  for ds2: List<&2, List<&2, Ops.Op>>
-  for r1: Result<&2, &2, String, List<&2, Ops.Item>>
-  for r2: Result<&2, &2, String, List<&2, Ops.Item>>
-  for +hd: {Stand.docs.like(ds1, ds2) == True{} : Bool}
-  for +hr: {Stand.result.like(r1, r2) == True{} : Bool}
-  {Stand.result.like(Merge.replay(ds1, r1), Merge.replay(ds2, r2)) == True{} : Bool}
-
-# And what `forget` writes is such a stand-in: the document it stands in
-# for, with the text of the items picked destroyed and nothing else.
+# And what `forget` writes is such a stand-in: operation for operation,
+# the document it stands in for with every verb, position and terminator
+# kept and each item as it was or forgotten.
 law forgetting_destroys_only_text:
   for ops: List<&2, Ops.Op>
   for +ps: List<&2, Fg.FgPick>
@@ -4641,3 +4619,131 @@ law a_stand_in_stands_for_what_it_forgets:
   for +ss: List<&2, StandingL.Standing>
   for +h: {Bool.and(HostL.all_nonl(ds), StandingL.standing_ok(ss)) == True{} : Bool}
   {Store.standing.of(ds, StandingL.docs(ss)) == StandingL.docs(StandingL.kept(ds, ss)) : List<&2, Store.Doc>}
+
+# And nothing is lost in the reading: every document of `revisions/` the
+# parser accepts, or refuses only for a path not in normal form C and
+# accepts with that path mended, is read as a revision known by its digest
+# and spelled by it as above.
+law revisions_read_lose_no_document:
+  for +root: String
+  for +ds: List<&2, Store.Doc>
+  {FullsL.all_read(root, ds, Main.fulls(root, ds)) == True{} : Bool}
+
+# The line `Rev.unnormal` names is where the fault is: counting the format
+# line as the first, it is an `add` or `move` header ending in a space and
+# the path it names, that path is not in normal form C, and no line before
+# it is blank, so it is among the headers.
+law unnormal_names_its_line:
+  for s: String
+  for +n: Nat
+  for +q: String
+  for h: {Rev.unnormal(s) == Some{Rev.Unnormal{n, q}} : Maybe<&2, Rev.Unnormal>}
+  {FullsL.line.at(String.split(s, '\n'), 1n, n, q) == True{} : Bool}
+
+# And mending changes no more than the headers that name paths: the lines
+# `Rev.mended` joins are as many as the document's, an `add` header stays
+# an `add` header and a `move` one a `move` one, every other header is
+# left as it is, and from the blank line that ends the headers on — the
+# message — every line is the document's own.
+law mended_changes_only_path_headers:
+  for s: String
+  {FullsL.mended.agrees(String.split(s, '\n'), Rev.mended.go(String.split(s, '\n'))) == True{} : Bool}
+
+# What `forget` removes from `cache/` is a copy of some file's content —
+# which may be a copy of what went — and every one: each entry the host
+# lists there as `cache/` and a digest goes.
+law forget_clears_every_copy:
+  for ps: List<&2, String>
+  for +d: String
+  for +hd: {T.is_digest(d) == True{} : Bool}
+  for hm: {Rev.member(ps, "cache/" ++ d) == True{} : Bool}
+  {Rev.member(Fg.cached(ps), "cache/" ++ d) == True{} : Bool}
+
+# So, whatever `cache/` lists, the note `init` writes (`cache/README.txt`)
+# and the Rust store's three catalogues (`cache/operations.txt`,
+# `cache/working.txt`, `cache/revisions.txt`) survive a forgetting.
+law forget_keeps_the_note_and_catalogues:
+  for +ps: List<&2, String>
+  {Bool.or(Rev.member(Fg.cached(ps), "cache/README.txt"), Bool.or(Rev.member(Fg.cached(ps), "cache/operations.txt"), Bool.or(Rev.member(Fg.cached(ps), "cache/working.txt"), Rev.member(Fg.cached(ps), "cache/revisions.txt")))) == False{} : Bool}
+
+# Decision 0066: a payload's stand-in goes where the payload was. Forget
+# the bytes `t` where no document of `operations/` holds them and some
+# payload does: the stand-in `forget` writes for them is filed at the name
+# of a file there that is no document and holds `t`, with `.ops.txt`
+# added, and no file there has that name yet — wherever no payload holding
+# `t` has that name taken.
+law forget_files_a_payloads_standin_where_it_was:
+  for +fs: List<&2, Fg.FgFiled>
+  for +t: String
+  for +text: String
+  for hd: {ForgettingL.holds.doc(fs, t) == False{} : Bool}
+  for hp: {ForgettingL.holds.payload(fs, t) == True{} : Bool}
+  for hf: {ForgettingL.free.beside(fs, fs, t) == True{} : Bool}
+  {ForgettingL.beside.ok(fs, t, Fg.filed.as(fs, Fg.destroyed(fs, [t]), Fg.Fg.Write{t, text, True{}})) == True{} : Bool}
+
+# And where every payload holding `t` has that name taken, the stand-in
+# goes to the one name nothing else can claim: its own digest's, under
+# `operations/`.
+law forget_files_a_payloads_standin_by_its_digest_where_that_is_taken:
+  for +fs: List<&2, Fg.FgFiled>
+  for +t: String
+  for +text: String
+  for hd: {ForgettingL.holds.doc(fs, t) == False{} : Bool}
+  for hp: {ForgettingL.holds.payload(fs, t) == True{} : Bool}
+  for hf: {ForgettingL.taken.beside(fs, fs, t) == True{} : Bool}
+  {Fg.filed.as(fs, Fg.destroyed(fs, [t]), Fg.Fg.Write{t, text, True{}}) == "operations/" ++ Sha.digest(Utf8.encode(text)) ++ ".ops.txt" : String}
+
+# The directories the sweep goes on to list are ones the listing it read
+# names on a `d ` line, each under the directory listed.
+law forget_sweeps_only_listed_directories:
+  for +dir: String
+  for ls: List<&2, String>
+  for skip: Bool
+  for +p: String
+  for h: {Rev.member(Fg.swept.dirs(dir, ls, skip), p) == True{} : Bool}
+  {Rev.member(ForgettingL.named_dirs(dir, ls), p) == True{} : Bool}
+
+# A link's line, and its target on the line after it, name no directory
+# to sweep, whatever the target says.
+law forget_sweeps_past_a_links_target:
+  for +dir: String
+  for x: String
+  for +t: String
+  for +rest: List<&2, String>
+  {Fg.swept.dirs(dir, ("l " ++ x) <> t <> rest, False{}) == Fg.swept.dirs(dir, rest, False{}) : List<&2, String>}
+
+# So a file's history as the `replay` command reads it — the stored
+# documents applied in order — replayed with any of its operation
+# documents replaced by one that parses to a stand-in for it, which states
+# no result and whose operations are the original's with items forgotten,
+# and with its payloads as they were, makes a file wherever the original
+# history makes one, from alike files; and each line of that file is the
+# original's line or that line forgotten.
+law replay_reads_alike_through_standins:
+  for ds1: List<&2, Store.Doc>
+  for ds2: List<&2, Store.Doc>
+  for +r1: Result<&2, &2, String, List<&2, Ops.Item>>
+  for +r2: Result<&2, &2, String, List<&2, Ops.Item>>
+  for +hd: {ForgetL.stored.like(ds1, ds2) == True{} : Bool}
+  for +hr: {Stand.result.like(r1, r2) == True{} : Bool}
+  {Stand.result.like(Main.replay.go(ds1, r1), Main.replay.go(ds2, r2)) == True{} : Bool}
+
+# Which items it forgets is exactly the ones picked: item `j` of operation
+# `k` of the original — the operation numbered `i + k` in the picks — comes
+# out under the same verb and position with its text gone, marked forgotten
+# and its terminator kept where a pick names it, and as it was where none
+# does.
+law forgetting_destroys_the_picked_text:
+  for ops: List<&2, Ops.Op>
+  for +ps: List<&2, Fg.FgPick>
+  for +t: String
+  for +i: Nat
+  for +k: Nat
+  for +j: Nat
+  for kind: Ops.Verb
+  for +at: Nat
+  for x: String
+  for +n: Bool
+  for f: Bool
+  for h: {ForgetL.item.of(ops, k, j) == Some{Ops.Op{kind, at, [Ops.Item{x, n, f}]}} : Maybe<&2, Ops.Op>}
+  {ForgetL.item.of(Fg.forget.ops(ops, ps, t, i), k, j) == Some{Ops.Op{kind, at, [Bool.pick(Ops.Item, Fg.picked.has(ps, t, Nat.add(i, k), j), Ops.Item{SNil{}, n, True{}}, Ops.Item{x, n, f})]}} : Maybe<&2, Ops.Op>}

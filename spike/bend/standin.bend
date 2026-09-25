@@ -519,16 +519,6 @@ def result.like(a: Result<&2, &2, String, List<&2, Ops.Item>>, b: Result<&2, &2,
     case Done{x} Fail{e}:
       False{}
 
-# A chain of documents alike, one by one.
-def docs.like(a: List<&2, List<&2, Ops.Op>>, b: List<&2, List<&2, Ops.Op>>) -> Bool:
-  match a b:
-    case Nil{} Nil{}:
-      True{}
-    case x <> xs y <> ys:
-      Bool.and(ops.like(x, y), docs.like(xs, ys))
-    case _ _:
-      False{}
-
 # What a stand-in is owed
 # -----------------------
 
