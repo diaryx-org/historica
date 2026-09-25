@@ -15,6 +15,8 @@ import ./text.bend as T
 import ./tree.bend as Tree
 import ./revision.bend as Rev
 import ./ops.bend as Ops
+import ./string_lemmas.bend as S
+import ./folder.bend as Folder
 
 # The folder
 # ----------
@@ -182,3 +184,166 @@ def written_shared(rs: List<&2, Receive.Ruled>, +existing: Set(), +done: List<&2
 # Every rule file the copy is given states a shared rule.
 def rules(+rs: List<&2, Receive.Ruled>) -> {Export.lines.shared(Export.rules.files(rs)) == True{} : Bool}:
   written_shared(Export.rules.shared(rs), Set.from_list(["README.txt"]), Nil{}, Nil{}, shared_all(rs))
+
+# Catching a folder up
+# --------------------
+
+def and_tt(a: Bool, b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      eb
+    case False{}:
+      Empty.absurd({Bool.and(False{}, b) == True{} : Bool}, S.false_true(ea))
+
+def or_r(a: Bool, -b: Bool, e: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      e
+
+# A write or a link at a path lands where what the walk found there is
+# what `s` is.
+def over_at(+put: Export.Put, +path: String, -s: Maybe<&2, Export.Seen>, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, ep: {Export.put.path(put) == path : String}, es: {Export.seen.find(ss, path) == s : Maybe<&2, Export.Seen>}, h: {Export.over.ok(whole, rs, path, Export.held.digest(s)) == True{} : Bool}) -> {Export.over.ok(whole, rs, Export.put.path(put), Export.held.digest(Export.seen.find(ss, Export.put.path(put)))) == True{} : Bool}:
+  %Equal.sym(String, Export.put.path(put), path, ep) : {Export.over.ok(whole, rs, _, Export.held.digest(Export.seen.find(ss, _))) == True{} : Bool}
+  %Equal.sym(Maybe<&2, Export.Seen>, Export.seen.find(ss, path), s, es) : {Export.over.ok(whole, rs, path, Export.held.digest(_)) == True{} : Bool}
+  h
+
+# Over a file whose bytes some revision records, and nowhere else.
+def over_file(r: Bool, link: Bool, +put: Export.Put, +path: String, +p: String, +d: String, +runs: Bool, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, er: {Export.recorded(whole, rs, path, d) == r : Bool}, ep: {Export.put.path(put) == path : String}, es: {Export.seen.find(ss, path) == Some{Export.Seen.File{p, d, runs}} : Maybe<&2, Export.Seen>}) -> {Export.step.safe(Bool.pick(Export.Step, r, Bool.pick(Export.Step, link, Export.Step.Link{put}, Export.Step.Write{put, True{}}), Export.Step.Refuse{path, Export.UNRECORDED()}), ss, whole, rs) == True{} : Bool}:
+  match r:
+    case True{}:
+      match link:
+        case True{}:
+          over_at(put, path, Some{Export.Seen.File{p, d, runs}}, ss, whole, rs, ep, es, er)
+        case False{}:
+          over_at(put, path, Some{Export.Seen.File{p, d, runs}}, ss, whole, rs, ep, es, er)
+    case False{}:
+      {==}
+
+# Keeping, or setting a mode, writes nothing over.
+def same_safe(eq: Bool, runs: Bool, wanted: Bool, +path: String, +over: Export.Step, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, ho: {Export.step.safe(over, ss, whole, rs) == True{} : Bool}) -> {Export.step.safe(Export.step.same(path, eq, runs, wanted, over), ss, whole, rs) == True{} : Bool}:
+  match eq:
+    case True{}:
+      match runs wanted:
+        case True{} True{}:
+          {==}
+        case True{} False{}:
+          {==}
+        case False{} True{}:
+          {==}
+        case False{} False{}:
+          {==}
+    case False{}:
+      ho
+
+def link_same(q: Bool, +put: Export.Put, +path: String, +p: String, +t: String, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, ep: {Export.put.path(put) == path : String}, es: {Export.seen.find(ss, path) == Some{Export.Seen.Link{p, t}} : Maybe<&2, Export.Seen>}) -> {Export.step.safe(Bool.pick(Export.Step, q, Export.Step.Keep{}, Export.Step.Link{put}), ss, whole, rs) == True{} : Bool}:
+  match q:
+    case True{}:
+      {==}
+    case False{}:
+      over_at(put, path, Some{Export.Seen.Link{p, t}}, ss, whole, rs, ep, es, {==})
+
+def absent_safe(pr: Export.Probe, link: Bool, +put: Export.Put, +path: String, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, ep: {Export.put.path(put) == path : String}, es: {Export.seen.find(ss, path) == None{} : Maybe<&2, Export.Seen>}) -> {Export.step.safe(Export.step.absent(put, path, pr, link), ss, whole, rs) == True{} : Bool}:
+  match pr link:
+    case Export.Probe.Nothing{} True{}:
+      over_at(put, path, None{}, ss, whole, rs, ep, es, {==})
+    case Export.Probe.Nothing{} False{}:
+      over_at(put, path, None{}, ss, whole, rs, ep, es, {==})
+    case Export.Probe.Dir{} _:
+      {==}
+    case Export.Probe.Other{} True{}:
+      {==}
+    case Export.Probe.Other{} False{}:
+      {==}
+
+def seen_link(lk: Bool, +put: Export.Put, +path: String, +p: String, +t: String, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, ep: {Export.put.path(put) == path : String}, es: {Export.seen.find(ss, path) == Some{Export.Seen.Link{p, t}} : Maybe<&2, Export.Seen>}) -> {Export.step.safe(Bool.pick(Export.Step, lk, Bool.pick(Export.Step, String.eq(t, Export.put.target(put)), Export.Step.Keep{}, Export.Step.Link{put}), Export.Step.Refuse{path, "a symbolic link stands there"}), ss, whole, rs) == True{} : Bool}:
+  match lk:
+    case True{}:
+      link_same(String.eq(t, Export.put.target(put)), put, path, p, t, ss, whole, rs, ep, es)
+    case False{}:
+      {==}
+
+def seen_file(lk: Bool, +put: Export.Put, +path: String, +p: String, +d: String, +runs: Bool, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, ep: {Export.put.path(put) == path : String}, es: {Export.seen.find(ss, path) == Some{Export.Seen.File{p, d, runs}} : Maybe<&2, Export.Seen>}) -> {Export.step.safe(Bool.pick(Export.Step, lk, Bool.pick(Export.Step, Export.recorded(whole, rs, path, d), Bool.pick(Export.Step, lk, Export.Step.Link{put}, Export.Step.Write{put, True{}}), Export.Step.Refuse{path, Export.UNRECORDED()}), Export.step.same(path, String.eq(d, Export.put.digest(put)), runs, Export.put.runs(put), Bool.pick(Export.Step, Export.recorded(whole, rs, path, d), Bool.pick(Export.Step, lk, Export.Step.Link{put}, Export.Step.Write{put, True{}}), Export.Step.Refuse{path, Export.UNRECORDED()}))), ss, whole, rs) == True{} : Bool}:
+  match lk:
+    case True{}:
+      over_file(Export.recorded(whole, rs, path, d), True{}, put, path, p, d, runs, ss, whole, rs, {==}, ep, es)
+    case False{}:
+      same_safe(String.eq(d, Export.put.digest(put)), runs, Export.put.runs(put), path, Bool.pick(Export.Step, Export.recorded(whole, rs, path, d), Bool.pick(Export.Step, False{}, Export.Step.Link{put}, Export.Step.Write{put, True{}}), Export.Step.Refuse{path, Export.UNRECORDED()}), ss, whole, rs,
+        over_file(Export.recorded(whole, rs, path, d), False{}, put, path, p, d, runs, ss, whole, rs, {==}, ep, es))
+
+# One path the tree places: whatever stands there, the step writes over a
+# regular file only where some revision records its bytes.
+def held_safe(+put: Export.Put, +path: String, +lk: Bool, s: Maybe<&2, Export.Seen>, pr: Export.Probe, +ss: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, ep: {Export.put.path(put) == path : String}, es: {Export.seen.find(ss, path) == s : Maybe<&2, Export.Seen>}) -> {Export.step.safe(Export.step.held(put, path, lk, s, pr, whole, rs), ss, whole, rs) == True{} : Bool}:
+  match s:
+    case None{}:
+      absent_safe(pr, lk, put, path, ss, whole, rs, ep, es)
+    case Some{Export.Seen.Link{+p, +t}}:
+      seen_link(lk, put, path, p, t, ss, whole, rs, ep, es)
+    case Some{Export.Seen.File{+p, +d, +runs}}:
+      seen_file(lk, put, path, p, d, runs, ss, whole, rs, ep, es)
+
+def step_safe(o: Export.Outcome, +ss: List<&2, Export.Seen>, +dirs: Set(), +others: Set(), +whole: Bool, +rs: List<&2, Export.Rec>) -> {Export.step.safe(Export.step.of(o, ss, dirs, others, whole, rs), ss, whole, rs) == True{} : Bool}:
+  match o:
+    case Export.Outcome.Refused{p, b}:
+      {==}
+    case Export.Outcome.Laid{+put}:
+      held_safe(put, Export.put.path(put), Export.is.link(put), Export.seen.find(ss, Export.put.path(put)), Export.probe.of(Arrange.has(dirs, Export.put.path(put)), Arrange.has(others, Export.put.path(put))), ss, whole, rs, {==}, {==})
+
+# The folder's plan writes over no work nothing has recorded.
+def steps_safe(os: List<&2, Export.Outcome>, +ss: List<&2, Export.Seen>, +dirs: Set(), +others: Set(), +whole: Bool, +rs: List<&2, Export.Rec>) -> {Export.steps.safe(Export.steps(os, ss, dirs, others, whole, rs), ss, whole, rs) == True{} : Bool}:
+  match os:
+    case Nil{}:
+      {==}
+    case +o <> +rest:
+      and_tt(Export.step.safe(Export.step.of(o, ss, dirs, others, whole, rs), ss, whole, rs), Export.steps.safe(Export.steps(rest, ss, dirs, others, whole, rs), ss, whole, rs),
+        step_safe(o, ss, dirs, others, whole, rs), steps_safe(rest, ss, dirs, others, whole, rs))
+
+# Removing
+# --------
+
+def and_r(a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      e
+    case False{}:
+      Empty.absurd({b == True{} : Bool}, S.false_true(e))
+
+def and_l(a: Bool, -b: Bool, e: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(e))
+
+# A path with something to remove at it among the walk's entries still has
+# it with one more entry in front.
+def removed_more(ps: List<&2, String>, +s: Export.Seen, +rest: List<&2, Export.Seen>, +whole: Bool, +rs: List<&2, Export.Rec>, +h: {Export.removed.ok(ps, rest, whole, rs) == True{} : Bool}) -> {Export.removed.ok(ps, s <> rest, whole, rs) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +more:
+      and_tt(Export.witness(s <> rest, p, whole, rs), Export.removed.ok(more, s <> rest, whole, rs),
+        or_r(Bool.and(String.eq(Export.seen.path(s), p), Export.seen.gone(s, whole, rs)), Export.witness(rest, p, whole, rs), and_l(Export.witness(rest, p, whole, rs), Export.removed.ok(more, rest, whole, rs), h)),
+        removed_more(more, s, rest, whole, rs, and_r(Export.witness(rest, p, whole, rs), Export.removed.ok(more, rest, whole, rs), h)))
+
+def removed_step(c: Bool, +s: Export.Seen, +rest: List<&2, Export.Seen>, +placed: Set(), +whole: Bool, +rs: List<&2, Export.Rec>, +ec: {Bool.and(Bool.not(Arrange.has(placed, Export.seen.path(s))), Export.seen.gone(s, whole, rs)) == c : Bool}, +ih: {Export.removed.ok(Export.removes(rest, placed, whole, rs), rest, whole, rs) == True{} : Bool}) -> {Export.removed.ok(Tree.keep(~String, c, Export.seen.path(s), Export.removes(rest, placed, whole, rs)), s <> rest, whole, rs) == True{} : Bool}:
+  match c:
+    case True{}:
+      +gone = and_r(Bool.not(Arrange.has(placed, Export.seen.path(s))), Export.seen.gone(s, whole, rs), ec)
+      and_tt(Export.witness(s <> rest, Export.seen.path(s), whole, rs), Export.removed.ok(Export.removes(rest, placed, whole, rs), s <> rest, whole, rs),
+        %Equal.sym(Bool, String.eq(Export.seen.path(s), Export.seen.path(s)), True{}, S.eq_refl(Export.seen.path(s))) : {Bool.or(Bool.and(_, Export.seen.gone(s, whole, rs)), Export.witness(rest, Export.seen.path(s), whole, rs)) == True{} : Bool}
+        %Equal.sym(Bool, Export.seen.gone(s, whole, rs), True{}, gone) : {Bool.or(Bool.and(True{}, _), Export.witness(rest, Export.seen.path(s), whole, rs)) == True{} : Bool}
+        {==},
+        removed_more(Export.removes(rest, placed, whole, rs), s, rest, whole, rs, ih))
+    case False{}:
+      removed_more(Export.removes(rest, placed, whole, rs), s, rest, whole, rs, ih)
+
+# Everything the folder's plan removes is something the walk found that
+# some revision records, or that the export's own output is.
+def removes_safe(ss: List<&2, Export.Seen>, +placed: Set(), +whole: Bool, +rs: List<&2, Export.Rec>) -> {Export.removed.ok(Export.removes(ss, placed, whole, rs), ss, whole, rs) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case +s <> +rest:
+      removed_step(Bool.and(Bool.not(Arrange.has(placed, Export.seen.path(s))), Export.seen.gone(s, whole, rs)), s, rest, placed, whole, rs, {==}, removes_safe(rest, placed, whole, rs))
