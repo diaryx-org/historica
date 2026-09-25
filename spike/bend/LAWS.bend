@@ -2766,6 +2766,22 @@ law export_updates_only_a_copy_it_could_have_made:
   for +cfs: List<&2, Main.Full>
   {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == Bool.and(Receive.related(fs, cfs), Export.heard.all(cfs, fs)) : Bool}
 
+# Bringing a copy up to date gives it no private rule either (decision
+# 0051): every rule file an update adds to the copy states a shared rule,
+# whatever the copy already states and whatever label each is filed under.
+law export_update_states_no_private_rule:
+  for +held: List<&2, Main.Full>
+  for +t: Tree.Tree()
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, T.Split>
+  for +bodies: List<&2, Prune.Body>
+  for +rs: List<&2, Receive.Ruled>
+  for +bs: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +cst: Prune.Stored
+  for +retired: Set()
+  {Export.lines.shared(Export.rules.added(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), cst, retired)) == True{} : Bool}
+
 # Catching a copy's folder up leaves it holding what a fresh export of the
 # same target lays out (decision 0052): wherever the folder's plan is made,
 # the fresh folder can be laid out too, and once each of the plan's steps is

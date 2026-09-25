@@ -13,6 +13,10 @@ import ./text.bend as T
 import ./sort_lemmas.bend as SortL
 import ./anchor_lemmas.bend as AL
 import ./arrange.bend as Arrange
+import ./prune.bend as Prune
+import ./tree.bend as Tree
+import ./store.bend as Store
+import ./bookmark.bend as Bm
 
 # Which copy an export writes into
 # --------------------------------
@@ -66,3 +70,28 @@ def rel_step(b: Bool, +into: String, +fs: List<&2, Main.Full>, +cfs: List<&2, Ma
 # store and holds no revision this store has not heard of.
 def copy_done(+into: String, +fs: List<&2, Main.Full>, +cfs: List<&2, Main.Full>) -> {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == Bool.and(Receive.related(fs, cfs), Export.heard.all(cfs, fs)) : Bool}:
   rel_step(Receive.related(fs, cfs), into, fs, cfs)
+
+# The rules an update gives a copy
+# --------------------------------
+
+def unstated_step(c: Bool, +f: String, +line: String, +l: String, +rest: List<&2, Receive.Ruled>, +stated: Set(), hl: {Bool.not(String.starts_with(line, "private")) == True{} : Bool}, ih: {ExportL.all_shared(Export.rules.unstated(rest, stated)) == True{} : Bool}) -> {ExportL.all_shared(Tree.keep(~Receive.Ruled, c, Receive.Ruled{f, line, l}, Export.rules.unstated(rest, stated))) == True{} : Bool}:
+  match c:
+    case True{}:
+      ExportL.and_tt(Bool.not(String.starts_with(line, "private")), ExportL.all_shared(Export.rules.unstated(rest, stated)), hl, ih)
+    case False{}:
+      ih
+
+# Leaving out what a copy states keeps every rule left shared.
+def unstated_shared(rs: List<&2, Receive.Ruled>, +stated: Set(), +h: {ExportL.all_shared(rs) == True{} : Bool}) -> {ExportL.all_shared(Export.rules.unstated(rs, stated)) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case Receive.Ruled{+f, +line, +l} <> +rest:
+      unstated_step(Bool.not(Arrange.has(stated, line)), f, line, l, rest, stated,
+        ExportL.and_l(Bool.not(String.starts_with(line, "private")), ExportL.all_shared(rest), h),
+        unstated_shared(rest, stated, ExportL.and_r(Bool.not(String.starts_with(line, "private")), ExportL.all_shared(rest), h)))
+
+# Every rule file an update gives a copy states a shared rule.
+def added_shared(+held: List<&2, Main.Full>, +t: Tree.Tree(), +ds: List<&2, Store.Doc>, +ps: List<&2, T.Split>, +bodies: List<&2, Prune.Body>, +rs: List<&2, Receive.Ruled>, +bs: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +cst: Prune.Stored, +retired: Set()) -> {Export.lines.shared(Export.rules.added(Export.plan.of(held, t, ds, ps, bodies, rs, bs, claims), cst, retired)) == True{} : Bool}:
+  ExportL.written_shared(Export.rules.unstated(Export.rules.shared(rs), Set.from_list(Export.rules.lines(Receive.ruled(Export.keep.unretired(Receive.stored.rules(cst), retired))))), Set.from_list(Export.rule.labels(Export.keep.unretired(Receive.stored.rules(cst), retired))), Nil{}, Nil{},
+    unstated_shared(Export.rules.shared(rs), Set.from_list(Export.rules.lines(Receive.ruled(Export.keep.unretired(Receive.stored.rules(cst), retired)))), ExportL.shared_all(rs)))
