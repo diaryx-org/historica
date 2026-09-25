@@ -2210,6 +2210,13 @@ def check_mutations(temporary):
             "record_lemmas.advancing_follows",
             "commands.bend",
         ),
+        (
+            "record lets through an acceptance nothing contests",
+            "Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, needless)),",
+            "Bool.pick(Result<&2, &2, Refused, Sv.Planned>, False{},",
+            "record_lemmas.settled",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

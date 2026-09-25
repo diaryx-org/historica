@@ -1403,3 +1403,16 @@ law record_names_what_it_writes:
   for +obs: List<&2, Sv.Obs>
   for +ls: List<&2, String>
   {Main.record.named(w, Sv.sorted(Sv.added(obs)), Main.parents.changes(fs, ps), Main.record.planned(w, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)) == True{} : Bool}
+
+# What `record` goes on to write is a plan the survey settled. Where it
+# is not refused, no path is claimed by several files, nothing is there
+# that the format cannot record, nothing a merge would leave empty, no
+# link dangles, and the attachments accepted are exactly the ones
+# concurrent work states different bytes for.
+law record_writes_only_what_is_settled:
+  for +looked: Tree.Tree()
+  for pl: Sv.Planned
+  for +accepted: List<&2, String>
+  for pl2: Sv.Planned
+  for e: {Main.planned.r(looked, pl, accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
+  {Main.planned.settled(pl2, accepted) == True{} : Bool}
