@@ -11,6 +11,7 @@ import ./bookmark_lemmas.bend as BmL
 import ./text.bend as T
 import ./skip_lemmas.bend as SkipL
 import ./composition_lemmas.bend as Comp
+import ./sort_lemmas.bend as SortL
 
 # The report
 # ----------
@@ -526,3 +527,121 @@ def reads_line(+ds: List<&2, String>, +fs: List<&2, String>, +ls: List<&2, Strin
       reads_other(fs, ls, dir, "u " ++ n, rest, not_has(n, '\n', h), {==})
     case Listed.Other{+n}:
       reads_other(fs, ls, dir, "o " ++ n, rest, not_has(n, '\n', h), {==})
+
+# The text payloads read
+# ----------------------
+
+# Whether the store holds a payload of this digest at this path.
+def holds(ps: List<&2, Check.Stored>, +id: String, +path: String) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case Check.Stored{+i, +q} <> rest:
+      Bool.or(Bool.and(String.eq(i, id), String.eq(q, path)), holds(rest, id, path))
+
+# Whether every payload a plan reads is one the store holds at the path
+# read, under the digest it is read for, a digest `wanted` holds.
+def reads_held(plan: List<&2, T.Split>, +ps: List<&2, Check.Stored>, +wanted: List<&2, String>) -> Bool:
+  match plan:
+    case Nil{}:
+      True{}
+    case T.Split{+id, +p} <> rest:
+      Bool.and(Bool.and(Rev.member(wanted, id), holds(ps, id, p)), reads_held(rest, ps, wanted))
+
+def md(m: Maybe<&2, String>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      Empty
+
+def none_some(-p: String, e: {None{} == Some{p} : Maybe<&2, String>}) -> Empty:
+  %e : {md(_) : Type}
+  Unit{}
+
+def some_inj(-a: String, +b: String, e: {Some{a} == Some{b} : Maybe<&2, String>}) -> {a == b : String}:
+  Equal.cong(Maybe<&2, String>, String, m => Maybe.default(&2, String, m, b), Some{a}, Some{b}, e)
+
+def or_true_right(a: Bool, -b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def at_holds.at(c: Bool, +i: String, +q: String, +rest: List<&2, Check.Stored>, +id: String, +p: String, ec: {String.eq(i, id) == c : Bool}, e: {Bool.pick(Maybe<&2, String>, c, Some{q}, Check.stored.at(rest, id)) == Some{p} : Maybe<&2, String>}, ih: {Check.stored.at(rest, id) == Some{p} : Maybe<&2, String>} -> {holds(rest, id, p) == True{} : Bool}) -> {Bool.or(Bool.and(c, String.eq(q, p)), holds(rest, id, p)) == True{} : Bool}:
+  match c:
+    case True{}:
+      +qe : {q == p : String} = some_inj(q, p, e)
+      %qe : {Bool.or(Bool.and(True{}, String.eq(q, _)), holds(rest, id, p)) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(q, q), True{}, S.eq_refl(q)) : {Bool.or(_, holds(rest, id, p)) == True{} : Bool}
+      {==}
+    case False{}:
+      or_true_right(False{}, holds(rest, id, p), ih(e))
+
+# Where `stored.at` finds a payload, the store holds it there.
+def at_holds(ps: List<&2, Check.Stored>, +id: String, +p: String, e: {Check.stored.at(ps, id) == Some{p} : Maybe<&2, String>}) -> {holds(ps, id, p) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      Empty.absurd({holds(Nil{}, id, p) == True{} : Bool}, none_some(p, e))
+    case Check.Stored{+i, +q} <> +rest:
+      at_holds.at(String.eq(i, id), i, q, rest, id, p, {==}, e, er => at_holds(rest, id, p, er))
+
+def and3(a: Bool, -b: Bool, -c: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}, ec: {c == True{} : Bool}) -> {Bool.and(Bool.and(a, b), c) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, ea) : {Bool.and(Bool.and(_, b), c) == True{} : Bool}
+  %Equal.sym(Bool, b, True{}, eb) : {Bool.and(Bool.and(True{}, _), c) == True{} : Bool}
+  ec
+
+def and3.two(a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, ea) : {Bool.and(_, b) == True{} : Bool}
+  eb
+
+def planned_held(+id: String, at: Maybe<&2, String>, +ps: List<&2, Check.Stored>, +wanted: List<&2, String>, +more: List<&2, T.Split>, ea: {Check.stored.at(ps, id) == at : Maybe<&2, String>}, hw: {Rev.member(wanted, id) == True{} : Bool}, hm: {reads_held(more, ps, wanted) == True{} : Bool}) -> {reads_held(Check.texts.planned(id, at, more), ps, wanted) == True{} : Bool}:
+  match at:
+    case None{}:
+      hm
+    case Some{+p}:
+      and3(Rev.member(wanted, id), holds(ps, id, p), reads_held(more, ps, wanted), hw, at_holds(ps, id, p, ea), hm)
+
+# Every payload the plan reads is held where it is read, under a digest
+# asked for — of digests each one `wanted` holds.
+def plan_held(ids: List<&2, String>, +ps: List<&2, Check.Stored>, +wanted: List<&2, String>, +h: {SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), wanted, ids) == True{} : Bool}) -> {reads_held(Check.texts.plan(ids, ps), ps, wanted) == True{} : Bool}:
+  match ids:
+    case Nil{}:
+      {==}
+    case +id <> +rest:
+      planned_held(id, Check.stored.at(ps, id), ps, wanted, Check.texts.plan(rest, ps), {==}, Comp.and_left(Rev.member(wanted, id), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), wanted, rest), h), plan_held(rest, ps, wanted, Comp.and_right(Rev.member(wanted, id), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), wanted, rest), h)))
+
+def among_cons(ys: List<&2, String>, +z: String, +zs: List<&2, String>, +h: {SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), zs, ys) == True{} : Bool}) -> {SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), z <> zs, ys) == True{} : Bool}:
+  match ys:
+    case Nil{}:
+      {==}
+    case +y <> rest:
+      and3.two(Bool.or(String.eq(z, y), Rev.member(zs, y)), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), z <> zs, rest), or_true_right(String.eq(z, y), Rev.member(zs, y), Comp.and_left(Rev.member(zs, y), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), zs, rest), h)), among_cons(rest, z, zs, Comp.and_right(Rev.member(zs, y), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), zs, rest), h)))
+
+def among_self(xs: List<&2, String>) -> {SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), xs, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      %Equal.sym(Bool, String.eq(x, x), True{}, S.eq_refl(x)) : {Bool.and(Bool.or(_, Rev.member(rest, x)), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), x <> rest, rest)) == True{} : Bool}
+      among_cons(rest, x, rest, among_self(rest))
+
+# Keeping each digest once keeps no digest it was not given.
+def distinct_among(xs: List<&2, String>, +last: Maybe<&2, String>, dup: Bool, +w: List<&2, String>, +h: {SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), w, xs) == True{} : Bool}) -> {SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), w, Check.distinct.go(xs, last, dup)) == True{} : Bool}:
+  match xs dup:
+    case Nil{} _:
+      {==}
+    case +x <> +rest True{}:
+      distinct_among(rest, last, Check.distinct.dup(rest, last), w, Comp.and_right(Rev.member(w, x), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), w, rest), h))
+    case +x <> +rest False{}:
+      and3.two(Rev.member(w, x), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), w, Check.distinct.go(rest, Some{x}, Check.distinct.dup(rest, Some{x}))), Comp.and_left(Rev.member(w, x), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), w, rest), h), distinct_among(rest, Some{x}, Check.distinct.dup(rest, Some{x}), w, Comp.and_right(Rev.member(w, x), SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), w, rest), h)))
+
+# The set of some digests holds none but them.
+def set_among(+xs: List<&2, String>) -> {SortL.all_at(~String, ~List<&2, String>, ~(c => a => Rev.member(c, a)), xs, Check.set.of(xs)) == True{} : Bool}:
+  distinct_among(Check.by_digest(xs), None{}, False{}, xs, SortL.all_sort_at(~String, ~(a => b => String.is_le(a, b)), ~List<&2, String>, ~(c => a => Rev.member(c, a)), xs, xs, among_self(xs)))
+
+# `check` reads as a file's lines only payloads the store holds under a
+# digest some revision's `text` header names, each from where it holds it.
+def reads_text(+docs: List<&2, Main.Full>, +ps: List<&2, Check.Stored>) -> {reads_held(Check.texts.plan(Check.set.of(Check.text.ids(docs)), ps), ps, Check.text.ids(docs)) == True{} : Bool}:
+  plan_held(Check.set.of(Check.text.ids(docs)), ps, Check.text.ids(docs), set_among(Check.text.ids(docs)))
