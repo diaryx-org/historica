@@ -701,3 +701,6 @@ def Laws.record_says_an_arrival_once(t, looked, held, walked, ss, moves):
 
 def Laws.writes_say_what_they_wrote(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry):
   RewriteL.writes_fields(a, when, m, facts, change, id, names, ps, prev, carrying, steps, run, dry)
+
+def Laws.record_reads_lines_as_text(ks, reads, hs, e):
+  RecordL.lines_text(ks, reads, hs, e)

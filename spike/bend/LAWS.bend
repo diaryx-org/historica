@@ -1506,3 +1506,13 @@ law writes_say_what_they_wrote:
   for +run: List<&2, String>
   for +dry: Bool
   {Bool.and(Main.fields.ok([id], Main.record.said.lines(Main.Writing{a, when, m, True{}}, facts, change, id, names, ps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.amend.said.lines(True{}, False{}, facts, prev, change, id, carrying, steps)), Bool.and(Main.fields.ok(id <> Main.carried.ids(steps), Main.abandon.said.lines(True{}, id, change, run, names, steps)), Main.fields.ok(Main.carried.ids(steps), Main.carry.said.lines(True{}, dry, steps))))) == True{} : Bool}
+
+# A file arriving that a person said is lines is read to be sure it is
+# text, and where `record` goes on it is: every file it reads because
+# `--lines` named it has bytes that are UTF-8.
+law record_reads_lines_as_text:
+  for +ks: List<&2, T.Split>
+  for +reads: Map<&2, List<&2, U32>>
+  for hs: List<&2, Main.Here>
+  for e: {Main.not_lines(ks, reads, hs) == None{} : Maybe<&2, String>}
+  {Main.utf8.all(reads, Main.lined_added(ks, hs)) == True{} : Bool}

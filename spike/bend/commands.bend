@@ -7190,6 +7190,15 @@ def not_lines(+ks: List<&2, T.Split>, +reads: Map<&2, List<&2, U32>>, hs: List<&
     case h <> rest:
       not_lines(ks, reads, rest)
 
+# Every file `record` reads because a person said it is lines is text
+# where recording goes on. `LAWS.record_reads_lines_as_text`.
+def utf8.all(+reads: Map<&2, List<&2, U32>>, ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case +p <> rest:
+      Bool.and(Folder.is_utf8(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))), utf8.all(reads, rest))
+
 # What recording refuses that `status` only describes, in the order the
 # Rust tool asks: a link left dangling, a path several files claim, what
 # nothing here can take, what a merge would empty, and contested bytes
