@@ -121,20 +121,102 @@ def names_held(b: Bm.Bookmark, h: Bool, t: Export.Travel) -> {Export.travel.name
     case False{} Export.Travel{ns, w, y}:
       {==}
 
-# The bookmarks a copy is given are the shared ones, as `offer` lists them,
-# whose target the copy holds, in order.
-def names(bs: List<&2, Bm.Bookmark>, +pt: Export.Pointed) -> {Export.travel.names(Export.travel.of(bs, pt)) == Export.marks.found(Offer.shared(bs), pt) : List<&2, Bm.Bookmark>}:
+def or_false(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# A revision bookmark finds what the copy's revisions list.
+def finds_revision(held: List<&2, Main.Full>, +r: String) -> {Rev.member(Main.ids(held), r) == Export.target.found(held, Bm.Target.Revision{r}) : Bool}:
+  match held:
+    case Nil{}:
+      {==}
+    case +f <> rest:
+      Equal.cong(Bool, Bool, m => Bool.or(String.eq(Main.id_of(f), r), m), Rev.member(Main.ids(rest), r), Export.target.found(rest, Bm.Target.Revision{r}), finds_revision(rest, r))
+
+# A change bookmark finds what the copy's changes list.
+def finds_change(held: List<&2, Main.Full>, +c: String) -> {Rev.member(T.map(~Main.Full, ~String, ~(f => Main.change_of(f)), held), c) == Export.target.found(held, Bm.Target.Change{c}) : Bool}:
+  match held:
+    case Nil{}:
+      {==}
+    case +f <> rest:
+      Equal.cong(Bool, Bool, m => Bool.or(String.eq(Main.change_of(f), c), m), Rev.member(T.map(~Main.Full, ~String, ~(f => Main.change_of(f)), rest), c), Export.target.found(rest, Bm.Target.Change{c}), finds_change(rest, c))
+
+def says_one(c: Bool, fa: Tree.Fact, +l: List<&2, Tree.Fact>, +s: Bool, +x: String, ih: {Rev.member(Export.fact.files(l), x) == s : Bool}) -> {Rev.member(Export.fact.files(Tree.keep(~Tree.Fact, c, fa, l)), x) == Bool.or(Bool.and(c, Export.fact.names(fa, x)), s) : Bool}:
+  match c fa:
+    case True{} Tree.Fact{+f, r}:
+      Equal.cong(Bool, Bool, m => Bool.or(String.eq(f, x), m), Rev.member(Export.fact.files(l), x), s, ih)
+    case False{} Tree.Fact{f, r}:
+      ih
+
+# The files the facts of one kind name are the files a header of that kind
+# says something of.
+def says(hs: List<&2, Rev.Header>, +k: String, +x: String) -> {Rev.member(Export.fact.files(Tree.facts_of(hs, k)), x) == Export.fact.says(hs, k, x) : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case Rev.Header{+key, +v} <> +rest:
+      says_one(String.eq(key, k), Tree.fact_of(v, T.split_once(v)), Tree.facts_of(rest, k), Export.fact.says(rest, k, x), x, says(rest, k, x))
+
+# One kind of fact in front of the rest of `touched`.
+def said_step(+a: List<&2, String>, +z: List<&2, String>, +s: Bool, +cs: Bool, +fr: Bool, +x: String, ea: {Rev.member(a, x) == s : Bool}, ez: {Rev.member(z, x) == Bool.or(cs, fr) : Bool}) -> {Rev.member(List.append(&2, String, a, z), x) == Bool.or(Bool.or(s, cs), fr) : Bool}:
+  Equal.trans(Bool, Rev.member(List.append(&2, String, a, z), x), Bool.or(s, Bool.or(cs, fr)), Bool.or(Bool.or(s, cs), fr),
+    Equal.trans(Bool, Rev.member(List.append(&2, String, a, z), x), Bool.or(Rev.member(a, x), Rev.member(z, x)), Bool.or(s, Bool.or(cs, fr)), ReceiveL.member_app(a, z, x),
+      Equal.trans(Bool, Bool.or(Rev.member(a, x), Rev.member(z, x)), Bool.or(s, Rev.member(z, x)), Bool.or(s, Bool.or(cs, fr)),
+        Equal.cong(Bool, Bool, m => Bool.or(m, Rev.member(z, x)), Rev.member(a, x), s, ea),
+        Equal.cong(Bool, Bool, m => Bool.or(s, m), Rev.member(z, x), Bool.or(cs, fr), ez))),
+    ReceiveL.or_assoc(s, cs, fr))
+
+# A file bookmark finds what some revision of the copy says anything of.
+def finds_file(held: List<&2, Main.Full>, +x: String) -> {Rev.member(Export.touched(held), x) == Export.target.found(held, Bm.Target.File{x}) : Bool}:
+  match held:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      +hs = Main.facts_of(f)
+      +fr = Export.target.found(rest, Bm.Target.File{x})
+      +tail = List.append(&2, String, Export.touched(rest), Nil{})
+      +et = Equal.trans(Bool, Rev.member(tail, x), Rev.member(Export.touched(rest), x), fr,
+        Equal.trans(Bool, Rev.member(tail, x), Bool.or(Rev.member(Export.touched(rest), x), False{}), Rev.member(Export.touched(rest), x), ReceiveL.member_app(Export.touched(rest), Nil{}, x), or_false(Rev.member(Export.touched(rest), x))),
+        finds_file(rest, x))
+      +z6 = said_step(Export.fact.files(Tree.facts_of(hs, "bytes")), tail, Export.fact.says(hs, "bytes", x), False{}, fr, x, says(hs, "bytes", x), et)
+      +z5 = said_step(Export.fact.files(Tree.facts_of(hs, "text")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "bytes")), tail), Export.fact.says(hs, "text", x), Export.fact.said(["bytes"], hs, x), fr, x, says(hs, "text", x), z6)
+      +z4 = said_step(Export.fact.files(Tree.facts_of(hs, "edit")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "text")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "bytes")), tail)), Export.fact.says(hs, "edit", x), Export.fact.said(["text", "bytes"], hs, x), fr, x, says(hs, "edit", x), z5)
+      +z3 = said_step(Export.fact.files(Tree.facts_of(hs, "drop")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "edit")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "text")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "bytes")), tail))), Export.fact.says(hs, "drop", x), Export.fact.said(["edit", "text", "bytes"], hs, x), fr, x, says(hs, "drop", x), z4)
+      +z2 = said_step(Export.fact.files(Tree.facts_of(hs, "move")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "drop")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "edit")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "text")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "bytes")), tail)))), Export.fact.says(hs, "move", x), Export.fact.said(["drop", "edit", "text", "bytes"], hs, x), fr, x, says(hs, "move", x), z3)
+      said_step(Export.fact.files(Tree.facts_of(hs, "add")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "move")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "drop")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "edit")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "text")), List.append(&2, String, Export.fact.files(Tree.facts_of(hs, "bytes")), tail))))), Export.fact.says(hs, "add", x), Export.fact.said(["move", "drop", "edit", "text", "bytes"], hs, x), fr, x, says(hs, "add", x), z2)
+
+# The export's hold test, over the revisions the copy is given, is what
+# those revisions find.
+def holds_over(+held: List<&2, Main.Full>, g: Bm.Target) -> {Export.pointed.holds(Export.pointed.over(held), g) == Export.target.found(held, g) : Bool}:
+  match g:
+    case Bm.Target.Revision{+r}:
+      finds_revision(held, r)
+    case Bm.Target.Change{+c}:
+      finds_change(held, c)
+    case Bm.Target.File{+x}:
+      finds_file(held, x)
+
+# The bookmarks the copy is given are the shared ones, as `offer` lists
+# them, that find something among the revisions it is given, in order.
+def names(bs: List<&2, Bm.Bookmark>, +held: List<&2, Main.Full>) -> {Export.travel.names(Export.travel.of(bs, Export.pointed.over(held))) == Export.marks.found(Offer.shared(bs), held) : List<&2, Bm.Bookmark>}:
   match bs:
     case Nil{}:
       {==}
     case Bm.Bookmark{+n, +g, p} <> +rest:
       match p:
         case True{}:
-          Equal.trans(List<&2, Bm.Bookmark>, Export.travel.names(Export.travel.withheld(Export.travel.of(rest, pt))), Export.travel.names(Export.travel.of(rest, pt)), Export.marks.found(Offer.shared(rest), pt), names_withheld(Export.travel.of(rest, pt)), names(rest, pt))
+          +pt = Export.pointed.over(held)
+          Equal.trans(List<&2, Bm.Bookmark>, Export.travel.names(Export.travel.withheld(Export.travel.of(rest, pt))), Export.travel.names(Export.travel.of(rest, pt)), Export.marks.found(Offer.shared(rest), held), names_withheld(Export.travel.of(rest, pt)), names(rest, held))
         case False{}:
-          Equal.trans(List<&2, Bm.Bookmark>, Export.travel.names(Export.travel.held(Bm.Bookmark{n, g, False{}}, Export.pointed.holds(pt, g), Export.travel.of(rest, pt))), Tree.keep(~Bm.Bookmark, Export.pointed.holds(pt, g), Bm.Bookmark{n, g, False{}}, Export.travel.names(Export.travel.of(rest, pt))), Tree.keep(~Bm.Bookmark, Export.pointed.holds(pt, g), Bm.Bookmark{n, g, False{}}, Export.marks.found(Offer.shared(rest), pt)),
+          +pt = Export.pointed.over(held)
+          Equal.trans(List<&2, Bm.Bookmark>, Export.travel.names(Export.travel.held(Bm.Bookmark{n, g, False{}}, Export.pointed.holds(pt, g), Export.travel.of(rest, pt))), Tree.keep(~Bm.Bookmark, Export.pointed.holds(pt, g), Bm.Bookmark{n, g, False{}}, Export.travel.names(Export.travel.of(rest, pt))), Tree.keep(~Bm.Bookmark, Export.target.found(held, g), Bm.Bookmark{n, g, False{}}, Export.marks.found(Offer.shared(rest), held)),
             names_held(Bm.Bookmark{n, g, False{}}, Export.pointed.holds(pt, g), Export.travel.of(rest, pt)),
-            Equal.cong(List<&2, Bm.Bookmark>, List<&2, Bm.Bookmark>, l => Tree.keep(~Bm.Bookmark, Export.pointed.holds(pt, g), Bm.Bookmark{n, g, False{}}, l), Export.travel.names(Export.travel.of(rest, pt)), Export.marks.found(Offer.shared(rest), pt), names(rest, pt)))
+            Equal.trans(List<&2, Bm.Bookmark>, Tree.keep(~Bm.Bookmark, Export.pointed.holds(pt, g), Bm.Bookmark{n, g, False{}}, Export.travel.names(Export.travel.of(rest, pt))), Tree.keep(~Bm.Bookmark, Export.target.found(held, g), Bm.Bookmark{n, g, False{}}, Export.travel.names(Export.travel.of(rest, pt))), Tree.keep(~Bm.Bookmark, Export.target.found(held, g), Bm.Bookmark{n, g, False{}}, Export.marks.found(Offer.shared(rest), held)),
+              Equal.cong(Bool, List<&2, Bm.Bookmark>, c => Tree.keep(~Bm.Bookmark, c, Bm.Bookmark{n, g, False{}}, Export.travel.names(Export.travel.of(rest, pt))), Export.pointed.holds(pt, g), Export.target.found(held, g), holds_over(held, g)),
+              Equal.cong(List<&2, Bm.Bookmark>, List<&2, Bm.Bookmark>, l => Tree.keep(~Bm.Bookmark, Export.target.found(held, g), Bm.Bookmark{n, g, False{}}, l), Export.travel.names(Export.travel.of(rest, pt)), Export.marks.found(Offer.shared(rest), held), names(rest, held))))
 
 # Rules
 # -----

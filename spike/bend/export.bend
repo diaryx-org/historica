@@ -1975,14 +1975,57 @@ def origin.fulls(+st: Prune.Stored) -> List<&2, Main.Full>:
 # What the laws say of an export
 # ------------------------------
 
-# The bookmarks among these whose target the copy holds, each as given and
-# in the order given.
-def marks.found(bs: List<&2, Bm.Bookmark>, +pt: Pointed) -> List<&2, Bm.Bookmark>:
+def fact.names(f: Tree.Fact, +x: String) -> Bool:
+  match f:
+    case Tree.Fact{+file, r}:
+      String.eq(file, x)
+
+# Whether a header of `hs` states a fact of kind `k` about the file `x`,
+# read as a fact is read: the file its value begins with.
+def fact.says(hs: List<&2, Rev.Header>, +k: String, +x: String) -> Bool:
+  match hs:
+    case Nil{}:
+      False{}
+    case Rev.Header{+key, +v} <> rest:
+      Bool.or(Bool.and(String.eq(key, k), fact.names(Tree.fact_of(v, T.split_once(v)), x)), fact.says(rest, k, x))
+
+# Whether some key of `ks` says something of the file `x` in `hs`.
+def fact.said(ks: List<&2, String>, +hs: List<&2, Rev.Header>, +x: String) -> Bool:
+  match ks:
+    case Nil{}:
+      False{}
+    case +k <> rest:
+      Bool.or(fact.says(hs, k, x), fact.said(rest, hs, x))
+
+# Whether this revision is what a bookmark to `g` finds: the revision
+# itself, a revision of the change, or one that adds, moves, drops, edits,
+# or states the text or bytes of the file (decision 0024, the Rust tool's
+# `Pointed::over`).
+def target.in(f: Main.Full, g: Bm.Target) -> Bool:
+  match g:
+    case Bm.Target.Revision{+r}:
+      String.eq(Main.id_of(f), r)
+    case Bm.Target.Change{+c}:
+      String.eq(Main.change_of(f), c)
+    case Bm.Target.File{+x}:
+      fact.said(["add", "move", "drop", "edit", "text", "bytes"], Main.facts_of(f), x)
+
+# Whether some revision of `held` is what a bookmark to `g` finds.
+def target.found(held: List<&2, Main.Full>, +g: Bm.Target) -> Bool:
+  match held:
+    case Nil{}:
+      False{}
+    case +f <> rest:
+      Bool.or(target.in(f, g), target.found(rest, g))
+
+# The bookmarks among these that find something among the revisions
+# `held`, each as given and in the order given.
+def marks.found(bs: List<&2, Bm.Bookmark>, +held: List<&2, Main.Full>) -> List<&2, Bm.Bookmark>:
   match bs:
     case Nil{}:
       Nil{}
     case Bm.Bookmark{+n, +g, p} <> rest:
-      Tree.keep(~Bm.Bookmark, pointed.holds(pt, g), Bm.Bookmark{n, g, p}, marks.found(rest, pt))
+      Tree.keep(~Bm.Bookmark, target.found(held, g), Bm.Bookmark{n, g, p}, marks.found(rest, held))
 
 # A file of the store holding a digest.
 def split.held(ss: List<&2, T.Split>, +path: String, +digest: String) -> Bool:

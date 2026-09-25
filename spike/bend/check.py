@@ -4440,6 +4440,27 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export counts a file bookmark as held without the drop that names it",
+            '      List.concat(&2, String, [fact.files(Tree.facts_of(hs, "add")), fact.files(Tree.facts_of(hs, "move")), fact.files(Tree.facts_of(hs, "drop")), ',
+            '      List.concat(&2, String, [fact.files(Tree.facts_of(hs, "add")), fact.files(Tree.facts_of(hs, "move")), ',
+            "export_lemmas.finds_file",
+            "export.bend",
+        ),
+        (
+            "export holds a change bookmark to the copy's revision IDs",
+            "      Rev.member(cs, c)",
+            "      Rev.member(rs, c)",
+            "export_lemmas.holds_over",
+            "export.bend",
+        ),
+        (
+            "export tests bookmarks against no revision at all",
+            "travel.of(bs, pointed.over(held))",
+            "travel.of(bs, pointed.over(Nil{}))",
+            "Laws.export_names_only_what_travels",
+            "export.bend",
+        ),
+        (
             "export writes a private rule into the copy",
             "      Tree.keep(~Receive.Ruled, Bool.not(ruled.private(r)), r, rules.shared(rest))",
             "      Tree.keep(~Receive.Ruled, True{}, r, rules.shared(rest))",
