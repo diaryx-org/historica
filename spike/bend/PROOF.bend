@@ -70,6 +70,8 @@ import ./fetch_lemmas.bend as FetchL
 import ./span_lemmas.bend as SpanL
 import ./record_lemmas.bend as RecordL
 import ./rewrite_lemmas.bend as RewriteL
+import ./forget_lemmas.bend as ForgetL
+import ./forget.bend as Fg
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -924,3 +926,36 @@ def Laws.record_gives_kinds_only_to_files(ks, found, u, e):
 
 def Laws.abandon_dry_run_names_the_run(fs, bs, id, only, run):
   RewriteL.dry_names(fs, bs, id, only, run)
+
+def Laws.forgetting_keeps_shape(ops, ps, t, i):
+  ForgetL.ops_shape(ops, ps, t, i)
+
+def Laws.forgetting_a_resolution_keeps_shape(pieces, ps, t, i):
+  ForgetL.pieces_shape(pieces, ps, t, i)
+
+def Laws.forget_rewrites_only_the_files_documents(fs, ds, id, file, first, last, ts, ws, a, n, e):
+  ForgetL.rewrites(fs, ds, id, file, first, last, ts, ws, a, n, e)
+
+def Laws.forget_whole_takes_one_payload(file, payload, files, stood, n, ts, ws, a, m, e):
+  ForgetL.takes_one(file, payload, files, stood, n, Fg.Fg.Plan{ts, ws, a, m}, e)
+
+def Laws.forget_counts_only_other_versions(fs, file, t):
+  ForgetL.others_exclude(fs, file, t)
+
+def Laws.forget_destroys_only_what_it_forgets(fs, ts, p, e):
+  ForgetL.destroys(fs, ts, p, e)
+
+def Laws.forget_reads_its_words(ws, t, p, sp, d, f, e):
+  ForgetL.reads_words(ws, t, p, sp, d, f, e)
+
+def Laws.forget_clears_only_copies(ps, p, e):
+  ForgetL.clears(ps, p, e)
+
+def Laws.standin_replays_like_what_it_stands_in_for(st1, st2, f, r, ops1, f2, ops2, hs, hops):
+  ForgetL.replays_like(st1, st2, f, r, ops1, f2, ops2, hs, hops)
+
+def Laws.chain_replays_like_through_standins(ds1, ds2, r1, r2, hd, hr):
+  ForgetL.chain_like(ds1, ds2, r1, r2, hd, hr)
+
+def Laws.forgetting_destroys_only_text(ops, ps, t, i):
+  ForgetL.ops_forgot(ops, ps, t, i)

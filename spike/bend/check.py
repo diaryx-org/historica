@@ -634,6 +634,120 @@ STORES = {
     ],
     # A rewrite that arrived without its carries: the repair, swept, named,
     # and planned; and what already rewritten refuses.
+    # Decisions 0014, 0050 and 0066, read: a store the Rust tool's `forget`
+    # destroyed lines of — of an edit, of a file added whole, of a line a
+    # merge's resolution copied — and a payload of bytes in, with two
+    # stand-ins for one document. Every reading command reads the stand-ins
+    # where the originals were; `record`, `amend` and `carry` read them too.
+    "forgotten": [
+        ["log"],
+        ["files", "head"],
+        ["cat", "head", "notes.md"],
+        ["cat", "first", "notes.md"],
+        ["cat", "r1", "notes.md"],
+        ["cat", "r3", "notes.md"],
+        ["cat", "r9", "notes.md"],
+        ["cat", "first", "photo.bin"],
+        ["cat", "r5", "photo.bin"],
+        ["cat", "m1", "f.md"],
+        ["cat", "left", "f.md"],
+        ["cat", "head", "f.md"],
+        ["show", "head", "notes.md"],
+        ["show", "first", "notes.md"],
+        ["show", "r1", "notes.md"],
+        ["show", "r3", "notes.md"],
+        ["show", "first", "photo.bin"],
+        ["show", "m1", "f.md"],
+        ["show", "left", "f.md"],
+        ["diff", "head"],
+        ["diff", "first"],
+        ["diff", "r1"],
+        ["diff", "r3"],
+        ["diff", "r5"],
+        ["diff", "left"],
+        ["diff", "m1", "--onto", "left"],
+        ["diff", "m1", "--onto", "right"],
+        ["diff", "head", "--onto", "first"],
+        ["blame", "head", "notes.md"],
+        ["blame", "first", "notes.md"],
+        ["blame", "r3", "notes.md"],
+        ["blame", "m1", "f.md"],
+        ["blame", "left", "f.md"],
+        ["blame", "notes.md"],
+        ["blame", "f.md"],
+        ["status"],
+        ["status", "--onto", "r9"],
+        ["diff"],
+        ["diff", "--onto", "r1"],
+        ["record", "-n"],
+        ["record", "-m", "again"],
+        ["record", "notes.md", "-m", "some"],
+        ["amend", "-m", "reworded"],
+        ["carry", "r13", "--onto", "r11"],
+        ["carry", "left", "--onto", "right"],
+        # Forgetting what is already forgotten, and more of a document
+        # something already stands in for.
+        ["forget", "first", "notes.md", "--lines", "2"],
+        ["forget", "first", "notes.md", "--lines", "2", "--fields"],
+        ["forget", "first", "notes.md", "--lines", "2..4"],
+        ["forget", "first", "notes.md", "--lines", "1..6"],
+        ["forget", "head", "notes.md", "--lines", "3..4"],
+        ["forget", "left", "f.md", "--lines", "3"],
+        ["forget", "m1", "f.md", "--lines", "1..4"],
+        ["forget", "first", "photo.bin"],
+        ["forget", "first", "photo.bin", "--fields"],
+        ["forget", "r5", "photo.bin"],
+    ],
+    # Decisions 0014, 0050 and 0066, written: `forget` over the same history
+    # with nothing forgotten yet, and with a state of `notes.md` and a
+    # catalogue in `cache/`, compared with the whole store after — `cache/`
+    # included, whose copies of what goes go with it.
+    "forgetting": [
+        ["forget", "head", "notes.md", "--lines", "2..3", "--dry-run"],
+        ["forget", "head", "notes.md", "--lines", "2..3"],
+        ["forget", "-n", "head", "notes.md", "--lines", "1"],
+        ["forget", "head", "notes.md", "--lines", "1..6"],
+        ["forget", "first", "notes.md", "--lines", "2"],
+        ["forget", "r9", "notes.md", "--lines", "+2..03"],
+        ["forget", "head", "notes.md", "--lines", "2", "--fields"],
+        ["forget", "left", "f.md", "--lines", "3"],
+        ["forget", "m1", "f.md", "--lines", "1"],
+        ["forget", "m1", "f.md", "--lines", "1..4"],
+        ["forget", "right", "f.md", "--lines", "1..3", "--fields"],
+        ["forget", "first", "photo.bin"],
+        ["forget", "first", "photo.bin", "--dry-run"],
+        ["forget", "head", "photo.bin", "--fields"],
+        ["forget", "r5", "photo.bin"],
+        ["forget", "file:ffff", "notes.md", "--lines", "1"],
+        # Every refusal.
+        ["forget", "head", "notes.md"],
+        ["forget", "head", "empty.md"],
+        ["forget", "head", "empty.md", "--lines", "1"],
+        ["forget", "head", "photo.bin", "--lines", "1..2"],
+        ["forget", "head", "link", "--lines", "1"],
+        ["forget", "head", "link"],
+        ["forget", "head", "notes.md", "--lines", "0..1"],
+        ["forget", "head", "notes.md", "--lines", "3..2"],
+        ["forget", "head", "notes.md", "--lines", "7"],
+        ["forget", "head", "notes.md", "--lines", "18446744073709551615"],
+        ["forget", "head", "notes.md", "--lines", "0..1", "--fields"],
+        ["forget", "nope", "notes.md", "--lines", "1"],
+        ["forget", "nope", "notes.md", "--lines", "1", "--fields"],
+        ["forget", "head", "nothere.md", "--lines", "1"],
+        ["forget", "head", "file:", "--lines", "1", "--fields"],
+        ["forget", "", "notes.md", "--fields"],
+        # And every command line that is wrong.
+        ["forget"],
+        ["forget", "head"],
+        ["forget", "head", "notes.md", "extra"],
+        ["forget", "head", "notes.md", "--lines"],
+        ["forget", "head", "notes.md", "--lines", "x"],
+        ["forget", "head", "notes.md", "--lines", "1..2..3"],
+        ["forget", "head", "notes.md", "--lines", "18446744073709551616"],
+        ["forget", "head", "notes.md", "--lines", "-1"],
+        ["forget", "head", "notes.md", "--frob"],
+        ["forget", "head", "notes.md", "--lines", "1", "--dry-run", "--fields"],
+    ],
     "stranded": [
         ["carry", "-n"],
         ["carry"],
@@ -1521,6 +1635,53 @@ def record(temporary, rust, corpus, pinned=None):
             (history / "revisions" / ("1" * 64 + ".rev.txt")).write_bytes(two.read_bytes())
         if corpus == "unparsed":
             (history / "revisions" / "bad.rev.txt").write_text("garbage\n")
+    elif corpus in ("forgotten", "forgetting"):
+        # A file of lines edited a line at a time, long enough that reading
+        # it leaves the Rust tool a state in `cache/`; a file of bytes
+        # replaced twice; a merge whose resolution copies a line it moved;
+        # an empty file and a link. `forgotten` then has the Rust tool's
+        # `forget` destroy some of each; `forgetting` is where `forget`
+        # itself is compared.
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        notes = ["one", "two", "three", "four", "five", "six"]
+        (store / "notes.md").write_text("".join(f"{line}\n" for line in notes))
+        (store / "photo.bin").write_bytes(b"\x00\x01first")
+        (store / "f.md").write_text("a\nb\n")
+        (store / "empty.md").write_text("")
+        os.symlink("notes.md", store / "link")
+        rec("first", "-m", "first")
+        for n in range(1, 18):
+            notes[n % 5] = f"edit {n}"
+            (store / "notes.md").write_text("".join(f"{line}\n" for line in notes))
+            if n in (5, 10):
+                (store / "photo.bin").write_bytes(b"\x00\x02" + bytes(str(n), "ascii"))
+            rec(f"r{n}", "-m", f"edit {n}")
+        (store / "f.md").write_text("a\nb\nL\n")
+        rec("left", "-m", "left")
+        (store / "f.md").write_text("R\na\nb\n")
+        rec("right", "--onto", "r17", "-m", "right")
+        (store / "f.md").write_text("L\nR\na\nb\n")
+        rec("m1", "--merge", "left", "--merge", "right", "-m", "merged")
+        notes[5] = "six, at last"
+        (store / "notes.md").write_text("".join(f"{line}\n" for line in notes))
+        rec("after", "-m", "after the merge")
+        if corpus == "forgotten":
+            historica("forget", "first", "notes.md", "--lines", "2")
+            historica("forget", "head", "notes.md", "--lines", "3..4")
+            historica("forget", "left", "f.md", "--lines", "3")
+            historica("forget", "first", "photo.bin")
+            # A second span of a document already forgotten: two stand-ins
+            # for one digest, read together.
+            historica("forget", "first", "notes.md", "--lines", "4")
+        # Read, so that `cache/` holds a state of the file and a catalogue
+        # of `operations/` as it now stands: what `forget` destroys the
+        # copies in, and what it leaves alone.
+        historica("cat", "head", "notes.md")
+        historica("cat", "r9", "notes.md")
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1652,7 +1813,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting", "updating")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting", "updating", "forgotten", "forgetting")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -1663,14 +1824,17 @@ def check_store(temporary):
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too; and a
             # record that is not a dry run, the whole store it wrote.
-            writes = command[0] in ("record", "name", "init", *REWRITES, *MOVES)
+            writes = command[0] in ("record", "name", "init", "forget", *REWRITES, *MOVES)
             recording = command[0] in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
             moving = command[0] in MOVES
+            # `forget` destroys what `cache/` holds copies of, so its store is
+            # compared whole, `cache/` and all.
+            forgetting = command[0] == "forget"
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store
-            whole = command[0] == "init" or recording or moving
-            cached = not (recording or moving)
-            reference = writer if command[0] in ("record", *REWRITES) else rust
+            whole = command[0] == "init" or recording or moving or forgetting
+            cached = forgetting or not (recording or moving)
+            reference = writer if command[0] in ("record", "forget", *REWRITES) else rust
             shown = " ".join([f"{k}={v}" for k, v in changed.items()] + command)
             expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, cached) if writes else ())
             for name, tool in tools:
@@ -1728,37 +1892,44 @@ def check_mutations(temporary):
             "advance reverses the moved prefix incorrectly",
             "advance(p, rest, it <> acc)",
             "advance(p, rest, List.append(&2, Item, acc, [it]))",
-            "LAWS.advance_exact",
+            # `LAWS.advance_exact` rejects it too; the checker meets the
+            # stand-in replay lemmas, which unfold the same walk, first.
+            "forget_lemmas.advance_like",
         ),
         (
             "delete ignores item disagreement",
             "drop_checked(rs, ss, Bool.and(ok, agrees(r, s)))",
             "drop_checked(rs, ss, ok)",
-            "LAWS.drop_checked_exact",
+            # And `LAWS.drop_checked_exact`, met after it.
+            "forget_lemmas.drop_like",
         ),
         (
             "cursor drops inserted items",
             "List.append(&2, Item, List.reverse(&2, Item, items), acc)",
             "acc",
-            "LAWS.cursor_walk_equivalent",
+            # And `LAWS.cursor_walk_equivalent`, met after it.
+            "forget_lemmas.go_like",
         ),
         (
             "cursor loses the trailing parent suffix",
             "Done{List.append(&2, Item, List.reverse(&2, Item, acc), state)}",
             "Done{List.reverse(&2, Item, acc)}",
-            "LAWS.cursor_walk_equivalent",
+            # And `LAWS.cursor_walk_equivalent`, met after it.
+            "forget_lemmas.go_end",
         ),
         (
             "cursor overwrites an earlier deletion error",
             'Maybe.or(&2, String, err, Bool.pick(Maybe<&2, String>, agreed, None{}, Some{"a delete at " ++ Nat.show(at) ++ " quotes lines the parent does not hold"}))',
             'Bool.pick(Maybe<&2, String>, agreed, None{}, Some{"a delete at " ++ Nat.show(at) ++ " quotes lines the parent does not hold"})',
-            "LAWS.cursor_walk_equivalent",
+            # And `LAWS.cursor_walk_equivalent`, met after it.
+            "forget_lemmas.go_like",
         ),
         (
             "public replay ignores the result digest",
             "apply.checked(result, items)\n\n# Blocks",
             "apply.checked(None{}, items)\n\n# Blocks",
-            "LAWS.cursor_apply_equivalent",
+            # And `LAWS.cursor_apply_equivalent`, met after it.
+            "forget_lemmas.apply_is",
         ),
         (
             "positional model loses the trailing-gap insertion",
@@ -2246,10 +2417,10 @@ def check_mutations(temporary):
         ),
         (
             "show finds a document whose digest the named one starts",
-            '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, doc_by_id(rest, id))',
-            '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, doc_by_id(rest, id))',
+            '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, held(rest, id))',
+            '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, held(rest, id))',
             "show_lemmas.by_id",
-            "commands.bend",
+            "standin.bend",
         ),
         (
             "cat prints through a link",
@@ -2595,6 +2766,69 @@ def check_mutations(temporary):
             "offer.bend",
         ),
         (
+            "show takes a document as standing in whatever its header forgets",
+            "    case True{} True{} _:\n      Taken.Stands{}",
+            "    case _ True{} _:\n      Taken.Stands{}",
+            "show_lemmas.taken_says",
+            "standin.bend",
+        ),
+        (
+            "forget resets a forgotten item's terminator",
+            "      Ops.Item{SNil{}, n, True{}}",
+            "      Ops.Item{SNil{}, True{}, True{}}",
+            "forget_lemmas.item_shape",
+            "forget.bend",
+        ),
+        (
+            "forget writes an empty line where the text was rather than the marker",
+            "      Ops.Item{SNil{}, n, True{}}",
+            "      Ops.Item{SNil{}, n, False{}}",
+            "forget_lemmas.item_forgot",
+            "forget.bend",
+        ),
+        (
+            "forget picks the revision that wrote an item rather than the document it names",
+            "      pick.if(named.find(ns, by), op, item, picks.deletes(dl, ns))",
+            "      pick.if(Some{by}, op, item, picks.deletes(dl, ns))",
+            "forget_lemmas.picks_of",
+            "forget.bend",
+        ),
+        (
+            "forget of a payload names its length where its digest goes",
+            "      Done{Fg.Plan{[target], Bool.pick(",
+            "      Done{Fg.Plan{[n], Bool.pick(",
+            "forget_lemmas.whole_of",
+            "forget.bend",
+        ),
+        (
+            "forget destroys a file without asking whether its bytes are forgotten",
+            "      Rev.keep(Bool.and(Rev.member(targets, d), Bool.not(Bool.xor(filed.document(p), documents))), p, destroyed.of(rest, targets, documents))",
+            "      Rev.keep(Bool.and(True{}, Bool.not(Bool.xor(filed.document(p), documents))), p, destroyed.of(rest, targets, documents))",
+            "forget_lemmas.of_held",
+            "forget.bend",
+        ),
+        (
+            "forget takes the span after `--lines` as a word as well",
+            "      Done{Fg.Reading{Some{w}, d, f, ws, False{}}}",
+            "      Done{Fg.Reading{Some{w}, d, f, List.append(&2, String, ws, [w]), False{}}}",
+            "forget_lemmas.step_ok",
+            "forget.bend",
+        ),
+        (
+            "forget clears every file of `cache/` but its note",
+            "      Rev.keep(T.is_digest(String.drop(p, 6n)), p, cached(rest))",
+            "      Rev.keep(Bool.not(String.eq(p, \"cache/README.txt\")), p, cached(rest))",
+            "forget_lemmas.clears",
+            "forget.bend",
+        ),
+        (
+            "forget counts the version it forgets among the others",
+            "      Rev.keep(Bool.not(String.eq(d, target)), d, others.of(rest, target))",
+            "      Rev.keep(True{}, d, others.of(rest, target))",
+            "forget_lemmas.excl",
+            "forget.bend",
+        ),
+        (
             "name keeps the other words newest first",
             "      NameCmd{p, a, d, f, sh, List.append(&2, String, r, [w])}",
             "      NameCmd{p, a, d, f, sh, w <> r}",
@@ -2822,7 +3056,9 @@ def check_mutations(temporary):
             "abandon takes a reason that is only whitespace",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(Naming.trim_space(m)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, String.is_empty(m),",
-            "LAWS.abandon_takes_a_reason_that_says_something",
+            # Written against `LAWS.abandon_takes_a_reason_that_says_something`; the checker now stops
+            # first at `rewrite_lemmas.asked_ok`.
+            "rewrite_lemmas.asked_ok",
             "commands.bend",
         ),
         (
@@ -2990,7 +3226,9 @@ def check_mutations(temporary):
             "record lets through an acceptance nothing contests",
             "Bool.pick(Result<&2, &2, Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, needless)),",
             "Bool.pick(Result<&2, &2, Refused, Sv.Planned>, False{},",
-            "record_lemmas.settled",
+            # Written against `record_lemmas.settled`; the checker now stops
+            # first at `survey_lemmas.planned_claims`.
+            "survey_lemmas.planned_claims",
             "commands.bend",
         ),
         (
@@ -3004,7 +3242,9 @@ def check_mutations(temporary):
             "record moves the path named rather than the file at it",
             "      placed.move.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{f, to}]), placed.head(t2, rest), placed.fault(rest))",
             "      placed.move.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{from, to}]), placed.head(t2, rest), placed.fault(rest))",
-            "record_lemmas.move_held",
+            # Written against `record_lemmas.move_held`; the checker now stops
+            # first at `survey_lemmas.move_moved`.
+            "survey_lemmas.move_moved",
             "commands.bend",
         ),
         (
@@ -3018,7 +3258,9 @@ def check_mutations(temporary):
             "record lets a skipped name nothing answers to through",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, out)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, False{},",
-            "record_lemmas.named_ok",
+            # Written against `record_lemmas.named_ok`; the checker now stops
+            # first at `survey_lemmas.named_ok`.
+            "survey_lemmas.named_ok",
             "commands.bend",
         ),
         (
