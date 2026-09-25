@@ -1,6 +1,6 @@
 // The JS twin of `store_list.c`: every file under `revisions/` and
 // `operations/` — or under only the directories named after the root, one
-// a line, which may be `names`, `skipped` or `cache` too — relative to the root,
+// a line, which may be `names`, `skipped`, `claims` or `cache` too — relative to the root,
 // sorted, one per line.
 function store_list(query) {
   // The runtime's `io_fail` keeps only a code and says the system's words
@@ -10,7 +10,7 @@ function store_list(query) {
   const path = require("node:path");
   const [root, ...asked] = query.split("\n");
   const documents = ["revisions", "operations"];
-  const listed = [...documents, "names", "skipped", "cache"];
+  const listed = [...documents, "names", "skipped", "claims", "cache"];
   for (const dir of asked) {
     if (!listed.includes(dir)) return hist_fail(22, `\`${dir}\` is not a directory this lists`);
   }

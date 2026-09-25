@@ -7,7 +7,8 @@
 //! else. No panic crosses the boundary — `catch_unwind` turns one into `EIO`.
 //!
 //! Reading is here, and the writes: the rename `record --move` makes in
-//! the folder, a bookmark written and removed, and `init`'s directories. Nothing in this library
+//! the folder, a bookmark written and removed, `init`'s directories, and the
+//! link and the execute bit of a folder `export` lays out. Nothing in this library
 //! decides anything about a store; that is what the Bend side is for. The two lookups answer *where*
 //! bytes are and *what* bytes are, and the Bend side reads, hashes and
 //! parses every document it goes on to believe anything about.
@@ -28,9 +29,12 @@ const STORE_DIR: &str = "history";
 const DOCUMENT_DIRS: [&str; 2] = ["revisions", "operations"];
 /// Every directory `Store.list` walks when asked: the documents, and the
 /// bookmarks and the rules of what recording skips, which are not documents
-/// — nothing names one by its digest — and `cache/`, whose copies `forget`
-/// destroys with what they copy; each listed only by a caller that asks.
-const LISTED_DIRS: [&str; 5] = ["revisions", "operations", "names", "skipped", "cache"];
+/// — nothing names one by its digest — and so are listed only by a caller
+/// that asks for them; `claims/`, the one directory decision 0053
+/// reserves for another tool and says travels, which `receive` unions and
+/// `export` and `offer` carry without reading; and `cache/`, whose copies
+/// `forget` destroys with what they copy.
+const LISTED_DIRS: [&str; 6] = ["revisions", "operations", "names", "skipped", "claims", "cache"];
 
 /// Where a store keeps what it can rebuild, and what decision 0036's
 /// catalogue of `operations/` is called inside it.
@@ -481,6 +485,135 @@ pub unsafe extern "C" fn hist_store_remove(
         }
         Ok("removed".to_owned())
     })
+}
+
+/// The directories a moved file emptied: `arrange`'s tidying after each
+/// rename.
+///
+/// The argument is the directory removal stops at, then the directory the
+/// file was moved out of. That directory is removed, then each above it,
+/// until one will not go — a directory holding anything refuses, which is
+/// the whole guard — or the first line's is reached, which is never removed.
+/// The answer is how many went. Nothing is decided here: which file moved,
+/// and where tidying stops, are the Bend side's.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_tidy(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let Some((boundary, directory)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a tidying is where it stops, then the directory".to_owned()));
+        };
+        let boundary = Path::new(boundary);
+        let mut removed = 0usize;
+        let mut empty = Some(Path::new(directory));
+        while let Some(directory) = empty {
+            if directory == boundary || fs::remove_dir(directory).is_err() {
+                break;
+            }
+            removed += 1;
+            empty = directory.parent();
+        }
+        Ok(removed.to_string())
+    })
+}
+
+/// A file's execute bit set as the tree says: `export`'s, for each file it
+/// writes or finds with the wrong mode.
+///
+/// The argument is the path, then `executable` or `plain`. Made runnable,
+/// the execute bits follow the read bits, as the Rust tool sets them — a
+/// file readable by its group becomes runnable by its group, and a private
+/// file stays private; made plain, every execute bit goes; nothing else
+/// about the file changes. The answer is `set`, or `held` where the bits
+/// already were: which files run is the Bend side's.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_runs(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    answer(out, out_len, || {
+        let (path, wanted) = match text(query, query_len)?.split_once('\n') {
+            Some((path, "executable")) => (Path::new(path), true),
+            Some((path, "plain")) => (Path::new(path), false),
+            _ => return Err((EINVAL, "a mode is a path, then `executable` or `plain`".to_owned())),
+        };
+        let failed = |error: std::io::Error| (code(&error), format!("{}: {error}", path.display()));
+        let mut permissions = fs::metadata(path).map_err(failed)?.permissions();
+        let held = permissions.mode();
+        let mode = if wanted { held | ((held & 0o444) >> 2) } else { held & !0o111 };
+        if mode == held {
+            return Ok("held".to_owned());
+        }
+        permissions.set_mode(mode);
+        fs::set_permissions(path, permissions).map_err(failed)?;
+        Ok("set".to_owned())
+    })
+}
+
+/// Every directory under one that holds nothing: `prune`'s sweep after the
+/// files it removed, and the one `receive` and `export` make after a
+/// forgotten original goes.
+///
+/// The argument is the directory. Each directory beneath it whose entries
+/// are all directories that went is removed, deepest first; the directory
+/// named is kept however empty it is left, and a link is never followed. A
+/// directory that is not there is an empty one. The answer is how many went.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_sweep(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let mut removed = 0usize;
+        sweep(Path::new(text(query, query_len)?), &mut removed)?;
+        Ok(removed.to_string())
+    })
+}
+
+/// Whether `directory` holds nothing once the empty directories under it are
+/// gone, removing each of those on the way.
+fn sweep(directory: &Path, removed: &mut usize) -> Result<bool, (i32, String)> {
+    let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+        Err(error) => return Err(failed(directory, error)),
+    };
+    let mut empty = true;
+    for entry in entries {
+        let entry = entry.map_err(|error| failed(directory, error))?;
+        let path = entry.path();
+        let kind = entry.file_type().map_err(|error| failed(&path, error))?;
+        if kind.is_dir() && sweep(&path, removed)? {
+            fs::remove_dir(&path).map_err(|error| failed(&path, error))?;
+            *removed += 1;
+        } else {
+            empty = false;
+        }
+    }
+    Ok(empty)
 }
 
 /// Where a path really is: the current directory for an empty argument,
@@ -1238,6 +1371,15 @@ mod tests {
         assert_eq!(listing, "names/feature/x.txt");
         let (_, listing) = call(hist_store_list, root.as_bytes());
         assert!(!listing.contains("names/"), "{listing}");
+
+        // So is `claims`, another tool's directory that travels.
+        fs::create_dir_all(dir.path().join("history/claims/by")).unwrap();
+        fs::write(dir.path().join("history/claims/by/one.txt"), "vouched\n").unwrap();
+        let (code, listing) = call(hist_store_list, format!("{root}\nclaims").as_bytes());
+        assert_eq!(code, 0);
+        assert_eq!(listing, "claims/by/one.txt");
+        let (_, listing) = call(hist_store_list, root.as_bytes());
+        assert!(!listing.contains("claims/"), "{listing}");
     }
 
     #[test]
@@ -1595,6 +1737,100 @@ mod tests {
         assert!(names.is_dir(), "names/ itself stays");
         assert_eq!(asked("top.txt"), (0, "absent".to_owned()));
         assert_eq!(call(hist_store_remove, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_tidying_removes_what_a_move_emptied_and_stops_at_the_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let operations = dir.path().join("operations");
+        fs::create_dir_all(operations.join("a/b/c")).unwrap();
+        fs::create_dir_all(operations.join("a/kept")).unwrap();
+        let asked = |directory: &Path| call(hist_store_tidy, format!("{}\n{}", operations.display(), directory.display()).as_bytes());
+
+        // `c` and `b` go; `a` holds `kept`, and refuses.
+        assert_eq!(asked(&operations.join("a/b/c")), (0, "2".to_owned()));
+        assert!(!operations.join("a/b").exists());
+        assert!(operations.join("a/kept").is_dir());
+        // A directory that holds a file is not emptied by being asked.
+        fs::write(operations.join("a/kept/x"), "").unwrap();
+        assert_eq!(asked(&operations.join("a/kept")), (0, "0".to_owned()));
+        fs::remove_file(operations.join("a/kept/x")).unwrap();
+        // The boundary itself is never removed, however empty.
+        assert_eq!(asked(&operations.join("a/kept")), (0, "2".to_owned()));
+        assert!(operations.is_dir());
+        assert_eq!(asked(&operations), (0, "0".to_owned()));
+        assert_eq!(call(hist_store_tidy, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_link_is_made_where_asked_its_directories_first_and_never_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let at = dir.path().join("out/deep/lnk");
+        let asked = |target: &str| call(hist_folder_link, format!("{}\n{target}", at.display()).as_bytes());
+
+        // The directories above it are made, and the target is not looked at.
+        assert_eq!(asked("../../nowhere"), (0, "linked".to_owned()));
+        assert_eq!(fs::read_link(&at).unwrap(), Path::new("../../nowhere"));
+        // A link already there is replaced, not written through.
+        fs::write(dir.path().join("out/kept.md"), "kept\n").unwrap();
+        assert_eq!(asked("../kept.md"), (0, "linked".to_owned()));
+        assert_eq!(fs::read_link(&at).unwrap(), Path::new("../kept.md"));
+        assert_eq!(fs::read_to_string(dir.path().join("out/kept.md")).unwrap(), "kept\n");
+        // Nothing staged is left beside it.
+        assert_eq!(fs::read_dir(dir.path().join("out/deep")).unwrap().count(), 1);
+        assert_eq!(call(hist_folder_link, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_file_made_runnable_gets_the_execute_bits_its_read_bits_allow() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared.sh");
+        let private = dir.path().join("private.sh");
+        fs::write(&shared, "#!/bin/sh\n").unwrap();
+        fs::write(&private, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o600)).unwrap();
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        let asked = |path: &Path, mode: &str| call(hist_store_runs, format!("{}\n{mode}", path.display()).as_bytes());
+
+        assert_eq!(asked(&shared, "executable"), (0, "set".to_owned()));
+        assert_eq!(mode(&shared), 0o755);
+        assert_eq!(asked(&private, "executable"), (0, "set".to_owned()));
+        assert_eq!(mode(&private), 0o700);
+        // Asked again, nothing changes, and it says so.
+        assert_eq!(asked(&shared, "executable"), (0, "held".to_owned()));
+        assert_eq!(mode(&shared), 0o755);
+        // Made plain, every execute bit goes and nothing else does.
+        assert_eq!(asked(&shared, "plain"), (0, "set".to_owned()));
+        assert_eq!(mode(&shared), 0o644);
+        assert_eq!(asked(&shared, "plain"), (0, "held".to_owned()));
+        let missing = dir.path().join("missing");
+        assert_eq!(asked(&missing, "plain").0, ENOENT);
+        assert_eq!(call(hist_store_runs, b"no mode").0, EINVAL);
+    }
+
+    #[test]
+    fn a_sweep_removes_every_empty_directory_and_keeps_the_one_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let revisions = dir.path().join("revisions");
+        fs::create_dir_all(revisions.join("2026-01/deep/er")).unwrap();
+        fs::create_dir_all(revisions.join("2026-02")).unwrap();
+        fs::create_dir_all(revisions.join("2026-03")).unwrap();
+        fs::write(revisions.join("2026-03/x.rev.txt"), "").unwrap();
+        // A link to an empty directory is not one, and is not followed.
+        std::os::unix::fs::symlink(revisions.join("2026-02"), revisions.join("2026-03/link")).unwrap();
+        let asked = call(hist_store_sweep, revisions.display().to_string().as_bytes());
+        assert_eq!(asked, (0, "4".to_owned()));
+        assert!(!revisions.join("2026-01").exists() && !revisions.join("2026-02").exists());
+        assert!(revisions.join("2026-03/x.rev.txt").exists());
+        assert!(revisions.is_dir());
+        // Swept again, nothing is left to go; and nothing there is empty.
+        assert_eq!(call(hist_store_sweep, revisions.display().to_string().as_bytes()), (0, "0".to_owned()));
+        let gone = dir.path().join("gone");
+        assert_eq!(call(hist_store_sweep, gone.display().to_string().as_bytes()), (0, "0".to_owned()));
     }
 
     #[test]

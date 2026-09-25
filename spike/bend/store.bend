@@ -85,6 +85,26 @@ def Store.remove(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_remove.c"
   import "./ffi/store_remove.js"
 
+# The directories a moved file left empty: where tidying stops, then the
+# directory it left; that one and each above it go until one holds
+# something. Back how many went.
+def Store.tidy(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_tidy.c"
+  import "./ffi/store_tidy.js"
+
+# Every directory under the one named that holds nothing, removed deepest
+# first; the one named stays. Back how many went.
+def Store.sweep(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_sweep.c"
+  import "./ffi/store_sweep.js"
+
+# A file's execute bits set: its path, then `executable` or `plain`. Made
+# runnable they follow the read bits, as the Rust tool sets them; made
+# plain they go. Back `set`, or `held` where they already were.
+def Store.runs(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_runs.c"
+  import "./ffi/store_runs.js"
+
 # Where a path really is — links, `.` and `..` resolved — or, for an empty
 # one, the current directory. A path that is not there has no answer.
 def Store.real(query: String) -> IO(Result<&1, &1, U32 & String, String>):
@@ -484,6 +504,14 @@ def name_paths(+root: String) -> IO(List<&2, String>):
     text : String <- IO.try(String, Store.list(root ++ "\nnames"))
     return kept(String.lines(text))
 
+# Every file under `claims/`, relative to the root, sorted: the one
+# directory another tool keeps that travels (decision 0053), which is
+# carried by name and never read.
+def claims_paths(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root ++ "\nclaims"))
+    return kept(String.lines(text))
+
 # Every file under `operations/`, and under `cache/`, relative to the root,
 # sorted: what `forget` destroys among.
 def operations(+root: String) -> IO(List<&2, String>):
@@ -521,6 +549,15 @@ def written(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def removed(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.remove(query)
+
+def tidied(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.tidy(query)
+
+def swept(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.sweep(query)
+
+def made_runnable(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.runs(query)
 
 def really(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.real(query)

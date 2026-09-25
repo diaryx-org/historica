@@ -33,6 +33,20 @@
 #   bend main.bend -- forget <target> <path> [--lines <first>..<last>]
 #                                            destroy some of what history
 #                                            holds of a file, keeping its shape
+#   bend main.bend -- arrange [-n|--dry-run] [--refile]
+#                                            the store's files renamed to
+#                                            the names decision 0006 gives
+#   bend main.bend -- prune [--dry-run] [--fields]
+#                                            superseded work nothing stands
+#                                            on removed, and what only it named
+#   bend main.bend -- receive <dir> [--dry-run] [--join-unrelated] [--fields]
+#                                            another store's history unioned
+#                                            into this one
+#   bend main.bend -- offer <dir>             the manifest a published copy
+#                                            cannot give, on standard output
+#   bend main.bend -- export <dir> [<target>] [--files-only] [-n|--dry-run]
+#                                            the copy a person takes away:
+#                                            the folder and its ancestry
 #
 # Or compile it: `bend main.bend -o main.c`, then link the archive `ffi/`
 # builds — `check.py` does both. What `bend main.bend` runs and what the
@@ -50,6 +64,11 @@ import ./shell.bend as Shell
 import ./identity.bend as Identity
 import ./skip.bend as Skip
 import ./check.bend as Check
+import ./arrange.bend as Arrange
+import ./prune.bend as Prune
+import ./receive.bend as Receive
+import ./offer.bend as Offer
+import ./export.bend as Export
 import ./update.bend as U
 import ./merging.bend as M
 import ./forget.bend as F
@@ -114,6 +133,16 @@ def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
       U.update(args)
     case "merge" <> args:
       M.merge(args)
+    case "arrange" <> args:
+      Arrange.arrange(args)
+    case "prune" <> args:
+      Prune.prune(args)
+    case "receive" <> args:
+      Receive.receive(args)
+    case "offer" <> args:
+      Offer.offer(args)
+    case "export" <> args:
+      Export.export(args)
     case "forget" <> args:
       F.forget(args)
     case "opdiff" <> parent <> child <> Nil{}:

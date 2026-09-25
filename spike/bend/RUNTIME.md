@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.put`, `Store.through`, `Store.lay`, `Store.link`, `Store.chmod`, `Store.run` and `Store.exit`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.put`, `Store.through`, `Store.lay`, `Store.tidy`, `Store.sweep`, `Store.link`, `Store.runs`, `Store.chmod`, `Store.run` and `Store.exit`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -247,6 +247,91 @@ one down; the rest through `update`'s effects. It removes nothing.
 file the parents leave differently, and hand the walk's proposal to the
 marker check and to the resolution writer; everything they decide from it
 is decided in Bend.
+
+`arrange` reads what `check` reads — every revision and operation
+document, read and hashed here, and the digest of each payload from
+`Store.digests` — since a file's digest is what it is called for. Each
+rename it plans goes through `Store.move`, the effect `record --move`
+uses, over the store rather than the folder: it renames where the old
+path is and the new is not, and answers `both` where the new name has
+filled since the plan, which the Bend side reads as a file to leave.
+`Store.tidy` then removes the directory the file left and each above it
+until one holds something or the store's own directory is reached, which
+is never removed. `Store.sweep` removes every empty directory under the
+one named, deepest first, keeping that one. Which files move, where, and
+what a refused rename means are all decided in Bend.
+
+`prune` asks the whole of `check` (`Check.passes`, the pass `check`
+itself makes) before it opens the store, and then reads what `arrange`
+reads, and the bookmark and rule files as text. Each
+file it removes goes through `Store.remove`, with the file's own directory
+as where tidying stops, so each call removes one file and nothing else;
+the entries of `cache/` named by a digest are found through `Store.folder`
+and removed the same way; and `Store.sweep` takes every directory under
+`revisions/` and `operations/` that was left holding nothing. Which
+revisions go, which content is still needed, and what counts as a cache
+entry are decided in Bend.
+
+`receive` reads what `prune` reads, of both stores, and the files of
+`claims/`, which `Store.list` now walks when asked for by name, their
+digests from `Store.digests`. It writes through the effects `record`
+already uses: every document and revision through `Store.once`, the text
+read and hashed here under the digest it hashed to; every payload and
+every file of `claims/` through `Store.copy`, which hashes it again as it
+copies and refuses one that moved on; every bookmark through
+`Store.write`; every rule through `Store.once`; and the originals a
+forgetting document stands in for through `Store.remove`, then
+`Store.sweep`. Which files, under which names, and what a disagreement is,
+are decided in Bend. A dry run that finds a disagreement prints it and
+ends with code 1, which `IO.die` cannot do without a line on standard
+error: `Store.exit` ends the process with the code given. It is the one
+effect with no Rust behind it — ending the program is the C runtime's, and
+nothing about a store comes into it — and the JS twin's writes are
+synchronous, so nothing printed is lost.
+
+`offer` writes nothing but standard output. It reads what `prune` reads,
+the bookmarks, and the files of `claims/` with their digests from
+`Store.digests`; each rule and bookmark file is read and hashed here, so
+its line carries the digest its bytes have. `Store.really` answers
+whether the copy holds `history/historica.txt`, and gives the copy's own
+name, resolved, to put before every path. Which files are listed, in what
+order, and which are private is decided in Bend.
+
+`export` reads what `receive` reads of this store, and the stored texts of
+the target's ancestry through `Store.fetch`, as `cat` does, so each file
+of lines is replayed here. It writes a copy through the effects `init` and
+`receive` already use — `Store.mkdirs` and `Store.write` for `init`'s
+layout, `Store.once` for every document, revision and rule, `Store.write`
+for every bookmark, `Store.copy` for every payload and file of `claims/` —
+and lays the folder out file by file: a file of lines through
+`Store.once`, the text replayed here; a file of bytes through
+`Store.copy`, straight out of the store; and two effects more.
+`Store.link`, which `update` uses too, makes a link where it is told,
+pointing where it is told, at a staged sibling renamed over the path, and
+never opens what it points at. `Store.runs` sets a file's execute bits the
+way the Rust tool's `set_executable` does — made runnable they follow the
+read bits, made plain they go — and answers whether anything changed,
+which is what `--files-only` reports as a `mode` line. Which files, under
+which names, spelled how, and which of them run, are decided in Bend:
+where a link points is `materialise`'s arithmetic, here. `Store.folder`
+answers whether the destination holds anything, and what; `Store.digests`
+reads each file `--files-only` wrote back.
+
+Onto a copy it made, `export` reads the copy as it reads this store, walks
+the copy's folder through `Folder.walk` with `Store.digests` for each
+file's digest, asks `Store.folder` what stands at each path the tree
+places and the walk did not offer, and reads what the copy's revisions
+say of every file ever at a path the walk found through `Store.fetch`.
+It writes over a file through `Store.write`, which lands staged and
+renamed, and over a payload by `Store.remove` then `Store.copy`; it
+removes through `Store.remove`, tidying up to the folder, and withdraws
+from the copy the same way, then `Store.sweep`. What is kept, written,
+withdrawn, destroyed or refused is decided in Bend.
+
+A refusal an effect reports is in the Rust tool's words on both builds:
+the native side's are `std::io::Error`'s, and the JS twins of
+`Store.folder` and `Store.mkdirs` spell an error the same way — the C
+library's description and `(os error N)` — rather than libuv's.
 
 Those three delegations, and `forget`'s above, are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and

@@ -266,6 +266,10 @@ PINS = {
 # The commands that supersede, which write the store as `record` does.
 REWRITES = ("amend", "abandon", "carry")
 
+# The commands that move, remove and copy what a store holds: after each,
+# the whole of every store under the copy is compared, less `cache/`.
+MOVES = ("arrange", "prune", "receive", "offer", "export")
+
 STORES = {
     "tree": [
         ["log"],
@@ -284,8 +288,8 @@ STORES = {
         ["record", "-n"],
         ["record", "-n", "--onto", "kxry", "docs"],
     ],
-    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"], ["status"], ["record", "-n"]],
-    "merged": [["log"], ["files", "head"], ["status"], ["update"]],
+    "revisions": [["log"], ["log", "kxryzmor"], ["show", "head"], ["status"], ["record", "-n"], ["arrange", "-n"], ["arrange"], ["arrange", "--refile"]],
+    "merged": [["log"], ["files", "head"], ["status"], ["update"], ["arrange"]],
     "links": [
         ["log"],
         ["files", "head"],
@@ -302,18 +306,20 @@ STORES = {
         ["status", "--onto", "kxry"],
         ["record", "-n"],
         ["record", "-n", "--onto", "kxry", "current"],
+        ["arrange", "--refile"],
         # A store that arrived with no folder: every file written, and each
         # link made where its target is now.
         ["update", "-n"],
         ["update"],
     ],
-    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"], ["record", "-n"], ["update"]],
+    "modes": [["log"], ["files", "head"], ["diff", "head"], ["blame", "head", "run.sh"], ["diff"], ["status"], ["record", "-n"], ["update"], ["arrange", "--refile"]],
     "whole": [
         ["log"], ["files", "head"], ["cat", "head", "notes/2026-08-20.md"],
         ["diff", "head"], ["blame", "head", "notes/photo.png"], ["blame", "head", "notes/2026-08-20.md"],
         # An assembled store has no folder beside it, so everything is gone.
         ["diff"], ["blame", "notes/2026-08-20.md"], ["status"], ["record", "-n"], ["record", "-n", "notes/photo.png"],
         ["update"],
+        ["arrange", "-n"], ["arrange"],
     ],
     # Recorded here by the Rust tool rather than taken from a corpus: the
     # widest path holds characters outside ASCII, which the Rust tool
@@ -397,7 +403,8 @@ STORES = {
     ],
     # The same, with a bookmark file that is not one: every command refuses.
     "badname": [["names"], ["log"], ["files", "main"], ["name", "new", "head"], ["name", "--fields", "new", "head"], ["name", "--delete", "main"],
-                ["record", "--fields", "-m", "x"], ["amend", "--fields", "-m", "y"], ["abandon", "head", "--fields", "-m", "z"], ["carry", "--fields"]],
+                ["record", "--fields", "-m", "x"], ["amend", "--fields", "-m", "y"], ["abandon", "head", "--fields", "-m", "z"], ["carry", "--fields"],
+                ["prune", "-n"], ["prune", "--fields"]],
     # Two authors, a rename, and a line of work beside the main one, for
     # `log`'s filters, ranges and `--fields`.
     "log": [
@@ -444,12 +451,19 @@ STORES = {
         ["status", "--onto", "base"],
         ["status", "--onto", "zzzz"],
         ["status", "--onto", "base", "--onto", "tip"],
+        # Written by the Rust tool, so already arranged.
+        ["arrange", "-n"],
+        ["arrange"],
     ],
     # The folder against the position: an edit, a file gone, files new —
     # text and bytes — a file of bytes changed, a mode, links retargeted,
     # made and removed, a file become a link, and rules skipping a path, a
     # directory, a name and a directory's name, filed flat and in folders.
     "folder": [
+        # Its folder exported whole and laid out alone: links, a mode, and
+        # the rules that travel.
+        ["export", "out"],
+        ["export", "--files-only", "out", "first"],
         ["diff"],
         ["diff", "notes.md"],
         ["diff", "path:notes.md"],
@@ -623,6 +637,8 @@ STORES = {
         ["carry", "base", "--onto", "tip"],
         ["carry", "top", "--onto", "side"],
         ["carry", "side", "--onto", "nope"],
+        ["prune", "-n"],
+        ["prune", "--fields"],
     ],
     # A rewrite that arrived without its carries: the repair, swept, named,
     # and planned; and what already rewritten refuses.
@@ -633,6 +649,19 @@ STORES = {
     # where the originals were; `record`, `amend` and `carry` read them too.
     "forgotten": [
         ["log"],
+        # A copy of a store that forgot: every forgetting document travels
+        # with what it stands in for, and each file is laid out as `cat`
+        # reads it.
+        ["export", "out"],
+        ["export", "out", "first"],
+        ["export", "--files-only", "out", "r1"],
+        # And the other moves over it: what may be pruned while a forgetting
+        # document stands in for what is named, a receive from itself, and
+        # its manifest, each forgetting document listed with what it forgets.
+        ["prune", "-n"],
+        ["prune"],
+        ["receive", ".", "-n"],
+        ["offer", "."],
         ["files", "head"],
         ["cat", "head", "notes.md"],
         ["cat", "first", "notes.md"],
@@ -809,6 +838,8 @@ STORES = {
         ["status"],
         ["log"],
         ["merge"],
+        ["prune", "-n"],
+        ["prune"],
     ],
     # `init`, where there is nothing yet: here, in a directory named — `.`,
     # nothing, nested, with a slash — made with its parents; refused beside a
@@ -836,6 +867,9 @@ STORES = {
         # that holds none, a file named, and a path not there.
         ["check", "."], ["check", "notes.md"], ["check", "nowhere"], ["check", "nowhere/history"], ["-C", "nowhere", "check"],
         ["update"],
+        ["prune"],
+        ["prune", "--fields"],
+        ["arrange", "-n"],
     ],
     # The command line before any command: the usage and the version, what
     # is not an option, `-C` in its every position — the last counting, a
@@ -977,7 +1011,141 @@ STORES = {
     # And each writing command asked for `--fields`: the statement, then
     # the refusal (decision 0074).
     "badskip": [["diff"], ["blame", "notes.md"], ["log"], ["files", "head"], ["cat", "head", "kept.md"], ["show", "head"], ["names"], ["status"], ["record", "-n"], ["skip"], ["skip", "x"],
-                ["record", "--fields", "-m", "x"], ["amend", "--fields", "-m", "y"], ["abandon", "head", "--fields", "-m", "z"], ["carry", "--fields"], ["name", "--fields", "x", "head"]],
+                ["record", "--fields", "-m", "x"], ["amend", "--fields", "-m", "y"], ["abandon", "head", "--fields", "-m", "z"], ["carry", "--fields"], ["name", "--fields", "x", "head"], ["prune", "-n"]],
+    # A store filed flat, by digest, as an older writer or a copy by hand
+    # leaves one: one revision in a folder of a person's own, one filed in
+    # its month already, content under digest names and in a directory of
+    # its own, two files holding one document, a file no revision names,
+    # and three revisions sharing a summary — two changes, and a reword of
+    # one — so every tier of a name is reached. Arranged in place and
+    # refiled, planned and done, and a word it does not take refused.
+    "arranging": [
+        ["arrange", "-n"],
+        ["arrange", "--dry-run", "--refile"],
+        ["arrange"],
+        ["arrange", "--refile", "-n", "--refile"],
+        ["arrange", "--refile"],
+        ["arrange", "-n", "extra"],
+        ["arrange", "--bogus", "-n"],
+    ],
+    # A revision amended, and a run of three abandoned, so pruning takes
+    # the one and clears the run over passes; content only they named, and
+    # content a kept revision shares; a second copy of a pruned revision in
+    # a folder of its own; an empty directory, a platform's file and a
+    # cache entry. And two stores `check` calls broken: a revision filed
+    # under a digest it does not have, and one that does not parse.
+    "pruning": [
+        # A copy of what the head stands on, which leaves the amended and
+        # abandoned revisions behind and a `supersedes` edge dangling.
+        ["export", "out"],
+        ["prune", "-n"],
+        ["prune"],
+        ["prune", "--fields"],
+        ["prune", "--dry-run", "--fields"],
+        ["prune", "--bogus", "-n"],
+        ["prune", "-n", "extra"],
+        ["arrange", "-n"],
+    ],
+    "lying": [["prune", "-n"], ["prune", "--fields"], ["arrange", "-n"]],
+    # (The parser's reasons are the port's own words, not the Rust tool's,
+    # so `arrange`'s refusal to open this store is not compared.)
+    "unparsed": [["prune", "-n"], ["prune", "--fields"]],
+    # A store and three beside it, filed in its folder: a copy that went on —
+    # a revision, a document and a payload this one lacks, bookmarks new,
+    # moved, and made private at one target, three rules one of which takes
+    # a label a file here already has, and a file of `claims/` — with its
+    # `main` moved elsewhere and without; and a stranger. Planned, done and
+    # stated; refused over the disagreement, over the stranger unless
+    # joined, over a directory with no store, and over the words.
+    "receiving": [
+        ["receive", "agreeing", "-n"],
+        ["receive", "agreeing"],
+        ["receive", "--fields", "agreeing"],
+        ["receive", "agreeing/history", "--dry-run"],
+        ["receive", "other", "-n"],
+        ["receive", "other"],
+        ["receive", "other", "--fields"],
+        ["receive", "stranger", "-n"],
+        ["receive", "stranger", "--join-unrelated", "-n"],
+        ["receive", "stranger", "--join-unrelated"],
+        ["receive", "nowhere"],
+        ["receive", "nowhere", "--fields"],
+        ["receive", "."],
+        ["receive"],
+        ["receive", "a", "b"],
+        ["receive", "-x", "agreeing"],
+        ["receive", "agreeing", "-n", "--fields"],
+        ["receive", "forgetful", "-n"],
+        ["receive", "forgetful"],
+        ["receive", "forgetful", "--fields"],
+        # The manifest of each store in the folder, and of this one: every
+        # kind a file can be listed as, what a forgetting document forgets,
+        # and the private rule and bookmark left out.
+        ["offer", "."],
+        ["offer", "agreeing"],
+        ["offer", "forgetful"],
+        ["offer", "stranger"],
+        ["offer", "history"],
+        ["offer", "nowhere"],
+        ["offer"],
+        ["offer", "a", "b"],
+        ["offer", "agreeing", "-x"],
+    ],
+    # A store with every kind of file — lines, bytes, a runnable file, a
+    # link by reference and one verbatim, one in a directory — over three
+    # revisions, a forgetting document for a file the head no longer holds,
+    # bookmarks shared, private, pinned to the first revision and naming a
+    # file, rules shared, private and none, a file of `claims/`, and a
+    # directory in its folder holding somebody's file. Exported whole and
+    # as a folder, at the head and at the first revision, planned and done;
+    # refused over the occupied directory, a target that is not one, and the
+    # words.
+    # Copies an export made, before the store went on: at the first revision,
+    # at the head, and each of those touched — a file edited, a stray file
+    # added, a revision recorded in it, a revision file that does not parse
+    # — and a stranger's store. Since then a line of a file only the second
+    # revision held was forgotten, a bookmark deleted and one made private, a
+    # rule deleted and one added. Each is brought up to date, planned and
+    # done, at the head and at the first revision, or refused.
+    "updating": [
+        ["export", "-n", "copy-old"],
+        ["export", "copy-old"],
+        ["export", "copy-old", "old"],
+        ["export", "-n", "copy-head"],
+        ["export", "copy-head"],
+        ["export", "--dry-run", "copy-head", "old"],
+        ["export", "copy-head", "old"],
+        ["export", "-n", "copy-edited"],
+        ["export", "copy-edited"],
+        ["export", "copy-stray"],
+        ["export", "copy-disturbed", "old"],
+        ["export", "copy-recorded"],
+        ["export", "-n", "copy-recorded"],
+        ["export", "copy-stranger"],
+        ["export", "copy-broken"],
+        ["export", "notes.md"],
+        ["export", "-n", "notes.md/deeper"],
+        ["export", "--files-only", "notes.md"],
+        ["export", "--files-only", "-n", "notes.md/deeper"],
+    ],
+    "exporting": [
+        ["export", "-n", "out"],
+        ["export", "out"],
+        ["export", "--dry-run", "out", "old"],
+        ["export", "out", "old"],
+        ["export", "deep/er/out"],
+        ["export", "--files-only", "-n", "out"],
+        ["export", "--files-only", "out"],
+        ["export", "out", "old", "--files-only"],
+        ["export", "occupied"],
+        ["export", "-n", "occupied"],
+        ["export", "--files-only", "occupied"],
+        ["export", "out", "nosuch"],
+        ["export"],
+        ["export", "a", "b", "c"],
+        ["export", "-x", "out"],
+        ["export", "out", "--files"],
+    ],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
         ["diff"], ["blame", "a.md"], ["blame", "file:a"], ["diff", "file:a"], ["status"],
@@ -1070,6 +1238,8 @@ STORES = {
     # resolution's, and insert their own — and a merge written here for each
     # way a resolution can fail to assemble or to parse.
     "merge": [
+        # A store `check` calls broken is not copied.
+        ["export", "out", "m1"],
         *(["cat", target, path] for target in ("left", "m1", "after", "m2") for path in ("f.md", "h.md")),
         *(["cat", target, "f.md"] for target in ("unknown", "range", "result", "notlast", "adjacent", "positioned", "twice")),
         ["cat", "across", "f.md"],
@@ -1166,6 +1336,10 @@ STORES = {
         ["merge"],
     ],
     "walked": [
+        # A merge's resolution travels with every document it keeps items
+        # of, and a folder is laid out from the walk where nothing states it.
+        ["export", "out", "resolved"],
+        ["export", "--files-only", "out", "crossed"],
         *(["cat", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         *(["blame", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         ["diff", "joined", "--onto", "left"],
@@ -1981,6 +2155,207 @@ def record(temporary, rust, corpus, pinned=None):
             f"historica\nchange {'m' * 24}\nparent {digest(two.read_bytes())}\nauthor Check <check@example.com>\n"
             f"when 2026-09-25T12:00:00+00:00\nedit {file} {digest(document.encode())}\n\nthree"
         )
+    elif corpus == "arranging":
+        (store / "notes.md").write_text("one\n")
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        (store / "b.bin").write_bytes(b"\x00bin")
+        (store / "odd.ops.txt").write_text("not a document\n")
+        historica("record", "-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "b.bin").write_bytes(b"\x00bin, again")
+        historica("record", "-m", "same: again")
+        (store / "notes.md").write_text("one\ntwo\nthree\n")
+        historica("record", "-m", "same: again")
+        (store / "notes.md").write_text("one\ntwo\nthree\nfour\n")
+        historica("amend", "-m", "same: again")
+        history = store / "history"
+        digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+        first = next(p for p in history.glob("revisions/*/*.rev.txt") if p.name.endswith(" one.rev.txt"))
+        # Everything but the first revision and its content filed flat, by
+        # digest; one revision in a folder of a person's own, one file of
+        # content in a directory of its own.
+        for path in sorted(history.glob("revisions/*/*.rev.txt")):
+            if path != first:
+                path.rename(history / "revisions" / f"{digest(path)}.rev.txt")
+        own = sorted(history.glob("revisions/*.rev.txt"))[0]
+        (history / "revisions" / "mine").mkdir()
+        own.rename(history / "revisions" / "mine" / own.name)
+        kept = history / "operations" / first.parent.name / first.name.removesuffix(".rev.txt")
+        for path in sorted(p for p in history.glob("operations/**/*") if p.is_file() and kept not in p.parents):
+            name = digest(path) + (".ops.txt" if path.name.endswith(".ops.txt") and not path.name.startswith("odd") else "")
+            path.rename(history / "operations" / name)
+        for directory in sorted((p for p in history.glob("operations/**/*") if p.is_dir()), reverse=True):
+            if not any(directory.iterdir()):
+                directory.rmdir()
+        document = next(p for p in history.glob("operations/*.ops.txt"))
+        (history / "operations" / "by hand" / "deep").mkdir(parents=True)
+        document.rename(history / "operations" / "by hand" / "deep" / document.name)
+        shutil.copy(history / "operations" / "by hand" / "deep" / document.name, history / "operations" / "copy.ops.txt")
+        shutil.copy(own.parent / "mine" / own.name, history / "revisions" / "copy.rev.txt")
+        (history / "operations" / "stray.txt").write_text("named by nothing\n")
+    elif corpus == "receiving":
+        def at(where, *command):
+            return subprocess.run([rust, *command], cwd=where, env=env, check=True, capture_output=True, text=True, timeout=120).stdout
+
+        (store / "notes.md").write_text("one\n")
+        (store / "p.bin").write_bytes(b"\x00p")
+        historica("record", "-m", "one")
+        historica("name", "main", "head")
+        historica("name", "shared", "head")
+        change = at(store, "log", "--fields").splitlines()[1].split()[1]
+        # A copy that forgot the one line this store's first file holds, so
+        # a forgetting document arrives and the original here is destroyed.
+        forgetful = temporary / "receiving-forgetful"
+        shutil.copytree(store, forgetful, symlinks=True)
+        at(forgetful, "forget", "head", "notes.md", "--lines", "1..1")
+        other = temporary / "receiving-other"
+        shutil.copytree(store, other, symlinks=True)
+        (other / "notes.md").write_text("one\ntwo\n")
+        (other / "q.bin").write_bytes(b"\x00q")
+        at(other, "record", "-m", "two")
+        at(other, "name", "side", "head", "--revision")
+        at(other, "name", "priv", "head", "--private")
+        at(other, "name", "shared", change, "--private")
+        at(other, "skip", "build/")
+        at(other, "skip", "--private", "--name", "*.tmp")
+        at(other, "skip", "--name", "x")
+        (other / "history" / "claims" / "by").mkdir(parents=True)
+        (other / "history" / "claims" / "by" / "one.txt").write_text("vouched\n")
+        (other / "history" / "claims" / ".DS_Store").write_bytes(b"\x00")
+        (store / "history" / "skipped" / "name x.txt").write_text("# a note, stating no rule\n")
+        agreeing = temporary / "receiving-agreeing"
+        shutil.copytree(other, agreeing, symlinks=True)
+        (agreeing / "history" / "names" / "main.txt").unlink()
+        stranger = temporary / "receiving-stranger"
+        stranger.mkdir()
+        at(stranger, "init", ".")
+        (stranger / "else.md").write_text("elsewhere\n")
+        at(stranger, "record", "-m", "elsewhere")
+        for name, path in (("other", other), ("agreeing", agreeing), ("stranger", stranger), ("forgetful", forgetful)):
+            path.rename(store / name)
+    elif corpus == "updating":
+        def at(where, *command):
+            return subprocess.run([rust, *command], cwd=where, env=env, check=True, capture_output=True, text=True, timeout=120).stdout
+
+        (store / "notes.md").write_text("one\n")
+        (store / "photo.bin").write_bytes(b"\x00one")
+        (store / "run.sh").write_text("#!/bin/sh\necho run\n")
+        (store / "run.sh").chmod(0o755)
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        os.symlink("notes.md", store / "to-notes")
+        os.symlink("/etc/hosts", store / "abs")
+        historica("record", "-m", "one")
+        historica("name", "old", "head", "--revision")
+        (store / "gone.md").write_text("secret\nline\n")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "photo.bin").write_bytes(b"\x00two")
+        historica("record", "-m", "two")
+        two = at(store, "log", "--fields").splitlines()[1].split()[0]
+        (store / "gone.md").unlink()
+        (store / "sub" / "deep.md").write_text("deep\ner\n")
+        (store / "run.sh").chmod(0o644)
+        historica("record", "-m", "three")
+        historica("name", "main", "head")
+        historica("name", "doc", "head", "notes.md")
+        historica("name", "gone", "head")
+        historica("skip", "build/")
+        historica("skip", "--name", "*.log")
+        (store / "history" / "claims").mkdir()
+        (store / "history" / "claims" / "one.txt").write_text("vouched\n")
+        historica("export", "copy-old", "old")
+        historica("export", "copy-head")
+        historica("export", "copy-edited", "old")
+        (store / "copy-edited" / "notes.md").write_text("mine\n")
+        historica("export", "copy-stray", "old")
+        (store / "copy-stray" / "stray.md").write_text("stray\n")
+        historica("export", "copy-disturbed")
+        (store / "copy-disturbed" / "notes.md").write_text("mine\n")
+        historica("export", "copy-recorded", "old")
+        (store / "copy-recorded" / "x.md").write_text("x\n")
+        at(store / "copy-recorded", "record", "-m", "in the copy")
+        historica("export", "copy-broken", "old")
+        (store / "copy-broken" / "history" / "revisions" / "bad.rev.txt").write_text("garbage\n")
+        (store / "copy-stranger").mkdir()
+        at(store / "copy-stranger", "init", ".")
+        (store / "copy-stranger" / "else.md").write_text("elsewhere\n")
+        at(store / "copy-stranger", "record", "-m", "elsewhere")
+        # The store goes on without recording: nothing the copies hold is
+        # tracked by it.
+        historica("forget", two, "gone.md", "--lines", "1..1")
+        historica("name", "--delete", "gone")
+        historica("name", "doc", "head", "notes.md", "--private")
+        (store / "history" / "skipped" / "build" / "all.txt").unlink()
+        historica("skip", "dist/")
+    elif corpus == "exporting":
+        def at(*command):
+            return subprocess.run([rust, *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120).stdout
+
+        (store / "notes.md").write_text("one\n")
+        (store / "photo.bin").write_bytes(b"\x00one")
+        (store / "run.sh").write_text("#!/bin/sh\necho run\n")
+        (store / "run.sh").chmod(0o755)
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        os.symlink("notes.md", store / "to-notes")
+        os.symlink("../notes.md", store / "sub" / "up")
+        os.symlink("/etc/hosts", store / "abs")
+        historica("record", "-m", "one")
+        historica("name", "old", "head", "--revision")
+        (store / "gone.md").write_text("secret\nline\n")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "photo.bin").write_bytes(b"\x00two")
+        historica("record", "-m", "two")
+        two = at("log", "--fields").splitlines()[1].split()[0]
+        (store / "gone.md").unlink()
+        (store / "sub" / "deep.md").write_text("deep\ner\n")
+        historica("record", "-m", "three")
+        # A forgetting document for a file only the second revision holds.
+        historica("forget", two, "gone.md", "--lines", "1..1")
+        historica("name", "main", "head")
+        historica("name", "priv", "head", "--private")
+        historica("name", "doc", "head", "notes.md")
+        historica("skip", "build/")
+        historica("skip", "--private", "--name", "*.tmp")
+        (store / "history" / "skipped" / "note.txt").write_text("# a note, stating no rule\n")
+        (store / "history" / "claims" / "by").mkdir(parents=True)
+        (store / "history" / "claims" / "by" / "one.txt").write_text("vouched\n")
+        (store / "history" / "claims" / ".DS_Store").write_bytes(b"\x00")
+        (store / "occupied").mkdir()
+        (store / "occupied" / "x.md").write_text("somebody's\n")
+    elif corpus in ("pruning", "lying", "unparsed"):
+        def rec(*command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            return re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+
+        (store / "notes.md").write_text("one\n")
+        (store / "photo.bin").write_bytes(b"\x00one")
+        rec("-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "photo.bin").write_bytes(b"\x00two")
+        rec("-m", "two")
+        (store / "notes.md").write_text("one\ntwo\nthree\n")
+        historica("amend", "-m", "two, amended")
+        a = None
+        for name in ("a", "b", "c"):
+            (store / f"{name}.md").write_text(f"{name}\n")
+            if name == "c":
+                (store / "photo.bin").write_bytes(b"\x00one")
+            digest = rec("-m", f"work {name}")
+            a = a or digest
+        historica("abandon", a, "-m", "not this line of work")
+        history = store / "history"
+        two = next(history.glob("revisions/*/* two.rev.txt"))
+        (history / "revisions" / "copy").mkdir()
+        shutil.copy(two, history / "revisions" / "copy" / two.name)
+        (history / "operations" / "empty" / "er").mkdir(parents=True)
+        (history / "operations" / ".DS_Store").write_bytes(b"\x00")
+        (history / "cache" / ("0" * 64)).write_text("derived\n")
+        if corpus == "lying":
+            (history / "revisions" / ("1" * 64 + ".rev.txt")).write_bytes(two.read_bytes())
+        if corpus == "unparsed":
+            (history / "revisions" / "bad.rev.txt").write_text("garbage\n")
     elif corpus in ("forgotten", "forgetting", "resurrected"):
         # A file of lines edited a line at a time, long enough that reading
         # it leaves the Rust tool a state in `cache/`; a file of bytes
@@ -2187,7 +2562,7 @@ def check_store(temporary):
             here = Path(directory)
             if here == root and not whole:
                 dirs[:] = [d for d in dirs if d != "history"]
-            if here == root / "history" / "cache" and not cached:
+            if here.name == "cache" and here.parent.name == "history" and not cached:
                 files = [f for f in files if f == "README.txt"]
             dirs.sort()
             for name in sorted(dirs + files):
@@ -2265,7 +2640,8 @@ def check_store(temporary):
     def compare(corpus, commands):
         recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping",
                                "damaged", "gutted", "tampered", "unreadable", "quoting", "requoted", "unnamed", "unruled", "forgotten", "forgetting",
-                               "updating", "caught", "blocked", "meeting", "marked", "marked1", "resolved", "through", "resurrected")
+                               "updating", "caught", "blocked", "meeting", "marked", "marked1", "resolved", "through", "resurrected",
+                               "arranging", "pruning", "lying", "unparsed", "receiving", "exporting")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -2276,8 +2652,9 @@ def check_store(temporary):
             # own, and what the folder holds after is compared too; and a
             # record that is not a dry run, the whole store it wrote.
             verb = word(command)
-            writes = verb in ("record", "name", "init", "identity", "skip", "update", "merge", "forget", *REWRITES)
+            writes = verb in ("record", "name", "init", "identity", "skip", "update", "merge", "forget", *REWRITES, *MOVES)
             recording = verb in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
+            moving = verb in MOVES
             # `forget` destroys what `cache/` holds copies of, so its store is
             # compared whole, `cache/` and all.
             forgetting = verb == "forget"
@@ -2285,13 +2662,14 @@ def check_store(temporary):
             copy = fresh(store, at) if writes else store
             env = environment(copy, changed)
             command = [word.replace("{copy}", str(copy)) for word in command]
-            whole = verb in ("init", "identity", "skip") or recording or forgetting
+            whole = verb in ("init", "identity", "skip") or recording or moving or forgetting
+            cached = forgetting or not (recording or moving)
             reference = writer if verb in ("record", "forget", *REWRITES) else rust
             shown = " ".join([f"{k}={v}" for k, v in changed.items()] + command)
-            expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording or forgetting) if writes else ())
+            expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, cached) if writes else ())
             for name, tool in tools:
                 copy = fresh(store, at) if writes else store
-                got = said(capture(*tool, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording or forgetting) if writes else ())
+                got = said(capture(*tool, *command, cwd=copy, env=env)) + (folder_of(copy, whole, cached) if writes else ())
                 if got != expected:
                     failures += 1
                     lines += [f"DIFF {corpus} {name}: {shown}", f"  rust: {expected}", f"  bend: {got}"]
@@ -3108,6 +3486,293 @@ def check_mutations(temporary):
             "    None{}))\n\ndef name.usable.r(",
             "name_lemmas.stays",
             "commands.bend",
+        ),
+        (
+            "arrange plans a rename onto a name that is taken",
+            "    Bool.pick(Placing, has(taken, target), Placing.Occupied{path, target}, Placing.Rename{path, target}))",
+            "    Bool.pick(Placing, False{}, Placing.Occupied{path, target}, Placing.Rename{path, target}))",
+            "arrange_lemmas.place_safe",
+            "arrange.bend",
+        ),
+        (
+            "arrange refiles a revision it was not asked to",
+            '      String.append(Naming.head(path), leaf(stem) ++ ".rev.txt")',
+            '      "revisions/" ++ stem ++ ".rev.txt"',
+            "arrange_lemmas.kept_here",
+            "arrange.bend",
+        ),
+        (
+            "arrange's dry run leaves out the files it would leave",
+            "  Came{done.renamed(ps), done.already(ps), done.occupied(ps), done.unnamed(ps)}\n",
+            "  Came{done.renamed(ps), done.already(ps), Nil{}, done.unnamed(ps)}\n",
+            "arrange_lemmas.tally_planned",
+            "arrange.bend",
+        ),
+        (
+            "arrange opens a store past a revision that does not parse",
+            '      Some{Main.Refused{1, path ++ ": " ++ e}}',
+            "      None{}",
+            "arrange_lemmas.fault_parses",
+            "arrange.bend",
+        ),
+        (
+            "prune lets go of a revision work still stands on",
+            "  Bool.and(superseded(kept, Main.id_of(f)), Bool.and(Bool.not(stood_on(kept, Main.id_of(f))), Bool.not(evidence(supersedes_of(f), Main.ids(kept)))))",
+            "  Bool.and(superseded(kept, Main.id_of(f)), Bool.and(True{}, Bool.not(evidence(supersedes_of(f), Main.ids(kept)))))",
+            "prune_lemmas.goes_stood",
+            "prune.bend",
+        ),
+        (
+            "prune removes content a revision it keeps names",
+            "      Tree.keep(~T.Split, Bool.not(Arrange.has(keep, id)), T.Split{path, id}, gone.of(rest, keep))",
+            "      Tree.keep(~T.Split, True{}, T.Split{path, id}, gone.of(rest, keep))",
+            "prune_lemmas.gone_unneeded",
+            "prune.bend",
+        ),
+        (
+            "prune takes a plan and a statement at once",
+            "  Bool.pick(Result<&2, &2, Main.Refused, PruneCmd>, Bool.and(dry, fields),",
+            "  Bool.pick(Result<&2, &2, Main.Refused, PruneCmd>, False{},",
+            "words_lemmas.prn.planned",
+            "prune.bend",
+        ),
+        (
+            "receive takes a document this store already holds",
+            "      doc.keep(Bool.not(Arrange.has(have, Store.id_of(d))), d, docs.lacking(rest, have))",
+            "      doc.keep(True{}, d, docs.lacking(rest, have))",
+            "receive_lemmas.docs_lacking",
+            "receive.bend",
+        ),
+        (
+            "receive moves a bookmark this store holds elsewhere",
+            "      Bool.pick(Marked, same_target(tt, ht), marked.joined(n, ht, hp, tp), Marked{Nil{}, [Conflict{n, Bm.Bookmark{hn, ht, hp}, Bm.Bookmark{n, tt, tp}}]})",
+            "      Bool.pick(Marked, same_target(tt, ht), marked.joined(n, ht, hp, tp), Marked{[Bm.Bookmark{n, tt, tp}], Nil{}})",
+            "receive_lemmas.one_kept",
+            "receive.bend",
+        ),
+        (
+            "receive destroys an original nothing forgets",
+            "  Main.sorted_distinct(among(forgotten(here, there), Set.from_list(",
+            "  Main.sorted_distinct(among(List.append(&2, String, forgotten(here, there), body.ids(stored.bodies(stored.of(there)))), Set.from_list(",
+            "receive_lemmas.destroys",
+            "receive.bend",
+        ),
+        (
+            "offer names a private bookmark",
+            "      offered.found(Bool.not(p), Arrange.lookup(ids, \"names/\" ++ n ++ \".txt\")",
+            "      offered.found(True{}, Arrange.lookup(ids, \"names/\" ++ n ++ \".txt\")",
+            "offer_lemmas.names_shared",
+            "offer.bend",
+        ),
+        (
+            "offer names a private rule",
+            "      offered.found(Bool.not(String.starts_with(line, \"private\")), Arrange.lookup(ids, \"skipped/\" ++ file)",
+            "      offered.found(True{}, Arrange.lookup(ids, \"skipped/\" ++ file)",
+            "offer_lemmas.rule_kept",
+            "offer.bend",
+        ),
+        (
+            "export lays a link somewhere other than where it sits",
+            "      Outcome.Laid{Put.Link{path, s}}",
+            "      Outcome.Laid{Put.Link{\"link\", s}}",
+            "export_lemmas.link_path",
+            "export.bend",
+        ),
+        (
+            "export gives a copy a private bookmark",
+            "          travel.withheld(t)",
+            "          travel.held(Bm.Bookmark{n, g, True{}}, True{}, t)",
+            "export_lemmas.push_travels",
+            "export.bend",
+        ),
+        (
+            "export gives a copy a bookmark pointing past the target",
+            "          travel.held(Bm.Bookmark{n, g, False{}}, pointed.holds(pt, g), t)",
+            "          travel.held(Bm.Bookmark{n, g, False{}}, True{}, t)",
+            "export_lemmas.push_travels",
+            "export.bend",
+        ),
+        (
+            "export writes a private rule into the copy",
+            "      Tree.keep(~Receive.Ruled, Bool.not(ruled.private(r)), r, rules.shared(rest))",
+            "      Tree.keep(~Receive.Ruled, True{}, r, rules.shared(rest))",
+            "export_lemmas.shared_all",
+            "export.bend",
+        ),
+        (
+            "export writes over a file nothing recorded",
+            "      +over = Bool.pick(Step, recorded(whole, rs, path, d),",
+            "      +over = Bool.pick(Step, True{},",
+            "export_lemmas.held_safe",
+            "export.bend",
+        ),
+        (
+            "export removes a stray file nothing recorded",
+            "      Tree.keep(~String, Bool.and(Bool.not(Arrange.has(placed, p)), seen.gone(s, whole, rs)), p, removes(rest, placed, whole, rs))",
+            "      Tree.keep(~String, Bool.not(Arrange.has(placed, p)), p, removes(rest, placed, whole, rs))",
+            "export_lemmas.removes_safe",
+            "export.bend",
+        ),
+        (
+            "export takes a word it does not know",
+            "      Bool.pick(Maybe<&2, String>, Bool.and(String.starts_with(w, \"-\"), Bool.not(is_flag(w))), Some{w}, stray(rest))",
+            "      Bool.pick(Maybe<&2, String>, False{}, Some{w}, stray(rest))",
+            "words_lemmas.exp.shape",
+            "export.bend",
+        ),
+        (
+            "export updates a directory holding no store",
+            "    case False{} False{}:\n      Fail{Main.Refused{1, into ++ \" already holds something",
+            "    case False{} False{}:\n      Done{Dest.Copy{}}\n    case True{} True{}:\n      Fail{Main.Refused{1, into ++ \" already holds something",
+            "export_lemmas.held_dest",
+            "export.bend",
+        ),
+        (
+            "export lays a file of lines out as plain whatever its mode",
+            "      Outcome.Laid{Put.Text{path, Ops.text(items), r}}",
+            "      Outcome.Laid{Put.Text{path, Ops.text(items), False{}}}",
+            "export_lemmas.lines_as",
+            "export.bend",
+        ),
+        (
+            "export copies a payload from a file named for it rather than the one holding it",
+            "      Outcome.Laid{Put.Bytes{path, from, d, r}}",
+            "      Outcome.Laid{Put.Bytes{path, d, d, r}}",
+            "export_lemmas.held_as",
+            "export.bend",
+        ),
+        (
+            "export carries a payload from a file the store does not hold",
+            "      Bool.pick(List<&2, T.Split>, Arrange.has(docs, id), later, payload.push(id, split.find(ps, id), later))",
+            "      Bool.pick(List<&2, T.Split>, Arrange.has(docs, id), later, payload.push(id, Some{id}, later))",
+            "export_lemmas.pays_among",
+            "export.bend",
+        ),
+        (
+            "export renames a revision the copy holds",
+            "      T.Split{id, Maybe.default(&2, String, kept, Naming.stem(w, m, c, id, existing))}",
+            "      T.Split{id, Naming.stem(w, m, c, id, existing)}",
+            "export_lemmas.stems_kept",
+            "export.bend",
+        ),
+        (
+            "receive plans from a store the check calls broken",
+            "      plan.source(Prune.sound(stored.of(there)), here, there, join)",
+            "      plan.source(True{}, here, there, join)",
+            "receive_lemmas.gate_there",
+            "receive.bend",
+        ),
+        (
+            "receive takes a plan and a statement at once",
+            "  args.end.of(Bool.and(dry, fields), dry, fields, join, source)",
+            "  args.end.of(False{}, dry, fields, join, source)",
+            "words_lemmas.recv.nil",
+            "receive.bend",
+        ),
+        (
+            "offer takes a directory that starts like a flag",
+            "      Bool.pick(Maybe<&2, String>, String.starts_with(w, \"-\"), Some{w}, first_dash(rest))",
+            "      Bool.pick(Maybe<&2, String>, False{}, Some{w}, first_dash(rest))",
+            "words_lemmas.off.shape",
+            "offer.bend",
+        ),
+        (
+            "export lays out a path a rule of the copy covers",
+            "          refuse.if(Folder.skips(rules, path), path, \"a `skip` rule in history/skipped.txt covers it, so the walk could never offer it back\",",
+            "          refuse.if(False{}, path, \"a `skip` rule in history/skipped.txt covers it, so the walk could never offer it back\",",
+            "export_lemmas.tree_clear",
+            "export.bend",
+        ),
+        (
+            "export destroys every original the copy holds",
+            "  Main.sorted_distinct(Receive.among(forgotten, Set.from_list(List.append(&2, String, body.digests(Receive.stored.bodies(cst)), split.digests(Receive.stored.payloads(cst))))))",
+            "  Main.sorted_distinct(List.append(&2, String, body.digests(Receive.stored.bodies(cst)), split.digests(Receive.stored.payloads(cst))))",
+            "export_lemmas.destroys_of",
+            "export.bend",
+        ),
+        (
+            "the check that every revision parses reads the first alone",
+            "      Bool.and(parses(d), all_parse(rest))",
+            "      parses(d)",
+            "arrange_lemmas.faults_none",
+            "arrange.bend",
+        ),
+        (
+            "receive reads a document's own digest as what it forgets",
+            "      forgets.push(f, body.forgets(rest))",
+            "      forgets.push(Some{i}, body.forgets(rest))",
+            "receive_lemmas.forgets_member",
+            "receive.bend",
+        ),
+        (
+            "export reads a copy's document's own digest as what it forgets",
+            "      maybe.push(f, forgets.all(rest))",
+            "      maybe.push(Some{id}, forgets.all(rest))",
+            "export_lemmas.forgets_all",
+            "export.bend",
+        ),
+        (
+            "export reads the first record of the copy whatever path it is of",
+            "      Bool.pick(Maybe<&2, Rec>, String.eq(p, path), Some{Rec{p, ds, ls}}, rec.find(rest, path))",
+            "      Bool.pick(Maybe<&2, Rec>, True{}, Some{Rec{p, ds, ls}}, rec.find(rest, path))",
+            "export_lemmas.rec_find",
+            "export.bend",
+        ),
+        (
+            "arrange takes a word it does not know",
+            "      Bool.pick(Maybe<&2, String>, is_flag(w), first_other(rest), Some{w})",
+            "      Bool.pick(Maybe<&2, String>, True{}, first_other(rest), Some{w})",
+            "words_lemmas.arr.shape",
+            "arrange.bend",
+        ),
+        (
+            "arrange reads `--refile` as a dry run too",
+            "  args.of(any_dry(ws), any_refile(ws), first_other(ws))",
+            "  args.of(Bool.or(any_dry(ws), any_refile(ws)), any_refile(ws), first_other(ws))",
+            "words_lemmas.arrange_words",
+            "arrange.bend",
+        ),
+        (
+            "prune hears `--fields` only as the first word",
+            "      Bool.or(is_fields(w), any_fields(rest))",
+            "      is_fields(w)",
+            "words_lemmas.prn.fields",
+            "prune.bend",
+        ),
+        (
+            "export reads its target as the directory",
+            "      Done{ExportCmd{dry, files, d, Some{t}}}",
+            "      Done{ExportCmd{dry, files, t, Some{d}}}",
+            "words_lemmas.exp.words",
+            "export.bend",
+        ),
+        (
+            "receive takes a second source over the first",
+            "              Fail{Main.Refused{2, \"`receive` wants one source directory, not `\" ++ w ++ \"`\"}}",
+            "              args.go(rest, rword.of(rest), dry, fields, join, Some{w})",
+            "words_lemmas.recv.other.a",
+            "receive.bend",
+        ),
+        (
+            "receive reads `--fields` as joining unrelated histories",
+            "  Bool.pick(RWord, String.eq(w, \"--fields\"), RWord.Fields{},",
+            "  Bool.pick(RWord, String.eq(w, \"--fields\"), RWord.Join{},",
+            "words_lemmas.recv.go",
+            "receive.bend",
+        ),
+        (
+            "offer takes the first of two directories",
+            "      Fail{Main.Refused{2, \"`offer` takes one directory, and `\" ++ extra ++ \"` is a second\"}}",
+            "      Done{d}",
+            "words_lemmas.off.plain",
+            "offer.bend",
+        ),
+        (
+            "offer names a file by its path rather than its digest",
+            "      Offered{kind, d, None{}, addressed(prefix, p)} <> splits.offered(rest, kind, prefix)",
+            "      Offered{kind, p, None{}, addressed(prefix, p)} <> splits.offered(rest, kind, prefix)",
+            "offer_lemmas.splits_from",
+            "offer.bend",
         ),
         (
             "update writes over bytes no revision records",

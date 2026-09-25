@@ -75,6 +75,12 @@ import ./argv_lemmas.bend as ArgvL
 import ./shell_lemmas.bend as ShellL
 import ./opening_lemmas.bend as OpeningL
 import ./identity_lemmas.bend as IdentityL
+import ./arrange_lemmas.bend as ArrangeL
+import ./prune_lemmas.bend as PruneL
+import ./receive_lemmas.bend as ReceiveL
+import ./offer_lemmas.bend as OfferL
+import ./export_lemmas.bend as ExportL
+import ./words_lemmas.bend as WordsL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -963,3 +969,90 @@ def Laws.merge_spares_the_unrecorded(fs, ds, heads, bs, t, dg, texts, ls, cs, lo
 
 def Laws.merge_sets_aside_the_claims(cs):
   MergingL.aside(cs)
+
+def Laws.arrange_reads_its_words(ws):
+  WordsL.arrange_words(ws)
+
+def Laws.arrange_plans_no_overwrite(refile, fs, revs, ops, ls, a, e):
+  ArrangeL.plan_safe(refile, fs, revs, ops, ls, a, e)
+
+def Laws.arrange_keeps_a_revision_where_it_sits(fs, revs, ops, ls, a, e):
+  ArrangeL.kept(fs, revs, ops, ls, a, e)
+
+def Laws.arrange_opens_what_parses(pre, path, id, size, text, post, msg, hp, hf):
+  ArrangeL.opens(pre, path, id, size, text, post, msg, hp, hf)
+
+def Laws.arrange_counts_every_file(refile, fs, revs, ops, ls, a, e):
+  ArrangeL.counts(refile, fs, revs, ops, ls, a, e)
+
+def Laws.prune_reads_its_words(ws):
+  WordsL.prune_words(ws)
+
+def Laws.prune_keeps_what_work_stands_on(fs, id, hf, hk):
+  PruneL.stands(fs, id, hf, hk)
+
+def Laws.prune_removes_only_unneeded_content(fs, revs, bs, ps):
+  PruneL.content(fs, revs, bs, ps)
+
+def Laws.receive_takes_only_what_is_missing(here, there):
+  ReceiveL.fresh(here, there)
+
+def Laws.receive_moves_no_bookmark(here, there):
+  ReceiveL.names(here, there)
+
+def Laws.receive_destroys_only_what_is_forgotten(here, there, d, h):
+  ReceiveL.destroyed(here, there, d, h)
+
+def Laws.offer_names_no_private_bookmark(prefix, s, bs, claims, rids, nids):
+  OfferL.bookmarks(prefix, s, bs, claims, rids, nids)
+
+def Laws.offer_names_no_private_rule(prefix, s, bs, claims, rids, nids):
+  OfferL.rules(prefix, s, bs, claims, rids, nids)
+
+def Laws.export_lays_out_every_path(ps, t, fs, ds, id, pays, bs):
+  ExportL.laid(ps, t, fs, ds, id, pays, bs)
+
+def Laws.export_names_only_what_travels(bs, pt):
+  ExportL.names(bs, pt)
+
+def Laws.export_states_no_private_rule(rs):
+  ExportL.rules(rs)
+
+def Laws.export_writes_over_no_unrecorded_work(os, ss, dirs, others, whole, rs):
+  ExportL.steps_safe(os, ss, dirs, others, whole, rs)
+
+def Laws.export_removes_only_recorded_files(ss, placed, whole, rs):
+  ExportL.removes_safe(ss, placed, whole, rs)
+
+def Laws.export_reads_its_words(ws):
+  WordsL.export_words(ws)
+
+def Laws.export_writes_only_where_a_copy_may_go(into, l, store):
+  ExportL.dest(into, l, store)
+
+def Laws.export_lays_each_file_as_the_tree_has_it(ps, t, fs, ds, id, pays, bs):
+  ExportL.laid_all(ps, t, fs, ds, id, pays, bs)
+
+def Laws.export_carries_only_this_stores_files(held, t, ds, ps, bodies, rs, bs, claims):
+  ExportL.plan_from(held, t, ds, ps, bodies, rs, bs, claims)
+
+def Laws.export_renames_nothing_a_copy_holds(fs, held, ex, id, s, e, m):
+  ExportL.stems_kept(fs, held, ex, id, s, e, m)
+
+def Laws.receive_trusts_what_it_plans_from(other, root, pre, path, id, size, text, post, revs, od, bs, ps, names, rules, marks, claims, join, msg, hp, hf):
+  ReceiveL.trusts(other, root, pre, path, id, size, text, post, revs, od, bs, ps, names, rules, marks, claims, join, msg, hp, hf)
+
+def Laws.receive_reads_its_words(ws):
+  WordsL.receive_words(ws)
+
+def Laws.offer_reads_its_words(ws):
+  WordsL.offer_words(ws)
+
+def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs, rules):
+  ExportL.folder_clear(t, fs, ds, id, pays, bs, rules)
+
+def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks, d, h):
+  ExportL.destroyed(p, here, cst, marks, d, h)
+
+def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids):
+  OfferL.digests(prefix, s, marks, claims, rids, nids)
