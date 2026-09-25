@@ -26,6 +26,9 @@
 #   bend main.bend -- status [--onto <target>] [--merge <target>]..
 #                                            where the folder is, and what it
 #                                            differs by
+#   bend main.bend -- forget <target> <path> [--lines <first>..<last>]
+#                                            destroy some of what history
+#                                            holds of a file, keeping its shape
 #
 # Or compile it: `bend main.bend -o main.c`, then link the archive `ffi/`
 # builds — `check.py` does both. What `bend main.bend` runs and what the
@@ -43,6 +46,7 @@ import ./shell.bend as Shell
 import ./identity.bend as Identity
 import ./skip.bend as Skip
 import ./check.bend as Check
+import ./forget.bend as F
 
 def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
   match all:
@@ -100,6 +104,8 @@ def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
       Skip.skip(args)
     case "identity" <> args:
       Identity.set(args)
+    case "forget" <> args:
+      F.forget(args)
     case "opdiff" <> parent <> child <> Nil{}:
       C.opdiff(parent, child)
     case word <> args:
