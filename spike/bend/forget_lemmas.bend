@@ -21,6 +21,76 @@ import ./diff_lemmas.bend as Diff
 import ./refusal_lemmas.bend as Refuse
 import ./store.bend as Store
 import ./merge.bend as Merge
+import ./spelling_lemmas.bend as Sp
+
+# Which items `forget` destroys
+# -------------------------------
+
+# Item `j` of operation `k` of a document, as an operation of that one
+# item: its verb, its position and the item.
+def item.in(kind: Ops.Verb, +at: Nat, m: Maybe<&2, Ops.Item>) -> Maybe<&2, Ops.Op>:
+  match m:
+    case None{}:
+      None{}
+    case Some{it}:
+      Some{Ops.Op{kind, at, [it]}}
+
+def item.of(ops: List<&2, Ops.Op>, k: Nat, +j: Nat) -> Maybe<&2, Ops.Op>:
+  match ops k:
+    case Nil{} _:
+      None{}
+    case Ops.Op{kind, +at, items} <> rest 0n:
+      item.in(kind, at, List.get(&2, Ops.Item, items, j))
+    case o <> rest 1n+q:
+      item.of(rest, q, j)
+
+# What that item is to be: with its text gone and marked forgotten where
+# `hit`, its terminator kept; as it was otherwise.
+def forgot.at(m: Maybe<&2, Ops.Op>, hit: Bool) -> Maybe<&2, Ops.Op>:
+  match m:
+    case Some{Ops.Op{kind, +at, [Ops.Item{x, +n, f}]}}:
+      Some{Ops.Op{kind, at, [Bool.pick(Ops.Item, hit, Ops.Item{SNil{}, n, True{}}, Ops.Item{x, n, f})]}}
+    case _:
+      None{}
+
+def item_pick(hit: Bool, kind: Ops.Verb, +at: Nat, x: String, +n: Bool, f: Bool) -> {Some{Ops.Op{kind, at, [Fg.forget.item(hit, Ops.Item{x, n, f})]}} == forgot.at(Some{Ops.Op{kind, at, [Ops.Item{x, n, f}]}}, hit) : Maybe<&2, Ops.Op>}:
+  match hit:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def items_at(kind: Ops.Verb, +at: Nat, items: List<&2, Ops.Item>, +ps: List<&2, Fg.FgPick>, +t: String, +i: Nat, +j0: Nat, j: Nat) -> {item.in(kind, at, List.get(&2, Ops.Item, Fg.forget.items(items, ps, t, i, j0), j)) == forgot.at(item.in(kind, at, List.get(&2, Ops.Item, items, j)), Fg.picked.has(ps, t, i, Nat.add(j0, j))) : Maybe<&2, Ops.Op>}:
+  match items j:
+    case Nil{} _:
+      {==}
+    case Ops.Item{x, +n, f} <> rest 0n:
+      %Equal.sym(Nat, Nat.add(j0, 0n), j0, Comp.add_zero(j0)) : {Some{Ops.Op{kind, at, [Fg.forget.item(Fg.picked.has(ps, t, i, j0), Ops.Item{x, n, f})]}} == forgot.at(Some{Ops.Op{kind, at, [Ops.Item{x, n, f}]}}, Fg.picked.has(ps, t, i, _)) : Maybe<&2, Ops.Op>}
+      item_pick(Fg.picked.has(ps, t, i, j0), kind, at, x, n, f)
+    case it <> +rest 1n+q:
+      %Equal.sym(Nat, Nat.add(j0, 1n+q), 1n+Nat.add(j0, q), Diff.add_succ(j0, q)) : {item.in(kind, at, List.get(&2, Ops.Item, Fg.forget.items(rest, ps, t, i, 1n+j0), q)) == forgot.at(item.in(kind, at, List.get(&2, Ops.Item, rest, q)), Fg.picked.has(ps, t, i, _)) : Maybe<&2, Ops.Op>}
+      items_at(kind, at, rest, ps, t, i, 1n+j0, q)
+
+# Every item of a forgetting document is the original's, with its text
+# gone and marked forgotten exactly where it is picked.
+def ops_at(ops: List<&2, Ops.Op>, +ps: List<&2, Fg.FgPick>, +t: String, +i: Nat, k: Nat, +j: Nat) -> {item.of(Fg.forget.ops(ops, ps, t, i), k, j) == forgot.at(item.of(ops, k, j), Fg.picked.has(ps, t, Nat.add(i, k), j)) : Maybe<&2, Ops.Op>}:
+  match ops k:
+    case Nil{} _:
+      {==}
+    case Ops.Op{kind, +at, +items} <> rest 0n:
+      %Equal.sym(Nat, Nat.add(i, 0n), i, Comp.add_zero(i)) : {item.in(kind, at, List.get(&2, Ops.Item, Fg.forget.items(items, ps, t, i, 0n), j)) == forgot.at(item.in(kind, at, List.get(&2, Ops.Item, items, j)), Fg.picked.has(ps, t, _, j)) : Maybe<&2, Ops.Op>}
+      items_at(kind, at, items, ps, t, i, 0n, j)
+    case Ops.Op{kind, at, items} <> +rest 1n+q:
+      %Equal.sym(Nat, Nat.add(i, 1n+q), 1n+Nat.add(i, q), Diff.add_succ(i, q)) : {item.of(Fg.forget.ops(rest, ps, t, 1n+i), q, j) == forgot.at(item.of(rest, q, j), Fg.picked.has(ps, t, _, j)) : Maybe<&2, Ops.Op>}
+      ops_at(rest, ps, t, 1n+i, q, j)
+
+# So at every place the original has an item, the forgetting document has
+# it forgotten where it is picked and as it was where it is not.
+def ops_forgot_at(ops: List<&2, Ops.Op>, +ps: List<&2, Fg.FgPick>, +t: String, +i: Nat, +k: Nat, +j: Nat, kind: Ops.Verb, +at: Nat, x: String, +n: Bool, f: Bool, h: {item.of(ops, k, j) == Some{Ops.Op{kind, at, [Ops.Item{x, n, f}]}} : Maybe<&2, Ops.Op>}) -> {item.of(Fg.forget.ops(ops, ps, t, i), k, j) == Some{Ops.Op{kind, at, [Bool.pick(Ops.Item, Fg.picked.has(ps, t, Nat.add(i, k), j), Ops.Item{SNil{}, n, True{}}, Ops.Item{x, n, f})]}} : Maybe<&2, Ops.Op>}:
+  +b = Fg.picked.has(ps, t, Nat.add(i, k), j)
+  %Equal.sym(Maybe<&2, Ops.Op>, item.of(Fg.forget.ops(ops, ps, t, i), k, j), forgot.at(item.of(ops, k, j), b), ops_at(ops, ps, t, i, k, j)) : {_ == Some{Ops.Op{kind, at, [Bool.pick(Ops.Item, b, Ops.Item{SNil{}, n, True{}}, Ops.Item{x, n, f})]}} : Maybe<&2, Ops.Op>}
+  %Equal.sym(Maybe<&2, Ops.Op>, item.of(ops, k, j), Some{Ops.Op{kind, at, [Ops.Item{x, n, f}]}}, h) : {forgot.at(_, b) == Some{Ops.Op{kind, at, [Bool.pick(Ops.Item, b, Ops.Item{SNil{}, n, True{}}, Ops.Item{x, n, f})]}} : Maybe<&2, Ops.Op>}
+  {==}
 
 # Shape
 # -----
@@ -269,6 +339,135 @@ def checked_ok(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, 
 def rewrites(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +ts: List<&2, String>, +ws: List<&2, Fg.FgWrite>, +a: Nat, +n: Nat, e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts) == True{} : Bool}:
   checked_ok(fs, ds, id, file, first, last, Fg.span.checked.r(first, last), Fg.Fg.Plan{ts, ws, a, n}, e)
 
+# What a revision states for a file, read off its headers with no reader
+# of `forget`'s: a header `edit`, `text` or `bytes` whose value is the
+# file's path, a space, and the digest.
+def stated.in(hs: List<&2, Rev.Header>, +file: String, +d: String) -> Bool:
+  match hs:
+    case Nil{}:
+      False{}
+    case Rev.Header{+k, +v} <> rest:
+      Bool.or(Bool.and(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(v, file ++ " " ++ d)), stated.in(rest, file, d))
+
+def stated(fs: List<&2, Main.Full>, +file: String, +d: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case +f <> rest:
+      Bool.or(stated.in(Main.facts_of(f), file, d), stated(rest, file, d))
+
+def all_stated(+fs: List<&2, Main.Full>, +file: String, ts: List<&2, String>) -> Bool:
+  match ts:
+    case Nil{}:
+      True{}
+    case +t <> rest:
+      Bool.and(stated(fs, file, t), all_stated(fs, file, rest))
+
+def said.doc(s: Main.Said) -> Maybe<&2, String>:
+  match s:
+    case Main.Whole{d}:
+      Some{d}
+    case Main.Edited{d}:
+      Some{d}
+    case Main.Nothing{}:
+      None{}
+
+def sdisc(m: Maybe<&2, String>) -> Type:
+  match m:
+    case None{}:
+      Unit
+    case Some{x}:
+      Empty
+
+def none_some(-d: String, h: {None{} == Some{d} : Maybe<&2, String>}) -> Empty:
+  %h : {sdisc(_) : Type}
+  Unit{}
+
+def some_eq(-a: String, -b: String, h: {Some{a} == Some{b} : Maybe<&2, String>}) -> {a == b : String}:
+  Equal.cong(Maybe<&2, String>, String, m => Maybe.default(&2, String, m, a), Some{a}, Some{b}, h)
+
+# A header of the kinds that name a document, its value the file, a space
+# and `d'`, states `d'` for the file.
+def head_stated(+k: String, +v: String, +file: String, +f2: String, +d2: String, +d: String, +rest: List<&2, Rev.Header>, kind: {Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))) == True{} : Bool}, ev: {T.split_once(v) == Some{T.Split{f2, d2}} : Maybe<&2, T.Split>}, ef: {String.eq(f2, file) == True{} : Bool}, ed: {d2 == d : String}) -> {stated.in(Rev.Header{k, v} <> rest, file, d) == True{} : Bool}:
+  %Equal.sym(String, v, f2 ++ (" " ++ d2), Sp.split_top(v, f2, d2, ev)) : {Bool.or(Bool.and(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(_, file ++ " " ++ d)), stated.in(rest, file, d)) == True{} : Bool}
+  %Equal.sym(String, f2, file, S.eq_true(f2, file, ef)) : {Bool.or(Bool.and(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(_ ++ (" " ++ d2), file ++ " " ++ d)), stated.in(rest, file, d)) == True{} : Bool}
+  %Equal.sym(String, d2, d, ed) : {Bool.or(Bool.and(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(file ++ (" " ++ _), file ++ " " ++ d)), stated.in(rest, file, d)) == True{} : Bool}
+  AL.or_left(Bool.and(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(file ++ " " ++ d, file ++ " " ++ d)), stated.in(rest, file, d),
+    AL.and_intro(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(file ++ " " ++ d, file ++ " " ++ d), kind, S.eq_refl(file ++ " " ++ d)))
+
+def kind_step(o: Bool, ed: Bool, wh: Bool, +k: String, +v: String, +file: String, +f2: String, +d2: String, +d: String, +rest: List<&2, Rev.Header>, eo: {String.eq(f2, file) == o : Bool}, eed: {String.eq(k, "edit") == ed : Bool}, ewh: {Bool.or(String.eq(k, "text"), String.eq(k, "bytes")) == wh : Bool}, ev: {T.split_once(v) == Some{T.Split{f2, d2}} : Maybe<&2, T.Split>}, h: {said.doc(Main.said.or(Main.said.kind(d2, o, ed, wh), Main.said(rest, file))) == Some{d} : Maybe<&2, String>}, ih: {said.doc(Main.said(rest, file)) == Some{d} : Maybe<&2, String>} -> {stated.in(rest, file, d) == True{} : Bool}) -> {stated.in(Rev.Header{k, v} <> rest, file, d) == True{} : Bool}:
+  match o ed wh:
+    case False{} ed2 wh2:
+      AL.or_right(Bool.and(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(v, file ++ " " ++ d)), stated.in(rest, file, d), ih(h))
+    case True{} True{} wh2:
+      head_stated(k, v, file, f2, d2, d, rest, AL.or_left(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes")), eed), ev, eo, some_eq(d2, d, h))
+    case True{} False{} True{}:
+      head_stated(k, v, file, f2, d2, d, rest, AL.or_right(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes")), ewh), ev, eo, some_eq(d2, d, h))
+    case True{} False{} False{}:
+      AL.or_right(Bool.and(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(v, file ++ " " ++ d)), stated.in(rest, file, d), ih(h))
+
+def cut_step(c: Maybe<&2, T.Split>, +k: String, +v: String, +file: String, +d: String, +rest: List<&2, Rev.Header>, ec: {T.split_once(v) == c : Maybe<&2, T.Split>}, h: {said.doc(Main.said.or(Main.said.cut(k, file, c), Main.said(rest, file))) == Some{d} : Maybe<&2, String>}, ih: {said.doc(Main.said(rest, file)) == Some{d} : Maybe<&2, String>} -> {stated.in(rest, file, d) == True{} : Bool}) -> {stated.in(Rev.Header{k, v} <> rest, file, d) == True{} : Bool}:
+  match c:
+    case None{}:
+      AL.or_right(Bool.and(Bool.or(String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes"))), String.eq(v, file ++ " " ++ d)), stated.in(rest, file, d), ih(h))
+    case Some{T.Split{+f2, +d2}}:
+      kind_step(String.eq(f2, file), String.eq(k, "edit"), Bool.or(String.eq(k, "text"), String.eq(k, "bytes")), k, v, file, f2, d2, d, rest, {==}, {==}, {==}, ec, h, ih)
+
+# What `said` finds for a file is a document a header states for it.
+def said_stated(hs: List<&2, Rev.Header>, +file: String, +d: String, h: {said.doc(Main.said(hs, file)) == Some{d} : Maybe<&2, String>}) -> {stated.in(hs, file, d) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      Empty.absurd({stated.in(Nil{}, file, d) == True{} : Bool}, none_some(d, h))
+    case Rev.Header{+k, +v} <> +rest:
+      cut_step(T.split_once(v), k, v, file, d, rest, {==}, h, t => said_stated(rest, file, d, t))
+
+def said_found(+facts: List<&2, Rev.Header>, +file: String, -s: Main.Said, +d2: String, +d: String, es: {Main.said(facts, file) == s : Main.Said}, ed: {said.doc(s) == Some{d2} : Maybe<&2, String>}, e: {d2 == d : String}) -> {stated.in(facts, file, d) == True{} : Bool}:
+  said_stated(facts, file, d,
+    Equal.trans(Maybe<&2, String>, said.doc(Main.said(facts, file)), Some{d2}, Some{d},
+      Equal.trans(Maybe<&2, String>, said.doc(Main.said(facts, file)), said.doc(s), Some{d2}, Equal.cong(Main.Said, Maybe<&2, String>, x => said.doc(x), Main.said(facts, file), s, es), ed),
+      Equal.cong(String, Maybe<&2, String>, x => Some{x}, d2, d, e)))
+
+def named_of_step(+facts: List<&2, Rev.Header>, +id: String, s: Main.Said, tx: Bool, +ns: List<&2, Fg.FgNamed>, +file: String, +d: String, es: {Main.said(facts, file) == s : Main.Said}, h: {Rev.member(Fg.named.docs(Fg.named.of(id, s, tx, ns)), d) == True{} : Bool}) -> {Bool.or(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d)) == True{} : Bool}:
+  match s tx:
+    case Main.Edited{+d2} x:
+      GL.member_cons({Bool.or(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d)) == True{} : Bool}, d2, Fg.named.docs(ns), d, h,
+        e => AL.or_left(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d), said_found(facts, file, Main.Edited{d2}, d2, d, es, {==}, e)),
+        t => AL.or_right(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d), t))
+    case Main.Whole{+d2} True{}:
+      GL.member_cons({Bool.or(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d)) == True{} : Bool}, d2, Fg.named.docs(ns), d, h,
+        e => AL.or_left(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d), said_found(facts, file, Main.Whole{d2}, d2, d, es, {==}, e)),
+        t => AL.or_right(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d), t))
+    case Main.Whole{d2} False{}:
+      AL.or_right(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d), h)
+    case Main.Nothing{} x:
+      AL.or_right(stated.in(facts, file, d), Rev.member(Fg.named.docs(ns), d), h)
+
+# Every document the revisions name for a file is one a header of theirs
+# states for it.
+def named_stated(fs: List<&2, Main.Full>, +file: String, +d: String, h: {Rev.member(Fg.named.docs(Fg.named(fs, file)), d) == True{} : Bool}) -> {stated(fs, file, d) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({stated(Nil{}, file, d) == True{} : Bool}, S.false_true(h))
+    case +f <> +rest:
+      AL.or_cases({stated(f <> rest, file, d) == True{} : Bool}, stated.in(Main.facts_of(f), file, d), Rev.member(Fg.named.docs(Fg.named(rest, file)), d),
+        named_of_step(Main.facts_of(f), Main.id_of(f), Main.said(Main.facts_of(f), file), Main.is_text(Main.facts_of(f), file), Fg.named(rest, file), file, d, {==}, h),
+        l => AL.or_left(stated.in(Main.facts_of(f), file, d), stated(rest, file, d), l),
+        r => AL.or_right(stated.in(Main.facts_of(f), file, d), stated(rest, file, d), named_stated(rest, file, d, r)))
+
+def held_stated(+fs: List<&2, Main.Full>, +file: String, ts: List<&2, String>, +h: {Main.all_held(Fg.named.docs(Fg.named(fs, file)), ts) == True{} : Bool}) -> {all_stated(fs, file, ts) == True{} : Bool}:
+  match ts:
+    case Nil{}:
+      {==}
+    case +t <> +rest:
+      AL.and_intro(stated(fs, file, t), all_stated(fs, file, rest),
+        named_stated(fs, file, t, Comp.and_left(Rev.member(Fg.named.docs(Fg.named(fs, file)), t), Main.all_held(Fg.named.docs(Fg.named(fs, file)), rest), h)),
+        held_stated(fs, file, rest, Comp.and_right(Rev.member(Fg.named.docs(Fg.named(fs, file)), t), Main.all_held(Fg.named.docs(Fg.named(fs, file)), rest), h)))
+
+# Every document `forget --lines` plans a stand-in for is one a header of
+# some revision states for the file.
+def rewrites_stated(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String, +first: String, +last: String, +ts: List<&2, String>, +ws: List<&2, Fg.FgWrite>, +a: Nat, +n: Nat, e: {Fg.lines.plan.r(fs, ds, id, file, first, last) == Done{Fg.Fg.Plan{ts, ws, a, n}} : Result<&2, &2, Main.Refused, Fg.FgPlan>}) -> {all_stated(fs, file, ts) == True{} : Bool}:
+  held_stated(fs, file, ts, rewrites(fs, ds, id, file, first, last, ts, ws, a, n, e))
+
 # What a payload's forgetting takes
 # ---------------------------------
 
@@ -296,11 +495,6 @@ def takes_one(+file: String, payload: Maybe<&2, String>, +files: List<&2, Fg.FgF
 # What the command line says
 # --------------------------
 
-def words.of(r: Fg.FgReading) -> List<&2, String>:
-  match r:
-    case Fg.Fg.Reading{l, d, f, ws, x}:
-      ws
-
 def go_fail(ws: List<&2, String>, -e: Main.Refused) -> {Fg.reading.go(ws, Fail{e}) == Fail{e} : Result<&2, &2, Main.Refused, Fg.FgReading>}:
   match ws:
     case Nil{}:
@@ -324,110 +518,262 @@ def app_one(xs: List<&2, String>, +w: String, +rest: List<&2, String>) -> {List.
       %Equal.sym(List<&2, String>, List.append(&2, String, List.append(&2, String, more, [w]), rest), List.append(&2, String, more, w <> rest), app_one(more, w, rest)) : {x <> _ == x <> List.append(&2, String, more, w <> rest) : List<&2, String>}
       {==}
 
-def words_eq(-a: Fg.FgReading, -b: Fg.FgReading, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Fg.FgReading>}) -> {words.of(a) == words.of(b) : List<&2, String>}:
-  Equal.cong(Fg.FgReading, List<&2, String>, r => words.of(r), a, b, B.done_eq(Fg.FgReading, a, b, h))
+# What a command line says, read plainly. `skip` is whether the word
+# before was a `--lines`, whose word this one is.
+def plain.said(ws: List<&2, String>, skip: Bool) -> List<&2, String>:
+  match ws skip:
+    case Nil{} _:
+      Nil{}
+    case w <> rest True{}:
+      plain.said(rest, False{})
+    case +w <> +rest False{}:
+      Bool.pick(List<&2, String>, String.eq(w, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))
 
-def go_done(-r: Fg.FgReading, -x: Fg.FgReading, h: {Done{x} == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}) -> {words.of(r) == words.of(x) : List<&2, String>}:
-  Equal.sym(List<&2, String>, words.of(x), words.of(r), words_eq(x, r, h))
+def dry.said(ws: List<&2, String>, skip: Bool) -> Bool:
+  match ws skip:
+    case Nil{} _:
+      False{}
+    case w <> rest True{}:
+      dry.said(rest, False{})
+    case +w <> +rest False{}:
+      Bool.pick(Bool, String.eq(w, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))
 
-def word_ok(k: Fg.FgWord, +w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d: Bool, +f: Bool, +acc: List<&2, String>, +r: Fg.FgReading, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d, f, acc, False{}}, w, k)) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {words.of(r) == List.append(&2, String, acc2, Fg.plain(rest, w2)) : List<&2, String>}) -> {words.of(r) == List.append(&2, String, acc, Fg.plain.pick(False{}, k, w, Fg.plain(rest, True{}), Fg.plain(rest, False{}))) : List<&2, String>}:
-  match k:
-    case Fg.Fg.Lines{}:
-      ih(l, d, f, acc, True{}, e)
-    case Fg.Fg.Dry{}:
-      ih(l, True{}, f, acc, False{}, e)
-    case Fg.Fg.Fields{}:
-      ih(l, d, True{}, acc, False{}, e)
-    case Fg.Fg.Flag{}:
+def fields.said(ws: List<&2, String>, skip: Bool) -> Bool:
+  match ws skip:
+    case Nil{} _:
+      False{}
+    case w <> rest True{}:
+      fields.said(rest, False{})
+    case +w <> +rest False{}:
+      Bool.pick(Bool, String.eq(w, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))
+
+# The first of two that is something.
+def later(a: Maybe<&2, String>, b: Maybe<&2, String>) -> Maybe<&2, String>:
+  match a:
+    case Some{x}:
+      Some{x}
+    case None{}:
+      b
+
+# The word after the last `--lines`.
+def lines.said(ws: List<&2, String>, skip: Bool) -> Maybe<&2, String>:
+  match ws skip:
+    case Nil{} _:
+      None{}
+    case +w <> rest True{}:
+      later(lines.said(rest, False{}), Some{w})
+    case +w <> +rest False{}:
+      Bool.pick(Maybe<&2, String>, String.eq(w, "--lines"), lines.said(rest, True{}), lines.said(rest, False{}))
+
+# A reading, whatever it was waiting for.
+def seen(r: Fg.FgReading) -> Fg.FgReading:
+  match r:
+    case Fg.Fg.Reading{l, d, f, ws, x}:
+      Fg.Fg.Reading{l, d, f, ws, False{}}
+
+def or_f(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def or_t(b: Bool) -> {Bool.or(b, True{}) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def later_some(a: Maybe<&2, String>, +w: String, b: Maybe<&2, String>) -> {later(later(a, Some{w}), b) == later(a, Some{w}) : Maybe<&2, String>}:
+  match a:
+    case Some{x}:
+      {==}
+    case None{}:
+      {==}
+
+def later_none(a: Maybe<&2, String>) -> {later(a, None{}) == a : Maybe<&2, String>}:
+  match a:
+    case Some{x}:
+      {==}
+    case None{}:
+      {==}
+
+def retag(k1: Fg.FgWord, k2: Fg.FgWord, +rest: List<&2, String>, +st: Fg.FgReading, +w: String, +r: Fg.FgReading, hk: {k1 == k2 : Fg.FgWord}, e: {Fg.reading.go(rest, Fg.reading.word(st, w, k1)) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}) -> {Fg.reading.go(rest, Fg.reading.word(st, w, k2)) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}:
+  Equal.trans(Result<&2, &2, Main.Refused, Fg.FgReading>, Fg.reading.go(rest, Fg.reading.word(st, w, k2)), Fg.reading.go(rest, Fg.reading.word(st, w, k1)), Done{r},
+    Equal.sym(Result<&2, &2, Main.Refused, Fg.FgReading>, Fg.reading.go(rest, Fg.reading.word(st, w, k1)), Fg.reading.go(rest, Fg.reading.word(st, w, k2)), Equal.cong(Fg.FgWord, Result<&2, &2, Main.Refused, Fg.FgReading>, k => Fg.reading.go(rest, Fg.reading.word(st, w, k)), k1, k2, hk)), e)
+
+def rd_lines(+w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, +hw: {w == "--lines" : String}, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Fg.word(w))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(w, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(w, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(w, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(w, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}:
+  +e2 = retag(Fg.word(w), Fg.Fg.Lines{}, rest, Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, r, (%Equal.sym(String, w, "--lines", hw) : {Fg.word(_) == Fg.Fg.Lines{} : Fg.FgWord}; {==}), e)
+  %Equal.sym(String, w, "--lines", hw) : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(_, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(_, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(_, "-n"), String.eq(_, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(_, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(_, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(_, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(_, "-")), _, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+  ih(l, d0, f0, acc, True{}, e2)
+
+def rd_n(+w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, +hw: {w == "-n" : String}, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Fg.word(w))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(w, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(w, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(w, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(w, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}:
+  +e2 = retag(Fg.word(w), Fg.Fg.Dry{}, rest, Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, r, (%Equal.sym(String, w, "-n", hw) : {Fg.word(_) == Fg.Fg.Dry{} : Fg.FgWord}; {==}), e)
+  %Equal.sym(String, w, "-n", hw) : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(_, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(_, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(_, "-n"), String.eq(_, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(_, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(_, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(_, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(_, "-")), _, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+  %Equal.sym(Bool, Bool.or(d0, True{}), True{}, or_t(d0)) : {seen(r) == Fg.Fg.Reading{later(lines.said(rest, False{}), l), _, Bool.or(f0, fields.said(rest, False{})), List.append(&2, String, acc, plain.said(rest, False{})), False{}} : Fg.FgReading}
+  ih(l, True{}, f0, acc, False{}, e2)
+
+def rd_dry(+w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, +hw: {w == "--dry-run" : String}, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Fg.word(w))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(w, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(w, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(w, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(w, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}:
+  +e2 = retag(Fg.word(w), Fg.Fg.Dry{}, rest, Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, r, (%Equal.sym(String, w, "--dry-run", hw) : {Fg.word(_) == Fg.Fg.Dry{} : Fg.FgWord}; {==}), e)
+  %Equal.sym(String, w, "--dry-run", hw) : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(_, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(_, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(_, "-n"), String.eq(_, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(_, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(_, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(_, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(_, "-")), _, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+  %Equal.sym(Bool, Bool.or(d0, True{}), True{}, or_t(d0)) : {seen(r) == Fg.Fg.Reading{later(lines.said(rest, False{}), l), _, Bool.or(f0, fields.said(rest, False{})), List.append(&2, String, acc, plain.said(rest, False{})), False{}} : Fg.FgReading}
+  ih(l, True{}, f0, acc, False{}, e2)
+
+def rd_fields(+w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, +hw: {w == "--fields" : String}, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Fg.word(w))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(w, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(w, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(w, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(w, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}:
+  +e2 = retag(Fg.word(w), Fg.Fg.Fields{}, rest, Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, r, (%Equal.sym(String, w, "--fields", hw) : {Fg.word(_) == Fg.Fg.Fields{} : Fg.FgWord}; {==}), e)
+  %Equal.sym(String, w, "--fields", hw) : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(_, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(_, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(_, "-n"), String.eq(_, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(_, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(_, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(_, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(_, "-")), _, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+  %Equal.sym(Bool, Bool.or(f0, True{}), True{}, or_t(f0)) : {seen(r) == Fg.Fg.Reading{later(lines.said(rest, False{}), l), Bool.or(d0, dry.said(rest, False{})), _, List.append(&2, String, acc, plain.said(rest, False{})), False{}} : Fg.FgReading}
+  ih(l, d0, True{}, acc, False{}, e2)
+
+def word_plain(+w: String, +ea: {String.eq(w, "--lines") == False{} : Bool}, +eb: {Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")) == False{} : Bool}, +ec: {String.eq(w, "--fields") == False{} : Bool}) -> {Fg.word(w) == Bool.pick(Fg.FgWord, String.starts_with(w, "-"), Fg.Fg.Flag{}, Fg.Fg.Plain{}) : Fg.FgWord}:
+  %Equal.sym(Bool, String.eq(w, "--lines"), False{}, ea) : {Bool.pick(Fg.FgWord, _, Fg.Fg.Lines{}, Bool.pick(Fg.FgWord, Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), Fg.Fg.Dry{}, Bool.pick(Fg.FgWord, String.eq(w, "--fields"), Fg.Fg.Fields{}, Bool.pick(Fg.FgWord, String.starts_with(w, "-"), Fg.Fg.Flag{}, Fg.Fg.Plain{})))) == Bool.pick(Fg.FgWord, String.starts_with(w, "-"), Fg.Fg.Flag{}, Fg.Fg.Plain{}) : Fg.FgWord}
+  %Equal.sym(Bool, Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), False{}, eb) : {Bool.pick(Fg.FgWord, _, Fg.Fg.Dry{}, Bool.pick(Fg.FgWord, String.eq(w, "--fields"), Fg.Fg.Fields{}, Bool.pick(Fg.FgWord, String.starts_with(w, "-"), Fg.Fg.Flag{}, Fg.Fg.Plain{}))) == Bool.pick(Fg.FgWord, String.starts_with(w, "-"), Fg.Fg.Flag{}, Fg.Fg.Plain{}) : Fg.FgWord}
+  %Equal.sym(Bool, String.eq(w, "--fields"), False{}, ec) : {Bool.pick(Fg.FgWord, _, Fg.Fg.Fields{}, Bool.pick(Fg.FgWord, String.starts_with(w, "-"), Fg.Fg.Flag{}, Fg.Fg.Plain{})) == Bool.pick(Fg.FgWord, String.starts_with(w, "-"), Fg.Fg.Flag{}, Fg.Fg.Plain{}) : Fg.FgWord}
+  {==}
+
+def rd_plain(sw: Bool, +w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, e2: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Bool.pick(Fg.FgWord, sw, Fg.Fg.Flag{}, Fg.Fg.Plain{}))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, False{}), l), Bool.or(d0, dry.said(rest, False{})), Bool.or(f0, fields.said(rest, False{})), List.append(&2, String, acc, Rev.keep(Bool.not(sw), w, plain.said(rest, False{}))), False{}} : Fg.FgReading}:
+  match sw:
+    case True{}:
       +bad = {Main.Refused{2, "`" ++ w ++ "` is not an argument `forget` takes"} : Main.Refused}
-      Empty.absurd({words.of(r) == List.append(&2, String, acc, Fg.plain(rest, False{})) : List<&2, String>},
-        B.fail_done(Fg.FgReading, bad, r, Equal.trans(Result<&2, &2, Main.Refused, Fg.FgReading>, Fail{bad}, Fg.reading.go(rest, Fail{bad}), Done{r}, Equal.sym(Result<&2, &2, Main.Refused, Fg.FgReading>, Fg.reading.go(rest, Fail{bad}), Fail{bad}, go_fail(rest, bad)), e)))
-    case Fg.Fg.Plain{}:
-      +h = ih(l, d, f, List.append(&2, String, acc, [w]), False{}, e)
-      %app_one(acc, w, Fg.plain(rest, False{})) : {words.of(r) == _ : List<&2, String>}
+      Empty.absurd({seen(r) == Fg.Fg.Reading{later(lines.said(rest, False{}), l), Bool.or(d0, dry.said(rest, False{})), Bool.or(f0, fields.said(rest, False{})), List.append(&2, String, acc, Rev.keep(Bool.not(True{}), w, plain.said(rest, False{}))), False{}} : Fg.FgReading},
+        B.fail_done(Fg.FgReading, bad, r, Equal.trans(Result<&2, &2, Main.Refused, Fg.FgReading>, Fail{bad}, Fg.reading.go(rest, Fail{bad}), Done{r}, Equal.sym(Result<&2, &2, Main.Refused, Fg.FgReading>, Fg.reading.go(rest, Fail{bad}), Fail{bad}, go_fail(rest, bad)), e2)))
+    case False{}:
+      +h = ih(l, d0, f0, List.append(&2, String, acc, [w]), False{}, e2)
+      %app_one(acc, w, plain.said(rest, False{})) : {seen(r) == Fg.Fg.Reading{later(lines.said(rest, False{}), l), Bool.or(d0, dry.said(rest, False{})), Bool.or(f0, fields.said(rest, False{})), _, False{}} : Fg.FgReading}
       h
 
-def step_ok(wants: Bool, +w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d: Bool, +f: Bool, +acc: List<&2, String>, +r: Fg.FgReading, e: {Fg.reading.go(rest, Fg.reading.step(Fg.Fg.Reading{l, d, f, acc, wants}, w)) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {words.of(r) == List.append(&2, String, acc2, Fg.plain(rest, w2)) : List<&2, String>}) -> {words.of(r) == List.append(&2, String, acc, Fg.plain.pick(wants, Fg.word(w), w, Fg.plain(rest, True{}), Fg.plain(rest, False{}))) : List<&2, String>}:
+def rd_nd(n: Bool, +w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, +en: {String.eq(w, "-n") == n : Bool}, eb: {Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")) == True{} : Bool}, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Fg.word(w))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, String.eq(w, "--lines"), lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, String.eq(w, "--lines"), dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, String.eq(w, "--lines"), fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, String.eq(w, "--lines"), plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}:
+  match n:
+    case True{}:
+      rd_n(w, rest, l, d0, f0, acc, r, S.eq_true(w, "-n", en), e, ih)
+    case False{}:
+      rd_dry(w, rest, l, d0, f0, acc, r, S.eq_true(w, "--dry-run", Equal.trans(Bool, String.eq(w, "--dry-run"), Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), True{}, Equal.sym(Bool, Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), String.eq(w, "--dry-run"), Equal.cong(Bool, Bool, x => Bool.or(x, String.eq(w, "--dry-run")), String.eq(w, "-n"), False{}, en)), eb)), e, ih)
+
+def rd_c(c: Bool, +w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, +ea: {String.eq(w, "--lines") == False{} : Bool}, +eb: {Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")) == False{} : Bool}, +ec: {String.eq(w, "--fields") == c : Bool}, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Fg.word(w))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, False{}), l), Bool.or(d0, dry.said(rest, False{})), Bool.or(f0, Bool.or(c, fields.said(rest, False{}))), List.append(&2, String, acc, Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{}))), False{}} : Fg.FgReading}:
+  match c:
+    case True{}:
+      %ec : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, False{}, lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, False{}, dry.said(rest, True{}), Bool.or(False{}, dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, False{}, fields.said(rest, True{}), Bool.or(_, fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, False{}, plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+      %eb : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, False{}, lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, False{}, dry.said(rest, True{}), Bool.or(_, dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, False{}, fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, False{}, plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+      %ea : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, _, lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, _, dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, _, fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, _, plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+      rd_fields(w, rest, l, d0, f0, acc, r, S.eq_true(w, "--fields", ec), e, ih)
+    case False{}:
+      rd_plain(String.starts_with(w, "-"), w, rest, l, d0, f0, acc, r, retag(Fg.word(w), Bool.pick(Fg.FgWord, String.starts_with(w, "-"), Fg.Fg.Flag{}, Fg.Fg.Plain{}), rest, Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, r, word_plain(w, ea, eb, ec), e), ih)
+
+def rd_b(b: Bool, +w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, +ea: {String.eq(w, "--lines") == False{} : Bool}, +eb: {Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")) == b : Bool}, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Fg.word(w))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, False{}), l), Bool.or(d0, Bool.or(b, dry.said(rest, False{}))), Bool.or(f0, Bool.or(String.eq(w, "--fields"), fields.said(rest, False{}))), List.append(&2, String, acc, Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{}))), False{}} : Fg.FgReading}:
+  match b:
+    case True{}:
+      %eb : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, False{}, lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, False{}, dry.said(rest, True{}), Bool.or(_, dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, False{}, fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, False{}, plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+      %ea : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, _, lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, _, dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, _, fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, _, plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+      rd_nd(String.eq(w, "-n"), w, rest, l, d0, f0, acc, r, {==}, eb, e, ih)
+    case False{}:
+      rd_c(String.eq(w, "--fields"), w, rest, l, d0, f0, acc, r, ea, eb, {==}, e, ih)
+
+def rd_a(a: Bool, +w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, +ea: {String.eq(w, "--lines") == a : Bool}, e: {Fg.reading.go(rest, Fg.reading.word(Fg.Fg.Reading{l, d0, f0, acc, False{}}, w, Fg.word(w))) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, a, lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, a, dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, a, fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, a, plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}:
+  match a:
+    case True{}:
+      %ea : {seen(r) == Fg.Fg.Reading{later(Bool.pick(Maybe<&2, String>, _, lines.said(rest, True{}), lines.said(rest, False{})), l), Bool.or(d0, Bool.pick(Bool, _, dry.said(rest, True{}), Bool.or(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), dry.said(rest, False{})))), Bool.or(f0, Bool.pick(Bool, _, fields.said(rest, True{}), Bool.or(String.eq(w, "--fields"), fields.said(rest, False{})))), List.append(&2, String, acc, Bool.pick(List<&2, String>, _, plain.said(rest, True{}), Rev.keep(Bool.not(String.starts_with(w, "-")), w, plain.said(rest, False{})))), False{}} : Fg.FgReading}
+      rd_lines(w, rest, l, d0, f0, acc, r, S.eq_true(w, "--lines", ea), e, ih)
+    case False{}:
+      rd_b(Bool.or(String.eq(w, "-n"), String.eq(w, "--dry-run")), w, rest, l, d0, f0, acc, r, ea, {==}, e, ih)
+
+def rd_step(wants: Bool, +w: String, +rest: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +r: Fg.FgReading, e: {Fg.reading.go(rest, Fg.reading.step(Fg.Fg.Reading{l, d0, f0, acc, wants}, w)) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}, ih: @l2: Maybe<&2, String> -> @d2: Bool -> @f2: Bool -> @acc2: List<&2, String> -> @w2: Bool -> {Fg.reading.go(rest, Done{Fg.Fg.Reading{l2, d2, f2, acc2, w2}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>} -> {seen(r) == Fg.Fg.Reading{later(lines.said(rest, w2), l2), Bool.or(d2, dry.said(rest, w2)), Bool.or(f2, fields.said(rest, w2)), List.append(&2, String, acc2, plain.said(rest, w2)), False{}} : Fg.FgReading}) -> {seen(r) == Fg.Fg.Reading{later(lines.said((w <> rest), wants), l), Bool.or(d0, dry.said((w <> rest), wants)), Bool.or(f0, fields.said((w <> rest), wants)), List.append(&2, String, acc, plain.said((w <> rest), wants)), False{}} : Fg.FgReading}:
   match wants:
     case True{}:
-      ih(Some{w}, d, f, acc, False{}, e)
+      %Equal.sym(Maybe<&2, String>, later(later(lines.said(rest, False{}), Some{w}), l), later(lines.said(rest, False{}), Some{w}), later_some(lines.said(rest, False{}), w, l)) : {seen(r) == Fg.Fg.Reading{_, Bool.or(d0, dry.said(rest, False{})), Bool.or(f0, fields.said(rest, False{})), List.append(&2, String, acc, plain.said(rest, False{})), False{}} : Fg.FgReading}
+      ih(Some{w}, d0, f0, acc, False{}, e)
     case False{}:
-      word_ok(Fg.word(w), w, rest, l, d, f, acc, r, e, ih)
+      rd_a(String.eq(w, "--lines"), w, rest, l, d0, f0, acc, r, {==}, e, ih)
 
-# The words `reading.go` keeps are the command line's plain words, after
-# those it had kept already.
-def go_ok(ws: List<&2, String>, +l: Maybe<&2, String>, +d: Bool, +f: Bool, +acc: List<&2, String>, +wants: Bool, +r: Fg.FgReading, e: {Fg.reading.go(ws, Done{Fg.Fg.Reading{l, d, f, acc, wants}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}) -> {words.of(r) == List.append(&2, String, acc, Fg.plain(ws, wants)) : List<&2, String>}:
+# Whatever `reading.go` reads, it reads as the plain readings say, after
+# what it had read already.
+def rd_go(ws: List<&2, String>, +l: Maybe<&2, String>, +d0: Bool, +f0: Bool, +acc: List<&2, String>, +wants: Bool, +r: Fg.FgReading, e: {Fg.reading.go(ws, Done{Fg.Fg.Reading{l, d0, f0, acc, wants}}) == Done{r} : Result<&2, &2, Main.Refused, Fg.FgReading>}) -> {seen(r) == Fg.Fg.Reading{later(lines.said(ws, wants), l), Bool.or(d0, dry.said(ws, wants)), Bool.or(f0, fields.said(ws, wants)), List.append(&2, String, acc, plain.said(ws, wants)), False{}} : Fg.FgReading}:
   match ws:
     case Nil{}:
-      +h = go_done(r, Fg.Fg.Reading{l, d, f, acc, wants}, e)
-      %Equal.sym(List<&2, String>, List.append(&2, String, acc, Nil{}), acc, app_nil(acc)) : {words.of(r) == _ : List<&2, String>}
-      h
+      +eq = B.done_eq(Fg.FgReading, Fg.Fg.Reading{l, d0, f0, acc, wants}, r, e)
+      %eq : {seen(_) == Fg.Fg.Reading{later(lines.said(Nil{}, wants), l), Bool.or(d0, dry.said(Nil{}, wants)), Bool.or(f0, fields.said(Nil{}, wants)), List.append(&2, String, acc, plain.said(Nil{}, wants)), False{}} : Fg.FgReading}
+      %Equal.sym(Bool, Bool.or(d0, False{}), d0, or_f(d0)) : {Fg.Fg.Reading{l, d0, f0, acc, False{}} == Fg.Fg.Reading{l, _, Bool.or(f0, False{}), List.append(&2, String, acc, Nil{}), False{}} : Fg.FgReading}
+      %Equal.sym(Bool, Bool.or(f0, False{}), f0, or_f(f0)) : {Fg.Fg.Reading{l, d0, f0, acc, False{}} == Fg.Fg.Reading{l, d0, _, List.append(&2, String, acc, Nil{}), False{}} : Fg.FgReading}
+      %Equal.sym(List<&2, String>, List.append(&2, String, acc, Nil{}), acc, app_nil(acc)) : {Fg.Fg.Reading{l, d0, f0, acc, False{}} == Fg.Fg.Reading{l, d0, f0, _, False{}} : Fg.FgReading}
+      {==}
     case +w <> +rest:
-      step_ok(wants, w, rest, l, d, f, acc, r, e, l2 => d2 => f2 => acc2 => w2 => h2 => go_ok(rest, l2, d2, f2, acc2, w2, r, h2))
+      rd_step(wants, w, rest, l, d0, f0, acc, r, e, l2 => d2 => f2 => acc2 => w2 => h2 => rd_go(rest, l2, d2, f2, acc2, w2, r, h2))
 
-def asked.words.of(a: Fg.FgAsked) -> List<&2, String>:
-  match a:
-    case Fg.Fg.Asked{t, p, sp, d, f}:
-      [t, p]
-
-def asked_eq(-a: Fg.FgAsked, -b: Fg.FgAsked, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {asked.words.of(a) == asked.words.of(b) : List<&2, String>}:
-  Equal.cong(Fg.FgAsked, List<&2, String>, x => asked.words.of(x), a, b, B.done_eq(Fg.FgAsked, a, b, h))
-
-def span_ok(+t: String, +p: String, +d: Bool, +f: Bool, r: Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>, +a: Fg.FgAsked, e: {Result.map(&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>, Fg.FgAsked, sp => Fg.Fg.Asked{t, p, sp, d, f}, r) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {[t, p] == asked.words.of(a) : List<&2, String>}:
+def read.words(r: Fg.FgReading) -> Result<&2, &2, Main.Refused, Fg.FgAsked>:
   match r:
-    case Fail{x}:
-      Empty.absurd({[t, p] == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, x, a, e))
-    case Done{sp}:
-      asked_eq(Fg.Fg.Asked{t, p, sp, d, f}, a, e)
+    case Fg.Fg.Reading{l, +d, +f, ws, x}:
+      Fg.asked.words(l, d, f, ws)
 
-def words_ok(+l: Maybe<&2, String>, +d: Bool, +f: Bool, ws: List<&2, String>, +a: Fg.FgAsked, e: {Fg.asked.words(l, d, f, ws) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {ws == asked.words.of(a) : List<&2, String>}:
-  match ws:
-    case Nil{}:
-      Empty.absurd({Nil{} == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`forget` wants a revision to read the span at"}, a, e))
-    case t <> Nil{}:
-      Empty.absurd({[t] == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`forget` wants a path"}, a, e))
-    case +t <> +p <> Nil{}:
-      span_ok(t, p, d, f, Fg.asked.span(l), a, e)
-    case t <> p <> +x <> more:
-      Empty.absurd({t <> p <> x <> more == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`forget` takes a target and one path, and `" ++ x ++ "` is a third argument"}, a, e))
-
-def read_ok(+l: Maybe<&2, String>, d: Bool, f: Bool, +ws: List<&2, String>, wants: Bool, +a: Fg.FgAsked, e: {Fg.asked.read(Fg.Fg.Reading{l, d, f, ws, wants}) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {ws == asked.words.of(a) : List<&2, String>}:
+# A reading `asked.read` accepts is one whatever it says is taken from.
+def read_words(+l: Maybe<&2, String>, d: Bool, f: Bool, +ws: List<&2, String>, wants: Bool, +a: Fg.FgAsked, e: {Fg.asked.read(Fg.Fg.Reading{l, d, f, ws, wants}) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {read.words(Fg.Fg.Reading{l, d, f, ws, wants}) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}:
   match d f wants:
     case True{} True{} True{}:
-      Empty.absurd({ws == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`--lines` wants a span, as `<first>..<last>`"}, a, e))
+      Empty.absurd({Fg.asked.words(l, True{}, True{}, ws) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`--lines` wants a span, as `<first>..<last>`"}, a, e))
     case True{} False{} True{}:
-      Empty.absurd({ws == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`--lines` wants a span, as `<first>..<last>`"}, a, e))
+      Empty.absurd({Fg.asked.words(l, True{}, False{}, ws) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`--lines` wants a span, as `<first>..<last>`"}, a, e))
     case False{} True{} True{}:
-      Empty.absurd({ws == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`--lines` wants a span, as `<first>..<last>`"}, a, e))
+      Empty.absurd({Fg.asked.words(l, False{}, True{}, ws) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`--lines` wants a span, as `<first>..<last>`"}, a, e))
     case False{} False{} True{}:
-      Empty.absurd({ws == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`--lines` wants a span, as `<first>..<last>`"}, a, e))
+      Empty.absurd({Fg.asked.words(l, False{}, False{}, ws) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`--lines` wants a span, as `<first>..<last>`"}, a, e))
     case True{} True{} False{}:
-      Empty.absurd({ws == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`forget --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}, a, e))
+      Empty.absurd({Fg.asked.words(l, True{}, True{}, ws) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`forget --dry-run --fields` is refused: `--fields` states what is on disk, and a plan is not on disk. ask for one or the other"}, a, e))
     case True{} False{} False{}:
-      words_ok(l, True{}, False{}, ws, a, e)
+      e
     case False{} True{} False{}:
-      words_ok(l, False{}, True{}, ws, a, e)
+      e
     case False{} False{} False{}:
-      words_ok(l, False{}, False{}, ws, a, e)
+      e
 
-def reading.of(r: Fg.FgReading, +a: Fg.FgAsked, e: {Fg.asked.read(r) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {words.of(r) == asked.words.of(a) : List<&2, String>}:
+# What `asked.words` accepts, as the plain readings of it.
+def said.of(a: Fg.FgAsked) -> List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>)):
+  match a:
+    case Fg.Fg.Asked{t, p, sp, d, f}:
+      ([t, p], (d, (f, Done{sp})))
+
+def span_said(+t: String, +p: String, +d: Bool, +f: Bool, +l: Maybe<&2, String>, m: Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>, em: {Fg.asked.span(l) == m : Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>}, +a: Fg.FgAsked, e: {Result.map(&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>, Fg.FgAsked, sp => Fg.Fg.Asked{t, p, sp, d, f}, m) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {([t, p], (d, (f, Fg.asked.span(l)))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}:
+  match m:
+    case Fail{x}:
+      Empty.absurd({([t, p], (d, (f, Fg.asked.span(l)))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}, B.fail_done(Fg.FgAsked, x, a, e))
+    case Done{sp}:
+      %Equal.sym(Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>, Fg.asked.span(l), Done{sp}, em) : {([t, p], (d, (f, _))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}
+      Equal.cong(Fg.FgAsked, List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>)), x => said.of(x), Fg.Fg.Asked{t, p, sp, d, f}, a, B.done_eq(Fg.FgAsked, Fg.Fg.Asked{t, p, sp, d, f}, a, e))
+
+def words_said(+l: Maybe<&2, String>, +d: Bool, +f: Bool, ws: List<&2, String>, +a: Fg.FgAsked, e: {Fg.asked.words(l, d, f, ws) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {(ws, (d, (f, Fg.asked.span(l)))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}:
+  match ws:
+    case Nil{}:
+      Empty.absurd({(Nil{}, (d, (f, Fg.asked.span(l)))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`forget` wants a revision to read the span at"}, a, e))
+    case t <> Nil{}:
+      Empty.absurd({([t], (d, (f, Fg.asked.span(l)))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`forget` wants a path"}, a, e))
+    case +t <> +p <> Nil{}:
+      span_said(t, p, d, f, l, Fg.asked.span(l), {==}, a, e)
+    case t <> p <> +x <> more:
+      Empty.absurd({(t <> p <> x <> more, (d, (f, Fg.asked.span(l)))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}, B.fail_done(Fg.FgAsked, Main.Refused{2, "`forget` takes a target and one path, and `" ++ x ++ "` is a third argument"}, a, e))
+
+def read.said(r: Fg.FgReading) -> List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>)):
   match r:
-    case Fg.Fg.Reading{+l, d, f, +ws, wants}:
-      read_ok(l, d, f, ws, wants, a, e)
+    case Fg.Fg.Reading{+l, d, f, ws, x}:
+      (ws, (d, (f, Fg.asked.span(l))))
 
-def asked_go(+ws: List<&2, String>, g: Result<&2, &2, Main.Refused, Fg.FgReading>, +eg: {Fg.reading.go(ws, Done{Fg.Fg.Reading{None{}, False{}, False{}, Nil{}, False{}}}) == g : Result<&2, &2, Main.Refused, Fg.FgReading>}, +a: Fg.FgAsked, e: {Result.bind(&2, &2, Main.Refused, Fg.FgReading, Fg.FgAsked, g, r => Fg.asked.read(r)) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {Fg.plain(ws, False{}) == asked.words.of(a) : List<&2, String>}:
+def reading_said(r: Fg.FgReading, +a: Fg.FgAsked, e: {Fg.asked.read(r) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {read.said(seen(r)) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}:
+  match r:
+    case Fg.Fg.Reading{+l, +d, +f, +ws, wants}:
+      words_said(l, d, f, ws, a, read_words(l, d, f, ws, wants, a, e))
+
+def asked_said(+ws: List<&2, String>, g: Result<&2, &2, Main.Refused, Fg.FgReading>, +eg: {Fg.reading.go(ws, Done{Fg.Fg.Reading{None{}, False{}, False{}, Nil{}, False{}}}) == g : Result<&2, &2, Main.Refused, Fg.FgReading>}, +a: Fg.FgAsked, e: {Result.bind(&2, &2, Main.Refused, Fg.FgReading, Fg.FgAsked, g, r => Fg.asked.read(r)) == Done{a} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {(plain.said(ws, False{}), (dry.said(ws, False{}), (fields.said(ws, False{}), Fg.asked.span(lines.said(ws, False{}))))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}:
   match g:
     case Fail{x}:
-      Empty.absurd({Fg.plain(ws, False{}) == asked.words.of(a) : List<&2, String>}, B.fail_done(Fg.FgAsked, x, a, e))
+      Empty.absurd({(plain.said(ws, False{}), (dry.said(ws, False{}), (fields.said(ws, False{}), Fg.asked.span(lines.said(ws, False{}))))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}, B.fail_done(Fg.FgAsked, x, a, e))
     case Done{+r}:
-      +h = go_ok(ws, None{}, False{}, False{}, Nil{}, False{}, r, eg)
-      %h : {_ == asked.words.of(a) : List<&2, String>}
-      reading.of(r, a, e)
+      +h = rd_go(ws, None{}, False{}, False{}, Nil{}, False{}, r, eg)
+      +hr = reading_said(r, a, e)
+      %later_none(lines.said(ws, False{})) : {(plain.said(ws, False{}), (dry.said(ws, False{}), (fields.said(ws, False{}), Fg.asked.span(_)))) == said.of(a) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}
+      Equal.trans(List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>)), read.said(Fg.Fg.Reading{later(lines.said(ws, False{}), None{}), Bool.or(False{}, dry.said(ws, False{})), Bool.or(False{}, fields.said(ws, False{})), List.append(&2, String, Nil{}, plain.said(ws, False{})), False{}}), read.said(seen(r)), said.of(a),
+        Equal.sym(List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>)), read.said(seen(r)), read.said(Fg.Fg.Reading{later(lines.said(ws, False{}), None{}), Bool.or(False{}, dry.said(ws, False{})), Bool.or(False{}, fields.said(ws, False{})), List.append(&2, String, Nil{}, plain.said(ws, False{})), False{}}), Equal.cong(Fg.FgReading, List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>)), x => read.said(x), seen(r), Fg.Fg.Reading{later(lines.said(ws, False{}), None{}), Bool.or(False{}, dry.said(ws, False{})), Bool.or(False{}, fields.said(ws, False{})), List.append(&2, String, Nil{}, plain.said(ws, False{})), False{}}, h)),
+        hr)
 
-# `forget` reads its target and its path as the plain words of its command
-# line, in order.
-def reads_words(+ws: List<&2, String>, +t: String, +p: String, +sp: Maybe<&2, Fg.FgSpan>, +d: Bool, +f: Bool, e: {Fg.asked.r(ws) == Done{Fg.Fg.Asked{t, p, sp, d, f}} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {Fg.plain(ws, False{}) == [t, p] : List<&2, String>}:
-  asked_go(ws, Fg.reading.go(ws, Done{Fg.Fg.Reading{None{}, False{}, False{}, Nil{}, False{}}}), {==}, Fg.Fg.Asked{t, p, sp, d, f}, e)
+# `forget` reads its command line as its plain reading says.
+def reads_words(+ws: List<&2, String>, +t: String, +p: String, +sp: Maybe<&2, Fg.FgSpan>, +d: Bool, +f: Bool, e: {Fg.asked.r(ws) == Done{Fg.Fg.Asked{t, p, sp, d, f}} : Result<&2, &2, Main.Refused, Fg.FgAsked>}) -> {(plain.said(ws, False{}), (dry.said(ws, False{}), (fields.said(ws, False{}), Fg.asked.span(lines.said(ws, False{}))))) == ([t, p], (d, (f, Done{sp}))) : List<&2, String> & (Bool & (Bool & Result<&2, &2, Main.Refused, Maybe<&2, Fg.FgSpan>>))}:
+  asked_said(ws, Fg.reading.go(ws, Done{Fg.Fg.Reading{None{}, False{}, False{}, Nil{}, False{}}}), {==}, Fg.Fg.Asked{t, p, sp, d, f}, e)
 
 # What `cache/` loses
 # -------------------
@@ -441,13 +787,61 @@ def cached_step(b: Bool, +q: String, +rest: List<&2, String>, +p: String, hb: {T
     case False{}:
       ih(m)
 
-# `forget` removes from `cache/` only what is named by a digest.
+# What `cache/`'s listing names past `cache/` and is no digest, `forget`
+# does not remove.
 def clears(ps: List<&2, String>, +p: String, m: {Rev.member(Fg.cached(ps), p) == True{} : Bool}) -> {T.is_digest(String.drop(p, 6n)) == True{} : Bool}:
   match ps:
     case Nil{}:
       Empty.absurd({T.is_digest(String.drop(p, 6n)) == True{} : Bool}, S.false_true(m))
     case +q <> +rest:
       cached_step(T.is_digest(String.drop(q, 6n)), q, rest, p, {==}, m, t => clears(rest, p, t))
+
+def kept_case(b: Bool, +ps: List<&2, String>, +p: String, hn: {T.is_digest(String.drop(p, 6n)) == False{} : Bool}, eb: {Rev.member(Fg.cached(ps), p) == b : Bool}) -> {Rev.member(Fg.cached(ps), p) == False{} : Bool}:
+  match b:
+    case False{}:
+      eb
+    case True{}:
+      Empty.absurd({Rev.member(Fg.cached(ps), p) == False{} : Bool}, S.false_true(Equal.trans(Bool, False{}, T.is_digest(String.drop(p, 6n)), True{}, Equal.sym(Bool, T.is_digest(String.drop(p, 6n)), False{}, hn), clears(ps, p, eb))))
+
+# A name in `cache/` that is no digest stays, whatever else is listed.
+def kept_note(+ps: List<&2, String>, +p: String, hn: {T.is_digest(String.drop(p, 6n)) == False{} : Bool}) -> {Rev.member(Fg.cached(ps), p) == False{} : Bool}:
+  kept_case(Rev.member(Fg.cached(ps), p), ps, p, hn, {==})
+
+# The note `init` writes and the catalogues the Rust store keeps in
+# `cache/` all stay.
+def notes_kept(+ps: List<&2, String>) -> {Bool.or(Rev.member(Fg.cached(ps), "cache/README.txt"), Bool.or(Rev.member(Fg.cached(ps), "cache/operations.txt"), Bool.or(Rev.member(Fg.cached(ps), "cache/working.txt"), Rev.member(Fg.cached(ps), "cache/revisions.txt")))) == False{} : Bool}:
+  %Equal.sym(Bool, Rev.member(Fg.cached(ps), "cache/README.txt"), False{}, kept_note(ps, "cache/README.txt", {==})) : {Bool.or(_, Bool.or(Rev.member(Fg.cached(ps), "cache/operations.txt"), Bool.or(Rev.member(Fg.cached(ps), "cache/working.txt"), Rev.member(Fg.cached(ps), "cache/revisions.txt")))) == False{} : Bool}
+  %Equal.sym(Bool, Rev.member(Fg.cached(ps), "cache/operations.txt"), False{}, kept_note(ps, "cache/operations.txt", {==})) : {Bool.or(False{}, Bool.or(_, Bool.or(Rev.member(Fg.cached(ps), "cache/working.txt"), Rev.member(Fg.cached(ps), "cache/revisions.txt")))) == False{} : Bool}
+  %Equal.sym(Bool, Rev.member(Fg.cached(ps), "cache/working.txt"), False{}, kept_note(ps, "cache/working.txt", {==})) : {Bool.or(False{}, Bool.or(False{}, Bool.or(_, Rev.member(Fg.cached(ps), "cache/revisions.txt")))) == False{} : Bool}
+  %Equal.sym(Bool, Rev.member(Fg.cached(ps), "cache/revisions.txt"), False{}, kept_note(ps, "cache/revisions.txt", {==})) : {Bool.or(False{}, Bool.or(False{}, Bool.or(False{}, _))) == False{} : Bool}
+  {==}
+
+def drop0(str: String) -> {String.drop(str, 0n) == str : String}:
+  match str:
+    case SNil{}:
+      {==}
+    case SCon{x, u}:
+      {==}
+
+def keep_mem(b: Bool, +y: String, +xs: List<&2, String>, +x: String, h: {Rev.member(xs, x) == True{} : Bool}) -> {Rev.member(Rev.keep(b, y, xs), x) == True{} : Bool}:
+  match b:
+    case True{}:
+      GL.member_tail(y, xs, x, h)
+    case False{}:
+      h
+
+# Every entry listed in `cache/` as a digest is removed.
+def clears_copy(ps: List<&2, String>, +d: String, +hd: {T.is_digest(d) == True{} : Bool}, hm: {Rev.member(ps, "cache/" ++ d) == True{} : Bool}) -> {Rev.member(Fg.cached(ps), "cache/" ++ d) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      Empty.absurd({Rev.member(Fg.cached(Nil{}), "cache/" ++ d) == True{} : Bool}, S.false_true(hm))
+    case +q <> +rest:
+      GL.member_cons({Rev.member(Fg.cached(q <> rest), "cache/" ++ d) == True{} : Bool}, q, rest, "cache/" ++ d, hm,
+        e => (%Equal.sym(String, q, "cache/" ++ d, e) : {Rev.member(Rev.keep(T.is_digest(String.drop(_, 6n)), _, Fg.cached(rest)), "cache/" ++ d) == True{} : Bool};
+          %Equal.sym(String, String.drop(d, 0n), d, drop0(d)) : {Rev.member(Rev.keep(T.is_digest(_), "cache/" ++ d, Fg.cached(rest)), "cache/" ++ d) == True{} : Bool};
+          %Equal.sym(Bool, T.is_digest(d), True{}, hd) : {Rev.member(Rev.keep(_, "cache/" ++ d, Fg.cached(rest)), "cache/" ++ d) == True{} : Bool};
+          GL.member_head("cache/" ++ d, Fg.cached(rest))),
+        t => keep_mem(T.is_digest(String.drop(q, 6n)), q, Fg.cached(rest), "cache/" ++ d, clears_copy(rest, d, hd, t)))
 
 # Replaying through a stand-in
 # ----------------------------
@@ -893,32 +1287,6 @@ def ops_forgot(ops: List<&2, Ops.Op>, +ps: List<&2, Fg.FgPick>, +t: String, +i: 
       %Equal.sym(Bool, Stand.items.like(items, Fg.forget.items(items, ps, t, i, 0n)), True{}, items_forgot(items, ps, t, i, 0n)) : {Bool.and(True{}, Bool.and(True{}, Bool.and(_, Stand.ops.like(rest, Fg.forget.ops(rest, ps, t, 1n+i))))) == True{} : Bool}
       ops_forgot(rest, ps, t, 1n+i)
 
-def chain_fail(a: List<&2, List<&2, Ops.Op>>, b: List<&2, List<&2, Ops.Op>>, -e: String, c: Result<&2, &2, String, List<&2, Ops.Item>>) -> {Stand.result.like(Merge.replay(a, Fail{e}), Merge.replay(b, c)) == True{} : Bool}:
-  match a:
-    case Nil{}:
-      {==}
-    case x <> xs:
-      {==}
-
-# A chain of documents, each the original or a stand-in for it, replays
-# alike from alike files.
-def chain_like(ds1: List<&2, List<&2, Ops.Op>>, ds2: List<&2, List<&2, Ops.Op>>, r1: Result<&2, &2, String, List<&2, Ops.Item>>, r2: Result<&2, &2, String, List<&2, Ops.Item>>, +hd: {Stand.docs.like(ds1, ds2) == True{} : Bool}, +hr: {Stand.result.like(r1, r2) == True{} : Bool}) -> {Stand.result.like(Merge.replay(ds1, r1), Merge.replay(ds2, r2)) == True{} : Bool}:
-  match ds1 ds2 r1 r2:
-    case a b Fail{e} c:
-      chain_fail(a, b, e, c)
-    case Nil{} Nil{} Done{f1} Done{f2}:
-      hr
-    case a b Done{f1} Fail{e}:
-      Empty.absurd({Stand.result.like(Merge.replay(a, Done{f1}), Merge.replay(b, Fail{e})) == True{} : Bool}, S.false_true(hr))
-    case Nil{} y <> ys Done{f1} Done{f2}:
-      Empty.absurd({Stand.result.like(Merge.replay(Nil{}, Done{f1}), Merge.replay(y <> ys, Done{f2})) == True{} : Bool}, S.false_true(hd))
-    case x <> xs Nil{} Done{f1} Done{f2}:
-      Empty.absurd({Stand.result.like(Merge.replay(x <> xs, Done{f1}), Merge.replay(Nil{}, Done{f2})) == True{} : Bool}, S.false_true(hd))
-    case +x <> +xs +y <> +ys Done{+f1} Done{+f2}:
-      chain_like(xs, ys, Ops.apply(f1, Ops.Doc{None{}, None{}, x}), Ops.apply(f2, Ops.Doc{None{}, None{}, y}),
-        Comp.and_right(Stand.ops.like(x, y), Stand.docs.like(xs, ys), hd),
-        replays_like(f1, f2, None{}, None{}, x, None{}, y, hr, Comp.and_left(Stand.ops.like(x, y), Stand.docs.like(xs, ys), hd)))
-
 # The other versions
 # ------------------
 
@@ -1253,3 +1621,105 @@ def folded_swap(a: Ops.Doc, b: Ops.Doc, rest: List<&2, Ops.Doc>, +held: List<&2,
     case Ops.Doc{fa, ra, +ys} Ops.Doc{fb, rb, +zs}:
       %swap_pick(held, ys, zs) : {Stand.ops.folded(rest, Stand.ops.fold.pick(Stand.ops.fold.pick(held, ys, Stand.ops.shape(held, ys)), zs, Stand.ops.shape(Stand.ops.fold.pick(held, ys, Stand.ops.shape(held, ys)), zs))) == Stand.ops.folded(rest, _) : List<&2, Ops.Op>}
       {==}
+
+# Replaying the store through stand-ins
+# ------------------------------------
+
+# Stored documents, one by one, each the original or one that stands in
+# for it: both operation documents, the second parsing to one that states
+# no result and whose operations are alike to the first's wherever the
+# first parses; or both payloads, the same bytes.
+def stored.parsed(a: Result<&2, &2, String, Ops.Doc>, b: Result<&2, &2, String, Ops.Doc>) -> Bool:
+  match a b:
+    case Fail{e} _:
+      True{}
+    case Done{Ops.Doc{f1, r1, o1}} Done{Ops.Doc{f2, None{}, o2}}:
+      Stand.ops.like(o1, o2)
+    case _ _:
+      False{}
+
+def stored.doc(b1: Bool, b2: Bool, +t1: String, +t2: String) -> Bool:
+  match b1 b2:
+    case True{} True{}:
+      stored.parsed(Ops.parse(t1), Ops.parse(t2))
+    case False{} False{}:
+      String.eq(t1, t2)
+    case _ _:
+      False{}
+
+def stored.like(a: List<&2, Store.Doc>, b: List<&2, Store.Doc>) -> Bool:
+  match a b:
+    case Nil{} Nil{}:
+      True{}
+    case Store.Doc{+p1, i1, s1, +t1} <> r1 Store.Doc{+p2, i2, s2, +t2} <> r2:
+      Bool.and(stored.doc(String.ends_with(p1, ".ops.txt"), String.ends_with(p2, ".ops.txt"), t1, t2), stored.like(r1, r2))
+    case _ _:
+      False{}
+
+def replay_doc_fail(-e: String, text: String, is_ops: Bool) -> {Main.replay.doc(Fail{e}, text, is_ops) == Fail{e} : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  match is_ops:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def replay_fail(ds: List<&2, Store.Doc>, -e: String) -> {Main.replay.go(ds, Fail{e}) == Fail{e} : Result<&2, &2, String, List<&2, Ops.Item>>}:
+  match ds:
+    case Nil{}:
+      {==}
+    case Store.Doc{+path, id, size, text} <> rest:
+      %Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Main.replay.doc(Fail{e}, text, String.ends_with(path, ".ops.txt")), Fail{e}, replay_doc_fail(e, text, String.ends_with(path, ".ops.txt"))) : {Main.replay.go(rest, _) == Fail{e} : Result<&2, &2, String, List<&2, Ops.Item>>}
+      replay_fail(rest, e)
+
+def step_like(r1: Result<&2, &2, String, List<&2, Ops.Item>>, r2: Result<&2, &2, String, List<&2, Ops.Item>>, p1: Result<&2, &2, String, Ops.Doc>, p2: Result<&2, &2, String, Ops.Doc>, +hr: {Stand.result.like(r1, r2) == True{} : Bool}, +hp: {stored.parsed(p1, p2) == True{} : Bool}) -> {Stand.result.like(Main.replay.step(r1, p1), Main.replay.step(r2, p2)) == True{} : Bool}:
+  match r1 r2 p1 p2:
+    case Fail{e} b c d:
+      {==}
+    case Done{x} Fail{e} c d:
+      Empty.absurd({Stand.result.like(Main.replay.step(Done{x}, c), Main.replay.step(Fail{e}, d)) == True{} : Bool}, S.false_true(hr))
+    case Done{x} Done{y} Fail{e} d:
+      {==}
+    case Done{+x} Done{+y} Done{Ops.Doc{f1, +r, +o1}} Done{Ops.Doc{f2, None{}, +o2}}:
+      replays_like(x, y, f1, r, o1, f2, o2, hr, hp)
+    case Done{x} Done{y} Done{Ops.Doc{f1, r, o1}} Done{Ops.Doc{f2, Some{z}, o2}}:
+      Empty.absurd({Stand.result.like(Main.replay.step(Done{x}, Done{Ops.Doc{f1, r, o1}}), Main.replay.step(Done{y}, Done{Ops.Doc{f2, Some{z}, o2}})) == True{} : Bool}, S.false_true(hp))
+    case Done{x} Done{y} Done{Ops.Doc{f1, r, o1}} Fail{e}:
+      Empty.absurd({Stand.result.like(Main.replay.step(Done{x}, Done{Ops.Doc{f1, r, o1}}), Main.replay.step(Done{y}, Fail{e})) == True{} : Bool}, S.false_true(hp))
+
+def payload_like(r1: Result<&2, &2, String, List<&2, Ops.Item>>, r2: Result<&2, &2, String, List<&2, Ops.Item>>, +t1: String, +t2: String, +hr: {Stand.result.like(r1, r2) == True{} : Bool}, +ht: {String.eq(t1, t2) == True{} : Bool}) -> {Stand.result.like(Main.replay.payload(r1, t1), Main.replay.payload(r2, t2)) == True{} : Bool}:
+  match r1 r2:
+    case Fail{e} b:
+      {==}
+    case Done{x} Fail{e}:
+      Empty.absurd({Stand.result.like(Main.replay.payload(Done{x}, t1), Main.replay.payload(Fail{e}, t2)) == True{} : Bool}, S.false_true(hr))
+    case Done{x} Done{y}:
+      %S.eq_true(t1, t2, ht) : {Stand.items.like(Ops.from_text(t1), Ops.from_text(_)) == True{} : Bool}
+      items_self(Ops.from_text(t1))
+
+def doc_like(b1: Bool, b2: Bool, +t1: String, +t2: String, r1: Result<&2, &2, String, List<&2, Ops.Item>>, r2: Result<&2, &2, String, List<&2, Ops.Item>>, +hr: {Stand.result.like(r1, r2) == True{} : Bool}, +hd: {stored.doc(b1, b2, t1, t2) == True{} : Bool}) -> {Stand.result.like(Main.replay.doc(r1, t1, b1), Main.replay.doc(r2, t2, b2)) == True{} : Bool}:
+  match b1 b2:
+    case True{} True{}:
+      step_like(r1, r2, Ops.parse(t1), Ops.parse(t2), hr, hd)
+    case False{} False{}:
+      payload_like(r1, r2, t1, t2, hr, hd)
+    case True{} False{}:
+      Empty.absurd({Stand.result.like(Main.replay.doc(r1, t1, True{}), Main.replay.doc(r2, t2, False{})) == True{} : Bool}, S.false_true(hd))
+    case False{} True{}:
+      Empty.absurd({Stand.result.like(Main.replay.doc(r1, t1, False{}), Main.replay.doc(r2, t2, True{})) == True{} : Bool}, S.false_true(hd))
+
+# The replay of stored documents reads alike through stand-ins, from alike
+# files.
+def stored_like(ds1: List<&2, Store.Doc>, ds2: List<&2, Store.Doc>, +r1: Result<&2, &2, String, List<&2, Ops.Item>>, +r2: Result<&2, &2, String, List<&2, Ops.Item>>, +hd: {stored.like(ds1, ds2) == True{} : Bool}, +hr: {Stand.result.like(r1, r2) == True{} : Bool}) -> {Stand.result.like(Main.replay.go(ds1, r1), Main.replay.go(ds2, r2)) == True{} : Bool}:
+  match ds1 ds2:
+    case Nil{} Nil{}:
+      hr
+    case Store.Doc{+p1, i1, s1, +t1} <> +xs Store.Doc{+p2, i2, s2, +t2} <> +ys:
+      +b1 = String.ends_with(p1, ".ops.txt")
+      +b2 = String.ends_with(p2, ".ops.txt")
+      stored_like(xs, ys, Main.replay.doc(r1, t1, b1), Main.replay.doc(r2, t2, b2),
+        Comp.and_right(stored.doc(b1, b2, t1, t2), stored.like(xs, ys), hd),
+        doc_like(b1, b2, t1, t2, r1, r2, hr, Comp.and_left(stored.doc(b1, b2, t1, t2), stored.like(xs, ys), hd)))
+    case Nil{} Store.Doc{p2, i2, s2, t2} <> ys:
+      Empty.absurd({Stand.result.like(Main.replay.go(Nil{}, r1), Main.replay.go(Store.Doc{p2, i2, s2, t2} <> ys, r2)) == True{} : Bool}, S.false_true(hd))
+    case Store.Doc{p1, i1, s1, t1} <> xs Nil{}:
+      Empty.absurd({Stand.result.like(Main.replay.go(Store.Doc{p1, i1, s1, t1} <> xs, r1), Main.replay.go(Nil{}, r2)) == True{} : Bool}, S.false_true(hd))
