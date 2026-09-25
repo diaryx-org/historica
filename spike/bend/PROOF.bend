@@ -83,6 +83,7 @@ import ./export_lemmas.bend as ExportL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
+import ./finding_lemmas.bend as FindL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -945,14 +946,26 @@ def Laws.skip_path_rule_reads_back(file, v, directory, private, sc, e, h):
 def Laws.skip_name_rule_reads_back(file, n, private, sc, e):
   SkipL.named_reads(file, n, private, sc, e)
 
-def Laws.skip_path_rule_skips_under_its_path(v, directory, sc, e, x, q):
-  SkipL.scoped_skips(v, directory, sc, e, x, q)
+def Laws.skip_path_rule_skips_under_its_path(v, directory, sc, e, x):
+  SkipL.scoped_skips(v, directory, sc, e, x)
+
+def Laws.skip_path_rule_skips_nothing_else(v, directory, sc, e, q, s):
+  SkipL.scoped_only(v, directory, sc, e, q, s)
+
+def Laws.skip_path_rule_skips_no_other_directory(v, directory, sc, e, p, s):
+  SkipL.scoped_only_directory(v, directory, sc, e, p, s)
 
 def Laws.skip_lists_each_rule_once(ss):
   SkipL.lists_once(ss)
 
 def Laws.skip_writes_what_is_new(rs, had):
   SkipL.writes_new(rs, had)
+
+def Laws.check_reports_errors_then_notes(fs, shown, complete):
+  FindL.report_is(fs, shown, complete)
+
+def Laws.check_fails_on_an_error(fs, complete):
+  FindL.fails_is(fs, complete)
 
 def Laws.update_lands(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
   UpdL.plan_holds(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)

@@ -44,6 +44,7 @@ import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
+import ./finding_lemmas.bend as FindL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2371,16 +2372,37 @@ law skip_name_rule_reads_back:
   for e: {Skip.name.scope.r(n) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
   {Skip.stated.of(file, Skip.file.text(Skip.Rule{sc, private}), Folder.rule_in(Skip.file.text(Skip.Rule{sc, private}))) == [Skip.Stating{Skip.Rule{sc, private}, file}] : List<&2, Skip.Stating>}
 
-# The rule `skip <path>` makes skips that file, or that directory and a
-# file under it, and nothing whose path does not start with the one named.
+# The rule `skip <path>` makes skips that file, or that directory whole
+# and every file under it.
 law skip_path_rule_skips_under_its_path:
   for +v: String
   for +directory: Bool
   for +sc: Folder.Scope
   for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
   for +x: String
+  {Bool.pick(Bool, directory, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)) == True{} : Bool}
+
+# And nothing else: a file it skips is the path named, or, for a
+# directory, the path named, a `/`, and the rest — so the rule for `v`
+# skips neither `vx` nor, for a file, anything under `v/` — and a
+# directory it skips whole is the one named.
+law skip_path_rule_skips_nothing_else:
+  for +v: String
+  for +directory: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
   for +q: String
-  {Bool.and(Bool.pick(Bool, directory, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)), Bool.or(Bool.not(Folder.skips([sc], q)), String.starts_with(q, v))) == True{} : Bool}
+  for s: {Folder.skips([sc], q) == True{} : Bool}
+  {q == Bool.pick(String, directory, String.append(v ++ "/", String.drop(q, String.length(v ++ "/"))), v) : String}
+
+law skip_path_rule_skips_no_other_directory:
+  for +v: String
+  for +directory: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  for +p: String
+  for s: {Folder.skips_directory([sc], p) == True{} : Bool}
+  {p == v : String}
 
 # `skip` with no arguments lists every rule the files of `skipped/` state,
 # and no rule twice.
@@ -2394,6 +2416,24 @@ law skip_writes_what_is_new:
   for +rs: List<&2, Skip.Rule>
   for +had: List<&2, Skip.Rule>
   {Bool.and(Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))))), Skip.all.held(rs, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had))) == True{} : Bool}
+
+# `check`'s report is every error it found, in the order found, then every
+# note, each on its own line under its word — so each finding once — then
+# how many of each, `nothing to report` only where it found nothing at
+# all; and, where a head cannot be produced from what is here, how many,
+# naming `--complete` to a caller who did not ask for it.
+law check_reports_errors_then_notes:
+  for +fs: List<&2, Check.Finding>
+  for +shown: String
+  for +complete: Bool
+  {Check.report(fs, shown, complete) == FindL.reported(fs, shown, complete) : String}
+
+# `check` fails exactly where it found an error, `check --complete` also
+# where it found a head it cannot produce, and a note alone fails neither.
+law check_fails_on_an_error:
+  for +fs: List<&2, Check.Finding>
+  for complete: Bool
+  {Check.fails(fs, complete) == Bool.or(List.any(~&2, ~Check.Finding, ~(f => Check.is_error(f)), fs), Bool.and(complete, List.any(~&2, ~Check.Finding, ~(f => Check.is_head(f)), fs))) : Bool}
 
 # `update` run again from what it left keeps every path it stepped
 # through: where it decides a path anything but a refusal, the path, once
