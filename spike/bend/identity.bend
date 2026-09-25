@@ -356,14 +356,14 @@ def die(-A: Type, +code: U32, msg: String) -> IO(A):
   IO.die(A, code, "historica: " ++ msg ++ Bool.pick(String, U32.is_eq(code, 2), "\n\n" ++ Notes.USAGE(), SNil{}))
 
 # The directory a path is in: `Path::parent`, for a path that names a file.
+# The walk is over the reversed path, each character asked with
+# `Char.is_eq` so that a proof can follow it over one it does not know.
 def parent.go(s: String) -> String:
   match s:
     case SNil{}:
       SNil{}
-    case SCon{'/', t}:
-      t
-    case SCon{c, t}:
-      parent.go(t)
+    case SCon{c, +t}:
+      Bool.pick(String, Char.is_eq(c, '/'), t, parent.go(t))
 
 def parent(+file: String) -> String:
   +up = String.reverse(parent.go(String.reverse(file)))

@@ -44,6 +44,7 @@ import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
 import ./shell_lemmas.bend as ShellL
 import ./editor_lemmas.bend as EditorL
+import ./identity_lemmas.bend as IdentityL
 import ./editor.bend as Editor
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
@@ -2346,6 +2347,29 @@ law identity_reads_back:
   for +home: Maybe<&2, String>
   for h: {Identity.unusable(a) == False{} : Bool}
   {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}
+
+# The file is where the Rust tool's `identity_path` puts it:
+# `historica/identity` under `$XDG_CONFIG_HOME` where that is set and not
+# empty, whatever the home; otherwise under `.config` in the home —
+# `$HOME`, or `$USERPROFILE` where `$HOME` is not set — and nowhere with
+# neither.
+law identity_file_is_where_the_rust_tool_looks:
+  for xdg: Result<&1, &1, U32 & String, String>
+  for home: Result<&1, &1, U32 & String, String>
+  for profile: Result<&1, &1, U32 & String, String>
+  {Identity.path.of(xdg, Identity.home.of(home, profile)) == Maybe.map(&2, String, String, d => Identity.joined(d, "historica/identity"), IdentityL.config(xdg, home, profile)) : Maybe<&2, String>}
+
+# And `identity` makes the directory that file goes in before writing it:
+# the directory it asks for, with the file's name after it, is the file,
+# wherever the configuration directory is — never one above it, which
+# would leave the write nowhere to land.
+law identity_makes_the_files_directory:
+  for xdg: Result<&1, &1, U32 & String, String>
+  for home: Result<&1, &1, U32 & String, String>
+  for profile: Result<&1, &1, U32 & String, String>
+  for +file: String
+  for e: {Identity.path.of(xdg, Identity.home.of(home, profile)) == Some{file} : Maybe<&2, String>}
+  {Identity.parent(file) ++ "/identity" == file : String}
 
 # `record` and `abandon` given no `-m` ask the editor the person chose, as
 # the Rust tool's `from_an_editor` reads the environment: `$VISUAL` where

@@ -934,6 +934,12 @@ def Laws.header_opens_under_a_note(note):
 def Laws.identity_reads_back(file, a, directory, home, h):
   IdentityL.reads_back(file, a, directory, home, h)
 
+def Laws.identity_file_is_where_the_rust_tool_looks(xdg, home, profile):
+  IdentityL.path_is(xdg, home, profile)
+
+def Laws.identity_makes_the_files_directory(xdg, home, profile, file, e):
+  IdentityL.makes_its_directory(xdg, home, profile, file, e)
+
 def Laws.editor_is_the_one_chosen(visual, editor):
   EditorL.chooses(visual, editor)
 
