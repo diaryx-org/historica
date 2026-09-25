@@ -87,6 +87,7 @@ import ./export_lemmas.bend as ExportL
 import ./catchup_lemmas.bend as CatchL
 import ./onto_lemmas.bend as OntoL
 import ./dryrun_lemmas.bend as DryL
+import ./placed_lemmas.bend as PlacedL
 import ./filesonly_lemmas.bend as FilesL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
@@ -1085,8 +1086,8 @@ def Laws.offer_names_no_private_bookmark(prefix, s, bs, claims, rids, nids):
 def Laws.offer_names_no_private_rule(prefix, s, bs, claims, rids, nids):
   OfferL.rules(prefix, s, bs, claims, rids, nids)
 
-def Laws.export_lays_out_every_path(ps, t, fs, ds, id, pays, bs):
-  ExportL.laid(ps, t, fs, ds, id, pays, bs)
+def Laws.export_lays_out_every_path(t, fs, ds, id, pays, bs, rules, qs, x, h):
+  PlacedL.laid_out(t, fs, ds, id, pays, bs, rules, qs, x, h)
 
 def Laws.export_names_only_what_travels(bs, pt):
   ExportL.names(bs, pt)
@@ -1127,9 +1128,6 @@ def Laws.receive_reads_its_words(ws):
 def Laws.offer_reads_its_words(ws):
   WordsL.offer_words(ws)
 
-def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs, rules):
-  ExportL.folder_clear(t, fs, ds, id, pays, bs, rules)
-
 def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks, d, h):
   ExportL.destroyed(p, here, cst, marks, d, h)
 
@@ -1145,11 +1143,14 @@ def Laws.export_calls_a_folder_folded_exactly_where_it_reads_back_otherwise(qs, 
 def Laws.export_dry_run_names_what_it_would_write(held, t, ds, ps, bodies, rs, bs, claims, c, ws, n, u, spelled, into, x):
   DryL.dry_names(held, t, ds, ps, bodies, rs, bs, claims, c, ws, n, u, spelled, into, x)
 
-def Laws.export_files_only_dry_run_names_what_it_lays_out(ps, set, spelled, into, at):
-  DryL.folder_said(ps, set, spelled, into, at)
+def Laws.export_files_only_dry_run_names_what_it_lays_out(t, fs, ds, id, pays, bs, rules, qs, set, spelled, into, at, x, h):
+  DryL.folder_said(t, fs, ds, id, pays, bs, rules, qs, set, spelled, into, at, x, h)
 
-def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, cfs):
-  OntoL.copy_done(into, fs, cfs)
+def Laws.export_updates_only_a_copy_it_could_have_made(into, fs, pre, f, post, h):
+  OntoL.refuses_stranger(into, fs, pre, f, post, h)
+
+def Laws.export_updates_a_copy_it_could_have_made(into, fs, cfs, c, hc, hh, h):
+  OntoL.updates_heard(into, fs, cfs, c, hc, hh, h)
 
 def Laws.export_update_leaves_the_copy_the_whole_set(p, here, cst, marks, d, h):
   OntoL.whole_set(p, here, cst, marks, d, h)
