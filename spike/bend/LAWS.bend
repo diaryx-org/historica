@@ -4297,12 +4297,14 @@ law init_writes_text:
   {InitL.texts(Main.init.layout(root)) == True{} : Bool}
 
 # `init` joins `<dir>` to the directory it runs in as `Path::join` joins
-# it. An absolute `<dir>` is where the store goes, wherever `init` runs.
+# it. An absolute `<dir>` is where the store goes, wherever `init` runs:
+# `init /d` makes `/d/history`, whatever the base.
 law init_takes_an_absolute_dir_as_it_is:
   for +base: String
-  for +other: String
   for +d: String
-  {Main.init.root(base, Some{"/" ++ d}) == Main.init.root(other, Some{"/" ++ d}) : String}
+  for +e: {String.is_empty(d) == False{} : Bool}
+  for +f: {String.ends_with(d, "/") == False{} : Bool}
+  {Main.init.root(base, Some{"/" ++ d}) == "/" ++ d ++ "/history" : String}
 
 # A `/` after `<dir>` is not doubled: `init sub/` makes the store
 # `init sub` makes.

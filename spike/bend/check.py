@@ -3899,10 +3899,19 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "an absolute path is joined as the root",
+            '  Bool.pick(String, String.starts_with(p, "/"), p,',
+            '  Bool.pick(String, String.starts_with(p, "/"), "/",',
+            "init_lemmas.absolute",
+            "commands.bend",
+        ),
+        (
             "a path is joined to a base ending in a slash with another",
             '  Bool.pick(String, Bool.or(String.is_empty(base), String.ends_with(base, "/")), base ++ p, base ++ "/" ++ p))',
             '  Bool.pick(String, String.is_empty(base), base ++ p, base ++ "/" ++ p))',
-            "init_lemmas.join_rel",
+            # The checker meets it first where `init_lemmas.absolute`
+            # unfolds the join; the law it breaks is `init_doubles_no_slash`.
+            "init_lemmas.absolute",
             "commands.bend",
         ),
         (
