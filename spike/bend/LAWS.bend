@@ -21,6 +21,8 @@ import ./survey.bend as Sv
 import ./update.bend as Upd
 import ./conflict.bend as Conflict
 import ./resolution.bend as Res
+import ./sort_lemmas.bend as SortL
+import ./naming.bend as Naming
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1133,3 +1135,467 @@ law merge_renders_the_uncontested_as_itself:
   for j: Conflict.Joined
   for e: {Conflict.met(j) == False{} : Bool}
   {Conflict.render(j) == Conflict.plain(j) : String}
+# `name` reads its words as their plain reading says: a flag counts
+# wherever it stands, the last of `--revision` and `--change` and the last
+# of `--private` and `--shared` deciding, `--delete` and `--fields` asked
+# for if they are there; the flags shaping a target are kept as typed, in
+# order, for `--delete` to refuse; and every other word is the bookmark,
+# the target and the path, in order.
+law name_reads_its_words:
+  for +ws: List<&2, String>
+  {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.nargs.said(ws) : Main.NameCmd}
+
+# What `name` sets out to do, decided before anything is opened, is what
+# its words say. A bookmark is deleted only where `--delete` was said, and
+# then it is the one other word, with no flag shaping a target beside it;
+# otherwise a bookmark is set, the other words being the bookmark, the
+# target and at most one path, in order, with `--revision`, `--private` or
+# `--shared` and `--fields` as they were read. A file bookmark is never
+# pinned, and the header `--fields` asks for goes out before the store is
+# opened only where `--fields` asked for it.
+law name_does_what_it_reads:
+  for c: Main.NameCmd
+  for +p: Main.NamePlan
+  for e: {Main.name.plan.r(c) == Done{p} : Result<&2, &2, Main.Refused, Main.NamePlan>}
+  {Main.name.plan.meant(c, p) == True{} : Bool}
+
+# The bookmark `name` sets is the one asked for. It has the name given,
+# which stays under `names/`; it points at a revision the store holds where
+# `--revision` pins it, at a change one of the store's revisions carries
+# where a target alone is given, and at a file one of those revisions'
+# trees holds where a path is; and it is private as `--private` or
+# `--shared` says, or else as the bookmark of that name already was — the
+# one `--delete` would find — or shared where there was none.
+law name_points_where_asked:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +n: String
+  for +spelling: String
+  for +path: Maybe<&2, String>
+  for +pin: Bool
+  for +axis: Maybe<&2, Bool>
+  for +b: Bm.Bookmark
+  for e: {Main.name.stated.r(fs, bs, n, spelling, path, pin, axis) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}
+  {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}
+
+# `name --delete` removes the bookmark named: it is refused exactly where
+# the store has no bookmark of that name, and the bookmark it says it
+# deleted is one the store holds under that name, as it was.
+law name_deletes_the_bookmark_named:
+  for bs: List<&2, Bm.Bookmark>
+  for +n: String
+  {Main.name.gone(bs, n, Main.name.present.r(n, Main.found_of(bs, n))) == True{} : Bool}
+
+# Asked for `--fields`, a bookmark set says what it wrote in decision
+# 0074's words: `historica-wrote-1` once — before the store is opened where
+# the command line cannot yet prove wrong, and after the bookmark is
+# written where it can — and then `name` with the bookmark's name.
+law name_states_what_it_set:
+  for +n: String
+  for b: Bm.Bookmark
+  for early: Bool
+  for shared: Bool
+  {List.append(&2, String, Main.name.head(early), Main.name.said.lines(n, b, True{}, early, shared)) == [Main.WROTE(), "name " ++ n] : List<&2, String>}
+
+# `files` lists each file of the tree once, in path order. The entries it
+# prints are each no smaller than the one before, by path and then by file
+# identifier, and each line it prints ends with the identifier of the entry
+# it lists — or says there are none.
+law files_lists_in_path_order:
+  for +t: Tree.Tree()
+  {Bool.and(SortL.sorted(~Tree.Entry, ~(e => Main.files.key(e)), Main.files.listed(t)), Main.ends_all(Main.files.said(t), Main.files.ends(t))) == True{} : Bool}
+
+# And the entries it lists are the tree's: under each path and file, the
+# ones the tree holds there, as many and in the order it holds them.
+law files_lists_the_tree:
+  for +t: Tree.Tree()
+  for +k: String
+  {SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, Main.files.listed(t)) == SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, t) : Tree.Tree()}
+
+# `names` lists every bookmark once, in name order: the store's bookmarks
+# are read sorted by name, and `names` prints a line for each, in the
+# order read, beginning with its name — or says there are none.
+law bookmarks_read_in_name_order:
+  for +ps: List<&2, String>
+  {SortL.sorted(~Main.Named, ~(n => Main.named.name(n)), Main.bookmarks.order(ps)) == True{} : Bool}
+
+law names_lists_each_bookmark:
+  for +fs: List<&2, Main.Full>
+  for bs: List<&2, Bm.Bookmark>
+  {Main.names.begun(bs, Main.names.said(fs, bs)) == True{} : Bool}
+
+# Where `names` says a revision pin or a change resolves is a revision the
+# store holds: an abbreviation of its digest — for a change, of its one
+# current revision — or else, in parentheses, why there is none.
+law names_resolves_to_held:
+  for +fs: List<&2, Main.Full>
+  for +here: Maybe<&2, Tree.Tree()>
+  for t: Bm.Target
+  {Main.names.held(fs, t, Main.names.resolution(Main.history(fs), Main.ids(fs), here, t)) == True{} : Bool}
+
+# `log --fields` names exactly what it lists: its header, and then a line
+# for each revision it keeps — those every filter admits, as
+# `log_lists_what_it_asks` says, in the order the walk presents them and
+# as far as the limit — beginning with that revision's digest, whole.
+law log_fields_lists_what_it_keeps:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +sp: Main.Span
+  for +shown: List<&2, Main.Full>
+  for +fl: Main.Filter
+  for limit: Maybe<&2, Nat>
+  {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}
+
+# A log entry counts what its revision did to the file set as the revision
+# states it: the files added, moved, dropped and edited are how many `add`,
+# `move`, `drop` and `edit` facts it states, each counted once and none set
+# aside for the files it added — only modes, links and bytes are.
+law log_counts_each_fact:
+  for facts: List<&2, Rev.Header>
+  for +key: String
+  for +added: Set()
+  {Main.count_facts(facts, key, added, False{}) == List.length(&2, String, Rev.values_of(facts, key)) : Nat}
+
+# The file `log --path` follows is one the tree holds at the revision the
+# path is read at — the far end of the span named, or the one head — so
+# what the log then lists is that file's history, whatever it was called.
+law log_follows_a_held_file:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +sp: Main.Span
+  for +path: String
+  for +at: String
+  for +file: String
+  for ea: {Main.read_at.r(fs, bs, path, sp) == Done{at} : Result<&2, &2, Main.Refused, String>}
+  for e: {Main.followed.r(fs, bs, sp, Some{path}) == Done{Some{file}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}
+  {Main.tree.holds.r(Main.tree.r(fs, at), file) == True{} : Bool}
+
+# `status` says everything its survey of the folder found, in the order
+# found, each on a line of its own that names it: each fact on a line
+# beginning with its kind and ending with its path, then each path refused
+# or claimed on a line beginning `refused` or `claimed` and the path, each
+# file the renderer's lines still stand in on one beginning `marked` and
+# the path, and each accept on one beginning `accept` and the path and
+# ending with it again.
+law status_says_what_it_found:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +ps: List<&2, String>
+  for +cs: List<&2, Tree.Contest>
+  for sv: Sv.Survey
+  {Main.expect.in(Main.status.report(fs, bs, ps, cs, sv), Main.status.expects(sv)) == True{} : Bool}
+
+# Where work is joined, `status` says each contest the tree merge found,
+# once and in its order, on a line opening with the file contested — a
+# path several files claim is said as `claimed` instead; where one
+# revision or none is the position, it says none, since a contest deeper
+# in the graph was settled when its merge was recorded.
+law status_says_each_contest:
+  for +ps: List<&2, String>
+  for +cs: List<&2, Tree.Contest>
+  {Main.contests.shown(ps, cs, Main.contests.said(ps, cs)) == True{} : Bool}
+
+# Against one revision, `status` compares the folder with the very tree
+# `files`, `cat` and `diff` read there — the file set the revision's
+# ancestry merges to — or refuses as they do.
+law status_compares_with_the_revisions_tree:
+  for +fs: List<&2, Main.Full>
+  for +p: String
+  {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.r(fs, [p])) == Main.tree.r(fs, p) : Result<&2, &2, Main.Refused, Tree.Tree()>}
+
+# `status` reads from the folder, and replays at the position, only files
+# of lines the position holds — never a file of bytes or a link, whose
+# digest or target settles it: every path it asks the host to read, and
+# every file whose content it replays, is among the files of lines it
+# compares.
+law status_reads_only_lines:
+  for +dg: Map<&2, String>
+  for +bf: Map<&2, String>
+  for +eds: List<&2, Store.Doc>
+  for +os: Map<&2, T.Split>
+  for +hs: List<&2, Main.Here>
+  {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}
+
+# `status` tells its survey of each path it compares once, in order; and
+# where the parents being joined leave a file of lines differently, it
+# gives the survey no digest to compare the folder's with, since there is
+# none — `record::joined_content`'s `-`.
+law status_surveys_each_path:
+  for +t: Tree.Tree()
+  for +dg: Map<&2, String>
+  for +bf: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +props: List<&2, Main.Proposal>
+  for hs: List<&2, Main.Here>
+  {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, props, hs)) == True{} : Bool}
+
+# Against one revision, `status` believes the digest a statement gives a
+# file of lines and replays only where none does: it is refused only where
+# a file of lines it compares, whose digest no statement gives, cannot be
+# replayed, and then with that file's refusal.
+law status_believes_what_is_stated:
+  for +older: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +left: String
+  for +eds: List<&2, Store.Doc>
+  for +os: Map<&2, T.Split>
+  for +hs: List<&2, Main.Here>
+  for +m: Map<&2, String>
+  for +e: String
+  for h: {Main.status.befores(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
+  {Main.status.replay_fails(older, ds, left, eds, os, Main.status.lined(hs), e) == True{} : Bool}
+
+# Where several parents are joined, `status` reads each file of lines it
+# compares at each of them, and is refused only where some parent's
+# reading of some such file is, and then with that refusal.
+law status_joins_what_it_reads:
+  for hs: List<&2, Main.Here>
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +ps: List<&2, String>
+  for +m: Map<&2, String>
+  for +e: String
+  for h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
+  {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}
+# `record` refuses a link left dangling, exactly where one would be. A
+# link the position holds that names a file this record drops would be a
+# reference to nothing once the revision is written, so the plan goes on
+# only where every such link is going too, or sits at a path whose link in
+# the folder the record observes and writes down afresh.
+law record_refuses_a_dangling_link:
+  for +t: Tree.Tree()
+  for +looked: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  for +moves: List<&2, T.Split>
+  {Maybe.is_none(&2, String, Sv.planned.dangles(Sv.planned(t, looked, held, walked, ss, moves))) == Sv.anchored(t, Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), Sv.planned.pointing(Sv.planned(t, looked, held, walked, ss, moves))) : Bool}
+
+# `status` refuses only what the folder holds. What its walk could not
+# take is refused as the walk found it; past that, a path is refused only
+# where the folder holds something there that the position cannot take — a
+# link whose target this format cannot hold, or a file recorded as lines
+# that is no longer text — and never a path only the position holds.
+law status_refuses_what_the_folder_holds:
+  for +t: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  {Sv.refuses_found(walked, ss, Sv.survey.refused(Sv.survey(t, held, walked, ss))) == True{} : Bool}
+
+# A kind is stated only for a file arriving. Decision 0017 fixes a file's
+# kind when it is added, so `record` goes on with a `--lines` or a
+# `--bytes` exactly where each names a path it is looking at that no file of
+# the position holds: a kind for a file already there is refused, since it
+# would restate what was fixed at the add.
+law record_states_a_kind_only_for_an_arrival:
+  for +only: List<&2, String>
+  for +t: Tree.Tree()
+  for +ks: List<&2, T.Split>
+  {Maybe.is_none(&2, String, Sv.kind_fault(only, t, ks)) == Sv.kinds_fresh(only, t, ks) : Bool}
+
+# `record` writes one `move` line for each file moved. However the
+# renames a person stated follow one another, each line is for a file this
+# record is not dropping, says the last place the renames put it, and no
+# file has a second.
+law record_moves_each_file_once:
+  for +ms: List<&2, T.Split>
+  for +gone: Set()
+  {Sv.moves_ok(ms, gone, Sv.moved.final(ms, gone)) == True{} : Bool}
+
+# A revision is filed one directory deep, under its month. Whatever its
+# message says, the name it has in that directory holds nothing a
+# filesystem reserves — no separator of any platform's, none of
+# `:*?"<>|`, and no control character — where its date, its change and
+# its digest hold none either: the message's first line gave all of them up
+# to spaces before a word of it was kept.
+law a_revision_is_filed_under_its_month:
+  for +when: String
+  for +message: String
+  for +change: String
+  for +id: String
+  for +ns: List<&2, Naming.Named>
+  for hw: {Naming.plain(String.take(when, 10n)) == True{} : Bool}
+  for hc: {Naming.plain(change) == True{} : Bool}
+  for hi: {Naming.plain(id) == True{} : Bool}
+  {Naming.in_month(String.take(when, 7n), Naming.stem(when, message, change, id, ns)) == True{} : Bool}
+
+# Content is filed under a name a filesystem can hold. Whatever paths a
+# revision's files had, the name each is written under in the revision's
+# directory — its path with every control character a space, with the
+# digest's first letters where two names meet, or the digest alone where
+# its path is another's directory — holds no control character, where no
+# digest does.
+law content_is_filed_under_a_name_a_filesystem_holds:
+  for +fs: List<&2, Naming.Filing>
+  for +held: String
+  for hf: {Naming.helds_controlless(fs) == True{} : Bool}
+  for hh: {Naming.controlless(held) == True{} : Bool}
+  {Naming.controlless(Naming.filed_as(Naming.filed(fs), held)) == True{} : Bool}
+
+# `record` compares this machine's clock with the latest work the store
+# holds. Of the timestamps it is handed, the one `newest` answers is one of
+# them, and none of the others is later, however their offsets spell them.
+law record_compares_with_the_latest:
+  for +ws: List<&2, String>
+  for +w: String
+  for e: {Naming.newest(ws, None{}) == Some{w} : Maybe<&2, String>}
+  {Naming.latest(ws, w) == True{} : Bool}
+
+# `abandon` takes a reason exactly where it says something. The reason is
+# the only thing a tombstone carries, so one that is empty or nothing but
+# whitespace is refused, and any other is taken.
+law abandon_takes_a_reason_that_says_something:
+  for +m: String
+  {Result.is_done(&2, &2, Main.Refused, Unit, Main.reason.r(m)) == Bool.not(Naming.every(~Naming.is_space, m)) : Bool}
+
+# `record` restricted to some paths names only what is there. It goes on
+# only where each path a person names answers to something — a file the
+# folder holds, one the position holds, or one the stated renames put there,
+# at the path or beneath it as a directory — since a path a rule keeps out
+# is refused as kept out, and any other that answers to nothing as absent.
+law record_names_only_what_is_there:
+  for +rules: List<&2, Folder.Scope>
+  for +named: List<&2, String>
+  for +folder: List<&2, String>
+  for +was: List<&2, String>
+  for +placed: List<&2, String>
+  for e: {Main.named.r(rules, named, folder, was, placed) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
+  {Sv.answered(named, folder, was, placed) == True{} : Bool}
+
+# `--at` and `--move` keep each file once. However a person places files,
+# the position `record` goes on with holds the files it held, each once and
+# in the same order: a rename moves a file and never makes or loses one.
+law a_rename_keeps_each_file_once:
+  for +t: Tree.Tree()
+  for +ats: List<&2, T.Split>
+  for +ms: List<&2, T.Split>
+  for +t2: Tree.Tree()
+  for +moved: List<&2, T.Split>
+  for e: {Main.placed.r(t, ats, ms) == Done{Main.Placed{t2, moved}} : Result<&2, &2, Main.Refused, Main.Placed>}
+  {Sv.files(t2) == Sv.files(t) : List<&2, String>}
+
+# And each file is where a person said. Of the renames `record` goes on
+# with — every `--at`, then every `--move`, each by the file it moves — a
+# file of the position is at the last place one put it, and a file none
+# moved is where it was; so `--at` settles each file it names at its path.
+law a_rename_puts_each_file_where_it_was_said:
+  for +t: Tree.Tree()
+  for +ats: List<&2, T.Split>
+  for +ms: List<&2, T.Split>
+  for +t2: Tree.Tree()
+  for +moved: List<&2, T.Split>
+  for e: {Main.placed.r(t, ats, ms) == Done{Main.Placed{t2, moved}} : Result<&2, &2, Main.Refused, Main.Placed>}
+  for +g: String
+  for hg: {Tree.holds(t, g) == True{} : Bool}
+  {Tree.path(t2, g) == Maybe.or(&2, String, Sv.last_move(moved, g), Tree.path(t, g)) : Maybe<&2, String>}
+
+# `record` restricted to some paths refuses only among them. Naming paths
+# narrows what the survey pairs, from the position and the folder alike,
+# and what the walk refused, so whatever the folder and the store answer,
+# every path the plan refuses is one the restriction covers: a file the
+# format cannot take elsewhere does not stop a record of the paths named.
+law record_refuses_only_what_it_looks_at:
+  for +only: List<&2, String>
+  for +t: Tree.Tree()
+  for +t0: Tree.Tree()
+  for +found: List<&2, Folder.Found>
+  for +walked: List<&2, T.Split>
+  for +held: Set()
+  for +dg: Map<&2, String>
+  for +bf: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +props: List<&2, Main.Proposal>
+  for +moves: List<&2, T.Split>
+  {Sv.all_covered(only, Sv.planned.refused(Sv.planned(t, Sv.only.tree(only, t), held, Sv.only.refused(only, walked), Main.status.seens(t0, dg, bf, reads, props, Main.heres(Sv.unclaimed(Sv.only.tree(only, t), Sv.claims(Sv.only.tree(only, t))), Sv.unclaimed_found(Sv.only.found(only, found), Sv.claims(Sv.only.tree(only, t))), Main.Limit.None{})), moves))) == True{} : Bool}
+
+# A revision's summary is sixty characters at most. However long the first
+# line of its message, the name keeps as much of it as fits, cut between
+# words where a space allows it and shorter again for the dots and spaces
+# it gives up at the end, so a name leaves room within any filesystem's
+# limit for its date, its suffixes and its extension.
+law a_summary_fits_its_limit:
+  for +message: String
+  for +change: String
+  {Nat.is_le(String.length(Naming.summary(message, change)), Naming.SUMMARY_CHARS()) == True{} : Bool}
+
+# A revision's summary gives up a dot or a space at either end. It never
+# begins with a dot, so it neither hides a name nor spends its budget on
+# one, and never ends with a dot or a space, which some filesystems drop
+# from a directory's name without saying so — whatever the message, where
+# the change's letters, which stand in for a message that says nothing,
+# are neither.
+law a_summary_gives_up_its_ends:
+  for +message: String
+  for +change: String
+  for hc: {Naming.bare(change) == True{} : Bool}
+  {Naming.trimmed(Naming.summary(message, change)) == True{} : Bool}
+
+# `status` offers a rename only where the bytes make one. Decision 0011
+# observes no rename, so the survey says it noticed one only where some
+# bytes, not nothing, left exactly one path and arrived at exactly one
+# other: each rename it offers is from the one path that held them to the
+# one that holds them now.
+law status_offers_a_rename_the_bytes_make:
+  for +t: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  {Sv.renames_ok(Sv.departed(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), Sv.arrived(List.append(&2, Sv.Obs, Sv.seens(ss), Sv.claimed_drops(t, Sv.claims(t), held))), Sv.survey.renames(Sv.survey(t, held, walked, ss))) == True{} : Bool}
+
+# `record` plans from the position in file order, the order a revision
+# states its files in, whatever order the renames left it in; and under
+# each file it holds the entries the renames left, in the order they had.
+law record_plans_in_file_order:
+  for +t: Tree.Tree()
+  {Sv.in_file_order(Sv.by_file(t)) == True{} : Bool}
+
+law record_plans_every_file:
+  for +t: Tree.Tree()
+  for +f: String
+  {Main.entries.at(f, Sv.by_file(t)) == Main.entries.at(f, t) : Tree.Tree()}
+
+# A link in the folder is written as a reference only to what the revision
+# states. Its target, folded against the link's own directory, is spelled
+# as the path it lands on only where that path is one the revision states —
+# a file the position keeps there, or one arriving; anywhere else the link
+# keeps the string it spells.
+law a_link_refers_only_to_what_the_revision_states:
+  for +t: Tree.Tree()
+  for +gone: Set()
+  for +arriving: Set()
+  for +path: String
+  for +target: String
+  for +at: String
+  for e: {Sv.observed(t, gone, arriving, path, target) == "r" ++ at : String}
+  {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}
+
+# `record` goes on only where each path it looks at holds one file.
+# Decision 0008 lets a merge leave two files at one path, and `--at` is how
+# a person settles them: whatever the position, the plan goes on only where
+# no path of it holds more than one, however the paths sort.
+law record_goes_on_where_each_path_holds_one_file:
+  for +t: Tree.Tree()
+  for +looked: Tree.Tree()
+  for +held: Set()
+  for +walked: List<&2, T.Split>
+  for +ss: List<&2, Sv.Seen>
+  for +moves: List<&2, T.Split>
+  for +accepted: List<&2, String>
+  for +done: Sv.Planned
+  for e: {Main.planned.r(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted) == Done{done} : Result<&2, &2, Main.Refused, Sv.Planned>}
+  for +p: String
+  {Tree.at_most_one(Tree.at(looked, p)) == True{} : Bool}
+
+# A link resolves inside the folder. Wherever a link sits at a path the
+# format holds, its target, folded against the link's own directory, is
+# either no path at all or one that is not absolute and never climbs out
+# with `..`: a link is never written as a reference to anything outside
+# what the folder holds.
+law a_link_resolves_inside_the_folder:
+  for +link: String
+  for +target: String
+  for +p: String
+  for h: {Sv.path_check(link) == None{} : Maybe<&2, String>}
+  for e: {Sv.resolution(link, target) == Some{p} : Maybe<&2, String>}
+  {Main.escapes(p) == False{} : Bool}

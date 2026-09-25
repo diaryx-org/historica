@@ -3,6 +3,14 @@
 # in order — and every revision it joins is one the store holds: what
 # `--onto` and each `--merge` resolve to, and the head where it is taken,
 # sorted and each once.
+#
+# And what it says: everything the survey found, in order, each fact,
+# refusal, claim and accept on a line of its own naming it; and where work
+# is joined, each contest the merge found, once, opening with its file;
+# against one revision, the tree `files` reads there; it reads and replays
+# only files of lines, tells its survey of each path once, and believes a
+# digest a statement gives, so that only a replay can refuse it — or,
+# joining, a parent's reading of a file it compares.
 import Base
 import ./commands.bend as Main
 import ./sort_lemmas.bend as SortL
@@ -11,6 +19,15 @@ import ./revision.bend as Rev
 import ./bookmark.bend as Bm
 import ./anchor_lemmas.bend as AL
 import ./composition_lemmas.bend as Comp
+import ./string_lemmas.bend as S
+import ./text.bend as T
+import ./survey.bend as Sv
+import ./tree.bend as Tree
+import ./listing_lemmas.bend as ListL
+import ./graph_lemmas.bend as GL
+import ./folder.bend as Folder
+import ./store.bend as Store
+import ./ops.bend as Ops
 
 # Its words
 # ---------
@@ -266,3 +283,394 @@ def top1(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, 
 # Every revision `status` joins is one the store holds.
 def parents_held(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +onto: Maybe<&2, String>, +ms: List<&2, String>, +ps: List<&2, String>, e: {Main.status.parents.r(fs, bs, onto, ms) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {Main.all_held(Main.ids(fs), ps) == True{} : Bool}:
   top1(fs, bs, onto, ms, Main.status.onto.r(fs, bs, onto), {==}, ps, e)
+
+# What it says
+# ------------
+
+# A line looked for is found among later lines too: one more line in front
+# loses no match, and one expectation fewer is met wherever more were.
+def prepend_at(m: Bool, +x: String, +lr: List<&2, String>, +e: Main.Expect, +er: List<&2, Main.Expect>, h: {Main.expect.in(lr, e <> er) == True{} : Bool}, suf: @e2: Main.Expect -> @er2: List<&2, Main.Expect> -> {Main.expect.in(lr, e2 <> er2) == True{} : Bool} -> {Main.expect.in(lr, er2) == True{} : Bool}) -> {Main.expect.go(x <> lr, e <> er, m) == True{} : Bool}:
+  match m:
+    case True{}:
+      suf(e, er, h)
+    case False{}:
+      h
+
+def prepend(+x: String, +lr: List<&2, String>, es: List<&2, Main.Expect>, h: {Main.expect.in(lr, es) == True{} : Bool}, suf: @e2: Main.Expect -> @er2: List<&2, Main.Expect> -> {Main.expect.in(lr, e2 <> er2) == True{} : Bool} -> {Main.expect.in(lr, er2) == True{} : Bool}) -> {Main.expect.in(x <> lr, es) == True{} : Bool}:
+  match es:
+    case Nil{}:
+      {==}
+    case +e <> +er:
+      prepend_at(Main.expect.met(x, e), x, lr, e, er, h, suf)
+
+def suffix_at(m: Bool, +l: String, +lr: List<&2, String>, +e: Main.Expect, +er: List<&2, Main.Expect>, h: {Main.expect.go(l <> lr, e <> er, m) == True{} : Bool}, suf: @e2: Main.Expect -> @er2: List<&2, Main.Expect> -> {Main.expect.in(lr, e2 <> er2) == True{} : Bool} -> {Main.expect.in(lr, er2) == True{} : Bool}, suf2: @e2: Main.Expect -> @er2: List<&2, Main.Expect> -> {Main.expect.in(lr, e2 <> er2) == True{} : Bool} -> {Main.expect.in(lr, er2) == True{} : Bool}) -> {Main.expect.in(l <> lr, er) == True{} : Bool}:
+  match m:
+    case True{}:
+      prepend(l, lr, er, h, suf)
+    case False{}:
+      prepend(l, lr, er, suf2(e, er, h), suf)
+
+def suffix(ls: List<&2, String>, +e: Main.Expect, +er: List<&2, Main.Expect>, h: {Main.expect.in(ls, e <> er) == True{} : Bool}) -> {Main.expect.in(ls, er) == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      Empty.absurd({Main.expect.in(Nil{}, er) == True{} : Bool}, S.false_true(h))
+    case +l <> +lr:
+      suffix_at(Main.expect.met(l, e), l, lr, e, er, h, e2 => er2 => h2 => suffix(lr, e2, er2, h2), e3 => er3 => h3 => suffix(lr, e3, er3, h3))
+
+# Lines before those that meet every expectation leave them met.
+def skip(xs: List<&2, String>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, xs, ls), es) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case +x <> +xr:
+      prepend(x, List.append(&2, String, xr, ls), es, skip(xr, ls, es, h), e2 => er2 => h2 => suffix(List.append(&2, String, xr, ls), e2, er2, h2))
+
+def in_nil(ls: List<&2, String>) -> {Main.expect.in(ls, Nil{}) == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      {==}
+    case l <> lr:
+      {==}
+
+def fact_met(+k: String, +p: String) -> {Main.expect.met(Main.pad(k, 7n) ++ " " ++ p, Main.Expect{k, p}) == True{} : Bool}:
+  AL.and_intro(String.starts_with(Main.pad(k, 7n) ++ " " ++ p, k), String.ends_with(Main.pad(k, 7n) ++ " " ++ p, p),
+    B.sw_ext(Main.pad(k, 7n), k, " " ++ p, B.sw_ext(k, k, String.repeat(" ", Nat.sub(7n, String.length(k))), B.sw_refl(k))),
+    B.ends_pre(Main.pad(k, 7n), " " ++ p, p, B.ends_pre(" ", p, p, B.ends_refl(p))))
+
+# Each fact is said on the line its turn comes to, beginning with its kind
+# and ending with its path.
+def facts_exact(xs: List<&2, T.Split>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, Main.facts.said(xs), ls), List.append(&2, Main.Expect, Main.facts.expect(xs), es)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case T.Split{+k, +p} <> +rest:
+      %Equal.sym(Bool, Main.expect.met(Main.pad(k, 7n) ++ " " ++ p, Main.Expect{k, p}), True{}, fact_met(k, p)) : {Main.expect.go((Main.pad(k, 7n) ++ " " ++ p) <> List.append(&2, String, Main.facts.said(rest), ls), Main.Expect{k, p} <> List.append(&2, Main.Expect, Main.facts.expect(rest), es), _) == True{} : Bool}
+      facts_exact(rest, ls, es, h)
+
+def split_met(+pre: String, +a: String, +mid: String, +b: String, +post: String) -> {Main.expect.met(pre ++ a ++ mid ++ b ++ post, Main.Expect{pre ++ a, SNil{}}) == True{} : Bool}:
+  AL.and_intro(String.starts_with(pre ++ a ++ mid ++ b ++ post, pre ++ a), String.ends_with(pre ++ a ++ mid ++ b ++ post, SNil{}),
+    ListL.sw_prefix(pre, a ++ mid ++ b ++ post, a, B.sw_ext(a, a, mid ++ b ++ post, B.sw_refl(a))),
+    B.sw_nil(String.reverse(pre ++ a ++ mid ++ b ++ post)))
+
+# Each refusal, claim or marked file is said on the line its turn comes
+# to, beginning with its word and its path.
+def splits_exact(+pre: String, +mid: String, +post: String, xs: List<&2, T.Split>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, Main.splits.said(pre, mid, post, xs), ls), List.append(&2, Main.Expect, Main.splits.expect(pre, xs), es)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case T.Split{+a, +b} <> +rest:
+      %Equal.sym(Bool, Main.expect.met(pre ++ a ++ mid ++ b ++ post, Main.Expect{pre ++ a, SNil{}}), True{}, split_met(pre, a, mid, b, post)) : {Main.expect.go((pre ++ a ++ mid ++ b ++ post) <> List.append(&2, String, Main.splits.said(pre, mid, post, rest), ls), Main.Expect{pre ++ a, SNil{}} <> List.append(&2, Main.Expect, Main.splits.expect(pre, rest), es), _) == True{} : Bool}
+      splits_exact(pre, mid, post, rest, ls, es, h)
+
+def accept_met(+p: String) -> {Main.expect.met("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p, Main.Expect{"accept  " ++ p, p}) == True{} : Bool}:
+  AL.and_intro(String.starts_with("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p, "accept  " ++ p), String.ends_with("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p, p),
+    ListL.sw_prefix("accept  ", p ++ ": selected revisions state different bytes; record with --accept " ++ p, p, B.sw_ext(p, p, ": selected revisions state different bytes; record with --accept " ++ p, B.sw_refl(p))),
+    B.ends_pre("accept  ", p ++ ": selected revisions state different bytes; record with --accept " ++ p, p, B.ends_pre(p, ": selected revisions state different bytes; record with --accept " ++ p, p, B.ends_pre(": selected revisions state different bytes; record with --accept ", p, p, B.ends_refl(p)))))
+
+# Each accept is said on the line its turn comes to, beginning `accept` and
+# its path, and ending with the path again.
+def accepts_exact(xs: List<&2, String>, +ls: List<&2, String>, +es: List<&2, Main.Expect>, h: {Main.expect.in(ls, es) == True{} : Bool}) -> {Main.expect.in(List.append(&2, String, Main.accepts.said(xs), ls), List.append(&2, Main.Expect, Main.accepts.expect(xs), es)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case +p <> +rest:
+      %Equal.sym(Bool, Main.expect.met("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p, Main.Expect{"accept  " ++ p, p}), True{}, accept_met(p)) : {Main.expect.go(("accept  " ++ p ++ ": selected revisions state different bytes; record with --accept " ++ p) <> List.append(&2, String, Main.accepts.said(rest), ls), Main.Expect{"accept  " ++ p, p} <> List.append(&2, Main.Expect, Main.accepts.expect(rest), es), _) == True{} : Bool}
+      accepts_exact(rest, ls, es, h)
+
+def accepts_all(+xs: List<&2, String>, +tail: List<&2, String>) -> {Main.expect.in(List.append(&2, String, Main.accepts.said(xs), tail), Main.accepts.expect(xs)) == True{} : Bool}:
+  %SortL.lapp_nil(Main.Expect, Main.accepts.expect(xs)) : {Main.expect.in(List.append(&2, String, Main.accepts.said(xs), tail), _) == True{} : Bool}
+  accepts_exact(xs, tail, Nil{}, in_nil(tail))
+
+# Everything the survey found is in the report, in order: after the
+# revisions the folder is compared with, each fact on a line beginning with
+# its kind and ending with its path, then each refusal, claim, marked file
+# and accept on a line beginning with its word and its path.
+def report_says(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<&2, String>, +cs: List<&2, Tree.Contest>, sv: Sv.Survey) -> {Main.expect.in(Main.status.report(fs, bs, ps, cs, sv), Main.status.expects(sv)) == True{} : Bool}:
+  match sv:
+    case Sv.Survey{+facts, +refused, +claimed, +marked, +accept, +renames}:
+      skip(Main.status.position(fs, bs, ps), List.append(&2, String, Main.facts.said(facts), List.append(&2, String, Main.splits.said("refused ", ": ", SNil{}, refused), List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.splits.said("marked  ", " (", " left)", marked), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))))))), List.append(&2, Main.Expect, Main.facts.expect(facts), List.append(&2, Main.Expect, Main.splits.expect("refused ", refused), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), List.append(&2, Main.Expect, Main.splits.expect("marked  ", marked), Main.accepts.expect(accept))))),
+        facts_exact(facts, List.append(&2, String, Main.splits.said("refused ", ": ", SNil{}, refused), List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.splits.said("marked  ", " (", " left)", marked), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))))), List.append(&2, Main.Expect, Main.splits.expect("refused ", refused), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), List.append(&2, Main.Expect, Main.splits.expect("marked  ", marked), Main.accepts.expect(accept)))),
+          splits_exact("refused ", ": ", SNil{}, refused, List.append(&2, String, Main.splits.said("claimed ", ": ", " files claim it; say where each goes with --at", claimed), List.append(&2, String, Main.splits.said("marked  ", " (", " left)", marked), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))))), List.append(&2, Main.Expect, Main.splits.expect("claimed ", claimed), List.append(&2, Main.Expect, Main.splits.expect("marked  ", marked), Main.accepts.expect(accept))),
+            splits_exact("claimed ", ": ", " files claim it; say where each goes with --at", claimed, List.append(&2, String, Main.splits.said("marked  ", " (", " left)", marked), List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames))))), List.append(&2, Main.Expect, Main.splits.expect("marked  ", marked), Main.accepts.expect(accept)),
+              splits_exact("marked  ", " (", " left)", marked, List.append(&2, String, Main.accepts.said(accept), List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))), Main.accepts.expect(accept),
+                accepts_all(accept, List.append(&2, String, Main.contests.said(ps, cs), List.append(&2, String, Bool.pick(List<&2, String>, Sv.is_quiet(Sv.Survey{facts, refused, claimed, marked, accept, renames}), ["nothing here differs from what is recorded"], Nil{}), Main.renames.said(renames)))))))))
+
+# The contests
+# ------------
+
+def push_open(c: Tree.Contest, +ls: List<&2, String>, +os: List<&2, String>, h: {Main.contests.open(ls, os) == True{} : Bool}) -> {Main.contests.open(Main.contest.push(Main.contest.line(c), ls), Main.contest.push(Main.contest.opens(c), os)) == True{} : Bool}:
+  match c:
+    case Tree.Dropped{+f, +by}:
+      B.and_tt(String.starts_with("kept " ++ String.take(f, 8n) ++ " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not", "kept " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("kept ", String.take(f, 8n) ++ (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not"), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not"), B.sw_refl(String.take(f, 8n)))), h)
+    case Tree.Moved{+f, +cs}:
+      B.and_tt(String.starts_with("moved " ++ String.take(f, 8n) ++ Main.lower_of(" to ", cs), "moved " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("moved ", String.take(f, 8n) ++ Main.lower_of(" to ", cs), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" to ", cs), B.sw_refl(String.take(f, 8n)))), h)
+    case Tree.Content{+f, +cs}:
+      B.and_tt(String.starts_with(String.take(f, 8n) ++ " was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cs)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder", String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cs)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder"), B.sw_refl(String.take(f, 8n))), h)
+    case Tree.ModeOf{+f, +cs}:
+      B.and_tt(String.starts_with(String.take(f, 8n) ++ Main.lower_of(" is ", cs), String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" is ", cs), B.sw_refl(String.take(f, 8n))), h)
+    case Tree.TargetOf{+f, +cs}:
+      B.and_tt(String.starts_with(String.take(f, 8n) ++ Main.lower_of(" points at ", cs), String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" points at ", cs), B.sw_refl(String.take(f, 8n))), h)
+    case Tree.Referenced{+f, +by, +links}:
+      B.and_tt(String.starts_with("kept " ++ String.take(f, 8n) ++ " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it", "kept " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("kept ", String.take(f, 8n) ++ (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it"), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it"), B.sw_refl(String.take(f, 8n)))), h)
+    case Tree.Path{p, fs}:
+      h
+
+def lines_open(cs: List<&2, Tree.Contest>) -> {Main.contests.open(Main.contest.lines(cs), Main.contests.opens(cs)) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +c <> +rest:
+      push_open(c, Main.contest.lines(rest), Main.contests.opens(rest), lines_open(rest))
+
+def open_nil(os: List<&2, String>, h: {Main.contests.open(Nil{}, os) == True{} : Bool}) -> {List.is_empty(&2, String, os) == True{} : Bool}:
+  match os:
+    case Nil{}:
+      {==}
+    case o <> rest:
+      Empty.absurd({List.is_empty(&2, String, o <> rest) == True{} : Bool}, S.false_true(h))
+
+def joined_shown(+ps: List<&2, String>, +cs: List<&2, Tree.Contest>, ls: List<&2, String>, j: {Nat.is_gt(List.length(&2, String, ps), 1n) == True{} : Bool}, h: {Main.contests.open(ls, Main.contests.opens(cs)) == True{} : Bool}) -> {Main.contests.shown(ps, cs, ls) == True{} : Bool}:
+  match ls:
+    case Nil{}:
+      %Equal.sym(Bool, Nat.is_gt(List.length(&2, String, ps), 1n), True{}, j) : {Bool.or(Bool.not(_), List.is_empty(&2, String, Main.contests.opens(cs))) == True{} : Bool}
+      open_nil(Main.contests.opens(cs), h)
+    case +l <> +lr:
+      B.and_tt(Nat.is_gt(List.length(&2, String, ps), 1n), Main.contests.open(l <> lr, Main.contests.opens(cs)), j, h)
+
+def said_shown(b: Bool, +ps: List<&2, String>, +cs: List<&2, Tree.Contest>, eb: {Nat.is_gt(List.length(&2, String, ps), 1n) == b : Bool}) -> {Main.contests.shown(ps, cs, Bool.pick(List<&2, String>, b, Main.contest.lines(cs), Nil{})) == True{} : Bool}:
+  match b:
+    case True{}:
+      joined_shown(ps, cs, Main.contest.lines(cs), eb, lines_open(cs))
+    case False{}:
+      %Equal.sym(Bool, Nat.is_gt(List.length(&2, String, ps), 1n), False{}, eb) : {Bool.or(Bool.not(_), List.is_empty(&2, String, Main.contests.opens(cs))) == True{} : Bool}
+      {==}
+
+# Where work is joined, `status` says each contest the merge found once, in
+# its order, opening with the file contested; where it is not, none.
+def contests_said(+ps: List<&2, String>, +cs: List<&2, Tree.Contest>) -> {Main.contests.shown(ps, cs, Main.contests.said(ps, cs)) == True{} : Bool}:
+  said_shown(Nat.is_gt(List.length(&2, String, ps), 1n), ps, cs, {==})
+
+# The tree it compares with
+# -------------------------
+
+def tree_of(+p: String, r: Result<&2, &2, Tree.Fault, Tree.Merged>) -> {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.of.r(p, r)) == Main.tree.of.r(p, r) : Result<&2, &2, Main.Refused, Tree.Tree()>}:
+  match r:
+    case Fail{e}:
+      {==}
+    case Done{m}:
+      {==}
+
+# Against one revision, `status` compares the folder with the tree `files`,
+# `cat` and `diff` read there, or refuses as they do.
+def one_tree(+fs: List<&2, Main.Full>, +p: String) -> {Result.map(&2, &2, Main.Refused, Tree.Merged, Tree.Tree(), m => Tree.merged_tree(m), Main.status.tree.r(fs, [p])) == Main.tree.r(fs, p) : Result<&2, &2, Main.Refused, Tree.Tree()>}:
+  tree_of(p, Tree.merge(Main.events_of(Main.ancestry.oldest(fs, p))))
+
+# What it reads
+# -------------
+
+# A path is read from the folder only where the position holds a file of
+# lines there.
+def read_lines(+dg: Map<&2, String>, +bf: Map<&2, String>, h: Main.Here, e: {Main.status.read(dg, bf, h) == True{} : Bool}) -> {Main.status.lines(h) == True{} : Bool}:
+  match h:
+    case Main.Here{+p, None{}, None{}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, None{}, None{}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, None{}, Some{Folder.Found.File{+r, +x, +n}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, None{}, Some{Folder.Found.File{r, x, n}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, None{}, Some{Folder.Found.Link{+r, +x}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, None{}, Some{Folder.Found.Link{r, x}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Lines{}, +y, +g, +m}}, None{}}:
+      {==}
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Lines{}, +y, +g, +m}}, Some{Folder.Found.File{+r, +x, +n}}}:
+      {==}
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Lines{}, +y, +g, +m}}, Some{Folder.Found.Link{+r, +x}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Whole{}, +y, +g, +m}}, None{}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, None{}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Whole{}, +y, +g, +m}}, Some{Folder.Found.File{+r, +x, +n}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Whole{}, +y, +g, +m}}, Some{Folder.Found.Link{+r, +x}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Whole{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Link{}, +y, +g, +m}}, None{}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, None{}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Link{}, +y, +g, +m}}, Some{Folder.Found.File{+r, +x, +n}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, Some{Folder.Found.File{r, x, n}}}) == True{} : Bool}, S.false_true(e))
+    case Main.Here{+p, Some{Tree.Entry{+f, +q, Tree.Link{}, +y, +g, +m}}, Some{Folder.Found.Link{+r, +x}}}:
+      Empty.absurd({Main.status.lines(Main.Here{p, Some{Tree.Entry{f, q, Tree.Link{}, y, g, m}}, Some{Folder.Found.Link{r, x}}}) == True{} : Bool}, S.false_true(e))
+
+def ah_weak(+y: String, +ys: List<&2, String>, xs: List<&2, String>, +h: {Main.all_held(ys, xs) == True{} : Bool}) -> {Main.all_held(y <> ys, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(Rev.member(y <> ys, x), Main.all_held(y <> ys, rest), GL.member_tail(y, ys, x, Comp.and_left(Rev.member(ys, x), Main.all_held(ys, rest), h)),
+        ah_weak(y, ys, rest, Comp.and_right(Rev.member(ys, x), Main.all_held(ys, rest), h)))
+
+def reads_step(r: Bool, l: Bool, +dg: Map<&2, String>, +bf: Map<&2, String>, +h: Main.Here, +rest: List<&2, Main.Here>, er: {Main.status.read(dg, bf, h) == r : Bool}, el: {Main.status.lines(h) == l : Bool}, ih: {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.status.reads(dg, bf, rest)) == True{} : Bool}) -> {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Bool.pick(List<&2, Main.Here>, l, h <> Main.status.lined(rest), Main.status.lined(rest))), Rev.keep(r, Main.here.path(h), Main.status.reads(dg, bf, rest))) == True{} : Bool}:
+  match r l:
+    case True{} True{}:
+      AL.and_intro(Rev.member(Main.here.path(h) <> T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.here.path(h)), Main.all_held(Main.here.path(h) <> T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.status.reads(dg, bf, rest)),
+        GL.member_head(Main.here.path(h), T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest))), ah_weak(Main.here.path(h), T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.status.reads(dg, bf, rest), ih))
+    case True{} False{}:
+      Empty.absurd({Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Bool.pick(List<&2, Main.Here>, False{}, h <> Main.status.lined(rest), Main.status.lined(rest))), Main.here.path(h) <> Main.status.reads(dg, bf, rest)) == True{} : Bool}, S.true_false(Equal.trans(Bool, True{}, Main.status.lines(h), False{}, Equal.sym(Bool, Main.status.lines(h), True{}, read_lines(dg, bf, h, er)), el)))
+    case False{} True{}:
+      ah_weak(Main.here.path(h), T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(rest)), Main.status.reads(dg, bf, rest), ih)
+    case False{} False{}:
+      ih
+
+def reads_lined(+dg: Map<&2, String>, +bf: Map<&2, String>, hs: List<&2, Main.Here>) -> {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case +h <> +rest:
+      reads_step(Main.status.read(dg, bf, h), Main.status.lines(h), dg, bf, h, rest, {==}, {==}, reads_lined(dg, bf, rest))
+
+def unknown_step(l: Bool, u: Bool, +h: Main.Here, +rest: List<&2, Main.Here>, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, ih: {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.status.unknown(eds, os, rest)) == True{} : Bool}) -> {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Bool.pick(List<&2, Main.Here>, l, h <> Main.status.lined(rest), Main.status.lined(rest))), Bool.pick(List<&2, String>, Bool.and(l, u), Main.here.file(h) <> Main.status.unknown(eds, os, rest), Main.status.unknown(eds, os, rest))) == True{} : Bool}:
+  match l u:
+    case True{} True{}:
+      AL.and_intro(Rev.member(Main.here.file(h) <> T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.here.file(h)), Main.all_held(Main.here.file(h) <> T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.status.unknown(eds, os, rest)),
+        GL.member_head(Main.here.file(h), T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest))), ah_weak(Main.here.file(h), T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.status.unknown(eds, os, rest), ih))
+    case True{} False{}:
+      ah_weak(Main.here.file(h), T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(rest)), Main.status.unknown(eds, os, rest), ih)
+    case False{} _:
+      ih
+
+def unknown_lined(+eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, hs: List<&2, Main.Here>) -> {Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case +h <> +rest:
+      unknown_step(Main.status.lines(h), Maybe.is_none(&2, String, Main.stated_digest(eds, Main.origin(os, Main.here.file(h)))), h, rest, eds, os, unknown_lined(eds, os, rest))
+
+# `status` reads from the folder, and replays at the position, only files
+# of lines the position holds: never a file of bytes or a link.
+def reads_only_lines(+dg: Map<&2, String>, +bf: Map<&2, String>, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +hs: List<&2, Main.Here>) -> {Bool.and(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs))) == True{} : Bool}:
+  AL.and_intro(Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.path(x)), Main.status.lined(hs)), Main.status.reads(dg, bf, hs)), Main.all_held(T.map(~Main.Here, ~String, ~(x => Main.here.file(x)), Main.status.lined(hs)), Main.status.unknown(eds, os, hs)), reads_lined(dg, bf, hs), unknown_lined(eds, os, hs))
+
+# What the survey is told
+# -----------------------
+
+def proposed_none(b: Bool, -x: Maybe<&2, String>) -> {Bool.or(Bool.not(b), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, b, None{}, x))) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# The survey is told of each path compared once, in order, and of a file
+# the parents being joined leave differently, no digest to compare it with.
+def seens_ok(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Main.Proposal>, hs: List<&2, Main.Here>) -> {Main.status.surveys(hs, Main.status.seens(t, dg, bf, reads, props, hs)) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      {==}
+    case Main.Here{+path, +e, +found} <> +rest:
+      AL.and_intro(Main.status.surveys.one(Main.Here{path, e, found}, Main.status.seen(t, dg, bf, reads, props, Main.Here{path, e, found})), Main.status.surveys(rest, Main.status.seens(t, dg, bf, reads, props, rest)),
+        AL.and_intro(String.eq(path, path), Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))),
+          S.eq_refl(path), proposed_none(Main.status.proposed(bf, e), Main.status.before(bf, e))),
+        seens_ok(t, dg, bf, reads, props, rest))
+
+# What it believes
+# ----------------
+
+def err_of(r: Result<&2, &2, String, Map<&2, String>>, d: String) -> String:
+  match r:
+    case Fail{x}:
+      x
+    case Done{m}:
+      d
+
+def fail_eq(-x: String, -e: String, h: {Fail{x} == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {x == e : String}:
+  Equal.cong(Result<&2, &2, String, Map<&2, String>>, String, r => err_of(r, x), Fail{x}, Fail{e}, h)
+
+def fails_replay(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +file: String, +rest: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, r: Result<&2, &2, String, List<&2, Ops.Item>>, +er: {Main.content.in(older, ds, left, file) == r : Result<&2, &2, String, List<&2, Ops.Item>>}, e1: {Result.bind(&2, &2, String, String, Map<&2, String>, Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), r), d => Main.status.befores.go(older, ds, left, eds, os, rest, Map.set(&2, String, m, file, d))) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}, ih: @m2: Map<&2, String> -> {Main.status.befores.go(older, ds, left, eds, os, rest, m2) == Fail{e} : Result<&2, &2, String, Map<&2, String>>} -> {Main.status.replay_fails(older, ds, left, eds, os, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.fails_as(Main.content.in(older, ds, left, file), e), Main.status.replay_fails(older, ds, left, eds, os, rest, e)) == True{} : Bool}:
+  match r:
+    case Fail{+x}:
+      AL.or_left(Main.status.fails_as(Main.content.in(older, ds, left, file), e), Main.status.replay_fails(older, ds, left, eds, os, rest, e),
+        (%Equal.sym(Result<&2, &2, String, List<&2, Ops.Item>>, Main.content.in(older, ds, left, file), Fail{x}, er) : {Main.status.fails_as(_, e) == True{} : Bool}
+          (%Equal.sym(String, x, e, fail_eq(x, e, e1)) : {String.eq(_, e) == True{} : Bool}
+            S.eq_refl(e))))
+    case Done{+items}:
+      AL.or_right(Main.status.fails_as(Main.content.in(older, ds, left, file), e), Main.status.replay_fails(older, ds, left, eds, os, rest, e), ih(Map.set(&2, String, m, file, Ops.state_digest(items)), e1))
+
+def fails_digest(st: Maybe<&2, String>, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +file: String, +rest: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, e1: {Result.bind(&2, &2, String, String, Map<&2, String>, Main.status.digest.of(st, older, ds, left, file), d => Main.status.befores.go(older, ds, left, eds, os, rest, Map.set(&2, String, m, file, d))) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}, ih: @m2: Map<&2, String> -> {Main.status.befores.go(older, ds, left, eds, os, rest, m2) == Fail{e} : Result<&2, &2, String, Map<&2, String>>} -> {Main.status.replay_fails(older, ds, left, eds, os, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.replay_fails.one(older, ds, left, e, st, file), Main.status.replay_fails(older, ds, left, eds, os, rest, e)) == True{} : Bool}:
+  match st:
+    case Some{+d}:
+      AL.or_right(False{}, Main.status.replay_fails(older, ds, left, eds, os, rest, e), ih(Map.set(&2, String, m, file, d), e1))
+    case None{}:
+      fails_replay(older, ds, left, eds, os, file, rest, m, e, Main.content.in(older, ds, left, file), {==}, e1, ih)
+
+def go_fails(hs: List<&2, Main.Here>, +older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +m: Map<&2, String>, +e: String, h: {Main.status.befores.go(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.replay_fails(older, ds, left, eds, os, hs, e) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      Empty.absurd({Main.status.replay_fails(older, ds, left, eds, os, Nil{}, e) == True{} : Bool}, B.fail_done_s(Map<&2, String>, e, m, Equal.sym(Result<&2, &2, String, Map<&2, String>>, Done{m}, Fail{e}, h)))
+    case +x <> +rest:
+      fails_digest(Main.stated_digest(eds, Main.origin(os, Main.here.file(x))), older, ds, left, eds, os, Main.here.file(x), rest, m, e, h, m2 => h2 => go_fails(rest, older, ds, left, eds, os, m2, e, h2))
+
+# Against one revision, `status` believes a digest a statement gives and
+# replays only where none does, so it is refused only where a file of lines
+# no statement settles cannot be replayed, and with that refusal.
+def believes(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +hs: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, h: {Main.status.befores(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.replay_fails(older, ds, left, eds, os, Main.status.lined(hs), e) == True{} : Bool}:
+  go_fails(Main.status.lined(hs), older, ds, left, eds, os, m, e, h)
+
+def err_of_l(r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, d: String) -> String:
+  match r:
+    case Fail{x}:
+      x
+    case Done{m}:
+      d
+
+def fail_eq_l(-x: String, -e: String, h: {Fail{x} == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> {x == e : String}:
+  Equal.cong(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, String, r => err_of_l(r, x), Fail{x}, Fail{e}, h)
+
+def rdisc_l(r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>) -> Type:
+  match r:
+    case Fail{x}:
+      Unit
+    case Done{xs}:
+      Empty
+
+def done_fail_l(-xs: List<&2, Maybe<&2, String>>, -e: String, h: {Done{xs} == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> Empty:
+  %Equal.sym(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, Done{xs}, Fail{e}, h) : {rdisc_l(_) : Type}
+  Unit{}
+
+def each_rest(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +x: Maybe<&2, String>, +rest: List<&2, String>, +e: String, r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, +er: {Main.status.joined.each(fs, ds, file, rest) == r : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, Maybe<&2, String>>, r, xs => Done{x <> xs}) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, ih: {Main.status.joined.each(fs, ds, file, rest) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}) -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}:
+  match r:
+    case Fail{+y}:
+      ih(Equal.trans(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, Main.status.joined.each(fs, ds, file, rest), Fail{y}, Fail{e}, er, h))
+    case Done{xs}:
+      Empty.absurd({Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}, done_fail_l(x <> xs, e, h))
+
+def each_one(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +p: String, +rest: List<&2, String>, +e: String, r: Result<&2, &2, String, Maybe<&2, String>>, +er: {Main.status.joined.one(fs, ds, file, p) == r : Result<&2, &2, String, Maybe<&2, String>>}, h: {Result.bind(&2, &2, String, Maybe<&2, String>, List<&2, Maybe<&2, String>>, r, x => Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, Maybe<&2, String>>, Main.status.joined.each(fs, ds, file, rest), xs => Done{x <> xs})) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, ih: {Main.status.joined.each(fs, ds, file, rest) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e)) == True{} : Bool}:
+  match r:
+    case Fail{+y}:
+      AL.or_left(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e),
+        (%Equal.sym(Result<&2, &2, String, Maybe<&2, String>>, Main.status.joined.one(fs, ds, file, p), Fail{y}, er) : {Main.status.one_fails(_, e) == True{} : Bool}
+          (%Equal.sym(String, y, e, fail_eq_l(y, e, h)) : {String.eq(_, e) == True{} : Bool}
+            S.eq_refl(e))))
+    case Done{+x}:
+      AL.or_right(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e),
+        each_rest(fs, ds, file, x, rest, e, Main.status.joined.each(fs, ds, file, rest), {==}, h, ih))
+
+# Reading a file at each parent is refused only where one parent's reading
+# of it is, with that refusal.
+def each_fails(ps: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +e: String, h: {Main.status.joined.each(fs, ds, file, ps) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> {Main.status.parents_fail(fs, ds, file, ps, e) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      Empty.absurd({Main.status.parents_fail(fs, ds, file, Nil{}, e) == True{} : Bool}, done_fail_l(Nil{}, e, h))
+    case +p <> +rest:
+      each_one(fs, ds, file, p, rest, e, Main.status.joined.one(fs, ds, file, p), {==}, h, h2 => each_fails(rest, fs, ds, file, e, h2))
+
+def joined_step(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +x: Main.Here, +rest: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, +er: {Main.status.joined.each(fs, ds, Main.here.file(x), ps) == r : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, Map<&2, String>, r, xs => Main.status.joined.go(fs, ds, ps, rest, Map.set(&2, String, m, Main.here.file(x), Main.status.agree(Main.somes(xs))))) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}, ih: @m2: Map<&2, String> -> {Main.status.joined.go(fs, ds, ps, rest, m2) == Fail{e} : Result<&2, &2, String, Map<&2, String>>} -> {Main.status.joined_fails(fs, ds, ps, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e)) == True{} : Bool}:
+  match r:
+    case Fail{+y}:
+      +same = fail_eq(y, e, h)
+      AL.or_left(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e),
+        each_fails(ps, fs, ds, Main.here.file(x), e, (%same : {Main.status.joined.each(fs, ds, Main.here.file(x), ps) == Fail{_} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} er)))
+    case Done{+xs}:
+      AL.or_right(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e), ih(Map.set(&2, String, m, Main.here.file(x), Main.status.agree(Main.somes(xs))), h))
+
+def joined_fails(hs: List<&2, Main.Here>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +m: Map<&2, String>, +e: String, h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      Empty.absurd({Main.status.joined_fails(fs, ds, ps, Nil{}, e) == True{} : Bool}, B.fail_done_s(Map<&2, String>, e, m, Equal.sym(Result<&2, &2, String, Map<&2, String>>, Done{m}, Fail{e}, h)))
+    case +x <> +rest:
+      joined_step(fs, ds, ps, x, rest, m, e, Main.status.joined.each(fs, ds, Main.here.file(x), ps), {==}, h, m2 => h2 => joined_fails(rest, fs, ds, ps, m2, e, h2))
