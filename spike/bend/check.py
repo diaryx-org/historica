@@ -4648,28 +4648,59 @@ def check_mutations(temporary):
             "record lets a link to a file it drops dangle",
             "      Bool.pick(Maybe<&2, String>, has(gone, named),\n",
             "      Bool.pick(Maybe<&2, String>, False{},\n",
-            "survey_lemmas.target_ok",
+            "survey_lemmas.target_later",
+            "survey.bend",
+        ),
+        (
+            "record looks for the folder's link at a dangling link's file rather than its path",
+            "Bool.or(has(gone, f), Rev.member(pointing, p))",
+            "Bool.or(has(gone, f), Rev.member(pointing, f))",
+            "survey_lemmas.dangle_suffix",
             "survey.bend",
         ),
         (
             "status refuses a file of lines at another path than its own",
             '      [Obs.Refused{path, "recorded as lines and no longer UTF-8 text; drop it and add it again"}]',
             '      [Obs.Refused{SNil{}, "recorded as lines and no longer UTF-8 text; drop it and add it again"}]',
-            "survey_lemmas.found_changed",
+            "survey_lemmas.each_changed",
+            "survey.bend",
+        ),
+        (
+            "status checks a link's own path rather than its target",
+            "  link.checked(path, target, held, shown, fresh, link_fault(target))",
+            "  link.checked(path, target, held, shown, fresh, link_fault(path))",
+            # `LAWS.status_refuses_what_the_folder_holds` rejects it too; the
+            # checker meets the dangling-link lemmas, which read the same
+            # links, first.
+            "survey_lemmas.pt_held_link",
             "survey.bend",
         ),
         (
             "record states a kind for a file the position already holds",
             "      Bool.pick(Maybe<&2, String>, String.eq(Tree.entry_path(e), p),\n",
             "      Bool.pick(Maybe<&2, String>, False{},\n",
-            "survey_lemmas.fixed_ok",
+            "survey_lemmas.fixed_later",
+            "survey.bend",
+        ),
+        (
+            "record takes a kind for a path it is not looking at",
+            "      Bool.pick(Maybe<&2, String>, covers(only, p), kind_fixed(p, t, kind_fault(only, t, rest)),",
+            "      Bool.pick(Maybe<&2, String>, True{}, kind_fixed(p, t, kind_fault(only, t, rest)),",
+            "survey_lemmas.kinds_tail",
             "survey.bend",
         ),
         (
             "record writes a move line for a file moved again later",
             "Bool.pick(List<&2, T.Split>, Bool.or(has(gone, f), moved.later(rest, f)), later, T.Split{f, to} <> later)",
             "Bool.pick(List<&2, T.Split>, has(gone, f), later, T.Split{f, to} <> later)",
-            "survey_lemmas.final_later",
+            "survey_lemmas.final_moves",
+            "survey.bend",
+        ),
+        (
+            "a file moved twice given a `move` line for each",
+            "      Bool.or(String.eq(f, file), moved.later(rest, file))",
+            "      moved.later(rest, file)",
+            "survey_lemmas.later_none",
             "survey.bend",
         ),
         (
@@ -4704,7 +4735,14 @@ def check_mutations(temporary):
             "a link written as a reference where the revision states nothing",
             'Bool.pick(String, stated(t, gone, arriving, at), "r" ++ at, "v" ++ target)',
             'Bool.pick(String, True{}, "r" ++ at, "v" ++ target)',
-            "survey_lemmas.observed_of",
+            "survey_lemmas.ref_held",
+            "survey.bend",
+        ),
+        (
+            "a link written as a reference to a file the record drops",
+            "      Bool.or(Bool.not(has(gone, f)), any_kept(rest, gone))",
+            "      Bool.or(True{}, any_kept(rest, gone))",
+            "survey_lemmas.held_ref",
             "survey.bend",
         ),
         (
@@ -4718,8 +4756,15 @@ def check_mutations(temporary):
             "record goes on with a path nothing answers to",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, absent)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, False{},",
-            "survey_lemmas.named_ok",
+            "survey_lemmas.named_done",
             "commands.bend",
+        ),
+        (
+            "record refuses a path only the renames put there",
+            "Bool.pick(List<&2, String>, Bool.or(any_beneath(n, folder), Bool.or(any_beneath(n, was), any_beneath(n, placed))), later, n <> later)",
+            "Bool.pick(List<&2, String>, Bool.or(any_beneath(n, folder), any_beneath(n, was)), later, n <> later)",
+            "survey_lemmas.unknown_empty",
+            "survey.bend",
         ),
         (
             "abandon takes a reason that is only whitespace",
@@ -4975,6 +5020,13 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "record takes no `--at` at all",
+            "      placed.at.r(rest, t2, List.append(&2, T.Split, moved, [T.Split{f, to}]), placed.holds(t2, rest))",
+            "      placed.at.r(rest, t, moved, placed.holds(t, rest))",
+            "survey_lemmas.at_ats",
+            "commands.bend",
+        ),
+        (
             "record lets a restriction take one end of a rename",
             "Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(Sv.covers(named, from), Sv.covers(named, to)), restricted.half.r(named, rest),",
             "Bool.pick(Result<&2, &2, Refused, Unit>, Bool.or(Sv.covers(named, from), Sv.covers(named, to)), restricted.half.r(named, rest),",
@@ -4993,8 +5045,8 @@ def check_mutations(temporary):
             "  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, out)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, False{},",
             # Written against `record_lemmas.named_ok`; the checker now stops
-            # first at `survey_lemmas.named_ok`.
-            "survey_lemmas.named_ok",
+            # first at `survey_lemmas.named_done`.
+            "survey_lemmas.named_done",
             "commands.bend",
         ),
         (

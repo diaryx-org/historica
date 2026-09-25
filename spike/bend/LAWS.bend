@@ -1616,11 +1616,11 @@ law status_joins_what_it_reads:
   for +e: String
   for h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}
   {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}
-# `record` refuses a link left dangling, exactly where one would be. A
-# link the position holds that names a file this record drops would be a
-# reference to nothing once the revision is written, so the plan goes on
-# only where every such link is going too, or sits at a path whose link in
-# the folder the record observes and writes down afresh.
+# `record` refuses a link left dangling. Wherever a link of the position
+# stands among its files, if the record goes on, keeps that link and drops
+# the file it names, the folder holds a link at the link's path, one this
+# format can hold: a link the record keeps that names a file it drops, with
+# no such link in the folder, is refused.
 law record_refuses_a_dangling_link:
   for +t: Tree.Tree()
   for +looked: Tree.Tree()
@@ -1628,39 +1628,60 @@ law record_refuses_a_dangling_link:
   for +walked: List<&2, T.Split>
   for +ss: List<&2, Sv.Seen>
   for +moves: List<&2, T.Split>
-  {Maybe.is_none(&2, String, Sv.planned.dangles(Sv.planned(t, looked, held, walked, ss, moves))) == Sv.anchored(t, Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), Sv.planned.pointing(Sv.planned(t, looked, held, walked, ss, moves))) : Bool}
+  for hd: {Sv.planned.dangles(Sv.planned(t, looked, held, walked, ss, moves)) == None{} : Maybe<&2, String>}
+  for +pre: Tree.Tree()
+  for +post: Tree.Tree()
+  for +f: String
+  for +p: String
+  for +k: Tree.FileKind
+  for +y: Maybe<&2, String>
+  for +named: String
+  for +m: Tree.Mode
+  for ht: {t == List.append(&2, Tree.Entry, pre, Tree.Entry{f, p, k, y, Some{Tree.Reference{named}}, m} <> post) : Tree.Tree()}
+  for hn: {Sv.has(Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), named) == True{} : Bool}
+  for hf: {Sv.has(Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), f) == False{} : Bool}
+  {Sv.link_found(ss, p) == True{} : Bool}
 
-# `status` refuses only what the folder holds. What its walk could not
-# take is refused as the walk found it; past that, a path is refused only
-# where the folder holds something there that the position cannot take — a
-# link whose target this format cannot hold, or a file recorded as lines
-# that is no longer text — and never a path only the position holds.
+# `status` refuses only what the folder holds that the position cannot
+# take. What its walk could not take comes first, as the walk found it and
+# in its order; after that, a path is refused only where the folder holds
+# a link there whose target this format cannot hold, or a file the
+# position recorded as lines whose bytes are no longer text, and the
+# refusal says which — never a path only the position holds, and never a
+# file of bytes or a link it can hold.
 law status_refuses_what_the_folder_holds:
   for +t: Tree.Tree()
   for +held: Set()
   for +walked: List<&2, T.Split>
   for +ss: List<&2, Sv.Seen>
-  {Sv.refuses_found(walked, ss, Sv.survey.refused(Sv.survey(t, held, walked, ss))) == True{} : Bool}
+  {Sv.refused_after(walked, ss, Sv.survey.refused(Sv.survey(t, held, walked, ss))) == True{} : Bool}
 
 # A kind is stated only for a file arriving. Decision 0017 fixes a file's
-# kind when it is added, so `record` goes on with a `--lines` or a
-# `--bytes` exactly where each names a path it is looking at that no file of
-# the position holds: a kind for a file already there is refused, since it
-# would restate what was fixed at the add.
+# kind when it is added, so where `record` goes on, every `--lines` and
+# `--bytes`, wherever it stands among them, names a path the restriction
+# covers, and no file of the position is at that path: a kind for a file
+# already there is refused, since it would restate what was fixed at the
+# add, and so is one for a path the record is not looking at.
 law record_states_a_kind_only_for_an_arrival:
   for +only: List<&2, String>
   for +t: Tree.Tree()
-  for +ks: List<&2, T.Split>
-  {Maybe.is_none(&2, String, Sv.kind_fault(only, t, ks)) == Sv.kinds_fresh(only, t, ks) : Bool}
+  for +pre: List<&2, T.Split>
+  for +p: String
+  for +k: String
+  for +post: List<&2, T.Split>
+  for e: {Sv.kind_fault(only, t, List.append(&2, T.Split, pre, T.Split{p, k} <> post)) == None{} : Maybe<&2, String>}
+  for +g: String
+  {Bool.and(Sv.covers(only, p), Bool.not(Sv.maybe_eq(Tree.path(t, g), Some{p}))) == True{} : Bool}
 
 # `record` writes one `move` line for each file moved. However the
-# renames a person stated follow one another, each line is for a file this
-# record is not dropping, says the last place the renames put it, and no
-# file has a second.
+# renames a person stated follow one another, the lines give a file the
+# renames moved and this record keeps exactly one place, the last one the
+# renames put it, and give a file it drops, or one no rename moved, none.
 law record_moves_each_file_once:
   for +ms: List<&2, T.Split>
   for +gone: Set()
-  {Sv.moves_ok(ms, gone, Sv.moved.final(ms, gone)) == True{} : Bool}
+  for +f: String
+  {Sv.moves_of(Sv.moved.final(ms, gone), f) == Bool.pick(List<&2, String>, Sv.has(gone, f), Nil{}, Sv.maybe_list(Sv.last_move(ms, f))) : List<&2, String>}
 
 # A revision is filed one directory deep, under its month. Whatever its
 # message says, the name it has in that directory holds nothing a
@@ -1709,18 +1730,17 @@ law abandon_takes_a_reason_that_says_something:
   {Result.is_done(&2, &2, Main.Refused, Unit, Main.reason.r(m)) == Bool.not(Naming.every(~Naming.is_space, m)) : Bool}
 
 # `record` restricted to some paths names only what is there. It goes on
-# only where each path a person names answers to something — a file the
-# folder holds, one the position holds, or one the stated renames put there,
-# at the path or beneath it as a directory — since a path a rule keeps out
-# is refused as kept out, and any other that answers to nothing as absent.
+# exactly where each path a person names covers, as a restriction to it
+# alone would, something the folder holds, the position holds or the
+# stated renames put there — the path itself, or one beneath it as a
+# directory — whatever the rules in `history/skipped/` say.
 law record_names_only_what_is_there:
   for +rules: List<&2, Folder.Scope>
   for +named: List<&2, String>
   for +folder: List<&2, String>
   for +was: List<&2, String>
   for +placed: List<&2, String>
-  for e: {Main.named.r(rules, named, folder, was, placed) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}
-  {Sv.answered(named, folder, was, placed) == True{} : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Unit, Main.named.r(rules, named, folder, was, placed)) == Sv.each_covers(named, List.append(&2, String, folder, List.append(&2, String, was, placed))) : Bool}
 
 # `--at` and `--move` keep each file once. However a person places files,
 # the position `record` goes on with holds the files it held, each once and
@@ -1734,20 +1754,19 @@ law a_rename_keeps_each_file_once:
   for e: {Main.placed.r(t, ats, ms) == Done{Main.Placed{t2, moved}} : Result<&2, &2, Main.Refused, Main.Placed>}
   {Sv.files(t2) == Sv.files(t) : List<&2, String>}
 
-# And each file is where a person said. Of the renames `record` goes on
-# with — every `--at`, then every `--move`, each by the file it moves — a
-# file of the position is at the last place one put it, and a file none
-# moved is where it was; so `--at` settles each file it names at its path.
+# And `--at` puts each file where a person said. Where `record` goes on
+# with `--at` and no `--move` — which, naming a path rather than a file,
+# could move one again — each file of the position is at the path the last
+# `--at` naming it gave, and a file none names is where it was.
 law a_rename_puts_each_file_where_it_was_said:
   for +t: Tree.Tree()
   for +ats: List<&2, T.Split>
-  for +ms: List<&2, T.Split>
   for +t2: Tree.Tree()
   for +moved: List<&2, T.Split>
-  for e: {Main.placed.r(t, ats, ms) == Done{Main.Placed{t2, moved}} : Result<&2, &2, Main.Refused, Main.Placed>}
+  for e: {Main.placed.r(t, ats, Nil{}) == Done{Main.Placed{t2, moved}} : Result<&2, &2, Main.Refused, Main.Placed>}
   for +g: String
   for hg: {Tree.holds(t, g) == True{} : Bool}
-  {Tree.path(t2, g) == Maybe.or(&2, String, Sv.last_move(moved, g), Tree.path(t, g)) : Maybe<&2, String>}
+  {Tree.path(t2, g) == Maybe.or(&2, String, Sv.last_move(ats, g), Tree.path(t, g)) : Maybe<&2, String>}
 
 # `record` restricted to some paths refuses only among them. Naming paths
 # narrows what the survey pairs, from the position and the folder alike,
@@ -1815,19 +1834,28 @@ law record_plans_every_file:
   {Main.entries.at(f, Sv.by_file(t)) == Main.entries.at(f, t) : Tree.Tree()}
 
 # A link in the folder is written as a reference only to what the revision
-# states. Its target, folded against the link's own directory, is spelled
-# as the path it lands on only where that path is one the revision states —
-# a file the position keeps there, or one arriving; anywhere else the link
-# keeps the string it spells.
+# holds where it lands. Where its target is one this format can hold, and
+# lands, folded against the link's own directory and put in normal form C,
+# on a path no two files of the position share and where any arrival has
+# its identifier minted, `record` writes the link as `file:` and an
+# identifier only for the file minted there, or for the one file of the
+# position there that the record keeps — never for a file it drops, nor
+# for any other.
 law a_link_refers_only_to_what_the_revision_states:
+  for +mint: List<&2, T.Split>
   for +t: Tree.Tree()
   for +gone: Set()
   for +arriving: Set()
   for +path: String
   for +target: String
   for +at: String
-  for e: {Sv.observed(t, gone, arriving, path, target) == "r" ++ at : String}
-  {Sv.lands_on(t, gone, arriving, path, target, at) == True{} : Bool}
+  for +f: String
+  for hr: {Sv.resolved(path, target) == Some{at} : Maybe<&2, String>}
+  for hl: {Sv.link_fault(target) == None{} : Maybe<&2, String>}
+  for ho: {Tree.at_most_one(Tree.at(t, at)) == True{} : Bool}
+  for hm: {Bool.or(Bool.not(Sv.has(arriving, at)), Maybe.is_some(&2, String, Main.lookup(mint, at))) == True{} : Bool}
+  for e: {Main.link.spelled(mint, t, Sv.observed(t, gone, arriving, path, target)) == "file:" ++ f : String}
+  {Bool.or(Sv.maybe_eq(Main.lookup(mint, at), Some{f}), Bool.and(Rev.member(Tree.at(t, at), f), Bool.not(Sv.has(gone, f)))) == True{} : Bool}
 
 # `record` goes on only where each path it looks at holds one file.
 # Decision 0008 lets a merge leave two files at one path, and `--at` is how
@@ -2001,11 +2029,11 @@ law record_names_what_it_writes:
 # survey made it, and one the survey settled. Where the plan is not
 # refused, neither the walk nor the survey refused any path it looked at,
 # the survey observed no file still holding a line the renderer wrote and
-# no contested file of lines left empty, every link
-# the position holds is anchored — naming no file the record drops, unless
-# the link goes too or the folder's link at its path is one the record
-# observes — and a path is among those `--accept` names exactly where the
-# survey observed that concurrent work states different bytes for it.
+# no contested file of lines left empty, every link the position holds is
+# anchored — naming no file the record drops, unless the link goes too or
+# the folder holds a link at its path that this format can hold — and a
+# path is among those `--accept` names exactly where the survey observed
+# that concurrent work states different bytes for it.
 # That no path it looks at holds two files is
 # `record_goes_on_where_each_path_holds_one_file`.
 law record_writes_only_what_is_settled:
@@ -2019,7 +2047,7 @@ law record_writes_only_what_is_settled:
   for pl2: Sv.Planned
   for +e: {Main.planned.r(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted) == Done{pl2} : Result<&2, &2, Main.Refused, Sv.Planned>}
   for +x: String
-  {(pl2, (walked, (Sv.refusals(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.marked(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.emptied(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.anchored(t, Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), Sv.planned.pointing(Sv.planned(t, looked, held, walked, ss, moves))), Rev.member(accepted, x))))))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, (Nil{}, (Nil{}, (Nil{}, (True{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))))))) : Sv.Planned & (List<&2, T.Split> & (List<&2, T.Split> & (List<&2, T.Split> & (List<&2, String> & (Bool & Bool)))))}
+  {(pl2, (walked, (Sv.refusals(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.marked(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.emptied(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), (Sv.anchored(t, Sv.planned.gone(Sv.planned(t, looked, held, walked, ss, moves)), ss), Rev.member(accepted, x))))))) == (Sv.planned(t, looked, held, walked, ss, moves), (Nil{}, (Nil{}, (Nil{}, (Nil{}, (True{}, Rev.member(Sv.accepts(Main.planned.obs(Sv.planned(t, looked, held, walked, ss, moves))), x))))))) : Sv.Planned & (List<&2, T.Split> & (List<&2, T.Split> & (List<&2, T.Split> & (List<&2, String> & (Bool & Bool)))))}
 
 # What `amend` rewrites is a revision the store holds: the target named,
 # or else the one head there is.

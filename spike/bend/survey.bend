@@ -17,6 +17,7 @@ import ./text.bend as T
 import ./tree.bend as Tree
 import ./folder.bend as Folder
 import ./nfc.bend as Nfc
+import ./revision.bend as Rev
 
 # One path, as the position and the folder hold it, with what was learned
 # about it: the folder's digest of a regular file, the digest the position's
@@ -524,12 +525,6 @@ def maybe_eq(a: Maybe<&2, String>, b: Maybe<&2, String>) -> Bool:
     case _ _:
       False{}
 
-# What `LAWS.a_link_refers_only_to_what_the_revision_states` asks of a
-# reference a link's target is written as: the path the target lands on,
-# folded against the link's own directory, and one the revision states.
-def lands_on(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +at: String) -> Bool:
-  Bool.and(maybe_eq(resolved(path, target), Some{at}), stated(t, gone, arriving, at))
-
 def retargeted(+t: Tree.Tree(), +gone: Set(), +arriving: Set(), +path: String, +target: String, +held: Maybe<&2, Tree.Entry>, shown: Maybe<&2, String>) -> Bool:
   Bool.pick(Bool, same(standing(gone, held, shown), target), False{},
     Bool.not(maybe_eq(recorded(t, gone, held), Some{observed(t, gone, arriving, path, target)})))
@@ -681,28 +676,60 @@ def survey.renames(s: Survey) -> List<&2, T.Split>:
       renames
 
 # What `LAWS.status_refuses_what_the_folder_holds` asks of the refusals:
-# each names a path the walk refused, or one a surveyed path found in the
-# folder.
-def walked_at(ws: List<&2, T.Split>, +p: String) -> Bool:
-  match ws:
-    case Nil{}:
+# the walk's first, as the walk found them, and after them each for a path
+# the survey saw, for one of two reasons only, said as such — the folder
+# holds a link there whose target this format cannot hold, or a file the
+# position recorded as lines whose bytes are no longer text.
+def link_refused(fault: Maybe<&2, String>, +b: String) -> Bool:
+  match fault:
+    case None{}:
       False{}
-    case T.Split{q, b} <> rest:
-      Bool.or(String.eq(q, p), walked_at(rest, p))
+    case Some{why}:
+      String.eq(b, "it points at a target this format cannot hold: " ++ why)
 
-def found_at(ss: List<&2, Seen>, +p: String) -> Bool:
+def lines_refused(e: Maybe<&2, Tree.Entry>, text: Bool, +b: String) -> Bool:
+  match e text:
+    case Some{Tree.Entry{f, p, Tree.Lines{}, y, g, m}} False{}:
+      String.eq(b, "recorded as lines and no longer UTF-8 text; drop it and add it again")
+    case _ _:
+      False{}
+
+def refused_as(e: Maybe<&2, Tree.Entry>, found: Maybe<&2, Folder.Found>, text: Bool, +b: String) -> Bool:
+  match found:
+    case None{}:
+      False{}
+    case Some{Folder.Found.Link{q, +target}}:
+      link_refused(link_fault(target), b)
+    case Some{Folder.Found.File{q, runs, n}}:
+      lines_refused(e, text, b)
+
+def refused_by(ss: List<&2, Seen>, +p: String, +b: String) -> Bool:
   match ss:
     case Nil{}:
       False{}
-    case Seen{path, e, found, d, b, x, sh, pr, mk} <> rest:
-      Bool.or(Bool.and(String.eq(path, p), Maybe.is_some(&2, Folder.Found, found)), found_at(rest, p))
+    case Seen{+path, e, found, d, before, text, shown, proposed, marked} <> rest:
+      Bool.or(Bool.and(String.eq(path, p), refused_as(e, found, text, b)), refused_by(rest, p, b))
 
-def refuses_found(+walked: List<&2, T.Split>, +ss: List<&2, Seen>, rs: List<&2, T.Split>) -> Bool:
+def each_refused(+ss: List<&2, Seen>, rs: List<&2, T.Split>) -> Bool:
   match rs:
     case Nil{}:
       True{}
-    case T.Split{+p, b} <> rest:
-      Bool.and(Bool.or(walked_at(walked, p), found_at(ss, p)), refuses_found(walked, ss, rest))
+    case T.Split{+p, +b} <> rest:
+      Bool.and(refused_by(ss, p, b), each_refused(ss, rest))
+
+def split_eq(a: T.Split, b: T.Split) -> Bool:
+  match a b:
+    case T.Split{p, x} T.Split{q, y}:
+      Bool.and(String.eq(p, q), String.eq(x, y))
+
+def refused_after(ws: List<&2, T.Split>, +ss: List<&2, Seen>, rs: List<&2, T.Split>) -> Bool:
+  match ws rs:
+    case Nil{} _:
+      each_refused(ss, rs)
+    case w <> wrest Nil{}:
+      False{}
+    case w <> wrest r <> rrest:
+      Bool.and(split_eq(w, r), refused_after(wrest, ss, rrest))
 
 # Whether the folder says nothing the position does not.
 def is_quiet(s: Survey) -> Bool:
@@ -821,16 +848,22 @@ def kept_out(+rules: List<&2, Folder.Scope>, ns: List<&2, String>, +keep: Bool) 
       +later = kept_out(rules, rest, keep)
       Bool.pick(List<&2, String>, Bool.xor(Bool.or(Folder.skips(rules, n), Folder.skips_directory(rules, n)), Bool.not(keep)), n <> later, later)
 
-# What `record` asks of the paths a person names before it looks
-# (`LAWS.record_names_only_what_is_there`): each answers to a file the
-# folder holds, one the position holds, or one the stated renames put
-# there, at the path or beneath it.
-def answered(ns: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>) -> Bool:
+# What `LAWS.record_names_only_what_is_there` asks of the paths a person
+# names: each covers some path of `ps`, as a restriction to it alone
+# would.
+def covers_some(+n: String, ps: List<&2, String>) -> Bool:
+  match ps:
+    case Nil{}:
+      False{}
+    case +p <> rest:
+      Bool.or(covers([n], p), covers_some(n, rest))
+
+def each_covers(ns: List<&2, String>, +ps: List<&2, String>) -> Bool:
   match ns:
     case Nil{}:
       True{}
     case +n <> rest:
-      Bool.and(Bool.or(any_beneath(n, folder), Bool.or(any_beneath(n, was), any_beneath(n, placed))), answered(rest, folder, was, placed))
+      Bool.and(covers_some(n, ps), each_covers(rest, ps))
 
 # Where the stated renames put each file: the position's tree, with one
 # file's path changed.
@@ -862,10 +895,9 @@ def file_order.from(t: Tree.Tree(), +k: String) -> Bool:
 def in_file_order(+t: Tree.Tree()) -> Bool:
   file_order.from(t, SNil{})
 
-# What `LAWS.a_rename_keeps_each_file_once` and
-# `LAWS.a_rename_puts_each_file_where_it_was_said` ask of where the stated
-# renames leave the position: its files, and the position with each rename
-# done in turn.
+# What `LAWS.a_rename_keeps_each_file_once` reads of where the stated
+# renames leave the position: its files. And the position with each rename
+# done in turn, which is what the renames `record` goes on with make of it.
 def files(t: Tree.Tree()) -> List<&2, String>:
   match t:
     case Nil{}:
@@ -898,16 +930,6 @@ def kind_fault(+only: List<&2, String>, +t: Tree.Tree(), ks: List<&2, T.Split>) 
       Bool.pick(Maybe<&2, String>, covers(only, p), kind_fixed(p, t, kind_fault(only, t, rest)),
         Some{"`" ++ p ++ "` is not one of the paths this is recording, so saying which kind it is would state nothing; name it as a path too, or drop the restriction"})
 
-# What that refusal asks of the kinds a person states: each for a path the
-# record is looking at, where no file of the position is
-# (`LAWS.record_states_a_kind_only_for_an_arrival`).
-def kinds_fresh(+only: List<&2, String>, +t: Tree.Tree(), ks: List<&2, T.Split>) -> Bool:
-  match ks:
-    case Nil{}:
-      True{}
-    case T.Split{+p, k} <> rest:
-      Bool.and(Bool.and(covers(only, p), List.is_empty(&2, String, Tree.at(t, p))), kinds_fresh(only, t, rest))
-
 # Each file moved, where it went last, unless the file is going.
 def moved.later(ms: List<&2, T.Split>, +file: String) -> Bool:
   match ms:
@@ -934,9 +956,10 @@ def moved.final(ms: List<&2, T.Split>, +gone: Set()) -> List<&2, T.Split>:
       +later = moved.final(rest, gone)
       Bool.pick(List<&2, T.Split>, Bool.or(has(gone, f), moved.later(rest, f)), later, T.Split{f, to} <> later)
 
-# What that law asks of the `move` lines (`LAWS.record_moves_each_file_once`):
-# each is for a file not going, at the last place the renames put it, and
-# no file has two.
+# What `LAWS.record_moves_each_file_once` and
+# `LAWS.a_rename_puts_each_file_where_it_was_said` read of the renames: the
+# last place they put a file, read from the end; and of the `move` lines,
+# every place they say a file went, in order.
 def last_move(ms: List<&2, T.Split>, +file: String) -> Maybe<&2, String>:
   match ms:
     case Nil{}:
@@ -944,12 +967,20 @@ def last_move(ms: List<&2, T.Split>, +file: String) -> Maybe<&2, String>:
     case T.Split{+f, +to} <> rest:
       Maybe.or(&2, String, last_move(rest, file), Bool.pick(Maybe<&2, String>, String.eq(f, file), Some{to}, None{}))
 
-def moves_ok(+ms: List<&2, T.Split>, +gone: Set(), out: List<&2, T.Split>) -> Bool:
-  match out:
+def moves_of(xs: List<&2, T.Split>, +file: String) -> List<&2, String>:
+  match xs:
     case Nil{}:
-      True{}
-    case T.Split{+f, +to} <> +rest:
-      Bool.and(Bool.and(Bool.not(has(gone, f)), maybe_eq(last_move(ms, f), Some{to})), Bool.and(Bool.not(moved.later(rest, f)), moves_ok(ms, gone, rest)))
+      Nil{}
+    case T.Split{+f, +to} <> rest:
+      +later = moves_of(rest, file)
+      Bool.pick(List<&2, String>, String.eq(f, file), to <> later, later)
+
+def maybe_list(m: Maybe<&2, String>) -> List<&2, String>:
+  match m:
+    case None{}:
+      Nil{}
+    case Some{x}:
+      [x]
 
 def emptied(os: List<&2, Obs>) -> List<&2, String>:
   match os:
@@ -999,17 +1030,35 @@ def dangle.target(+link: String, g: Maybe<&2, Tree.Target>, +gone: Set(), +os: L
     case _:
       later
 
-def dangle(t: Tree.Tree(), +gone: Set(), +pointing: Set(), +os: List<&2, Obs>) -> Maybe<&2, String>:
+# `pointing` is the paths of the folder's links the record observes.
+def dangle(t: Tree.Tree(), +gone: Set(), +pointing: List<&2, String>, +os: List<&2, Obs>) -> Maybe<&2, String>:
   match t:
     case Nil{}:
       None{}
     case Tree.Entry{+f, +p, k, y, g, m} <> rest:
       +later = dangle(rest, gone, pointing, os)
-      Bool.pick(Maybe<&2, String>, Bool.or(has(gone, f), has(pointing, p)), later, dangle.target(p, g, gone, os, later))
+      Bool.pick(Maybe<&2, String>, Bool.or(has(gone, f), Rev.member(pointing, p)), later, dangle.target(p, g, gone, os, later))
 
-# What that refusal asks of the position: no link of it names a file going,
-# unless the link is going too or the folder's link at its path is one the
-# record restates (`LAWS.record_refuses_a_dangling_link`).
+# What `LAWS.record_refuses_a_dangling_link` asks of the folder at a path:
+# a path surveyed there, where the folder holds a link this format can
+# hold.
+def link_at(found: Maybe<&2, Folder.Found>) -> Bool:
+  match found:
+    case Some{Folder.Found.Link{q, +target}}:
+      Maybe.is_none(&2, String, link_fault(target))
+    case _:
+      False{}
+
+def link_found(ss: List<&2, Seen>, +p: String) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case Seen{+path, e, found, d, b, x, sh, pr, mk} <> rest:
+      Bool.or(Bool.and(link_at(found), String.eq(path, p)), link_found(rest, p))
+
+# What `LAWS.record_writes_only_what_is_settled` asks of the position's
+# links: each that names a file the record drops, unless it goes too,
+# stands where the folder holds a link this format can hold.
 def names_gone(g: Maybe<&2, Tree.Target>, +gone: Set()) -> Bool:
   match g:
     case Some{Tree.Reference{+named}}:
@@ -1017,12 +1066,12 @@ def names_gone(g: Maybe<&2, Tree.Target>, +gone: Set()) -> Bool:
     case _:
       False{}
 
-def anchored(t: Tree.Tree(), +gone: Set(), +pointing: Set()) -> Bool:
+def anchored(t: Tree.Tree(), +gone: Set(), +ss: List<&2, Seen>) -> Bool:
   match t:
     case Nil{}:
       True{}
     case Tree.Entry{+f, +p, k, y, g, m} <> rest:
-      Bool.and(Bool.or(Bool.or(has(gone, f), has(pointing, p)), Bool.not(names_gone(g, gone))), anchored(rest, gone, pointing))
+      Bool.and(Bool.or(Bool.or(has(gone, f), link_found(ss, p)), Bool.not(names_gone(g, gone))), anchored(rest, gone, ss))
 
 # What `record --dry-run` prints: `status`'s facts, with a line for each
 # file moved.
@@ -1050,7 +1099,7 @@ def planned(+t: Tree.Tree(), +looked: Tree.Tree(), +held: Set(), walked: List<&2
   +gone = Set.from_list(dropped_files(os))
   +arriving = Set.from_list(added(os))
   +ls = links(t, gone, arriving, os)
-  Planned{facts.recorded(arriving, os, ls, moved.paths(moves, gone)), List.append(&2, T.Split, walked, refusals(os)), cs, sorted(accepts(os)), emptied(os), dangle(t, gone, Set.from_list(pointed(os)), os), os, ls}
+  Planned{facts.recorded(arriving, os, ls, moved.paths(moves, gone)), List.append(&2, T.Split, walked, refusals(os)), cs, sorted(accepts(os)), emptied(os), dangle(t, gone, pointed(os), os), os, ls}
 
 def planned.dangles(pl: Planned) -> Maybe<&2, String>:
   match pl:
@@ -1067,13 +1116,8 @@ def planned.claimed(pl: Planned) -> List<&2, T.Split>:
     case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
       claimed
 
-# The files a plan drops, and the paths of the folder's links it observes.
+# The files a plan drops: what its `drop` lines name.
 def planned.gone(pl: Planned) -> Set():
   match pl:
     case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
       Set.from_list(dropped_files(obs))
-
-def planned.pointing(pl: Planned) -> Set():
-  match pl:
-    case Planned{facts, refused, claimed, accept, emptied, dangles, obs, links}:
-      Set.from_list(pointed(obs))
