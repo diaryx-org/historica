@@ -54,6 +54,7 @@ import ./listing_lemmas.bend as ListL
 import ./colour_lemmas.bend as Colour
 import ./plan_lemmas.bend as PlanL
 import ./chain_lemmas.bend as ChainL
+import ./fulls_lemmas.bend as FullsL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -552,6 +553,9 @@ def Laws.diff_folder_reads_what_is_unsettled(dg, os, eds, hs):
 
 def Laws.chain_follows_first_parents(fs, id):
   ChainL.chain_line(fs, id)
+
+def Laws.revisions_read_are_their_documents(root, ds):
+  FullsL.fulls_filed(root, ds)
 
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)

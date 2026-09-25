@@ -2189,6 +2189,13 @@ def check_mutations(temporary):
             "chain_lemmas.line_at",
             "commands.bend",
         ),
+        (
+            "a document outside revisions/ read as a revision",
+            "push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full(id, Rev.parse(text)), None{}), fulls(root, rest))",
+            "push_full(full(id, Rev.parse(text)), fulls(root, rest))",
+            "fulls_lemmas.fulls_filed",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

@@ -19,6 +19,7 @@ import ./bookmark.bend as Bm
 import ./store.bend as Store
 import ./survey.bend as Sv
 import ./sort_lemmas.bend as SortL
+import ./fulls_lemmas.bend as FullsL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1041,6 +1042,16 @@ law chain_follows_first_parents:
   for +fs: List<&2, Main.Full>
   for +id: String
   {Main.first_parents(fs, Main.chain(fs, Some{id}), Some{id}) == True{} : Bool}
+
+# Every revision a command reads is one a document of `revisions/` spells:
+# filed there under the digest the revision is known by, and what
+# `Rev.write` writes, byte for byte, from what the revision says. Reading a
+# store's revisions keeps the documents the parser accepts, and nothing of
+# one is lost or added in the reading.
+law revisions_read_are_their_documents:
+  for +root: String
+  for +ds: List<&2, Store.Doc>
+  {FullsL.all_filed(root, ds, Main.fulls(root, ds)) == True{} : Bool}
 
 # `log` reads its arguments as their plain reading says: the word after a
 # flag that takes a value is that flag's value, the last counting, and
