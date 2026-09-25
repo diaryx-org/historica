@@ -1436,3 +1436,14 @@ law carry_carries_a_held_revision:
   for +id: String
   for e: {Main.carry.target.r(fs, bs, named) == Done{Some{id}} : Result<&2, &2, Main.Refused, Maybe<&2, String>>}
   {Rev.member(Main.ids(fs), id) == True{} : Bool}
+
+# Every file `record` moves by a stated rename is one the position holds:
+# `--at` names a file the history holds, and `--move` a path where one
+# file alone is, so no rename moves a file from nowhere.
+law record_moves_only_held_files:
+  for +t: Tree.Tree()
+  for +ats: List<&2, T.Split>
+  for +ms: List<&2, T.Split>
+  for p: Main.Placed
+  for e: {Main.placed.r(t, ats, ms) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}
+  {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}

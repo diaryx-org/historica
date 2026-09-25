@@ -686,3 +686,6 @@ def Laws.amend_rewrites_a_held_revision(fs, bs, named, f, e):
 
 def Laws.carry_carries_a_held_revision(fs, bs, named, id, e):
   RewriteL.carry_held(fs, bs, named, id, e)
+
+def Laws.record_moves_only_held_files(t, ats, ms, p, e):
+  RecordL.placed_held(t, ats, ms, p, e)

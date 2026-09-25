@@ -7120,6 +7120,21 @@ def placed.r(+t: Tree.Tree(), +ats: List<&2, T.Split>, +ms: List<&2, T.Split>) -
     p : Placed <- placed.at.r(ats, t, Nil{}, placed.holds(t, ats))
     placed.of.r(p, ms)
 
+# Every file a stated rename moves is one of `files`: `--at` names a file
+# the position holds, and `--move` a path one file alone holds there.
+# `LAWS.record_moves_only_held_files`.
+def moved.held(+files: List<&2, String>, moved: List<&2, T.Split>) -> Bool:
+  match moved:
+    case Nil{}:
+      True{}
+    case T.Split{+f, to} <> rest:
+      Bool.and(Rev.member(files, f), moved.held(files, rest))
+
+def placed.moved(p: Placed) -> List<&2, T.Split>:
+  match p:
+    case Placed{t, moved}:
+      moved
+
 # A named path nothing answers to, and whether a rule keeps it out.
 def these(+ps: List<&2, String>, +one: String, +many: String) -> String:
   Bool.pick(String, Nat.is_eq(List.length(&2, String, ps), 1n), one, many)
