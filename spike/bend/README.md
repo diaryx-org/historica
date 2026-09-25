@@ -49,7 +49,7 @@ bend main.bend -- opdiff old.txt new.txt # the operation document between two fi
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through twenty-two host effects (`store.bend`): `bend main.bend` runs
+here or above — through twenty-seven host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds every command here to the Rust tool byte

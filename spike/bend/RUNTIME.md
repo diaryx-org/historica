@@ -79,7 +79,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The twenty-two effects here are one-shot — a string in, a string out, nothing
+The twenty-seven effects here are one-shot — a string in, a string out, nothing
 held between calls but where a pinned seed's stream has got to — which
 avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.

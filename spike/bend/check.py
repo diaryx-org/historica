@@ -2960,7 +2960,11 @@ def check_store(temporary):
     if NATIVE:
         tools.insert(0, ("native", [str(native), "--"]))
         builds.append(build_native)
-    parallel(builds)
+    # One at a time: emitting `main.bend` as C takes some thirteen gigabytes
+    # at its peak, and the JS emit beside it is enough to exhaust a machine
+    # of sixteen.
+    for build in builds:
+        build()
 
     copies = itertools.count()
 
