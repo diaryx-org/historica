@@ -2524,6 +2524,27 @@ def check_mutations(temporary):
             "naming.bend",
         ),
         (
+            "record warns when the clock is ahead of the store",
+            "Nat.is_lt(Naming.instant(now), Naming.instant(n))",
+            "Nat.is_lt(Naming.instant(n), Naming.instant(now))",
+            "naming_lemmas.warns.of",
+            "commands.bend",
+        ),
+        (
+            "a timestamp east of UTC read as west of it",
+            'String.starts_with(rest, "-")',
+            'String.starts_with(rest, "+")',
+            "naming_lemmas.east",
+            "naming.bend",
+        ),
+        (
+            "an offset's minutes read from its hours",
+            "Nat.mul(field(rest, 4n, 2n), 60n)",
+            "Nat.mul(field(rest, 1n, 2n), 60n)",
+            "naming_lemmas.east",
+            "naming.bend",
+        ),
+        (
             "record compares the clock with the earliest work",
             "Nat.is_ge(instant(w), Maybe.default",
             "Nat.is_le(instant(w), Maybe.default",
@@ -2573,10 +2594,20 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "diff shows no size for a file of bytes",
+            "      Some{Side.Whole{d, size_of(ss, d)}}",
+            "      Some{Side.Whole{d, None{}}}",
+            "sizes_lemmas.sized_given",
+            "commands.bend",
+        ),
+        (
             "a size believed whatever digest the host's line names",
             "sizes.read(rest, more), String.eq(T.word(st), d))",
             "sizes.read(rest, more), True{})",
-            "sizes_lemmas.says",
+            # `LAWS.diff_sizes_only_what_the_host_stated` rejects it; the
+            # checker meets the lemmas for `diff_sizes_what_the_host_stated`,
+            # which unfold the same reading of the host's lines, first.
+            "sizes_lemmas.read_app",
             "commands.bend",
         ),
         (

@@ -9647,13 +9647,27 @@ def when.r(r: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Refused, S
       Fail{Refused{1, msg}}
 
 # Decision 0010: the failure worth catching is a machine that says 1970,
-# since every later revision of the change copies what it says.
-def clock.warned(+now: String, newest: Maybe<&2, String>) -> IO(Unit):
+# since every later revision of the change copies what it says. The warning
+# is decided here, and said by `clock.warned`.
+def clock.line(+now: String, +n: String) -> String:
+  "historica: this machine's clock reads " ++ now ++ ", and this store already holds work recorded at " ++ n
+
+def clock.warning(+now: String, newest: Maybe<&2, String>) -> Maybe<&2, String>:
   match newest:
     case Some{+n}:
-      Bool.pick(IO(Unit), Nat.is_lt(Naming.instant(now), Naming.instant(n)), IO.print_err("historica: this machine's clock reads " ++ now ++ ", and this store already holds work recorded at " ++ n), IO.pure(Unit, Unit{}))
+      Bool.pick(Maybe<&2, String>, Nat.is_lt(Naming.instant(now), Naming.instant(n)), Some{clock.line(now, n)}, None{})
+    case None{}:
+      None{}
+
+def clock.said(w: Maybe<&2, String>) -> IO(Unit):
+  match w:
+    case Some{line}:
+      IO.print_err(line)
     case None{}:
       IO.pure(Unit, Unit{})
+
+def clock.warned(+now: String, newest: Maybe<&2, String>) -> IO(Unit):
+  clock.said(clock.warning(now, newest))
 
 def whens(ds: List<&2, T.Split>) -> List<&2, String>:
   match ds:
