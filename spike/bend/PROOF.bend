@@ -56,6 +56,7 @@ import ./receive_lemmas.bend as ReceiveL
 import ./offer_lemmas.bend as OfferL
 import ./export_lemmas.bend as ExportL
 import ./words_lemmas.bend as WordsL
+import ./fetching_lemmas.bend as FetchingL
 import ./listing_lemmas.bend as ListL
 import ./naming_lemmas.bend as NamingL
 import ./survey.bend as Sv
@@ -987,3 +988,21 @@ def Laws.merge_joins_every_head(fs, bs, ss, xs, e):
 
 def Laws.merge_spares_the_unrecorded(t, cs, located, p):
   MergingL.spares(t, cs, located, p)
+
+def Laws.fetch_reads_its_words(ws):
+  WordsL.fetch_words(ws)
+
+def Laws.fetch_asks_under_the_manifests_directory(url, r, m, e):
+  FetchingL.addressed_ok(url, r, m, e)
+
+def Laws.fetch_asks_only_for_what_the_manifest_names(h, os):
+  FetchingL.asks_what_is_named(h, os)
+
+def Laws.fetch_files_only_text_that_hashes_to_its_line(root, held, o, g, at, t, e):
+  FetchingL.filed_is_its_digest(root, held, o, g, at, t, e)
+
+def Laws.fetch_lands_a_file_only_where_it_hashes_to_its_line(folder, name, o, g, f, a, b, e):
+  FetchingL.moved_is_its_digest(folder, name, o, g, f, a, b, e)
+
+def Laws.fetch_files_a_payload_under_what_it_hashes_to(root, o, g, f, a, b, e):
+  FetchingL.payload_lands_under_its_digest(root, o, g, f, a, b, e)

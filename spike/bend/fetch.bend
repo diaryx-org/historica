@@ -636,6 +636,36 @@ def UNRELATED() -> String:
 def plan.r(+h: Here, +os: List<&2, Offer.Offered>, +join: Bool) -> Result<&2, &2, Main.Refused, FPlan>:
   Bool.pick(Result<&2, &2, Main.Refused, FPlan>, Bool.or(join, related(here.revs(h), digests.of(of.kind(os, "revision")))), Done{plan.of(h, os)}, Fail{Main.Refused{1, UNRELATED()}})
 
+def plan.payloads(p: FPlan) -> List<&2, Offer.Offered>:
+  match p:
+    case FPlan{pays, docs, revs, rules, res, names, kept, dec, des}:
+      pays
+
+def plan.documents(p: FPlan) -> List<&2, Offer.Offered>:
+  match p:
+    case FPlan{pays, docs, revs, rules, res, names, kept, dec, des}:
+      docs
+
+def plan.revisions(p: FPlan) -> List<&2, Offer.Offered>:
+  match p:
+    case FPlan{pays, docs, revs, rules, res, names, kept, dec, des}:
+      revs
+
+def plan.rules(p: FPlan) -> List<&2, Offer.Offered>:
+  match p:
+    case FPlan{pays, docs, revs, rules, res, names, kept, dec, des}:
+      rules
+
+def plan.reserved(p: FPlan) -> List<&2, Offer.Offered>:
+  match p:
+    case FPlan{pays, docs, revs, rules, res, names, kept, dec, des}:
+      res
+
+def plan.names(p: FPlan) -> List<&2, Offer.Offered>:
+  match p:
+    case FPlan{pays, docs, revs, rules, res, names, kept, dec, des}:
+      names
+
 def plan.destroys(p: FPlan) -> List<&2, String>:
   match p:
     case FPlan{pays, docs, revs, rules, res, names, kept, dec, des}:
