@@ -310,6 +310,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
 | `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
 | `manifest_lemmas.bend` | `fetch_reads_the_manifest_offer_writes`: the lines `offer` prints, each with a newline after it and answered by the host as the text at the manifest's URL, are read by `fetch` as the heads and files they were printed from, every kind, digest, forgotten digest and path as written | `offer`, `fetch` |
+| `fetchplan_lemmas.bend` | `fetch_refuses_only_what_shares_no_revision`: a refusal as unrelated is where no join was asked, each side holds a revision, and no revision the manifest lists is one this store holds or one a revision here names as a parent or as what it supersedes; `fetch_refuses_what_shares_no_revision`: and there it refuses, in the Rust tool's words; `fetch_destroys_only_what_is_forgotten`: every original it destroys is one a forgetting document of this store, or a line of the manifest, says is forgotten; `fetch_says_what_it_took`: asked for `--fields`, it names each revision it took once, in digest order, and none it did not | `fetch` |
 | `LAWS.bend` / `PROOF.bend` | two hundred and fifty-nine claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
@@ -1105,7 +1106,13 @@ file of `skipped/` holds, another tool's files of `claims/` it does not
 have, and the bookmarks it does not hold — one it holds is kept, and said
 so (decision 0062) — each digest once; a store with revisions, fetching
 from a copy with revisions, must share one or name one as a parent, or be
-asked to join. The files are asked for in `receive`'s order, content first,
+asked to join: the fetch is refused exactly there, said of the manifest's
+`revision` lines and of this store's revisions and the revisions they
+name, not through the plan's own reading of either
+(`fetch_refuses_only_what_shares_no_revision`,
+`fetch_refuses_what_shares_no_revision`). An original is destroyed only
+where a forgetting document of this store, or a line of the manifest,
+says it is forgotten (`fetch_destroys_only_what_is_forgotten`). The files are asked for in `receive`'s order, content first,
 then compliance with forgetting, then revisions, then the rest, and each
 is hashed against the digest its line gave before it is filed under that
 digest, here: nothing whose bytes are not its digest is written
@@ -1126,7 +1133,9 @@ and joined, a copy that forgot a line and a payload, a manifest naming a
 digest a payload's bytes do not have, a revision gone every time, a copy
 being rewritten while it is read, a reserved directory declined and a kind
 discarded, manifests misspelled, malformed and not text, none at all, and
-every usage error, with `--fields` beside each kind of ending.
+every usage error, with `--fields` beside each kind of ending; what
+`--fields` says names each revision taken once, in digest order, and
+none that was not (`fetch_says_what_it_took`).
 
 `update [<target>] [--dry-run]` makes the folder hold a head, decision
 0030: the one head there is, or the one named, and a revision that is not
@@ -2145,12 +2154,14 @@ of; and seven more word breaks: a word `arrange` does not know taken,
 first word, `export`'s target read as its directory, a second source
 taken by `receive` over the first, `--fields` read by `receive` as
 joining unrelated histories, and the first of two directories taken by
-`offer`; and eight fetch breaks: a document filed whose text is not the
+`offer`; and twelve fetch breaks: a document filed whose text is not the
 digest offered, a payload landed whatever it hashes to, a payload filed
 under the name it was staged at, a path asked for beside the one the
 manifest names, a URL's last slash cut off its directory, a second URL
-taken over the first, `--fields` read as joining unrelated histories, and
-a bookmark's line discarded as a kind the reader does not know;
+taken over the first, `--fields` read as joining unrelated histories, a
+bookmark's line discarded as a kind the reader does not know, a revision
+the two sides share found only where all are, unrelated histories joined
+unasked, every original held destroyed, and a revision taken named twice;
 and seven update breaks:
 bytes no revision records written over, a file kept whose mode is not the
 one recorded, a file nobody recorded taken away, a file of lines written

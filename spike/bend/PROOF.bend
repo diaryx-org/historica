@@ -84,6 +84,7 @@ import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
 import ./manifest_lemmas.bend as ManL
+import ./fetchplan_lemmas.bend as FPlanL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1104,3 +1105,15 @@ def Laws.fetch_files_a_payload_under_what_it_hashes_to(root, o, g, f, a, b, e):
 
 def Laws.fetch_reads_the_manifest_offer_writes(url, hs, os, hh, ho):
   ManL.reads_back(url, hs, os, hh, ho)
+
+def Laws.fetch_refuses_only_what_shares_no_revision(h, os, join, x, r, e):
+  FPlanL.refused_only(h, os, join, x, r, e)
+
+def Laws.fetch_refuses_what_shares_no_revision(h, os, hr, ht, hn):
+  FPlanL.refuses(h, os, hr, ht, hn)
+
+def Laws.fetch_destroys_only_what_is_forgotten(s, os, d, h):
+  FPlanL.destroyed(s, os, d, h)
+
+def Laws.fetch_says_what_it_took(rs, ds, ps, rus, res, ns, k, dec, des, re):
+  FPlanL.says_what_it_took(rs, ds, ps, rus, res, ns, k, dec, des, re)

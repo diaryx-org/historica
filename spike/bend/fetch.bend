@@ -1260,8 +1260,8 @@ def said.fields(t: Tally) -> List<&2, String>:
   match t:
     case Tally{rs, ds, ps, rus, res, ns, k, dec, des, re}:
       Main.WROTE() <> List.append(&2, String,
-        T.map(~String, ~String, ~(r => "revision " ++ r), Main.sorted_distinct(rs)),
-        T.map(~String, ~String, ~(n => "name " ++ n), Main.sorted_distinct(ns)))
+        Main.said.lines("revision ", SNil{}, Main.sorted_distinct(rs)),
+        Main.said.lines("name ", SNil{}, Main.sorted_distinct(ns)))
 
 def said.done(fields: Bool, t: Tally) -> List<&2, String>:
   match fields:
