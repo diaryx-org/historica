@@ -22,6 +22,10 @@ import ./bookmark.bend as Bm
 import ./sha256.bend as Sha
 import ./status_lemmas.bend as StatusL
 import ./store.bend as Store
+import ./composition_lemmas.bend as Comp
+import ./anchor_lemmas.bend as AL
+import ./equality_lemmas.bend as Eq
+import ./naming_lemmas.bend as NamingL
 
 # Its words
 # ---------
@@ -29,129 +33,395 @@ import ./store.bend as Store
 def done_rc(-a: Main.RecordCmd, -b: Main.RecordCmd, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {a == b : Main.RecordCmd}:
   B.done_eq(Main.RecordCmd, a, b, h)
 
-# What `record.split` cuts is `rargs.cut`.
-def cut_of(+v: String, +msg: String, parts: List<&2, String>, -s: T.Split, h: {Main.record.split.of(msg, parts) == Done{s} : Result<&2, &2, Main.Refused, T.Split>}) -> {s == Main.rargs.cut.of(v, parts) : T.Split}:
-  match parts:
+# Where the words read so far end, the next are read afresh.
+def kk(args: List<&2, String>, +more: List<&2, String>, k: Main.RWord) -> Main.RWord:
+  match args:
     case Nil{}:
-      Empty.absurd({s == Main.rargs.cut.of(v, Nil{}) : T.Split}, B.fail_done(T.Split, Main.Refused{2, msg}, s, h))
-    case +a <> Nil{}:
-      Empty.absurd({s == Main.rargs.cut.of(v, [a]) : T.Split}, B.fail_done(T.Split, Main.Refused{2, msg}, s, h))
-    case +a <> +b <> +rest:
-      Equal.sym(T.Split, T.Split{a, String.join(b <> rest, "=")}, s, B.done_eq(T.Split, T.Split{a, String.join(b <> rest, "=")}, s, h))
+      Main.rword(more)
+    case _:
+      k
 
-def split_cut(+v: String, +msg: String, -s: T.Split, h: {Main.record.split(v, msg) == Done{s} : Result<&2, &2, Main.Refused, T.Split>}) -> {s == Main.rargs.cut(v) : T.Split}:
-  cut_of(v, msg, String.split(v, '='), s, h)
+def kk_rw(args: List<&2, String>, +more: List<&2, String>) -> {kk(args, more, Main.rword(args)) == Main.rword(List.append(&2, String, args, more)) : Main.RWord}:
+  match args:
+    case Nil{}:
+      {==}
+    case w <> rest:
+      {==}
 
-def pick_done(-A: Data, b: Bool, -x: Main.Refused, -y: A, -z: A, h: {Bool.pick(Result<&2, &2, Main.Refused, A>, b, Fail{x}, Done{y}) == Done{z} : Result<&2, &2, Main.Refused, A>}) -> {y == z : A}:
-  match b:
-    case True{}:
-      Empty.absurd({y == z : A}, B.fail_done(A, x, z, h))
-    case False{}:
-      B.done_eq(A, y, z, h)
+def rstep(+rest: List<&2, String>, +more: List<&2, String>, -c1: Main.RecordCmd, -c2: Main.RecordCmd, ih: {Main.record.args.go(List.append(&2, String, rest, more), c1, kk(rest, more, Main.rword(rest))) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {Main.record.args.go(List.append(&2, String, rest, more), c1, Main.rword(List.append(&2, String, rest, more))) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  %kk_rw(rest, more) : {Main.record.args.go(List.append(&2, String, rest, more), c1, _) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}
+  ih
 
-def at_bind(+v: String, +rest: List<&2, String>, +o: Maybe<&2, String>, +ms: List<&2, String>, +ac: List<&2, String>, +at: List<&2, T.Split>, +mv: List<&2, T.Split>, +ks: List<&2, T.Split>, +ns: List<&2, String>, +d: Bool, +f: Bool, +mg: Maybe<&2, String>, r: Result<&2, &2, Main.Refused, T.Split>, +cmd: Main.RecordCmd, er: {Main.record.split(v, "`--at` is spelled `--at <file>=<path>`") == r : Result<&2, &2, Main.Refused, T.Split>}, e: {Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, r, s => Main.record.args.go(rest, Main.rc.at(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, s), Main.rword(rest))) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}, ih: @at2: List<&2, T.Split> -> {Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, at2, mv, ks, ns, d, f, mg}, Main.rword(rest)) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>} -> {cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at2, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}) -> {cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}:
+def rno(-args: List<&2, String>, -more: List<&2, String>, -c: Main.RecordCmd, -k: Main.RWord, -c2: Main.RecordCmd, -x: Main.Refused, h: {Fail{x} == Done{c2} : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {Main.record.args.go(List.append(&2, String, args, more), c, kk(args, more, k)) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  Empty.absurd({Main.record.args.go(List.append(&2, String, args, more), c, kk(args, more, k)) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}, B.fail_done(Main.RecordCmd, x, c2, h))
+
+def rsplit(-rest: List<&2, String>, -more: List<&2, String>, -u: T.Split -> Main.RecordCmd, -c2: Main.RecordCmd, r: Result<&2, &2, Main.Refused, T.Split>, e: {Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, r, s => Main.record.args.go(rest, u(s), Main.rword(rest))) == Done{c2} : Result<&2, &2, Main.Refused, Main.RecordCmd>}, ih: @s: T.Split -> {Main.record.args.go(rest, u(s), Main.rword(rest)) == Done{c2} : Result<&2, &2, Main.Refused, Main.RecordCmd>} -> {Main.record.args.go(List.append(&2, String, rest, more), u(s), Main.rword(List.append(&2, String, rest, more))) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, r, s => Main.record.args.go(List.append(&2, String, rest, more), u(s), Main.rword(List.append(&2, String, rest, more)))) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
   match r:
     case Fail{x}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, x, cmd, e))
-    case Done{+s}:
-      +hs = split_cut(v, "`--at` is spelled `--at <file>=<path>`", s, er)
-      +assoc = Equal.trans(List<&2, T.Split>, List.append(&2, T.Split, List.append(&2, T.Split, at, [s]), Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, at, s <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, at, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))),
-        SortL.app_assoc(T.Split, at, [s], Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))),
-        Equal.cong(T.Split, List<&2, T.Split>, y => List.append(&2, T.Split, at, y <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), s, Main.rargs.cut(v), hs))
-      Equal.trans(Main.RecordCmd, cmd, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, List.append(&2, T.Split, at, [s]), Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)},
-        ih(List.append(&2, T.Split, at, [s]), e),
-        Equal.cong(List<&2, T.Split>, Main.RecordCmd, x => Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), x, List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, List.append(&2, T.Split, List.append(&2, T.Split, at, [s]), Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, at, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), assoc))
+      Empty.absurd({Fail{x} == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}, B.fail_done(Main.RecordCmd, x, c2, e))
+    case Done{s}:
+      ih(s, e)
 
-def move_bind(+v: String, +rest: List<&2, String>, +o: Maybe<&2, String>, +ms: List<&2, String>, +ac: List<&2, String>, +at: List<&2, T.Split>, +mv: List<&2, T.Split>, +ks: List<&2, T.Split>, +ns: List<&2, String>, +d: Bool, +f: Bool, +mg: Maybe<&2, String>, r: Result<&2, &2, Main.Refused, T.Split>, +cmd: Main.RecordCmd, er: {Main.record.split(v, "`--move` is spelled `--move <old>=<new>`") == r : Result<&2, &2, Main.Refused, T.Split>}, e: {Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, r, s => Main.record.args.go(rest, Main.rc.move(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, s), Main.rword(rest))) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}, ih: @mv2: List<&2, T.Split> -> {Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, at, mv2, ks, ns, d, f, mg}, Main.rword(rest)) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>} -> {cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv2, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}) -> {cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}:
+def rpath(-rest: List<&2, String>, -more: List<&2, String>, -c2: Main.RecordCmd, r: Result<&2, &2, Main.Refused, Main.RecordCmd>, e: {Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, r, m => Main.record.args.go(rest, m, Main.rword(rest))) == Done{c2} : Result<&2, &2, Main.Refused, Main.RecordCmd>}, ih: @m: Main.RecordCmd -> {Main.record.args.go(rest, m, Main.rword(rest)) == Done{c2} : Result<&2, &2, Main.Refused, Main.RecordCmd>} -> {Main.record.args.go(List.append(&2, String, rest, more), m, Main.rword(List.append(&2, String, rest, more))) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, r, m => Main.record.args.go(List.append(&2, String, rest, more), m, Main.rword(List.append(&2, String, rest, more)))) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
   match r:
     case Fail{x}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, x, cmd, e))
-    case Done{+s}:
-      +hs = split_cut(v, "`--move` is spelled `--move <old>=<new>`", s, er)
-      +assoc = Equal.trans(List<&2, T.Split>, List.append(&2, T.Split, List.append(&2, T.Split, mv, [s]), Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, mv, s <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))),
-        SortL.app_assoc(T.Split, mv, [s], Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))),
-        Equal.cong(T.Split, List<&2, T.Split>, y => List.append(&2, T.Split, mv, y <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), s, Main.rargs.cut(v), hs))
-      Equal.trans(Main.RecordCmd, cmd, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, List.append(&2, T.Split, mv, [s]), Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)},
-        ih(List.append(&2, T.Split, mv, [s]), e),
-        Equal.cong(List<&2, T.Split>, Main.RecordCmd, x => Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), x, List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, List.append(&2, T.Split, List.append(&2, T.Split, mv, [s]), Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), assoc))
+      Empty.absurd({Fail{x} == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}, B.fail_done(Main.RecordCmd, x, c2, e))
+    case Done{m}:
+      ih(m, e)
 
-def path_bind(+tw: String, +rest: List<&2, String>, +o: Maybe<&2, String>, +ms: List<&2, String>, +ac: List<&2, String>, +at: List<&2, T.Split>, +mv: List<&2, T.Split>, +ks: List<&2, T.Split>, +ns: List<&2, String>, +d: Bool, +f: Bool, +mg: Maybe<&2, String>, r: Result<&2, &2, Main.Refused, Main.RecordCmd>, +cmd: Main.RecordCmd, er: {Main.record.path(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, tw) == r : Result<&2, &2, Main.Refused, Main.RecordCmd>}, e: {Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, r, more => Main.record.args.go(rest, more, Main.rword(rest))) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}, ih: @ns2: List<&2, String> -> {Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, at, mv, ks, ns2, d, f, mg}, Main.rword(rest)) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>} -> {cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns2), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}) -> {cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), tw <> ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}:
-  match r:
-    case Fail{x}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), tw <> ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, x, cmd, e))
-    case Done{+more}:
-      +hm = pick_done(Main.RecordCmd, String.is_empty(tw), Main.Refused{2, "`record` takes the paths to record, and an empty one names nothing"}, Main.RecordCmd{o, ms, ac, at, mv, ks, tw <> ns, d, f, mg}, more, er)
-      ih(tw <> ns, Equal.trans(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(rest, Main.RecordCmd{o, ms, ac, at, mv, ks, tw <> ns, d, f, mg}, Main.rword(rest)), Main.record.args.go(rest, more, Main.rword(rest)), Done{cmd},
-        Equal.cong(Main.RecordCmd, Result<&2, &2, Main.Refused, Main.RecordCmd>, x => Main.record.args.go(rest, x, Main.rword(rest)), Main.RecordCmd{o, ms, ac, at, mv, ks, tw <> ns, d, f, mg}, more, hm), e))
+# A flag that takes no value, or a path, read before words not yet known.
+def dry_cons(w: String, more: List<&2, String>, -c: Main.RecordCmd) -> {Main.record.args.go(w <> more, c, Main.RWord.Dry{}) == Main.record.args.go(more, Main.rc.dry(c), Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  match more:
+    case Nil{}:
+      {==}
+    case x <> y:
+      {==}
 
-# One pass over the words reads what their plain reading says.
-def go_said(args: List<&2, String>, +o: Maybe<&2, String>, +ms: List<&2, String>, +ac: List<&2, String>, +at: List<&2, T.Split>, +mv: List<&2, T.Split>, +ks: List<&2, T.Split>, +ns: List<&2, String>, +d: Bool, +f: Bool, +mg: Maybe<&2, String>, k: Main.RWord, +cmd: Main.RecordCmd, e: {Main.record.args.go(args, Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, k) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(args, k), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(args, k), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(args, k), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(args, k), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(args, k), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(args, k))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(args, k), "path"), ns), Main.rargs.has(Main.rargs.read(args, k), "--dry-run", d), Main.rargs.has(Main.rargs.read(args, k), "--fields", f), Main.rargs.last(Main.rargs.read(args, k), "-m", mg)} : Main.RecordCmd}:
+def fields_cons(w: String, more: List<&2, String>, -c: Main.RecordCmd) -> {Main.record.args.go(w <> more, c, Main.RWord.Fields{}) == Main.record.args.go(more, Main.rc.fields(c), Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  match more:
+    case Nil{}:
+      {==}
+    case x <> y:
+      {==}
+
+def path_cons(w: String, more: List<&2, String>, -c: Main.RecordCmd) -> {Main.record.args.go(w <> more, c, Main.RWord.Path{}) == Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, Main.record.path(c, Main.trimmed(w)), m => Main.record.args.go(more, m, Main.rword(more))) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  match more:
+    case Nil{}:
+      {==}
+    case x <> y:
+      {==}
+
+# `record` reads its words one at a time: what words it has read say
+# something, and the words after them are read from what they said.
+def go_app(args: List<&2, String>, +more: List<&2, String>, +c: Main.RecordCmd, k: Main.RWord, -c2: Main.RecordCmd, e: {Main.record.args.go(args, c, k) == Done{c2} : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {Main.record.args.go(List.append(&2, String, args, more), c, kk(args, more, k)) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
   match args k:
     case Nil{} _:
-      %done_rc(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, cmd, e) : {_ == Main.RecordCmd{o, List.append(&2, String, ms, Nil{}), ac, List.append(&2, T.Split, at, Nil{}), List.append(&2, T.Split, mv, Nil{}), List.append(&2, T.Split, ks, Nil{}), ns, d, f, mg} : Main.RecordCmd}
-      %Equal.sym(List<&2, String>, List.append(&2, String, ms, Nil{}), ms, SortL.lapp_nil(String, ms)) : {Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg} == Main.RecordCmd{o, _, ac, List.append(&2, T.Split, at, Nil{}), List.append(&2, T.Split, mv, Nil{}), List.append(&2, T.Split, ks, Nil{}), ns, d, f, mg} : Main.RecordCmd}
-      %Equal.sym(List<&2, T.Split>, List.append(&2, T.Split, at, Nil{}), at, SortL.lapp_nil(T.Split, at)) : {Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg} == Main.RecordCmd{o, ms, ac, _, List.append(&2, T.Split, mv, Nil{}), List.append(&2, T.Split, ks, Nil{}), ns, d, f, mg} : Main.RecordCmd}
-      %Equal.sym(List<&2, T.Split>, List.append(&2, T.Split, mv, Nil{}), mv, SortL.lapp_nil(T.Split, mv)) : {Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg} == Main.RecordCmd{o, ms, ac, at, _, List.append(&2, T.Split, ks, Nil{}), ns, d, f, mg} : Main.RecordCmd}
-      %Equal.sym(List<&2, T.Split>, List.append(&2, T.Split, ks, Nil{}), ks, SortL.lapp_nil(T.Split, ks)) : {Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg} == Main.RecordCmd{o, ms, ac, at, mv, _, ns, d, f, mg} : Main.RecordCmd}
+      %done_rc(c, c2, e) : {Main.record.args.go(more, c, Main.rword(more)) == Main.record.args.go(more, _, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}
       {==}
-    case +w <> Nil{} Main.RWord.Message{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.Message{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.Message{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Message{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Message{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Message{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.Message{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Message{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.Message{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.Message{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.Message{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`-m` wants a value"}, cmd, e))
+    case w <> Nil{} Main.RWord.Message{}:
+      rno([w], more, c, Main.RWord.Message{}, c2, Main.Refused{2, "`-m` wants a value"}, e)
     case w <> +v <> +rest Main.RWord.Message{}:
-      go_said(rest, o, ms, ac, at, mv, ks, ns, d, f, Some{v}, Main.rword(rest), cmd, e)
-    case +w <> Nil{} Main.RWord.Onto{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.Onto{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.Onto{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Onto{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Onto{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Onto{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.Onto{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Onto{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.Onto{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.Onto{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.Onto{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`--onto` wants a value"}, cmd, e))
+      rstep(rest, more, Main.rc.message(c, v), c2, go_app(rest, more, Main.rc.message(c, v), Main.rword(rest), c2, e))
+    case w <> Nil{} Main.RWord.Onto{}:
+      rno([w], more, c, Main.RWord.Onto{}, c2, Main.Refused{2, "`--onto` wants a value"}, e)
     case w <> +v <> +rest Main.RWord.Onto{}:
-      go_said(rest, Some{v}, ms, ac, at, mv, ks, ns, d, f, mg, Main.rword(rest), cmd, e)
-    case +w <> Nil{} Main.RWord.Merge{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.Merge{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.Merge{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Merge{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Merge{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Merge{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.Merge{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Merge{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.Merge{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.Merge{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.Merge{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`--merge` wants a value"}, cmd, e))
+      rstep(rest, more, Main.rc.onto(c, v), c2, go_app(rest, more, Main.rc.onto(c, v), Main.rword(rest), c2, e))
+    case w <> Nil{} Main.RWord.Merge{}:
+      rno([w], more, c, Main.RWord.Merge{}, c2, Main.Refused{2, "`--merge` wants a value"}, e)
     case w <> +v <> +rest Main.RWord.Merge{}:
-      Equal.trans(Main.RecordCmd, cmd, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, List.append(&2, String, ms, [v]), Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, v <> Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)},
-        go_said(rest, o, List.append(&2, String, ms, [v]), ac, at, mv, ks, ns, d, f, mg, Main.rword(rest), cmd, e),
-        Equal.cong(List<&2, String>, Main.RecordCmd, x => Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), x, List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, List.append(&2, String, List.append(&2, String, ms, [v]), Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.append(&2, String, ms, v <> Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), SortL.app_assoc(String, ms, [v], Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge"))))
-    case +w <> Nil{} Main.RWord.Accept{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.Accept{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.Accept{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Accept{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Accept{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Accept{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.Accept{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Accept{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.Accept{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.Accept{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.Accept{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`--accept` wants a value"}, cmd, e))
+      rstep(rest, more, Main.rc.merge(c, v), c2, go_app(rest, more, Main.rc.merge(c, v), Main.rword(rest), c2, e))
+    case w <> Nil{} Main.RWord.Accept{}:
+      rno([w], more, c, Main.RWord.Accept{}, c2, Main.Refused{2, "`--accept` wants a value"}, e)
     case w <> +v <> +rest Main.RWord.Accept{}:
-      go_said(rest, o, ms, v <> ac, at, mv, ks, ns, d, f, mg, Main.rword(rest), cmd, e)
-    case +w <> Nil{} Main.RWord.At{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.At{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.At{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.At{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.At{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.At{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.At{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.At{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.At{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.At{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.At{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`--at` wants a value"}, cmd, e))
+      rstep(rest, more, Main.rc.accept(c, v), c2, go_app(rest, more, Main.rc.accept(c, v), Main.rword(rest), c2, e))
+    case w <> Nil{} Main.RWord.At{}:
+      rno([w], more, c, Main.RWord.At{}, c2, Main.Refused{2, "`--at` wants a value"}, e)
     case w <> +v <> +rest Main.RWord.At{}:
-      at_bind(v, rest, o, ms, ac, at, mv, ks, ns, d, f, mg, Main.record.split(v, "`--at` is spelled `--at <file>=<path>`"), cmd, {==}, e, at2 => h => go_said(rest, o, ms, ac, at2, mv, ks, ns, d, f, mg, Main.rword(rest), cmd, h))
-    case +w <> Nil{} Main.RWord.Move{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.Move{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.Move{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Move{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Move{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Move{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.Move{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Move{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.Move{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.Move{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.Move{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`--move` wants a value"}, cmd, e))
+      rsplit(rest, more, s => Main.rc.at(c, s), c2, Main.record.split(v, "`--at` is spelled `--at <file>=<path>`"), e, +s => h => rstep(rest, more, Main.rc.at(c, s), c2, go_app(rest, more, Main.rc.at(c, s), Main.rword(rest), c2, h)))
+    case w <> Nil{} Main.RWord.Move{}:
+      rno([w], more, c, Main.RWord.Move{}, c2, Main.Refused{2, "`--move` wants a value"}, e)
     case w <> +v <> +rest Main.RWord.Move{}:
-      move_bind(v, rest, o, ms, ac, at, mv, ks, ns, d, f, mg, Main.record.split(v, "`--move` is spelled `--move <old>=<new>`"), cmd, {==}, e, mv2 => h => go_said(rest, o, ms, ac, at, mv2, ks, ns, d, f, mg, Main.rword(rest), cmd, h))
-    case +w <> Nil{} Main.RWord.Bytes{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.Bytes{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.Bytes{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Bytes{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Bytes{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Bytes{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.Bytes{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Bytes{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.Bytes{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.Bytes{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.Bytes{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`--bytes` wants a value"}, cmd, e))
+      rsplit(rest, more, s => Main.rc.move(c, s), c2, Main.record.split(v, "`--move` is spelled `--move <old>=<new>`"), e, +s => h => rstep(rest, more, Main.rc.move(c, s), c2, go_app(rest, more, Main.rc.move(c, s), Main.rword(rest), c2, h)))
+    case w <> Nil{} Main.RWord.Bytes{}:
+      rno([w], more, c, Main.RWord.Bytes{}, c2, Main.Refused{2, "`--bytes` wants a value"}, e)
     case w <> +v <> +rest Main.RWord.Bytes{}:
-      Equal.trans(Main.RecordCmd, cmd, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, List.append(&2, T.Split, ks, [T.Split{v, "bytes"}]), Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, T.Split{v, "bytes"} <> Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)},
-        go_said(rest, o, ms, ac, at, mv, List.append(&2, T.Split, ks, [T.Split{v, "bytes"}]), ns, d, f, mg, Main.rword(rest), cmd, e),
-        Equal.cong(List<&2, T.Split>, Main.RecordCmd, x => Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), x, List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, List.append(&2, T.Split, List.append(&2, T.Split, ks, [T.Split{v, "bytes"}]), Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.append(&2, T.Split, ks, T.Split{v, "bytes"} <> Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), SortL.app_assoc(T.Split, ks, [T.Split{v, "bytes"}], Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest))))))
-    case +w <> Nil{} Main.RWord.Lines{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.Lines{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.Lines{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Lines{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Lines{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Lines{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.Lines{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Lines{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.Lines{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.Lines{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.Lines{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`--lines` wants a value"}, cmd, e))
+      rstep(rest, more, Main.rc.kind(c, T.Split{v, "bytes"}), c2, go_app(rest, more, Main.rc.kind(c, T.Split{v, "bytes"}), Main.rword(rest), c2, e))
+    case w <> Nil{} Main.RWord.Lines{}:
+      rno([w], more, c, Main.RWord.Lines{}, c2, Main.Refused{2, "`--lines` wants a value"}, e)
     case w <> +v <> +rest Main.RWord.Lines{}:
-      Equal.trans(Main.RecordCmd, cmd, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, List.append(&2, T.Split, ks, [T.Split{v, "lines"}]), Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), List.append(&2, T.Split, ks, T.Split{v, "lines"} <> Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)},
-        go_said(rest, o, ms, ac, at, mv, List.append(&2, T.Split, ks, [T.Split{v, "lines"}]), ns, d, f, mg, Main.rword(rest), cmd, e),
-        Equal.cong(List<&2, T.Split>, Main.RecordCmd, x => Main.RecordCmd{Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "--move"))), x, List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(rest, Main.rword(rest)), "path"), ns), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--dry-run", d), Main.rargs.has(Main.rargs.read(rest, Main.rword(rest)), "--fields", f), Main.rargs.last(Main.rargs.read(rest, Main.rword(rest)), "-m", mg)}, List.append(&2, T.Split, List.append(&2, T.Split, ks, [T.Split{v, "lines"}]), Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), List.append(&2, T.Split, ks, T.Split{v, "lines"} <> Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest)))), SortL.app_assoc(T.Split, ks, [T.Split{v, "lines"}], Main.rargs.kinds(Main.rargs.read(rest, Main.rword(rest))))))
-    case w <> Nil{} Main.RWord.Dry{}:
-      go_said(Nil{}, o, ms, ac, at, mv, ks, ns, True{}, f, mg, Main.rword(Nil{}), cmd, e)
+      rstep(rest, more, Main.rc.kind(c, T.Split{v, "lines"}), c2, go_app(rest, more, Main.rc.kind(c, T.Split{v, "lines"}), Main.rword(rest), c2, e))
+    case +w <> Nil{} Main.RWord.Dry{}:
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(w <> more, c, Main.RWord.Dry{}), Main.record.args.go(more, Main.rc.dry(c), Main.rword(more)), Main.record.args.go(more, c2, Main.rword(more)), dry_cons(w, more, c), Equal.cong(Main.RecordCmd, Result<&2, &2, Main.Refused, Main.RecordCmd>, x => Main.record.args.go(more, x, Main.rword(more)), Main.rc.dry(c), c2, done_rc(Main.rc.dry(c), c2, e)))
     case w <> +v <> +rest Main.RWord.Dry{}:
-      go_said(v <> rest, o, ms, ac, at, mv, ks, ns, True{}, f, mg, Main.rword(v <> rest), cmd, e)
-    case w <> Nil{} Main.RWord.Fields{}:
-      go_said(Nil{}, o, ms, ac, at, mv, ks, ns, d, True{}, mg, Main.rword(Nil{}), cmd, e)
+      rstep(v <> rest, more, Main.rc.dry(c), c2, go_app(v <> rest, more, Main.rc.dry(c), Main.rword(v <> rest), c2, e))
+    case +w <> Nil{} Main.RWord.Fields{}:
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(w <> more, c, Main.RWord.Fields{}), Main.record.args.go(more, Main.rc.fields(c), Main.rword(more)), Main.record.args.go(more, c2, Main.rword(more)), fields_cons(w, more, c), Equal.cong(Main.RecordCmd, Result<&2, &2, Main.Refused, Main.RecordCmd>, x => Main.record.args.go(more, x, Main.rword(more)), Main.rc.fields(c), c2, done_rc(Main.rc.fields(c), c2, e)))
     case w <> +v <> +rest Main.RWord.Fields{}:
-      go_said(v <> rest, o, ms, ac, at, mv, ks, ns, d, True{}, mg, Main.rword(v <> rest), cmd, e)
-    case +w <> Nil{} Main.RWord.Flag{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read([w], Main.RWord.Flag{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read([w], Main.RWord.Flag{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Flag{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Flag{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read([w], Main.RWord.Flag{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read([w], Main.RWord.Flag{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read([w], Main.RWord.Flag{}), "path"), ns), Main.rargs.has(Main.rargs.read([w], Main.RWord.Flag{}), "--dry-run", d), Main.rargs.has(Main.rargs.read([w], Main.RWord.Flag{}), "--fields", f), Main.rargs.last(Main.rargs.read([w], Main.RWord.Flag{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`" ++ w ++ "` is not an argument `record` takes"}, cmd, e))
-    case +w <> +v <> +rest Main.RWord.Flag{}:
-      Empty.absurd({cmd == Main.RecordCmd{Main.rargs.last(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "--onto", o), List.append(&2, String, ms, Main.rargs.values(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "--merge")), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "--accept"), ac), List.append(&2, T.Split, at, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "--at"))), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "--move"))), List.append(&2, T.Split, ks, Main.rargs.kinds(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}))), List.reverse.go(&2, String, Main.rargs.values(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "path"), ns), Main.rargs.has(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "--dry-run", d), Main.rargs.has(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "--fields", f), Main.rargs.last(Main.rargs.read(w <> v <> rest, Main.RWord.Flag{}), "-m", mg)} : Main.RecordCmd}, B.fail_done(Main.RecordCmd, Main.Refused{2, "`" ++ w ++ "` is not an argument `record` takes"}, cmd, e))
+      rstep(v <> rest, more, Main.rc.fields(c), c2, go_app(v <> rest, more, Main.rc.fields(c), Main.rword(v <> rest), c2, e))
+    case w <> Nil{} Main.RWord.Flag{}:
+      rno([w], more, c, Main.RWord.Flag{}, c2, Main.Refused{2, "`" ++ w ++ "` is not an argument `record` takes"}, e)
+    case w <> v <> rest Main.RWord.Flag{}:
+      rno(w <> v <> rest, more, c, Main.RWord.Flag{}, c2, Main.Refused{2, "`" ++ w ++ "` is not an argument `record` takes"}, e)
     case +w <> Nil{} Main.RWord.Path{}:
-      path_bind(Main.trimmed(w), Nil{}, o, ms, ac, at, mv, ks, ns, d, f, mg, Main.record.path(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.trimmed(w)), cmd, {==}, e, ns2 => h => go_said(Nil{}, o, ms, ac, at, mv, ks, ns2, d, f, mg, Main.rword(Nil{}), cmd, h))
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(w <> more, c, Main.RWord.Path{}), Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, Main.record.path(c, Main.trimmed(w)), m => Main.record.args.go(more, m, Main.rword(more))), Main.record.args.go(more, c2, Main.rword(more)), path_cons(w, more, c), rpath(Nil{}, more, c2, Main.record.path(c, Main.trimmed(w)), e, +m => h => rstep(Nil{}, more, m, c2, go_app(Nil{}, more, m, Main.rword(Nil{}), c2, h))))
     case +w <> +v <> +rest Main.RWord.Path{}:
-      path_bind(Main.trimmed(w), v <> rest, o, ms, ac, at, mv, ks, ns, d, f, mg, Main.record.path(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.trimmed(w)), cmd, {==}, e, ns2 => h => go_said(v <> rest, o, ms, ac, at, mv, ks, ns2, d, f, mg, Main.rword(v <> rest), cmd, h))
+      rpath(v <> rest, more, c2, Main.record.path(c, Main.trimmed(w)), e, +m => h => rstep(v <> rest, more, m, c2, go_app(v <> rest, more, m, Main.rword(v <> rest), c2, h)))
 
-# `record` reads its words as their plain reading says.
-def args_said(+args: List<&2, String>, +cmd: Main.RecordCmd, e: {Main.record.args.r(args) == Done{cmd} : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {cmd == Main.rargs.said(Main.rargs.read(args, Main.rword(args))) : Main.RecordCmd}:
-  go_said(args, None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}, Main.rword(args), cmd, e)
+# So what follows words `record` reads is read from what they said.
+def app_r(+args: List<&2, String>, +more: List<&2, String>, -c2: Main.RecordCmd, e: {Main.record.args.r(args) == Done{c2} : Result<&2, &2, Main.Refused, Main.RecordCmd>}) -> {Main.record.args.r(List.append(&2, String, args, more)) == Main.record.args.go(more, c2, Main.rword(more)) : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  rstep(args, more, Main.RecordCmd{None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, c2, go_app(args, more, Main.RecordCmd{None{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, False{}, False{}, None{}}, Main.rword(args), c2, e))
+
+# The words read with each of `wss` after them, and what each of those
+# says on its own after what the words said.
+def after(+args: List<&2, String>, wss: List<&2, List<&2, String>>) -> List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>:
+  match wss:
+    case Nil{}:
+      Nil{}
+    case +ws <> rest:
+      Main.record.args.r(List.append(&2, String, args, ws)) <> after(args, rest)
+
+def each(wss: List<&2, List<&2, String>>, +c: Main.RecordCmd) -> List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>:
+  match wss:
+    case Nil{}:
+      Nil{}
+    case +ws <> rest:
+      Main.record.args.go(ws, c, Main.rword(ws)) <> each(rest, c)
+
+def each_app(+args: List<&2, String>, -c: Main.RecordCmd, +e: {Main.record.args.r(args) == Done{c} : Result<&2, &2, Main.Refused, Main.RecordCmd>}, wss: List<&2, List<&2, String>>) -> {after(args, wss) == each(wss, c) : List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>}:
+  match wss:
+    case Nil{}:
+      {==}
+    case +ws <> +rest:
+      %Equal.sym(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.r(List.append(&2, String, args, ws)), Main.record.args.go(ws, c, Main.rword(ws)), app_r(args, ws, c, e)) : {_ <> after(args, rest) == each(ws <> rest, c) : List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>}
+      %Equal.sym(List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>, after(args, rest), each(rest, c), each_app(args, c, e, rest)) : {Main.record.args.go(ws, c, Main.rword(ws)) <> _ == each(ws <> rest, c) : List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>}
+      {==}
+
+# Each flag after words `record` has read says one thing more.
+def words_read(+args: List<&2, String>, +o: Maybe<&2, String>, +ms: List<&2, String>, +ac: List<&2, String>, +at: List<&2, T.Split>, +mv: List<&2, T.Split>, +ks: List<&2, T.Split>, +ns: List<&2, String>, +d: Bool, +f: Bool, +mg: Maybe<&2, String>, +e: {Main.record.args.r(args) == Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}, +v: String) -> {[Main.record.args.r(List.append(&2, String, args, ["-m", v])), Main.record.args.r(List.append(&2, String, args, ["--message", v])), Main.record.args.r(List.append(&2, String, args, ["--onto", v])), Main.record.args.r(List.append(&2, String, args, ["--merge", v])), Main.record.args.r(List.append(&2, String, args, ["--accept", v])), Main.record.args.r(List.append(&2, String, args, ["--bytes", v])), Main.record.args.r(List.append(&2, String, args, ["--lines", v])), Main.record.args.r(List.append(&2, String, args, ["-n"])), Main.record.args.r(List.append(&2, String, args, ["--dry-run"])), Main.record.args.r(List.append(&2, String, args, ["--fields"])), Main.record.args.r(List.append(&2, String, args, ["-m"])), Main.record.args.r(List.append(&2, String, args, ["--onto"])), Main.record.args.r(List.append(&2, String, args, ["--merge"])), Main.record.args.r(List.append(&2, String, args, ["--accept"])), Main.record.args.r(List.append(&2, String, args, ["--at"])), Main.record.args.r(List.append(&2, String, args, ["--move"])), Main.record.args.r(List.append(&2, String, args, ["--bytes"])), Main.record.args.r(List.append(&2, String, args, ["--lines"]))] == [Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, Some{v}}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, Some{v}}}, Done{Main.RecordCmd{Some{v}, ms, ac, at, mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, List.append(&2, String, ms, [v]), ac, at, mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, v <> ac, at, mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, List.append(&2, T.Split, ks, [T.Split{v, "bytes"}]), ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, List.append(&2, T.Split, ks, [T.Split{v, "lines"}]), ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, True{}, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, True{}, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, True{}, mg}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Fail{Main.Refused{2, "`--onto` wants a value"}}, Fail{Main.Refused{2, "`--merge` wants a value"}}, Fail{Main.Refused{2, "`--accept` wants a value"}}, Fail{Main.Refused{2, "`--at` wants a value"}}, Fail{Main.Refused{2, "`--move` wants a value"}}, Fail{Main.Refused{2, "`--bytes` wants a value"}}, Fail{Main.Refused{2, "`--lines` wants a value"}}] : List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>}:
+  each_app(args, Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, e, [["-m", v], ["--message", v], ["--onto", v], ["--merge", v], ["--accept", v], ["--bytes", v], ["--lines", v], ["-n"], ["--dry-run"], ["--fields"], ["-m"], ["--onto"], ["--merge"], ["--accept"], ["--at"], ["--move"], ["--bytes"], ["--lines"]])
+
+# A value cut at its first `=`
+# --------------------------
+
+def split_eq(a: String, -b: String, +h: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}) -> {String.split(a ++ SCon{'=', b}, '=') == a <> String.split(b, '=') : List<&2, String>}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      Equal.trans(List<&2, String>, String.split.fin(c, String.split(t ++ SCon{'=', b}, '='), Char.is_eq(c, '=')), String.split.fin(c, String.split(t ++ SCon{'=', b}, '='), False{}), SCon{c, t} <> String.split(b, '='),
+        Equal.cong(Bool, List<&2, String>, x => String.split.fin(c, String.split(t ++ SCon{'=', b}, '='), x), Char.is_eq(c, '='), False{}, AL.not_of_true(Char.is_eq(c, '='), Comp.and_left(Bool.not(Char.is_eq(c, '=')), T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), t), h))),
+        Equal.cong(List<&2, String>, List<&2, String>, l => String.split.push(c, l), String.split(t ++ SCon{'=', b}, '='), t <> String.split(b, '='), split_eq(t, b, Comp.and_right(Bool.not(Char.is_eq(c, '=')), T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), t), h))))
+
+def split_one(a: String, +h: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}) -> {String.split(a, '=') == [a] : List<&2, String>}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      Equal.trans(List<&2, String>, String.split.fin(c, String.split(t, '='), Char.is_eq(c, '=')), String.split.fin(c, String.split(t, '='), False{}), [SCon{c, t}],
+        Equal.cong(Bool, List<&2, String>, x => String.split.fin(c, String.split(t, '='), x), Char.is_eq(c, '='), False{}, AL.not_of_true(Char.is_eq(c, '='), Comp.and_left(Bool.not(Char.is_eq(c, '=')), T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), t), h))),
+        Equal.cong(List<&2, String>, List<&2, String>, l => String.split.push(c, l), String.split(t, '='), [t], split_one(t, Comp.and_right(Bool.not(Char.is_eq(c, '=')), T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), t), h))))
+
+def filled(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case h <> t:
+      True{}
+
+def split_filled.fin(c: Char, cut: Bool, r: List<&2, String>, -ne: {filled(r) == True{} : Bool}) -> {filled(String.split.fin(c, r, cut)) == True{} : Bool}:
+  match cut:
+    case True{}:
+      {==}
+    case False{}:
+      match r:
+        case Nil{}:
+          {==}
+        case h <> t:
+          {==}
+
+def split_filled(s: String) -> {filled(String.split(s, '=')) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+h, +t}:
+      split_filled.fin(h, Char.is_eq(h, '='), String.split(t, '='), split_filled(t))
+
+def join_cut(r: List<&2, String>, ne: {filled(r) == True{} : Bool}) -> {String.join(SNil{} <> r, "=") == SCon{'=', String.join(r, "=")} : String}:
+  match r:
+    case Nil{}:
+      Empty.absurd({String.join([SNil{}], "=") == SCon{'=', String.join(Nil{}, "=")} : String}, Comp.false_true(ne))
+    case q <> more:
+      {==}
+
+def join_push(c: Char, r: List<&2, String>, ne: {filled(r) == True{} : Bool}) -> {String.join(String.split.push(c, r), "=") == SCon{c, String.join(r, "=")} : String}:
+  match r:
+    case Nil{}:
+      Empty.absurd({String.join(String.split.push(c, Nil{}), "=") == SCon{c, String.join(Nil{}, "=")} : String}, Comp.false_true(ne))
+    case p <> Nil{}:
+      {==}
+    case p <> q <> more:
+      {==}
+
+def join_split.fin(h: Char, +t: String, cut: Bool, eq: {Char.is_eq(h, '=') == cut : Bool}, ih: {String.join(String.split(t, '='), "=") == t : String}) -> {String.join(String.split.fin(h, String.split(t, '='), cut), "=") == SCon{h, t} : String}:
+  match cut:
+    case True{}:
+      %Equal.sym(String, String.join(SNil{} <> String.split(t, '='), "="), SCon{'=', String.join(String.split(t, '='), "=")}, join_cut(String.split(t, '='), split_filled(t))) : {_ == SCon{h, t} : String}
+      %Equal.sym(String, String.join(String.split(t, '='), "="), t, ih) : {SCon{'=', _} == SCon{h, t} : String}
+      %Eq.char_eq(h, '=', eq) : {SCon{_, t} == SCon{h, t} : String}
+      {==}
+    case False{}:
+      %Equal.sym(String, String.join(String.split.push(h, String.split(t, '=')), "="), SCon{h, String.join(String.split(t, '='), "=")}, join_push(h, String.split(t, '='), split_filled(t))) : {_ == SCon{h, t} : String}
+      %Equal.sym(String, String.join(String.split(t, '='), "="), t, ih) : {SCon{h, _} == SCon{h, t} : String}
+      {==}
+
+# What a value splits into at each `=`, joined back at each, is the value.
+def join_split(s: String) -> {String.join(String.split(s, '='), "=") == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+h, +t}:
+      join_split.fin(h, t, Char.is_eq(h, '='), {==}, join_split(t))
+
+def cut_cons(+a: String, +msg: String, xs: List<&2, String>, ne: {filled(xs) == True{} : Bool}) -> {Main.record.split.of(msg, a <> xs) == Done{T.Split{a, String.join(xs, "=")}} : Result<&2, &2, Main.Refused, T.Split>}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Main.record.split.of(msg, [a]) == Done{T.Split{a, String.join(Nil{}, "=")}} : Result<&2, &2, Main.Refused, T.Split>}, Comp.false_true(ne))
+    case q <> more:
+      {==}
+
+# A value with an `=` is cut at the first, whatever follows it.
+def split_at(+a: String, +b: String, +msg: String, +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}) -> {Main.record.split(a ++ ("=" ++ b), msg) == Done{T.Split{a, b}} : Result<&2, &2, Main.Refused, T.Split>}:
+  Equal.trans(Result<&2, &2, Main.Refused, T.Split>, Main.record.split.of(msg, String.split(a ++ SCon{'=', b}, '=')), Main.record.split.of(msg, a <> String.split(b, '=')), Done{T.Split{a, b}},
+    Equal.cong(List<&2, String>, Result<&2, &2, Main.Refused, T.Split>, xs => Main.record.split.of(msg, xs), String.split(a ++ SCon{'=', b}, '='), a <> String.split(b, '='), split_eq(a, b, ha)),
+    Equal.trans(Result<&2, &2, Main.Refused, T.Split>, Main.record.split.of(msg, a <> String.split(b, '=')), Done{T.Split{a, String.join(String.split(b, '='), "=")}}, Done{T.Split{a, b}},
+      cut_cons(a, msg, String.split(b, '='), split_filled(b)),
+      Equal.cong(String, Result<&2, &2, Main.Refused, T.Split>, x => Done{T.Split{a, x}}, String.join(String.split(b, '='), "="), b, join_split(b))))
+
+# And one with none is refused.
+def split_none(+a: String, +msg: String, +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}) -> {Main.record.split(a, msg) == Fail{Main.Refused{2, msg}} : Result<&2, &2, Main.Refused, T.Split>}:
+  Equal.cong(List<&2, String>, Result<&2, &2, Main.Refused, T.Split>, xs => Main.record.split.of(msg, xs), String.split(a, '='), [a], split_one(a, ha))
+
+# A word that is no flag
+# ----------------------
+
+def neq_dash.of(+p: String, +q: String, b: Bool, eb: {String.eq(p, q) == b : Bool}, hp: {String.starts_with(p, "-") == False{} : Bool}, hq: {String.starts_with(q, "-") == True{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      +pq = S.eq_true(p, q, eb)
+      +hq2 = Equal.trans(Bool, String.starts_with(q, "-"), String.starts_with(p, "-"), False{}, Equal.cong(String, Bool, s => String.starts_with(s, "-"), q, p, Equal.sym(String, p, q, pq)), hp)
+      Empty.absurd({True{} == False{} : Bool}, Comp.false_true(Equal.trans(Bool, False{}, String.starts_with(q, "-"), True{}, Equal.sym(Bool, String.starts_with(q, "-"), False{}, hq2), hq)))
+
+# A word that does not begin with `-` is none of the flags, which all do.
+def neq_dash(+p: String, +q: String, hp: {String.starts_with(p, "-") == False{} : Bool}, hq: {String.starts_with(q, "-") == True{} : Bool}) -> {String.eq(p, q) == False{} : Bool}:
+  neq_dash.of(p, q, String.eq(p, q), {==}, hp, hq)
+
+def dashed(qs: List<&2, String>) -> Bool:
+  match qs:
+    case Nil{}:
+      True{}
+    case +q <> rest:
+      Bool.and(String.starts_with(q, "-"), dashed(rest))
+
+def eqs(+p: String, qs: List<&2, String>, last: Bool) -> List<&2, Bool>:
+  match qs:
+    case Nil{}:
+      [last]
+    case +q <> rest:
+      String.eq(p, q) <> eqs(p, rest, last)
+
+def falses(qs: List<&2, String>) -> List<&2, Bool>:
+  match qs:
+    case Nil{}:
+      [False{}]
+    case q <> rest:
+      False{} <> falses(rest)
+
+def eqs_false(+p: String, qs: List<&2, String>, +hp: {String.starts_with(p, "-") == False{} : Bool}, +hq: {dashed(qs) == True{} : Bool}) -> {eqs(p, qs, String.starts_with(p, "-")) == falses(qs) : List<&2, Bool>}:
+  match qs:
+    case Nil{}:
+      %Equal.sym(Bool, String.starts_with(p, "-"), False{}, hp) : {[_] == [False{}] : List<&2, Bool>}
+      {==}
+    case +q <> +rest:
+      %Equal.sym(Bool, String.eq(p, q), False{}, neq_dash(p, q, hp, Comp.and_left(String.starts_with(q, "-"), dashed(rest), hq))) : {_ <> eqs(p, rest, String.starts_with(p, "-")) == falses(q <> rest) : List<&2, Bool>}
+      %Equal.sym(List<&2, Bool>, eqs(p, rest, String.starts_with(p, "-")), falses(rest), eqs_false(p, rest, hp, Comp.and_right(String.starts_with(q, "-"), dashed(rest), hq))) : {False{} <> _ == falses(q <> rest) : List<&2, Bool>}
+      {==}
+
+# `rword.of`, over what each of its tests answers.
+def rword_list(bs: List<&2, Bool>) -> Main.RWord:
+  match bs:
+    case m1 <> m2 <> o <> mg <> ac <> at <> mv <> by <> li <> n1 <> n2 <> fi <> fl <> Nil{}:
+      Bool.pick(Main.RWord, Bool.or(m1, m2), Main.RWord.Message{},
+      Bool.pick(Main.RWord, o, Main.RWord.Onto{},
+      Bool.pick(Main.RWord, mg, Main.RWord.Merge{},
+      Bool.pick(Main.RWord, ac, Main.RWord.Accept{},
+      Bool.pick(Main.RWord, at, Main.RWord.At{},
+      Bool.pick(Main.RWord, mv, Main.RWord.Move{},
+      Bool.pick(Main.RWord, by, Main.RWord.Bytes{},
+      Bool.pick(Main.RWord, li, Main.RWord.Lines{},
+      Bool.pick(Main.RWord, Bool.or(n1, n2), Main.RWord.Dry{},
+      Bool.pick(Main.RWord, fi, Main.RWord.Fields{},
+      Bool.pick(Main.RWord, fl, Main.RWord.Flag{}, Main.RWord.Path{})))))))))))
+    case _:
+      Main.RWord.Path{}
+
+def RFLAGS() -> List<&2, String>:
+  ["-m", "--message", "--onto", "--merge", "--accept", "--at", "--move", "--bytes", "--lines", "-n", "--dry-run", "--fields"]
+
+# So `record` reads such a word as a path.
+def rword_path(+p: String, +hp: {String.starts_with(p, "-") == False{} : Bool}) -> {Main.rword.of(p) == Main.RWord.Path{} : Main.RWord}:
+  Equal.cong(List<&2, Bool>, Main.RWord, bs => rword_list(bs), eqs(p, RFLAGS(), String.starts_with(p, "-")), falses(RFLAGS()), eqs_false(p, RFLAGS(), hp, {==}))
+
+def swif(x: Bool, t: String) -> {String.starts_with.if(t ++ "/", SNil{}, x) == String.starts_with.if(t, SNil{}, x) : Bool}:
+  match x:
+    case False{}:
+      {==}
+    case True{}:
+      match t:
+        case SNil{}:
+          {==}
+        case SCon{h, r}:
+          {==}
+
+# A `/` after a path that does not begin with `-` leaves it one that does not.
+def sw_slash(+p: String, hp: {String.starts_with(p, "-") == False{} : Bool}, hn: {String.is_empty(p) == False{} : Bool}) -> {String.starts_with(p ++ "/", "-") == False{} : Bool}:
+  match p:
+    case SNil{}:
+      Empty.absurd({String.starts_with("/", "-") == False{} : Bool}, S.true_false(hn))
+    case SCon{+c, +t}:
+      Equal.trans(Bool, String.starts_with.if(t ++ "/", SNil{}, Char.is_eq(c, '-')), String.starts_with.if(t, SNil{}, Char.is_eq(c, '-')), False{}, swif(Char.is_eq(c, '-'), t), hp)
+
+# The slashes a shell leaves are taken off, and a path with none is kept.
+def trim_slash(+p: String) -> {Main.trimmed(p ++ "/") == Main.trimmed(p) : String}:
+  Equal.cong(String, String, x => String.reverse(Main.drop_slashes(x, Main.heads_slash(x))), String.reverse(p ++ "/"), SCon{'/', String.reverse(p)}, B.rev_go_app(p, "/", SNil{}))
+
+def keep_rev.of(+c: Char, +t: String, b: Bool, h: {String.starts_with.if(t, SNil{}, b) == False{} : Bool}) -> {Main.drop_slashes(SCon{c, t}, b) == SCon{c, t} : String}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({Main.drop_slashes(SCon{c, t}, True{}) == SCon{c, t} : String}, S.true_false(Equal.trans(Bool, True{}, String.starts_with(t, SNil{}), False{}, Equal.sym(Bool, String.starts_with(t, SNil{}), True{}, B.sw_nil(t)), h)))
+
+def keep_rev(r: String, h: {String.starts_with(r, "/") == False{} : Bool}) -> {Main.drop_slashes(r, Main.heads_slash(r)) == r : String}:
+  match r:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      keep_rev.of(c, t, Char.is_eq(c, '/'), h)
+
+def trim_keep(+p: String, hs: {String.ends_with(p, "/") == False{} : Bool}) -> {Main.trimmed(p) == p : String}:
+  Equal.trans(String, Main.trimmed(p), String.reverse(String.reverse(p)), p,
+    Equal.cong(String, String, x => String.reverse(x), Main.drop_slashes(String.reverse(p), Main.heads_slash(String.reverse(p))), String.reverse(p), keep_rev(String.reverse(p), hs)),
+    NamingL.rev_rev(p))
+
+# A word read as a path, trimmed to one that is not empty, is kept.
+def path_named(+c: Main.RecordCmd, +q: String, +p: String, ht: {Main.trimmed(q) == p : String}, hn: {String.is_empty(p) == False{} : Bool}) -> {Main.record.args.go([q], c, Main.RWord.Path{}) == Done{Main.rc.named(c, p)} : Result<&2, &2, Main.Refused, Main.RecordCmd>}:
+  Equal.trans(Result<&2, &2, Main.Refused, Main.RecordCmd>, Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, Main.record.path(c, Main.trimmed(q)), m => Main.record.args.go(Nil{}, m, Main.rword(Nil{}))), Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, Main.record.path(c, p), m => Main.record.args.go(Nil{}, m, Main.rword(Nil{}))), Done{Main.rc.named(c, p)},
+    Equal.cong(String, Result<&2, &2, Main.Refused, Main.RecordCmd>, x => Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, Main.record.path(c, x), m => Main.record.args.go(Nil{}, m, Main.rword(Nil{}))), Main.trimmed(q), p, ht),
+    Equal.cong(Bool, Result<&2, &2, Main.Refused, Main.RecordCmd>, x => Result.bind(&2, &2, Main.Refused, Main.RecordCmd, Main.RecordCmd, Bool.pick(Result<&2, &2, Main.Refused, Main.RecordCmd>, x, Fail{Main.Refused{2, "`record` takes the paths to record, and an empty one names nothing"}}, Done{Main.rc.named(c, p)}), m => Main.record.args.go(Nil{}, m, Main.rword(Nil{}))), String.is_empty(p), False{}, hn))
+
+def l6(-A: Data, -a1: A, -a2: A, -a3: A, -a4: A, -a5: A, -a6: A, -b1: A, -b2: A, -b3: A, -b4: A, -b5: A, -b6: A, h1: {a1 == b1 : A}, h2: {a2 == b2 : A}, h3: {a3 == b3 : A}, h4: {a4 == b4 : A}, h5: {a5 == b5 : A}, h6: {a6 == b6 : A}) -> {[a1, a2, a3, a4, a5, a6] == [b1, b2, b3, b4, b5, b6] : List<&2, A>}:
+  %h1 : {[a1, a2, a3, a4, a5, a6] == [_, b2, b3, b4, b5, b6] : List<&2, A>}
+  %h2 : {[a1, a2, a3, a4, a5, a6] == [a1, _, b3, b4, b5, b6] : List<&2, A>}
+  %h3 : {[a1, a2, a3, a4, a5, a6] == [a1, a2, _, b4, b5, b6] : List<&2, A>}
+  %h4 : {[a1, a2, a3, a4, a5, a6] == [a1, a2, a3, _, b5, b6] : List<&2, A>}
+  %h5 : {[a1, a2, a3, a4, a5, a6] == [a1, a2, a3, a4, _, b6] : List<&2, A>}
+  %h6 : {[a1, a2, a3, a4, a5, a6] == [a1, a2, a3, a4, a5, _] : List<&2, A>}
+  {==}
+
+# `--at` and `--move` are cut at their first `=`, and a word that is no
+# flag is a path, with a `/` after it or not.
+def renames_read(+args: List<&2, String>, +o: Maybe<&2, String>, +ms: List<&2, String>, +ac: List<&2, String>, +at: List<&2, T.Split>, +mv: List<&2, T.Split>, +ks: List<&2, T.Split>, +ns: List<&2, String>, +d: Bool, +f: Bool, +mg: Maybe<&2, String>, +e: {Main.record.args.r(args) == Done{Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}, +a: String, +b: String, +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}, +p: String, +hp: {String.starts_with(p, "-") == False{} : Bool}, +hn: {String.is_empty(p) == False{} : Bool}, +hs: {String.ends_with(p, "/") == False{} : Bool}) -> {after(args, [["--at", a ++ ("=" ++ b)], ["--move", a ++ ("=" ++ b)], ["--at", a], ["--move", a], [p], [p ++ "/"]]) == [Done{Main.RecordCmd{o, ms, ac, List.append(&2, T.Split, at, [T.Split{a, b}]), mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, List.append(&2, T.Split, mv, [T.Split{a, b}]), ks, ns, d, f, mg}}, Fail{Main.Refused{2, "`--at` is spelled `--at <file>=<path>`"}}, Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, p <> ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, p <> ns, d, f, mg}}] : List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>}:
+  Equal.trans(List<&2, Result<&2, &2, Main.Refused, Main.RecordCmd>>, after(args, [["--at", a ++ ("=" ++ b)], ["--move", a ++ ("=" ++ b)], ["--at", a], ["--move", a], [p], [p ++ "/"]]), each([["--at", a ++ ("=" ++ b)], ["--move", a ++ ("=" ++ b)], ["--at", a], ["--move", a], [p], [p ++ "/"]], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}), [Done{Main.RecordCmd{o, ms, ac, List.append(&2, T.Split, at, [T.Split{a, b}]), mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, List.append(&2, T.Split, mv, [T.Split{a, b}]), ks, ns, d, f, mg}}, Fail{Main.Refused{2, "`--at` is spelled `--at <file>=<path>`"}}, Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, p <> ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, p <> ns, d, f, mg}}],
+    each_app(args, Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, e, [["--at", a ++ ("=" ++ b)], ["--move", a ++ ("=" ++ b)], ["--at", a], ["--move", a], [p], [p ++ "/"]]),
+    l6(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go(["--at", a ++ ("=" ++ b)], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword(["--at", a ++ ("=" ++ b)])), Main.record.args.go(["--move", a ++ ("=" ++ b)], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword(["--move", a ++ ("=" ++ b)])), Main.record.args.go(["--at", a], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword(["--at", a])), Main.record.args.go(["--move", a], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword(["--move", a])), Main.record.args.go([p], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword([p])), Main.record.args.go([p ++ "/"], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword([p ++ "/"])), Done{Main.RecordCmd{o, ms, ac, List.append(&2, T.Split, at, [T.Split{a, b}]), mv, ks, ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, List.append(&2, T.Split, mv, [T.Split{a, b}]), ks, ns, d, f, mg}}, Fail{Main.Refused{2, "`--at` is spelled `--at <file>=<path>`"}}, Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, p <> ns, d, f, mg}}, Done{Main.RecordCmd{o, ms, ac, at, mv, ks, p <> ns, d, f, mg}},
+      Equal.cong(Result<&2, &2, Main.Refused, T.Split>, Result<&2, &2, Main.Refused, Main.RecordCmd>, r => Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, r, s => Main.record.args.go(Nil{}, Main.rc.at(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, s), Main.rword(Nil{}))), Main.record.split(a ++ ("=" ++ b), "`--at` is spelled `--at <file>=<path>`"), Done{T.Split{a, b}}, split_at(a, b, "`--at` is spelled `--at <file>=<path>`", ha)),
+      Equal.cong(Result<&2, &2, Main.Refused, T.Split>, Result<&2, &2, Main.Refused, Main.RecordCmd>, r => Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, r, s => Main.record.args.go(Nil{}, Main.rc.move(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, s), Main.rword(Nil{}))), Main.record.split(a ++ ("=" ++ b), "`--move` is spelled `--move <old>=<new>`"), Done{T.Split{a, b}}, split_at(a, b, "`--move` is spelled `--move <old>=<new>`", ha)),
+      Equal.cong(Result<&2, &2, Main.Refused, T.Split>, Result<&2, &2, Main.Refused, Main.RecordCmd>, r => Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, r, s => Main.record.args.go(Nil{}, Main.rc.at(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, s), Main.rword(Nil{}))), Main.record.split(a, "`--at` is spelled `--at <file>=<path>`"), Fail{Main.Refused{2, "`--at` is spelled `--at <file>=<path>`"}}, split_none(a, "`--at` is spelled `--at <file>=<path>`", ha)),
+      Equal.cong(Result<&2, &2, Main.Refused, T.Split>, Result<&2, &2, Main.Refused, Main.RecordCmd>, r => Result.bind(&2, &2, Main.Refused, T.Split, Main.RecordCmd, r, s => Main.record.args.go(Nil{}, Main.rc.move(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, s), Main.rword(Nil{}))), Main.record.split(a, "`--move` is spelled `--move <old>=<new>`"), Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, split_none(a, "`--move` is spelled `--move <old>=<new>`", ha)),
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go([p], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword.of(p)), Main.record.args.go([p], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.RWord.Path{}), Done{Main.rc.named(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, p)}, Equal.cong(Main.RWord, Result<&2, &2, Main.Refused, Main.RecordCmd>, k => Main.record.args.go([p], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, k), Main.rword.of(p), Main.RWord.Path{}, rword_path(p, hp)), path_named(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, p, p, trim_keep(p, hs), hn)),
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RecordCmd>, Main.record.args.go([p ++ "/"], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.rword.of(p ++ "/")), Main.record.args.go([p ++ "/"], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, Main.RWord.Path{}), Done{Main.rc.named(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, p)}, Equal.cong(Main.RWord, Result<&2, &2, Main.Refused, Main.RecordCmd>, k => Main.record.args.go([p ++ "/"], Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, k), Main.rword.of(p ++ "/"), Main.RWord.Path{}, rword_path(p ++ "/", sw_slash(p, hp, hn))), path_named(Main.RecordCmd{o, ms, ac, at, mv, ks, ns, d, f, mg}, p ++ "/", p, Equal.trans(String, Main.trimmed(p ++ "/"), Main.trimmed(p), p, trim_slash(p), trim_keep(p, hs)), hn))))
 
 # Rewriting's words
 # -----------------
@@ -159,71 +429,243 @@ def args_said(+args: List<&2, String>, +cmd: Main.RecordCmd, e: {Main.record.arg
 def done_rw(-a: Main.RwCmd, -b: Main.RwCmd, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {a == b : Main.RwCmd}:
   B.done_eq(Main.RwCmd, a, b, h)
 
-def rw_move_bind(+cmd: String, +v: String, +rest: List<&2, String>, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, +n: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, r: Result<&2, &2, Main.Refused, T.Split>, +c: Main.RwCmd, er: {Main.record.split(v, "`--move` is spelled `--move <old>=<new>`") == r : Result<&2, &2, Main.Refused, T.Split>}, e: {Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, r, s => Main.rw.args.go(cmd, rest, Main.rw.move(Main.RwCmd{m, mv, o, n, d, f, y}, s), Main.wword(cmd, rest))) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}, ih: @mv2: List<&2, T.Split> -> {Main.rw.args.go(cmd, rest, Main.RwCmd{m, mv2, o, n, d, f, y}, Main.wword(cmd, rest)) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>} -> {c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "-m", m), List.append(&2, T.Split, mv2, Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "target", n), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--only", y)} : Main.RwCmd}) -> {c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "target", n), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--only", y)} : Main.RwCmd}:
+def wkk(+cmd: String, args: List<&2, String>, +more: List<&2, String>, k: Main.WWord) -> Main.WWord:
+  match args:
+    case Nil{}:
+      Main.wword(cmd, more)
+    case _:
+      k
+
+def wkk_rw(+cmd: String, args: List<&2, String>, +more: List<&2, String>) -> {wkk(cmd, args, more, Main.wword(cmd, args)) == Main.wword(cmd, List.append(&2, String, args, more)) : Main.WWord}:
+  match args:
+    case Nil{}:
+      {==}
+    case w <> rest:
+      {==}
+
+def wstep(+cmd: String, +rest: List<&2, String>, +more: List<&2, String>, -c1: Main.RwCmd, -c2: Main.RwCmd, ih: {Main.rw.args.go(cmd, List.append(&2, String, rest, more), c1, wkk(cmd, rest, more, Main.wword(cmd, rest))) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.rw.args.go(cmd, List.append(&2, String, rest, more), c1, Main.wword(cmd, List.append(&2, String, rest, more))) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  %wkk_rw(cmd, rest, more) : {Main.rw.args.go(cmd, List.append(&2, String, rest, more), c1, _) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
+  ih
+
+def wno(-cmd: String, -args: List<&2, String>, -more: List<&2, String>, -c: Main.RwCmd, -k: Main.WWord, -c2: Main.RwCmd, -x: Main.Refused, h: {Fail{x} == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.rw.args.go(cmd, List.append(&2, String, args, more), c, wkk(cmd, args, more, k)) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  Empty.absurd({Main.rw.args.go(cmd, List.append(&2, String, args, more), c, wkk(cmd, args, more, k)) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, B.fail_done(Main.RwCmd, x, c2, h))
+
+def wsplit(-cmd: String, -rest: List<&2, String>, -more: List<&2, String>, -u: T.Split -> Main.RwCmd, -c2: Main.RwCmd, r: Result<&2, &2, Main.Refused, T.Split>, e: {Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, r, s => Main.rw.args.go(cmd, rest, u(s), Main.wword(cmd, rest))) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}, ih: @s: T.Split -> {Main.rw.args.go(cmd, rest, u(s), Main.wword(cmd, rest)) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>} -> {Main.rw.args.go(cmd, List.append(&2, String, rest, more), u(s), Main.wword(cmd, List.append(&2, String, rest, more))) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, r, s => Main.rw.args.go(cmd, List.append(&2, String, rest, more), u(s), Main.wword(cmd, List.append(&2, String, rest, more)))) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
   match r:
     case Fail{x}:
-      Empty.absurd({c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "target", n), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--only", y)} : Main.RwCmd}, B.fail_done(Main.RwCmd, x, c, e))
-    case Done{+s}:
-      +hs = split_cut(v, "`--move` is spelled `--move <old>=<new>`", s, er)
-      +assoc = Equal.trans(List<&2, T.Split>, List.append(&2, T.Split, List.append(&2, T.Split, mv, [s]), Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), List.append(&2, T.Split, mv, s <> Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))),
-        SortL.app_assoc(T.Split, mv, [s], Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))),
-        Equal.cong(T.Split, List<&2, T.Split>, z => List.append(&2, T.Split, mv, z <> Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), s, Main.rargs.cut(v), hs))
-      Equal.trans(Main.RwCmd, c, Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "-m", m), List.append(&2, T.Split, List.append(&2, T.Split, mv, [s]), Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "target", n), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--only", y)}, Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "target", n), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--only", y)},
-        ih(List.append(&2, T.Split, mv, [s]), e),
-        Equal.cong(List<&2, T.Split>, Main.RwCmd, x => Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "-m", m), x, Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "target", n), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--only", y)}, List.append(&2, T.Split, List.append(&2, T.Split, mv, [s]), Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), List.append(&2, T.Split, mv, Main.rargs.cut(v) <> Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, rest, Main.wword(cmd, rest)), "--move"))), assoc))
+      Empty.absurd({Fail{x} == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, B.fail_done(Main.RwCmd, x, c2, e))
+    case Done{s}:
+      ih(s, e)
 
-def rw_word(n: Maybe<&2, String>, +cmd: String, +w: String, +tail: List<&2, String>, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, +c: Main.RwCmd, e: {Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, Main.RwCmd{m, mv, o, n, d, f, y}, w), more => Main.rw.args.go(cmd, tail, more, Main.wword(cmd, tail))) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}, ih: {Main.rw.args.go(cmd, tail, Main.RwCmd{m, mv, o, Some{w}, d, f, y}, Main.wword(cmd, tail)) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>} -> {c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--move"))), Main.rargs.last(Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "target", Some{w}), Main.rargs.has(Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--only", y)} : Main.RwCmd}) -> {c == Main.RwCmd{Main.rargs.last(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--move"))), Main.rargs.last(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--onto", o), Main.rargs.last(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "target", n), Main.rargs.has(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--dry-run", d), Main.rargs.has(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--fields", f), Main.rargs.has(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--only", y)} : Main.RwCmd}:
-  match n:
-    case None{}:
-      ih(e)
-    case Some{x}:
-      Empty.absurd({c == Main.RwCmd{Main.rargs.last(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--move"))), Main.rargs.last(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--onto", o), Main.rargs.last(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "target", Some{x}), Main.rargs.has(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--dry-run", d), Main.rargs.has(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--fields", f), Main.rargs.has(T.Split{"target", w} <> Main.wargs.read(cmd, tail, Main.wword(cmd, tail)), "--only", y)} : Main.RwCmd}, B.fail_done(Main.RwCmd, Main.Refused{2, Main.rw.second(cmd, w)}, c, e))
+def wtarget(-cmd: String, -rest: List<&2, String>, -more: List<&2, String>, -c2: Main.RwCmd, r: Result<&2, &2, Main.Refused, Main.RwCmd>, e: {Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, r, x => Main.rw.args.go(cmd, rest, x, Main.wword(cmd, rest))) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}, ih: @x: Main.RwCmd -> {Main.rw.args.go(cmd, rest, x, Main.wword(cmd, rest)) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>} -> {Main.rw.args.go(cmd, List.append(&2, String, rest, more), x, Main.wword(cmd, List.append(&2, String, rest, more))) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, r, x => Main.rw.args.go(cmd, List.append(&2, String, rest, more), x, Main.wword(cmd, List.append(&2, String, rest, more)))) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match r:
+    case Fail{z}:
+      Empty.absurd({Fail{z} == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}, B.fail_done(Main.RwCmd, z, c2, e))
+    case Done{x}:
+      ih(x, e)
 
-# One pass over the words reads what their plain reading says.
-def rw_go_said(+cmd: String, args: List<&2, String>, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, +n: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, k: Main.WWord, +c: Main.RwCmd, e: {Main.rw.args.go(cmd, args, Main.RwCmd{m, mv, o, n, d, f, y}, k) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, args, k), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, args, k), "--move"))), Main.rargs.last(Main.wargs.read(cmd, args, k), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, args, k), "target", n), Main.rargs.has(Main.wargs.read(cmd, args, k), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, args, k), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, args, k), "--only", y)} : Main.RwCmd}:
+def l12(-A: Data, -a0: A, -a1: A, -a2: A, -a3: A, -a4: A, -a5: A, -a6: A, -a7: A, -a8: A, -a9: A, -a10: A, -a11: A, -b0: A, -b1: A, -b2: A, -b3: A, -b4: A, -b5: A, -b6: A, -b7: A, -b8: A, -b9: A, -b10: A, -b11: A, h0: {a0 == b0 : A}, h1: {a1 == b1 : A}, h2: {a2 == b2 : A}, h3: {a3 == b3 : A}, h4: {a4 == b4 : A}, h5: {a5 == b5 : A}, h6: {a6 == b6 : A}, h7: {a7 == b7 : A}, h8: {a8 == b8 : A}, h9: {a9 == b9 : A}, h10: {a10 == b10 : A}, h11: {a11 == b11 : A}) -> {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11] : List<&2, A>}:
+  %h0 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [_, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11] : List<&2, A>}
+  %h1 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, _, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11] : List<&2, A>}
+  %h2 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, _, b3, b4, b5, b6, b7, b8, b9, b10, b11] : List<&2, A>}
+  %h3 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, _, b4, b5, b6, b7, b8, b9, b10, b11] : List<&2, A>}
+  %h4 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, a3, _, b5, b6, b7, b8, b9, b10, b11] : List<&2, A>}
+  %h5 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, a3, a4, _, b6, b7, b8, b9, b10, b11] : List<&2, A>}
+  %h6 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, a3, a4, a5, _, b7, b8, b9, b10, b11] : List<&2, A>}
+  %h7 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, a3, a4, a5, a6, _, b8, b9, b10, b11] : List<&2, A>}
+  %h8 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, a3, a4, a5, a6, a7, _, b9, b10, b11] : List<&2, A>}
+  %h9 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, a3, a4, a5, a6, a7, a8, _, b10, b11] : List<&2, A>}
+  %h10 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, _, b11] : List<&2, A>}
+  %h11 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11] == [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, _] : List<&2, A>}
+  {==}
+
+def l10(-A: Data, -a0: A, -a1: A, -a2: A, -a3: A, -a4: A, -a5: A, -a6: A, -a7: A, -a8: A, -a9: A, -b0: A, -b1: A, -b2: A, -b3: A, -b4: A, -b5: A, -b6: A, -b7: A, -b8: A, -b9: A, h0: {a0 == b0 : A}, h1: {a1 == b1 : A}, h2: {a2 == b2 : A}, h3: {a3 == b3 : A}, h4: {a4 == b4 : A}, h5: {a5 == b5 : A}, h6: {a6 == b6 : A}, h7: {a7 == b7 : A}, h8: {a8 == b8 : A}, h9: {a9 == b9 : A}) -> {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [b0, b1, b2, b3, b4, b5, b6, b7, b8, b9] : List<&2, A>}:
+  %h0 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [_, b1, b2, b3, b4, b5, b6, b7, b8, b9] : List<&2, A>}
+  %h1 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, _, b2, b3, b4, b5, b6, b7, b8, b9] : List<&2, A>}
+  %h2 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, a1, _, b3, b4, b5, b6, b7, b8, b9] : List<&2, A>}
+  %h3 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, a1, a2, _, b4, b5, b6, b7, b8, b9] : List<&2, A>}
+  %h4 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, a1, a2, a3, _, b5, b6, b7, b8, b9] : List<&2, A>}
+  %h5 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, a1, a2, a3, a4, _, b6, b7, b8, b9] : List<&2, A>}
+  %h6 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, a1, a2, a3, a4, a5, _, b7, b8, b9] : List<&2, A>}
+  %h7 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, a1, a2, a3, a4, a5, a6, _, b8, b9] : List<&2, A>}
+  %h8 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, a1, a2, a3, a4, a5, a6, a7, _, b9] : List<&2, A>}
+  %h9 : {[a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] == [a0, a1, a2, a3, a4, a5, a6, a7, a8, _] : List<&2, A>}
+  {==}
+
+def wonly_cons(+cmd: String, w: String, more: List<&2, String>, -c: Main.RwCmd) -> {Main.rw.args.go(cmd, w <> more, c, Main.WWord.Only{}) == Main.rw.args.go(cmd, more, Main.rw.only(c), Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match more:
+    case Nil{}:
+      {==}
+    case x <> z:
+      {==}
+
+def wdry_cons(+cmd: String, w: String, more: List<&2, String>, -c: Main.RwCmd) -> {Main.rw.args.go(cmd, w <> more, c, Main.WWord.Dry{}) == Main.rw.args.go(cmd, more, Main.rw.dry(c), Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match more:
+    case Nil{}:
+      {==}
+    case x <> z:
+      {==}
+
+def wfields_cons(+cmd: String, w: String, more: List<&2, String>, -c: Main.RwCmd) -> {Main.rw.args.go(cmd, w <> more, c, Main.WWord.Fields{}) == Main.rw.args.go(cmd, more, Main.rw.fields(c), Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match more:
+    case Nil{}:
+      {==}
+    case x <> z:
+      {==}
+
+def wword_cons(+cmd: String, +w: String, more: List<&2, String>, -c: Main.RwCmd) -> {Main.rw.args.go(cmd, w <> more, c, Main.WWord.Word{}) == Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), x => Main.rw.args.go(cmd, more, x, Main.wword(cmd, more))) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match more:
+    case Nil{}:
+      {==}
+    case x <> z:
+      {==}
+
+# `amend`, `abandon` and `carry` read their words one at a time, as
+# `record` does.
+def rw_go_app(+cmd: String, args: List<&2, String>, +more: List<&2, String>, +c: Main.RwCmd, k: Main.WWord, -c2: Main.RwCmd, e: {Main.rw.args.go(cmd, args, c, k) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.rw.args.go(cmd, List.append(&2, String, args, more), c, wkk(cmd, args, more, k)) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
   match args k:
     case Nil{} _:
-      %done_rw(Main.RwCmd{m, mv, o, n, d, f, y}, c, e) : {_ == Main.RwCmd{m, List.append(&2, T.Split, mv, Nil{}), o, n, d, f, y} : Main.RwCmd}
-      %Equal.sym(List<&2, T.Split>, List.append(&2, T.Split, mv, Nil{}), mv, SortL.lapp_nil(T.Split, mv)) : {Main.RwCmd{m, mv, o, n, d, f, y} == Main.RwCmd{m, _, o, n, d, f, y} : Main.RwCmd}
+      %done_rw(c, c2, e) : {Main.rw.args.go(cmd, more, c, Main.wword(cmd, more)) == Main.rw.args.go(cmd, more, _, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}
       {==}
-    case +w <> Nil{} Main.WWord.Message{}:
-      Empty.absurd({c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Message{}), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, [w], Main.WWord.Message{}), "--move"))), Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Message{}), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Message{}), "target", n), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Message{}), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Message{}), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Message{}), "--only", y)} : Main.RwCmd}, B.fail_done(Main.RwCmd, Main.Refused{2, "`-m` wants a value"}, c, e))
+    case w <> Nil{} Main.WWord.Message{}:
+      wno(cmd, [w], more, c, Main.WWord.Message{}, c2, Main.Refused{2, "`-m` wants a value"}, e)
     case w <> +v <> +rest Main.WWord.Message{}:
-      rw_go_said(cmd, rest, Some{v}, mv, o, n, d, f, y, Main.wword(cmd, rest), c, e)
-    case +w <> Nil{} Main.WWord.Move{}:
-      Empty.absurd({c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Move{}), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, [w], Main.WWord.Move{}), "--move"))), Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Move{}), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Move{}), "target", n), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Move{}), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Move{}), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Move{}), "--only", y)} : Main.RwCmd}, B.fail_done(Main.RwCmd, Main.Refused{2, "`--move` wants a value"}, c, e))
+      wstep(cmd, rest, more, Main.rw.message(c, v), c2, rw_go_app(cmd, rest, more, Main.rw.message(c, v), Main.wword(cmd, rest), c2, e))
+    case w <> Nil{} Main.WWord.Move{}:
+      wno(cmd, [w], more, c, Main.WWord.Move{}, c2, Main.Refused{2, "`--move` wants a value"}, e)
     case w <> +v <> +rest Main.WWord.Move{}:
-      rw_move_bind(cmd, v, rest, m, mv, o, n, d, f, y, Main.record.split(v, "`--move` is spelled `--move <old>=<new>`"), c, {==}, e, mv2 => h => rw_go_said(cmd, rest, m, mv2, o, n, d, f, y, Main.wword(cmd, rest), c, h))
-    case +w <> Nil{} Main.WWord.Onto{}:
-      Empty.absurd({c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Onto{}), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, [w], Main.WWord.Onto{}), "--move"))), Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Onto{}), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Onto{}), "target", n), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Onto{}), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Onto{}), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Onto{}), "--only", y)} : Main.RwCmd}, B.fail_done(Main.RwCmd, Main.Refused{2, "`--onto` wants a value"}, c, e))
+      wsplit(cmd, rest, more, s => Main.rw.move(c, s), c2, Main.record.split(v, "`--move` is spelled `--move <old>=<new>`"), e, +s => h => wstep(cmd, rest, more, Main.rw.move(c, s), c2, rw_go_app(cmd, rest, more, Main.rw.move(c, s), Main.wword(cmd, rest), c2, h)))
+    case w <> Nil{} Main.WWord.Onto{}:
+      wno(cmd, [w], more, c, Main.WWord.Onto{}, c2, Main.Refused{2, "`--onto` wants a value"}, e)
     case w <> +v <> +rest Main.WWord.Onto{}:
-      rw_go_said(cmd, rest, m, mv, Some{v}, n, d, f, y, Main.wword(cmd, rest), c, e)
-    case w <> Nil{} Main.WWord.Only{}:
-      rw_go_said(cmd, Nil{}, m, mv, o, n, d, f, True{}, Main.wword(cmd, Nil{}), c, e)
+      wstep(cmd, rest, more, Main.rw.onto(c, v), c2, rw_go_app(cmd, rest, more, Main.rw.onto(c, v), Main.wword(cmd, rest), c2, e))
+    case +w <> Nil{} Main.WWord.Only{}:
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> more, c, Main.WWord.Only{}), Main.rw.args.go(cmd, more, Main.rw.only(c), Main.wword(cmd, more)), Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)), wonly_cons(cmd, w, more, c), Equal.cong(Main.RwCmd, Result<&2, &2, Main.Refused, Main.RwCmd>, x => Main.rw.args.go(cmd, more, x, Main.wword(cmd, more)), Main.rw.only(c), c2, done_rw(Main.rw.only(c), c2, e)))
     case w <> +v <> +rest Main.WWord.Only{}:
-      rw_go_said(cmd, v <> rest, m, mv, o, n, d, f, True{}, Main.wword(cmd, v <> rest), c, e)
-    case w <> Nil{} Main.WWord.Dry{}:
-      rw_go_said(cmd, Nil{}, m, mv, o, n, True{}, f, y, Main.wword(cmd, Nil{}), c, e)
+      wstep(cmd, v <> rest, more, Main.rw.only(c), c2, rw_go_app(cmd, v <> rest, more, Main.rw.only(c), Main.wword(cmd, v <> rest), c2, e))
+    case +w <> Nil{} Main.WWord.Dry{}:
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> more, c, Main.WWord.Dry{}), Main.rw.args.go(cmd, more, Main.rw.dry(c), Main.wword(cmd, more)), Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)), wdry_cons(cmd, w, more, c), Equal.cong(Main.RwCmd, Result<&2, &2, Main.Refused, Main.RwCmd>, x => Main.rw.args.go(cmd, more, x, Main.wword(cmd, more)), Main.rw.dry(c), c2, done_rw(Main.rw.dry(c), c2, e)))
     case w <> +v <> +rest Main.WWord.Dry{}:
-      rw_go_said(cmd, v <> rest, m, mv, o, n, True{}, f, y, Main.wword(cmd, v <> rest), c, e)
-    case w <> Nil{} Main.WWord.Fields{}:
-      rw_go_said(cmd, Nil{}, m, mv, o, n, d, True{}, y, Main.wword(cmd, Nil{}), c, e)
+      wstep(cmd, v <> rest, more, Main.rw.dry(c), c2, rw_go_app(cmd, v <> rest, more, Main.rw.dry(c), Main.wword(cmd, v <> rest), c2, e))
+    case +w <> Nil{} Main.WWord.Fields{}:
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> more, c, Main.WWord.Fields{}), Main.rw.args.go(cmd, more, Main.rw.fields(c), Main.wword(cmd, more)), Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)), wfields_cons(cmd, w, more, c), Equal.cong(Main.RwCmd, Result<&2, &2, Main.Refused, Main.RwCmd>, x => Main.rw.args.go(cmd, more, x, Main.wword(cmd, more)), Main.rw.fields(c), c2, done_rw(Main.rw.fields(c), c2, e)))
     case w <> +v <> +rest Main.WWord.Fields{}:
-      rw_go_said(cmd, v <> rest, m, mv, o, n, d, True{}, y, Main.wword(cmd, v <> rest), c, e)
-    case +w <> Nil{} Main.WWord.Flag{}:
-      Empty.absurd({c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Flag{}), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, [w], Main.WWord.Flag{}), "--move"))), Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Flag{}), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, [w], Main.WWord.Flag{}), "target", n), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Flag{}), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Flag{}), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, [w], Main.WWord.Flag{}), "--only", y)} : Main.RwCmd}, B.fail_done(Main.RwCmd, Main.Refused{2, "`" ++ w ++ "` is not an argument `" ++ cmd ++ "` takes"}, c, e))
-    case +w <> +v <> +rest Main.WWord.Flag{}:
-      Empty.absurd({c == Main.RwCmd{Main.rargs.last(Main.wargs.read(cmd, w <> v <> rest, Main.WWord.Flag{}), "-m", m), List.append(&2, T.Split, mv, Main.rargs.cuts(Main.rargs.values(Main.wargs.read(cmd, w <> v <> rest, Main.WWord.Flag{}), "--move"))), Main.rargs.last(Main.wargs.read(cmd, w <> v <> rest, Main.WWord.Flag{}), "--onto", o), Main.rargs.last(Main.wargs.read(cmd, w <> v <> rest, Main.WWord.Flag{}), "target", n), Main.rargs.has(Main.wargs.read(cmd, w <> v <> rest, Main.WWord.Flag{}), "--dry-run", d), Main.rargs.has(Main.wargs.read(cmd, w <> v <> rest, Main.WWord.Flag{}), "--fields", f), Main.rargs.has(Main.wargs.read(cmd, w <> v <> rest, Main.WWord.Flag{}), "--only", y)} : Main.RwCmd}, B.fail_done(Main.RwCmd, Main.Refused{2, "`" ++ w ++ "` is not an argument `" ++ cmd ++ "` takes"}, c, e))
+      wstep(cmd, v <> rest, more, Main.rw.fields(c), c2, rw_go_app(cmd, v <> rest, more, Main.rw.fields(c), Main.wword(cmd, v <> rest), c2, e))
+    case w <> Nil{} Main.WWord.Flag{}:
+      wno(cmd, [w], more, c, Main.WWord.Flag{}, c2, Main.Refused{2, "`" ++ w ++ "` is not an argument `" ++ cmd ++ "` takes"}, e)
+    case w <> v <> rest Main.WWord.Flag{}:
+      wno(cmd, w <> v <> rest, more, c, Main.WWord.Flag{}, c2, Main.Refused{2, "`" ++ w ++ "` is not an argument `" ++ cmd ++ "` takes"}, e)
     case +w <> Nil{} Main.WWord.Word{}:
-      rw_word(n, cmd, w, Nil{}, m, mv, o, d, f, y, c, e, h => rw_go_said(cmd, Nil{}, m, mv, o, Some{w}, d, f, y, Main.wword(cmd, Nil{}), c, h))
+      Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, w <> more, c, Main.WWord.Word{}), Result.bind(&2, &2, Main.Refused, Main.RwCmd, Main.RwCmd, Main.rw.word(cmd, c, w), x => Main.rw.args.go(cmd, more, x, Main.wword(cmd, more))), Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)), wword_cons(cmd, w, more, c), wtarget(cmd, Nil{}, more, c2, Main.rw.word(cmd, c, w), e, +x => h => wstep(cmd, Nil{}, more, x, c2, rw_go_app(cmd, Nil{}, more, x, Main.wword(cmd, Nil{}), c2, h))))
     case +w <> +v <> +rest Main.WWord.Word{}:
-      rw_word(n, cmd, w, v <> rest, m, mv, o, d, f, y, c, e, h => rw_go_said(cmd, v <> rest, m, mv, o, Some{w}, d, f, y, Main.wword(cmd, v <> rest), c, h))
+      wtarget(cmd, v <> rest, more, c2, Main.rw.word(cmd, c, w), e, +x => h => wstep(cmd, v <> rest, more, x, c2, rw_go_app(cmd, v <> rest, more, x, Main.wword(cmd, v <> rest), c2, h)))
 
-# `amend`, `abandon` and `carry` read their words as their plain reading
-# says.
-def rw_args_said(+cmd: String, +args: List<&2, String>, +c: Main.RwCmd, e: {Main.rw.args.r(cmd, args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {c == Main.wargs.said(Main.wargs.read(cmd, args, Main.wword(cmd, args))) : Main.RwCmd}:
-  rw_go_said(cmd, args, None{}, Nil{}, None{}, None{}, False{}, False{}, False{}, Main.wword(cmd, args), c, e)
+def app_w(+cmd: String, +args: List<&2, String>, +more: List<&2, String>, -c2: Main.RwCmd, e: {Main.rw.args.r(cmd, args) == Done{c2} : Result<&2, &2, Main.Refused, Main.RwCmd>}) -> {Main.rw.args.r(cmd, List.append(&2, String, args, more)) == Main.rw.args.go(cmd, more, c2, Main.wword(cmd, more)) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  wstep(cmd, args, more, Main.RwCmd{None{}, Nil{}, None{}, None{}, False{}, False{}, False{}}, c2, rw_go_app(cmd, args, more, Main.RwCmd{None{}, Nil{}, None{}, None{}, False{}, False{}, False{}}, Main.wword(cmd, args), c2, e))
 
+def after_w(+cmd: String, +args: List<&2, String>, wss: List<&2, List<&2, String>>) -> List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>:
+  match wss:
+    case Nil{}:
+      Nil{}
+    case +ws <> rest:
+      Main.rw.args.r(cmd, List.append(&2, String, args, ws)) <> after_w(cmd, args, rest)
+
+def each_w(+cmd: String, wss: List<&2, List<&2, String>>, +c: Main.RwCmd) -> List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>:
+  match wss:
+    case Nil{}:
+      Nil{}
+    case +ws <> rest:
+      Main.rw.args.go(cmd, ws, c, Main.wword(cmd, ws)) <> each_w(cmd, rest, c)
+
+def each_app_w(+cmd: String, +args: List<&2, String>, -c: Main.RwCmd, +e: {Main.rw.args.r(cmd, args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}, wss: List<&2, List<&2, String>>) -> {after_w(cmd, args, wss) == each_w(cmd, wss, c) : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}:
+  match wss:
+    case Nil{}:
+      {==}
+    case +ws <> +rest:
+      %Equal.sym(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.r(cmd, List.append(&2, String, args, ws)), Main.rw.args.go(cmd, ws, c, Main.wword(cmd, ws)), app_w(cmd, args, ws, c, e)) : {_ <> after_w(cmd, args, rest) == each_w(cmd, ws <> rest, c) : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}
+      %Equal.sym(List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>, after_w(cmd, args, rest), each_w(cmd, rest, c), each_app_w(cmd, args, c, e, rest)) : {Main.rw.args.go(cmd, ws, c, Main.wword(cmd, ws)) <> _ == each_w(cmd, ws <> rest, c) : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}
+      {==}
+
+# `wword.of`, over what each of its tests of the word answers.
+def wword_list(+cmd: String, bs: List<&2, Bool>) -> Main.WWord:
+  match bs:
+    case m1 <> m2 <> mv <> on <> ol <> n1 <> n2 <> fi <> fl <> Nil{}:
+      Bool.pick(Main.WWord, Bool.and(Bool.not(String.eq(cmd, "carry")), Bool.or(m1, m2)), Main.WWord.Message{},
+      Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "amend"), mv), Main.WWord.Move{},
+      Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "carry"), on), Main.WWord.Onto{},
+      Bool.pick(Main.WWord, Bool.and(String.eq(cmd, "abandon"), ol), Main.WWord.Only{},
+      Bool.pick(Main.WWord, Bool.or(n1, n2), Main.WWord.Dry{},
+      Bool.pick(Main.WWord, fi, Main.WWord.Fields{},
+      Bool.pick(Main.WWord, fl, Main.WWord.Flag{}, Main.WWord.Word{})))))))
+    case _:
+      Main.WWord.Word{}
+
+def WFLAGS() -> List<&2, String>:
+  ["-m", "--message", "--move", "--onto", "--only", "-n", "--dry-run", "--fields"]
+
+# A word that does not begin with `-` is no flag of any command.
+def wword_word(+cmd: String, +w: String, +hw: {String.starts_with(w, "-") == False{} : Bool}) -> {Main.wword.of(cmd, w) == wword_list(cmd, falses(WFLAGS())) : Main.WWord}:
+  Equal.cong(List<&2, Bool>, Main.WWord, bs => wword_list(cmd, bs), eqs(w, WFLAGS(), String.starts_with(w, "-")), falses(WFLAGS()), eqs_false(w, WFLAGS(), hw, {==}))
+
+def word_n(+cmd: String, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, n: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, +w: String) -> {Main.rw.args.go(cmd, [w], Main.RwCmd{m, mv, o, n, d, f, y}, Main.WWord.Word{}) == Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, Main.rw.second(cmd, w)}}) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  match n:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+# The word is the target where none was named, and a second is refused.
+def word_named(+cmd: String, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, +n: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, +w: String, hk: {Main.wword.of(cmd, w) == Main.WWord.Word{} : Main.WWord}) -> {Main.rw.args.go(cmd, [w], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword(cmd, [w])) == Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, Main.rw.second(cmd, w)}}) : Result<&2, &2, Main.Refused, Main.RwCmd>}:
+  Equal.trans(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go(cmd, [w], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword.of(cmd, w)), Main.rw.args.go(cmd, [w], Main.RwCmd{m, mv, o, n, d, f, y}, Main.WWord.Word{}), Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, Main.rw.second(cmd, w)}}),
+    Equal.cong(Main.WWord, Result<&2, &2, Main.Refused, Main.RwCmd>, k => Main.rw.args.go(cmd, [w], Main.RwCmd{m, mv, o, n, d, f, y}, k), Main.wword.of(cmd, w), Main.WWord.Word{}, hk),
+    word_n(cmd, m, mv, o, n, d, f, y, w))
+
+def amend_reads_its_words_ok(+args: List<&2, String>, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, +n: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, +e: {Main.rw.args.r("amend", args) == Done{Main.RwCmd{m, mv, o, n, d, f, y}} : Result<&2, &2, Main.Refused, Main.RwCmd>}, +v: String, +a: String, +b: String, +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}, +w: String, +hw: {String.starts_with(w, "-") == False{} : Bool}) -> {after_w("amend", args, [["-m", v], ["--message", v], ["--move", a ++ ("=" ++ b)], ["--move", a], ["-n"], ["--dry-run"], ["--fields"], ["--onto", v], ["--only"], ["-m"], ["--move"], [w]]) == [Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{m, List.append(&2, T.Split, mv, [T.Split{a, b}]), o, n, d, f, y}}, Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`--onto` is not an argument `amend` takes"}}, Fail{Main.Refused{2, "`--only` is not an argument `amend` takes"}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Fail{Main.Refused{2, "`--move` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`amend` rewrites one revision, and `" ++ w ++ "` is a second"}})] : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}:
+  Equal.trans(List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>, after_w("amend", args, [["-m", v], ["--message", v], ["--move", a ++ ("=" ++ b)], ["--move", a], ["-n"], ["--dry-run"], ["--fields"], ["--onto", v], ["--only"], ["-m"], ["--move"], [w]]), each_w("amend", [["-m", v], ["--message", v], ["--move", a ++ ("=" ++ b)], ["--move", a], ["-n"], ["--dry-run"], ["--fields"], ["--onto", v], ["--only"], ["-m"], ["--move"], [w]], Main.RwCmd{m, mv, o, n, d, f, y}), [Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{m, List.append(&2, T.Split, mv, [T.Split{a, b}]), o, n, d, f, y}}, Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`--onto` is not an argument `amend` takes"}}, Fail{Main.Refused{2, "`--only` is not an argument `amend` takes"}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Fail{Main.Refused{2, "`--move` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`amend` rewrites one revision, and `" ++ w ++ "` is a second"}})],
+    each_app_w("amend", args, Main.RwCmd{m, mv, o, n, d, f, y}, e, [["-m", v], ["--message", v], ["--move", a ++ ("=" ++ b)], ["--move", a], ["-n"], ["--dry-run"], ["--fields"], ["--onto", v], ["--only"], ["-m"], ["--move"], [w]]),
+    l12(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go("amend", ["-m", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["-m", v])), Main.rw.args.go("amend", ["--message", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["--message", v])), Main.rw.args.go("amend", ["--move", a ++ ("=" ++ b)], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["--move", a ++ ("=" ++ b)])), Main.rw.args.go("amend", ["--move", a], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["--move", a])), Main.rw.args.go("amend", ["-n"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["-n"])), Main.rw.args.go("amend", ["--dry-run"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["--dry-run"])), Main.rw.args.go("amend", ["--fields"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["--fields"])), Main.rw.args.go("amend", ["--onto", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["--onto", v])), Main.rw.args.go("amend", ["--only"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["--only"])), Main.rw.args.go("amend", ["-m"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["-m"])), Main.rw.args.go("amend", ["--move"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", ["--move"])), Main.rw.args.go("amend", [w], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("amend", [w])), Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{m, List.append(&2, T.Split, mv, [T.Split{a, b}]), o, n, d, f, y}}, Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`--onto` is not an argument `amend` takes"}}, Fail{Main.Refused{2, "`--only` is not an argument `amend` takes"}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Fail{Main.Refused{2, "`--move` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`amend` rewrites one revision, and `" ++ w ++ "` is a second"}}),
+      {==},
+      {==},
+      Equal.cong(Result<&2, &2, Main.Refused, T.Split>, Result<&2, &2, Main.Refused, Main.RwCmd>, r => Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, r, s => Main.rw.args.go("amend", Nil{}, Main.rw.move(Main.RwCmd{m, mv, o, n, d, f, y}, s), Main.wword("amend", Nil{}))), Main.record.split(a ++ ("=" ++ b), "`--move` is spelled `--move <old>=<new>`"), Done{T.Split{a, b}}, split_at(a, b, "`--move` is spelled `--move <old>=<new>`", ha)),
+      Equal.cong(Result<&2, &2, Main.Refused, T.Split>, Result<&2, &2, Main.Refused, Main.RwCmd>, r => Result.bind(&2, &2, Main.Refused, T.Split, Main.RwCmd, r, s => Main.rw.args.go("amend", Nil{}, Main.rw.move(Main.RwCmd{m, mv, o, n, d, f, y}, s), Main.wword("amend", Nil{}))), Main.record.split(a, "`--move` is spelled `--move <old>=<new>`"), Fail{Main.Refused{2, "`--move` is spelled `--move <old>=<new>`"}}, split_none(a, "`--move` is spelled `--move <old>=<new>`", ha)),
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      word_named("amend", m, mv, o, n, d, f, y, w, wword_word("amend", w, hw))))
+
+def abandon_reads_its_words_ok(+args: List<&2, String>, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, +n: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, +e: {Main.rw.args.r("abandon", args) == Done{Main.RwCmd{m, mv, o, n, d, f, y}} : Result<&2, &2, Main.Refused, Main.RwCmd>}, +v: String, +a: String, +b: String, +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}, +w: String, +hw: {String.starts_with(w, "-") == False{} : Bool}) -> {after_w("abandon", args, [["-m", v], ["--message", v], ["--only"], ["-n"], ["--dry-run"], ["--fields"], ["--move", v], ["--onto", v], ["-m"], [w]]) == [Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, f, True{}}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`--move` is not an argument `abandon` takes"}}, Fail{Main.Refused{2, "`--onto` is not an argument `abandon` takes"}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`abandon` abandons one run of work, and `" ++ w ++ "` is a second"}})] : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}:
+  Equal.trans(List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>, after_w("abandon", args, [["-m", v], ["--message", v], ["--only"], ["-n"], ["--dry-run"], ["--fields"], ["--move", v], ["--onto", v], ["-m"], [w]]), each_w("abandon", [["-m", v], ["--message", v], ["--only"], ["-n"], ["--dry-run"], ["--fields"], ["--move", v], ["--onto", v], ["-m"], [w]], Main.RwCmd{m, mv, o, n, d, f, y}), [Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, f, True{}}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`--move` is not an argument `abandon` takes"}}, Fail{Main.Refused{2, "`--onto` is not an argument `abandon` takes"}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`abandon` abandons one run of work, and `" ++ w ++ "` is a second"}})],
+    each_app_w("abandon", args, Main.RwCmd{m, mv, o, n, d, f, y}, e, [["-m", v], ["--message", v], ["--only"], ["-n"], ["--dry-run"], ["--fields"], ["--move", v], ["--onto", v], ["-m"], [w]]),
+    l10(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go("abandon", ["-m", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["-m", v])), Main.rw.args.go("abandon", ["--message", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["--message", v])), Main.rw.args.go("abandon", ["--only"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["--only"])), Main.rw.args.go("abandon", ["-n"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["-n"])), Main.rw.args.go("abandon", ["--dry-run"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["--dry-run"])), Main.rw.args.go("abandon", ["--fields"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["--fields"])), Main.rw.args.go("abandon", ["--move", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["--move", v])), Main.rw.args.go("abandon", ["--onto", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["--onto", v])), Main.rw.args.go("abandon", ["-m"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", ["-m"])), Main.rw.args.go("abandon", [w], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("abandon", [w])), Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{Some{v}, mv, o, n, d, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, f, True{}}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`--move` is not an argument `abandon` takes"}}, Fail{Main.Refused{2, "`--onto` is not an argument `abandon` takes"}}, Fail{Main.Refused{2, "`-m` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`abandon` abandons one run of work, and `" ++ w ++ "` is a second"}}),
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      word_named("abandon", m, mv, o, n, d, f, y, w, wword_word("abandon", w, hw))))
+
+def carry_reads_its_words_ok(+args: List<&2, String>, +m: Maybe<&2, String>, +mv: List<&2, T.Split>, +o: Maybe<&2, String>, +n: Maybe<&2, String>, +d: Bool, +f: Bool, +y: Bool, +e: {Main.rw.args.r("carry", args) == Done{Main.RwCmd{m, mv, o, n, d, f, y}} : Result<&2, &2, Main.Refused, Main.RwCmd>}, +v: String, +a: String, +b: String, +ha: {T.all_chars(~(c => Bool.not(Char.is_eq(c, '='))), a) == True{} : Bool}, +w: String, +hw: {String.starts_with(w, "-") == False{} : Bool}) -> {after_w("carry", args, [["--onto", v], ["-n"], ["--dry-run"], ["--fields"], ["-m", v], ["--message", v], ["--move", v], ["--only"], ["--onto"], [w]]) == [Done{Main.RwCmd{m, mv, Some{v}, n, d, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`-m` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--message` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--move` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--only` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--onto` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`carry` carries one line of work, and `" ++ w ++ "` is a second"}})] : List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>}:
+  Equal.trans(List<&2, Result<&2, &2, Main.Refused, Main.RwCmd>>, after_w("carry", args, [["--onto", v], ["-n"], ["--dry-run"], ["--fields"], ["-m", v], ["--message", v], ["--move", v], ["--only"], ["--onto"], [w]]), each_w("carry", [["--onto", v], ["-n"], ["--dry-run"], ["--fields"], ["-m", v], ["--message", v], ["--move", v], ["--only"], ["--onto"], [w]], Main.RwCmd{m, mv, o, n, d, f, y}), [Done{Main.RwCmd{m, mv, Some{v}, n, d, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`-m` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--message` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--move` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--only` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--onto` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`carry` carries one line of work, and `" ++ w ++ "` is a second"}})],
+    each_app_w("carry", args, Main.RwCmd{m, mv, o, n, d, f, y}, e, [["--onto", v], ["-n"], ["--dry-run"], ["--fields"], ["-m", v], ["--message", v], ["--move", v], ["--only"], ["--onto"], [w]]),
+    l10(Result<&2, &2, Main.Refused, Main.RwCmd>, Main.rw.args.go("carry", ["--onto", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["--onto", v])), Main.rw.args.go("carry", ["-n"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["-n"])), Main.rw.args.go("carry", ["--dry-run"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["--dry-run"])), Main.rw.args.go("carry", ["--fields"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["--fields"])), Main.rw.args.go("carry", ["-m", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["-m", v])), Main.rw.args.go("carry", ["--message", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["--message", v])), Main.rw.args.go("carry", ["--move", v], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["--move", v])), Main.rw.args.go("carry", ["--only"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["--only"])), Main.rw.args.go("carry", ["--onto"], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", ["--onto"])), Main.rw.args.go("carry", [w], Main.RwCmd{m, mv, o, n, d, f, y}, Main.wword("carry", [w])), Done{Main.RwCmd{m, mv, Some{v}, n, d, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, True{}, f, y}}, Done{Main.RwCmd{m, mv, o, n, d, True{}, y}}, Fail{Main.Refused{2, "`-m` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--message` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--move` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--only` is not an argument `carry` takes"}}, Fail{Main.Refused{2, "`--onto` wants a value"}}, Bool.pick(Result<&2, &2, Main.Refused, Main.RwCmd>, Maybe.is_none(&2, String, n), Done{Main.RwCmd{m, mv, o, Some{w}, d, f, y}}, Fail{Main.Refused{2, "`carry` carries one line of work, and `" ++ w ++ "` is a second"}}),
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      {==},
+      word_named("carry", m, mv, o, n, d, f, y, w, wword_word("carry", w, hw))))
 
 # What it states is what the folder holds
 # ---------------------------------------

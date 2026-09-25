@@ -808,11 +808,20 @@ def Laws.record_goes_on_where_each_path_holds_one_file(t, looked, held, walked, 
 def Laws.a_link_resolves_inside_the_folder(link, target, p, h, e):
   SurveyL.link_inside(link, target, p, h, e)
 
-def Laws.record_reads_its_words(args, cmd, e):
-  RecordL.args_said(args, cmd, e)
+def Laws.record_reads_its_words(args, o, ms, ac, at, mv, ks, ns, d, f, mg, e, v):
+  RecordL.words_read(args, o, ms, ac, at, mv, ks, ns, d, f, mg, e, v)
 
-def Laws.rewrite_reads_its_words(cmd, args, c, e):
-  RecordL.rw_args_said(cmd, args, c, e)
+def Laws.record_reads_renames_and_paths(args, o, ms, ac, at, mv, ks, ns, d, f, mg, e, a, b, ha, p, hp, hn, hs):
+  RecordL.renames_read(args, o, ms, ac, at, mv, ks, ns, d, f, mg, e, a, b, ha, p, hp, hn, hs)
+
+def Laws.amend_reads_its_words(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw):
+  RecordL.amend_reads_its_words_ok(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw)
+
+def Laws.abandon_reads_its_words(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw):
+  RecordL.abandon_reads_its_words_ok(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw)
+
+def Laws.carry_reads_its_words(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw):
+  RecordL.carry_reads_its_words_ok(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw)
 
 def Laws.carry_keeps_what_it_restates(fs, ds, c, steps, e):
   RewriteL.plan_kept(fs, ds, c, steps, e)
