@@ -79,14 +79,40 @@ def push_full(f: Maybe<&2, Full>, rest: List<&2, Full>) -> List<&2, Full>:
     case Some{x}:
       x <> rest
 
+# A revision whose only fault is a path not in normal form C: its causal
+# headers, which the Rust tool opens a store with, and in place of its
+# facts the refusal a reader of the whole of it meets, in the Rust tool's
+# words, under a key no document can have (`unread`).
+def full.unread(+id: String, +m: String, parsed: Result<&2, &2, String, Rev.Rev>) -> Maybe<&2, Full>:
+  match parsed:
+    case Fail{e}:
+      None{}
+    case Done{Rev.Rev{change, parents, supersedes, author, when, revised_by, revised, facts, message}}:
+      Some{Full{id, change, parents, supersedes, author, when, revised_by, revised, [Rev.Header{SNil{}, m}], message}}
+
+def full.unnormal(+id: String, +path: String, +text: String, u: Maybe<&2, Rev.Unnormal>) -> Maybe<&2, Full>:
+  match u:
+    case None{}:
+      None{}
+    case Some{Rev.Unnormal{n, p}}:
+      full.unread(id, path ++ ": line " ++ Nat.show(n) ++ ": `" ++ p ++ "` is not a path (it is not in Unicode normal form C, which is the one spelling a store records); write components separated by `/`, relative to the repository root", Rev.parse(Rev.mended(text)))
+
+def full.read(+id: String, +path: String, +text: String, parsed: Result<&2, &2, String, Rev.Rev>) -> Maybe<&2, Full>:
+  match parsed:
+    case Done{r}:
+      full(id, Done{r})
+    case Fail{e}:
+      full.unnormal(id, path, text, Rev.unnormal(text))
+
 # The revisions among a store's documents: what `revisions/` holds and the
-# parser accepts. `check` is where the rest are reported.
+# parser accepts, and one it refuses only for a path not in normal form C,
+# as `unread` says. `check` is where the rest are reported.
 def fulls(+root: String, ds: List<&2, Store.Doc>) -> List<&2, Full>:
   match ds:
     case Nil{}:
       Nil{}
     case Store.Doc{+path, +id, size, +text} <> rest:
-      push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full(id, Rev.parse(text)), None{}), fulls(root, rest))
+      push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full.read(id, path, text, Rev.parse(text)), None{}), fulls(root, rest))
 
 def id_of(f: Full) -> String:
   match f:
@@ -122,6 +148,44 @@ def facts_of(f: Full) -> List<&2, Rev.Header>:
   match f:
     case Full{id, change, parents, supersedes, author, when, revised_by, revised, facts, message}:
       facts
+
+# Why the whole of one of these revisions cannot be read, where one cannot:
+# the refusal `fulls` kept in place of its facts.
+def unread.of(hs: List<&2, Rev.Header>) -> Maybe<&2, String>:
+  match hs:
+    case Rev.Header{SNil{}, m} <> rest:
+      Some{m}
+    case _:
+      None{}
+
+def unread(fs: List<&2, Full>) -> Maybe<&2, String>:
+  match fs:
+    case Nil{}:
+      None{}
+    case f <> rest:
+      Maybe.or(&2, String, unread.of(facts_of(f)), unread(rest))
+
+def unread.said(u: Maybe<&2, String>) -> Result<&2, &2, Refused, Unit>:
+  match u:
+    case None{}:
+      Done{Unit{}}
+    case Some{m}:
+      Fail{Refused{1, m}}
+
+# Refused where the whole of any of these revisions cannot be read, as the
+# Rust tool is where it reads them: `log` of what it lists, `show` of what
+# it prints.
+def unread.r(fs: List<&2, Full>) -> Result<&2, &2, Refused, Unit>:
+  unread.said(unread(fs))
+
+# What a tree is refused for where the whole of a revision it is made from
+# cannot be read: the Rust tool's words for what the revisions did.
+def unread.or(-A: Data, u: Maybe<&2, String>, r: Result<&2, &2, Refused, A>) -> Result<&2, &2, Refused, A>:
+  match u:
+    case None{}:
+      r
+    case Some{m}:
+      Fail{Refused{1, "what the revisions did could not be read: " ++ m}}
 
 def revision_of(f: Full) -> Rev.Revision:
   match f:
@@ -891,8 +955,11 @@ def tree.of.r(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged>) -> R
     case Done{m}:
       Done{Tree.merged_tree(m)}
 
+def tree.read.r(+id: String, +anc: List<&2, Full>) -> Result<&2, &2, Refused, Tree.Tree()>:
+  unread.or(Tree.Tree(), unread(anc), tree.of.r(id, Tree.merge(events_of(anc))))
+
 def tree.r(+fs: List<&2, Full>, +id: String) -> Result<&2, &2, Refused, Tree.Tree()>:
-  tree.of.r(id, Tree.merge(events_of(ancestry.oldest(fs, id))))
+  tree.read.r(id, ancestry.oldest(fs, id))
 
 def tree(+fs: List<&2, Full>, +id: String) -> IO(Tree.Tree()):
   refused.io(Tree.Tree(), tree.r(fs, id))
@@ -1591,6 +1658,7 @@ def log.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: Asked) -> IO(Unit
         sp : Span <- span(fs, bs, target)
         +sp2 : Span = sp
         file : Maybe<&2, String> <- followed(fs, bs, sp2, path)
+        refused.io(Unit, unread.r(span.shown(fs, sp2)))
         print_lines(log.shown.lines(fs, bs, sp2, span.shown(fs, sp2), Filter{author, grep, since, until, file}, fields, limit))
 
 def log(+args: List<&2, String>) -> IO(Unit):
@@ -2813,7 +2881,9 @@ def show(+target: String, path: Maybe<&2, String>) -> IO(Unit):
     bs : List<&2, Bm.Bookmark> <- bookmarks(r)
     +bs2 : List<&2, Bm.Bookmark> = bs
     f : Full <- resolved(fs, bs2, target)
-    show.of(fs, bs2, r, f, path)
+    +f2 : Full = f
+    refused.io(Unit, unread.r([f2]))
+    show.of(fs, bs2, r, f2, path)
 
 # What changed
 # ------------
@@ -6298,12 +6368,15 @@ def status.tree.of.r(+id: String, merged: Result<&2, &2, Tree.Fault, Tree.Merged
     case Done{m}:
       Done{m}
 
+def status.tree.read.r(+id: String, +anc: List<&2, Full>) -> Result<&2, &2, Refused, Tree.Merged>:
+  unread.or(Tree.Merged, unread(anc), status.tree.of.r(id, Tree.merge(events_of(anc))))
+
 def status.tree.r(+fs: List<&2, Full>, +ps: List<&2, String>) -> Result<&2, &2, Refused, Tree.Merged>:
   match ps:
     case Nil{}:
       Done{Tree.Merged{Nil{}, Nil{}}}
     case +first <> rest:
-      status.tree.of.r(first, Tree.merge(events_of(picked(reached.all(fs, ps), Pick{waiting(fs), Nil{}}))))
+      status.tree.read.r(first, picked(reached.all(fs, ps), Pick{waiting(fs), Nil{}}))
 
 # `target::parents`: `--onto`, then each `--merge`, none named twice; the
 # head where nothing is named, or where one `--merge` is all there is; in

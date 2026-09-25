@@ -828,6 +828,22 @@ STORES = {
         ["status"], ["record", "-n"], ["record", "-n", "notes.md"], ["record", "-n", "sub"], ["record", "-n", "sub/ok.md"],
         ["diff"], ["blame", "notes.md"], ["record", "-m", "refused"], ["record", "-m", "notes only", "notes.md"],
     ],
+    # A revision stating a path not in normal form C, which no writer
+    # makes: the Rust tool opens the store on its causal headers and refuses
+    # it where the whole of it is read, naming the line. So every reader of
+    # it refuses in those words — `log` and `show` as they are, a tree with
+    # what the revisions did — and one that reads only what came before it,
+    # or only its causal headers, goes on.
+    "unnormal": [
+        ["log"], ["log", "first"], ["log", "--limit", "0"], ["log", "--fields"],
+        ["files", "head"], ["files", "first"], ["files", "main"],
+        ["cat", "head", "notes.md"], ["cat", "first", "notes.md"],
+        ["show", "head"], ["show", "head", "notes.md"], ["show", "first"],
+        ["diff"], ["diff", "head"], ["diff", "first"], ["diff", "--onto", "first"],
+        ["blame", "notes.md"], ["blame", "head", "notes.md"], ["blame", "first", "notes.md"],
+        ["status"], ["status", "--onto", "first"], ["record", "-n"], ["record", "-n", "--onto", "first"],
+        ["names"], ["name", "x", "head"], ["name", "y", "head", "notes.md"], ["name", "z", "first", "notes.md"],
+    ],
     # Two merges the Rust tool resolved, the first by hand: resolutions that
     # keep a payload's lines, an operation document's inserts and an earlier
     # resolution's, and insert their own — and a merge written here for each
@@ -1307,6 +1323,25 @@ def record(temporary, rust, corpus, pinned=None):
         os.mkdir(root + b"/dir\xfe")
         with open(root + b"/dir\xfe/inner.md", "wb") as f:
             f.write(b"beneath a name that cannot be spelled\n")
+    elif corpus == "unnormal":
+        (store / "notes.md").write_text("one\n")
+        (store / "caf\u00e9.md").write_text("cafe\n")
+        historica("record", "-m", "first")
+        historica("name", "first", "head", "--revision")
+        historica("name", "main", "head")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "d\u00e9j\u00e0.md").write_text("again\n")
+        historica("record", "-m", "second")
+        # The second revision restated by hand with the path it adds
+        # decomposed: a new revision, since a revision is its bytes' digest,
+        # and the head, since nothing names it as a parent.
+        history = store / "history"
+        revision = next(p for p in (history / "revisions").rglob("*.rev.txt") if p.read_text().endswith("\n\nsecond"))
+        text = revision.read_text()
+        assert "d\u00e9j\u00e0.md" in text
+        revision.write_text(text.replace("d\u00e9j\u00e0.md", "de\u0301ja\u0300.md"))
+        for cached in (history / "cache").glob("*.txt"):
+            cached.unlink()
     elif corpus == "fresh":
         (store / "a.md").write_text("only\nthe folder\n")
         (store / "b.bin").write_bytes(b"\x00")
@@ -1438,7 +1473,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("normal", "unspelled", "unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded")
+        recorded = corpus in ("normal", "unspelled", "unnormal", "unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
