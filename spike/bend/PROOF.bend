@@ -877,12 +877,6 @@ def Laws.abandon_dry_run_names_the_run(fs, bs, id, only, run):
 def Laws.update_reads_its_words(ws, c, e):
   UpdL.args_said(ws, c, e)
 
-def Laws.update_lands(tr, looks, gones, p, e):
-  UpdL.plan_lands(tr, looks, gones, p, e)
-
-def Laws.update_spares_the_unrecorded(tr, looks, gones, p, e):
-  UpdL.plan_spares(tr, looks, gones, p, e)
-
 def Laws.merge_resolution_reads_back(ds, j, s, hm, doc, e):
   ConflictL.resolved(ds, j, s, hm, doc, e)
 
@@ -900,9 +894,6 @@ def Laws.merge_joins_held_revisions(fs, bs, ss, xs, e):
 
 def Laws.merge_joins_every_head(fs, bs, ss, xs, e):
   MergingL.joined_all(fs, bs, ss, xs, e)
-
-def Laws.merge_spares_the_unrecorded(t, cs, located, p):
-  MergingL.spares(t, cs, located, p)
 
 def Laws.check_pairs_each_payload(fs, stats, h):
   CheckL.pairs_ok(fs, stats, h)
@@ -954,3 +945,21 @@ def Laws.skip_lists_each_rule_once(ss):
 
 def Laws.skip_writes_what_is_new(rs, had):
   SkipL.writes_new(rs, had)
+
+def Laws.update_lands(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
+  UpdL.plan_holds(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
+
+def Laws.update_spares_the_unrecorded(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
+  UpdL.plan_touches(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
+
+def Laws.update_again_keeps(w, h, rs, rs2, e):
+  UpdL.again_keeps(w, h, rs, rs2, e)
+
+def Laws.update_settles_only_what_stays(p, e):
+  UpdL.settled_same(p, e)
+
+def Laws.merge_spares_the_unrecorded(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
+  MergingL.spares(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
+
+def Laws.merge_sets_aside_the_claims(cs):
+  MergingL.aside(cs)
