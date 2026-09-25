@@ -1271,8 +1271,9 @@ law update_spares_the_unrecorded:
 # `update` run again from what it left keeps every path it stepped
 # through: where it decides a path anything but a refusal, the path, once
 # that step is done, is one the same want keeps — whatever history is said
-# to record there the second time. A second update of the same target
-# writes nothing, points no link again and sets no mode.
+# to record there the second time. So a second update of the same
+# target, from the same store, writes nothing over what the first wrote,
+# points no link again and sets no mode.
 law update_again_keeps:
   for +w: Upd.Wants
   for +h: Upd.Held
