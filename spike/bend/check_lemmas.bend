@@ -8,6 +8,7 @@ import ./check.bend as Check
 import ./merge.bend as Merge
 import ./text.bend as T
 import ./composition_lemmas.bend as Comp
+import ./notes.bend as Notes
 
 def ndisc(n: Nat) -> Type:
   match n:
@@ -107,3 +108,11 @@ def kahn_causal(fuel: Nat, +g: List<&2, Merge.Rev>, +ixs: List<&2, Nat>, +placed
       h
     case 1n+p:
       kahn_causal(p, g, ixs, List.append(&2, Nat, placed, Check.ready(g, placed, ixs)), app_causal(placed, Check.ready(g, placed, ixs), g, Nil{}, h, ready_causal(ixs, g, placed)))
+
+# A new store
+# -----------
+
+# What the pass reads of a store `init` has just made — its header, and
+# `skipped/`'s note, and nothing else anywhere — is nothing to report.
+def fresh(+root: String) -> {Check.found(Check.Gathered{root, Some{Notes.HEADER_NOTE()}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Texts{Nil{}, Nil{}}, False{}, Check.skipped.read(root ++ "/skipped/README.txt", Done{Notes.SKIPPED_NOTE()}), Check.Walked{Nil{}, Nil{}}, Nil{}}) == Nil{} : List<&2, Check.Finding>}:
+  {==}

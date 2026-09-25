@@ -2525,11 +2525,44 @@ def step.findings(s: Step) -> List<&2, Finding>:
       f
 
 # `Store::check`: every finding, in the order the pass finds them.
+# What the pass read, everything it needs to say what it found: the header,
+# and each directory walked and read.
+type Gathered is Data:
+  Gathered{root: String, header: Maybe<&2, String>, revisions: Walked, rfiled: List<&2, Filed>, operations: Walked, ofiled: List<&2, OpFiled>, texts: Texts, stale: Bool, skipped: Stating, names: Walked, named: List<&2, Finding>}
+
+# What `check` finds in what it read, in the order the Rust tool reports it.
+def found(g: Gathered) -> List<&2, Finding>:
+  match g:
+    case Gathered{+root, htext, +rw2, +rf2, +ow2, +of2, +tx2, +stale2, +st2, +nw2, +nf2}:
+      +hf = header(htext)
+      +docs = documents(rf2)
+      +cs = contents(of2)
+      +ps = payloads(of2)
+      +ls = texts.lines(tx2)
+      +ds = List.append(&2, Store.Doc, filed.docs(of2), texts.docs(tx2))
+      +steps = named.steps(cs, ps, ls, docs)
+      +hs = step.held(steps)
+      +hd = heads(docs)
+      +revs = revisions.findings(rf2)
+      +opens = Bool.not(Bool.or(Bool.or(Bool.not(List.is_empty(&2, Finding, hf)), List.any(~&2, ~Finding, ~(f => is_error(f)), revs)), Bool.or(wrong.names(nf2), wrong.rules(st2))))
+      List.concat(&2, Finding, [
+        hf,
+        unfollowed(walked.links(rw2)), revs, duplicates(stored.revisions(rf2)),
+        missing_parents(docs, docs), stands(docs, docs),
+        unfollowed(walked.links(ow2)), operations.findings(of2), duplicates(stored.operations(of2)),
+        resurrected(cs, ps, List.append(&2, String, set.of(targets.ops(cs)), List.append(&2, String, set.of(targets.res(cs)), set.of(targets.payloads(cs))))),
+        step.findings(steps), unnamed(contents.named(docs), ps),
+        heads.findings(docs, cs, ls, ds, hs, Bool.not(List.is_empty(&2, String, targets.ops(cs))), hd),
+        undercuts(docs, hs, Bool.not(List.is_empty(&2, String, targets.ops(cs))), hd),
+        incomplete(docs, cs, ps, standing.all(cs), hd),
+        skipped.findings(docs, stale2, root ++ "/skipped.txt", opens, st2),
+        resolutions.findings(docs, ds, cs, ls, opens),
+        unfollowed(walked.links(nw2)), nf2])
+
 def pass(+root: String) -> IO(List<&2, Finding>):
   do IO<List<&2, Finding>>:
     h : Result<&1, &1, U32 & String, File> <- File.open(root ++ "/historica.txt", "r")
     htext : Maybe<&2, String> <- header.read(root, h)
-    +hf : List<&2, Finding> = header(htext)
     rw : Walked <- walk(root, "revisions")
     +rw2 : Walked = rw
     rf : List<&2, Filed> <- revisions.go(walked.files(rw2), class(walked.files(rw2), ".rev.txt"))
@@ -2541,41 +2574,18 @@ def pass(+root: String) -> IO(List<&2, Finding>):
     +of1 : List<&2, OpFiled> = of
     stats : List<&2, String> <- Store.stats(SNil{}, payload.paths(of1))
     +of2 : List<&2, OpFiled> = attach(of1, stats)
-    +cs : List<&2, Content> = contents(of2)
     +ps : List<&2, Stored> = payloads(of2)
     +tids : List<&2, String> = set.of(text.ids(docs))
     tx : Texts <- texts.at(tids, ps, texts.head(tids, ps))
-    +tx2 : Texts = tx
-    +ls : List<&2, Lines> = texts.lines(tx2)
-    +ds : List<&2, Store.Doc> = List.append(&2, Store.Doc, filed.docs(of2), texts.docs(tx2))
-    +steps : Step = named.steps(cs, ps, ls, docs)
-    +hs : List<&2, Held> = step.held(steps)
-    +hd : List<&2, String> = heads(docs)
     stale : Result<&1, &1, U32 & String, File> <- File.open(root ++ "/skipped.txt", "r")
     stale2 : Bool <- opened(stale)
     sw : Walked <- walk(root, "skipped")
     +sw2 : Walked = sw
     st : Stating <- skipped.go(walked.files(sw2), class(walked.files(sw2), SNil{}))
-    +st2 : Stating = st
     nw : Walked <- walk(root, "names")
     +nw2 : Walked = nw
     nf : List<&2, Finding> <- names.go(docs, 1n+String.length(root), walked.files(nw2), class(walked.files(nw2), SNil{}))
-    +nf2 : List<&2, Finding> = nf
-    +revs : List<&2, Finding> = revisions.findings(rf2)
-    +opens : Bool = Bool.not(Bool.or(Bool.or(Bool.not(List.is_empty(&2, Finding, hf)), List.any(~&2, ~Finding, ~(f => is_error(f)), revs)), Bool.or(wrong.names(nf2), wrong.rules(st2))))
-    return List.concat(&2, Finding, [
-      hf,
-      unfollowed(walked.links(rw2)), revs, duplicates(stored.revisions(rf2)),
-      missing_parents(docs, docs), stands(docs, docs),
-      unfollowed(walked.links(ow2)), operations.findings(of2), duplicates(stored.operations(of2)),
-      resurrected(cs, ps, List.append(&2, String, set.of(targets.ops(cs)), List.append(&2, String, set.of(targets.res(cs)), set.of(targets.payloads(cs))))),
-      step.findings(steps), unnamed(contents.named(docs), ps),
-      heads.findings(docs, cs, ls, ds, hs, Bool.not(List.is_empty(&2, String, targets.ops(cs))), hd),
-      undercuts(docs, hs, Bool.not(List.is_empty(&2, String, targets.ops(cs))), hd),
-      incomplete(docs, cs, ps, standing.all(cs), hd),
-      skipped.findings(docs, stale2, root ++ "/skipped.txt", opens, st2),
-      resolutions.findings(docs, ds, cs, ls, opens),
-      unfollowed(walked.links(nw2)), nf2])
+    return found(Gathered{root, htext, rw2, rf2, ow2, of2, tx, stale2, st, nw2, nf})
 
 # The command
 # -----------

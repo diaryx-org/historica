@@ -387,6 +387,24 @@ def once(ss: List<&2, Stating>, +seen: List<&2, Rule>, dup: Bool) -> List<&2, St
     case Stating{+r, f} <> +rest False{}:
       Stating{r, f} <> once(rest, r <> seen, once.dup(rest, r <> seen))
 
+# Whether each rule is new against every rule before it, and against
+# `seen` (`LAWS.skip_lists_each_rule_once`).
+def fresh.stated(ss: List<&2, Stating>, +seen: List<&2, Rule>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case Stating{+r, f} <> rest:
+      Bool.and(Bool.not(held(seen, r)), fresh.stated(rest, r <> seen))
+
+# Whether each rule is one neither `had` nor any rule before it states
+# (`LAWS.skip_writes_what_is_new`).
+def fresh.rules(rs: List<&2, Rule>, +had: List<&2, Rule>, +before: List<&2, Rule>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +r <> rest:
+      Bool.and(Bool.not(Bool.or(held(had, r), held(before, r))), fresh.rules(rest, had, List.append(&2, Rule, before, [r])))
+
 def stated.go(+root: String, ps: List<&2, String>) -> IO(List<&2, Stating>):
   match ps:
     case Nil{}:
@@ -483,6 +501,11 @@ def sorted.go(rs: List<&2, Rule>, +had: List<&2, Rule>, +fresh: List<&2, Rule>, 
     case +r <> +rest False{}:
       +more = List.append(&2, Rule, fresh, [r])
       sorted.go(rest, had, more, already, sorted.dup(rest, had, more))
+
+def sorted.fresh(s: Sorted) -> List<&2, Rule>:
+  match s:
+    case Sorted{f, a}:
+      f
 
 def again.label(+r: Rule, w: Result<&1, &1, U32 & String, String>) -> IO(String):
   match w:
