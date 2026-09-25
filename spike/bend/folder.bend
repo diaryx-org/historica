@@ -778,6 +778,22 @@ def distinct(fs: List<&2, Found>) -> List<&2, Found>:
     case +f <> +rest:
       f <> distinct.go(rest, found.path(f), distinct.same(rest, found.path(f)))
 
+# No two files in a row at one path: what `LAWS.the_walk_yields_a_path_once`
+# says of what the walk yields.
+def apart.go(fs: List<&2, Found>, +last: String) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      Bool.and(Bool.not(String.eq(found.path(f), last)), apart.go(rest, found.path(f)))
+
+def apart(fs: List<&2, Found>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      apart.go(rest, found.path(f))
+
 # Names that cannot be spelled
 # ----------------------------
 
@@ -830,6 +846,21 @@ def unspelled.go(ls: List<&2, String>, +prefix: String, +dir: String, +before: S
       unspelled.go(rest, prefix, dir, before, (k + 1 : U32), False{}, unspelled.is(rest), Keyed{unspelled.key(before, k), T.Split{dir ++ "/" ++ String.drop(line, 2n), unspelled.because()}} <> acc)
     case +line <> +rest False{} False{}:
       unspelled.go(rest, prefix, dir, joined(prefix, entry.name(line)), 0, String.starts_with(line, "l "), unspelled.is(rest), acc)
+
+# How many names a listing holds that cannot be spelled: its `u` lines, a
+# link's target aside, with `odd` saying whether the line at the head is
+# one. What `LAWS.a_name_that_cannot_be_spelled_is_refused` counts the
+# refusals against.
+def unspelled.count(ls: List<&2, String>, after: Bool, odd: Bool) -> Nat:
+  match ls after odd:
+    case Nil{} _ _:
+      0n
+    case line <> +rest True{} _:
+      unspelled.count(rest, False{}, unspelled.is(rest))
+    case line <> +rest False{} True{}:
+      1n+unspelled.count(rest, False{}, unspelled.is(rest))
+    case +line <> +rest False{} False{}:
+      unspelled.count(rest, String.starts_with(line, "l "), unspelled.is(rest))
 
 # `ls` as the walk reads it, `prefix` the directory's path, and `dir` where
 # it is on disk.

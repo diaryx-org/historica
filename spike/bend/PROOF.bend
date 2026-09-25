@@ -52,6 +52,7 @@ import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./listing_lemmas.bend as ListL
 import ./naming_lemmas.bend as NamingL
+import ./nfc_lemmas.bend as NfcL
 import ./survey.bend as Sv
 import ./naming.bend as Naming
 import ./store.bend as Store
@@ -725,3 +726,24 @@ def Laws.record_goes_on_where_each_path_holds_one_file(t, looked, held, walked, 
 
 def Laws.a_link_resolves_inside_the_folder(link, target, p, h, e):
   SurveyL.link_inside(link, target, p, h, e)
+
+def Laws.nfc_leaves_ascii(s, h):
+  NfcL.leaves_ascii(s, h)
+
+def Laws.nfc_orders_marks_by_class(ms):
+  NfcL.orders_by_class(ms)
+
+def Laws.nfc_class_misses_nothing(c):
+  NfcL.class_misses_nothing(c)
+
+def Laws.nfc_leaves_separators_alone():
+  NfcL.separators_inert()
+
+def Laws.the_walk_yields_a_path_once(fs):
+  NfcL.walk_apart(fs)
+
+def Laws.the_folder_spells_what_is_opened(ls, want):
+  NfcL.spelled_there(ls, want)
+
+def Laws.a_name_that_cannot_be_spelled_is_refused(ls, prefix, dir):
+  NfcL.all_refused(ls, prefix, dir)

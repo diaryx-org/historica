@@ -397,6 +397,80 @@ def nfc(+s: String) -> String:
 def is_nfc(+s: String) -> Bool:
   String.eq(nfc(s), s)
 
+# What the laws say
+# -----------------
+
+# Every character ASCII: `LAWS.nfc_leaves_ascii` is about such a string.
+def ascii(s: String) -> Bool:
+  match s:
+    case SNil{}:
+      True{}
+    case SCon{Chr{+x}, t}:
+      Bool.and(U32.is_lt(x, 128), ascii(t))
+
+# Canonical order, Unicode's 3.11: no mark follows one of a higher class
+# with no starter between them. `last` is the class of what came before,
+# 0 at the start and after a starter.
+def canonical.go(ms: List<&2, Mark>, +last: U32) -> Bool:
+  match ms:
+    case Nil{}:
+      True{}
+    case m <> rest:
+      +k = mark.class(m)
+      Bool.and(Bool.or(U32.is_eq(last, 0), Bool.or(U32.is_eq(k, 0), U32.is_le(last, k))), canonical.go(rest, k))
+
+# The class runs in order after `hi`: each run's first code point past the
+# last one's last, and no later than its own last.
+def runs.after(rs: List<&2, U32>, +hi: U32) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +a <> +b <> k <> rest:
+      Bool.and(Bool.and(U32.is_lt(hi, a), U32.is_le(a, b)), runs.after(rest, b))
+    case _:
+      False{}
+
+def class.hit(h: Bool, +k: U32, other: U32) -> U32:
+  match h:
+    case True{}:
+      k
+    case False{}:
+      other
+
+# A character's class as a search of every run finds it, stopping nowhere.
+def class.scan(rs: List<&2, U32>, +c: U32) -> U32:
+  match rs:
+    case +a <> +b <> +k <> rest:
+      class.hit(Bool.and(U32.is_le(a, c), U32.is_le(c, b)), k, class.scan(rest, c))
+    case _:
+      0
+
+def pairs.has(ps: List<&2, U32>, +c: U32) -> Bool:
+  match ps:
+    case +a <> +b <> +x <> rest:
+      Bool.or(Bool.or(U32.is_eq(a, c), U32.is_eq(b, c)), Bool.or(U32.is_eq(x, c), pairs.has(rest, c)))
+    case _:
+      False{}
+
+def points.has(xs: List<&2, U32>, +c: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case x <> rest:
+      Bool.or(U32.is_eq(x, c), points.has(rest, c))
+
+def entries.has(es: List<&2, List<&2, U32>>, +c: U32) -> Bool:
+  match es:
+    case Nil{}:
+      False{}
+    case e <> rest:
+      Bool.or(points.has(e, c), entries.has(rest, c))
+
+# A character normalising leaves where it is: a starter, in no pair, and in
+# no decomposition, before it or after.
+def inert(+c: U32) -> Bool:
+  Bool.and(U32.is_eq(class(Tab.classes(), c), 0), Bool.not(Bool.or(pairs.has(Tab.pairs(), c), entries.has(Tab.decompositions(), c))))
+
 # `check.py`'s `nfc` stage
 # ------------------------
 
