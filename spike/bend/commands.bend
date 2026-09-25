@@ -7423,10 +7423,8 @@ def arriving.kind(+file: String, +p: String, +digest: String, +bs: List<&2, U32>
 
 def arriving.of(+file: String, +p: String, +digest: String, +bs: List<&2, U32>, stated: Maybe<&2, String>) -> List<&2, Content>:
   match stated:
-    case Some{"bytes"}:
-      [Content.Whole{file, p, digest}]
     case Some{k}:
-      arriving.kind(file, p, digest, bs, True{})
+      Bool.pick(List<&2, Content>, String.eq(k, "bytes"), [Content.Whole{file, p, digest}], arriving.kind(file, p, digest, bs, True{}))
     case None{}:
       arriving.kind(file, p, digest, bs, Bool.and(Folder.is_utf8(bs), Bool.not(Folder.has_nul(bs))))
 
@@ -7693,18 +7691,66 @@ def writing.stem(w: Writing, +change: String, +id: String, +ns: List<&2, Naming.
 type Drafted is Data:
   Drafted{contents: List<&2, Content>, facts: List<&2, Rev.Header>}
 
-def drafted(+st: Bool, +root: String, +fs: List<&2, Full>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> IO(Drafted):
+# `befores` is the position's content of each file of lines it edits.
+def drafted.of(+befores: List<&2, Before>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> Drafted:
   +arriving = Sv.sorted(Sv.added(obs))
   +gone = Sv.dropped_files(obs)
-  +edited = Sv.edited(obs)
+  +said = stating.all(mint, arriving, Sv.edited(obs), ks, dg, reads, befores, hs)
+  +cs = stating.contents(said)
+  +modes = List.append(&2, T.Split, stating.modes(said), modes.held(mint, t, Sv.modes(obs), hs))
+  +links = links.stated(mint, t, Set.from_list(gone), Set.from_list(arriving), Sv.pointing(obs), ls)
+  Drafted{cs, record.facts(swapped(mint), Sv.moved.final(moves, Set.from_list(gone)), modes, gone, cs, links)}
+
+def drafted(+st: Bool, +root: String, +fs: List<&2, Full>, +ps: List<&2, String>, +t: Tree.Tree(), +hs: List<&2, Here>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +ks: List<&2, T.Split>, +moves: List<&2, T.Split>, +obs: List<&2, Sv.Obs>, +ls: List<&2, String>, +mint: List<&2, T.Split>) -> IO(Drafted):
   do IO<Drafted>:
-    befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(edited, hs))
-    +said : Stating = stating.all(mint, arriving, edited, ks, dg, reads, befores, hs)
-    +cs : List<&2, Content> = stating.contents(said)
-    +modes : List<&2, T.Split> = List.append(&2, T.Split, stating.modes(said), modes.held(mint, t, Sv.modes(obs), hs))
-    +links : List<&2, T.Split> = links.stated(mint, t, Set.from_list(gone), Set.from_list(arriving), Sv.pointing(obs), ls)
-    +moved : List<&2, T.Split> = Sv.moved.final(moves, Set.from_list(gone))
-    return Drafted{cs, record.facts(swapped(mint), moved, modes, gone, cs, links)}
+    befores : List<&2, Before> <- befores.io(st, root, fs, ps, edited.lines(Sv.edited(obs), hs))
+    return drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint)
+
+# What `record` states a file holds is what the folder holds there: an
+# edit is the written form of the document that replays the position's
+# lines of the file to the folder's, text is the folder's bytes, and a
+# payload is named by the digest of the folder's. `befores` is the
+# position's content of each file of lines. `LAWS.record_states_the_folder`.
+def content.applied(r: Result<&2, &2, String, List<&2, Ops.Item>>, +after: List<&2, Ops.Item>) -> Bool:
+  match r:
+    case Done{xs}:
+      items_eq(xs, after)
+    case Fail{e}:
+      False{}
+
+def content.replays(+before: List<&2, Ops.Item>, +after: List<&2, Ops.Item>, +doc: String, d: Maybe<&2, Ops.Doc>) -> Bool:
+  match d:
+    case None{}:
+      False{}
+    case Some{+x}:
+      Bool.and(String.eq(Ops.write(x), doc), content.applied(Ops.apply(before, x), after))
+
+def bytes.same(a: List<&2, U32>, b: List<&2, U32>) -> Bool:
+  match a b:
+    case x <> xs y <> ys:
+      Bool.and(U32.is_eq(x, y), bytes.same(xs, ys))
+    case Nil{} Nil{}:
+      True{}
+    case _ _:
+      False{}
+
+def content.states(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, c: Content) -> Bool:
+  match c:
+    case Content.Ops{+f, +p, +doc}:
+      +before = before_of(befores, f)
+      +after = Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p))))
+      content.replays(before, after, doc, Ops.diff(before, after))
+    case Content.Text{f, +p, bs}:
+      bytes.same(bs, bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))
+    case Content.Whole{f, +p, d}:
+      String.eq(d, status.folder_digest(dg, p))
+
+def contents.state(+befores: List<&2, Before>, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case c <> rest:
+      Bool.and(content.states(befores, dg, reads, c), contents.state(befores, dg, reads, rest))
 
 def drafted.contents(d: Drafted) -> List<&2, Content>:
   match d:

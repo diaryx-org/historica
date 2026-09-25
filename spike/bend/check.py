@@ -2196,6 +2196,13 @@ def check_mutations(temporary):
             "rewrite_lemmas.reword",
             "commands.bend",
         ),
+        (
+            "record diffs an edited file against nothing",
+            "edited.content(f, p, Ops.diff(before_of(befores, f), Ops.from_text(Utf8.decode(bs))))",
+            "edited.content(f, p, Ops.diff(Nil{}, Ops.from_text(Utf8.decode(bs))))",
+            "record_lemmas.held_state",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

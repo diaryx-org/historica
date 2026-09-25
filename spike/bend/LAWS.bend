@@ -1362,3 +1362,21 @@ law reword_changes_only_the_message:
   for doc: Rev.Rev
   for e: {Main.reword.r(fs, prev, standing, m, reviser, revised) == Done{doc} : Result<&2, &2, Main.Refused, Rev.Rev>}
   {Main.reword.ok(prev, m, doc) == True{} : Bool}
+
+# What `record` states a file holds is what the folder holds there. Of
+# each file it drafts content for, an edit is the written form of the
+# document that replays the position's lines of that file to the lines
+# the folder holds — `befores` being the position's — text is the bytes
+# the folder holds, and a payload is named by the digest of the folder's.
+law record_states_the_folder:
+  for +befores: List<&2, Main.Before>
+  for +t: Tree.Tree()
+  for +hs: List<&2, Main.Here>
+  for +dg: Map<&2, String>
+  for +reads: Map<&2, List<&2, U32>>
+  for +ks: List<&2, T.Split>
+  for +moves: List<&2, T.Split>
+  for +obs: List<&2, Sv.Obs>
+  for +ls: List<&2, String>
+  for +mint: List<&2, T.Split>
+  {Main.contents.state(befores, dg, reads, Main.drafted.contents(Main.drafted.of(befores, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
