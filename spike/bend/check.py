@@ -5098,6 +5098,13 @@ def check_mutations(temporary):
             "merging.bend",
         ),
         (
+            "merge names a file it sets aside by the path rather than the file",
+            '"(historica " ++ String.take(file, 8n) ++ ")"',
+            '"(historica " ++ String.take(path, 8n) ++ ")"',
+            "merging_lemmas.beside_marks",
+            "merging.bend",
+        ),
+        (
             "merge writes beside a path the file that keeps it too",
             "      beside.files(p, rest)",
             "      beside.files(p, f <> rest)",

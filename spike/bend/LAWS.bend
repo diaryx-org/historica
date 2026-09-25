@@ -2999,15 +2999,18 @@ law merge_prints_the_record_that_records_it:
   for +h: {SortL.all_ok(~T.Split, ~(x => Merging.id.plain(x)), bs) == True{} : Bool}
   {Main.record.args.r(Merging.record.words(typed, bs)) == Done{Main.RecordCmd{None{}, Merging.typed.spellings(typed), Nil{}, List.sort(~T.Split, ~(a => b => Merging.typed.le(a, b)), bs), Nil{}, Nil{}, Nil{}, False{}, False{}, Some{"<message>"}}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
 
-# Decision 0008 forbids the format inventing a name, so where several files
-# claim a path `merge` keeps it for the first of them and writes each other
-# beside it. Read off the contests: every act `merge` lays out for a file of
-# the merged tree that writes — a file of lines, a payload, a link — stands
-# at the file's own path, unless a contest over a path names the file after
-# the first claimant, and then at the name `beside_name` gives it beside the
-# first such path; and a file it writes carries the mode the tree records.
-# Every file of the tree is laid out, and nothing else.
-law merge_sets_aside_the_claims:
+# Where several files claim a path, Decision 0008 has `merge` keep it for
+# the first of them and write each other beside it, under a name that says
+# why. Read off the contests as plain lists: every act `merge` lays out for
+# a file of the merged tree that writes — a file of lines, a payload, a
+# link — stands at the file's own path, unless a contest over a path names
+# the file after its first claimant, and then at a name that holds
+# `(historica `, the first eight characters of the file's identifier, and
+# `)`; and a file it writes carries the mode the tree records. Every file
+# of the tree is laid out, and nothing else. It says nothing of two names
+# being different: two files set aside whose identifiers share their first
+# eight characters are given one name.
+law merge_writes_in_place_or_marked_aside:
   for +fs: List<&2, Main.Full>
   for +ds: List<&2, Store.Doc>
   for +heads: List<&2, String>
