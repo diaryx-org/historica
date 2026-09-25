@@ -11436,13 +11436,6 @@ def init.write(+path: String, +text: String) -> IO(Unit):
     done : String <- init.io(String, w)
     IO.pure(Unit, Unit{})
 
-def init.dirs(+root: String, ds: List<&2, String>) -> String:
-  match ds:
-    case Nil{}:
-      SNil{}
-    case d <> rest:
-      root ++ "/" ++ d ++ "\n" ++ init.dirs(root, rest)
-
 def init.base(+base: String, dir: Maybe<&2, String>) -> String:
   match dir:
     case None{}:
@@ -11450,19 +11443,87 @@ def init.base(+base: String, dir: Maybe<&2, String>) -> String:
     case Some{+d}:
       path_join(base, d)
 
+# Where `init` makes its store: `history` in the directory named, joined
+# to the one it runs in, or in that one.
+def init.root(+base: String, dir: Maybe<&2, String>) -> String:
+  path_join(init.base(base, dir), "history")
+
+# A note `init` writes: the file, and the text it holds.
+type Note is Data:
+  Note{path: String, text: String}
+
+# What `init` lays down, relative to a store's root, in the order it lays
+# it down: the five directories of decision 0006's layout, then the four
+# notes, each where the Rust tool writes it.
+type Layout is Data:
+  Layout{dirs: List<&2, String>, notes: List<&2, Note>}
+
+def init.laid() -> Layout:
+  Layout{
+    ["/revisions", "/operations", "/names", "/cache", "/skipped"],
+    [Note{"/historica.txt", Notes.HEADER_NOTE()}, Note{"/skipped/README.txt", Notes.SKIPPED_NOTE()},
+     Note{"/format.txt", Notes.FORMAT_NOTE()}, Note{"/cache/README.txt", Notes.CACHE_NOTE()}]}
+
+# A layout put under a root: each of its paths with the root before it.
+def init.under.dirs(+root: String, ds: List<&2, String>) -> List<&2, String>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case d <> rest:
+      (root ++ d) <> init.under.dirs(root, rest)
+
+def init.under.notes(+root: String, ns: List<&2, Note>) -> List<&2, Note>:
+  match ns:
+    case Nil{}:
+      Nil{}
+    case Note{p, t} <> rest:
+      Note{root ++ p, t} <> init.under.notes(root, rest)
+
+def init.under(+root: String, l: Layout) -> Layout:
+  match l:
+    case Layout{ds, ns}:
+      Layout{init.under.dirs(root, ds), init.under.notes(root, ns)}
+
+# What `init` lays down at a store's root. `export` lays the same down for
+# its copy.
+def init.layout(+root: String) -> Layout:
+  init.under(root, init.laid())
+
+# `Store.made`'s query: a directory a line.
+def init.lines(ds: List<&2, String>) -> String:
+  match ds:
+    case Nil{}:
+      SNil{}
+    case d <> rest:
+      d ++ "\n" ++ init.lines(rest)
+
+def init.notes(ns: List<&2, Note>) -> IO(Unit):
+  match ns:
+    case Nil{}:
+      IO.pure(Unit, Unit{})
+    case Note{+p, +t} <> rest:
+      do IO<Unit>:
+        init.write(p, t)
+        init.notes(rest)
+
+# A layout carried out: its directories made, with the parents they lack,
+# then its notes written.
+def init.lay(l: Layout) -> IO(Unit):
+  match l:
+    case Layout{ds, ns}:
+      do IO<Unit>:
+        m : Result<&1, &1, U32 & String, String> <- Store.made(init.lines(ds))
+        done : String <- init.io(String, m)
+        init.notes(ns)
+
 def init.at(dir: Maybe<&2, String>) -> IO(Unit):
   do IO<Unit>:
     here : Result<&1, &1, U32 & String, String> <- Store.base()
     base : String <- init.io(String, here)
-    +root : String = path_join(init.base(base, dir), "history")
+    +root : String = init.root(base, dir)
     header : Result<&1, &1, U32 & String, String> <- Store.really(root ++ "/historica.txt")
     init.fresh(root, header)
-    m : Result<&1, &1, U32 & String, String> <- Store.made(init.dirs(root, ["revisions", "operations", "names", "cache", "skipped"]))
-    done : String <- init.io(String, m)
-    init.write(root ++ "/historica.txt", Notes.HEADER_NOTE())
-    init.write(root ++ "/skipped/README.txt", Notes.SKIPPED_NOTE())
-    init.write(root ++ "/format.txt", Notes.FORMAT_NOTE())
-    init.write(root ++ "/cache/README.txt", Notes.CACHE_NOTE())
+    init.lay(init.layout(root))
     real : Result<&1, &1, U32 & String, String> <- Store.really(root)
     IO.print("made a store at " ++ init.said(root, real))
 
