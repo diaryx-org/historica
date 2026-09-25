@@ -921,7 +921,32 @@ STORES = {
     "gutted": [],
     "tampered": [],
     "forgotten": [],
+    "unreadable": [["log"], ["cat", "head", "notes.md"], ["cat", "head", "other.md"], ["show", "head", "notes.md"], ["show", "head", "other.md"],
+                   ["diff", "head"], ["blame", "head", "notes.md"], ["blame", "head", "other.md"], ["files", "head"], ["status"],
+                   ["diff"], ["blame", "notes.md"], ["record", "-n"]],
 }
+
+
+# The corpora's documents that do not parse, filed among the ones that do:
+# every command that opens the store refuses a revision whose shape does
+# not read, in the parser's words and naming the file; one that reads only
+# as far as opening is in the graph, and refused where a command asks what
+# it did; an operation document that does not parse is refused where it is
+# read. `check` reports every one. Each revision is asked after, and its
+# file, by digest.
+def invalid_cases(corpus, path):
+    digests = []
+    for folder in (CORPUS / corpus / "revisions", CORPUS / corpus / "invalid", CORPUS / corpus):
+        if folder.is_dir():
+            digests += [hashlib.sha256(p.read_bytes()).hexdigest()[:12] for p in sorted(folder.glob("*.rev.txt"))]
+    cases = [["log"], ["names"], ["status"], ["files", "head"], ["show", "head"], ["cat", "head", path]]
+    for d in digests:
+        cases += [["log", d], ["files", d], ["show", d], ["cat", d, path], ["show", d, path]]
+    return cases
+
+
+for corpus, path in (("links", "config"), ("modes", "run.sh"), ("whole", "notes/2026-08-20.md"), ("revisions", "notes.txt"), ("merged", "notes.txt")):
+    STORES[f"{corpus}-invalid"] = invalid_cases(corpus, path)
 
 # Every store checked, and asked whether it is complete.
 for commands in STORES.values():
@@ -1440,6 +1465,28 @@ def record(temporary, rust, corpus, pinned=None):
             (operations("two") / "kept.md.ops.txt").unlink()
             (operations("two") / "photo.bin").unlink()
             (operations("one") / "notes.md").write_bytes(b"one\n\xff\n")
+    elif corpus == "unreadable":
+        # A revision written by hand naming an operation document, and a
+        # resolution, that do not parse: nothing reads them until a command
+        # asks what the revision did to the file.
+        (store / "notes.md").write_text("one\n")
+        (store / "other.md").write_text("a\n")
+        historica("record", "-m", "one")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "other.md").write_text("a\nb\n")
+        historica("record", "-m", "two")
+        digest = lambda data: hashlib.sha256(data).hexdigest()
+        history = store / "history"
+        two = next(history.glob("revisions/*/* two.rev.txt"))
+        first, second = sorted(re.findall(r"^edit (\S+) ", two.read_text(), re.M))
+        document = f"historica\nresult {'b' * 64}\n\ndelete 0 1\n-one\ndelete 1 1\n-two\n"
+        resolution = f"historica\nresult {'c' * 64}\n\nkeep {'a' * 64} 0 1\nkeep {'a' * 64} 1 1\n"
+        (history / "operations" / "crafted.ops.txt").write_text(document)
+        (history / "operations" / "resolved.ops.txt").write_text(resolution)
+        (history / "revisions" / "crafted.rev.txt").write_text(
+            f"historica\nchange {'m' * 24}\nparent {digest(two.read_bytes())}\nauthor Check <check@example.com>\n"
+            f"when 2026-09-25T12:00:00+00:00\nedit {first} {digest(document.encode())}\nedit {second} {digest(resolution.encode())}\n\nthree"
+        )
     elif corpus == "tampered":
         # A line forgotten, so every head is read by the walk rather than
         # by arithmetic; and on top, written by hand, a revision whose
@@ -1486,10 +1533,10 @@ def record(temporary, rust, corpus, pinned=None):
     return store
 
 
-def assemble(temporary, corpus):
-    store = temporary / f"store-{corpus}"
+def assemble(temporary, corpus, store=None):
+    store = store or temporary / f"store-{corpus}"
     history = store / "history"
-    history.mkdir(parents=True)
+    history.mkdir(parents=True, exist_ok=True)
     (history / "historica.txt").write_text(
         "historica\n\nAssembled from tests/corpus by spike/bend/check.py.\n"
     )
@@ -1500,6 +1547,15 @@ def assemble(temporary, corpus):
             (history / kind).mkdir()
             for path in (CORPUS / kind).glob("*.txt"):
                 shutil.copy(path, history / kind / path.name)
+    elif corpus.endswith("-invalid"):
+        # A corpus, and the documents it holds that do not parse, filed
+        # where their kind is kept.
+        assemble(temporary, corpus[: -len("-invalid")], store)
+        for kind in ("revisions", "operations"):
+            source = CORPUS / (kind if corpus == "revisions-invalid" else corpus[: -len("-invalid")]) / "invalid"
+            for path in sorted(source.glob(f"*.{'rev' if kind == 'revisions' else 'ops'}.txt")):
+                (history / kind / "invalid").mkdir(parents=True, exist_ok=True)
+                shutil.copy(path, history / kind / "invalid" / path.name)
     elif corpus == "forgotten":
         # The corpus that forgets a payload, with its forgetting documents —
         # the one that parses and those that do not — among the operations.
@@ -1654,7 +1710,7 @@ def check_store(temporary):
 
     def compare(corpus, commands):
         recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping",
-                               "damaged", "gutted", "tampered")
+                               "damaged", "gutted", "tampered", "unreadable")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:

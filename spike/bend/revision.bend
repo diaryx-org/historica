@@ -5,6 +5,8 @@
 import Base
 import ./text.bend as T
 import ./ident.bend as Id
+import ./utf8.bend as Utf8
+import ./words.bend as W
 
 # The model
 # ---------
@@ -699,9 +701,501 @@ def parse.preamble(ls: List<&2, T.Line>) -> Result<&2, &2, String, Rev>:
     case Nil{}:
       Fail{"an empty document"}
 
+# The Rust tool's words
+# ---------------------
+#
+# The Rust tool reads a revision two ways (decision 0061): opening a store
+# reads each document's shape and its `change`, `parent` and `supersedes`
+# (`format::revision`), and whatever asks what a revision did reads it
+# whole (`RevisionDocument::parse`), splitting every header before it
+# weighs any. Each is read over again here in its own order, for what the
+# parser above does not say as the Rust tool does: which line a refused
+# document is refused on, and why. The parser above decides whether a
+# document is accepted; these only word a refusal.
+
+# A header as `split_header` leaves it.
+type WH is Data:
+  WH{at: Nat, key: String, value: String}
+
+def w.split.value(+at: Nat, +key: String, +value: String) -> Result<&2, &2, String, WH>:
+  Bool.pick(Result<&2, &2, String, WH>, Bool.not(shaped_key(key)), Fail{W.at(at, W.malformed_key(key))},
+  Bool.pick(Result<&2, &2, String, WH>, String.is_empty(value), Fail{W.at(at, W.empty_value())},
+  Bool.pick(Result<&2, &2, String, WH>, Bool.or(String.starts_with(value, " "), String.ends_with(value, " ")), Fail{W.at(at, W.padded_value())},
+  Bool.pick(Result<&2, &2, String, WH>, List.any(~&2, ~Char, ~is_control, String.to_list(value)), Fail{W.at(at, W.control_character())},
+    Done{WH{at, key, value}}))))
+
+# `split_header`: a key, one space, and a value.
+def w.split(+at: Nat, cut: Maybe<&2, T.Split>) -> Result<&2, &2, String, WH>:
+  match cut:
+    case None{}:
+      Fail{W.at(at, W.empty_value())}
+    case Some{T.Split{+k, +v}}:
+      w.split.value(at, k, v)
+
+# `rank`: where a key may appear in the fixed order.
+def w.rank(+key: String) -> Maybe<&2, Nat>:
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "change"), Some{0n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "parent"), Some{1n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "supersedes"), Some{2n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "author"), Some{3n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "when"), Some{4n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "revised-by"), Some{5n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "revised"), Some{6n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "add"), Some{7n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "move"), Some{8n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "mode"), Some{9n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "drop"), Some{10n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "edit"), Some{11n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "text"), Some{12n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "bytes"), Some{13n},
+  Bool.pick(Maybe<&2, Nat>, String.eq(key, "link"), Some{14n},
+  Bool.pick(Maybe<&2, Nat>, T.has_char(key, '.'), Some{15n}, None{}))))))))))))))))
+
+def w.repeatable(+r: Nat) -> Bool:
+  Bool.or(Bool.or(Nat.is_eq(r, 1n), Nat.is_eq(r, 2n)), Nat.is_ge(r, 7n))
+
+# The header before this one: its rank, its key and its value.
+type WPrev is Data:
+  WPrev{rank: Nat, key: String, value: String}
+
+def w.order.sorted(+key: String, +this: String, +last: String) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, String.eq(this, last), Some{W.duplicate_fact(key)},
+    Bool.pick(Maybe<&2, String>, String.is_lt(this, last), Some{W.repeated_key_out_of_order(key)}, None{}))
+
+# `check_order`: the rules between one header line and the one before it.
+def w.order(prev: Maybe<&2, WPrev>, +r: Nat, +key: String, +value: String) -> Maybe<&2, String>:
+  match prev:
+    case None{}:
+      None{}
+    case Some{WPrev{+lr, +lk, +lv}}:
+      Bool.pick(Maybe<&2, String>, Nat.is_lt(r, lr), Some{W.keys_out_of_order(key, lk)},
+      Bool.pick(Maybe<&2, String>, Bool.not(Nat.is_eq(r, lr)), None{},
+      Bool.pick(Maybe<&2, String>, Bool.not(w.repeatable(r)), Some{W.repeated_header(key)},
+        w.order.sorted(key, Bool.pick(String, Nat.is_eq(r, 15n), key, value), Bool.pick(String, Nat.is_eq(r, 15n), lk, lv)))))
+
+# Timestamps
+# ----------
+
+def w.byte(bs: List<&2, U32>, +i: Nat) -> U32:
+  Maybe.default(&2, U32, List.get(&2, U32, bs, i), 0)
+
+def w.is_digit(+b: U32) -> Bool:
+  Bool.and(U32.is_ge(b, 48), U32.is_le(b, 57))
+
+def w.digits(count: Nat, +bs: List<&2, U32>, +i: Nat) -> Bool:
+  match count:
+    case 0n:
+      True{}
+    case 1n+c:
+      Bool.and(w.is_digit(w.byte(bs, i)), w.digits(c, bs, 1n+i))
+
+def w.num(count: Nat, +bs: List<&2, U32>, +i: Nat, +acc: Nat) -> Nat:
+  match count:
+    case 0n:
+      acc
+    case 1n+c:
+      w.num(c, bs, 1n+i, Nat.add(Nat.mul(acc, 10n), Nat.sub(U32.to_nat(w.byte(bs, i)), 48n)))
+
+def w.at_is(+bs: List<&2, U32>, +i: Nat, +b: U32) -> Bool:
+  U32.is_eq(w.byte(bs, i), b)
+
+def w.time.checked(+minus: Bool, +year: Nat, +month: Nat, +day: Nat, +hour: Nat, +minute: Nat, +second: Nat, +oh: Nat, +om: Nat) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, Bool.or(Nat.is_lt(month, 1n), Nat.is_gt(month, 12n)), Some{"there is no such month"},
+  Bool.pick(Maybe<&2, String>, Bool.or(Nat.is_lt(day, 1n), Nat.is_gt(day, days_in(year, month))), Some{"there is no such day in that month"},
+  Bool.pick(Maybe<&2, String>, Bool.or(Nat.is_gt(hour, 23n), Bool.or(Nat.is_gt(minute, 59n), Nat.is_gt(second, 59n))), Some{"there is no such time of day"},
+  Bool.pick(Maybe<&2, String>, Bool.or(Nat.is_gt(oh, 23n), Nat.is_gt(om, 59n)), Some{"there is no such offset"},
+  Bool.pick(Maybe<&2, String>, Bool.and(minus, Bool.and(Nat.is_eq(oh, 0n), Nat.is_eq(om, 0n))), Some{"`-00:00` means an unknown offset; write `+00:00` for UTC"}, None{})))))
+
+def w.time.numbers(+bs: List<&2, U32>) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>,
+    Bool.and(Bool.and(Bool.and(w.digits(4n, bs, 0n), w.digits(2n, bs, 5n)), Bool.and(w.digits(2n, bs, 8n), w.digits(2n, bs, 11n))),
+      Bool.and(Bool.and(w.digits(2n, bs, 14n), w.digits(2n, bs, 17n)), Bool.and(w.digits(2n, bs, 20n), w.digits(2n, bs, 23n)))),
+    w.time.checked(w.at_is(bs, 19n, 45), w.num(4n, bs, 0n, 0n), w.num(2n, bs, 5n, 0n), w.num(2n, bs, 8n, 0n), w.num(2n, bs, 11n, 0n), w.num(2n, bs, 14n, 0n), w.num(2n, bs, 17n, 0n), w.num(2n, bs, 20n, 0n), w.num(2n, bs, 23n, 0n)),
+    Some{"it holds something that is not a digit"})
+
+# `Timestamp::check`, byte for byte: why a value is not a timestamp.
+def w.time.bytes(+bs: List<&2, U32>) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, Bool.not(Nat.is_eq(List.length(&2, U32, bs), 25n)), Some{"it is the wrong length, or carries fractional seconds"},
+  Bool.pick(Maybe<&2, String>, Bool.not(Bool.and(Bool.and(Bool.and(w.at_is(bs, 4n, 45), w.at_is(bs, 7n, 45)), Bool.and(w.at_is(bs, 10n, 84), w.at_is(bs, 13n, 58))), Bool.and(w.at_is(bs, 16n, 58), w.at_is(bs, 22n, 58)))),
+    Some{"its separators are in the wrong places"},
+  Bool.pick(Maybe<&2, String>, Bool.not(Bool.or(w.at_is(bs, 19n, 43), w.at_is(bs, 19n, 45))), Some{"its offset needs a sign; `Z` is not a spelling this format has"},
+    w.time.numbers(bs))))
+
+def w.time(+value: String) -> Maybe<&2, String>:
+  w.time.bytes(Utf8.encode(value))
+
+# Paths
+# -----
+
+def w.components(ps: List<&2, String>) -> Maybe<&2, String>:
+  match ps:
+    case Nil{}:
+      None{}
+    case +p <> rest:
+      Bool.pick(Maybe<&2, String>, String.is_empty(p), Some{"it has an empty component"},
+        Bool.pick(Maybe<&2, String>, Bool.or(String.eq(p, "."), String.eq(p, "..")), Some{"`.` and `..` are not components"}, w.components(rest)))
+
+# `check_path`: why a value is not a path a revision may name. Unicode
+# normal form C is not asked, as nowhere in this port.
+def w.path(+value: String) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, String.is_empty(value), Some{"it is empty"},
+  Bool.pick(Maybe<&2, String>, String.starts_with(value, "/"), Some{"it begins with `/`, and a path is relative to the repository root"},
+  Bool.pick(Maybe<&2, String>, String.ends_with(value, "/"), Some{"it ends with `/`, and a path names a file rather than a directory"},
+  Bool.pick(Maybe<&2, String>, Bool.or(String.starts_with(value, " "), String.ends_with(value, " ")), Some{"it has leading or trailing space"},
+  Bool.pick(Maybe<&2, String>, List.any(~&2, ~Char, ~is_control, String.to_list(value)), Some{"it holds a control character"},
+    w.components(String.split(value, '/')))))))
+
+# What has been read
+# ------------------
+
+type WCore is Data:
+  WCore{change: Bool, author: Maybe<&2, String>, when: Bool, revised_by: Maybe<&2, String>, revised: Bool, supersedes: Bool}
+
+type WFiles is Data:
+  WFiles{added: List<&2, String>, moved: List<&2, String>, modes: List<&2, String>, dropped: List<&2, String>, edited: List<&2, String>, text: List<&2, String>, bytes: List<&2, String>, links: List<&2, String>}
+
+type WS is Data:
+  WS{prev: Maybe<&2, WPrev>, core: WCore, files: WFiles}
+
+def w.start() -> WS:
+  WS{None{}, WCore{False{}, None{}, False{}, None{}, False{}, False{}}, WFiles{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}}
+
+def w.core.set(+key: String, +value: String, c: WCore) -> WCore:
+  match c:
+    case WCore{+ch, +au, +wh, +rb, +rv, +su}:
+      Bool.pick(WCore, String.eq(key, "change"), WCore{True{}, au, wh, rb, rv, su},
+      Bool.pick(WCore, String.eq(key, "author"), WCore{ch, Some{value}, wh, rb, rv, su},
+      Bool.pick(WCore, String.eq(key, "when"), WCore{ch, au, True{}, rb, rv, su},
+      Bool.pick(WCore, String.eq(key, "revised-by"), WCore{ch, au, wh, Some{value}, rv, su},
+      Bool.pick(WCore, String.eq(key, "revised"), WCore{ch, au, wh, rb, True{}, su},
+      Bool.pick(WCore, String.eq(key, "supersedes"), WCore{ch, au, wh, rb, rv, True{}}, WCore{ch, au, wh, rb, rv, su}))))))
+
+def w.files.of(+key: String, f: WFiles) -> List<&2, String>:
+  match f:
+    case WFiles{+ad, +mv, +md, +dr, +ed, +tx, +by, +ln}:
+      Bool.pick(List<&2, String>, String.eq(key, "add"), ad,
+      Bool.pick(List<&2, String>, String.eq(key, "move"), mv,
+      Bool.pick(List<&2, String>, String.eq(key, "mode"), md,
+      Bool.pick(List<&2, String>, String.eq(key, "drop"), dr,
+      Bool.pick(List<&2, String>, String.eq(key, "edit"), ed,
+      Bool.pick(List<&2, String>, String.eq(key, "text"), tx,
+      Bool.pick(List<&2, String>, String.eq(key, "bytes"), by, ln)))))))
+
+def w.files.add(+key: String, +file: String, f: WFiles) -> WFiles:
+  match f:
+    case WFiles{+ad, +mv, +md, +dr, +ed, +tx, +by, +ln}:
+      Bool.pick(WFiles, String.eq(key, "add"), WFiles{List.append(&2, String, ad, [file]), mv, md, dr, ed, tx, by, ln},
+      Bool.pick(WFiles, String.eq(key, "move"), WFiles{ad, List.append(&2, String, mv, [file]), md, dr, ed, tx, by, ln},
+      Bool.pick(WFiles, String.eq(key, "mode"), WFiles{ad, mv, List.append(&2, String, md, [file]), dr, ed, tx, by, ln},
+      Bool.pick(WFiles, String.eq(key, "drop"), WFiles{ad, mv, md, List.append(&2, String, dr, [file]), ed, tx, by, ln},
+      Bool.pick(WFiles, String.eq(key, "edit"), WFiles{ad, mv, md, dr, List.append(&2, String, ed, [file]), tx, by, ln},
+      Bool.pick(WFiles, String.eq(key, "text"), WFiles{ad, mv, md, dr, ed, List.append(&2, String, tx, [file]), by, ln},
+      Bool.pick(WFiles, String.eq(key, "bytes"), WFiles{ad, mv, md, dr, ed, tx, List.append(&2, String, by, [file]), ln},
+        WFiles{ad, mv, md, dr, ed, tx, by, List.append(&2, String, ln, [file])})))))))
+
+# A file stated under `key`, once.
+def w.stated(+at: Nat, +key: String, +file: String, st: WS) -> Result<&2, &2, String, WS>:
+  match st:
+    case WS{+p, +c, +f}:
+      Bool.pick(Result<&2, &2, String, WS>, member(w.files.of(key, f), file), Fail{W.at(at, W.file_stated_twice(key, file))},
+        Done{WS{p, c, w.files.add(key, file, f)}})
+
+def w.core(+key: String, +value: String, st: WS) -> WS:
+  match st:
+    case WS{+p, +c, +f}:
+      WS{p, w.core.set(key, value, c), f}
+
+def w.file_id(+n: String) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, Id.is_assigned(n), None{}, Some{W.malformed_file_id(n)})
+
+# What a tree header's second field must be.
+def w.second(+at: Nat, +key: String, +file: String, +second: String, +st: WS) -> Result<&2, &2, String, WS>:
+  +bad = Bool.pick(Maybe<&2, String>, Bool.or(String.eq(key, "add"), String.eq(key, "move")), Maybe.map(&2, String, String, b => W.malformed_path(second, b), w.path(second)),
+    Bool.pick(Maybe<&2, String>, String.eq(key, "mode"), Bool.pick(Maybe<&2, String>, Bool.or(String.eq(second, "plain"), String.eq(second, "executable")), None{}, Some{W.unknown_mode(second)}),
+    Bool.pick(Maybe<&2, String>, String.eq(key, "link"), Maybe.default(&2, Maybe<&2, String>, Maybe.map(&2, String, Maybe<&2, String>, n => w.file_id(n), T.strip_prefix(second, "file:")), None{}),
+      Bool.pick(Maybe<&2, String>, T.is_digest(second), None{}, Some{W.malformed_digest(key, second)}))))
+  Maybe.default(&2, Result<&2, &2, String, WS>, Maybe.map(&2, String, Result<&2, &2, String, WS>, e => Fail{W.at(at, e)}, bad), w.stated(at, key, file, st))
+
+def w.entry(+at: Nat, +key: String, +st: WS, cut: Maybe<&2, T.Split>) -> Result<&2, &2, String, WS>:
+  match cut:
+    case None{}:
+      Fail{W.at(at, W.malformed_file_entry(key))}
+    case Some{T.Split{+file, +second}}:
+      Bool.pick(Result<&2, &2, String, WS>, Id.is_assigned(file), w.second(at, key, file, second, st), Fail{W.at(at, W.malformed_file_id(file))})
+
+# A value, read as far as the reading asks: `cheap` reads the causal ones.
+def w.value(+at: Nat, +key: String, +value: String, +cheap: Bool, +st: WS) -> Result<&2, &2, String, WS>:
+  Bool.pick(Result<&2, &2, String, WS>, String.eq(key, "change"),
+    Bool.pick(Result<&2, &2, String, WS>, Id.is_assigned(value), Done{w.core(key, value, st)}, Fail{W.at(at, W.malformed_change_id(value))}),
+  Bool.pick(Result<&2, &2, String, WS>, Bool.or(String.eq(key, "parent"), String.eq(key, "supersedes")),
+    Bool.pick(Result<&2, &2, String, WS>, T.is_digest(value), Done{w.core(key, value, st)}, Fail{W.at(at, W.malformed_digest(key, value))}),
+  Bool.pick(Result<&2, &2, String, WS>, Bool.or(String.eq(key, "when"), String.eq(key, "revised")),
+    Bool.pick(Result<&2, &2, String, WS>, cheap, Done{w.core(key, value, st)},
+      Maybe.default(&2, Result<&2, &2, String, WS>, Maybe.map(&2, String, Result<&2, &2, String, WS>, b => Fail{W.at(at, W.malformed_timestamp(value, b))}, w.time(value)), Done{w.core(key, value, st)})),
+  Bool.pick(Result<&2, &2, String, WS>, Bool.or(String.eq(key, "author"), String.eq(key, "revised-by")), Done{w.core(key, value, st)},
+  Bool.pick(Result<&2, &2, String, WS>, Bool.or(cheap, T.has_char(key, '.')), Done{st},
+  Bool.pick(Result<&2, &2, String, WS>, String.eq(key, "drop"),
+    Bool.pick(Result<&2, &2, String, WS>, Id.is_assigned(value), w.stated(at, key, value, st), Fail{W.at(at, W.malformed_file_id(value))}),
+    w.entry(at, key, st, T.split_once(value))))))))
+
+def w.prev(st: WS) -> Maybe<&2, WPrev>:
+  match st:
+    case WS{p, c, f}:
+      p
+
+def w.ranked(+at: Nat, +key: String, +value: String, +cheap: Bool, st: WS, r: Maybe<&2, Nat>) -> Result<&2, &2, String, WS>:
+  match st r:
+    case _ None{}:
+      Fail{W.at(at, W.unknown_header(key))}
+    case WS{+p, +c, +f} Some{+rk}:
+      Maybe.default(&2, Result<&2, &2, String, WS>, Maybe.map(&2, String, Result<&2, &2, String, WS>, e => Fail{W.at(at, e)}, w.order(p, rk, key, value)),
+        w.value(at, key, value, cheap, WS{Some{WPrev{rk, key, value}}, c, f}))
+
+# One header weighed: its rank, its order, its value.
+def w.weigh(+cheap: Bool, st: Result<&2, &2, String, WS>, h: WH) -> Result<&2, &2, String, WS>:
+  match st h:
+    case Fail{e} _:
+      Fail{e}
+    case Done{s} WH{+at, +key, +value}:
+      w.ranked(at, key, value, cheap, s, w.rank(key))
+
+def w.assemble(hs: List<&2, WH>, st: Result<&2, &2, String, WS>) -> Result<&2, &2, String, WS>:
+  match hs:
+    case Nil{}:
+      st
+    case h <> rest:
+      w.assemble(rest, w.weigh(False{}, st, h))
+
+def w.redundant(+last: Nat, au: Maybe<&2, String>, rb: Maybe<&2, String>) -> Maybe<&2, String>:
+  match au rb:
+    case Some{+a} Some{+b}:
+      Bool.pick(Maybe<&2, String>, String.eq(a, b), Some{W.at(last, W.redundant_revised_by())}, None{})
+    case _ _:
+      None{}
+
+# The block's own rules, at the last line read: what must be stated, and
+# what may not be.
+def w.required(+last: Nat, c: WCore) -> Maybe<&2, String>:
+  match c:
+    case WCore{ch, +au, wh, +rb, +rv, su}:
+      Bool.pick(Maybe<&2, String>, Bool.not(ch), Some{W.at(last, W.missing_header("change"))},
+      Bool.pick(Maybe<&2, String>, Maybe.is_none(&2, String, au), Some{W.at(last, W.missing_header("author"))},
+      Bool.pick(Maybe<&2, String>, Bool.not(wh), Some{W.at(last, W.missing_header("when"))},
+      Bool.pick(Maybe<&2, String>, Bool.not(su),
+        Bool.pick(Maybe<&2, String>, rv, Some{W.at(last, W.rewrite_without_supersedes("revised"))},
+          Bool.pick(Maybe<&2, String>, Maybe.is_some(&2, String, rb), Some{W.at(last, W.rewrite_without_supersedes("revised-by"))}, w.redundant(last, au, rb))),
+        Bool.pick(Maybe<&2, String>, rv, w.redundant(last, au, rb), Some{W.at(last, W.missing_header("revised"))})))))
+
+
+# Decision 0008's contradictions, in the order the Rust tool asks them,
+# file by file.
+def w.clash(+last: Nat, +first: String, +file: String, checks: List<&2, T.Split>) -> Maybe<&2, String>:
+  match checks:
+    case Nil{}:
+      None{}
+    case T.Split{+second, +held} <> rest:
+      Bool.pick(Maybe<&2, String>, String.eq(held, "1"), Some{W.at(last, W.contradictory(first, second, file))}, w.clash(last, first, file, rest))
+
+def w.in(+xs: List<&2, String>, +file: String) -> String:
+  Bool.pick(String, member(xs, file), "1", "0")
+
+def w.clashes.added(fs: List<&2, String>, +last: Nat, +f: WFiles) -> Maybe<&2, String>:
+  match fs f:
+    case Nil{} _:
+      None{}
+    case +x <> rest WFiles{+ad, +mv, +md, +dr, +ed, +tx, +by, +ln}:
+      Maybe.or(&2, String, w.clash(last, "add", x, [T.Split{"move", w.in(mv, x)}, T.Split{"drop", w.in(dr, x)}, T.Split{"edit", w.in(ed, x)}]),
+        w.clashes.added(rest, last, WFiles{ad, mv, md, dr, ed, tx, by, ln}))
+
+def w.clashes.moved(fs: List<&2, String>, +last: Nat, +dr: List<&2, String>) -> Maybe<&2, String>:
+  match fs:
+    case Nil{}:
+      None{}
+    case +x <> rest:
+      Maybe.or(&2, String, w.clash(last, "move", x, [T.Split{"drop", w.in(dr, x)}]), w.clashes.moved(rest, last, dr))
+
+def w.clashes.dropped(fs: List<&2, String>, +last: Nat, +f: WFiles) -> Maybe<&2, String>:
+  match fs f:
+    case Nil{} _:
+      None{}
+    case +x <> rest WFiles{+ad, +mv, +md, +dr, +ed, +tx, +by, +ln}:
+      Maybe.or(&2, String, w.clash(last, "drop", x, [T.Split{"edit", w.in(ed, x)}, T.Split{"bytes", w.in(by, x)}, T.Split{"mode", w.in(md, x)}, T.Split{"link", w.in(ln, x)}]),
+        w.clashes.dropped(rest, last, WFiles{ad, mv, md, dr, ed, tx, by, ln}))
+
+def w.clashes.linked(fs: List<&2, String>, +last: Nat, +f: WFiles) -> Maybe<&2, String>:
+  match fs f:
+    case Nil{} _:
+      None{}
+    case +x <> rest WFiles{+ad, +mv, +md, +dr, +ed, +tx, +by, +ln}:
+      Maybe.or(&2, String, w.clash(last, "link", x, [T.Split{"text", w.in(tx, x)}, T.Split{"bytes", w.in(by, x)}, T.Split{"edit", w.in(ed, x)}, T.Split{"mode", w.in(md, x)}]),
+        w.clashes.linked(rest, last, WFiles{ad, mv, md, dr, ed, tx, by, ln}))
+
+def w.clashes.text(fs: List<&2, String>, +last: Nat, +ad: List<&2, String>, +by: List<&2, String>) -> Maybe<&2, String>:
+  match fs:
+    case Nil{}:
+      None{}
+    case +x <> rest:
+      Maybe.or(&2, String, w.clash(last, "text", x, [T.Split{"bytes", w.in(by, x)}]),
+        Bool.pick(Maybe<&2, String>, member(ad, x), w.clashes.text(rest, last, ad, by), Some{W.at(last, W.text_without_add(x))}))
+
+def w.clashes.bytes(fs: List<&2, String>, +last: Nat, +ed: List<&2, String>) -> Maybe<&2, String>:
+  match fs:
+    case Nil{}:
+      None{}
+    case +x <> rest:
+      Maybe.or(&2, String, w.clash(last, "edit", x, [T.Split{"bytes", w.in(ed, x)}]), w.clashes.bytes(rest, last, ed))
+
+def w.clashes(+last: Nat, f: WFiles) -> Maybe<&2, String>:
+  match f:
+    case WFiles{+ad, +mv, +md, +dr, +ed, +tx, +by, +ln}:
+      Maybe.or(&2, String, w.clashes.added(ad, last, WFiles{ad, mv, md, dr, ed, tx, by, ln}),
+      Maybe.or(&2, String, w.clashes.moved(mv, last, dr),
+      Maybe.or(&2, String, w.clashes.dropped(dr, last, WFiles{ad, mv, md, dr, ed, tx, by, ln}),
+      Maybe.or(&2, String, w.clashes.linked(ln, last, WFiles{ad, mv, md, dr, ed, tx, by, ln}),
+      Maybe.or(&2, String, w.clashes.text(tx, last, ad, by), w.clashes.bytes(by, last, ed))))))
+
+# The header block: what is left, the lines read, the headers split, and
+# whether the reading has stopped. `cheap` weighs each header as it is
+# split, as opening a store does; the whole reading splits them all first.
+type WHs is Data:
+  WHs{rest: List<&2, T.Line>, n: Nat, hs: List<&2, WH>, st: WS, done: Bool}
+
+def w.hs.split(+rest: List<&2, T.Line>, +at: Nat, +hs: List<&2, WH>, +cheap: Bool, +st: WS, r: Result<&2, &2, String, WH>) -> Result<&2, &2, String, WHs>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{+h}:
+      Bool.pick(Result<&2, &2, String, WHs>, cheap,
+        Result.map(&2, &2, String, WS, WHs, s => WHs{rest, at, hs, s, False{}}, w.weigh(True{}, Done{st}, h)),
+        Done{WHs{rest, at, List.append(&2, WH, hs, [h]), st, False{}}})
+
+def w.hs.line(+t: String, +term: Bool, +rest: List<&2, T.Line>, +n: Nat, +hs: List<&2, WH>, +cheap: Bool, +st: WS) -> Result<&2, &2, String, WHs>:
+  Bool.pick(Result<&2, &2, String, WHs>, String.is_empty(t),
+    Bool.pick(Result<&2, &2, String, WHs>, List.is_empty(&2, T.Line, rest), Fail{W.at(1n+n, W.empty_body_after_separator())}, Done{WHs{rest, 1n+n, hs, st, True{}}}),
+    Bool.pick(Result<&2, &2, String, WHs>, term, w.hs.split(rest, 1n+n, hs, cheap, st, w.split(1n+n, T.split_once(t))), Fail{W.at(1n+n, W.unterminated())}))
+
+def w.hs.step(+cheap: Bool, r: WHs) -> Result<&2, &2, String, WHs>:
+  match r:
+    case WHs{Nil{}, +n, +hs, +st, done}:
+      Done{WHs{Nil{}, n, hs, st, True{}}}
+    case WHs{T.Line{+t, +term} <> +rest, +n, +hs, +st, done}:
+      Bool.pick(Result<&2, &2, String, WHs>, done, Done{WHs{T.Line{t, term} <> rest, n, hs, st, True{}}}, w.hs.line(t, term, rest, n, hs, cheap, st))
+
+def w.hs.go(fuel: Nat, +cheap: Bool, r: Result<&2, &2, String, WHs>) -> Result<&2, &2, String, WHs>:
+  match fuel r:
+    case _ Fail{e}:
+      Fail{e}
+    case 0n Done{st}:
+      Done{st}
+    case 1n+p Done{st}:
+      w.hs.go(p, cheap, w.hs.step(cheap, st))
+
+def w.core.of(st: WS) -> WCore:
+  match st:
+    case WS{p, c, f}:
+      c
+
+def w.files.all(st: WS) -> WFiles:
+  match st:
+    case WS{p, c, f}:
+      f
+
+def w.whole.end(+last: Nat, r: Result<&2, &2, String, WS>) -> Maybe<&2, String>:
+  match r:
+    case Fail{e}:
+      Some{e}
+    case Done{+st}:
+      Maybe.or(&2, String, w.required(last, w.core.of(st)), w.clashes(last, w.files.all(st)))
+
+def w.block(+cheap: Bool, r: Result<&2, &2, String, WHs>) -> Maybe<&2, String>:
+  match r:
+    case Fail{e}:
+      Some{e}
+    case Done{WHs{rest, +n, hs, +st, done}}:
+      Bool.pick(Maybe<&2, String>, cheap, w.required(n, w.core.of(st)), w.whole.end(n, w.assemble(hs, Done{st})))
+
+def w.preamble(+cheap: Bool, ls: List<&2, T.Line>) -> Maybe<&2, String>:
+  match ls:
+    case Nil{}:
+      Some{W.at(1n, W.empty())}
+    case T.Line{+t, +term} <> +rest:
+      Maybe.or(&2, String, W.preamble(t, term), w.block(cheap, w.hs.go(1n+List.length(&2, T.Line, rest), cheap, Done{WHs{rest, 1n, Nil{}, w.start(), False{}}})))
+
+# The line of the first carriage return, which the Rust tool refuses before
+# anything else, wherever it is.
+def w.cr(ls: List<&2, T.Line>, +n: Nat) -> Maybe<&2, Nat>:
+  match ls:
+    case Nil{}:
+      None{}
+    case T.Line{t, term} <> rest:
+      Bool.pick(Maybe<&2, Nat>, T.has_char(t, '\r'), Some{1n+n}, w.cr(rest, 1n+n))
+
+def w.read(+cheap: Bool, +s: String) -> Maybe<&2, String>:
+  +ls = T.lines(s)
+  Bool.pick(Maybe<&2, String>, W.bom(s), Some{W.at(1n, W.byte_order_mark())},
+    Maybe.default(&2, Maybe<&2, String>, Maybe.map(&2, Nat, Maybe<&2, String>, n => Some{W.at(n, W.carriage_return())}, w.cr(ls, 0n)), w.preamble(cheap, ls)))
+
+# Why the Rust tool refuses these bytes as a revision it reads whole, in
+# its words: none where it would not.
+def refusal(+s: String) -> Maybe<&2, String>:
+  w.read(False{}, s)
+
+# Why opening a store refuses them (`format::revision`): the shape, and the
+# values that name revisions.
+def refusal.opening(+s: String) -> Maybe<&2, String>:
+  w.read(True{}, s)
+
+# What opening a store reads of a revision it accepts: the header block's
+# values, and the message. A command that asks what the revision did reads
+# it whole, and the refusal of that reading is its to say.
+def opening.pair(cut: Maybe<&2, T.Split>) -> List<&2, Header>:
+  match cut:
+    case None{}:
+      Nil{}
+    case Some{T.Split{k, v}}:
+      [Header{k, v}]
+
+def opening.headers(ls: List<&2, T.Line>) -> List<&2, Header>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case T.Line{+t, term} <> rest:
+      +more = opening.headers(rest)
+      Bool.pick(List<&2, Header>, String.is_empty(t), Nil{}, List.append(&2, Header, opening.pair(T.split_once(t)), more))
+
+def opening.message(ls: List<&2, T.Line>) -> String:
+  match ls:
+    case Nil{}:
+      SNil{}
+    case T.Line{+t, term} <> +rest:
+      Bool.pick(String, String.is_empty(t), unlines(rest), opening.message(rest))
+
+def opening.rev(+ls: List<&2, T.Line>) -> Rev:
+  +hs = opening.headers(ls)
+  Rev{Maybe.default(&2, String, value_of(hs, "change"), SNil{}), values_of(hs, "parent"), values_of(hs, "supersedes"),
+    Maybe.default(&2, String, value_of(hs, "author"), SNil{}), Maybe.default(&2, String, value_of(hs, "when"), SNil{}),
+    value_of(hs, "revised-by"), value_of(hs, "revised"), Nil{}, opening.message(ls)}
+
+def opening.tail(ls: List<&2, T.Line>) -> List<&2, T.Line>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case l <> rest:
+      rest
+
+def opening.read(+s: String) -> Maybe<&2, Rev>:
+  Bool.pick(Maybe<&2, Rev>, Maybe.is_some(&2, String, refusal.opening(s)), None{}, Some{opening.rev(opening.tail(T.lines(s)))})
+
+def worded(+s: String, r: Result<&2, &2, String, Rev>) -> Result<&2, &2, String, Rev>:
+  match r:
+    case Done{d}:
+      Done{d}
+    case Fail{e}:
+      Fail{Maybe.default(&2, String, refusal(s), e)}
+
 # A revision document, from its text.
 def parse(+s: String) -> Result<&2, &2, String, Rev>:
-  Bool.pick(Result<&2, &2, String, Rev>, T.has_char(s, '\r'), Fail{"a carriage return"}, parse.preamble(T.lines(s)))
+  worded(s, Bool.pick(Result<&2, &2, String, Rev>, T.has_char(s, '\r'), Fail{"a carriage return"}, parse.preamble(T.lines(s))))
 
 # Writing
 # -------

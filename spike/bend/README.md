@@ -277,6 +277,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
+| `words.bend` | the Rust tool's words for a document it refuses: `ParseErrorKind`'s display, one def per kind, the line in front as `ParseError` puts it | `format::error` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
 | `argv.bend` | the command line before the command word, read as the Rust tool's `run` reads it: `-C <dir>` as often as given, the last counting; `help`, `-h`, `--help` and `-V`, `--version`; any other `-` word refused | `cli::run` |
 | `shell.bend` | the usage text and the version, a usage error's message with the usage after it, and decision 0072's dispatch of a word no command here has to `historica-<word>` on `PATH` | `cli::{main, run, dispatch}` |
@@ -676,6 +677,27 @@ path really is. The notes are prose the Rust tool keeps in its source;
 `notes.bend`, and `check.py`, which compares everything `init` leaves,
 fails where they have drifted. The `bare` store, a folder with no store
 in it, has seven `init`s and the commands that need a store refusing.
+
+A document that does not parse is refused in the Rust tool's words
+(`words.bend`), on the line it names. The parsers here decide whether a
+document is accepted, and their proofs are about that; where one refuses,
+the document is read over again in the Rust reader's own order —
+`OperationDocument::parse`, `ResolutionDocument::parse`,
+`RevisionDocument::parse`, and `format::revision`, the reading that opens a
+store, which splits and weighs a revision's headers a line at a time and
+reads only the values that name revisions — and the first thing that
+reading refuses is what is said. Opening a store refuses the first revision
+whose shape does not read, for every command, naming the file; a revision
+that reads that far and not whole is in the graph, and a command asking
+what it did — `log` before it prints, `show`, the tree `files` and `cat`
+read, the ancestry `blame`, `status` and `diff` read — is refused naming
+it, a head listed with only its digest and change. An operation document
+or a resolution that does not parse is found the first time something asks
+what it says, as `what the revisions did could not be read`. `check.py`'s
+`-invalid` stores file every document of the corpora that does not parse
+among the ones that do, and `unreadable` names two from a revision;
+`log`, `files`, `show` and `cat` at every revision, and `check`, say what
+the Rust tool says.
 
 The command line is read as the Rust tool's `run` reads it (`argv.bend`):
 `-C <dir>` as often as it is given, the last counting, and every command
@@ -1521,13 +1543,12 @@ is under 5k. Not ported:
   writes; `arrange`, `fetch`, `export`. It writes no `cache/`, which any reader
   rebuilds. A merge's file still holding the renderer's marker lines is not
   refused by `record --dry-run`, since the markers are not modelled.
-- **`check`'s words for a document that does not parse**: a revision, an
-  operation document or a resolution the port's parser refuses is
-  reported in that parser's words, not the Rust tool's `ParseError`, so
-  `check.py`'s stores hold no such document but the forgetting documents
-  of a payload, whose parser `check.bend` holds to the Rust one's words.
-  Nor does `check` look for a redaction that has not finished arriving
+- **`check`** does not look for a redaction that has not finished arriving
   (`StillQuoted`), or a file it cannot read (`Unreadable`).
+- **A revision that reads only as far as opening** is in the graph and
+  refused where `log`, `show`, `files`, `cat`, `blame`, `status` and
+  `diff` ask what it did; `record`, `amend`, `abandon`, `carry`, `name` and
+  `skip` read only the revisions that read whole, as before.
 - **A name that is not UTF-8**, which the Rust tool's `record` refuses
   with the rest of what the folder cannot take, is not among the paths
   `record --dry-run` refuses, as `status` does not list it.

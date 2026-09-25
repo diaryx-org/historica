@@ -17,6 +17,7 @@ import Base
 import ./utf8.bend as Utf8
 import ./sha256.bend as Sha
 import ./argv.bend as Argv
+import ./revision.bend as Rev
 
 # The `history` directory in `from` or the nearest directory above it that
 # has one. Whether it is a store is asked of its `historica.txt` when a
@@ -387,6 +388,26 @@ def listing(+root: String) -> IO(List<&2, String>):
     text : String <- IO.try(String, Store.list(root))
     return kept(String.lines(text))
 
+# The first revision document opening refuses, in the order the store is
+# walked: its shape, or a value that names a revision (`format::revision`),
+# said as the Rust tool says it, naming the file. What only a whole reading
+# refuses waits for a command to read that revision whole.
+def opening(ds: List<&2, Doc>) -> Maybe<&2, String>:
+  match ds:
+    case Nil{}:
+      None{}
+    case Doc{+path, id, size, +text} <> rest:
+      +more = opening(rest)
+      Bool.pick(Maybe<&2, String>, String.ends_with(path, ".rev.txt"),
+        Maybe.or(&2, String, Maybe.map(&2, String, String, e => path ++ ": " ++ e, Rev.refusal.opening(text)), more), more)
+
+def unopened(m: Maybe<&2, String>) -> IO(Unit):
+  match m:
+    case None{}:
+      IO.pure(Unit, Unit{})
+    case Some{e}:
+      IO.die(Unit, 1, "historica: " ++ e)
+
 # Every revision document the store holds, read and named by its own bytes,
 # once the header says the store is one this reader reads: reading them is
 # opening the store, for every command, at the moment the Rust tool opens it.
@@ -398,7 +419,11 @@ def revisions(+root: String) -> IO(List<&2, Doc>):
   do IO<List<&2, Doc>>:
     opened(root)
     text : String <- IO.try(String, Store.list(root ++ "\nrevisions"))
-    read_docs(under(root, String.lines(text)))
+    ds : List<&2, Doc> <- read_docs(under(root, String.lines(text)))
+    +docs : List<&2, Doc> = ds
+    unopened(opening(docs))
+    return docs
+
 
 # Every file under `names/`, relative to the root, sorted: what may be a
 # bookmark. A bookmark is not named by its digest, so what is read here is
