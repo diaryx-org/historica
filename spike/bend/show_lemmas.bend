@@ -9,6 +9,9 @@ import ./store.bend as Store
 import ./string_lemmas.bend as S
 import ./fileat_lemmas.bend as FileAt
 import ./blamed_lemmas.bend as B
+import ./standin.bend as Stand
+import ./ops.bend as Ops
+import ./resolution.bend as Res
 
 # `cat`
 # -----
@@ -113,14 +116,120 @@ def doc_r(+id: String, +d: String, m: Maybe<&2, String>, +ds: List<&2, Store.Doc
 def doc_ok(+id: String, +d: String, +ds: List<&2, Store.Doc>, +text: String, e: {Main.show.doc.r(id, d, Main.doc_by_id(ds, d)) == Done{text} : Result<&2, &2, Main.Refused, String>}) -> {Main.doc.holds(ds, d, text) == True{} : Bool}:
   doc_r(id, d, Main.doc_by_id(ds, d), ds, {==}, text, e)
 
-def said_ok(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Main.Said, +text: String, e: {Main.show.said.r(id, file, ds, s) == Done{text} : Result<&2, &2, Main.Refused, String>}) -> {Main.doc.holds(ds, Main.said.digest(s), text) == True{} : Bool}:
+# What stands in for a destroyed document
+# ----------------------------------------
+
+def char_refl(h: Char) -> {Char.is_eq(h, h) == True{} : Bool}:
+  match h:
+    case Chr{U32{w}}:
+      %Equal.sym(Cmp, Word.cmp(32n, w, w), EQ{}, S.word_refl(32n, w)) : {Cmp.is_eq(_) == True{} : Bool}
+      {==}
+
+# A string begins with itself, whatever follows it.
+def starts_app(t: String, +x: String) -> {String.starts_with(t ++ x, t) == True{} : Bool}:
+  match t:
+    case SNil{}:
+      match x:
+        case SNil{}:
+          {==}
+        case SCon{h, r}:
+          {==}
+    case SCon{+h, tt}:
+      %Equal.sym(Bool, Char.is_eq(h, h), True{}, char_refl(h)) : {String.starts_with.if(tt ++ x, tt, _) == True{} : Bool}
+      starts_app(tt, x)
+
+# And dropping as many characters as it has leaves what followed.
+def drop_app(t: String, +x: String) -> {String.drop(t ++ x, String.length(t)) == x : String}:
+  match t:
+    case SNil{}:
+      match x:
+        case SNil{}:
+          {==}
+        case SCon{h, r}:
+          {==}
+    case SCon{h, tt}:
+      drop_app(tt, x)
+
+def or_r(a: Bool, -b: Bool, h: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+# A document is only ever taken where its first header says it forgets the
+# digest named.
+def taken_says(says: Bool, stands: Bool, payload: Bool, seen: Bool, e: {Stand.kind.taken(Stand.kind.of(says, stands, payload), seen) == True{} : Bool}) -> {says == True{} : Bool}:
+  match says:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(e))
+
+def made_took(+t: String, +d: String, +y: String, rest: List<&2, Store.Doc>, hs: {Store.stands_for(t, [d]) == True{} : Bool}, ih: {Stand.made_of(rest, d, y) == True{} : Bool}) -> {Bool.and(Bool.and(Store.stands_for(t, [d]), String.starts_with(t ++ y, t)), Stand.made_of(rest, d, String.drop(t ++ y, String.length(t)))) == True{} : Bool}:
+  %Equal.sym(Bool, Store.stands_for(t, [d]), True{}, hs) : {Bool.and(Bool.and(_, String.starts_with(t ++ y, t)), Stand.made_of(rest, d, String.drop(t ++ y, String.length(t)))) == True{} : Bool}
+  %Equal.sym(Bool, String.starts_with(t ++ y, t), True{}, starts_app(t, y)) : {Bool.and(Bool.and(True{}, _), Stand.made_of(rest, d, String.drop(t ++ y, String.length(t)))) == True{} : Bool}
+  %Equal.sym(String, String.drop(t ++ y, String.length(t)), y, drop_app(t, y)) : {Bool.and(True{}, Stand.made_of(rest, d, _)) == True{} : Bool}
+  ih
+
+def made_step(taken: Bool, +t: String, +d: String, +y: String, rest: List<&2, Store.Doc>, ht: {taken == True{} : Bool} -> {Store.stands_for(t, [d]) == True{} : Bool}, ih: {Stand.made_of(rest, d, y) == True{} : Bool}) -> {Stand.made_of(Store.Doc{SNil{}, SNil{}, 0n, t} <> rest, d, Bool.pick(String, taken, t, SNil{}) ++ y) == True{} : Bool}:
+  match taken:
+    case True{}:
+      +h = made_took(t, d, y, rest, ht({==}), ih)
+      %Equal.sym(Bool, Bool.and(Bool.and(Store.stands_for(t, [d]), String.starts_with(t ++ y, t)), Stand.made_of(rest, d, String.drop(t ++ y, String.length(t)))), True{}, h) : {Bool.or(_, Stand.made_of(rest, d, t ++ y)) == True{} : Bool}
+      {==}
+    case False{}:
+      or_r(Bool.and(Bool.and(Store.stands_for(t, [d]), String.starts_with(y, t)), Stand.made_of(rest, d, String.drop(y, String.length(t)))), Stand.made_of(rest, d, y), ih)
+
+def kind_says(+t: String, +d: String, +seen: Bool, e: {Stand.kind.taken(Stand.kind(t, d), seen) == True{} : Bool}) -> {Store.stands_for(t, [d]) == True{} : Bool}:
+  taken_says(Store.stands_for(t, [d]), Bool.or(Stand.forgets.is(Stand.ops.forgets(Ops.parse(t)), d), Stand.forgets.is(Stand.res.forgets(Stand.res.parsed(t, Res.is_resolution(t))), d)), Stand.forgets.is(Stand.payload.forgets(Stand.payload.parse(t)), d), seen, e)
+
+# Every document `show` prints for a digest it does not hold says it
+# forgets that digest, and is printed whole, in the store's order.
+def made_go(ds: List<&2, Store.Doc>, +d: String, +seen: Bool) -> {Stand.made_of(ds, d, Stand.shown.go(ds, d, seen)) == True{} : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case Store.Doc{p, i, n, +t} <> +rest:
+      made_step(Stand.kind.taken(Stand.kind(t, d), seen), t, d, Stand.shown.go(rest, d, Stand.kind.seen(Stand.kind(t, d), seen)), rest, h => kind_says(t, d, seen, h), made_go(rest, d, Stand.kind.seen(Stand.kind(t, d), seen)))
+
+def nonempty_some(s: String, -y: String, e: {Stand.nonempty(s) == Some{y} : Maybe<&2, String>}) -> {s == y : String}:
+  match s:
+    case SNil{}:
+      Empty.absurd({SNil{} == y : String}, (%e : {sdisc(_) : Type} Unit{}))
+    case SCon{c, r}:
+      some_eq_s(SCon{c, r}, y, e)
+
+def shown_none(+id: String, +d: String, +ds: List<&2, Store.Doc>, m: Maybe<&2, String>, +em: {Stand.nonempty(Stand.shown.go(ds, d, False{})) == m : Maybe<&2, String>}, +text: String, e: {Main.show.doc.r(id, d, m) == Done{text} : Result<&2, &2, Main.Refused, String>}) -> {Bool.or(Main.doc.holds(ds, d, text), Stand.made_of(ds, d, text)) == True{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Bool.or(Main.doc.holds(ds, d, text), Stand.made_of(ds, d, text)) == True{} : Bool}, B.refuse(String, Main.show.doc.r(id, d, None{}), text, {==}, e))
+    case Some{x}:
+      +dx = B.done_eq(String, x, text, e)
+      %dx : {Bool.or(Main.doc.holds(ds, d, _), Stand.made_of(ds, d, _)) == True{} : Bool}
+      +hs = nonempty_some(Stand.shown.go(ds, d, False{}), x, em)
+      %hs : {Bool.or(Main.doc.holds(ds, d, _), Stand.made_of(ds, d, _)) == True{} : Bool}
+      or_r(Main.doc.holds(ds, d, Stand.shown.go(ds, d, False{})), Stand.made_of(ds, d, Stand.shown.go(ds, d, False{})), made_go(ds, d, False{}))
+
+def shown_r(+id: String, +d: String, +ds: List<&2, Store.Doc>, m: Maybe<&2, String>, +em: {Stand.held(ds, d) == m : Maybe<&2, String>}, +text: String, e: {Main.show.doc.r(id, d, Stand.shown.of(ds, d, m)) == Done{text} : Result<&2, &2, Main.Refused, String>}) -> {Bool.or(Main.doc.holds(ds, d, text), Stand.made_of(ds, d, text)) == True{} : Bool}:
+  match m:
+    case Some{x}:
+      +dx = B.done_eq(String, x, text, e)
+      %dx : {Bool.or(Main.doc.holds(ds, d, _), Stand.made_of(ds, d, _)) == True{} : Bool}
+      +h = by_id(ds, d, x, em)
+      %Equal.sym(Bool, Main.doc.holds(ds, d, x), True{}, h) : {Bool.or(_, Stand.made_of(ds, d, x)) == True{} : Bool}
+      {==}
+    case None{}:
+      shown_none(id, d, ds, Stand.nonempty(Stand.shown.go(ds, d, False{})), {==}, text, e)
+
+def said_ok(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Main.Said, +text: String, e: {Main.show.said.r(id, file, ds, s) == Done{text} : Result<&2, &2, Main.Refused, String>}) -> {Bool.or(Main.doc.holds(ds, Main.said.digest(s), text), Stand.made_of(ds, Main.said.digest(s), text)) == True{} : Bool}:
   match s:
     case Main.Nothing{}:
-      Empty.absurd({Main.doc.holds(ds, SNil{}, text) == True{} : Bool}, B.refuse(String, Main.show.said.r(id, file, ds, Main.Nothing{}), text, {==}, e))
+      Empty.absurd({Bool.or(Main.doc.holds(ds, SNil{}, text), Stand.made_of(ds, SNil{}, text)) == True{} : Bool}, B.refuse(String, Main.show.said.r(id, file, ds, Main.Nothing{}), text, {==}, e))
     case Main.Whole{+d}:
-      doc_ok(id, d, ds, text, e)
+      shown_r(id, d, ds, Stand.held(ds, d), {==}, text, e)
     case Main.Edited{+d}:
-      doc_ok(id, d, ds, text, e)
+      shown_r(id, d, ds, Stand.held(ds, d), {==}, text, e)
 
 def sf_bind(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +p: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, +er: {Main.tree.r(fs, id) == r : Result<&2, &2, Main.Refused, Tree.Tree()>}, +file: String, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), String, r, t => Main.file_in.r(id, bs, p, t)) == Done{file} : Result<&2, &2, Main.Refused, String>}) -> {Main.tree.holds.r(Main.tree.r(fs, id), file) == True{} : Bool}:
   match r:
