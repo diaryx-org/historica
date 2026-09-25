@@ -2224,6 +2224,20 @@ def check_mutations(temporary):
             "span_lemmas.span_listed",
             "commands.bend",
         ),
+        (
+            "diff over the folder leaves an edit it believes unfetched",
+            "    case True{}:\n      edit_of.split(origin(os, here.file(h)))\n",
+            "    case True{}:\n      Nil{}\n",
+            "fetch_lemmas.edit_one",
+            "commands.bend",
+        ),
+        (
+            "a payload diff shows left unasked",
+            "    case Some{Side.Whole{d, n}}:\n      [d]\n    case _:\n      Nil{}\n",
+            "    case Some{Side.Whole{d, n}}:\n      Nil{}\n    case _:\n      Nil{}\n",
+            "fetch_lemmas.payload_side",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

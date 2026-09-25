@@ -563,6 +563,12 @@ def Laws.diff_fetches_what_it_replays(fs, ws, ns, files):
 def Laws.diff_folder_fetches_what_it_replays(fs, dg, os, eds, hs):
   FetchL.folder_fetched(fs, dg, os, eds, hs)
 
+def Laws.diff_folder_fetches_the_edits_it_believes(os, hs):
+  FetchL.edits_fetched(os, hs)
+
+def Laws.diff_asks_every_payload_it_shows(cs):
+  FetchL.payloads_asked(cs)
+
 def Laws.reading_fetches_what_resolutions_keep(ds):
   FetchL.kept_fetched(ds)
 
