@@ -224,7 +224,9 @@ pub unsafe extern "C" fn hist_store_digests(
 ///   not followed;
 /// - `L <name>`: a link whose target is not UTF-8, or cannot be one line;
 /// - `o <name>`: anything else — a socket, a device;
-/// - `u`: a name that is not UTF-8, which cannot be spelled.
+/// - `u <name>`: a name that is not UTF-8, spelled as `to_string_lossy`
+///   spells it — data for the refusal the Bend side words, which names it
+///   so, and nothing to open by.
 ///
 /// A name holding a newline cannot be a line and is left out; the working
 /// copy refuses such a path anyway, so nothing it would have tracked is lost.
@@ -260,7 +262,10 @@ fn folder(dir: &Path) -> Result<String, (i32, String)> {
     let mut lines = Vec::new();
     for (path, kind) in entries {
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-            lines.push("u".to_owned());
+            let lossy = path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default();
+            if !lossy.contains('\n') {
+                lines.push(format!("u {lossy}"));
+            }
             continue;
         };
         if name.contains('\n') {
@@ -447,7 +452,10 @@ pub unsafe extern "C" fn hist_store_write(
 /// The argument is the directory removal stops at, then the file. The file
 /// is removed, then each directory above it that the removal left empty, up
 /// to and never including the first line's: a `names/feature/` holding
-/// nothing says a `feature/` bookmark is here when none is. The answer is
+/// nothing says a `feature/` bookmark is here when none is. A third line,
+/// where there is one, is where tidying starts instead of the file: `update`
+/// removes a file where the folder spells it and tidies above the path as
+/// the tree spells it, as the Rust tool does (decision 0033). The answer is
 /// `removed`, or `absent` for a file that was not there.
 ///
 /// The path may name an empty directory instead, which is removed the same
@@ -468,7 +476,8 @@ pub unsafe extern "C" fn hist_store_remove(
         let Some((boundary, path)) = text(query, query_len)?.split_once('\n') else {
             return Err((EINVAL, "a removal is where it stops, then the file".to_owned()));
         };
-        let (boundary, path) = (Path::new(boundary), Path::new(path));
+        let (path, tidy) = path.split_once('\n').unwrap_or((path, path));
+        let (boundary, path, tidy) = (Path::new(boundary), Path::new(path), Path::new(tidy));
         let directory = fs::symlink_metadata(path).is_ok_and(|entry| entry.is_dir());
         let removed = if directory { fs::remove_dir(path) } else { fs::remove_file(path) };
         match removed {
@@ -476,7 +485,7 @@ pub unsafe extern "C" fn hist_store_remove(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok("absent".to_owned()),
             Err(error) => return Err((code(&error), format!("{}: {error}", path.display()))),
         }
-        let mut empty = path.parent();
+        let mut empty = tidy.parent();
         while let Some(directory) = empty {
             if directory == boundary || fs::remove_dir(directory).is_err() {
                 break;
@@ -1315,6 +1324,7 @@ mod tests {
 
     #[test]
     fn a_folder_is_listed_one_directory_at_a_time_without_following_links() {
+        use std::os::unix::ffi::OsStrExt as _;
         use std::os::unix::fs::PermissionsExt as _;
 
         let dir = tempfile::tempdir().unwrap();
@@ -1326,10 +1336,13 @@ mod tests {
         fs::set_permissions(root.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
         std::os::unix::fs::symlink("notes", root.join("a-link")).unwrap();
         fs::write(root.join("two\nlines"), "").unwrap();
+        // A name that is not UTF-8 is listed as its lossy spelling, in the
+        // order its bytes sort in: after `run.sh`, as 0xff is after `r`.
+        fs::write(root.join(std::ffi::OsStr::from_bytes(b"x\xff.md")), "").unwrap();
 
         let (code, listed) = call(hist_folder_list, root.to_str().unwrap().as_bytes());
         assert_eq!(code, 0, "{listed}");
-        assert_eq!(listed, "l a-link\nnotes\nf 0 4 b.txt\nd notes\nf 1 10 run.sh");
+        assert_eq!(listed, "l a-link\nnotes\nf 0 4 b.txt\nd notes\nf 1 10 run.sh\nu x\u{fffd}.md");
 
         let (code, message) = call(hist_folder_list, root.join("gone").to_str().unwrap().as_bytes());
         assert_eq!(code, ENOENT);
@@ -1737,6 +1750,16 @@ mod tests {
         assert!(names.is_dir(), "names/ itself stays");
         assert_eq!(asked("top.txt"), (0, "absent".to_owned()));
         assert_eq!(call(hist_store_remove, b"no newline").0, EINVAL);
+
+        // Tidying from another spelling of the path: the file goes, and the
+        // directory it was in stays where the other spelling names nothing.
+        fs::create_dir_all(names.join("de\u{301}j")).unwrap();
+        fs::write(names.join("de\u{301}j/z.txt"), "").unwrap();
+        let (file, tidy) = (names.join("de\u{301}j/z.txt"), names.join("d\u{e9}j/z.txt"));
+        let query = format!("{}\n{}\n{}", names.display(), file.display(), tidy.display());
+        assert_eq!(call(hist_store_remove, query.as_bytes()), (0, "removed".to_owned()));
+        assert!(!file.exists());
+        assert!(names.join("de\u{301}j").is_dir());
     }
 
     #[test]

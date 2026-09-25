@@ -48,10 +48,15 @@ side, when a command opens it — `Store.list` what paths it holds, `Store.at` w
 with a digest are, `Store.digests` what a file's digest and byte count
 are, and `Store.folder` what one directory of the folder beside the store
 holds — each entry's name and what it is, a link's target read and never
-followed, a file's execute bit and length. Which directories are walked,
-which files a `skipped/` rule keeps out, and which paths the format can hold
-are decided in `folder.bend`, which asks for a directory only once it has
-decided to walk it: a skipped `target/` is never listed. `Store.tty` says
+followed, a file's execute bit and length, and a name that is not UTF-8
+as `to_string_lossy` spells it, which is data for the refusal and nothing
+to open by. Which directories are walked, which files a `skipped/` rule
+keeps out, which paths the format can hold, and what each name is in
+Unicode normal form C are decided in `folder.bend`, which asks for a
+directory only once it has decided to walk it: a skipped `target/` is
+never listed. A name is handed over as the folder spells it, and the Bend
+side opens a file by that spelling, asking a directory's listing again
+where a path could be spelled more than one way. `Store.tty` says
 whether standard output is a terminal, and `--color auto` decides. Which files a command opens is the Bend side's, and so is every
 conclusion: a path `Store.at` offers is opened and hashed in `sha256.bend`
 before the document at it is believed to be the one asked for, which is

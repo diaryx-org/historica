@@ -995,71 +995,95 @@ def done.r(r: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Main.Refus
 def done.io(r: Result<&1, &1, U32 & String, String>) -> IO(String):
   Main.refused.io(String, done.r(r))
 
+# Where a path is in the folder, as the Rust tool's update asks it: a file
+# the walk found where the folder spells it, since decision 0033 lets a
+# folder spell a name decomposed that the tree spells composed, and an
+# update rewrites the file there rather than laying another beside it; and
+# any other path joined on as the tree spells it.
+def spelt.of(r: Map<&2, String> & String) -> String:
+  (m, s) = r
+  s
+
+def spelt(+dm: Map<&2, String>, +p: String) -> String:
+  spelt.of(Map.get(String, p, dm, p))
+
+def spelt.all(+dm: Map<&2, String>, ps: List<&2, String>) -> List<&2, String>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case +p <> rest:
+      spelt(dm, p) <> spelt.all(dm, rest)
+
+def disk(+repo: String, +dm: Map<&2, String>, +p: String) -> String:
+  Folder.joined(repo, spelt(dm, p))
+
 def removed.one(+p: String, answer: String) -> List<&2, String>:
   Bool.pick(List<&2, String>, String.eq(answer, "removed"), [p], Nil{})
 
-# Each removal, and each directory it empties up to the folder itself.
-def apply.removes(+repo: String, ps: List<&2, String>) -> IO(List<&2, String>):
+# Each removal, and each directory it empties up to the folder itself —
+# the directories above the path as the tree spells it, which is where the
+# Rust tool tidies.
+def apply.removes(+repo: String, +dm: Map<&2, String>, ps: List<&2, String>) -> IO(List<&2, String>):
   match ps:
     case Nil{}:
       IO.pure(List<&2, String>, Nil{})
     case +p <> rest:
       do IO<List<&2, String>>:
-        r : Result<&1, &1, U32 & String, String> <- Store.removed(repo ++ "\n" ++ Folder.joined(repo, p))
+        r : Result<&1, &1, U32 & String, String> <- Store.removed(repo ++ "\n" ++ disk(repo, dm, p) ++ "\n" ++ Folder.joined(repo, p))
         a : String <- done.io(r)
-        more : List<&2, String> <- apply.removes(repo, rest)
+        more : List<&2, String> <- apply.removes(repo, dm, rest)
         return List.append(&2, String, removed.one(p, a), more)
 
 # The bit set after the bytes land, and said where it was not already so.
 def chmod.said(+p: String, +w: Wants, was: String) -> List<&2, String>:
   Bool.pick(List<&2, String>, Bool.xor(String.eq(was, "1"), wants.runs(w)), [Main.pad("mode", 7n) ++ " " ++ p ++ "  (" ++ wants.mode(w) ++ ")"], Nil{})
 
-def chmod(+repo: String, +p: String, +w: Wants) -> IO(List<&2, String>):
+def chmod(+repo: String, +dm: Map<&2, String>, +p: String, +w: Wants) -> IO(List<&2, String>):
   do IO<List<&2, String>>:
-    r : Result<&1, &1, U32 & String, String> <- Store.chmodded(Folder.joined(repo, p) ++ "\n" ++ Bool.pick(String, wants.runs(w), "1", "0"))
+    r : Result<&1, &1, U32 & String, String> <- Store.chmodded(disk(repo, dm, p) ++ "\n" ++ Bool.pick(String, wants.runs(w), "1", "0"))
     was : String <- done.io(r)
     return chmod.said(p, w, was)
 
-def write.one(+repo: String, +p: String, w: Wants) -> IO(Result<&1, &1, U32 & String, String>):
+def write.one(+repo: String, +dm: Map<&2, String>, +p: String, w: Wants) -> IO(Result<&1, &1, U32 & String, String>):
   match w:
     case Wants.Lines{text, m}:
-      Store.put_text(Folder.joined(repo, p) ++ "\n" ++ text)
+      Store.put_text(disk(repo, dm, p) ++ "\n" ++ text)
     case Wants.Whole{d, at, m}:
-      Store.laid(at ++ "\n" ++ Folder.joined(repo, p) ++ "\n" ++ d)
+      Store.laid(at ++ "\n" ++ disk(repo, dm, p) ++ "\n" ++ d)
     case _:
       IO.pure(Result<&1, &1, U32 & String, String>, Done{SNil{}})
 
 # Each file written, and its mode set: the mode lines it owes, in order.
-def apply.writes(+repo: String, ds: List<&2, Decided>) -> IO(List<&2, String>):
+def apply.writes(+repo: String, +dm: Map<&2, String>, ds: List<&2, Decided>) -> IO(List<&2, String>):
   match ds:
     case Nil{}:
       IO.pure(List<&2, String>, Nil{})
     case Decided{+p, +w, h, rs, s} <> rest:
       do IO<List<&2, String>>:
-        r : Result<&1, &1, U32 & String, String> <- write.one(repo, p, w)
+        r : Result<&1, &1, U32 & String, String> <- write.one(repo, dm, p, w)
         a : String <- done.io(r)
-        set : List<&2, String> <- chmod(repo, p, w)
-        more : List<&2, String> <- apply.writes(repo, rest)
+        set : List<&2, String> <- chmod(repo, dm, p, w)
+        more : List<&2, String> <- apply.writes(repo, dm, rest)
         return List.append(&2, String, set, more)
 
-def apply.links(+repo: String, ds: List<&2, Decided>) -> IO(Unit):
+def apply.links(+repo: String, +dm: Map<&2, String>, ds: List<&2, Decided>) -> IO(Unit):
   match ds:
     case Nil{}:
       IO.pure(Unit, Unit{})
     case Decided{+p, w, h, rs, s} <> rest:
       do IO<Unit>:
-        r : Result<&1, &1, U32 & String, String> <- Store.linked(Folder.joined(repo, p) ++ "\n" ++ wants.target(w))
+        r : Result<&1, &1, U32 & String, String> <- Store.linked(disk(repo, dm, p) ++ "\n" ++ wants.target(w))
         a : String <- done.io(r)
-        apply.links(repo, rest)
+        apply.links(repo, dm, rest)
 
-def apply.modes(+repo: String, ds: List<&2, Decided>) -> IO(List<&2, String>):
+def apply.modes(+repo: String, +dm: Map<&2, String>, ds: List<&2, Decided>) -> IO(List<&2, String>):
   match ds:
     case Nil{}:
       IO.pure(List<&2, String>, Nil{})
     case Decided{+p, +w, h, rs, s} <> rest:
       do IO<List<&2, String>>:
-        set : List<&2, String> <- chmod(repo, p, w)
-        more : List<&2, String> <- apply.modes(repo, rest)
+        set : List<&2, String> <- chmod(repo, dm, p, w)
+        more : List<&2, String> <- apply.modes(repo, dm, rest)
         return List.append(&2, String, set, more)
 
 # A written file that does not read back as what was written: the folder
@@ -1079,28 +1103,28 @@ def folded.r(fs: List<&2, String>) -> Result<&2, &2, Main.Refused, Unit>:
     case +some:
       Fail{Main.Refused{1, "this folder folds paths the tree holds apart, and cannot represent it:" ++ String.concat(T.map(~String, ~String, ~(p => "\n  " ++ p), some))}}
 
-def apply(+repo: String, +spelled: String, p: Plan) -> IO(Unit):
+def apply(+repo: String, +dm: Map<&2, String>, +spelled: String, p: Plan) -> IO(Unit):
   match p:
     case Plan{+ds, +ws}:
       +written = writes(ds)
       +paths = T.map(~Decided, ~String, ~(d => decided.path(d)), written)
       do IO<Unit>:
-        removed : List<&2, String> <- apply.removes(repo, removes(ws))
-        wset : List<&2, String> <- apply.writes(repo, written)
-        apply.links(repo, links(ds))
-        mset : List<&2, String> <- apply.modes(repo, modes(ds))
-        stats : List<&2, String> <- Store.stats(repo, paths)
+        removed : List<&2, String> <- apply.removes(repo, dm, removes(ws))
+        wset : List<&2, String> <- apply.writes(repo, dm, written)
+        apply.links(repo, dm, links(ds))
+        mset : List<&2, String> <- apply.modes(repo, dm, modes(ds))
+        stats : List<&2, String> <- Store.stats(repo, spelt.all(dm, paths))
         +fold : List<&2, String> = folded(written, stats)
         Main.print_lines(List.concat(&2, String, [said.paths("wrote", paths), said.paths("removed", removed), wset, mset, said.links("linked", links(ds)), said.leaves(leaves(ws)),
           Bool.pick(List<&2, String>, List.is_empty(&2, String, fold), ["the folder holds " ++ spelled], Nil{})]))
         Main.refused.io(Unit, folded.r(fold))
 
-def done.plan(+repo: String, +spelled: String, +dry: Bool, +p: Plan) -> IO(Unit):
+def done.plan(+repo: String, +dm: Map<&2, String>, +spelled: String, +dry: Bool, +p: Plan) -> IO(Unit):
   match dry:
     case True{}:
       Main.print_lines(said.dry(spelled, p))
     case False{}:
-      Bool.pick(IO(Unit), settled(p), Main.print_lines(said.settled(spelled, p)), apply(repo, spelled, p))
+      Bool.pick(IO(Unit), settled(p), Main.print_lines(said.settled(spelled, p)), apply(repo, dm, spelled, p))
 
 def refused.lines(rs: List<&2, T.Split>) -> String:
   match rs:
@@ -1572,7 +1596,10 @@ def update.at(+r: String, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, 
     +t2 : Tree.Tree() = t
     +found : List<&2, Folder.Found> = Folder.walked.found(w2)
     +files : List<&2, String> = regular(found)
-    stats : List<&2, String> <- Store.stats(repo, files)
+    +walked : List<&2, String> = Main.found_paths(found)
+    disk : List<&2, String> <- Folder.on_disk.all(repo, walked)
+    +dm : Map<&2, String> = Main.stats.map(walked, disk, Map.new(&2, String))
+    stats : List<&2, String> <- Store.stats(repo, spelt.all(dm, files))
     +dg : Map<&2, String> = Main.stats.map(files, stats, Map.new(&2, String))
     +one : List<&2, Tree.Entry> = single(placings(t2))
     ls : Map<&2, String> <- listings(repo, Main.sorted_distinct(untaken(found.map(found, dg, Map.new(&2, Maybe<&2, Held>)), one)), Map.new(&2, String))
@@ -1585,7 +1612,7 @@ def update.at(+r: String, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, 
     +pl : Planning = planning(fs, id, t2, found, dg, ls2, located, ds2)
     more : List<&2, Store.Doc> <- fetched(r, wanted_all(fs, Main.sorted_distinct(files_all(fs, planning.asked(pl)))))
     p : Plan <- Main.refused.io(Plan, planned.r(plan.with(pl, fs, rs, Folder.walked.refused(w2), ds2, more)))
-    done.plan(repo, spelled, dry, p)
+    done.plan(repo, dm, spelled, dry, p)
 
 def update.of(+r: String, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, c: UpdateCmd) -> IO(Unit):
   match c:

@@ -39,6 +39,9 @@ import ./prune.bend as Prune
 import ./receive.bend as Receive
 import ./offer.bend as Offer
 import ./export.bend as Export
+import ./nfc.bend as Nfc
+import ./nfc_tables.bend as Tab
+import ./nfc_lemmas.bend as NfcL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1127,9 +1130,12 @@ law chain_follows_first_parents:
 
 # Every revision a command reads is one a document of `revisions/` spells:
 # filed there under the digest the revision is known by, and what
-# `Rev.write` writes, byte for byte, from what the revision says. Reading a
-# store's revisions takes nothing that is not such a document, and nothing
-# of one is lost or added in the reading.
+# `Rev.write` writes, byte for byte, from what the revision says — or,
+# where a path it states is not in normal form C, which the Rust tool
+# refuses only once something reads the whole of it, the refusal every
+# such reader meets, in place of its facts. Reading a store's revisions
+# takes nothing that is not such a document, and nothing of one is lost or
+# added in the reading.
 law revisions_read_are_their_documents:
   for +root: String
   for +ds: List<&2, Store.Doc>
@@ -1840,7 +1846,8 @@ law record_goes_on_where_each_path_holds_one_file:
 # format holds, its target, folded against the link's own directory, is
 # either no path at all or one that is not absolute and never climbs out
 # with `..`: a link is never written as a reference to anything outside
-# what the folder holds.
+# what the folder holds. The fold is then spelled in normal form C, which
+# moves no `/` and no `.` (`nfc_leaves_separators_alone`).
 law a_link_resolves_inside_the_folder:
   for +link: String
   for +target: String
@@ -2755,3 +2762,75 @@ law offer_names_each_file_by_its_digest:
   for +rids: List<&2, T.Split>
   for +nids: List<&2, T.Split>
   {Offer.manifest.from(prefix, s, marks, claims, rids, nids) == True{} : Bool}
+
+# A path of ASCII is its own normal form C: normalising it, at every
+# boundary where a path arrives, changes nothing — which is very nearly
+# every path there is.
+law nfc_leaves_ascii:
+  for +s: String
+  for h: {Nfc.ascii(s) == True{} : Bool}
+  {Nfc.nfc(s) == s : String}
+
+# Canonical ordering puts every run of marks in order of class: in what
+# `order` makes of a decomposed string, no mark follows one of a higher
+# class with no starter between them — Unicode's canonical order, stated
+# over classes alone rather than by the insertion sort that makes it.
+law nfc_orders_marks_by_class:
+  for +ms: List<&2, Nfc.Mark>
+  {Nfc.canonical.go(Nfc.order(ms), 0) == True{} : Bool}
+
+# And moves no mark past another of its class: for every class, the marks
+# of that class in what `order` makes are the ones it was given, in the
+# order given — none lost, none added, starters kept in their order. With
+# the law above, that is what makes two orders of the same marks one
+# string before composition reads them.
+law nfc_ordering_keeps_every_mark:
+  for +ms: List<&2, Nfc.Mark>
+  for +k: U32
+  {NfcL.of_class(Nfc.order(ms), k) == NfcL.of_class(ms, k) : List<&2, Nfc.Mark>}
+
+# A character's class is the class of the run that holds it: the lookup
+# stops at the first run of the crate's table past the character, and
+# finds what a search of every run finds, since the table is in order.
+law nfc_class_misses_nothing:
+  for +c: U32
+  {Nfc.class(Tab.classes(), c) == Nfc.class.scan(Tab.classes(), c) : U32}
+
+# In the crate's tables, neither `/` nor `.` has a combining class, is
+# either half of a composition pair or what one makes, or is in any
+# character's decomposition. Normalising a path a name at a time, as the
+# walk does, is normalising the whole of it only because of this, and a
+# link's target resolved inside the folder keeps its shape once
+# normalised for the same reason; the law is the tables' part of that.
+law nfc_leaves_separators_alone:
+  {Bool.and(Nfc.inert(47), Nfc.inert(46)) == True{} : Bool}
+
+# The walk yields a path once and loses none. Two names a filesystem tells
+# apart can be one path in normal form C, and the walk keeps one file for
+# it: no two files it yields in a row share a path — and it yields them in
+# path order — and every path a file it found is at, a file it yields is
+# at.
+law the_walk_yields_a_path_once:
+  for +fs: List<&2, Folder.Found>
+  {Bool.and(Folder.apart(Folder.distinct(fs)), NfcL.paths_held(fs, Folder.distinct(fs))) == True{} : Bool}
+
+# A file is opened where the folder spells it. The walk names a path in
+# normal form C, and the filesystem may spell it otherwise, so a read asks
+# the listing: the name it opens is one whose normal form is the path, or,
+# where the listing gives none, the path as it is.
+law the_folder_spells_what_is_opened:
+  for +ls: List<&2, String>
+  for +want: String
+  {Bool.or(String.eq(Folder.spelling(ls, want), want), String.eq(Nfc.nfc(Folder.spelling(ls, want)), want)) == True{} : Bool}
+
+# A name that cannot be spelled is refused. Whatever a directory holds —
+# directories, files, links whatever their targets say, the rest — the
+# lines the host writes for it, read back, refuse each name that is not
+# UTF-8 once, where it is on disk under the directory, in
+# `WorkingError::NotUtf8`'s words, and nothing else; no rule is asked,
+# since none can name it.
+law a_name_that_cannot_be_spelled_is_refused:
+  for es: List<&2, NfcL.Listed>
+  for +prefix: String
+  for +dir: String
+  {Folder.unkeyed(Folder.unspelled(NfcL.listed.lines(es), prefix, dir)) == List.reverse(&2, T.Split, NfcL.listed.refused(es, dir)) : List<&2, T.Split>}

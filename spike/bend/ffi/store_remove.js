@@ -9,7 +9,10 @@ function store_remove(query) {
   const path = require("node:path");
   const cut = query.indexOf("\n");
   if (cut < 0) return hist_fail(22, "a removal is where it stops, then the file");
-  const [boundary, file] = [query.slice(0, cut), query.slice(cut + 1)];
+  const [boundary, rest] = [query.slice(0, cut), query.slice(cut + 1)];
+  // A third line is where tidying starts, where it is not the file.
+  const next = rest.indexOf("\n");
+  const [file, tidy] = next < 0 ? [rest, rest] : [rest.slice(0, next), rest.slice(next + 1)];
   try {
     let directory = false;
     try {
@@ -21,7 +24,7 @@ function store_remove(query) {
     if (e.code === "ENOENT") return io_done("absent");
     return hist_fail(e.errno ? -e.errno : 5, `${file}: ${e.message}`);
   }
-  for (let directory = path.dirname(file); directory !== boundary; directory = path.dirname(directory)) {
+  for (let directory = path.dirname(tidy); directory !== boundary; directory = path.dirname(directory)) {
     try {
       fs.rmdirSync(directory);
     } catch (_) {

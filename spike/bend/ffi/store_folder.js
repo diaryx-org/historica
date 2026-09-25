@@ -1,8 +1,9 @@
 // The JS twin of `store_folder.c`: one directory of the folder, an entry a
 // line in byte order of name, each saying what it is without following it —
 // `d`, `f <x> <size>`, `l` with the target on the next line, `L` for a
-// target that cannot be spelled, `o` for anything else, `u` for a name that
-// is not UTF-8. A name holding a newline is left out.
+// target that cannot be spelled, `o` for anything else, `u` and its lossy
+// spelling for a name that is not UTF-8. A name holding a newline is left
+// out.
 function store_folder(dir) {
   // The runtime's `io_fail` keeps only a code and says the system's words
   // for it; this keeps what the refusal says, as the C side does.
@@ -36,7 +37,10 @@ function store_folder(dir) {
     for (const bytes of names) {
       const name = spelled(bytes);
       if (name === null) {
-        lines.push("u");
+        // `to_string_lossy`: each maximal ill-formed run one U+FFFD, which
+        // is the decoder's own rule.
+        const lossy = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("utf8");
+        if (!lossy.includes("\n")) lines.push(`u ${lossy}`);
         continue;
       }
       if (name.includes("\n")) continue;

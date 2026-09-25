@@ -349,7 +349,7 @@ def spelled_r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: M
     case True{}:
       file_r(bs, t, sp, left, h, e)
     case False{}:
-      path_r(bs, t, Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp), left, Tree.at(t, Maybe.default(&2, String, T.strip_prefix(sp, "path:"), sp)), {==}, h, e)
+      path_r(bs, t, Main.path.spelled(sp), left, Tree.at(t, Main.path.spelled(sp)), {==}, h, e)
 
 def held_r(+bs: List<&2, Bm.Bookmark>, +t: Tree.Tree(), +sp: String, +left: Maybe<&2, String>, +h: Main.Held, e: {Main.wcf.held.r(bs, t, sp, left) == Done{h} : Result<&2, &2, Main.Refused, Main.Held>}) -> {Main.held.ok(t, h) == True{} : Bool}:
   spelled_r(bs, t, sp, left, String.starts_with(sp, "file:"), h, e)
