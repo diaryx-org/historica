@@ -85,6 +85,7 @@ import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
 import ./host_lemmas.bend as HostL
 import ./listed_lemmas.bend as ListedL
+import ./pattern_lemmas.bend as PatL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1120,3 +1121,9 @@ def Laws.the_walk_yields_its_files_in_path_order(fs, rs):
 
 def Laws.the_walk_keeps_the_file_it_met_last(fs, rs, p):
   ListedL.finish_keeps(fs, rs, p)
+
+def Laws.a_pattern_matches_each_name_it_spells(r0, more, xs, h):
+  PatL.spells(r0, more, xs, h)
+
+def Laws.a_pattern_matches_only_names_it_spells(r0, more, c, h, e):
+  PatL.spelled(r0, more, c, h, e)

@@ -46,6 +46,7 @@ import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
 import ./host_lemmas.bend as HostL
 import ./listed_lemmas.bend as ListedL
+import ./pattern_lemmas.bend as PatL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2996,3 +2997,26 @@ law the_walk_keeps_the_file_it_met_last:
   for +rs: List<&2, T.Split>
   for +p: String
   {SortL.keyed(~Folder.Found, ~(f => Folder.found.path(f)), p, Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == ListedL.first(SortL.keyed(~Folder.Found, ~(f => Folder.found.path(f)), p, fs)) : List<&2, Folder.Found>}
+
+# A name in a rule matches as decision 0011 reads it: a pattern is runs of
+# characters with a `*` between each, and `*` is any run of characters.
+# Whatever run each `*` is taken to stand for, the name the pattern then
+# spells is one it matches: the matcher, which looks for each run at the
+# first place it stands and asks the last to end the name, misses none.
+law a_pattern_matches_each_name_it_spells:
+  for +r0: String
+  for +more: List<&2, String>
+  for +xs: List<&2, String>
+  for +h: {HostL.all_nosep(r0 <> more, '*') == True{} : Bool}
+  {Folder.matches(String.join(r0 <> more, "*"), PatL.fill(r0, more, xs)) == True{} : Bool}
+
+# And it matches nothing else: a name a pattern matches is one the pattern
+# spells with some run of characters standing for each `*`.
+law a_pattern_matches_only_names_it_spells:
+  for +r0: String
+  for +more: List<&2, String>
+  for +c: String
+  for +h: {HostL.all_nosep(r0 <> more, '*') == True{} : Bool}
+  for e: {Folder.matches(String.join(r0 <> more, "*"), c) == True{} : Bool}
+  exs xs: List<&2, String>
+  {PatL.fill(r0, more, xs) == c : String}

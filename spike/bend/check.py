@@ -5150,6 +5150,34 @@ def check_mutations(temporary):
             "listed_lemmas.finish_sorted",
             "folder.bend",
         ),
+        (
+            "a pattern's run is found a character short of where it stands",
+            "      Some{String.drop(SCon{c, t}, n)}",
+            "      Some{String.drop(t, n)}",
+            "pattern_lemmas.after_true",
+            "folder.bend",
+        ),
+        (
+            "a pattern's last run is asked to open the rest of the name",
+            "      Bool.and(Nat.is_ge(String.length(s), String.length(last)), String.ends_with(s, last))",
+            "      Bool.and(Nat.is_ge(String.length(s), String.length(last)), String.starts_with(s, last))",
+            "pattern_lemmas.fits_last",
+            "folder.bend",
+        ),
+        (
+            "a pattern's middle run is found and not passed",
+            "      runs.match(more, after(s, run, String.length(run), String.starts_with(s, run)))",
+            "      runs.match(more, Some{s})",
+            "pattern_lemmas.fits",
+            "folder.bend",
+        ),
+        (
+            "a pattern's first run is asked to end the name",
+            "      Bool.and(String.starts_with(component, first), runs.match(rest, Some{String.drop(component, String.length(first))}))",
+            "      Bool.and(String.ends_with(component, first), runs.match(rest, Some{String.drop(component, String.length(first))}))",
+            "pattern_lemmas.spells",
+            "folder.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
