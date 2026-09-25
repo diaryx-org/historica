@@ -231,6 +231,18 @@ def name_paths(+root: String) -> IO(List<&2, String>):
     text : String <- IO.try(String, Store.list(root ++ "\nnames"))
     return kept(String.lines(text))
 
+# Every file under `operations/`, and under `cache/`, relative to the root,
+# sorted: what `forget` destroys among.
+def operations(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root ++ "\noperations"))
+    return kept(String.lines(text))
+
+def cached(+root: String) -> IO(List<&2, String>):
+  do IO<List<&2, String>>:
+    text : String <- IO.try(String, Store.list(root ++ "\ncache"))
+    return kept(String.lines(text))
+
 # Whether what is printed goes to a terminal.
 def terminal() -> IO(Bool):
   do IO<Bool>:

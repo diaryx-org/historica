@@ -670,6 +670,68 @@ STORES = {
         ["amend", "-m", "reworded"],
         ["carry", "r13", "--onto", "r11"],
         ["carry", "left", "--onto", "right"],
+        # Forgetting what is already forgotten, and more of a document
+        # something already stands in for.
+        ["forget", "first", "notes.md", "--lines", "2"],
+        ["forget", "first", "notes.md", "--lines", "2", "--fields"],
+        ["forget", "first", "notes.md", "--lines", "2..4"],
+        ["forget", "first", "notes.md", "--lines", "1..6"],
+        ["forget", "head", "notes.md", "--lines", "3..4"],
+        ["forget", "left", "f.md", "--lines", "3"],
+        ["forget", "m1", "f.md", "--lines", "1..4"],
+        ["forget", "first", "photo.bin"],
+        ["forget", "first", "photo.bin", "--fields"],
+        ["forget", "r5", "photo.bin"],
+    ],
+    # Decisions 0014, 0050 and 0066, written: `forget` over the same history
+    # with nothing forgotten yet, and with a state of `notes.md` and a
+    # catalogue in `cache/`, compared with the whole store after — `cache/`
+    # included, whose copies of what goes go with it.
+    "forgetting": [
+        ["forget", "head", "notes.md", "--lines", "2..3", "--dry-run"],
+        ["forget", "head", "notes.md", "--lines", "2..3"],
+        ["forget", "-n", "head", "notes.md", "--lines", "1"],
+        ["forget", "head", "notes.md", "--lines", "1..6"],
+        ["forget", "first", "notes.md", "--lines", "2"],
+        ["forget", "r9", "notes.md", "--lines", "+2..03"],
+        ["forget", "head", "notes.md", "--lines", "2", "--fields"],
+        ["forget", "left", "f.md", "--lines", "3"],
+        ["forget", "m1", "f.md", "--lines", "1"],
+        ["forget", "m1", "f.md", "--lines", "1..4"],
+        ["forget", "right", "f.md", "--lines", "1..3", "--fields"],
+        ["forget", "first", "photo.bin"],
+        ["forget", "first", "photo.bin", "--dry-run"],
+        ["forget", "head", "photo.bin", "--fields"],
+        ["forget", "r5", "photo.bin"],
+        ["forget", "file:ffff", "notes.md", "--lines", "1"],
+        # Every refusal.
+        ["forget", "head", "notes.md"],
+        ["forget", "head", "empty.md"],
+        ["forget", "head", "empty.md", "--lines", "1"],
+        ["forget", "head", "photo.bin", "--lines", "1..2"],
+        ["forget", "head", "link", "--lines", "1"],
+        ["forget", "head", "link"],
+        ["forget", "head", "notes.md", "--lines", "0..1"],
+        ["forget", "head", "notes.md", "--lines", "3..2"],
+        ["forget", "head", "notes.md", "--lines", "7"],
+        ["forget", "head", "notes.md", "--lines", "18446744073709551615"],
+        ["forget", "head", "notes.md", "--lines", "0..1", "--fields"],
+        ["forget", "nope", "notes.md", "--lines", "1"],
+        ["forget", "nope", "notes.md", "--lines", "1", "--fields"],
+        ["forget", "head", "nothere.md", "--lines", "1"],
+        ["forget", "head", "file:", "--lines", "1", "--fields"],
+        ["forget", "", "notes.md", "--fields"],
+        # And every command line that is wrong.
+        ["forget"],
+        ["forget", "head"],
+        ["forget", "head", "notes.md", "extra"],
+        ["forget", "head", "notes.md", "--lines"],
+        ["forget", "head", "notes.md", "--lines", "x"],
+        ["forget", "head", "notes.md", "--lines", "1..2..3"],
+        ["forget", "head", "notes.md", "--lines", "18446744073709551616"],
+        ["forget", "head", "notes.md", "--lines", "-1"],
+        ["forget", "head", "notes.md", "--frob"],
+        ["forget", "head", "notes.md", "--lines", "1", "--dry-run", "--fields"],
     ],
     "stranded": [
         ["carry", "-n"],
@@ -1401,17 +1463,20 @@ def check_store(temporary):
             # surveys, dry run or not — so each tool runs on a copy of its
             # own, and what the folder holds after is compared too; and a
             # record that is not a dry run, the whole store it wrote.
-            writes = command[0] in ("record", "name", "init", *REWRITES)
+            writes = command[0] in ("record", "name", "init", "forget", *REWRITES)
             recording = command[0] in ("record", *REWRITES) and not {"-n", "--dry-run"} & set(command)
+            # `forget` destroys what `cache/` holds copies of, so its store is
+            # compared whole, `cache/` and all.
+            forgetting = command[0] == "forget"
             at = temporary / f"{store.name}-copy-{next(copies)}"
             copy = fresh(store, at) if writes else store
-            whole = command[0] == "init" or recording
-            reference = writer if command[0] in ("record", *REWRITES) else rust
+            whole = command[0] == "init" or recording or forgetting
+            reference = writer if command[0] in ("record", "forget", *REWRITES) else rust
             shown = " ".join([f"{k}={v}" for k, v in changed.items()] + command)
-            expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
+            expected = said(capture(reference, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording or forgetting) if writes else ())
             for name, tool in tools:
                 copy = fresh(store, at) if writes else store
-                got = said(capture(*tool, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording) if writes else ())
+                got = said(capture(*tool, *command, cwd=copy, env=env)) + (folder_of(copy, whole, not recording or forgetting) if writes else ())
                 if got != expected:
                     failures += 1
                     lines += [f"DIFF {corpus} {name}: {shown}", f"  rust: {expected}", f"  bend: {got}"]
