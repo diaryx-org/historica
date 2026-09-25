@@ -1343,15 +1343,17 @@ law forgetting_destroys_only_text:
   for +t: String
   for +i: Nat
   {Stand.ops.like(ops, Fg.forget.ops(ops, ps, t, i)) == True{} : Bool}
-# `name` reads its words as their plain reading says: a flag counts
-# wherever it stands, the last of `--revision` and `--change` and the last
-# of `--private` and `--shared` deciding, `--delete` and `--fields` asked
-# for if they are there; the flags shaping a target are kept as typed, in
-# order, for `--delete` to refuse; and every other word is the bookmark,
-# the target and the path, in order.
+# `name` reads its words as their plain reading says, whatever order they
+# come in. `--delete` and `--fields` are asked for where they are among the
+# words. The bookmark is pinned where the last of the `--revision` and
+# `--change` among them is `--revision`; it is private or shared as the
+# last of the `--private` and `--shared` says, and as it was where there is
+# neither. Those four flags are kept as they were typed, in order, for
+# `--delete` to refuse; and every word that is none of the six — one
+# beginning `-` too — is the bookmark, the target and the path, in order.
 law name_reads_its_words:
   for +ws: List<&2, String>
-  {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.nargs.said(ws) : Main.NameCmd}
+  {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.NameCmd{String.eq(Maybe.default(&2, String, List.last(&2, String, List.filter(~String, ~(w => Rev.member(["--revision", "--change"], w)), ws)), ""), "--revision"), Maybe.map(&2, String, Bool, x => String.eq(x, "--private"), List.last(&2, String, List.filter(~String, ~(w => Rev.member(["--private", "--shared"], w)), ws))), Rev.member(ws, "--delete"), Rev.member(ws, "--fields"), List.filter(~String, ~(w => Rev.member(["--revision", "--change", "--private", "--shared"], w)), ws), List.filter(~String, ~(w => Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))), ws)} : Main.NameCmd}
 
 # What `name` sets out to do, decided before anything is opened, is what
 # its words say. A bookmark is deleted only where `--delete` was said, and
@@ -1367,11 +1369,12 @@ law name_does_what_it_reads:
   for e: {Main.name.plan.r(c) == Done{p} : Result<&2, &2, Main.Refused, Main.NamePlan>}
   {Main.name.plan.meant(c, p) == True{} : Bool}
 
-# The bookmark `name` sets is the one asked for. It has the name given,
-# which stays under `names/`; it points at a revision the store holds where
-# `--revision` pins it, at a change one of the store's revisions carries
-# where a target alone is given, and at a file one of those revisions'
-# trees holds where a path is; and it is private as `--private` or
+# The bookmark `name` sets points where it was asked to: at what its
+# target names as every command reads it — the revision `resolve` gives
+# for the spelling. Pinned with `--revision`, it points at that revision;
+# given a target alone, at the change that revision carries; given a path,
+# at the file `show` names at that revision and path. It has the name
+# given, which stays under `names/`; and it is private as `--private` or
 # `--shared` says, or else as the bookmark of that name already was — the
 # one `--delete` would find — or shared where there was none.
 law name_points_where_asked:
@@ -1384,7 +1387,9 @@ law name_points_where_asked:
   for +axis: Maybe<&2, Bool>
   for +b: Bm.Bookmark
   for e: {Main.name.stated.r(fs, bs, n, spelling, path, pin, axis) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}
-  {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}
+  for +id: String
+  for ei: {Main.resolve(fs, bs, spelling) == Done{id} : Result<&2, &2, String, String>}
+  {Main.name.points(fs, bs, n, id, path, pin, axis, b) == True{} : Bool}
 
 # `name --delete` removes the bookmark named: it is refused exactly where
 # the store has no bookmark of that name, and the bookmark it says it

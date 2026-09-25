@@ -685,8 +685,8 @@ def Laws.name_reads_its_words(ws):
 def Laws.name_does_what_it_reads(c, p, e):
   NameL.plan_meant(c, p, e)
 
-def Laws.name_points_where_asked(fs, bs, n, spelling, path, pin, axis, b, e):
-  NameL.points_ok(fs, bs, n, spelling, path, pin, axis, b, e)
+def Laws.name_points_where_asked(fs, bs, n, spelling, path, pin, axis, b, e, id, ei):
+  NameL.points_ok(fs, bs, n, spelling, path, pin, axis, b, e, id, ei)
 
 def Laws.name_deletes_the_bookmark_named(bs, n):
   NameL.found_gone(bs, n)
