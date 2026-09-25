@@ -29,9 +29,9 @@ const HEADER_FILE: &str = "historica.txt";
 const DOCUMENT_DIRS: [&str; 2] = ["revisions", "operations"];
 /// Every directory `Store.list` walks when asked: the documents, and the
 /// bookmarks and the rules of what recording skips, which are not documents
-/// — nothing names one by its digest — and so are listed only by a caller
-/// that asks for them.
-const LISTED_DIRS: [&str; 4] = ["revisions", "operations", "names", "skipped"];
+/// — nothing names one by its digest — and `cache/`, whose copies `forget`
+/// destroys with what they copy; each listed only by a caller that asks.
+const LISTED_DIRS: [&str; 5] = ["revisions", "operations", "names", "skipped", "cache"];
 
 /// Where a store keeps what it can rebuild, and what decision 0036's
 /// catalogue of `operations/` is called inside it.
@@ -929,9 +929,9 @@ mod tests {
         let (code, listing) = call(hist_store_list, format!("{root}\nrevisions").as_bytes());
         assert_eq!(code, 0);
         assert_eq!(listing, "revisions/2026-09/a.rev.txt\nrevisions/2026-09/b.rev.txt");
-        let (code, text) = call(hist_store_list, format!("{root}\ncache").as_bytes());
+        let (code, text) = call(hist_store_list, format!("{root}\nworking").as_bytes());
         assert_eq!(code, EINVAL);
-        assert_eq!(text, "`cache` is not a directory this lists");
+        assert_eq!(text, "`working` is not a directory this lists");
 
         // `names` is walked when asked for, at any depth, and never by default.
         fs::create_dir_all(dir.path().join("history/names/feature")).unwrap();
@@ -1155,6 +1155,45 @@ mod tests {
         assert_ne!(code, 0);
         assert!(answer.starts_with(&format!("{}: ", names.join("plain").display())), "{answer}");
         assert_eq!(call(hist_store_write, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_destroyed_payload_takes_its_emptied_directory_and_leaves_operations() {
+        // `forget` destroys a document or a payload through the same removal
+        // a bookmark goes through: the file, and each directory it leaves
+        // empty up to `operations/`, which stays.
+        let dir = tempfile::tempdir().unwrap();
+        let operations = dir.path().join("operations");
+        fs::create_dir_all(operations.join("2026-09/2026-09-24 first")).unwrap();
+        fs::create_dir_all(operations.join("2026-09/2026-09-24 second")).unwrap();
+        fs::write(operations.join("2026-09/2026-09-24 first/photo.bin"), b"\x00\x01").unwrap();
+        fs::write(operations.join("2026-09/2026-09-24 second/notes.md.ops.txt"), "historica\n").unwrap();
+        fs::write(operations.join("2026-09/2026-09-24 second/photo.bin"), b"\x00\x02").unwrap();
+        let asked = |file: &str| call(hist_store_remove, format!("{}\n{}", operations.display(), operations.join(file).display()).as_bytes());
+
+        assert_eq!(asked("2026-09/2026-09-24 second/notes.md.ops.txt"), (0, "removed".to_owned()));
+        assert!(operations.join("2026-09/2026-09-24 second/photo.bin").exists());
+        assert_eq!(asked("2026-09/2026-09-24 first/photo.bin"), (0, "removed".to_owned()));
+        assert!(!operations.join("2026-09/2026-09-24 first").exists());
+        assert!(operations.join("2026-09").is_dir());
+        assert_eq!(asked("2026-09/2026-09-24 second/photo.bin"), (0, "removed".to_owned()));
+        assert!(!operations.join("2026-09").exists());
+        assert!(operations.is_dir(), "operations/ itself stays");
+    }
+
+    #[test]
+    fn the_cache_is_listed_only_when_asked_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        store(root);
+        let history = root.join("history");
+        fs::write(history.join("cache").join("0".repeat(64)), "a state\n").unwrap();
+        let (code, listed) = call(hist_store_list, format!("{}\ncache", history.display()).as_bytes());
+        assert_eq!(code, 0, "{listed}");
+        assert_eq!(listed, format!("cache/{}\ncache/README.txt", "0".repeat(64)));
+        let (code, listed) = call(hist_store_list, history.display().to_string().as_bytes());
+        assert_eq!(code, 0, "{listed}");
+        assert!(!listed.contains("cache/"), "{listed}");
     }
 
     #[test]
