@@ -1024,6 +1024,9 @@ def Laws.receive_moves_no_bookmark(here, there, n, at, h):
 def Laws.receive_destroys_only_what_is_forgotten(here, there, d, h):
   ReceiveL.destroyed(here, there, d, h)
 
+def Laws.offer_lines_read_back(k, d, g, p, rest, nh, hk, hd, hg):
+  OfferL.line_back(k, d, g, p, rest, nh, hk, hd, hg)
+
 def Laws.offer_lists_forgetting_as_prune_reads_it(path, id, text):
   OfferL.catalogue(path, id, text)
 

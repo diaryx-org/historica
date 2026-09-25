@@ -4064,6 +4064,13 @@ def check_mutations(temporary):
             "offer.bend",
         ),
         (
+            "offer writes nothing where a line forgets nothing",
+            '      k ++ " " ++ d ++ " " ++ Maybe.default(&2, String, f, "-") ++ " " ++ p',
+            '      k ++ " " ++ d ++ " " ++ Maybe.default(&2, String, f, "") ++ " " ++ p',
+            "offer_lemmas.line_back",
+            "offer.bend",
+        ),
+        (
             "offer names a private bookmark",
             "      offered.found(Bool.not(p), Arrange.lookup(ids, \"names/\" ++ n ++ \".txt\")",
             "      offered.found(True{}, Arrange.lookup(ids, \"names/\" ++ n ++ \".txt\")",
