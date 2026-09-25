@@ -20,8 +20,9 @@
 # folder is laid out path by path — a file of lines replayed here, a file of
 # bytes copied by the host, a link made where it sits, a runnable file made
 # runnable — and a tree the folder cannot take whole is refused, path by
-# path. An export onto a copy this store already made (decision 0052) is not
-# ported: the port writes into an empty directory, or none.
+# path. An export onto a copy this store already made brings it up to date
+# (decision 0052): what it lacks written, what the set no longer names
+# withdrawn, and its folder caught up as `update` catches one up.
 
 import Base
 import ./text.bend as T
