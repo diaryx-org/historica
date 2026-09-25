@@ -1060,16 +1060,44 @@ law diff_folder_believes_a_stated_digest:
   for hd: {Map.get(String, SNil{}, dg, path) == (dg2, w ++ (" " ++ more)) : Map<&2, String> & String}
   {Main.plan(dg, os, eds, Main.Here{path, Some{Tree.Entry{file, at, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{fp, runs, size}}}) == Main.Planned{Main.Here{path, Some{Tree.Entry{file, at, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{fp, runs, size}}}, w, Bool.not(String.eq(d, w)), Bool.not(String.eq(d, w))} : Main.Planned}
 
-# `diff` gives a file of bytes the size the host stated for its payload, and
-# nothing else. Sizing what it compares changes no side but one whose size
-# was unknown, which keeps its digest and has a size only where the host's
-# line for the bytes it found names that very digest — not where those
-# bytes hash to another.
-law diff_sizes_what_the_host_stated:
+# `diff` sizes a file of bytes only as the host stated. Sizing what it
+# compares changes neither side of any comparison but a file of bytes whose
+# size was unknown, which keeps its digest and is given a size only where a
+# line the host answered begins with that very digest — not where the bytes
+# it found at a path hash to another — and that size is the one the line
+# states.
+law diff_sizes_only_what_the_host_stated:
   for +found: List<&2, T.Split>
   for +stats: List<&2, String>
   for +cs: List<&2, Main.Compared>
   {Main.sizes.told(stats, cs, Main.sized(Main.sizes.read(found, stats), cs)) == True{} : Bool}
+
+# And it gives a file of bytes the size the host stated for its payload.
+# The host answers one stat line for each payload it located; where it
+# located a payload `d` — sixty-four characters with no space among them,
+# as a digest is — after others, and answered its stat with `d`, a space
+# and a size, a file of bytes with that payload whose size was unknown, one
+# that went or one that came, is shown with that size, and nothing else
+# about it changes.
+law diff_sizes_what_the_host_stated:
+  for +f1: List<&2, T.Split>
+  for +s1: List<&2, String>
+  for hl: {List.length(&2, T.Split, f1) == List.length(&2, String, s1) : Nat}
+  for +d: String
+  for hn: {Rev.member(T.map(~T.Split, ~String, ~(x => Main.split.head(x)), f1), d) == False{} : Bool}
+  for hd: {String.length(d) == 64n : Nat}
+  for hs: {T.all_chars(~(c => Bool.not(Char.is_eq(c, ' '))), d) == True{} : Bool}
+  for +p: String
+  for +f2: List<&2, T.Split>
+  for +size: String
+  for +n: Nat
+  for hz: {Nat.read(size) == Some{n} : Maybe<&2, Nat>}
+  for +s2: List<&2, String>
+  for +from: Maybe<&2, String>
+  for +to: Maybe<&2, String>
+  for +modes: Maybe<&2, T.Split>
+  for +targets: Maybe<&2, Main.Retarget>
+  {Main.sized(Main.sizes.read(List.append(&2, T.Split, f1, T.Split{d, p} <> f2), List.append(&2, String, s1, (d ++ (" " ++ size)) <> s2)), [Main.Compared{from, to, Some{Main.Side.Whole{d, None{}}}, None{}, modes, targets}, Main.Compared{from, to, None{}, Some{Main.Side.Whole{d, None{}}}, modes, targets}]) == [Main.Compared{from, to, Some{Main.Side.Whole{d, Some{n}}}, None{}, modes, targets}, Main.Compared{from, to, None{}, Some{Main.Side.Whole{d, Some{n}}}, modes, targets}] : List<&2, Main.Compared>}
 
 # `diff <target>` asks the store for everything it replays. For every file
 # it compares whose content it reads — one side lacks it, or the two sides
@@ -1667,13 +1695,42 @@ law content_is_filed_under_a_name_a_filesystem_holds:
   {Naming.controlless(Naming.filed_as(Naming.filed(fs), held)) == True{} : Bool}
 
 # `record` compares this machine's clock with the latest work the store
-# holds. Of the timestamps it is handed, the one `newest` answers is one of
-# them, and none of the others is later, however their offsets spell them.
+# holds (decision 0010). Of the timestamps it is handed, it warns exactly
+# where one of them names a later instant than the clock reads, whichever
+# of them that is; and it says nothing otherwise, as where it is handed
+# none.
 law record_compares_with_the_latest:
+  for +now: String
+  for +ws: List<&2, String>
+  {Maybe.is_some(&2, String, Main.clock.warning(now, Naming.newest(ws, None{}))) == Naming.later_than(ws, now) : Bool}
+
+# And the work it compares the clock with, and names in that warning, is
+# the latest it is handed: the one `newest` answers is one of them, and
+# none of the others names a later instant.
+law record_names_the_latest_work:
   for +ws: List<&2, String>
   for +w: String
   for e: {Naming.newest(ws, None{}) == Some{w} : Maybe<&2, String>}
   {Naming.latest(ws, w) == True{} : Bool}
+
+# The instant a timestamp names is read at the offset it spells. The same
+# nineteen characters of local time name, at an offset `+HH:MM` east of
+# UTC, an instant that many hours and minutes before the one they name at
+# UTC, spelled `Z`; and at `-HH:MM` west of it, that much after — for any
+# offset of up to a day.
+law a_timestamp_is_read_at_its_offset:
+  for +base: String
+  for hb: {String.length(base) == 19n : Nat}
+  for +hh: String
+  for hh2: {String.length(hh) == 2n : Nat}
+  for +h: Nat
+  for eh: {Nat.read(hh) == Some{h} : Maybe<&2, Nat>}
+  for +mm: String
+  for hm2: {String.length(mm) == 2n : Nat}
+  for +m: Nat
+  for em: {Nat.read(mm) == Some{m} : Maybe<&2, Nat>}
+  for hd: {Nat.is_le(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), 86400n) == True{} : Bool}
+  {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), Naming.instant(base ++ ("+" ++ (hh ++ (":" ++ mm))))), Naming.instant(base ++ ("-" ++ (hh ++ (":" ++ mm))))] == [Naming.instant(base ++ "Z"), Nat.add(Naming.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
 
 # `abandon` takes a reason exactly where it says something. The reason is
 # the only thing a tombstone carries, so one that is empty or nothing but
