@@ -17,6 +17,9 @@ import ./string_lemmas.bend as S
 import ./composition_lemmas.bend as Comp
 import ./sort_lemmas.bend as SortL
 import ./pair_lemmas.bend as PairL
+import ./naming_lemmas.bend as NamingL
+import ./naming.bend as Naming
+import ./name_lemmas.bend as NameL
 
 # The walk's refusals
 # -------------------
@@ -1456,3 +1459,214 @@ def planned_claims(+looked: Tree.Tree(), pl: Sv.Planned, +accepted: List<&2, Str
       Bool.pick(Result<&2, &2, Main.Refused, Sv.Planned>, Bool.not(List.is_empty(&2, String, Main.minus(accepted, accept))),
         Fail{Main.Refused{1, Main.these(Main.minus(accepted, accept), "this path is not a contested attachment", "these paths are not contested attachments") ++ "; remove the unnecessary acceptance:" ++ Main.accept.lines(Main.minus(accepted, accept))}},
         Done{Sv.Planned{facts, refused, claimed, accept, emptied, None{}, obs, links}})))), done, e)))
+
+# A link resolves inside the folder
+# ---------------------------------
+
+def ns(c: Char) -> Bool:
+  Bool.not(Char.is_eq(c, '/'))
+
+# A component a stack of them may hold: not empty, not `..`, and no `/`.
+def comp_ok(+c: String) -> Bool:
+  Bool.and(Bool.not(String.is_empty(c)), Bool.and(Bool.not(String.eq(c, "..")), Naming.every(~ns, c)))
+
+def ns_fin(+h: Char, +ps: List<&2, String>, cut: Bool, +ec: {Char.is_eq(h, '/') == cut : Bool}, +hp: {NamingL.all_every(~ns, ps) == True{} : Bool}) -> {NamingL.all_every(~ns, String.split.fin(h, ps, cut)) == True{} : Bool}:
+  match cut:
+    case True{}:
+      hp
+    case False{}:
+      NamingL.push_ok(~ns, h, ps, AL.not_true(Char.is_eq(h, '/'), ec), hp)
+
+# Splitting at `/` leaves no `/` in any piece.
+def split_ns(s: String) -> {NamingL.all_every(~ns, String.split(s, '/')) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{+h, +t}:
+      ns_fin(h, String.split(t, '/'), Char.is_eq(h, '/'), {==}, split_ns(t))
+
+# The components of a path the format holds are each a component.
+def comps_ok(cs: List<&2, String>, +h1: {Sv.component_fault(cs) == None{} : Maybe<&2, String>}, +h2: {NamingL.all_every(~ns, cs) == True{} : Bool}) -> {SortL.all_ok(~String, ~(x => comp_ok(x)), cs) == True{} : Bool}:
+  match cs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(comp_ok(x), SortL.all_ok(~String, ~(x => comp_ok(x)), rest),
+        AL.and_intro(Bool.not(String.is_empty(x)), Bool.and(Bool.not(String.eq(x, "..")), Naming.every(~ns, x)),
+          AL.not_true(String.is_empty(x), NameL.pick_cond(String.is_empty(x), "it has an empty component", NameL.after_empty(x, rest), h1)),
+          AL.and_intro(Bool.not(String.eq(x, "..")), Naming.every(~ns, x),
+            AL.not_true(String.eq(x, ".."), AL.or_false_r(String.eq(x, "."), String.eq(x, ".."),
+              NameL.pick_cond(NameL.dots(x), "`.` and `..` are not components", Sv.component_fault(rest), NameL.pick_rest(String.is_empty(x), "it has an empty component", NameL.after_empty(x, rest), h1)))),
+            Comp.and_left(Naming.every(~ns, x), NamingL.all_every(~ns, rest), h2))),
+        comps_ok(rest, NameL.pick_rest(NameL.dots(x), "`.` and `..` are not components", Sv.component_fault(rest), NameL.pick_rest(String.is_empty(x), "it has an empty component", NameL.after_empty(x, rest), h1)),
+          Comp.and_right(Naming.every(~ns, x), NamingL.all_every(~ns, rest), h2)))
+
+# The stack of components the fold keeps holds only components.
+def inv_m(m: Maybe<&2, List<&2, String>>) -> Bool:
+  match m:
+    case None{}:
+      True{}
+    case Some{xs}:
+      SortL.all_ok(~String, ~(x => comp_ok(x)), xs)
+
+def pop_inv(xs: List<&2, String>, +h: {SortL.all_ok(~String, ~(x => comp_ok(x)), xs) == True{} : Bool}) -> {inv_m(Sv.res.pop(xs)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      Comp.and_right(comp_ok(x), SortL.all_ok(~String, ~(x => comp_ok(x)), rest), h)
+
+def push_inv(+p: String, +xs: List<&2, String>, skip: Bool, up: Bool, +hs: {Bool.or(String.is_empty(p), String.eq(p, ".")) == skip : Bool}, +hu: {String.eq(p, "..") == up : Bool}, +hp: {Naming.every(~ns, p) == True{} : Bool}, +hx: {SortL.all_ok(~String, ~(x => comp_ok(x)), xs) == True{} : Bool}) -> {inv_m(Sv.res.push(p, xs, skip, up)) == True{} : Bool}:
+  match skip up:
+    case True{} _:
+      hx
+    case False{} True{}:
+      pop_inv(xs, hx)
+    case False{} False{}:
+      AL.and_intro(comp_ok(p), SortL.all_ok(~String, ~(x => comp_ok(x)), xs),
+        AL.and_intro(Bool.not(String.is_empty(p)), Bool.and(Bool.not(String.eq(p, "..")), Naming.every(~ns, p)),
+          AL.not_true(String.is_empty(p), AL.or_false_l(String.is_empty(p), String.eq(p, "."), hs)),
+          AL.and_intro(Bool.not(String.eq(p, "..")), Naming.every(~ns, p), AL.not_true(String.eq(p, ".."), hu), hp)),
+        hx)
+
+def step_inv(+p: String, at: Maybe<&2, List<&2, String>>, +hp: {Naming.every(~ns, p) == True{} : Bool}, +ha: {inv_m(at) == True{} : Bool}) -> {inv_m(Sv.res.step(p, at)) == True{} : Bool}:
+  match at:
+    case None{}:
+      {==}
+    case Some{+xs}:
+      push_inv(p, xs, Bool.or(String.is_empty(p), String.eq(p, ".")), String.eq(p, ".."), {==}, {==}, hp, ha)
+
+def go_inv(parts: List<&2, String>, +at: Maybe<&2, List<&2, String>>, +hparts: {NamingL.all_every(~ns, parts) == True{} : Bool}, +ha: {inv_m(at) == True{} : Bool}) -> {inv_m(Sv.res.go(parts, at)) == True{} : Bool}:
+  match parts:
+    case Nil{}:
+      ha
+    case +p <> +rest:
+      go_inv(rest, Sv.res.step(p, at), Comp.and_right(Naming.every(~ns, p), NamingL.all_every(~ns, rest), hparts), step_inv(p, at, Comp.and_left(Naming.every(~ns, p), NamingL.all_every(~ns, rest), hparts), ha))
+
+def dir_inv(xs: List<&2, String>, +h: {SortL.all_ok(~String, ~(x => comp_ok(x)), xs) == True{} : Bool}) -> {SortL.all_ok(~String, ~(x => comp_ok(x)), Sv.res.dir(xs)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      Comp.and_right(comp_ok(x), SortL.all_ok(~String, ~(x => comp_ok(x)), rest), h)
+
+# The link's own directory is where the fold starts.
+def init_inv(+link: String, +h: {Sv.path_check(link) == None{} : Maybe<&2, String>}) -> {inv_m(Some{Sv.res.dir(List.reverse(&2, String, String.split(link, '/')))}) == True{} : Bool}:
+  dir_inv(List.reverse(&2, String, String.split(link, '/')),
+    SortL.all_rev_go(~String, ~(x => comp_ok(x)), String.split(link, '/'), Nil{}, comps_ok(String.split(link, '/'), NameL.path_parts(link, h), split_ns(link)), {==}))
+
+# The components joined with `/` split back into those components.
+def pushes(b: String, ps: List<&2, String>) -> List<&2, String>:
+  match b:
+    case SNil{}:
+      ps
+    case SCon{c, t}:
+      String.split.push(c, pushes(t, ps))
+
+def ns_head(+c: Char, -t: String, h: {Naming.every(~ns, SCon{c, t}) == True{} : Bool}) -> {Char.is_eq(c, '/') == False{} : Bool}:
+  AL.not_of_true(Char.is_eq(c, '/'), Comp.and_left(Bool.not(Char.is_eq(c, '/')), Naming.every(~ns, t), h))
+
+def split_lead(b: String, +r: String, +h: {Naming.every(~ns, b) == True{} : Bool}) -> {String.split(b ++ r, '/') == pushes(b, String.split(r, '/')) : List<&2, String>}:
+  match b:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(Bool, Char.is_eq(c, '/'), False{}, ns_head(c, t, h)) : {String.split.fin(c, String.split(t ++ r, '/'), _) == pushes(SCon{c, t}, String.split(r, '/')) : List<&2, String>}
+      Equal.cong(List<&2, String>, List<&2, String>, ps => String.split.push(c, ps), String.split(t ++ r, '/'), pushes(t, String.split(r, '/')), split_lead(t, r, Comp.and_right(Bool.not(Char.is_eq(c, '/')), Naming.every(~ns, t), h)))
+
+def pushes_nil(b: String, +s: List<&2, String>) -> {pushes(b, SNil{} <> s) == b <> s : List<&2, String>}:
+  match b:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %pushes_nil(t, s) : {String.split.push(c, pushes(t, SNil{} <> s)) == String.split.push(c, _) : List<&2, String>}
+      {==}
+
+def split_plain(b: String, +h: {Naming.every(~ns, b) == True{} : Bool}) -> {String.split(b, '/') == [b] : List<&2, String>}:
+  match b:
+    case SNil{}:
+      {==}
+    case SCon{+c, +t}:
+      %Equal.sym(Bool, Char.is_eq(c, '/'), False{}, ns_head(c, t, h)) : {String.split.fin(c, String.split(t, '/'), _) == [SCon{c, t}] : List<&2, String>}
+      %split_plain(t, Comp.and_right(Bool.not(Char.is_eq(c, '/')), Naming.every(~ns, t), h)) : {String.split.push(c, String.split(t, '/')) == String.split.push(c, _) : List<&2, String>}
+      {==}
+
+def split_join(more: List<&2, String>, +b: String, +hb: {Naming.every(~ns, b) == True{} : Bool}, +hm: {NamingL.all_every(~ns, more) == True{} : Bool}) -> {String.split(String.join.go(more, b, "/"), '/') == b <> more : List<&2, String>}:
+  match more:
+    case Nil{}:
+      split_plain(b, hb)
+    case +m <> +mr:
+      Equal.trans(List<&2, String>, String.split(b ++ SCon{'/', String.join.go(mr, m, "/")}, '/'), pushes(b, SNil{} <> String.split(String.join.go(mr, m, "/"), '/')), b <> m <> mr,
+        split_lead(b, SCon{'/', String.join.go(mr, m, "/")}, hb),
+        Equal.trans(List<&2, String>, pushes(b, SNil{} <> String.split(String.join.go(mr, m, "/"), '/')), b <> String.split(String.join.go(mr, m, "/"), '/'), b <> m <> mr,
+          pushes_nil(b, String.split(String.join.go(mr, m, "/"), '/')),
+          Equal.cong(List<&2, String>, List<&2, String>, xs => b <> xs, String.split(String.join.go(mr, m, "/"), '/'), m <> mr,
+            split_join(mr, m, Comp.and_left(Naming.every(~ns, m), NamingL.all_every(~ns, mr), hm), Comp.and_right(Naming.every(~ns, m), NamingL.all_every(~ns, mr), hm)))))
+
+# A stack of components joined neither begins with `/` nor holds `..`.
+def ok_ns(xs: List<&2, String>, +h: {SortL.all_ok(~String, ~(x => comp_ok(x)), xs) == True{} : Bool}) -> {NamingL.all_every(~ns, xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.and_intro(Naming.every(~ns, x), NamingL.all_every(~ns, rest),
+        Comp.and_right(Bool.not(String.eq(x, "..")), Naming.every(~ns, x), Comp.and_right(Bool.not(String.is_empty(x)), Bool.and(Bool.not(String.eq(x, "..")), Naming.every(~ns, x)), Comp.and_left(comp_ok(x), SortL.all_ok(~String, ~(x => comp_ok(x)), rest), h))),
+        ok_ns(rest, Comp.and_right(comp_ok(x), SortL.all_ok(~String, ~(x => comp_ok(x)), rest), h)))
+
+def ok_dots(xs: List<&2, String>, +h: {SortL.all_ok(~String, ~(x => comp_ok(x)), xs) == True{} : Bool}) -> {List.any(~&2, ~String, ~(c => String.eq(c, "..")), xs) == False{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      AL.or_false(String.eq(x, ".."), List.any(~&2, ~String, ~(c => String.eq(c, "..")), rest),
+        AL.not_of_true(String.eq(x, ".."), Comp.and_left(Bool.not(String.eq(x, "..")), Naming.every(~ns, x), Comp.and_right(Bool.not(String.is_empty(x)), Bool.and(Bool.not(String.eq(x, "..")), Naming.every(~ns, x)), Comp.and_left(comp_ok(x), SortL.all_ok(~String, ~(x => comp_ok(x)), rest), h)))),
+        ok_dots(rest, Comp.and_right(comp_ok(x), SortL.all_ok(~String, ~(x => comp_ok(x)), rest), h)))
+
+def start_ok(b: String, more: List<&2, String>, hne: {String.is_empty(b) == False{} : Bool}, +hns: {Naming.every(~ns, b) == True{} : Bool}) -> {String.starts_with(String.join.go(more, b, "/"), "/") == False{} : Bool}:
+  match b more:
+    case SNil{} _:
+      Empty.absurd({String.starts_with(String.join.go(more, SNil{}, "/"), "/") == False{} : Bool}, S.true_false(hne))
+    case SCon{+c, +t} Nil{}:
+      %Equal.sym(Bool, Char.is_eq(c, '/'), False{}, ns_head(c, t, hns)) : {String.starts_with.if(t, SNil{}, _) == False{} : Bool}
+      {==}
+    case SCon{+c, +t} m <> mr:
+      %Equal.sym(Bool, Char.is_eq(c, '/'), False{}, ns_head(c, t, hns)) : {String.starts_with.if(t ++ SCon{'/', String.join.go(mr, m, "/")}, SNil{}, _) == False{} : Bool}
+      {==}
+
+def final_ok(ys: List<&2, String>, +h: {SortL.all_ok(~String, ~(x => comp_ok(x)), ys) == True{} : Bool}) -> {Main.escapes(String.join(ys, "/")) == False{} : Bool}:
+  match ys:
+    case Nil{}:
+      {==}
+    case +b <> +more:
+      %Equal.sym(List<&2, String>, String.split(String.join.go(more, b, "/"), '/'), b <> more, split_join(more, b, Comp.and_left(Naming.every(~ns, b), NamingL.all_every(~ns, more), ok_ns(b <> more, h)), Comp.and_right(Naming.every(~ns, b), NamingL.all_every(~ns, more), ok_ns(b <> more, h)))) : {Bool.or(String.starts_with(String.join.go(more, b, "/"), "/"), List.any(~&2, ~String, ~(c => String.eq(c, "..")), _)) == False{} : Bool}
+      AL.or_false(String.starts_with(String.join.go(more, b, "/"), "/"), List.any(~&2, ~String, ~(c => String.eq(c, "..")), b <> more),
+        start_ok(b, more, AL.not_of_true(String.is_empty(b), Comp.and_left(Bool.not(String.is_empty(b)), Bool.and(Bool.not(String.eq(b, "..")), Naming.every(~ns, b)), Comp.and_left(comp_ok(b), SortL.all_ok(~String, ~(x => comp_ok(x)), more), h))),
+          Comp.and_left(Naming.every(~ns, b), NamingL.all_every(~ns, more), ok_ns(b <> more, h))),
+        ok_dots(b <> more, h))
+
+def joined_ok(xs: List<&2, String>, +h: {SortL.all_ok(~String, ~(x => comp_ok(x)), xs) == True{} : Bool}, -p: String, e: {Sv.res.joined(xs) == Some{p} : Maybe<&2, String>}) -> {Main.escapes(p) == False{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Main.escapes(p) == False{} : Bool}, NamingL.none_some(p, e))
+    case +x <> +rest:
+      %NamingL.some_inj(String.join(List.reverse(&2, String, x <> rest), "/"), p, e) : {Main.escapes(_) == False{} : Bool}
+      final_ok(List.reverse(&2, String, x <> rest), SortL.all_rev_go(~String, ~(x => comp_ok(x)), x <> rest, Nil{}, h, {==}))
+
+def done_ok(m: Maybe<&2, List<&2, String>>, +hm: {inv_m(m) == True{} : Bool}, -p: String, e: {Sv.res.done(m) == Some{p} : Maybe<&2, String>}) -> {Main.escapes(p) == False{} : Bool}:
+  match m:
+    case None{}:
+      Empty.absurd({Main.escapes(p) == False{} : Bool}, NamingL.none_some(p, e))
+    case Some{+xs}:
+      joined_ok(xs, hm, p, e)
+
+def res_ok(c: Bool, +m: Maybe<&2, List<&2, String>>, +hm: {inv_m(m) == True{} : Bool}, -p: String, e: {Bool.pick(Maybe<&2, String>, c, None{}, Sv.res.done(m)) == Some{p} : Maybe<&2, String>}) -> {Main.escapes(p) == False{} : Bool}:
+  match c:
+    case True{}:
+      Empty.absurd({Main.escapes(p) == False{} : Bool}, NamingL.none_some(p, e))
+    case False{}:
+      done_ok(m, hm, p, e)
+
+# A link at a path the format holds resolves inside the folder.
+def link_inside(+link: String, +target: String, -p: String, +h: {Sv.path_check(link) == None{} : Maybe<&2, String>}, e: {Sv.resolution(link, target) == Some{p} : Maybe<&2, String>}) -> {Main.escapes(p) == False{} : Bool}:
+  res_ok(Bool.or(String.starts_with(target, "/"), String.ends_with(target, "/")), Sv.res.go(String.split(target, '/'), Some{Sv.res.dir(List.reverse(&2, String, String.split(link, '/')))}),
+    go_inv(String.split(target, '/'), Some{Sv.res.dir(List.reverse(&2, String, String.split(link, '/')))}, split_ns(target), init_inv(link, h)), p, e)

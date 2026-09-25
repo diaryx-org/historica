@@ -1523,3 +1523,16 @@ law record_goes_on_where_each_path_holds_one_file:
   for e: {Main.planned.r(looked, Sv.planned(t, looked, held, walked, ss, moves), accepted) == Done{done} : Result<&2, &2, Main.Refused, Sv.Planned>}
   for +p: String
   {Tree.at_most_one(Tree.at(looked, p)) == True{} : Bool}
+
+# A link resolves inside the folder. Wherever a link sits at a path the
+# format holds, its target, folded against the link's own directory, is
+# either no path at all or one that is not absolute and never climbs out
+# with `..`: a link is never written as a reference to anything outside
+# what the folder holds.
+law a_link_resolves_inside_the_folder:
+  for +link: String
+  for +target: String
+  for +p: String
+  for h: {Sv.path_check(link) == None{} : Maybe<&2, String>}
+  for e: {Sv.resolution(link, target) == Some{p} : Maybe<&2, String>}
+  {Main.escapes(p) == False{} : Bool}

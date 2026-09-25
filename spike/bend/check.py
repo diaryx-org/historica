@@ -2225,6 +2225,13 @@ def check_mutations(temporary):
             "survey.bend",
         ),
         (
+            "a link's `..` pushed rather than climbed",
+            'res.push(p, xs, Bool.or(String.is_empty(p), String.eq(p, ".")), String.eq(p, ".."))',
+            'res.push(p, xs, Bool.or(String.is_empty(p), String.eq(p, ".")), False{})',
+            "survey_lemmas.step_inv",
+            "survey.bend",
+        ),
+        (
             "record goes on with a path nothing answers to",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, absent)),",
             "  Bool.pick(Result<&2, &2, Refused, Unit>, False{},",
