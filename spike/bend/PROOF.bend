@@ -54,6 +54,7 @@ import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
 import ./receive_lemmas.bend as ReceiveL
 import ./offer_lemmas.bend as OfferL
+import ./export_lemmas.bend as ExportL
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -636,3 +637,12 @@ def Laws.offer_names_no_private_bookmark(prefix, s, bs, claims, rids, nids):
 
 def Laws.offer_names_no_private_rule(prefix, s, bs, claims, rids, nids):
   OfferL.rules(prefix, s, bs, claims, rids, nids)
+
+def Laws.export_lays_out_every_path(ps, t, fs, ds, id, pays, bs):
+  ExportL.laid(ps, t, fs, ds, id, pays, bs)
+
+def Laws.export_names_only_what_travels(bs, pt):
+  ExportL.names(bs, pt)
+
+def Laws.export_states_no_private_rule(rs):
+  ExportL.rules(rs)

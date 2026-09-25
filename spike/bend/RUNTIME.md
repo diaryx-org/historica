@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.tidy`, `Store.sweep` and `Store.exit`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.tidy`, `Store.sweep`, `Store.exit`, `Store.link` and `Store.runs`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -72,7 +72,7 @@ before the document at it is believed to be the one asked for, which is
    Pin the compiler and rebuild the adapter on each upgrade. The effect
    symbols and value representation are runtime internals, not a stable ABI.
 
-The eighteen effects here are one-shot — a string in, a string out, nothing
+The twenty effects here are one-shot — a string in, a string out, nothing
 held between calls but where a pinned seed's stream has got to — which
 avoids persistent handles. Longer-lived resources need a separate ownership design: the guide
 currently permits Base handle types but not arbitrary user-defined handles.
@@ -211,6 +211,24 @@ its line carries the digest its bytes have. `Store.really` answers
 whether the copy holds `history/historica.txt`, and gives the copy's own
 name, resolved, to put before every path. Which files are listed, in what
 order, and which are private is decided in Bend.
+
+`export` reads what `receive` reads of this store, and the stored texts of
+the target's ancestry through `Store.fetch`, as `cat` does, so each file of
+lines is replayed here. It writes a copy through the effects `init` and
+`receive` already use — `Store.mkdirs` and `Store.write` for `init`'s
+layout, `Store.once` for every document, revision and rule, `Store.write`
+for every bookmark, `Store.copy` for every payload and file of `claims/` —
+and lays the folder out file by file: a file of lines through `Store.once`,
+the text replayed here; a file of bytes through `Store.copy`, straight out
+of the store; and two effects of its own. `Store.link` makes a link where
+it is told, pointing where it is told, at a staged sibling renamed over the
+path, and never opens what it points at. `Store.runs` makes a file
+runnable the way the Rust tool's `set_executable` does — the execute bits
+follow the read bits — and answers whether anything changed, which is
+what `--files-only` reports as a `mode` line. Which files, under which
+names, spelled how, and which of them run, are decided in Bend: where a
+link points is `materialise`'s arithmetic, here. `Store.folder` answers
+whether the destination holds anything, and what.
 
 Those three delegations are the only places a digest is computed outside Bend. They
 are there because the payloads in a real store are hundreds of megabytes, and

@@ -7,7 +7,8 @@
 //! else. No panic crosses the boundary — `catch_unwind` turns one into `EIO`.
 //!
 //! Reading is here, and the writes: the rename `record --move` makes in
-//! the folder, a bookmark written and removed, and `init`'s directories. Nothing in this library
+//! the folder, a bookmark written and removed, `init`'s directories, and the
+//! link and the execute bit of a folder `export` lays out. Nothing in this library
 //! decides anything about a store; that is what the Bend side is for. The two lookups answer *where*
 //! bytes are and *what* bytes are, and the Bend side reads, hashes and
 //! parses every document it goes on to believe anything about.
@@ -442,6 +443,82 @@ pub unsafe extern "C" fn hist_store_tidy(
             empty = directory.parent();
         }
         Ok(removed.to_string())
+    })
+}
+
+/// A link made in a folder: `export`'s, for a file the tree holds as one.
+///
+/// The argument is the path, then what the link points at. The directories
+/// above it are made first, and the link is made at a staged sibling and
+/// renamed over the path, so there is no instant at which the path names
+/// nothing — the Rust tool's `set_link`. The target is written exactly as
+/// given and never opened. Which path, and what it is spelled as, are the
+/// Bend side's. The answer is `linked`.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_link(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    answer(out, out_len, || {
+        let Some((path, target)) = text(query, query_len)?.split_once('\n') else {
+            return Err((EINVAL, "a link is a path, then where it points".to_owned()));
+        };
+        let path = Path::new(path);
+        let failed = |at: &Path, error: std::io::Error| (code(&error), format!("{}: {error}", at.display()));
+        let (Some(directory), Some(name)) = (path.parent(), path.file_name()) else {
+            return Err((EINVAL, format!("{}: not a file", path.display())));
+        };
+        fs::create_dir_all(directory).map_err(|error| failed(directory, error))?;
+        let mut staged = name.to_owned();
+        staged.push(format!(".{}.staged", std::process::id()));
+        let staged = directory.join(staged);
+        let landed = std::os::unix::fs::symlink(target, &staged).and_then(|()| fs::rename(&staged, path));
+        if let Err(error) = landed {
+            let _ = fs::remove_file(&staged);
+            return Err(failed(path, error));
+        }
+        Ok("linked".to_owned())
+    })
+}
+
+/// A file made runnable: `export`'s, for a file the tree says can be run.
+///
+/// The argument is the path. The execute bits follow the read bits, as the
+/// Rust tool sets them — a file readable by its group becomes runnable by
+/// its group, and a private file stays private — and nothing else about the
+/// file changes. The answer is `set`, or `held` where the bits already were:
+/// which files are runnable is the Bend side's.
+///
+/// # Safety
+///
+/// As [`hist_store_locate`].
+#[no_mangle]
+pub unsafe extern "C" fn hist_store_runs(
+    query: *const c_char,
+    query_len: usize,
+    out: *mut *mut c_char,
+    out_len: *mut usize,
+) -> i32 {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    answer(out, out_len, || {
+        let path = Path::new(text(query, query_len)?);
+        let failed = |error: std::io::Error| (code(&error), format!("{}: {error}", path.display()));
+        let mut permissions = fs::metadata(path).map_err(failed)?.permissions();
+        let held = permissions.mode();
+        let mode = held | ((held & 0o444) >> 2);
+        if mode == held {
+            return Ok("held".to_owned());
+        }
+        permissions.set_mode(mode);
+        fs::set_permissions(path, permissions).map_err(failed)?;
+        Ok("set".to_owned())
     })
 }
 
@@ -1290,6 +1367,49 @@ mod tests {
         assert!(operations.is_dir());
         assert_eq!(asked(&operations), (0, "0".to_owned()));
         assert_eq!(call(hist_store_tidy, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_link_is_made_where_asked_pointing_where_asked_and_never_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let at = dir.path().join("out/deep/lnk");
+        let asked = |target: &str| call(hist_store_link, format!("{}\n{target}", at.display()).as_bytes());
+
+        // The directories above it are made, and the target is not looked at.
+        assert_eq!(asked("../../nowhere"), (0, "linked".to_owned()));
+        assert_eq!(fs::read_link(&at).unwrap(), Path::new("../../nowhere"));
+        // A link already there is replaced, not written through.
+        fs::write(dir.path().join("out/kept.md"), "kept\n").unwrap();
+        assert_eq!(asked("../kept.md"), (0, "linked".to_owned()));
+        assert_eq!(fs::read_link(&at).unwrap(), Path::new("../kept.md"));
+        assert_eq!(fs::read_to_string(dir.path().join("out/kept.md")).unwrap(), "kept\n");
+        // Nothing staged is left beside it.
+        assert_eq!(fs::read_dir(dir.path().join("out/deep")).unwrap().count(), 1);
+        assert_eq!(call(hist_store_link, b"no newline").0, EINVAL);
+    }
+
+    #[test]
+    fn a_file_made_runnable_gets_the_execute_bits_its_read_bits_allow() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared.sh");
+        let private = dir.path().join("private.sh");
+        fs::write(&shared, "#!/bin/sh\n").unwrap();
+        fs::write(&private, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o600)).unwrap();
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        assert_eq!(call(hist_store_runs, shared.display().to_string().as_bytes()), (0, "set".to_owned()));
+        assert_eq!(mode(&shared), 0o755);
+        assert_eq!(call(hist_store_runs, private.display().to_string().as_bytes()), (0, "set".to_owned()));
+        assert_eq!(mode(&private), 0o700);
+        // Asked again, nothing changes, and it says so.
+        assert_eq!(call(hist_store_runs, shared.display().to_string().as_bytes()), (0, "held".to_owned()));
+        assert_eq!(mode(&shared), 0o755);
+        let missing = dir.path().join("missing");
+        assert_eq!(call(hist_store_runs, missing.display().to_string().as_bytes()).0, ENOENT);
     }
 
     #[test]

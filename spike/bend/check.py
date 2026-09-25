@@ -453,6 +453,10 @@ STORES = {
     # made and removed, a file become a link, and rules skipping a path, a
     # directory, a name and a directory's name, filed flat and in folders.
     "folder": [
+        # Its folder exported whole and laid out alone: links, a mode, and
+        # the rules that travel.
+        ["export", "out"],
+        ["export", "--files-only", "out", "first"],
         ["diff"],
         ["diff", "notes.md"],
         ["diff", "path:notes.md"],
@@ -689,6 +693,9 @@ STORES = {
     # cache entry. And two stores `check` calls broken: a revision filed
     # under a digest it does not have, and one that does not parse.
     "pruning": [
+        # A copy of what the head stands on, which leaves the amended and
+        # abandoned revisions behind and a `supersedes` edge dangling.
+        ["export", "out"],
         ["prune", "-n"],
         ["prune"],
         ["prune", "--fields"],
@@ -741,6 +748,33 @@ STORES = {
         ["offer"],
         ["offer", "a", "b"],
         ["offer", "agreeing", "-x"],
+    ],
+    # A store with every kind of file — lines, bytes, a runnable file, a
+    # link by reference and one verbatim, one in a directory — over three
+    # revisions, a forgetting document for a file the head no longer holds,
+    # bookmarks shared, private, pinned to the first revision and naming a
+    # file, rules shared, private and none, a file of `claims/`, and a
+    # directory in its folder holding somebody's file. Exported whole and
+    # as a folder, at the head and at the first revision, planned and done;
+    # refused over the occupied directory, a target that is not one, and the
+    # words.
+    "exporting": [
+        ["export", "-n", "out"],
+        ["export", "out"],
+        ["export", "--dry-run", "out", "old"],
+        ["export", "out", "old"],
+        ["export", "deep/er/out"],
+        ["export", "--files-only", "-n", "out"],
+        ["export", "--files-only", "out"],
+        ["export", "out", "old", "--files-only"],
+        ["export", "occupied"],
+        ["export", "-n", "occupied"],
+        ["export", "--files-only", "occupied"],
+        ["export", "out", "nosuch"],
+        ["export"],
+        ["export", "a", "b", "c"],
+        ["export", "-x", "out"],
+        ["export", "out", "--files"],
     ],
     # Nothing recorded yet: every file is the folder's own.
     "fresh": [
@@ -825,6 +859,8 @@ STORES = {
     # resolution's, and insert their own — and a merge written here for each
     # way a resolution can fail to assemble or to parse.
     "merge": [
+        # A store `check` calls broken is not copied.
+        ["export", "out", "m1"],
         *(["cat", target, path] for target in ("left", "m1", "after", "m2") for path in ("f.md", "h.md")),
         *(["cat", target, "f.md"] for target in ("unknown", "range", "result", "notlast", "adjacent", "positioned")),
         ["diff", "m1"],
@@ -840,6 +876,10 @@ STORES = {
     # recorded on top of one, so its edit counts into the walked file; and
     # a merge joining a resolution with an edit concurrent with it.
     "walked": [
+        # A merge's resolution travels with every document it keeps items
+        # of, and a folder is laid out from the walk where nothing states it.
+        ["export", "out", "resolved"],
+        ["export", "--files-only", "out", "crossed"],
         *(["cat", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         *(["blame", target, path] for target in ("joined", "tops", "all", "after") for path in ("f.md", "g.md")),
         ["diff", "joined", "--onto", "left"],
@@ -1331,6 +1371,42 @@ def record(temporary, rust, corpus, pinned=None):
         at(stranger, "record", "-m", "elsewhere")
         for name, path in (("other", other), ("agreeing", agreeing), ("stranger", stranger), ("forgetful", forgetful)):
             path.rename(store / name)
+    elif corpus == "exporting":
+        def at(*command):
+            return subprocess.run([rust, *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120).stdout
+
+        (store / "notes.md").write_text("one\n")
+        (store / "photo.bin").write_bytes(b"\x00one")
+        (store / "run.sh").write_text("#!/bin/sh\necho run\n")
+        (store / "run.sh").chmod(0o755)
+        (store / "sub").mkdir()
+        (store / "sub" / "deep.md").write_text("deep\n")
+        os.symlink("notes.md", store / "to-notes")
+        os.symlink("../notes.md", store / "sub" / "up")
+        os.symlink("/etc/hosts", store / "abs")
+        historica("record", "-m", "one")
+        historica("name", "old", "head", "--revision")
+        (store / "gone.md").write_text("secret\nline\n")
+        (store / "notes.md").write_text("one\ntwo\n")
+        (store / "photo.bin").write_bytes(b"\x00two")
+        historica("record", "-m", "two")
+        two = at("log", "--fields").splitlines()[1].split()[0]
+        (store / "gone.md").unlink()
+        (store / "sub" / "deep.md").write_text("deep\ner\n")
+        historica("record", "-m", "three")
+        # A forgetting document for a file only the second revision holds.
+        historica("forget", two, "gone.md", "--lines", "1..1")
+        historica("name", "main", "head")
+        historica("name", "priv", "head", "--private")
+        historica("name", "doc", "head", "notes.md")
+        historica("skip", "build/")
+        historica("skip", "--private", "--name", "*.tmp")
+        (store / "history" / "skipped" / "note.txt").write_text("# a note, stating no rule\n")
+        (store / "history" / "claims" / "by").mkdir(parents=True)
+        (store / "history" / "claims" / "by" / "one.txt").write_text("vouched\n")
+        (store / "history" / "claims" / ".DS_Store").write_bytes(b"\x00")
+        (store / "occupied").mkdir()
+        (store / "occupied" / "x.md").write_text("somebody's\n")
     elif corpus in ("pruning", "lying", "unparsed"):
         def rec(*command):
             done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
@@ -1494,7 +1570,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "arranging", "pruning", "lying", "unparsed", "receiving", "exporting")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:
@@ -2302,6 +2378,34 @@ def check_mutations(temporary):
             "      offered.found(True{}, Arrange.lookup(ids, \"skipped/\" ++ file)",
             "offer_lemmas.rule_kept",
             "offer.bend",
+        ),
+        (
+            "export lays a link somewhere other than where it sits",
+            "      Outcome.Laid{Put.Link{path, s}}",
+            "      Outcome.Laid{Put.Link{\"link\", s}}",
+            "export_lemmas.link_path",
+            "export.bend",
+        ),
+        (
+            "export gives a copy a private bookmark",
+            "          travel.withheld(t)",
+            "          travel.held(Bm.Bookmark{n, g, True{}}, True{}, t)",
+            "export_lemmas.push_travels",
+            "export.bend",
+        ),
+        (
+            "export gives a copy a bookmark pointing past the target",
+            "          travel.held(Bm.Bookmark{n, g, False{}}, pointed.holds(pt, g), t)",
+            "          travel.held(Bm.Bookmark{n, g, False{}}, True{}, t)",
+            "export_lemmas.push_travels",
+            "export.bend",
+        ),
+        (
+            "export writes a private rule into the copy",
+            "      Tree.keep(~Receive.Ruled, Bool.not(ruled.private(r)), r, rules.shared(rest))",
+            "      Tree.keep(~Receive.Ruled, True{}, r, rules.shared(rest))",
+            "export_lemmas.shared_all",
+            "export.bend",
         ),
     )
     def mutate(index, name, before, after, proof, *source_files):

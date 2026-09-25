@@ -22,6 +22,7 @@ import ./arrange.bend as Arrange
 import ./prune.bend as Prune
 import ./receive.bend as Receive
 import ./offer.bend as Offer
+import ./export.bend as Export
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1210,3 +1211,31 @@ law offer_names_no_private_rule:
   for +rids: List<&2, T.Split>
   for +nids: List<&2, T.Split>
   {Offer.manifest(prefix, s, bs, claims, rids, nids) == Offer.manifest(prefix, Offer.shared_rules(s), bs, claims, rids, nids) : List<&2, String>}
+
+# `export` lays out every path the target's tree places, each once and at
+# its own path, whatever kind of file it is: one outcome a path, in path
+# order, so a folder laid out without a refusal holds exactly the tree's
+# paths — a link where it sits, not where it points.
+law export_lays_out_every_path:
+  for +ps: List<&2, Export.Placed>
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  {Export.outcome.paths(Export.lay(ps, t, fs, ds, id, pays, bs)) == Export.placed.paths(ps) : List<&2, String>}
+
+# Every bookmark a copy is given is shared, and finds in the copy what it
+# names (decision 0062): an export never discloses a private name, and
+# never manufactures a dangling bookmark the origin did not have.
+law export_names_only_what_travels:
+  for +bs: List<&2, Bm.Bookmark>
+  for +pt: Export.Pointed
+  {Export.travels(Export.travel.names(Export.travel.of(bs, pt)), pt) == True{} : Bool}
+
+# Every rule file a copy is given states a shared rule (decision 0051),
+# whatever label it is filed under.
+law export_states_no_private_rule:
+  for +rs: List<&2, Receive.Ruled>
+  {Export.lines.shared(Export.rules.files(rs)) == True{} : Bool}
