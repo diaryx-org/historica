@@ -2754,6 +2754,18 @@ law export_destroys_only_what_is_forgotten:
   for h: {Rev.member(Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)) == True{} : Bool}
 
+# An export updates a copy only where the copy is its own to update
+# (decision 0052): it goes on exactly where the copy is related to this
+# store (decision 0029) and every revision the copy holds is one this store
+# holds, or names as some revision's parent or as one it supersedes. A
+# revision it has not heard of was recorded in the copy, and combining that
+# is `receive`'s.
+law export_updates_only_a_copy_it_could_have_made:
+  for +into: String
+  for +fs: List<&2, Main.Full>
+  for +cfs: List<&2, Main.Full>
+  {Result.is_done(&2, &2, Main.Refused, Unit, Export.copy.r(into, fs, cfs)) == Bool.and(Receive.related(fs, cfs), Export.heard.all(cfs, fs)) : Bool}
+
 # Catching a copy's folder up leaves it holding what a fresh export of the
 # same target lays out (decision 0052): wherever the folder's plan is made,
 # the fresh folder can be laid out too, and once each of the plan's steps is

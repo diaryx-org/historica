@@ -2037,6 +2037,24 @@ def dest.ok(+l: Lst, +store: Bool, r: Result<&2, &2, Main.Refused, Dest>) -> Boo
     case Done{dd}:
       dest.as(l, store, dd)
 
+# Whether some revision of this store names a digest as a parent, or as
+# one it supersedes.
+def named.edge(fs: List<&2, Main.Full>, +id: String) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Main.Full{i, c, +parents, +supersedes, a, w, rb, rv, facts, m} <> rest:
+      Bool.or(Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), named.edge(rest, id))
+
+# Whether this store has heard of every revision a copy holds: it holds
+# each, or some revision of it names each.
+def heard.all(cfs: List<&2, Main.Full>, +fs: List<&2, Main.Full>) -> Bool:
+  match cfs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      Bool.and(Bool.or(Rev.member(Main.ids(fs), Main.id_of(f)), named.edge(fs, Main.id_of(f))), heard.all(rest, fs))
+
 # What `cat` prints of a file at a revision.
 def cat.of(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Maybe<&2, String>:
   match r:
