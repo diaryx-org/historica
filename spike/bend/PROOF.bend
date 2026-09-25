@@ -75,6 +75,9 @@ import ./argv_lemmas.bend as ArgvL
 import ./shell_lemmas.bend as ShellL
 import ./opening_lemmas.bend as OpeningL
 import ./identity_lemmas.bend as IdentityL
+import ./editor_lemmas.bend as EditorL
+import ./forgetting_lemmas.bend as ForgettingL
+import ./opened_lemmas.bend as OpenedL
 import ./arrange_lemmas.bend as ArrangeL
 import ./prune_lemmas.bend as PruneL
 import ./prune.bend as Prune
@@ -374,6 +377,9 @@ def Laws.write_parse(s, doc, e):
 def Laws.revision_write_parse(s, r, e):
   RevL.write_parse(s, r, e)
 
+def Laws.opening_reads_what_a_revision_states(first, hs, m, hf, hp, e):
+  OpenedL.opened(first, hs, m, hf, hp, e)
+
 def Laws.diff_applies(parent, child, tbl, doc, e):
   Equal.trans(Result<&2, &2, String, List<&2, Ops.Item>>, Ops.apply(parent, doc), Cursor.apply(parent, doc), Done{child},
     Laws.cursor_apply_equivalent(parent, doc),
@@ -662,6 +668,9 @@ def Laws.forgetting_a_resolution_keeps_shape(pieces, ps, t, i):
 def Laws.forget_rewrites_only_the_files_documents(fs, ds, id, file, first, last, ts, ws, a, n, e):
   ForgetL.rewrites(fs, ds, id, file, first, last, ts, ws, a, n, e)
 
+def Laws.forget_rewrites_every_document_quoting_the_span(fs, ds, id, file, first, last, plan, e, at, ea, every, ev, i, q, hq, hs, d, hd):
+  ForgettingL.rewrites_quoting(fs, ds, id, file, first, last, plan, e, at, ea, every, ev, i, q, hq, hs, d, hd)
+
 def Laws.forget_whole_takes_one_payload(file, payload, files, stood, n, ts, ws, a, m, e):
   ForgetL.takes_one(file, payload, files, stood, n, Fg.Fg.Plan{ts, ws, a, m}, e)
 
@@ -676,6 +685,21 @@ def Laws.forget_reads_its_words(ws, t, p, sp, d, f, e):
 
 def Laws.forget_clears_only_copies(ps, p, e):
   ForgetL.clears(ps, p, e)
+
+def Laws.forget_states_what_it_made_unreadable(p, ds, lines, dry):
+  ForgettingL.says_gone(p, ds, lines, dry)
+
+def Laws.forget_says_what_it_destroys(p, ds, lines, dry):
+  ForgettingL.says_destroyed(p, ds, lines, dry)
+
+def Laws.forget_files_documents_where_nothing_is(fs, ds, w):
+  ForgettingL.files_where(fs, ds, w)
+
+def Laws.forget_takes_no_file_of_lines_whole(fs, ds, id, file):
+  ForgettingL.no_span(fs, ds, id, file)
+
+def Laws.forget_sweeps_only_what_lists_empty(dir, r, found, p, h):
+  ForgettingL.sweeps(dir, r, found, p, h)
 
 def Laws.standin_replays_like_what_it_stands_in_for(st1, st2, f, r, ops1, f2, ops2, hs, hops):
   ForgetL.replays_like(st1, st2, f, r, ops1, f2, ops2, hs, hops)
@@ -861,11 +885,65 @@ def Laws.argv_reads_help(ds, v, rest, h):
 def Laws.dispatch_runs_no_path(base, w, args, d, p, as, e):
   ShellL.runs(base, w, args, d, p, as, e)
 
+def Laws.dispatch_runs_a_spelled_word(base, w, args, h):
+  ShellL.runs_word(base, w, args, h)
+
+def Laws.dispatch_refuses_any_other_word(base, w, args, h):
+  ShellL.refuses_word(base, w, args, h)
+
 def Laws.header_opens_under_a_note(note):
   OpeningL.noted(note)
 
 def Laws.identity_reads_back(file, a, directory, home, h):
   IdentityL.reads_back(file, a, directory, home, h)
+
+def Laws.identity_takes_the_environment_first(env):
+  IdentityL.from_env(env)
+
+def Laws.identity_file_is_where_the_rust_tool_looks(xdg, home, profile):
+  IdentityL.path_is(xdg, home, profile)
+
+def Laws.identity_makes_the_files_directory(xdg, home, profile, file, e):
+  IdentityL.makes_its_directory(xdg, home, profile, file, e)
+
+def Laws.identity_reads_its_blocks(d, us, hf):
+  IdentityL.reads_blocks(d, us, hf)
+
+def Laws.identity_refuses_a_second_author(d, us, a, b, hf, ha, hb):
+  IdentityL.refuses_two_authors(d, us, a, b, hf, ha, hb)
+
+def Laws.identity_refuses_under_after_an_author(d, us, a, dir, hf, ha, hd):
+  IdentityL.refuses_under_after_author(d, us, a, dir, hf, ha, hd)
+
+def Laws.identity_refuses_a_second_directory(d, us, d1, d2, hf, h1, h2):
+  IdentityL.refuses_two_directories(d, us, d1, d2, hf, h1, h2)
+
+def Laws.identity_refuses_a_directory_with_no_author(d, us, dir, hf, hd):
+  IdentityL.refuses_directory_alone(d, us, dir, hf, hd)
+
+def Laws.identity_refuses_a_second_default(a0, us, b, hf, hb):
+  IdentityL.refuses_second_default(a0, us, b, hf, hb)
+
+def Laws.identity_refuses_a_directory_claimed_twice(d, us, i, dir, x, b, hf, e, hd, hs, hb):
+  IdentityL.refuses_directory_again(d, us, i, dir, x, b, hf, e, hd, hs, hb)
+
+def Laws.identity_refuses_an_unknown_key(d, us, k, v, hf, hs, hc, hu, ha, hv):
+  IdentityL.refuses_unknown_key(d, us, k, v, hf, hs, hc, hu, ha, hv)
+
+def Laws.identity_refuses_an_unusable_value(d, us, k, v, hf, hs, hc, hv, hq):
+  IdentityL.refuses_unusable_value(d, us, k, v, hf, hs, hc, hv, hq)
+
+def Laws.identity_refuses_a_line_with_no_space(d, us, w, hf, he, hs, hc):
+  IdentityL.refuses_unsplit(d, us, w, hf, he, hs, hc)
+
+def Laws.editor_is_the_one_chosen(visual, editor):
+  EditorL.chooses(visual, editor)
+
+def Laws.editor_is_read_only_when_it_saved(editor, r):
+  EditorL.saves(editor, r)
+
+def Laws.editor_file_is_in_the_temporary_directory(r, h):
+  IdentityL.scratch_parent(r, h)
 
 def Laws.check_reads_its_words(ws):
   CheckL.reads_words(ws)

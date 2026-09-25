@@ -334,12 +334,25 @@ def author.file(+directory: String) -> IO(Result<&2, &2, String, String>):
     profile : Result<&1, &1, U32 & String, String> <- IO.get_env("USERPROFILE")
     author.at(p, directory, home.of(home, profile))
 
-def author.of(env: Result<&1, &1, U32 & String, String>, +directory: String) -> IO(Result<&2, &2, String, String>):
+# What `$HISTORICA_AUTHOR` decides: set and not empty, the author it
+# names, or the refusal of one no revision can hold; otherwise nothing, and
+# the file decides.
+def from_env(env: Result<&1, &1, U32 & String, String>) -> Maybe<&2, Result<&2, &2, String, String>>:
   match env:
     case Done{+a}:
-      Bool.pick(IO(Result<&2, &2, String, String>), String.is_empty(a), author.file(directory), IO.pure(Result<&2, &2, String, String>, checked(a, None{})))
+      Bool.pick(Maybe<&2, Result<&2, &2, String, String>>, String.is_empty(a), None{}, Some{checked(a, None{})})
     case Fail{e}:
+      None{}
+
+def author.decided(m: Maybe<&2, Result<&2, &2, String, String>>, +directory: String) -> IO(Result<&2, &2, String, String>):
+  match m:
+    case Some{r}:
+      IO.pure(Result<&2, &2, String, String>, r)
+    case None{}:
       author.file(directory)
+
+def author.of(env: Result<&1, &1, U32 & String, String>, +directory: String) -> IO(Result<&2, &2, String, String>):
+  author.decided(from_env(env), directory)
 
 # `author_for`: who is recording work in `directory` — the environment
 # first, for scripts, tests and machines where a file is inconvenient; then
@@ -356,14 +369,14 @@ def die(-A: Type, +code: U32, msg: String) -> IO(A):
   IO.die(A, code, "historica: " ++ msg ++ Bool.pick(String, U32.is_eq(code, 2), "\n\n" ++ Notes.USAGE(), SNil{}))
 
 # The directory a path is in: `Path::parent`, for a path that names a file.
+# The walk is over the reversed path, each character asked with
+# `Char.is_eq` so that a proof can follow it over one it does not know.
 def parent.go(s: String) -> String:
   match s:
     case SNil{}:
       SNil{}
-    case SCon{'/', t}:
-      t
-    case SCon{c, t}:
-      parent.go(t)
+    case SCon{c, +t}:
+      Bool.pick(String, Char.is_eq(c, '/'), t, parent.go(t))
 
 def parent(+file: String) -> String:
   +up = String.reverse(parent.go(String.reverse(file)))
