@@ -19,6 +19,8 @@ import ./store.bend as Store
 import ./ops.bend as Ops
 import ./folder.bend as Folder
 import ./graph_lemmas.bend as GL
+import ./map_lemmas.bend as ML
+import ./sort_lemmas.bend as SortL
 
 # Results
 # -------
@@ -727,6 +729,11 @@ def again_keeps(+w: U.Wants, +h: U.Held, +rs: List<&2, String>, +rs2: List<&2, S
 
 # What it says is settled
 # -----------------------
+#
+# It says the folder already holds the target exactly where carrying the
+# plan out would change nothing: each step `decide` takes leaves its path
+# as it was exactly where it neither writes, sets a mode nor points a link,
+# and nothing is taken away exactly where nothing is removed.
 
 def same_held(h: U.Held) -> {U.held.same(h, h) == True{} : Bool}:
   match h:
@@ -743,53 +750,530 @@ def same_held(h: U.Held) -> {U.held.same(h, h) == True{} : Bool}:
     case U.Held.Nothing{}:
       {==}
 
-def cons_empty(-A: Data, -x: A, -xs: List<&2, A>, e: {List.is_empty(&2, A, x <> xs) == True{} : Bool}) -> Empty:
-  Comp.false_true(e)
+# Whether a step does anything to the folder: writes, sets a mode, or
+# points a link.
+def changes(+s: U.Step) -> Bool:
+  Bool.or(U.step.write(s), Bool.or(U.step.mode(s), U.step.link(s)))
 
-# A step that neither writes, sets a mode nor points a link leaves the path
-# as it was.
-def step_same(s: U.Step, +w: U.Wants, +h: U.Held, +p: String, +rs: List<&2, String>, +rest: List<&2, U.Decided>, hw: {List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.write(s), U.Decided{p, w, h, rs, s}, U.writes(rest))) == True{} : Bool}, hm: {List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.mode(s), U.Decided{p, w, h, rs, s}, U.modes(rest))) == True{} : Bool}, hl: {List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.link(s), U.Decided{p, w, h, rs, s}, U.links(rest))) == True{} : Bool}, ih: {List.is_empty(&2, U.Decided, U.writes(rest)) == True{} : Bool} -> {List.is_empty(&2, U.Decided, U.modes(rest)) == True{} : Bool} -> {List.is_empty(&2, U.Decided, U.links(rest)) == True{} : Bool} -> {U.unchanged.steps(rest) == True{} : Bool}) -> {Bool.and(U.held.same(U.after(w, h, s), h), U.unchanged.steps(rest)) == True{} : Bool}:
+def and_false(x: Bool) -> {Bool.and(x, False{}) == False{} : Bool}:
+  match x:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def xor_flip(a: Bool, b: Bool) -> {Bool.xor(a, b) == Bool.xor(b, a) : Bool}:
+  match a b:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+# A file whose bytes are right keeps them; one set to another mode holds
+# another mode; one written over held other bytes.
+def still_file.on(+dg: String, +w: U.Wants, hd: {U.wants.digest(w) == dg : String}, +r: Bool, hr: {U.wants.runs(w) == r : Bool}, +d: String, +x: Bool, e1: Bool, h1: {String.eq(d, dg) == e1 : Bool}, e2: Bool, h2: {Bool.xor(x, r) == e2 : Bool}, e3: Bool) -> {U.held.same(U.after(w, U.Held.File{d, x}, Bool.pick(U.Step, e1, Bool.pick(U.Step, e2, U.Step.Mode{}, U.Step.Keep{}), Bool.pick(U.Step, e3, U.Step.Write{}, U.Step.Refuse{U.UNRECORDED()}))), U.Held.File{d, x}) == Bool.not(changes(Bool.pick(U.Step, e1, Bool.pick(U.Step, e2, U.Step.Mode{}, U.Step.Keep{}), Bool.pick(U.Step, e3, U.Step.Write{}, U.Step.Refuse{U.UNRECORDED()})))) : Bool}:
+  match e1:
+    case True{}:
+      match e2:
+        case True{}:
+          %Equal.sym(Bool, U.wants.runs(w), r, hr) : {Bool.and(String.eq(d, d), Bool.not(Bool.xor(_, x))) == False{} : Bool}
+          %Equal.sym(Bool, String.eq(d, d), True{}, SL.eq_refl(d)) : {Bool.and(_, Bool.not(Bool.xor(r, x))) == False{} : Bool}
+          %xor_flip(x, r) : {Bool.not(_) == False{} : Bool}
+          %Equal.sym(Bool, Bool.xor(x, r), True{}, h2) : {Bool.not(_) == False{} : Bool}
+          {==}
+        case False{}:
+          same_held(U.Held.File{d, x})
+    case False{}:
+      match e3:
+        case True{}:
+          %Equal.sym(String, U.wants.digest(w), dg, hd) : {Bool.and(String.eq(_, d), Bool.not(Bool.xor(U.wants.runs(w), x))) == False{} : Bool}
+          %ML.eq_sym(d, dg) : {Bool.and(_, Bool.not(Bool.xor(U.wants.runs(w), x))) == False{} : Bool}
+          %Equal.sym(Bool, String.eq(d, dg), False{}, h1) : {Bool.and(_, Bool.not(Bool.xor(U.wants.runs(w), x))) == False{} : Bool}
+          {==}
+        case False{}:
+          same_held(U.Held.File{d, x})
+
+def still_file(+dg: String, +w: U.Wants, hd: {U.wants.digest(w) == dg : String}, +m: Tree.Mode, hr: {U.wants.runs(w) == U.runs(m) : Bool}, h: U.Held, +rs: List<&2, String>) -> {U.held.same(U.after(w, h, U.decide.file(dg, m, h, rs)), h) == Bool.not(changes(U.decide.file(dg, m, h, rs))) : Bool}:
+  match h:
+    case U.Held.File{+d, +x}:
+      still_file.on(dg, w, hd, U.runs(m), hr, d, x, String.eq(d, dg), {==}, Bool.xor(x, U.runs(m)), {==}, Rev.member(rs, d))
+    case U.Held.Link{t}:
+      SL.eq_refl(t)
+    case U.Held.Unread{}:
+      {==}
+    case U.Held.Dir{}:
+      {==}
+    case U.Held.Other{}:
+      {==}
+    case U.Held.Nothing{}:
+      {==}
+
+def still_link.kept(+t: String, +x: String, e: Bool, he: {String.eq(x, t) == e : Bool}) -> {U.held.same(U.after(U.Wants.Link{t}, U.Held.Link{x}, Bool.pick(U.Step, e, U.Step.Keep{}, U.Step.Link{})), U.Held.Link{x}) == Bool.not(changes(Bool.pick(U.Step, e, U.Step.Keep{}, U.Step.Link{}))) : Bool}:
+  match e:
+    case True{}:
+      SL.eq_refl(x)
+    case False{}:
+      %ML.eq_sym(x, t) : {_ == False{} : Bool}
+      he
+
+def still_link.filed(+t: String, +d: String, +x: Bool, e: Bool) -> {U.held.same(U.after(U.Wants.Link{t}, U.Held.File{d, x}, Bool.pick(U.Step, e, U.Step.Link{}, U.Step.Refuse{U.UNRECORDED()})), U.Held.File{d, x}) == Bool.not(changes(Bool.pick(U.Step, e, U.Step.Link{}, U.Step.Refuse{U.UNRECORDED()}))) : Bool}:
+  match e:
+    case True{}:
+      {==}
+    case False{}:
+      written(d, x)
+
+def still_link(+t: String, h: U.Held, +rs: List<&2, String>) -> {U.held.same(U.after(U.Wants.Link{t}, h, U.decide.link(t, h, rs)), h) == Bool.not(changes(U.decide.link(t, h, rs))) : Bool}:
+  match h:
+    case U.Held.Link{+x}:
+      still_link.kept(t, x, String.eq(x, t), {==})
+    case U.Held.File{+d, +x}:
+      still_link.filed(t, d, x, Rev.member(rs, d))
+    case U.Held.Nothing{}:
+      {==}
+    case U.Held.Dir{}:
+      {==}
+    case U.Held.Unread{}:
+      {==}
+    case U.Held.Other{}:
+      {==}
+
+# A step `decide` takes leaves the path as it was exactly where it neither
+# writes, sets a mode nor points a link.
+def still(w: U.Wants, +h: U.Held, +rs: List<&2, String>) -> {U.held.same(U.after(w, h, U.decide(w, h, rs)), h) == Bool.not(changes(U.decide(w, h, rs))) : Bool}:
+  match w:
+    case U.Wants.Lines{+text, +m}:
+      still_file(U.text_digest(text), U.Wants.Lines{text, m}, {==}, m, {==}, h, rs)
+    case U.Wants.Whole{+p, +at, +m}:
+      still_file(p, U.Wants.Whole{p, at, m}, {==}, m, {==}, h, rs)
+    case U.Wants.Link{+t}:
+      still_link(t, h, rs)
+    case U.Wants.No{b}:
+      same_held(h)
+
+# One step more: the plan changes nothing at this path and after it exactly
+# where it writes nothing, sets no mode and points no link here or after.
+def still_one(s: U.Step, +w: U.Wants, +h: U.Held, +p: String, +rs: List<&2, String>, +rest: List<&2, U.Decided>, hs: {U.held.same(U.after(w, h, s), h) == Bool.not(changes(s)) : Bool}, ih: {Bool.and(List.is_empty(&2, U.Decided, U.writes(rest)), Bool.and(List.is_empty(&2, U.Decided, U.modes(rest)), List.is_empty(&2, U.Decided, U.links(rest)))) == U.unchanged.steps(rest) : Bool}) -> {Bool.and(List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.write(s), U.Decided{p, w, h, rs, s}, U.writes(rest))), Bool.and(List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.mode(s), U.Decided{p, w, h, rs, s}, U.modes(rest))), List.is_empty(&2, U.Decided, Tree.keep(~U.Decided, U.step.link(s), U.Decided{p, w, h, rs, s}, U.links(rest))))) == Bool.and(U.held.same(U.after(w, h, s), h), U.unchanged.steps(rest)) : Bool}:
   match s:
     case U.Step.Refuse{b}:
-      AL.and_intro(U.held.same(h, h), U.unchanged.steps(rest), same_held(h), ih(hw, hm, hl))
+      %Equal.sym(Bool, U.held.same(U.after(w, h, U.Step.Refuse{b}), h), True{}, hs) : {Bool.and(List.is_empty(&2, U.Decided, U.writes(rest)), Bool.and(List.is_empty(&2, U.Decided, U.modes(rest)), List.is_empty(&2, U.Decided, U.links(rest)))) == Bool.and(_, U.unchanged.steps(rest)) : Bool}
+      ih
     case U.Step.Keep{}:
-      AL.and_intro(U.held.same(h, h), U.unchanged.steps(rest), same_held(h), ih(hw, hm, hl))
+      %Equal.sym(Bool, U.held.same(U.after(w, h, U.Step.Keep{}), h), True{}, hs) : {Bool.and(List.is_empty(&2, U.Decided, U.writes(rest)), Bool.and(List.is_empty(&2, U.Decided, U.modes(rest)), List.is_empty(&2, U.Decided, U.links(rest)))) == Bool.and(_, U.unchanged.steps(rest)) : Bool}
+      ih
     case U.Step.Write{}:
-      Empty.absurd({Bool.and(U.held.same(U.after(w, h, U.Step.Write{}), h), U.unchanged.steps(rest)) == True{} : Bool}, cons_empty(U.Decided, U.Decided{p, w, h, rs, U.Step.Write{}}, U.writes(rest), hw))
+      %Equal.sym(Bool, U.held.same(U.after(w, h, U.Step.Write{}), h), False{}, hs) : {False{} == Bool.and(_, U.unchanged.steps(rest)) : Bool}
+      {==}
     case U.Step.Mode{}:
-      Empty.absurd({Bool.and(U.held.same(U.after(w, h, U.Step.Mode{}), h), U.unchanged.steps(rest)) == True{} : Bool}, cons_empty(U.Decided, U.Decided{p, w, h, rs, U.Step.Mode{}}, U.modes(rest), hm))
+      %Equal.sym(Bool, U.held.same(U.after(w, h, U.Step.Mode{}), h), False{}, hs) : {Bool.and(List.is_empty(&2, U.Decided, U.writes(rest)), False{}) == Bool.and(_, U.unchanged.steps(rest)) : Bool}
+      and_false(List.is_empty(&2, U.Decided, U.writes(rest)))
     case U.Step.Link{}:
-      Empty.absurd({Bool.and(U.held.same(U.after(w, h, U.Step.Link{}), h), U.unchanged.steps(rest)) == True{} : Bool}, cons_empty(U.Decided, U.Decided{p, w, h, rs, U.Step.Link{}}, U.links(rest), hl))
+      %Equal.sym(Bool, U.held.same(U.after(w, h, U.Step.Link{}), h), False{}, hs) : {Bool.and(List.is_empty(&2, U.Decided, U.writes(rest)), Bool.and(List.is_empty(&2, U.Decided, U.modes(rest)), False{})) == Bool.and(_, U.unchanged.steps(rest)) : Bool}
+      %Equal.sym(Bool, Bool.and(List.is_empty(&2, U.Decided, U.modes(rest)), False{}), False{}, and_false(List.is_empty(&2, U.Decided, U.modes(rest)))) : {Bool.and(List.is_empty(&2, U.Decided, U.writes(rest)), _) == False{} : Bool}
+      and_false(List.is_empty(&2, U.Decided, U.writes(rest)))
 
-def steps_same(ds: List<&2, U.Decided>, hw: {List.is_empty(&2, U.Decided, U.writes(ds)) == True{} : Bool}, hm: {List.is_empty(&2, U.Decided, U.modes(ds)) == True{} : Bool}, hl: {List.is_empty(&2, U.Decided, U.links(ds)) == True{} : Bool}) -> {U.unchanged.steps(ds) == True{} : Bool}:
-  match ds:
+def still_steps(ls: List<&2, U.Look>) -> {Bool.and(List.is_empty(&2, U.Decided, U.writes(U.decided(ls))), Bool.and(List.is_empty(&2, U.Decided, U.modes(U.decided(ls))), List.is_empty(&2, U.Decided, U.links(U.decided(ls))))) == U.unchanged.steps(U.decided(ls)) : Bool}:
+  match ls:
     case Nil{}:
       {==}
-    case U.Decided{+p, +w, +h, +rs, +s} <> +rest:
-      step_same(s, w, h, p, rs, rest, hw, hm, hl, a => b => c => steps_same(rest, a, b, c))
+    case U.Look{+p, +w, +h, +rs} <> +rest:
+      still_one(U.decide(w, h, rs), w, h, p, rs, U.decided(rest), still(w, h, rs), still_steps(rest))
 
-def gone_pick(b: Bool, +p: String, +rest: List<&2, U.Went>, hr: {List.is_empty(&2, String, Rev.keep(b, p, U.removes(rest))) == True{} : Bool}, ih: {List.is_empty(&2, String, U.removes(rest)) == True{} : Bool} -> {U.unchanged.gone(rest) == True{} : Bool}) -> {Bool.and(Bool.not(b), U.unchanged.gone(rest)) == True{} : Bool}:
+def still_gone.pick(b: Bool, +p: String, +rest: List<&2, U.Went>, ih: {List.is_empty(&2, String, U.removes(rest)) == U.unchanged.gone(rest) : Bool}) -> {List.is_empty(&2, String, Rev.keep(b, p, U.removes(rest))) == Bool.and(Bool.not(b), U.unchanged.gone(rest)) : Bool}:
   match b:
     case True{}:
-      Empty.absurd({Bool.and(False{}, U.unchanged.gone(rest)) == True{} : Bool}, cons_empty(String, p, U.removes(rest), hr))
+      {==}
     case False{}:
-      ih(hr)
+      ih
 
-def gone_same(ws: List<&2, U.Went>, hr: {List.is_empty(&2, String, U.removes(ws)) == True{} : Bool}) -> {U.unchanged.gone(ws) == True{} : Bool}:
+# Nothing is removed exactly where nothing is taken away.
+def still_gone(ws: List<&2, U.Went>) -> {List.is_empty(&2, String, U.removes(ws)) == U.unchanged.gone(ws) : Bool}:
   match ws:
     case Nil{}:
       {==}
     case U.Went{+p, h, rs, +l} <> +rest:
-      gone_pick(U.leaving.remove(l), p, rest, hr, h2 => gone_same(rest, h2))
+      still_gone.pick(U.leaving.remove(l), p, rest, still_gone(rest))
 
-# Where `update` says the folder already holds the target, carrying out its
-# plan would change nothing.
-def settled_same(p: U.Plan, +e: {U.settled(p) == True{} : Bool}) -> {U.unchanged(p) == True{} : Bool}:
+def and4(a: Bool, b: Bool, c: Bool, d: Bool) -> {Bool.and(Bool.and(a, b), Bool.and(c, d)) == Bool.and(Bool.and(a, Bool.and(c, d)), b) : Bool}:
+  match a b c d:
+    case True{} True{} True{} True{}:
+      {==}
+    case True{} True{} True{} False{}:
+      {==}
+    case True{} True{} False{} True{}:
+      {==}
+    case True{} True{} False{} False{}:
+      {==}
+    case True{} False{} True{} True{}:
+      {==}
+    case True{} False{} True{} False{}:
+      {==}
+    case True{} False{} False{} True{}:
+      {==}
+    case True{} False{} False{} False{}:
+      {==}
+    case False{} b2 c2 d2:
+      {==}
+
+# For any plan `update` decides, it says the folder already holds the
+# target exactly where carrying the plan out would change nothing.
+def settled_iff(+ls: List<&2, U.Look>, +ws: List<&2, U.Went>) -> {U.settled(U.Plan{U.decided(ls), ws}) == U.unchanged(U.Plan{U.decided(ls), ws}) : Bool}:
+  %still_steps(ls) : {U.settled(U.Plan{U.decided(ls), ws}) == Bool.and(_, U.unchanged.gone(ws)) : Bool}
+  %still_gone(ws) : {U.settled(U.Plan{U.decided(ls), ws}) == Bool.and(Bool.and(List.is_empty(&2, U.Decided, U.writes(U.decided(ls))), Bool.and(List.is_empty(&2, U.Decided, U.modes(U.decided(ls))), List.is_empty(&2, U.Decided, U.links(U.decided(ls))))), _) : Bool}
+  and4(List.is_empty(&2, U.Decided, U.writes(U.decided(ls))), List.is_empty(&2, String, U.removes(ws)), List.is_empty(&2, U.Decided, U.modes(U.decided(ls))), List.is_empty(&2, U.Decided, U.links(U.decided(ls))))
+
+# The plan `update` decides
+# -------------------------
+
+# The paths the target's tree holds one file at, what the plan decides each
+# from, and the paths the walk took that the tree does not hold — as
+# `plan.from` builds them.
+def plan.looks(+fs: List<&2, Main.Full>, +id: String, +t: Tree.Tree(), +found: List<&2, Folder.Found>, +dg: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, +ds: List<&2, Store.Doc>, +more: List<&2, Store.Doc>) -> List<&2, U.Look>:
+  U.looks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t))), U.recorded.list(List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t))))), fs, List.reverse(&2, Main.Full, Main.presentation(fs)), List.append(&2, Store.Doc, ds, more)))
+
+def plan.gones(+fs: List<&2, Main.Full>, +id: String, +t: Tree.Tree(), +found: List<&2, Folder.Found>, +dg: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, +ds: List<&2, Store.Doc>, +more: List<&2, Store.Doc>) -> List<&2, U.Gone>:
+  U.gones(U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))), U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), U.recorded.list(List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t))))), fs, List.reverse(&2, Main.Full, Main.presentation(fs)), List.append(&2, Store.Doc, ds, more)), U.spelled.map(U.gone.links(U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t)))), U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>))), fs, Map.new(&2, List<&2, String>)), Set.from_list(U.tracked(fs, U.heads.sorted(fs))))
+
+# Where `update` plans at all, its plan is those steps and those leavings.
+def plan_from(+fs: List<&2, Main.Full>, +id: String, +t: Tree.Tree(), +rs: List<&2, Folder.Scope>, +walked: List<&2, T.Split>, +found: List<&2, Folder.Found>, +dg: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, +ds: List<&2, Store.Doc>, +more: List<&2, Store.Doc>, -p: U.Plan, +e: {U.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, U.Plan>}) -> {U.Plan{U.decided(plan.looks(fs, id, t, found, dg, ls, located, ds, more)), U.went(plan.gones(fs, id, t, found, dg, ls, located, ds, more))} == p : U.Plan}:
+  plan_done(U.refuse.tree(Set.from_list(U.dirs(U.placings(t))), rs, walked, U.placings(t)), plan.looks(fs, id, t, found, dg, ls, located, ds, more), plan.gones(fs, id, t, found, dg, ls, located, ds, more), p, e)
+
+# Where `update` plans at all, it says the folder already holds the target
+# exactly where carrying the plan out would change nothing.
+def plan_settled(+fs: List<&2, Main.Full>, +id: String, +t: Tree.Tree(), +rs: List<&2, Folder.Scope>, +walked: List<&2, T.Split>, +found: List<&2, Folder.Found>, +dg: Map<&2, String>, +ls: Map<&2, String>, +located: Map<&2, String>, +ds: List<&2, Store.Doc>, +more: List<&2, Store.Doc>, -p: U.Plan, +e: {U.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, U.Plan>}) -> {U.settled(p) == U.unchanged(p) : Bool}:
+  %plan_from(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e) : {U.settled(_) == U.unchanged(_) : Bool}
+  settled_iff(plan.looks(fs, id, t, found, dg, ls, located, ds, more), U.went(plan.gones(fs, id, t, found, dg, ls, located, ds, more)))
+
+# What the dry run says, read back
+# --------------------------------
+#
+# Each piece of the dry run, read by its verbs: a line of one verb is read
+# only as that verb, since no verb the dry run prints begins another.
+
+def starts_nil(s: String) -> {String.starts_with(s, SNil{}) == True{} : Bool}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      {==}
+
+# A line that begins with the verb read, read as what follows it.
+def as_hit(s: String, -rest: List<&2, String>) -> {Rev.keep(String.starts_with(s, SNil{}), String.drop(s, 0n), rest) == s <> rest : List<&2, String>}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      {==}
+
+def pre.w(xs: List<&2, String>, r: U.Named) -> U.Named:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      U.Named{List.append(&2, String, xs, a), b, c, d, x}
+
+def pre.r(xs: List<&2, String>, r: U.Named) -> U.Named:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      U.Named{a, List.append(&2, String, xs, b), c, d, x}
+
+def pre.m(xs: List<&2, String>, r: U.Named) -> U.Named:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      U.Named{a, b, List.append(&2, String, xs, c), d, x}
+
+def pre.l(xs: List<&2, String>, r: U.Named) -> U.Named:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      U.Named{a, b, c, List.append(&2, String, xs, d), x}
+
+def pre_w_nil(r: U.Named) -> {r == pre.w(Nil{}, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+def pre_r_nil(r: U.Named) -> {r == pre.r(Nil{}, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+def pre_m_nil(r: U.Named) -> {r == pre.m(Nil{}, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+def pre_l_nil(r: U.Named) -> {r == pre.l(Nil{}, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+# The lines naming a mode set, and a link made, as `effect.named` names
+# them.
+def moded.lines(ds: List<&2, U.Decided>) -> List<&2, String>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case U.Decided{p, +w, h, rs, s} <> rest:
+      (p ++ "  (" ++ Bool.pick(String, U.wants.runs(w), "executable", "plain") ++ ")") <> moded.lines(rest)
+
+def linked.lines(ds: List<&2, U.Decided>) -> List<&2, String>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case U.Decided{p, +w, h, rs, s} <> rest:
+      (p ++ "  (" ++ U.wants.target(w) ++ ")") <> linked.lines(rest)
+
+# The mode a dry run shows is the bit the effect sets.
+def mode_shown(w: U.Wants) -> {U.wants.mode(w) == Bool.pick(String, U.wants.runs(w), "executable", "plain") : String}:
+  match w:
+    case U.Wants.Lines{t, m}:
+      match m:
+        case Tree.Executable{}:
+          {==}
+        case Tree.Plain{}:
+          {==}
+    case U.Wants.Whole{p, at, m}:
+      match m:
+        case Tree.Executable{}:
+          {==}
+        case Tree.Plain{}:
+          {==}
+    case U.Wants.Link{t}:
+      {==}
+    case U.Wants.No{b}:
+      {==}
+
+def dry_w.line(+p: String, +more: List<&2, String>, r: U.Named) -> {U.dry.line(Main.pad("write", 7n) ++ " " ++ p, pre.w(more, r)) == pre.w(p <> more, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      %Equal.sym(List<&2, String>, Rev.keep(String.starts_with(p, SNil{}), String.drop(p, 0n), List.append(&2, String, more, a)), p <> List.append(&2, String, more, a), as_hit(p, List.append(&2, String, more, a))) : {U.Named{_, b, c, d, x} == U.Named{p <> List.append(&2, String, more, a), b, c, d, x} : U.Named}
+      {==}
+
+# The paths the dry run says it writes read back as themselves.
+def dry_writes(ps: List<&2, String>, +rest: List<&2, String>) -> {U.dry.read(List.append(&2, String, U.said.paths("write", ps), rest)) == pre.w(ps, U.dry.read(rest)) : U.Named}:
+  match ps:
+    case Nil{}:
+      pre_w_nil(U.dry.read(rest))
+    case +p <> +more:
+      %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.paths("write", more), rest)), pre.w(more, U.dry.read(rest)), dry_writes(more, rest)) : {U.dry.line(Main.pad("write", 7n) ++ " " ++ p, _) == pre.w(p <> more, U.dry.read(rest)) : U.Named}
+      dry_w.line(p, more, U.dry.read(rest))
+
+def dry_r.line(+p: String, +more: List<&2, String>, r: U.Named) -> {U.dry.line(Main.pad("remove", 7n) ++ " " ++ p, pre.r(more, r)) == pre.r(p <> more, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      %Equal.sym(List<&2, String>, Rev.keep(String.starts_with(p, SNil{}), String.drop(p, 0n), List.append(&2, String, more, b)), p <> List.append(&2, String, more, b), as_hit(p, List.append(&2, String, more, b))) : {U.Named{a, _, c, d, x} == U.Named{a, p <> List.append(&2, String, more, b), c, d, x} : U.Named}
+      {==}
+
+# The paths the dry run says it removes read back as themselves.
+def dry_removes(ps: List<&2, String>, +rest: List<&2, String>) -> {U.dry.read(List.append(&2, String, U.said.paths("remove", ps), rest)) == pre.r(ps, U.dry.read(rest)) : U.Named}:
+  match ps:
+    case Nil{}:
+      pre_r_nil(U.dry.read(rest))
+    case +p <> +more:
+      %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.paths("remove", more), rest)), pre.r(more, U.dry.read(rest)), dry_removes(more, rest)) : {U.dry.line(Main.pad("remove", 7n) ++ " " ++ p, _) == pre.r(p <> more, U.dry.read(rest)) : U.Named}
+      dry_r.line(p, more, U.dry.read(rest))
+
+def dry_m.line(+p: String, +w: U.Wants, +more: List<&2, String>, r: U.Named) -> {U.dry.line(Main.pad("mode", 7n) ++ " " ++ p ++ "  (" ++ U.wants.mode(w) ++ ")", pre.m(more, r)) == pre.m((p ++ "  (" ++ Bool.pick(String, U.wants.runs(w), "executable", "plain") ++ ")") <> more, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      %Equal.sym(List<&2, String>, Rev.keep(String.starts_with(p ++ "  (" ++ U.wants.mode(w) ++ ")", SNil{}), String.drop(p ++ "  (" ++ U.wants.mode(w) ++ ")", 0n), List.append(&2, String, more, c)), (p ++ "  (" ++ U.wants.mode(w) ++ ")") <> List.append(&2, String, more, c), as_hit(p ++ "  (" ++ U.wants.mode(w) ++ ")", List.append(&2, String, more, c))) : {U.Named{a, b, _, d, x} == U.Named{a, b, (p ++ "  (" ++ Bool.pick(String, U.wants.runs(w), "executable", "plain") ++ ")") <> List.append(&2, String, more, c), d, x} : U.Named}
+      %mode_shown(w) : {U.Named{a, b, (p ++ "  (" ++ U.wants.mode(w) ++ ")") <> List.append(&2, String, more, c), d, x} == U.Named{a, b, (p ++ "  (" ++ _ ++ ")") <> List.append(&2, String, more, c), d, x} : U.Named}
+      {==}
+
+# The modes the dry run says it sets read back as each path and the bit.
+def dry_modes(ds: List<&2, U.Decided>, +rest: List<&2, String>) -> {U.dry.read(List.append(&2, String, U.said.modes("mode", ds), rest)) == pre.m(moded.lines(ds), U.dry.read(rest)) : U.Named}:
+  match ds:
+    case Nil{}:
+      pre_m_nil(U.dry.read(rest))
+    case U.Decided{+p, +w, h, rs, s} <> +more:
+      %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.modes("mode", more), rest)), pre.m(moded.lines(more), U.dry.read(rest)), dry_modes(more, rest)) : {U.dry.line(Main.pad("mode", 7n) ++ " " ++ p ++ "  (" ++ U.wants.mode(w) ++ ")", _) == pre.m(moded.lines(U.Decided{p, w, h, rs, s} <> more), U.dry.read(rest)) : U.Named}
+      dry_m.line(p, w, moded.lines(more), U.dry.read(rest))
+
+def dry_l.line(+p: String, +w: U.Wants, +more: List<&2, String>, r: U.Named) -> {U.dry.line(Main.pad("link", 7n) ++ " " ++ p ++ "  (" ++ U.wants.target(w) ++ ")", pre.l(more, r)) == pre.l((p ++ "  (" ++ U.wants.target(w) ++ ")") <> more, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      %Equal.sym(List<&2, String>, Rev.keep(String.starts_with(p ++ "  (" ++ U.wants.target(w) ++ ")", SNil{}), String.drop(p ++ "  (" ++ U.wants.target(w) ++ ")", 0n), List.append(&2, String, more, d)), (p ++ "  (" ++ U.wants.target(w) ++ ")") <> List.append(&2, String, more, d), as_hit(p ++ "  (" ++ U.wants.target(w) ++ ")", List.append(&2, String, more, d))) : {U.Named{a, b, c, _, x} == U.Named{a, b, c, (p ++ "  (" ++ U.wants.target(w) ++ ")") <> List.append(&2, String, more, d), x} : U.Named}
+      {==}
+
+# The links the dry run says it makes read back as each path and where it
+# points.
+def dry_links(ds: List<&2, U.Decided>, +rest: List<&2, String>) -> {U.dry.read(List.append(&2, String, U.said.links("link", ds), rest)) == pre.l(linked.lines(ds), U.dry.read(rest)) : U.Named}:
+  match ds:
+    case Nil{}:
+      pre_l_nil(U.dry.read(rest))
+    case U.Decided{+p, +w, h, rs, s} <> +more:
+      %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.links("link", more), rest)), pre.l(linked.lines(more), U.dry.read(rest)), dry_links(more, rest)) : {U.dry.line(Main.pad("link", 7n) ++ " " ++ p ++ "  (" ++ U.wants.target(w) ++ ")", _) == pre.l(linked.lines(U.Decided{p, w, h, rs, s} <> more), U.dry.read(rest)) : U.Named}
+      dry_l.line(p, w, linked.lines(more), U.dry.read(rest))
+
+def dry_left.line(+p: String, r: U.Named) -> {U.dry.line("left " ++ p ++ " alone: " ++ U.UNRECORDED(), r) == r : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+# What the dry run says it leaves alone is read as none of the effects.
+def dry_leaves(ps: List<&2, String>, +rest: List<&2, String>) -> {U.dry.read(List.append(&2, String, U.said.leaves(ps), rest)) == U.dry.read(rest) : U.Named}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> +more:
+      %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.leaves(more), rest)), U.dry.read(rest), dry_leaves(more, rest)) : {U.dry.line("left " ++ p ++ " alone: " ++ U.UNRECORDED(), _) == U.dry.read(rest) : U.Named}
+      dry_left.line(p, U.dry.read(rest))
+
+# And the folder is said to hold the target already where it is settled.
+def dry_holds(b: Bool, +s: String) -> {U.dry.read(List.append(&2, String, Bool.pick(List<&2, String>, b, ["the folder already holds " ++ s], Nil{}), Nil{})) == U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, b, [s], Nil{})} : U.Named}:
+  match b:
+    case True{}:
+      %Equal.sym(List<&2, String>, Rev.keep(String.starts_with(s, SNil{}), String.drop(s, 0n), Nil{}), [s], as_hit(s, Nil{})) : {U.Named{Nil{}, Nil{}, Nil{}, Nil{}, _} == U.Named{Nil{}, Nil{}, Nil{}, Nil{}, [s]} : U.Named}
+      {==}
+    case False{}:
+      {==}
+
+# The whole dry run, read back: each kind of effect it names, in turn, and
+# whether it says the folder holds the target already.
+def dry_side(+s: String, +ds: List<&2, U.Decided>, +ws: List<&2, U.Went>) -> {U.dry.read(U.said.dry(s, U.Plan{ds, ws})) == pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) : U.Named}:
+  %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.paths("write", T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds))), List.append(&2, String, U.said.paths("remove", U.removes(ws)), List.append(&2, String, U.said.modes("mode", U.modes(ds)), List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{}))))))), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), U.dry.read(List.append(&2, String, U.said.paths("remove", U.removes(ws)), List.append(&2, String, U.said.modes("mode", U.modes(ds)), List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{}))))))), dry_writes(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), List.append(&2, String, U.said.paths("remove", U.removes(ws)), List.append(&2, String, U.said.modes("mode", U.modes(ds)), List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{}))))))) : {_ == pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) : U.Named}
+  %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.paths("remove", U.removes(ws)), List.append(&2, String, U.said.modes("mode", U.modes(ds)), List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{})))))), pre.r(U.removes(ws), U.dry.read(List.append(&2, String, U.said.modes("mode", U.modes(ds)), List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{})))))), dry_removes(U.removes(ws), List.append(&2, String, U.said.modes("mode", U.modes(ds)), List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{})))))) : {pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), _) == pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) : U.Named}
+  %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.modes("mode", U.modes(ds)), List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{}))))), pre.m(moded.lines(U.modes(ds)), U.dry.read(List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{}))))), dry_modes(U.modes(ds), List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{}))))) : {pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), _)) == pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) : U.Named}
+  %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.links("link", U.links(ds)), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{})))), pre.l(linked.lines(U.links(ds)), U.dry.read(List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{})))), dry_links(U.links(ds), List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{})))) : {pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), _))) == pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) : U.Named}
+  %Equal.sym(U.Named, U.dry.read(List.append(&2, String, U.said.leaves(U.leaves(ws)), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{}))), U.dry.read(List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{})), dry_leaves(U.leaves(ws), List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{}))) : {pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), _)))) == pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) : U.Named}
+  %Equal.sym(U.Named, U.dry.read(List.append(&2, String, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), ["the folder already holds " ++ s], Nil{}), Nil{})), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})}, dry_holds(U.settled(U.Plan{ds, ws}), s)) : {pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), _)))) == pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) : U.Named}
+  {==}
+
+def eff_r.one(+p: String, +more: List<&2, String>, r: U.Named) -> {U.effect.named(U.Effect.Remove{p}, pre.r(more, r)) == pre.r(p <> more, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+def eff_w.one(+p: String, +w: U.Wants, +more: List<&2, String>, r: U.Named) -> {U.effect.named(U.Effect.Write{p, w}, pre.w(more, r)) == pre.w(p <> more, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+def eff_l.one(+p: String, +t: String, +more: List<&2, String>, r: U.Named) -> {U.effect.named(U.Effect.Link{p, t}, pre.l(more, r)) == pre.l((p ++ "  (" ++ t ++ ")") <> more, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+def eff_m.one(+p: String, +w: U.Wants, +more: List<&2, String>, r: U.Named) -> {U.effect.named(U.Effect.Mode{p, w}, pre.m(more, r)) == pre.m((p ++ "  (" ++ Bool.pick(String, U.wants.runs(w), "executable", "plain") ++ ")") <> more, r) : U.Named}:
+  match r:
+    case U.Named{a, b, c, d, x}:
+      {==}
+
+# Each kind of effect, named, is what the dry run names for it.
+def eff_removes(xs: List<&2, String>, +rest: List<&2, U.Effect>) -> {U.effects.named(List.append(&2, U.Effect, U.effects.removes(xs), rest)) == pre.r(xs, U.effects.named(rest)) : U.Named}:
+  match xs:
+    case Nil{}:
+      pre_r_nil(U.effects.named(rest))
+    case +p <> +more:
+      %Equal.sym(U.Named, U.effects.named(List.append(&2, U.Effect, U.effects.removes(more), rest)), pre.r(more, U.effects.named(rest)), eff_removes(more, rest)) : {U.effect.named(U.Effect.Remove{p}, _) == pre.r(p <> more, U.effects.named(rest)) : U.Named}
+      eff_r.one(p, more, U.effects.named(rest))
+
+def eff_writes(ds: List<&2, U.Decided>, +rest: List<&2, U.Effect>) -> {U.effects.named(List.append(&2, U.Effect, U.effects.writes(ds), rest)) == pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), ds), U.effects.named(rest)) : U.Named}:
+  match ds:
+    case Nil{}:
+      pre_w_nil(U.effects.named(rest))
+    case U.Decided{+p, +w, h, rs, s} <> +more:
+      %Equal.sym(U.Named, U.effects.named(List.append(&2, U.Effect, U.effects.writes(more), rest)), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), more), U.effects.named(rest)), eff_writes(more, rest)) : {U.effect.named(U.Effect.Write{p, w}, _) == pre.w(p <> T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), more), U.effects.named(rest)) : U.Named}
+      eff_w.one(p, w, T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), more), U.effects.named(rest))
+
+def eff_links(ds: List<&2, U.Decided>, +rest: List<&2, U.Effect>) -> {U.effects.named(List.append(&2, U.Effect, U.effects.links(ds), rest)) == pre.l(linked.lines(ds), U.effects.named(rest)) : U.Named}:
+  match ds:
+    case Nil{}:
+      pre_l_nil(U.effects.named(rest))
+    case U.Decided{+p, +w, h, rs, s} <> +more:
+      %Equal.sym(U.Named, U.effects.named(List.append(&2, U.Effect, U.effects.links(more), rest)), pre.l(linked.lines(more), U.effects.named(rest)), eff_links(more, rest)) : {U.effect.named(U.Effect.Link{p, U.wants.target(w)}, _) == pre.l(linked.lines(U.Decided{p, w, h, rs, s} <> more), U.effects.named(rest)) : U.Named}
+      eff_l.one(p, U.wants.target(w), linked.lines(more), U.effects.named(rest))
+
+def eff_modes(ds: List<&2, U.Decided>, +rest: List<&2, U.Effect>) -> {U.effects.named(List.append(&2, U.Effect, U.effects.modes(ds), rest)) == pre.m(moded.lines(ds), U.effects.named(rest)) : U.Named}:
+  match ds:
+    case Nil{}:
+      pre_m_nil(U.effects.named(rest))
+    case U.Decided{+p, +w, h, rs, s} <> +more:
+      %Equal.sym(U.Named, U.effects.named(List.append(&2, U.Effect, U.effects.modes(more), rest)), pre.m(moded.lines(more), U.effects.named(rest)), eff_modes(more, rest)) : {U.effect.named(U.Effect.Mode{p, w}, _) == pre.m(moded.lines(U.Decided{p, w, h, rs, s} <> more), U.effects.named(rest)) : U.Named}
+      eff_m.one(p, w, moded.lines(more), U.effects.named(rest))
+
+# Every effect `apply` performs, named, in turn.
+def eff_side(+ds: List<&2, U.Decided>, +ws: List<&2, U.Went>) -> {U.effects.named(U.effects(U.Plan{ds, ws})) == pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.l(linked.lines(U.links(ds)), pre.m(moded.lines(U.modes(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}})))) : U.Named}:
+  %Equal.sym(U.Named, U.effects.named(List.append(&2, U.Effect, U.effects.removes(U.removes(ws)), List.append(&2, U.Effect, U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))))), pre.r(U.removes(ws), U.effects.named(List.append(&2, U.Effect, U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))))), eff_removes(U.removes(ws), List.append(&2, U.Effect, U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))))) : {_ == pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.l(linked.lines(U.links(ds)), pre.m(moded.lines(U.modes(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}})))) : U.Named}
+  %Equal.sym(U.Named, U.effects.named(List.append(&2, U.Effect, U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{})))), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), U.effects.named(List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{})))), eff_writes(U.writes(ds), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{})))) : {pre.r(U.removes(ws), _) == pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.l(linked.lines(U.links(ds)), pre.m(moded.lines(U.modes(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}})))) : U.Named}
+  %Equal.sym(U.Named, U.effects.named(List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))), pre.l(linked.lines(U.links(ds)), U.effects.named(List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))), eff_links(U.links(ds), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))) : {pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), _)) == pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.l(linked.lines(U.links(ds)), pre.m(moded.lines(U.modes(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}})))) : U.Named}
+  %Equal.sym(U.Named, U.effects.named(List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{})), pre.m(moded.lines(U.modes(ds)), U.effects.named(Nil{})), eff_modes(U.modes(ds), Nil{})) : {pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.l(linked.lines(U.links(ds)), _))) == pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.l(linked.lines(U.links(ds)), pre.m(moded.lines(U.modes(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}})))) : U.Named}
+  {==}
+
+def empty_app(xs: List<&2, U.Effect>, -ys: List<&2, U.Effect>) -> {List.is_empty(&2, U.Effect, List.append(&2, U.Effect, xs, ys)) == Bool.and(List.is_empty(&2, U.Effect, xs), List.is_empty(&2, U.Effect, ys)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      {==}
+
+def empty_removes(xs: List<&2, String>) -> {List.is_empty(&2, U.Effect, U.effects.removes(xs)) == List.is_empty(&2, String, xs) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      {==}
+
+def empty_writes(ds: List<&2, U.Decided>) -> {List.is_empty(&2, U.Effect, U.effects.writes(ds)) == List.is_empty(&2, U.Decided, ds) : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case U.Decided{p, w, h, rs, s} <> rest:
+      {==}
+
+def empty_links(ds: List<&2, U.Decided>) -> {List.is_empty(&2, U.Effect, U.effects.links(ds)) == List.is_empty(&2, U.Decided, ds) : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case U.Decided{p, w, h, rs, s} <> rest:
+      {==}
+
+def empty_modes(ds: List<&2, U.Decided>) -> {List.is_empty(&2, U.Effect, U.effects.modes(ds)) == List.is_empty(&2, U.Decided, ds) : Bool}:
+  match ds:
+    case Nil{}:
+      {==}
+    case U.Decided{p, w, h, rs, s} <> rest:
+      {==}
+
+def and4.eff(a: Bool, b: Bool, c: Bool, d: Bool) -> {Bool.and(Bool.and(a, b), Bool.and(c, d)) == Bool.and(b, Bool.and(a, Bool.and(d, Bool.and(c, True{})))) : Bool}:
+  match a b c d:
+    case True{} True{} True{} True{}:
+      {==}
+    case True{} True{} True{} False{}:
+      {==}
+    case True{} True{} False{} True{}:
+      {==}
+    case True{} True{} False{} False{}:
+      {==}
+    case True{} False{} c2 d2:
+      {==}
+    case False{} True{} c2 d2:
+      {==}
+    case False{} False{} c2 d2:
+      {==}
+
+# It says the folder holds the target already exactly where it would
+# perform nothing.
+def settled_empty(+ds: List<&2, U.Decided>, +ws: List<&2, U.Went>) -> {U.settled(U.Plan{ds, ws}) == List.is_empty(&2, U.Effect, U.effects(U.Plan{ds, ws})) : Bool}:
+  %Equal.sym(Bool, List.is_empty(&2, U.Effect, List.append(&2, U.Effect, U.effects.removes(U.removes(ws)), List.append(&2, U.Effect, U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))))), Bool.and(List.is_empty(&2, U.Effect, U.effects.removes(U.removes(ws))), List.is_empty(&2, U.Effect, List.append(&2, U.Effect, U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))))), empty_app(U.effects.removes(U.removes(ws)), List.append(&2, U.Effect, U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))))) : {U.settled(U.Plan{ds, ws}) == _ : Bool}
+  %Equal.sym(Bool, List.is_empty(&2, U.Effect, List.append(&2, U.Effect, U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{})))), Bool.and(List.is_empty(&2, U.Effect, U.effects.writes(U.writes(ds))), List.is_empty(&2, U.Effect, List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{})))), empty_app(U.effects.writes(U.writes(ds)), List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{})))) : {U.settled(U.Plan{ds, ws}) == Bool.and(List.is_empty(&2, U.Effect, U.effects.removes(U.removes(ws))), _) : Bool}
+  %Equal.sym(Bool, List.is_empty(&2, U.Effect, List.append(&2, U.Effect, U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))), Bool.and(List.is_empty(&2, U.Effect, U.effects.links(U.links(ds))), List.is_empty(&2, U.Effect, List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))), empty_app(U.effects.links(U.links(ds)), List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{}))) : {U.settled(U.Plan{ds, ws}) == Bool.and(List.is_empty(&2, U.Effect, U.effects.removes(U.removes(ws))), Bool.and(List.is_empty(&2, U.Effect, U.effects.writes(U.writes(ds))), _)) : Bool}
+  %Equal.sym(Bool, List.is_empty(&2, U.Effect, List.append(&2, U.Effect, U.effects.modes(U.modes(ds)), Nil{})), Bool.and(List.is_empty(&2, U.Effect, U.effects.modes(U.modes(ds))), True{}), empty_app(U.effects.modes(U.modes(ds)), Nil{})) : {U.settled(U.Plan{ds, ws}) == Bool.and(List.is_empty(&2, U.Effect, U.effects.removes(U.removes(ws))), Bool.and(List.is_empty(&2, U.Effect, U.effects.writes(U.writes(ds))), Bool.and(List.is_empty(&2, U.Effect, U.effects.links(U.links(ds))), _))) : Bool}
+  %Equal.sym(Bool, List.is_empty(&2, U.Effect, U.effects.removes(U.removes(ws))), List.is_empty(&2, String, U.removes(ws)), empty_removes(U.removes(ws))) : {U.settled(U.Plan{ds, ws}) == Bool.and(_, Bool.and(List.is_empty(&2, U.Effect, U.effects.writes(U.writes(ds))), Bool.and(List.is_empty(&2, U.Effect, U.effects.links(U.links(ds))), Bool.and(List.is_empty(&2, U.Effect, U.effects.modes(U.modes(ds))), True{})))) : Bool}
+  %Equal.sym(Bool, List.is_empty(&2, U.Effect, U.effects.writes(U.writes(ds))), List.is_empty(&2, U.Decided, U.writes(ds)), empty_writes(U.writes(ds))) : {U.settled(U.Plan{ds, ws}) == Bool.and(List.is_empty(&2, String, U.removes(ws)), Bool.and(_, Bool.and(List.is_empty(&2, U.Effect, U.effects.links(U.links(ds))), Bool.and(List.is_empty(&2, U.Effect, U.effects.modes(U.modes(ds))), True{})))) : Bool}
+  %Equal.sym(Bool, List.is_empty(&2, U.Effect, U.effects.links(U.links(ds))), List.is_empty(&2, U.Decided, U.links(ds)), empty_links(U.links(ds))) : {U.settled(U.Plan{ds, ws}) == Bool.and(List.is_empty(&2, String, U.removes(ws)), Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), Bool.and(_, Bool.and(List.is_empty(&2, U.Effect, U.effects.modes(U.modes(ds))), True{})))) : Bool}
+  %Equal.sym(Bool, List.is_empty(&2, U.Effect, U.effects.modes(U.modes(ds))), List.is_empty(&2, U.Decided, U.modes(ds)), empty_modes(U.modes(ds))) : {U.settled(U.Plan{ds, ws}) == Bool.and(List.is_empty(&2, String, U.removes(ws)), Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), Bool.and(List.is_empty(&2, U.Decided, U.links(ds)), Bool.and(_, True{})))) : Bool}
+  and4.eff(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws)), List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)))
+
+# `update --dry-run` names, kind by kind and in order, exactly the effects
+# `update` performs, and says the folder holds the target already exactly
+# where it performs none.
+def dry_names(p: U.Plan, +s: String) -> {U.dry.read(U.said.dry(s, p)) == U.effects.read(s, U.effects(p)) : U.Named}:
   match p:
     case U.Plan{+ds, +ws}:
-      AL.and_intro(U.unchanged.steps(ds), U.unchanged.gone(ws),
-        steps_same(ds,
-          Comp.and_left(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws)), Comp.and_left(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)),
-          Comp.and_left(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)), Comp.and_right(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)),
-          Comp.and_right(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)), Comp.and_right(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e))),
-        gone_same(ws, Comp.and_right(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws)), Comp.and_left(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e))))
+      %Equal.sym(U.Named, U.dry.read(U.said.dry(s, U.Plan{ds, ws})), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))), dry_side(s, ds, ws)) : {_ == U.effects.read(s, U.effects(U.Plan{ds, ws})) : U.Named}
+      %Equal.sym(U.Named, U.effects.named(U.effects(U.Plan{ds, ws})), pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.l(linked.lines(U.links(ds)), pre.m(moded.lines(U.modes(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}})))), eff_side(ds, ws)) : {pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) == U.named.settled(_, Bool.pick(List<&2, String>, List.is_empty(&2, U.Effect, U.effects(U.Plan{ds, ws})), [s], Nil{})) : U.Named}
+      %settled_empty(ds, ws) : {pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.r(U.removes(ws), pre.m(moded.lines(U.modes(ds)), pre.l(linked.lines(U.links(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Bool.pick(List<&2, String>, U.settled(U.Plan{ds, ws}), [s], Nil{})})))) == U.named.settled(pre.r(U.removes(ws), pre.w(T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds)), pre.l(linked.lines(U.links(ds)), pre.m(moded.lines(U.modes(ds)), U.Named{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}})))), Bool.pick(List<&2, String>, _, [s], Nil{})) : U.Named}
+      {==}
