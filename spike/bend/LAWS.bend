@@ -3681,8 +3681,10 @@ law export_spares_the_unrecorded:
 # read from disk, the files of `claims/` — holds that label with that
 # digest. And every payload, document, revision and file of `claims/` the
 # listing holds has a line of its kind, at the path a fetcher asks for it
-# at, naming its digest; a rule or a bookmark is left out only where it is
-# private (`offer_names_no_private_rule`, `offer_names_no_private_bookmark`).
+# at, naming its digest; so does every rule whose line does not begin
+# `private` and every bookmark that is not private, wherever the listing
+# holds its file (`skipped/` and the rule's file, `names/` and the
+# bookmark's name and `.txt`), by the first digest the listing gives it.
 # So a fetcher that checks a file against its line checks it against what
 # the store holds, and files it where the store has it. This is for a copy
 # whose directory's name has no `/` in it and is not `history`.
@@ -3695,7 +3697,7 @@ law offer_names_each_file_by_its_digest:
   for +nids: List<&2, T.Split>
   for +hp: {T.has_char(prefix, '/') == False{} : Bool}
   for +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}
-  {Bool.and(SortL.all_at(~Offer.Offered, ~OfferL.Listing, ~(c => o => OfferL.names_file(c, o)), OfferL.listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), OfferL.lists_all(OfferL.listing.of(s, claims, rids, nids), prefix, Offer.entries(prefix, s, marks, claims, rids, nids))) == True{} : Bool}
+  {Bool.and(SortL.all_at(~Offer.Offered, ~OfferL.Listing, ~(c => o => OfferL.names_file(c, o)), OfferL.listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), OfferL.lists_all(OfferL.listing.of(s, claims, rids, nids), Receive.ruled(Offer.rules.of(s)), marks, prefix, Offer.entries(prefix, s, marks, claims, rids, nids))) == True{} : Bool}
 
 # A path of ASCII is its own normal form C: normalising it, at every
 # boundary where a path arrives, changes nothing — which is very nearly
