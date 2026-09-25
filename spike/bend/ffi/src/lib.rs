@@ -124,6 +124,14 @@ pub unsafe extern "C" fn hist_store_list(
 /// caller opens it, hashes what it finds, and refuses it where the bytes are
 /// not the bytes it asked for.
 ///
+/// Where the first line after the root is `forgets`, the digests after it
+/// are answered the same way, and then each document that says it forgets
+/// one of them follows, a line each, as `<digest> <path>` in path order:
+/// decision 0014's question for bytes a store still holds, which the Rust
+/// store asks of the same catalogue — its `forgets` column for a path it
+/// accounts for, and a document's first header for one it does not. That
+/// too is a path: the caller reads the document and asks it again.
+///
 /// # Safety
 ///
 /// As [`hist_store_locate`].
@@ -137,13 +145,35 @@ pub unsafe extern "C" fn hist_store_at(
     answer(out, out_len, || {
         let query = text(query, query_len)?;
         let (root, wanted) = split(query);
-        let at = index(Path::new(root))?;
-        Ok(wanted
-            .map(|digest| located(&at, digest).unwrap_or(MISSING))
-            .collect::<Vec<_>>()
-            .join("\n"))
+        let mut wanted = wanted.peekable();
+        let standing = wanted.peek() == Some(&FORGETS);
+        if standing {
+            wanted.next();
+        }
+        let (at, forgetting) = index(Path::new(root))?;
+        let wanted: Vec<&str> = wanted.collect();
+        let mut lines: Vec<String> = wanted
+            .iter()
+            .map(|digest| located(&at, digest).unwrap_or(MISSING).to_owned())
+            .collect();
+        if standing {
+            let mut beside: Vec<(&str, &str)> = Vec::new();
+            for digest in &wanted {
+                for path in forgetting.get(*digest).into_iter().flatten() {
+                    beside.push((path.as_str(), digest));
+                }
+            }
+            beside.sort();
+            beside.dedup();
+            lines.extend(beside.into_iter().map(|(path, digest)| format!("{digest} {path}")));
+        }
+        Ok(lines.join("\n"))
     })
 }
+
+/// The line after the root that asks `Store.at` for the documents standing
+/// in for each digest as well.
+const FORGETS: &str = "forgets";
 
 /// The digest and the byte count of each file asked for: `<digest> <size>`
 /// per line, or `- 0` where the file will not be read.
@@ -374,6 +404,10 @@ pub unsafe extern "C" fn hist_store_write(
 /// nothing says a `feature/` bookmark is here when none is. The answer is
 /// `removed`, or `absent` for a file that was not there.
 ///
+/// The path may name an empty directory instead, which is removed the same
+/// way — `forget`'s sweep of what `operations/` holds empty, which the Rust
+/// store makes after every forgetting. One that is not empty is refused.
+///
 /// # Safety
 ///
 /// As [`hist_store_locate`].
@@ -389,7 +423,9 @@ pub unsafe extern "C" fn hist_store_remove(
             return Err((EINVAL, "a removal is where it stops, then the file".to_owned()));
         };
         let (boundary, path) = (Path::new(boundary), Path::new(path));
-        match fs::remove_file(path) {
+        let directory = fs::symlink_metadata(path).is_ok_and(|entry| entry.is_dir());
+        let removed = if directory { fs::remove_dir(path) } else { fs::remove_file(path) };
+        match removed {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok("absent".to_owned()),
             Err(error) => return Err((code(&error), format!("{}: {error}", path.display()))),
@@ -708,12 +744,13 @@ fn split(query: &str) -> (&str, impl Iterator<Item = &str>) {
     (root, lines)
 }
 
-/// Every document this store holds, by the digest of its bytes.
+/// Every document this store holds, by the digest of its bytes; and the
+/// paths of the documents that say they forget each digest.
 ///
 /// A digest two paths share resolves to the lesser path, which is the first
 /// one a sorted listing reaches — so this and a reader walking the listing
 /// itself answer alike.
-fn index(root: &Path) -> Result<BTreeMap<String, String>, (i32, String)> {
+fn index(root: &Path) -> Result<(BTreeMap<String, String>, BTreeMap<String, Vec<String>>), (i32, String)> {
     let mut paths = Vec::new();
     for dir in DOCUMENT_DIRS {
         walk(root, &root.join(dir), &mut paths)?;
@@ -724,13 +761,14 @@ fn index(root: &Path) -> Result<BTreeMap<String, String>, (i32, String)> {
     // there. A path it has lost is dropped, and a path it never named is
     // read below, which is the whole of the condition decision 0036 states.
     let mut at = BTreeMap::new();
+    let mut forgetting: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut accounted = BTreeSet::new();
     let catalogue = fs::read_to_string(root.join(CACHE_DIR).join(CATALOGUE_FILE)).unwrap_or_default();
     let mut lines = catalogue.lines();
     if lines.next() == Some(CATALOGUE_HEADER) {
         for line in lines {
             let mut fields = line.splitn(3, ' ');
-            let (Some(digest), Some(_forgets), Some(path)) =
+            let (Some(digest), Some(forgets), Some(path)) =
                 (fields.next(), fields.next(), fields.next())
             else {
                 continue;
@@ -739,6 +777,9 @@ fn index(root: &Path) -> Result<BTreeMap<String, String>, (i32, String)> {
                 continue;
             }
             remember(&mut at, digest, path);
+            if forgets.len() == DIGEST_CHARS {
+                forgetting.entry(forgets.to_owned()).or_default().push(path.to_owned());
+            }
             accounted.insert(path.to_owned());
         }
     }
@@ -753,8 +794,24 @@ fn index(root: &Path) -> Result<BTreeMap<String, String>, (i32, String)> {
             continue;
         };
         remember(&mut at, &digest(&bytes), path);
+        if let Some(forgets) = forgets_of(&bytes) {
+            forgetting.entry(forgets.to_owned()).or_default().push(path.to_owned());
+        }
     }
-    Ok(at)
+    Ok((at, forgetting))
+}
+
+/// The digest a document's first header says it forgets, in any of the
+/// three grammars: every forgetting document opens `historica`, then
+/// `forgets` and a digest. Whether it is one is the reader's to decide.
+fn forgets_of(bytes: &[u8]) -> Option<&str> {
+    const OPENING: &[u8] = b"historica\nforgets ";
+    let rest = bytes.strip_prefix(OPENING)?;
+    let digest = rest.get(..DIGEST_CHARS)?;
+    if rest.get(DIGEST_CHARS) != Some(&b'\n') || !digest.iter().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+        return None;
+    }
+    std::str::from_utf8(digest).ok()
 }
 
 fn remember(at: &mut BTreeMap<String, String>, digest: &str, path: &str) {
@@ -1170,6 +1227,53 @@ mod tests {
         assert_eq!(asked("2026-09/2026-09-24 second/photo.bin"), (0, "removed".to_owned()));
         assert!(!operations.join("2026-09").exists());
         assert!(operations.is_dir(), "operations/ itself stays");
+    }
+
+    #[test]
+    fn an_empty_directory_is_removed_and_one_holding_anything_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let operations = dir.path().join("operations");
+        fs::create_dir_all(operations.join("2026-09/empty/deeper")).unwrap();
+        fs::create_dir_all(operations.join("2026-09/held")).unwrap();
+        fs::write(operations.join("2026-09/held/notes.md"), "one\n").unwrap();
+        let asked = |path: &str| call(hist_store_remove, format!("{}\n{}", operations.display(), operations.join(path).display()).as_bytes());
+
+        assert_eq!(asked("2026-09/held").0 != 0, true, "a directory holding a file stays");
+        assert!(operations.join("2026-09/held/notes.md").exists());
+        assert_eq!(asked("2026-09/empty/deeper"), (0, "removed".to_owned()));
+        assert!(!operations.join("2026-09/empty").exists(), "the directory it emptied goes with it");
+        assert!(operations.join("2026-09/held").is_dir());
+        assert_eq!(asked("2026-09/gone"), (0, "absent".to_owned()));
+    }
+
+    #[test]
+    fn a_digest_is_answered_with_what_forgets_it_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        store(root);
+        let history = root.join("history");
+        let original = "one\n";
+        let target = digest(original.as_bytes());
+        let standing = format!("historica\nforgets {target}\n\ninsert 0\n\\ forgotten\n");
+        fs::write(history.join("operations/b.ops.txt"), &standing).unwrap();
+        fs::write(history.join("operations/a.ops.txt"), format!("historica\nforgets {target}\nlength 4\n")).unwrap();
+        let plain = format!("{}\n{target}", history.display());
+        let (code, at) = call(hist_store_at, plain.as_bytes());
+        assert_eq!((code, at.as_str()), (0, "operations/2026-09/x/notes.txt"));
+        let asked = format!("{}\nforgets\n{target}\n{}", history.display(), "0".repeat(64));
+        let (code, at) = call(hist_store_at, asked.as_bytes());
+        assert_eq!(code, 0, "{at}");
+        assert_eq!(at, format!("operations/2026-09/x/notes.txt\n-\n{target} operations/a.ops.txt\n{target} operations/b.ops.txt"));
+
+        // A catalogue's `forgets` column is taken for a path it accounts for,
+        // as the Rust store takes it: here it says the stand-in forgets nothing.
+        fs::write(
+            history.join("cache/operations.txt"),
+            format!("historica-catalogue-1\n{} - operations/b.ops.txt\n", digest(standing.as_bytes())),
+        )
+        .unwrap();
+        let (_, at) = call(hist_store_at, asked.as_bytes());
+        assert_eq!(at, format!("operations/2026-09/x/notes.txt\n-\n{target} operations/a.ops.txt"));
     }
 
     #[test]
