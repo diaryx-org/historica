@@ -93,6 +93,7 @@ import ./fetchplan_lemmas.bend as FPlanL
 import ./escape_lemmas.bend as EscL
 import ./init_lemmas.bend as InitL
 import ./utf8_lemmas.bend as Utf8L
+import ./finding_lemmas.bend as FindL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -884,9 +885,6 @@ def Laws.skip_path_rule_reads_back(file, v, directory, private, sc, e, h):
 def Laws.skip_name_rule_reads_back(file, n, private, sc, e):
   SkipL.named_reads(file, n, private, sc, e)
 
-def Laws.skip_path_rule_skips_under_its_path(v, directory, sc, e, x, q):
-  SkipL.scoped_skips(v, directory, sc, e, x, q)
-
 def Laws.skip_lists_each_rule_once(ss):
   SkipL.lists_once(ss)
 
@@ -1270,3 +1268,51 @@ def Laws.init_keeps_a_dot(base, e, f):
 
 def Laws.utf8_reads_back(s, h):
   Utf8L.reads_back(s, h)
+
+def Laws.skip_path_rule_skips_under_its_path(v, directory, sc, e, x):
+  SkipL.scoped_skips(v, directory, sc, e, x)
+
+def Laws.skip_path_rule_skips_nothing_else(v, directory, sc, e, q, s):
+  SkipL.scoped_only(v, directory, sc, e, q, s)
+
+def Laws.skip_path_rule_skips_no_other_directory(v, directory, sc, e, p, s):
+  SkipL.scoped_only_directory(v, directory, sc, e, p, s)
+
+def Laws.skip_reads_its_words(ws):
+  SkipL.reads_words(ws)
+
+def Laws.skip_reads_flags_as_flags(ws):
+  SkipL.reads_flags(ws)
+
+def Laws.skip_private_wherever_it_stands(before, after, c, ss):
+  SkipL.writes_private(before, after, c, ss)
+
+def Laws.skip_shares_without_private(ws, h, ss):
+  SkipL.writes_shared(ws, h, ss)
+
+def Laws.skip_reads_the_path_past_the_repository(path, repo, settled, x, more, e, hx):
+  SkipL.inside_past(path, repo, settled, x, more, e, hx)
+
+def Laws.skip_refuses_the_repository_itself(path, repo, settled, e):
+  SkipL.inside_self(path, repo, settled, e)
+
+def Laws.skip_refuses_a_path_outside_the_repository(path, repo, settled, pre, y, r1, zs, er, es, h):
+  SkipL.inside_outside(path, repo, settled, pre, y, r1, zs, er, es, h)
+
+def Laws.skip_covers_nothing_history_holds(fs, rs, e, h, hh, t, et, p, hp):
+  SkipL.covers_nothing_held(fs, rs, e, h, hh, t, et, p, hp)
+
+def Laws.check_reports_errors_then_notes(fs, shown, complete):
+  FindL.report_is(fs, shown, complete)
+
+def Laws.check_follows_the_bookmarks_name_writes(docs, path, n, t, p, h):
+  FindL.name_read(docs, path, n, t, p, h)
+
+def Laws.check_reads_each_line_of_a_listing(ds, fs, ls, t, dir, e, rest, h):
+  FindL.reads_line(ds, fs, ls, t, dir, e, rest, h)
+
+def Laws.check_reads_only_held_text(docs, ps):
+  FindL.reads_text(docs, ps)
+
+def Laws.check_fails_on_an_error(fs, complete):
+  FindL.fails_is(fs, complete)

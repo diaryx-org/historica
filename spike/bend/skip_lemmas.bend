@@ -12,6 +12,10 @@ import ./folder.bend as Folder
 import ./commands.bend as Main
 import ./string_lemmas.bend as S
 import ./equality_lemmas.bend as EqL
+import ./revision.bend as Rev
+import ./text.bend as T
+import ./tree.bend as Tree
+import ./identity.bend as Identity
 
 # Rule equality
 # -------------
@@ -796,23 +800,6 @@ def sw_ext(a: String, b: String, +z: String, h: {String.starts_with(a, b) == Tru
     case SCon{x, xt} SCon{y, +yt}:
       sw_if(Char.is_eq(x, y), z, xt, yt, h, hh => sw_ext(xt, yt, z, hh))
 
-def sw_prefix.if(c: Bool, xt: String, yt: String, +w: String, h: {String.starts_with.if(xt, String.append(yt, w), c) == True{} : Bool}, ih: {String.starts_with(xt, String.append(yt, w)) == True{} : Bool} -> {String.starts_with(xt, yt) == True{} : Bool}) -> {String.starts_with.if(xt, yt, c) == True{} : Bool}:
-  match c:
-    case True{}:
-      ih(h)
-    case False{}:
-      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
-
-# What starts with `v` and more starts with `v`.
-def sw_prefix(q: String, v: String, +w: String, h: {String.starts_with(q, String.append(v, w)) == True{} : Bool}) -> {String.starts_with(q, v) == True{} : Bool}:
-  match q v:
-    case _ SNil{}:
-      sw_nil(q)
-    case SNil{} SCon{y, +yt}:
-      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
-    case SCon{x, +xt} SCon{y, +yt}:
-      sw_prefix.if(Char.is_eq(x, y), xt, yt, w, h, hh => sw_prefix(xt, yt, w, hh))
-
 def or_false_id(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
   match b:
     case True{}:
@@ -820,32 +807,64 @@ def or_false_id(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
     case False{}:
       {==}
 
-def eq_starts.at(+q: String, +v: String, b: Bool, eb: {String.eq(q, v) == b : Bool}) -> {Bool.or(Bool.not(b), String.starts_with(q, v)) == True{} : Bool}:
+# What it skips is the path named, or under it, and nothing else; a file
+# it skips is checked first, so a break in the rule meets its refusal here.
+
+def drop_none(s: String) -> {s == String.drop(s, 0n) : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{x, t}:
+      {==}
+
+def split_at.c(b: Bool, +x: Char, +xt: String, +y: Char, +yt: String, eb: {Char.is_eq(x, y) == b : Bool}, h: {String.starts_with.if(xt, yt, b) == True{} : Bool}, ih: {String.starts_with(xt, yt) == True{} : Bool} -> {xt == String.append(yt, String.drop(xt, String.length(yt))) : String}) -> {SCon{x, xt} == SCon{y, String.append(yt, String.drop(xt, String.length(yt)))} : String}:
   match b:
     case False{}:
-      {==}
+      Empty.absurd({SCon{x, xt} == SCon{y, String.append(yt, String.drop(xt, String.length(yt)))} : String}, S.false_true(h))
     case True{}:
-      +qe : {q == v : String} = S.eq_true(q, v, eb)
-      (%Equal.sym(String, q, v, qe) : {String.starts_with(_, v) == True{} : Bool} sw_refl(v))
+      %EqL.char_eq(x, y, eb) : {SCon{x, xt} == SCon{_, String.append(yt, String.drop(xt, String.length(yt)))} : String}
+      Equal.cong(String, String, z => SCon{x, z}, xt, String.append(yt, String.drop(xt, String.length(yt))), ih(h))
 
-def under_starts.at(+q: String, +v: String, b: Bool, eb: {String.starts_with(q, v ++ "/") == b : Bool}) -> {Bool.or(Bool.not(b), String.starts_with(q, v)) == True{} : Bool}:
+# A string that starts with `p` is `p` and what follows it.
+def split_at(p: String, +s: String, h: {String.starts_with(s, p) == True{} : Bool}) -> {s == String.append(p, String.drop(s, String.length(p))) : String}:
+  match p s:
+    case SNil{} _:
+      drop_none(s)
+    case SCon{y, yt} SNil{}:
+      Empty.absurd({SNil{} == String.append(SCon{y, yt}, String.drop(SNil{}, String.length(SCon{y, yt}))) : String}, S.false_true(h))
+    case SCon{+y, +yt} SCon{+x, +xt}:
+      split_at.c(Char.is_eq(x, y), x, xt, y, yt, {==}, h, hh => split_at(yt, xt, hh))
+
+def or_false_true(b: Bool, h: {Bool.or(b, False{}) == True{} : Bool}) -> {b == True{} : Bool}:
   match b:
-    case False{}:
-      {==}
     case True{}:
-      sw_prefix(q, v, "/", eb)
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(h))
 
-def skips_scoped(+v: String, d: Bool, +x: String, +q: String) -> {Bool.and(Bool.pick(Bool, d, Bool.and(Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], String.append(v ++ "/", x))), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v)), Bool.or(Bool.not(Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], q)), String.starts_with(q, v))) == True{} : Bool}:
+def only_scoped(+v: String, d: Bool, +q: String, s: {Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], q) == True{} : Bool}) -> {q == Bool.pick(String, d, String.append(v ++ "/", String.drop(q, String.length(v ++ "/"))), v) : String}:
   match d:
     case False{}:
-      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.and(Bool.or(_, False{}), Bool.or(Bool.not(Bool.or(String.eq(q, v), False{})), String.starts_with(q, v))) == True{} : Bool}
-      %Equal.sym(Bool, Bool.or(String.eq(q, v), False{}), String.eq(q, v), or_false_id(String.eq(q, v))) : {Bool.or(Bool.not(_), String.starts_with(q, v)) == True{} : Bool}
-      eq_starts.at(q, v, String.eq(q, v), {==})
+      S.eq_true(q, v, or_false_true(String.eq(q, v), s))
     case True{}:
-      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.and(Bool.and(Bool.or(_, False{}), Bool.or(String.starts_with(String.append(v ++ "/", x), v ++ "/"), False{})), Bool.or(Bool.not(Bool.or(String.starts_with(q, v ++ "/"), False{})), String.starts_with(q, v))) == True{} : Bool}
-      %Equal.sym(Bool, String.starts_with(String.append(v ++ "/", x), v ++ "/"), True{}, sw_ext(v ++ "/", v ++ "/", x, sw_refl(v ++ "/"))) : {Bool.and(Bool.or(_, False{}), Bool.or(Bool.not(Bool.or(String.starts_with(q, v ++ "/"), False{})), String.starts_with(q, v))) == True{} : Bool}
-      %Equal.sym(Bool, Bool.or(String.starts_with(q, v ++ "/"), False{}), String.starts_with(q, v ++ "/"), or_false_id(String.starts_with(q, v ++ "/"))) : {Bool.or(Bool.not(_), String.starts_with(q, v)) == True{} : Bool}
-      under_starts.at(q, v, String.starts_with(q, v ++ "/"), {==})
+      split_at(v ++ "/", q, or_false_true(String.starts_with(q, v ++ "/"), s))
+
+def skips_scoped(+v: String, d: Bool, +x: String) -> {Bool.pick(Bool, d, Bool.and(Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], String.append(v ++ "/", x))), Folder.skips([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], v)) == True{} : Bool}:
+  match d:
+    case False{}:
+      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.or(_, False{}) == True{} : Bool}
+      {==}
+    case True{}:
+      %Equal.sym(Bool, String.eq(v, v), True{}, S.eq_refl(v)) : {Bool.and(Bool.or(_, False{}), Bool.or(String.starts_with(String.append(v ++ "/", x), v ++ "/"), False{})) == True{} : Bool}
+      %Equal.sym(Bool, String.starts_with(String.append(v ++ "/", x), v ++ "/"), True{}, sw_ext(v ++ "/", v ++ "/", x, sw_refl(v ++ "/"))) : {Bool.or(_, False{}) == True{} : Bool}
+      {==}
+
+def only_directory(+v: String, d: Bool, +p: String, s: {Folder.skips_directory([Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})], p) == True{} : Bool}) -> {p == v : String}:
+  match d:
+    case False{}:
+      S.eq_true(p, v, or_false_true(String.eq(p, v), s))
+    case True{}:
+      S.eq_true(p, v, or_false_true(String.eq(p, v), s))
 
 def scoped_scope.at(+v: String, ut: Bool, hb: Bool, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped.of(Bool.pick(Result<&2, &2, Main.Refused, String>, ut, Fail{Main.Refused{2, "`" ++ v ++ "` cannot be a rule: a value is not empty and carries no leading or trailing space"}}, Bool.pick(Result<&2, &2, Main.Refused, String>, hb, Fail{Main.Refused{2, "a rule is one line, and this value holds a line break"}}, Done{v})), d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}) -> {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope}:
   match ut hb:
@@ -856,9 +875,666 @@ def scoped_scope.at(+v: String, ut: Bool, hb: Bool, +d: Bool, +sc: Folder.Scope,
     case False{} False{}:
       Equal.cong(Result<&2, &2, Main.Refused, Folder.Scope>, Folder.Scope, r => scope_of(r, sc), Done{Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v})}, Done{sc}, e)
 
-# The rule `skip <path>` makes skips the file, or the directory and what is
-# in it, and nothing whose path does not start with the one named.
-def scoped_skips(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +x: String, +q: String) -> {Bool.and(Bool.pick(Bool, d, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)), Bool.or(Bool.not(Folder.skips([sc], q)), String.starts_with(q, v))) == True{} : Bool}:
+# The rule `skip <path>` makes skips the file, or the directory and a file
+# in it.
+def scoped_skips(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +x: String) -> {Bool.pick(Bool, d, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)) == True{} : Bool}:
   +ea : {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope} = scoped_scope.at(v, Folder.untrimmed(v), Skip.has_break(v), d, sc, e)
-  %ea : {Bool.and(Bool.pick(Bool, d, Bool.and(Folder.skips_directory([_], v), Folder.skips([_], String.append(v ++ "/", x))), Folder.skips([_], v)), Bool.or(Bool.not(Folder.skips([_], q)), String.starts_with(q, v))) == True{} : Bool}
-  skips_scoped(v, d, x, q)
+  %ea : {Bool.pick(Bool, d, Bool.and(Folder.skips_directory([_], v), Folder.skips([_], String.append(v ++ "/", x))), Folder.skips([_], v)) == True{} : Bool}
+  skips_scoped(v, d, x)
+
+# A file the rule `skip <path>` makes skips is the one named, or, for a
+# directory, the one named, a `/`, and the rest of its path.
+def scoped_only(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +q: String, s: {Folder.skips([sc], q) == True{} : Bool}) -> {q == Bool.pick(String, d, String.append(v ++ "/", String.drop(q, String.length(v ++ "/"))), v) : String}:
+  +ea : {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope} = scoped_scope.at(v, Folder.untrimmed(v), Skip.has_break(v), d, sc, e)
+  only_scoped(v, d, q, (%Equal.sym(Folder.Scope, Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}), sc, ea) : {Folder.skips([_], q) == True{} : Bool} s))
+
+# And a directory it skips whole is the one named.
+def scoped_only_directory(+v: String, +d: Bool, +sc: Folder.Scope, e: {Skip.path.scoped(v, d) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}, +p: String, s: {Folder.skips_directory([sc], p) == True{} : Bool}) -> {p == v : String}:
+  +ea : {Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}) == sc : Folder.Scope} = scoped_scope.at(v, Folder.untrimmed(v), Skip.has_break(v), d, sc, e)
+  only_directory(v, d, p, (%Equal.sym(Folder.Scope, Bool.pick(Folder.Scope, d, Folder.Scope.Under{v}, Folder.Scope.Path{v}), sc, ea) : {Folder.skips_directory([_], p) == True{} : Bool} s))
+
+# Reading the words
+# -----------------
+
+# The words an item stands for.
+def item.words(i: Skip.Item) -> List<&2, String>:
+  match i:
+    case Skip.Item.Private{}:
+      ["--private"]
+    case Skip.Item.Name{n}:
+      ["--name", n]
+    case Skip.Item.Path{w}:
+      [w]
+
+# The words a reading spells back: each item's, in order, and where it
+# stopped, the words from there on.
+def spelled(r: Skip.Words) -> List<&2, String>:
+  match r:
+    case Skip.Words.End{}:
+      Nil{}
+    case Skip.Words.Stop{ws, e}:
+      ws
+    case Skip.Words.Item{i, more}:
+      List.append(&2, String, item.words(i), spelled(more))
+
+# A word reading may stop at: a flag, not `--private`, and `--name` only
+# with nothing after it to name.
+def stops(ws: List<&2, String>) -> Bool:
+  match ws:
+    case Nil{}:
+      False{}
+    case +w <> rest:
+      Bool.and(String.starts_with(w, "--"), Bool.and(Bool.not(String.eq(w, "--private")), Bool.or(Bool.not(String.eq(w, "--name")), List.is_empty(&2, String, rest))))
+
+# What a reading takes each word for: no path it reads is a flag, and it
+# stops only where `stops` says it may.
+def plain(r: Skip.Words) -> Bool:
+  match r:
+    case Skip.Words.End{}:
+      True{}
+    case Skip.Words.Stop{ws, e}:
+      stops(ws)
+    case Skip.Words.Item{Skip.Item.Path{+w}, more}:
+      Bool.and(Bool.not(String.starts_with(w, "--")), plain(more))
+    case Skip.Words.Item{i, more}:
+      plain(more)
+
+def wk(k: Skip.Word) -> Nat:
+  match k:
+    case Skip.Word.Private{}:
+      0n
+    case Skip.Word.Name{}:
+      1n
+    case Skip.Word.Suffix{}:
+      2n
+    case Skip.Word.Flag{}:
+      3n
+    case Skip.Word.Path{}:
+      4n
+
+def nat_eq_refl(n: Nat) -> {Nat.is_eq(n, n) == True{} : Bool}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+k:
+      nat_eq_refl(k)
+
+# Two kinds of word `wk` numbers apart are two kinds.
+def wne(-x: Skip.Word, +y: Skip.Word, e: {x == y : Skip.Word}, f: {Nat.is_eq(wk(x), wk(y)) == False{} : Bool}) -> Empty:
+  +g : {Nat.is_eq(wk(x), wk(y)) == Nat.is_eq(wk(y), wk(y)) : Bool} = Equal.cong(Skip.Word, Bool, z => Nat.is_eq(wk(z), wk(y)), x, y, e)
+  S.false_true(Equal.trans(Bool, False{}, Nat.is_eq(wk(x), wk(y)), True{}, Equal.sym(Bool, Nat.is_eq(wk(x), wk(y)), False{}, f), Equal.trans(Bool, Nat.is_eq(wk(x), wk(y)), Nat.is_eq(wk(y), wk(y)), True{}, g, nat_eq_refl(wk(y)))))
+
+# How `word.of` reads a word, by what it asks of it in turn.
+def kind(a: Bool, b: Bool, c: Bool, d: Bool) -> Skip.Word:
+  Bool.pick(Skip.Word, a, Skip.Word.Private{}, Bool.pick(Skip.Word, b, Skip.Word.Name{}, Bool.pick(Skip.Word, c, Skip.Word.Suffix{}, Bool.pick(Skip.Word, d, Skip.Word.Flag{}, Skip.Word.Path{}))))
+
+def private_word.at(+w: String, a: Bool, ea: {String.eq(w, "--private") == a : Bool}, b: Bool, c: Bool, d: Bool, e: {kind(a, b, c, d) == Skip.Word.Private{} : Skip.Word}) -> {w == "--private" : String}:
+  match a b c d:
+    case True{} _ _ _:
+      S.eq_true(w, "--private", ea)
+    case False{} True{} _ _:
+      Empty.absurd({w == "--private" : String}, wne(Skip.Word.Name{}, Skip.Word.Private{}, e, {==}))
+    case False{} False{} True{} _:
+      Empty.absurd({w == "--private" : String}, wne(Skip.Word.Suffix{}, Skip.Word.Private{}, e, {==}))
+    case False{} False{} False{} True{}:
+      Empty.absurd({w == "--private" : String}, wne(Skip.Word.Flag{}, Skip.Word.Private{}, e, {==}))
+    case False{} False{} False{} False{}:
+      Empty.absurd({w == "--private" : String}, wne(Skip.Word.Path{}, Skip.Word.Private{}, e, {==}))
+
+# A word read as `--private` is `--private`.
+def private_word(+w: String, e: {Skip.word.of(w) == Skip.Word.Private{} : Skip.Word}) -> {w == "--private" : String}:
+  private_word.at(w, String.eq(w, "--private"), {==}, String.eq(w, "--name"), String.eq(w, "--suffix"), String.starts_with(w, "--"), e)
+
+def name_word.at(+w: String, a: Bool, b: Bool, eb: {String.eq(w, "--name") == b : Bool}, c: Bool, d: Bool, e: {kind(a, b, c, d) == Skip.Word.Name{} : Skip.Word}) -> {w == "--name" : String}:
+  match a b c d:
+    case True{} _ _ _:
+      Empty.absurd({w == "--name" : String}, wne(Skip.Word.Private{}, Skip.Word.Name{}, e, {==}))
+    case False{} True{} _ _:
+      S.eq_true(w, "--name", eb)
+    case False{} False{} True{} _:
+      Empty.absurd({w == "--name" : String}, wne(Skip.Word.Suffix{}, Skip.Word.Name{}, e, {==}))
+    case False{} False{} False{} True{}:
+      Empty.absurd({w == "--name" : String}, wne(Skip.Word.Flag{}, Skip.Word.Name{}, e, {==}))
+    case False{} False{} False{} False{}:
+      Empty.absurd({w == "--name" : String}, wne(Skip.Word.Path{}, Skip.Word.Name{}, e, {==}))
+
+# A word read as `--name` is `--name`.
+def name_word(+w: String, e: {Skip.word.of(w) == Skip.Word.Name{} : Skip.Word}) -> {w == "--name" : String}:
+  name_word.at(w, String.eq(w, "--private"), String.eq(w, "--name"), {==}, String.eq(w, "--suffix"), String.starts_with(w, "--"), e)
+
+def suffix_word.at(+w: String, a: Bool, b: Bool, c: Bool, ec: {String.eq(w, "--suffix") == c : Bool}, d: Bool, e: {kind(a, b, c, d) == Skip.Word.Suffix{} : Skip.Word}) -> {w == "--suffix" : String}:
+  match a b c d:
+    case True{} _ _ _:
+      Empty.absurd({w == "--suffix" : String}, wne(Skip.Word.Private{}, Skip.Word.Suffix{}, e, {==}))
+    case False{} True{} _ _:
+      Empty.absurd({w == "--suffix" : String}, wne(Skip.Word.Name{}, Skip.Word.Suffix{}, e, {==}))
+    case False{} False{} True{} _:
+      S.eq_true(w, "--suffix", ec)
+    case False{} False{} False{} True{}:
+      Empty.absurd({w == "--suffix" : String}, wne(Skip.Word.Flag{}, Skip.Word.Suffix{}, e, {==}))
+    case False{} False{} False{} False{}:
+      Empty.absurd({w == "--suffix" : String}, wne(Skip.Word.Path{}, Skip.Word.Suffix{}, e, {==}))
+
+# A word read as `--suffix` is `--suffix`.
+def suffix_word(+w: String, e: {Skip.word.of(w) == Skip.Word.Suffix{} : Skip.Word}) -> {w == "--suffix" : String}:
+  suffix_word.at(w, String.eq(w, "--private"), String.eq(w, "--name"), String.eq(w, "--suffix"), {==}, String.starts_with(w, "--"), e)
+
+def flag_word.at(+w: String, +rest: List<&2, String>, a: Bool, ea: {String.eq(w, "--private") == a : Bool}, b: Bool, eb: {String.eq(w, "--name") == b : Bool}, c: Bool, d: Bool, ed: {String.starts_with(w, "--") == d : Bool}, e: {kind(a, b, c, d) == Skip.Word.Flag{} : Skip.Word}) -> {stops(w <> rest) == True{} : Bool}:
+  match a b c d:
+    case True{} _ _ _:
+      Empty.absurd({stops(w <> rest) == True{} : Bool}, wne(Skip.Word.Private{}, Skip.Word.Flag{}, e, {==}))
+    case False{} True{} _ _:
+      Empty.absurd({stops(w <> rest) == True{} : Bool}, wne(Skip.Word.Name{}, Skip.Word.Flag{}, e, {==}))
+    case False{} False{} True{} _:
+      Empty.absurd({stops(w <> rest) == True{} : Bool}, wne(Skip.Word.Suffix{}, Skip.Word.Flag{}, e, {==}))
+    case False{} False{} False{} False{}:
+      Empty.absurd({stops(w <> rest) == True{} : Bool}, wne(Skip.Word.Path{}, Skip.Word.Flag{}, e, {==}))
+    case False{} False{} False{} True{}:
+      %Equal.sym(Bool, String.starts_with(w, "--"), True{}, ed) : {Bool.and(_, Bool.and(Bool.not(String.eq(w, "--private")), Bool.or(Bool.not(String.eq(w, "--name")), List.is_empty(&2, String, rest)))) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(w, "--private"), False{}, ea) : {Bool.and(True{}, Bool.and(Bool.not(_), Bool.or(Bool.not(String.eq(w, "--name")), List.is_empty(&2, String, rest)))) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(w, "--name"), False{}, eb) : {Bool.and(True{}, Bool.and(Bool.not(False{}), Bool.or(Bool.not(_), List.is_empty(&2, String, rest)))) == True{} : Bool}
+      {==}
+
+# Reading stops at a flag `skip` does not take only where it may.
+def flag_word(+w: String, +rest: List<&2, String>, e: {Skip.word.of(w) == Skip.Word.Flag{} : Skip.Word}) -> {stops(w <> rest) == True{} : Bool}:
+  flag_word.at(w, rest, String.eq(w, "--private"), {==}, String.eq(w, "--name"), {==}, String.eq(w, "--suffix"), String.starts_with(w, "--"), {==}, e)
+
+def path_word.at(+w: String, a: Bool, b: Bool, c: Bool, d: Bool, ed: {String.starts_with(w, "--") == d : Bool}, e: {kind(a, b, c, d) == Skip.Word.Path{} : Skip.Word}) -> {Bool.not(String.starts_with(w, "--")) == True{} : Bool}:
+  match a b c d:
+    case True{} _ _ _:
+      Empty.absurd({Bool.not(String.starts_with(w, "--")) == True{} : Bool}, wne(Skip.Word.Private{}, Skip.Word.Path{}, e, {==}))
+    case False{} True{} _ _:
+      Empty.absurd({Bool.not(String.starts_with(w, "--")) == True{} : Bool}, wne(Skip.Word.Name{}, Skip.Word.Path{}, e, {==}))
+    case False{} False{} True{} _:
+      Empty.absurd({Bool.not(String.starts_with(w, "--")) == True{} : Bool}, wne(Skip.Word.Suffix{}, Skip.Word.Path{}, e, {==}))
+    case False{} False{} False{} True{}:
+      Empty.absurd({Bool.not(String.starts_with(w, "--")) == True{} : Bool}, wne(Skip.Word.Flag{}, Skip.Word.Path{}, e, {==}))
+    case False{} False{} False{} False{}:
+      %Equal.sym(Bool, String.starts_with(w, "--"), False{}, ed) : {Bool.not(_) == True{} : Bool}
+      {==}
+
+# A word read as a path is no flag.
+def path_word(+w: String, e: {Skip.word.of(w) == Skip.Word.Path{} : Skip.Word}) -> {Bool.not(String.starts_with(w, "--")) == True{} : Bool}:
+  path_word.at(w, String.eq(w, "--private"), String.eq(w, "--name"), String.eq(w, "--suffix"), String.starts_with(w, "--"), {==}, e)
+
+def and_true(a: Bool, -b: Bool, ea: {a == True{} : Bool}, eb: {b == True{} : Bool}) -> {Bool.and(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, ea) : {Bool.and(_, b) == True{} : Bool}
+  eb
+
+# No path `skip` reads is a flag, and it stops reading only at a flag it
+# does not take.
+def plain_go(args: List<&2, String>, k: Skip.Word, ek: {Skip.word(args) == k : Skip.Word}) -> {plain(Skip.read.go(args, k)) == True{} : Bool}:
+  match args k:
+    case Nil{} _:
+      {==}
+    case +w <> Nil{} Skip.Word.Private{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Private{}:
+      plain_go(n <> rest, Skip.word(n <> rest), {==})
+    case +w <> Nil{} Skip.Word.Name{}:
+      %Equal.sym(String, w, "--name", name_word(w, ek)) : {stops([_]) == True{} : Bool}
+      {==}
+    case +w <> +n <> +rest Skip.Word.Name{}:
+      plain_go(rest, Skip.word(rest), {==})
+    case +w <> Nil{} Skip.Word.Suffix{}:
+      %Equal.sym(String, w, "--suffix", suffix_word(w, ek)) : {stops([_]) == True{} : Bool}
+      {==}
+    case +w <> +n <> +rest Skip.Word.Suffix{}:
+      %Equal.sym(String, w, "--suffix", suffix_word(w, ek)) : {stops(_ <> n <> rest) == True{} : Bool}
+      {==}
+    case +w <> Nil{} Skip.Word.Flag{}:
+      flag_word(w, Nil{}, ek)
+    case +w <> +n <> +rest Skip.Word.Flag{}:
+      flag_word(w, n <> rest, ek)
+    case +w <> Nil{} Skip.Word.Path{}:
+      and_true(Bool.not(String.starts_with(w, "--")), True{}, path_word(w, ek), {==})
+    case +w <> +n <> +rest Skip.Word.Path{}:
+      and_true(Bool.not(String.starts_with(w, "--")), plain(Skip.read.go(n <> rest, Skip.word(n <> rest))), path_word(w, ek), plain_go(n <> rest, Skip.word(n <> rest), {==}))
+
+def reads_flags(+args: List<&2, String>) -> {plain(Skip.read(args)) == True{} : Bool}:
+  plain_go(args, Skip.word(args), {==})
+
+def cons_eq(-x: String, -y: String, +rest: List<&2, String>, -more: List<&2, String>, ex: {x == y : String}, e: {more == rest : List<&2, String>}) -> {x <> more == y <> rest : List<&2, String>}:
+  %ex : {x <> more == _ <> rest : List<&2, String>}
+  %e : {x <> more == x <> _ : List<&2, String>}
+  {==}
+
+# Spelled back, what `skip` read is the words it was given. The reading
+# asks whether a word follows a `--name`, so each case says which.
+def spelled_go(args: List<&2, String>, k: Skip.Word, ek: {Skip.word(args) == k : Skip.Word}) -> {spelled(Skip.read.go(args, k)) == args : List<&2, String>}:
+  match args k:
+    case Nil{} _:
+      {==}
+    case +w <> Nil{} Skip.Word.Private{}:
+      cons_eq("--private", w, Nil{}, Nil{}, Equal.sym(String, w, "--private", private_word(w, ek)), {==})
+    case +w <> +n <> +rest Skip.Word.Private{}:
+      cons_eq("--private", w, n <> rest, spelled(Skip.read.go(n <> rest, Skip.word(n <> rest))), Equal.sym(String, w, "--private", private_word(w, ek)), spelled_go(n <> rest, Skip.word(n <> rest), {==}))
+    case +w <> Nil{} Skip.Word.Name{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Name{}:
+      cons_eq("--name", w, n <> rest, n <> spelled(Skip.read.go(rest, Skip.word(rest))), Equal.sym(String, w, "--name", name_word(w, ek)), Equal.cong(List<&2, String>, List<&2, String>, l => n <> l, spelled(Skip.read.go(rest, Skip.word(rest))), rest, spelled_go(rest, Skip.word(rest), {==})))
+    case +w <> Nil{} Skip.Word.Suffix{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Suffix{}:
+      {==}
+    case +w <> Nil{} Skip.Word.Flag{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Flag{}:
+      {==}
+    case +w <> Nil{} Skip.Word.Path{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Path{}:
+      Equal.cong(List<&2, String>, List<&2, String>, l => w <> l, spelled(Skip.read.go(n <> rest, Skip.word(n <> rest))), n <> rest, spelled_go(n <> rest, Skip.word(n <> rest), {==}))
+
+def reads_words(+args: List<&2, String>) -> {spelled(Skip.read(args)) == args : List<&2, String>}:
+  spelled_go(args, Skip.word(args), {==})
+
+# `--private`
+# -----------
+
+# Whether reading got to the end without a refusal.
+def clean(r: Skip.Words) -> Bool:
+  match r:
+    case Skip.Words.End{}:
+      True{}
+    case Skip.Words.Stop{ws, e}:
+      False{}
+    case Skip.Words.Item{i, more}:
+      clean(more)
+
+def or_false_r(a: Bool, -b: Bool, h: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
+  match a:
+    case False{}:
+      h
+    case True{}:
+      Empty.absurd({b == False{} : Bool}, S.true_false(h))
+
+def stop_clean(-A: Type, e: {False{} == True{} : Bool}) -> A:
+  Empty.absurd(A, S.false_true(e))
+
+def private_first(after: List<&2, String>) -> {Skip.private.of(Skip.read.go("--private" <> after, Skip.Word.Private{})) == True{} : Bool}:
+  match after:
+    case Nil{}:
+      {==}
+    case a <> more:
+      {==}
+
+# A `--private` after words read without a refusal is read as `--private`.
+def private_go(before: List<&2, String>, k: Skip.Word, ek: {Skip.word(before) == k : Skip.Word}, +after: List<&2, String>, c: {clean(Skip.read.go(before, k)) == True{} : Bool}) -> {Skip.private.of(Skip.read.go(List.append(&2, String, before, "--private" <> after), Skip.word(List.append(&2, String, before, "--private" <> after)))) == True{} : Bool}:
+  match before k:
+    case Nil{} _:
+      private_first(after)
+    case +w <> Nil{} Skip.Word.Private{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Private{}, ek) : {Skip.private.of(Skip.read.go(w <> "--private" <> after, _)) == True{} : Bool}
+      {==}
+    case +w <> +n <> +rest Skip.Word.Private{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Private{}, ek) : {Skip.private.of(Skip.read.go(w <> n <> List.append(&2, String, rest, "--private" <> after), _)) == True{} : Bool}
+      {==}
+    case +w <> Nil{} Skip.Word.Name{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, [w], "--private" <> after), Skip.word(List.append(&2, String, [w], "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> +n <> +rest Skip.Word.Name{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Name{}, ek) : {Skip.private.of(Skip.read.go(w <> n <> List.append(&2, String, rest, "--private" <> after), _)) == True{} : Bool}
+      private_go(rest, Skip.word(rest), {==}, after, c)
+    case +w <> Nil{} Skip.Word.Suffix{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, [w], "--private" <> after), Skip.word(List.append(&2, String, [w], "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> +n <> +rest Skip.Word.Suffix{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, w <> n <> rest, "--private" <> after), Skip.word(List.append(&2, String, w <> n <> rest, "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> Nil{} Skip.Word.Flag{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, [w], "--private" <> after), Skip.word(List.append(&2, String, [w], "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> +n <> +rest Skip.Word.Flag{}:
+      stop_clean({Skip.private.of(Skip.read.go(List.append(&2, String, w <> n <> rest, "--private" <> after), Skip.word(List.append(&2, String, w <> n <> rest, "--private" <> after)))) == True{} : Bool}, c)
+    case +w <> Nil{} Skip.Word.Path{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Path{}, ek) : {Skip.private.of(Skip.read.go(w <> "--private" <> after, _)) == True{} : Bool}
+      private_first(after)
+    case +w <> +n <> +rest Skip.Word.Path{}:
+      %Equal.sym(Skip.Word, Skip.word.of(w), Skip.Word.Path{}, ek) : {Skip.private.of(Skip.read.go(w <> n <> List.append(&2, String, rest, "--private" <> after), _)) == True{} : Bool}
+      private_go(n <> rest, Skip.word(n <> rest), {==}, after, c)
+
+def private_anywhere(+before: List<&2, String>, +after: List<&2, String>, c: {clean(Skip.read(before)) == True{} : Bool}) -> {Skip.private.of(Skip.read(List.append(&2, String, before, "--private" <> after))) == True{} : Bool}:
+  private_go(before, Skip.word(before), {==}, after, c)
+
+def private_member(+w: String, +rest: List<&2, String>, e: {w == "--private" : String}, h: {Rev.member(w <> rest, "--private") == False{} : Bool}) -> Empty:
+  +h2 : {Rev.member("--private" <> rest, "--private") == False{} : Bool} = (%e : {Rev.member(_ <> rest, "--private") == False{} : Bool} h)
+  S.true_false(h2)
+
+# Where no word is `--private`, no rule `skip` reads is private.
+def shared_go(args: List<&2, String>, k: Skip.Word, ek: {Skip.word(args) == k : Skip.Word}, h: {Rev.member(args, "--private") == False{} : Bool}) -> {Skip.private.of(Skip.read.go(args, k)) == False{} : Bool}:
+  match args k:
+    case Nil{} _:
+      {==}
+    case +w <> Nil{} Skip.Word.Private{}:
+      Empty.absurd({Skip.private.of(Skip.read.go([w], Skip.Word.Private{})) == False{} : Bool}, private_member(w, Nil{}, private_word(w, ek), h))
+    case +w <> +n <> +rest Skip.Word.Private{}:
+      Empty.absurd({Skip.private.of(Skip.read.go(w <> n <> rest, Skip.Word.Private{})) == False{} : Bool}, private_member(w, n <> rest, private_word(w, ek), h))
+    case +w <> Nil{} Skip.Word.Name{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Name{}:
+      shared_go(rest, Skip.word(rest), {==}, or_false_r(String.eq(n, "--private"), Rev.member(rest, "--private"), or_false_r(String.eq(w, "--private"), Rev.member(n <> rest, "--private"), h)))
+    case +w <> Nil{} Skip.Word.Suffix{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Suffix{}:
+      {==}
+    case +w <> Nil{} Skip.Word.Flag{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Flag{}:
+      {==}
+    case +w <> Nil{} Skip.Word.Path{}:
+      {==}
+    case +w <> +n <> +rest Skip.Word.Path{}:
+      shared_go(n <> rest, Skip.word(n <> rest), {==}, or_false_r(String.eq(w, "--private"), Rev.member(n <> rest, "--private"), h))
+
+def shared(+ws: List<&2, String>, h: {Rev.member(ws, "--private") == False{} : Bool}) -> {Skip.private.of(Skip.read(ws)) == False{} : Bool}:
+  shared_go(ws, Skip.word(ws), {==}, h)
+
+def rules_private(ss: List<&2, Folder.Scope>) -> {Skip.rules.of(ss, True{}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), ss) : List<&2, Skip.Rule>}:
+  match ss:
+    case Nil{}:
+      {==}
+    case sc <> +rest:
+      Equal.cong(List<&2, Skip.Rule>, List<&2, Skip.Rule>, l => Skip.Rule{sc, True{}} <> l, Skip.rules.of(rest, True{}), T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), rest), rules_private(rest))
+
+def rules_shared(ss: List<&2, Folder.Scope>) -> {Skip.rules.of(ss, False{}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}:
+  match ss:
+    case Nil{}:
+      {==}
+    case sc <> +rest:
+      Equal.cong(List<&2, Skip.Rule>, List<&2, Skip.Rule>, l => Skip.Rule{sc, False{}} <> l, Skip.rules.of(rest, False{}), T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), rest), rules_shared(rest))
+
+# `--private`, wherever it stands after words read without a refusal,
+# makes every rule `skip` writes private: each scope asked for, in order.
+def writes_private(+before: List<&2, String>, +after: List<&2, String>, c: {clean(Skip.read(before)) == True{} : Bool}, +ss: List<&2, Folder.Scope>) -> {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(List.append(&2, String, before, "--private" <> after)))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), ss) : List<&2, Skip.Rule>}:
+  %Equal.sym(Bool, Skip.private.of(Skip.read(List.append(&2, String, before, "--private" <> after))), True{}, private_anywhere(before, after, c)) : {Skip.wanted(Skip.Asked{ss, _}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, True{}}), ss) : List<&2, Skip.Rule>}
+  rules_private(ss)
+
+# Where no word is `--private`, every rule it writes is shared.
+def writes_shared(+ws: List<&2, String>, h: {Rev.member(ws, "--private") == False{} : Bool}, +ss: List<&2, Folder.Scope>) -> {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(ws))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}:
+  %Equal.sym(Bool, Skip.private.of(Skip.read(ws)), False{}, shared(ws, h)) : {Skip.wanted(Skip.Asked{ss, _}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}
+  rules_shared(ss)
+
+# What history holds
+# ------------------
+
+# The scopes of the rules asked for, as the loader of `skipped/` reads them.
+def scopes(rs: List<&2, Skip.Rule>) -> List<&2, Folder.Scope>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case Skip.Rule{sc, p} <> rest:
+      sc <> scopes(rest)
+
+# The paths a tree holds.
+def paths(t: Tree.Tree()) -> List<&2, String>:
+  T.map(~Tree.Entry, ~String, ~(e => Tree.entry_path(e)), t)
+
+def covering_skips(rs: List<&2, Skip.Rule>, +p: String) -> {Skip.covering(rs, p) == Folder.skips(scopes(rs), p) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case Skip.Rule{sc, q} <> rest:
+      Equal.cong(Bool, Bool, b => Bool.or(Folder.covers(sc, p), b), Skip.covering(rest, p), Folder.skips(scopes(rest), p), covering_skips(rest, p))
+
+def or_true_l(a: Bool, -b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, h) : {Bool.or(_, b) == True{} : Bool}
+  {==}
+
+def member_app(xs: List<&2, String>, +ys: List<&2, String>, +x: String) -> {Rev.member(List.append(&2, String, xs, ys), x) == Bool.or(Rev.member(xs, x), Rev.member(ys, x)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +y <> rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, rest, ys), x), Bool.or(Rev.member(rest, x), Rev.member(ys, x)), member_app(rest, ys, x)) : {Bool.or(String.eq(y, x), _) == Bool.or(Bool.or(String.eq(y, x), Rev.member(rest, x)), Rev.member(ys, x)) : Bool}
+      or_assoc(String.eq(y, x), Rev.member(rest, x), Rev.member(ys, x))
+
+# A list with a string added last holds what it held.
+def member_snoc(+had: List<&2, String>, +p: String, +x: String, h: {Rev.member(had, x) == True{} : Bool}) -> {Rev.member(List.append(&2, String, had, [p]), x) == True{} : Bool}:
+  %Equal.sym(Bool, Rev.member(List.append(&2, String, had, [p]), x), Bool.or(Rev.member(had, x), Rev.member([p], x)), member_app(had, [p], x)) : {_ == True{} : Bool}
+  or_true_l(Rev.member(had, x), Rev.member([p], x), h)
+
+# And the string added.
+def member_last(+had: List<&2, String>, +p: String) -> {Rev.member(List.append(&2, String, had, [p]), p) == True{} : Bool}:
+  %Equal.sym(Bool, Rev.member(List.append(&2, String, had, [p]), p), Bool.or(Rev.member(had, p), Rev.member([p], p)), member_app(had, [p], p)) : {_ == True{} : Bool}
+  %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.or(Rev.member(had, p), Bool.or(_, False{})) == True{} : Bool}
+  or_true_r(Rev.member(had, p))
+
+def kept_mono(c: Bool, +had: List<&2, String>, +p: String, +x: String, h: {Rev.member(had, x) == True{} : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, c, List.append(&2, String, had, [p]), had), x) == True{} : Bool}:
+  match c:
+    case True{}:
+      member_snoc(had, p, x, h)
+    case False{}:
+      h
+
+# What `covered.of` gathers holds what it had.
+def of_mono(+rs: List<&2, Skip.Rule>, es: Tree.Tree(), +had: List<&2, String>, +x: String, h: {Rev.member(had, x) == True{} : Bool}) -> {Rev.member(Skip.covered.of(rs, es, had), x) == True{} : Bool}:
+  match es:
+    case Nil{}:
+      h
+    case +e <> rest:
+      of_mono(rs, rest, Bool.pick(List<&2, String>, Bool.and(Skip.covering(rs, Tree.entry_path(e)), Bool.not(Rev.member(had, Tree.entry_path(e)))), List.append(&2, String, had, [Tree.entry_path(e)]), had), x, kept_mono(Bool.and(Skip.covering(rs, Tree.entry_path(e)), Bool.not(Rev.member(had, Tree.entry_path(e)))), had, Tree.entry_path(e), x, h))
+
+def kept_new(m: Bool, +had: List<&2, String>, +p: String, em: {Rev.member(had, p) == m : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, Bool.and(True{}, Bool.not(m)), List.append(&2, String, had, [p]), had), p) == True{} : Bool}:
+  match m:
+    case True{}:
+      em
+    case False{}:
+      member_last(had, p)
+
+def of_covers.at(b: Bool, +rs: List<&2, Skip.Rule>, +e: Tree.Entry, +rest: Tree.Tree(), +had: List<&2, String>, +p: String, eb: {String.eq(Tree.entry_path(e), p) == b : Bool}, hp: {Bool.or(b, Rev.member(paths(rest), p)) == True{} : Bool}, hc: {Skip.covering(rs, p) == True{} : Bool}, ih: @h2: List<&2, String> -> {Rev.member(paths(rest), p) == True{} : Bool} -> {Rev.member(Skip.covered.of(rs, rest, h2), p) == True{} : Bool}) -> {Rev.member(Skip.covered.of(rs, e <> rest, had), p) == True{} : Bool}:
+  match b:
+    case True{}:
+      +pe : {Tree.entry_path(e) == p : String} = S.eq_true(Tree.entry_path(e), p, eb)
+      %Equal.sym(String, Tree.entry_path(e), p, pe) : {Rev.member(Skip.covered.of(rs, rest, Bool.pick(List<&2, String>, Bool.and(Skip.covering(rs, _), Bool.not(Rev.member(had, _))), List.append(&2, String, had, [_]), had)), p) == True{} : Bool}
+      %Equal.sym(Bool, Skip.covering(rs, p), True{}, hc) : {Rev.member(Skip.covered.of(rs, rest, Bool.pick(List<&2, String>, Bool.and(_, Bool.not(Rev.member(had, p))), List.append(&2, String, had, [p]), had)), p) == True{} : Bool}
+      of_mono(rs, rest, Bool.pick(List<&2, String>, Bool.and(True{}, Bool.not(Rev.member(had, p))), List.append(&2, String, had, [p]), had), p, kept_new(Rev.member(had, p), had, p, {==}))
+    case False{}:
+      ih(Bool.pick(List<&2, String>, Bool.and(Skip.covering(rs, Tree.entry_path(e)), Bool.not(Rev.member(had, Tree.entry_path(e)))), List.append(&2, String, had, [Tree.entry_path(e)]), had), hp)
+
+# Every path of the tree a wanted rule covers is gathered.
+def of_covers(+rs: List<&2, Skip.Rule>, es: Tree.Tree(), +had: List<&2, String>, +p: String, hp: {Rev.member(paths(es), p) == True{} : Bool}, +hc: {Skip.covering(rs, p) == True{} : Bool}) -> {Rev.member(Skip.covered.of(rs, es, had), p) == True{} : Bool}:
+  match es:
+    case Nil{}:
+      Empty.absurd({Rev.member(Skip.covered.of(rs, Nil{}, had), p) == True{} : Bool}, S.false_true(hp))
+    case +e <> +rest:
+      of_covers.at(String.eq(Tree.entry_path(e), p), rs, e, rest, had, p, {==}, hp, hc, h2 => hr => of_covers(rs, rest, h2, p, hr, hc))
+
+def rd(r: Result<&2, &2, Main.Refused, List<&2, String>>) -> Type:
+  match r:
+    case Fail{x}:
+      Unit
+    case Done{y}:
+      Empty
+
+def failed_done(-x: Main.Refused, -y: List<&2, String>, e: {Fail{x} == Done{y} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> Empty:
+  %e : {rd(_) : Type}
+  Unit{}
+
+def done_of(r: Result<&2, &2, Main.Refused, List<&2, String>>, +d: List<&2, String>) -> List<&2, String>:
+  match r:
+    case Fail{x}:
+      d
+    case Done{y}:
+      y
+
+def done_inj(-a: List<&2, String>, +b: List<&2, String>, e: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {a == b : List<&2, String>}:
+  Equal.cong(Result<&2, &2, Main.Refused, List<&2, String>>, List<&2, String>, r => done_of(r, b), Done{a}, Done{b}, e)
+
+def td(r: Result<&2, &2, Main.Refused, Tree.Tree()>) -> Type:
+  match r:
+    case Fail{x}:
+      Unit
+    case Done{y}:
+      Empty
+
+def tree_of(r: Result<&2, &2, Main.Refused, Tree.Tree()>, +d: Tree.Tree()) -> Tree.Tree():
+  match r:
+    case Fail{x}:
+      d
+    case Done{y}:
+      y
+
+def tree_inj(-a: Tree.Tree(), +b: Tree.Tree(), e: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Tree.Tree()>}) -> {a == b : Tree.Tree()}:
+  Equal.cong(Result<&2, &2, Main.Refused, Tree.Tree()>, Tree.Tree(), r => tree_of(r, b), Done{a}, Done{b}, e)
+
+def go_mono.at(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, +rest: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, +x: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), List<&2, String>, r, t => Skip.covered.go(fs, rs, rest, Skip.covered.of(rs, t, had))) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, h: {Rev.member(had, x) == True{} : Bool}, ih: @had2: List<&2, String> -> {Skip.covered.go(fs, rs, rest, had2) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Rev.member(had2, x) == True{} : Bool} -> {Rev.member(ps, x) == True{} : Bool}) -> {Rev.member(ps, x) == True{} : Bool}:
+  match r:
+    case Fail{y}:
+      Empty.absurd({Rev.member(ps, x) == True{} : Bool}, failed_done(y, ps, e))
+    case Done{+t}:
+      ih(Skip.covered.of(rs, t, had), e, of_mono(rs, t, had, x, h))
+
+# What `covered.go` gathers holds what it had.
+def go_mono(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, hs: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, e: {Skip.covered.go(fs, rs, hs, had) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, +x: String, h: {Rev.member(had, x) == True{} : Bool}) -> {Rev.member(ps, x) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      (%done_inj(had, ps, e) : {Rev.member(_, x) == True{} : Bool} h)
+    case +h1 <> +rest:
+      go_mono.at(fs, rs, rest, had, ps, x, Main.tree.r(fs, h1), e, h, had2 => e2 => h2 => go_mono(fs, rs, rest, had2, ps, e2, x, h2))
+
+def go_covers.hit(b: Bool, +fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, +h1: String, +rest: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, +h: String, +t: Tree.Tree(), +t1: Tree.Tree(), +p: String, eb: {String.eq(h1, h) == b : Bool}, hh: {Bool.or(b, Rev.member(rest, h)) == True{} : Bool}, er: {Main.tree.r(fs, h1) == Done{t1} : Result<&2, &2, Main.Refused, Tree.Tree()>}, et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, hp: {Rev.member(paths(t), p) == True{} : Bool}, +hc: {Skip.covering(rs, p) == True{} : Bool}, e: {Skip.covered.go(fs, rs, rest, Skip.covered.of(rs, t1, had)) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, ih: @had2: List<&2, String> -> {Skip.covered.go(fs, rs, rest, had2) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Rev.member(rest, h) == True{} : Bool} -> {Rev.member(ps, p) == True{} : Bool}) -> {Rev.member(ps, p) == True{} : Bool}:
+  match b:
+    case True{}:
+      +he : {h1 == h : String} = S.eq_true(h1, h, eb)
+      +et1 : {Main.tree.r(fs, h1) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>} = (%Equal.sym(String, h1, h, he) : {Main.tree.r(fs, _) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>} et)
+      +te : {t1 == t : Tree.Tree()} = tree_inj(t1, t, Equal.trans(Result<&2, &2, Main.Refused, Tree.Tree()>, Done{t1}, Main.tree.r(fs, h1), Done{t}, Equal.sym(Result<&2, &2, Main.Refused, Tree.Tree()>, Main.tree.r(fs, h1), Done{t1}, er), et1))
+      +hp1 : {Rev.member(paths(t1), p) == True{} : Bool} = (%Equal.sym(Tree.Tree(), t1, t, te) : {Rev.member(paths(_), p) == True{} : Bool} hp)
+      go_mono(fs, rs, rest, Skip.covered.of(rs, t1, had), ps, e, p, of_covers(rs, t1, had, p, hp1, hc))
+    case False{}:
+      ih(Skip.covered.of(rs, t1, had), e, hh)
+
+def go_covers.at(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, +h1: String, +rest: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, +h: String, +t: Tree.Tree(), +p: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, er: {Main.tree.r(fs, h1) == r : Result<&2, &2, Main.Refused, Tree.Tree()>}, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), List<&2, String>, r, t => Skip.covered.go(fs, rs, rest, Skip.covered.of(rs, t, had))) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, hh: {Bool.or(String.eq(h1, h), Rev.member(rest, h)) == True{} : Bool}, et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, hp: {Rev.member(paths(t), p) == True{} : Bool}, +hc: {Skip.covering(rs, p) == True{} : Bool}, ih: @had2: List<&2, String> -> {Skip.covered.go(fs, rs, rest, had2) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Rev.member(rest, h) == True{} : Bool} -> {Rev.member(ps, p) == True{} : Bool}) -> {Rev.member(ps, p) == True{} : Bool}:
+  match r:
+    case Fail{y}:
+      Empty.absurd({Rev.member(ps, p) == True{} : Bool}, failed_done(y, ps, e))
+    case Done{+t1}:
+      go_covers.hit(String.eq(h1, h), fs, rs, h1, rest, had, ps, h, t, t1, p, {==}, hh, er, et, hp, hc, e, ih)
+
+# Every path a head's tree holds that a wanted rule covers is gathered,
+# for every head whose tree reads.
+def go_covers(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, hs: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, e: {Skip.covered.go(fs, rs, hs, had) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, +h: String, hh: {Rev.member(hs, h) == True{} : Bool}, +t: Tree.Tree(), +et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, +p: String, +hp: {Rev.member(paths(t), p) == True{} : Bool}, +hc: {Skip.covering(rs, p) == True{} : Bool}) -> {Rev.member(ps, p) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      Empty.absurd({Rev.member(ps, p) == True{} : Bool}, S.false_true(hh))
+    case +h1 <> +rest:
+      go_covers.at(fs, rs, h1, rest, had, ps, h, t, p, Main.tree.r(fs, h1), {==}, e, hh, et, hp, hc, had2 => e2 => hh2 => go_covers(fs, rs, rest, had2, ps, e2, h, hh2, t, et, p, hp, hc))
+
+def ud(r: Result<&2, &2, Main.Refused, Unit>) -> Type:
+  match r:
+    case Fail{x}:
+      Unit
+    case Done{y}:
+      Empty
+
+def fail_unit(-x: Main.Refused, e: {Fail{x} == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}) -> Empty:
+  %e : {ud(_) : Type}
+  Unit{}
+
+# `skip` goes on to write only where it gathered nothing.
+def after_done(r: Result<&2, &2, Main.Refused, List<&2, String>>, e: {Skip.covered.after(r) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}) -> {r == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Fail{x} == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>}, fail_unit(x, e))
+    case Done{ps}:
+      match ps:
+        case Nil{}:
+          {==}
+        case y <> ys:
+          Empty.absurd({Done{y <> ys} == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>}, fail_unit(Main.Refused{1, "history already holds " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, List.sort(~String, ~(a => b => String.is_le(a, b)), y <> ys)), 1n), "a file this would skip", Nat.show(List.length(&2, String, List.sort(~String, ~(a => b => String.is_le(a, b)), y <> ys))) ++ " files this would skip") ++ ", and a rule cannot take back what is recorded; delete the " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, List.sort(~String, ~(a => b => String.is_le(a, b)), y <> ys)), 1n), "file", "files") ++ " and record that, which is what removing a file from the tree means, and `forget` is what removes recorded content:" ++ Skip.covered.said(List.sort(~String, ~(a => b => String.is_le(a, b)), y <> ys))}, e))
+
+def held_none(c: Bool, +fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, +p: String, ec: {Skip.covering(rs, p) == c : Bool}, +hs: List<&2, String>, eg: {Skip.covered.go(fs, rs, hs, Nil{}) == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>}, +h: String, hh: {Rev.member(hs, h) == True{} : Bool}, +t: Tree.Tree(), +et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, +hp: {Rev.member(paths(t), p) == True{} : Bool}) -> {c == False{} : Bool}:
+  match c:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.false_true(go_covers(fs, rs, hs, Nil{}, Nil{}, eg, h, hh, t, et, p, hp, ec)))
+
+# Where `skip` goes on to write, no rule it writes skips a file some head
+# holds: decision 0011, read with the loader's own `skips`.
+def covers_nothing_held(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, e: {Skip.covered.r(fs, rs) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}, +h: String, hh: {Rev.member(Rev.heads(Main.history(fs)), h) == True{} : Bool}, +t: Tree.Tree(), +et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, +p: String, +hp: {Rev.member(paths(t), p) == True{} : Bool}) -> {Folder.skips(scopes(rs), p) == False{} : Bool}:
+  +eg : {Skip.covered.go(fs, rs, Rev.heads(Main.history(fs)), Nil{}) == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>} = after_done(Skip.covered.go(fs, rs, Rev.heads(Main.history(fs)), Nil{}), e)
+  %covering_skips(rs, p) : {_ == False{} : Bool}
+  held_none(Skip.covering(rs, p), fs, rs, p, {==}, Rev.heads(Main.history(fs)), eg, h, hh, t, et, hp)
+
+# Where a path lies
+# -----------------
+
+def prefix_self(ps: List<&2, String>, +rest: List<&2, String>) -> {Identity.prefix(ps, List.append(&2, String, ps, rest)) == True{} : Bool}:
+  match ps:
+    case Nil{}:
+      {==}
+    case +p <> more:
+      %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.and(_, Identity.prefix(more, List.append(&2, String, more, rest))) == True{} : Bool}
+      prefix_self(more, rest)
+
+def drop_past(ps: List<&2, String>, +rest: List<&2, String>) -> {Skip.drop.n(List.length(&2, String, ps), List.append(&2, String, ps, rest)) == rest : List<&2, String>}:
+  match ps:
+    case Nil{}:
+      {==}
+    case p <> more:
+      drop_past(more, rest)
+
+def join_go_full(ys: List<&2, String>, x: String, +sep: String, h: {String.is_empty(x) == False{} : Bool}) -> {String.is_empty(String.join.go(ys, x, sep)) == False{} : Bool}:
+  match ys x:
+    case Nil{} _:
+      h
+    case y <> t SNil{}:
+      Empty.absurd({String.is_empty(String.join.go(y <> t, SNil{}, sep)) == False{} : Bool}, S.true_false(h))
+    case y <> t SCon{c, u}:
+      {==}
+
+def lapp_nil(xs: List<&2, String>) -> {List.append(&2, String, xs, Nil{}) == xs : List<&2, String>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> rest:
+      Equal.cong(List<&2, String>, List<&2, String>, l => x <> l, List.append(&2, String, rest, Nil{}), rest, lapp_nil(rest))
+
+# The repository itself is refused: a rule for all of it would leave
+# history nothing to hold.
+def inside_self(+path: String, +repo: String, +settled: String, e: {Identity.components(settled) == Identity.components(repo) : List<&2, String>}) -> {Skip.inside.r(path, repo, settled) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}:
+  +e2 : {Identity.components(settled) == List.append(&2, String, Identity.components(repo), Nil{}) : List<&2, String>} = Equal.trans(List<&2, String>, Identity.components(settled), Identity.components(repo), List.append(&2, String, Identity.components(repo), Nil{}), e, Equal.sym(List<&2, String>, List.append(&2, String, Identity.components(repo), Nil{}), Identity.components(repo), lapp_nil(Identity.components(repo))))
+  %Equal.sym(List<&2, String>, Identity.components(settled), List.append(&2, String, Identity.components(repo), Nil{}), e2) : {Bool.pick(Result<&2, &2, Main.Refused, String>, Identity.prefix(Identity.components(repo), _), Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), _), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), _), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(Bool, Identity.prefix(Identity.components(repo), List.append(&2, String, Identity.components(repo), Nil{})), True{}, prefix_self(Identity.components(repo), Nil{})) : {Bool.pick(Result<&2, &2, Main.Refused, String>, _, Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), Nil{})), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), Nil{})), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(List<&2, String>, Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), Nil{})), Nil{}, drop_past(Identity.components(repo), Nil{})) : {Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(_, "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(_, "/")}) == Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}} : Result<&2, &2, Main.Refused, String>}
+  {==}
+
+# `skip <path>`, for a path whose components are the repository's and more
+# — the first of them not empty — reads the rule's path as what lies past
+# the repository, joined by `/`.
+def inside_past(+path: String, +repo: String, +settled: String, +x: String, +more: List<&2, String>, e: {Identity.components(settled) == List.append(&2, String, Identity.components(repo), x <> more) : List<&2, String>}, hx: {String.is_empty(x) == False{} : Bool}) -> {Skip.inside.r(path, repo, settled) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}:
+  %Equal.sym(List<&2, String>, Identity.components(settled), List.append(&2, String, Identity.components(repo), x <> more), e) : {Bool.pick(Result<&2, &2, Main.Refused, String>, Identity.prefix(Identity.components(repo), _), Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), _), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), _), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(Bool, Identity.prefix(Identity.components(repo), List.append(&2, String, Identity.components(repo), x <> more)), True{}, prefix_self(Identity.components(repo), x <> more)) : {Bool.pick(Result<&2, &2, Main.Refused, String>, _, Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), x <> more)), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), x <> more)), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(List<&2, String>, Skip.drop.n(List.length(&2, String, Identity.components(repo)), List.append(&2, String, Identity.components(repo), x <> more)), x <> more, drop_past(Identity.components(repo), x <> more)) : {Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(_, "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(_, "/")}) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+  %Equal.sym(Bool, String.is_empty(String.join(x <> more, "/")), False{}, join_go_full(more, x, "/", hx)) : {Bool.pick(Result<&2, &2, Main.Refused, String>, _, Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(x <> more, "/")}) == Done{String.join(x <> more, "/")} : Result<&2, &2, Main.Refused, String>}
+  {==}
+
+# Where the path stops, or turns aside, at a component the repository has.
+def turns(+y: String, zs: List<&2, String>) -> Bool:
+  match zs:
+    case Nil{}:
+      True{}
+    case +z <> rest:
+      Bool.not(String.eq(y, z))
+
+def prefix_same(pre: List<&2, String>, +ps: List<&2, String>, +qs: List<&2, String>) -> {Identity.prefix(List.append(&2, String, pre, ps), List.append(&2, String, pre, qs)) == Identity.prefix(ps, qs) : Bool}:
+  match pre:
+    case Nil{}:
+      {==}
+    case +p <> more:
+      %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.and(_, Identity.prefix(List.append(&2, String, more, ps), List.append(&2, String, more, qs))) == Identity.prefix(ps, qs) : Bool}
+      prefix_same(more, ps, qs)
+
+def turns_off(+y: String, +r1: List<&2, String>, zs: List<&2, String>, h: {turns(y, zs) == True{} : Bool}) -> {Identity.prefix(y <> r1, zs) == False{} : Bool}:
+  match zs:
+    case Nil{}:
+      {==}
+    case +z <> r2:
+      %Equal.sym(Bool, String.eq(y, z), False{}, not_true_false(String.eq(y, z), h)) : {Bool.and(_, Identity.prefix(r1, r2)) == False{} : Bool}
+      {==}
+
+# A path that stops, or turns aside, before the repository ends is
+# refused: it is not inside it.
+def inside_outside(+path: String, +repo: String, +settled: String, +pre: List<&2, String>, +y: String, +r1: List<&2, String>, +zs: List<&2, String>, er: {Identity.components(repo) == List.append(&2, String, pre, y <> r1) : List<&2, String>}, es: {Identity.components(settled) == List.append(&2, String, pre, zs) : List<&2, String>}, h: {turns(y, zs) == True{} : Bool}) -> {Skip.inside.r(path, repo, settled) == Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}} : Result<&2, &2, Main.Refused, String>}:
+  +e1 : {Identity.prefix(List.append(&2, String, pre, y <> r1), Identity.components(settled)) == Identity.prefix(y <> r1, zs) : Bool} = (%Equal.sym(List<&2, String>, Identity.components(settled), List.append(&2, String, pre, zs), es) : {Identity.prefix(List.append(&2, String, pre, y <> r1), _) == Identity.prefix(y <> r1, zs) : Bool} prefix_same(pre, y <> r1, zs))
+  +e2 : {Identity.prefix(Identity.components(repo), Identity.components(settled)) == Identity.prefix(y <> r1, zs) : Bool} = (%Equal.sym(List<&2, String>, Identity.components(repo), List.append(&2, String, pre, y <> r1), er) : {Identity.prefix(_, Identity.components(settled)) == Identity.prefix(y <> r1, zs) : Bool} e1)
+  +ep : {Identity.prefix(Identity.components(repo), Identity.components(settled)) == False{} : Bool} = Equal.trans(Bool, Identity.prefix(Identity.components(repo), Identity.components(settled)), Identity.prefix(y <> r1, zs), False{}, e2, turns_off(y, r1, zs, h))
+  %Equal.sym(Bool, Identity.prefix(Identity.components(repo), Identity.components(settled)), False{}, ep) : {Bool.pick(Result<&2, &2, Main.Refused, String>, _, Bool.pick(Result<&2, &2, Main.Refused, String>, String.is_empty(String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), Identity.components(settled)), "/")), Fail{Main.Refused{1, "that is the repository itself, and skipping all of it would leave history nothing to hold"}}, Done{String.join(Skip.drop.n(List.length(&2, String, Identity.components(repo)), Identity.components(settled)), "/")}), Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}}) == Fail{Main.Refused{1, "`" ++ path ++ "` is not inside this repository, and a rule names what history would otherwise take"}} : Result<&2, &2, Main.Refused, String>}
+  {==}
