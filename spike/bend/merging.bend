@@ -58,15 +58,19 @@ def typed.standing(hs: List<&2, String>, +acc: List<&2, T.Split>) -> List<&2, T.
     case +h <> rest:
       typed.standing(rest, typed.add(acc, h, String.take(h, 12n)))
 
+# What a joined head is sorted and found by: its digest.
+def typed.key(a: T.Split) -> String:
+  match a:
+    case T.Split{x, s}:
+      x
+
 def typed.le(+a: T.Split, +b: T.Split) -> Bool:
-  match a b:
-    case T.Split{+x, s} T.Split{+y, t}:
-      String.is_le(x, y)
+  String.is_le(typed.key(a), typed.key(b))
 
 def typed.enough(+xs: List<&2, T.Split>) -> Result<&2, &2, Main.Refused, List<&2, T.Split>>:
   Bool.pick(Result<&2, &2, Main.Refused, List<&2, T.Split>>, Nat.is_lt(List.length(&2, T.Split, xs), 2n),
     Fail{Main.Refused{1, "merging is joining two lines of work, and this store has one; name the other, or record on both sides first"}},
-    Done{List.sort(~T.Split, ~(a => b => typed.le(a, b)), xs)})
+    Done{List.sort(~T.Split, ~(a => b => String.is_le(typed.key(a), typed.key(b))), xs)})
 
 # What is named, and every head that is not, in digest order: divergence
 # is what this command exists for, so naming one head is enough, and naming
@@ -332,7 +336,9 @@ def moded(+repo: String, +at: String, +m: Tree.Mode) -> IO(List<&2, String>):
     return made(at, m, was)
 
 # Each act in turn; what it says is said once they are all done, and a
-# refusal stops there, with what was written before it left written.
+# refusal stops there, with what was written before it left written. A
+# file of lines is written in place, through a link standing at its path,
+# as the Rust tool's `fs::write` writes it; a payload lands as a new file.
 def perform(+repo: String, acts: List<&2, Act>) -> IO(List<&2, String>):
   match acts:
     case Nil{}:
@@ -351,7 +357,7 @@ def perform(+repo: String, acts: List<&2, Act>) -> IO(List<&2, String>):
         return ("pointed " ++ at ++ " at " ++ target) <> more
     case Act.Lines{+at, text, +m} <> rest:
       do IO<List<&2, String>>:
-        r : Result<&1, &1, U32 & String, String> <- Store.put_text(Folder.joined(repo, at) ++ "\n" ++ text)
+        r : Result<&1, &1, U32 & String, String> <- Store.written_through(Folder.joined(repo, at) ++ "\n" ++ text)
         a : String <- Upd.done.io(r)
         set : List<&2, String> <- moded(repo, at, m)
         more : List<&2, String> <- perform(repo, rest)

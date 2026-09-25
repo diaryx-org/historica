@@ -751,7 +751,12 @@ STORES = {
     # way a resolution can fail to assemble or to parse.
     "merge": [
         *(["cat", target, path] for target in ("left", "m1", "after", "m2") for path in ("f.md", "h.md")),
-        *(["cat", target, "f.md"] for target in ("unknown", "range", "result", "notlast", "adjacent", "positioned")),
+        *(["cat", target, "f.md"] for target in ("unknown", "range", "result", "notlast", "adjacent", "positioned", "twice")),
+        ["cat", "across", "f.md"],
+        ["blame", "across", "f.md"],
+        ["merge", "left", "right"],
+        ["status", "--onto", "twice", "--merge", "x"],
+        ["record", "-n", "--onto", "twice", "--merge", "x"],
         ["diff", "m1"],
         ["diff", "m1", "--onto", "left"],
         ["diff", "m2", "--onto", "x", "f.md"],
@@ -829,6 +834,9 @@ STORES = {
     # stated as a resolution of what the walk proposed — named items kept,
     # what the person wrote inserted — beside an ordinary edit of a file
     # they agree about.
+    # Files of lines laid down through the links standing at their paths,
+    # as `std::fs::write` lays them, and a payload's link replaced.
+    "through": [["merge"], ["merge", "left"]],
     "resolved": [
         ["status", "--onto", "left", "--merge", "right"],
         ["record", "-n", "--merge", "left", "--merge", "right"],
@@ -876,7 +884,8 @@ def join(history, name, parents, change):
 
 
 def craft(history):
-    """Merges like `m1`, each naming a resolution of `f.md` broken one way.
+    """Merges like `m1`, each naming a resolution of `f.md` broken one way:
+    for `cat`, or, keeping one line twice, for a walk reaching across it.
 
     Written by hand, as the Rust tool never would: a revision is its bytes'
     digest, so each is a new revision beside `m1`, pinned by a bookmark.
@@ -898,6 +907,9 @@ def craft(history):
         "notlast": resolution.replace("+BOTH\n", "+BOTH\n\\ no newline\n"),
         "adjacent": resolution.replace("+BOTH\n", "+BOTH\ninsert\n+MORE\n"),
         "positioned": resolution.replace("insert\n", "insert 1\n"),
+        # Assembles, as `cat` reads it, to the first line twice; the walk
+        # of a merge reaching across it refuses the second keep.
+        "twice": re.sub(r"^result \S+", "result " + digest(b"a\na\nBOTH\nc\nd"), resolution.replace(f"keep {kept} 0 1\n", f"keep {kept} 0 1\nkeep {kept} 0 1\n", 1), flags=re.M),
     }
     (history / "operations" / "crafted").mkdir()
     (history / "revisions" / "crafted").mkdir()
@@ -960,6 +972,7 @@ def record(temporary, rust, corpus, pinned=None):
         write(f="z\na\nBOTH\nc\nd\ne\nx\n")
         rec("m2", "--merge", "x", "--merge", "z", "-m", "second merge")
         craft(store / "history")
+        join(store / "history", "across", ("twice", "x"), "t" * 24)
     elif corpus == "walked":
         def rec(name, *command):
             done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
@@ -1068,6 +1081,39 @@ def record(temporary, rust, corpus, pinned=None):
                 write(h="x\nY\nz\n")
             if corpus == "resolved":
                 write(t="end, both ways\n", g="zero\none\ntwo, then\nthree\nfour\nfive\n")
+    elif corpus == "through":
+        # Two lines of work, and a folder whose files of lines are links:
+        # one to a file holding a head's version, one naming nothing yet,
+        # one to a plain copy of a file the tree runs, one to a file holding
+        # work nobody recorded; and a payload's path a link to its bytes.
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        def write(**files):
+            for path, text in files.items():
+                (store / f"{path}.md").write_text(text)
+
+        write(f="a\nb\nc\n", g="g\n", h="h\n", o="o\n")
+        (store / "run.sh").write_text("#!/bin/sh\n")
+        (store / "run.sh").chmod(0o755)
+        (store / "p.bin").write_bytes(b"\x00p")
+        rec("base", "-m", "base")
+        write(f="a\nLEFT\nc\n", o="o, left\n")
+        rec("left", "-m", "left")
+        write(f="a\nRIGHT\nc\n", o="o\n")
+        rec("right", "--onto", "base", "-m", "right")
+        real = store / "real"
+        real.mkdir()
+        (real / "f.txt").write_text("a\nRIGHT\nc\n")
+        (real / "h.txt").write_text("mine\n")
+        (real / "run.txt").write_text("#!/bin/sh\n")
+        (real / "run.txt").chmod(0o644)
+        (real / "p.bin").write_bytes(b"\x00p")
+        for name, target in (("f.md", "real/f.txt"), ("g.md", "real/g.txt"), ("h.md", "real/h.txt"), ("run.sh", "real/run.txt"), ("p.bin", "real/p.bin")):
+            (store / name).unlink()
+            os.symlink(target, store / name)
     elif corpus == "blocked":
         (store / "a.md").write_text("a\n")
         (store / "c.bin").write_bytes(b"\x00base")
@@ -1504,7 +1550,7 @@ def check_store(temporary):
         return (out, err, code)
 
     def compare(corpus, commands):
-        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked", "meeting", "marked", "marked1", "resolved")
+        recorded = corpus in ("unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "updating", "caught", "blocked", "meeting", "marked", "marked1", "resolved", "through")
         store = record(temporary, rust, corpus, writer) if recorded else assemble(temporary, corpus)
         lines, failures = [], 0
         for command in commands:

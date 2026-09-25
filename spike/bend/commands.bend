@@ -26,6 +26,7 @@ import ./notes.bend as Notes
 import ./naming.bend as Naming
 import ./sha256.bend as Sha
 import ./conflict.bend as Conflict
+import ./walk_fault.bend as WalkFault
 
 # A refusal, said the way the Rust tool says it.
 def die(-A: Type, code: U32, msg: String) -> IO(A):
@@ -2483,12 +2484,21 @@ def walked.by(+digests: List<&2, String>, +text: String, resolution: Bool) -> Re
     case False{}:
       Result.map(&2, &2, String, Ops.Doc, Maybe<&2, Merge.Statement>, d => walked.ops(d), Ops.parse(text))
 
-def walked.edited(+digests: List<&2, String>, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
+# A document that does not parse is said as the store says it, where it
+# was read from.
+def walked.read(+ds: List<&2, Store.Doc>, +d: String, r: Result<&2, &2, String, Maybe<&2, Merge.Statement>>) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
+  match r:
+    case Fail{e}:
+      Fail{"what the revisions did could not be read: " ++ path_by_id(ds, d) ++ ": " ++ e}
+    case Done{x}:
+      Done{x}
+
+def walked.edited(+ds: List<&2, Store.Doc>, +d: String, +digests: List<&2, String>, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
   match doc:
     case Fail{e}:
       Fail{e}
     case Done{+text}:
-      walked.by(digests, text, Res.is_resolution(text))
+      walked.read(ds, d, walked.by(digests, text, Res.is_resolution(text)))
 
 # A payload is the document that inserts every line of it at 0.
 def walked.whole(text: Bool, doc: Result<&2, &2, String, String>) -> Result<&2, &2, String, Maybe<&2, Merge.Statement>>:
@@ -2505,7 +2515,7 @@ def walked.said(+ds: List<&2, Store.Doc>, +digests: List<&2, String>, +id: Strin
     case Whole{+d}:
       walked.whole(text, held(id, d, doc_by_id(ds, d)))
     case Edited{+d}:
-      walked.edited(digests, held(id, d, doc_by_id(ds, d)))
+      walked.edited(ds, d, digests, held(id, d, doc_by_id(ds, d)))
 
 def walked.rev(+names: List<&2, String>, +digests: List<&2, String>, +ss: List<&2, Tree.Seen>, +ds: List<&2, Store.Doc>, +file: String, f: Full) -> Result<&2, &2, String, Merge.Rev>:
   match f:
@@ -2615,6 +2625,60 @@ def walked.causal(+head: String, +file: String, names: List<&2, String>, +g: Lis
     case False{}:
       Fail{head ++ ", file " ++ file ++ ": a revision behind it had seen no more revisions than one it had seen, so the ancestry is not a history"}
 
+# What each revision's resolution of the file states, piece by piece, where
+# it states one: what the walk's refusal is explained from.
+def walked.doc.pieces(r: Result<&2, &2, String, Res.Doc>) -> Maybe<&2, List<&2, Res.Piece>>:
+  match r:
+    case Done{Res.Doc{forgets, result, pieces}}:
+      Some{pieces}
+    case Fail{e}:
+      None{}
+
+def walked.pieces.text(+text: String, resolution: Bool) -> Maybe<&2, List<&2, Res.Piece>>:
+  match resolution:
+    case True{}:
+      walked.doc.pieces(Res.parse(text))
+    case False{}:
+      None{}
+
+def walked.pieces.doc(doc: Result<&2, &2, String, String>) -> Maybe<&2, List<&2, Res.Piece>>:
+  match doc:
+    case Done{+text}:
+      walked.pieces.text(text, Res.is_resolution(text))
+    case Fail{e}:
+      None{}
+
+def walked.pieces.said(+ds: List<&2, Store.Doc>, +id: String, s: Said) -> Maybe<&2, List<&2, Res.Piece>>:
+  match s:
+    case Edited{+d}:
+      walked.pieces.doc(held(id, d, doc_by_id(ds, d)))
+    case _:
+      None{}
+
+def walked.pieces(rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +file: String) -> List<&2, Maybe<&2, List<&2, Res.Piece>>>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case Full{+id, change, parents, supersedes, author, when, revised_by, revised, +facts, message} <> rest:
+      walked.pieces.said(ds, id, said(facts, file)) <> walked.pieces(rest, ds, file)
+
+def walked.why.said(+e: String, ok: Bool, +head: String, +file: String, why: Maybe<&2, String>) -> String:
+  match ok why:
+    case True{} Some{+w}:
+      head ++ ", file " ++ file ++ ": " ++ w
+    case _ _:
+      e
+
+# A walk's refusal, said as `merge.rs` says it: the event whose document
+# its author's view contradicts, and how. `Merge.walk` answers only that it
+# refused; `WalkFault` walks again to say why, on this path alone.
+def walked.why(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String, +g: List<&2, Merge.Rev>, r: Result<&2, &2, String, Walked>) -> Result<&2, &2, String, Walked>:
+  match r:
+    case Done{w}:
+      Done{w}
+    case Fail{+e}:
+      Fail{walked.why.said(e, deepens(g), head, file, WalkFault.fault(walked.order(g), g, ids(rs), walked.pieces(rs, ds, file)))}
+
 def walked.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String, r: Result<&2, &2, Tree.Fault, List<&2, Tree.Seen>>) -> Result<&2, &2, String, Walked>:
   match r:
     case Fail{e}:
@@ -2622,7 +2686,7 @@ def walked.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +f
     case Done{+ss}:
       do Result<&2, &2, String, Walked>:
         +g : List<&2, Merge.Rev> <- walked.revs(rs, ids(rs), minted_digests(rs, file), ss, ds, file)
-        walked.causal(head, file, ids(rs), g, deepens(g))
+        walked.why(rs, ds, head, file, g, walked.causal(head, file, ids(rs), g, deepens(g)))
 
 def walked.sorted(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +file: String) -> Result<&2, &2, String, Walked>:
   walked.seen(rs, ds, head, file, Tree.seen(List.length(&2, Full, rs), events_of(rs), Nil{}))
@@ -2661,7 +2725,7 @@ def joined.seen(+rs: List<&2, Full>, +ds: List<&2, Store.Doc>, +head: String, +f
       +digests = minted_digests(rs, file)
       do Result<&2, &2, String, Conflict.Joined>:
         +g : List<&2, Merge.Rev> <- walked.revs(rs, ids(rs), digests, ss, ds, file)
-        w : Walked <- walked.causal(head, file, ids(rs), g, deepens(g))
+        w : Walked <- walked.why(rs, ds, head, file, g, walked.causal(head, file, ids(rs), g, deepens(g)))
         return joined.walked(digests, g, w)
 
 def joined(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +heads: List<&2, String>, +file: String) -> Result<&2, &2, String, Conflict.Joined>:
@@ -6231,12 +6295,15 @@ def proposals(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, Strin
     case +f <> rest:
       Proposal{f, joined(fs, ds, ps, f)} <> proposals(fs, ds, ps, rest)
 
+# The files the survey reads a proposal for: a file of lines the parents
+# leave differently that the folder holds as a file, which is where the
+# Rust tool's survey walks their union.
 def proposed.files(+bf: Map<&2, String>, hs: List<&2, Here>) -> List<&2, String>:
   match hs:
     case Nil{}:
       Nil{}
     case Here{p, +e, found} <> rest:
-      Rev.keep(status.proposed(bf, e), Maybe.default(&2, String, Maybe.map(&2, Tree.Entry, String, x => Tree.entry_file(x), e), SNil{}), proposed.files(bf, rest))
+      Rev.keep(Bool.and(status.proposed(bf, e), found.regular(found)), Maybe.default(&2, String, Maybe.map(&2, Tree.Entry, String, x => Tree.entry_file(x), e), SNil{}), proposed.files(bf, rest))
 
 def proposals.of(+root: String, +fs: List<&2, Full>, +ps: List<&2, String>, files: List<&2, String>) -> IO(List<&2, Proposal>):
   match files:
@@ -6251,6 +6318,18 @@ def proposals.of(+root: String, +fs: List<&2, Full>, +ps: List<&2, String>, file
 
 def proposals.io(+root: String, +fs: List<&2, Full>, +ps: List<&2, String>, +bf: Map<&2, String>, +hs: List<&2, Here>) -> IO(List<&2, Proposal>):
   proposals.of(root, fs, ps, proposed.files(bf, hs))
+
+# A walk of the parents' union that refuses refuses the survey, with its
+# reason, as `record::joined_content` stops the Rust tool's: the first such
+# file in path order.
+def proposals.r(ps: List<&2, Proposal>) -> Result<&2, &2, Refused, Unit>:
+  match ps:
+    case Nil{}:
+      Done{Unit{}}
+    case Proposal{f, Fail{e}} <> rest:
+      Fail{Refused{1, e}}
+    case Proposal{f, Done{j}} <> rest:
+      proposals.r(rest)
 
 # How many of the renderer's lines still stand in a file the merge owes a
 # resolution: decision 0012's check, per line, scoped to this merge.
@@ -6754,8 +6833,10 @@ def status.surveyed(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmar
     +bf2 : Map<&2, String> = bf
     reads : Map<&2, List<&2, U32>> <- read_all(repo, status.reads(dg, bf2, hs), Map.new(&2, List<&2, U32>))
     props : List<&2, Proposal> <- proposals.io(root, fs, ps, bf2, hs)
+    +props2 : List<&2, Proposal> = props
+    refused.io(Unit, proposals.r(props2))
     +held : Set() = Set.from_list(T.map(~Folder.Found, ~String, ~(f => Folder.found.path(f)), Folder.walked.found(w2)))
-    print_lines(status.report(fs, bs, ps, Tree.merged_contested(m2), Sv.survey(t2, held, Folder.walked.refused(w2), status.seens(t2, dg, bf2, reads, props, hs))))
+    print_lines(status.report(fs, bs, ps, Tree.merged_contested(m2), Sv.survey(t2, held, Folder.walked.refused(w2), status.seens(t2, dg, bf2, reads, props2, hs))))
 
 def status.of(+root: String, +fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: StatusCmd) -> IO(Unit):
   match a:
@@ -9166,6 +9247,7 @@ def record.surveyed(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>
         stated.io(Unit, st, record.fault.r(not_lines(kinds, reads2, hs)))
         props : List<&2, Proposal> <- proposals.io(root, fs, ps, bf2, hs)
         +props2 : List<&2, Proposal> = props
+        stated.io(Unit, st, proposals.r(props2))
         pl : Sv.Planned <- stated.io(Sv.Planned, st, planned.r(looked, Sv.planned(t, looked, Set.from_list(folder), Sv.only.refused(only, walked), status.seens(t0, dg, bf2, reads2, props2, hs), moved), accepted))
         record.then(st, root, repo, fs, bs, ps, t, hs, dg, reads2, kinds, moved, pl, w)
 

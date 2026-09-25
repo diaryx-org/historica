@@ -42,7 +42,7 @@ bend main.bend -- opdiff old.txt new.txt # the operation document between two fi
 ```
 
 The store commands find the store the way `historica` does — the `history/`
-here or above — through nineteen host effects (`store.bend`): `bend main.bend` runs
+here or above — through twenty host effects (`store.bend`): `bend main.bend` runs
 them as JavaScript, and the native binary calls a Rust static library, linked
 by hand because `bend -o` links nothing of ours. `RUNTIME.md` is the boundary;
 `check.py` builds both and holds `log`, `files`, `cat` and `show` to the Rust
@@ -268,7 +268,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, a document or a payload filed once, and the folder laid out — a file of lines written, a payload laid, a link made, a bit set: nineteen effects, a C adapter, a Rust static library |
+| `store.bend`, `ffi/` | where the store is, what it holds, where a digest's bytes are, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written and removed, `init`'s directories, a document or a payload filed once, and the folder laid out — a file of lines written staged or in place, a payload laid, a link made, a bit set: twenty effects, a C adapter, a Rust static library |
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
@@ -296,6 +296,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey_lemmas.bend` | `walk_refuses_nothing_skipped`: the paths the walk refuses are ones no rule in `skipped/` skips, since a rule is how a person silences one; `status_says_an_arrival_once`: no line of `status` but `added` or `dropped` names a file being added; `status_refuses_what_the_folder_holds`: every path `status` refuses is one its walk refused or one the folder holds something at that the position cannot take, never a path only the position holds; `status_offers_a_rename_the_bytes_make`: each rename it offers is from the one path that left holding some bytes, not nothing, to the one that arrived holding them; `record_refuses_a_dangling_link`: `record` refuses exactly where a link of the position names a file it drops and is neither going nor restated; `record_states_a_kind_only_for_an_arrival`: a stated kind goes through exactly where it names a path looked at that no file of the position holds; `record_moves_each_file_once`: one `move` line per file moved, none for a file going, at the last place the renames put it; `record_names_only_what_is_there`: every path named answers to a file of the folder, the position or the renames; `a_rename_keeps_each_file_once`, `a_rename_puts_each_file_where_it_was_said`: `--at` and `--move` leave the position's files each once, at the last place one put it and every other where it was; `record_refuses_only_what_it_looks_at`: whatever the folder and the store answer, a record restricted to some paths refuses only among them; `record_goes_on_where_each_path_holds_one_file`: where `record` goes on, no path it looks at holds two files, since the survey claims every path several files hold; `record_plans_in_file_order`, `record_plans_every_file`: it plans from the position in file order, each file's entries as they were; `a_link_refers_only_to_what_the_revision_states`: a link is written as a reference only where its target lands on a path the revision states; `a_link_resolves_inside_the_folder`: and a link at a path the format holds resolves, if at all, to a path that is not absolute and never climbs out with `..` | `working::walk`, `record::survey`, `record::plan` |
 | `status_lemmas.bend` | `status_reads_its_words`: `status` reads its arguments as their plain reading says — the word after a flag is its value, the last `--onto` counting and every `--merge` kept in the order given; `status_joins_held_revisions`: every revision it joins — what `--onto` and each `--merge` resolve to, and the head where it is taken — is one the store holds, through a lemma that Base's `List.sort`, by any order, returns only what it was given; `status_says_what_it_found`: everything the survey found is in the report, in the order found, each on a line of its own naming it — a fact beginning with its kind and ending with its path, a refusal, a claim, a file still marked or an accept beginning with its word and its path; `status_says_each_contest`: where work is joined, each contest the tree merge found is said once, in its order, opening with the file contested, and where it is not, none; `status_compares_with_the_revisions_tree`: against one revision, the folder is compared with the tree `files`, `cat` and `diff` read there; `status_reads_only_lines`: every path it asks the host to read and every file it replays is a file of lines it compares; `status_surveys_each_path`: the survey is told of each path once, in order, and of a file the parents dispute with no digest; `status_believes_what_is_stated`, `status_joins_what_it_reads`: it is refused only where a file no statement settles cannot be replayed, or, joining, where a parent's reading of a file is refused, and with that refusal | `status`'s arguments, parents and report |
 | `update.bend`, `update_lemmas.bend` | `update`: the folder made to hold a head — the plan of what each path takes, from the target's tree, the walk, a directory's listing where the walk took nothing, and what history records at each path; and the IO that performs it. `update_reads_its_words`: `-n` or `--dry-run` anywhere makes a dry run, and the target is the one word not beginning with `-`; `update_lands`: where it plans at all, every path the target holds with one file ends up holding what the target records, bytes and mode, or a link where the tree points; `update_spares_the_unrecorded`: a file it writes over or takes away holds bytes some revision records there, and a link it takes away points where one was recorded | `cli::update`, `update::{plan, apply}` |
+| `walk_fault.bend` | why a walk refused, in `merge.rs`'s words: the first event whose document its author's view contradicts, found by walking again where `Merge.walk` answered only that it refused | `merge::MergeError` |
 | `merging.bend` | `merge`: the heads joined — what is named, and every current head that is not — and laid out in the folder: each file of lines as the walk reads it, fenced where concurrent work met, each file of bytes as the payload the tree kept, each link where it points, and a file holding work nobody recorded left alone; then the `record` line that records it | `cli::record::merge`, `conflict::render` |
 | `naming_lemmas.bend` | `a_revision_is_filed_under_its_month`: a revision's stem is its month, a `/`, and one name holding nothing a filesystem reserves, whatever its message; `a_summary_fits_its_limit`: the summary is sixty characters at most; `a_summary_gives_up_its_ends`: it neither begins nor ends with a dot or a space; `content_is_filed_under_a_name_a_filesystem_holds`: each file of content is filed under a name with no control character; `record_compares_with_the_latest`: the timestamp the clock is checked against is one the store holds and none is later; `abandon_takes_a_reason_that_says_something`: a reason is taken exactly where it is not all whitespace | `naming`, `abandon`'s reason |
 | `name_lemmas.bend` | `name_stays_in_names`: a name `name` takes is never absolute and never climbs out with `..`, so the bookmark's file is under `names/` — every refusal `check_name` and the path rules make stepped past to the two a climbing name would meet; `name_reads_its_words`: `name` reads its words as their plain reading says, a field at a time; `name_does_what_it_reads`: a deletion only where `--delete` was said, of the one other word, with nothing shaping a target, and otherwise a bookmark set of the other words in order, never a file pinned; `name_points_where_asked`: the bookmark set has the name given and points at a revision, a change or a file the store holds, as asked, as private as asked or as it was; `name_deletes_the_bookmark_named`: `--delete` is refused exactly where no bookmark has the name, and otherwise reports the store's bookmark of that name; `name_states_what_it_set`: `--fields` says its header once, early or late, and then `name` | `store::check_name`, `name` |
@@ -396,7 +397,9 @@ from, assembles the pieces, and holds the result to the digest the
 resolution states, refusing in the Rust tool's words a document that is not
 here, a run past what one mints, an unterminated line before the last, and
 a result that disagrees. `check.py`'s `merge` store is two merges the Rust
-tool resolved, and six written by hand to fail each way.
+tool resolved, six written by hand to fail each way, and one keeping its
+first line twice, which `cat` assembles and a walk reaching across it
+refuses.
 
 `diff <target> [<path>]` renders what a revision did, and `--onto` what one
 revision holds against another: the facts about each file first — new,
@@ -462,6 +465,10 @@ this merge — a label or a closing line its fences draw, and the walk's
 own file does not hold — `status` says it is `marked`, with how many are
 left, as `conflict::unresolved` counts them; a file quoting a fence some
 other merge drew is not marked, since the lines are scoped to this one.
+Where the walk of their union refuses — a resolution behind one of them
+keeping a line more often than its author's view held it, say — `status`
+refuses with the walk's reason, as the Rust tool's survey stops there, and
+so does `record`.
 
 What the reading commands and `status` print is decided before anything
 is printed: each builds its lines — an entry of `log`, a line of `files` or
@@ -684,8 +691,9 @@ file of lines staged and renamed over what stood there, keeping its
 permissions as the Rust tool's `write_if` does; `Store.lay` copies a
 payload in as a new file, refused where its bytes are not the digest;
 `Store.link` makes a link beside the path and renames it over; and
-`Store.chmod` sets the bit as the read bits say and answers what it was,
-which is how a `mode` line is owed. A written file that does not read back
+`Store.chmod` asks the bit of the path and, where it differs, sets it as
+the read bits say, answering what it was, which is how a `mode` line is
+owed. A written file that does not read back
 as what was written is the folder folding two paths onto one, and is
 refused after the fact, as the Rust tool refuses it. What the port does not
 do is look again at each path just before touching it: the Rust tool's
@@ -716,16 +724,21 @@ over only where it is nothing, what this merge would write, the walk's
 reading unfenced, or what one of the heads leaves; anything else is work
 nobody recorded, and is left alone and said to be. It closes with how
 many files hold work that met and the `record` line that records the
-merge, each head named as the person typed it. The writes are `update`'s
-four. What makes writing into the folder safe where nothing met is
+merge, each head named as the person typed it. A file of lines is
+written as the Rust tool's `fs::write` writes one, in place and through a
+link standing at its path (`Store.through`); a payload, a link and a bit
+are `update`'s writes. What makes writing into the folder safe where nothing met is
 `merge_renders_the_uncontested_as_itself`: such a file renders as the
 walk's file, byte for byte. `check.py`'s `meeting` store is two lines of
 work that met every way a file of lines can — one line rewritten both
 ways, a deletion beside an insertion, a last line two sides end
 differently, edits apart, a file one side alone touched, a mode one side
 set — beside a file neither side recorded; `marked` and `marked1` are the
-same once a person has started resolving it. With `merge` over the
-corpus, walked and resolved stores too, 14 `merge` comparisons hold it to
+same once a person has started resolving it; and `through` is a folder
+whose files of lines are links — to a head's version, to nothing yet, to
+a plain copy of a file the tree runs, to work nobody recorded — and whose
+payload is a link to its bytes. With `merge` over the corpus, walked,
+resolved and hand-written merges too, 17 `merge` comparisons hold it to
 the Rust tool, the folder after included, and 9 more hold `status`'s
 `marked` and `record`'s refusal of it.
 
@@ -762,7 +775,13 @@ the Rust tool's reads `merged_content`, and names the author of each
 standing element: on one line of history the walk is plain replay
 (`merge_linear`), so no overlay of each edit is kept beside it. A resolution in that history is walked as `merge.rs`
 walks one: a `keep` of a digest names the elements minted by the events
-that stated that document. `check.py`'s `walked` store has four
+that stated that document. A walk that refuses says why in `merge.rs`'s
+words — the event whose document names a position past what its author
+saw, removes an item other than the one there, or keeps a name its view
+does not hold as often as it keeps it — found by walking again on the
+refusing path alone (`walk_fault.bend`), since `Merge.walk`, which the
+laws are about, answers only that it refused; and a document that does
+not parse is named by where it was read from. `check.py`'s `walked` store has four
 hand-written merges that state nothing:
 - two edits apart, one of them a delete beside the other's insert;
 - two inserts at one place, where the digests break the tie;
@@ -1485,11 +1504,9 @@ is under 5k. Not ported:
   and refuses one without `historica.txt` as not a store; the port looks
   for the file, so it goes on looking above such a directory. `-C` is
   not read. `check` does not report on `names/`.
-- **The edges of `merge`**: a file of lines lands staged and renamed over
-  what stood at its path, where the Rust tool's `fs::write` writes through
-  a link standing there; and where the walk of a merge's union fails,
-  `status` counts none of the renderer's lines in that file rather than
-  refusing.
+- **Which refusal a walk names** where two events of one walk each
+  contradict their views: the port names the first in its own causal
+  order, which need not be the one `merge.rs`'s order meets first.
 - **A name that is not UTF-8**, which the Rust tool's `record` refuses
   with the rest of what the folder cannot take, is not among the paths
   `record --dry-run` refuses, as `status` does not list it.

@@ -123,6 +123,14 @@ def Store.put(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_put.c"
   import "./ffi/store_put.js"
 
+# A file of lines written in place: its path, then its text after the first
+# newline. Its directory is made first, and the text is written as
+# `std::fs::write` writes it — through a link standing at the path, and into
+# a file already there — as the Rust tool's `merge` lays one down.
+def Store.through(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  import "./ffi/store_through.c"
+  import "./ffi/store_through.js"
+
 # A payload laid into the folder, a new file: where the store holds it,
 # where it goes, and the digest it must have, a line each. Bytes that are
 # not that digest are refused and nothing is written.
@@ -136,8 +144,10 @@ def Store.link(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_link.c"
   import "./ffi/store_link.js"
 
-# A file's execute bit set: its path, then `1` or `0`. Back what the bit
-# was before, which is how a caller tells a change from none.
+# A file's execute bit set: its path, then `1` or `0`. The bit is asked of
+# the path itself, a link included, and set where it differs, on what the
+# path names; back comes what it was before, which is how a caller tells a
+# change from none.
 def Store.chmod(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   import "./ffi/store_chmod.c"
   import "./ffi/store_chmod.js"
@@ -304,6 +314,9 @@ def copied(query: String) -> IO(Result<&1, &1, U32 & String, String>):
 
 def put_text(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.put(query)
+
+def written_through(query: String) -> IO(Result<&1, &1, U32 & String, String>):
+  Store.through(query)
 
 def laid(query: String) -> IO(Result<&1, &1, U32 & String, String>):
   Store.lay(query)
