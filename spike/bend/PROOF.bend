@@ -799,8 +799,8 @@ def Laws.merge_joins_held_revisions(fs, bs, ss, xs, e):
 def Laws.merge_joins_every_head(fs, bs, ss, xs, e):
   MergingL.joined_all(fs, bs, ss, xs, e)
 
-def Laws.merge_spares_the_unrecorded(t, cs, located, p):
-  MergingL.spares(t, cs, located, p)
+def Laws.merge_spares_the_unrecorded(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
+  MergingL.spares(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
 
 def Laws.record_reads_its_words(args, cmd, e):
   RecordL.args_said(args, cmd, e)

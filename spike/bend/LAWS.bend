@@ -1779,18 +1779,29 @@ law merge_joins_every_head:
   for e: {Merging.joined.r(fs, bs, ss) == Done{xs} : Result<&2, &2, Main.Refused, List<&2, T.Split>>}
   {Main.all_held(Merging.typed.ids(xs), Upd.heads.sorted(fs)) == True{} : Bool}
 
-# Decision 0012's safety: whatever `merge` does at a place it does at that
-# place's path; a file of lines it writes there is the walk's rendering;
-# and it writes only where the folder held nothing, a file of lines no
-# longer text, or one of the versions it decided against — what it writes,
-# the walk's reading unfenced, the payload, or what one of the heads being
-# joined leaves the file as. Work nobody recorded is never written over.
+# Decision 0012's safety, in what the store and the folder read: every
+# act `merge` performs is accounted for by some file of the merged tree.
+# It writes at the path that file holds, or at the name `beside` gives
+# it, with the mode the tree records: a file of lines as the walk of the
+# heads joined renders it, a payload the tree names, a link pointing where
+# `cat` says. And it writes a file only over what the folder's walk read
+# there as nothing, bytes the folder says are not text, what it is
+# writing, the walk's reading unfenced, or what one of the heads reads for
+# the file — its ancestry walked for a file of lines, its tree's payload
+# for a file of bytes. Work nobody recorded is never written over.
 law merge_spares_the_unrecorded:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +heads: List<&2, String>
+  for +bs: List<&2, T.Split>
   for +t: Tree.Tree()
+  for +dg: Map<&2, String>
+  for +texts: Map<&2, String>
+  for +ls: Map<&2, String>
   for +cs: List<&2, Tree.Contest>
   for +located: Map<&2, String>
-  for p: Merging.Place
-  {Merging.laid.all(p, Merging.laid.acts(Merging.lay(t, cs, located, p))) == True{} : Bool}
+  for es: List<&2, Tree.Entry>
+  {Merging.laid.every(fs, ds, heads, bs, t, dg, texts, es, Merging.lay.acts(Merging.lay.all(t, cs, located, Merging.places(fs, ds, heads, bs, dg, ls, texts, es)))) == True{} : Bool}
 
 # `record` reads its words as their plain reading says: the word after a
 # flag that takes a value is that value, whatever it is; the last `-m` and
