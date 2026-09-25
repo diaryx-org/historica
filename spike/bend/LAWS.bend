@@ -20,6 +20,8 @@ import ./store.bend as Store
 import ./survey.bend as Sv
 import ./sort_lemmas.bend as SortL
 import ./naming.bend as Naming
+import ./fulls_lemmas.bend as FullsL
+import ./fetch_lemmas.bend as FetchL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -999,6 +1001,130 @@ law diff_folder_shows_what_differs:
   for +cs: List<&2, Main.Compared>
   for e: {Main.wc.compare(t, older, ds, left, reads, ps) == Done{cs} : Result<&2, &2, String, List<&2, Main.Compared>>}
   {Main.all.shown(Main.Limit.None{}, cs) == True{} : Bool}
+
+# Colour changes no character of what `diff` prints. With colour, each line
+# is drawn in its colour, and where two lines were replaced one for one the
+# runs that differ are marked inside it; read without the colour — as a
+# line is printed where there is none — the lines are the very lines `diff`
+# prints without colour, one for one, whatever the files compared.
+law diff_colour_changes_no_character:
+  for +cs: List<&2, Main.Compared>
+  {T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(True{}, cs)) == T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(False{}, cs)) : List<&2, String>}
+
+# `diff` over the folder believes the digest a statement gives a file of
+# lines. It replays at the position exactly the files of lines whose digest
+# no statement settles — not one the folder holds, as a regular file, with
+# the digest the file's nearest statement leaves — and never a file of
+# bytes or a link.
+law diff_folder_replays_what_is_unsettled:
+  for +dg: Map<&2, String>
+  for +os: Map<&2, T.Split>
+  for +eds: List<&2, Store.Doc>
+  for +hs: List<&2, Main.Here>
+  {Main.planned.replayed(Main.plans(dg, os, eds, hs)) == Main.unsettled.files(dg, os, eds, hs) : List<&2, String>}
+
+# And it reads from the folder exactly the regular files nothing at the
+# position settles: a path the position does not hold, or holds as a file
+# of lines whose stated digest is not the folder's — never one the position
+# holds as a file of bytes or a link, whose digest or target is compared
+# instead.
+law diff_folder_reads_what_is_unsettled:
+  for +dg: Map<&2, String>
+  for +os: Map<&2, T.Split>
+  for +eds: List<&2, Store.Doc>
+  for +hs: List<&2, Main.Here>
+  {Main.planned.read(Main.plans(dg, os, eds, hs)) == Main.unsettled.paths(dg, os, eds, hs) : List<&2, String>}
+
+# `diff` gives a file of bytes the size the host stated for its payload, and
+# nothing else. Sizing what it compares changes no side but one whose size
+# was unknown, which keeps its digest and has a size only where the host's
+# line for the bytes it found names that very digest — not where those
+# bytes hash to another.
+law diff_sizes_what_the_host_stated:
+  for +found: List<&2, T.Split>
+  for +stats: List<&2, String>
+  for +cs: List<&2, Main.Compared>
+  {Main.sizes.told(stats, cs, Main.sized(Main.sizes.read(found, stats), cs)) == True{} : Bool}
+
+# `diff <target>` asks the store for everything it replays. For every file
+# it compares whose content it reads — one side lacks it, or the two sides
+# were stated by different revisions — every document a revision states for
+# the file is among the documents it fetches.
+law diff_fetches_what_it_replays:
+  for +fs: List<&2, Main.Full>
+  for +ws: Map<&2, List<&2, String>>
+  for +ns: Map<&2, List<&2, String>>
+  for +files: List<&2, Main.Both>
+  {FetchL.fetched.each(fs, ws, ns, Main.compare.wanted_docs(fs, ws, ns, files), files) == True{} : Bool}
+
+# And over the folder: every document a revision states for a file of lines
+# no statement settles is among those `diff` fetches.
+law diff_folder_fetches_what_it_replays:
+  for +fs: List<&2, Main.Full>
+  for +dg: Map<&2, String>
+  for +os: Map<&2, T.Split>
+  for +eds: List<&2, Store.Doc>
+  for +hs: List<&2, Main.Here>
+  {FetchL.fetched.files(fs, Main.wanted_all(fs, Main.planned.replayed(Main.plans(dg, os, eds, hs))), Main.unsettled.files(dg, os, eds, hs)) == True{} : Bool}
+
+# And before any of it, `diff` over the folder asks for the `edit`
+# document of every file of lines its folder holds a regular file for,
+# where the file's nearest statement is an `edit`: the result that document
+# states is the digest that can settle the file.
+law diff_folder_fetches_the_edits_it_believes:
+  for +os: Map<&2, T.Split>
+  for +hs: List<&2, Main.Here>
+  {FetchL.edits.each(os, Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.edits_of(os, hs))), hs) == True{} : Bool}
+
+# `diff` asks the host about the payload of every file of bytes it shows,
+# each once, so that each can be shown with its size.
+law diff_asks_every_payload_it_shows:
+  for +cs: List<&2, Main.Compared>
+  {FetchL.payloads.each(Main.distinct(List.sort(~String, ~(a => b => String.is_le(a, b)), Main.payloads_of(cs))), cs) == True{} : Bool}
+
+# And it asks the stat of a payload only at the path the host located that
+# payload at — never of one the host could not find, which it answers `-`
+# for — so that each size it then believes is looked for where it is.
+law diff_stats_where_each_payload_was_found:
+  for +root: String
+  for +ds: List<&2, String>
+  for +at: List<&2, String>
+  {FetchL.located.each(ds, at, Main.sizes.of(root, ds, at)) == True{} : Bool}
+
+# What a resolution keeps is fetched too. After the documents a reading
+# command asks for, it asks for every document a resolution among them
+# keeps lines of, which assembling the resolution reads.
+law reading_fetches_what_resolutions_keep:
+  for +ds: List<&2, Store.Doc>
+  {FetchL.kept.each(ds, Main.kept_digests(ds)) == True{} : Bool}
+
+# The digest a statement gives a file is read along the first-parent line
+# back from the folder's position, the nearest revision on it to state the
+# file being the one believed. That line is what `chain` walks: it begins
+# at the revision named, and each revision after is the first parent of the
+# one before — every one a revision the store holds.
+law chain_follows_first_parents:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  {Main.first_parents(fs, Main.chain(fs, Some{id}), Some{id}) == True{} : Bool}
+
+# Every revision a command reads is one a document of `revisions/` spells:
+# filed there under the digest the revision is known by, and what
+# `Rev.write` writes, byte for byte, from what the revision says. Reading a
+# store's revisions takes nothing that is not such a document, and nothing
+# of one is lost or added in the reading.
+law revisions_read_are_their_documents:
+  for +root: String
+  for +ds: List<&2, Store.Doc>
+  {FullsL.all_filed(root, ds, Main.fulls(root, ds)) == True{} : Bool}
+
+# `log` lists only what its span names: with a target, revisions the
+# target reaches; with `a..b`, revisions `b` reaches and `a` does not —
+# every one a revision the store holds.
+law log_lists_its_span:
+  for +fs: List<&2, Main.Full>
+  for +sp: Main.Span
+  {Main.span.all_in(fs, sp, Main.span.shown(fs, sp)) == True{} : Bool}
 
 # `log` reads its arguments as their plain reading says: the word after a
 # flag that takes a value is that flag's value, the last counting, and
