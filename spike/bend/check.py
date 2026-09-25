@@ -42,7 +42,8 @@ BEND = str(Path(BEND).resolve())
 
 # Bend's checker and `cc` each take about two cores; more of them at once than
 # the machine holds only slows every one, until the proofs run into timeouts.
-SLOTS = threading.BoundedSemaphore(max(1, (os.cpu_count() or 2) // 2))
+SLOT_COUNT = max(1, (os.cpu_count() or 2) // 2)
+SLOTS = threading.BoundedSemaphore(SLOT_COUNT)
 NATIVE = "--native" in sys.argv[1:]
 ONLY = next((a.split("=", 1)[1].split(",") for a in sys.argv[1:] if a.startswith("--stores=")), None)
 
@@ -59,6 +60,20 @@ def run(*args, cwd=ROOT, timeout=BEND_TIMEOUT):
     print("+", " ".join(map(str, args)), flush=True)
     with SLOTS:
         subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
+
+
+def run_alone(*args, cwd=ROOT, timeout=BEND_TIMEOUT):
+    """`run`, holding every slot: emitting `main.bend` as C takes some
+    thirteen gigabytes at its peak, and a mutation stage's checkers beside
+    it have had it killed for want of memory."""
+    print("+", " ".join(map(str, args)), flush=True)
+    for _ in range(SLOT_COUNT):
+        SLOTS.acquire()
+    try:
+        subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
+    finally:
+        for _ in range(SLOT_COUNT):
+            SLOTS.release()
 
 
 def capture(*args, cwd, env=None):
@@ -2977,7 +2992,7 @@ def check_store(temporary):
     # beside the mutation stage's checkers, so the builds are given long.
     def build_native():
         run("cargo", "build", "-q", "--release", cwd=ROOT / "ffi", timeout=600)
-        run(BEND, "main.bend", "-o", str(source), timeout=1800)
+        run_alone(BEND, "main.bend", "-o", str(source), timeout=1800)
         # `bend -o` links nothing of ours, so the C is compiled here; `-w`
         # because the generated program is not ours to lint.
         # What the archive's HTTP needs beside it, as `cargo rustc --print
@@ -3699,7 +3714,7 @@ def check_mutations(temporary):
             "diff over the folder ignores the limit",
             '      Bool.pick(List<&2, Here>, here.wanted(l, h), h <> later, later)',
             '      h <> later',
-            "diffcmd_lemmas.limited_ok",
+            "survey_lemmas.limited_ok",
             "commands.bend",
         ),
         (
@@ -4249,7 +4264,7 @@ def check_mutations(temporary):
             "replay applies a document to nothing rather than to what came before",
             "    Ops.apply(items, doc)",
             "    Ops.apply(Nil{}, doc)",
-            "LAWS.opdiff_replays_to_the_child",
+            "forget_lemmas.step_like",
             "commands.bend",
         ),
         (
@@ -5218,7 +5233,7 @@ def check_mutations(temporary):
             "merge points a link again where it already points as the tree says",
             "Laid{Bool.pick(List<&2, Act>, Upd.lands.link(s, h), Nil{}, [Act.Link{at, s}]), False{}}",
             "Laid{[Act.Link{at, s}], False{}}",
-            "merging_lemmas.link_same.some",
+            "merging_lemmas.link_at",
             "merging.bend",
         ),
         (
